@@ -17,12 +17,13 @@ from src.core.config import BCMConfig
 from src.core.logger import setup_logging, get_logger
 from src.core.event_bus import EventBus
 from src.core.hal import HAL
+from src.dashboard.renderer import start_dashboard
 
 
 # Module registry — maps module names to their (future) start functions.
 # Each Part will register its module here when implemented.
 MODULE_REGISTRY: dict[str, dict] = {
-    "dashboard":   {"part": 2, "description": "BCM Dashboard Renderer (4.3\" screen)"},
+    "dashboard":   {"part": 2, "description": "BCM Dashboard Renderer (4.3\" screen)", "start": start_dashboard},
     "obd":         {"part": 3, "description": "OBD-II / K-Line Communication"},
     "parking":     {"part": 4, "description": "Parking Sensors System"},
     "environment": {"part": 5, "description": "Temperature & Environment Monitoring"},
