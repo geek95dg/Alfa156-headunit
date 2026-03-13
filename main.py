@@ -21,6 +21,7 @@ from src.dashboard.renderer import start_dashboard
 from src.obd.simulator import start_obd
 from src.parking.simulator import start_parking
 from src.environment.simulator import start_environment
+from src.audio.volume import start_audio
 
 
 # Module registry — maps module names to their (future) start functions.
@@ -30,7 +31,7 @@ MODULE_REGISTRY: dict[str, dict] = {
     "obd":         {"part": 3, "description": "OBD-II / K-Line Communication", "start": start_obd},
     "parking":     {"part": 4, "description": "Parking Sensors System", "start": start_parking},
     "environment": {"part": 5, "description": "Temperature & Environment Monitoring", "start": start_environment},
-    "audio":       {"part": 6, "description": "Audio System & PipeWire"},
+    "audio":       {"part": 6, "description": "Audio System & PipeWire", "start": start_audio},
     "voice":       {"part": 7, "description": "Voice Control (Vosk)"},
     "input":       {"part": 8, "description": "Input Controllers"},
     "camera":      {"part": 9, "description": "Camera & Dashcam"},

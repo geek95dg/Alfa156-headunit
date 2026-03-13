@@ -1,0 +1,23 @@
+{
+    "name": "BCM v7 10-Band EQ",
+    "description": "10-band parametric equalizer for car audio",
+    "bands": [
+        {"frequency": 31,    "gain_db": 0, "q": 1.4, "type": "lowshelf"},
+        {"frequency": 62,    "gain_db": 0, "q": 1.4, "type": "peaking"},
+        {"frequency": 125,   "gain_db": 0, "q": 1.4, "type": "peaking"},
+        {"frequency": 250,   "gain_db": 0, "q": 1.4, "type": "peaking"},
+        {"frequency": 500,   "gain_db": 0, "q": 1.4, "type": "peaking"},
+        {"frequency": 1000,  "gain_db": 0, "q": 1.4, "type": "peaking"},
+        {"frequency": 2000,  "gain_db": 0, "q": 1.4, "type": "peaking"},
+        {"frequency": 4000,  "gain_db": 0, "q": 1.4, "type": "peaking"},
+        {"frequency": 8000,  "gain_db": 0, "q": 1.4, "type": "peaking"},
+        {"frequency": 16000, "gain_db": 0, "q": 1.4, "type": "highshelf"}
+    ],
+    "presets": {
+        "flat": [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+        "rock": [4, 3, 1, -1, -2, 0, 2, 3, 4, 3],
+        "jazz": [3, 2, 1, 2, -1, -1, 0, 1, 2, 3],
+        "bass_boost": [6, 5, 4, 2, 0, 0, 0, 0, 0, 0],
+        "custom": [0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+    }
+}
