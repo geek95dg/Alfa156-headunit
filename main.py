@@ -20,6 +20,7 @@ from src.core.hal import HAL
 from src.dashboard.renderer import start_dashboard
 from src.obd.simulator import start_obd
 from src.parking.simulator import start_parking
+from src.environment.simulator import start_environment
 
 
 # Module registry — maps module names to their (future) start functions.
@@ -28,7 +29,7 @@ MODULE_REGISTRY: dict[str, dict] = {
     "dashboard":   {"part": 2, "description": "BCM Dashboard Renderer (4.3\" screen)", "start": start_dashboard},
     "obd":         {"part": 3, "description": "OBD-II / K-Line Communication", "start": start_obd},
     "parking":     {"part": 4, "description": "Parking Sensors System", "start": start_parking},
-    "environment": {"part": 5, "description": "Temperature & Environment Monitoring"},
+    "environment": {"part": 5, "description": "Temperature & Environment Monitoring", "start": start_environment},
     "audio":       {"part": 6, "description": "Audio System & PipeWire"},
     "voice":       {"part": 7, "description": "Voice Control (Vosk)"},
     "input":       {"part": 8, "description": "Input Controllers"},
