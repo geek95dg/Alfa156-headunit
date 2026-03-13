@@ -1,0 +1,109 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 600" font-family="monospace" font-size="10">
+  <title>BCM v7 — Orange Pi 5 Plus GPIO Allocation</title>
+  <style>
+    .hdr { fill: #333; stroke: #111; }
+    .pin-used { fill: #4a4; stroke: #333; }
+    .pin-free { fill: #888; stroke: #333; }
+    .pin-pwr { fill: #c44; stroke: #333; }
+    .pin-gnd { fill: #222; stroke: #333; }
+    .label { font-size: 10px; fill: #333; }
+    .rlabel { font-size: 10px; fill: #333; text-anchor: end; }
+    .title { font-size: 14px; font-weight: bold; fill: #111; }
+    .mod { font-size: 9px; fill: #06c; }
+    .rmod { font-size: 9px; fill: #06c; text-anchor: end; }
+  </style>
+
+  <text x="400" y="25" class="title" text-anchor="middle">Orange Pi 5 Plus — 40-Pin GPIO Allocation Map</text>
+
+  <!-- Header outline -->
+  <rect x="300" y="40" width="100" height="530" fill="#e8e8e8" stroke="#333" rx="4"/>
+  <text x="350" y="58" class="label" text-anchor="middle" font-weight="bold">GPIO HEADER</text>
+
+  <!-- Pin pairs (odd=left, even=right) -->
+  <!-- Row 1 -->
+  <circle cx="330" cy="80" r="8" class="pin-pwr"/><text x="310" y="84" class="rlabel">3.3V</text>
+  <circle cx="370" cy="80" r="8" class="pin-pwr"/><text x="390" y="84" class="label">5V</text>
+
+  <!-- Row 2 -->
+  <circle cx="330" cy="105" r="8" class="pin-free"/><text x="310" y="109" class="rlabel">SDA (3)</text>
+  <circle cx="370" cy="105" r="8" class="pin-pwr"/><text x="390" y="109" class="label">5V (4)</text>
+
+  <!-- Row 3 -->
+  <circle cx="330" cy="130" r="8" class="pin-free"/><text x="310" y="134" class="rlabel">SCL (5)</text>
+  <circle cx="370" cy="130" r="8" class="pin-gnd"/><text x="390" y="134" class="label">GND (6)</text>
+
+  <!-- Row 4: Pin 7 = DS18B20, Pin 8 = UART TX -->
+  <circle cx="330" cy="155" r="8" class="pin-used"/><text x="310" y="159" class="rlabel">1-Wire (7)</text><text x="230" y="159" class="rmod">DS18B20</text>
+  <circle cx="370" cy="155" r="8" class="pin-used"/><text x="390" y="159" class="label">UART TX (8)</text><text x="490" y="159" class="mod">OBD L9637D</text>
+
+  <!-- Row 5: Pin 9 = GND, Pin 10 = UART RX -->
+  <circle cx="330" cy="180" r="8" class="pin-gnd"/><text x="310" y="184" class="rlabel">GND (9)</text>
+  <circle cx="370" cy="180" r="8" class="pin-used"/><text x="390" y="184" class="label">UART RX (10)</text><text x="500" y="184" class="mod">OBD L9637D</text>
+
+  <!-- Row 6: Pin 11, Pin 12 = Buzzer -->
+  <circle cx="330" cy="205" r="8" class="pin-free"/><text x="310" y="209" class="rlabel">(11)</text>
+  <circle cx="370" cy="205" r="8" class="pin-used"/><text x="390" y="209" class="label">Buzzer (12)</text><text x="480" y="209" class="mod">Parking</text>
+
+  <!-- Row 7 -->
+  <circle cx="330" cy="230" r="8" class="pin-free"/><text x="310" y="234" class="rlabel">(13)</text>
+  <circle cx="370" cy="230" r="8" class="pin-gnd"/><text x="390" y="234" class="label">GND (14)</text>
+
+  <!-- Row 8: Pin 15, Pin 16 = TRIG -->
+  <circle cx="330" cy="255" r="8" class="pin-free"/><text x="310" y="259" class="rlabel">(15)</text>
+  <circle cx="370" cy="255" r="8" class="pin-used"/><text x="390" y="259" class="label">TRIG (16)</text><text x="480" y="259" class="mod">HC-SR04</text>
+
+  <!-- Row 9: Pin 17 = 3.3V, Pin 18 = ECHO1 -->
+  <circle cx="330" cy="280" r="8" class="pin-pwr"/><text x="310" y="284" class="rlabel">3.3V (17)</text>
+  <circle cx="370" cy="280" r="8" class="pin-used"/><text x="390" y="284" class="label">ECHO 1 (18)</text><text x="500" y="284" class="mod">Sensor 1</text>
+
+  <!-- Row 10 -->
+  <circle cx="330" cy="305" r="8" class="pin-free"/><text x="310" y="309" class="rlabel">SPI MOSI (19)</text>
+  <circle cx="370" cy="305" r="8" class="pin-gnd"/><text x="390" y="309" class="label">GND (20)</text>
+
+  <!-- Row 11: Pin 21, Pin 22 = ECHO2 -->
+  <circle cx="330" cy="330" r="8" class="pin-free"/><text x="310" y="334" class="rlabel">SPI MISO (21)</text>
+  <circle cx="370" cy="330" r="8" class="pin-used"/><text x="390" y="334" class="label">ECHO 2 (22)</text><text x="500" y="334" class="mod">Sensor 2</text>
+
+  <!-- Row 12: Pin 23, Pin 24 = ECHO3 -->
+  <circle cx="330" cy="355" r="8" class="pin-free"/><text x="310" y="359" class="rlabel">SPI CLK (23)</text>
+  <circle cx="370" cy="355" r="8" class="pin-used"/><text x="390" y="359" class="label">ECHO 3 (24)</text><text x="500" y="359" class="mod">Sensor 3</text>
+
+  <!-- Row 13: Pin 25 = GND, Pin 26 = ECHO4 -->
+  <circle cx="330" cy="380" r="8" class="pin-gnd"/><text x="310" y="384" class="rlabel">GND (25)</text>
+  <circle cx="370" cy="380" r="8" class="pin-used"/><text x="390" y="384" class="label">ECHO 4 (26)</text><text x="500" y="384" class="mod">Sensor 4</text>
+
+  <!-- Row 14 -->
+  <circle cx="330" cy="405" r="8" class="pin-free"/><text x="310" y="409" class="rlabel">(27)</text>
+  <circle cx="370" cy="405" r="8" class="pin-free"/><text x="390" y="409" class="label">(28)</text>
+
+  <!-- Row 15: Pin 29 = IGN, Pin 30 = GND -->
+  <circle cx="330" cy="430" r="8" class="pin-used"/><text x="310" y="434" class="rlabel">IGN (29)</text><text x="230" y="434" class="rmod">Ignition</text>
+  <circle cx="370" cy="430" r="8" class="pin-gnd"/><text x="390" y="434" class="label">GND (30)</text>
+
+  <!-- Row 16: Pin 31 = DOOR, Pin 32 = PWM2 -->
+  <circle cx="330" cy="455" r="8" class="pin-used"/><text x="310" y="459" class="rlabel">DOOR (31)</text><text x="230" y="459" class="rmod">Door open</text>
+  <circle cx="370" cy="455" r="8" class="pin-used"/><text x="390" y="459" class="label">PWM2 (32)</text><text x="500" y="459" class="mod">4.3" BL</text>
+
+  <!-- Row 17: Pin 33 = PWM3, Pin 34 = GND -->
+  <circle cx="330" cy="480" r="8" class="pin-used"/><text x="310" y="484" class="rlabel">PWM3 (33)</text><text x="230" y="484" class="rmod">7" BL</text>
+  <circle cx="370" cy="480" r="8" class="pin-gnd"/><text x="390" y="484" class="label">GND (34)</text>
+
+  <!-- Row 18: Pin 35 = SPRAY, Pin 36 -->
+  <circle cx="330" cy="505" r="8" class="pin-used"/><text x="310" y="509" class="rlabel">SPRAY (35)</text><text x="230" y="509" class="rmod">Washer</text>
+  <circle cx="370" cy="505" r="8" class="pin-free"/><text x="390" y="509" class="label">(36)</text>
+
+  <!-- Row 19: Pin 37 = LOCK, Pin 38 -->
+  <circle cx="330" cy="530" r="8" class="pin-used"/><text x="310" y="534" class="rlabel">LOCK (37)</text><text x="230" y="534" class="rmod">Central lock</text>
+  <circle cx="370" cy="530" r="8" class="pin-free"/><text x="390" y="534" class="label">(38)</text>
+
+  <!-- Row 20: Pin 39 = GND, Pin 40 -->
+  <circle cx="330" cy="555" r="8" class="pin-gnd"/><text x="310" y="559" class="rlabel">GND (39)</text>
+  <circle cx="370" cy="555" r="8" class="pin-free"/><text x="390" y="559" class="label">(40)</text>
+
+  <!-- Legend -->
+  <circle cx="50" cy="570" r="6" class="pin-used"/><text x="65" y="574" class="label">Used</text>
+  <circle cx="120" cy="570" r="6" class="pin-pwr"/><text x="135" y="574" class="label">Power</text>
+  <circle cx="190" cy="570" r="6" class="pin-gnd"/><text x="205" y="574" class="label">GND</text>
+  <circle cx="260" cy="570" r="6" class="pin-free"/><text x="275" y="574" class="label">Free</text>
+  <text x="400" y="590" class="label" text-anchor="middle">16 pins used / 8 power-GND / 16 free</text>
+</svg>

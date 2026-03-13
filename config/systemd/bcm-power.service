@@ -1,0 +1,28 @@
+[Unit]
+Description=BCM v7 — Power Manager (Ignition, Backlight, Shutdown)
+Documentation=https://github.com/geek95dg/Alfa156-headunit
+After=network.target pipewire.service
+Before=bcm-dashboard.service bcm-obd.service bcm-dashcam.service bcm-voice.service bcm-multimedia.service
+
+[Service]
+Type=notify
+ExecStart=/opt/bcm/venv/bin/python -m src.power.shutdown --service
+WorkingDirectory=/opt/bcm
+Environment=PYTHONPATH=/opt/bcm
+Environment=BCM_PLATFORM=opi
+Restart=always
+RestartSec=2
+WatchdogSec=30
+NotifyAccess=all
+
+# Hardening
+ProtectSystem=strict
+ReadWritePaths=/opt/bcm/data /opt/bcm/logs /run/bcm
+ProtectHome=yes
+NoNewPrivileges=yes
+
+# GPIO access
+SupplementaryGroups=gpio i2c spi
+
+[Install]
+WantedBy=multi-user.target

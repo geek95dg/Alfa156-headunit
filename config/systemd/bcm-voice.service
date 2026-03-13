@@ -1,0 +1,31 @@
+[Unit]
+Description=BCM v7 — Voice Recognition (Vosk)
+Documentation=https://github.com/geek95dg/Alfa156-headunit
+After=bcm-power.service pipewire.service
+Requires=bcm-power.service
+BindsTo=bcm-power.service
+
+[Service]
+Type=notify
+ExecStart=/opt/bcm/venv/bin/python -m src.voice.recognizer --service
+WorkingDirectory=/opt/bcm
+Environment=PYTHONPATH=/opt/bcm
+Environment=BCM_PLATFORM=opi
+Restart=always
+RestartSec=3
+WatchdogSec=30
+NotifyAccess=all
+
+# Audio input access
+SupplementaryGroups=audio
+ProtectSystem=strict
+ReadWritePaths=/opt/bcm/data /opt/bcm/logs /run/bcm
+ProtectHome=yes
+NoNewPrivileges=yes
+
+# Vosk model can use significant memory
+MemoryMax=1G
+MemoryHigh=512M
+
+[Install]
+WantedBy=multi-user.target
