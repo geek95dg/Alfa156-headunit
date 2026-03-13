@@ -1,0 +1,94 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 500" font-family="monospace" font-size="11">
+  <title>BCM v7 — Power Supply Schematic</title>
+  <style>
+    .box { fill: #f8f8f8; stroke: #333; stroke-width: 2; rx: 6; }
+    .wire { stroke: #c00; stroke-width: 2; fill: none; }
+    .gnd { stroke: #333; stroke-width: 2; fill: none; }
+    .label { font-size: 11px; fill: #333; text-anchor: middle; }
+    .title { font-size: 14px; font-weight: bold; fill: #111; }
+    .pin { font-size: 9px; fill: #666; }
+  </style>
+
+  <text x="450" y="25" class="title" text-anchor="middle">Power Supply — Battery 12V → LM2596 5.1V → Distribution</text>
+
+  <!-- Battery -->
+  <rect x="30" y="100" width="100" height="80" class="box" fill="#ffe0e0"/>
+  <text x="80" y="130" class="label" font-weight="bold">BATTERY</text>
+  <text x="80" y="148" class="label">12V / 70Ah</text>
+  <text x="80" y="165" class="pin">+ (red)</text>
+
+  <!-- Fuse 1 — 5V rail -->
+  <rect x="180" y="110" width="80" height="40" class="box" fill="#fff0c0"/>
+  <text x="220" y="128" class="label" font-weight="bold">FUSE</text>
+  <text x="220" y="143" class="label">20A</text>
+  <line x1="130" y1="130" x2="180" y2="130" class="wire"/>
+
+  <!-- LM2596 -->
+  <rect x="310" y="90" width="160" height="80" class="box" fill="#e8f0ff"/>
+  <text x="390" y="112" class="label" font-weight="bold">LM2596 Module</text>
+  <text x="390" y="130" class="label">VIN: 12V</text>
+  <text x="390" y="148" class="label">VOUT: 5.1V (adj)</text>
+  <text x="390" y="163" class="label">Max: 4A</text>
+  <line x1="260" y1="130" x2="310" y2="130" class="wire"/>
+
+  <!-- 5V distribution -->
+  <line x1="470" y1="130" x2="530" y2="130" class="wire" stroke="#060"/>
+
+  <!-- OPi -->
+  <rect x="530" y="80" width="160" height="60" class="box" fill="#e0f0ff"/>
+  <text x="610" y="103" class="label" font-weight="bold">Orange Pi 5+</text>
+  <text x="610" y="120" class="label">USB-C PD 5.1V/4A</text>
+  <text x="610" y="135" class="pin">~2.0A typical</text>
+
+  <!-- USB Hub (powered by OPi) -->
+  <rect x="530" y="170" width="160" height="50" class="box"/>
+  <text x="610" y="192" class="label">USB Devices</text>
+  <text x="610" y="207" class="pin">DAC+Mic+Arduino+Grabber ~0.8A</text>
+  <line x1="610" y1="140" x2="610" y2="170" class="wire" stroke="#060"/>
+
+  <!-- 12V direct branch -->
+  <line x1="220" y1="150" x2="220" y2="300" class="wire"/>
+  <text x="220" y="290" class="pin">12V direct</text>
+
+  <!-- Fuse 2 — Amp -->
+  <rect x="180" y="310" width="80" height="40" class="box" fill="#fff0c0"/>
+  <text x="220" y="328" class="label" font-weight="bold">FUSE</text>
+  <text x="220" y="343" class="label">20A</text>
+
+  <!-- Amplifier -->
+  <rect x="310" y="300" width="160" height="60" class="box" fill="#ffe0e0"/>
+  <text x="390" y="322" class="label" font-weight="bold">TPA3116D2</text>
+  <text x="390" y="340" class="label">4.1 Amplifier</text>
+  <text x="390" y="355" class="label">12V / 10A peak</text>
+  <line x1="260" y1="330" x2="310" y2="330" class="wire"/>
+
+  <!-- Speakers -->
+  <rect x="530" y="280" width="120" height="30" class="box"/>
+  <text x="590" y="300" class="label">Front L/R</text>
+  <rect x="530" y="320" width="120" height="30" class="box"/>
+  <text x="590" y="340" class="label">Rear L/R</text>
+  <rect x="530" y="360" width="120" height="30" class="box"/>
+  <text x="590" y="380" class="label">Subwoofer</text>
+  <line x1="470" y1="320" x2="530" y2="295" class="gnd"/>
+  <line x1="470" y1="330" x2="530" y2="335" class="gnd"/>
+  <line x1="470" y1="340" x2="530" y2="375" class="gnd"/>
+
+  <!-- Display power -->
+  <line x1="220" y1="350" x2="220" y2="420" class="wire"/>
+  <rect x="310" y="400" width="140" height="40" class="box" fill="#e0ffe0"/>
+  <text x="380" y="418" class="label">4.3" Backlight</text>
+  <text x="380" y="433" class="pin">12V / 150mA via MOSFET</text>
+  <line x1="260" y1="420" x2="310" y2="420" class="wire"/>
+
+  <rect x="310" y="455" width="140" height="40" class="box" fill="#e0ffe0"/>
+  <text x="380" y="473" class="label">7" Backlight</text>
+  <text x="380" y="488" class="pin">12V / 300mA via MOSFET</text>
+  <line x1="220" y1="420" x2="220" y2="475" class="wire"/>
+  <line x1="220" y1="475" x2="310" y2="475" class="wire"/>
+
+  <!-- GND bus -->
+  <line x1="50" y1="450" x2="800" y2="450" class="gnd" stroke-width="3"/>
+  <text x="800" y="448" class="pin">GND BUS (chassis ground)</text>
+  <line x1="80" y1="180" x2="80" y2="450" class="gnd"/>
+  <text x="80" y="200" class="pin">- (black)</text>
+</svg>

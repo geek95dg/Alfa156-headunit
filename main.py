@@ -26,6 +26,7 @@ from src.voice.recognizer import start_voice
 from src.input.bt_remote import start_input
 from src.camera.reverse_cam import start_camera
 from src.power.shutdown import start_power
+from src.multimedia.openauto import start_multimedia
 
 
 # Module registry — maps module names to their (future) start functions.
@@ -40,7 +41,7 @@ MODULE_REGISTRY: dict[str, dict] = {
     "input":       {"part": 8, "description": "Input Controllers", "start": start_input},
     "camera":      {"part": 9, "description": "Camera & Dashcam", "start": start_camera},
     "power":       {"part": 10, "description": "Power Management", "start": start_power},
-    "multimedia":  {"part": 11, "description": "Android Auto / Multimedia"},
+    "multimedia":  {"part": 11, "description": "Android Auto / Multimedia", "start": start_multimedia},
 }
 
 

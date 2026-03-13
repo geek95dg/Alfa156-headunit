@@ -1,0 +1,154 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 700" font-family="monospace" font-size="11">
+  <title>BCM v7 — Cable Routing in Alfa Romeo 156</title>
+  <style>
+    .body { fill: #e8e8e8; stroke: #666; stroke-width: 2; rx: 10; }
+    .zone { fill: #f0f8ff; stroke: #99c; stroke-width: 1.5; rx: 6; stroke-dasharray: 4 2; }
+    .cable { stroke-width: 2.5; fill: none; }
+    .label { font-size: 11px; fill: #333; text-anchor: middle; }
+    .title { font-size: 14px; font-weight: bold; fill: #111; }
+    .pin { font-size: 9px; fill: #666; }
+    .comp { font-size: 10px; fill: #06c; text-anchor: middle; font-weight: bold; }
+  </style>
+
+  <text x="450" y="25" class="title" text-anchor="middle">Cable Routing — Alfa Romeo 156 (Top View)</text>
+
+  <!-- Car body outline -->
+  <rect x="150" y="50" width="600" height="600" class="body"/>
+  <!-- Windshield area -->
+  <line x1="200" y1="220" x2="700" y2="220" stroke="#999" stroke-width="1"/>
+  <text x="450" y="215" class="pin">— windshield —</text>
+  <!-- Rear seat divide -->
+  <line x1="200" y1="420" x2="700" y2="420" stroke="#999" stroke-width="1"/>
+  <text x="450" y="415" class="pin">— rear seats —</text>
+
+  <!-- FRONT (engine bay) -->
+  <text x="450" y="75" class="comp">FRONT (Engine Bay)</text>
+
+  <!-- OBD port -->
+  <rect x="220" y="180" width="90" height="30" class="zone"/>
+  <text x="265" y="200" class="label">OBD-II Port</text>
+  <text x="265" y="215" class="pin">(under dash, left)</text>
+
+  <!-- Battery -->
+  <rect x="580" y="80" width="80" height="40" class="zone"/>
+  <text x="620" y="100" class="comp">BATTERY</text>
+  <text x="620" y="115" class="pin">12V</text>
+
+  <!-- Temp sensor -->
+  <rect x="380" y="80" width="100" height="35" class="zone"/>
+  <text x="430" y="100" class="label">DS18B20</text>
+  <text x="430" y="110" class="pin">(under bumper)</text>
+
+  <!-- CABIN -->
+  <text x="450" y="245" class="comp">CABIN</text>
+
+  <!-- Head unit (center dash) -->
+  <rect x="350" y="260" width="200" height="70" class="zone" fill="#ffe8d0" stroke="#c96"/>
+  <text x="450" y="280" class="comp">HEAD UNIT</text>
+  <text x="450" y="295" class="label">OPi 5+ / Displays</text>
+  <text x="450" y="310" class="label">USB Hub / DAC</text>
+  <text x="450" y="325" class="pin">(center dash DIN slot)</text>
+
+  <!-- 4.3" screen -->
+  <rect x="200" y="260" width="80" height="40" class="zone" fill="#e0ffe0"/>
+  <text x="240" y="278" class="label">4.3" TFT</text>
+  <text x="240" y="295" class="pin">(cluster)</text>
+
+  <!-- 7" screen -->
+  <rect x="350" y="340" width="100" height="30" class="zone" fill="#e0ffe0"/>
+  <text x="400" y="358" class="label">7" Touch</text>
+  <text x="400" y="373" class="pin">(center stack)</text>
+
+  <!-- Rotary encoder -->
+  <rect x="500" y="340" width="90" height="30" class="zone"/>
+  <text x="545" y="358" class="label">Encoder</text>
+  <text x="545" y="373" class="pin">(console)</text>
+
+  <!-- USB Mic -->
+  <rect x="350" y="380" width="80" height="25" class="zone"/>
+  <text x="390" y="396" class="label">USB Mic</text>
+  <text x="390" y="410" class="pin">(ceiling)</text>
+
+  <!-- Front speakers -->
+  <rect x="165" y="300" width="50" height="40" class="zone" fill="#f0e0ff"/>
+  <text x="190" y="318" class="label">SPK</text>
+  <text x="190" y="333" class="pin">FL</text>
+  <rect x="685" y="300" width="50" height="40" class="zone" fill="#f0e0ff"/>
+  <text x="710" y="318" class="label">SPK</text>
+  <text x="710" y="333" class="pin">FR</text>
+
+  <!-- Rear speakers -->
+  <rect x="165" y="440" width="50" height="40" class="zone" fill="#f0e0ff"/>
+  <text x="190" y="458" class="label">SPK</text>
+  <text x="190" y="473" class="pin">RL</text>
+  <rect x="685" y="440" width="50" height="40" class="zone" fill="#f0e0ff"/>
+  <text x="710" y="458" class="label">SPK</text>
+  <text x="710" y="473" class="pin">RR</text>
+
+  <!-- TRUNK -->
+  <text x="450" y="510" class="comp">TRUNK</text>
+
+  <!-- Amplifier -->
+  <rect x="300" y="520" width="120" height="40" class="zone" fill="#ffe0e0"/>
+  <text x="360" y="538" class="label">TPA3116D2</text>
+  <text x="360" y="555" class="pin">(trunk, ventilated)</text>
+
+  <!-- Subwoofer -->
+  <rect x="460" y="520" width="80" height="40" class="zone" fill="#f0e0ff"/>
+  <text x="500" y="538" class="label">SUB</text>
+  <text x="500" y="555" class="pin">(trunk)</text>
+
+  <!-- Rear camera -->
+  <rect x="400" y="590" width="100" height="30" class="zone"/>
+  <text x="450" y="608" class="label">Rear Cam</text>
+  <text x="450" y="625" class="pin">(license plate)</text>
+
+  <!-- Parking sensors -->
+  <rect x="250" y="610" width="40" height="20" class="zone" fill="#e0e0ff"/>
+  <text x="270" y="624" class="pin">S1</text>
+  <rect x="340" y="630" width="40" height="20" class="zone" fill="#e0e0ff"/>
+  <text x="360" y="644" class="pin">S2</text>
+  <rect x="510" y="630" width="40" height="20" class="zone" fill="#e0e0ff"/>
+  <text x="530" y="644" class="pin">S3</text>
+  <rect x="600" y="610" width="40" height="20" class="zone" fill="#e0e0ff"/>
+  <text x="620" y="624" class="pin">S4</text>
+  <text x="450" y="660" class="pin">HC-SR04 ×4 (rear bumper)</text>
+
+  <!-- Front camera -->
+  <rect x="400" y="100" width="100" height="25" class="zone"/>
+  <text x="450" y="116" class="label">Front Cam</text>
+  <text x="450" y="130" class="pin">(rearview mirror)</text>
+
+  <!-- Cable routes (colored lines) -->
+  <!-- Battery → Head unit (12V power) -->
+  <path d="M 620 120 L 620 200 L 450 200 L 450 260" class="cable" stroke="#c00"/>
+  <text x="560" y="195" class="pin" fill="#c00">12V power</text>
+
+  <!-- OBD → Head unit -->
+  <path d="M 310 195 L 350 280" class="cable" stroke="#fc0"/>
+  <text x="320" y="245" class="pin" fill="#a80">K-Line</text>
+
+  <!-- DS18B20 → Head unit (through firewall) -->
+  <path d="M 430 115 L 430 175 L 450 260" class="cable" stroke="#0a0"/>
+  <text x="465" y="170" class="pin" fill="#0a0">1-Wire</text>
+
+  <!-- Head unit → Amp (speaker cable) -->
+  <path d="M 450 330 L 400 380 L 360 520" class="cable" stroke="#906"/>
+  <text x="370" y="470" class="pin" fill="#906">RCA audio</text>
+
+  <!-- Amp → Speakers -->
+  <path d="M 300 540 L 190 473" class="cable" stroke="#90c"/>
+  <path d="M 420 540 L 710 473" class="cable" stroke="#90c"/>
+  <path d="M 300 530 L 190 333" class="cable" stroke="#90c"/>
+  <path d="M 420 530 L 710 333" class="cable" stroke="#90c"/>
+  <path d="M 420 540 L 460 540" class="cable" stroke="#90c"/>
+
+  <!-- AHD cameras → Head unit (USB3) -->
+  <path d="M 450 125 L 550 260" class="cable" stroke="#06c"/>
+  <path d="M 450 590 L 550 560 L 550 330" class="cable" stroke="#06c"/>
+  <text x="570" y="450" class="pin" fill="#06c">AHD USB3</text>
+
+  <!-- Battery → Amp (12V direct) -->
+  <path d="M 660 110 L 700 500 L 420 530" class="cable" stroke="#c00" stroke-dasharray="8 4"/>
+  <text x="720" y="400" class="pin" fill="#c00">12V amp</text>
+</svg>
