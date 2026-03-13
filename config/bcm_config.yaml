@@ -1,0 +1,98 @@
+# BCM v7 — Alfa Romeo 156 Head Unit — Master Configuration
+# This file is loaded by src/core/config.py at startup.
+# Platform is auto-detected but can be overridden via CLI --platform flag.
+
+system:
+  name: "BCM v7"
+  version: "0.1.0"
+  # Auto-detected: x86 or opi (Orange Pi 5 Plus / arm64)
+  platform: auto
+  log_level: INFO
+  log_file: logs/bcm.log
+
+# Feature toggles — enable/disable individual modules
+modules:
+  dashboard: true
+  obd: true
+  parking: true
+  environment: true
+  audio: true
+  voice: true
+  input: true
+  camera: true
+  power: true
+  multimedia: true
+
+# Display settings
+display:
+  dashboard:
+    width: 800
+    height: 480
+    fps: 15
+    theme: classic_alfa        # classic_alfa | modern_dark | oem_digital
+    brightness: 80             # 0-100 percent
+  multimedia:
+    width: 1024
+    height: 600
+
+# Unit preferences
+units:
+  speed: km/h                  # km/h | mph
+  temperature: C               # C | F
+
+# Language
+language: pl                   # pl | en
+
+# GPIO pin mapping (Orange Pi 5 Plus — active on opi platform only)
+gpio:
+  # Parking sensors
+  parking_trig: 79             # Shared trigger pin
+  parking_echo:
+    - 80                       # Rear-left
+    - 81                       # Rear-center-left
+    - 82                       # Rear-center-right
+    - 83                       # Rear-right
+  buzzer: 84
+
+  # Backlight PWM
+  backlight_dashboard: 32      # PWM2
+  backlight_multimedia: 33     # PWM3
+
+  # Temperature sensor (1-Wire)
+  onewire: 7                   # GPIO4_C1
+
+  # Vehicle signal inputs (via PC817 optoisolators)
+  ignition: 85
+  door: 86
+  rain_sensor: 87
+  sprayer: 88
+  central_lock: 89
+
+# Serial / UART
+serial:
+  kline:
+    port_opi: /dev/ttyS3
+    baudrate: 10400
+    ecu_address: 0x01
+
+# Audio
+audio:
+  eq_preset: flat              # flat | rock | jazz | bass_boost | custom
+  master_volume: 70            # 0-100
+
+# Voice control
+voice:
+  wake_word_sensitivity: medium  # low | medium | high
+  model_pl: src/voice/models/vosk-model-small-pl
+  model_en: src/voice/models/vosk-model-small-en-us
+
+# Dashcam
+camera:
+  segment_minutes: 5
+  max_storage_gb: 128
+  recording_path: /media/dashcam
+
+# Power management
+power:
+  shutdown_delay_seconds: 30
+  backlight_fade_ms: 1000

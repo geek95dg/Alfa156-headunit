@@ -1,0 +1,3 @@
+# BCM v7 — x86 development/simulation dependencies
+# No additional deps needed for Part 1 (mocks are built-in)
+# Future parts will add: pygame, flask, vosk, etc.

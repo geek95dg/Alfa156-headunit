@@ -1,0 +1,3 @@
+# BCM v7 — Common dependencies (all platforms)
+PyYAML>=6.0
+pyserial>=3.5
