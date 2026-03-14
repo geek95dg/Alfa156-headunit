@@ -103,6 +103,30 @@ class AADisplaySimulator:
         # For true dual-display, we use a Flask web viewer as the second screen.
         self._run_web_viewer()
 
+    @staticmethod
+    def _get_local_ips() -> list[str]:
+        """Get non-loopback IPv4 addresses for this machine."""
+        ips = []
+        try:
+            import socket
+            for info in socket.getaddrinfo(socket.gethostname(), None, socket.AF_INET):
+                ip = info[4][0]
+                if not ip.startswith("127."):
+                    ips.append(ip)
+        except Exception:
+            pass
+        if not ips:
+            # Fallback: connect to a public IP to discover local address
+            try:
+                import socket
+                s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+                s.connect(("8.8.8.8", 80))
+                ips.append(s.getsockname()[0])
+                s.close()
+            except Exception:
+                pass
+        return list(dict.fromkeys(ips))  # deduplicate, preserve order
+
     def _run_web_viewer(self) -> None:
         """Run the AA display as a web page (works with VMware dual display)."""
         try:
@@ -137,8 +161,13 @@ class AADisplaySimulator:
                 "time": time.strftime("%H:%M"),
             }), mimetype="application/json")
 
-        log.info("AA Display web viewer at http://localhost:5001")
-        log.info("Open in browser on second VMware display for dual-screen simulation")
+        # Show all reachable IPs so user knows what to type on other devices
+        local_ips = self._get_local_ips()
+        log.info("AA Display web viewer running on port 5001")
+        log.info("  Local:   http://localhost:5001")
+        for ip in local_ips:
+            log.info("  Network: http://%s:5001", ip)
+        log.info("Open in browser on another device for dual-screen simulation")
 
         try:
             app.run(host="0.0.0.0", port=5001, debug=False, use_reloader=False)

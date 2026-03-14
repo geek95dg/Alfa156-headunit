@@ -223,12 +223,21 @@ This will start all enabled modules in x86 simulation mode:
 
 ### 5.2.3 Dual display (Android Auto simulation)
 
-The system automatically starts a web-based Android Auto display simulator:
+The system automatically starts a web-based Android Auto display simulator.
+The server binds to `0.0.0.0:5001` so it's accessible from any device on the network.
 
-1. Open Firefox/Chrome on the VM
-2. Navigate to **http://localhost:5001**
-3. If using dual monitors in VMware, drag the browser to the second display
-4. This simulates the 7" multimedia screen that runs OpenAuto on the real hardware
+**From the VM itself:**
+1. Open Firefox/Chrome → **http://localhost:5001**
+2. If using dual monitors in VMware, drag the browser to the second display
+
+**From another computer/tablet/phone (recommended):**
+1. Find the VM's IP: `ip addr show` (look for the NAT or bridged adapter IP)
+2. Open a browser on the other device → **http://VM_IP:5001**
+3. This lets you use a separate screen as the 7" Android Auto display
+
+> **VMware network note:** If using NAT, the VM IP is typically `192.168.x.x`.
+> If the host can't reach the VM, switch the VMware network adapter to **Bridged**
+> mode (VM → Settings → Network Adapter → Bridged) so both devices are on the same subnet.
 
 ### 5.3 Start specific modules only
 
