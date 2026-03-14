@@ -360,7 +360,19 @@ PWM backlight is managed by the power module:
 - Pin 32 (PWM2) → 4.3" dashboard
 - Pin 33 (PWM3) → 7" multimedia
 
-Brightness is configurable in `config/bcm_config.yaml` (0-100%).
+Both screens are always linked to the same brightness level.
+
+**Auto-brightness (light sensor):**
+- LDR photoresistor on Arduino A1 reads ambient light every 2s
+- Maps light level to brightness: bright sun → 100%, darkness → 15%
+- Arduino sends `LIGHT:XXX` via serial, BCM adjusts both backlights
+
+**Manual brightness (stalk button):**
+- Spare button on steering column stalk (manettka) connected to Arduino A2
+- Each press cycles: 15% → 30% → 45% → 60% → 80% → 100% → 15% ...
+- Manual override active until ignition off, then reverts to auto sensor
+
+Press F9 in VM to simulate the stalk button.
 
 ---
 
@@ -576,7 +588,20 @@ wpctl set-default <source-node-id>
 
 After wake word detection, speak a command within 5 seconds.
 
-### 12.3 Available commands
+### 12.3 SWC remote (steering wheel buttons)
+
+The steering wheel control remote uses two round button pods with a decoder box:
+- Red wire → 12V accessory
+- Black wire → chassis ground
+- White wire → Arduino Pro Micro pin A0
+
+Calibrate after installation:
+1. Connect Arduino to PC (or SSH to OPi and open `picocom /dev/ttyACM0 -b 115200`)
+2. Hold HOME + BACK buttons during Arduino boot
+3. Press each button when prompted
+4. Values saved to EEPROM
+
+### 12.4 Available commands
 
 | Polish | English | Action |
 |--------|---------|--------|

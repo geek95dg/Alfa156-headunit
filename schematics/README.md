@@ -17,7 +17,7 @@ This directory contains all electrical schematics and wiring diagrams for the BC
 | **OBD** | L9637D K-Line transceiver → OBD-II port |
 | **Cameras** | 2× AHD 720P via USB3.0 4ch grabber |
 | **Parking** | 4× HC-SR04 ultrasonic sensors |
-| **Input** | Arduino Pro Micro rotary encoder + BT remote |
+| **Input** | Arduino Pro Micro rotary encoder + SWC remote + BT remote |
 | **Microphone** | USB condenser (ceiling mount) |
 | **Temperature** | DS18B20 1-Wire (under front bumper) |
 
@@ -159,6 +159,7 @@ ventilation in the trunk enclosure. TDA7388 at moderate volume draws ~6-8A, peak
 
 ### Step 9: Input Controller
 
+**Arduino Pro Micro + rotary encoder:**
 1. Arduino Pro Micro + rotary encoder assembly:
    - D2 ← Encoder CLK (with 10kΩ pull-up)
    - D3 ← Encoder DT (with 10kΩ pull-up)
@@ -166,6 +167,63 @@ ventilation in the trunk enclosure. TDA7388 at moderate volume draws ~6-8A, peak
    - D5-D9 ← HOME, BACK, MEDIA, VOL+, VOL- buttons
 2. Mount encoder/buttons in custom center console panel
 3. USB cable from Arduino to OPi USB hub
+
+**Steering Wheel Control (SWC) remote:**
+Universal 2-pod steering wheel remote with resistor-ladder decoder box.
+
+Wiring:
+1. Decoder box wires:
+   - Red wire → 12V accessory/ignition (powers the decoder box)
+   - Black wire → chassis ground
+   - White wire → Arduino Pro Micro pin A0 (analog input)
+2. Mount button pods on steering wheel (adhesive backing)
+3. Route white wire from decoder box to Arduino A0 pin
+4. Decoder box can be mounted behind dash near Arduino
+
+Button layout:
+- Pod 1 (left): VOL+, VOL-, UP, DOWN, MUTE, MODE (center)
+- Pod 2 (right): PHONE PICKUP, PHONE HANGUP, PREV, NEXT, VOICE, SRC (center)
+
+Calibration:
+1. Connect Arduino to PC via USB
+2. Open Serial Monitor (115200 baud)
+3. Hold HOME + BACK buttons during Arduino power-on
+4. Follow prompts — press each SWC button when asked
+5. Values are saved to Arduino EEPROM (persists across reboots)
+
+### Step 9b: Music Panel (5 buttons near 7" screen)
+
+5 physical buttons mounted near the Android Auto screen for quick music control.
+Connected via 7-wire cable (5 signals + VCC + GND) to the Arduino Pro Micro.
+
+Wiring:
+1. Buttons (momentary, normally open, active LOW):
+   - D10 ← PREV (previous track)
+   - D14 ← NEXT (next track)
+   - D15 ← VOL+ (volume up)
+   - D16 ← VOL- (volume down)
+   - A3  ← MUTE (mute toggle)
+2. All buttons: one side to signal pin, other side to GND
+3. Internal pull-ups enabled in firmware (no external resistors needed)
+4. Route cable from panel to Arduino (behind dash)
+5. Mount panel near 7" screen (adhesive or custom bracket)
+
+### Step 9c: Brightness Control
+
+**Light sensor (LDR):**
+1. Voltage divider: LDR + 10kΩ resistor to GND
+   - LDR one leg → 5V
+   - LDR other leg → junction point → A1
+   - 10kΩ from junction point → GND
+2. Mount LDR on dashboard facing windshield (sees ambient light)
+3. Route 3-wire cable (5V, signal, GND) to Arduino
+
+**Stalk button (brightness cycle):**
+1. Spare button on steering column stalk (manettka) → A2
+2. Active LOW with internal pull-up
+3. Each press cycles through 6 brightness levels (15/30/45/60/80/100%)
+4. Manual override lasts until ignition off, then reverts to auto sensor mode
+5. Both screens (4.3" + 7") always linked to same brightness
 
 ### Step 10: Final Assembly
 

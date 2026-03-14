@@ -96,6 +96,40 @@ camera:
   max_storage_gb: 128
   recording_path: /media/dashcam
 
+# Steering wheel control remote (SWC)
+# Analog resistor-ladder decoder box → Arduino Pro Micro A0
+# Calibrate by holding HOME + BACK during Arduino boot
+# Button actions can be remapped in BCM Settings → SWC BUTTON MAPPING page
+swc:
+  enabled: true
+  buttons:
+    SWC_VOLUP: volume_up
+    SWC_VOLDN: volume_down
+    SWC_UP: menu_up
+    SWC_DOWN: menu_down
+    SWC_MUTE: mute
+    SWC_MODE: home
+    SWC_NEXT: next_track
+    SWC_PREV: prev_track
+    SWC_PICKUP: phone_pickup
+    SWC_HANGUP: phone_hangup
+    SWC_VOICE: voice_trigger
+    SWC_SRC: source_cycle
+
+# Brightness control
+# Light sensor (LDR) on Arduino A1 for auto-brightness
+# Stalk button on Arduino A2 cycles 6 manual levels (overrides sensor until ignition off)
+# Both screens (4.3" + 7") are always linked to same brightness
+brightness:
+  mode: auto                    # auto (sensor) | manual (stalk button)
+  steps: [15, 30, 45, 60, 80, 100]  # 6 manual brightness levels (%)
+
+# Music panel — 5 physical buttons near 7" Android Auto screen
+# Connected via cable to Arduino (D10, D14, D15, D16, A3)
+# Sends same keycodes as SWC/encoder volume/track controls
+music_panel:
+  enabled: true
+
 # Power management
 power:
   shutdown_delay_seconds: 30

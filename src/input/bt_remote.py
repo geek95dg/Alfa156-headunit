@@ -13,6 +13,7 @@ from src.core.event_bus import EventBus
 from src.core.logger import get_logger
 from src.input.action_dispatch import ActionDispatcher
 from src.input.rotary_encoder import RotaryEncoderListener
+from src.input.arduino_serial import ArduinoSerialListener
 
 log = get_logger("input.bt_remote")
 
@@ -116,20 +117,28 @@ def start_input(config: Any, event_bus: EventBus, hal: Any = None,
     # Action dispatcher (keycode → event bus actions)
     dispatcher = ActionDispatcher(event_bus)
 
-    # Rotary encoder (Arduino USB HID)
+    # Rotary encoder + SWC + music panel (Arduino USB HID — single device)
+    # SWC analog buttons and music panel buttons are read by Arduino
+    # and sent as HID keycodes alongside encoder events.
     encoder = RotaryEncoderListener(event_bus)
     encoder.start()
+
+    # Arduino serial listener (light sensor data + debug)
+    arduino_serial = ArduinoSerialListener(event_bus)
+    arduino_serial.start()
 
     # BT steering wheel remote
     bt_remote = BTRemoteListener(event_bus)
     bt_remote.start()
 
-    log.info("Input module running (encoder=%s, bt_remote=%s)",
+    log.info("Input module running (encoder+swc+music=%s, light_sensor=%s, bt_remote=%s)",
              "active" if encoder.available else "simulated",
+             "active" if arduino_serial.available else "disabled",
              "active" if bt_remote.available else "simulated")
 
     event_bus.publish("input._internals", {
         "dispatcher": dispatcher,
         "encoder": encoder,
+        "arduino_serial": arduino_serial,
         "bt_remote": bt_remote,
     })

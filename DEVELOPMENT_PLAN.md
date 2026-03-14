@@ -79,6 +79,7 @@ Alfa156-headunit/
 │   ├── input/                    # Part 8: Input Controllers
 │   │   ├── __init__.py
 │   │   ├── rotary_encoder.py     # USB HID rotary encoder handler
+│   │   ├── swc_remote.py         # Steering wheel control (analog) button mapping
 │   │   ├── bt_remote.py          # BT steering wheel remote
 │   │   └── action_dispatch.py    # Key mapping → actions
 │   ├── camera/                   # Part 9: Cameras & Dashcam
@@ -423,21 +424,28 @@ Sensor mounted under front bumper (shielded from engine heat)
 
 ## PART 8: Input Controllers
 
-**Goal:** Handle rotary encoder (USB HID) and Bluetooth steering wheel remote.
+**Goal:** Handle rotary encoder (USB HID), steering wheel control (SWC) remote, and Bluetooth steering wheel remote.
 
 **Files to create:**
-- `arduino/rotary_encoder/rotary_encoder.ino` — Arduino Pro Micro firmware: encoder + 5 buttons → USB HID keycodes
+- `arduino/rotary_encoder/rotary_encoder.ino` — Arduino Pro Micro firmware: encoder + 5 buttons + SWC analog → USB HID keycodes
 - `src/input/rotary_encoder.py` — Listen for USB HID events from Arduino (via `evdev` or `hidapi`)
+- `src/input/swc_remote.py` — SWC button definitions and action mappings
 - `src/input/bt_remote.py` — Listen for BT HID events from steering wheel remote (via `evdev`)
-- `src/input/action_dispatch.py` — Map keycodes to actions (navigate menu, volume, play/pause, etc.)
+- `src/input/action_dispatch.py` — Map keycodes to actions (navigate menu, volume, phone, voice, etc.)
 
 **Key specs:**
 - Arduino Pro Micro (ATmega32U4) as USB HID keyboard
   - Encoder rotation → UP/DOWN arrows
   - Encoder push → ENTER
   - Buttons: HOME, BACK, MEDIA, VOL+, VOL-
+  - SWC analog input (A0): 12 steering wheel buttons via resistor-ladder decoder
+- SWC Remote (2× round pods + decoder box):
+  - Pod 1: VOL+, VOL-, UP, DOWN, MUTE, MODE
+  - Pod 2: PHONE PICKUP, PHONE HANGUP, PREV, NEXT, VOICE, SRC
+  - Decoder box: red=12V, black=GND, white=analog signal → Arduino A0
+  - Calibration mode: hold HOME+BACK at Arduino boot, follow serial prompts
 - BT Remote (off-the-shelf BT HID): VOL+, VOL-, NEXT, PREV, PLAY/PAUSE, PHONE
-- Action mapping published to event bus: `input.menu_up`, `input.volume_up`, etc.
+- Action mapping published to event bus: `input.menu_up`, `input.volume_up`, `input.phone_pickup`, `input.voice_trigger`, `input.source_cycle`, etc.
 
 **Arduino wiring:**
 ```
@@ -449,17 +457,19 @@ D6 ← BACK button
 D7 ← MEDIA button
 D8 ← VOL+ button
 D9 ← VOL- button
+A0 ← SWC decoder white wire (analog 0-5V resistor-ladder)
 All buttons: active LOW with internal pull-ups
 USB micro-B → cable 0.5m → OPi USB hub
+SWC decoder: red → 12V ACC, black → chassis GND, white → A0
 ```
 
 **x86 vs OPi:**
-- x86: Keyboard input simulation (arrow keys, enter, etc.) OR actual Arduino plugged in via USB
-- OPi: Same USB HID + real BT remote paired
+- x86: Keyboard input simulation (arrow keys, F5-F8 for SWC, etc.) OR actual Arduino plugged in via USB
+- OPi: Same USB HID + SWC remote + real BT remote paired
 
 **Dependencies:** Part 1 (event bus)
 
-**Testing:** x86 — plug in Arduino, rotate encoder, verify events. BT remote: pair and test key events.
+**Testing:** x86 — plug in Arduino, rotate encoder, verify events. SWC: calibrate, press buttons, verify serial output + HID keycodes. BT remote: pair and test key events.
 
 ---
 
