@@ -3,8 +3,11 @@
 Manages Bluetooth pairing, A2DP audio streaming (phone -> PipeWire -> DAC),
 and HFP hands-free calling with mic + speaker routing.
 
-Uses bluetoothctl CLI for device management. On x86, works with built-in
-or USB Bluetooth adapter. On OPi, uses onboard or USB BT.
+Uses bluetoothctl CLI for device management and a D-Bus pairing agent
+for handling phone-initiated pairing requests.
+
+On x86, works with built-in or USB Bluetooth adapter.
+On OPi, uses onboard or USB BT.
 """
 
 import subprocess
@@ -16,6 +19,306 @@ from src.core.event_bus import EventBus
 from src.core.logger import get_logger
 
 log = get_logger("multimedia.bluetooth")
+
+# D-Bus pairing agent — optional, only works when dbus is available
+try:
+    import dbus
+    import dbus.service
+    import dbus.mainloop.glib
+    HAS_DBUS = True
+except ImportError:
+    HAS_DBUS = False
+
+AGENT_PATH = "/org/bluez/bcm_agent"
+_agent_registered = False  # Guard against double registration
+
+
+def _device_path_to_addr(device_path: str) -> str:
+    """Convert D-Bus device path to BT address.
+
+    Example: /org/bluez/hci0/dev_C0_7A_D6_90_E9_CC → C0:7A:D6:90:E9:CC
+    """
+    node = device_path.split("/")[-1]  # dev_C0_7A_D6_90_E9_CC
+    if node.startswith("dev_"):
+        node = node[4:]  # C0_7A_D6_90_E9_CC
+    return node.replace("_", ":")
+AGENT_CAPABILITY = "DisplayYesNo"
+
+# Bluetooth service UUIDs
+AA_SERVICE_UUID = "4de17a00-52cb-11e6-bdf4-0800200c9a66"  # Android Auto
+A2DP_SINK_UUID = "0000110b-0000-1000-8000-00805f9b34fb"   # A2DP Sink
+HFP_HF_UUID = "0000111e-0000-1000-8000-00805f9b34fb"      # HFP Hands-Free
+
+# D-Bus object paths for profiles
+AA_PROFILE_PATH = "/org/bluez/bcm_aa_profile"
+A2DP_PROFILE_PATH = "/org/bluez/bcm_a2dp_profile"
+HFP_PROFILE_PATH = "/org/bluez/bcm_hfp_profile"
+
+
+class _PairingRequest:
+    """Holds a pending pairing confirmation request."""
+
+    def __init__(self, device_path: str, passkey: int):
+        addr = _device_path_to_addr(device_path)
+        self.device_path = device_path
+        self.address = addr
+        self.passkey = passkey
+        self.event = threading.Event()
+        self.accepted = False
+        self.timestamp = time.time()
+
+    def accept(self):
+        self.accepted = True
+        self.event.set()
+
+    def reject(self):
+        self.accepted = False
+        self.event.set()
+
+
+# Global pending pairing request — only one at a time
+_pending_pairing: Optional[_PairingRequest] = None
+_pairing_lock = threading.Lock()
+
+
+def get_pending_pairing() -> Optional[dict]:
+    """Get the current pending pairing request, if any."""
+    with _pairing_lock:
+        if _pending_pairing and not _pending_pairing.event.is_set():
+            return {
+                "address": _pending_pairing.address,
+                "passkey": f"{_pending_pairing.passkey:06d}",
+                "timestamp": _pending_pairing.timestamp,
+            }
+    return None
+
+
+def confirm_pairing(accept: bool) -> bool:
+    """Confirm or reject the pending pairing request."""
+    with _pairing_lock:
+        req = _pending_pairing
+    if req and not req.event.is_set():
+        if accept:
+            req.accept()
+            log.info("Pairing ACCEPTED by user for %s", req.address)
+        else:
+            req.reject()
+            log.info("Pairing REJECTED by user for %s", req.address)
+        return True
+    return False
+
+
+class _PairingAgent(dbus.service.Object):
+    """BlueZ D-Bus pairing agent with interactive confirmation.
+
+    Implements org.bluez.Agent1 interface. When a phone requests pairing,
+    the passkey is exposed via get_pending_pairing() so the web UI can
+    show a confirmation popup. The agent blocks until the user responds
+    or a 30-second timeout expires.
+    """
+
+    AGENT_INTERFACE = "org.bluez.Agent1"
+    CONFIRMATION_TIMEOUT = 30  # seconds to wait for user response
+
+    def __init__(self, bus, path):
+        super().__init__(bus, path)
+        log.info("BT pairing agent registered at %s", path)
+
+    @dbus.service.method(AGENT_INTERFACE, in_signature="", out_signature="")
+    def Release(self):
+        log.debug("Agent released")
+
+    @dbus.service.method(AGENT_INTERFACE, in_signature="os", out_signature="")
+    def AuthorizeService(self, device, uuid):
+        log.info("Agent: authorizing service %s for %s", uuid, device)
+        addr = _device_path_to_addr(device)
+        _run_btctl(["trust", addr])
+        return
+
+    @dbus.service.method(AGENT_INTERFACE, in_signature="o", out_signature="s")
+    def RequestPinCode(self, device):
+        log.info("Agent: PIN requested for %s → 0000", device)
+        return "0000"
+
+    @dbus.service.method(AGENT_INTERFACE, in_signature="o", out_signature="u")
+    def RequestPasskey(self, device):
+        log.info("Agent: passkey requested for %s → 0", device)
+        return dbus.UInt32(0)
+
+    @dbus.service.method(AGENT_INTERFACE, in_signature="ouq", out_signature="")
+    def DisplayPasskey(self, device, passkey, entered):
+        log.info("Agent: display passkey %06d for %s", passkey, device)
+
+    @dbus.service.method(AGENT_INTERFACE, in_signature="os", out_signature="")
+    def DisplayPinCode(self, device, pincode):
+        log.info("Agent: display PIN %s for %s", pincode, device)
+
+    @dbus.service.method(AGENT_INTERFACE, in_signature="ou", out_signature="")
+    def RequestConfirmation(self, device, passkey):
+        global _pending_pairing
+        addr = _device_path_to_addr(device)
+        log.info("Agent: pairing confirmation requested — passkey %06d for %s",
+                 passkey, addr)
+
+        # Create pending request and wait for user response via web UI
+        req = _PairingRequest(device, passkey)
+        with _pairing_lock:
+            _pending_pairing = req
+
+        # Block until user responds or timeout
+        responded = req.event.wait(timeout=self.CONFIRMATION_TIMEOUT)
+
+        with _pairing_lock:
+            _pending_pairing = None
+
+        if not responded:
+            log.warning("Agent: pairing timed out for %s (no user response in %ds)",
+                        addr, self.CONFIRMATION_TIMEOUT)
+            raise dbus.exceptions.DBusException(
+                "org.bluez.Error.Rejected",
+                "Pairing confirmation timed out")
+
+        if not req.accepted:
+            log.info("Agent: pairing rejected by user for %s", addr)
+            raise dbus.exceptions.DBusException(
+                "org.bluez.Error.Rejected",
+                "Pairing rejected by user")
+
+        # Accepted — trust the device
+        _run_btctl(["trust", addr])
+        log.info("Agent: pairing confirmed for %s", addr)
+        return
+
+    @dbus.service.method(AGENT_INTERFACE, in_signature="o", out_signature="")
+    def RequestAuthorization(self, device):
+        log.info("Agent: auto-authorizing %s", device)
+        addr = _device_path_to_addr(device)
+        _run_btctl(["trust", addr])
+        return
+
+    @dbus.service.method(AGENT_INTERFACE, in_signature="", out_signature="")
+    def Cancel(self):
+        global _pending_pairing
+        log.debug("Agent: pairing cancelled")
+        with _pairing_lock:
+            if _pending_pairing:
+                _pending_pairing.reject()
+                _pending_pairing = None
+
+
+def _register_bt_profile(bus, path: str, uuid: str, name: str,
+                         role: str = "server") -> bool:
+    """Register a Bluetooth profile with BlueZ ProfileManager1."""
+    try:
+        profile_mgr = dbus.Interface(
+            bus.get_object("org.bluez", "/org/bluez"),
+            "org.bluez.ProfileManager1",
+        )
+
+        opts = {
+            "Name": dbus.String(name),
+            "Role": dbus.String(role),
+            "RequireAuthentication": dbus.Boolean(False),
+            "RequireAuthorization": dbus.Boolean(False),
+            "AutoConnect": dbus.Boolean(True),
+        }
+
+        profile_mgr.RegisterProfile(
+            dbus.ObjectPath(path),
+            uuid,
+            opts,
+        )
+        log.info("BT profile registered: %s (UUID=%s)", name, uuid)
+        return True
+    except dbus.exceptions.DBusException as e:
+        if "AlreadyExists" in str(e):
+            log.debug("BT profile already registered: %s", name)
+            return True
+        log.warning("Failed to register BT profile %s: %s", name, e)
+        return False
+    except Exception:
+        log.exception("Failed to register BT profile %s", name)
+        return False
+
+
+def _register_all_profiles(bus) -> None:
+    """Register Bluetooth profiles with BlueZ.
+
+    NOTE: A2DP Sink and HFP profiles are NOT registered here — they are
+    managed by PipeWire/WirePlumber via libspa-0.2-bluetooth. Registering
+    them here would block PipeWire (BlueZ: NotPermitted) and break audio.
+
+    The Android Auto BT service is NOT registered here either — it is
+    handled by autoapp's built-in btservice (Qt Bluetooth RFCOMM server)
+    which properly implements the AA wireless protocol handshake.
+    """
+    # Currently no custom profiles to register.
+    # A2DP/HFP → PipeWire, AA → autoapp btservice
+    log.debug("BT profile registration: A2DP/HFP=PipeWire, AA=autoapp")
+
+
+def _configure_adapter(bus) -> None:
+    """Configure BT adapter name and class for headunit discovery."""
+    try:
+        adapter = dbus.Interface(
+            bus.get_object("org.bluez", "/org/bluez/hci0"),
+            "org.freedesktop.DBus.Properties",
+        )
+        # Set friendly name so phones see "Alfa156 Headunit"
+        adapter.Set("org.bluez.Adapter1", "Alias",
+                     dbus.String("Alfa156 Headunit"))
+        log.info("BT adapter alias set to 'Alfa156 Headunit'")
+    except Exception:
+        # Non-critical — fall back to system hostname
+        log.debug("Could not set BT adapter alias (non-critical)")
+
+
+def _start_pairing_agent() -> bool:
+    """Register the D-Bus pairing agent and BT profiles with BlueZ.
+
+    Safe to call multiple times — only registers once.
+    """
+    global _agent_registered
+
+    if _agent_registered:
+        log.debug("D-Bus pairing agent already registered — skipping")
+        return True
+
+    if not HAS_DBUS:
+        log.warning("dbus-python not available — pairing agent disabled")
+        return False
+
+    try:
+        dbus.mainloop.glib.DBusGMainLoop(set_as_default=True)
+        bus = dbus.SystemBus()
+
+        _PairingAgent(bus, AGENT_PATH)
+
+        manager = dbus.Interface(
+            bus.get_object("org.bluez", "/org/bluez"),
+            "org.bluez.AgentManager1",
+        )
+        manager.RegisterAgent(AGENT_PATH, AGENT_CAPABILITY)
+        manager.RequestDefaultAgent(AGENT_PATH)
+        log.info("BT pairing agent active (capability=%s)", AGENT_CAPABILITY)
+
+        # Configure adapter name for discovery
+        _configure_adapter(bus)
+
+        # Register profiles (AA only if OpenAuto installed)
+        _register_all_profiles(bus)
+
+        # Run GLib main loop in background thread for D-Bus signal handling
+        from gi.repository import GLib
+        loop = GLib.MainLoop()
+        t = threading.Thread(target=loop.run, daemon=True)
+        t.start()
+
+        _agent_registered = True
+        return True
+    except Exception:
+        log.exception("Failed to start D-Bus pairing agent")
+        return False
 
 
 def _run_btctl(args: list[str], timeout: float = 10.0) -> tuple[int, str, str]:
@@ -74,10 +377,12 @@ class BluetoothManager:
         if rc == 0 and "Controller" in out:
             self._available = True
             log.info("Bluetooth available")
-            # Ensure agent is set up and adapter is powered
-            _run_btctl(["agent", "NoInputNoOutput"])
-            _run_btctl(["default-agent"])
             _run_btctl(["power", "on"])
+            # Register D-Bus pairing agent (handles phone-initiated pairing)
+            if not _start_pairing_agent():
+                # Fallback to bluetoothctl agent (limited — phone-initiated may fail)
+                _run_btctl(["agent", "DisplayYesNo"])
+                _run_btctl(["default-agent"])
         else:
             self._available = False
             log.warning("Bluetooth not available — will be simulated")
@@ -134,19 +439,22 @@ class BluetoothManager:
         return info
 
     def enable_discoverable(self, timeout: int = 120) -> bool:
-        """Make headunit discoverable for pairing."""
+        """Make headunit discoverable for pairing.
+
+        Sets the adapter as pairable and discoverable so phones can
+        find it. The Android Auto profile UUID is already advertised
+        via the D-Bus profile registered at startup.
+        """
         if not self._available:
             log.info("BT discoverable (simulated, %ds)", timeout)
             return True
 
         _run_btctl(["pairable", "on"])
-        rc, _, err = _run_btctl(["discoverable", "on"])
-        if rc == 0:
-            log.info("BT discoverable for %ds", timeout)
-            threading.Timer(timeout, self.disable_discoverable).start()
-            return True
-        log.error("Failed to enable discoverable: %s", err)
-        return False
+        _run_btctl(["discoverable", "on"])
+        # Set discoverable timeout via bluetoothctl
+        _run_btctl(["discoverable-timeout", str(timeout)])
+        log.info("BT discoverable for %ds (AA profile active)", timeout)
+        return True
 
     def disable_discoverable(self) -> None:
         """Disable discoverable mode."""
@@ -309,8 +617,12 @@ class BluetoothManager:
             log.info("BT connected (simulated): %s", address)
             return True
 
-        rc, _, err = _run_btctl(["connect", address])
-        if rc == 0:
+        # Ensure device is trusted before connecting (needed for reconnection)
+        _run_btctl(["trust", address])
+
+        rc, out, err = _run_btctl(["connect", address], timeout=15.0)
+        combined = (out + err).lower()
+        if rc == 0 or "successful" in combined:
             # Resolve name
             info = self.get_device_info(address)
             name = info.get("name", address)
@@ -323,7 +635,7 @@ class BluetoothManager:
             })
             log.info("BT connected: %s (%s)", address, name)
             return True
-        log.error("BT connect failed: %s", err)
+        log.error("BT connect failed: %s %s", out.strip(), err.strip())
         return False
 
     def disconnect(self) -> None:
@@ -360,15 +672,43 @@ class BluetoothManager:
             self._monitor_thread.join(timeout=2.0)
 
     def _monitor_loop(self) -> None:
-        """Periodically check BT connection status."""
+        """Periodically check BT connection status and handle reconnection."""
+        _reconnect_attempts = 0
+        _max_reconnect = 3
+        _last_device_addr: Optional[str] = None
+
         while self._running:
             if self._available and self._connected_device:
-                rc, out, _ = _run_btctl([
-                    "info", self._connected_device["address"]
-                ])
+                addr = self._connected_device["address"]
+                rc, out, _ = _run_btctl(["info", addr])
                 if rc == 0 and "Connected: no" in out:
-                    log.warning("BT device disconnected unexpectedly")
+                    log.warning("BT device %s disconnected unexpectedly", addr)
+                    _last_device_addr = addr
+                    _reconnect_attempts = 0
                     self.disconnect()
+                else:
+                    # Still connected — reset reconnect state
+                    _reconnect_attempts = 0
+                    _last_device_addr = None
+
+            elif (self._available and not self._connected_device
+                  and _last_device_addr and _reconnect_attempts < _max_reconnect):
+                # Try to reconnect to the last device
+                _reconnect_attempts += 1
+                log.info("BT auto-reconnect attempt %d/%d to %s",
+                         _reconnect_attempts, _max_reconnect, _last_device_addr)
+                if self.connect(_last_device_addr):
+                    log.info("BT auto-reconnect succeeded to %s", _last_device_addr)
+                    _last_device_addr = None
+                    _reconnect_attempts = 0
+                else:
+                    log.warning("BT auto-reconnect failed (%d/%d)",
+                                _reconnect_attempts, _max_reconnect)
+                    if _reconnect_attempts >= _max_reconnect:
+                        log.info("BT auto-reconnect exhausted — giving up for %s",
+                                 _last_device_addr)
+                        _last_device_addr = None
+
             time.sleep(5)
 
     # --- HFP call handling ---

@@ -7,3 +7,5 @@ logs/
 dist/
 build/
 .env
+openauto.ini
+openauto_wifi_recent.ini
