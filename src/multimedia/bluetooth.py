@@ -29,6 +29,50 @@ try:
 except ImportError:
     HAS_DBUS = False
 
+    # Provide minimal stubs so the _PairingAgent class body can be defined
+    # without NameError even when dbus-python is not installed.
+    class _DbusServiceStub:
+        Object = object
+
+        @staticmethod
+        def method(*args, **kwargs):
+            def decorator(f):
+                return f
+            return decorator
+
+    class _DbusExceptionsStub:
+        DBusException = Exception
+
+    class _DbusStub:
+        service = _DbusServiceStub
+        exceptions = _DbusExceptionsStub
+
+        @staticmethod
+        def UInt32(v):
+            return v
+
+        @staticmethod
+        def String(v):
+            return v
+
+        @staticmethod
+        def Boolean(v):
+            return v
+
+        @staticmethod
+        def ObjectPath(v):
+            return v
+
+        @staticmethod
+        def Interface(*args, **kwargs):
+            return None
+
+        @staticmethod
+        def SystemBus():
+            return None
+
+    dbus = _DbusStub()
+
 AGENT_PATH = "/org/bluez/bcm_agent"
 _agent_registered = False  # Guard against double registration
 
