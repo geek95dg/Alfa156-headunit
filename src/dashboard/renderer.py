@@ -6,6 +6,7 @@ keyboard input, and coordinates all dashboard sub-components.
 
 import math
 import os
+import queue
 import time
 import threading
 import pygame
@@ -22,6 +23,7 @@ from src.dashboard.trip_computer import TripComputer
 from src.dashboard.status_bar import StatusBar
 from src.dashboard.overlays import ParkingOverlay, IcingAlert
 from src.dashboard.settings_screen import SettingsScreen
+from src.dashboard.web_viewer import WebViewer
 from src.dashboard.i18n import t
 
 log = get_logger("dashboard")
@@ -127,6 +129,9 @@ class DashboardRenderer:
         self._long_press_start: float | None = None
         self._long_press_threshold = 2.0  # seconds
 
+        # Queue for receiving input from event bus (browser WebSocket, BT remote, etc.)
+        self._input_queue: queue.Queue[int] = queue.Queue()
+
         # Subscribe to events
         self._subscribe_events()
 
@@ -137,6 +142,22 @@ class DashboardRenderer:
     @property
     def current_screen(self) -> BaseScreen:
         return self._screens[self.current_screen_id]
+
+    # Map key names (from browser/event bus) to PyGame key constants
+    _KEYNAME_TO_PYGAME = {
+        "up": pygame.K_UP,
+        "down": pygame.K_DOWN,
+        "left": pygame.K_LEFT,
+        "right": pygame.K_RIGHT,
+        "enter": pygame.K_RETURN,
+        "home": pygame.K_HOME,
+        "h": pygame.K_h,
+        "backspace": pygame.K_BACKSPACE,
+        "escape": pygame.K_ESCAPE,
+        "r": pygame.K_r,
+        "t": pygame.K_t,
+        "i": pygame.K_i,
+    }
 
     def _subscribe_events(self) -> None:
         self.bus.subscribe("obd.rpm", self._on_rpm)
@@ -149,6 +170,15 @@ class DashboardRenderer:
         self.bus.subscribe("env.temperature", self._on_ext_temp)
         self.bus.subscribe("parking.distances", self._on_parking)
         self.bus.subscribe("power.reverse_gear", self._on_reverse)
+
+        # Accept input from event bus (browser WebSocket, BT remote, etc.)
+        self.bus.subscribe("input.raw_keyname", self._on_raw_keyname)
+
+    def _on_raw_keyname(self, topic: str, value: str, ts: float) -> None:
+        """Queue a key press from the event bus for processing in the main loop."""
+        pg_key = self._KEYNAME_TO_PYGAME.get(value)
+        if pg_key is not None:
+            self._input_queue.put(pg_key)
 
     def _on_rpm(self, topic: str, value: float, ts: float) -> None:
         self.data.rpm = value
@@ -358,6 +388,12 @@ class DashboardRenderer:
         pygame.display.set_caption("BCM v7 — Alfa Romeo 156 Dashboard")
         clock = pygame.time.Clock()
 
+        # Start WebViewer for x86 — streams dashboard frames to browser
+        web_viewer = None
+        if platform == "x86":
+            web_viewer = WebViewer(event_bus=self.bus)
+            web_viewer.start()
+
         self._running = True
         log.info("Dashboard renderer started (%dx%d @ %d FPS, theme: %s, lang: %s)",
                  self.width, self.height, self.fps, self.theme.name, self.data.lang)
@@ -365,16 +401,32 @@ class DashboardRenderer:
                  ", ".join(SCREEN_ORDER))
 
         while self._running:
-            # Handle events
+            # Handle PyGame events (keyboard/mouse when display is real)
             for event in pygame.event.get():
                 if self._handle_keyboard(event):
                     self._running = False
 
+            # Handle event bus input (browser WebSocket, BT remote, etc.)
+            while not self._input_queue.empty():
+                try:
+                    pg_key = self._input_queue.get_nowait()
+                    synth = pygame.event.Event(pygame.KEYDOWN, key=pg_key)
+                    if self._handle_keyboard(synth):
+                        self._running = False
+                except queue.Empty:
+                    break
+
             # Draw
             self._draw_frame(screen)
             pygame.display.flip()
+
+            if web_viewer:
+                web_viewer.update_frame(screen)
+
             clock.tick(self.fps)
 
+        if web_viewer:
+            web_viewer.stop()
         pygame.quit()
         log.info("Dashboard renderer stopped")
 
@@ -382,8 +434,11 @@ class DashboardRenderer:
         self._running = False
 
 
-def start_dashboard(config: BCMConfig, event_bus: EventBus, **kwargs) -> None:
-    """Entry point called from main.py to start the dashboard module."""
+def start_dashboard(config: BCMConfig, event_bus: EventBus, **kwargs) -> DashboardRenderer:
+    """Entry point called from main.py to start the dashboard module.
+
+    Returns the renderer so callers can call renderer.stop() for clean shutdown.
+    """
     renderer = DashboardRenderer(config, event_bus)
 
     # Start demo data generator on x86
@@ -397,3 +452,5 @@ def start_dashboard(config: BCMConfig, event_bus: EventBus, **kwargs) -> None:
     finally:
         if demo:
             demo.stop()
+
+    return renderer

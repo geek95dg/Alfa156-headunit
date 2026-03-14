@@ -4,11 +4,13 @@
 Usage:
     python main.py                              # auto-detect platform, start all enabled modules
     python main.py --platform x86               # force x86 platform
+    python main.py --platform x86 --headless    # x86 without X display (dashboard via WebViewer)
     python main.py --platform x86 --dry-run     # list modules without starting them
     python main.py --platform x86 --modules obd,dashboard
 """
 
 import argparse
+import os
 import signal
 import sys
 import time
@@ -74,11 +76,21 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="List modules and exit without starting them",
     )
+    parser.add_argument(
+        "--headless",
+        action="store_true",
+        help="Run PyGame with dummy video/audio drivers (no X display needed)",
+    )
     return parser.parse_args()
 
 
 def main() -> None:
     args = parse_args()
+
+    # Headless mode: set SDL dummy drivers before anything imports PyGame
+    if args.headless:
+        os.environ["SDL_VIDEODRIVER"] = "dummy"
+        os.environ["SDL_AUDIODRIVER"] = "dummy"
 
     # Load configuration
     platform_override = args.platform if args.platform != "auto" else None
@@ -171,11 +183,15 @@ def main() -> None:
 
     # Set up shutdown handler
     shutdown = False
+    dashboard_renderer = None
 
     def signal_handler(signum, frame):
         nonlocal shutdown
         log.info("Received signal %d, shutting down...", signum)
         shutdown = True
+        # Stop the dashboard renderer if it's blocking the main thread
+        if dashboard_renderer is not None:
+            dashboard_renderer.stop()
 
     signal.signal(signal.SIGINT, signal_handler)
     signal.signal(signal.SIGTERM, signal_handler)
@@ -186,7 +202,18 @@ def main() -> None:
     if dashboard_enabled:
         log.info("Starting dashboard (main thread — blocking)...")
         try:
-            start_dashboard(config=config, event_bus=event_bus, hal=hal)
+            # Create renderer before starting so signal handler can stop it
+            from src.dashboard.renderer import DashboardRenderer, DemoDataGenerator
+            dashboard_renderer = DashboardRenderer(config, event_bus)
+            demo = None
+            if config.platform == "x86":
+                demo = DemoDataGenerator(event_bus)
+                demo.start()
+            try:
+                dashboard_renderer.run()
+            finally:
+                if demo:
+                    demo.stop()
         except Exception:
             log.exception("Dashboard failed")
     else:

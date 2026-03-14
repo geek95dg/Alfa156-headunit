@@ -3,8 +3,11 @@
 Manages Bluetooth pairing, A2DP audio streaming (phone -> PipeWire -> DAC),
 and HFP hands-free calling with mic + speaker routing.
 
-Uses bluetoothctl CLI for device management. On x86, works with built-in
-or USB Bluetooth adapter. On OPi, uses onboard or USB BT.
+Uses bluetoothctl CLI for device management and a D-Bus pairing agent
+for handling phone-initiated pairing requests.
+
+On x86, works with built-in or USB Bluetooth adapter.
+On OPi, uses onboard or USB BT.
 """
 
 import subprocess
@@ -16,6 +19,102 @@ from src.core.event_bus import EventBus
 from src.core.logger import get_logger
 
 log = get_logger("multimedia.bluetooth")
+
+# D-Bus pairing agent — optional, only works when dbus is available
+try:
+    import dbus
+    import dbus.service
+    import dbus.mainloop.glib
+    HAS_DBUS = True
+except ImportError:
+    HAS_DBUS = False
+
+AGENT_PATH = "/org/bluez/bcm_agent"
+AGENT_CAPABILITY = "NoInputNoOutput"
+
+
+class _PairingAgent(dbus.service.Object):
+    """BlueZ D-Bus pairing agent that auto-accepts pairing requests.
+
+    Implements org.bluez.Agent1 interface so phones can pair with the headunit
+    without getting a timeout error.
+    """
+
+    AGENT_INTERFACE = "org.bluez.Agent1"
+
+    def __init__(self, bus, path):
+        super().__init__(bus, path)
+        log.info("BT pairing agent registered at %s", path)
+
+    @dbus.service.method(AGENT_INTERFACE, in_signature="", out_signature="")
+    def Release(self):
+        log.debug("Agent released")
+
+    @dbus.service.method(AGENT_INTERFACE, in_signature="os", out_signature="")
+    def AuthorizeService(self, device, uuid):
+        log.info("Agent: authorize service %s for %s", uuid, device)
+
+    @dbus.service.method(AGENT_INTERFACE, in_signature="o", out_signature="s")
+    def RequestPinCode(self, device):
+        log.info("Agent: PIN requested for %s → 0000", device)
+        return "0000"
+
+    @dbus.service.method(AGENT_INTERFACE, in_signature="o", out_signature="u")
+    def RequestPasskey(self, device):
+        log.info("Agent: passkey requested for %s → 0", device)
+        return dbus.UInt32(0)
+
+    @dbus.service.method(AGENT_INTERFACE, in_signature="ouq", out_signature="")
+    def DisplayPasskey(self, device, passkey, entered):
+        log.info("Agent: display passkey %06d for %s", passkey, device)
+
+    @dbus.service.method(AGENT_INTERFACE, in_signature="os", out_signature="")
+    def DisplayPinCode(self, device, pincode):
+        log.info("Agent: display PIN %s for %s", pincode, device)
+
+    @dbus.service.method(AGENT_INTERFACE, in_signature="ou", out_signature="")
+    def RequestConfirmation(self, device, passkey):
+        log.info("Agent: auto-confirming passkey %06d for %s", passkey, device)
+        # Auto-accept — no exception means confirmation is granted
+
+    @dbus.service.method(AGENT_INTERFACE, in_signature="o", out_signature="")
+    def RequestAuthorization(self, device):
+        log.info("Agent: auto-authorizing %s", device)
+
+    @dbus.service.method(AGENT_INTERFACE, in_signature="", out_signature="")
+    def Cancel(self):
+        log.debug("Agent: pairing cancelled")
+
+
+def _start_pairing_agent() -> bool:
+    """Register the D-Bus pairing agent with BlueZ."""
+    if not HAS_DBUS:
+        log.warning("dbus-python not available — pairing agent disabled")
+        return False
+
+    try:
+        dbus.mainloop.glib.DBusGMainLoop(set_as_default=True)
+        bus = dbus.SystemBus()
+
+        _PairingAgent(bus, AGENT_PATH)
+
+        manager = dbus.Interface(
+            bus.get_object("org.bluez", "/org/bluez"),
+            "org.bluez.AgentManager1",
+        )
+        manager.RegisterAgent(AGENT_PATH, AGENT_CAPABILITY)
+        manager.RequestDefaultAgent(AGENT_PATH)
+        log.info("BT pairing agent active (auto-accept, capability=%s)", AGENT_CAPABILITY)
+
+        # Run GLib main loop in background thread for D-Bus signal handling
+        from gi.repository import GLib
+        loop = GLib.MainLoop()
+        t = threading.Thread(target=loop.run, daemon=True)
+        t.start()
+        return True
+    except Exception:
+        log.exception("Failed to start D-Bus pairing agent")
+        return False
 
 
 def _run_btctl(args: list[str], timeout: float = 10.0) -> tuple[int, str, str]:
@@ -74,10 +173,12 @@ class BluetoothManager:
         if rc == 0 and "Controller" in out:
             self._available = True
             log.info("Bluetooth available")
-            # Ensure agent is set up and adapter is powered
-            _run_btctl(["agent", "NoInputNoOutput"])
-            _run_btctl(["default-agent"])
             _run_btctl(["power", "on"])
+            # Register D-Bus pairing agent (handles phone-initiated pairing)
+            if not _start_pairing_agent():
+                # Fallback to bluetoothctl agent (limited — phone-initiated may fail)
+                _run_btctl(["agent", "NoInputNoOutput"])
+                _run_btctl(["default-agent"])
         else:
             self._available = False
             log.warning("Bluetooth not available — will be simulated")
