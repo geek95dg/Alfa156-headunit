@@ -13,7 +13,7 @@ This directory contains all electrical schematics and wiring diagrams for the BC
 | **SBC** | Orange Pi 5 Plus (RK3588, 16GB RAM) |
 | **Display 1** | 4.3" TFT (480×272) — BCM dashboard |
 | **Display 2** | 7" IPS (1024×600) — Android Auto / multimedia |
-| **Audio** | USB DAC (PCM5102A) → TDA7388 4ch Class AB + TDA2050 sub |
+| **Audio** | USB DAC (ES9038Q2M) → TDA7388 4ch Class AB + TDA2050 sub |
 | **OBD** | L9637D K-Line transceiver → OBD-II port |
 | **Cameras** | 2× AHD 720P via USB3.0 4ch grabber |
 | **Parking** | 4× HC-SR04 ultrasonic sensors |
@@ -32,7 +32,7 @@ This directory contains all electrical schematics and wiring diagrams for the BC
 | `kline_circuit.svg` | L9637D K-Line transceiver for OBD-II |
 | `backlight_mosfet.svg` | Dual MOSFET PWM backlight drivers |
 | `parking_sensors.svg` | HC-SR04 wiring with voltage dividers |
-| `audio_system.svg` | USB DAC (PCM5102A) → TDA7388 + TDA2050 → speaker layout |
+| `audio_system.svg` | USB DAC (ES9038Q2M) → TDA7388 + TDA2050 → speaker layout |
 | `gpio_pinout.svg` | Complete 40-pin GPIO allocation |
 | `optoisolators.svg` | 5× PC817 vehicle signal isolation |
 | `vehicle_layout.svg` | Cable routing through the Alfa 156 |
@@ -115,14 +115,14 @@ GPIO assignments:
 
 ### Step 6: Audio System
 
-**Components (~105-160 PLN total):**
-- PCM5102A USB DAC module (~25-35 PLN)
+**Components (~125-200 PLN total):**
+- ES9038Q2M USB DAC module (~45-75 PLN) — 129dB SNR, pairs well with Class AB
 - TDA7388 (CD7388CZ) 4-channel Class AB amp board (~45-70 PLN)
 - TDA2050 mono Class AB amp board for subwoofer (~20-30 PLN)
 - Aluminum heatsink for TDA7388 (~15-25 PLN)
 
 **Assembly:**
-1. PCM5102A USB DAC module → USB port on OPi (auto-detected as ALSA sink)
+1. ES9038Q2M USB DAC module → USB port on OPi (auto-detected as ALSA sink)
 2. DAC RCA L/R output → TDA7388 4-channel amplifier input (L/R stereo)
 3. DAC RCA output → TDA2050 mono amp input (use L+R summed, or split from DAC)
 4. TDA7388 outputs:

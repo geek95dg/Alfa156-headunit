@@ -319,7 +319,7 @@ Sensor mounted under front bumper (shielded from engine heat)
 - `config/pipewire/eq-profile.json` — 10-band EQ preset
 
 **Key specs:**
-- **USB DAC: PCM5102A** module (32-bit/384kHz, 112dB SNR, USB audio class compliant, ~25-35 PLN)
+- **USB DAC: ES9038Q2M** module (32-bit/384kHz, 129dB SNR, USB audio class compliant, ~45-75 PLN)
 - **Main amplifier: TDA7388** (CD7388CZ) — 4-channel Class AB, 4×41W @ 14.4V/4Ω, MOSFET output (~45-70 PLN)
   - Built-in thermal shutdown and short circuit protection
   - Requires aluminum heatsink (Class AB ~50-60% efficiency, significant heat at load)
@@ -329,8 +329,8 @@ Sensor mounted under front bumper (shielded from engine heat)
   - Clean, musical output ideal for subwoofer duty
   - Requires small heatsink
   - Supply voltage: ±4.5V to ±25V (single supply 9-50V); on 12V car battery ~20W continuous
-- **Total audio module cost: ~105-160 PLN** (within 150-200 PLN budget incl. heatsinks + wiring)
-- PipeWire routes: AA/BT/FM → mixer → EQ → USB DAC (PCM5102A) → RCA → TDA7388 (4ch) + TDA2050 (sub)
+- **Total audio module cost: ~125-200 PLN** (within 150-200 PLN budget incl. heatsinks + wiring)
+- PipeWire routes: AA/BT/FM → mixer → EQ → USB DAC (ES9038Q2M) → RCA → TDA7388 (4ch) + TDA2050 (sub)
 - 10-band parametric EQ via PipeWire filter-chain
 - **Audio priority & ducking system:**
   - Priority 1 (highest): **Parking sensor beeps** — music soft-muted to -18dB, beeps at full volume. Music stays in background as long as reverse gear is engaged.
@@ -340,6 +340,12 @@ Sensor mounted under front bumper (shielded from engine heat)
   - Ducking: instant on trigger, smooth 1-second fade-back when priority event ends
   - Multiple priorities can stack (e.g., parking beeps + voice warning = music at -18dB, both beeps and voice audible)
 - Volume control via BT remote (VOL+/VOL-) and rotary encoder
+
+**Why ES9038Q2M over PCM5102A?**
+- With Class AB amplification, DAC quality matters — AB faithfully reproduces the input signal
+- ES9038Q2M: 129dB SNR vs PCM5102A 112dB — audible difference in mids/highs clarity
+- THD+N: -120dB vs -93dB — cleaner signal, less distortion
+- Worth the extra ~20-40 PLN for noticeably better audio quality
 
 **Why Class AB over Class D (TPA3116D2)?**
 - Class AB provides warmer, more natural sound with lower crossover distortion
@@ -583,7 +589,7 @@ Optoisolators (5× PC817):
 3. **Backlights:** 2× BC547 + IRLZ44N MOSFET per display, PWM driven
 4. **Parking:** Shared TRIG, 4× ECHO with resistive dividers, buzzer with flyback diode
 5. **Optoisolators:** 5× PC817 for 12V vehicle signals to 3.3V GPIO
-6. **Audio:** USB DAC (PCM5102A) → RCA → TDA7388 Class AB (4ch) + TDA2050 (sub) → 4 speakers + subwoofer
+6. **Audio:** USB DAC (ES9038Q2M) → RCA → TDA7388 Class AB (4ch) + TDA2050 (sub) → 4 speakers + subwoofer
 7. **Temperature:** DS18B20 with 4.7kΩ pull-up, 3-wire to under bumper
 8. **ADC:** MCP3008 on SPI for analog fuel pump sensor
 9. **RTC:** DS3231 on I2C for accurate timekeeping

@@ -12,7 +12,7 @@
     .note { font-size: 9px; fill: #666; text-anchor: start; }
   </style>
 
-  <text x="480" y="25" class="title" text-anchor="middle">Audio System — PCM5102A DAC → TDA7388 (4ch) + TDA2050 (sub) → 4.1 Speakers</text>
+  <text x="480" y="25" class="title" text-anchor="middle">Audio System — ES9038Q2M DAC → TDA7388 (4ch) + TDA2050 (sub) → 4.1 Speakers</text>
 
   <!-- PipeWire (software) -->
   <rect x="20" y="80" width="130" height="80" class="box" fill="#f0e0ff"/>
@@ -32,10 +32,10 @@
 
   <!-- USB DAC -->
   <rect x="195" y="85" width="140" height="70" class="box" fill="#fff0ff"/>
-  <text x="265" y="107" class="label" font-weight="bold">PCM5102A</text>
+  <text x="265" y="107" class="label" font-weight="bold">ES9038Q2M</text>
   <text x="265" y="122" class="pin">USB DAC Module</text>
-  <text x="265" y="137" class="pin">32-bit / 112dB SNR</text>
-  <text x="265" y="149" class="pin">~25-35 PLN</text>
+  <text x="265" y="137" class="pin">32-bit / 129dB SNR</text>
+  <text x="265" y="149" class="pin">~45-75 PLN</text>
   <line x1="150" y1="120" x2="195" y2="120" class="audio"/>
   <text x="172" y="115" class="pin">USB</text>
 
@@ -107,9 +107,9 @@
   <!-- Notes box -->
   <rect x="20" y="350" width="920" height="110" fill="#f8f8ff" stroke="#ccc" rx="4"/>
   <text x="40" y="370" class="note" font-weight="bold">Signal chain:</text>
-  <text x="40" y="385" class="note">Audio Source → PipeWire (mix/EQ/duck) → PCM5102A USB DAC → RCA → TDA7388 (4ch) + TDA2050 (sub) → Speakers</text>
+  <text x="40" y="385" class="note">Audio Source → PipeWire (mix/EQ/duck) → ES9038Q2M USB DAC → RCA → TDA7388 (4ch) + TDA2050 (sub) → Speakers</text>
   <text x="40" y="405" class="note" font-weight="bold">Audio ducking:</text>
   <text x="40" y="420" class="note">Parking beeps -18dB | Voice announcements -12dB (+3dB boost) | Phone calls -15dB | 1s smooth fade-back</text>
   <text x="40" y="440" class="note" font-weight="bold">Budget breakdown (~105-160 PLN):</text>
-  <text x="40" y="455" class="note">PCM5102A DAC ~25-35 PLN | TDA7388 board ~45-70 PLN | TDA2050 board ~20-30 PLN | Heatsink ~15-25 PLN</text>
+  <text x="40" y="455" class="note">ES9038Q2M DAC ~45-75 PLN | TDA7388 board ~45-70 PLN | TDA2050 board ~20-30 PLN | Heatsink ~15-25 PLN</text>
 </svg>
