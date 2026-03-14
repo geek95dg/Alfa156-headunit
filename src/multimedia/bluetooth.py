@@ -32,9 +32,15 @@ except ImportError:
 AGENT_PATH = "/org/bluez/bcm_agent"
 AGENT_CAPABILITY = "DisplayYesNo"
 
-# Android Auto Bluetooth profile UUID
-AA_SERVICE_UUID = "4de17a00-52cb-11e6-bdf4-0800200c9a66"
+# Bluetooth service UUIDs
+AA_SERVICE_UUID = "4de17a00-52cb-11e6-bdf4-0800200c9a66"  # Android Auto
+A2DP_SINK_UUID = "0000110b-0000-1000-8000-00805f9b34fb"   # A2DP Sink
+HFP_HF_UUID = "0000111e-0000-1000-8000-00805f9b34fb"      # HFP Hands-Free
+
+# D-Bus object paths for profiles
 AA_PROFILE_PATH = "/org/bluez/bcm_aa_profile"
+A2DP_PROFILE_PATH = "/org/bluez/bcm_a2dp_profile"
+HFP_PROFILE_PATH = "/org/bluez/bcm_hfp_profile"
 
 
 class _PairingAgent(dbus.service.Object):
@@ -56,7 +62,11 @@ class _PairingAgent(dbus.service.Object):
 
     @dbus.service.method(AGENT_INTERFACE, in_signature="os", out_signature="")
     def AuthorizeService(self, device, uuid):
-        log.info("Agent: authorize service %s for %s", uuid, device)
+        log.info("Agent: authorizing service %s for %s", uuid, device)
+        # Auto-trust device so A2DP/HFP/AA services are accepted
+        addr = device.split("/")[-1].replace("_", ":")
+        _run_btctl(["trust", addr])
+        return  # No exception = service authorized
 
     @dbus.service.method(AGENT_INTERFACE, in_signature="o", out_signature="s")
     def RequestPinCode(self, device):
@@ -96,12 +106,9 @@ class _PairingAgent(dbus.service.Object):
         log.debug("Agent: pairing cancelled")
 
 
-def _register_aa_profile(bus) -> bool:
-    """Register Android Auto Bluetooth profile with BlueZ.
-
-    This advertises the AA service UUID so phones automatically
-    recognize the headunit as an Android Auto accessory.
-    """
+def _register_bt_profile(bus, path: str, uuid: str, name: str,
+                         role: str = "server") -> bool:
+    """Register a Bluetooth profile with BlueZ ProfileManager1."""
     try:
         profile_mgr = dbus.Interface(
             bus.get_object("org.bluez", "/org/bluez"),
@@ -109,29 +116,39 @@ def _register_aa_profile(bus) -> bool:
         )
 
         opts = {
-            "Name": dbus.String("Android Auto Wireless"),
-            "Role": dbus.String("server"),
+            "Name": dbus.String(name),
+            "Role": dbus.String(role),
             "RequireAuthentication": dbus.Boolean(False),
             "RequireAuthorization": dbus.Boolean(False),
             "AutoConnect": dbus.Boolean(True),
         }
 
         profile_mgr.RegisterProfile(
-            dbus.ObjectPath(AA_PROFILE_PATH),
-            AA_SERVICE_UUID,
+            dbus.ObjectPath(path),
+            uuid,
             opts,
         )
-        log.info("Android Auto BT profile registered (UUID=%s)", AA_SERVICE_UUID)
+        log.info("BT profile registered: %s (UUID=%s)", name, uuid)
         return True
     except dbus.exceptions.DBusException as e:
         if "AlreadyExists" in str(e):
-            log.debug("AA profile already registered")
+            log.debug("BT profile already registered: %s", name)
             return True
-        log.warning("Failed to register AA profile: %s", e)
+        log.warning("Failed to register BT profile %s: %s", name, e)
         return False
     except Exception:
-        log.exception("Failed to register AA profile")
+        log.exception("Failed to register BT profile %s", name)
         return False
+
+
+def _register_all_profiles(bus) -> None:
+    """Register A2DP Sink, HFP, and Android Auto profiles."""
+    _register_bt_profile(bus, A2DP_PROFILE_PATH, A2DP_SINK_UUID,
+                         "A2DP Sink", role="server")
+    _register_bt_profile(bus, HFP_PROFILE_PATH, HFP_HF_UUID,
+                         "Hands-Free", role="client")
+    _register_bt_profile(bus, AA_PROFILE_PATH, AA_SERVICE_UUID,
+                         "Android Auto Wireless", role="server")
 
 
 def _configure_adapter(bus) -> None:
@@ -173,8 +190,8 @@ def _start_pairing_agent() -> bool:
         # Configure adapter name for discovery
         _configure_adapter(bus)
 
-        # Register Android Auto profile so phones detect AA
-        _register_aa_profile(bus)
+        # Register A2DP, HFP, and Android Auto profiles
+        _register_all_profiles(bus)
 
         # Run GLib main loop in background thread for D-Bus signal handling
         from gi.repository import GLib
