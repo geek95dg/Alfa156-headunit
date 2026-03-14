@@ -241,11 +241,14 @@ def _register_bt_profile(bus, path: str, uuid: str, name: str,
 
 
 def _register_all_profiles(bus) -> None:
-    """Register A2DP Sink, HFP, and Android Auto profiles."""
-    _register_bt_profile(bus, A2DP_PROFILE_PATH, A2DP_SINK_UUID,
-                         "A2DP Sink", role="server")
-    _register_bt_profile(bus, HFP_PROFILE_PATH, HFP_HF_UUID,
-                         "Hands-Free", role="client")
+    """Register Android Auto profile with BlueZ.
+
+    NOTE: A2DP Sink and HFP profiles are NOT registered here — they are
+    managed by PipeWire/WirePlumber via libspa-0.2-bluetooth. Registering
+    them here would block PipeWire (BlueZ: NotPermitted) and break audio.
+    We only register the Android Auto UUID which is custom and not handled
+    by any system audio daemon.
+    """
     _register_bt_profile(bus, AA_PROFILE_PATH, AA_SERVICE_UUID,
                          "Android Auto Wireless", role="server")
 
