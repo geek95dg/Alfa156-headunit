@@ -76,9 +76,13 @@ serial:
     ecu_address: 0x01
 
 # Audio
+# Hardware: ES9038Q2M USB DAC → TDA7388 4ch Class AB + TDA2050 mono sub
 audio:
   eq_preset: flat              # flat | rock | jazz | bass_boost | custom
   master_volume: 70            # 0-100
+  dac: ES9038Q2M               # USB DAC module (32-bit, 129dB SNR)
+  amp_main: TDA7388            # 4-channel Class AB, 4x41W @ 14.4V/4ohm
+  amp_sub: TDA2050             # Mono Class AB, 32W @ 4ohm
 
 # Voice control
 voice:

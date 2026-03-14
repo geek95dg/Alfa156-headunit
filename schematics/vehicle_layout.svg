@@ -90,8 +90,8 @@
 
   <!-- Amplifier -->
   <rect x="300" y="520" width="120" height="40" class="zone" fill="#ffe0e0"/>
-  <text x="360" y="538" class="label">TPA3116D2</text>
-  <text x="360" y="555" class="pin">(trunk, ventilated)</text>
+  <text x="360" y="538" class="label">TDA7388</text>
+  <text x="360" y="555" class="pin">(trunk, ventilated!)</text>
 
   <!-- Subwoofer -->
   <rect x="460" y="520" width="80" height="40" class="zone" fill="#f0e0ff"/>

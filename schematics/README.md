@@ -13,7 +13,7 @@ This directory contains all electrical schematics and wiring diagrams for the BC
 | **SBC** | Orange Pi 5 Plus (RK3588, 16GB RAM) |
 | **Display 1** | 4.3" TFT (480×272) — BCM dashboard |
 | **Display 2** | 7" IPS (1024×600) — Android Auto / multimedia |
-| **Audio** | USB DAC (PCM5102A/ES9038Q2M) → TPA3116D2 4.1 amp |
+| **Audio** | USB DAC (ES9038Q2M) → TDA7388 4ch Class AB + TDA2050 sub |
 | **OBD** | L9637D K-Line transceiver → OBD-II port |
 | **Cameras** | 2× AHD 720P via USB3.0 4ch grabber |
 | **Parking** | 4× HC-SR04 ultrasonic sensors |
@@ -32,7 +32,7 @@ This directory contains all electrical schematics and wiring diagrams for the BC
 | `kline_circuit.svg` | L9637D K-Line transceiver for OBD-II |
 | `backlight_mosfet.svg` | Dual MOSFET PWM backlight drivers |
 | `parking_sensors.svg` | HC-SR04 wiring with voltage dividers |
-| `audio_system.svg` | USB DAC → amplifier → speaker layout |
+| `audio_system.svg` | USB DAC (ES9038Q2M) → TDA7388 + TDA2050 → speaker layout |
 | `gpio_pinout.svg` | Complete 40-pin GPIO allocation |
 | `optoisolators.svg` | 5× PC817 vehicle signal isolation |
 | `vehicle_layout.svg` | Cable routing through the Alfa 156 |
@@ -47,7 +47,8 @@ This directory contains all electrical schematics and wiring diagrams for the BC
 2. Wire fuse output to LM2596 module input (VIN+/VIN-)
 3. Adjust LM2596 to 5.1V output (measure with multimeter before connecting!)
 4. Wire LM2596 output to OPi 5 Plus via USB-C PD trigger board (5V/4A)
-5. Separate 12V branch (20A fuse) directly to TPA3116D2 amplifier
+5. Separate 12V branch (25A fuse) directly to TDA7388 + TDA2050 amplifiers
+   - Class AB amplifiers draw more current than Class D — 25A fuse recommended
 
 **Warning:** Always verify 5.1V output before connecting Orange Pi. Overvoltage will damage the board.
 
@@ -114,13 +115,29 @@ GPIO assignments:
 
 ### Step 6: Audio System
 
-1. USB DAC (PCM5102A/ES9038Q2M) → USB port on OPi
-2. DAC RCA output → TPA3116D2 4.1 amplifier input
-3. Amplifier outputs:
-   - Front L/R → door speakers
-   - Rear L/R → rear shelf speakers
-   - Subwoofer → trunk sub
-4. Amplifier power: 12V direct from battery (20A fused)
+**Components (~125-200 PLN total):**
+- ES9038Q2M USB DAC module (~45-75 PLN) — 129dB SNR, pairs well with Class AB
+- TDA7388 (CD7388CZ) 4-channel Class AB amp board (~45-70 PLN)
+- TDA2050 mono Class AB amp board for subwoofer (~20-30 PLN)
+- Aluminum heatsink for TDA7388 (~15-25 PLN)
+
+**Assembly:**
+1. ES9038Q2M USB DAC module → USB port on OPi (auto-detected as ALSA sink)
+2. DAC RCA L/R output → TDA7388 4-channel amplifier input (L/R stereo)
+3. DAC RCA output → TDA2050 mono amp input (use L+R summed, or split from DAC)
+4. TDA7388 outputs:
+   - Channel 1 → Front Left door speaker (4Ω)
+   - Channel 2 → Front Right door speaker (4Ω)
+   - Channel 3 → Rear Left shelf speaker (4Ω)
+   - Channel 4 → Rear Right shelf speaker (4Ω)
+5. TDA2050 output → Subwoofer (4Ω, trunk mount)
+6. Mount TDA7388 on aluminum heatsink (Class AB ~50-60% efficiency = significant heat)
+7. Mount TDA2050 on small heatsink
+8. Amplifier power: 12V direct from battery (25A fused, shared for both amps)
+9. Mount both amps in trunk with ventilation (fan recommended for summer)
+
+**Important:** Class AB amplifiers generate more heat than Class D. Ensure adequate
+ventilation in the trunk enclosure. TDA7388 at moderate volume draws ~6-8A, peaks ~15A.
 
 ### Step 7: Temperature Sensor
 
@@ -197,5 +214,6 @@ GPIO assignments:
 | USB Mic | 5V | 0.1A | Via OPi USB |
 | AHD Grabber | 5V | 0.5A | Via USB3.0 |
 | **5V Total** | **5.1V** | **~3.0A** | LM2596 4A rated |
-| TPA3116D2 Amp | 12V | 3-10A | Separate fused line |
-| **12V Total** | **12V** | **~12A peak** | 20A fuse adequate |
+| TDA7388 Amp (4ch) | 12V | 5-15A | Class AB, separate 25A fused line |
+| TDA2050 Amp (sub) | 12V | 1-4A | Class AB, shared fused line |
+| **12V Total** | **12V** | **~20A peak** | 25A fuse recommended |
