@@ -43,14 +43,70 @@ A2DP_PROFILE_PATH = "/org/bluez/bcm_a2dp_profile"
 HFP_PROFILE_PATH = "/org/bluez/bcm_hfp_profile"
 
 
-class _PairingAgent(dbus.service.Object):
-    """BlueZ D-Bus pairing agent that auto-accepts pairing requests.
+class _PairingRequest:
+    """Holds a pending pairing confirmation request."""
 
-    Implements org.bluez.Agent1 interface so phones can pair with the headunit
-    without getting a timeout error.
+    def __init__(self, device_path: str, passkey: int):
+        addr = device_path.split("/")[-1].replace("_", ":")
+        self.device_path = device_path
+        self.address = addr
+        self.passkey = passkey
+        self.event = threading.Event()
+        self.accepted = False
+        self.timestamp = time.time()
+
+    def accept(self):
+        self.accepted = True
+        self.event.set()
+
+    def reject(self):
+        self.accepted = False
+        self.event.set()
+
+
+# Global pending pairing request — only one at a time
+_pending_pairing: Optional[_PairingRequest] = None
+_pairing_lock = threading.Lock()
+
+
+def get_pending_pairing() -> Optional[dict]:
+    """Get the current pending pairing request, if any."""
+    with _pairing_lock:
+        if _pending_pairing and not _pending_pairing.event.is_set():
+            return {
+                "address": _pending_pairing.address,
+                "passkey": f"{_pending_pairing.passkey:06d}",
+                "timestamp": _pending_pairing.timestamp,
+            }
+    return None
+
+
+def confirm_pairing(accept: bool) -> bool:
+    """Confirm or reject the pending pairing request."""
+    with _pairing_lock:
+        req = _pending_pairing
+    if req and not req.event.is_set():
+        if accept:
+            req.accept()
+            log.info("Pairing ACCEPTED by user for %s", req.address)
+        else:
+            req.reject()
+            log.info("Pairing REJECTED by user for %s", req.address)
+        return True
+    return False
+
+
+class _PairingAgent(dbus.service.Object):
+    """BlueZ D-Bus pairing agent with interactive confirmation.
+
+    Implements org.bluez.Agent1 interface. When a phone requests pairing,
+    the passkey is exposed via get_pending_pairing() so the web UI can
+    show a confirmation popup. The agent blocks until the user responds
+    or a 30-second timeout expires.
     """
 
     AGENT_INTERFACE = "org.bluez.Agent1"
+    CONFIRMATION_TIMEOUT = 30  # seconds to wait for user response
 
     def __init__(self, bus, path):
         super().__init__(bus, path)
@@ -63,10 +119,9 @@ class _PairingAgent(dbus.service.Object):
     @dbus.service.method(AGENT_INTERFACE, in_signature="os", out_signature="")
     def AuthorizeService(self, device, uuid):
         log.info("Agent: authorizing service %s for %s", uuid, device)
-        # Auto-trust device so A2DP/HFP/AA services are accepted
         addr = device.split("/")[-1].replace("_", ":")
         _run_btctl(["trust", addr])
-        return  # No exception = service authorized
+        return
 
     @dbus.service.method(AGENT_INTERFACE, in_signature="o", out_signature="s")
     def RequestPinCode(self, device):
@@ -88,11 +143,39 @@ class _PairingAgent(dbus.service.Object):
 
     @dbus.service.method(AGENT_INTERFACE, in_signature="ou", out_signature="")
     def RequestConfirmation(self, device, passkey):
-        log.info("Agent: auto-confirming passkey %06d for %s", passkey, device)
-        # Auto-trust the device so reconnection works
+        global _pending_pairing
         addr = device.split("/")[-1].replace("_", ":")
+        log.info("Agent: pairing confirmation requested — passkey %06d for %s",
+                 passkey, addr)
+
+        # Create pending request and wait for user response via web UI
+        req = _PairingRequest(device, passkey)
+        with _pairing_lock:
+            _pending_pairing = req
+
+        # Block until user responds or timeout
+        responded = req.event.wait(timeout=self.CONFIRMATION_TIMEOUT)
+
+        with _pairing_lock:
+            _pending_pairing = None
+
+        if not responded:
+            log.warning("Agent: pairing timed out for %s (no user response in %ds)",
+                        addr, self.CONFIRMATION_TIMEOUT)
+            raise dbus.exceptions.DBusException(
+                "org.bluez.Error.Rejected",
+                "Pairing confirmation timed out")
+
+        if not req.accepted:
+            log.info("Agent: pairing rejected by user for %s", addr)
+            raise dbus.exceptions.DBusException(
+                "org.bluez.Error.Rejected",
+                "Pairing rejected by user")
+
+        # Accepted — trust the device
         _run_btctl(["trust", addr])
-        return  # No exception = confirmation granted
+        log.info("Agent: pairing confirmed for %s", addr)
+        return
 
     @dbus.service.method(AGENT_INTERFACE, in_signature="o", out_signature="")
     def RequestAuthorization(self, device):
@@ -103,7 +186,12 @@ class _PairingAgent(dbus.service.Object):
 
     @dbus.service.method(AGENT_INTERFACE, in_signature="", out_signature="")
     def Cancel(self):
+        global _pending_pairing
         log.debug("Agent: pairing cancelled")
+        with _pairing_lock:
+            if _pending_pairing:
+                _pending_pairing.reject()
+                _pending_pairing = None
 
 
 def _register_bt_profile(bus, path: str, uuid: str, name: str,

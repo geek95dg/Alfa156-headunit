@@ -236,6 +236,26 @@ class AADisplaySimulator:
             return Response(json.dumps({"success": ok}),
                             mimetype="application/json")
 
+        @app.route("/bt/pairing")
+        def bt_pairing_status():
+            """Check if there's a pending pairing confirmation request."""
+            from src.multimedia.bluetooth import get_pending_pairing
+            req = get_pending_pairing()
+            return Response(json.dumps({"pending": req is not None,
+                                        "request": req}),
+                            mimetype="application/json")
+
+        @app.route("/bt/pairing/confirm", methods=["POST"])
+        def bt_pairing_confirm():
+            """Accept or reject the pending pairing request."""
+            from src.multimedia.bluetooth import confirm_pairing
+            accept = True
+            if request.is_json:
+                accept = request.json.get("accept", True)
+            ok = confirm_pairing(accept)
+            return Response(json.dumps({"success": ok}),
+                            mimetype="application/json")
+
         # Show network IPs
         local_ips = self._get_local_ips()
         log.info("AA Display web viewer starting on port 5001")
@@ -485,6 +505,69 @@ body {
 .toast.show { transform: translateX(-50%) translateY(0); }
 .toast.error { border-color: var(--red); color: var(--red); }
 .toast.success { border-color: var(--green); color: var(--green); }
+
+/* Pairing modal */
+.modal-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.7);
+    display: none;
+    justify-content: center;
+    align-items: center;
+    z-index: 200;
+}
+.modal-overlay.show { display: flex; }
+.modal {
+    background: var(--card);
+    border: 2px solid var(--accent);
+    border-radius: 16px;
+    padding: 28px;
+    max-width: 400px;
+    width: 90%;
+    text-align: center;
+    box-shadow: 0 0 60px rgba(74,140,255,0.3);
+    animation: modalIn 0.3s ease;
+}
+@keyframes modalIn {
+    from { transform: scale(0.9); opacity: 0; }
+    to { transform: scale(1); opacity: 1; }
+}
+.modal-icon {
+    font-size: 48px;
+    margin-bottom: 12px;
+}
+.modal-title {
+    font-size: 18px;
+    font-weight: 700;
+    margin-bottom: 8px;
+}
+.modal-device {
+    font-size: 13px;
+    color: var(--muted);
+    margin-bottom: 16px;
+}
+.modal-passkey {
+    font-size: 36px;
+    font-weight: 700;
+    letter-spacing: 8px;
+    color: var(--accent);
+    font-family: monospace;
+    background: rgba(74,140,255,0.1);
+    border-radius: 12px;
+    padding: 16px;
+    margin-bottom: 8px;
+}
+.modal-hint {
+    font-size: 12px;
+    color: var(--muted);
+    margin-bottom: 20px;
+}
+.modal-buttons {
+    display: flex;
+    gap: 12px;
+    justify-content: center;
+}
+.modal-buttons .btn { min-width: 120px; font-size: 16px; padding: 14px 24px; }
 </style>
 </head>
 <body>
@@ -581,6 +664,21 @@ body {
         <ul class="device-list" id="paired-list">
             <li class="empty-msg">No paired devices</li>
         </ul>
+    </div>
+</div>
+
+<!-- Pairing confirmation modal -->
+<div class="modal-overlay" id="pairing-modal">
+    <div class="modal">
+        <div class="modal-icon">&#x1F4F1;</div>
+        <div class="modal-title">Bluetooth Pairing Request</div>
+        <div class="modal-device" id="pairing-device">Device requesting to pair...</div>
+        <div class="modal-passkey" id="pairing-passkey">------</div>
+        <div class="modal-hint">Confirm this code matches the one shown on your phone</div>
+        <div class="modal-buttons">
+            <button class="btn btn-danger" onclick="pairingRespond(false)">Reject</button>
+            <button class="btn btn-success" onclick="pairingRespond(true)">Accept</button>
+        </div>
     </div>
 </div>
 
@@ -804,6 +902,50 @@ function btDiscoverable() {
         })
         .catch(() => showToast('Failed', 'error'));
 }
+
+// --- Pairing confirmation popup ---
+let pairingShown = false;
+
+function checkPairing() {
+    fetch('/bt/pairing').then(r => r.json()).then(d => {
+        const modal = document.getElementById('pairing-modal');
+        if (d.pending && d.request) {
+            document.getElementById('pairing-device').textContent =
+                'Device: ' + d.request.address;
+            document.getElementById('pairing-passkey').textContent =
+                d.request.passkey;
+            modal.classList.add('show');
+            if (!pairingShown) {
+                pairingShown = true;
+                // Switch to BT tab to show context
+                document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+                document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+                document.querySelector('[data-page="bt"]').classList.add('active');
+                document.getElementById('page-bt').classList.add('active');
+            }
+        } else {
+            modal.classList.remove('show');
+            pairingShown = false;
+        }
+    }).catch(() => {});
+}
+
+function pairingRespond(accept) {
+    fetch('/bt/pairing/confirm', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({accept: accept})
+    }).then(r => r.json()).then(d => {
+        document.getElementById('pairing-modal').classList.remove('show');
+        pairingShown = false;
+        showToast(accept ? 'Pairing accepted' : 'Pairing rejected',
+                  accept ? 'success' : 'error');
+        setTimeout(refreshBT, 2000);
+    }).catch(() => showToast('Failed to respond to pairing', 'error'));
+}
+
+// Poll for pairing requests every second
+setInterval(checkPairing, 1000);
 
 // Auto-refresh BT page every 3 seconds when visible
 setInterval(() => {
