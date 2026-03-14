@@ -185,8 +185,9 @@ python main.py --platform x86
 ```
 
 This will start all enabled modules in x86 simulation mode:
-- **Dashboard:** Pygame window (480×272) with simulated gauges
-- **OBD:** Simulated ECU data (RPM, speed, temp, etc.)
+- **Dashboard:** PyGame window (800×480) with 7 BCM screens (A1–C2), Polish/English UI
+- **Android Auto Display:** Web-based second screen at http://localhost:5001
+- **OBD:** Simulated ECU data (RPM, speed, temp, boost, etc.)
 - **Parking:** Simulated ultrasonic sensors
 - **Environment:** Simulated temperature readings
 - **Audio:** PipeWire integration (or stub if PipeWire unavailable)
@@ -195,6 +196,39 @@ This will start all enabled modules in x86 simulation mode:
 - **Camera:** Simulated camera frames (or real USB cam if passed through)
 - **Power:** Simulated ignition/shutdown state machine
 - **Multimedia:** Bluetooth manager (simulated) + OpenAuto stub
+
+### 5.2.1 Dashboard keyboard controls
+
+| Key | Action |
+|-----|--------|
+| **LEFT/RIGHT** | Navigate between screens (A1→A2→B1→B2→C1→C2) |
+| **UP/DOWN** | Adjust RPM (demo) |
+| **HOME / H** | Open/close settings menu |
+| **ESC** | Close settings or quit |
+| **R** | Toggle reverse gear (parking overlay) |
+| **T** | Cycle exterior temperature |
+| **I** | Trigger icing alert |
+| **ENTER (hold 2s)** | Long press action (reset trip on C1, confirm service on C2) |
+
+### 5.2.2 BCM Dashboard screens
+
+| Screen | Name | Content |
+|--------|------|---------|
+| **A1** | GŁÓWNY / MAIN | Tachometer, speed, RPM, instant consumption |
+| **A2** | SPALANIE / CONSUMPTION | Avg/instant fuel consumption, boost bar, trip distance |
+| **B1** | KLIMAT / CLIMATE | Analog clock, date, exterior temperature, defrost/climate |
+| **B2** | PALIWO / FUEL | Fuel tank graphic, estimated range, reserve indicator |
+| **C1** | TRIP | Distance, time, avg consumption (long push = reset) |
+| **C2** | SERWIS / SERVICE | Oil (placeholder), TPMS (future), service interval |
+
+### 5.2.3 Dual display (Android Auto simulation)
+
+The system automatically starts a web-based Android Auto display simulator:
+
+1. Open Firefox/Chrome on the VM
+2. Navigate to **http://localhost:5001**
+3. If using dual monitors in VMware, drag the browser to the second display
+4. This simulates the 7" multimedia screen that runs OpenAuto on the real hardware
 
 ### 5.3 Start specific modules only
 

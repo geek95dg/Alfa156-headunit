@@ -9,6 +9,10 @@ from src.dashboard.trip_computer import TripComputer
 from src.dashboard.status_bar import StatusBar
 from src.dashboard.overlays import ParkingOverlay, IcingAlert
 from src.dashboard.settings_screen import SettingsScreen, SETTINGS
+from src.dashboard.i18n import t, format_date, STRINGS
+from src.dashboard.screens import (
+    SCREEN_ORDER, SCREEN_CLASSES, DashboardData, BaseScreen,
+)
 
 
 class TestThemes:
@@ -29,21 +33,108 @@ class TestThemes:
         for cls in THEMES.values():
             assert issubclass(cls, ThemeBase)
 
-    def test_classic_alfa_has_red_accent(self):
+    def test_classic_alfa_has_warm_accent(self):
         theme = THEMES["classic_alfa"]()
-        # Red channel should be dominant in accent color
-        assert theme.accent_color[0] > theme.accent_color[1]
+        # Amber/orange accent — red channel should be dominant
         assert theme.accent_color[0] > theme.accent_color[2]
 
-    def test_modern_dark_uses_bar_gauges(self):
+    def test_modern_dark_has_cyan_accent(self):
         theme = THEMES["modern_dark"]()
-        assert theme.rpm_gauge.style == "bar"
-        assert theme.speed_gauge.style == "bar"
+        # Cyan accent — blue channel dominant
+        assert theme.accent_color[2] > theme.accent_color[0]
 
     def test_oem_digital_uses_digital_for_small_gauges(self):
         theme = THEMES["oem_digital"]()
         assert theme.temp_gauge.style == "digital"
         assert theme.fuel_gauge.style == "digital"
+
+    def test_theme_has_screen_properties(self):
+        """All themes must have the new screen-based properties."""
+        for cls in THEMES.values():
+            theme = cls()
+            assert hasattr(theme, "screen_title_color")
+            assert hasattr(theme, "value_large_color")
+            assert hasattr(theme, "bottom_bar_bg")
+            assert hasattr(theme, "side_gauge_width")
+            assert hasattr(theme, "arc_gradient_start")
+            assert hasattr(theme, "clock_face_color")
+            assert hasattr(theme, "fuel_tank_body")
+            assert hasattr(theme, "service_ok")
+            assert hasattr(theme, "badge_circle")
+            assert hasattr(theme, "content_y")
+            assert hasattr(theme, "content_h")
+
+
+class TestI18n:
+    def test_translate_polish(self):
+        assert t("screen.a1", "pl") == "A1: GŁÓWNY"
+        assert t("screen.a2", "pl") == "A2: SPALANIE"
+        assert t("parking", "pl") == "PARKOWANIE"
+
+    def test_translate_english(self):
+        assert t("screen.a1", "en") == "A1: MAIN"
+        assert t("screen.a2", "en") == "A2: CONSUMPTION"
+        assert t("parking", "en") == "PARKING"
+
+    def test_missing_key_returns_key(self):
+        assert t("nonexistent.key", "pl") == "nonexistent.key"
+
+    def test_unknown_lang_falls_back_to_polish(self):
+        assert t("screen.a1", "xx") == "A1: GŁÓWNY"
+
+    def test_all_pl_keys_exist_in_en(self):
+        pl_keys = set(STRINGS["pl"].keys())
+        en_keys = set(STRINGS["en"].keys())
+        missing = pl_keys - en_keys
+        assert not missing, f"EN missing keys: {missing}"
+
+    def test_all_en_keys_exist_in_pl(self):
+        pl_keys = set(STRINGS["pl"].keys())
+        en_keys = set(STRINGS["en"].keys())
+        missing = en_keys - pl_keys
+        assert not missing, f"PL missing keys: {missing}"
+
+    def test_format_date_returns_string(self):
+        date_pl = format_date("pl")
+        assert isinstance(date_pl, str)
+        assert len(date_pl) > 5
+        date_en = format_date("en")
+        assert isinstance(date_en, str)
+
+
+class TestScreenSystem:
+    def test_screen_order(self):
+        assert SCREEN_ORDER == ["a1", "a2", "b1", "b2", "c1", "c2"]
+
+    def test_all_screens_registered(self):
+        for sid in SCREEN_ORDER:
+            assert sid in SCREEN_CLASSES
+
+    def test_screen_classes_instantiate(self):
+        for sid, cls in SCREEN_CLASSES.items():
+            screen = cls()
+            assert isinstance(screen, BaseScreen)
+            assert screen.screen_id == sid
+
+    def test_dashboard_data_defaults(self):
+        data = DashboardData()
+        assert data.rpm == 0.0
+        assert data.speed == 0.0
+        assert data.lang == "pl"
+        assert data.gear == "N"
+        assert data.reverse is False
+        assert data.oil_level_pct == -1.0
+        assert data.tpms_available is False
+
+    def test_screen_long_press(self):
+        from src.dashboard.screens.trip_screen import TripScreen
+        from src.dashboard.screens.service_screen import ServiceScreen
+        from src.dashboard.screens.main_screen import MainScreen
+
+        data = DashboardData()
+        assert TripScreen().on_long_press(data) == "trip.reset"
+        assert ServiceScreen().on_long_press(data) == "service.confirm"
+        assert MainScreen().on_long_press(data) is None
 
 
 class TestTripComputer:
@@ -55,14 +146,11 @@ class TestTripComputer:
 
     def test_update_accumulates_distance(self):
         trip = TripComputer()
-        # Simulate 100 km/h for 1 second
         trip.update(100.0, 5.0, dt=1.0)
-        # distance = 100/3600 * 1 ≈ 0.0278 km
         assert 0.027 < trip.distance_km < 0.029
 
     def test_update_accumulates_fuel(self):
         trip = TripComputer()
-        # 5 L/h for 1 second = 5/3600 ≈ 0.00139 L
         trip.update(100.0, 5.0, dt=1.0)
         assert 0.001 < trip.fuel_used_l < 0.002
 
@@ -75,7 +163,6 @@ class TestTripComputer:
     def test_instant_consumption(self):
         trip = TripComputer()
         trip.update(100.0, 7.0, dt=1.0)
-        # 7 L/h at 100 km/h = 7.0 L/100km
         assert trip.instant_consumption == pytest.approx(7.0)
 
     def test_instant_consumption_at_standstill(self):
@@ -86,7 +173,6 @@ class TestTripComputer:
     def test_estimated_range(self):
         trip = TripComputer()
         trip.fuel_level_pct = 50.0
-        # Drive to get some avg consumption
         for _ in range(100):
             trip.update(80.0, 6.0, dt=1.0)
         assert trip.estimated_range_km > 0
@@ -94,7 +180,6 @@ class TestTripComputer:
     def test_trip_time_str(self):
         trip = TripComputer()
         time_str = trip.trip_time_str
-        # Should be HH:MM:SS format
         parts = time_str.split(":")
         assert len(parts) == 3
 
@@ -107,7 +192,7 @@ class TestTripComputer:
 
     def test_skip_unreasonable_dt(self):
         trip = TripComputer()
-        trip.update(100.0, 5.0, dt=10.0)  # >5s, should be skipped
+        trip.update(100.0, 5.0, dt=10.0)
         assert trip.distance_km == 0.0
 
 
@@ -183,7 +268,6 @@ class TestSettingsScreen:
         cfg = BCMConfig(platform_override="x86")
         settings = SettingsScreen(cfg)
         settings.toggle()
-        # First setting is theme
         settings.cycle_value(1)
         new_theme = cfg.get("display.dashboard.theme")
         assert new_theme in ["classic_alfa", "modern_dark", "oem_digital"]
