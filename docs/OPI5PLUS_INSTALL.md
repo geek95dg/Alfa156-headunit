@@ -576,7 +576,20 @@ wpctl set-default <source-node-id>
 
 After wake word detection, speak a command within 5 seconds.
 
-### 12.3 Available commands
+### 12.3 SWC remote (steering wheel buttons)
+
+The steering wheel control remote uses two round button pods with a decoder box:
+- Red wire → 12V accessory
+- Black wire → chassis ground
+- White wire → Arduino Pro Micro pin A0
+
+Calibrate after installation:
+1. Connect Arduino to PC (or SSH to OPi and open `picocom /dev/ttyACM0 -b 115200`)
+2. Hold HOME + BACK buttons during Arduino boot
+3. Press each button when prompted
+4. Values saved to EEPROM
+
+### 12.4 Available commands
 
 | Polish | English | Action |
 |--------|---------|--------|

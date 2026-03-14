@@ -2,6 +2,7 @@
 
 Handles keycodes from:
     - Arduino rotary encoder (USB HID keyboard)
+    - Steering wheel control remote (SWC, analog via Arduino ADC)
     - BT steering wheel remote (BT HID)
     - Keyboard fallback (x86 development)
 
@@ -25,10 +26,17 @@ KEY_BACK = 158  # KEY_BACK
 KEY_MEDIA = 226  # KEY_MEDIA (or a custom mapping)
 KEY_VOLUMEUP = 115
 KEY_VOLUMEDOWN = 114
+KEY_MUTE = 113
 KEY_NEXTSONG = 163
 KEY_PREVIOUSSONG = 165
 KEY_PLAYPAUSE = 164
 KEY_PHONE = 169
+
+# SWC-specific keycodes (Arduino sends F5-F8 for SWC phone/voice/source)
+KEY_F5 = 63   # SWC phone pickup
+KEY_F6 = 64   # SWC phone hangup
+KEY_F7 = 65   # SWC voice assistant trigger
+KEY_F8 = 66   # SWC audio source cycle
 
 # Map evdev keycodes → event bus topics
 KEYCODE_MAP: dict[int, str] = {
@@ -40,10 +48,16 @@ KEYCODE_MAP: dict[int, str] = {
     KEY_MEDIA: "input.media_button",
     KEY_VOLUMEUP: "input.volume_up",
     KEY_VOLUMEDOWN: "input.volume_down",
+    KEY_MUTE: "input.mute",
     KEY_NEXTSONG: "input.next_track",
     KEY_PREVIOUSSONG: "input.prev_track",
     KEY_PLAYPAUSE: "input.play_pause",
     KEY_PHONE: "input.phone",
+    # SWC-specific actions (via Arduino F-keys)
+    KEY_F5: "input.phone_pickup",
+    KEY_F6: "input.phone_hangup",
+    KEY_F7: "input.voice_trigger",
+    KEY_F8: "input.source_cycle",
 }
 
 # Keyboard key names → keycodes (for x86 development without HID devices)
@@ -56,9 +70,15 @@ KEYBOARD_MAP: dict[str, int] = {
     "m": KEY_MEDIA,
     "+": KEY_VOLUMEUP,
     "-": KEY_VOLUMEDOWN,
+    "0": KEY_MUTE,
     "n": KEY_NEXTSONG,
     "p": KEY_PREVIOUSSONG,
     "space": KEY_PLAYPAUSE,
+    # SWC simulation shortcuts
+    "f5": KEY_F5,
+    "f6": KEY_F6,
+    "f7": KEY_F7,
+    "f8": KEY_F8,
 }
 
 

@@ -96,6 +96,15 @@ camera:
   max_storage_gb: 128
   recording_path: /media/dashcam
 
+# Steering wheel control remote (SWC)
+# Analog resistor-ladder decoder box → Arduino Pro Micro A0
+# Calibrate by holding HOME + BACK during Arduino boot
+swc:
+  enabled: true
+  # Button-to-action mapping (matches Arduino firmware)
+  # Buttons: SWC_VOLUP, SWC_VOLDN, SWC_UP, SWC_DOWN, SWC_MUTE, SWC_MODE
+  #          SWC_NEXT, SWC_PREV, SWC_PICKUP, SWC_HANGUP, SWC_VOICE, SWC_SRC
+
 # Power management
 power:
   shutdown_delay_seconds: 30

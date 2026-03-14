@@ -116,7 +116,9 @@ def start_input(config: Any, event_bus: EventBus, hal: Any = None,
     # Action dispatcher (keycode → event bus actions)
     dispatcher = ActionDispatcher(event_bus)
 
-    # Rotary encoder (Arduino USB HID)
+    # Rotary encoder + SWC (Arduino USB HID — single device handles both)
+    # SWC analog buttons are read by Arduino ADC and sent as HID keycodes
+    # alongside encoder/button events on the same USB device.
     encoder = RotaryEncoderListener(event_bus)
     encoder.start()
 
@@ -124,7 +126,7 @@ def start_input(config: Any, event_bus: EventBus, hal: Any = None,
     bt_remote = BTRemoteListener(event_bus)
     bt_remote.start()
 
-    log.info("Input module running (encoder=%s, bt_remote=%s)",
+    log.info("Input module running (encoder+swc=%s, bt_remote=%s)",
              "active" if encoder.available else "simulated",
              "active" if bt_remote.available else "simulated")
 

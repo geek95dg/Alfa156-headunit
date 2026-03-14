@@ -17,7 +17,7 @@ This directory contains all electrical schematics and wiring diagrams for the BC
 | **OBD** | L9637D K-Line transceiver → OBD-II port |
 | **Cameras** | 2× AHD 720P via USB3.0 4ch grabber |
 | **Parking** | 4× HC-SR04 ultrasonic sensors |
-| **Input** | Arduino Pro Micro rotary encoder + BT remote |
+| **Input** | Arduino Pro Micro rotary encoder + SWC remote + BT remote |
 | **Microphone** | USB condenser (ceiling mount) |
 | **Temperature** | DS18B20 1-Wire (under front bumper) |
 
@@ -159,6 +159,7 @@ ventilation in the trunk enclosure. TDA7388 at moderate volume draws ~6-8A, peak
 
 ### Step 9: Input Controller
 
+**Arduino Pro Micro + rotary encoder:**
 1. Arduino Pro Micro + rotary encoder assembly:
    - D2 ← Encoder CLK (with 10kΩ pull-up)
    - D3 ← Encoder DT (with 10kΩ pull-up)
@@ -166,6 +167,29 @@ ventilation in the trunk enclosure. TDA7388 at moderate volume draws ~6-8A, peak
    - D5-D9 ← HOME, BACK, MEDIA, VOL+, VOL- buttons
 2. Mount encoder/buttons in custom center console panel
 3. USB cable from Arduino to OPi USB hub
+
+**Steering Wheel Control (SWC) remote:**
+Universal 2-pod steering wheel remote with resistor-ladder decoder box.
+
+Wiring:
+1. Decoder box wires:
+   - Red wire → 12V accessory/ignition (powers the decoder box)
+   - Black wire → chassis ground
+   - White wire → Arduino Pro Micro pin A0 (analog input)
+2. Mount button pods on steering wheel (adhesive backing)
+3. Route white wire from decoder box to Arduino A0 pin
+4. Decoder box can be mounted behind dash near Arduino
+
+Button layout:
+- Pod 1 (left): VOL+, VOL-, UP, DOWN, MUTE, MODE (center)
+- Pod 2 (right): PHONE PICKUP, PHONE HANGUP, PREV, NEXT, VOICE, SRC (center)
+
+Calibration:
+1. Connect Arduino to PC via USB
+2. Open Serial Monitor (115200 baud)
+3. Hold HOME + BACK buttons during Arduino power-on
+4. Follow prompts — press each SWC button when asked
+5. Values are saved to Arduino EEPROM (persists across reboots)
 
 ### Step 10: Final Assembly
 

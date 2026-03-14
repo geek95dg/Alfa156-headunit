@@ -6,8 +6,13 @@ from src.core.event_bus import EventBus
 from src.input.action_dispatch import (
     ActionDispatcher, KEYCODE_MAP, KEYBOARD_MAP,
     KEY_UP, KEY_DOWN, KEY_ENTER, KEY_HOME, KEY_BACK,
-    KEY_VOLUMEUP, KEY_VOLUMEDOWN, KEY_NEXTSONG, KEY_PREVIOUSSONG,
+    KEY_VOLUMEUP, KEY_VOLUMEDOWN, KEY_MUTE, KEY_NEXTSONG, KEY_PREVIOUSSONG,
     KEY_PLAYPAUSE, KEY_PHONE, KEY_MEDIA,
+    KEY_F5, KEY_F6, KEY_F7, KEY_F8,
+)
+from src.input.swc_remote import (
+    SWC_BUTTONS, get_swc_button_names, get_swc_action,
+    KEY_F5 as SWC_KEY_F5, KEY_MUTE as SWC_KEY_MUTE,
 )
 
 
@@ -115,6 +120,41 @@ class TestActionDispatcher:
         assert self.disp.dispatch_keycode(KEY_MEDIA)
         assert len(received) == 1
 
+    def test_dispatch_mute(self):
+        received = []
+        self.bus.subscribe("input.mute", lambda t, v, ts: received.append(t))
+
+        assert self.disp.dispatch_keycode(KEY_MUTE)
+        assert len(received) == 1
+
+    def test_dispatch_swc_phone_pickup(self):
+        received = []
+        self.bus.subscribe("input.phone_pickup", lambda t, v, ts: received.append(t))
+
+        assert self.disp.dispatch_keycode(KEY_F5)
+        assert len(received) == 1
+
+    def test_dispatch_swc_phone_hangup(self):
+        received = []
+        self.bus.subscribe("input.phone_hangup", lambda t, v, ts: received.append(t))
+
+        assert self.disp.dispatch_keycode(KEY_F6)
+        assert len(received) == 1
+
+    def test_dispatch_swc_voice_trigger(self):
+        received = []
+        self.bus.subscribe("input.voice_trigger", lambda t, v, ts: received.append(t))
+
+        assert self.disp.dispatch_keycode(KEY_F7)
+        assert len(received) == 1
+
+    def test_dispatch_swc_source_cycle(self):
+        received = []
+        self.bus.subscribe("input.source_cycle", lambda t, v, ts: received.append(t))
+
+        assert self.disp.dispatch_keycode(KEY_F8)
+        assert len(received) == 1
+
     def test_unmapped_keycode(self):
         assert not self.disp.dispatch_keycode(999)
 
@@ -175,8 +215,47 @@ class TestKeycodeMapping:
     def test_expected_keycodes_present(self):
         expected = [
             KEY_UP, KEY_DOWN, KEY_ENTER, KEY_HOME, KEY_BACK,
-            KEY_VOLUMEUP, KEY_VOLUMEDOWN, KEY_NEXTSONG,
+            KEY_VOLUMEUP, KEY_VOLUMEDOWN, KEY_MUTE, KEY_NEXTSONG,
             KEY_PREVIOUSSONG, KEY_PLAYPAUSE, KEY_PHONE, KEY_MEDIA,
+            KEY_F5, KEY_F6, KEY_F7, KEY_F8,
         ]
         for code in expected:
             assert code in KEYCODE_MAP, f"Keycode {code} not in map"
+
+
+# ---------------------------------------------------------------------------
+# SWC Remote module tests
+# ---------------------------------------------------------------------------
+
+class TestSWCRemote:
+    def test_swc_buttons_defined(self):
+        assert len(SWC_BUTTONS) == 12
+
+    def test_get_swc_button_names(self):
+        names = get_swc_button_names()
+        assert len(names) == 12
+        assert "SWC_VOLUP" in names
+        assert "SWC_VOICE" in names
+        assert "SWC_SRC" in names
+
+    def test_get_swc_action(self):
+        assert get_swc_action("SWC_VOLUP") == "volume_up"
+        assert get_swc_action("SWC_PICKUP") == "phone_pickup"
+        assert get_swc_action("SWC_VOICE") == "voice_trigger"
+        assert get_swc_action("SWC_SRC") == "source_cycle"
+
+    def test_get_swc_action_unknown(self):
+        assert get_swc_action("NONEXISTENT") is None
+
+    def test_swc_keycodes_match_dispatch(self):
+        """SWC F-key keycodes should be in the action dispatch map."""
+        assert SWC_KEY_F5 in KEYCODE_MAP
+        assert SWC_KEY_MUTE in KEYCODE_MAP
+
+    def test_all_swc_actions_have_matching_dispatch(self):
+        """Every SWC action should have a corresponding input.* event in KEYCODE_MAP."""
+        dispatch_actions = set(KEYCODE_MAP.values())
+        for btn_name, action_suffix in SWC_BUTTONS.items():
+            event = f"input.{action_suffix}"
+            assert event in dispatch_actions, \
+                f"SWC {btn_name} → input.{action_suffix} not in KEYCODE_MAP"

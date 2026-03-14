@@ -62,6 +62,11 @@ Once the dashboard window is open, these keys work:
 | `T` | Cycle exterior temperature down (-3 C per press, for icing test) |
 | `I` | Trigger icing alert overlay manually |
 | `H` or `HOME` | Open/close Settings menu |
+| `0` | Mute (SWC mute simulation) |
+| `F5` | Phone pickup (SWC simulation) |
+| `F6` | Phone hangup (SWC simulation) |
+| `F7` | Voice assistant trigger (SWC simulation) |
+| `F8` | Audio source cycle (SWC simulation) |
 | `ESC` | Close settings (if open) / Quit application |
 
 ### Settings Menu (press H to open)
@@ -303,7 +308,10 @@ Common event topics:
 - `env.temperature`
 - `parking.distances` (list of 4 floats)
 - `power.reverse_gear` (bool)
-- `input.volume_up`, `input.volume_down`
+- `input.volume_up`, `input.volume_down`, `input.mute`
+- `input.phone_pickup`, `input.phone_hangup` (SWC phone buttons)
+- `input.voice_trigger` (SWC voice button)
+- `input.source_cycle` (SWC source button)
 - `voice.cmd.*` (voice command actions)
 
 ---
