@@ -67,6 +67,7 @@ Once the dashboard window is open, these keys work:
 | `F6` | Phone hangup (SWC simulation) |
 | `F7` | Voice assistant trigger (SWC simulation) |
 | `F8` | Audio source cycle (SWC simulation) |
+| `F9` | Brightness cycle (stalk button simulation) |
 | `ESC` | Close settings (if open) / Quit application |
 
 ### Settings Menu (press H to open)
@@ -84,6 +85,10 @@ Once the dashboard window is open, these keys work:
 
 | Setting | Options |
 |---------|---------|
+Settings menu has 2 pages. Press `BACKSPACE` to switch between General and SWC Button Mapping.
+
+| Setting | Options |
+|---------|---------|
 | **Theme** | Classic Alfa Racing / Modern Dark / OEM Digital |
 | **Language** | Polski / English |
 | **Speed Units** | km/h / mph |
@@ -93,6 +98,12 @@ Once the dashboard window is open, these keys work:
 | **Wake Sensitivity** | Low / Medium / High |
 
 Settings are saved to `config/bcm_config.yaml` when you close the menu.
+
+**Page 2: SWC Button Mapping** (press BACKSPACE to switch)
+
+Each SWC button can be remapped to any of 16 available actions:
+Volume Up/Down, Mute, Menu Up/Down, Home, Back, Next/Prev Track, Play/Pause,
+Phone Pickup/Hangup, Voice Assist, Source Cycle, Brightness, or Disabled.
 
 ---
 

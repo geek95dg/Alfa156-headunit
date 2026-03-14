@@ -1,5 +1,5 @@
 /*
- * BCM v7 — Rotary Encoder + Buttons + Steering Wheel Remote → USB HID
+ * BCM v7 — Rotary Encoder + Buttons + SWC + Music Panel + Brightness → USB HID
  *
  * Hardware: Arduino Pro Micro (ATmega32U4)
  *
@@ -14,45 +14,30 @@
  *   D9 ← VOL- button  (active LOW, internal pull-up)
  *   A0 ← Steering wheel remote decoder (white wire, analog 0-5V)
  *
- * Steering wheel remote decoder box:
- *   White wire  → A0 (analog signal, resistor-ladder output)
- *   Black wire  → GND (chassis ground)
- *   Red wire    → VCC (12V accessory — powers the decoder, NOT connected to Arduino)
+ *   Music panel (5 buttons near 7" AA screen, active LOW, internal pull-ups):
+ *   D10 ← MUSIC PREV
+ *   D14 ← MUSIC NEXT
+ *   D15 ← MUSIC VOL+
+ *   D16 ← MUSIC VOL-
+ *   A3  ← MUSIC MUTE
  *
- * The decoder box outputs different voltages on the white wire depending
- * on which button is pressed. Each button = unique resistance = unique ADC value.
+ *   Brightness:
+ *   A1  ← LDR light sensor (voltage divider: LDR + 10kΩ to GND → A1)
+ *   A2  ← Stalk button (spare button on column stalk, active LOW, internal pull-up)
  *
- * SWC button pods (2x 6-button round pods):
- *   Pod 1: VOL+, VOL-, UP, DOWN, MUTE, MODE (center)
- *   Pod 2: PHONE PICKUP, PHONE HANGUP, PREV, NEXT, VOICE, SRC (center)
+ * SWC decoder box: white → A0, black → GND, red → 12V ACC
  *
- * Output: USB HID keyboard/consumer keycodes
- *   Encoder CW   → KEY_DOWN_ARROW
- *   Encoder CCW  → KEY_UP_ARROW
- *   Encoder SW   → KEY_RETURN (Enter)
- *   HOME         → KEY_HOME
- *   BACK         → KEY_BACKSPACE
- *   MEDIA        → MEDIA_PLAY_PAUSE
- *   VOL+         → Volume Up (consumer)
- *   VOL-         → Volume Down (consumer)
- *   --- SWC buttons (analog) ---
- *   SWC VOL+     → Volume Up (consumer)
- *   SWC VOL-     → Volume Down (consumer)
- *   SWC UP       → KEY_UP_ARROW
- *   SWC DOWN     → KEY_DOWN_ARROW
- *   SWC MUTE     → MEDIA_VOLUME_MUTE
- *   SWC MODE     → KEY_HOME (settings toggle)
- *   SWC NEXT     → MEDIA_NEXT
- *   SWC PREV     → MEDIA_PREVIOUS
- *   SWC PICKUP   → KEY_F5 (phone answer)
- *   SWC HANGUP   → KEY_F6 (phone hangup)
- *   SWC VOICE    → KEY_F7 (voice assistant trigger)
- *   SWC SRC      → KEY_F8 (audio source cycle)
+ * Music panel buttons send same keycodes as SWC/encoder equivalents:
+ *   MUSIC PREV  → MEDIA_PREVIOUS (consumer)
+ *   MUSIC NEXT  → MEDIA_NEXT (consumer)
+ *   MUSIC VOL+  → MEDIA_VOLUME_UP (consumer)
+ *   MUSIC VOL-  → MEDIA_VOLUME_DOWN (consumer)
+ *   MUSIC MUTE  → MEDIA_VOLUME_MUTE (consumer)
  *
- * Calibration mode:
- *   Hold HOME + BACK at boot → enters calibration mode.
- *   Press each SWC button when prompted via serial.
- *   Stores thresholds in EEPROM.
+ * Brightness stalk button → KEY_F9 (brightness cycle)
+ * Light sensor → KEY_F10 with serial data (light level 0-1023)
+ *
+ * Calibration mode: hold HOME + BACK at boot → SWC calibration via serial.
  */
 
 #include <Keyboard.h>
@@ -70,20 +55,32 @@
 #define BTN_VOLDN 9
 #define SWC_PIN   A0
 
+// Music panel buttons (near 7" Android Auto screen)
+#define MUS_PREV  10
+#define MUS_NEXT  14
+#define MUS_VOLUP 15
+#define MUS_VOLDN 16
+#define MUS_MUTE  A3
+
+// Brightness
+#define LDR_PIN       A1   // Light sensor analog input
+#define STALK_BTN_PIN A2   // Spare stalk button (brightness cycle)
+
 // --- Debounce ---
 #define DEBOUNCE_MS 50
 #define ENCODER_DEBOUNCE_MS 5
 #define SWC_DEBOUNCE_MS 150
 #define ADC_TOLERANCE 40
+#define LIGHT_REPORT_MS 2000  // Send light level every 2 seconds
 
 // --- SWC button count ---
 #define SWC_BUTTON_COUNT 12
-#define SWC_IDLE_THRESHOLD 1000  // ADC > this = no button pressed
+#define SWC_IDLE_THRESHOLD 1000
 
 // --- EEPROM layout ---
 #define EEPROM_MAGIC_ADDR 0
 #define EEPROM_MAGIC_VALUE 0xBC
-#define EEPROM_SWC_ADDR 1   // 12 x 2 bytes (uint16_t) = 24 bytes
+#define EEPROM_SWC_ADDR 1   // 12 x 2 bytes = 24 bytes
 
 // SWC button indices
 enum SWCButton {
@@ -106,53 +103,57 @@ const char* SWC_NAMES[SWC_BUTTON_COUNT] = {
   "NEXT", "PREV", "PICKUP", "HANGUP", "VOICE", "SRC"
 };
 
-// --- Default ADC values (typical resistor-ladder, 10-bit ADC) ---
-// These are starting defaults; calibration overwrites them.
-// Typical cheap SWC decoders output voltages roughly:
-//   0V(0) to ~4.5V(920) spread across buttons
 uint16_t swcValues[SWC_BUTTON_COUNT] = {
-  75,   // VOL+
-  150,  // VOL-
-  230,  // UP
-  310,  // DOWN
-  390,  // MUTE
-  470,  // MODE
-  540,  // NEXT
-  610,  // PREV
-  690,  // PICKUP
-  760,  // HANGUP
-  830,  // VOICE
-  900,  // SRC
+  75, 150, 230, 310, 390, 470,
+  540, 610, 690, 760, 830, 900,
 };
 
-// --- State ---
+// --- State: encoder ---
 volatile int encoderPos = 0;
 int lastEncoderPos = 0;
 int lastCLK = HIGH;
 
-unsigned long lastButtonTime[6] = {0};
-bool lastButtonState[6] = {HIGH, HIGH, HIGH, HIGH, HIGH, HIGH};
-const int buttonPins[6] = {ENC_SW, BTN_HOME, BTN_BACK, BTN_MEDIA, BTN_VOLUP, BTN_VOLDN};
+// --- State: main buttons (6: enc_sw, home, back, media, vol+, vol-) ---
+#define MAIN_BTN_COUNT 6
+unsigned long lastButtonTime[MAIN_BTN_COUNT] = {0};
+bool lastButtonState[MAIN_BTN_COUNT] = {HIGH, HIGH, HIGH, HIGH, HIGH, HIGH};
+const int buttonPins[MAIN_BTN_COUNT] = {ENC_SW, BTN_HOME, BTN_BACK, BTN_MEDIA, BTN_VOLUP, BTN_VOLDN};
 
+// --- State: music panel buttons (5) ---
+#define MUSIC_BTN_COUNT 5
+unsigned long lastMusicTime[MUSIC_BTN_COUNT] = {0};
+bool lastMusicState[MUSIC_BTN_COUNT] = {HIGH, HIGH, HIGH, HIGH, HIGH};
+const int musicPins[MUSIC_BTN_COUNT] = {MUS_PREV, MUS_NEXT, MUS_VOLUP, MUS_VOLDN, MUS_MUTE};
+
+// --- State: stalk brightness button ---
+unsigned long lastStalkTime = 0;
+bool lastStalkState = HIGH;
+
+// --- State: SWC ---
 int lastSWCButton = -1;
 unsigned long lastSWCTime = 0;
 bool calibrationMode = false;
 
+// --- State: light sensor ---
+unsigned long lastLightReport = 0;
+
 // --- Forward declarations ---
 void handleButtonPress(int buttonIndex);
+void handleMusicButton(int buttonIndex);
 void handleSWCButton(int buttonIndex);
 void readEncoder();
 void loadSWCCalibration();
 void saveSWCCalibration();
 void runCalibration();
 int readSWCButton();
+void reportLightLevel();
 
 void setup() {
   // Encoder pins (external pull-ups)
   pinMode(ENC_CLK, INPUT);
   pinMode(ENC_DT, INPUT);
 
-  // Button pins (internal pull-ups)
+  // Main button pins (internal pull-ups)
   pinMode(ENC_SW, INPUT_PULLUP);
   pinMode(BTN_HOME, INPUT_PULLUP);
   pinMode(BTN_BACK, INPUT_PULLUP);
@@ -160,8 +161,19 @@ void setup() {
   pinMode(BTN_VOLUP, INPUT_PULLUP);
   pinMode(BTN_VOLDN, INPUT_PULLUP);
 
-  // SWC analog input
+  // Music panel pins (internal pull-ups)
+  pinMode(MUS_PREV, INPUT_PULLUP);
+  pinMode(MUS_NEXT, INPUT_PULLUP);
+  pinMode(MUS_VOLUP, INPUT_PULLUP);
+  pinMode(MUS_VOLDN, INPUT_PULLUP);
+  pinMode(MUS_MUTE, INPUT_PULLUP);
+
+  // Brightness stalk button (internal pull-up)
+  pinMode(STALK_BTN_PIN, INPUT_PULLUP);
+
+  // Analog inputs (no pull-up needed)
   pinMode(SWC_PIN, INPUT);
+  pinMode(LDR_PIN, INPUT);
 
   // Encoder interrupt
   attachInterrupt(digitalPinToInterrupt(ENC_CLK), readEncoder, CHANGE);
@@ -170,10 +182,10 @@ void setup() {
   Keyboard.begin();
   Consumer.begin();
 
-  // Start serial for calibration/debug
+  // Start serial for calibration/debug + light sensor data
   Serial.begin(115200);
 
-  // Load calibration from EEPROM
+  // Load SWC calibration from EEPROM
   loadSWCCalibration();
 
   // Check calibration mode: hold HOME + BACK at boot
@@ -184,10 +196,12 @@ void setup() {
     calibrationMode = false;
   }
 
-  Serial.println("BCM v7 Input Controller ready (encoder + buttons + SWC)");
+  Serial.println("BCM v7 Input Controller ready (encoder + buttons + SWC + music + brightness)");
 }
 
 void loop() {
+  unsigned long now = millis();
+
   // --- Handle encoder rotation ---
   if (encoderPos != lastEncoderPos) {
     int diff = encoderPos - lastEncoderPos;
@@ -204,23 +218,51 @@ void loop() {
     }
   }
 
-  // --- Handle physical buttons (debounced) ---
-  for (int i = 0; i < 6; i++) {
+  // --- Handle main buttons (debounced) ---
+  for (int i = 0; i < MAIN_BTN_COUNT; i++) {
     bool currentState = digitalRead(buttonPins[i]);
-    unsigned long now = millis();
 
     if (currentState != lastButtonState[i] && (now - lastButtonTime[i]) > DEBOUNCE_MS) {
       lastButtonTime[i] = now;
       lastButtonState[i] = currentState;
 
-      if (currentState == LOW) {  // Button pressed (active LOW)
+      if (currentState == LOW) {
         handleButtonPress(i);
       }
     }
   }
 
+  // --- Handle music panel buttons (debounced) ---
+  for (int i = 0; i < MUSIC_BTN_COUNT; i++) {
+    bool currentState = digitalRead(musicPins[i]);
+
+    if (currentState != lastMusicState[i] && (now - lastMusicTime[i]) > DEBOUNCE_MS) {
+      lastMusicTime[i] = now;
+      lastMusicState[i] = currentState;
+
+      if (currentState == LOW) {
+        handleMusicButton(i);
+      }
+    }
+  }
+
+  // --- Handle stalk brightness button (debounced) ---
+  {
+    bool stalkState = digitalRead(STALK_BTN_PIN);
+    if (stalkState != lastStalkState && (now - lastStalkTime) > DEBOUNCE_MS) {
+      lastStalkTime = now;
+      lastStalkState = stalkState;
+
+      if (stalkState == LOW) {
+        Keyboard.press(KEY_F9);
+        delay(10);
+        Keyboard.release(KEY_F9);
+        Serial.println("STALK: Brightness cycle");
+      }
+    }
+  }
+
   // --- Handle SWC analog buttons ---
-  unsigned long now = millis();
   if ((now - lastSWCTime) > SWC_DEBOUNCE_MS) {
     int btn = readSWCButton();
     if (btn != lastSWCButton) {
@@ -237,7 +279,13 @@ void loop() {
     }
   }
 
-  delay(1);  // Small delay to prevent busy-waiting
+  // --- Report light level periodically via serial ---
+  if ((now - lastLightReport) > LIGHT_REPORT_MS) {
+    reportLightLevel();
+    lastLightReport = now;
+  }
+
+  delay(1);
 }
 
 void handleButtonPress(int buttonIndex) {
@@ -247,29 +295,49 @@ void handleButtonPress(int buttonIndex) {
       delay(10);
       Keyboard.release(KEY_RETURN);
       break;
-
     case 1:  // HOME
       Keyboard.press(KEY_HOME);
       delay(10);
       Keyboard.release(KEY_HOME);
       break;
-
     case 2:  // BACK
       Keyboard.press(KEY_BACKSPACE);
       delay(10);
       Keyboard.release(KEY_BACKSPACE);
       break;
-
     case 3:  // MEDIA
       Consumer.write(MEDIA_PLAY_PAUSE);
       break;
-
     case 4:  // VOL+
       Consumer.write(MEDIA_VOLUME_UP);
       break;
-
     case 5:  // VOL-
       Consumer.write(MEDIA_VOLUME_DOWN);
+      break;
+  }
+}
+
+void handleMusicButton(int buttonIndex) {
+  switch (buttonIndex) {
+    case 0:  // MUSIC PREV
+      Consumer.write(MEDIA_PREVIOUS);
+      Serial.println("MUSIC: PREV");
+      break;
+    case 1:  // MUSIC NEXT
+      Consumer.write(MEDIA_NEXT);
+      Serial.println("MUSIC: NEXT");
+      break;
+    case 2:  // MUSIC VOL+
+      Consumer.write(MEDIA_VOLUME_UP);
+      Serial.println("MUSIC: VOL+");
+      break;
+    case 3:  // MUSIC VOL-
+      Consumer.write(MEDIA_VOLUME_DOWN);
+      Serial.println("MUSIC: VOL-");
+      break;
+    case 4:  // MUSIC MUTE
+      Consumer.write(MEDIA_VOLUME_MUTE);
+      Serial.println("MUSIC: MUTE");
       break;
   }
 }
@@ -330,7 +398,6 @@ void handleSWCButton(int buttonIndex) {
 }
 
 int readSWCButton() {
-  // Read ADC, average 4 samples for noise rejection
   long sum = 0;
   for (int i = 0; i < 4; i++) {
     sum += analogRead(SWC_PIN);
@@ -338,12 +405,10 @@ int readSWCButton() {
   }
   int adc = sum / 4;
 
-  // No button pressed
   if (adc > SWC_IDLE_THRESHOLD) {
     return -1;
   }
 
-  // Find closest matching button
   int bestMatch = -1;
   int bestDiff = ADC_TOLERANCE + 1;
 
@@ -359,8 +424,25 @@ int readSWCButton() {
     return bestMatch;
   }
 
-  return -1;  // No match within tolerance
+  return -1;
 }
+
+void reportLightLevel() {
+  // Read light sensor (LDR), average 4 samples
+  long sum = 0;
+  for (int i = 0; i < 4; i++) {
+    sum += analogRead(LDR_PIN);
+    delayMicroseconds(200);
+  }
+  int lightLevel = sum / 4;
+
+  // Report via serial protocol: "LIGHT:XXX"
+  // BCM Python code parses this from Arduino serial port
+  Serial.print("LIGHT:");
+  Serial.println(lightLevel);
+}
+
+// --- SWC calibration ---
 
 void loadSWCCalibration() {
   if (EEPROM.read(EEPROM_MAGIC_ADDR) == EEPROM_MAGIC_VALUE) {
@@ -396,21 +478,19 @@ void runCalibration() {
     Serial.print(SWC_NAMES[i]);
     Serial.println(" ...");
 
-    // Wait for idle (no button)
     while (analogRead(SWC_PIN) < SWC_IDLE_THRESHOLD) {
       delay(50);
     }
     delay(300);
 
-    // Wait for button press
     int adc = 0;
     while (true) {
-      long sum = 0;
-      for (int s = 0; s < 8; s++) {
-        sum += analogRead(SWC_PIN);
+      long s = 0;
+      for (int j = 0; j < 8; j++) {
+        s += analogRead(SWC_PIN);
         delay(5);
       }
-      adc = sum / 8;
+      adc = s / 8;
       if (adc < SWC_IDLE_THRESHOLD) {
         break;
       }
@@ -420,11 +500,9 @@ void runCalibration() {
     swcValues[i] = adc;
     Serial.print("  -> ADC = ");
     Serial.println(adc);
-
     delay(300);
   }
 
-  // Sort check: warn if two buttons have overlapping values
   Serial.println();
   Serial.println("Calibration results:");
   for (int i = 0; i < SWC_BUTTON_COUNT; i++) {
@@ -455,9 +533,9 @@ void readEncoder() {
 
   if (clkState != lastCLK) {
     if (dtState != clkState) {
-      encoderPos++;   // CW
+      encoderPos++;
     } else {
-      encoderPos--;   // CCW
+      encoderPos--;
     }
     lastCLK = clkState;
   }

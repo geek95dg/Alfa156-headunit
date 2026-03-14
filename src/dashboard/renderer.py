@@ -209,6 +209,9 @@ class DashboardRenderer:
                 self.settings.cycle_value(1)
             elif event.key == pygame.K_LEFT:
                 self.settings.cycle_value(-1)
+            elif event.key == pygame.K_BACKSPACE:
+                # Switch settings page (BACK toggles between General ↔ SWC)
+                self.settings.switch_page(1)
 
         else:
             # Dashboard keyboard overrides (demo mode)

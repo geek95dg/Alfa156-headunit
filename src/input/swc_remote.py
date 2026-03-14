@@ -6,8 +6,12 @@ keycodes to the host (same as rotary encoder — single Arduino handles both).
 
 This module provides:
     - SWC-specific keycode constants
+    - Default and configurable button-to-action mappings
     - Simulator for x86 development (keyboard shortcuts)
     - Button name/action mapping for UI display
+
+Button actions can be overridden in BCM settings (page 2: SWC BUTTON MAPPING).
+Custom mappings are stored in config under swc.buttons.<BUTTON_NAME>.
 
 The actual hardware input is handled by the Arduino firmware
 (arduino/rotary_encoder/rotary_encoder.ino) which outputs standard USB HID
@@ -22,12 +26,14 @@ SWC button layout (2x round pods, 6 buttons each):
     MUTE  MODE                VOICE   SRC
 """
 
+from typing import Any, Optional
+
 from src.core.logger import get_logger
 
 log = get_logger("input.swc")
 
-# SWC buttons and their Arduino USB HID output keycodes
-# These match the keycodes sent by the Arduino firmware
+# Default SWC button-to-action mappings
+# These are the base mappings; user can override via settings
 SWC_BUTTONS = {
     "SWC_VOLUP":  "volume_up",       # Consumer: MEDIA_VOLUME_UP
     "SWC_VOLDN":  "volume_down",     # Consumer: MEDIA_VOLUME_DOWN
@@ -58,5 +64,26 @@ def get_swc_button_names() -> list[str]:
 
 
 def get_swc_action(button_name: str) -> str | None:
-    """Map SWC button name to event bus action suffix."""
+    """Get the default action for a SWC button."""
+    return SWC_BUTTONS.get(button_name)
+
+
+def get_swc_action_with_override(button_name: str, config: Any) -> str | None:
+    """Get the effective action for a SWC button, checking config overrides first.
+
+    Args:
+        button_name: SWC button name (e.g. "SWC_VOLUP")
+        config: BCMConfig instance
+
+    Returns:
+        Action suffix string (e.g. "volume_up") or None if disabled.
+    """
+    config_key = f"swc.buttons.{button_name}"
+    override = config.get(config_key) if config else None
+
+    if override is not None:
+        if override == "disabled":
+            return None
+        return override
+
     return SWC_BUTTONS.get(button_name)

@@ -37,6 +37,7 @@ KEY_F5 = 63   # SWC phone pickup
 KEY_F6 = 64   # SWC phone hangup
 KEY_F7 = 65   # SWC voice assistant trigger
 KEY_F8 = 66   # SWC audio source cycle
+KEY_F9 = 67   # Stalk button: brightness cycle
 
 # Map evdev keycodes → event bus topics
 KEYCODE_MAP: dict[int, str] = {
@@ -58,6 +59,8 @@ KEYCODE_MAP: dict[int, str] = {
     KEY_F6: "input.phone_hangup",
     KEY_F7: "input.voice_trigger",
     KEY_F8: "input.source_cycle",
+    # Stalk button
+    KEY_F9: "input.brightness_cycle",
 }
 
 # Keyboard key names → keycodes (for x86 development without HID devices)
@@ -79,6 +82,8 @@ KEYBOARD_MAP: dict[str, int] = {
     "f6": KEY_F6,
     "f7": KEY_F7,
     "f8": KEY_F8,
+    # Brightness cycle simulation
+    "f9": KEY_F9,
 }
 
 

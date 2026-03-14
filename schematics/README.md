@@ -191,6 +191,40 @@ Calibration:
 4. Follow prompts — press each SWC button when asked
 5. Values are saved to Arduino EEPROM (persists across reboots)
 
+### Step 9b: Music Panel (5 buttons near 7" screen)
+
+5 physical buttons mounted near the Android Auto screen for quick music control.
+Connected via 7-wire cable (5 signals + VCC + GND) to the Arduino Pro Micro.
+
+Wiring:
+1. Buttons (momentary, normally open, active LOW):
+   - D10 ← PREV (previous track)
+   - D14 ← NEXT (next track)
+   - D15 ← VOL+ (volume up)
+   - D16 ← VOL- (volume down)
+   - A3  ← MUTE (mute toggle)
+2. All buttons: one side to signal pin, other side to GND
+3. Internal pull-ups enabled in firmware (no external resistors needed)
+4. Route cable from panel to Arduino (behind dash)
+5. Mount panel near 7" screen (adhesive or custom bracket)
+
+### Step 9c: Brightness Control
+
+**Light sensor (LDR):**
+1. Voltage divider: LDR + 10kΩ resistor to GND
+   - LDR one leg → 5V
+   - LDR other leg → junction point → A1
+   - 10kΩ from junction point → GND
+2. Mount LDR on dashboard facing windshield (sees ambient light)
+3. Route 3-wire cable (5V, signal, GND) to Arduino
+
+**Stalk button (brightness cycle):**
+1. Spare button on steering column stalk (manettka) → A2
+2. Active LOW with internal pull-up
+3. Each press cycles through 6 brightness levels (15/30/45/60/80/100%)
+4. Manual override lasts until ignition off, then reverts to auto sensor mode
+5. Both screens (4.3" + 7") always linked to same brightness
+
 ### Step 10: Final Assembly
 
 1. Mount OPi 5 Plus in ventilated enclosure behind dash
