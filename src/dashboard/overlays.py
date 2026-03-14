@@ -3,6 +3,7 @@
 import time
 import pygame
 from src.dashboard.themes.theme_base import ThemeBase
+from src.dashboard.i18n import t
 
 
 def _get_font(name: str, size: int) -> pygame.font.Font:
@@ -32,7 +33,8 @@ class ParkingOverlay:
         self.distances: list[float] = [2.0, 2.0, 2.0, 2.0]
         self.active: bool = False
 
-    def draw(self, surface: pygame.Surface, theme: ThemeBase) -> None:
+    def draw(self, surface: pygame.Surface, theme: ThemeBase,
+             lang: str = "pl") -> None:
         """Draw parking sensor overlay."""
         if not self.active:
             return
@@ -46,7 +48,7 @@ class ParkingOverlay:
 
         # Title
         font_title = _get_font(theme.font_name, 20)
-        title_surf = font_title.render("PARKING", True, theme.overlay_text)
+        title_surf = font_title.render(t("parking", lang), True, theme.overlay_text)
         title_rect = title_surf.get_rect(center=(w // 2, 50))
         surface.blit(title_surf, title_rect)
 
@@ -69,7 +71,7 @@ class ParkingOverlay:
             pygame.draw.rect(surface, theme.gauge_bg,
                              (bx, bar_y, bar_width, bar_max_height), border_radius=4)
 
-            # Fill bar (inversely proportional to distance — closer = more fill)
+            # Fill bar (inversely proportional to distance)
             max_dist = 2.0
             clamped = max(0.05, min(max_dist, dist))
             fill_frac = 1.0 - (clamped / max_dist)
@@ -92,12 +94,11 @@ class ParkingOverlay:
             dist_rect = dist_surf.get_rect(center=(bx + bar_width // 2, bar_y + bar_max_height + 42))
             surface.blit(dist_surf, dist_rect)
 
-        # Car outline (simplified)
+        # Car outline
         car_y = bar_y + bar_max_height + 65
         car_w, car_h = 100, 50
         car_x = (w - car_w) // 2
         pygame.draw.rect(surface, theme.text_secondary, (car_x, car_y, car_w, car_h), 2, border_radius=8)
-        # rear bumper
         pygame.draw.line(surface, theme.accent_color,
                          (car_x, car_y + car_h), (car_x + car_w, car_y + car_h), 3)
 
@@ -121,7 +122,8 @@ class IcingAlert:
     def active(self) -> bool:
         return time.time() < self._show_until
 
-    def draw(self, surface: pygame.Surface, theme: ThemeBase) -> None:
+    def draw(self, surface: pygame.Surface, theme: ThemeBase,
+             lang: str = "pl") -> None:
         """Draw icing alert popup if active."""
         if not self.active:
             return
@@ -150,9 +152,9 @@ class IcingAlert:
         font_title = _get_font(theme.font_name, 20)
         font_msg = _get_font(theme.font_name, 14)
 
-        title_surf = font_title.render("ICING WARNING", True, theme.warning_color)
-        msg_surf = font_msg.render("Temperature dropping below 3\u00b0C", True, theme.overlay_text)
-        msg2_surf = font_msg.render("Possible ice on road", True, theme.text_secondary)
+        title_surf = font_title.render(t("icing_title", lang), True, theme.warning_color)
+        msg_surf = font_msg.render(t("icing_msg", lang), True, theme.overlay_text)
+        msg2_surf = font_msg.render(t("icing_msg2", lang), True, theme.text_secondary)
 
         surface.blit(title_surf, (px + 80, py + 20))
         surface.blit(msg_surf, (px + 80, py + 55))

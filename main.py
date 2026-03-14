@@ -129,6 +129,16 @@ def main() -> None:
                  len(requested), len(started_modules))
         return
 
+    # Start Android Auto display simulator on x86
+    aa_display = None
+    if config.platform == "x86":
+        try:
+            from src.multimedia.aa_display import start_aa_display
+            aa_display = start_aa_display(config, event_bus)
+            log.info("Android Auto display simulator started (http://localhost:5001)")
+        except Exception:
+            log.warning("AA display simulator failed to start (non-critical)")
+
     # Start implemented modules
     for name, info in started_modules:
         log.info("Starting module: %s", name)

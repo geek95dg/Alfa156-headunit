@@ -1,8 +1,7 @@
 """Main dashboard renderer — PyGame window on x86, framebuffer on OPi.
 
-Manages the render loop, demo data generation, keyboard input,
-and coordinates all dashboard sub-components (gauges, trip, status bar,
-overlays, settings).
+Manages the render loop, screen navigation (A1–C2), demo data generation,
+keyboard input, and coordinates all dashboard sub-components.
 """
 
 import math
@@ -16,11 +15,14 @@ from src.core.event_bus import EventBus
 from src.core.logger import get_logger
 from src.dashboard.themes import THEMES
 from src.dashboard.themes.theme_base import ThemeBase
-from src.dashboard.gauges import draw_gauge
+from src.dashboard.screens import (
+    SCREEN_ORDER, SCREEN_CLASSES, DashboardData, BaseScreen,
+)
 from src.dashboard.trip_computer import TripComputer
 from src.dashboard.status_bar import StatusBar
 from src.dashboard.overlays import ParkingOverlay, IcingAlert
 from src.dashboard.settings_screen import SettingsScreen
+from src.dashboard.i18n import t
 
 log = get_logger("dashboard")
 
@@ -77,11 +79,15 @@ class DemoDataGenerator:
             ext_temp = 5 + 8 * math.sin(self._t * 0.02)
             self.bus.publish("env.temperature", ext_temp)
 
+            # Boost pressure simulation (0-1.2 BAR, correlated with RPM)
+            boost = max(0, (rpm - 1500) / 3000 * 1.2 + 0.1 * math.sin(self._t * 1.5))
+            self.bus.publish("obd.boost", min(1.5, boost))
+
             time.sleep(0.1)
 
 
 class DashboardRenderer:
-    """Main dashboard renderer with PyGame render loop."""
+    """Main dashboard renderer with screen-based navigation."""
 
     def __init__(self, config: BCMConfig, event_bus: EventBus) -> None:
         self.config = config
@@ -93,6 +99,12 @@ class DashboardRenderer:
         theme_cls = THEMES.get(theme_name, THEMES["classic_alfa"])
         self.theme: ThemeBase = theme_cls()
 
+        # Dashboard data (shared state for all screens)
+        self.data = DashboardData()
+        self.data.lang = config.get("language", "pl")
+        self.data.speed_unit = config.get("units.speed", "km/h")
+        self.data.temp_unit = config.get("units.temperature", "C")
+
         # Sub-components
         self.trip = TripComputer()
         self.status_bar = StatusBar()
@@ -100,21 +112,31 @@ class DashboardRenderer:
         self.icing_alert = IcingAlert()
         self.settings = SettingsScreen(config)
 
+        # Screen system
+        self._screen_index = 0
+        self._screens: dict[str, BaseScreen] = {}
+        for screen_id, cls in SCREEN_CLASSES.items():
+            self._screens[screen_id] = cls()
+
         # Display settings
         self.width = config.get("display.dashboard.width", 800)
         self.height = config.get("display.dashboard.height", 480)
         self.fps = config.get("display.dashboard.fps", 15)
 
-        # Current gauge values
-        self._rpm = 0.0
-        self._speed = 0.0
-        self._coolant_temp = 0.0
-        self._fuel_level = 50.0
-        self._fuel_rate = 0.0
-        self._ext_temp: float | None = None
+        # Long press tracking
+        self._long_press_start: float | None = None
+        self._long_press_threshold = 2.0  # seconds
 
         # Subscribe to events
         self._subscribe_events()
+
+    @property
+    def current_screen_id(self) -> str:
+        return SCREEN_ORDER[self._screen_index]
+
+    @property
+    def current_screen(self) -> BaseScreen:
+        return self._screens[self.current_screen_id]
 
     def _subscribe_events(self) -> None:
         self.bus.subscribe("obd.rpm", self._on_rpm)
@@ -123,34 +145,39 @@ class DashboardRenderer:
         self.bus.subscribe("obd.fuel_level", self._on_fuel_level)
         self.bus.subscribe("obd.fuel_rate", self._on_fuel_rate)
         self.bus.subscribe("obd.battery_voltage", self._on_battery)
+        self.bus.subscribe("obd.boost", self._on_boost)
         self.bus.subscribe("env.temperature", self._on_ext_temp)
         self.bus.subscribe("parking.distances", self._on_parking)
         self.bus.subscribe("power.reverse_gear", self._on_reverse)
 
     def _on_rpm(self, topic: str, value: float, ts: float) -> None:
-        self._rpm = value
+        self.data.rpm = value
         self.trip.rpm = value
 
     def _on_speed(self, topic: str, value: float, ts: float) -> None:
-        self._speed = value
-        self.trip.update(value, self._fuel_rate)
+        self.data.speed = value
+        self.trip.update(value, self.data.fuel_rate)
 
     def _on_coolant_temp(self, topic: str, value: float, ts: float) -> None:
-        self._coolant_temp = value
+        self.data.coolant_temp = value
         self.trip.coolant_temp = value
 
     def _on_fuel_level(self, topic: str, value: float, ts: float) -> None:
-        self._fuel_level = value
+        self.data.fuel_level = value
         self.trip.fuel_level_pct = value
 
     def _on_fuel_rate(self, topic: str, value: float, ts: float) -> None:
-        self._fuel_rate = value
+        self.data.fuel_rate = value
 
     def _on_battery(self, topic: str, value: float, ts: float) -> None:
+        self.data.battery_voltage = value
         self.trip.battery_voltage = value
 
+    def _on_boost(self, topic: str, value: float, ts: float) -> None:
+        self.data.boost_bar = value
+
     def _on_ext_temp(self, topic: str, value: float, ts: float) -> None:
-        self._ext_temp = value
+        self.data.ext_temp = value
         self.status_bar.temperature = value
         # Icing detection
         if value < 3.0:
@@ -166,6 +193,8 @@ class DashboardRenderer:
 
     def _on_reverse(self, topic: str, value: bool, ts: float) -> None:
         self.parking_overlay.active = bool(value)
+        self.data.reverse = bool(value)
+        self.data.gear = "R" if value else "N"
 
     def _switch_theme(self, theme_name: str) -> None:
         theme_cls = THEMES.get(theme_name)
@@ -173,10 +202,51 @@ class DashboardRenderer:
             self.theme = theme_cls()
             log.info("Theme switched to: %s", theme_name)
 
+    def _update_data_from_trip(self) -> None:
+        """Sync trip computer data into DashboardData."""
+        self.data.trip_distance = self.trip.distance_km
+        self.data.trip_time_str = self.trip.trip_time_str
+        self.data.trip_fuel_used = self.trip.fuel_used_l
+        self.data.avg_speed = self.trip.avg_speed
+        self.data.avg_consumption = self.trip.avg_consumption
+        self.data.instant_consumption = self.trip.instant_consumption
+        self.data.estimated_range = self.trip.estimated_range_km
+
+    def _update_lang_from_config(self) -> None:
+        """Refresh language and unit settings from config."""
+        self.data.lang = self.config.get("language", "pl")
+        self.data.speed_unit = self.config.get("units.speed", "km/h")
+        self.data.temp_unit = self.config.get("units.temperature", "C")
+
+    def _navigate_screen(self, direction: int) -> None:
+        """Switch to next (+1) or previous (-1) screen."""
+        self._screen_index = (self._screen_index + direction) % len(SCREEN_ORDER)
+        log.info("Screen: %s", self.current_screen_id)
+
     def _handle_keyboard(self, event: pygame.event.Event) -> bool:
         """Handle keyboard input. Returns True if quit requested."""
         if event.type == pygame.QUIT:
             return True
+
+        if event.type == pygame.KEYDOWN:
+            # Long press tracking for RETURN key
+            if event.key == pygame.K_RETURN:
+                self._long_press_start = time.time()
+
+        if event.type == pygame.KEYUP:
+            if event.key == pygame.K_RETURN and self._long_press_start:
+                elapsed = time.time() - self._long_press_start
+                self._long_press_start = None
+                if elapsed >= self._long_press_threshold:
+                    # Long press
+                    result = self.current_screen.on_long_press(self.data)
+                    if result == "trip.reset":
+                        self.trip.reset()
+                        log.info("Trip reset via long press")
+                    elif result == "service.confirm":
+                        log.info("Service confirmed via long press")
+                        self.data.service_km = 15000
+                return False
 
         if event.type != pygame.KEYDOWN:
             return False
@@ -185,19 +255,14 @@ class DashboardRenderer:
             if self.settings.active:
                 self.settings.save()
                 self.settings.toggle()
-                # Apply theme change if needed
-                new_theme = self.config.get("display.dashboard.theme")
-                if new_theme != self.theme.name:
-                    self._switch_theme(new_theme)
+                self._apply_config_changes()
             else:
                 return True
 
         elif event.key == pygame.K_HOME or event.key == pygame.K_h:
             if self.settings.active:
                 self.settings.save()
-                new_theme = self.config.get("display.dashboard.theme")
-                if new_theme != self.theme.name:
-                    self._switch_theme(new_theme)
+                self._apply_config_changes()
             self.settings.toggle()
 
         elif self.settings.active:
@@ -210,114 +275,63 @@ class DashboardRenderer:
             elif event.key == pygame.K_LEFT:
                 self.settings.cycle_value(-1)
             elif event.key == pygame.K_BACKSPACE:
-                # Switch settings page (BACK toggles between General ↔ SWC)
                 self.settings.switch_page(1)
 
         else:
-            # Dashboard keyboard overrides (demo mode)
-            if event.key == pygame.K_UP:
-                self._rpm = min(5500, self._rpm + 200)
-                self.bus.publish("obd.rpm", self._rpm)
+            # Screen navigation and demo controls
+            if event.key == pygame.K_RIGHT:
+                self._navigate_screen(1)
+            elif event.key == pygame.K_LEFT:
+                self._navigate_screen(-1)
+            elif event.key == pygame.K_UP:
+                self.data.rpm = min(5500, self.data.rpm + 200)
+                self.bus.publish("obd.rpm", self.data.rpm)
             elif event.key == pygame.K_DOWN:
-                self._rpm = max(0, self._rpm - 200)
-                self.bus.publish("obd.rpm", self._rpm)
+                self.data.rpm = max(0, self.data.rpm - 200)
+                self.bus.publish("obd.rpm", self.data.rpm)
             elif event.key == pygame.K_r:
-                # Toggle reverse mode
                 self.parking_overlay.active = not self.parking_overlay.active
+                self.data.reverse = self.parking_overlay.active
+                self.data.gear = "R" if self.data.reverse else "N"
                 self.bus.publish("power.reverse_gear", self.parking_overlay.active)
             elif event.key == pygame.K_t:
-                # Cycle temperature for testing
-                if self._ext_temp is None:
-                    self._ext_temp = 10.0
-                self._ext_temp -= 3.0
-                self.bus.publish("env.temperature", self._ext_temp)
+                if self.data.ext_temp is None:
+                    self.data.ext_temp = 10.0
+                self.data.ext_temp -= 3.0
+                self.bus.publish("env.temperature", self.data.ext_temp)
             elif event.key == pygame.K_i:
-                # Trigger icing alert
                 self.icing_alert.trigger(5.0)
 
         return False
+
+    def _apply_config_changes(self) -> None:
+        """Apply theme/language changes after settings close."""
+        new_theme = self.config.get("display.dashboard.theme")
+        if new_theme and new_theme != self.theme.name:
+            self._switch_theme(new_theme)
+        self._update_lang_from_config()
 
     def _draw_frame(self, surface: pygame.Surface) -> None:
         """Draw one complete dashboard frame."""
         theme = self.theme
 
+        # Update data from trip computer
+        self._update_data_from_trip()
+
         # Background
         surface.fill(theme.bg_color)
 
-        # Status bar
-        self.status_bar.draw(surface, theme)
+        # Status bar (with screen title)
+        screen_title_key = f"screen.{self.current_screen_id}"
+        self.status_bar.draw(surface, theme, self.data, screen_title_key)
 
-        # Speed unit based on config
-        speed_unit = self.config.get("units.speed", "km/h")
-        speed_val = self._speed
-        if speed_unit == "mph":
-            speed_val = self._speed * 0.621371
-
-        # Temp unit
-        temp_unit = "\u00b0" + self.config.get("units.temperature", "C")
-        temp_val = self._coolant_temp
-        if self.config.get("units.temperature") == "F":
-            temp_val = self._coolant_temp * 9 / 5 + 32
-
-        # Gauges
-        draw_gauge(surface, theme, theme.rpm_gauge, theme.rpm_rect,
-                   self._rpm, 0, 5500, "RPM", "rpm", redzone_start=4500)
-        draw_gauge(surface, theme, theme.speed_gauge, theme.speed_rect,
-                   speed_val, 0, 220, "SPEED", speed_unit)
-        draw_gauge(surface, theme, theme.temp_gauge, theme.temp_rect,
-                   temp_val, 40, 130, "COOLANT", temp_unit, redzone_start=100)
-        draw_gauge(surface, theme, theme.fuel_gauge, theme.fuel_rect,
-                   self._fuel_level, 0, 100, "FUEL", "%")
-
-        # Trip computer section
-        self._draw_trip(surface, theme)
+        # Current screen content
+        self.current_screen.draw(surface, theme, self.data)
 
         # Overlays (drawn last, on top)
-        self.parking_overlay.draw(surface, theme)
-        self.icing_alert.draw(surface, theme)
-        self.settings.draw(surface, theme)
-
-    def _draw_trip(self, surface: pygame.Surface, theme: ThemeBase) -> None:
-        """Draw the trip computer section at the bottom."""
-        x, y, w, h = theme.trip_rect
-
-        # Background
-        pygame.draw.rect(surface, theme.trip_bg, (x, y, w, h), border_radius=4)
-
-        try:
-            font_label = pygame.font.SysFont(theme.font_name, theme.trip_font_size)
-            font_value = pygame.font.SysFont(theme.font_name, theme.trip_value_size)
-        except Exception:
-            font_label = pygame.font.Font(None, theme.trip_font_size)
-            font_value = pygame.font.Font(None, theme.trip_value_size)
-
-        # Trip data items
-        items = [
-            ("TRIP", f"{self.trip.distance_km:.1f} km"),
-            ("AVG SPD", f"{self.trip.avg_speed:.0f} km/h"),
-            ("FUEL USED", f"{self.trip.fuel_used_l:.2f} L"),
-            ("AVG CONS", f"{self.trip.avg_consumption:.1f} L/100"),
-            ("INST CONS", f"{self.trip.instant_consumption:.1f} L/100"),
-            ("RANGE", f"{self.trip.estimated_range_km:.0f} km"),
-            ("TIME", self.trip.trip_time_str),
-            ("BATT", f"{self.trip.battery_voltage:.1f}V"),
-        ]
-
-        col_w = w // 4
-        row_h = h // 2
-        padding = 10
-
-        for idx, (label, value) in enumerate(items):
-            col = idx % 4
-            row = idx // 4
-            ix = x + col * col_w + padding
-            iy = y + row * row_h + 6
-
-            lbl_surf = font_label.render(label, True, theme.trip_text)
-            surface.blit(lbl_surf, (ix, iy))
-
-            val_surf = font_value.render(value, True, theme.trip_value_color)
-            surface.blit(val_surf, (ix, iy + theme.trip_font_size + 2))
+        self.parking_overlay.draw(surface, theme, self.data.lang)
+        self.icing_alert.draw(surface, theme, self.data.lang)
+        self.settings.draw(surface, theme, self.data.lang)
 
     def run(self) -> None:
         """Main render loop (blocking). Call from main thread."""
@@ -341,8 +355,10 @@ class DashboardRenderer:
         clock = pygame.time.Clock()
 
         self._running = True
-        log.info("Dashboard renderer started (%dx%d @ %d FPS, theme: %s)",
-                 self.width, self.height, self.fps, self.theme.name)
+        log.info("Dashboard renderer started (%dx%d @ %d FPS, theme: %s, lang: %s)",
+                 self.width, self.height, self.fps, self.theme.name, self.data.lang)
+        log.info("Screen navigation: LEFT/RIGHT arrows | Settings: HOME | Screens: %s",
+                 ", ".join(SCREEN_ORDER))
 
         while self._running:
             # Handle events
