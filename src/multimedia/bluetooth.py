@@ -30,7 +30,11 @@ except ImportError:
     HAS_DBUS = False
 
 AGENT_PATH = "/org/bluez/bcm_agent"
-AGENT_CAPABILITY = "NoInputNoOutput"
+AGENT_CAPABILITY = "DisplayYesNo"
+
+# Android Auto Bluetooth profile UUID
+AA_SERVICE_UUID = "4de17a00-52cb-11e6-bdf4-0800200c9a66"
+AA_PROFILE_PATH = "/org/bluez/bcm_aa_profile"
 
 
 class _PairingAgent(dbus.service.Object):
@@ -75,19 +79,79 @@ class _PairingAgent(dbus.service.Object):
     @dbus.service.method(AGENT_INTERFACE, in_signature="ou", out_signature="")
     def RequestConfirmation(self, device, passkey):
         log.info("Agent: auto-confirming passkey %06d for %s", passkey, device)
-        # Auto-accept — no exception means confirmation is granted
+        # Auto-trust the device so reconnection works
+        addr = device.split("/")[-1].replace("_", ":")
+        _run_btctl(["trust", addr])
+        return  # No exception = confirmation granted
 
     @dbus.service.method(AGENT_INTERFACE, in_signature="o", out_signature="")
     def RequestAuthorization(self, device):
         log.info("Agent: auto-authorizing %s", device)
+        addr = device.split("/")[-1].replace("_", ":")
+        _run_btctl(["trust", addr])
+        return
 
     @dbus.service.method(AGENT_INTERFACE, in_signature="", out_signature="")
     def Cancel(self):
         log.debug("Agent: pairing cancelled")
 
 
+def _register_aa_profile(bus) -> bool:
+    """Register Android Auto Bluetooth profile with BlueZ.
+
+    This advertises the AA service UUID so phones automatically
+    recognize the headunit as an Android Auto accessory.
+    """
+    try:
+        profile_mgr = dbus.Interface(
+            bus.get_object("org.bluez", "/org/bluez"),
+            "org.bluez.ProfileManager1",
+        )
+
+        opts = {
+            "Name": dbus.String("Android Auto Wireless"),
+            "Role": dbus.String("server"),
+            "RequireAuthentication": dbus.Boolean(False),
+            "RequireAuthorization": dbus.Boolean(False),
+            "AutoConnect": dbus.Boolean(True),
+        }
+
+        profile_mgr.RegisterProfile(
+            dbus.ObjectPath(AA_PROFILE_PATH),
+            AA_SERVICE_UUID,
+            opts,
+        )
+        log.info("Android Auto BT profile registered (UUID=%s)", AA_SERVICE_UUID)
+        return True
+    except dbus.exceptions.DBusException as e:
+        if "AlreadyExists" in str(e):
+            log.debug("AA profile already registered")
+            return True
+        log.warning("Failed to register AA profile: %s", e)
+        return False
+    except Exception:
+        log.exception("Failed to register AA profile")
+        return False
+
+
+def _configure_adapter(bus) -> None:
+    """Configure BT adapter name and class for headunit discovery."""
+    try:
+        adapter = dbus.Interface(
+            bus.get_object("org.bluez", "/org/bluez/hci0"),
+            "org.freedesktop.DBus.Properties",
+        )
+        # Set friendly name so phones see "Alfa156 Headunit"
+        adapter.Set("org.bluez.Adapter1", "Alias",
+                     dbus.String("Alfa156 Headunit"))
+        log.info("BT adapter alias set to 'Alfa156 Headunit'")
+    except Exception:
+        # Non-critical — fall back to system hostname
+        log.debug("Could not set BT adapter alias (non-critical)")
+
+
 def _start_pairing_agent() -> bool:
-    """Register the D-Bus pairing agent with BlueZ."""
+    """Register the D-Bus pairing agent and Android Auto profile with BlueZ."""
     if not HAS_DBUS:
         log.warning("dbus-python not available — pairing agent disabled")
         return False
@@ -105,6 +169,12 @@ def _start_pairing_agent() -> bool:
         manager.RegisterAgent(AGENT_PATH, AGENT_CAPABILITY)
         manager.RequestDefaultAgent(AGENT_PATH)
         log.info("BT pairing agent active (auto-accept, capability=%s)", AGENT_CAPABILITY)
+
+        # Configure adapter name for discovery
+        _configure_adapter(bus)
+
+        # Register Android Auto profile so phones detect AA
+        _register_aa_profile(bus)
 
         # Run GLib main loop in background thread for D-Bus signal handling
         from gi.repository import GLib
@@ -177,7 +247,7 @@ class BluetoothManager:
             # Register D-Bus pairing agent (handles phone-initiated pairing)
             if not _start_pairing_agent():
                 # Fallback to bluetoothctl agent (limited — phone-initiated may fail)
-                _run_btctl(["agent", "NoInputNoOutput"])
+                _run_btctl(["agent", "DisplayYesNo"])
                 _run_btctl(["default-agent"])
         else:
             self._available = False
@@ -235,19 +305,22 @@ class BluetoothManager:
         return info
 
     def enable_discoverable(self, timeout: int = 120) -> bool:
-        """Make headunit discoverable for pairing."""
+        """Make headunit discoverable for pairing.
+
+        Sets the adapter as pairable and discoverable so phones can
+        find it. The Android Auto profile UUID is already advertised
+        via the D-Bus profile registered at startup.
+        """
         if not self._available:
             log.info("BT discoverable (simulated, %ds)", timeout)
             return True
 
         _run_btctl(["pairable", "on"])
-        rc, _, err = _run_btctl(["discoverable", "on"])
-        if rc == 0:
-            log.info("BT discoverable for %ds", timeout)
-            threading.Timer(timeout, self.disable_discoverable).start()
-            return True
-        log.error("Failed to enable discoverable: %s", err)
-        return False
+        _run_btctl(["discoverable", "on"])
+        # Set discoverable timeout via bluetoothctl
+        _run_btctl(["discoverable-timeout", str(timeout)])
+        log.info("BT discoverable for %ds (AA profile active)", timeout)
+        return True
 
     def disable_discoverable(self) -> None:
         """Disable discoverable mode."""
