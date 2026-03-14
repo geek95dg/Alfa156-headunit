@@ -248,28 +248,13 @@ def _register_all_profiles(bus) -> None:
     managed by PipeWire/WirePlumber via libspa-0.2-bluetooth. Registering
     them here would block PipeWire (BlueZ: NotPermitted) and break audio.
 
-    The Android Auto UUID is only registered if OpenAuto is installed,
-    because without it there's no AA protocol handler — registering the
-    UUID would make phones try to connect AA but fail (no RFCOMM/TCP server).
+    The Android Auto BT service is NOT registered here either — it is
+    handled by autoapp's built-in btservice (Qt Bluetooth RFCOMM server)
+    which properly implements the AA wireless protocol handshake.
     """
-    # Check if OpenAuto is actually installed before advertising AA
-    import os
-    openauto_paths = [
-        "/usr/local/bin/autoapp",
-        "/opt/openauto/bin/autoapp",
-        "/usr/bin/autoapp",
-    ]
-    has_openauto = any(
-        os.path.isfile(p) and os.access(p, os.X_OK)
-        for p in openauto_paths
-    )
-
-    if has_openauto:
-        _register_bt_profile(bus, AA_PROFILE_PATH, AA_SERVICE_UUID,
-                             "Android Auto Wireless", role="server")
-    else:
-        log.info("OpenAuto not installed — skipping AA profile registration "
-                 "(phones won't attempt AA wireless connection)")
+    # Currently no custom profiles to register.
+    # A2DP/HFP → PipeWire, AA → autoapp btservice
+    log.debug("BT profile registration: A2DP/HFP=PipeWire, AA=autoapp")
 
 
 def _configure_adapter(bus) -> None:

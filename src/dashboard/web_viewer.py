@@ -113,7 +113,7 @@ class WebViewer:
     Also accepts keyboard input from browser and publishes to event bus.
     """
 
-    def __init__(self, host: str = "0.0.0.0", port: int = 5000,
+    def __init__(self, host: str = "0.0.0.0", port: int = 5002,
                  event_bus=None) -> None:
         self.host = host
         self.port = port

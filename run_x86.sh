@@ -42,8 +42,9 @@ cleanup() {
 trap cleanup SIGTERM SIGINT
 
 echo "[run_x86] Starting BCM v7..."
-echo "[run_x86] Dashboard WebViewer: http://localhost:5000"
+echo "[run_x86] Dashboard WebViewer: http://localhost:5002"
 echo "[run_x86] AA/BT Management:   http://localhost:5001"
+echo "[run_x86] Android Auto (TCP):  port 5000 (autoapp)"
 echo ""
 
 python3 main.py "${ARGS[@]}" &

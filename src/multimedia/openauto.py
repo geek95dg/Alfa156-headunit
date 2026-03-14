@@ -1,7 +1,7 @@
-"""OpenAuto Pro launcher and control interface.
+"""OpenAuto launcher and control interface.
 
-Manages OpenAuto Pro lifecycle on the 7" HDMI touchscreen.
-On x86: windowed mode stub or skipped if not installed.
+Manages the open-source OpenAuto (openDsh) process for Android Auto.
+On x86 headless: runs with QT_QPA_PLATFORM=offscreen, BT+TCP wireless AA.
 On OPi: full-screen on HDMI-2 (1024x600) with EGL/SDL2 rendering.
 
 Entry point: start_multimedia() is called from main.py.
@@ -11,6 +11,7 @@ import os
 import signal
 import subprocess
 import threading
+import time
 from typing import Any, Optional
 
 from src.core.event_bus import EventBus
@@ -19,7 +20,7 @@ from src.multimedia.bluetooth import BluetoothManager
 
 log = get_logger("multimedia.openauto")
 
-# OpenAuto Pro binary paths (common install locations)
+# OpenAuto binary paths (common install locations)
 OPENAUTO_PATHS = [
     "/usr/local/bin/autoapp",
     "/opt/openauto/bin/autoapp",
@@ -28,18 +29,67 @@ OPENAUTO_PATHS = [
 
 
 def _find_openauto() -> Optional[str]:
-    """Find OpenAuto Pro binary."""
+    """Find OpenAuto binary."""
     for path in OPENAUTO_PATHS:
         if os.path.isfile(path) and os.access(path, os.X_OK):
             return path
     return None
 
 
-class OpenAutoController:
-    """Manages OpenAuto Pro process lifecycle.
+def _create_openauto_config(project_dir: str) -> None:
+    """Create openauto.ini in the project directory (autoapp's working dir)."""
+    config_path = os.path.join(project_dir, "openauto.ini")
+    if os.path.exists(config_path):
+        return
 
-    Launches OpenAuto on the 7" screen (HDMI-2) and monitors
-    its status. Restarts on crash.
+    config_content = """; OpenAuto configuration for Alfa156 Headunit
+[General]
+HandednessOfTrafficType=0
+
+[Video]
+FPS=1
+Resolution=3
+MarginWidth=0
+MarginHeight=0
+
+[Audio]
+MusicAudioChannelEnabled=1
+SpeechAudioChannelEnabled=1
+MediaAudioDelay=0
+
+[Bluetooth]
+AdapterType=0
+RemoteAdapterAddress=
+
+[Input]
+ButtonCodes.Enter=23
+ButtonCodes.Left=21
+ButtonCodes.Right=22
+ButtonCodes.Up=19
+ButtonCodes.Down=20
+ButtonCodes.Back=4
+ButtonCodes.Home=3
+TouchscreenEnabled=1
+TouchscreenWidth=800
+TouchscreenHeight=480
+
+[WiFi]
+SSID=
+Password=
+MAC=
+"""
+    with open(config_path, "w") as f:
+        f.write(config_content)
+
+    log.info("Created openauto config at %s", config_path)
+
+
+class OpenAutoController:
+    """Manages OpenAuto process lifecycle.
+
+    Launches autoapp (openDsh) and monitors its status.
+    On headless x86, runs with QT_QPA_PLATFORM=offscreen.
+    The btservice inside autoapp handles AA wireless BT bootstrapping.
     """
 
     def __init__(self, config: Any, event_bus: EventBus):
@@ -50,9 +100,14 @@ class OpenAutoController:
         self._process: Optional[subprocess.Popen] = None
         self._running = False
         self._monitor_thread: Optional[threading.Thread] = None
+        self._log_thread: Optional[threading.Thread] = None
 
         if self._binary:
             log.info("OpenAuto found: %s", self._binary)
+            # Create config in project root (autoapp reads from cwd)
+            project_dir = os.path.dirname(os.path.dirname(
+                os.path.dirname(os.path.abspath(__file__))))
+            _create_openauto_config(project_dir)
         else:
             log.info("OpenAuto not installed — AA will be unavailable")
 
@@ -68,7 +123,7 @@ class OpenAutoController:
         return self._running and self._process is not None and self._process.poll() is None
 
     def start(self) -> bool:
-        """Launch OpenAuto Pro.
+        """Launch OpenAuto.
 
         Returns:
             True if launched successfully.
@@ -84,19 +139,43 @@ class OpenAutoController:
 
         env = os.environ.copy()
 
-        # On OPi: set display to HDMI-2
         if self._platform == "opi":
+            # On OPi: set display to HDMI-2
             env["DISPLAY"] = ":0"
             env["SDL_VIDEODRIVER"] = "kmsdrm"
+        else:
+            # On x86 headless: use offscreen Qt platform
+            if not env.get("DISPLAY"):
+                env["QT_QPA_PLATFORM"] = "offscreen"
+
+        # Ensure XDG_RUNTIME_DIR is set
+        if "XDG_RUNTIME_DIR" not in env:
+            env["XDG_RUNTIME_DIR"] = "/tmp/runtime-root"
+            os.makedirs("/tmp/runtime-root", exist_ok=True)
+
+        # Connect to PipeWire-pulse if running under different user
+        if "PULSE_SERVER" not in env:
+            # Try common PipeWire-pulse socket paths
+            for uid in [1000, os.getuid()]:
+                sock = f"/run/user/{uid}/pulse/native"
+                if os.path.exists(sock):
+                    env["PULSE_SERVER"] = f"unix:{sock}"
+                    break
 
         try:
             self._process = subprocess.Popen(
                 [self._binary],
                 env=env,
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.PIPE,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
             )
             self._running = True
+
+            # Start log reader thread
+            self._log_thread = threading.Thread(
+                target=self._read_logs, daemon=True
+            )
+            self._log_thread.start()
 
             # Start watchdog
             self._monitor_thread = threading.Thread(
@@ -117,7 +196,7 @@ class OpenAutoController:
             return False
 
     def stop(self) -> None:
-        """Stop OpenAuto Pro."""
+        """Stop OpenAuto."""
         self._running = False
 
         if self._process and self._process.poll() is None:
@@ -134,23 +213,44 @@ class OpenAutoController:
             "source": "android_auto", "available": False,
         })
 
+    def _read_logs(self) -> None:
+        """Forward autoapp stdout/stderr to our logger."""
+        if not self._process or not self._process.stdout:
+            return
+        try:
+            for line in self._process.stdout:
+                if not self._running:
+                    break
+                text = line.decode("utf-8", errors="replace").rstrip()
+                if text:
+                    # Detect AA connection events from autoapp logs
+                    if "Device Connected" in text:
+                        self._event_bus.publish("multimedia.openauto_status",
+                                                "connected")
+                        log.info("AA device connected: %s", text)
+                    elif "SocketInfoRequest" in text and "Sent" in text:
+                        log.info("AA wireless handshake: %s", text)
+                    else:
+                        log.debug("[autoapp] %s", text)
+        except Exception:
+            pass
+
     def _watchdog(self) -> None:
         """Monitor OpenAuto process and restart on crash."""
         while self._running:
             if self._process and self._process.poll() is not None:
                 exit_code = self._process.returncode
-                log.warning("OpenAuto exited (code %d) — restarting", exit_code)
-                self._event_bus.publish("multimedia.openauto_status", "restarting")
+                log.warning("OpenAuto exited (code %d) — restarting in 3s",
+                            exit_code)
+                self._event_bus.publish("multimedia.openauto_status",
+                                        "restarting")
                 self._process = None
 
-                # Restart after brief delay
-                import time
-                time.sleep(2)
+                time.sleep(3)
                 if self._running:
                     self.start()
                 return
 
-            import time
             time.sleep(1)
 
     def _on_shutdown(self, topic: str, value: Any, timestamp: float) -> None:
