@@ -1,85 +1,115 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 400" font-family="monospace" font-size="11">
-  <title>BCM v7 — Audio System Wiring</title>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 480" font-family="monospace" font-size="11">
+  <title>BCM v7 — Audio System Wiring (Class AB)</title>
   <style>
     .box { fill: #f8f8f8; stroke: #333; stroke-width: 2; rx: 6; }
     .wire { stroke: #333; stroke-width: 1.5; fill: none; }
     .audio { stroke: #906; stroke-width: 2; fill: none; }
+    .power { stroke: #c00; stroke-width: 2; fill: none; }
     .label { font-size: 11px; fill: #333; text-anchor: middle; }
     .title { font-size: 14px; font-weight: bold; fill: #111; }
-    .pin { font-size: 9px; fill: #666; }
+    .pin { font-size: 9px; fill: #666; text-anchor: middle; }
     .comp { font-size: 10px; fill: #06c; text-anchor: middle; }
+    .note { font-size: 9px; fill: #666; text-anchor: start; }
   </style>
 
-  <text x="450" y="25" class="title" text-anchor="middle">Audio System — USB DAC → TPA3116D2 Amp → 4.1 Speakers</text>
+  <text x="480" y="25" class="title" text-anchor="middle">Audio System — PCM5102A DAC → TDA7388 (4ch) + TDA2050 (sub) → 4.1 Speakers</text>
 
   <!-- PipeWire (software) -->
-  <rect x="30" y="80" width="140" height="80" class="box" fill="#f0e0ff"/>
-  <text x="100" y="100" class="label" font-weight="bold">PipeWire</text>
-  <text x="100" y="118" class="pin">Audio routing</text>
-  <text x="100" y="133" class="pin">10-band EQ</text>
-  <text x="100" y="148" class="pin">Ducking mixer</text>
+  <rect x="20" y="80" width="130" height="80" class="box" fill="#f0e0ff"/>
+  <text x="85" y="100" class="label" font-weight="bold">PipeWire</text>
+  <text x="85" y="118" class="pin">Audio routing</text>
+  <text x="85" y="133" class="pin">10-band EQ</text>
+  <text x="85" y="148" class="pin">Ducking mixer</text>
 
   <!-- Sources -->
-  <rect x="30" y="190" width="140" height="90" class="box" fill="#e0e0ff"/>
-  <text x="100" y="210" class="label" font-weight="bold">Sources</text>
-  <text x="100" y="228" class="pin">Android Auto</text>
-  <text x="100" y="243" class="pin">BT A2DP</text>
-  <text x="100" y="258" class="pin">FM Radio (RTL-SDR)</text>
-  <text x="100" y="273" class="pin">System TTS/Beeps</text>
-  <line x1="100" y1="190" x2="100" y2="160" class="wire" stroke="#906"/>
+  <rect x="20" y="185" width="130" height="90" class="box" fill="#e0e0ff"/>
+  <text x="85" y="205" class="label" font-weight="bold">Sources</text>
+  <text x="85" y="223" class="pin">Android Auto</text>
+  <text x="85" y="238" class="pin">BT A2DP</text>
+  <text x="85" y="253" class="pin">FM Radio (RTL-SDR)</text>
+  <text x="85" y="268" class="pin">System TTS/Beeps</text>
+  <line x1="85" y1="185" x2="85" y2="160" class="wire" stroke="#906"/>
 
   <!-- USB DAC -->
-  <rect x="220" y="90" width="140" height="60" class="box" fill="#fff0ff"/>
-  <text x="290" y="112" class="label" font-weight="bold">USB DAC</text>
-  <text x="290" y="130" class="pin">PCM5102A / ES9038Q2M</text>
-  <text x="290" y="145" class="pin">USB audio class</text>
-  <line x1="170" y1="120" x2="220" y2="120" class="audio"/>
-  <text x="195" y="115" class="pin">USB</text>
+  <rect x="195" y="85" width="140" height="70" class="box" fill="#fff0ff"/>
+  <text x="265" y="107" class="label" font-weight="bold">PCM5102A</text>
+  <text x="265" y="122" class="pin">USB DAC Module</text>
+  <text x="265" y="137" class="pin">32-bit / 112dB SNR</text>
+  <text x="265" y="149" class="pin">~25-35 PLN</text>
+  <line x1="150" y1="120" x2="195" y2="120" class="audio"/>
+  <text x="172" y="115" class="pin">USB</text>
 
-  <!-- RCA output -->
-  <line x1="360" y1="120" x2="420" y2="120" class="audio"/>
-  <text x="390" y="112" class="pin">RCA L/R</text>
+  <!-- RCA split point -->
+  <line x1="335" y1="120" x2="390" y2="120" class="audio"/>
+  <text x="362" y="112" class="pin">RCA L/R</text>
+  <circle cx="390" cy="120" r="4" fill="#906"/>
 
-  <!-- TPA3116D2 Amplifier -->
-  <rect x="420" y="60" width="180" height="120" class="box" fill="#ffe0e0"/>
-  <text x="510" y="85" class="label" font-weight="bold">TPA3116D2</text>
-  <text x="510" y="100" class="label">4.1 Channel Amp</text>
-  <text x="510" y="120" class="pin">12V direct from battery</text>
-  <text x="510" y="135" class="pin">Class D, ~50W×4 + 100W sub</text>
-  <text x="510" y="150" class="pin">Outputs: FL, FR, RL, RR, SUB</text>
+  <!-- RCA to main amp -->
+  <line x1="390" y1="120" x2="430" y2="100" class="audio"/>
+  <!-- RCA to sub amp -->
+  <line x1="390" y1="120" x2="430" y2="260" class="audio"/>
+  <text x="405" y="195" class="pin" fill="#906">RCA</text>
 
-  <!-- 12V power to amp -->
-  <line x1="510" y1="60" x2="510" y2="40" class="wire" stroke="#c00"/>
-  <text x="510" y="35" class="comp">12V / 20A fused</text>
+  <!-- TDA7388 Main Amplifier -->
+  <rect x="430" y="50" width="190" height="120" class="box" fill="#ffe0e0"/>
+  <text x="525" y="72" class="label" font-weight="bold">TDA7388</text>
+  <text x="525" y="87" class="label">(CD7388CZ)</text>
+  <text x="525" y="105" class="pin">4-channel Class AB</text>
+  <text x="525" y="118" class="pin">4×41W @ 14.4V / 4Ω</text>
+  <text x="525" y="131" class="pin">MOSFET output, THD &lt;0.1%</text>
+  <text x="525" y="144" class="pin">Heatsink required!</text>
+  <text x="525" y="157" class="pin">~45-70 PLN</text>
 
-  <!-- Speakers -->
-  <rect x="660" y="50" width="130" height="40" class="box" fill="#e0ffe0"/>
-  <text x="725" y="68" class="label">Front Left</text>
-  <text x="725" y="82" class="pin">Door speaker</text>
-  <line x1="600" y1="80" x2="660" y2="70" class="audio"/>
+  <!-- 12V power to TDA7388 -->
+  <line x1="525" y1="50" x2="525" y2="35" class="power"/>
+  <text x="525" y="30" class="comp">12V / 25A fused (shared)</text>
 
-  <rect x="660" y="100" width="130" height="40" class="box" fill="#e0ffe0"/>
-  <text x="725" y="118" class="label">Front Right</text>
-  <text x="725" y="132" class="pin">Door speaker</text>
-  <line x1="600" y1="100" x2="660" y2="120" class="audio"/>
+  <!-- TDA2050 Subwoofer Amplifier -->
+  <rect x="430" y="220" width="190" height="100" class="box" fill="#ffe8d0"/>
+  <text x="525" y="242" class="label" font-weight="bold">TDA2050</text>
+  <text x="525" y="257" class="pin">Mono Class AB</text>
+  <text x="525" y="270" class="pin">32W @ 4Ω</text>
+  <text x="525" y="283" class="pin">Clean musical output</text>
+  <text x="525" y="296" class="pin">Small heatsink needed</text>
+  <text x="525" y="309" class="pin">~20-30 PLN</text>
 
-  <rect x="660" y="160" width="130" height="40" class="box" fill="#e0ffe0"/>
-  <text x="725" y="178" class="label">Rear Left</text>
-  <text x="725" y="192" class="pin">Shelf speaker</text>
-  <line x1="600" y1="120" x2="660" y2="180" class="audio"/>
+  <!-- 12V power to TDA2050 -->
+  <line x1="525" y1="220" x2="525" y2="205" class="power"/>
+  <text x="525" y="200" class="comp">12V (shared fuse)</text>
 
-  <rect x="660" y="220" width="130" height="40" class="box" fill="#e0ffe0"/>
-  <text x="725" y="238" class="label">Rear Right</text>
-  <text x="725" y="252" class="pin">Shelf speaker</text>
-  <line x1="600" y1="140" x2="660" y2="240" class="audio"/>
+  <!-- Speakers from TDA7388 -->
+  <rect x="680" y="35" width="130" height="35" class="box" fill="#e0ffe0"/>
+  <text x="745" y="52" class="label">Front Left</text>
+  <text x="745" y="64" class="pin">Door speaker 4Ω</text>
+  <line x1="620" y1="75" x2="680" y2="52" class="audio"/>
 
-  <rect x="660" y="280" width="130" height="50" class="box" fill="#ffe0e0"/>
-  <text x="725" y="300" class="label" font-weight="bold">Subwoofer</text>
-  <text x="725" y="320" class="pin">Trunk mount</text>
-  <line x1="600" y1="160" x2="660" y2="305" class="audio"/>
+  <rect x="680" y="80" width="130" height="35" class="box" fill="#e0ffe0"/>
+  <text x="745" y="97" class="label">Front Right</text>
+  <text x="745" y="109" class="pin">Door speaker 4Ω</text>
+  <line x1="620" y1="90" x2="680" y2="97" class="audio"/>
 
-  <!-- Notes -->
-  <rect x="30" y="330" width="600" height="50" fill="#f8f8ff" stroke="#ccc" rx="4"/>
-  <text x="50" y="350" class="pin" text-anchor="start">Signal chain: Audio Source → PipeWire (mix/EQ/duck) → USB DAC → RCA → TPA3116D2 → Speakers</text>
-  <text x="50" y="365" class="pin" text-anchor="start">Ducking: parking beeps -18dB, voice -12dB (+3dB boost), phone -15dB. 1s fade-back.</text>
+  <rect x="680" y="125" width="130" height="35" class="box" fill="#e0ffe0"/>
+  <text x="745" y="142" class="label">Rear Left</text>
+  <text x="745" y="154" class="pin">Shelf speaker 4Ω</text>
+  <line x1="620" y1="110" x2="680" y2="142" class="audio"/>
+
+  <rect x="680" y="170" width="130" height="35" class="box" fill="#e0ffe0"/>
+  <text x="745" y="187" class="label">Rear Right</text>
+  <text x="745" y="199" class="pin">Shelf speaker 4Ω</text>
+  <line x1="620" y1="130" x2="680" y2="187" class="audio"/>
+
+  <!-- Subwoofer from TDA2050 -->
+  <rect x="680" y="245" width="130" height="50" class="box" fill="#ffe0e0"/>
+  <text x="745" y="267" class="label" font-weight="bold">Subwoofer</text>
+  <text x="745" y="282" class="pin">Trunk mount 4Ω</text>
+  <line x1="620" y1="270" x2="680" y2="270" class="audio"/>
+
+  <!-- Notes box -->
+  <rect x="20" y="350" width="920" height="110" fill="#f8f8ff" stroke="#ccc" rx="4"/>
+  <text x="40" y="370" class="note" font-weight="bold">Signal chain:</text>
+  <text x="40" y="385" class="note">Audio Source → PipeWire (mix/EQ/duck) → PCM5102A USB DAC → RCA → TDA7388 (4ch) + TDA2050 (sub) → Speakers</text>
+  <text x="40" y="405" class="note" font-weight="bold">Audio ducking:</text>
+  <text x="40" y="420" class="note">Parking beeps -18dB | Voice announcements -12dB (+3dB boost) | Phone calls -15dB | 1s smooth fade-back</text>
+  <text x="40" y="440" class="note" font-weight="bold">Budget breakdown (~105-160 PLN):</text>
+  <text x="40" y="455" class="note">PCM5102A DAC ~25-35 PLN | TDA7388 board ~45-70 PLN | TDA2050 board ~20-30 PLN | Heatsink ~15-25 PLN</text>
 </svg>

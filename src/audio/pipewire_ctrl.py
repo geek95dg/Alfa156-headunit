@@ -2,7 +2,11 @@
 
 Uses pw-cli / pw-link / wpctl command-line tools to control PipeWire.
 On x86: uses default sound card (laptop/desktop speakers).
-On OPi: targets USB DAC (PCM5102A or ES9038Q2M) as default sink.
+On OPi: targets USB DAC (PCM5102A) as default sink.
+
+Audio hardware chain:
+  PCM5102A USB DAC → RCA → TDA7388 4ch Class AB amp (4×41W) → front/rear speakers
+                        └→ TDA2050 mono Class AB amp (32W) → subwoofer
 """
 
 import json

@@ -43,8 +43,8 @@
   <!-- 12V direct to Amp -->
   <line x1="240" y1="110" x2="240" y2="720" class="power"/>
   <rect x="180" y="720" width="120" height="50" class="box" fill="#ffe0e0"/>
-  <text x="240" y="742" class="label" font-weight="bold">TPA3116D2</text>
-  <text x="240" y="757" class="label">4.1 Amp 12V</text>
+  <text x="240" y="742" class="label" font-weight="bold">TDA7388</text>
+  <text x="240" y="757" class="label">4ch Class AB</text>
 
   <!-- 4.3" Display -->
   <rect x="750" y="50" width="160" height="60" class="box" fill="#e0ffe0"/>
@@ -61,7 +61,7 @@
   <!-- USB DAC -->
   <rect x="500" y="170" width="160" height="50" class="box" fill="#fff0ff"/>
   <text x="580" y="192" class="label" font-weight="bold">USB DAC</text>
-  <text x="580" y="207" class="label">PCM5102A / ES9038</text>
+  <text x="580" y="207" class="label">PCM5102A</text>
   <line x1="580" y1="220" x2="580" y2="250" class="wire"/>
   <text x="580" y="265" class="label">RCA out →</text>
   <line x1="580" y1="270" x2="300" y2="720" class="wire"/>
