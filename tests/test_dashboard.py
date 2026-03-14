@@ -7,7 +7,7 @@ from src.core.event_bus import EventBus
 from src.dashboard.themes import THEMES, ThemeBase
 from src.dashboard.trip_computer import TripComputer
 from src.dashboard.status_bar import StatusBar
-from src.dashboard.overlays import ParkingOverlay, IcingAlert
+from src.dashboard.overlays import ParkingOverlay, IcingAlert, CameraCapture
 from src.dashboard.settings_screen import SettingsScreen, SETTINGS
 from src.dashboard.i18n import t, format_date, STRINGS
 from src.dashboard.screens import (
@@ -222,6 +222,26 @@ class TestParkingOverlay:
         po = ParkingOverlay()
         po.distances = [0.5, 0.8, 1.2, 2.0]
         assert po.distances[0] == 0.5
+
+    def test_has_camera_capture(self):
+        po = ParkingOverlay()
+        assert po.camera is not None
+        assert isinstance(po.camera, CameraCapture)
+
+    def test_release_camera(self):
+        po = ParkingOverlay()
+        po.release_camera()  # should not raise even if never started
+        assert po._camera_started is False
+
+    def test_camera_capture_initial_state(self):
+        cam = CameraCapture()
+        assert cam.available is False
+        assert cam.get_surface(100, 100) is None
+
+    def test_camera_capture_stop_when_not_started(self):
+        cam = CameraCapture()
+        cam.stop()  # should not raise
+        assert cam.available is False
 
 
 class TestIcingAlert:

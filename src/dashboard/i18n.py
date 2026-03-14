@@ -79,6 +79,9 @@ STRINGS: dict[str, dict[str, str]] = {
 
         # Overlays
         "parking": "PARKOWANIE",
+        "reverse_no_camera": "BRAK KAMERY COFANIA",
+        "reverse_camera_hint": "Podłącz kamerę USB do portu",
+        "reverse_closest": "NAJBLIŻEJ",
         "icing_title": "UWAGA OBLODZENIE",
         "icing_msg": "Temperatura spada poniżej 3°C",
         "icing_msg2": "Możliwy lód na drodze",
@@ -170,6 +173,9 @@ STRINGS: dict[str, dict[str, str]] = {
 
         # Overlays
         "parking": "PARKING",
+        "reverse_no_camera": "NO REVERSE CAMERA",
+        "reverse_camera_hint": "Connect USB camera to port",
+        "reverse_closest": "CLOSEST",
         "icing_title": "ICING WARNING",
         "icing_msg": "Temperature dropping below 3°C",
         "icing_msg2": "Possible ice on road",

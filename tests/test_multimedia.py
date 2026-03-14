@@ -1,4 +1,4 @@
-"""Tests for Multimedia module (Part 11) — Bluetooth + OpenAuto."""
+"""Tests for Multimedia module (Part 11) — Bluetooth + OpenAuto + AA Display."""
 
 import pytest
 
@@ -6,6 +6,7 @@ from src.core.event_bus import EventBus
 from src.core.config import BCMConfig
 from src.multimedia.bluetooth import BluetoothManager
 from src.multimedia.openauto import OpenAutoController, _find_openauto
+from src.multimedia.aa_display import AADisplaySimulator
 
 
 # ---------------------------------------------------------------------------
@@ -104,6 +105,51 @@ class TestBluetoothManager:
         bt.stop_monitor()
         # Should not raise
 
+    def test_scanning_property(self):
+        bt = BluetoothManager(self.config, self.bus)
+        assert bt.scanning is False
+
+    def test_simulated_scan(self):
+        bt = BluetoothManager(self.config, self.bus)
+        if not bt.available:
+            scan_events = []
+            self.bus.subscribe("bt.scan_result", lambda t, v, ts: scan_events.append(v))
+            result = bt.start_scan(duration=1)
+            assert result is True
+            assert bt.scanning is False  # simulated completes immediately
+            assert len(bt.discovered_devices) > 0
+            assert len(scan_events) == 1
+
+    def test_simulated_pair(self):
+        bt = BluetoothManager(self.config, self.bus)
+        if not bt.available:
+            assert bt.pair("AA:BB:CC:DD:EE:01") is True
+
+    def test_simulated_remove(self):
+        bt = BluetoothManager(self.config, self.bus)
+        if not bt.available:
+            assert bt.remove("AA:BB:CC:DD:EE:01") is True
+
+    def test_controller_info_simulated(self):
+        bt = BluetoothManager(self.config, self.bus)
+        if not bt.available:
+            info = bt.get_controller_info()
+            assert info["available"] is False
+            assert "address" in info
+            assert "name" in info
+
+    def test_device_info_simulated(self):
+        bt = BluetoothManager(self.config, self.bus)
+        if not bt.available:
+            info = bt.get_device_info("AA:BB:CC:DD:EE:FF")
+            assert info["address"] == "AA:BB:CC:DD:EE:FF"
+            assert info["connected"] is False
+
+    def test_stop_scan(self):
+        bt = BluetoothManager(self.config, self.bus)
+        bt.stop_scan()
+        assert bt.scanning is False
+
 
 # ---------------------------------------------------------------------------
 # OpenAuto Controller tests
@@ -169,3 +215,58 @@ class TestMultimediaEntryPoint:
         # Cleanup
         internals[0]["openauto"].stop()
         internals[0]["bluetooth"].stop_monitor()
+
+
+# ---------------------------------------------------------------------------
+# AA Display + BT Web UI tests
+# ---------------------------------------------------------------------------
+
+class TestAADisplay:
+    def setup_method(self):
+        self.bus = EventBus()
+        self.config = BCMConfig(platform_override="x86")
+
+    def test_initial_state(self):
+        disp = AADisplaySimulator(self.config, self.bus)
+        assert disp._aa_connected is False
+        assert disp._bt_connected is False
+        assert disp._phone_active is False
+        assert disp.bt is None
+
+    def test_with_bt_manager(self):
+        bt = BluetoothManager(self.config, self.bus)
+        disp = AADisplaySimulator(self.config, self.bus, bt_manager=bt)
+        assert disp.bt is bt
+
+    def test_event_updates_aa_status(self):
+        disp = AADisplaySimulator(self.config, self.bus)
+        self.bus.publish("multimedia.openauto_status", "running")
+        assert disp._aa_connected is True
+        assert disp._aa_status == "running"
+
+    def test_event_updates_bt_connected(self):
+        disp = AADisplaySimulator(self.config, self.bus)
+        self.bus.publish("bt.connected", {"name": "TestPhone", "address": "AA:BB:CC:DD:EE:FF"})
+        assert disp._bt_connected is True
+        assert disp._bt_device == "TestPhone"
+
+    def test_event_updates_bt_disconnected(self):
+        disp = AADisplaySimulator(self.config, self.bus)
+        self.bus.publish("bt.connected", {"name": "TestPhone"})
+        self.bus.publish("bt.disconnected", {"address": "AA:BB:CC:DD:EE:FF"})
+        assert disp._bt_connected is False
+        assert disp._bt_device == "---"
+
+    def test_event_updates_phone(self):
+        disp = AADisplaySimulator(self.config, self.bus)
+        self.bus.publish("bt.hfp_active", True)
+        assert disp._phone_active is True
+
+    def test_get_local_ips(self):
+        ips = AADisplaySimulator._get_local_ips()
+        assert isinstance(ips, list)
+
+    def test_display_dimensions(self):
+        disp = AADisplaySimulator(self.config, self.bus)
+        assert disp.width == 1024
+        assert disp.height == 600
