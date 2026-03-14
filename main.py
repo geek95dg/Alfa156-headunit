@@ -31,8 +31,9 @@ from src.multimedia.openauto import start_multimedia
 
 # Module registry — maps module names to their (future) start functions.
 # Each Part will register its module here when implemented.
+# NOTE: "dashboard" is handled separately because start_dashboard() blocks
+# (PyGame main-thread event loop). All other modules must start first.
 MODULE_REGISTRY: dict[str, dict] = {
-    "dashboard":   {"part": 2, "description": "BCM Dashboard Renderer (4.3\" screen)", "start": start_dashboard},
     "obd":         {"part": 3, "description": "OBD-II / K-Line Communication", "start": start_obd},
     "parking":     {"part": 4, "description": "Parking Sensors System", "start": start_parking},
     "environment": {"part": 5, "description": "Temperature & Environment Monitoring", "start": start_environment},
@@ -43,6 +44,9 @@ MODULE_REGISTRY: dict[str, dict] = {
     "power":       {"part": 10, "description": "Power Management", "start": start_power},
     "multimedia":  {"part": 11, "description": "Android Auto / Multimedia", "start": start_multimedia},
 }
+
+# Dashboard is listed for --dry-run reporting but started separately
+DASHBOARD_INFO = {"part": 2, "description": "BCM Dashboard Renderer (4.3\" screen)", "start": start_dashboard}
 
 
 def parse_args() -> argparse.Namespace:
@@ -103,17 +107,24 @@ def main() -> None:
     if args.modules:
         requested = [m.strip() for m in args.modules.split(",")]
     else:
-        requested = [
+        requested = ["dashboard"] + [
             name for name in MODULE_REGISTRY
             if config.is_module_enabled(name)
         ]
 
     # Report module status
     log.info("--- Module Status ---")
+
+    # Report dashboard first
+    dashboard_enabled = "dashboard" in requested
+    dash_status = "ENABLED" if dashboard_enabled else "disabled"
+    log.info("  %-14s [Part %2d] %s — %s", "dashboard", 2, dash_status,
+             DASHBOARD_INFO["description"])
+
     started_modules = []
     for name, info in MODULE_REGISTRY.items():
         enabled = name in requested
-        has_impl = "start" in info  # Will be True once each Part adds its start function
+        has_impl = "start" in info
         status = "ENABLED" if enabled else "disabled"
 
         if enabled and not has_impl:
@@ -126,20 +137,30 @@ def main() -> None:
 
     if args.dry_run:
         log.info("--- Dry run complete. %d modules would load (%d implemented). ---",
-                 len(requested), len(started_modules))
+                 len(requested), len(started_modules) + (1 if dashboard_enabled else 0))
         return
 
-    # Start Android Auto display simulator on x86
+    # Create BluetoothManager early so it can be shared with AA display
+    bt_manager = None
+    try:
+        from src.multimedia.bluetooth import BluetoothManager
+        bt_manager = BluetoothManager(config, event_bus)
+        bt_manager.start_monitor()
+        log.info("BluetoothManager initialized")
+    except Exception:
+        log.exception("BluetoothManager failed to init (non-critical)")
+
+    # Start Android Auto display + BT management web UI on x86
     aa_display = None
     if config.platform == "x86":
         try:
             from src.multimedia.aa_display import start_aa_display
-            aa_display = start_aa_display(config, event_bus)
-            log.info("Android Auto display simulator started (http://localhost:5001)")
+            aa_display = start_aa_display(config, event_bus, bt_manager=bt_manager)
+            log.info("AA display + BT management web UI started (http://localhost:5001)")
         except Exception:
-            log.warning("AA display simulator failed to start (non-critical)")
+            log.exception("AA display failed to start")
 
-    # Start implemented modules
+    # Start non-blocking modules first
     for name, info in started_modules:
         log.info("Starting module: %s", name)
         try:
@@ -148,11 +169,7 @@ def main() -> None:
         except Exception:
             log.exception("Failed to start module: %s", name)
 
-    if not started_modules:
-        log.info("No implemented modules to start. Core infrastructure is ready.")
-        log.info("Implement Part 2+ to add functional modules.")
-
-    # Main loop (waits for shutdown signal)
+    # Set up shutdown handler
     shutdown = False
 
     def signal_handler(signum, frame):
@@ -163,13 +180,23 @@ def main() -> None:
     signal.signal(signal.SIGINT, signal_handler)
     signal.signal(signal.SIGTERM, signal_handler)
 
-    if not args.dry_run and started_modules:
-        log.info("BCM v7 running. Press Ctrl+C to stop.")
-        while not shutdown:
-            time.sleep(0.5)
-        log.info("BCM v7 shutdown complete.")
+    # Start dashboard LAST — it blocks the main thread with PyGame event loop.
+    # All other modules (BT, AA display, etc.) are already running in their
+    # daemon threads by this point.
+    if dashboard_enabled:
+        log.info("Starting dashboard (main thread — blocking)...")
+        try:
+            start_dashboard(config=config, event_bus=event_bus, hal=hal)
+        except Exception:
+            log.exception("Dashboard failed")
     else:
-        log.info("BCM v7 core ready. No active modules running.")
+        if started_modules:
+            log.info("BCM v7 running (no dashboard). Press Ctrl+C to stop.")
+            while not shutdown:
+                time.sleep(0.5)
+            log.info("BCM v7 shutdown complete.")
+        else:
+            log.info("No implemented modules to start. Core infrastructure is ready.")
 
 
 if __name__ == "__main__":

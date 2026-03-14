@@ -1,16 +1,17 @@
-"""Android Auto second display simulation for VMware/x86 testing.
+"""Android Auto second display + Bluetooth management web UI.
 
-Opens a second PyGame window (1024x600) simulating the 7" multimedia
-screen that normally runs OpenAuto Pro on the Orange Pi.
+Runs a Flask web server (port 5001) providing:
+  - Android Auto connection status display
+  - Full Bluetooth device management (scan, pair, connect, remove)
+  - Touch-friendly responsive UI for use on second screen
 
-VMware Workstation supports multiple displays — this window can be
-moved to the second virtual monitor for a realistic dual-screen setup.
+VMware Workstation supports multiple displays — open this in a browser
+on the second virtual monitor for a realistic dual-screen setup.
 """
 
-import os
 import time
 import threading
-import pygame
+from typing import Any, Optional
 
 from src.core.event_bus import EventBus
 from src.core.config import BCMConfig
@@ -20,15 +21,13 @@ log = get_logger("multimedia.aa_display")
 
 
 class AADisplaySimulator:
-    """Simulates the 7\" Android Auto display on x86/VMware.
+    """Web-based second display for AA status and Bluetooth management."""
 
-    Shows connection status, simulated AA interface elements,
-    and responds to Bluetooth/multimedia events from the event bus.
-    """
-
-    def __init__(self, config: BCMConfig, event_bus: EventBus) -> None:
+    def __init__(self, config: BCMConfig, event_bus: EventBus,
+                 bt_manager: Any = None) -> None:
         self.config = config
         self.bus = event_bus
+        self.bt = bt_manager
         self._running = False
         self._thread: threading.Thread | None = None
 
@@ -73,35 +72,16 @@ class AADisplaySimulator:
         self._phone_active = bool(value)
 
     def start(self) -> None:
-        """Start the AA display in a separate thread."""
+        """Start the web server in a daemon thread."""
         self._running = True
         self._thread = threading.Thread(target=self._run, daemon=True)
         self._thread.start()
-        log.info("Android Auto display simulator started (%dx%d)",
-                 self.width, self.height)
+        log.info("AA display thread started (%dx%d)", self.width, self.height)
 
     def stop(self) -> None:
         self._running = False
         if self._thread:
             self._thread.join(timeout=3)
-
-    def _run(self) -> None:
-        """Render loop for the AA display window."""
-        # Set window position offset for second monitor
-        os.environ["SDL_VIDEO_WINDOW_POS"] = "850,100"
-
-        # Use a separate pygame display (we need pygame.display for main dashboard,
-        # so this uses a different approach with a separate surface + window)
-        try:
-            import ctypes
-            # On some systems we need to init video separately
-        except ImportError:
-            pass
-
-        # Create a separate window using SDL
-        # Note: PyGame only supports one display window per process.
-        # For true dual-display, we use a Flask web viewer as the second screen.
-        self._run_web_viewer()
 
     @staticmethod
     def _get_local_ips() -> list[str]:
@@ -116,7 +96,6 @@ class AADisplaySimulator:
         except Exception:
             pass
         if not ips:
-            # Fallback: connect to a public IP to discover local address
             try:
                 import socket
                 s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -125,33 +104,34 @@ class AADisplaySimulator:
                 s.close()
             except Exception:
                 pass
-        return list(dict.fromkeys(ips))  # deduplicate, preserve order
+        return list(dict.fromkeys(ips))
 
-    def _run_web_viewer(self) -> None:
-        """Run the AA display as a web page (works with VMware dual display)."""
+    def _run(self) -> None:
+        """Start Flask web server."""
         try:
-            from flask import Flask, render_template_string, Response
+            from flask import Flask, render_template_string, Response, request
+            import json
         except ImportError:
-            log.warning("Flask not available — AA display simulation disabled")
+            log.error("Flask not available — AA display disabled. "
+                      "Install: pip install flask")
             return
 
         app = Flask(__name__)
         app.logger.disabled = True
 
-        # Suppress Flask/werkzeug logs
-        import logging
-        werkzeug_log = logging.getLogger("werkzeug")
-        werkzeug_log.setLevel(logging.ERROR)
+        import logging as _logging
+        _logging.getLogger("werkzeug").setLevel(_logging.ERROR)
+
+        # --- AA status API ---
 
         @app.route("/")
         def index():
-            return render_template_string(AA_HTML_TEMPLATE,
+            return render_template_string(MAIN_HTML,
                                           width=self.width, height=self.height)
 
         @app.route("/status")
         def status():
-            import json
-            return Response(json.dumps({
+            data = {
                 "aa_connected": self._aa_connected,
                 "aa_status": self._aa_status,
                 "bt_connected": self._bt_connected,
@@ -159,229 +139,684 @@ class AADisplaySimulator:
                 "audio_source": self._audio_source,
                 "phone_active": self._phone_active,
                 "time": time.strftime("%H:%M"),
-            }), mimetype="application/json")
+            }
+            return Response(json.dumps(data), mimetype="application/json")
 
-        # Show all reachable IPs so user knows what to type on other devices
+        # --- Bluetooth management API ---
+
+        @app.route("/bt/status")
+        def bt_status():
+            if not self.bt:
+                return Response(json.dumps({"error": "BT manager not available"}),
+                                status=503, mimetype="application/json")
+            ctrl = self.bt.get_controller_info()
+            ctrl["connected"] = self.bt.connected
+            ctrl["connected_device"] = self.bt.connected_device
+            ctrl["scanning"] = self.bt.scanning
+            ctrl["a2dp_active"] = self.bt.a2dp_active
+            ctrl["hfp_active"] = self.bt.hfp_active
+            return Response(json.dumps(ctrl), mimetype="application/json")
+
+        @app.route("/bt/devices")
+        def bt_devices():
+            if not self.bt:
+                return Response(json.dumps({"paired": [], "discovered": []}),
+                                mimetype="application/json")
+            paired = self.bt.get_paired_devices()
+            # Add connection status to each paired device
+            for dev in paired:
+                info = self.bt.get_device_info(dev["address"])
+                dev["connected"] = info.get("connected", False)
+            discovered = self.bt.discovered_devices
+            return Response(json.dumps({"paired": paired, "discovered": discovered}),
+                            mimetype="application/json")
+
+        @app.route("/bt/scan", methods=["POST"])
+        def bt_scan():
+            if not self.bt:
+                return Response(json.dumps({"error": "BT not available"}),
+                                status=503, mimetype="application/json")
+            duration = request.json.get("duration", 15) if request.is_json else 15
+            ok = self.bt.start_scan(duration=duration)
+            return Response(json.dumps({"started": ok, "scanning": self.bt.scanning}),
+                            mimetype="application/json")
+
+        @app.route("/bt/scan/stop", methods=["POST"])
+        def bt_scan_stop():
+            if not self.bt:
+                return Response(json.dumps({"error": "BT not available"}),
+                                status=503, mimetype="application/json")
+            self.bt.stop_scan()
+            return Response(json.dumps({"scanning": False}),
+                            mimetype="application/json")
+
+        @app.route("/bt/pair/<address>", methods=["POST"])
+        def bt_pair(address):
+            if not self.bt:
+                return Response(json.dumps({"error": "BT not available"}),
+                                status=503, mimetype="application/json")
+            ok = self.bt.pair(address)
+            return Response(json.dumps({"success": ok, "address": address}),
+                            mimetype="application/json")
+
+        @app.route("/bt/connect/<address>", methods=["POST"])
+        def bt_connect(address):
+            if not self.bt:
+                return Response(json.dumps({"error": "BT not available"}),
+                                status=503, mimetype="application/json")
+            ok = self.bt.connect(address)
+            return Response(json.dumps({"success": ok, "address": address}),
+                            mimetype="application/json")
+
+        @app.route("/bt/disconnect", methods=["POST"])
+        def bt_disconnect():
+            if not self.bt:
+                return Response(json.dumps({"error": "BT not available"}),
+                                status=503, mimetype="application/json")
+            self.bt.disconnect()
+            return Response(json.dumps({"success": True}),
+                            mimetype="application/json")
+
+        @app.route("/bt/remove/<address>", methods=["POST"])
+        def bt_remove(address):
+            if not self.bt:
+                return Response(json.dumps({"error": "BT not available"}),
+                                status=503, mimetype="application/json")
+            ok = self.bt.remove(address)
+            return Response(json.dumps({"success": ok, "address": address}),
+                            mimetype="application/json")
+
+        @app.route("/bt/discoverable", methods=["POST"])
+        def bt_discoverable():
+            if not self.bt:
+                return Response(json.dumps({"error": "BT not available"}),
+                                status=503, mimetype="application/json")
+            timeout = request.json.get("timeout", 120) if request.is_json else 120
+            ok = self.bt.enable_discoverable(timeout=timeout)
+            return Response(json.dumps({"success": ok}),
+                            mimetype="application/json")
+
+        # Show network IPs
         local_ips = self._get_local_ips()
-        log.info("AA Display web viewer running on port 5001")
+        log.info("AA Display web viewer starting on port 5001")
         log.info("  Local:   http://localhost:5001")
         for ip in local_ips:
             log.info("  Network: http://%s:5001", ip)
-        log.info("Open in browser on another device for dual-screen simulation")
 
         try:
             app.run(host="0.0.0.0", port=5001, debug=False, use_reloader=False)
-        except Exception as e:
-            log.error("AA display web server error: %s", e)
+        except Exception:
+            log.exception("AA display web server failed to start")
 
 
-AA_HTML_TEMPLATE = """<!DOCTYPE html>
-<html>
+# ---------------------------------------------------------------------------
+# HTML template — combined AA display + Bluetooth management
+# ---------------------------------------------------------------------------
+
+MAIN_HTML = r"""<!DOCTYPE html>
+<html lang="en">
 <head>
 <meta charset="utf-8">
-<title>Android Auto — BCM v7 Multimedia Display</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>BCM v7 — Multimedia Display</title>
 <style>
+:root {
+    --bg: #0e0e14;
+    --card: #16162a;
+    --border: #2a2a40;
+    --text: #ddd;
+    --muted: #666;
+    --accent: #4a8cff;
+    --green: #4caf50;
+    --orange: #ff9800;
+    --red: #f44336;
+    --radius: 12px;
+}
 * { margin: 0; padding: 0; box-sizing: border-box; }
 body {
-    background: #111;
-    color: #eee;
-    font-family: 'Segoe UI', 'Roboto', sans-serif;
-    width: {{ width }}px;
-    height: {{ height }}px;
-    overflow: hidden;
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Segoe UI', 'Roboto', 'Helvetica Neue', sans-serif;
+    min-height: 100vh;
+    overflow-x: hidden;
+    -webkit-tap-highlight-color: transparent;
+}
+
+/* Tab navigation */
+.tabs {
     display: flex;
-    flex-direction: column;
+    background: var(--card);
+    border-bottom: 2px solid var(--border);
+    position: sticky;
+    top: 0;
+    z-index: 20;
 }
-.header {
-    background: #1a1a2e;
-    padding: 12px 20px;
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    border-bottom: 2px solid #333;
-}
-.header .title {
-    font-size: 18px;
-    font-weight: 600;
-    color: #4CAF50;
-}
-.header .clock {
-    font-size: 24px;
-    font-weight: 300;
-    color: #ccc;
-}
-.main {
+.tab {
     flex: 1;
+    padding: 14px;
+    text-align: center;
+    font-size: 15px;
+    font-weight: 600;
+    color: var(--muted);
+    cursor: pointer;
+    border-bottom: 3px solid transparent;
+    transition: all 0.2s;
+    user-select: none;
+}
+.tab:hover { color: var(--text); }
+.tab.active {
+    color: var(--accent);
+    border-bottom-color: var(--accent);
+}
+
+/* Pages */
+.page { display: none; padding: 16px; }
+.page.active { display: block; }
+
+/* Cards */
+.card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 16px;
+    margin-bottom: 12px;
+}
+.card-title {
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    color: var(--muted);
+    margin-bottom: 10px;
+}
+
+/* AA display */
+.aa-hero {
     display: flex;
     flex-direction: column;
     align-items: center;
-    justify-content: center;
-    gap: 20px;
+    padding: 32px 0;
+    gap: 16px;
 }
-.aa-logo {
-    width: 120px;
-    height: 120px;
+.aa-icon {
+    width: 100px;
+    height: 100px;
     border-radius: 50%;
     background: linear-gradient(135deg, #1a73e8, #4285f4);
     display: flex;
     align-items: center;
     justify-content: center;
-    font-size: 48px;
-    box-shadow: 0 0 40px rgba(66, 133, 244, 0.3);
+    font-size: 42px;
+    box-shadow: 0 0 40px rgba(66, 133, 244, 0.25);
+    transition: all 0.3s;
 }
-.aa-logo.connected {
+.aa-icon.connected {
     background: linear-gradient(135deg, #0d47a1, #1565c0);
     box-shadow: 0 0 60px rgba(21, 101, 192, 0.5);
 }
-.status {
-    font-size: 22px;
-    color: #888;
-    text-align: center;
+.aa-status-text {
+    font-size: 20px;
+    color: var(--muted);
 }
-.status.connected { color: #4CAF50; }
-.status.error { color: #f44336; }
+.aa-status-text.connected { color: var(--green); }
 .info-grid {
     display: grid;
     grid-template-columns: 1fr 1fr;
-    gap: 16px;
-    padding: 20px;
-    max-width: 500px;
+    gap: 10px;
 }
-.info-item {
-    background: #1a1a2e;
-    padding: 12px 16px;
+.info-cell {
+    background: rgba(255,255,255,0.03);
     border-radius: 8px;
-    border: 1px solid #333;
+    padding: 12px;
 }
-.info-item .label { font-size: 11px; color: #666; text-transform: uppercase; }
-.info-item .value { font-size: 16px; color: #ccc; margin-top: 4px; }
-.info-item .value.active { color: #4CAF50; }
-.info-item .value.warning { color: #ff9800; }
-.footer {
-    background: #1a1a2e;
-    padding: 10px 20px;
+.info-cell .lbl { font-size: 11px; color: var(--muted); text-transform: uppercase; }
+.info-cell .val { font-size: 15px; margin-top: 4px; }
+.info-cell .val.on { color: var(--green); }
+.info-cell .val.warn { color: var(--orange); }
+
+/* BT page */
+.bt-header {
     display: flex;
-    justify-content: center;
-    gap: 40px;
-    border-top: 1px solid #333;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 8px;
 }
-.footer-btn {
-    width: 44px;
-    height: 44px;
-    border-radius: 50%;
-    background: #2a2a3e;
-    border: 1px solid #444;
-    display: flex;
+.bt-badge {
+    display: inline-block;
+    padding: 3px 10px;
+    border-radius: 20px;
+    font-size: 11px;
+    font-weight: 600;
+}
+.bt-badge.on { background: rgba(76,175,80,0.15); color: var(--green); }
+.bt-badge.off { background: rgba(244,67,54,0.15); color: var(--red); }
+.bt-badge.scanning { background: rgba(74,140,255,0.15); color: var(--accent); }
+
+/* Buttons */
+.btn {
+    display: inline-flex;
     align-items: center;
     justify-content: center;
-    font-size: 20px;
+    gap: 6px;
+    padding: 10px 18px;
+    border: none;
+    border-radius: 8px;
+    font-size: 14px;
+    font-weight: 600;
     cursor: pointer;
-    color: #aaa;
+    transition: all 0.15s;
+    color: #fff;
+    min-height: 44px;
+    user-select: none;
 }
-.footer-btn:hover { background: #3a3a4e; color: #fff; }
-.phone-overlay {
-    display: none;
-    position: fixed;
-    top: 0; left: 0;
-    width: 100%; height: 100%;
-    background: rgba(0,0,0,0.85);
-    flex-direction: column;
+.btn:active { transform: scale(0.97); }
+.btn-primary { background: var(--accent); }
+.btn-primary:hover { background: #5a9aff; }
+.btn-success { background: var(--green); }
+.btn-success:hover { background: #5cc060; }
+.btn-danger { background: var(--red); }
+.btn-danger:hover { background: #f55a50; }
+.btn-outline {
+    background: transparent;
+    border: 1px solid var(--border);
+    color: var(--text);
+}
+.btn-outline:hover { background: rgba(255,255,255,0.05); }
+.btn-sm { padding: 6px 12px; font-size: 12px; min-height: 34px; }
+.btn-group { display: flex; gap: 8px; flex-wrap: wrap; }
+
+/* Device list */
+.device-list { list-style: none; }
+.device-item {
+    display: flex;
     align-items: center;
-    justify-content: center;
-    gap: 20px;
-    z-index: 10;
+    justify-content: space-between;
+    padding: 12px;
+    border-bottom: 1px solid var(--border);
+    gap: 10px;
 }
-.phone-overlay.active { display: flex; }
-.phone-icon { font-size: 64px; }
-.phone-text { font-size: 24px; color: #4CAF50; }
+.device-item:last-child { border-bottom: none; }
+.dev-info { flex: 1; min-width: 0; }
+.dev-name {
+    font-size: 14px;
+    font-weight: 500;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.dev-addr { font-size: 11px; color: var(--muted); font-family: monospace; }
+.dev-status { font-size: 11px; margin-top: 2px; }
+.dev-status.connected { color: var(--green); }
+.dev-actions { display: flex; gap: 6px; flex-shrink: 0; }
+
+/* Loading spinner */
+.spinner {
+    display: inline-block;
+    width: 16px;
+    height: 16px;
+    border: 2px solid rgba(255,255,255,0.2);
+    border-top-color: #fff;
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+.empty-msg {
+    text-align: center;
+    color: var(--muted);
+    padding: 20px;
+    font-size: 14px;
+}
+
+/* Toast */
+.toast {
+    position: fixed;
+    bottom: 20px;
+    left: 50%;
+    transform: translateX(-50%) translateY(100px);
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 10px 20px;
+    font-size: 14px;
+    z-index: 100;
+    transition: transform 0.3s;
+    max-width: 90%;
+}
+.toast.show { transform: translateX(-50%) translateY(0); }
+.toast.error { border-color: var(--red); color: var(--red); }
+.toast.success { border-color: var(--green); color: var(--green); }
 </style>
 </head>
 <body>
-<div class="header">
-    <div class="title">Android Auto</div>
-    <div class="clock" id="clock">--:--</div>
+
+<div class="tabs">
+    <div class="tab active" data-page="aa">Android Auto</div>
+    <div class="tab" data-page="bt">Bluetooth</div>
 </div>
 
-<div class="main">
-    <div class="aa-logo" id="aa-logo">A</div>
-    <div class="status" id="aa-status">Waiting for device...</div>
-
-    <div class="info-grid">
-        <div class="info-item">
-            <div class="label">Connection</div>
-            <div class="value" id="aa-conn">Disconnected</div>
+<!-- Android Auto page -->
+<div class="page active" id="page-aa">
+    <div class="aa-hero">
+        <div class="aa-icon" id="aa-icon">A</div>
+        <div class="aa-status-text" id="aa-status-text">Waiting for device...</div>
+    </div>
+    <div class="card">
+        <div class="info-grid">
+            <div class="info-cell">
+                <div class="lbl">Connection</div>
+                <div class="val" id="aa-conn">Disconnected</div>
+            </div>
+            <div class="info-cell">
+                <div class="lbl">Bluetooth</div>
+                <div class="val" id="aa-bt">---</div>
+            </div>
+            <div class="info-cell">
+                <div class="lbl">Audio Source</div>
+                <div class="val" id="aa-audio">---</div>
+            </div>
+            <div class="info-cell">
+                <div class="lbl">Phone</div>
+                <div class="val" id="aa-phone">Idle</div>
+            </div>
         </div>
-        <div class="info-item">
-            <div class="label">Bluetooth</div>
-            <div class="value" id="bt-status">---</div>
-        </div>
-        <div class="info-item">
-            <div class="label">Audio Source</div>
-            <div class="value" id="audio-src">---</div>
-        </div>
-        <div class="info-item">
-            <div class="label">Phone</div>
-            <div class="value" id="phone-status">Idle</div>
-        </div>
+    </div>
+    <div class="card" style="text-align:center; color:var(--muted); font-size:13px">
+        <span id="clock-display">--:--</span> &nbsp;|&nbsp; BCM v7 Multimedia Display
     </div>
 </div>
 
-<div class="footer">
-    <div class="footer-btn" title="Home">&#8962;</div>
-    <div class="footer-btn" title="Phone">&#9742;</div>
-    <div class="footer-btn" title="Music">&#9835;</div>
-    <div class="footer-btn" title="Navigation">&#9737;</div>
-    <div class="footer-btn" title="Voice">&#9834;</div>
+<!-- Bluetooth management page -->
+<div class="page" id="page-bt">
+    <!-- Controller status -->
+    <div class="card">
+        <div class="bt-header">
+            <div class="card-title">Controller</div>
+            <span class="bt-badge off" id="bt-power-badge">OFF</span>
+        </div>
+        <div style="font-size:13px; color:var(--muted)" id="bt-ctrl-info">Loading...</div>
+        <div class="btn-group" style="margin-top:12px">
+            <button class="btn btn-outline btn-sm" onclick="btDiscoverable()">
+                Make Discoverable (2 min)
+            </button>
+        </div>
+    </div>
+
+    <!-- Connected device -->
+    <div class="card" id="bt-connected-card" style="display:none">
+        <div class="card-title">Connected Device</div>
+        <div class="device-item" style="border:none; padding:4px 0">
+            <div class="dev-info">
+                <div class="dev-name" id="bt-conn-name">---</div>
+                <div class="dev-addr" id="bt-conn-addr">---</div>
+            </div>
+            <button class="btn btn-danger btn-sm" onclick="btDisconnect()">Disconnect</button>
+        </div>
+    </div>
+
+    <!-- Scan section -->
+    <div class="card">
+        <div class="bt-header">
+            <div class="card-title">Scan for Devices</div>
+            <span class="bt-badge" id="bt-scan-badge" style="display:none">
+                <span class="spinner"></span> Scanning
+            </span>
+        </div>
+        <div class="btn-group" style="margin-bottom:12px">
+            <button class="btn btn-primary btn-sm" id="btn-scan" onclick="btScan()">
+                Scan Nearby
+            </button>
+            <button class="btn btn-outline btn-sm" id="btn-scan-stop"
+                    onclick="btScanStop()" style="display:none">
+                Stop Scan
+            </button>
+        </div>
+        <ul class="device-list" id="discovered-list">
+            <li class="empty-msg">Press "Scan Nearby" to find devices</li>
+        </ul>
+    </div>
+
+    <!-- Paired devices -->
+    <div class="card">
+        <div class="card-title">Paired Devices</div>
+        <ul class="device-list" id="paired-list">
+            <li class="empty-msg">No paired devices</li>
+        </ul>
+    </div>
 </div>
 
-<div class="phone-overlay" id="phone-overlay">
-    <div class="phone-icon">&#9742;</div>
-    <div class="phone-text">Call in progress...</div>
-</div>
+<div class="toast" id="toast"></div>
 
 <script>
-function update() {
-    fetch('/status')
+// Tab switching
+document.querySelectorAll('.tab').forEach(tab => {
+    tab.addEventListener('click', () => {
+        document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+        document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+        tab.classList.add('active');
+        document.getElementById('page-' + tab.dataset.page).classList.add('active');
+        if (tab.dataset.page === 'bt') refreshBT();
+    });
+});
+
+// Toast notification
+function showToast(msg, type) {
+    const t = document.getElementById('toast');
+    t.textContent = msg;
+    t.className = 'toast ' + (type || '') + ' show';
+    setTimeout(() => t.classList.remove('show'), 3000);
+}
+
+// --- AA status polling ---
+function updateAA() {
+    fetch('/status').then(r => r.json()).then(d => {
+        document.getElementById('clock-display').textContent = d.time;
+        const icon = document.getElementById('aa-icon');
+        const st = document.getElementById('aa-status-text');
+        st.textContent = d.aa_status;
+        st.className = 'aa-status-text' + (d.aa_connected ? ' connected' : '');
+        icon.className = 'aa-icon' + (d.aa_connected ? ' connected' : '');
+
+        const conn = document.getElementById('aa-conn');
+        conn.textContent = d.aa_connected ? 'Connected' : 'Waiting...';
+        conn.className = 'val' + (d.aa_connected ? ' on' : '');
+
+        const bt = document.getElementById('aa-bt');
+        bt.textContent = d.bt_connected ? d.bt_device : '---';
+        bt.className = 'val' + (d.bt_connected ? ' on' : '');
+
+        document.getElementById('aa-audio').textContent = d.audio_source;
+
+        const ph = document.getElementById('aa-phone');
+        ph.textContent = d.phone_active ? 'Active' : 'Idle';
+        ph.className = 'val' + (d.phone_active ? ' warn' : '');
+    }).catch(() => {});
+}
+setInterval(updateAA, 1000);
+updateAA();
+
+// --- BT management ---
+function refreshBT() {
+    // Controller status
+    fetch('/bt/status').then(r => r.json()).then(d => {
+        const badge = document.getElementById('bt-power-badge');
+        if (d.error) {
+            badge.textContent = 'N/A';
+            badge.className = 'bt-badge off';
+            document.getElementById('bt-ctrl-info').textContent = d.error;
+            return;
+        }
+        badge.textContent = d.powered ? 'ON' : 'OFF';
+        badge.className = 'bt-badge ' + (d.powered ? 'on' : 'off');
+        document.getElementById('bt-ctrl-info').textContent =
+            (d.name || '?') + '  (' + (d.address || '?') + ')' +
+            (d.discoverable ? '  [Discoverable]' : '');
+
+        // Scan badge
+        const scanBadge = document.getElementById('bt-scan-badge');
+        const btnScan = document.getElementById('btn-scan');
+        const btnStop = document.getElementById('btn-scan-stop');
+        if (d.scanning) {
+            scanBadge.style.display = 'inline-flex';
+            scanBadge.className = 'bt-badge scanning';
+            btnScan.style.display = 'none';
+            btnStop.style.display = '';
+        } else {
+            scanBadge.style.display = 'none';
+            btnScan.style.display = '';
+            btnStop.style.display = 'none';
+        }
+
+        // Connected device card
+        const connCard = document.getElementById('bt-connected-card');
+        if (d.connected && d.connected_device) {
+            connCard.style.display = '';
+            document.getElementById('bt-conn-name').textContent =
+                d.connected_device.name || 'Unknown';
+            document.getElementById('bt-conn-addr').textContent =
+                d.connected_device.address || '';
+        } else {
+            connCard.style.display = 'none';
+        }
+    }).catch(() => {});
+
+    // Device lists
+    fetch('/bt/devices').then(r => r.json()).then(d => {
+        renderPaired(d.paired || []);
+        renderDiscovered(d.discovered || []);
+    }).catch(() => {});
+}
+
+function renderPaired(devices) {
+    const ul = document.getElementById('paired-list');
+    if (!devices.length) {
+        ul.innerHTML = '<li class="empty-msg">No paired devices</li>';
+        return;
+    }
+    ul.innerHTML = devices.map(dev => `
+        <li class="device-item">
+            <div class="dev-info">
+                <div class="dev-name">${esc(dev.name)}</div>
+                <div class="dev-addr">${esc(dev.address)}</div>
+                ${dev.connected ? '<div class="dev-status connected">Connected</div>' : ''}
+            </div>
+            <div class="dev-actions">
+                ${dev.connected
+                    ? `<button class="btn btn-danger btn-sm" onclick="btDisconnect()">Disconnect</button>`
+                    : `<button class="btn btn-success btn-sm" onclick="btConnect('${dev.address}')">Connect</button>`}
+                <button class="btn btn-outline btn-sm" onclick="btRemove('${dev.address}')">Remove</button>
+            </div>
+        </li>`).join('');
+}
+
+function renderDiscovered(devices) {
+    const ul = document.getElementById('discovered-list');
+    if (!devices.length) {
+        if (document.getElementById('bt-scan-badge').style.display !== 'none') {
+            ul.innerHTML = '<li class="empty-msg">Scanning...</li>';
+        } else {
+            ul.innerHTML = '<li class="empty-msg">Press "Scan Nearby" to find devices</li>';
+        }
+        return;
+    }
+    ul.innerHTML = devices.map(dev => `
+        <li class="device-item">
+            <div class="dev-info">
+                <div class="dev-name">${esc(dev.name)}</div>
+                <div class="dev-addr">${esc(dev.address)}</div>
+            </div>
+            <div class="dev-actions">
+                <button class="btn btn-primary btn-sm" onclick="btPair('${dev.address}')">Pair</button>
+            </div>
+        </li>`).join('');
+}
+
+function esc(s) {
+    const d = document.createElement('div');
+    d.textContent = s || '';
+    return d.innerHTML;
+}
+
+// --- BT actions ---
+function btScan() {
+    fetch('/bt/scan', {method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({duration: 15})})
         .then(r => r.json())
         .then(d => {
-            document.getElementById('clock').textContent = d.time;
-            document.getElementById('aa-status').textContent = d.aa_status;
-            document.getElementById('aa-status').className =
-                'status' + (d.aa_connected ? ' connected' : '');
-
-            const logo = document.getElementById('aa-logo');
-            logo.className = 'aa-logo' + (d.aa_connected ? ' connected' : '');
-
-            document.getElementById('aa-conn').textContent =
-                d.aa_connected ? 'Connected' : 'Waiting...';
-            document.getElementById('aa-conn').className =
-                'value' + (d.aa_connected ? ' active' : '');
-
-            document.getElementById('bt-status').textContent =
-                d.bt_connected ? d.bt_device : '---';
-            document.getElementById('bt-status').className =
-                'value' + (d.bt_connected ? ' active' : '');
-
-            document.getElementById('audio-src').textContent = d.audio_source;
-            document.getElementById('phone-status').textContent =
-                d.phone_active ? 'Active' : 'Idle';
-            document.getElementById('phone-status').className =
-                'value' + (d.phone_active ? ' warning' : '');
-
-            document.getElementById('phone-overlay').className =
-                'phone-overlay' + (d.phone_active ? ' active' : '');
+            if (d.started) showToast('Scanning for 15 seconds...', 'success');
+            else showToast('Scan already running', '');
+            refreshBT();
         })
-        .catch(() => {});
+        .catch(() => showToast('Scan failed', 'error'));
 }
-setInterval(update, 500);
-update();
+
+function btScanStop() {
+    fetch('/bt/scan/stop', {method: 'POST'})
+        .then(() => { showToast('Scan stopped', ''); refreshBT(); })
+        .catch(() => showToast('Failed to stop scan', 'error'));
+}
+
+function btPair(addr) {
+    showToast('Pairing with ' + addr + '...', '');
+    fetch('/bt/pair/' + addr, {method: 'POST'})
+        .then(r => r.json())
+        .then(d => {
+            showToast(d.success ? 'Paired successfully' : 'Pairing failed', d.success ? 'success' : 'error');
+            refreshBT();
+        })
+        .catch(() => showToast('Pairing failed', 'error'));
+}
+
+function btConnect(addr) {
+    showToast('Connecting to ' + addr + '...', '');
+    fetch('/bt/connect/' + addr, {method: 'POST'})
+        .then(r => r.json())
+        .then(d => {
+            showToast(d.success ? 'Connected' : 'Connection failed', d.success ? 'success' : 'error');
+            refreshBT();
+        })
+        .catch(() => showToast('Connection failed', 'error'));
+}
+
+function btDisconnect() {
+    fetch('/bt/disconnect', {method: 'POST'})
+        .then(() => { showToast('Disconnected', 'success'); refreshBT(); })
+        .catch(() => showToast('Disconnect failed', 'error'));
+}
+
+function btRemove(addr) {
+    if (!confirm('Remove device ' + addr + '?')) return;
+    fetch('/bt/remove/' + addr, {method: 'POST'})
+        .then(r => r.json())
+        .then(d => {
+            showToast(d.success ? 'Device removed' : 'Remove failed', d.success ? 'success' : 'error');
+            refreshBT();
+        })
+        .catch(() => showToast('Remove failed', 'error'));
+}
+
+function btDiscoverable() {
+    fetch('/bt/discoverable', {method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({timeout: 120})})
+        .then(r => r.json())
+        .then(d => {
+            showToast(d.success ? 'Discoverable for 2 minutes' : 'Failed', d.success ? 'success' : 'error');
+            refreshBT();
+        })
+        .catch(() => showToast('Failed', 'error'));
+}
+
+// Auto-refresh BT page every 3 seconds when visible
+setInterval(() => {
+    if (document.getElementById('page-bt').classList.contains('active')) refreshBT();
+}, 3000);
 </script>
 </body>
 </html>"""
 
 
-def start_aa_display(config: BCMConfig, event_bus: EventBus) -> AADisplaySimulator:
+def start_aa_display(config: BCMConfig, event_bus: EventBus,
+                     bt_manager: Any = None) -> AADisplaySimulator:
     """Start the AA display simulator. Returns the controller."""
-    display = AADisplaySimulator(config, event_bus)
+    display = AADisplaySimulator(config, event_bus, bt_manager=bt_manager)
     display.start()
     return display
