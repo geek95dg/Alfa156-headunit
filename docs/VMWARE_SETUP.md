@@ -138,8 +138,10 @@ cd Alfa156-headunit
 python3.12 -m venv .venv
 source .venv/bin/activate
 
-# Install dependencies
+# Install dependencies (common + x86 simulation + dev/test tools)
 pip install -r requirements.txt
+pip install -r requirements-x86.txt
+pip install -r requirements-dev.txt
 
 # Verify installation
 python -m pytest tests/ -v
@@ -368,10 +370,20 @@ sudo apt install -y python3-pygame libsdl2-dev
 export SDL_VIDEODRIVER=dummy
 ```
 
+### `No module named pytest`
+```bash
+# pytest is in the dev requirements — install it
+pip install -r requirements-dev.txt
+```
+
 ### Tests fail with import errors
 ```bash
 # Ensure you're in the venv
 source .venv/bin/activate
+# Ensure all requirement files are installed
+pip install -r requirements.txt
+pip install -r requirements-x86.txt
+pip install -r requirements-dev.txt
 # Ensure project root is in PYTHONPATH
 export PYTHONPATH=/home/$USER/Alfa156-headunit:$PYTHONPATH
 # Or run with: python -m pytest tests/
