@@ -30,6 +30,17 @@ except ImportError:
     HAS_DBUS = False
 
 AGENT_PATH = "/org/bluez/bcm_agent"
+
+
+def _device_path_to_addr(device_path: str) -> str:
+    """Convert D-Bus device path to BT address.
+
+    Example: /org/bluez/hci0/dev_C0_7A_D6_90_E9_CC → C0:7A:D6:90:E9:CC
+    """
+    node = device_path.split("/")[-1]  # dev_C0_7A_D6_90_E9_CC
+    if node.startswith("dev_"):
+        node = node[4:]  # C0_7A_D6_90_E9_CC
+    return node.replace("_", ":")
 AGENT_CAPABILITY = "DisplayYesNo"
 
 # Bluetooth service UUIDs
@@ -47,7 +58,7 @@ class _PairingRequest:
     """Holds a pending pairing confirmation request."""
 
     def __init__(self, device_path: str, passkey: int):
-        addr = device_path.split("/")[-1].replace("_", ":")
+        addr = _device_path_to_addr(device_path)
         self.device_path = device_path
         self.address = addr
         self.passkey = passkey
@@ -119,7 +130,7 @@ class _PairingAgent(dbus.service.Object):
     @dbus.service.method(AGENT_INTERFACE, in_signature="os", out_signature="")
     def AuthorizeService(self, device, uuid):
         log.info("Agent: authorizing service %s for %s", uuid, device)
-        addr = device.split("/")[-1].replace("_", ":")
+        addr = _device_path_to_addr(device)
         _run_btctl(["trust", addr])
         return
 
@@ -144,7 +155,7 @@ class _PairingAgent(dbus.service.Object):
     @dbus.service.method(AGENT_INTERFACE, in_signature="ou", out_signature="")
     def RequestConfirmation(self, device, passkey):
         global _pending_pairing
-        addr = device.split("/")[-1].replace("_", ":")
+        addr = _device_path_to_addr(device)
         log.info("Agent: pairing confirmation requested — passkey %06d for %s",
                  passkey, addr)
 
@@ -180,7 +191,7 @@ class _PairingAgent(dbus.service.Object):
     @dbus.service.method(AGENT_INTERFACE, in_signature="o", out_signature="")
     def RequestAuthorization(self, device):
         log.info("Agent: auto-authorizing %s", device)
-        addr = device.split("/")[-1].replace("_", ":")
+        addr = _device_path_to_addr(device)
         _run_btctl(["trust", addr])
         return
 

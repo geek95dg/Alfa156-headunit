@@ -25,6 +25,12 @@ if [ -z "${DISPLAY:-}" ]; then
     ARGS+=("--headless")
 fi
 
+# Ensure PulseAudio is running (needed for BT A2DP audio)
+if ! pulseaudio --check 2>/dev/null; then
+    echo "[run_x86] Starting PulseAudio for BT audio support..."
+    pulseaudio --start 2>/dev/null || true
+fi
+
 # Append any extra arguments passed to this script
 ARGS+=("$@")
 
