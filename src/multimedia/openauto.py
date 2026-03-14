@@ -159,11 +159,19 @@ class OpenAutoController:
 
 
 def start_multimedia(config: Any, event_bus: EventBus, hal: Any = None,
-                     **kwargs) -> None:
-    """Entry point called from main.py to start the multimedia module."""
-    # Bluetooth manager
-    bt_mgr = BluetoothManager(config, event_bus)
-    bt_mgr.start_monitor()
+                     bt_manager: Any = None, **kwargs) -> None:
+    """Entry point called from main.py to start the multimedia module.
+
+    Args:
+        bt_manager: Existing BluetoothManager instance from main.py.
+                    If None, a new one is created (backward compat).
+    """
+    # Reuse existing BluetoothManager if provided (avoids double D-Bus agent)
+    if bt_manager is not None:
+        bt_mgr = bt_manager
+    else:
+        bt_mgr = BluetoothManager(config, event_bus)
+        bt_mgr.start_monitor()
 
     # OpenAuto controller
     openauto = OpenAutoController(config, event_bus)

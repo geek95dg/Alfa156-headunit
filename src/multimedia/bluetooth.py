@@ -30,6 +30,7 @@ except ImportError:
     HAS_DBUS = False
 
 AGENT_PATH = "/org/bluez/bcm_agent"
+_agent_registered = False  # Guard against double registration
 
 
 def _device_path_to_addr(device_path: str) -> str:
@@ -241,16 +242,34 @@ def _register_bt_profile(bus, path: str, uuid: str, name: str,
 
 
 def _register_all_profiles(bus) -> None:
-    """Register Android Auto profile with BlueZ.
+    """Register Bluetooth profiles with BlueZ.
 
     NOTE: A2DP Sink and HFP profiles are NOT registered here — they are
     managed by PipeWire/WirePlumber via libspa-0.2-bluetooth. Registering
     them here would block PipeWire (BlueZ: NotPermitted) and break audio.
-    We only register the Android Auto UUID which is custom and not handled
-    by any system audio daemon.
+
+    The Android Auto UUID is only registered if OpenAuto is installed,
+    because without it there's no AA protocol handler — registering the
+    UUID would make phones try to connect AA but fail (no RFCOMM/TCP server).
     """
-    _register_bt_profile(bus, AA_PROFILE_PATH, AA_SERVICE_UUID,
-                         "Android Auto Wireless", role="server")
+    # Check if OpenAuto is actually installed before advertising AA
+    import os
+    openauto_paths = [
+        "/usr/local/bin/autoapp",
+        "/opt/openauto/bin/autoapp",
+        "/usr/bin/autoapp",
+    ]
+    has_openauto = any(
+        os.path.isfile(p) and os.access(p, os.X_OK)
+        for p in openauto_paths
+    )
+
+    if has_openauto:
+        _register_bt_profile(bus, AA_PROFILE_PATH, AA_SERVICE_UUID,
+                             "Android Auto Wireless", role="server")
+    else:
+        log.info("OpenAuto not installed — skipping AA profile registration "
+                 "(phones won't attempt AA wireless connection)")
 
 
 def _configure_adapter(bus) -> None:
@@ -270,7 +289,16 @@ def _configure_adapter(bus) -> None:
 
 
 def _start_pairing_agent() -> bool:
-    """Register the D-Bus pairing agent and Android Auto profile with BlueZ."""
+    """Register the D-Bus pairing agent and BT profiles with BlueZ.
+
+    Safe to call multiple times — only registers once.
+    """
+    global _agent_registered
+
+    if _agent_registered:
+        log.debug("D-Bus pairing agent already registered — skipping")
+        return True
+
     if not HAS_DBUS:
         log.warning("dbus-python not available — pairing agent disabled")
         return False
@@ -287,12 +315,12 @@ def _start_pairing_agent() -> bool:
         )
         manager.RegisterAgent(AGENT_PATH, AGENT_CAPABILITY)
         manager.RequestDefaultAgent(AGENT_PATH)
-        log.info("BT pairing agent active (auto-accept, capability=%s)", AGENT_CAPABILITY)
+        log.info("BT pairing agent active (capability=%s)", AGENT_CAPABILITY)
 
         # Configure adapter name for discovery
         _configure_adapter(bus)
 
-        # Register A2DP, HFP, and Android Auto profiles
+        # Register profiles (AA only if OpenAuto installed)
         _register_all_profiles(bus)
 
         # Run GLib main loop in background thread for D-Bus signal handling
@@ -300,6 +328,8 @@ def _start_pairing_agent() -> bool:
         loop = GLib.MainLoop()
         t = threading.Thread(target=loop.run, daemon=True)
         t.start()
+
+        _agent_registered = True
         return True
     except Exception:
         log.exception("Failed to start D-Bus pairing agent")
@@ -602,8 +632,12 @@ class BluetoothManager:
             log.info("BT connected (simulated): %s", address)
             return True
 
-        rc, _, err = _run_btctl(["connect", address])
-        if rc == 0:
+        # Ensure device is trusted before connecting (needed for reconnection)
+        _run_btctl(["trust", address])
+
+        rc, out, err = _run_btctl(["connect", address], timeout=15.0)
+        combined = (out + err).lower()
+        if rc == 0 or "successful" in combined:
             # Resolve name
             info = self.get_device_info(address)
             name = info.get("name", address)
@@ -616,7 +650,7 @@ class BluetoothManager:
             })
             log.info("BT connected: %s (%s)", address, name)
             return True
-        log.error("BT connect failed: %s", err)
+        log.error("BT connect failed: %s %s", out.strip(), err.strip())
         return False
 
     def disconnect(self) -> None:
@@ -653,15 +687,43 @@ class BluetoothManager:
             self._monitor_thread.join(timeout=2.0)
 
     def _monitor_loop(self) -> None:
-        """Periodically check BT connection status."""
+        """Periodically check BT connection status and handle reconnection."""
+        _reconnect_attempts = 0
+        _max_reconnect = 3
+        _last_device_addr: Optional[str] = None
+
         while self._running:
             if self._available and self._connected_device:
-                rc, out, _ = _run_btctl([
-                    "info", self._connected_device["address"]
-                ])
+                addr = self._connected_device["address"]
+                rc, out, _ = _run_btctl(["info", addr])
                 if rc == 0 and "Connected: no" in out:
-                    log.warning("BT device disconnected unexpectedly")
+                    log.warning("BT device %s disconnected unexpectedly", addr)
+                    _last_device_addr = addr
+                    _reconnect_attempts = 0
                     self.disconnect()
+                else:
+                    # Still connected — reset reconnect state
+                    _reconnect_attempts = 0
+                    _last_device_addr = None
+
+            elif (self._available and not self._connected_device
+                  and _last_device_addr and _reconnect_attempts < _max_reconnect):
+                # Try to reconnect to the last device
+                _reconnect_attempts += 1
+                log.info("BT auto-reconnect attempt %d/%d to %s",
+                         _reconnect_attempts, _max_reconnect, _last_device_addr)
+                if self.connect(_last_device_addr):
+                    log.info("BT auto-reconnect succeeded to %s", _last_device_addr)
+                    _last_device_addr = None
+                    _reconnect_attempts = 0
+                else:
+                    log.warning("BT auto-reconnect failed (%d/%d)",
+                                _reconnect_attempts, _max_reconnect)
+                    if _reconnect_attempts >= _max_reconnect:
+                        log.info("BT auto-reconnect exhausted — giving up for %s",
+                                 _last_device_addr)
+                        _last_device_addr = None
+
             time.sleep(5)
 
     # --- HFP call handling ---

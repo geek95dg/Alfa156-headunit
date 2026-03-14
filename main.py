@@ -176,7 +176,12 @@ def main() -> None:
     for name, info in started_modules:
         log.info("Starting module: %s", name)
         try:
-            info["start"](config=config, event_bus=event_bus, hal=hal)
+            # Pass existing bt_manager to multimedia to avoid double registration
+            if name == "multimedia" and bt_manager is not None:
+                info["start"](config=config, event_bus=event_bus, hal=hal,
+                              bt_manager=bt_manager)
+            else:
+                info["start"](config=config, event_bus=event_bus, hal=hal)
             log.info("Module started: %s", name)
         except Exception:
             log.exception("Failed to start module: %s", name)
