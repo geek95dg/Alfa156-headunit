@@ -195,6 +195,8 @@ class DashboardRenderer:
         self.parking_overlay.active = bool(value)
         self.data.reverse = bool(value)
         self.data.gear = "R" if value else "N"
+        if not value:
+            self.parking_overlay.release_camera()
 
     def _switch_theme(self, theme_name: str) -> None:
         theme_cls = THEMES.get(theme_name)
@@ -293,6 +295,8 @@ class DashboardRenderer:
                 self.parking_overlay.active = not self.parking_overlay.active
                 self.data.reverse = self.parking_overlay.active
                 self.data.gear = "R" if self.data.reverse else "N"
+                if not self.parking_overlay.active:
+                    self.parking_overlay.release_camera()
                 self.bus.publish("power.reverse_gear", self.parking_overlay.active)
             elif event.key == pygame.K_t:
                 if self.data.ext_temp is None:

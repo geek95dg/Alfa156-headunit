@@ -205,7 +205,7 @@ This will start all enabled modules in x86 simulation mode:
 | **UP/DOWN** | Adjust RPM (demo) |
 | **HOME / H** | Open/close settings menu |
 | **ESC** | Close settings or quit |
-| **R** | Toggle reverse gear (parking overlay) |
+| **R** | Toggle reverse gear (camera + parking overlay) |
 | **T** | Cycle exterior temperature |
 | **I** | Trigger icing alert |
 | **ENTER (hold 2s)** | Long press action (reset trip on C1, confirm service on C2) |
@@ -238,6 +238,22 @@ The server binds to `0.0.0.0:5001` so it's accessible from any device on the net
 > **VMware network note:** If using NAT, the VM IP is typically `192.168.x.x`.
 > If the host can't reach the VM, switch the VMware network adapter to **Bridged**
 > mode (VM → Settings → Network Adapter → Bridged) so both devices are on the same subnet.
+
+### 5.2.4 Reverse camera testing with USB camera
+
+Press **R** to toggle reverse mode. The screen shows:
+- **Top 2/3:** Live camera feed (or placeholder if no camera)
+- **Bottom 1/3:** Parking sensor distance bars with closest-distance readout
+
+**To test with a real USB camera in VMware:**
+
+1. Plug a USB webcam into your host machine
+2. In VMware: **VM → Removable Devices → USB Camera → Connect**
+3. Verify the camera appears: `ls /dev/video*`
+4. Press **R** in the dashboard to see the live feed
+
+> **Note:** Install `opencv-python-headless` (included in `requirements-x86.txt`)
+> for camera capture. Without it, the camera area shows a placeholder.
 
 ### 5.3 Start specific modules only
 
