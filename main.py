@@ -99,7 +99,15 @@ def main() -> None:
     # Initialize logging
     log_level = config.get("system.log_level", "INFO")
     log_file = config.get("system.log_file")
-    root_log = setup_logging(level=log_level, log_file=log_file)
+    # Keep BT/multimedia at DEBUG for investigation, rest at configured level
+    module_levels = {
+        "multimedia.bluetooth": "DEBUG",
+        "multimedia.openauto": "DEBUG",
+        "multimedia.wifi_ap": "DEBUG",
+        "multimedia.aa_display": "INFO",
+    }
+    root_log = setup_logging(level=log_level, log_file=log_file,
+                             module_levels=module_levels)
     log = get_logger("main")
 
     log.info("=" * 60)
@@ -154,13 +162,47 @@ def main() -> None:
 
     # Create BluetoothManager early so it can be shared with AA display
     bt_manager = None
+    log.info("--- Bluetooth Init ---")
     try:
         from src.multimedia.bluetooth import BluetoothManager
         bt_manager = BluetoothManager(config, event_bus)
         bt_manager.start_monitor()
-        log.info("BluetoothManager initialized")
+        log.info("BluetoothManager initialized (available=%s)", bt_manager.available)
+        if bt_manager.available:
+            ctrl_info = bt_manager.get_controller_info()
+            log.info("BT Controller: %s (%s), powered=%s, discoverable=%s",
+                     ctrl_info.get("name", "?"), ctrl_info.get("address", "?"),
+                     ctrl_info.get("powered", False),
+                     ctrl_info.get("discoverable", False))
+            paired = bt_manager.get_paired_devices()
+            log.info("BT Paired devices: %d", len(paired))
+            for dev in paired:
+                info = bt_manager.get_device_info(dev["address"])
+                log.info("  %s (%s) connected=%s",
+                         dev["name"], dev["address"],
+                         info.get("connected", False))
     except Exception:
         log.exception("BluetoothManager failed to init (non-critical)")
+
+    # Start WiFi AP for Android Auto wireless data link
+    wifi_ap = None
+    wifi_enabled = config.get("wifi.enabled", False)
+    log.info("--- WiFi AP Init (enabled=%s) ---", wifi_enabled)
+    if wifi_enabled:
+        try:
+            from src.multimedia.wifi_ap import WiFiAPManager
+            wifi_ap = WiFiAPManager(config, event_bus)
+            if wifi_ap.start():
+                log.info("WiFi AP active — SSID: %s, IP: %s, Interface: %s",
+                         config.get("wifi.ssid", "Alfa156_AA"),
+                         wifi_ap.ip_address, wifi_ap.interface)
+            else:
+                log.warning("WiFi AP failed to start (AA wireless may not work)")
+        except Exception:
+            log.exception("WiFi AP init failed")
+    else:
+        log.warning("WiFi AP disabled — wireless Android Auto will not work. "
+                     "Set wifi.enabled=true in config.")
 
     # Start Android Auto display + BT management web UI on x86
     aa_display = None
@@ -194,6 +236,9 @@ def main() -> None:
         nonlocal shutdown
         log.info("Received signal %d, shutting down...", signum)
         shutdown = True
+        # Stop WiFi AP
+        if wifi_ap is not None:
+            wifi_ap.stop()
         # Stop the dashboard renderer if it's blocking the main thread
         if dashboard_renderer is not None:
             dashboard_renderer.stop()

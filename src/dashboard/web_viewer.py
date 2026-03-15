@@ -1,7 +1,7 @@
 """Flask + WebSocket web viewer for x86 browser preview.
 
 Captures PyGame surface as JPEG frames and streams via WebSocket
-to a browser at http://localhost:5000. Also accepts keyboard input
+to a browser at http://localhost:5002. Also accepts keyboard input
 from the browser and publishes it to the event bus.
 """
 

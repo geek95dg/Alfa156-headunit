@@ -236,6 +236,16 @@ class AADisplaySimulator:
             return Response(json.dumps({"success": ok}),
                             mimetype="application/json")
 
+        @app.route("/bt/connected")
+        def bt_connected():
+            """Get all currently connected Bluetooth devices."""
+            if not self.bt:
+                return Response(json.dumps({"connected": []}),
+                                mimetype="application/json")
+            connected = self.bt.get_connected_devices()
+            return Response(json.dumps({"connected": connected}),
+                            mimetype="application/json")
+
         @app.route("/bt/pairing")
         def bt_pairing_status():
             """Check if there's a pending pairing confirmation request."""
@@ -624,16 +634,15 @@ body {
         </div>
     </div>
 
-    <!-- Connected device -->
-    <div class="card" id="bt-connected-card" style="display:none">
-        <div class="card-title">Connected Device</div>
-        <div class="device-item" style="border:none; padding:4px 0">
-            <div class="dev-info">
-                <div class="dev-name" id="bt-conn-name">---</div>
-                <div class="dev-addr" id="bt-conn-addr">---</div>
-            </div>
-            <button class="btn btn-danger btn-sm" onclick="btDisconnect()">Disconnect</button>
+    <!-- Connected devices -->
+    <div class="card" id="bt-connected-card">
+        <div class="bt-header">
+            <div class="card-title">Connected Devices</div>
+            <span class="bt-badge off" id="bt-conn-count">0</span>
         </div>
+        <ul class="device-list" id="connected-list">
+            <li class="empty-msg">No devices connected</li>
+        </ul>
     </div>
 
     <!-- Scan section -->
@@ -763,18 +772,11 @@ function refreshBT() {
             btnScan.style.display = '';
             btnStop.style.display = 'none';
         }
+    }).catch(() => {});
 
-        // Connected device card
-        const connCard = document.getElementById('bt-connected-card');
-        if (d.connected && d.connected_device) {
-            connCard.style.display = '';
-            document.getElementById('bt-conn-name').textContent =
-                d.connected_device.name || 'Unknown';
-            document.getElementById('bt-conn-addr').textContent =
-                d.connected_device.address || '';
-        } else {
-            connCard.style.display = 'none';
-        }
+    // Connected devices
+    fetch('/bt/connected').then(r => r.json()).then(d => {
+        renderConnected(d.connected || []);
     }).catch(() => {});
 
     // Device lists
@@ -782,6 +784,30 @@ function refreshBT() {
         renderPaired(d.paired || []);
         renderDiscovered(d.discovered || []);
     }).catch(() => {});
+}
+
+function renderConnected(devices) {
+    const ul = document.getElementById('connected-list');
+    const badge = document.getElementById('bt-conn-count');
+    badge.textContent = devices.length;
+    badge.className = 'bt-badge ' + (devices.length > 0 ? 'on' : 'off');
+    if (!devices.length) {
+        ul.innerHTML = '<li class="empty-msg">No devices connected</li>';
+        return;
+    }
+    ul.innerHTML = devices.map(dev => `
+        <li class="device-item">
+            <div class="dev-info">
+                <div class="dev-name">${esc(dev.name)}</div>
+                <div class="dev-addr">${esc(dev.address)}</div>
+                <div class="dev-status connected">
+                    ${dev.a2dp ? 'A2DP ' : ''}${dev.hfp ? 'HFP ' : ''}${dev.trusted ? 'Trusted' : ''}
+                </div>
+            </div>
+            <div class="dev-actions">
+                <button class="btn btn-danger btn-sm" onclick="btDisconnect()">Disconnect</button>
+            </div>
+        </li>`).join('');
 }
 
 function renderPaired(devices) {

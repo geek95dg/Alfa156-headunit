@@ -1,16 +1,9 @@
-# BCM v7 — Alfa Romeo 156 Head Unit — Master Configuration
-# This file is loaded by src/core/config.py at startup.
-# Platform is auto-detected but can be overridden via CLI --platform flag.
-
 system:
-  name: "BCM v7"
-  version: "0.1.0"
-  # Auto-detected: x86 or opi (Orange Pi 5 Plus / arm64)
-  platform: auto
+  name: BCM v7
+  version: 0.1.0
+  platform: x86
   log_level: INFO
   log_file: logs/bcm.log
-
-# Feature toggles — enable/disable individual modules
 modules:
   dashboard: true
   obd: true
@@ -22,84 +15,55 @@ modules:
   camera: true
   power: true
   multimedia: true
-
-# Display settings
 display:
   dashboard:
     width: 800
     height: 480
     fps: 15
-    theme: classic_alfa        # classic_alfa | modern_dark | oem_digital
-    brightness: 80             # 0-100 percent
+    theme: classic_alfa
+    brightness: 70
   multimedia:
     width: 1024
     height: 600
-
-# Unit preferences
 units:
-  speed: km/h                  # km/h | mph
-  temperature: C               # C | F
-
-# Language
-language: pl                   # pl | en
-
-# GPIO pin mapping (Orange Pi 5 Plus — active on opi platform only)
+  speed: km/h
+  temperature: C
+language: pl
 gpio:
-  # Parking sensors
-  parking_trig: 79             # Shared trigger pin
+  parking_trig: 79
   parking_echo:
-    - 80                       # Rear-left
-    - 81                       # Rear-center-left
-    - 82                       # Rear-center-right
-    - 83                       # Rear-right
+  - 80
+  - 81
+  - 82
+  - 83
   buzzer: 84
-
-  # Backlight PWM
-  backlight_dashboard: 32      # PWM2
-  backlight_multimedia: 33     # PWM3
-
-  # Temperature sensor (1-Wire)
-  onewire: 7                   # GPIO4_C1
-
-  # Vehicle signal inputs (via PC817 optoisolators)
+  backlight_dashboard: 32
+  backlight_multimedia: 33
+  onewire: 7
   ignition: 85
   door: 86
   rain_sensor: 87
   sprayer: 88
   central_lock: 89
-
-# Serial / UART
 serial:
   kline:
     port_opi: /dev/ttyS3
     baudrate: 10400
-    ecu_address: 0x01
-
-# Audio
-# Hardware: ES9038Q2M USB DAC → TDA7388 4ch Class AB + TDA2050 mono sub
+    ecu_address: 1
 audio:
-  eq_preset: flat              # flat | rock | jazz | bass_boost | custom
-  master_volume: 70            # 0-100
-  dac: ES9038Q2M               # USB DAC module (32-bit, 129dB SNR)
-  amp_main: TDA7388            # 4-channel Class AB, 4x41W @ 14.4V/4ohm
-  amp_sub: TDA2050             # Mono Class AB, 32W @ 4ohm
-
-# Voice control
+  eq_preset: jazz
+  master_volume: 70
+  dac: ES9038Q2M
+  amp_main: TDA7388
+  amp_sub: TDA2050
 voice:
-  wake_word_sensitivity: medium  # low | medium | high
+  wake_word_sensitivity: medium
   model_pl: src/voice/models/vosk-model-small-pl
   model_en: src/voice/models/vosk-model-small-en-us
-
-# Dashcam
 camera:
   segment_minutes: 5
   max_storage_gb: 128
   recording_path: /media/dashcam
-
-# Steering wheel control remote (SWC)
-# Analog resistor-ladder decoder box → Arduino Pro Micro A0
-# Calibrate by holding HOME + BACK during Arduino boot
-# Button actions can be remapped in BCM Settings → SWC BUTTON MAPPING page
 swc:
   enabled: true
   buttons:
@@ -115,22 +79,27 @@ swc:
     SWC_HANGUP: phone_hangup
     SWC_VOICE: voice_trigger
     SWC_SRC: source_cycle
-
-# Brightness control
-# Light sensor (LDR) on Arduino A1 for auto-brightness
-# Stalk button on Arduino A2 cycles 6 manual levels (overrides sensor until ignition off)
-# Both screens (4.3" + 7") are always linked to same brightness
 brightness:
-  mode: auto                    # auto (sensor) | manual (stalk button)
-  steps: [15, 30, 45, 60, 80, 100]  # 6 manual brightness levels (%)
-
-# Music panel — 5 physical buttons near 7" Android Auto screen
-# Connected via cable to Arduino (D10, D14, D15, D16, A3)
-# Sends same keycodes as SWC/encoder volume/track controls
+  mode: auto
+  steps:
+  - 15
+  - 30
+  - 45
+  - 60
+  - 80
+  - 100
 music_panel:
   enabled: true
-
-# Power management
+wifi:
+  enabled: true
+  ssid: Alfa156_AA
+  password: alfa156headunit
+  channel: 6
+  interface: ''
+  ip: 10.0.0.1
+  netmask: 255.255.255.0
+  dhcp_start: 10.0.0.10
+  dhcp_end: 10.0.0.50
 power:
   shutdown_delay_seconds: 30
   backlight_fade_ms: 1000

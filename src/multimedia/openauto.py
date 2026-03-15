@@ -36,13 +36,23 @@ def _find_openauto() -> Optional[str]:
     return None
 
 
-def _create_openauto_config(project_dir: str) -> None:
-    """Create openauto.ini in the project directory (autoapp's working dir)."""
+def _create_openauto_config(project_dir: str, app_config: Any = None) -> None:
+    """Create openauto.ini in the project directory (autoapp's working dir).
+
+    Only creates the file if it doesn't exist — autoapp manages its own
+    config at runtime (stores last BT device, settings, etc.).
+    """
     config_path = os.path.join(project_dir, "openauto.ini")
     if os.path.exists(config_path):
         return
 
-    config_content = """; OpenAuto configuration for Alfa156 Headunit
+    ssid = ""
+    password = ""
+    if app_config:
+        ssid = app_config.get("wifi.ssid", "")
+        password = app_config.get("wifi.password", "")
+
+    config_content = f"""; OpenAuto configuration for Alfa156 Headunit
 [General]
 HandednessOfTrafficType=0
 
@@ -74,14 +84,15 @@ TouchscreenWidth=800
 TouchscreenHeight=480
 
 [WiFi]
-SSID=
-Password=
+SSID={ssid}
+Password={password}
 MAC=
 """
     with open(config_path, "w") as f:
         f.write(config_content)
 
-    log.info("Created openauto config at %s", config_path)
+    log.info("Created openauto config at %s (SSID=%s)", config_path,
+             ssid or "(empty)")
 
 
 class OpenAutoController:
@@ -107,7 +118,7 @@ class OpenAutoController:
             # Create config in project root (autoapp reads from cwd)
             project_dir = os.path.dirname(os.path.dirname(
                 os.path.dirname(os.path.abspath(__file__))))
-            _create_openauto_config(project_dir)
+            _create_openauto_config(project_dir, app_config=config)
         else:
             log.info("OpenAuto not installed — AA will be unavailable")
 
@@ -137,21 +148,34 @@ class OpenAutoController:
             self._event_bus.publish("multimedia.openauto_status", "unavailable")
             return False
 
+        log.info("Starting OpenAuto: binary=%s, platform=%s",
+                 self._binary, self._platform)
+
+        # Kill any stale autoapp processes from previous runs
+        self._kill_stale()
+
         env = os.environ.copy()
 
         if self._platform == "opi":
             # On OPi: set display to HDMI-2
             env["DISPLAY"] = ":0"
             env["SDL_VIDEODRIVER"] = "kmsdrm"
+            log.info("OPi display config: DISPLAY=:0, SDL_VIDEODRIVER=kmsdrm")
         else:
             # On x86 headless: use offscreen Qt platform
             if not env.get("DISPLAY"):
                 env["QT_QPA_PLATFORM"] = "offscreen"
+                log.info("x86 headless: QT_QPA_PLATFORM=offscreen")
+            else:
+                log.info("x86 with display: DISPLAY=%s", env.get("DISPLAY"))
 
-        # Ensure XDG_RUNTIME_DIR is set
+        # Ensure XDG_RUNTIME_DIR is set with correct permissions (0700)
         if "XDG_RUNTIME_DIR" not in env:
-            env["XDG_RUNTIME_DIR"] = "/tmp/runtime-root"
-            os.makedirs("/tmp/runtime-root", exist_ok=True)
+            runtime_dir = "/tmp/runtime-root"
+            env["XDG_RUNTIME_DIR"] = runtime_dir
+            os.makedirs(runtime_dir, exist_ok=True)
+            os.chmod(runtime_dir, 0o700)
+            log.debug("Set XDG_RUNTIME_DIR=%s (mode 0700)", runtime_dir)
 
         # Connect to PipeWire-pulse if running under different user
         if "PULSE_SERVER" not in env:
@@ -160,7 +184,10 @@ class OpenAutoController:
                 sock = f"/run/user/{uid}/pulse/native"
                 if os.path.exists(sock):
                     env["PULSE_SERVER"] = f"unix:{sock}"
+                    log.info("PulseAudio socket: %s", sock)
                     break
+            else:
+                log.warning("No PulseAudio socket found — audio may not work")
 
         try:
             self._process = subprocess.Popen(
@@ -213,6 +240,26 @@ class OpenAutoController:
             "source": "android_auto", "available": False,
         })
 
+    def _kill_stale(self) -> None:
+        """Kill any stale autoapp processes from previous runs."""
+        try:
+            result = subprocess.run(
+                ["pgrep", "-f", "autoapp"],
+                capture_output=True, text=True, timeout=3,
+            )
+            if result.returncode == 0 and result.stdout.strip():
+                pids = result.stdout.strip().split()
+                for pid in pids:
+                    try:
+                        pid_int = int(pid)
+                        os.kill(pid_int, signal.SIGTERM)
+                        log.info("Killed stale autoapp process (PID %d)", pid_int)
+                    except (ValueError, ProcessLookupError):
+                        pass
+                time.sleep(1)  # Wait for port release
+        except Exception:
+            pass
+
     def _read_logs(self) -> None:
         """Forward autoapp stdout/stderr to our logger."""
         if not self._process or not self._process.stdout:
@@ -227,26 +274,53 @@ class OpenAutoController:
                     if "Device Connected" in text:
                         self._event_bus.publish("multimedia.openauto_status",
                                                 "connected")
-                        log.info("AA device connected: %s", text)
+                        log.info("[AA] Device connected: %s", text)
                     elif "SocketInfoRequest" in text and "Sent" in text:
-                        log.info("AA wireless handshake: %s", text)
+                        log.info("[AA] Wireless handshake: %s", text)
+                    elif "btservice" in text.lower():
+                        log.info("[AA-BT] %s", text)
+                    elif "error" in text.lower() or "fail" in text.lower():
+                        log.warning("[autoapp] %s", text)
+                    elif "wifi" in text.lower() or "wlan" in text.lower():
+                        log.info("[AA-WiFi] %s", text)
+                    elif "connect" in text.lower() or "disconnect" in text.lower():
+                        log.info("[AA] %s", text)
+                    elif "socket" in text.lower() or "tcp" in text.lower():
+                        log.info("[AA-Net] %s", text)
+                    elif "usb" in text.lower():
+                        log.info("[AA-USB] %s", text)
                     else:
                         log.debug("[autoapp] %s", text)
         except Exception:
-            pass
+            log.exception("Error reading autoapp logs")
 
     def _watchdog(self) -> None:
         """Monitor OpenAuto process and restart on crash."""
+        _restart_count = 0
+        _max_restarts = 3
         while self._running:
             if self._process and self._process.poll() is not None:
                 exit_code = self._process.returncode
-                log.warning("OpenAuto exited (code %d) — restarting in 3s",
-                            exit_code)
-                self._event_bus.publish("multimedia.openauto_status",
-                                        "restarting")
+                _restart_count += 1
                 self._process = None
 
-                time.sleep(3)
+                if _restart_count > _max_restarts:
+                    log.error("OpenAuto crashed %d times — giving up. "
+                              "Check port 5000 and BT service conflicts.",
+                              _restart_count)
+                    self._event_bus.publish("multimedia.openauto_status",
+                                            "error")
+                    self._running = False
+                    return
+
+                # Exponential backoff: 3s, 6s, 12s
+                delay = 3 * (2 ** (_restart_count - 1))
+                log.warning("OpenAuto exited (code %d) — restart %d/%d in %ds",
+                            exit_code, _restart_count, _max_restarts, delay)
+                self._event_bus.publish("multimedia.openauto_status",
+                                        "restarting")
+
+                time.sleep(delay)
                 if self._running:
                     self.start()
                 return
@@ -266,28 +340,49 @@ def start_multimedia(config: Any, event_bus: EventBus, hal: Any = None,
         bt_manager: Existing BluetoothManager instance from main.py.
                     If None, a new one is created (backward compat).
     """
+    log.info("=== Multimedia module starting ===")
+
     # Reuse existing BluetoothManager if provided (avoids double D-Bus agent)
     if bt_manager is not None:
         bt_mgr = bt_manager
+        log.info("Using shared BluetoothManager (available=%s, connected=%s)",
+                 bt_mgr.available, bt_mgr.connected)
     else:
+        log.info("Creating new BluetoothManager")
         bt_mgr = BluetoothManager(config, event_bus)
         bt_mgr.start_monitor()
+        log.info("BluetoothManager created (available=%s)", bt_mgr.available)
 
     # OpenAuto controller
     openauto = OpenAutoController(config, event_bus)
 
     # Auto-launch OpenAuto if configured
-    if config.get("multimedia.auto_start_openauto", True):
-        openauto.start()
+    auto_start = config.get("multimedia.auto_start_openauto", True)
+    log.info("OpenAuto auto_start=%s, available=%s", auto_start, openauto.available)
+    if auto_start:
+        if openauto.available:
+            openauto.start()
+        else:
+            log.warning("OpenAuto auto_start enabled but binary not found")
 
     # Auto-connect to last BT device if configured
     last_device = config.get("multimedia.last_bt_device", None)
     if last_device and bt_mgr.available:
+        log.info("Auto-connecting to last BT device: %s", last_device)
         bt_mgr.connect(last_device)
+    elif last_device:
+        log.info("Last BT device configured (%s) but BT not available", last_device)
 
-    log.info("Multimedia module running (openauto=%s, bt=%s)",
+    # Check WiFi AP status for wireless AA
+    wifi_enabled = config.get("wifi.enabled", False)
+    if not wifi_enabled:
+        log.warning("WiFi AP is DISABLED in config — wireless Android Auto "
+                     "will NOT work. Set wifi.enabled=true in bcm_config.yaml")
+
+    log.info("=== Multimedia module running (openauto=%s, bt=%s, wifi=%s) ===",
              "active" if openauto.running else "unavailable",
-             "active" if bt_mgr.available else "simulated")
+             "active" if bt_mgr.available else "simulated",
+             "enabled" if wifi_enabled else "DISABLED")
 
     event_bus.publish("multimedia._internals", {
         "openauto": openauto,
