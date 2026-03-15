@@ -142,7 +142,7 @@ class TestECUSimulator:
 
     def test_simulator_responds_to_fast_init(self):
         """Test that simulator responds to startCommunication."""
-        import serial as pyserial
+        pyserial = pytest.importorskip("serial", reason="pyserial not installed")
 
         sim = ECUSimulator()
         port = sim.start()
@@ -172,7 +172,7 @@ class TestECUSimulator:
 
     def test_simulator_responds_to_read_pid(self):
         """Test that simulator returns data for readDataByLocalIdentifier."""
-        import serial as pyserial
+        pyserial = pytest.importorskip("serial", reason="pyserial not installed")
 
         sim = ECUSimulator()
         port = sim.start()
@@ -214,6 +214,7 @@ class TestECUSimulator:
 class TestIntegration:
     def test_full_obd_pipeline(self):
         """Integration test: simulator → KLine → KWP2000 → EDC15C7Reader → EventBus."""
+        pytest.importorskip("serial", reason="pyserial not installed")
         from src.obd.kline import KLine
         from src.obd.kwp2000 import KWP2000
         from src.obd.edc15c7 import EDC15C7Reader
