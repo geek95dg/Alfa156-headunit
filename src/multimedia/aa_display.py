@@ -1,7 +1,7 @@
 """Android Auto second display + Bluetooth management web UI.
 
 Runs a Flask web server (port 5001) providing:
-  - Android Auto connection status display
+  - Android Auto live video stream from Xvfb (MJPEG)
   - Full Bluetooth device management (scan, pair, connect, remove)
   - Touch-friendly responsive UI for use on second screen
 
@@ -9,7 +9,9 @@ VMware Workstation supports multiple displays — open this in a browser
 on the second virtual monitor for a realistic dual-screen setup.
 """
 
+import io
 import time
+import subprocess
 import threading
 from typing import Any, Optional
 
@@ -52,7 +54,7 @@ class AADisplaySimulator:
 
     def _on_aa_status(self, topic, value, ts):
         self._aa_status = str(value)
-        self._aa_connected = (value == "running")
+        self._aa_connected = value in ("running", "connected")
 
     def _on_bt_connected(self, topic, value, ts):
         self._bt_connected = True
@@ -141,6 +143,55 @@ class AADisplaySimulator:
                 "time": time.strftime("%H:%M"),
             }
             return Response(json.dumps(data), mimetype="application/json")
+
+        # --- AA video stream (MJPEG from Xvfb via ffmpeg) ---
+
+        def _mjpeg_generator():
+            """Stream MJPEG frames from Xvfb using ffmpeg."""
+            try:
+                proc = subprocess.Popen(
+                    ["ffmpeg", "-f", "x11grab", "-framerate", "15",
+                     "-video_size",
+                     f"{self.width}x{self.height}",
+                     "-i", ":99",
+                     "-f", "mjpeg", "-q:v", "5",
+                     "-an", "pipe:1"],
+                    stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+                )
+            except Exception:
+                return
+
+            buf = b""
+            SOI = b"\xff\xd8"
+            EOI = b"\xff\xd9"
+            try:
+                while True:
+                    chunk = proc.stdout.read(4096)
+                    if not chunk:
+                        break
+                    buf += chunk
+                    while True:
+                        start = buf.find(SOI)
+                        if start == -1:
+                            buf = b""
+                            break
+                        end = buf.find(EOI, start + 2)
+                        if end == -1:
+                            buf = buf[start:]
+                            break
+                        frame = buf[start:end + 2]
+                        buf = buf[end + 2:]
+                        yield (b"--frame\r\n"
+                               b"Content-Type: image/jpeg\r\n\r\n"
+                               + frame + b"\r\n")
+            finally:
+                proc.terminate()
+                proc.wait(timeout=3)
+
+        @app.route("/aa/stream")
+        def aa_stream():
+            return Response(_mjpeg_generator(),
+                            mimetype="multipart/x-mixed-replace; boundary=frame")
 
         # --- Bluetooth management API ---
 
@@ -589,32 +640,39 @@ body {
 
 <!-- Android Auto page -->
 <div class="page active" id="page-aa">
-    <div class="aa-hero">
-        <div class="aa-icon" id="aa-icon">A</div>
-        <div class="aa-status-text" id="aa-status-text">Waiting for device...</div>
+    <!-- Live AA stream (shown when connected) -->
+    <div id="aa-stream-container" style="display:none; width:100%; text-align:center; background:#000;">
+        <img id="aa-stream" src="" style="width:100%; max-height:calc(100vh - 60px); object-fit:contain;">
     </div>
-    <div class="card">
-        <div class="info-grid">
-            <div class="info-cell">
-                <div class="lbl">Connection</div>
-                <div class="val" id="aa-conn">Disconnected</div>
-            </div>
-            <div class="info-cell">
-                <div class="lbl">Bluetooth</div>
-                <div class="val" id="aa-bt">---</div>
-            </div>
-            <div class="info-cell">
-                <div class="lbl">Audio Source</div>
-                <div class="val" id="aa-audio">---</div>
-            </div>
-            <div class="info-cell">
-                <div class="lbl">Phone</div>
-                <div class="val" id="aa-phone">Idle</div>
+    <!-- Status panel (shown when waiting) -->
+    <div id="aa-status-panel">
+        <div class="aa-hero">
+            <div class="aa-icon" id="aa-icon">A</div>
+            <div class="aa-status-text" id="aa-status-text">Waiting for device...</div>
+        </div>
+        <div class="card">
+            <div class="info-grid">
+                <div class="info-cell">
+                    <div class="lbl">Connection</div>
+                    <div class="val" id="aa-conn">Disconnected</div>
+                </div>
+                <div class="info-cell">
+                    <div class="lbl">Bluetooth</div>
+                    <div class="val" id="aa-bt">---</div>
+                </div>
+                <div class="info-cell">
+                    <div class="lbl">Audio Source</div>
+                    <div class="val" id="aa-audio">---</div>
+                </div>
+                <div class="info-cell">
+                    <div class="lbl">Phone</div>
+                    <div class="val" id="aa-phone">Idle</div>
+                </div>
             </div>
         </div>
-    </div>
-    <div class="card" style="text-align:center; color:var(--muted); font-size:13px">
-        <span id="clock-display">--:--</span> &nbsp;|&nbsp; BCM v7 Multimedia Display
+        <div class="card" style="text-align:center; color:var(--muted); font-size:13px">
+            <span id="clock-display">--:--</span> &nbsp;|&nbsp; BCM v7 Multimedia Display
+        </div>
     </div>
 </div>
 
@@ -714,14 +772,32 @@ function showToast(msg, type) {
 }
 
 // --- AA status polling ---
+let aaStreamActive = false;
 function updateAA() {
     fetch('/status').then(r => r.json()).then(d => {
         document.getElementById('clock-display').textContent = d.time;
         const icon = document.getElementById('aa-icon');
         const st = document.getElementById('aa-status-text');
+        const streamEl = document.getElementById('aa-stream-container');
+        const panelEl = document.getElementById('aa-status-panel');
+        const streamImg = document.getElementById('aa-stream');
+
         st.textContent = d.aa_status;
         st.className = 'aa-status-text' + (d.aa_connected ? ' connected' : '');
         icon.className = 'aa-icon' + (d.aa_connected ? ' connected' : '');
+
+        // Toggle between live stream and status panel
+        if (d.aa_connected && !aaStreamActive) {
+            streamEl.style.display = 'block';
+            panelEl.style.display = 'none';
+            streamImg.src = '/aa/stream';
+            aaStreamActive = true;
+        } else if (!d.aa_connected && aaStreamActive) {
+            streamEl.style.display = 'none';
+            panelEl.style.display = '';
+            streamImg.src = '';
+            aaStreamActive = false;
+        }
 
         const conn = document.getElementById('aa-conn');
         conn.textContent = d.aa_connected ? 'Connected' : 'Waiting...';

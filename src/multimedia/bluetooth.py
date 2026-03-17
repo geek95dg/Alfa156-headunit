@@ -303,20 +303,45 @@ def _register_all_profiles(bus) -> None:
     log.debug("BT profile registration: A2DP/HFP=PipeWire, AA=autoapp")
 
 
+def _find_adapter_dbus_path() -> str:
+    """Find the D-Bus path of the preferred BT adapter (hci0/hci1/...)."""
+    adapter_addr = _get_adapter_addr()
+    if not adapter_addr:
+        return "/org/bluez/hci0"  # fallback
+    try:
+        result = subprocess.run(
+            ["hciconfig"],
+            capture_output=True, text=True, timeout=5.0,
+        )
+        if result.returncode == 0:
+            current_hci = None
+            for line in result.stdout.splitlines():
+                if line and not line[0].isspace() and line.startswith("hci"):
+                    current_hci = line.split(":")[0].strip()
+                if adapter_addr in line and current_hci:
+                    log.info("Preferred adapter %s mapped to %s",
+                             adapter_addr, current_hci)
+                    return f"/org/bluez/{current_hci}"
+    except Exception:
+        pass
+    return "/org/bluez/hci0"
+
+
 def _configure_adapter(bus) -> None:
     """Configure BT adapter name and class for headunit discovery."""
+    adapter_path = _find_adapter_dbus_path()
     try:
         adapter = dbus.Interface(
-            bus.get_object("org.bluez", "/org/bluez/hci0"),
+            bus.get_object("org.bluez", adapter_path),
             "org.freedesktop.DBus.Properties",
         )
         # Set friendly name so phones see "Alfa156 Headunit"
         adapter.Set("org.bluez.Adapter1", "Alias",
                      dbus.String("Alfa156 Headunit"))
-        log.info("BT adapter alias set to 'Alfa156 Headunit'")
+        log.info("BT adapter alias set to 'Alfa156 Headunit' on %s", adapter_path)
     except Exception:
         # Non-critical — fall back to system hostname
-        log.debug("Could not set BT adapter alias (non-critical)")
+        log.debug("Could not set BT adapter alias on %s (non-critical)", adapter_path)
 
 
 def _start_pairing_agent() -> bool:
@@ -367,15 +392,83 @@ def _start_pairing_agent() -> bool:
         return False
 
 
-def _run_btctl(args: list[str], timeout: float = 10.0) -> tuple[int, str, str]:
-    """Run a bluetoothctl command."""
-    cmd_str = "bluetoothctl " + " ".join(args)
-    log.debug("btctl >>> %s", cmd_str)
+def _find_preferred_adapter() -> str:
+    """Find the best BT adapter address for headunit use.
+
+    Prefers BT 5.x (Intel) over BT 4.x (CSR dongle).
+    Falls back to whatever is available.
+    """
     try:
         result = subprocess.run(
-            ["bluetoothctl"] + args,
-            capture_output=True, text=True, timeout=timeout,
+            ["bluetoothctl", "list"],
+            capture_output=True, text=True, timeout=5.0,
         )
+        if result.returncode == 0:
+            controllers = []
+            for line in result.stdout.strip().splitlines():
+                parts = line.strip().split()
+                if len(parts) >= 2 and parts[0] == "Controller":
+                    controllers.append(parts[1])
+            if len(controllers) == 1:
+                return controllers[0]
+            if len(controllers) > 1:
+                # Check hciconfig for BT version — prefer higher
+                for addr in controllers:
+                    ver_result = subprocess.run(
+                        ["hciconfig", "-a"],
+                        capture_output=True, text=True, timeout=5.0,
+                    )
+                    if ver_result.returncode == 0 and "5.1" in ver_result.stdout:
+                        # Find which controller has BT 5.x
+                        for a in controllers:
+                            # Match address in hciconfig output
+                            chunks = ver_result.stdout.split("hci")
+                            for chunk in chunks:
+                                if a in chunk and "5.1" in chunk:
+                                    return a
+                # Fallback: first controller
+                return controllers[0]
+    except Exception:
+        pass
+    return ""
+
+
+_PREFERRED_ADAPTER = ""
+
+
+def _get_adapter_addr() -> str:
+    """Get cached preferred adapter address."""
+    global _PREFERRED_ADAPTER
+    if not _PREFERRED_ADAPTER:
+        _PREFERRED_ADAPTER = _find_preferred_adapter()
+    return _PREFERRED_ADAPTER
+
+
+def _run_btctl(args: list[str], timeout: float = 10.0) -> tuple[int, str, str]:
+    """Run a bluetoothctl command, selecting the preferred adapter first.
+
+    When multiple BT adapters are present, pipes 'select <addr>' before the
+    actual command via stdin to ensure we always target the right adapter.
+    """
+    adapter = _get_adapter_addr()
+    cmd_str = "bluetoothctl " + " ".join(args)
+    if adapter:
+        cmd_str = f"bluetoothctl (adapter={adapter}) " + " ".join(args)
+    log.debug("btctl >>> %s", cmd_str)
+    try:
+        # Use stdin to select adapter then run command in interactive mode
+        if adapter and args and args[0] != "list":
+            stdin_cmds = f"select {adapter}\n" + " ".join(args) + "\nexit\n"
+            result = subprocess.run(
+                ["bluetoothctl"],
+                capture_output=True, text=True, timeout=timeout,
+                input=stdin_cmds,
+            )
+        else:
+            result = subprocess.run(
+                ["bluetoothctl"] + args,
+                capture_output=True, text=True, timeout=timeout,
+            )
         if result.stdout.strip():
             log.debug("btctl <<< rc=%d stdout=%s", result.returncode,
                       result.stdout.strip()[:200])

@@ -103,12 +103,15 @@ class OpenAutoController:
     The btservice inside autoapp handles AA wireless BT bootstrapping.
     """
 
+    XVFB_DISPLAY = ":99"
+
     def __init__(self, config: Any, event_bus: EventBus):
         self._config = config
         self._event_bus = event_bus
         self._platform = config.get("system.platform", "x86")
         self._binary = _find_openauto()
         self._process: Optional[subprocess.Popen] = None
+        self._xvfb_process: Optional[subprocess.Popen] = None
         self._running = False
         self._monitor_thread: Optional[threading.Thread] = None
         self._log_thread: Optional[threading.Thread] = None
@@ -162,10 +165,15 @@ class OpenAutoController:
             env["SDL_VIDEODRIVER"] = "kmsdrm"
             log.info("OPi display config: DISPLAY=:0, SDL_VIDEODRIVER=kmsdrm")
         else:
-            # On x86 headless: use offscreen Qt platform
+            # On x86: render to Xvfb virtual display for browser streaming
             if not env.get("DISPLAY"):
-                env["QT_QPA_PLATFORM"] = "offscreen"
-                log.info("x86 headless: QT_QPA_PLATFORM=offscreen")
+                xvfb_display = self._start_xvfb()
+                if xvfb_display:
+                    env["DISPLAY"] = xvfb_display
+                    log.info("x86: rendering to Xvfb %s", xvfb_display)
+                else:
+                    env["QT_QPA_PLATFORM"] = "offscreen"
+                    log.warning("x86: Xvfb failed, falling back to offscreen")
             else:
                 log.info("x86 with display: DISPLAY=%s", env.get("DISPLAY"))
 
@@ -235,10 +243,48 @@ class OpenAutoController:
             log.info("OpenAuto stopped")
 
         self._process = None
+        self._stop_xvfb()
         self._event_bus.publish("multimedia.openauto_status", "stopped")
         self._event_bus.publish("audio.source_available", {
             "source": "android_auto", "available": False,
         })
+
+    def _start_xvfb(self) -> Optional[str]:
+        """Start Xvfb virtual framebuffer for AA rendering."""
+        if self._xvfb_process and self._xvfb_process.poll() is None:
+            return self.XVFB_DISPLAY
+        try:
+            width = self._config.get("display.multimedia.width", 1024)
+            height = self._config.get("display.multimedia.height", 600)
+            self._xvfb_process = subprocess.Popen(
+                ["Xvfb", self.XVFB_DISPLAY, "-screen", "0",
+                 f"{width}x{height}x24", "-ac"],
+                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+            )
+            time.sleep(0.5)
+            if self._xvfb_process.poll() is not None:
+                log.error("Xvfb exited immediately")
+                return None
+            log.info("Xvfb started on %s (%dx%d)", self.XVFB_DISPLAY,
+                     width, height)
+            return self.XVFB_DISPLAY
+        except FileNotFoundError:
+            log.warning("Xvfb not installed")
+            return None
+        except Exception as e:
+            log.error("Xvfb start failed: %s", e)
+            return None
+
+    def _stop_xvfb(self) -> None:
+        """Stop Xvfb."""
+        if self._xvfb_process and self._xvfb_process.poll() is None:
+            self._xvfb_process.terminate()
+            try:
+                self._xvfb_process.wait(timeout=3)
+            except subprocess.TimeoutExpired:
+                self._xvfb_process.kill()
+            log.info("Xvfb stopped")
+        self._xvfb_process = None
 
     def _kill_stale(self) -> None:
         """Kill any stale autoapp processes from previous runs."""

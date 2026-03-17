@@ -2,7 +2,7 @@ system:
   name: BCM v7
   version: 0.1.0
   platform: x86
-  log_level: INFO
+  log_level: DEBUG
   log_file: logs/bcm.log
 modules:
   dashboard: true
@@ -20,7 +20,7 @@ display:
     width: 800
     height: 480
     fps: 15
-    theme: classic_alfa
+    theme: modern_dark
     brightness: 70
   multimedia:
     width: 1024
@@ -92,8 +92,8 @@ music_panel:
   enabled: true
 wifi:
   enabled: true
-  ssid: Alfa156_AA
-  password: alfa156headunit
+  ssid: ALFA
+  password: 87654321
   channel: 6
   interface: ''
   ip: 10.0.0.1
