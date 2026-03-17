@@ -1,7 +1,9 @@
 """Structured logging with per-module log levels."""
 
+import functools
 import logging
 import sys
+import time
 from pathlib import Path
 from typing import Optional
 
@@ -69,3 +71,44 @@ def get_logger(module_name: str) -> logging.Logger:
         log = get_logger("dashboard")  # returns logger "bcm.dashboard"
     """
     return logging.getLogger(f"bcm.{module_name}")
+
+
+def log_call(logger: logging.Logger):
+    """Decorator that logs function entry, exit, duration, and exceptions.
+
+    Usage:
+        log = get_logger("multimedia.bluetooth")
+
+        @log_call(log)
+        def connect(self, address):
+            ...
+    """
+    def decorator(func):
+        @functools.wraps(func)
+        def wrapper(*args, **kwargs):
+            # Build argument summary (skip 'self')
+            call_args = []
+            start_idx = 1 if args and hasattr(args[0], '__class__') else 0
+            for a in args[start_idx:]:
+                call_args.append(repr(a)[:50])
+            for k, v in kwargs.items():
+                call_args.append(f"{k}={repr(v)[:50]}")
+            arg_str = ", ".join(call_args)
+
+            logger.debug("%s(%s) called", func.__name__, arg_str)
+            t0 = time.monotonic()
+            try:
+                result = func(*args, **kwargs)
+                elapsed = (time.monotonic() - t0) * 1000
+                logger.debug("%s(%s) returned %s (%.1fms)",
+                             func.__name__, arg_str,
+                             repr(result)[:80], elapsed)
+                return result
+            except Exception as exc:
+                elapsed = (time.monotonic() - t0) * 1000
+                logger.error("%s(%s) raised %s: %s (%.1fms)",
+                             func.__name__, arg_str,
+                             type(exc).__name__, exc, elapsed)
+                raise
+        return wrapper
+    return decorator

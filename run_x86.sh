@@ -44,7 +44,8 @@ trap cleanup SIGTERM SIGINT
 echo "[run_x86] Starting BCM v7..."
 echo "[run_x86] Dashboard WebViewer: http://localhost:5002"
 echo "[run_x86] AA/BT Management:   http://localhost:5001"
-echo "[run_x86] Android Auto (TCP):  port 5000 (autoapp)"
+echo "[run_x86] WiFi AP for AA:     SSID=Alfa156_AA (10.0.0.1)"
+echo "[run_x86] Android Auto TCP:   port 5000 (via WiFi AP)"
 echo ""
 
 python3 main.py "${ARGS[@]}" &

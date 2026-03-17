@@ -292,29 +292,56 @@ def _register_all_profiles(bus) -> None:
     managed by PipeWire/WirePlumber via libspa-0.2-bluetooth. Registering
     them here would block PipeWire (BlueZ: NotPermitted) and break audio.
 
-    The Android Auto BT service is NOT registered here either — it is
-    handled by autoapp's built-in btservice (Qt Bluetooth RFCOMM server)
-    which properly implements the AA wireless protocol handshake.
+    The Android Auto BT service is NOT registered here — it is handled
+    by autoapp's built-in btservice (Qt Bluetooth RFCOMM server) which
+    properly implements the AA wireless protocol handshake. Registering
+    the AA UUID here would conflict with autoapp's btservice and cause
+    "Server start failed" errors.
     """
-    # Currently no custom profiles to register.
+    # No custom profiles to register:
     # A2DP/HFP → PipeWire, AA → autoapp btservice
     log.debug("BT profile registration: A2DP/HFP=PipeWire, AA=autoapp")
 
 
+def _find_adapter_dbus_path() -> str:
+    """Find the D-Bus path of the preferred BT adapter (hci0/hci1/...)."""
+    adapter_addr = _get_adapter_addr()
+    if not adapter_addr:
+        return "/org/bluez/hci0"  # fallback
+    try:
+        result = subprocess.run(
+            ["hciconfig"],
+            capture_output=True, text=True, timeout=5.0,
+        )
+        if result.returncode == 0:
+            current_hci = None
+            for line in result.stdout.splitlines():
+                if line and not line[0].isspace() and line.startswith("hci"):
+                    current_hci = line.split(":")[0].strip()
+                if adapter_addr in line and current_hci:
+                    log.info("Preferred adapter %s mapped to %s",
+                             adapter_addr, current_hci)
+                    return f"/org/bluez/{current_hci}"
+    except Exception:
+        pass
+    return "/org/bluez/hci0"
+
+
 def _configure_adapter(bus) -> None:
     """Configure BT adapter name and class for headunit discovery."""
+    adapter_path = _find_adapter_dbus_path()
     try:
         adapter = dbus.Interface(
-            bus.get_object("org.bluez", "/org/bluez/hci0"),
+            bus.get_object("org.bluez", adapter_path),
             "org.freedesktop.DBus.Properties",
         )
         # Set friendly name so phones see "Alfa156 Headunit"
         adapter.Set("org.bluez.Adapter1", "Alias",
                      dbus.String("Alfa156 Headunit"))
-        log.info("BT adapter alias set to 'Alfa156 Headunit'")
+        log.info("BT adapter alias set to 'Alfa156 Headunit' on %s", adapter_path)
     except Exception:
         # Non-critical — fall back to system hostname
-        log.debug("Could not set BT adapter alias (non-critical)")
+        log.debug("Could not set BT adapter alias on %s (non-critical)", adapter_path)
 
 
 def _start_pairing_agent() -> bool:
@@ -365,17 +392,94 @@ def _start_pairing_agent() -> bool:
         return False
 
 
-def _run_btctl(args: list[str], timeout: float = 10.0) -> tuple[int, str, str]:
-    """Run a bluetoothctl command."""
+def _find_preferred_adapter() -> str:
+    """Find the best BT adapter address for headunit use.
+
+    Prefers BT 5.x (Intel) over BT 4.x (CSR dongle).
+    Falls back to whatever is available.
+    """
     try:
         result = subprocess.run(
-            ["bluetoothctl"] + args,
-            capture_output=True, text=True, timeout=timeout,
+            ["bluetoothctl", "list"],
+            capture_output=True, text=True, timeout=5.0,
         )
+        if result.returncode == 0:
+            controllers = []
+            for line in result.stdout.strip().splitlines():
+                parts = line.strip().split()
+                if len(parts) >= 2 and parts[0] == "Controller":
+                    controllers.append(parts[1])
+            if len(controllers) == 1:
+                return controllers[0]
+            if len(controllers) > 1:
+                # Check hciconfig for BT version — prefer higher
+                for addr in controllers:
+                    ver_result = subprocess.run(
+                        ["hciconfig", "-a"],
+                        capture_output=True, text=True, timeout=5.0,
+                    )
+                    if ver_result.returncode == 0 and "5.1" in ver_result.stdout:
+                        # Find which controller has BT 5.x
+                        for a in controllers:
+                            # Match address in hciconfig output
+                            chunks = ver_result.stdout.split("hci")
+                            for chunk in chunks:
+                                if a in chunk and "5.1" in chunk:
+                                    return a
+                # Fallback: first controller
+                return controllers[0]
+    except Exception:
+        pass
+    return ""
+
+
+_PREFERRED_ADAPTER = ""
+
+
+def _get_adapter_addr() -> str:
+    """Get cached preferred adapter address."""
+    global _PREFERRED_ADAPTER
+    if not _PREFERRED_ADAPTER:
+        _PREFERRED_ADAPTER = _find_preferred_adapter()
+    return _PREFERRED_ADAPTER
+
+
+def _run_btctl(args: list[str], timeout: float = 10.0) -> tuple[int, str, str]:
+    """Run a bluetoothctl command, selecting the preferred adapter first.
+
+    When multiple BT adapters are present, pipes 'select <addr>' before the
+    actual command via stdin to ensure we always target the right adapter.
+    """
+    adapter = _get_adapter_addr()
+    cmd_str = "bluetoothctl " + " ".join(args)
+    if adapter:
+        cmd_str = f"bluetoothctl (adapter={adapter}) " + " ".join(args)
+    log.debug("btctl >>> %s", cmd_str)
+    try:
+        # Use stdin to select adapter then run command in interactive mode
+        if adapter and args and args[0] != "list":
+            stdin_cmds = f"select {adapter}\n" + " ".join(args) + "\nexit\n"
+            result = subprocess.run(
+                ["bluetoothctl"],
+                capture_output=True, text=True, timeout=timeout,
+                input=stdin_cmds,
+            )
+        else:
+            result = subprocess.run(
+                ["bluetoothctl"] + args,
+                capture_output=True, text=True, timeout=timeout,
+            )
+        if result.stdout.strip():
+            log.debug("btctl <<< rc=%d stdout=%s", result.returncode,
+                      result.stdout.strip()[:200])
+        if result.stderr.strip():
+            log.debug("btctl <<< stderr=%s", result.stderr.strip()[:200])
         return result.returncode, result.stdout, result.stderr
     except FileNotFoundError:
+        log.error("btctl: bluetoothctl not found on system")
         return -1, "", "bluetoothctl not found"
     except subprocess.TimeoutExpired:
+        log.warning("btctl: command timed out after %.1fs: %s", timeout, cmd_str)
         return -2, "", "bluetoothctl timed out"
 
 
@@ -417,19 +521,32 @@ class BluetoothManager:
 
     def _check_availability(self) -> None:
         """Check if Bluetooth is available."""
-        rc, out, _ = _run_btctl(["show"])
+        log.info("Checking Bluetooth availability...")
+        rc, out, err = _run_btctl(["show"])
         if rc == 0 and "Controller" in out:
             self._available = True
-            log.info("Bluetooth available")
-            _run_btctl(["power", "on"])
+            # Parse controller address for logging
+            for line in out.splitlines():
+                if line.strip().startswith("Controller"):
+                    log.info("Bluetooth controller found: %s", line.strip())
+                    break
+            rc_pwr, out_pwr, _ = _run_btctl(["power", "on"])
+            if rc_pwr == 0:
+                log.info("Bluetooth power ON")
+            else:
+                log.warning("Bluetooth power on failed: %s", out_pwr)
             # Register D-Bus pairing agent (handles phone-initiated pairing)
             if not _start_pairing_agent():
+                log.warning("D-Bus pairing agent failed — falling back to bluetoothctl agent")
                 # Fallback to bluetoothctl agent (limited — phone-initiated may fail)
                 _run_btctl(["agent", "DisplayYesNo"])
                 _run_btctl(["default-agent"])
+            else:
+                log.info("D-Bus pairing agent registered successfully")
         else:
             self._available = False
-            log.warning("Bluetooth not available — will be simulated")
+            log.warning("Bluetooth not available (rc=%d, err=%s) — will be simulated",
+                        rc, err.strip() if err else "none")
 
     @property
     def available(self) -> bool:
@@ -571,9 +688,15 @@ class BluetoothManager:
         if not self._available:
             return []
 
-        rc, out, _ = _run_btctl(["paired-devices"])
+        # BlueZ 5.72+: "paired-devices" was removed, use "devices Paired"
+        rc, out, _ = _run_btctl(["devices", "Paired"])
         if rc != 0:
-            return []
+            # Fallback for older BlueZ versions
+            rc, out, _ = _run_btctl(["paired-devices"])
+            if rc != 0:
+                log.warning("Cannot list paired devices (both 'devices Paired' "
+                            "and 'paired-devices' failed)")
+                return []
 
         devices = []
         for line in out.strip().splitlines():
@@ -581,6 +704,7 @@ class BluetoothManager:
             if len(parts) >= 3 and parts[0] == "Device":
                 devices.append({"address": parts[1], "name": parts[2]})
 
+        log.debug("Paired devices: %d found", len(devices))
         self._event_bus.publish("bt.device_list", devices)
         return devices
 
@@ -607,17 +731,25 @@ class BluetoothManager:
 
     def pair(self, address: str) -> bool:
         """Pair with a device."""
+        log.info("BT pair requested: %s", address)
         if not self._available:
             log.info("BT pair (simulated): %s", address)
             return True
 
         # Trust first to auto-accept
+        log.debug("BT pair: trusting %s before pairing", address)
         _run_btctl(["trust", address])
         rc, out, err = _run_btctl(["pair", address], timeout=30.0)
-        if rc == 0 or "already" in (out + err).lower():
-            log.info("BT paired: %s", address)
+        combined = (out + err).lower()
+        if rc == 0 or "already" in combined:
+            log.info("BT paired successfully: %s", address)
             return True
-        log.error("BT pair failed: %s %s", out, err)
+        if "org.bluez.error" in combined:
+            log.error("BT pair failed (BlueZ error): %s — %s", address,
+                      (out + err).strip()[:200])
+        else:
+            log.error("BT pair failed: rc=%d out=%s err=%s", rc,
+                      out.strip()[:100], err.strip()[:100])
         return False
 
     def trust(self, address: str) -> bool:
@@ -648,8 +780,57 @@ class BluetoothManager:
         log.error("BT remove failed: %s", err)
         return False
 
+    def get_connected_devices(self) -> list[dict[str, Any]]:
+        """Get all currently connected Bluetooth devices with detailed status."""
+        connected = []
+        if not self._available:
+            if self._connected_device:
+                connected.append({
+                    **self._connected_device,
+                    "connected": True,
+                    "a2dp": self._a2dp_active,
+                    "hfp": self._hfp_active,
+                })
+            return connected
+
+        # BlueZ 5.72+: "devices Connected" lists only connected devices
+        rc, out, _ = _run_btctl(["devices", "Connected"])
+        if rc == 0 and out.strip():
+            for line in out.strip().splitlines():
+                parts = line.strip().split(None, 2)
+                if len(parts) >= 3 and parts[0] == "Device":
+                    addr = parts[1]
+                    name = parts[2]
+                    is_tracked = (self._connected_device
+                                  and self._connected_device["address"] == addr)
+                    connected.append({
+                        "address": addr,
+                        "name": name,
+                        "connected": True,
+                        "a2dp": self._a2dp_active and is_tracked,
+                        "hfp": self._hfp_active and is_tracked,
+                    })
+                    # Sync internal state if device is connected but we
+                    # didn't track it (e.g. phone auto-connected)
+                    if not self._connected_device:
+                        log.info("BT device %s (%s) connected externally — "
+                                 "syncing internal state", addr, name)
+                        self._connected_device = {"address": addr, "name": name}
+                        self._a2dp_active = True
+                        self._event_bus.publish("bt.connected",
+                                                self._connected_device)
+                        self._event_bus.publish("bt.a2dp_active", True)
+                        self._event_bus.publish("audio.source_available", {
+                            "source": "bluetooth", "available": True,
+                        })
+
+        log.debug("Connected devices: %d", len(connected))
+        return connected
+
     def connect(self, address: str) -> bool:
         """Connect to a paired device."""
+        log.info("BT connect requested: %s", address)
+
         if not self._available:
             self._connected_device = {"address": address, "name": "Simulated"}
             self._a2dp_active = True
@@ -661,14 +842,14 @@ class BluetoothManager:
             log.info("BT connected (simulated): %s", address)
             return True
 
-        # Ensure device is trusted before connecting (needed for reconnection)
-        _run_btctl(["trust", address])
+        # Check if device is paired first
+        info = self.get_device_info(address)
+        if info.get("error"):
+            log.error("BT connect: device %s not found — pair it first", address)
+            return False
 
-        rc, out, err = _run_btctl(["connect", address], timeout=15.0)
-        combined = (out + err).lower()
-        if rc == 0 or "successful" in combined:
-            # Resolve name
-            info = self.get_device_info(address)
+        if info.get("connected"):
+            log.info("BT connect: device %s already connected", address)
             name = info.get("name", address)
             self._connected_device = {"address": address, "name": name}
             self._a2dp_active = True
@@ -677,17 +858,60 @@ class BluetoothManager:
             self._event_bus.publish("audio.source_available", {
                 "source": "bluetooth", "available": True,
             })
-            log.info("BT connected: %s (%s)", address, name)
             return True
-        log.error("BT connect failed: %s %s", out.strip(), err.strip())
+
+        # Ensure device is trusted before connecting (needed for reconnection)
+        log.debug("BT connect: trusting %s before connect", address)
+        _run_btctl(["trust", address])
+
+        # Try to connect with retries
+        max_attempts = 2
+        for attempt in range(1, max_attempts + 1):
+            log.info("BT connect attempt %d/%d to %s", attempt, max_attempts, address)
+            rc, out, err = _run_btctl(["connect", address], timeout=15.0)
+            combined = (out + err).lower()
+
+            if rc == 0 or "successful" in combined or "connection successful" in combined:
+                # Resolve name
+                info = self.get_device_info(address)
+                name = info.get("name", address)
+                self._connected_device = {"address": address, "name": name}
+                self._a2dp_active = True
+                self._event_bus.publish("bt.connected", self._connected_device)
+                self._event_bus.publish("bt.a2dp_active", True)
+                self._event_bus.publish("audio.source_available", {
+                    "source": "bluetooth", "available": True,
+                })
+                log.info("BT connected: %s (%s) on attempt %d", address, name, attempt)
+                return True
+
+            # Check for specific error conditions
+            if "not available" in combined:
+                log.error("BT connect: device %s not available (out of range?)", address)
+                return False
+            if "does not exist" in combined:
+                log.error("BT connect: device %s does not exist — needs pairing", address)
+                return False
+
+            log.warning("BT connect attempt %d failed: rc=%d out=%s err=%s",
+                        attempt, rc, out.strip()[:100], err.strip()[:100])
+            if attempt < max_attempts:
+                time.sleep(2)
+
+        log.error("BT connect failed after %d attempts: %s", max_attempts, address)
         return False
 
     def disconnect(self) -> None:
         """Disconnect current device."""
         if self._connected_device:
             addr = self._connected_device["address"]
+            name = self._connected_device.get("name", "?")
+            log.info("BT disconnect requested: %s (%s)", addr, name)
             if self._available:
-                _run_btctl(["disconnect", addr])
+                rc, out, err = _run_btctl(["disconnect", addr])
+                if rc != 0:
+                    log.warning("BT disconnect command failed: rc=%d %s",
+                                rc, (out + err).strip()[:100])
 
             self._a2dp_active = False
             self._hfp_active = False
@@ -696,8 +920,10 @@ class BluetoothManager:
             self._event_bus.publish("audio.source_available", {
                 "source": "bluetooth", "available": False,
             })
-            log.info("BT disconnected: %s", addr)
+            log.info("BT disconnected: %s (%s)", addr, name)
             self._connected_device = None
+        else:
+            log.debug("BT disconnect: no device connected")
 
     def start_monitor(self) -> None:
         """Start monitoring BT connection status."""
