@@ -7,9 +7,10 @@ from .climate_screen import ClimateScreen
 from .fuel_screen import FuelScreen
 from .trip_screen import TripScreen
 from .service_screen import ServiceScreen
+from .settings_screen import SettingsScreen
 
 # Screen order matching rotary encoder navigation
-SCREEN_ORDER = ["a1", "a2", "b1", "b2", "c1", "c2"]
+SCREEN_ORDER = ["a1", "a2", "b1", "b2", "c1", "c2", "a3"]
 
 SCREEN_CLASSES = {
     "a1": MainScreen,
@@ -18,6 +19,7 @@ SCREEN_CLASSES = {
     "b2": FuelScreen,
     "c1": TripScreen,
     "c2": ServiceScreen,
+    "a3": SettingsScreen,
 }
 
 __all__ = [
