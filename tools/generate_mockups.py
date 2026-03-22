@@ -20,6 +20,9 @@ FONT_PATHS = {
     "bold": "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
     "serif": "/usr/share/fonts/truetype/freefont/FreeSerif.ttf",
     "serif_bold": "/usr/share/fonts/truetype/freefont/FreeSerifBoldItalic.ttf",
+    "serif_italic": "/usr/share/fonts/truetype/freefont/FreeSerifItalic.ttf",
+    "sans_italic": "/usr/share/fonts/truetype/liberation/LiberationSans-Italic.ttf",
+    "sans_bold_italic": "/usr/share/fonts/truetype/liberation/LiberationSans-BoldItalic.ttf",
     "light": "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf",
 }
 
@@ -815,19 +818,27 @@ class Theme:
 
 
 CLASSIC_ALFA = Theme(
-    "classic_alfa", "Classic Alfa Racing",
-    bg=(14, 10, 12), bg_gradient_top=(20, 14, 18), bg_gradient_bottom=(8, 5, 7),
-    accent=(220, 120, 20), accent_soft=(180, 100, 30), accent_glow=(255, 140, 30),
-    text=(245, 235, 220), text_dim=(140, 125, 105), text_mid=(200, 180, 155),
-    danger=(220, 40, 30), ok=(80, 200, 90), warning=(255, 200, 0),
-    gauge_bg=(40, 28, 22), gauge_fg=(220, 120, 20),
-    gauge_needle=(255, 90, 35), gauge_tick=(160, 140, 120), gauge_tick_dim=(90, 75, 60),
-    redzone=(180, 30, 20), arc_start=(70, 35, 8), arc_end=(255, 150, 25),
-    status_bg=(20, 14, 16), bottom_bg=(20, 14, 16),
-    side_bg=(32, 24, 20), side_cold=(80, 160, 220), side_warm=(220, 160, 60),
-    side_hot=(255, 80, 30), side_fuel_ok=(120, 200, 80), side_fuel_low=(255, 80, 30),
-    badge_circle=(200, 180, 160), badge_cross=(200, 40, 30),
-    font_variant="serif", font_value="serif_bold", ornament_style="classical",
+    "classic_alfa", "Alfa Romeo 156",
+    # Deep warm black matching 156 dashboard plastic
+    bg=(16, 8, 10), bg_gradient_top=(22, 10, 14), bg_gradient_bottom=(8, 4, 6),
+    # Ruby / orange-red matching 156 backlit dials
+    accent=(210, 55, 30), accent_soft=(180, 45, 25), accent_glow=(240, 70, 35),
+    # Warm cream text complementing yellow leather + wood trim
+    text=(248, 238, 218), text_dim=(155, 110, 85), text_mid=(210, 165, 130),
+    # Status colors
+    danger=(230, 35, 25), ok=(90, 190, 80), warning=(245, 190, 30),
+    # Gauge colours — deep ruby arc like the real 156 dials
+    gauge_bg=(35, 16, 14), gauge_fg=(210, 55, 30),
+    gauge_needle=(240, 50, 25), gauge_tick=(170, 120, 95), gauge_tick_dim=(95, 65, 50),
+    redzone=(200, 25, 15), arc_start=(100, 20, 10), arc_end=(240, 75, 25),
+    # Chrome / bars — very dark, warm
+    status_bg=(20, 10, 12), bottom_bg=(20, 10, 12),
+    side_bg=(30, 16, 14), side_cold=(70, 140, 200), side_warm=(220, 130, 40),
+    side_hot=(240, 55, 25), side_fuel_ok=(100, 190, 70), side_fuel_low=(240, 55, 25),
+    # Alfa badge
+    badge_circle=(200, 170, 145), badge_cross=(210, 35, 25),
+    # Italic fonts — Alfa Romeo style
+    font_variant="serif_italic", font_value="sans_bold_italic", ornament_style="classical",
 )
 
 MODERN_DARK = Theme(
@@ -876,10 +887,18 @@ ALL_SCREENS = [
 
 
 def main():
+    import sys
     os.makedirs(OUTPUT_DIR, exist_ok=True)
-    total = len(ALL_THEMES) * len(ALL_SCREENS)
+
+    # Allow filtering: python generate_mockups.py classic_alfa
+    filter_theme = sys.argv[1] if len(sys.argv) > 1 else None
+    themes = [t for t in ALL_THEMES if not filter_theme or t.name == filter_theme]
+    if not themes:
+        themes = ALL_THEMES
+
+    total = len(themes) * len(ALL_SCREENS)
     n = 0
-    for theme in ALL_THEMES:
+    for theme in themes:
         for screen_id, render_fn in ALL_SCREENS:
             n += 1
             label = f"[{n}/{total}] {theme.display_name} / {screen_id}"
