@@ -272,10 +272,13 @@ def draw_side_gauge(draw, x, y, w, h, theme, value, min_v, max_v,
 
 
 # ---------------------------------------------------------------------------
-# Main render
+# Shared chrome: bg, vignette, status bar, side gauges, decorations
 # ---------------------------------------------------------------------------
 
-def render_main_screen(theme):
+def render_chrome(theme, screen_label="A1"):
+    """Render shared frame elements. Returns (img, draw, content_rect).
+    content_rect = (cx0, cy0, cw, ch) — the usable centre area.
+    """
     s = SS
     img = Image.new("RGBA", (SW, SH), (0, 0, 0, 0))
     draw = ImageDraw.Draw(img)
@@ -283,7 +286,7 @@ def render_main_screen(theme):
     # Background gradient
     draw_grad_rect(draw, 0, 0, SW, SH, theme.bg_gradient_top, theme.bg_gradient_bottom)
 
-    # Subtle radial vignette (lighter center, darker edges)
+    # Subtle radial vignette
     vig = Image.new("RGBA", (SW, SH), (0, 0, 0, 0))
     vd = ImageDraw.Draw(vig)
     max_r = int(math.hypot(SW, SH) / 2)
@@ -304,6 +307,10 @@ def render_main_screen(theme):
     f_bt = _font("bold", 11 * s)
     draw.text((SW - 148 * s, 9 * s), "BT", font=f_bt, fill=theme.accent)
 
+    # Screen label top-right of status bar
+    f_sl = _font(theme.font_variant, 10 * s)
+    text_centered(draw, SW // 2, 14 * s, screen_label, f_sl, rgba(theme.text_dim, 120))
+
     # --- Side gauges ---
     gw = 48 * s
     cy0 = sb_h + 8 * s
@@ -316,12 +323,82 @@ def render_main_screen(theme):
                     62, 0, 100, "F", "62%",
                     theme.side_fuel_low, theme.side_fuel_ok, theme.side_fuel_ok)
 
-    # --- Tachometer ---
+    # --- Theme-specific decorations ---
+    if theme.ornament_style == "classical":
+        draw_classical_ornaments(img, draw, theme)
+        draw = ImageDraw.Draw(img)
+    elif theme.ornament_style == "minimal":
+        draw_modern_decorations(draw, theme)
+    elif theme.ornament_style == "oem":
+        draw_oem_decorations(draw, theme)
+
     cx0 = gw + 12 * s
     cw = SW - 2 * (gw + 12 * s)
+    ch = gh
+    return img, draw, (cx0, cy0, cw, ch)
+
+
+def draw_bottom_bar(draw, theme, items):
+    """Draw the bottom info bar with label:value pairs."""
+    s = SS
+    bb_y = SH - 36 * s
+    draw_rrect(draw, 0, bb_y, SW, 36 * s, 0, fill=theme.bottom_bg)
+    draw.line([(0, bb_y), (SW, bb_y)], fill=rgba(theme.accent, 100), width=s)
+
+    f_bl = _font(theme.font_variant, 12 * s)
+    f_bv = _font("bold", 13 * s)
+
+    if not items:
+        return
+    seg_w = SW // len(items)
+    for i, (label, value) in enumerate(items):
+        cx = i * seg_w + seg_w // 2
+        lbl_text = label + ": " if label else ""
+        lw = f_bl.getbbox(lbl_text)[2] if lbl_text else 0
+        vw = f_bv.getbbox(value)[2] if value else 0
+        total = lw + vw
+        sx = cx - total // 2
+        if lbl_text:
+            draw.text((sx, bb_y + 9 * s), lbl_text, font=f_bl, fill=theme.text_dim)
+        if value:
+            draw.text((sx + lw, bb_y + 8 * s), value, font=f_bv, fill=theme.accent)
+
+    # Theme name watermark
+    f_wm = _font(theme.font_variant, 8 * s)
+    text_centered(draw, SW // 2, SH - 6 * s, theme.display_name, f_wm,
+                  rgba(theme.text_dim, 60))
+
+
+def draw_h_bar(draw, x, y, w, h, theme, frac, c_fill, c_warn=None,
+               warn_thresh=0.0, labels=None):
+    """Draw a horizontal bar gauge with optional warning color and scale labels."""
+    s = SS
+    draw_rrect(draw, x, y, w, h, 4 * s, fill=theme.gauge_bg)
+    fill_w = int(max(0, min(1, frac)) * w)
+    if fill_w > 1:
+        color = c_fill
+        if c_warn and frac > warn_thresh:
+            color = c_warn
+        draw_rrect(draw, x, y, fill_w, h, 4 * s, fill=color)
+    if labels:
+        f = _font(theme.font_variant, 9 * s)
+        for val, lx in labels:
+            draw.line([(lx, y), (lx, y + h)], fill=rgba(theme.gauge_tick, 100), width=s)
+            text_centered(draw, lx, y + h + 10 * s, val, f, theme.text_dim)
+
+
+# ---------------------------------------------------------------------------
+# A1 — Main Dashboard (tachometer + speed)
+# ---------------------------------------------------------------------------
+
+def render_main_screen(theme):
+    s = SS
+    img, draw, (cx0, cy0, cw, ch) = render_chrome(theme, "A1  DASHBOARD")
+
+    # --- Tachometer ---
     tcx = cx0 + cw // 2
-    tcy = cy0 + gh // 2 - 12 * s
-    tr = min(cw, gh) // 2 - 22 * s
+    tcy = cy0 + ch // 2 - 12 * s
+    tr = min(cw, ch) // 2 - 22 * s
 
     rpm, max_rpm = 2800, 5500
     frac = rpm / max_rpm
@@ -408,46 +485,320 @@ def render_main_screen(theme):
     f_unit = _font(theme.font_variant, 15 * s)
     text_centered(draw, tcx, tcy + 50 * s, "km/h", f_unit, theme.text_dim)
 
-    # --- Theme-specific decorations ---
-    if theme.ornament_style == "classical":
-        draw_classical_ornaments(img, draw, theme)
-        draw = ImageDraw.Draw(img)
-    elif theme.ornament_style == "minimal":
-        draw_modern_decorations(draw, theme)
-    elif theme.ornament_style == "oem":
-        draw_oem_decorations(draw, theme)
-
     # --- Bottom bar ---
-    bb_y = SH - 36 * s
-    draw_rrect(draw, 0, bb_y, SW, 36 * s, 0, fill=theme.bottom_bg)
-    draw.line([(0, bb_y), (SW, bb_y)], fill=rgba(theme.accent, 100), width=s)
-
-    f_bl = _font(theme.font_variant, 12 * s)
-    f_bv = _font("bold", 13 * s)
-
-    lbl1 = "Zu\u017cycie: "
-    val1 = "7.2 l/100km"
-    draw.text((32 * s, bb_y + 9 * s), lbl1, font=f_bl, fill=theme.text_dim)
-    w1 = f_bl.getbbox(lbl1)[2]
-    draw.text((32 * s + w1, bb_y + 8 * s), val1, font=f_bv, fill=theme.accent)
-
-    lbl2 = "RPM: "
-    val2 = "2800"
-    w2l = f_bl.getbbox(lbl2)[2]
-    w2v = f_bv.getbbox(val2)[2]
-    rx = SW - 32 * s - w2l - w2v
-    draw.text((rx, bb_y + 9 * s), lbl2, font=f_bl, fill=theme.text_dim)
-    draw.text((rx + w2l, bb_y + 8 * s), val2, font=f_bv, fill=theme.accent)
-
-    # Gear indicator
-    f_gear = _font("bold", 18 * s)
-    text_centered(draw, SW // 2, bb_y + 18 * s, "3", f_gear, theme.accent)
-
-    # Theme name watermark
-    f_wm = _font(theme.font_variant, 8 * s)
-    text_centered(draw, SW // 2, SH - 6 * s, theme.display_name, f_wm, rgba(theme.text_dim, 60))
+    draw_bottom_bar(draw, theme, [("Zu\u017cycie", "7.2 l/100km"),
+                                   ("Bieg", "3"),
+                                   ("RPM", "2800")])
 
     # Downsample
+    return img.resize((W, H), Image.LANCZOS)
+
+
+# ---------------------------------------------------------------------------
+# A2 — Consumption (avg/instant fuel consumption + boost bar)
+# ---------------------------------------------------------------------------
+
+def render_consumption_screen(theme):
+    s = SS
+    img, draw, (cx0, cy0, cw, ch) = render_chrome(theme, "A2  SPALANIE")
+    tcx = cx0 + cw // 2
+    lx = cx0 + 30 * s
+    rx = cx0 + cw - 30 * s
+    cy = cy0 + 18 * s
+
+    # --- Title ---
+    f_title = _font(theme.font_variant, 11 * s)
+    draw.text((lx, cy), "\u015aR. SPALANIE", font=f_title, fill=theme.text_dim)
+    cy += 18 * s
+
+    # --- Average consumption (large) ---
+    f_big = _font(theme.font_value, 52 * s)
+    f_unit = _font(theme.font_variant, 16 * s)
+    draw.text((lx, cy), "8.5", font=f_big, fill=theme.text)
+    bw = f_big.getbbox("8.5")[2]
+    draw.text((lx + bw + 8 * s, cy + 26 * s), "l/100km", font=f_unit, fill=theme.text_dim)
+    cy += 66 * s
+
+    # --- Instant consumption ---
+    f_med = _font(theme.font_value, 30 * s)
+    f_sm = _font(theme.font_variant, 12 * s)
+    draw.text((lx, cy), "CHW.", font=f_sm, fill=theme.text_dim)
+    sw = f_sm.getbbox("CHW.")[2]
+    draw.text((lx + sw + 8 * s, cy - 6 * s), "12.4", font=f_med, fill=theme.accent)
+    mw = f_med.getbbox("12.4")[2]
+    draw.text((lx + sw + 8 * s + mw + 6 * s, cy + 4 * s), "l/100km",
+              font=f_sm, fill=theme.text_dim)
+    cy += 42 * s
+
+    # --- Boost bar ---
+    draw.text((lx, cy), "TURBO", font=f_sm, fill=theme.text_dim)
+    cy += 16 * s
+    bar_w = cw - 60 * s
+    bar_h = 22 * s
+    boost = 0.85
+    draw_h_bar(draw, lx, cy, bar_w, bar_h, theme, boost / 1.8,
+               theme.gauge_fg, theme.warning, warn_thresh=1.2 / 1.8,
+               labels=[("0.0", lx), ("0.5", lx + int(0.5 / 1.8 * bar_w)),
+                       ("1.0", lx + int(1.0 / 1.8 * bar_w)),
+                       ("1.5", lx + int(1.5 / 1.8 * bar_w))])
+    f_bv = _font("bold", 13 * s)
+    text_centered(draw, rx - 40 * s, cy - 10 * s, "0.85 BAR", f_bv, theme.accent)
+    cy += bar_h + 30 * s
+
+    # --- Trip distance ---
+    draw.text((lx, cy), "DYSTANS:", font=f_sm, fill=theme.text_dim)
+    dw = f_sm.getbbox("DYSTANS:")[2]
+    f_trip = _font(theme.font_value, 26 * s)
+    draw.text((lx + dw + 10 * s, cy - 8 * s), "127.4 km", font=f_trip, fill=theme.text)
+
+    draw_bottom_bar(draw, theme, [("Czas", "01:42 H"),
+                                   ("Paliwo", "9.8 L")])
+    return img.resize((W, H), Image.LANCZOS)
+
+
+# ---------------------------------------------------------------------------
+# B1 — Climate (analog clock, date, exterior temperature)
+# ---------------------------------------------------------------------------
+
+def render_climate_screen(theme):
+    s = SS
+    img, draw, (cx0, cy0, cw, ch) = render_chrome(theme, "B1  KLIMAT")
+    tcx = cx0 + cw // 2
+
+    # --- Analog clock ---
+    clock_r = 95 * s
+    clock_cy = cy0 + 20 * s + clock_r
+
+    # Clock face
+    draw.ellipse([tcx - clock_r, clock_cy - clock_r,
+                  tcx + clock_r, clock_cy + clock_r],
+                 fill=rgba(theme.gauge_bg, 200))
+    draw.ellipse([tcx - clock_r, clock_cy - clock_r,
+                  tcx + clock_r, clock_cy + clock_r],
+                 outline=rgba(theme.accent, 90), width=2 * s)
+
+    # Hour ticks + numbers
+    f_num = _font(theme.font_variant, 14 * s)
+    for i in range(12):
+        angle = math.radians(90 - i * 30)
+        inner_r = clock_r - 14 * s
+        outer_r = clock_r - 4 * s
+        x1 = tcx + inner_r * math.cos(angle)
+        y1 = clock_cy - inner_r * math.sin(angle)
+        x2 = tcx + outer_r * math.cos(angle)
+        y2 = clock_cy - outer_r * math.sin(angle)
+        w = 2 * s if i % 3 == 0 else s
+        draw.line([(x1, y1), (x2, y2)], fill=theme.gauge_tick, width=w)
+        if i % 3 == 0:
+            num = 12 if i == 0 else i
+            nr = clock_r - 28 * s
+            text_centered(draw, tcx + nr * math.cos(angle),
+                          clock_cy - nr * math.sin(angle),
+                          str(num), f_num, theme.text_mid)
+
+    # Hands (14:32 -> hour=2.53, min=32)
+    h_angle = math.radians(90 - (2 + 32 / 60) * 30)
+    h_len = clock_r * 0.5
+    draw.line([(tcx, clock_cy),
+               (tcx + h_len * math.cos(h_angle),
+                clock_cy - h_len * math.sin(h_angle))],
+              fill=theme.text, width=4 * s)
+    m_angle = math.radians(90 - 32 * 6)
+    m_len = clock_r * 0.72
+    draw.line([(tcx, clock_cy),
+               (tcx + m_len * math.cos(m_angle),
+                clock_cy - m_len * math.sin(m_angle))],
+              fill=theme.text_mid, width=2 * s)
+    # Second hand
+    s_angle = math.radians(90 - 45 * 6)
+    s_len = clock_r * 0.78
+    draw.line([(tcx, clock_cy),
+               (tcx + s_len * math.cos(s_angle),
+                clock_cy - s_len * math.sin(s_angle))],
+              fill=theme.accent, width=s)
+    # Center dot
+    draw.ellipse([tcx - 5 * s, clock_cy - 5 * s,
+                  tcx + 5 * s, clock_cy + 5 * s], fill=theme.accent)
+
+    # --- Date ---
+    date_y = clock_cy + clock_r + 22 * s
+    f_date = _font(theme.font_value, 24 * s)
+    text_centered(draw, tcx, date_y, "SOB  22  MAR  2026", f_date, theme.text)
+
+    # --- Exterior temperature ---
+    temp_y = date_y + 36 * s
+    f_tl = _font(theme.font_variant, 13 * s)
+    f_tv = _font(theme.font_value, 34 * s)
+    draw.text((cx0 + 40 * s, temp_y), "TEMP. ZEW.:", font=f_tl, fill=theme.text_dim)
+    tw = f_tl.getbbox("TEMP. ZEW.:")[2]
+    draw.text((cx0 + 40 * s + tw + 12 * s, temp_y - 10 * s), "+7\u00b0C",
+              font=f_tv, fill=theme.text)
+    # Snowflake if cold
+    # (not shown — temp is +7)
+
+    draw_bottom_bar(draw, theme, [("Odmra\u017canie", "WY\u0141."),
+                                   ("Klimat", "22\u00b0C")])
+    return img.resize((W, H), Image.LANCZOS)
+
+
+# ---------------------------------------------------------------------------
+# B2 — Fuel (tank graphic, estimated range)
+# ---------------------------------------------------------------------------
+
+def render_fuel_screen(theme):
+    s = SS
+    img, draw, (cx0, cy0, cw, ch) = render_chrome(theme, "B2  PALIWO")
+    tcx = cx0 + cw // 2
+    tcy = cy0 + ch // 2 - 30 * s
+
+    # --- Fuel tank graphic ---
+    tw, th = 240 * s, 110 * s
+    tx = tcx - tw // 2
+    ty = tcy - th // 2
+
+    # Shadow
+    draw_rrect(draw, tx + 3 * s, ty + 5 * s, tw, th, 16 * s,
+               fill=(0, 0, 0, 60))
+    # Outer shell
+    draw_rrect(draw, tx, ty, tw, th, 14 * s, fill=rgba(theme.gauge_tick, 90))
+    # Inner
+    m = 4 * s
+    draw_rrect(draw, tx + m, ty + m, tw - 2 * m, th - 2 * m, 12 * s,
+               fill=rgba(theme.bg, 220))
+
+    # Fuel fill  (62%)
+    fuel_pct = 62
+    frac = fuel_pct / 100.0
+    fill_w = int(frac * (tw - 2 * m - 6 * s))
+    if fill_w > 0:
+        draw_rrect(draw, tx + m + 3 * s, ty + m + 3 * s,
+                   fill_w, th - 2 * m - 6 * s, 10 * s,
+                   fill=theme.ok)
+        # Highlight strip
+        draw_rrect(draw, tx + m + 6 * s, ty + m + 6 * s,
+                   fill_w - 6 * s, 5 * s, 2 * s,
+                   fill=rgba((255, 255, 255), 50))
+
+    # Cap nub
+    cap_w, cap_h = 14 * s, 28 * s
+    draw_rrect(draw, tx + tw - 2 * s, tcy - cap_h // 2, cap_w, cap_h, 4 * s,
+               fill=rgba(theme.gauge_tick, 90))
+
+    # Percentage in tank
+    f_pct = _font(theme.font_value, 32 * s)
+    text_centered(draw, tcx, tcy, "62%", f_pct, theme.text)
+
+    # --- Range ---
+    range_y = tcy + th // 2 + 28 * s
+    f_rl = _font(theme.font_variant, 14 * s)
+    text_centered(draw, tcx, range_y, "ZASI\u0118G:", f_rl, theme.text_dim)
+    f_rv = _font(theme.font_value, 50 * s)
+    text_centered(draw, tcx, range_y + 46 * s, "412 km", f_rv, theme.text)
+
+    draw_bottom_bar(draw, theme, [("\u015ar. zu\u017c.", "7.2 l/100km"),
+                                   ("", "Rezerwa: NIE")])
+    return img.resize((W, H), Image.LANCZOS)
+
+
+# ---------------------------------------------------------------------------
+# C1 — Trip (distance, time, avg fuel — 3 rows)
+# ---------------------------------------------------------------------------
+
+def render_trip_screen(theme):
+    s = SS
+    img, draw, (cx0, cy0, cw, ch) = render_chrome(theme, "C1  TRIP")
+    lx = cx0 + 50 * s
+    rx = cx0 + cw - 50 * s
+
+    rows = [
+        ("DYSTANS:",   "127.4", "km"),
+        ("CZAS:",      "01:42", "h"),
+        ("\u015aR. SPALANIE:", "8.5",   "l/100km"),
+    ]
+    row_h = ch // 3
+    f_label = _font(theme.font_variant, 15 * s)
+    f_value = _font(theme.font_value, 42 * s)
+    f_unit = _font(theme.font_variant, 15 * s)
+
+    for i, (label, value, unit) in enumerate(rows):
+        ry = cy0 + i * row_h + 16 * s
+
+        # Label left
+        draw.text((lx, ry + 14 * s), label, font=f_label, fill=theme.text_dim)
+
+        # Value + unit right-aligned
+        vbb = f_value.getbbox(value)
+        ubb = f_unit.getbbox("  " + unit)
+        total = (vbb[2] - vbb[0]) + (ubb[2] - ubb[0])
+        vx = rx - total
+        draw.text((vx, ry), value, font=f_value, fill=theme.text)
+        draw.text((vx + (vbb[2] - vbb[0]), ry + 20 * s), "  " + unit,
+                  font=f_unit, fill=theme.text_dim)
+
+        # Separator
+        if i < len(rows) - 1:
+            sep_y = ry + row_h - 6 * s
+            draw.line([(lx, sep_y), (rx, sep_y)],
+                      fill=rgba(theme.gauge_tick_dim, 60), width=s)
+
+    draw_bottom_bar(draw, theme, [("D\u0142ugie naci\u015bni\u0119cie = RESET", "")])
+    return img.resize((W, H), Image.LANCZOS)
+
+
+# ---------------------------------------------------------------------------
+# C2 — Service (oil, TPMS, interval, wear bars)
+# ---------------------------------------------------------------------------
+
+def render_service_screen(theme):
+    s = SS
+    img, draw, (cx0, cy0, cw, ch) = render_chrome(theme, "C2  SERWIS")
+    lx = cx0 + 30 * s
+    vx = cx0 + cw // 2 + 20 * s
+    rx = cx0 + cw - 30 * s
+    cy = cy0 + 16 * s
+
+    f_lbl = _font(theme.font_variant, 14 * s)
+    f_val = _font(theme.font_value, 22 * s)
+    f_sm = _font(theme.font_variant, 11 * s)
+
+    # --- Engine Oil ---
+    draw.text((lx, cy), "OLEJ SILNIKOWY:", font=f_lbl, fill=theme.text_dim)
+    draw.text((vx, cy - 3 * s), "OK (brak czujnika)", font=f_val, fill=theme.text_mid)
+    cy += 40 * s
+
+    # --- TPMS ---
+    draw.text((lx, cy), "OPONY:", font=f_lbl, fill=theme.text_dim)
+    draw.text((vx, cy - 3 * s), "TPMS w przysz\u0142o\u015bci", font=f_val,
+              fill=theme.text_mid)
+    cy += 40 * s
+
+    # --- Service interval ---
+    draw.text((lx, cy), "SERWIS ZA:", font=f_lbl, fill=theme.text_dim)
+    draw.text((vx, cy - 3 * s), "4 500 km", font=f_val, fill=theme.ok)
+    cy += 50 * s
+
+    # --- Oil level bar ---
+    bar_w = cw - 60 * s
+    bar_h = 20 * s
+    draw.text((lx, cy), "POZIOM OLEJU", font=f_sm, fill=theme.text_dim)
+    cy += 16 * s
+    draw_rrect(draw, lx, cy, bar_w, bar_h, 4 * s, fill=theme.gauge_bg)
+    # Diagonal hatch (no sensor)
+    for ix in range(0, bar_w, 14 * s):
+        x1 = lx + ix
+        x2 = x1 + bar_h
+        draw.line([(x1, cy + bar_h), (min(x2, lx + bar_w), cy)],
+                  fill=rgba(theme.gauge_tick_dim, 50), width=s)
+    cy += bar_h + 18 * s
+
+    # --- Oil wear bar ---
+    draw.text((lx, cy), "ZU\u017bYCIE OLEJU", font=f_sm, fill=theme.text_dim)
+    cy += 16 * s
+    wear_frac = 1.0 - 4500 / 15000  # 0.7
+    draw_h_bar(draw, lx, cy, bar_w, bar_h, theme, wear_frac,
+               theme.ok, theme.danger, warn_thresh=0.8)
+
+    draw_bottom_bar(draw, theme, [("D\u0142ugie = POTWIERD\u0179", "")])
     return img.resize((W, H), Image.LANCZOS)
 
 
@@ -514,15 +865,30 @@ OEM_DIGITAL = Theme(
 ALL_THEMES = [CLASSIC_ALFA, MODERN_DARK, OEM_DIGITAL]
 
 
+ALL_SCREENS = [
+    ("a1_main",        render_main_screen),
+    ("a2_consumption", render_consumption_screen),
+    ("b1_climate",     render_climate_screen),
+    ("b2_fuel",        render_fuel_screen),
+    ("c1_trip",        render_trip_screen),
+    ("c2_service",     render_service_screen),
+]
+
+
 def main():
     os.makedirs(OUTPUT_DIR, exist_ok=True)
+    total = len(ALL_THEMES) * len(ALL_SCREENS)
+    n = 0
     for theme in ALL_THEMES:
-        print(f"Rendering {theme.display_name}...")
-        img = render_main_screen(theme)
-        path = os.path.join(OUTPUT_DIR, f"mockup_{theme.name}.png")
-        img.save(path, "PNG", optimize=True)
-        print(f"  -> {path}")
-    print("Done!")
+        for screen_id, render_fn in ALL_SCREENS:
+            n += 1
+            label = f"[{n}/{total}] {theme.display_name} / {screen_id}"
+            print(f"Rendering {label} ...")
+            img = render_fn(theme)
+            path = os.path.join(OUTPUT_DIR, f"mockup_{screen_id}_{theme.name}.png")
+            img.save(path, "PNG", optimize=True)
+            print(f"  -> {path}")
+    print(f"\nDone! {total} mockups generated.")
 
 
 if __name__ == "__main__":
