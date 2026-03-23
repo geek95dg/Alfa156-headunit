@@ -615,27 +615,570 @@ def render_a1_dashboard(theme):
 
 
 # =========================================================================
-#  MAIN — Phase 1 only renders A1
+#  A2 — CONSUMPTION: Fuel pump icon + consumption/distance/range rows
 # =========================================================================
+
+def draw_fuel_pump_icon(draw, cx, cy, size, theme):
+    """Draw a stylized fuel pump icon."""
+    s = SS
+    sz = size * s
+    color = theme.accent
+    dim = rgba(theme.accent, 120)
+
+    # Pump body (rounded rect)
+    bw, bh = int(sz * 0.55), int(sz * 0.7)
+    bx, by = cx - bw // 2, cy - bh // 2 + int(sz * 0.05)
+    rrect(draw, bx, by, bw, bh, 8 * s, fill=rgba(theme.gauge_bg, 180),
+          outline=color, width=2 * s)
+
+    # Fuel level inside (partial fill)
+    fill_h = int(bh * 0.55)
+    fy = by + bh - fill_h - 3 * s
+    rrect(draw, bx + 4 * s, fy, bw - 8 * s, fill_h, 4 * s,
+          fill=rgba(color, 60))
+
+    # Nozzle on top
+    nw = int(bw * 0.35)
+    nh = int(sz * 0.15)
+    nx = cx - nw // 2
+    ny = by - nh
+    rrect(draw, nx, ny, nw, nh + 4 * s, 3 * s, fill=rgba(theme.gauge_bg, 200),
+          outline=color, width=2 * s)
+
+    # Hose from top-right, curving right and down
+    hx = bx + bw
+    hy = by + int(bh * 0.15)
+    # Vertical line up
+    draw.line([(hx, hy), (hx + 12 * s, hy)], fill=dim, width=2 * s)
+    draw.line([(hx + 12 * s, hy), (hx + 12 * s, hy + int(bh * 0.5))],
+              fill=dim, width=2 * s)
+    # Nozzle tip
+    draw.line([(hx + 12 * s, hy + int(bh * 0.5)),
+               (hx + 6 * s, hy + int(bh * 0.65))],
+              fill=dim, width=2 * s)
+
+    # Base
+    base_w = int(bw * 1.1)
+    draw.line([(cx - base_w // 2, by + bh + 2 * s),
+               (cx + base_w // 2, by + bh + 2 * s)],
+              fill=color, width=3 * s)
+
+
+def draw_info_row(draw, x, y, w, label, value, unit, theme, f_label, f_value, f_unit,
+                  value_color=None):
+    """Draw a labeled info row: LABEL ........................ VALUE UNIT"""
+    s = SS
+    if value_color is None:
+        value_color = theme.text
+
+    draw.text((x, y + 2 * s), label, font=f_label, fill=theme.text_dim)
+
+    # Value + unit right-aligned
+    unit_text = f" {unit}" if unit else ""
+    vbb = draw.textbbox((0, 0), value, font=f_value)
+    ubb = draw.textbbox((0, 0), unit_text, font=f_unit) if unit_text else (0, 0, 0, 0)
+    vw = vbb[2] - vbb[0]
+    uw = ubb[2] - ubb[0]
+    vx = x + w - vw - uw
+    draw.text((vx, y), value, font=f_value, fill=value_color)
+    if unit_text:
+        draw.text((vx + vw, y + 6 * s), unit_text, font=f_unit, fill=theme.text_dim)
+
+    # Dotted separator line
+    lbb = draw.textbbox((0, 0), label, font=f_label)
+    lw = lbb[2] - lbb[0]
+    dot_x0 = x + lw + 8 * s
+    dot_x1 = vx - 8 * s
+    dot_y = y + 14 * s
+    for dx in range(int(dot_x0), int(dot_x1), 6 * s):
+        draw.ellipse([dx, dot_y, dx + s, dot_y + s],
+                     fill=rgba(theme.text_dim, 60))
+
+
+def render_a2_consumption(theme):
+    """A2: Fuel pump icon + avg/instant consumption + distance + range."""
+    s = SS
+    img, draw, (cx0, cy0, cw, ch) = render_chrome(theme, "A2  CONSUMPTION")
+
+    # Left half: fuel pump icon
+    icon_cx = cx0 + cw * 3 // 10
+    icon_cy = cy0 + ch // 3
+    draw_fuel_pump_icon(draw, icon_cx, icon_cy, 80, theme)
+
+    # Right section: consumption values near the icon
+    f_big = _font(theme.font_bold, 42 * s)
+    f_med = _font(theme.font_bold, 26 * s)
+    f_lbl = _font(theme.font, 13 * s)
+    f_unit = _font(theme.font, 12 * s)
+
+    # Average consumption — large, right of icon
+    avg_x = cx0 + cw * 0.52
+    avg_y = cy0 + 20 * s
+    draw.text((avg_x, avg_y), "ŚR. SPALANIE", font=f_lbl, fill=theme.text_dim)
+    draw.text((avg_x, avg_y + 18 * s), "8.5", font=f_big, fill=theme.text)
+    bw = draw.textbbox((0, 0), "8.5", font=f_big)[2]
+    draw.text((avg_x + bw + 6 * s, avg_y + 36 * s), "L/100km",
+              font=f_unit, fill=theme.text_dim)
+
+    # Instant consumption
+    inst_y = avg_y + 72 * s
+    draw.text((avg_x, inst_y), "CHW. SPALANIE", font=f_lbl, fill=theme.text_dim)
+    draw.text((avg_x, inst_y + 18 * s), "12.4", font=f_med, fill=theme.accent)
+    bw2 = draw.textbbox((0, 0), "12.4", font=f_med)[2]
+    draw.text((avg_x + bw2 + 6 * s, inst_y + 24 * s), "L/100km",
+              font=f_unit, fill=theme.text_dim)
+
+    # Bottom rows with dotted separators — spanning full content width
+    row_x = cx0 + 20 * s
+    row_w = cw - 40 * s
+    f_row_lbl = _font(theme.font, 14 * s)
+    f_row_val = _font(theme.font_bold, 22 * s)
+    f_row_unit = _font(theme.font, 12 * s)
+
+    # Separator line
+    sep_y = cy0 + ch * 0.58
+    draw.line([(row_x, sep_y), (row_x + row_w, sep_y)],
+              fill=rgba(theme.accent, 40), width=s)
+
+    # Row 1: Distance traveled
+    ry1 = cy0 + ch * 0.62
+    draw_info_row(draw, row_x, ry1, row_w,
+                  "PRZEJECHANY DYSTANS", "127.4", "km",
+                  theme, f_row_lbl, f_row_val, f_row_unit)
+
+    # Row 2: Range
+    ry2 = ry1 + 40 * s
+    draw_info_row(draw, row_x, ry2, row_w,
+                  "ZASIĘG", "412", "km",
+                  theme, f_row_lbl, f_row_val, f_row_unit,
+                  value_color=theme.ok)
+
+    # Row 3: Trip time
+    ry3 = ry2 + 40 * s
+    draw_info_row(draw, row_x, ry3, row_w,
+                  "CZAS JAZDY", "01:42", "h",
+                  theme, f_row_lbl, f_row_val, f_row_unit)
+
+    return img.resize((W, H), Image.LANCZOS)
+
+
+# =========================================================================
+#  A3 — ENVIRONMENT: Thermometer + weather icons + temp/humidity/icing/pressure
+# =========================================================================
+
+def draw_thermometer_icon(draw, cx, cy, height, theme):
+    """Draw a stylized thermometer icon."""
+    s = SS
+    h = height * s
+    color = theme.accent
+    w = int(h * 0.18)
+
+    # Stem (tall narrow rect)
+    stem_h = int(h * 0.65)
+    stem_x = cx - w // 2
+    stem_y = cy - h // 2
+    rrect(draw, stem_x, stem_y, w, stem_h + w // 2, w // 2,
+          fill=rgba(theme.gauge_bg, 180), outline=color, width=2 * s)
+
+    # Mercury fill inside stem
+    fill_h = int(stem_h * 0.6)
+    fy = stem_y + stem_h - fill_h
+    merc_w = w - 6 * s
+    rrect(draw, cx - merc_w // 2, fy, merc_w, fill_h + w // 2, merc_w // 2,
+          fill=rgba(theme.temp_hot, 180))
+
+    # Bulb at bottom
+    bulb_r = int(w * 0.9)
+    bulb_cy = stem_y + stem_h + bulb_r - 2 * s
+    draw.ellipse([cx - bulb_r, bulb_cy - bulb_r,
+                  cx + bulb_r, bulb_cy + bulb_r],
+                 fill=rgba(theme.temp_hot, 200),
+                 outline=color, width=2 * s)
+
+    # Tick marks on stem
+    for i in range(5):
+        ty = stem_y + 8 * s + i * (stem_h - 16 * s) // 4
+        tw = w // 3
+        draw.line([(stem_x - tw, ty), (stem_x, ty)],
+                  fill=rgba(color, 100), width=s)
+
+
+def draw_weather_icons_grid(draw, x, y, w, h, theme):
+    """Draw a grid of weather-related icons using drawing primitives."""
+    s = SS
+    color = theme.icon_color
+    dim = rgba(theme.icon_color, 100)
+    cols, rows = 4, 2
+    cell_w = w // cols
+    cell_h = h // rows
+
+    icons = [
+        ("sun", theme.warning),
+        ("cloud_sun", theme.text_mid),
+        ("cloud", theme.text_dim),
+        ("rain", theme.temp_cold),
+        ("snow", (200, 220, 255)),
+        ("fog", theme.text_dim),
+        ("temp", theme.temp_hot),
+        ("wind", theme.accent),
+    ]
+
+    for idx, (icon_type, ic) in enumerate(icons):
+        col = idx % cols
+        row = idx // cols
+        icx = x + col * cell_w + cell_w // 2
+        icy = y + row * cell_h + cell_h // 2
+        ir = 14 * s
+
+        if icon_type == "sun":
+            # Circle + rays
+            draw.ellipse([icx - ir // 2, icy - ir // 2,
+                          icx + ir // 2, icy + ir // 2], fill=ic)
+            for a in range(0, 360, 45):
+                ar = math.radians(a)
+                r1, r2 = ir * 0.7, ir * 1.1
+                draw.line([(icx + r1 * math.cos(ar), icy - r1 * math.sin(ar)),
+                           (icx + r2 * math.cos(ar), icy - r2 * math.sin(ar))],
+                          fill=ic, width=2 * s)
+
+        elif icon_type == "cloud_sun":
+            # Small sun behind
+            sx, sy = icx - 6 * s, icy - 6 * s
+            draw.ellipse([sx - 5 * s, sy - 5 * s, sx + 5 * s, sy + 5 * s],
+                         fill=rgba(theme.warning, 150))
+            # Cloud in front
+            draw.ellipse([icx - 10 * s, icy - 5 * s, icx + 10 * s, icy + 6 * s],
+                         fill=ic)
+            draw.ellipse([icx - 4 * s, icy - 10 * s, icx + 8 * s, icy],
+                         fill=ic)
+
+        elif icon_type == "cloud":
+            draw.ellipse([icx - 12 * s, icy - 4 * s, icx + 12 * s, icy + 8 * s],
+                         fill=ic)
+            draw.ellipse([icx - 5 * s, icy - 10 * s, icx + 8 * s, icy + 2 * s],
+                         fill=ic)
+
+        elif icon_type == "rain":
+            # Cloud
+            draw.ellipse([icx - 10 * s, icy - 8 * s, icx + 10 * s, icy],
+                         fill=rgba(theme.text_dim, 180))
+            # Rain drops
+            for dx in [-6, 0, 6]:
+                draw.line([(icx + dx * s, icy + 3 * s),
+                           (icx + dx * s - 2 * s, icy + 10 * s)],
+                          fill=ic, width=2 * s)
+
+        elif icon_type == "snow":
+            # Snowflake — 3 crossing lines + dots
+            for a in [0, 60, 120]:
+                ar = math.radians(a)
+                draw.line([(icx - ir * 0.8 * math.cos(ar), icy - ir * 0.8 * math.sin(ar)),
+                           (icx + ir * 0.8 * math.cos(ar), icy + ir * 0.8 * math.sin(ar))],
+                          fill=ic, width=2 * s)
+            draw.ellipse([icx - 3 * s, icy - 3 * s, icx + 3 * s, icy + 3 * s],
+                         fill=ic)
+
+        elif icon_type == "fog":
+            # Horizontal lines
+            for i in range(-2, 3):
+                lw = ir * (1.0 - abs(i) * 0.15)
+                ly = icy + i * 5 * s
+                draw.line([(icx - lw, ly), (icx + lw, ly)],
+                          fill=rgba(ic, 140 - abs(i) * 20), width=2 * s)
+
+        elif icon_type == "temp":
+            # Mini thermometer
+            draw.line([(icx, icy - ir), (icx, icy + ir * 0.4)],
+                      fill=ic, width=3 * s)
+            draw.ellipse([icx - 5 * s, icy + ir * 0.2,
+                          icx + 5 * s, icy + ir * 0.2 + 10 * s],
+                         fill=ic)
+
+        elif icon_type == "wind":
+            # Curved lines
+            for i, dy in enumerate([-5, 0, 5]):
+                ww = ir * (1.0 - i * 0.1)
+                wy = icy + dy * s
+                pts = [(icx - ww, wy)]
+                for t in range(1, 6):
+                    px = icx - ww + t * ww * 0.4
+                    py = wy + math.sin(t * 1.2) * 3 * s
+                    pts.append((px, py))
+                for j in range(len(pts) - 1):
+                    draw.line([pts[j], pts[j + 1]], fill=ic, width=2 * s)
+
+        # Label below icon
+        f_il = _font(theme.font, 7 * s)
+        labels = {"sun": "SŁOŃCE", "cloud_sun": "ZACHM.", "cloud": "POCHMURNO",
+                  "rain": "DESZCZ", "snow": "ŚNIEG", "fog": "MGŁA",
+                  "temp": "°C / °F", "wind": "WIATR"}
+        text_centered(draw, icx, icy + ir + 8 * s,
+                      labels.get(icon_type, ""), f_il, rgba(theme.text_dim, 120))
+
+
+def render_a3_environment(theme):
+    """A3: Thermometer + weather icons + environment data rows."""
+    s = SS
+    img, draw, (cx0, cy0, cw, ch) = render_chrome(theme, "A3  ENVIRONMENT")
+
+    # Left side: thermometer icon
+    therm_cx = cx0 + cw * 0.12
+    therm_cy = cy0 + ch * 0.35
+    draw_thermometer_icon(draw, int(therm_cx), int(therm_cy), 100, theme)
+
+    # Environment data rows — left column below thermometer
+    f_lbl = _font(theme.font, 13 * s)
+    f_val = _font(theme.font_bold, 20 * s)
+    f_unit = _font(theme.font, 11 * s)
+
+    row_x = cx0 + 20 * s
+    row_w = cw * 0.42
+    base_y = cy0 + ch * 0.58
+
+    # Row 1: Temperature + Humidity
+    draw.text((row_x, base_y), "TEMP. + WILGOTNOŚĆ ZEW.", font=f_lbl, fill=theme.text_dim)
+    draw.text((row_x + 12 * s, base_y + 20 * s), "+7°C", font=f_val, fill=theme.text)
+    bw = draw.textbbox((0, 0), "+7°C", font=f_val)[2]
+    draw.text((row_x + 12 * s + bw + 10 * s, base_y + 26 * s), "65%",
+              font=f_val, fill=theme.accent)
+
+    # Row 2: Icing risk
+    ry2 = base_y + 52 * s
+    draw.text((row_x, ry2), "RYZYKO OBLODZENIA", font=f_lbl, fill=theme.text_dim)
+    draw.text((row_x + 12 * s, ry2 + 20 * s), "NISKIE", font=f_val, fill=theme.ok)
+
+    # Row 3: Atmospheric pressure
+    ry3 = ry2 + 52 * s
+    draw.text((row_x, ry3), "CIŚNIENIE ATMOSF.", font=f_lbl, fill=theme.text_dim)
+    draw.text((row_x + 12 * s, ry3 + 20 * s), "1013", font=f_val, fill=theme.text)
+    bw3 = draw.textbbox((0, 0), "1013", font=f_val)[2]
+    draw.text((row_x + 12 * s + bw3 + 4 * s, ry3 + 26 * s), "hPa",
+              font=f_unit, fill=theme.text_dim)
+
+    # Separator between left info and right icon grid
+    sep_x = cx0 + cw * 0.48
+    draw.line([(sep_x, cy0 + 16 * s), (sep_x, cy0 + ch - 16 * s)],
+              fill=rgba(theme.accent, 35), width=s)
+
+    # Right side: weather icons grid
+    grid_x = cx0 + cw * 0.52
+    grid_y = cy0 + 14 * s
+    grid_w = cw * 0.45
+    grid_h = ch - 28 * s
+    draw_weather_icons_grid(draw, int(grid_x), int(grid_y),
+                            int(grid_w), int(grid_h), theme)
+
+    # Subtitle under icon grid
+    f_note = _font(theme.font, 9 * s)
+    text_centered(draw, int(grid_x + grid_w // 2), int(cy0 + ch - 10 * s),
+                  "Ikony zmieniają się wg warunków", f_note,
+                  rgba(theme.text_dim, 100))
+
+    return img.resize((W, H), Image.LANCZOS)
+
+
+# =========================================================================
+#  A4 — SERVICE: Next service, TPMS, pressure + error codes + wrench icon
+# =========================================================================
+
+def draw_wrench_icon(draw, cx, cy, size, theme):
+    """Draw a crossed wrench + screwdriver service icon."""
+    s = SS
+    sz = size * s
+    color = theme.accent
+    dim = rgba(theme.accent, 140)
+
+    # Wrench (left-leaning \)
+    angle1 = math.radians(45)
+    half = sz * 0.45
+    # Shaft
+    x1 = cx - half * math.cos(angle1)
+    y1 = cy - half * math.sin(angle1)
+    x2 = cx + half * math.cos(angle1)
+    y2 = cy + half * math.sin(angle1)
+    draw.line([(x1, y1), (x2, y2)], fill=color, width=4 * s)
+
+    # Wrench head (top-left)
+    hr = 8 * s
+    draw.arc([x1 - hr, y1 - hr, x1 + hr, y1 + hr],
+             start=180 + 45, end=360 + 45, fill=color, width=4 * s)
+    # Wrench head (bottom-right)
+    draw.arc([x2 - hr, y2 - hr, x2 + hr, y2 + hr],
+             start=45, end=180 + 45, fill=color, width=4 * s)
+
+    # Screwdriver (right-leaning /)
+    angle2 = math.radians(-45)
+    x3 = cx - half * math.cos(angle2)
+    y3 = cy - half * math.sin(angle2)
+    x4 = cx + half * math.cos(angle2)
+    y4 = cy + half * math.sin(angle2)
+    draw.line([(x3, y3), (x4, y4)], fill=dim, width=4 * s)
+
+    # Screwdriver tip (top-right) — flat head
+    tip_len = 6 * s
+    draw.line([(x3, y3),
+               (x3 - tip_len * math.cos(angle2 + math.pi / 2),
+                y3 - tip_len * math.sin(angle2 + math.pi / 2))],
+              fill=dim, width=3 * s)
+    draw.line([(x3, y3),
+               (x3 + tip_len * math.cos(angle2 + math.pi / 2),
+                y3 + tip_len * math.sin(angle2 + math.pi / 2))],
+              fill=dim, width=3 * s)
+
+    # Handle (bottom-left)
+    hx, hy = x4, y4
+    hw = 5 * s
+    hl = 12 * s
+    perp = angle2 + math.pi / 2
+    p1 = (hx + hw * math.cos(perp), hy + hw * math.sin(perp))
+    p2 = (hx - hw * math.cos(perp), hy - hw * math.sin(perp))
+    p3 = (hx - hw * math.cos(perp) + hl * math.cos(angle2),
+          hy - hw * math.sin(perp) + hl * math.sin(angle2))
+    p4 = (hx + hw * math.cos(perp) + hl * math.cos(angle2),
+          hy + hw * math.sin(perp) + hl * math.sin(angle2))
+    draw.polygon([p1, p2, p3, p4], fill=rgba(color, 100))
+
+    # Center bolt
+    draw.ellipse([cx - 4 * s, cy - 4 * s, cx + 4 * s, cy + 4 * s],
+                 fill=theme.bg, outline=color, width=2 * s)
+
+
+def render_a4_service(theme):
+    """A4: Service info (left) + error codes (right) + wrench icon."""
+    s = SS
+    img, draw, (cx0, cy0, cw, ch) = render_chrome(theme, "A4  SERVICE")
+
+    # --- Left column: service info ---
+    lx = cx0 + 20 * s
+    col_w = cw * 0.45
+
+    f_lbl = _font(theme.font, 13 * s)
+    f_val = _font(theme.font_bold, 22 * s)
+    f_unit = _font(theme.font, 11 * s)
+
+    # Section title
+    f_sect = _font(theme.font_bold, 12 * s)
+    ry = cy0 + 16 * s
+    draw.text((lx, ry), "INFORMACJE SERWISOWE", font=f_sect, fill=theme.accent)
+    ry += 28 * s
+
+    # Separator
+    draw.line([(lx, ry), (lx + col_w - 20 * s, ry)],
+              fill=rgba(theme.accent, 50), width=s)
+    ry += 12 * s
+
+    # Row: Next service
+    draw.text((lx + 10 * s, ry), "NASTĘPNY SERWIS:", font=f_lbl, fill=theme.text_dim)
+    ry += 20 * s
+    draw.text((lx + 16 * s, ry), "4 500", font=f_val, fill=theme.ok)
+    bw = draw.textbbox((0, 0), "4 500", font=f_val)[2]
+    draw.text((lx + 16 * s + bw + 6 * s, ry + 6 * s), "km", font=f_unit, fill=theme.text_dim)
+    ry += 38 * s
+
+    # Row: TPMS sensors
+    draw.text((lx + 10 * s, ry), "CZUJNIKI TPMS:", font=f_lbl, fill=theme.text_dim)
+    ry += 20 * s
+
+    # TPMS grid (2x2)
+    tpms_vals = [("FL", "2.3"), ("FR", "2.3"), ("RL", "2.1"), ("RR", "2.1")]
+    f_tpms_lbl = _font(theme.font, 10 * s)
+    f_tpms_val = _font(theme.font_bold, 16 * s)
+    for i, (pos, pressure) in enumerate(tpms_vals):
+        col = i % 2
+        row = i // 2
+        tx = lx + 16 * s + col * 80 * s
+        ty = ry + row * 34 * s
+        draw.text((tx, ty), pos, font=f_tpms_lbl, fill=theme.text_dim)
+        draw.text((tx + 22 * s, ty - 2 * s), pressure, font=f_tpms_val, fill=theme.text)
+        draw.text((tx + 22 * s + draw.textbbox((0, 0), pressure, font=f_tpms_val)[2] + 2 * s,
+                   ty + 4 * s), "bar", font=f_tpms_lbl, fill=theme.text_dim)
+    ry += 76 * s
+
+    # Row: Atmospheric pressure
+    draw.text((lx + 10 * s, ry), "CIŚNIENIE ATMOSF.:", font=f_lbl, fill=theme.text_dim)
+    ry += 20 * s
+    draw.text((lx + 16 * s, ry), "1013", font=f_val, fill=theme.text)
+    bw4 = draw.textbbox((0, 0), "1013", font=f_val)[2]
+    draw.text((lx + 16 * s + bw4 + 4 * s, ry + 6 * s), "hPa",
+              font=f_unit, fill=theme.text_dim)
+
+    # --- Vertical separator ---
+    sep_x = cx0 + cw * 0.48
+    draw.line([(sep_x, cy0 + 16 * s), (sep_x, cy0 + ch - 16 * s)],
+              fill=rgba(theme.accent, 35), width=s)
+
+    # --- Right column: error codes + wrench icon ---
+    rx = cx0 + cw * 0.52
+    rw = cw * 0.45
+
+    f_sect2 = _font(theme.font_bold, 12 * s)
+    ery = cy0 + 16 * s
+    draw.text((rx, ery), "BŁĘDY STEROWNIKA", font=f_sect2, fill=theme.accent)
+    ery += 28 * s
+    draw.line([(rx, ery), (rx + rw - 10 * s, ery)],
+              fill=rgba(theme.accent, 50), width=s)
+    ery += 12 * s
+
+    # Error code list
+    f_err = _font(theme.font, 12 * s)
+    f_err_code = _font(theme.font_bold, 13 * s)
+    errors = [
+        ("P0100", "MAF sensor circuit"),
+        ("P0340", "CMP sensor A circuit"),
+        ("P1130", "Swirl flap actuator"),
+    ]
+    for code, desc in errors:
+        # Colored dot
+        draw.ellipse([rx + 4 * s, ery + 4 * s, rx + 10 * s, ery + 10 * s],
+                     fill=theme.warning)
+        draw.text((rx + 16 * s, ery), code, font=f_err_code, fill=theme.warning)
+        cw_code = draw.textbbox((0, 0), code, font=f_err_code)[2]
+        draw.text((rx + 16 * s + cw_code + 6 * s, ery + 1 * s), desc,
+                  font=f_err, fill=theme.text_dim)
+        ery += 22 * s
+
+    # "Brak krytycznych" (no critical) status
+    ery += 8 * s
+    f_status = _font(theme.font_bold, 14 * s)
+    draw.text((rx + 4 * s, ery), "Brak krytycznych błędów", font=f_status, fill=theme.ok)
+
+    # Wrench icon — bottom right of right column
+    wrench_cx = int(rx + rw * 0.5)
+    wrench_cy = int(cy0 + ch * 0.78)
+    draw_wrench_icon(draw, wrench_cx, wrench_cy, 55, theme)
+
+    return img.resize((W, H), Image.LANCZOS)
+
+
+# =========================================================================
+#  MAIN — All 4 screens × 3 themes
+# =========================================================================
+
+ALL_SCREENS = [
+    ("a1_dashboard",   render_a1_dashboard),
+    ("a2_consumption", render_a2_consumption),
+    ("a3_environment", render_a3_environment),
+    ("a4_service",     render_a4_service),
+]
+
 
 def main():
     import sys
     os.makedirs(OUTPUT_DIR, exist_ok=True)
 
-    screens = [
-        ("a1_dashboard", render_a1_dashboard),
-    ]
-
+    total = len(ALL_THEMES) * len(ALL_SCREENS)
+    n = 0
     for theme in ALL_THEMES:
-        for sid, render_fn in screens:
-            label = f"{theme.display_name} / {sid}"
+        for sid, render_fn in ALL_SCREENS:
+            n += 1
+            label = f"[{n}/{total}] {theme.display_name} / {sid}"
             print(f"Rendering {label} ...")
             img = render_fn(theme)
             path = os.path.join(OUTPUT_DIR, f"mockup_{sid}_{theme.name}.png")
             img.save(path, "PNG", optimize=True)
             print(f"  -> {path}")
 
-    print("Phase 1 done!")
+    print(f"\nDone! {total} mockups generated.")
 
 
 if __name__ == "__main__":
