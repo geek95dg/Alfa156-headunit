@@ -12,7 +12,7 @@ from PIL import Image, ImageDraw, ImageFont, ImageFilter
 W, H = 800, 480
 SS = 3
 SW, SH = W * SS, H * SS
-OUTPUT_DIR = os.path.join(os.path.dirname(__file__), "..", "mockups")
+OUTPUT_DIR = os.path.join(os.path.dirname(__file__), "..", "mockups", "renders")
 
 _font_cache = {}
 FONT_PATHS = {
