@@ -31,6 +31,7 @@ from src.power.shutdown import start_power
 from src.multimedia.openauto import start_multimedia
 from src.location.gps import start_location
 from src.network.lte import start_network
+from src.weather.weather import start_weather
 
 
 # Module registry — maps module names to their (future) start functions.
@@ -49,6 +50,7 @@ MODULE_REGISTRY: dict[str, dict] = {
     "multimedia":  {"part": 11, "description": "Android Auto / Multimedia", "start": start_multimedia},
     "location":    {"part": 12, "description": "GPS/GNSS Positioning", "start": start_location},
     "network":     {"part": 13, "description": "LTE/Cellular Connectivity", "start": start_network},
+    "weather":     {"part": 14, "description": "Weather Data (OpenWeatherMap)", "start": start_weather},
 }
 
 # Dashboard is listed for --dry-run reporting but started separately

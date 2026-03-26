@@ -17,6 +17,7 @@ modules:
   multimedia: true
   location: true
   network: true
+  weather: true
 display:
   dashboard:
     width: 800
@@ -111,6 +112,9 @@ wifi:
   netmask: 255.255.255.0
   dhcp_start: 10.0.0.10
   dhcp_end: 10.0.0.50
+weather:
+  api_key: ""
+  poll_interval_min: 15
 power:
   shutdown_delay_seconds: 30
   backlight_fade_ms: 1000
