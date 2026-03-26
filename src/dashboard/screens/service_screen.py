@@ -9,6 +9,7 @@ import pygame
 from src.dashboard.themes.theme_base import ThemeBase
 from src.dashboard.i18n import t
 from .base_screen import BaseScreen, DashboardData, _font
+from .assets import draw_car_silhouette
 
 
 class ServiceScreen(BaseScreen):
@@ -115,30 +116,31 @@ class ServiceScreen(BaseScreen):
         card_border = getattr(theme, "card_border", (50, 50, 50))
         text_color = getattr(theme, "text_primary", (244, 244, 245))
         text_dim = getattr(theme, "text_dim", (120, 120, 120))
+        theme_name = getattr(theme, "name", "heritage")
 
         self.draw_card(surface, x, y, w, h, card_bg, card_border)
 
-        # Car silhouette (simple polygon)
+        # Car silhouette — uses shared 22-point profile from assets.py (1:1 with mockups)
         cx = x + w // 2
-        cy = y + h // 2 - 20
+        cy = y + h // 2 - 30
+        car_w = int(w * 0.85)
+        car_h = int(car_w * 0.46)  # Maintain aspect ratio
 
-        points = [
-            (-70, 8), (-60, -5), (-45, -18), (-25, -22),
-            (-8, -22), (8, -22), (25, -18), (42, -12),
-            (60, -5), (70, 8), (65, 12), (-65, 12),
-        ]
-        scaled = [(cx + px, cy + py) for px, py in points]
-        if len(scaled) >= 3:
-            pygame.draw.polygon(surface, accent, scaled, 2)
-
-        # Wheels
-        pygame.draw.circle(surface, accent, (cx - 42, cy + 12), 8, 2)
-        pygame.draw.circle(surface, accent, (cx + 42, cy + 12), 8, 2)
+        if theme_name == "autodelta":
+            draw_car_silhouette(surface, cx, cy, car_w, car_h,
+                                accent, "inverted")
+        elif theme_name == "modern":
+            draw_car_silhouette(surface, cx, cy, car_w, car_h,
+                                (*accent[:3], 60) if len(accent) >= 3 else accent,
+                                "filled")
+        else:
+            draw_car_silhouette(surface, cx, cy, car_w, car_h,
+                                accent, "outline")
 
         # Car model label
         font_model = _font("sans-serif", 11)
         model_surf = font_model.render("Alfa Romeo 156", True, text_dim)
-        model_rect = model_surf.get_rect(centerx=cx, top=cy + 35)
+        model_rect = model_surf.get_rect(centerx=cx, top=cy + car_h // 2 + 12)
         surface.blit(model_surf, model_rect)
 
         # TPMS display (if available)
