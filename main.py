@@ -29,6 +29,9 @@ from src.input.bt_remote import start_input
 from src.camera.reverse_cam import start_camera
 from src.power.shutdown import start_power
 from src.multimedia.openauto import start_multimedia
+from src.location.gps import start_location
+from src.network.lte import start_network
+from src.weather.weather import start_weather
 
 
 # Module registry — maps module names to their (future) start functions.
@@ -45,6 +48,9 @@ MODULE_REGISTRY: dict[str, dict] = {
     "camera":      {"part": 9, "description": "Camera & Dashcam", "start": start_camera},
     "power":       {"part": 10, "description": "Power Management", "start": start_power},
     "multimedia":  {"part": 11, "description": "Android Auto / Multimedia", "start": start_multimedia},
+    "location":    {"part": 12, "description": "GPS/GNSS Positioning", "start": start_location},
+    "network":     {"part": 13, "description": "LTE/Cellular Connectivity", "start": start_network},
+    "weather":     {"part": 14, "description": "Weather Data (OpenWeatherMap)", "start": start_weather},
 }
 
 # Dashboard is listed for --dry-run reporting but started separately
@@ -254,16 +260,22 @@ def main() -> None:
         try:
             # Create renderer before starting so signal handler can stop it
             from src.dashboard.renderer import DashboardRenderer, DemoDataGenerator
+            from src.multimedia.bluetooth import DemoMediaGenerator
             dashboard_renderer = DashboardRenderer(config, event_bus)
             demo = None
+            demo_media = None
             if config.platform == "x86":
                 demo = DemoDataGenerator(event_bus)
                 demo.start()
+                demo_media = DemoMediaGenerator(event_bus)
+                demo_media.start()
             try:
                 dashboard_renderer.run()
             finally:
                 if demo:
                     demo.stop()
+                if demo_media:
+                    demo_media.stop()
         except Exception:
             log.exception("Dashboard failed")
     else:

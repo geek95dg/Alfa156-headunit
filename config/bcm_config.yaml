@@ -15,12 +15,15 @@ modules:
   camera: true
   power: true
   multimedia: true
+  location: true
+  network: true
+  weather: true
 display:
   dashboard:
     width: 800
     height: 480
     fps: 15
-    theme: modern_dark
+    theme: heritage
     brightness: 70
   multimedia:
     width: 1024
@@ -50,6 +53,15 @@ serial:
     port_opi: /dev/ttyS3
     baudrate: 10400
     ecu_address: 1
+hardware:
+  gps:
+    enabled: true
+    port: /dev/ttyUSB0
+    baudrate: 9600
+  lte:
+    enabled: true
+    device: ""
+    apn: ""
 audio:
   eq_preset: jazz
   master_volume: 70
@@ -100,6 +112,9 @@ wifi:
   netmask: 255.255.255.0
   dhcp_start: 10.0.0.10
   dhcp_end: 10.0.0.50
+weather:
+  api_key: ""
+  poll_interval_min: 15
 power:
   shutdown_delay_seconds: 30
   backlight_fade_ms: 1000
