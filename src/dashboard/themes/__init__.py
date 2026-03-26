@@ -23,9 +23,12 @@ THEMES = {
     "oem_digital": OEMDigitalTheme,
 }
 
+# Instantiated theme list for settings screen iteration
+ALL_THEMES = [cls() for cls in THEMES.values()]
+
 __all__ = [
     "ThemeBase",
     "HeritageTheme", "ModernTheme", "AutodeltaTheme",
     "ClassicAlfaTheme", "ModernDarkTheme", "OEMDigitalTheme",
-    "THEMES",
+    "THEMES", "ALL_THEMES",
 ]

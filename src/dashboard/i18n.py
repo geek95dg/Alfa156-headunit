@@ -8,9 +8,13 @@ from typing import Any
 
 STRINGS: dict[str, dict[str, str]] = {
     "pl": {
-        # Screen titles
+        # Screen titles (v7.1)
         "screen.a1": "A1: GŁÓWNY",
-        "screen.a2": "A2: SPALANIE",
+        "screen.a2": "A2: PODRÓŻ",
+        "screen.a3": "A3: POGODA",
+        "screen.a4": "A4: SERWIS",
+        "screen.settings": "USTAWIENIA",
+        # Legacy screen titles
         "screen.b1": "B1: KLIMAT",
         "screen.b2": "B2: PALIWO",
         "screen.c1": "C1: TRIP",
@@ -102,9 +106,13 @@ STRINGS: dict[str, dict[str, str]] = {
         "sep": "WRZ", "oct": "PAŹ", "nov": "LIS", "dec": "GRU",
     },
     "en": {
-        # Screen titles
+        # Screen titles (v7.1)
         "screen.a1": "A1: MAIN",
-        "screen.a2": "A2: CONSUMPTION",
+        "screen.a2": "A2: TRIP",
+        "screen.a3": "A3: WEATHER",
+        "screen.a4": "A4: SERVICE",
+        "screen.settings": "SETTINGS",
+        # Legacy screen titles
         "screen.b1": "B1: CLIMATE",
         "screen.b2": "B2: FUEL",
         "screen.c1": "C1: TRIP",

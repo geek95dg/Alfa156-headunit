@@ -96,9 +96,9 @@ class DashboardRenderer:
         self.bus = event_bus
         self._running = False
 
-        # Load theme
-        theme_name = config.get("display.dashboard.theme", "classic_alfa")
-        theme_cls = THEMES.get(theme_name, THEMES["classic_alfa"])
+        # Load theme — prefer heritage for card-based themes
+        theme_name = config.get("display.dashboard.theme", "heritage")
+        theme_cls = THEMES.get(theme_name, THEMES.get("classic_alfa", list(THEMES.values())[0]))
         self.theme: ThemeBase = theme_cls()
 
         # Dashboard data (shared state for all screens)
@@ -119,6 +119,11 @@ class DashboardRenderer:
         self._screens: dict[str, BaseScreen] = {}
         for screen_id, cls in SCREEN_CLASSES.items():
             self._screens[screen_id] = cls()
+
+        # Initialization screen (shown on boot for ~4 seconds)
+        from src.dashboard.screens.initialization_screen import InitializationScreen
+        self._init_screen = InitializationScreen()
+        self._init_phase = True  # True until init screen expires
 
         # Display settings
         self.width = config.get("display.dashboard.width", 800)
@@ -422,10 +427,18 @@ class DashboardRenderer:
         # Update data from trip computer
         self._update_data_from_trip()
 
+        # Initialization screen phase (first ~4 seconds)
+        if self._init_phase:
+            self._init_screen.draw(surface, theme, self.data)
+            if self._init_screen.elapsed >= 4.0:
+                self._init_phase = False
+                log.info("Init screen complete, switching to A1")
+            return
+
         # Background
         surface.fill(theme.bg_color)
 
-        # Status bar (with screen title)
+        # Status bar / App bar (with screen title)
         screen_title_key = f"screen.{self.current_screen_id}"
         self.status_bar.draw(surface, theme, self.data, screen_title_key)
 

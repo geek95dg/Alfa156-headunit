@@ -7,7 +7,7 @@ from .base_screen import BaseScreen, DashboardData, _font
 
 
 class SettingsScreen(BaseScreen):
-    screen_id = "a3"
+    screen_id = "settings"
 
     def draw(self, surface: pygame.Surface, theme: ThemeBase,
              data: DashboardData) -> None:
