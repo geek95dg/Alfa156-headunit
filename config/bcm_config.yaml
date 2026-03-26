@@ -16,6 +16,7 @@ modules:
   power: true
   multimedia: true
   location: true
+  network: true
 display:
   dashboard:
     width: 800
