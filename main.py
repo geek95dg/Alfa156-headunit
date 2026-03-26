@@ -260,16 +260,22 @@ def main() -> None:
         try:
             # Create renderer before starting so signal handler can stop it
             from src.dashboard.renderer import DashboardRenderer, DemoDataGenerator
+            from src.multimedia.bluetooth import DemoMediaGenerator
             dashboard_renderer = DashboardRenderer(config, event_bus)
             demo = None
+            demo_media = None
             if config.platform == "x86":
                 demo = DemoDataGenerator(event_bus)
                 demo.start()
+                demo_media = DemoMediaGenerator(event_bus)
+                demo_media.start()
             try:
                 dashboard_renderer.run()
             finally:
                 if demo:
                     demo.stop()
+                if demo_media:
+                    demo_media.stop()
         except Exception:
             log.exception("Dashboard failed")
     else:

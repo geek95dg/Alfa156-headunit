@@ -926,7 +926,7 @@ class BluetoothManager:
             log.debug("BT disconnect: no device connected")
 
     def start_monitor(self) -> None:
-        """Start monitoring BT connection status."""
+        """Start monitoring BT connection status and AVRCP media metadata."""
         if self._running:
             return
         self._running = True
@@ -934,6 +934,8 @@ class BluetoothManager:
             target=self._monitor_loop, daemon=True
         )
         self._monitor_thread.start()
+        # Start AVRCP media metadata monitor (D-Bus)
+        self._start_media_monitor()
 
     def stop_monitor(self) -> None:
         """Stop the connection monitor."""
@@ -983,6 +985,91 @@ class BluetoothManager:
 
     # --- HFP call handling ---
 
+    # --- AVRCP media metadata ---
+
+    def _start_media_monitor(self) -> None:
+        """Start monitoring AVRCP media metadata via D-Bus.
+
+        Watches org.bluez.MediaPlayer1 properties for track info and
+        playback status changes. Publishes bt.media.track, bt.media.status,
+        bt.media.position to the event bus.
+        """
+        if not HAS_DBUS:
+            log.debug("D-Bus not available — AVRCP media monitor disabled")
+            return
+
+        def _media_monitor():
+            try:
+                import dbus
+                import dbus.mainloop.glib
+                from gi.repository import GLib
+
+                dbus.mainloop.glib.DBusGMainLoop(set_as_default=True)
+                bus = dbus.SystemBus()
+
+                def _on_properties_changed(interface, changed, invalidated,
+                                           path=None):
+                    if interface != "org.bluez.MediaPlayer1":
+                        return
+
+                    if "Track" in changed:
+                        track = changed["Track"]
+                        track_info = {
+                            "title": str(track.get("Title", "")),
+                            "artist": str(track.get("Artist", "")),
+                            "album": str(track.get("Album", "")),
+                            "duration": int(track.get("Duration", 0)),
+                            "track_number": int(track.get("TrackNumber", 0)),
+                        }
+                        self._media_track = track_info
+                        self._event_bus.publish("bt.media.track", track_info)
+                        log.info("BT AVRCP track: %s - %s",
+                                 track_info["artist"], track_info["title"])
+
+                    if "Status" in changed:
+                        status = str(changed["Status"]).lower()
+                        self._media_status = status
+                        self._event_bus.publish("bt.media.status", status)
+                        log.debug("BT AVRCP status: %s", status)
+
+                    if "Position" in changed:
+                        position = int(changed["Position"])
+                        self._media_position = position
+                        self._event_bus.publish("bt.media.position", position)
+
+                bus.add_signal_receiver(
+                    _on_properties_changed,
+                    dbus_interface="org.freedesktop.DBus.Properties",
+                    signal_name="PropertiesChanged",
+                    path_keyword="path",
+                )
+                log.info("BT AVRCP media monitor started (D-Bus)")
+
+                loop = GLib.MainLoop()
+                loop.run()
+            except Exception:
+                log.debug("BT AVRCP media monitor failed (non-critical)")
+
+        self._media_track: dict = {}
+        self._media_status: str = "stopped"
+        self._media_position: int = 0
+
+        t = threading.Thread(target=_media_monitor, daemon=True,
+                             name="bt-avrcp-monitor")
+        t.start()
+
+    @property
+    def media_track(self) -> dict:
+        """Current AVRCP track metadata."""
+        return getattr(self, "_media_track", {})
+
+    @property
+    def media_status(self) -> str:
+        """Current AVRCP playback status (playing/paused/stopped)."""
+        return getattr(self, "_media_status", "stopped")
+
+    # --- HFP call handling ---
+
     def _on_call_incoming(self, topic: str, value: Any, timestamp: float) -> None:
         self._hfp_active = True
         self._event_bus.publish("bt.hfp_active", True)
@@ -994,3 +1081,66 @@ class BluetoothManager:
         self._event_bus.publish("bt.hfp_active", False)
         self._event_bus.publish("audio.phone_call", False)
         log.info("HFP call ended")
+
+
+class DemoMediaGenerator:
+    """Simulates BT AVRCP media track cycling for x86 demo mode.
+
+    Publishes bt.media.track, bt.media.status, and bt.media.position
+    to the event bus, cycling through a playlist of Italian/themed tracks.
+    """
+
+    DEMO_PLAYLIST = [
+        {"title": "Vivere la Vita", "artist": "Alessandro", "album": "Dolce Vita", "duration": 234000},
+        {"title": "Nightcall (Drive OST)", "artist": "Kavinsky", "album": "OutRun", "duration": 258000},
+        {"title": "Interstellar Overdrive", "artist": "The Psychedelic Sounds", "album": "Space Rock", "duration": 312000},
+        {"title": "Nessun Dorma", "artist": "Pavarotti", "album": "Turandot", "duration": 198000},
+        {"title": "La Gazza Ladra", "artist": "Rossini", "album": "Overtures", "duration": 276000},
+    ]
+
+    def __init__(self, event_bus: EventBus):
+        self._bus = event_bus
+        self._running = False
+        self._thread: Optional[threading.Thread] = None
+        self._track_index = 0
+
+    def start(self) -> None:
+        if self._running:
+            return
+        self._running = True
+        self._thread = threading.Thread(target=self._loop, daemon=True,
+                                        name="demo-media")
+        self._thread.start()
+        log.info("DemoMediaGenerator started (%d tracks)", len(self.DEMO_PLAYLIST))
+
+    def stop(self) -> None:
+        self._running = False
+        if self._thread:
+            self._thread.join(timeout=2)
+
+    def _loop(self) -> None:
+        # Publish initial "playing" status
+        self._bus.publish("bt.media.status", "playing")
+        position = 0
+
+        while self._running:
+            track = self.DEMO_PLAYLIST[self._track_index]
+            track_info = {
+                "title": track["title"],
+                "artist": track["artist"],
+                "album": track["album"],
+                "duration": track["duration"],
+                "track_number": self._track_index + 1,
+            }
+            self._bus.publish("bt.media.track", track_info)
+
+            # Simulate playback — advance position every second
+            duration_s = track["duration"] // 1000
+            position = 0
+            while self._running and position < duration_s:
+                self._bus.publish("bt.media.position", position * 1000)
+                time.sleep(1)
+                position += 1
+
+            # Move to next track
+            self._track_index = (self._track_index + 1) % len(self.DEMO_PLAYLIST)

@@ -171,6 +171,21 @@ class DashboardRenderer:
         self.bus.subscribe("parking.distances", self._on_parking)
         self.bus.subscribe("power.reverse_gear", self._on_reverse)
 
+        # GPS, Weather, LTE, BT media events
+        self.bus.subscribe("gps.position", self._on_gps_position)
+        self.bus.subscribe("gps.speed", self._on_gps_speed)
+        self.bus.subscribe("gps.heading", self._on_gps_heading)
+        self.bus.subscribe("gps.fix", self._on_gps_fix)
+        self.bus.subscribe("gps.satellites", self._on_gps_satellites)
+        self.bus.subscribe("weather.current", self._on_weather_current)
+        self.bus.subscribe("weather.forecast", self._on_weather_forecast)
+        self.bus.subscribe("weather.city", self._on_weather_city)
+        self.bus.subscribe("lte.connected", self._on_lte_connected)
+        self.bus.subscribe("lte.signal", self._on_lte_signal)
+        self.bus.subscribe("bt.media.track", self._on_bt_media_track)
+        self.bus.subscribe("bt.media.status", self._on_bt_media_status)
+        self.bus.subscribe("bt.media.position", self._on_bt_media_position)
+
         # Accept input from event bus (browser WebSocket, BT remote, etc.)
         self.bus.subscribe("input.raw_keyname", self._on_raw_keyname)
 
@@ -227,6 +242,61 @@ class DashboardRenderer:
         self.data.gear = "R" if value else "N"
         if not value:
             self.parking_overlay.release_camera()
+
+    # GPS handlers
+    def _on_gps_position(self, topic: str, value: dict, ts: float) -> None:
+        if isinstance(value, dict):
+            self.data.gps_lat = value.get("lat", 0.0)
+            self.data.gps_lon = value.get("lon", 0.0)
+
+    def _on_gps_speed(self, topic: str, value: float, ts: float) -> None:
+        self.data.gps_speed = value
+
+    def _on_gps_heading(self, topic: str, value: float, ts: float) -> None:
+        self.data.gps_heading = value
+
+    def _on_gps_fix(self, topic: str, value: bool, ts: float) -> None:
+        self.data.gps_fix = bool(value)
+
+    def _on_gps_satellites(self, topic: str, value: int, ts: float) -> None:
+        self.data.gps_satellites = int(value) if value else 0
+
+    # Weather handlers
+    def _on_weather_current(self, topic: str, value: dict, ts: float) -> None:
+        if isinstance(value, dict):
+            self.data.weather_condition = value.get("condition", "")
+            self.data.weather_temp = value.get("temp", 0.0)
+            self.data.weather_feels_like = value.get("feels_like", 0.0)
+            self.data.weather_humidity = value.get("humidity", 0)
+            self.data.weather_wind_speed = value.get("wind_speed", 0.0)
+
+    def _on_weather_forecast(self, topic: str, value: list, ts: float) -> None:
+        if isinstance(value, list):
+            self.data.weather_forecast = value
+
+    def _on_weather_city(self, topic: str, value: str, ts: float) -> None:
+        self.data.weather_city = str(value) if value else ""
+
+    # LTE handlers
+    def _on_lte_connected(self, topic: str, value: bool, ts: float) -> None:
+        self.data.lte_connected = bool(value)
+
+    def _on_lte_signal(self, topic: str, value: int, ts: float) -> None:
+        self.data.lte_signal_strength = int(value) if value else 0
+
+    # BT media handlers
+    def _on_bt_media_track(self, topic: str, value: dict, ts: float) -> None:
+        if isinstance(value, dict):
+            self.data.bt_media_title = value.get("title", "")
+            self.data.bt_media_artist = value.get("artist", "")
+            self.data.bt_media_album = value.get("album", "")
+            self.data.bt_media_duration = value.get("duration", 0)
+
+    def _on_bt_media_status(self, topic: str, value: str, ts: float) -> None:
+        self.data.bt_media_playing = (str(value).lower() == "playing")
+
+    def _on_bt_media_position(self, topic: str, value: int, ts: float) -> None:
+        self.data.bt_media_position = int(value) if value else 0
 
     def _switch_theme(self, theme_name: str) -> None:
         theme_cls = THEMES.get(theme_name)
