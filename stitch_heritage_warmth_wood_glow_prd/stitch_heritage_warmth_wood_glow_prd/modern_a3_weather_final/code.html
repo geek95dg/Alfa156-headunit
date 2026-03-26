@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+
+<html class="light" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<link href="https://fonts.googleapis.com/css2?family=Public+Sans:ital,wght@0,300;0,400;0,600;0,700;1,700&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<script id="tailwind-config">
+    tailwind.config = {
+      darkMode: "class",
+      theme: {
+        extend: {
+          colors: {
+            brand: {
+              red: "#cc0000",
+              dark: "#0a0a0a",
+              muted: "#1a1a1a"
+            }
+          },
+          fontFamily: {
+            "headline": ["Public Sans", "sans-serif"],
+            "body": ["Public Sans", "sans-serif"],
+            "label": ["Public Sans", "sans-serif"]
+          },
+          borderRadius: {"DEFAULT": "0.25rem", "lg": "0.5rem", "xl": "0.75rem", "full": "9999px"},
+        },
+      },
+    }
+  </script>
+<style>
+    .material-symbols-outlined {
+      font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+    }
+    body {
+      background-color: #000;
+      color: white;
+      overflow: hidden;
+      width: 800px;
+      height: 480px;
+      margin: 0 auto;
+      position: relative;
+    }
+    .glass-card {
+      background: rgba(255, 255, 255, 0.05);
+      backdrop-filter: blur(12px);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+    }
+  </style>
+<style>
+    body {
+      min-height: max(884px, 100dvh);
+    }
+  </style>
+  </head>
+<body class="font-body">
+<!-- TopAppBar -->
+<header class="fixed top-0 w-full h-12 flex justify-between items-center px-6 bg-black border-b border-zinc-800 z-50">
+<div class="flex items-center gap-4 text-zinc-400 font-sans tracking-tight text-sm">
+<span class="font-bold text-white">14:42</span>
+<span class="opacity-60">OCT 24</span>
+</div>
+<div class="absolute left-1/2 -translate-x-1/2 flex items-center gap-2">
+<span class="font-bold italic text-red-600 dark:text-red-500 uppercase tracking-widest text-lg">Alfa Romeo</span>
+</div>
+<div class="flex items-center gap-4 text-zinc-400">
+<div class="flex items-center gap-1">
+<span class="text-xs font-bold">22°C</span>
+</div>
+<div class="flex items-center gap-3">
+<span class="material-symbols-outlined text-red-600 dark:text-red-500 text-xl" data-icon="bluetooth_connected">bluetooth_connected</span>
+<span class="material-symbols-outlined text-zinc-500 text-xl" data-icon="settings_input_antenna">settings_input_antenna</span>
+</div>
+</div>
+</header>
+<!-- Main Content Canvas (800x480 Context) -->
+<main class="pt-12 pb-16 h-full w-full grid grid-cols-12 gap-3 p-3 box-border">
+<!-- Left Column: Map & Location -->
+<div class="col-span-8 flex flex-col gap-3 h-full">
+<div class="relative flex-grow rounded-xl overflow-hidden glass-card">
+<div class="absolute inset-0 bg-cover bg-center" data-alt="Dark stylized satellite navigation map of Milan city streets with blue neon route highlights and minimalist UI markers" data-location="Milan, Italy" style="background-image: url('https://lh3.googleusercontent.com/aida-public/AB6AXuD2U_D5DBuQ-nLSRW--ERb3aUOHoGRr6uGP_hdkRbYxv5c8Y-p3lHXnIJ_HDkEkpsxVgcwdIjYXekZ80l0FBtEhzm6jF2qdiEGmq3V9bYY3xovQJEIQvXsBXB8TwJwqA-ZfGTOgyZB0zYhWMUU7ZG5zH8IzdL24-9uVoUD6JrvAqzULeWV8PdeSnwWPuAGN69gCN7-TIyEP0F7YrGHu2zA7fVhWh58cdwEqdB8IyCeAxTyy9QEJ2PqgiaHVA6B7-W7z4Sobhu3S9r8')"></div>
+<div class="absolute top-4 left-4 glass-card px-4 py-2 rounded-lg flex items-center gap-3">
+<span class="material-symbols-outlined text-red-500" data-icon="location_on">location_on</span>
+<div>
+<p class="text-[10px] text-zinc-400 uppercase font-bold tracking-wider">Current Location</p>
+<p class="text-sm font-bold text-white">Via Alessandro Volta, Milan</p>
+</div>
+</div>
+<!-- Map Overlay Gradient -->
+<div class="absolute inset-0 pointer-events-none bg-gradient-to-t from-black/60 to-transparent"></div>
+</div>
+</div>
+<!-- Right Column: Weather Focus -->
+<div class="col-span-4 flex flex-col gap-3 h-full">
+<!-- Main Temp Card -->
+<div class="glass-card rounded-xl p-5 flex flex-col justify-between flex-grow">
+<div class="flex justify-between items-start">
+<div>
+<p class="text-xs font-bold text-zinc-500 uppercase tracking-widest">Weather</p>
+<p class="text-lg font-bold text-white">Partly Cloudy</p>
+</div>
+<span class="material-symbols-outlined text-4xl text-blue-400" data-icon="cloud">cloud</span>
+</div>
+<div class="mt-4">
+<span class="text-6xl font-light tracking-tighter text-white">18°</span>
+<div class="flex gap-3 mt-1">
+<span class="text-xs text-blue-400 font-bold">L: 14°</span>
+<span class="text-xs text-red-500 font-bold">H: 21°</span>
+</div>
+</div>
+<div class="mt-4 pt-4 border-t border-white/10 grid grid-cols-3 gap-2 text-center">
+<div>
+<p class="text-[10px] text-zinc-500 font-bold">16:00</p>
+<span class="material-symbols-outlined text-sm my-1 text-blue-300" data-icon="wb_sunny">wb_sunny</span>
+<p class="text-xs font-bold">19°</p>
+</div>
+<div>
+<p class="text-[10px] text-zinc-500 font-bold">17:00</p>
+<span class="material-symbols-outlined text-sm my-1 text-zinc-400" data-icon="cloud">cloud</span>
+<p class="text-xs font-bold">17°</p>
+</div>
+<div>
+<p class="text-[10px] text-zinc-500 font-bold">18:00</p>
+<span class="material-symbols-outlined text-sm my-1 text-zinc-500" data-icon="rainy">rainy</span>
+<p class="text-xs font-bold">15°</p>
+</div>
+</div>
+</div>
+<!-- Detail Weather Stats -->
+<div class="glass-card rounded-xl p-3 grid grid-cols-2 gap-2">
+<div class="flex items-center gap-2">
+<span class="material-symbols-outlined text-zinc-500 text-lg" data-icon="air">air</span>
+<div class="leading-none">
+<p class="text-[8px] text-zinc-500 uppercase font-bold">Wind</p>
+<p class="text-xs font-bold">12 km/h</p>
+</div>
+</div>
+<div class="flex items-center gap-2">
+<span class="material-symbols-outlined text-zinc-500 text-lg" data-icon="humidity_percentage">humidity_percentage</span>
+<div class="leading-none">
+<p class="text-[8px] text-zinc-500 uppercase font-bold">Hum</p>
+<p class="text-xs font-bold">42%</p>
+</div>
+</div>
+</div>
+</div>
+</main>
+<!-- BottomNavBar -->
+<nav class="fixed bottom-0 left-0 w-full h-16 z-50 flex justify-around items-center px-4 bg-black border-t border-zinc-800">
+<button class="flex items-center justify-center text-zinc-400 w-16 h-12 active:scale-95 transition-transform">
+<span class="material-symbols-outlined text-2xl" data-icon="home">home</span>
+</button>
+<button class="flex items-center justify-center text-zinc-400 w-16 h-12 active:scale-95 transition-transform">
+<span class="material-symbols-outlined text-2xl" data-icon="directions_car">directions_car</span>
+</button>
+<button class="flex items-center justify-center bg-red-600/20 text-red-500 rounded-xl w-16 h-12 active:scale-95 transition-transform">
+<span class="material-symbols-outlined text-2xl" data-icon="cloud">cloud</span>
+</button>
+<button class="flex items-center justify-center text-zinc-400 w-16 h-12 active:scale-95 transition-transform">
+<span class="material-symbols-outlined text-2xl" data-icon="build">build</span>
+</button>
+</nav>
+</body></html>

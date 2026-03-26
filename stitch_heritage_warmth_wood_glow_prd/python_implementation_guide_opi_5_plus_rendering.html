@@ -1,0 +1,141 @@
+# Python Implementation Guide for Alfa Romeo 156 Head Unit
+
+This document provides the technical roadmap for rendering the generated UI themes on an **Orange Pi 5 Plus** using Python, ensuring 1:1 visual fidelity with the mockups.
+
+---
+
+## 1. Recommended Architecture: The Web-Hybrid Model
+
+For a high-fidelity interface with complex gradients and custom typography, the most efficient path on the Orange Pi 5 Plus (which supports full hardware acceleration via Rockchip's GPU) is using a **Web-to-UI bridge**.
+
+*   **Frontend:** HTML5 / CSS3 (Tailwind) / JavaScript.
+*   **Backend:** Python 3.10+ (Running on the Orange Pi).
+*   **Bridge:** `PyQt6` or `PySide6` using `QWebEngineView`.
+
+### Why this approach?
+- **1:1 Rendering:** You use the exact code from the mockups.
+- **Hardware Accelerated:** The Orange Pi 5 Plus handles WebGL and CSS transforms easily.
+- **Separation of Concerns:** Python handles the "Heavy Lifting" (CAN bus, GPS, sensor data), while the Web view handles the "Painting".
+
+---
+
+## 2. Theme System: "The CSS Variable Approach"
+
+To switch themes (Modern, Heritage, Autodelta) like SCSS/PHP, we use a global `:root` CSS file. Python simply injects a class name into the body tag (e.g., `<body class="theme-heritage">`).
+
+### Example Theme Dictionary (`themes.css`)
+
+```css
+/* Heritage Warmth */
+.theme-heritage {
+  --color-primary: #FF5E00;
+  --color-bg: #080808;
+  --font-main: 'Eurostile Extended', sans-serif;
+  --sketch-url: url('assets/giulia_gta.png');
+}
+
+/* Autodelta Sport */
+.theme-autodelta {
+  --color-primary: #FF4500;
+  --color-bg: #000000;
+  --font-main: 'Michroma', sans-serif;
+  --sketch-url: url('assets/junior_z.png');
+}
+
+/* Modern Elegance */
+.theme-modern {
+  --color-primary: #3B82F6; /* Fresh Blue */
+  --color-bg: #F3F4F6;
+  --font-main: 'Outfit', sans-serif;
+  --sketch-url: url('assets/156_berlina.png');
+}
+```
+
+---
+
+## 3. Python-to-UI Communication (Interactive Fields)
+
+To make fields interactive (e.g., updating Fuel Level or showing a Notification), you use a **WebSocket** or a **Javascript Channel**.
+
+### Python Side (Data Provider)
+```python
+import sys
+from PyQt6.QtWidgets import QApplication, QMainWindow
+from PyQt6.QtWebEngineWidgets import QWebEngineView
+from PyQt6.QtWebChannel import QWebChannel
+
+# This class is visible to the Javascript
+class DashboardData(QObject):
+    @pyqtProperty(float)
+    def fuel_level(self):
+        return get_can_bus_fuel() # Your real data function
+
+# Boilerplate to launch the UI
+app = QApplication(sys.argv)
+view = QWebEngineView()
+view.load(QUrl.fromLocalFile("index.html"))
+view.showFullScreen()
+sys.exit(app.exec())
+```
+
+### UI Side (HTML Receiver)
+In your HTML, you mark dynamic fields with IDs:
+```html
+<!-- The interactive field -->
+<div id="fuel-readout" class="text-primary">75%</div>
+
+<script>
+    // Update function called by Python
+    function updateTelemetry(data) {
+        document.getElementById('fuel-readout').innerText = data.fuel + '%';
+        // Logic for warnings
+        if (data.ice_risk) showIceWarning();
+    }
+</script>
+```
+
+---
+
+## 4. Screen-by-Screen Breakdown (The 4 Tabs)
+
+### A1: MAIN (The Data Hub)
+- **Interactive Fields:** Engine Temp (Numerical + Progress Bar), Fuel Level, Notification Center (String injection).
+- **Logic:** Center hub should have a priority queue (Ice Risk > Low Tire Pressure > System Nominal).
+
+### A2: TRIP (Analytics)
+- **Interactive Fields:** Bar charts for consumption.
+- **Tip:** Use `Chart.js` for the graphs—it's lightweight and matches the "neon" look perfectly.
+
+### A3: WEATHER (Context)
+- **Interactive Fields:** Map container, Temp string, Location string.
+- **Tip:** For the map, use a static image capture from a Map API or a simple SVG path that Python updates based on GPS coordinates.
+
+### A4: SERVICE (Diagnostics)
+- **Interactive Fields:** Status Indicators (Red/Green/Amber dots), Sketch image source.
+- **Interactive Action:** "Long Push" to reset. Python detects the mouse-down duration and sends a `reset_confirmed` signal back to the UI.
+
+---
+
+## 5. Orange Pi 5 Plus Optimization
+
+1.  **GPU Acceleration:** Ensure you are using the `panfrost` driver or the official Rockchip `mali` drivers in your Linux distro (Ubuntu/Debian) so the `QWebEngine` is buttery smooth.
+2.  **Kiosk Mode:** Use `Openbox` or a similar minimal window manager to boot directly into the Python script without a desktop environment.
+3.  **Boot Time:** The "Initialization" screen I generated should be loaded first. While the sketch "breathes" (CSS opacity animation), Python can be initializing the CAN bus and GPS in the background.
+
+---
+
+## 6. Project Export Structure
+
+When you download the project, organize it as follows:
+```text
+/headunit
+  /assets
+    /sketches      (Pencil draws: 156, Giulia, Junior Z)
+    /icons         (Home, Trip, Weather, Service)
+    /fonts         (Eurostile, Michroma, Outfit)
+  /css
+    main.css       (Shared layout frame)
+    themes.css     (Variables for the 3 themes)
+  index.html       (The main wrapper with the static header/footer)
+  main.py          (The logic heart)
+```

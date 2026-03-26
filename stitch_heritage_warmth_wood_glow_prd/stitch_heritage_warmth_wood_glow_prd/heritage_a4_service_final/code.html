@@ -1,0 +1,196 @@
+<!DOCTYPE html>
+
+<html lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Alfa Romeo Heritage Diagnostics</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Public+Sans:wght@400;500;600;700&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+  tailwind.config = {
+    darkMode: "class",
+    theme: {
+      extend: {
+        colors: {
+          "primary": "#ec5b13",
+          "background-light": "#f8f6f6",
+          "background-dark": "#221610",
+        },
+        fontFamily: {
+          "display": ["Public Sans", "sans-serif"]
+        },
+        borderRadius: {"DEFAULT": "0.25rem", "lg": "0.5rem", "xl": "0.75rem", "full": "9999px"},
+      },
+    },
+  }
+</script>
+<style>
+  .material-symbols-outlined {
+    font-family: 'Material Symbols Outlined';
+    font-weight: normal;
+    font-style: normal;
+    font-size: 24px;
+    line-height: 1;
+    letter-spacing: normal;
+    text-transform: none;
+    display: inline-block;
+    white-space: nowrap;
+    word-wrap: normal;
+    direction: ltr;
+    -webkit-font-feature-settings: 'liga';
+    -webkit-font-smoothing: antialiased;
+  }
+</style>
+<style>
+    body {
+      min-height: max(884px, 100dvh);
+    }
+  </style>
+  </head>
+<body class="bg-gray-200 flex items-center justify-center min-h-screen">
+<!-- 800x480 Automotive Display Container -->
+<div class="w-[800px] h-[480px] bg-background-light flex flex-col font-display text-background-dark overflow-hidden shadow-2xl relative">
+<!-- Header -->
+<header class="flex justify-between items-center px-6 py-3 border-b border-neutral-200 bg-white/50 backdrop-blur-sm shrink-0">
+<!-- Time & Date -->
+<div class="flex items-center gap-4 text-sm font-semibold tracking-wide text-background-dark/80">
+<span>10:42 AM</span>
+<span class="w-1 h-1 rounded-full bg-primary/50"></span>
+<span>OCT 24</span>
+</div>
+<!-- Centered Logo -->
+<div class="flex items-center gap-2">
+<span class="text-xl font-bold tracking-[0.2em] text-background-dark uppercase">Alfa Romeo</span>
+</div>
+<!-- Status Icons -->
+<div class="flex items-center gap-5 text-background-dark/70">
+<div class="flex items-center gap-1">
+<span class="material-symbols-outlined text-[20px]" data-icon="bluetooth">bluetooth</span>
+</div>
+<div class="flex items-center gap-1">
+<span class="material-symbols-outlined text-[20px]" data-icon="smartphone">smartphone</span>
+</div>
+<div class="flex items-center gap-1.5 font-medium text-sm">
+<span class="material-symbols-outlined text-[20px]" data-icon="thermostat">thermostat</span>
+<span>72°F</span>
+</div>
+</div>
+</header>
+<!-- Main Content -->
+<main class="flex-1 flex px-6 py-5 gap-6 min-h-0">
+<!-- Left Column: Sketch -->
+<div class="w-[45%] h-full flex flex-col gap-2">
+<div class="flex-1 rounded-xl overflow-hidden bg-white border border-neutral-200 shadow-sm relative group p-2">
+<div class="w-full h-full rounded-lg bg-center bg-no-repeat bg-cover filter contrast-125 sepia-[.2]" data-alt="high quality detailed pencil sketch of an Alfa Romeo Giulia GTA 1965, classic sports car, dynamic angle, vintage automotive illustration style, monochromatic grey and black tones on slightly textured white paper" style="background-image: url('https://lh3.googleusercontent.com/aida-public/AB6AXuDh2kSqITU6YPrIWFie_OP33Y7rJENUL9UK0Q77ood1fSKMxAoIuBH-re6VHSYdoQX0TdAY0t0vi7w69TWQIpN13tkvZA6UEn4zENXaGMa8NwBTj4aU1QO4n5yogzbvOF5d8r3ijaEi34Wa10uQxmrNbDc2De8cGLAyTDkprKrlXs0hFUEI9s_NMo3U6rcrJNW9kLdCgru1BgSxBH5e5-iReI0YDzuuMuEeZLWZBu0tSlrOTkJDzjDECNC_phdsFbik_rdihhcnUoQ');">
+</div>
+<div class="absolute bottom-4 left-4 right-4 bg-white/90 backdrop-blur-sm p-3 rounded-lg border border-neutral-100 flex justify-between items-center">
+<div>
+<p class="text-xs font-bold text-neutral-500 uppercase tracking-wider">Vehicle</p>
+<p class="text-sm font-semibold text-background-dark">Giulia GTA (1965)</p>
+</div>
+<span class="material-symbols-outlined text-primary" data-icon="directions_car">directions_car</span>
+</div>
+</div>
+</div>
+<!-- Right Column: Diagnostics -->
+<div class="w-[55%] flex flex-col h-full">
+<div class="flex items-end justify-between mb-4">
+<h2 class="text-2xl font-bold text-background-dark tracking-tight">System Status</h2>
+<span class="text-xs font-semibold px-2 py-1 bg-green-100 text-green-700 rounded-md">Last checked: 2 min ago</span>
+</div>
+<div class="flex-1 overflow-y-auto pr-2 space-y-3">
+<!-- Diagnostic Item: Engine (OK) -->
+<div class="flex items-center justify-between p-3.5 bg-white rounded-xl border border-neutral-200 shadow-sm">
+<div class="flex items-center gap-3">
+<div class="w-10 h-10 rounded-full bg-neutral-100 flex items-center justify-center text-background-dark">
+<span class="material-symbols-outlined" data-icon="engineering">engineering</span>
+</div>
+<div>
+<p class="text-sm font-bold text-background-dark">Engine Mechanics</p>
+<p class="text-xs text-neutral-500">Parameters nominal</p>
+</div>
+</div>
+<span class="text-sm font-bold text-green-600">OK</span>
+</div>
+<!-- Diagnostic Item: Tire Pressure (Warning) -->
+<div class="flex items-center justify-between p-3.5 bg-orange-50 rounded-xl border border-primary/30 shadow-sm relative overflow-hidden">
+<div class="absolute left-0 top-0 bottom-0 w-1 bg-primary"></div>
+<div class="flex items-center gap-3">
+<div class="w-10 h-10 rounded-full bg-white flex items-center justify-center text-primary shadow-sm">
+<span class="material-symbols-outlined" data-icon="tire_repair">tire_repair</span>
+</div>
+<div>
+<p class="text-sm font-bold text-background-dark">Tire Pressure</p>
+<p class="text-xs text-primary font-medium">Front Right Low (28 psi)</p>
+</div>
+</div>
+<button class="text-xs font-bold bg-white text-primary border border-primary/20 px-3 py-1.5 rounded-lg hover:bg-primary/5 transition-colors">Details</button>
+</div>
+<!-- Diagnostic Item: Fluids (OK) -->
+<div class="flex items-center justify-between p-3.5 bg-white rounded-xl border border-neutral-200 shadow-sm">
+<div class="flex items-center gap-3">
+<div class="w-10 h-10 rounded-full bg-neutral-100 flex items-center justify-center text-background-dark">
+<span class="material-symbols-outlined" data-icon="oil_barrel">oil_barrel</span>
+</div>
+<div>
+<p class="text-sm font-bold text-background-dark">Fluid Levels</p>
+<p class="text-xs text-neutral-500">Oil &amp; Coolant optimal</p>
+</div>
+</div>
+<span class="text-sm font-bold text-green-600">OK</span>
+</div>
+<!-- Diagnostic Item: Electrical (OK) -->
+<div class="flex items-center justify-between p-3.5 bg-white rounded-xl border border-neutral-200 shadow-sm">
+<div class="flex items-center gap-3">
+<div class="w-10 h-10 rounded-full bg-neutral-100 flex items-center justify-center text-background-dark">
+<span class="material-symbols-outlined" data-icon="battery_charging_full">battery_charging_full</span>
+</div>
+<div>
+<p class="text-sm font-bold text-background-dark">Electrical System</p>
+<p class="text-xs text-neutral-500">14.2V Charging</p>
+</div>
+</div>
+<span class="text-sm font-bold text-green-600">OK</span>
+</div>
+</div>
+</div>
+</main>
+<!-- Bottom Nav (Adapted from Shared Components for Light Mode) -->
+<div class="flex h-[72px] shrink-0 w-full border-t border-neutral-200 bg-white px-4 pb-2 pt-2">
+<a class="flex flex-1 flex-col items-center justify-end gap-1 text-neutral-400 hover:text-background-dark transition-colors" href="#">
+<div class="flex h-8 items-center justify-center">
+<span class="material-symbols-outlined" data-icon="home" style="font-variation-settings: 'FILL' 0;">home</span>
+</div>
+<span class="text-[10px] font-semibold uppercase tracking-wider">Home</span>
+</a>
+<!-- Active State: Car/Diagnostics -->
+<a class="flex flex-1 flex-col items-center justify-end gap-1 text-primary relative" href="#">
+<div class="absolute -top-2 w-8 h-1 bg-primary rounded-full"></div>
+<div class="flex h-8 items-center justify-center">
+<span class="material-symbols-outlined" data-icon="directions_car" style="font-variation-settings: 'FILL' 1;">directions_car</span>
+</div>
+<span class="text-[10px] font-bold uppercase tracking-wider">Vehicle</span>
+</a>
+<a class="flex flex-1 flex-col items-center justify-end gap-1 text-neutral-400 hover:text-background-dark transition-colors" href="#">
+<div class="flex h-8 items-center justify-center">
+<span class="material-symbols-outlined" data-icon="tune" style="font-variation-settings: 'FILL' 0;">tune</span>
+</div>
+<span class="text-[10px] font-semibold uppercase tracking-wider">Settings</span>
+</a>
+<a class="flex flex-1 flex-col items-center justify-end gap-1 text-neutral-400 hover:text-background-dark transition-colors" href="#">
+<div class="flex h-8 items-center justify-center">
+<span class="material-symbols-outlined" data-icon="library_music" style="font-variation-settings: 'FILL' 0;">library_music</span>
+</div>
+<span class="text-[10px] font-semibold uppercase tracking-wider">Media</span>
+</a>
+<a class="flex flex-1 flex-col items-center justify-end gap-1 text-neutral-400 hover:text-background-dark transition-colors" href="#">
+<div class="flex h-8 items-center justify-center">
+<span class="material-symbols-outlined" data-icon="navigation" style="font-variation-settings: 'FILL' 0;">navigation</span>
+</div>
+<span class="text-[10px] font-semibold uppercase tracking-wider">Nav</span>
+</a>
+</div>
+</div>
+</body></html>

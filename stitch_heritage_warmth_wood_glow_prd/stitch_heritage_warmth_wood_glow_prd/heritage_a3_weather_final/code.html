@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+
+<html lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Alfa Romeo Weather UI</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Public+Sans:wght@400;500;700&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+      tailwind.config = {
+        darkMode: "class",
+        theme: {
+          extend: {
+            colors: {
+              "primary": "#ec5b13",
+              "background-light": "#f8f6f6",
+              "background-dark": "#221610",
+              "burl-wood": "#5a3a22",
+              "burl-wood-light": "#7c502d",
+              "burl-wood-dark": "#3d2716",
+              "amber-glow": "#ff9a3d",
+            },
+            fontFamily: {
+              "display": ["Public Sans", "sans-serif"]
+            },
+            borderRadius: {"DEFAULT": "0.25rem", "lg": "0.5rem", "xl": "0.75rem", "full": "9999px"},
+          },
+        },
+      }
+    </script>
+<style>
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+        }
+    </style>
+<style>
+    body {
+      min-height: max(884px, 100dvh);
+    }
+  </style>
+  </head>
+<body class="bg-background-dark text-white font-display overflow-hidden select-none w-[800px] h-[480px] flex flex-col">
+<!-- Header -->
+<header class="flex items-center justify-between px-6 py-3 border-b border-burl-wood-dark bg-gradient-to-r from-burl-wood-dark via-background-dark to-burl-wood-dark">
+<div class="flex items-center gap-4 w-1/3">
+<span class="text-xl font-bold text-amber-glow tracking-wide">10:42</span>
+<span class="text-sm font-medium text-gray-400">Oct 24</span>
+</div>
+<div class="flex-1 flex justify-center w-1/3">
+<span class="text-2xl font-bold tracking-[0.2em] text-white">ALFA ROMEO</span>
+</div>
+<div class="flex items-center justify-end gap-4 w-1/3">
+<div class="flex gap-2 text-gray-400">
+<span class="material-symbols-outlined" data-icon="bluetooth">bluetooth</span>
+<span class="material-symbols-outlined" data-icon="android">android</span>
+</div>
+<div class="flex items-center gap-1 text-primary">
+<span class="text-lg font-bold">72°F</span>
+<span class="text-xs">EXT</span>
+</div>
+</div>
+</header>
+<!-- Main Content -->
+<main class="flex-1 flex overflow-hidden">
+<!-- Left Panel: Weather Forecast -->
+<div class="w-1/3 p-6 flex flex-col gap-6 bg-burl-wood-dark/50 border-r border-burl-wood-dark">
+<div class="flex flex-col gap-1">
+<h1 class="text-3xl font-bold text-white tracking-wide">Milan, IT</h1>
+<p class="text-amber-glow text-lg">Partly Cloudy</p>
+</div>
+<div class="flex items-center gap-4 my-2">
+<span class="material-symbols-outlined text-6xl text-primary" data-icon="partly_cloudy_day" style="font-variation-settings: 'FILL' 1;">partly_cloudy_day</span>
+<div class="flex flex-col">
+<span class="text-5xl font-bold text-white tracking-tighter">72°</span>
+<span class="text-sm text-gray-400">Feels like 74°</span>
+</div>
+</div>
+<div class="flex flex-col gap-3 mt-auto">
+<h3 class="text-sm uppercase tracking-widest text-gray-400 mb-1 border-b border-burl-wood pb-2">3-Day Forecast</h3>
+<div class="flex items-center justify-between py-1">
+<span class="text-gray-300 w-12">Today</span>
+<span class="material-symbols-outlined text-amber-glow" data-icon="sunny">sunny</span>
+<div class="flex gap-3 text-right">
+<span class="text-white font-medium w-6">75°</span>
+<span class="text-gray-500 w-6">55°</span>
+</div>
+</div>
+<div class="flex items-center justify-between py-1">
+<span class="text-gray-300 w-12">Wed</span>
+<span class="material-symbols-outlined text-gray-400" data-icon="cloud">cloud</span>
+<div class="flex gap-3 text-right">
+<span class="text-white font-medium w-6">68°</span>
+<span class="text-gray-500 w-6">52°</span>
+</div>
+</div>
+<div class="flex items-center justify-between py-1">
+<span class="text-gray-300 w-12">Thu</span>
+<span class="material-symbols-outlined text-primary" data-icon="rainy">rainy</span>
+<div class="flex gap-3 text-right">
+<span class="text-white font-medium w-6">62°</span>
+<span class="text-gray-500 w-6">48°</span>
+</div>
+</div>
+</div>
+</div>
+<!-- Right Panel: Map & Search -->
+<div class="flex-1 relative bg-black">
+<!-- Map Background -->
+<div class="absolute inset-0 bg-cover bg-center opacity-80" data-alt="Satellite map view of Milan city center with warm amber overlay highlighting main roads, dark background" data-location="Milan, Italy" style="background-image: url('https://lh3.googleusercontent.com/aida-public/AB6AXuDyu50xtiQEBUC-JNyKOe5_chADipy_MG-6yNMaDnELBS9D2kkqWzF8kcuA7xrS-U1_95VtTeUFCt0ooDcdbTrMeyocaQcBKPgOfw-dM-j6HQbQRBfdhFDs1nu4sfTlE54uu1itkERbW5ms39uXtHy6dQjbNyhf6pF2dyc7iMPxLVQbmNJnWiPQAxzuhIVM-xn0ukvQ65ZPSWPVS-Kejl3YmYokCOA_BOTsxs-CAnUypHJf5MDZjBtUuI1pH8gMtmsDpaBaKPS21Fs');">
+</div>
+<!-- Overlay Controls -->
+<div class="absolute inset-x-0 top-0 p-6 flex justify-between items-start pointer-events-none">
+<!-- Search Bar -->
+<div class="flex items-center bg-background-dark/90 border border-burl-wood backdrop-blur-sm rounded-full px-4 py-2 w-72 pointer-events-auto shadow-lg shadow-black/50">
+<span class="material-symbols-outlined text-amber-glow mr-3" data-icon="search">search</span>
+<input class="bg-transparent border-none text-white focus:ring-0 text-sm placeholder-gray-500 w-full p-0" placeholder="Change Location..." type="text"/>
+</div>
+<!-- Map Controls -->
+<div class="flex flex-col gap-2 pointer-events-auto">
+<button class="w-10 h-10 rounded-full bg-background-dark/90 border border-burl-wood flex items-center justify-center text-amber-glow hover:bg-burl-wood-dark transition-colors shadow-lg shadow-black/50">
+<span class="material-symbols-outlined" data-icon="my_location">my_location</span>
+</button>
+<button class="w-10 h-10 rounded-full bg-background-dark/90 border border-burl-wood flex items-center justify-center text-white hover:bg-burl-wood-dark transition-colors shadow-lg shadow-black/50 mt-4">
+<span class="material-symbols-outlined" data-icon="add">add</span>
+</button>
+<button class="w-10 h-10 rounded-full bg-background-dark/90 border border-burl-wood flex items-center justify-center text-white hover:bg-burl-wood-dark transition-colors shadow-lg shadow-black/50">
+<span class="material-symbols-outlined" data-icon="remove">remove</span>
+</button>
+</div>
+</div>
+<!-- Weather Radar Overlay Indicator -->
+<div class="absolute bottom-6 left-6 pointer-events-auto">
+<button class="flex items-center gap-2 bg-background-dark/90 border border-burl-wood backdrop-blur-sm rounded-full px-4 py-2 text-sm font-medium text-white shadow-lg shadow-black/50 hover:bg-burl-wood-dark transition-colors">
+<span class="material-symbols-outlined text-primary" data-icon="radar">radar</span>
+                    Weather Radar
+                </button>
+</div>
+</div>
+</main>
+<!-- BottomNavBar (Shared Component) -->
+<div class="flex gap-2 border-t border-burl-wood-dark bg-background-dark px-4 py-2 h-16 shrink-0">
+<a class="just flex flex-1 flex-col items-center justify-center gap-1 text-gray-400 hover:text-amber-glow transition-colors" href="#">
+<div class="flex h-8 items-center justify-center">
+<span class="material-symbols-outlined text-2xl" data-icon="home">home</span>
+</div>
+</a>
+<a class="just flex flex-1 flex-col items-center justify-center gap-1 text-gray-400 hover:text-amber-glow transition-colors" href="#">
+<div class="flex h-8 items-center justify-center">
+<span class="material-symbols-outlined text-2xl" data-icon="music_note">music_note</span>
+</div>
+</a>
+<a class="just flex flex-1 flex-col items-center justify-center gap-1 text-amber-glow" href="#">
+<div class="flex h-8 items-center justify-center" style="font-variation-settings: 'FILL' 1;">
+<span class="material-symbols-outlined text-2xl" data-icon="navigation">navigation</span>
+</div>
+</a>
+<a class="just flex flex-1 flex-col items-center justify-center gap-1 text-gray-400 hover:text-amber-glow transition-colors" href="#">
+<div class="flex h-8 items-center justify-center">
+<span class="material-symbols-outlined text-2xl" data-icon="phone">phone</span>
+</div>
+</a>
+<a class="just flex flex-1 flex-col items-center justify-center gap-1 text-gray-400 hover:text-amber-glow transition-colors" href="#">
+<div class="flex h-8 items-center justify-center">
+<span class="material-symbols-outlined text-2xl" data-icon="settings">settings</span>
+</div>
+</a>
+</div>
+</body></html>

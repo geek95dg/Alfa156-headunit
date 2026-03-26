@@ -1,0 +1,165 @@
+<!DOCTYPE html>
+
+<html lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Autodelta Sport A1 Main Dashboard</title>
+<link href="https://fonts.googleapis.com/css2?family=Public+Sans:wght@400;500;700&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    colors: {
+                        "primary": "#ec5b13",
+                        "background-light": "#f8f6f6",
+                        "background-dark": "#221610",
+                    },
+                    fontFamily: {
+                        "display": ["Public Sans"]
+                    },
+                    borderRadius: {"DEFAULT": "0.25rem", "lg": "0.5rem", "xl": "0.75rem", "full": "9999px"},
+                },
+            },
+        }
+    </script>
+<style>
+    body {
+      min-height: max(884px, 100dvh);
+    }
+  </style>
+  </head>
+<body class="bg-background-dark text-background-light font-display overflow-hidden select-none" style="width: 800px; height: 480px;">
+<!-- Main Container -->
+<div class="flex flex-col h-full w-full bg-black relative">
+<!-- Top Header -->
+<div class="flex items-center justify-between px-6 py-3 bg-[#111111] border-b border-[#222222]">
+<div class="flex flex-col">
+<span class="text-xl font-bold text-white tracking-wider">10:42 AM</span>
+<span class="text-sm text-gray-400 font-medium">Tue, Oct 24</span>
+</div>
+<div class="flex-1 flex justify-center items-center">
+<div class="w-12 h-12 rounded-full border-2 border-primary flex items-center justify-center bg-black shadow-[0_0_15px_rgba(236,91,19,0.3)]">
+<span class="text-primary font-bold text-lg tracking-tighter">A1</span>
+</div>
+</div>
+<div class="flex items-center gap-4">
+<div class="flex gap-2">
+<span class="material-symbols-outlined text-gray-400" data-icon="bluetooth" data-size="20px">bluetooth</span>
+<span class="material-symbols-outlined text-primary" data-icon="android" data-size="20px">android</span>
+</div>
+<div class="flex flex-col items-end border-l border-[#333333] pl-4">
+<span class="text-xl font-bold text-white">72°F</span>
+<span class="text-xs text-gray-400">EXT</span>
+</div>
+</div>
+</div>
+<!-- Main Content Area -->
+<div class="flex-1 flex flex-row overflow-hidden relative">
+<!-- Left Side: Vitals -->
+<div class="w-1/3 flex flex-col p-6 gap-6 justify-center border-r border-[#222222] bg-gradient-to-r from-[#0a0a0a] to-transparent z-10">
+<!-- Engine Temp Widget -->
+<div class="flex flex-col gap-2 relative">
+<div class="flex justify-between items-end mb-1">
+<span class="text-sm font-medium text-gray-400 uppercase tracking-widest">Coolant</span>
+<span class="text-2xl font-bold text-white">195<span class="text-sm text-gray-500">°F</span></span>
+</div>
+<div class="h-2 w-full bg-[#222222] rounded-full overflow-hidden">
+<div class="h-full bg-gradient-to-r from-blue-500 via-green-500 to-red-500 w-[45%] rounded-full shadow-[0_0_10px_rgba(34,197,94,0.5)]"></div>
+</div>
+<div class="flex justify-between text-[10px] text-gray-600 mt-1 font-bold">
+<span>100</span>
+<span>200</span>
+<span>260</span>
+</div>
+</div>
+<!-- Fuel Widget -->
+<div class="flex flex-col gap-2 relative mt-4">
+<div class="flex justify-between items-end mb-1">
+<span class="text-sm font-medium text-gray-400 uppercase tracking-widest">Fuel</span>
+<span class="text-2xl font-bold text-white">82<span class="text-sm text-gray-500">%</span></span>
+</div>
+<div class="h-2 w-full bg-[#222222] rounded-full overflow-hidden">
+<div class="h-full bg-primary w-[82%] rounded-full shadow-[0_0_10px_rgba(236,91,19,0.5)]"></div>
+</div>
+<div class="flex justify-between text-[10px] text-gray-600 mt-1 font-bold">
+<span>E</span>
+<span>1/2</span>
+<span>F</span>
+</div>
+</div>
+<!-- Oil Press Widget (Bonus detail) -->
+<div class="flex flex-col gap-2 relative mt-4">
+<div class="flex justify-between items-end mb-1">
+<span class="text-sm font-medium text-gray-400 uppercase tracking-widest">Oil Press</span>
+<span class="text-2xl font-bold text-white">45<span class="text-sm text-gray-500">psi</span></span>
+</div>
+<div class="h-2 w-full bg-[#222222] rounded-full overflow-hidden">
+<div class="h-full bg-white w-[60%] rounded-full"></div>
+</div>
+</div>
+</div>
+<!-- Central/Right Area: Notification Hub / Current Media -->
+<div class="flex-1 flex flex-col p-6 relative">
+<!-- Background Graphic Element -->
+<div class="absolute inset-0 opacity-5 pointer-events-none flex items-center justify-center">
+<div class="w-[300px] h-[300px] rounded-full border-[20px] border-white blur-sm"></div>
+</div>
+<!-- Active Notification / Event -->
+<div class="flex-1 flex flex-col">
+<h3 class="text-sm font-bold text-primary uppercase tracking-widest mb-4">Current Status</h3>
+<div class="bg-gradient-to-br from-[#1a1a1a] to-[#0a0a0a] border border-[#333333] rounded-xl p-6 flex items-start gap-4 shadow-xl">
+<div class="w-12 h-12 rounded-full bg-[#222222] flex items-center justify-center shrink-0 border border-[#444444]">
+<span class="material-symbols-outlined text-green-500" data-icon="check_circle" data-size="28px">check_circle</span>
+</div>
+<div class="flex flex-col">
+<h4 class="text-xl font-bold text-white mb-1">Systems Nominal</h4>
+<p class="text-gray-400 text-sm leading-relaxed">All telemetry parameters within optimal range. Dynamic suspension set to 'Sport'. Ready for track deployment.</p>
+<div class="mt-4 flex gap-3">
+<button class="px-4 py-2 bg-[#222222] hover:bg-[#333333] text-white text-sm font-bold rounded-lg transition-colors border border-[#444444]">Acknowledge</button>
+</div>
+</div>
+</div>
+<!-- Mini Media Player -->
+<div class="mt-auto bg-[#111111] rounded-xl p-4 flex items-center gap-4 border border-[#222222]">
+<div class="w-12 h-12 bg-[#222222] rounded-lg overflow-hidden shrink-0 relative">
+<img alt="Album Art" class="w-full h-full object-cover" data-alt="abstract electronic music album cover art dark neon colors" src="https://lh3.googleusercontent.com/aida-public/AB6AXuDShM589e6QAZbqts1cJf3PhhHHG-9rPf4xLFVFt8BkQK7VQj8gU4PGWJICzGEUIcALHdkpR1MuAgGNTdwoGOSoCi6TPyFBLsvzKZts6jqiJA7NPKgSWzaSjgSWRQsOx3r7rMVYK52C-sWcthXg32HT5X1mJ56iW0FRwJb4V00jhhYqyvF99menKbOadAzvrihikTNK2LSV_INGVz2LPYYWYLSUU5KRQSsdQThn34qxuVG60eMcYN-AwGVg4jIToGECVfaGkS4J0Zo"/>
+<div class="absolute inset-0 bg-black/40 flex items-center justify-center">
+<span class="material-symbols-outlined text-white text-opacity-80" data-icon="play_arrow" data-size="24px">play_arrow</span>
+</div>
+</div>
+<div class="flex flex-col flex-1 overflow-hidden">
+<span class="text-white font-bold truncate">Nightcall (Drive OST)</span>
+<span class="text-primary text-xs font-medium truncate">Kavinsky</span>
+</div>
+<div class="flex items-center gap-2 text-gray-400">
+<span class="material-symbols-outlined" data-icon="skip_previous">skip_previous</span>
+<span class="material-symbols-outlined" data-icon="skip_next">skip_next</span>
+</div>
+</div>
+</div>
+</div>
+</div>
+<!-- Shared BottomNavBar -->
+<div class="flex gap-2 border-t border-[#333333] bg-[#0a0a0a] px-4 pb-3 pt-2 z-20">
+<a class="flex flex-1 flex-col items-center justify-center gap-1 rounded-full text-white bg-[#222222] py-2 shadow-[0_0_10px_rgba(255,255,255,0.05)]" href="#">
+<span class="material-symbols-outlined text-white" data-icon="speed" style="font-variation-settings: 'FILL' 1;">speed</span>
+</a>
+<a class="flex flex-1 flex-col items-center justify-center gap-1 text-gray-500 hover:text-white transition-colors py-2" href="#">
+<span class="material-symbols-outlined" data-icon="navigation">navigation</span>
+</a>
+<a class="flex flex-1 flex-col items-center justify-center gap-1 text-gray-500 hover:text-white transition-colors py-2" href="#">
+<span class="material-symbols-outlined" data-icon="music_note">music_note</span>
+</a>
+<a class="flex flex-1 flex-col items-center justify-center gap-1 text-gray-500 hover:text-white transition-colors py-2" href="#">
+<span class="material-symbols-outlined" data-icon="phone">phone</span>
+</a>
+<a class="flex flex-1 flex-col items-center justify-center gap-1 text-gray-500 hover:text-white transition-colors py-2" href="#">
+<span class="material-symbols-outlined" data-icon="settings">settings</span>
+</a>
+</div>
+</div>
+</body></html>

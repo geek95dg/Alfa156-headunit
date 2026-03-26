@@ -1,0 +1,202 @@
+<!DOCTYPE html>
+
+<html class="light" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Public+Sans:wght@300;400;700;800;900&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+    tailwind.config = {
+      darkMode: "class",
+      theme: {
+        extend: {
+          colors: {
+            amber: {
+              500: '#f59e0b',
+              600: '#d97706',
+            },
+            zinc: {
+              800: '#27272a',
+              900: '#18181b',
+              950: '#09090b',
+            }
+          },
+          fontFamily: {
+            "headline": ["Public Sans", "sans-serif"],
+            "body": ["Public Sans", "sans-serif"],
+            "label": ["Public Sans", "sans-serif"]
+          },
+          borderRadius: {"DEFAULT": "0.25rem", "lg": "0.5rem", "xl": "0.75rem", "full": "9999px"},
+        },
+      },
+    }
+  </script>
+<style>
+    .material-symbols-outlined {
+      font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+    }
+    .burl-texture {
+      background-color: #1a0f0a;
+      background-image: radial-gradient(circle at 20% 30%, #2c1a12 0%, transparent 50%), 
+                        radial-gradient(circle at 80% 70%, #25160e 0%, transparent 50%);
+      position: relative;
+    }
+    .burl-texture::after {
+      content: "";
+      position: absolute;
+      inset: 0;
+      opacity: 0.05;
+      background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.65' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)'/%3E%3C/svg%3E");
+    }
+    .amber-glow {
+      text-shadow: 0 0 10px rgba(245, 158, 11, 0.4);
+    }
+    .gauge-gradient {
+      background: conic-gradient(from 180deg at 50% 50%, #f59e0b 0deg, transparent 200deg);
+    }
+  </style>
+<style>
+    body {
+      min-height: max(884px, 100dvh);
+    }
+  </style>
+  </head>
+<body class="bg-black text-zinc-100 font-body overflow-hidden selection:bg-red-600/30">
+<!-- TopAppBar Component (Based on JSON) -->
+<header class="fixed top-0 w-full h-12 bg-black border-b border-zinc-800 flex justify-between items-center px-6 w-full z-50">
+<div class="flex items-center gap-4">
+<span class="font-sans tracking-tight text-sm font-bold text-zinc-400">12:45 PM</span>
+<span class="font-sans tracking-tight text-sm font-bold text-zinc-500">OCT 24</span>
+</div>
+<div class="absolute left-1/2 -translate-x-1/2 flex items-center gap-2">
+<span class="text-red-600 font-black tracking-widest text-lg headline uppercase">Alfa Romeo</span>
+</div>
+<div class="flex items-center gap-4">
+<span class="text-zinc-500 font-sans text-sm font-bold">72°F</span>
+<span class="material-symbols-outlined text-red-600 dark:text-red-500 text-xl" data-icon="settings_bluetooth">settings_bluetooth</span>
+<div class="w-6 h-6 rounded-full overflow-hidden border border-zinc-700">
+<img alt="Alfa Romeo Logo" class="w-full h-full object-cover" data-alt="close up high resolution emblem of a vintage red and white italian car manufacturer on chrome background" src="https://lh3.googleusercontent.com/aida-public/AB6AXuDeizidNQ83naJP54n2cXH7mkiPCiCkYEPSU-81iDRZ8RLJku6KyyyVhJdScphY6C5mOx2f7-yJh1Ca-22AMEWFqdW2Q2E7mCY1dU0n_nX_JM9KQPQsMDnN8hWWLrzd-Df3TzMAGCteSJXQo0RS8O6Dup2biHVmuy9oZMn6YSWUvB7px6z-1ZQ244e_yE5Wnq_pF8hFPwzGkX0MwPqYlHvgmHocB8rsa6RDJg1h0NAYeLEfTxifW_yzrmiuQ0xuT0XlrikLejB_lgU"/>
+</div>
+</div>
+</header>
+<!-- Main Canvas (800x480 ratio constrained) -->
+<main class="relative w-full h-screen pt-12 pb-20 flex items-center justify-center overflow-hidden">
+<div class="grid grid-cols-12 gap-4 w-full max-w-5xl px-6 h-full py-4">
+<!-- Engine Temp Gauge (Asymmetric Bento) -->
+<div class="col-span-3 burl-texture rounded-xl border border-zinc-800 p-4 flex flex-col justify-between overflow-hidden group">
+<div class="flex items-center gap-2 text-zinc-500">
+<span class="material-symbols-outlined text-sm" data-icon="device_thermostat">device_thermostat</span>
+<span class="text-[10px] font-bold uppercase tracking-wider">Engine Temp</span>
+</div>
+<div class="relative py-4 flex flex-col items-center">
+<div class="w-24 h-24 rounded-full border-4 border-zinc-900 flex items-center justify-center relative">
+<div class="absolute inset-0 rounded-full border-t-4 border-amber-500 rotate-45 opacity-60"></div>
+<span class="text-2xl font-black text-amber-500 amber-glow">92°</span>
+</div>
+<span class="text-[10px] text-zinc-500 mt-2 font-bold">OPTIMAL</span>
+</div>
+</div>
+<!-- Central Notification Hub -->
+<div class="col-span-6 bg-zinc-950 rounded-xl border border-zinc-800 p-6 flex flex-col gap-4 relative overflow-hidden">
+<div class="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-transparent via-red-600 to-transparent opacity-50"></div>
+<div class="flex items-center justify-between border-b border-zinc-900 pb-2">
+<h2 class="text-xs font-black uppercase tracking-[0.2em] text-zinc-400">System Notifications</h2>
+<span class="text-[10px] text-red-500 font-bold">3 ACTIVE</span>
+</div>
+<div class="space-y-3 flex-1 overflow-y-auto pr-2">
+<!-- Notification Item -->
+<div class="bg-zinc-900/50 p-3 rounded-lg border-l-2 border-amber-600 flex gap-4 items-start active:bg-zinc-900 transition-colors">
+<span class="material-symbols-outlined text-amber-600" data-icon="warning">warning</span>
+<div>
+<p class="text-xs font-bold text-zinc-200">Low Tire Pressure</p>
+<p class="text-[10px] text-zinc-500 mt-0.5">Rear Left: 28 PSI. Please check at next stop.</p>
+</div>
+</div>
+<!-- Notification Item -->
+<div class="bg-zinc-900/50 p-3 rounded-lg border-l-2 border-zinc-700 flex gap-4 items-start opacity-70">
+<span class="material-symbols-outlined text-zinc-400" data-icon="route">route</span>
+<div>
+<p class="text-xs font-bold text-zinc-200">Route Update</p>
+<p class="text-[10px] text-zinc-500 mt-0.5">Faster route via SP1 available (+2 mins scenery).</p>
+</div>
+</div>
+<!-- Notification Item -->
+<div class="bg-zinc-900/50 p-3 rounded-lg border-l-2 border-red-600 flex gap-4 items-start">
+<span class="material-symbols-outlined text-red-600" data-icon="oil_barrel">oil_barrel</span>
+<div>
+<p class="text-xs font-bold text-zinc-200">Maintenance Due</p>
+<p class="text-[10px] text-zinc-500 mt-0.5">Scheduled oil change in 450 km.</p>
+</div>
+</div>
+</div>
+</div>
+<!-- Fuel Level (Asymmetric Bento) -->
+<div class="col-span-3 burl-texture rounded-xl border border-zinc-800 p-4 flex flex-col justify-between overflow-hidden">
+<div class="flex items-center gap-2 text-zinc-500">
+<span class="material-symbols-outlined text-sm" data-icon="local_gas_station">local_gas_station</span>
+<span class="text-[10px] font-bold uppercase tracking-wider">Fuel Level</span>
+</div>
+<div class="flex flex-col gap-1 py-4">
+<div class="flex justify-between items-end">
+<span class="text-3xl font-black text-amber-500 amber-glow">64<span class="text-sm font-normal ml-1">%</span></span>
+</div>
+<div class="w-full h-1.5 bg-zinc-900 rounded-full mt-2 overflow-hidden flex">
+<div class="h-full bg-amber-600 w-[64%] shadow-[0_0_8px_#d97706]"></div>
+</div>
+<p class="text-[10px] text-zinc-500 mt-1 font-bold">EST. RANGE: 342 KM</p>
+</div>
+</div>
+<!-- Lower Bento Row -->
+<div class="col-span-4 bg-zinc-900/30 rounded-xl border border-zinc-800 p-4 flex items-center gap-4">
+<div class="w-12 h-12 bg-red-950/30 rounded-full flex items-center justify-center border border-red-900/20">
+<span class="material-symbols-outlined text-red-500" data-icon="music_note" style="font-variation-settings: 'FILL' 1;">music_note</span>
+</div>
+<div class="flex-1">
+<p class="text-[10px] text-zinc-500 font-black uppercase tracking-widest">Now Playing</p>
+<p class="text-sm font-bold text-zinc-200 truncate">Vivere la Vita - Alessandro</p>
+</div>
+</div>
+<div class="col-span-8 bg-zinc-900/30 rounded-xl border border-zinc-800 p-4 flex items-center justify-between px-8">
+<div class="flex flex-col items-center">
+<span class="text-[10px] text-zinc-500 font-bold uppercase">Avg Speed</span>
+<span class="text-xl font-black text-zinc-200">84 <span class="text-[10px] text-zinc-500">km/h</span></span>
+</div>
+<div class="w-px h-8 bg-zinc-800"></div>
+<div class="flex flex-col items-center">
+<span class="text-[10px] text-zinc-500 font-bold uppercase">Drive Time</span>
+<span class="text-xl font-black text-zinc-200">1h 42m</span>
+</div>
+<div class="w-px h-8 bg-zinc-800"></div>
+<div class="flex flex-col items-center">
+<span class="text-[10px] text-zinc-500 font-bold uppercase">G-Force</span>
+<span class="text-xl font-black text-zinc-200">0.82 <span class="text-[10px] text-zinc-500">G</span></span>
+</div>
+</div>
+</div>
+</main>
+<!-- BottomNavBar Component (Based on JSON) -->
+<nav class="fixed bottom-0 left-0 w-full z-50 flex justify-around items-center h-20 pb-2 bg-zinc-950 dark:bg-black border-t border-zinc-800 shadow-2xl">
+<!-- Home - Active State -->
+<a class="flex flex-col items-center justify-center text-red-500 scale-110 transition-transform active:bg-zinc-900 p-2 rounded-lg" href="#">
+<span class="material-symbols-outlined text-2xl" data-icon="home" style="font-variation-settings: 'FILL' 1;">home</span>
+<span class="text-[10px] font-bold uppercase mt-1">home</span>
+</a>
+<!-- Vehicle -->
+<a class="flex flex-col items-center justify-center text-zinc-500 active:bg-zinc-900 p-2 rounded-lg transition-all" href="#">
+<span class="material-symbols-outlined text-2xl" data-icon="directions_car">directions_car</span>
+<span class="text-[10px] font-bold uppercase mt-1">drive</span>
+</a>
+<!-- Weather/Cloud -->
+<a class="flex flex-col items-center justify-center text-zinc-500 active:bg-zinc-900 p-2 rounded-lg transition-all" href="#">
+<span class="material-symbols-outlined text-2xl" data-icon="cloud">cloud</span>
+<span class="text-[10px] font-bold uppercase mt-1">climate</span>
+</a>
+<!-- Settings/Build -->
+<a class="flex flex-col items-center justify-center text-zinc-500 active:bg-zinc-900 p-2 rounded-lg transition-all" href="#">
+<span class="material-symbols-outlined text-2xl" data-icon="build">build</span>
+<span class="text-[10px] font-bold uppercase mt-1">service</span>
+</a>
+</nav>
+</body></html>
