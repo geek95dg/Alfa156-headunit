@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""Generate PNG mockups matching the PDF wireframe layout (4 screens × 3 themes).
+"""Generate PNG mockups for BCM headunit — card-based UI, 3 themes × 5 screens.
 
-Phase 1: Common chrome (status bar, side gauges) + A1 Dashboard.
+Phase 1, Step 1.1: Foundation — constants, fonts, base primitives.
 """
 
 import math
@@ -14,17 +14,27 @@ SS = 3  # supersampling factor
 SW, SH = W * SS, H * SS
 OUTPUT_DIR = os.path.join(os.path.dirname(__file__), "..", "mockups", "renders")
 
+# Layout constants (logical pixels, multiply by SS for drawing)
+APPBAR_H = 48
+NAVBAR_H = 64
+CONTENT_PAD = 16
+CONTENT_H = H - APPBAR_H - NAVBAR_H  # 368
+
 # --- Font helpers ---
 _font_cache = {}
 FONT_PATHS = {
-    "regular":    "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
-    "bold":       "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
-    "light":      "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf",
-    "light_bold": "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf",
-    "serif":      "/usr/share/fonts/truetype/freefont/FreeSerif.ttf",
-    "serif_bold": "/usr/share/fonts/truetype/freefont/FreeSerifBold.ttf",
-    "mono":       "/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf",
-    "mono_bold":  "/usr/share/fonts/truetype/dejavu/DejaVuSansMono-Bold.ttf",
+    "regular":      "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+    "bold":         "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+    "light":        "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf",
+    "light_bold":   "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf",
+    "serif":        "/usr/share/fonts/truetype/freefont/FreeSerif.ttf",
+    "serif_bold":   "/usr/share/fonts/truetype/freefont/FreeSerifBold.ttf",
+    "mono":         "/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf",
+    "mono_bold":    "/usr/share/fonts/truetype/dejavu/DejaVuSansMono-Bold.ttf",
+    "italic":       "/usr/share/fonts/truetype/dejavu/DejaVuSans-Oblique.ttf",
+    "bold_italic":  "/usr/share/fonts/truetype/dejavu/DejaVuSans-BoldOblique.ttf",
+    "serif_italic": "/usr/share/fonts/truetype/freefont/FreeSerifItalic.ttf",
+    "serif_bold_italic": "/usr/share/fonts/truetype/freefont/FreeSerifBoldItalic.ttf",
 }
 
 
@@ -42,32 +52,73 @@ def _font(variant, size):
 # --- Drawing primitives ---
 
 def lerp(c1, c2, t):
+    """Linear interpolation between two color tuples."""
     t = max(0.0, min(1.0, t))
     return tuple(int(a + (b - a) * t) for a, b in zip(c1, c2))
 
 
 def rgba(color, alpha):
+    """Return color tuple with alpha channel."""
     return (*color[:3], alpha)
 
 
-def text_centered(draw, x, y, text, font, fill):
+def text_bbox_size(draw, text, font):
+    """Return (width, height) of text bounding box."""
     bb = draw.textbbox((0, 0), text, font=font)
-    tw, th = bb[2] - bb[0], bb[3] - bb[1]
+    return bb[2] - bb[0], bb[3] - bb[1]
+
+
+def text_centered(draw, x, y, text, font, fill):
+    """Draw text centered at (x, y)."""
+    tw, th = text_bbox_size(draw, text, font)
     draw.text((x - tw / 2, y - th / 2), text, font=font, fill=fill)
 
 
 def text_right(draw, x, y, text, font, fill):
+    """Draw text right-aligned at (x, y)."""
     bb = draw.textbbox((0, 0), text, font=font)
     tw = bb[2] - bb[0]
     draw.text((x - tw, y), text, font=font, fill=fill)
 
 
+def text_spaced(draw, x, y, text, font, fill, spacing=0):
+    """Draw text with extra letter-spacing (for tracking-widest style).
+
+    Args:
+        spacing: Extra pixels between each character (in supersampled coords).
+    """
+    if spacing <= 0:
+        draw.text((x, y), text, font=font, fill=fill)
+        return
+    cx = x
+    for ch in text:
+        draw.text((cx, y), ch, font=font, fill=fill)
+        bb = draw.textbbox((0, 0), ch, font=font)
+        cx += (bb[2] - bb[0]) + spacing
+
+
+def text_spaced_centered(draw, cx, cy, text, font, fill, spacing=0):
+    """Draw letter-spaced text centered at (cx, cy)."""
+    # Calculate total width
+    total_w = 0
+    for i, ch in enumerate(text):
+        bb = draw.textbbox((0, 0), ch, font=font)
+        total_w += (bb[2] - bb[0])
+        if i < len(text) - 1:
+            total_w += spacing
+    bb = draw.textbbox((0, 0), text[0], font=font)
+    th = bb[3] - bb[1]
+    text_spaced(draw, cx - total_w / 2, cy - th / 2, text, font, fill, spacing)
+
+
 def rrect(draw, x, y, w, h, r, **kw):
+    """Draw a rounded rectangle."""
     r = min(r, w // 2, h // 2)
     draw.rounded_rectangle([x, y, x + w, y + h], radius=r, **kw)
 
 
 def grad_rect(draw, x, y, w, h, c_top, c_bot):
+    """Draw a vertical gradient rectangle."""
     for row in range(h):
         c = lerp(c_top, c_bot, row / max(h - 1, 1))
         draw.line([(x, y + row), (x + w - 1, y + row)], fill=c)
@@ -96,6 +147,7 @@ def thick_arc(draw, cx, cy, radius, width, start_deg, sweep_deg,
 
 
 def draw_needle(draw, cx, cy, angle_deg, length, base_w, color):
+    """Draw a gauge needle."""
     a = math.radians(angle_deg)
     tip = (cx + length * math.cos(a), cy - length * math.sin(a))
     p = a + math.pi / 2
@@ -109,6 +161,7 @@ def draw_needle(draw, cx, cy, angle_deg, length, base_w, color):
 
 def glow_arc(img, cx, cy, radius, width, start_deg, sweep_deg,
              color, alpha=30, blur_r=None):
+    """Draw a glowing arc effect using Gaussian blur."""
     s = SS
     if blur_r is None:
         blur_r = 12 * s
@@ -118,6 +171,38 @@ def glow_arc(img, cx, cy, radius, width, start_deg, sweep_deg,
               start_deg, sweep_deg, rgba(color, alpha))
     glow = glow.filter(ImageFilter.GaussianBlur(blur_r))
     return Image.alpha_composite(img, glow)
+
+
+def draw_shadow_rrect(img, x, y, w, h, r, fill, shadow_color=(0, 0, 0, 40),
+                      shadow_offset=4, shadow_blur=8):
+    """Draw a rounded rectangle card with a drop shadow.
+
+    Args:
+        img: RGBA Image to draw onto (composited in place).
+        x, y, w, h: Card position and size.
+        r: Corner radius.
+        fill: Card fill color (RGB or RGBA tuple).
+        shadow_color: Shadow RGBA color.
+        shadow_offset: Shadow Y offset in pixels.
+        shadow_blur: Shadow blur radius.
+
+    Returns:
+        Modified image with shadow + card drawn.
+    """
+    s = SS
+    # Draw shadow layer
+    shadow = Image.new("RGBA", img.size, (0, 0, 0, 0))
+    sd = ImageDraw.Draw(shadow)
+    sx = x
+    sy = y + shadow_offset * s
+    sd.rounded_rectangle([sx, sy, sx + w, sy + h], radius=r,
+                         fill=shadow_color)
+    shadow = shadow.filter(ImageFilter.GaussianBlur(shadow_blur * s))
+    result = Image.alpha_composite(img, shadow)
+    # Draw card on top
+    d = ImageDraw.Draw(result)
+    d.rounded_rectangle([x, y, x + w, y + h], radius=r, fill=fill)
+    return result
 
 
 # --- Theme dataclass ---
@@ -131,1055 +216,2567 @@ class Theme:
 
 
 # =========================================================================
-#  THEMES — 3 palettes
+#  THEMES — 3 palettes (extracted from stitch HTML sources)
 # =========================================================================
 
-CLASSIC_ALFA = Theme(
-    "classic_alfa", "Classic Alfa 156",
-    # Background
-    bg=(12, 8, 10),
-    bg_top=(20, 10, 14),
-    bg_bot=(6, 4, 6),
-    # Accent — warm amber/red like real 156 backlit dials
-    accent=(210, 60, 30),
-    accent_dim=(140, 40, 20),
-    accent_glow=(240, 80, 35),
+HERITAGE = Theme(
+    "heritage", "Heritage Warmth",
+    # Core backgrounds
+    bg=(26, 15, 10),               # #1a0f0a — burl walnut dark
+    bg_light=(248, 246, 246),      # #f8f6f6 — light mode (A2/A4)
+    appbar_bg=(0, 0, 0),
+    navbar_bg=(9, 9, 11),          # zinc-950
+    # Accent colors
+    accent=(245, 158, 11),         # #f59e0b — amber-500
+    accent_dim=(217, 119, 6),      # amber-600
+    amber_glow=(255, 191, 0),      # #FFBF00 — splash accent
+    brand_red=(220, 38, 38),       # red-600
     # Text
-    text=(245, 235, 218),
-    text_dim=(140, 105, 80),
-    text_mid=(200, 160, 125),
-    # Status bar
-    status_bg=(18, 10, 12),
-    status_line=(210, 60, 30),
-    # Gauge
-    gauge_bg=(30, 16, 14),
-    gauge_fg=(210, 60, 30),
-    gauge_tick=(165, 120, 95),
-    gauge_tick_dim=(90, 60, 45),
-    gauge_needle=(240, 50, 25),
-    gauge_needle_glow=(255, 80, 30),
-    redzone=(200, 25, 15),
-    arc_start=(90, 20, 8),
-    arc_end=(240, 75, 25),
-    # Side bars
-    side_bg=(28, 16, 14),
-    side_border=(60, 30, 22),
-    temp_cold=(70, 140, 200),
-    temp_warm=(210, 130, 40),
-    temp_hot=(240, 55, 25),
-    fuel_ok=(90, 185, 70),
-    fuel_low=(240, 55, 25),
-    # Danger / OK
-    ok=(90, 190, 80),
-    warning=(245, 190, 30),
-    danger=(230, 35, 25),
-    # Bottom bar
-    bottom_bg=(18, 10, 12),
-    # Icon tint
-    icon_color=(210, 60, 30),
-    # Font style
-    font="regular",
-    font_bold="bold",
+    text=(244, 244, 245),          # zinc-100
+    text_dim=(113, 113, 122),      # zinc-500
+    text_mid=(161, 161, 170),      # zinc-400
+    text_dark=(39, 39, 42),        # zinc-800 (for light bg screens)
+    text_dark_dim=(113, 113, 122), # zinc-500
+    # Card
+    card_bg=(9, 9, 11),            # zinc-950
+    card_border=(39, 39, 42),      # zinc-800
+    card_bg_light=(255, 255, 255), # white (for light bg screens)
+    card_border_light=(236, 91, 19, 25),  # primary/10
+    # Status
+    ok=(34, 197, 94),              # green-500
+    warning=(245, 158, 11),        # amber-500
+    danger=(220, 38, 38),          # red-600
+    # Special
+    burl_dark=(61, 39, 22),
+    burl_light=(124, 80, 45),
+    primary_orange=(236, 91, 19),  # #ec5b13 — heritage A2/A4 primary
+    is_light=False,
 )
 
-MODERN_DARK = Theme(
-    "modern_dark", "Modern Dark",
-    bg=(10, 12, 18),
-    bg_top=(16, 18, 28),
-    bg_bot=(5, 7, 12),
-    accent=(0, 180, 255),
-    accent_dim=(0, 100, 160),
-    accent_glow=(0, 210, 255),
-    text=(228, 235, 248),
-    text_dim=(85, 95, 120),
-    text_mid=(145, 155, 180),
-    status_bg=(14, 16, 24),
-    status_line=(0, 180, 255),
-    gauge_bg=(24, 28, 40),
-    gauge_fg=(0, 180, 255),
-    gauge_tick=(75, 85, 110),
-    gauge_tick_dim=(40, 48, 62),
-    gauge_needle=(0, 210, 255),
-    gauge_needle_glow=(0, 230, 255),
-    redzone=(255, 60, 60),
-    arc_start=(0, 45, 90),
-    arc_end=(0, 210, 255),
-    side_bg=(18, 22, 34),
-    side_border=(35, 42, 60),
-    temp_cold=(60, 130, 210),
-    temp_warm=(0, 190, 255),
-    temp_hot=(255, 75, 55),
-    fuel_ok=(0, 215, 115),
-    fuel_low=(255, 75, 55),
-    ok=(0, 215, 115),
-    warning=(255, 200, 0),
-    danger=(255, 60, 60),
-    bottom_bg=(14, 16, 24),
-    icon_color=(0, 180, 255),
-    font="light",
-    font_bold="light_bold",
+MODERN = Theme(
+    "modern", "Modern Clean",
+    # Core backgrounds
+    bg=(248, 250, 252),            # #f8fafc — slate-50
+    bg_content=(241, 245, 249),    # #f1f5f9 — slate-100
+    appbar_bg=(0, 0, 0),
+    navbar_bg=(0, 0, 0),
+    # Accent colors
+    accent=(0, 85, 150),           # #005596 — Alfa Blue
+    accent_light=(59, 130, 246),   # #3b82f6 — blue-500
+    brand_red=(239, 68, 68),       # red-500
+    # Text
+    text=(15, 23, 42),             # slate-900
+    text_dim=(148, 163, 184),      # slate-400
+    text_mid=(100, 116, 139),      # slate-500
+    text_light=(255, 255, 255),
+    # Card
+    card_bg=(255, 255, 255),
+    card_border=(226, 232, 240),   # slate-200
+    card_shadow=(0, 0, 0, 20),
+    # Status
+    ok=(22, 163, 74),              # green-600
+    warning=(245, 158, 11),
+    danger=(239, 68, 68),          # red-500
+    # Special
+    init_bg=(22, 22, 24),          # #161618 — dark charcoal for init screen
+    is_light=True,
 )
 
-OEM_DIGITAL = Theme(
-    "oem_digital", "OEM Digital",
-    bg=(8, 12, 20),
-    bg_top=(14, 18, 30),
-    bg_bot=(4, 7, 14),
-    accent=(175, 188, 215),
-    accent_dim=(110, 125, 155),
-    accent_glow=(200, 210, 235),
-    text=(218, 225, 242),
-    text_dim=(95, 108, 135),
-    text_mid=(150, 162, 190),
-    status_bg=(12, 16, 28),
-    status_line=(175, 188, 215),
-    gauge_bg=(20, 26, 40),
-    gauge_fg=(175, 188, 215),
-    gauge_tick=(95, 108, 135),
-    gauge_tick_dim=(50, 58, 76),
-    gauge_needle=(220, 42, 42),
-    gauge_needle_glow=(255, 60, 50),
-    redzone=(200, 32, 32),
-    arc_start=(45, 55, 85),
-    arc_end=(180, 195, 225),
-    side_bg=(16, 22, 36),
-    side_border=(32, 40, 58),
-    temp_cold=(75, 135, 195),
-    temp_warm=(175, 188, 215),
-    temp_hot=(220, 60, 42),
-    fuel_ok=(95, 195, 105),
-    fuel_low=(220, 60, 42),
-    ok=(80, 200, 105),
-    warning=(255, 192, 0),
-    danger=(220, 42, 42),
-    bottom_bg=(12, 16, 28),
-    icon_color=(175, 188, 215),
-    font="regular",
-    font_bold="bold",
+AUTODELTA = Theme(
+    "autodelta", "Autodelta Sport",
+    # Core backgrounds
+    bg=(0, 0, 0),
+    appbar_bg=(17, 17, 17),        # zinc-950-ish
+    navbar_bg=(9, 9, 11),          # zinc-950
+    # Accent colors
+    accent=(236, 91, 19),          # #ec5b13 — Autodelta orange
+    accent_alt=(255, 95, 0),       # #FF5F00 — brand orange
+    brand_red=(185, 28, 28),       # red-800
+    # Text
+    text=(255, 255, 255),
+    text_dim=(113, 113, 122),      # zinc-500
+    text_mid=(161, 161, 170),      # zinc-400
+    # Card
+    card_bg=(24, 24, 27),          # zinc-900
+    card_border=(39, 39, 42),      # zinc-800
+    card_border_accent=(236, 91, 19, 76),  # orange/30
+    # Status
+    ok=(34, 197, 94),
+    warning=(236, 91, 19),
+    danger=(239, 68, 68),
+    # Special
+    is_light=False,
 )
 
-ALL_THEMES = [CLASSIC_ALFA, MODERN_DARK, OEM_DIGITAL]
-
+ALL_THEMES = [HERITAGE, MODERN, AUTODELTA]
 
 # =========================================================================
-#  COMMON CHROME — status bar + side gauges
+#  Shared Chrome — App Bar + Nav Bar + Frame (Step 1.3)
 # =========================================================================
 
-# Layout constants (in SS-scaled pixels)
-STATUS_H = 34  # status bar height (base)
-SIDE_W = 52    # side gauge width (base)
-BOTTOM_H = 0   # no separate bottom bar — info goes inside content
-CONTENT_PAD = 8
+def _draw_bt_icon(draw, cx, cy, size, color):
+    """Draw a simple Bluetooth icon (geometric approximation)."""
+    s = size
+    # Vertical line
+    draw.line([(cx, cy - s), (cx, cy + s)], fill=color, width=max(2, s // 5))
+    # Upper-right arrow
+    draw.line([(cx, cy - s), (cx + s * 0.5, cy - s * 0.4)], fill=color, width=max(2, s // 5))
+    draw.line([(cx + s * 0.5, cy - s * 0.4), (cx, cy)], fill=color, width=max(2, s // 5))
+    # Lower-right arrow
+    draw.line([(cx, cy + s), (cx + s * 0.5, cy + s * 0.4)], fill=color, width=max(2, s // 5))
+    draw.line([(cx + s * 0.5, cy + s * 0.4), (cx, cy)], fill=color, width=max(2, s // 5))
 
 
-def draw_status_bar(img, draw, theme, screen_label="A1"):
-    """Top status bar matching PDF: date | consumption | screen+logo | icons."""
+def _draw_signal_icon(draw, cx, cy, size, color):
+    """Draw a simple antenna/signal icon."""
+    s = size
+    # Vertical antenna line
+    draw.line([(cx, cy - s), (cx, cy + s * 0.3)], fill=color, width=max(2, s // 5))
+    # Signal arcs (simplified as small lines)
+    for i, offset in enumerate([0.3, 0.6]):
+        a = int(200 * (1 - i * 0.3))
+        c = (*color[:3], a) if len(color) >= 3 else color
+        draw.arc([cx - s * offset, cy - s * (0.5 + offset * 0.5),
+                  cx + s * offset, cy - s * 0.1],
+                 start=200, end=340, fill=c, width=max(1, s // 6))
+
+
+def _draw_phone_icon(draw, cx, cy, size, color):
+    """Draw a simple smartphone icon."""
+    s = size
+    w, h = int(s * 0.6), int(s * 1.2)
+    rrect(draw, cx - w // 2, cy - h // 2, w, h, max(2, s // 6), outline=color,
+          width=max(1, s // 6))
+    # Screen button
+    draw.ellipse([cx - s * 0.1, cy + h // 2 - s * 0.35,
+                  cx + s * 0.1, cy + h // 2 - s * 0.15], fill=color)
+
+
+def _draw_nav_icon_home(draw, cx, cy, size, color):
+    """Draw a simple house icon."""
+    s = size
+    # Roof triangle
+    pts = [(cx, cy - s), (cx - s, cy), (cx + s, cy)]
+    draw.polygon(pts, fill=color)
+    # Body rectangle
+    bw = int(s * 0.7)
+    bh = int(s * 0.8)
+    draw.rectangle([cx - bw // 2, cy, cx + bw // 2, cy + bh], fill=color)
+
+
+def _draw_nav_icon_car(draw, cx, cy, size, color):
+    """Draw a simple car icon."""
+    s = size
+    # Body
+    draw.rounded_rectangle([cx - s, cy - s * 0.2, cx + s, cy + s * 0.5],
+                           radius=max(2, s // 4), fill=color)
+    # Roof
+    draw.rounded_rectangle([cx - s * 0.6, cy - s * 0.7, cx + s * 0.6, cy],
+                           radius=max(2, s // 4), fill=color)
+    # Wheels
+    r = int(s * 0.25)
+    draw.ellipse([cx - s * 0.65 - r, cy + s * 0.3 - r,
+                  cx - s * 0.65 + r, cy + s * 0.3 + r], fill=color)
+    draw.ellipse([cx + s * 0.65 - r, cy + s * 0.3 - r,
+                  cx + s * 0.65 + r, cy + s * 0.3 + r], fill=color)
+
+
+def _draw_nav_icon_cloud(draw, cx, cy, size, color):
+    """Draw a simple cloud icon."""
+    s = size
+    # Main ellipse
+    draw.ellipse([cx - s * 0.7, cy - s * 0.3, cx + s * 0.7, cy + s * 0.5], fill=color)
+    # Top bump
+    draw.ellipse([cx - s * 0.4, cy - s * 0.7, cx + s * 0.4, cy + s * 0.1], fill=color)
+    # Left bump
+    draw.ellipse([cx - s, cy - s * 0.2, cx - s * 0.2, cy + s * 0.5], fill=color)
+
+
+def _draw_nav_icon_wrench(draw, cx, cy, size, color):
+    """Draw a simple wrench/build icon."""
+    s = size
+    lw = max(2, int(s * 0.25))
+    # Diagonal shaft
+    draw.line([(cx - s * 0.6, cy + s * 0.6), (cx + s * 0.3, cy - s * 0.3)],
+              fill=color, width=lw)
+    # Wrench head circle
+    draw.ellipse([cx + s * 0.1, cy - s * 0.7, cx + s * 0.7, cy - s * 0.1],
+                 outline=color, width=lw)
+
+
+NAV_ICONS = [_draw_nav_icon_home, _draw_nav_icon_car,
+             _draw_nav_icon_cloud, _draw_nav_icon_wrench]
+
+
+def draw_app_bar(img, draw, theme, time_str="10:45", date_str="Oct 24",
+                 temp_str="21°C"):
+    """Draw the themed top app bar (48px height)."""
     s = SS
-    sh = STATUS_H * s
+    bar_h = APPBAR_H * s
+    bar_w = W * s
 
     # Background
-    rrect(draw, 0, 0, SW, sh, 0, fill=theme.status_bg)
-    # Bottom accent line
-    draw.line([(0, sh - s), (SW, sh - s)], fill=rgba(theme.accent, 120), width=s)
+    draw.rectangle([0, 0, bar_w, bar_h], fill=theme.appbar_bg)
+    # Bottom border
+    border_color = (39, 39, 42) if not theme.is_light else (39, 39, 42)
+    draw.line([(0, bar_h - 1), (bar_w, bar_h - 1)], fill=border_color)
 
-    f_date = _font(theme.font, 12 * s)
-    f_label = _font(theme.font_bold, 11 * s)
-    f_icon = _font(theme.font, 10 * s)
+    pad = 24 * s
+    mid_x = bar_w // 2
+    mid_y = bar_h // 2
 
-    # Left: date + time
-    draw.text((10 * s, 9 * s), "23/03/26  13:04", font=f_date, fill=theme.text_mid)
+    if theme.name == "heritage":
+        # Left: time in zinc-400 bold + date dim
+        f_time = _font("bold", 13 * s)
+        f_date = _font("regular", 10 * s)
+        draw.text((pad, mid_y - 8 * s), time_str, font=f_time, fill=(161, 161, 170))
+        draw.text((pad + 80 * s, mid_y - 5 * s), date_str, font=f_date,
+                  fill=(113, 113, 122))
+        # Center: "ALFA ROMEO" in red, uppercase, tracking-widest
+        f_brand = _font("serif_bold", 14 * s)
+        text_spaced_centered(draw, mid_x, mid_y, "ALFA ROMEO", f_brand,
+                             theme.brand_red, spacing=6 * s)
+        # Right: temp + BT icon
+        f_temp = _font("bold", 13 * s)
+        text_right(draw, bar_w - pad, mid_y - 7 * s, temp_str, f_temp,
+                   (255, 255, 255))
+        _draw_bt_icon(draw, bar_w - pad - 70 * s, mid_y, 8 * s,
+                      (161, 161, 170))
 
-    # Center-left: consumption
-    text_centered(draw, SW * 0.28, 15 * s, "7.2 L/100km", f_date, theme.text_dim)
+    elif theme.name == "modern":
+        # Left: time bold white + date dim
+        f_time = _font("bold", 13 * s)
+        f_date = _font("regular", 9 * s)
+        draw.text((pad, mid_y - 8 * s), time_str, font=f_time, fill=(255, 255, 255))
+        draw.text((pad + 80 * s, mid_y - 4 * s), date_str, font=f_date,
+                  fill=(113, 113, 122, 150))
+        # Center: "Alfa Romeo" italic red
+        f_brand = _font("bold_italic", 15 * s)
+        text_centered(draw, mid_x, mid_y, "Alfa Romeo", f_brand, (220, 38, 38))
+        # Right: temp + BT + signal icons
+        f_temp = _font("bold", 13 * s)
+        text_right(draw, bar_w - pad, mid_y - 7 * s, temp_str, f_temp,
+                   (255, 255, 255))
+        _draw_bt_icon(draw, bar_w - pad - 80 * s, mid_y, 7 * s,
+                      (161, 161, 170))
+        _draw_signal_icon(draw, bar_w - pad - 55 * s, mid_y, 7 * s,
+                          (161, 161, 170))
 
-    # Center: screen label + "ALFA ROMEO" below
-    text_centered(draw, SW // 2, 10 * s, screen_label, f_label, theme.accent)
-    f_ar = _font(theme.font, 7 * s)
-    text_centered(draw, SW // 2, 24 * s, "ALFA ROMEO 156", f_ar, rgba(theme.accent_dim, 150))
+    elif theme.name == "autodelta":
+        # Left: time + date stacked
+        f_time = _font("bold", 13 * s)
+        f_date = _font("regular", 9 * s)
+        draw.text((pad, mid_y - 8 * s), time_str, font=f_time, fill=(161, 161, 170))
+        draw.text((pad + 80 * s, mid_y - 4 * s), date_str, font=f_date,
+                  fill=(113, 113, 122))
+        # Center: "Alfa Romeo" in red, serif italic bold, tracking-widest
+        f_brand = _font("serif_bold", 14 * s)
+        text_spaced_centered(draw, mid_x, mid_y, "ALFA ROMEO", f_brand,
+                             (185, 28, 28), spacing=5 * s)
+        # Right: temp in orange + BT + phone icons
+        f_temp = _font("bold", 13 * s)
+        text_right(draw, bar_w - pad, mid_y - 7 * s, temp_str, f_temp,
+                   theme.accent)
+        _draw_bt_icon(draw, bar_w - pad - 70 * s, mid_y, 7 * s,
+                      (161, 161, 170))
+        _draw_phone_icon(draw, bar_w - pad - 45 * s, mid_y, 6 * s,
+                         (161, 161, 170))
 
-    # Right: status icons as text (BT, temp, weather hints)
-    icons_x = SW - 14 * s
-    text_right(draw, icons_x, 6 * s, "22.5°C", f_icon, theme.text_dim)
-    text_right(draw, icons_x, 18 * s, "BT  AA", f_icon, rgba(theme.accent, 180))
 
-    # Small weather icon hint
-    f_wx = _font(theme.font, 9 * s)
-    text_right(draw, icons_x - 70 * s, 11 * s, "❄", f_wx, rgba(theme.temp_cold, 160))
+def draw_nav_bar(img, draw, theme, active_index=0):
+    """Draw the themed bottom navigation bar (64px height).
 
-
-def draw_side_gauge_left(img, draw, theme, value=85, min_v=40, max_v=130):
-    """Left vertical temperature bar gauge matching PDF layout."""
+    active_index: 0=home, 1=drive, 2=climate, 3=service
+    """
     s = SS
-    sh = STATUS_H * s
-    gw = SIDE_W * s
-    gy = sh + 6 * s
-    gh = SH - gy - 6 * s
+    bar_h = NAVBAR_H * s
+    bar_w = W * s
+    bar_y = (H - NAVBAR_H) * s
 
-    # Background panel
-    rrect(draw, 3 * s, gy, gw, gh, 6 * s, fill=theme.side_bg)
-    rrect(draw, 3 * s, gy, gw, gh, 6 * s, outline=rgba(theme.side_border, 100), width=s)
+    # Background
+    draw.rectangle([0, bar_y, bar_w, bar_y + bar_h], fill=theme.navbar_bg)
+    # Top border
+    draw.line([(0, bar_y), (bar_w, bar_y)], fill=(39, 39, 42))
 
-    # Labels
-    f_lbl = _font(theme.font, 10 * s)
-    text_centered(draw, 3 * s + gw // 2, gy + 10 * s, "°C", f_lbl, theme.text_dim)
+    # 4 equally spaced nav items
+    item_w = bar_w // 4
+    icon_size = 12 * s
+    item_cy = bar_y + bar_h // 2
 
-    # Bar track
-    bx = 3 * s + 14 * s
-    bw = gw - 28 * s
-    by = gy + 24 * s
-    bh = gh - 52 * s
-    rrect(draw, bx, by, bw, bh, 4 * s, fill=rgba(theme.bg, 200))
+    for i in range(4):
+        item_cx = item_w * i + item_w // 2
+        is_active = (i == active_index)
 
-    # Fill
-    frac = max(0, min(1, (value - min_v) / (max_v - min_v)))
-    fill_h = int(frac * bh)
-    if fill_h > 2:
-        fy = by + bh - fill_h
-        # Color gradient based on temperature
-        if frac < 0.3:
-            fc = theme.temp_cold
-        elif frac < 0.7:
-            fc = theme.temp_warm
+        if is_active:
+            # Active pill background
+            pill_w = 48 * s
+            pill_h = 36 * s
+            if theme.name == "heritage" or theme.name == "autodelta":
+                pill_color = (127, 29, 29, 76)  # red-950/30
+                icon_color = (239, 68, 68)       # red-500
+            else:  # modern
+                pill_color = (127, 29, 29, 51)   # red-600/20
+                icon_color = (239, 68, 68)        # red-500
+            rrect(draw, item_cx - pill_w // 2, item_cy - pill_h // 2,
+                  pill_w, pill_h, 12 * s, fill=pill_color)
         else:
-            fc = theme.temp_hot
-        for row in range(fill_h):
-            row_f = row / max(fill_h - 1, 1)
-            rc = lerp(rgba(fc, 100), fc, row_f)
-            draw.line([(bx + 2 * s, fy + fill_h - 1 - row),
-                       (bx + bw - 2 * s, fy + fill_h - 1 - row)], fill=rc)
+            icon_color = (113, 113, 122)  # zinc-500
 
-    # Digital value in center of bar
-    f_val = _font(theme.font_bold, 14 * s)
-    text_centered(draw, 3 * s + gw // 2, by + bh // 2, f"{value}°", f_val, theme.text)
-
-    # Min/max labels
-    f_mm = _font(theme.font, 8 * s)
-    text_centered(draw, 3 * s + gw // 2, by + bh + 8 * s, "C", f_mm, theme.temp_cold)
-    text_centered(draw, 3 * s + gw // 2, by - 8 * s, "H", f_mm, theme.temp_hot)
+        NAV_ICONS[i](draw, item_cx, item_cy, icon_size, icon_color)
 
 
-def draw_side_gauge_right(img, draw, theme, value=62, min_v=0, max_v=100):
-    """Right vertical fuel bar gauge matching PDF layout."""
+def render_frame(theme, active_nav=0, bg_override=None):
+    """Create a new image with app bar + nav bar drawn. Returns (img, draw, content_rect).
+
+    content_rect: (x, y, w, h) of the drawable content area between bars.
+    """
     s = SS
-    sh = STATUS_H * s
-    gw = SIDE_W * s
-    gx = SW - gw - 3 * s
-    gy = sh + 6 * s
-    gh = SH - gy - 6 * s
-
-    # Background panel
-    rrect(draw, gx, gy, gw, gh, 6 * s, fill=theme.side_bg)
-    rrect(draw, gx, gy, gw, gh, 6 * s, outline=rgba(theme.side_border, 100), width=s)
-
-    # Labels
-    f_lbl = _font(theme.font, 10 * s)
-    text_centered(draw, gx + gw // 2, gy + 10 * s, "FUEL", f_lbl, theme.text_dim)
-
-    # Bar track
-    bx = gx + 14 * s
-    bw = gw - 28 * s
-    by = gy + 24 * s
-    bh = gh - 52 * s
-    rrect(draw, bx, by, bw, bh, 4 * s, fill=rgba(theme.bg, 200))
-
-    # Fill
-    frac = max(0, min(1, (value - min_v) / (max_v - min_v)))
-    fill_h = int(frac * bh)
-    if fill_h > 2:
-        fy = by + bh - fill_h
-        fc = theme.fuel_ok if frac > 0.2 else theme.fuel_low
-        for row in range(fill_h):
-            row_f = row / max(fill_h - 1, 1)
-            rc = lerp(rgba(fc, 100), fc, row_f)
-            draw.line([(bx + 2 * s, fy + fill_h - 1 - row),
-                       (bx + bw - 2 * s, fy + fill_h - 1 - row)], fill=rc)
-
-    # Digital value
-    f_val = _font(theme.font_bold, 14 * s)
-    text_centered(draw, gx + gw // 2, by + bh // 2, f"{value}%", f_val, theme.text)
-
-    # E/F labels
-    f_mm = _font(theme.font, 8 * s)
-    text_centered(draw, gx + gw // 2, by + bh + 8 * s, "E", f_mm, theme.fuel_low)
-    text_centered(draw, gx + gw // 2, by - 8 * s, "F", f_mm, theme.fuel_ok)
-
-
-def render_chrome(theme, screen_label="A1"):
-    """Render common frame. Returns (img, draw, content_rect)."""
-    s = SS
-    img = Image.new("RGBA", (SW, SH), (0, 0, 0, 0))
+    img = Image.new("RGBA", (SW, SH), (0, 0, 0, 255))
     draw = ImageDraw.Draw(img)
 
-    # Background gradient
-    grad_rect(draw, 0, 0, SW, SH, theme.bg_top, theme.bg_bot)
+    # Fill background
+    bg = bg_override or theme.bg
+    draw.rectangle([0, 0, SW, SH], fill=bg)
 
-    # Subtle radial vignette
-    vig = Image.new("RGBA", (SW, SH), (0, 0, 0, 0))
-    vd = ImageDraw.Draw(vig)
-    max_r = int(math.hypot(SW, SH) / 2)
-    for r in range(max_r, 0, -5 * s):
-        a = int(45 * (1 - r / max_r) ** 1.6)
-        vd.ellipse([SW // 2 - r, SH // 2 - r, SW // 2 + r, SH // 2 + r],
-                   fill=(0, 0, 0, a))
-    img = Image.alpha_composite(img, vig)
-    draw = ImageDraw.Draw(img)
+    # Draw chrome
+    draw_app_bar(img, draw, theme)
+    draw_nav_bar(img, draw, theme, active_index=active_nav)
 
-    # Status bar
-    draw_status_bar(img, draw, theme, screen_label)
-    # Side gauges
-    draw_side_gauge_left(img, draw, theme)
-    draw_side_gauge_right(img, draw, theme)
+    # Content rect (between app bar and nav bar, with padding)
+    cx = CONTENT_PAD * s
+    cy = APPBAR_H * s
+    cw = (W - 2 * CONTENT_PAD) * s
+    ch = CONTENT_H * s
+    content_rect = (cx, cy, cw, ch)
 
-    # Content rect (between side gauges, below status bar)
-    cx0 = (SIDE_W + CONTENT_PAD) * s
-    cy0 = (STATUS_H + CONTENT_PAD) * s
-    cw = SW - 2 * cx0
-    ch = SH - cy0 - CONTENT_PAD * s
-
-    return img, draw, (cx0, cy0, cw, ch)
-
+    return img, draw, content_rect
 
 # =========================================================================
-#  A1 — MAIN DASHBOARD: RPM (left) + Speedometer (right)
+#  Card, Progress, Icon, Notification Primitives (Step 1.4)
 # =========================================================================
 
-def draw_round_gauge(img, draw, theme, cx, cy, radius,
-                     value, max_val, num_major, num_label_fn,
-                     unit_text="", redzone_start=None,
-                     start_angle=225, sweep_angle=270):
-    """Draw a classic analog round gauge with arc, ticks, numbers, needle."""
+def draw_card(draw, x, y, w, h, fill, border_color=None, border_w=1, radius=None):
+    """Draw a rounded rectangle card with optional border."""
     s = SS
-    arc_w = 14 * s
-    frac = max(0, min(1, value / max_val))
-
-    # --- Outer glow ---
-    val_sweep = frac * sweep_angle
-    img2 = glow_arc(img, cx, cy, radius, arc_w, start_angle, val_sweep,
-                    theme.accent_glow, alpha=25, blur_r=14 * s)
-    draw2 = ImageDraw.Draw(img2)
-
-    # --- Gauge face circle (subtle) ---
-    face_r = radius + 8 * s
-    draw2.ellipse([cx - face_r, cy - face_r, cx + face_r, cy + face_r],
-                  fill=rgba(theme.gauge_bg, 60))
-    # Outer ring
-    draw2.ellipse([cx - face_r, cy - face_r, cx + face_r, cy + face_r],
-                  outline=rgba(theme.gauge_tick_dim, 50), width=s)
-
-    # --- Background arc ---
-    thick_arc(draw2, cx, cy, radius, arc_w, start_angle, sweep_angle,
-              theme.gauge_bg, theme.gauge_bg)
-
-    # --- Inner thin ring ---
-    thick_arc(draw2, cx, cy, radius - arc_w, s, start_angle, sweep_angle,
-              rgba(theme.gauge_tick_dim, 50))
-
-    # --- Redzone ---
-    if redzone_start is not None:
-        rz_frac = redzone_start / max_val
-        rz_deg_start = start_angle - rz_frac * sweep_angle
-        rz_sweep = (1.0 - rz_frac) * sweep_angle
-        thick_arc(draw2, cx, cy, radius, arc_w, rz_deg_start, rz_sweep,
-                  rgba(theme.redzone, 55), theme.redzone)
-
-    # --- Value arc (gradient) ---
-    thick_arc(draw2, cx, cy, radius, arc_w, start_angle, val_sweep,
-              theme.arc_start, theme.arc_end)
-
-    # --- Tick marks + numbers ---
-    f_num = _font(theme.font, 13 * s)
-    for i in range(num_major + 1):
-        tf = i / num_major
-        ad = start_angle - tf * sweep_angle
-        ar = math.radians(ad)
-
-        # Major tick
-        inner = radius - arc_w - 2 * s
-        outer = radius + 3 * s
-        draw2.line([(cx + inner * math.cos(ar), cy - inner * math.sin(ar)),
-                    (cx + outer * math.cos(ar), cy - outer * math.sin(ar))],
-                   fill=theme.gauge_tick, width=2 * s)
-
-        # Number
-        label = num_label_fn(i)
-        if label is not None:
-            nr = radius + 18 * s
-            text_centered(draw2,
-                          cx + nr * math.cos(ar),
-                          cy - nr * math.sin(ar),
-                          str(label), f_num, theme.text_mid)
-
-    # --- Minor ticks ---
-    minor_count = num_major * 5
-    for i in range(minor_count + 1):
-        if i % 5 == 0:
-            continue
-        tf = i / minor_count
-        ar = math.radians(start_angle - tf * sweep_angle)
-        inner = radius - arc_w + 4 * s
-        outer = radius + 1 * s
-        draw2.line([(cx + inner * math.cos(ar), cy - inner * math.sin(ar)),
-                    (cx + outer * math.cos(ar), cy - outer * math.sin(ar))],
-                   fill=theme.gauge_tick_dim, width=s)
-
-    # --- Needle with glow ---
-    na = start_angle - frac * sweep_angle
-    needle_len = radius - arc_w - 8 * s
-
-    # Glow layer
-    ng = Image.new("RGBA", img2.size, (0, 0, 0, 0))
-    ngd = ImageDraw.Draw(ng)
-    draw_needle(ngd, cx, cy, na, needle_len, 12 * s,
-                rgba(theme.gauge_needle_glow, 50))
-    ng = ng.filter(ImageFilter.GaussianBlur(6 * s))
-    img2 = Image.alpha_composite(img2, ng)
-    draw2 = ImageDraw.Draw(img2)
-
-    # Needle
-    draw_needle(draw2, cx, cy, na, needle_len, 7 * s, theme.gauge_needle)
-
-    # Center cap
-    for cr, cc in [(8 * s, rgba(theme.gauge_needle, 160)),
-                   (6 * s, theme.gauge_needle),
-                   (3 * s, theme.bg)]:
-        draw2.ellipse([cx - cr, cy - cr, cx + cr, cy + cr], fill=cc)
-
-    # --- Unit text below center ---
-    if unit_text:
-        f_unit = _font(theme.font, 10 * s)
-        text_centered(draw2, cx, cy + radius * 0.45, unit_text, f_unit, theme.text_dim)
-
-    return img2, draw2
+    if radius is None:
+        radius = 8 * s
+    if border_color:
+        draw.rounded_rectangle([x, y, x + w, y + h], radius=radius,
+                               fill=fill, outline=border_color, width=border_w)
+    else:
+        draw.rounded_rectangle([x, y, x + w, y + h], radius=radius, fill=fill)
 
 
-def render_a1_dashboard(theme):
-    """A1: Two round gauges — RPM (left) + Speedometer (right)."""
+def draw_progress_bar(draw, x, y, w, h, fraction, fill_color, bg_color,
+                      radius=0):
+    """Draw a horizontal progress bar."""
+    fraction = max(0.0, min(1.0, fraction))
+    if radius > 0:
+        rrect(draw, x, y, w, h, radius, fill=bg_color)
+        fill_w = max(0, int(w * fraction))
+        if fill_w > 0:
+            rrect(draw, x, y, fill_w, h, radius, fill=fill_color)
+    else:
+        draw.rectangle([x, y, x + w, y + h], fill=bg_color)
+        fill_w = max(0, int(w * fraction))
+        if fill_w > 0:
+            draw.rectangle([x, y, x + fill_w, y + h], fill=fill_color)
+
+
+def draw_circle_gauge(draw, cx, cy, radius, fraction, color, bg_color, width):
+    """Draw a thin-arc circular gauge (0-100%)."""
+    # Background full circle
+    thick_arc(draw, cx, cy, radius, width, 90, 360, bg_color)
+    # Foreground arc
+    if fraction > 0:
+        thick_arc(draw, cx, cy, radius, width, 90, 360 * fraction, color)
+
+
+def draw_icon_thermometer(draw, cx, cy, size, color):
+    """Draw a thermometer icon."""
+    s = size
+    lw = max(2, int(s * 0.2))
+    # Stem
+    draw.rounded_rectangle([cx - s * 0.15, cy - s * 0.8, cx + s * 0.15, cy + s * 0.2],
+                           radius=max(2, int(s * 0.1)), outline=color, width=lw)
+    # Bulb
+    draw.ellipse([cx - s * 0.3, cy + s * 0.1, cx + s * 0.3, cy + s * 0.7],
+                 outline=color, width=lw)
+    # Fill level
+    draw.rectangle([cx - s * 0.08, cy - s * 0.3, cx + s * 0.08, cy + s * 0.3],
+                   fill=color)
+
+
+def draw_icon_fuel(draw, cx, cy, size, color):
+    """Draw a fuel pump icon."""
+    s = size
+    lw = max(2, int(s * 0.18))
+    # Pump body
+    draw.rounded_rectangle([cx - s * 0.5, cy - s * 0.6, cx + s * 0.2, cy + s * 0.7],
+                           radius=max(2, int(s * 0.1)), outline=color, width=lw)
+    # Nozzle arm
+    draw.line([(cx + s * 0.2, cy - s * 0.3), (cx + s * 0.5, cy - s * 0.6),
+               (cx + s * 0.5, cy)], fill=color, width=lw)
+    # Fill window
+    draw.rectangle([cx - s * 0.35, cy - s * 0.35, cx + s * 0.05, cy - s * 0.05],
+                   fill=color)
+
+
+def draw_icon_warning(draw, cx, cy, size, color):
+    """Draw a warning triangle icon."""
+    s = size
+    pts = [(cx, cy - s * 0.7), (cx - s * 0.7, cy + s * 0.5),
+           (cx + s * 0.7, cy + s * 0.5)]
+    draw.polygon(pts, outline=color, width=max(2, int(s * 0.15)))
+    # Exclamation
+    lw = max(2, int(s * 0.12))
+    draw.line([(cx, cy - s * 0.25), (cx, cy + s * 0.1)], fill=color, width=lw)
+    draw.ellipse([cx - s * 0.06, cy + s * 0.2, cx + s * 0.06, cy + s * 0.32],
+                 fill=color)
+
+
+def draw_icon_music(draw, cx, cy, size, color):
+    """Draw a music note icon."""
+    s = size
+    lw = max(2, int(s * 0.15))
+    # Stem
+    draw.line([(cx + s * 0.15, cy - s * 0.7), (cx + s * 0.15, cy + s * 0.3)],
+              fill=color, width=lw)
+    # Note head
+    draw.ellipse([cx - s * 0.25, cy + s * 0.1, cx + s * 0.15, cy + s * 0.5],
+                 fill=color)
+    # Flag
+    draw.line([(cx + s * 0.15, cy - s * 0.7), (cx + s * 0.5, cy - s * 0.4)],
+              fill=color, width=lw)
+
+
+def draw_icon_check(draw, cx, cy, size, color):
+    """Draw a checkmark icon."""
+    s = size
+    lw = max(2, int(s * 0.2))
+    draw.line([(cx - s * 0.4, cy), (cx - s * 0.1, cy + s * 0.3),
+               (cx + s * 0.5, cy - s * 0.4)], fill=color, width=lw)
+
+
+def draw_icon_route(draw, cx, cy, size, color):
+    """Draw a route/navigation icon."""
+    s = size
+    lw = max(2, int(s * 0.15))
+    # Arrow pointing up-right
+    draw.line([(cx - s * 0.3, cy + s * 0.5), (cx, cy - s * 0.5),
+               (cx + s * 0.3, cy + s * 0.5)], fill=color, width=lw)
+    draw.line([(cx, cy - s * 0.5), (cx, cy + s * 0.5)], fill=color, width=lw)
+
+
+def draw_icon_eco(draw, cx, cy, size, color):
+    """Draw a leaf/eco icon."""
+    s = size
+    # Leaf shape using ellipse + stem
+    draw.ellipse([cx - s * 0.4, cy - s * 0.6, cx + s * 0.4, cy + s * 0.2],
+                 fill=color)
+    lw = max(2, int(s * 0.12))
+    draw.line([(cx, cy + s * 0.2), (cx, cy + s * 0.6)], fill=color, width=lw)
+
+
+def draw_notification_item(draw, x, y, w, h, theme, border_color,
+                           icon_fn, title, subtitle):
+    """Draw a single notification row with left border accent.
+
+    Args:
+        draw: ImageDraw instance
+        x, y, w, h: Position and dimensions
+        theme: Theme object
+        border_color: Left border accent color (RGB tuple)
+        icon_fn: Icon drawing function (draw, cx, cy, size, color)
+        title: Title text
+        subtitle: Subtitle text
+    """
     s = SS
-    img, draw, (cx0, cy0, cw, ch) = render_chrome(theme, "A1  DASHBOARD")
+    # Card background
+    draw_card(draw, x, y, w, h, fill=theme.card_bg,
+              border_color=theme.card_border)
+    # Left accent border
+    accent_w = 3 * s
+    draw.rectangle([x, y, x + accent_w, y + h], fill=border_color)
 
-    content_cx = cx0 + cw // 2
-    content_cy = cy0 + ch // 2
+    # Icon
+    icon_cx = x + 28 * s
+    icon_cy = y + h // 2
+    if icon_fn:
+        icon_fn(draw, icon_cx, icon_cy, 8 * s, border_color)
 
-    # Two gauges side by side
-    gauge_r = min(cw // 4 - 14 * s, ch // 2 - 30 * s)
-    gap = 20 * s
-
-    # RPM gauge — left
-    rpm_cx = content_cx - gauge_r - gap
-    rpm_cy = content_cy - 8 * s
-    rpm_val = 2800
-    rpm_max = 7000
-
-    def rpm_label(i):
-        return i  # 0,1,2,3,4,5,6,7
-
-    img, draw = draw_round_gauge(
-        img, draw, theme, rpm_cx, rpm_cy, gauge_r,
-        rpm_val, rpm_max, num_major=7,
-        num_label_fn=rpm_label,
-        unit_text="RPM ×1000",
-        redzone_start=5500,
-    )
-
-    # Speed gauge — right
-    spd_cx = content_cx + gauge_r + gap
-    spd_cy = content_cy - 8 * s
-    spd_val = 87
-    spd_max = 260
-
-    def spd_label(i):
-        v = i * 20
-        return v if v % 40 == 0 else None  # 0,40,80,120,160,200,240
-
-    img, draw = draw_round_gauge(
-        img, draw, theme, spd_cx, spd_cy, gauge_r,
-        spd_val, spd_max, num_major=13,
-        num_label_fn=spd_label,
-        unit_text="km/h",
-        redzone_start=220,
-    )
-
-    # Large speed value between the two gauges
-    f_spd = _font(theme.font_bold, 48 * s)
-    text_centered(draw, content_cx, content_cy - 20 * s, "87", f_spd, theme.text)
-    f_unit = _font(theme.font, 14 * s)
-    text_centered(draw, content_cx, content_cy + 20 * s, "km/h", f_unit, theme.text_dim)
-
-    # Gear indicator below
-    f_gear = _font(theme.font_bold, 28 * s)
-    text_centered(draw, content_cx, content_cy + 52 * s, "3", f_gear, theme.accent)
-    f_gl = _font(theme.font, 10 * s)
-    text_centered(draw, content_cx, content_cy + 72 * s, "GEAR", f_gl, theme.text_dim)
-
-    return img.resize((W, H), Image.LANCZOS)
-
+    # Title
+    f_title = _font("bold", 10 * s)
+    f_sub = _font("regular", 8 * s)
+    text_x = x + 48 * s
+    draw.text((text_x, y + 8 * s), title, font=f_title, fill=theme.text)
+    draw.text((text_x, y + 22 * s), subtitle, font=f_sub, fill=theme.text_dim)
 
 # =========================================================================
-#  A2 — CONSUMPTION: Fuel pump icon + consumption/distance/range rows
+#  Complex Drawing Primitives — Charts, Maps, Car, Burl (Step 1.5)
 # =========================================================================
 
-def draw_fuel_pump_icon(draw, cx, cy, size, theme):
-    """Draw a stylized fuel pump icon."""
+def draw_bar_chart(draw, x, y, w, h, values, colors, gap=None,
+                   x_labels=None, y_labels=None, label_color=(113, 113, 122)):
+    """Draw a vertical bar chart.
+
+    Args:
+        values: List of floats (0.0 to 1.0 representing fraction of max height).
+        colors: List of color tuples (one per bar, or single color for all).
+        gap: Gap between bars (default: auto).
+        x_labels: Labels below each bar (list of strings).
+        y_labels: Labels on left side (list of strings, top to bottom).
+    """
     s = SS
-    sz = size * s
-    color = theme.accent
-    dim = rgba(theme.accent, 120)
+    n = len(values)
+    if n == 0:
+        return
 
-    # Pump body (rounded rect)
-    bw, bh = int(sz * 0.55), int(sz * 0.7)
-    bx, by = cx - bw // 2, cy - bh // 2 + int(sz * 0.05)
-    rrect(draw, bx, by, bw, bh, 8 * s, fill=rgba(theme.gauge_bg, 180),
-          outline=color, width=2 * s)
+    # Layout
+    label_margin = 30 * s if y_labels else 0
+    bottom_margin = 18 * s if x_labels else 0
+    chart_x = x + label_margin
+    chart_y = y
+    chart_w = w - label_margin
+    chart_h = h - bottom_margin
 
-    # Fuel level inside (partial fill)
-    fill_h = int(bh * 0.55)
-    fy = by + bh - fill_h - 3 * s
-    rrect(draw, bx + 4 * s, fy, bw - 8 * s, fill_h, 4 * s,
-          fill=rgba(color, 60))
+    if gap is None:
+        gap = max(2, int(chart_w / n * 0.15))
+    bar_w = max(4, (chart_w - gap * (n + 1)) // n)
 
-    # Nozzle on top
-    nw = int(bw * 0.35)
-    nh = int(sz * 0.15)
-    nx = cx - nw // 2
-    ny = by - nh
-    rrect(draw, nx, ny, nw, nh + 4 * s, 3 * s, fill=rgba(theme.gauge_bg, 200),
-          outline=color, width=2 * s)
+    # Y-axis labels
+    if y_labels:
+        f_label = _font("bold", 7 * s)
+        for i, lbl in enumerate(y_labels):
+            ly = chart_y + int(chart_h * i / max(len(y_labels) - 1, 1))
+            text_right(draw, x + label_margin - 4 * s, ly - 4 * s, lbl,
+                       f_label, label_color)
+            # Grid line
+            draw.line([(chart_x, ly), (chart_x + chart_w, ly)],
+                      fill=(*label_color[:3], 40), width=1)
 
-    # Hose from top-right, curving right and down
-    hx = bx + bw
-    hy = by + int(bh * 0.15)
-    # Vertical line up
-    draw.line([(hx, hy), (hx + 12 * s, hy)], fill=dim, width=2 * s)
-    draw.line([(hx + 12 * s, hy), (hx + 12 * s, hy + int(bh * 0.5))],
-              fill=dim, width=2 * s)
-    # Nozzle tip
-    draw.line([(hx + 12 * s, hy + int(bh * 0.5)),
-               (hx + 6 * s, hy + int(bh * 0.65))],
-              fill=dim, width=2 * s)
+    # Bars
+    if isinstance(colors, tuple) and not isinstance(colors[0], (tuple, list)):
+        colors = [colors] * n
+    while len(colors) < n:
+        colors.append(colors[-1])
 
-    # Base
-    base_w = int(bw * 1.1)
-    draw.line([(cx - base_w // 2, by + bh + 2 * s),
-               (cx + base_w // 2, by + bh + 2 * s)],
-              fill=color, width=3 * s)
+    for i in range(n):
+        bx = chart_x + gap + i * (bar_w + gap)
+        bar_h = max(1, int(chart_h * values[i]))
+        by = chart_y + chart_h - bar_h
+        rrect(draw, bx, by, bar_w, bar_h, max(2, 3 * s), fill=colors[i])
+
+    # X-axis labels
+    if x_labels:
+        f_label = _font("regular", 7 * s)
+        for i, lbl in enumerate(x_labels):
+            if i < n:
+                bx = chart_x + gap + i * (bar_w + gap) + bar_w // 2
+                text_centered(draw, bx, chart_y + chart_h + 8 * s,
+                              lbl, f_label, label_color)
 
 
-def draw_info_row(draw, x, y, w, label, value, unit, theme, f_label, f_value, f_unit,
-                  value_color=None):
-    """Draw a labeled info row: LABEL ........................ VALUE UNIT"""
+def draw_line_graph(img, draw, x, y, w, h, points, line_color,
+                    fill_color=None, highlight_idx=None):
+    """Draw a line graph with optional area fill and highlight dot.
+
+    Args:
+        points: List of floats (0.0=bottom to 1.0=top).
+        fill_color: RGBA tuple for area fill below line.
+        highlight_idx: Index of point to highlight with a dot.
+    """
     s = SS
-    if value_color is None:
-        value_color = theme.text
+    n = len(points)
+    if n < 2:
+        return
 
-    draw.text((x, y + 2 * s), label, font=f_label, fill=theme.text_dim)
+    # Compute pixel coordinates
+    coords = []
+    for i, v in enumerate(points):
+        px = x + int(w * i / (n - 1))
+        py = y + int(h * (1.0 - v))
+        coords.append((px, py))
 
-    # Value + unit right-aligned
-    unit_text = f" {unit}" if unit else ""
-    vbb = draw.textbbox((0, 0), value, font=f_value)
-    ubb = draw.textbbox((0, 0), unit_text, font=f_unit) if unit_text else (0, 0, 0, 0)
-    vw = vbb[2] - vbb[0]
-    uw = ubb[2] - ubb[0]
-    vx = x + w - vw - uw
-    draw.text((vx, y), value, font=f_value, fill=value_color)
-    if unit_text:
-        draw.text((vx + vw, y + 6 * s), unit_text, font=f_unit, fill=theme.text_dim)
+    # Area fill (using polygon)
+    if fill_color:
+        fill_pts = list(coords) + [(x + w, y + h), (x, y + h)]
+        # Draw on overlay for alpha support
+        overlay = Image.new("RGBA", img.size, (0, 0, 0, 0))
+        od = ImageDraw.Draw(overlay)
+        od.polygon(fill_pts, fill=fill_color)
+        img_result = Image.alpha_composite(img, overlay)
+        # Copy pixels back (crude but works)
+        img.paste(img_result)
 
-    # Dotted separator line
-    lbb = draw.textbbox((0, 0), label, font=f_label)
-    lw = lbb[2] - lbb[0]
-    dot_x0 = x + lw + 8 * s
-    dot_x1 = vx - 8 * s
-    dot_y = y + 14 * s
-    for dx in range(int(dot_x0), int(dot_x1), 6 * s):
-        draw.ellipse([dx, dot_y, dx + s, dot_y + s],
-                     fill=rgba(theme.text_dim, 60))
+    # Line
+    lw = max(2, 3 * s)
+    for i in range(n - 1):
+        draw.line([coords[i], coords[i + 1]], fill=line_color, width=lw)
+
+    # Highlight dot
+    if highlight_idx is not None and 0 <= highlight_idx < n:
+        hx, hy = coords[highlight_idx]
+        r = 4 * s
+        draw.ellipse([hx - r, hy - r, hx + r, hy + r], fill=line_color)
+        # Outer ring
+        r2 = 8 * s
+        draw.ellipse([hx - r2, hy - r2, hx + r2, hy + r2],
+                     outline=line_color, width=2 * s)
 
 
-def render_a2_consumption(theme):
-    """A2: Fuel pump icon + avg/instant consumption + distance + range."""
+def draw_simple_map(img, draw, x, y, w, h, theme):
+    """Draw a stylized map placeholder with theme-specific tinting.
+
+    Draws a dark base with grid streets, thicker main roads, and a location dot.
+    """
     s = SS
-    img, draw, (cx0, cy0, cw, ch) = render_chrome(theme, "A2  CONSUMPTION")
+    import random
+    rng = random.Random(42)  # Deterministic for consistent renders
 
-    # Left half: fuel pump icon
-    icon_cx = cx0 + cw * 3 // 10
-    icon_cy = cy0 + ch // 3
-    draw_fuel_pump_icon(draw, icon_cx, icon_cy, 80, theme)
+    # Base dark background
+    map_bg = (15, 15, 18) if not theme.is_light else (30, 30, 35)
+    draw.rectangle([x, y, x + w, y + h], fill=map_bg)
 
-    # Right section: consumption values near the icon
-    f_big = _font(theme.font_bold, 42 * s)
-    f_med = _font(theme.font_bold, 26 * s)
-    f_lbl = _font(theme.font, 13 * s)
-    f_unit = _font(theme.font, 12 * s)
+    # Grid streets (thin lines)
+    grid_color = (40, 40, 45) if not theme.is_light else (50, 50, 55)
+    spacing = 30 * s
+    for gx in range(0, w, spacing):
+        offset = rng.randint(-5 * s, 5 * s)
+        draw.line([(x + gx + offset, y), (x + gx + offset, y + h)],
+                  fill=grid_color, width=1)
+    for gy in range(0, h, spacing):
+        offset = rng.randint(-5 * s, 5 * s)
+        draw.line([(x, y + gy + offset), (x + w, y + gy + offset)],
+                  fill=grid_color, width=1)
 
-    # Average consumption — large, right of icon
-    avg_x = cx0 + cw * 0.52
-    avg_y = cy0 + 20 * s
-    draw.text((avg_x, avg_y), "ŚR. SPALANIE", font=f_lbl, fill=theme.text_dim)
-    draw.text((avg_x, avg_y + 18 * s), "8.5", font=f_big, fill=theme.text)
-    bw = draw.textbbox((0, 0), "8.5", font=f_big)[2]
-    draw.text((avg_x + bw + 6 * s, avg_y + 36 * s), "L/100km",
-              font=f_unit, fill=theme.text_dim)
+    # Main roads (thicker, accent-tinted)
+    accent = theme.accent
+    road_color = (*accent[:3], 60)
+    lw = 3 * s
+    # Diagonal main road
+    draw.line([(x, y + h * 3 // 4), (x + w, y + h // 4)],
+              fill=road_color, width=lw)
+    # Horizontal main road
+    draw.line([(x, y + h // 2), (x + w, y + h // 2)],
+              fill=road_color, width=lw)
+    # Curved "river" — approximate with line segments
+    river_color = (40, 60, 80, 40)
+    prev = None
+    for i in range(20):
+        rx = x + int(w * i / 19)
+        ry = y + h // 3 + int(math.sin(i * 0.5) * 20 * s)
+        if prev:
+            draw.line([prev, (rx, ry)], fill=river_color, width=4 * s)
+        prev = (rx, ry)
 
-    # Instant consumption
-    inst_y = avg_y + 72 * s
-    draw.text((avg_x, inst_y), "CHW. SPALANIE", font=f_lbl, fill=theme.text_dim)
-    draw.text((avg_x, inst_y + 18 * s), "12.4", font=f_med, fill=theme.accent)
-    bw2 = draw.textbbox((0, 0), "12.4", font=f_med)[2]
-    draw.text((avg_x + bw2 + 6 * s, inst_y + 24 * s), "L/100km",
-              font=f_unit, fill=theme.text_dim)
+    # Location dot (pulsing effect — just static for mockup)
+    dot_cx = x + w // 2 + 20 * s
+    dot_cy = y + h // 2 - 10 * s
+    r1 = 5 * s
+    r2 = 12 * s
+    draw.ellipse([dot_cx - r2, dot_cy - r2, dot_cx + r2, dot_cy + r2],
+                 fill=(*accent[:3], 40))
+    draw.ellipse([dot_cx - r1, dot_cy - r1, dot_cx + r1, dot_cy + r1],
+                 fill=accent)
 
-    # Bottom rows with dotted separators — spanning full content width
-    row_x = cx0 + 20 * s
-    row_w = cw - 40 * s
-    f_row_lbl = _font(theme.font, 14 * s)
-    f_row_val = _font(theme.font_bold, 22 * s)
-    f_row_unit = _font(theme.font, 12 * s)
-
-    # Separator line
-    sep_y = cy0 + ch * 0.58
-    draw.line([(row_x, sep_y), (row_x + row_w, sep_y)],
-              fill=rgba(theme.accent, 40), width=s)
-
-    # Row 1: Distance traveled
-    ry1 = cy0 + ch * 0.62
-    draw_info_row(draw, row_x, ry1, row_w,
-                  "PRZEJECHANY DYSTANS", "127.4", "km",
-                  theme, f_row_lbl, f_row_val, f_row_unit)
-
-    # Row 2: Range
-    ry2 = ry1 + 40 * s
-    draw_info_row(draw, row_x, ry2, row_w,
-                  "ZASIĘG", "412", "km",
-                  theme, f_row_lbl, f_row_val, f_row_unit,
-                  value_color=theme.ok)
-
-    # Row 3: Trip time
-    ry3 = ry2 + 40 * s
-    draw_info_row(draw, row_x, ry3, row_w,
-                  "CZAS JAZDY", "01:42", "h",
-                  theme, f_row_lbl, f_row_val, f_row_unit)
-
-    return img.resize((W, H), Image.LANCZOS)
-
-
-# =========================================================================
-#  A3 — ENVIRONMENT: Thermometer + weather icons + temp/humidity/icing/pressure
-# =========================================================================
-
-def draw_thermometer_icon(draw, cx, cy, height, theme):
-    """Draw a stylized thermometer icon."""
-    s = SS
-    h = height * s
-    color = theme.accent
-    w = int(h * 0.18)
-
-    # Stem (tall narrow rect)
-    stem_h = int(h * 0.65)
-    stem_x = cx - w // 2
-    stem_y = cy - h // 2
-    rrect(draw, stem_x, stem_y, w, stem_h + w // 2, w // 2,
-          fill=rgba(theme.gauge_bg, 180), outline=color, width=2 * s)
-
-    # Mercury fill inside stem
-    fill_h = int(stem_h * 0.6)
-    fy = stem_y + stem_h - fill_h
-    merc_w = w - 6 * s
-    rrect(draw, cx - merc_w // 2, fy, merc_w, fill_h + w // 2, merc_w // 2,
-          fill=rgba(theme.temp_hot, 180))
-
-    # Bulb at bottom
-    bulb_r = int(w * 0.9)
-    bulb_cy = stem_y + stem_h + bulb_r - 2 * s
-    draw.ellipse([cx - bulb_r, bulb_cy - bulb_r,
-                  cx + bulb_r, bulb_cy + bulb_r],
-                 fill=rgba(theme.temp_hot, 200),
-                 outline=color, width=2 * s)
-
-    # Tick marks on stem
-    for i in range(5):
-        ty = stem_y + 8 * s + i * (stem_h - 16 * s) // 4
-        tw = w // 3
-        draw.line([(stem_x - tw, ty), (stem_x, ty)],
-                  fill=rgba(color, 100), width=s)
+    # Edge gradient fade overlay (vignette)
+    fade = Image.new("RGBA", (w, h), (0, 0, 0, 0))
+    fd = ImageDraw.Draw(fade)
+    fade_w = 30 * s
+    for i in range(fade_w):
+        a = int(200 * (1 - i / fade_w))
+        fd.line([(i, 0), (i, h)], fill=(map_bg[0], map_bg[1], map_bg[2], a))
+        fd.line([(w - i, 0), (w - i, h)], fill=(map_bg[0], map_bg[1], map_bg[2], a))
+    for i in range(fade_w):
+        a = int(200 * (1 - i / fade_w))
+        fd.line([(0, i), (w, i)], fill=(map_bg[0], map_bg[1], map_bg[2], a))
+        fd.line([(0, h - i), (w, h - i)], fill=(map_bg[0], map_bg[1], map_bg[2], a))
+    img.paste(Image.alpha_composite(
+        img.crop((x, y, x + w, y + h)).convert("RGBA"), fade), (x, y))
 
 
-def draw_weather_icons_grid(draw, x, y, w, h, theme):
-    """Draw a grid of weather-related icons using drawing primitives."""
-    s = SS
-    color = theme.icon_color
-    dim = rgba(theme.icon_color, 100)
-    cols, rows = 4, 2
-    cell_w = w // cols
-    cell_h = h // rows
+def draw_car_silhouette(draw, cx, cy, w, h, color, style="outline"):
+    """Draw a classic Alfa side-profile car silhouette.
 
-    icons = [
-        ("sun", theme.warning),
-        ("cloud_sun", theme.text_mid),
-        ("cloud", theme.text_dim),
-        ("rain", theme.temp_cold),
-        ("snow", (200, 220, 255)),
-        ("fog", theme.text_dim),
-        ("temp", theme.temp_hot),
-        ("wind", theme.accent),
+    style: "outline", "filled", or "inverted"
+    """
+    # Normalized points for a classic coupe profile (0-1 range)
+    # Hood → windshield → roof → rear window → trunk → underside
+    profile = [
+        (0.00, 0.65),  # front bumper bottom
+        (0.05, 0.55),  # front grille
+        (0.08, 0.48),  # hood start
+        (0.25, 0.45),  # hood line
+        (0.30, 0.42),  # windshield base
+        (0.35, 0.22),  # windshield top
+        (0.40, 0.18),  # roof front
+        (0.55, 0.16),  # roof peak
+        (0.65, 0.18),  # roof rear
+        (0.72, 0.28),  # rear window top
+        (0.78, 0.40),  # rear window base
+        (0.82, 0.42),  # trunk start
+        (0.90, 0.44),  # trunk line
+        (0.95, 0.50),  # tail
+        (1.00, 0.60),  # rear bumper bottom
+        (0.95, 0.68),  # underside rear
+        (0.82, 0.70),  # rear wheel well top
+        (0.72, 0.68),  # between wheels
+        (0.35, 0.68),  # front wheel well area
+        (0.25, 0.70),  # front wheel well top
+        (0.12, 0.68),  # underside front
+        (0.00, 0.65),  # back to start
     ]
 
-    for idx, (icon_type, ic) in enumerate(icons):
-        col = idx % cols
-        row = idx // cols
-        icx = x + col * cell_w + cell_w // 2
-        icy = y + row * cell_h + cell_h // 2
-        ir = 14 * s
+    # Scale and translate to target rect
+    half_w = w // 2
+    half_h = h // 2
+    pts = [(cx - half_w + int(px * w), cy - half_h + int(py * h))
+           for px, py in profile]
 
-        if icon_type == "sun":
-            # Circle + rays
-            draw.ellipse([icx - ir // 2, icy - ir // 2,
-                          icx + ir // 2, icy + ir // 2], fill=ic)
-            for a in range(0, 360, 45):
-                ar = math.radians(a)
-                r1, r2 = ir * 0.7, ir * 1.1
-                draw.line([(icx + r1 * math.cos(ar), icy - r1 * math.sin(ar)),
-                           (icx + r2 * math.cos(ar), icy - r2 * math.sin(ar))],
-                          fill=ic, width=2 * s)
+    if style == "filled":
+        draw.polygon(pts, fill=color)
+    elif style == "inverted":
+        draw.polygon(pts, fill=color)
+        # Add window cutout (darker)
+        win_pts = [
+            (0.33, 0.24), (0.38, 0.20), (0.63, 0.18),
+            (0.70, 0.20), (0.75, 0.36), (0.33, 0.38),
+        ]
+        wpts = [(cx - half_w + int(px * w), cy - half_h + int(py * h))
+                for px, py in win_pts]
+        draw.polygon(wpts, fill=(0, 0, 0))
+    else:  # outline
+        lw = max(2, w // 120)
+        for i in range(len(pts) - 1):
+            draw.line([pts[i], pts[i + 1]], fill=color, width=lw)
 
-        elif icon_type == "cloud_sun":
-            # Small sun behind
-            sx, sy = icx - 6 * s, icy - 6 * s
-            draw.ellipse([sx - 5 * s, sy - 5 * s, sx + 5 * s, sy + 5 * s],
-                         fill=rgba(theme.warning, 150))
-            # Cloud in front
-            draw.ellipse([icx - 10 * s, icy - 5 * s, icx + 10 * s, icy + 6 * s],
-                         fill=ic)
-            draw.ellipse([icx - 4 * s, icy - 10 * s, icx + 8 * s, icy],
-                         fill=ic)
-
-        elif icon_type == "cloud":
-            draw.ellipse([icx - 12 * s, icy - 4 * s, icx + 12 * s, icy + 8 * s],
-                         fill=ic)
-            draw.ellipse([icx - 5 * s, icy - 10 * s, icx + 8 * s, icy + 2 * s],
-                         fill=ic)
-
-        elif icon_type == "rain":
-            # Cloud
-            draw.ellipse([icx - 10 * s, icy - 8 * s, icx + 10 * s, icy],
-                         fill=rgba(theme.text_dim, 180))
-            # Rain drops
-            for dx in [-6, 0, 6]:
-                draw.line([(icx + dx * s, icy + 3 * s),
-                           (icx + dx * s - 2 * s, icy + 10 * s)],
-                          fill=ic, width=2 * s)
-
-        elif icon_type == "snow":
-            # Snowflake — 3 crossing lines + dots
-            for a in [0, 60, 120]:
-                ar = math.radians(a)
-                draw.line([(icx - ir * 0.8 * math.cos(ar), icy - ir * 0.8 * math.sin(ar)),
-                           (icx + ir * 0.8 * math.cos(ar), icy + ir * 0.8 * math.sin(ar))],
-                          fill=ic, width=2 * s)
-            draw.ellipse([icx - 3 * s, icy - 3 * s, icx + 3 * s, icy + 3 * s],
-                         fill=ic)
-
-        elif icon_type == "fog":
-            # Horizontal lines
-            for i in range(-2, 3):
-                lw = ir * (1.0 - abs(i) * 0.15)
-                ly = icy + i * 5 * s
-                draw.line([(icx - lw, ly), (icx + lw, ly)],
-                          fill=rgba(ic, 140 - abs(i) * 20), width=2 * s)
-
-        elif icon_type == "temp":
-            # Mini thermometer
-            draw.line([(icx, icy - ir), (icx, icy + ir * 0.4)],
-                      fill=ic, width=3 * s)
-            draw.ellipse([icx - 5 * s, icy + ir * 0.2,
-                          icx + 5 * s, icy + ir * 0.2 + 10 * s],
-                         fill=ic)
-
-        elif icon_type == "wind":
-            # Curved lines
-            for i, dy in enumerate([-5, 0, 5]):
-                ww = ir * (1.0 - i * 0.1)
-                wy = icy + dy * s
-                pts = [(icx - ww, wy)]
-                for t in range(1, 6):
-                    px = icx - ww + t * ww * 0.4
-                    py = wy + math.sin(t * 1.2) * 3 * s
-                    pts.append((px, py))
-                for j in range(len(pts) - 1):
-                    draw.line([pts[j], pts[j + 1]], fill=ic, width=2 * s)
-
-        # Label below icon
-        f_il = _font(theme.font, 7 * s)
-        labels = {"sun": "SŁOŃCE", "cloud_sun": "ZACHM.", "cloud": "POCHMURNO",
-                  "rain": "DESZCZ", "snow": "ŚNIEG", "fog": "MGŁA",
-                  "temp": "°C / °F", "wind": "WIATR"}
-        text_centered(draw, icx, icy + ir + 8 * s,
-                      labels.get(icon_type, ""), f_il, rgba(theme.text_dim, 120))
+    # Wheels
+    wheel_r = int(w * 0.055)
+    wheel_positions = [(0.22, 0.68), (0.78, 0.68)]
+    for wx, wy in wheel_positions:
+        wcx = cx - half_w + int(wx * w)
+        wcy = cy - half_h + int(wy * h)
+        if style == "outline":
+            draw.ellipse([wcx - wheel_r, wcy - wheel_r,
+                          wcx + wheel_r, wcy + wheel_r],
+                         outline=color, width=max(2, lw))
+        else:
+            draw.ellipse([wcx - wheel_r, wcy - wheel_r,
+                          wcx + wheel_r, wcy + wheel_r], fill=color)
+            if style == "inverted":
+                inner_r = int(wheel_r * 0.5)
+                draw.ellipse([wcx - inner_r, wcy - inner_r,
+                              wcx + inner_r, wcy + inner_r], fill=(0, 0, 0))
 
 
-def render_a3_environment(theme):
-    """A3: Thermometer + weather icons + environment data rows."""
+def draw_burl_texture(img, draw, x=0, y=0, w=None, h=None):
+    """Draw a warm walnut burl wood texture background.
+
+    Uses radial gradient spots and subtle noise for warmth.
+    """
     s = SS
-    img, draw, (cx0, cy0, cw, ch) = render_chrome(theme, "A3  ENVIRONMENT")
+    if w is None:
+        w = img.width
+    if h is None:
+        h = img.height
 
-    # Left side: thermometer icon
-    therm_cx = cx0 + cw * 0.12
-    therm_cy = cy0 + ch * 0.35
-    draw_thermometer_icon(draw, int(therm_cx), int(therm_cy), 100, theme)
+    import random
+    rng = random.Random(7)  # Deterministic
 
-    # Environment data rows — left column below thermometer
-    f_lbl = _font(theme.font, 13 * s)
-    f_val = _font(theme.font_bold, 20 * s)
-    f_unit = _font(theme.font, 11 * s)
+    # Base dark walnut
+    base = (26, 15, 10)
+    draw.rectangle([x, y, x + w, y + h], fill=base)
 
-    row_x = cx0 + 20 * s
-    row_w = cw * 0.42
-    base_y = cy0 + ch * 0.58
+    # Radial gradient spots (lighter wood grain)
+    overlay = Image.new("RGBA", (w, h), (0, 0, 0, 0))
+    od = ImageDraw.Draw(overlay)
+    for _ in range(15):
+        sx = rng.randint(0, w)
+        sy = rng.randint(0, h)
+        sr = rng.randint(40 * s, 120 * s)
+        for ring in range(sr, 0, -2):
+            t = ring / sr
+            a = int(12 * (1 - t))  # Very subtle
+            c = lerp((61, 39, 22), (26, 15, 10), t)
+            od.ellipse([sx - ring, sy - ring, sx + ring, sy + ring],
+                       fill=(*c, a))
 
-    # Row 1: Temperature + Humidity
-    draw.text((row_x, base_y), "TEMP. + WILGOTNOŚĆ ZEW.", font=f_lbl, fill=theme.text_dim)
-    draw.text((row_x + 12 * s, base_y + 20 * s), "+7°C", font=f_val, fill=theme.text)
-    bw = draw.textbbox((0, 0), "+7°C", font=f_val)[2]
-    draw.text((row_x + 12 * s + bw + 10 * s, base_y + 26 * s), "65%",
-              font=f_val, fill=theme.accent)
+    img.paste(Image.alpha_composite(
+        img.crop((x, y, x + w, y + h)).convert("RGBA"), overlay), (x, y))
 
-    # Row 2: Icing risk
-    ry2 = base_y + 52 * s
-    draw.text((row_x, ry2), "RYZYKO OBLODZENIA", font=f_lbl, fill=theme.text_dim)
-    draw.text((row_x + 12 * s, ry2 + 20 * s), "NISKIE", font=f_val, fill=theme.ok)
 
-    # Row 3: Atmospheric pressure
-    ry3 = ry2 + 52 * s
-    draw.text((row_x, ry3), "CIŚNIENIE ATMOSF.", font=f_lbl, fill=theme.text_dim)
-    draw.text((row_x + 12 * s, ry3 + 20 * s), "1013", font=f_val, fill=theme.text)
-    bw3 = draw.textbbox((0, 0), "1013", font=f_val)[2]
-    draw.text((row_x + 12 * s + bw3 + 4 * s, ry3 + 26 * s), "hPa",
-              font=f_unit, fill=theme.text_dim)
+def draw_corner_accents(draw, x, y, w, h, color, size=None, line_w=None):
+    """Draw L-shaped corner bracket accents."""
+    s = SS
+    if size is None:
+        size = 8 * s
+    if line_w is None:
+        line_w = max(1, s)
 
-    # Separator between left info and right icon grid
-    sep_x = cx0 + cw * 0.48
-    draw.line([(sep_x, cy0 + 16 * s), (sep_x, cy0 + ch - 16 * s)],
-              fill=rgba(theme.accent, 35), width=s)
+    # Top-left
+    draw.line([(x, y), (x + size, y)], fill=color, width=line_w)
+    draw.line([(x, y), (x, y + size)], fill=color, width=line_w)
+    # Top-right
+    draw.line([(x + w - size, y), (x + w, y)], fill=color, width=line_w)
+    draw.line([(x + w, y), (x + w, y + size)], fill=color, width=line_w)
+    # Bottom-left
+    draw.line([(x, y + h - size), (x, y + h)], fill=color, width=line_w)
+    draw.line([(x, y + h), (x + size, y + h)], fill=color, width=line_w)
+    # Bottom-right
+    draw.line([(x + w - size, y + h), (x + w, y + h)], fill=color, width=line_w)
+    draw.line([(x + w, y + h - size), (x + w, y + h)], fill=color, width=line_w)
 
-    # Right side: weather icons grid
-    grid_x = cx0 + cw * 0.52
-    grid_y = cy0 + 14 * s
-    grid_w = cw * 0.45
-    grid_h = ch - 28 * s
-    draw_weather_icons_grid(draw, int(grid_x), int(grid_y),
-                            int(grid_w), int(grid_h), theme)
 
-    # Subtitle under icon grid
-    f_note = _font(theme.font, 9 * s)
-    text_centered(draw, int(grid_x + grid_w // 2), int(cy0 + ch - 10 * s),
-                  "Ikony zmieniają się wg warunków", f_note,
-                  rgba(theme.text_dim, 100))
-
-    return img.resize((W, H), Image.LANCZOS)
+def draw_radial_vignette(img, cx, cy, inner_frac=0.6, color=(0, 0, 0)):
+    """Draw a radial vignette (transparent center → opaque edges)."""
+    w, h = img.size
+    vignette = Image.new("RGBA", (w, h), (0, 0, 0, 0))
+    vd = ImageDraw.Draw(vignette)
+    max_r = math.sqrt(w * w + h * h) / 2
+    inner_r = max_r * inner_frac
+    steps = 80
+    for i in range(steps):
+        t = i / steps
+        r = inner_r + (max_r - inner_r) * t
+        a = int(255 * t * t)  # Quadratic fade
+        vd.ellipse([cx - r, cy - r, cx + r, cy + r],
+                   fill=(*color[:3], 0), outline=(*color[:3], a), width=max(2, int(max_r / steps)))
+    # Simpler approach: draw filled rings from outside in
+    vignette2 = Image.new("RGBA", (w, h), (*color[:3], 255))
+    mask = Image.new("L", (w, h), 255)
+    md = ImageDraw.Draw(mask)
+    for i in range(steps + 1):
+        t = i / steps
+        r = max_r * (1 - t * (1 - inner_frac))
+        a = int(255 * (1 - t))
+        md.ellipse([cx - r, cy - r, cx + r, cy + r], fill=a)
+    vignette2.putalpha(mask)
+    return Image.alpha_composite(img, vignette2)
 
 
 # =========================================================================
-#  A4 — SERVICE: Next service, TPMS, pressure + error codes + wrench icon
+#  Screen Renderers
 # =========================================================================
 
-def draw_wrench_icon(draw, cx, cy, size, theme):
-    """Draw a crossed wrench + screwdriver service icon."""
+# --- Initialization Screens (Step 1.6) ---
+
+def render_init_heritage():
+    """Heritage initialization: burl texture + vignette + car sketch + amber glow."""
     s = SS
-    sz = size * s
-    color = theme.accent
-    dim = rgba(theme.accent, 140)
+    img = Image.new("RGBA", (SW, SH), (8, 8, 8, 255))
+    draw = ImageDraw.Draw(img)
 
-    # Wrench (left-leaning \)
-    angle1 = math.radians(45)
-    half = sz * 0.45
-    # Shaft
-    x1 = cx - half * math.cos(angle1)
-    y1 = cy - half * math.sin(angle1)
-    x2 = cx + half * math.cos(angle1)
-    y2 = cy + half * math.sin(angle1)
-    draw.line([(x1, y1), (x2, y2)], fill=color, width=4 * s)
+    # Burl walnut texture background
+    draw_burl_texture(img, draw)
 
-    # Wrench head (top-left)
-    hr = 8 * s
-    draw.arc([x1 - hr, y1 - hr, x1 + hr, y1 + hr],
-             start=180 + 45, end=360 + 45, fill=color, width=4 * s)
-    # Wrench head (bottom-right)
-    draw.arc([x2 - hr, y2 - hr, x2 + hr, y2 + hr],
-             start=45, end=180 + 45, fill=color, width=4 * s)
+    # Radial vignette (transparent center → black 90%)
+    img = draw_radial_vignette(img, SW // 2, SH // 2, inner_frac=0.4)
+    draw = ImageDraw.Draw(img)
 
-    # Screwdriver (right-leaning /)
-    angle2 = math.radians(-45)
-    x3 = cx - half * math.cos(angle2)
-    y3 = cy - half * math.sin(angle2)
-    x4 = cx + half * math.cos(angle2)
-    y4 = cy + half * math.sin(angle2)
-    draw.line([(x3, y3), (x4, y4)], fill=dim, width=4 * s)
+    # Soft amber glow behind car
+    glow = Image.new("RGBA", (SW, SH), (0, 0, 0, 0))
+    gd = ImageDraw.Draw(glow)
+    glow_r = 180 * s
+    for r in range(glow_r, 0, -3):
+        a = int(25 * (1 - r / glow_r))
+        gd.ellipse([SW // 2 - r, SH // 2 - 20 * s - r,
+                     SW // 2 + r, SH // 2 - 20 * s + r],
+                    fill=(255, 191, 0, a))
+    glow = glow.filter(ImageFilter.GaussianBlur(30 * s))
+    img = Image.alpha_composite(img, glow)
+    draw = ImageDraw.Draw(img)
 
-    # Screwdriver tip (top-right) — flat head
-    tip_len = 6 * s
-    draw.line([(x3, y3),
-               (x3 - tip_len * math.cos(angle2 + math.pi / 2),
-                y3 - tip_len * math.sin(angle2 + math.pi / 2))],
-              fill=dim, width=3 * s)
-    draw.line([(x3, y3),
-               (x3 + tip_len * math.cos(angle2 + math.pi / 2),
-                y3 + tip_len * math.sin(angle2 + math.pi / 2))],
-              fill=dim, width=3 * s)
+    # Car silhouette (outline, amber, mix-blend-screen look)
+    draw_car_silhouette(draw, SW // 2, SH // 2 - 20 * s,
+                        480 * s, 220 * s, (255, 191, 0, 200), "outline")
 
-    # Handle (bottom-left)
-    hx, hy = x4, y4
-    hw = 5 * s
-    hl = 12 * s
-    perp = angle2 + math.pi / 2
-    p1 = (hx + hw * math.cos(perp), hy + hw * math.sin(perp))
-    p2 = (hx - hw * math.cos(perp), hy - hw * math.sin(perp))
-    p3 = (hx - hw * math.cos(perp) + hl * math.cos(angle2),
-          hy - hw * math.sin(perp) + hl * math.sin(angle2))
-    p4 = (hx + hw * math.cos(perp) + hl * math.cos(angle2),
-          hy + hw * math.sin(perp) + hl * math.sin(angle2))
-    draw.polygon([p1, p2, p3, p4], fill=rgba(color, 100))
+    # "ALFA ROMEO" text with flanking lines
+    brand_y = SH // 2 + 100 * s
+    f_brand = _font("regular", 9 * s)
+    line_w = 36 * s
+    line_color = (255, 191, 0, 100)
+    text_spaced_centered(draw, SW // 2, brand_y, "ALFA ROMEO", f_brand,
+                         (255, 191, 0), spacing=10 * s)
+    # Flanking gradient lines
+    text_hw = 80 * s  # approx half-width of text
+    draw.line([(SW // 2 - text_hw - line_w - 10 * s, brand_y),
+               (SW // 2 - text_hw - 10 * s, brand_y)],
+              fill=line_color, width=1)
+    draw.line([(SW // 2 + text_hw + 10 * s, brand_y),
+               (SW // 2 + text_hw + line_w + 10 * s, brand_y)],
+              fill=line_color, width=1)
 
-    # Center bolt
-    draw.ellipse([cx - 4 * s, cy - 4 * s, cx + 4 * s, cy + 4 * s],
-                 fill=theme.bg, outline=color, width=2 * s)
+    # Bottom: progress bar + status text
+    bar_y = SH - 100 * s
+    bar_w = 144 * s
+    bar_h = 2 * s
+    draw_progress_bar(draw, SW // 2 - bar_w // 2, bar_y, bar_w, bar_h,
+                      0.33, (255, 191, 0, 150), (30, 30, 30))
+
+    # "CHECKING SYSTEMS..." text
+    f_status = _font("bold", 8 * s)
+    text_spaced_centered(draw, SW // 2, bar_y + 24 * s,
+                         "CHECKING SYSTEMS...", f_status,
+                         (255, 191, 0, 150), spacing=5 * s)
+
+    # Corner accents
+    pad = 24 * s
+    draw_corner_accents(draw, pad, pad, SW - 2 * pad, SH - 2 * pad,
+                        (255, 191, 0, 50), size=24 * s)
+
+    return img
+
+
+def render_init_modern():
+    """Modern initialization: charcoal bg + blue glow + car + status dots."""
+    s = SS
+    img = Image.new("RGBA", (SW, SH), (22, 22, 24, 255))
+    draw = ImageDraw.Draw(img)
+
+    # Blue radial glow at center
+    glow = Image.new("RGBA", (SW, SH), (0, 0, 0, 0))
+    gd = ImageDraw.Draw(glow)
+    glow_r = 200 * s
+    for r in range(glow_r, 0, -3):
+        a = int(20 * (1 - r / glow_r))
+        gd.ellipse([SW // 2 - r, SH // 2 - r, SW // 2 + r, SH // 2 + r],
+                    fill=(0, 85, 150, a))
+    glow = glow.filter(ImageFilter.GaussianBlur(25 * s))
+    img = Image.alpha_composite(img, glow)
+    draw = ImageDraw.Draw(img)
+
+    # Car silhouette (filled, white/gray, semi-transparent)
+    draw_car_silhouette(draw, SW // 2, SH // 2 - 10 * s,
+                        420 * s, 200 * s, (255, 255, 255, 60), "filled")
+
+    # "CENTRO STILE ALFA ROMEO" top text
+    f_top = _font("regular", 8 * s)
+    text_spaced_centered(draw, SW // 2, 60 * s,
+                         "CENTRO STILE ALFA ROMEO", f_top,
+                         (255, 255, 255, 100), spacing=6 * s)
+
+    # Corner accents (blue/30)
+    pad = 32 * s
+    draw_corner_accents(draw, pad, pad, SW - 2 * pad, SH - 2 * pad,
+                        (0, 85, 150, 76), size=28 * s)
+
+    # Bottom: "SYSTEM INITIALIZING..." + dot indicators + progress bar
+    bar_y = SH - 100 * s
+    # Progress bar (blue)
+    bar_w = 160 * s
+    bar_h = 3 * s
+    draw_progress_bar(draw, SW // 2 - bar_w // 2, bar_y, bar_w, bar_h,
+                      0.5, (0, 85, 150), (40, 40, 45))
+
+    f_status = _font("regular", 8 * s)
+    text_spaced_centered(draw, SW // 2, bar_y + 24 * s,
+                         "SYSTEM INITIALIZING...", f_status,
+                         (255, 255, 255, 120), spacing=4 * s)
+
+    # Dot indicators
+    dot_y = bar_y + 50 * s
+    for i in range(3):
+        dx = SW // 2 + (i - 1) * 12 * s
+        r = 3 * s
+        c = (0, 85, 150) if i < 2 else (60, 60, 65)
+        draw.ellipse([dx - r, dot_y - r, dx + r, dot_y + r], fill=c)
+
+    return img
+
+
+def render_init_autodelta():
+    """Autodelta initialization: black bg + scanlines + crosshair + boot text."""
+    s = SS
+    img = Image.new("RGBA", (SW, SH), (0, 0, 0, 255))
+    draw = ImageDraw.Draw(img)
+
+    # Scanline texture (horizontal lines at low opacity)
+    scanline = Image.new("RGBA", (SW, SH), (0, 0, 0, 0))
+    sd = ImageDraw.Draw(scanline)
+    for y_line in range(0, SH, 4 * s):
+        sd.line([(0, y_line), (SW, y_line)],
+                fill=(236, 91, 19, 12), width=1)
+    img = Image.alpha_composite(img, scanline)
+    draw = ImageDraw.Draw(img)
+
+    # Crosshair lines at center
+    cx, cy = SW // 2, SH // 2 - 20 * s
+    line_color = (236, 91, 19, 40)
+    draw.line([(cx, 0), (cx, SH)], fill=line_color, width=1)
+    draw.line([(0, cy), (SW, cy)], fill=line_color, width=1)
+
+    # Car silhouette (inverted — orange filled with dark windows)
+    draw_car_silhouette(draw, cx, cy, 400 * s, 190 * s,
+                        (236, 91, 19, 100), "inverted")
+
+    # Corner accents (orange TL/BR, white TR/BL)
+    pad = 24 * s
+    accent_size = 24 * s
+    lw = max(1, 2 * s)
+    # Top-left & bottom-right: orange
+    draw.line([(pad, pad), (pad + accent_size, pad)], fill=(236, 91, 19, 120), width=lw)
+    draw.line([(pad, pad), (pad, pad + accent_size)], fill=(236, 91, 19, 120), width=lw)
+    draw.line([(SW - pad - accent_size, SH - pad), (SW - pad, SH - pad)],
+              fill=(236, 91, 19, 120), width=lw)
+    draw.line([(SW - pad, SH - pad - accent_size), (SW - pad, SH - pad)],
+              fill=(236, 91, 19, 120), width=lw)
+    # Top-right & bottom-left: white
+    draw.line([(SW - pad - accent_size, pad), (SW - pad, pad)], fill=(255, 255, 255, 80), width=lw)
+    draw.line([(SW - pad, pad), (SW - pad, pad + accent_size)], fill=(255, 255, 255, 80), width=lw)
+    draw.line([(pad, SH - pad - accent_size), (pad, SH - pad)], fill=(255, 255, 255, 80), width=lw)
+    draw.line([(pad, SH - pad), (pad + accent_size, SH - pad)], fill=(255, 255, 255, 80), width=lw)
+
+    # "AUTODELTA CORE ENGAGED" header
+    f_header = _font("bold", 12 * s)
+    text_spaced_centered(draw, SW // 2, SH // 2 + 120 * s,
+                         "AUTODELTA CORE ENGAGED", f_header,
+                         (236, 91, 19), spacing=6 * s)
+
+    # Boot text block (left aligned, mono font)
+    f_boot = _font("mono", 7 * s)
+    boot_lines = [
+        "UNIT_ID: BCM-ADF-0156",
+        "SENSORS: ONLINE",
+        "OBD-II:  CONNECTED",
+        "GPS:     ACQUIRING",
+        "LTE:     CONNECTED",
+    ]
+    boot_x = 60 * s
+    boot_y = SH // 2 + 150 * s
+    for i, line in enumerate(boot_lines):
+        c = (236, 91, 19, 180) if "ONLINE" in line or "CONNECTED" in line else (113, 113, 122)
+        draw.text((boot_x, boot_y + i * 14 * s), line, font=f_boot, fill=c)
+
+    # Bottom: progress bar + status
+    bar_y = SH - 80 * s
+    bar_w = 200 * s
+    bar_h = 3 * s
+    draw_progress_bar(draw, SW // 2 - bar_w // 2, bar_y, bar_w, bar_h,
+                      0.66, (236, 91, 19), (30, 30, 30))
+
+    f_status = _font("bold", 7 * s)
+    text_spaced_centered(draw, SW // 2, bar_y + 18 * s,
+                         "INITIALIZING SYSTEMS...", f_status,
+                         (113, 113, 122), spacing=4 * s)
+
+    return img
+
+
+def render_initialization(theme):
+    """Dispatch to theme-specific initialization renderer."""
+    if theme.name == "heritage":
+        return render_init_heritage()
+    elif theme.name == "modern":
+        return render_init_modern()
+    elif theme.name == "autodelta":
+        return render_init_autodelta()
+
+
+# --- A1 Main Screens (Step 1.7) ---
+
+def render_a1_heritage():
+    """Heritage A1: Engine temp + notifications + fuel + media + stats."""
+    s = SS
+    img, draw, (cx, cy, cw, ch) = render_frame(HERITAGE, active_nav=0,
+                                                 bg_override=(26, 15, 10))
+    # Apply burl texture to content area
+    draw_burl_texture(img, draw, cx - 16 * s, cy, cw + 32 * s, ch)
+    draw = ImageDraw.Draw(img)
+
+    pad = 12 * s
+    # 3-column layout: engine | notifications | fuel
+    col1_w = int(cw * 0.22)
+    col3_w = int(cw * 0.22)
+    col2_w = cw - col1_w - col3_w - pad * 2
+    col1_x = cx
+    col2_x = col1_x + col1_w + pad
+    col3_x = col2_x + col2_w + pad
+
+    # --- Column 1: Engine Temp ---
+    card_h = int(ch * 0.55)
+    draw_card(draw, col1_x, cy + pad, col1_w, card_h,
+              fill=(9, 9, 11), border_color=(39, 39, 42))
+    # Label
+    f_label = _font("bold", 7 * s)
+    f_value = _font("bold", 20 * s)
+    f_unit = _font("regular", 8 * s)
+    draw.text((col1_x + 12 * s, cy + pad + 10 * s), "ENGINE",
+              font=f_label, fill=(113, 113, 122))
+    draw.text((col1_x + 12 * s, cy + pad + 22 * s), "TEMP",
+              font=f_label, fill=(113, 113, 122))
+    # Circular gauge
+    gauge_cx = col1_x + col1_w // 2
+    gauge_cy = cy + pad + card_h // 2 + 15 * s
+    gauge_r = int(col1_w * 0.32)
+    draw_circle_gauge(draw, gauge_cx, gauge_cy, gauge_r, 0.72,
+                      (245, 158, 11), (39, 39, 42), 5 * s)
+    text_centered(draw, gauge_cx, gauge_cy - 5 * s, "92°",
+                  f_value, (244, 244, 245))
+    # "OPTIMAL" label below gauge
+    f_small = _font("bold", 6 * s)
+    text_centered(draw, gauge_cx, gauge_cy + gauge_r + 12 * s,
+                  "OPTIMAL", f_small, (34, 197, 94))
+
+    # --- Column 2: Notification Hub ---
+    notif_h = int(ch * 0.55)
+    draw_card(draw, col2_x, cy + pad, col2_w, notif_h,
+              fill=(9, 9, 11), border_color=(39, 39, 42))
+    # Red gradient top accent line
+    grad_rect(draw, col2_x, cy + pad, col2_w, 3 * s,
+              (220, 38, 38), (220, 38, 38, 0))
+    # Header
+    f_header = _font("bold", 9 * s)
+    draw.text((col2_x + 12 * s, cy + pad + 10 * s), "NOTIFICATIONS",
+              font=f_header, fill=(244, 244, 245))
+    # 3 notification items
+    notifs = [
+        ((245, 158, 11), draw_icon_warning, "Tire Pressure Alert", "Front right: 28 psi"),
+        ((113, 113, 122), draw_icon_check, "Service Reminder", "Oil change in 1,200 km"),
+        ((220, 38, 38), draw_icon_thermometer, "Coolant Warning", "Temperature rising"),
+    ]
+    item_h = 36 * s
+    item_y = cy + pad + 30 * s
+    for border_c, icon_fn, title, subtitle in notifs:
+        draw_notification_item(draw, col2_x + 8 * s, item_y,
+                               col2_w - 16 * s, item_h,
+                               HERITAGE, border_c, icon_fn, title, subtitle)
+        item_y += item_h + 6 * s
+
+    # --- Column 3: Fuel Level ---
+    fuel_h = int(ch * 0.55)
+    draw_card(draw, col3_x, cy + pad, col3_w, fuel_h,
+              fill=(9, 9, 11), border_color=(39, 39, 42))
+    draw.text((col3_x + 12 * s, cy + pad + 10 * s), "FUEL",
+              font=f_label, fill=(113, 113, 122))
+    draw.text((col3_x + 12 * s, cy + pad + 22 * s), "LEVEL",
+              font=f_label, fill=(113, 113, 122))
+    # Vertical fuel bar
+    bar_x = col3_x + col3_w // 2 - 10 * s
+    bar_w_px = 20 * s
+    bar_h_px = fuel_h - 80 * s
+    bar_y = cy + pad + 50 * s
+    draw_progress_bar(draw, bar_x, bar_y, bar_w_px, bar_h_px, 0.0,
+                      (0, 0, 0, 0), (39, 39, 42), radius=4 * s)
+    # Fill from bottom
+    fill_h = int(bar_h_px * 0.64)
+    rrect(draw, bar_x, bar_y + bar_h_px - fill_h, bar_w_px, fill_h, 4 * s,
+          fill=(245, 158, 11))
+    # Percentage
+    f_pct = _font("bold", 14 * s)
+    text_centered(draw, col3_x + col3_w // 2,
+                  bar_y + bar_h_px + 14 * s, "64%", f_pct, (244, 244, 245))
+    f_range = _font("regular", 6 * s)
+    text_centered(draw, col3_x + col3_w // 2,
+                  bar_y + bar_h_px + 30 * s, "EST RANGE: 342 KM",
+                  f_range, (113, 113, 122))
+
+    # --- Bottom Row: Now Playing + Stats ---
+    bottom_y = cy + pad + int(ch * 0.58)
+    bottom_h = ch - int(ch * 0.58) - pad * 2
+
+    # Now playing (left ~30%)
+    np_w = int(cw * 0.30)
+    draw_card(draw, col1_x, bottom_y, np_w, bottom_h,
+              fill=(9, 9, 11), border_color=(39, 39, 42))
+    draw_icon_music(draw, col1_x + 20 * s, bottom_y + bottom_h // 2,
+                    10 * s, (245, 158, 11))
+    f_track = _font("regular", 8 * s)
+    f_artist = _font("regular", 7 * s)
+    draw.text((col1_x + 38 * s, bottom_y + 10 * s), "Vivere la Vita",
+              font=f_track, fill=(244, 244, 245))
+    draw.text((col1_x + 38 * s, bottom_y + 24 * s), "Alessandro",
+              font=f_artist, fill=(113, 113, 122))
+
+    # Stats (right ~68%)
+    stats_x = col1_x + np_w + pad
+    stats_w = cw - np_w - pad
+    draw_card(draw, stats_x, bottom_y, stats_w, bottom_h,
+              fill=(9, 9, 11), border_color=(39, 39, 42))
+    # 3 stat items evenly spaced
+    stats = [("Avg Speed", "84 km/h"), ("Drive Time", "1h 42m"), ("G-Force", "0.82")]
+    stat_item_w = stats_w // 3
+    f_stat_label = _font("bold", 6 * s)
+    f_stat_val = _font("bold", 11 * s)
+    for i, (label, val) in enumerate(stats):
+        sx = stats_x + i * stat_item_w + stat_item_w // 2
+        text_centered(draw, sx, bottom_y + 10 * s, label, f_stat_label,
+                      (113, 113, 122))
+        text_centered(draw, sx, bottom_y + 28 * s, val, f_stat_val,
+                      (244, 244, 245))
+
+    return img
+
+
+def render_a1_modern():
+    """Modern A1: Light bg, white cards, engine/fuel left, notifications center, status right."""
+    s = SS
+    img, draw, (cx, cy, cw, ch) = render_frame(MODERN, active_nav=0,
+                                                 bg_override=(241, 245, 249))
+    pad = 12 * s
+    # 3-column layout
+    col1_w = int(cw * 0.25)
+    col3_w = int(cw * 0.25)
+    col2_w = cw - col1_w - col3_w - pad * 2
+    col1_x = cx
+    col2_x = col1_x + col1_w + pad
+    col3_x = col2_x + col2_w + pad
+
+    # --- Column 1: Engine Temp + Fuel (stacked cards) ---
+    half_h = (ch - pad * 3) // 2
+
+    # Engine Temp card
+    draw_card(draw, col1_x, cy + pad, col1_w, half_h,
+              fill=(255, 255, 255), border_color=(226, 232, 240))
+    f_label = _font("bold", 7 * s)
+    f_value = _font("bold", 18 * s)
+    draw.text((col1_x + 12 * s, cy + pad + 8 * s), "ENGINE TEMP",
+              font=f_label, fill=(148, 163, 184))
+    text_centered(draw, col1_x + col1_w // 2, cy + pad + half_h // 2,
+                  "92°C", f_value, (15, 23, 42))
+    # Blue progress bar
+    bar_y = cy + pad + half_h - 20 * s
+    draw_progress_bar(draw, col1_x + 12 * s, bar_y, col1_w - 24 * s, 6 * s,
+                      0.72, (0, 85, 150), (226, 232, 240), radius=3 * s)
+
+    # Fuel card
+    fuel_y = cy + pad + half_h + pad
+    draw_card(draw, col1_x, fuel_y, col1_w, half_h,
+              fill=(255, 255, 255), border_color=(226, 232, 240))
+    draw.text((col1_x + 12 * s, fuel_y + 8 * s), "FUEL LEVEL",
+              font=f_label, fill=(148, 163, 184))
+    text_centered(draw, col1_x + col1_w // 2, fuel_y + half_h // 2,
+                  "74%", f_value, (15, 23, 42))
+    bar_y2 = fuel_y + half_h - 20 * s
+    draw_progress_bar(draw, col1_x + 12 * s, bar_y2, col1_w - 24 * s, 6 * s,
+                      0.74, (0, 85, 150), (226, 232, 240), radius=3 * s)
+
+    # --- Column 2: Notification Hub ---
+    notif_h = ch - pad * 2
+    draw_card(draw, col2_x, cy + pad, col2_w, notif_h,
+              fill=(255, 255, 255), border_color=(226, 232, 240))
+    f_header = _font("bold", 10 * s)
+    draw.text((col2_x + 12 * s, cy + pad + 10 * s), "Notifications",
+              font=f_header, fill=(15, 23, 42))
+    # 3 items
+    notifs = [
+        ((0, 85, 150), draw_icon_warning, "Tire Pressure Low", "Front right sensor alert"),
+        ((148, 163, 184), draw_icon_check, "Service Due", "Oil change in 1,200 km"),
+        ((0, 85, 150), draw_icon_route, "Navigation Ready", "Route to Milano set"),
+    ]
+    item_h = 36 * s
+    item_y = cy + pad + 35 * s
+    modern_theme_for_notif = Theme("mod_notif", "", card_bg=(248, 250, 252),
+                                    card_border=(226, 232, 240),
+                                    text=(15, 23, 42), text_dim=(148, 163, 184))
+    for border_c, icon_fn, title, subtitle in notifs:
+        draw_notification_item(draw, col2_x + 8 * s, item_y,
+                               col2_w - 16 * s, item_h,
+                               modern_theme_for_notif, border_c, icon_fn, title, subtitle)
+        item_y += item_h + 6 * s
+
+    # "View All Notifications" link
+    f_link = _font("bold", 7 * s)
+    text_centered(draw, col2_x + col2_w // 2, item_y + 8 * s,
+                  "View All Notifications", f_link, (0, 85, 150))
+
+    # --- Column 3: Album art placeholder + System Ready ---
+    # Album art placeholder
+    art_h = int(ch * 0.45)
+    draw_card(draw, col3_x, cy + pad, col3_w, art_h,
+              fill=(226, 232, 240), border_color=(226, 232, 240))
+    draw_icon_music(draw, col3_x + col3_w // 2, cy + pad + art_h // 2,
+                    20 * s, (148, 163, 184))
+    f_track = _font("bold", 8 * s)
+    text_centered(draw, col3_x + col3_w // 2, cy + pad + art_h - 20 * s,
+                  "Now Playing", f_track, (100, 116, 139))
+
+    # System Ready card
+    sys_y = cy + pad + art_h + pad
+    sys_h = ch - art_h - pad * 3
+    draw_card(draw, col3_x, sys_y, col3_w, sys_h,
+              fill=(255, 255, 255), border_color=(226, 232, 240))
+    f_sys = _font("bold", 8 * s)
+    text_centered(draw, col3_x + col3_w // 2, sys_y + 12 * s,
+                  "SYSTEM READY", f_sys, (22, 163, 74))
+    draw_icon_check(draw, col3_x + col3_w // 2, sys_y + sys_h // 2 + 5 * s,
+                    15 * s, (22, 163, 74))
+
+    return img
+
+
+def render_a1_autodelta():
+    """Autodelta A1: Black bg, orange accents, coolant/fuel/oil left, status + media right."""
+    s = SS
+    img, draw, (cx, cy, cw, ch) = render_frame(AUTODELTA, active_nav=0)
+
+    pad = 12 * s
+    col1_w = int(cw * 0.30)
+    col2_w = cw - col1_w - pad
+    col1_x = cx
+    col2_x = col1_x + col1_w + pad
+
+    # --- Left Column: 3 vertical gauge bars ---
+    gauges = [
+        ("COOLANT", "195°F", 0.78, (236, 91, 19)),
+        ("FUEL", "82%", 0.82, (236, 91, 19)),
+        ("OIL PRESS", "45 psi", 0.60, (255, 255, 255)),
+    ]
+    gauge_h = (ch - pad * 4) // 3
+    f_label = _font("bold", 7 * s)
+    f_value = _font("bold", 14 * s)
+
+    for i, (label, val, frac, color) in enumerate(gauges):
+        gy = cy + pad + i * (gauge_h + pad)
+        draw_card(draw, col1_x, gy, col1_w, gauge_h,
+                  fill=(24, 24, 27), border_color=(39, 39, 42))
+        draw.text((col1_x + 10 * s, gy + 8 * s), label,
+                  font=f_label, fill=(113, 113, 122))
+        draw.text((col1_x + 10 * s, gy + 22 * s), val,
+                  font=f_value, fill=(255, 255, 255))
+        # Progress bar
+        bar_y = gy + gauge_h - 16 * s
+        draw_progress_bar(draw, col1_x + 10 * s, bar_y,
+                          col1_w - 20 * s, 6 * s, frac, color,
+                          (39, 39, 42), radius=3 * s)
+
+    # --- Right Column ---
+    # "CURRENT STATUS" header
+    f_header = _font("bold", 10 * s)
+    draw.text((col2_x + 10 * s, cy + pad + 4 * s), "CURRENT STATUS",
+              font=f_header, fill=(236, 91, 19))
+
+    # Systems Nominal card
+    status_y = cy + pad + 28 * s
+    status_h = int(ch * 0.35)
+    draw_card(draw, col2_x, status_y, col2_w, status_h,
+              fill=(24, 24, 27), border_color=(39, 39, 42))
+    # Green check + "Systems Nominal"
+    check_cx = col2_x + 30 * s
+    check_cy = status_y + status_h // 2
+    draw.ellipse([check_cx - 14 * s, check_cy - 14 * s,
+                  check_cx + 14 * s, check_cy + 14 * s],
+                 fill=(34, 197, 94, 40))
+    draw_icon_check(draw, check_cx, check_cy, 10 * s, (34, 197, 94))
+    f_nominal = _font("bold", 12 * s)
+    draw.text((check_cx + 24 * s, check_cy - 8 * s), "Systems Nominal",
+              font=f_nominal, fill=(255, 255, 255))
+    f_sub = _font("regular", 7 * s)
+    draw.text((check_cx + 24 * s, check_cy + 8 * s),
+              "All diagnostics passed", font=f_sub, fill=(113, 113, 122))
+
+    # Media player card at bottom
+    media_y = status_y + status_h + pad
+    media_h = ch - (media_y - cy) - pad
+    draw_card(draw, col2_x, media_y, col2_w, media_h,
+              fill=(24, 24, 27), border_color=(39, 39, 42))
+    draw_icon_music(draw, col2_x + 24 * s, media_y + media_h // 2,
+                    10 * s, (236, 91, 19))
+    f_track = _font("bold", 9 * s)
+    f_artist = _font("regular", 7 * s)
+    draw.text((col2_x + 44 * s, media_y + 12 * s), "Nightcall (Drive OST)",
+              font=f_track, fill=(255, 255, 255))
+    draw.text((col2_x + 44 * s, media_y + 26 * s), "Kavinsky",
+              font=f_artist, fill=(113, 113, 122))
+    # Simple playback bar
+    pb_y = media_y + media_h - 16 * s
+    draw_progress_bar(draw, col2_x + 10 * s, pb_y, col2_w - 20 * s, 3 * s,
+                      0.35, (236, 91, 19), (39, 39, 42), radius=2 * s)
+
+    return img
+
+
+def render_a1_main(theme):
+    """Dispatch to theme-specific A1 main renderer."""
+    if theme.name == "heritage":
+        return render_a1_heritage()
+    elif theme.name == "modern":
+        return render_a1_modern()
+    elif theme.name == "autodelta":
+        return render_a1_autodelta()
+
+
+# --- A2 Trip Screens (Step 1.8) ---
+
+def render_a2_heritage():
+    """Heritage A2: Light bg, stat cards left, bar chart right."""
+    s = SS
+    # Heritage A2 uses light background (#f8f6f6)
+    img = Image.new("RGBA", (SW, SH), (248, 246, 246, 255))
+    draw = ImageDraw.Draw(img)
+
+    # Custom header (dark bg, heritage style)
+    bar_h = 56 * s
+    draw.rectangle([0, 0, SW, bar_h], fill=(34, 22, 16))
+    draw.line([(0, bar_h - 1), (SW, bar_h - 1)], fill=(236, 91, 19, 50))
+    # Header content
+    f_time = _font("bold", 14 * s)
+    f_date = _font("regular", 10 * s)
+    f_brand = _font("bold", 14 * s)
+    f_temp = _font("bold", 14 * s)
+    draw.text((24 * s, 16 * s), "10:42 AM", font=f_time, fill=(248, 246, 246))
+    draw.text((120 * s, 20 * s), "Oct 24", font=f_date, fill=(248, 246, 246, 178))
+    text_spaced_centered(draw, SW // 2, bar_h // 2, "ALFA ROMEO", f_brand,
+                         (236, 91, 19), spacing=5 * s)
+    text_right(draw, SW - 24 * s, 16 * s, "68°F", f_temp, (248, 246, 246))
+    # BT + Android icons
+    _draw_bt_icon(draw, SW - 100 * s, bar_h // 2, 7 * s, (236, 91, 19))
+
+    # Content area
+    content_y = bar_h + 8 * s
+    content_h = SH - bar_h - 72 * s
+
+    # Left column: stat cards (300px wide)
+    left_w = 300 * s
+    left_x = 24 * s
+    pad = 12 * s
+
+    f_title = _font("bold", 18 * s)
+    f_label = _font("bold", 9 * s)
+    f_value = _font("bold", 24 * s)
+    f_unit = _font("regular", 12 * s)
+
+    draw.text((left_x, content_y), "Trip A2", font=f_title, fill=(34, 22, 16))
+
+    cards = [
+        ("Distance", "142.5", "mi"),
+        ("Avg Speed", "48", "mph"),
+        ("Travel Time", "2h 58m", ""),
+    ]
+    card_y = content_y + 30 * s
+    card_h = (content_h - 50 * s) // 3 - pad
+    for label, val, unit in cards:
+        draw_card(draw, left_x, card_y, left_w - 24 * s, card_h,
+                  fill=(255, 255, 255), border_color=(236, 91, 19, 25))
+        draw.text((left_x + 16 * s, card_y + 8 * s), label.upper(),
+                  font=f_label, fill=(34, 22, 16, 178))
+        draw.text((left_x + 16 * s, card_y + 24 * s), val,
+                  font=f_value, fill=(34, 22, 16))
+        if unit:
+            tw, _ = text_bbox_size(draw, val, f_value)
+            draw.text((left_x + 20 * s + tw, card_y + 32 * s), unit,
+                      font=f_unit, fill=(34, 22, 16, 127))
+        card_y += card_h + pad
+
+    # Right column: Fuel consumption chart
+    right_x = left_x + left_w
+    right_w = SW - right_x - 24 * s
+
+    # Header
+    f_chart_title = _font("bold", 10 * s)
+    f_mpg = _font("bold", 28 * s)
+    f_mpg_unit = _font("regular", 14 * s)
+    draw.text((right_x + 16 * s, content_y + 4 * s),
+              "Avg Fuel Consumption", font=f_chart_title, fill=(34, 22, 16, 178))
+    draw.text((right_x + 16 * s, content_y + 20 * s), "28.4",
+              font=f_mpg, fill=(236, 91, 19))
+    tw_mpg, _ = text_bbox_size(draw, "28.4", f_mpg)
+    draw.text((right_x + 20 * s + tw_mpg, content_y + 30 * s), "MPG",
+              font=f_mpg_unit, fill=(34, 22, 16, 127))
+
+    # "+1.2%" badge
+    badge_x = right_x + right_w - 80 * s
+    badge_y = content_y + 10 * s
+    rrect(draw, badge_x, badge_y, 65 * s, 18 * s, 9 * s,
+          fill=(220, 252, 231))
+    f_badge = _font("bold", 7 * s)
+    text_centered(draw, badge_x + 32 * s, badge_y + 9 * s, "+1.2%",
+                  f_badge, (22, 163, 74))
+
+    # Bar chart
+    chart_y = content_y + 60 * s
+    chart_h = content_h - 70 * s
+    vals = [0.15, 0.25, 0.45, 0.60, 0.75, 0.55, 0.85]
+    bar_colors = []
+    for i, v in enumerate(vals):
+        if i < 3:
+            bar_colors.append((34, 22, 16, 50))
+        else:
+            a = int(100 + 155 * (i - 3) / 3)
+            bar_colors.append((236, 91, 19, a))
+
+    draw_card(draw, right_x, chart_y, right_w, chart_h,
+              fill=(255, 255, 255), border_color=(236, 91, 19, 25))
+    draw_bar_chart(draw, right_x + 10 * s, chart_y + 10 * s,
+                   right_w - 20 * s, chart_h - 30 * s, vals, bar_colors,
+                   x_labels=["-50m", "-40m", "-30m", "-20m", "-10m", "-5m", "Now"],
+                   y_labels=["50", "40", "30", "20", "10"],
+                   label_color=(34, 22, 16, 127))
+
+    # Bottom nav (heritage style but light)
+    nav_y = SH - 72 * s
+    draw.rectangle([0, nav_y, SW, SH], fill=(34, 22, 16))
+    draw.line([(0, nav_y), (SW, nav_y)], fill=(236, 91, 19, 50))
+    # Nav icons
+    item_w = SW // 4
+    for i in range(4):
+        ix = item_w * i + item_w // 2
+        iy = nav_y + 36 * s
+        is_active = (i == 3)  # car/trip active
+        if is_active:
+            c = (236, 91, 19)
+        else:
+            c = (248, 246, 246, 178)
+        NAV_ICONS[i](draw, ix, iy, 12 * s, c)
+
+    return img
+
+
+def render_a2_modern():
+    """Modern A2: Slate bg, trip stats left, line graph right."""
+    s = SS
+    img, draw, (cx, cy, cw, ch) = render_frame(MODERN, active_nav=1,
+                                                 bg_override=(241, 245, 249))
+    pad = 12 * s
+
+    # Left column: 1/3
+    col1_w = int(cw * 0.33)
+    col1_x = cx
+    col2_x = col1_x + col1_w + pad
+    col2_w = cw - col1_w - pad
+
+    # --- Trip Distance Card ---
+    top_h = int(ch * 0.55)
+    draw_card(draw, col1_x, cy + pad, col1_w, top_h,
+              fill=(255, 255, 255), border_color=(226, 232, 240))
+    f_label = _font("bold", 7 * s)
+    f_value = _font("bold", 22 * s)
+    f_unit = _font("regular", 10 * s)
+    draw.text((col1_x + 12 * s, cy + pad + 10 * s), "TRIP A2 DISTANCE",
+              font=f_label, fill=(148, 163, 184))
+    draw.text((col1_x + 12 * s, cy + pad + 28 * s), "142.8",
+              font=f_value, fill=(0, 85, 150))
+    tw, _ = text_bbox_size(draw, "142.8", f_value)
+    draw.text((col1_x + 16 * s + tw, cy + pad + 36 * s), "km",
+              font=f_unit, fill=(148, 163, 184))
+    # Duration / Avg Speed at bottom of card
+    f_small = _font("bold", 8 * s)
+    f_small_val = _font("bold", 11 * s)
+    bottom_area = cy + pad + top_h - 40 * s
+    draw.text((col1_x + 12 * s, bottom_area), "DURATION",
+              font=_font("bold", 6 * s), fill=(148, 163, 184))
+    draw.text((col1_x + 12 * s, bottom_area + 12 * s), "01:45 h",
+              font=f_small_val, fill=(15, 23, 42))
+    text_right(draw, col1_x + col1_w - 12 * s, bottom_area, "AVG SPEED",
+               _font("bold", 6 * s), (148, 163, 184))
+    text_right(draw, col1_x + col1_w - 12 * s, bottom_area + 12 * s,
+               "82 km/h", f_small_val, (15, 23, 42))
+
+    # --- Fuel card (blue accent bg) ---
+    fuel_y = cy + pad + top_h + pad
+    fuel_h = ch - top_h - pad * 3
+    draw_card(draw, col1_x, fuel_y, col1_w, fuel_h,
+              fill=(0, 85, 150), border_color=None)
+    f_fuel_label = _font("bold", 7 * s)
+    f_fuel_val = _font("bold", 18 * s)
+    draw.text((col1_x + 12 * s, fuel_y + 10 * s), "AVERAGE FUEL",
+              font=f_fuel_label, fill=(255, 255, 255, 178))
+    draw.text((col1_x + 12 * s, fuel_y + 28 * s), "6.4",
+              font=f_fuel_val, fill=(255, 255, 255))
+    tw, _ = text_bbox_size(draw, "6.4", f_fuel_val)
+    draw.text((col1_x + 16 * s + tw, fuel_y + 34 * s), "l/100km",
+              font=_font("regular", 8 * s), fill=(255, 255, 255, 178))
+    # Fuel icon (right side, dim)
+    draw_icon_fuel(draw, col1_x + col1_w - 28 * s, fuel_y + fuel_h // 2,
+                   16 * s, (255, 255, 255, 76))
+
+    # --- Right Column: Consumption History ---
+    draw_card(draw, col2_x, cy + pad, col2_w, ch - pad * 2,
+              fill=(255, 255, 255), border_color=(226, 232, 240))
+    f_header = _font("bold", 10 * s)
+    draw.text((col2_x + 12 * s, cy + pad + 10 * s), "Consumption History",
+              font=f_header, fill=(15, 23, 42))
+    # "LAST 30 MIN" badge
+    badge_x = col2_x + col2_w - 90 * s
+    rrect(draw, badge_x, cy + pad + 8 * s, 78 * s, 16 * s, 4 * s,
+          fill=(241, 245, 249))
+    f_badge = _font("bold", 6 * s)
+    text_centered(draw, badge_x + 39 * s, cy + pad + 16 * s,
+                  "LAST 30 MIN", f_badge, (148, 163, 184))
+
+    # Line graph
+    graph_y = cy + pad + 40 * s
+    graph_h = ch - 130 * s
+    pts = [0.3, 0.5, 0.35, 0.6, 0.45, 0.7, 0.35, 0.55, 0.8, 0.45, 0.65]
+    draw_line_graph(img, draw, col2_x + 30 * s, graph_y,
+                    col2_w - 50 * s, graph_h, pts,
+                    (0, 85, 150), fill_color=(0, 85, 150, 30),
+                    highlight_idx=8)
+    draw = ImageDraw.Draw(img)
+
+    # Y-axis labels
+    f_axis = _font("bold", 6 * s)
+    for i, lbl in enumerate(["15L", "10L", "5L", "0L"]):
+        ly = graph_y + int(graph_h * i / 3)
+        draw.text((col2_x + 10 * s, ly - 4 * s), lbl, font=f_axis,
+                  fill=(148, 163, 184))
+
+    # Bottom stats
+    stat_y = cy + ch - pad - 40 * s
+    draw.line([(col2_x + 12 * s, stat_y), (col2_x + col2_w - 12 * s, stat_y)],
+              fill=(241, 245, 249))
+    f_stat_l = _font("bold", 6 * s)
+    f_stat_v = _font("bold", 9 * s)
+    draw.text((col2_x + 16 * s, stat_y + 6 * s), "CURRENT", font=f_stat_l,
+              fill=(148, 163, 184))
+    draw.text((col2_x + 16 * s, stat_y + 18 * s), "7.1 l/100km",
+              font=f_stat_v, fill=(15, 23, 42))
+    draw.text((col2_x + 120 * s, stat_y + 6 * s), "PEAK", font=f_stat_l,
+              fill=(148, 163, 184))
+    draw.text((col2_x + 120 * s, stat_y + 18 * s), "12.4 l/100km",
+              font=f_stat_v, fill=(15, 23, 42))
+
+    # "DRIVING STYLE: DYNAMIC" badge (red)
+    dyn_x = col2_x + col2_w - 170 * s
+    dyn_y = stat_y + 8 * s
+    rrect(draw, dyn_x, dyn_y, 158 * s, 22 * s, 6 * s, fill=(254, 242, 242))
+    draw_icon_eco(draw, dyn_x + 12 * s, dyn_y + 11 * s, 6 * s, (239, 68, 68))
+    f_dyn = _font("bold", 6 * s)
+    draw.text((dyn_x + 24 * s, dyn_y + 5 * s), "DRIVING STYLE: DYNAMIC",
+              font=f_dyn, fill=(220, 38, 38))
+
+    return img
+
+
+def render_a2_autodelta():
+    """Autodelta A2: Black bg, bento grid, bar chart, speed, efficiency ring, range."""
+    s = SS
+    img, draw, (cx, cy, cw, ch) = render_frame(AUTODELTA, active_nav=1)
+
+    pad = 10 * s
+
+    # Dashboard header
+    f_title = _font("bold", 14 * s)
+    f_subtitle = _font("regular", 7 * s)
+    f_dist = _font("bold", 18 * s)
+    f_dist_unit = _font("regular", 8 * s)
+    draw.text((cx, cy + 6 * s), "Autodelta Sport A2", font=f_title,
+              fill=(236, 91, 19))
+    draw.text((cx, cy + 24 * s), "TRIP STATISTICS & ANALYTICS",
+              font=f_subtitle, fill=(113, 113, 122))
+    text_right(draw, cx + cw, cy + 6 * s, "142.8", font=f_dist,
+               fill=(255, 255, 255))
+    text_right(draw, cx + cw, cy + 26 * s, "KM · CURRENT SESSION",
+               font=f_subtitle, fill=(113, 113, 122))
+
+    # Bento grid starts below header
+    grid_y = cy + 44 * s
+    grid_h = ch - 48 * s
+
+    # Row 1 (60% height): consumption chart (left 2/3) + speed/efficiency (right 1/3)
+    r1_h = int(grid_h * 0.58)
+    r2_h = grid_h - r1_h - pad
+
+    left_w = int(cw * 0.64)
+    right_w = cw - left_w - pad
+
+    # --- Consumption bar chart ---
+    draw_card(draw, cx, grid_y, left_w, r1_h,
+              fill=(24, 24, 27, 127), border_color=(39, 39, 42))
+    f_chart_label = _font("bold", 7 * s)
+    draw.text((cx + 12 * s, grid_y + 8 * s), "FUEL CONSUMPTION L/100KM",
+              font=f_chart_label, fill=(113, 113, 122))
+    # Bars
+    bar_vals = [0.3, 0.4, 0.6, 0.5, 0.35, 0.45, 0.7, 0.8, 0.25, 0.55, 0.4, 0.5]
+    bar_cols = []
+    for i, v in enumerate(bar_vals):
+        if v > 0.6:
+            bar_cols.append((236, 91, 19, int(255 * min(1, v + 0.2))))
+        else:
+            bar_cols.append((39, 39, 42))
+    draw_bar_chart(draw, cx + 10 * s, grid_y + 28 * s,
+                   left_w - 20 * s, r1_h - 60 * s, bar_vals, bar_cols,
+                   x_labels=["0km", "40km", "80km", "120km", "Cur"],
+                   label_color=(113, 113, 122))
+
+    # --- Avg Speed card ---
+    speed_h = (r1_h - pad) // 2
+    draw_card(draw, cx + left_w + pad, grid_y, right_w, speed_h,
+              fill=(24, 24, 27, 127), border_color=(39, 39, 42))
+    draw.text((cx + left_w + pad + 12 * s, grid_y + 8 * s), "AVG SPEED",
+              font=_font("bold", 6 * s), fill=(113, 113, 122))
+    f_big = _font("bold", 24 * s)
+    draw.text((cx + left_w + pad + 12 * s, grid_y + 22 * s), "84",
+              font=f_big, fill=(255, 255, 255))
+    tw84, _ = text_bbox_size(draw, "84", f_big)
+    draw.text((cx + left_w + pad + 16 * s + tw84, grid_y + 30 * s), "KM/H",
+              font=_font("bold", 8 * s), fill=(236, 91, 19))
+
+    # --- Efficiency gauge card ---
+    eff_y = grid_y + speed_h + pad
+    draw_card(draw, cx + left_w + pad, eff_y, right_w, speed_h,
+              fill=(24, 24, 27, 127), border_color=(39, 39, 42))
+    draw.text((cx + left_w + pad + 12 * s, eff_y + 8 * s), "EFFICIENCY",
+              font=_font("bold", 6 * s), fill=(113, 113, 122))
+    # Circle gauge
+    gauge_cx = cx + left_w + pad + 36 * s
+    gauge_cy = eff_y + speed_h // 2 + 8 * s
+    gauge_r = 18 * s
+    draw_circle_gauge(draw, gauge_cx, gauge_cy, gauge_r, 0.75,
+                      (236, 91, 19), (39, 39, 42), 4 * s)
+    text_centered(draw, gauge_cx, gauge_cy, "75", _font("bold", 8 * s),
+                  (255, 255, 255))
+    draw.text((gauge_cx + gauge_r + 8 * s, gauge_cy - 8 * s), "OPTIMAL",
+              font=_font("bold", 7 * s), fill=(255, 255, 255))
+    draw.text((gauge_cx + gauge_r + 8 * s, gauge_cy + 4 * s), "ZONE",
+              font=_font("regular", 7 * s), fill=(113, 113, 122))
+
+    # --- Row 2: Range + Active Driving ---
+    r2_y = grid_y + r1_h + pad
+    half_w = (cw - pad) // 2
+
+    # Range Remaining (orange border)
+    draw_card(draw, cx, r2_y, half_w, r2_h,
+              fill=(9, 9, 11), border_color=(236, 91, 19, 76))
+    draw.text((cx + 12 * s, r2_y + 8 * s), "RANGE REMAINING",
+              font=_font("bold", 6 * s), fill=(113, 113, 122))
+    draw.text((cx + 12 * s, r2_y + 22 * s), "412",
+              font=_font("bold", 18 * s), fill=(255, 255, 255))
+    tw412, _ = text_bbox_size(draw, "412", _font("bold", 18 * s))
+    draw.text((cx + 16 * s + tw412, r2_y + 28 * s), "KM",
+              font=_font("bold", 8 * s), fill=(236, 91, 19))
+    # Fuel icon in circle
+    icon_cx = cx + half_w - 28 * s
+    icon_cy = r2_y + r2_h // 2
+    draw.ellipse([icon_cx - 16 * s, icon_cy - 16 * s,
+                  icon_cx + 16 * s, icon_cy + 16 * s],
+                 outline=(236, 91, 19, 50), width=2 * s)
+    draw_icon_fuel(draw, icon_cx, icon_cy, 10 * s, (236, 91, 19))
+
+    # Active Driving
+    draw_card(draw, cx + half_w + pad, r2_y, half_w, r2_h,
+              fill=(24, 24, 27, 127), border_color=(39, 39, 42))
+    draw.text((cx + half_w + pad + 12 * s, r2_y + 8 * s), "ACTIVE DRIVING",
+              font=_font("bold", 6 * s), fill=(113, 113, 122))
+    draw.text((cx + half_w + pad + 12 * s, r2_y + 22 * s), "01:54",
+              font=_font("bold", 18 * s), fill=(255, 255, 255))
+    tw_time, _ = text_bbox_size(draw, "01:54", _font("bold", 18 * s))
+    draw.text((cx + half_w + pad + 16 * s + tw_time, r2_y + 28 * s), "HRS",
+              font=_font("bold", 8 * s), fill=(113, 113, 122))
+
+    return img
+
+
+def render_a2_trip(theme):
+    """Dispatch to theme-specific A2 trip renderer."""
+    if theme.name == "heritage":
+        return render_a2_heritage()
+    elif theme.name == "modern":
+        return render_a2_modern()
+    elif theme.name == "autodelta":
+        return render_a2_autodelta()
+
+
+# --- A3 Weather Screens (Step 1.9) ---
+
+def _draw_cloud_icon_large(draw, cx, cy, size, color):
+    """Draw a larger, more detailed cloud icon for weather displays."""
+    s = size
+    # Main body
+    draw.ellipse([cx - s * 0.8, cy - s * 0.1, cx + s * 0.8, cy + s * 0.6], fill=color)
+    # Top bump
+    draw.ellipse([cx - s * 0.3, cy - s * 0.6, cx + s * 0.5, cy + s * 0.2], fill=color)
+    # Left bump
+    draw.ellipse([cx - s * 0.9, cy - s * 0.2, cx - s * 0.1, cy + s * 0.5], fill=color)
+    # Right bump
+    draw.ellipse([cx + s * 0.1, cy - s * 0.4, cx + s * 0.7, cy + s * 0.3], fill=color)
+
+
+def _draw_sun_partial(draw, cx, cy, size, sun_color, cloud_color):
+    """Draw a sun partially hidden by cloud."""
+    s = size
+    # Sun circle (top-right)
+    draw.ellipse([cx + s * 0.2, cy - s * 0.7, cx + s * 0.9, cy],
+                 fill=sun_color)
+    # Sun rays
+    for angle in range(0, 360, 45):
+        a = math.radians(angle)
+        rx = cx + s * 0.55 + int(s * 0.5 * math.cos(a))
+        ry = cy - s * 0.35 + int(s * 0.5 * math.sin(a))
+        draw.line([(cx + s * 0.55, cy - s * 0.35), (rx, ry)],
+                  fill=(*sun_color[:3], 100), width=max(1, s // 10))
+    # Cloud on top
+    _draw_cloud_icon_large(draw, cx - s * 0.2, cy + s * 0.1, s * 0.6, cloud_color)
+
+
+def render_a3_heritage():
+    """Heritage A3: Dark burl bg, weather left, map placeholder right."""
+    s = SS
+    img, draw, (cx, cy, cw, ch) = render_frame(HERITAGE, active_nav=2,
+                                                 bg_override=(26, 15, 10))
+    draw_burl_texture(img, draw, cx - 16 * s, cy, cw + 32 * s, ch)
+    draw = ImageDraw.Draw(img)
+
+    pad = 12 * s
+    col1_w = int(cw * 0.33)
+    col2_w = cw - col1_w - pad
+    col1_x = cx
+    col2_x = col1_x + col1_w + pad
+
+    # --- Left: Weather Info ---
+    weather_h = ch - pad * 2
+    draw_card(draw, col1_x, cy + pad, col1_w, weather_h,
+              fill=(9, 9, 11, 200), border_color=(39, 39, 42))
+
+    f_city = _font("bold", 12 * s)
+    f_cond = _font("regular", 8 * s)
+    f_temp = _font("bold", 32 * s)
+    f_feels = _font("regular", 7 * s)
+
+    draw.text((col1_x + 14 * s, cy + pad + 10 * s), "Milan, IT",
+              font=f_city, fill=(244, 244, 245))
+    draw.text((col1_x + 14 * s, cy + pad + 28 * s), "Partly Cloudy",
+              font=f_cond, fill=(161, 161, 170))
+
+    # Cloud icon
+    _draw_sun_partial(draw, col1_x + col1_w // 2, cy + pad + 70 * s,
+                      20 * s, (245, 158, 11), (161, 161, 170))
+
+    # Temperature
+    draw.text((col1_x + 14 * s, cy + pad + 100 * s), "72°",
+              font=f_temp, fill=(244, 244, 245))
+    draw.text((col1_x + 14 * s, cy + pad + 140 * s), "Feels like 74°",
+              font=f_feels, fill=(113, 113, 122))
+
+    # 3-day forecast
+    forecast = [("Today", "75°", "55°"), ("Wed", "68°", "52°"), ("Thu", "62°", "48°")]
+    f_day = _font("bold", 7 * s)
+    f_hi = _font("bold", 9 * s)
+    f_lo = _font("regular", 7 * s)
+    fc_y = cy + pad + 170 * s
+    for day, hi, lo in forecast:
+        draw.line([(col1_x + 14 * s, fc_y), (col1_x + col1_w - 14 * s, fc_y)],
+                  fill=(39, 39, 42))
+        draw.text((col1_x + 14 * s, fc_y + 6 * s), day, font=f_day,
+                  fill=(161, 161, 170))
+        text_right(draw, col1_x + col1_w - 14 * s, fc_y + 4 * s,
+                   f"{hi}/{lo}", f_hi, (244, 244, 245))
+        fc_y += 32 * s
+
+    # --- Right: Map Placeholder ---
+    draw_card(draw, col2_x, cy + pad, col2_w, weather_h,
+              fill=(15, 15, 18), border_color=(39, 39, 42))
+    draw_simple_map(img, draw, col2_x + 2 * s, cy + pad + 2 * s,
+                    col2_w - 4 * s, weather_h - 4 * s, HERITAGE)
+    draw = ImageDraw.Draw(img)
+
+    # Search bar overlay at top of map
+    search_y = cy + pad + 10 * s
+    search_w = col2_w - 30 * s
+    rrect(draw, col2_x + 15 * s, search_y, search_w, 24 * s, 6 * s,
+          fill=(0, 0, 0, 150))
+    draw.text((col2_x + 26 * s, search_y + 5 * s), "Search location...",
+              font=_font("regular", 8 * s), fill=(113, 113, 122))
+
+    # "Weather Radar" button at bottom
+    btn_y = cy + pad + weather_h - 34 * s
+    btn_w = 120 * s
+    rrect(draw, col2_x + col2_w // 2 - btn_w // 2, btn_y, btn_w, 22 * s,
+          8 * s, fill=(245, 158, 11, 50))
+    text_centered(draw, col2_x + col2_w // 2, btn_y + 11 * s,
+                  "Weather Radar", _font("bold", 7 * s), (245, 158, 11))
+
+    return img
+
+
+def render_a3_modern():
+    """Modern A3: Black bg, map left, glass weather card right."""
+    s = SS
+    # Modern A3 uses dark bg for the map area
+    img = Image.new("RGBA", (SW, SH), (0, 0, 0, 255))
+    draw = ImageDraw.Draw(img)
+
+    # App bar (modern style)
+    draw_app_bar(img, draw, MODERN)
+    draw_nav_bar(img, draw, MODERN, active_index=2)
+
+    cy = APPBAR_H * s
+    ch = CONTENT_H * s
+    pad = 12 * s
+
+    # Layout: map 8/12 left, weather 4/12 right
+    map_w = int(SW * 8 / 12)
+    card_w = SW - map_w
+
+    # --- Map (left side, full height) ---
+    draw_simple_map(img, draw, 0, cy, map_w, ch, MODERN)
+    draw = ImageDraw.Draw(img)
+
+    # Glass location card on map
+    loc_card_w = 220 * s
+    loc_card_h = 40 * s
+    loc_x = 20 * s
+    loc_y = cy + ch - 60 * s
+    # Glass effect
+    glass = Image.new("RGBA", (loc_card_w, loc_card_h), (255, 255, 255, 200))
+    gd = ImageDraw.Draw(glass)
+    gd.rounded_rectangle([0, 0, loc_card_w, loc_card_h], radius=8 * s,
+                         fill=(255, 255, 255, 200))
+    img.paste(Image.alpha_composite(
+        img.crop((loc_x, loc_y, loc_x + loc_card_w, loc_y + loc_card_h)).convert("RGBA"),
+        glass), (loc_x, loc_y))
+    draw = ImageDraw.Draw(img)
+    draw.text((loc_x + 12 * s, loc_y + 6 * s),
+              "Via Alessandro Volta, Milan",
+              font=_font("bold", 8 * s), fill=(15, 23, 42))
+    draw.text((loc_x + 12 * s, loc_y + 22 * s), "Current Location",
+              font=_font("regular", 6 * s), fill=(100, 116, 139))
+
+    # --- Weather Card (right side) ---
+    card_x = map_w
+    draw.rectangle([card_x, cy, SW, cy + ch], fill=(15, 15, 20))
+
+    # Glass-style background
+    glass_bg = Image.new("RGBA", (card_w, ch), (255, 255, 255, 20))
+    img.paste(Image.alpha_composite(
+        img.crop((card_x, cy, card_x + card_w, cy + ch)).convert("RGBA"),
+        glass_bg), (card_x, cy))
+    draw = ImageDraw.Draw(img)
+
+    f_cond = _font("regular", 9 * s)
+    f_temp = _font("bold", 36 * s)
+    f_small = _font("regular", 7 * s)
+    f_label = _font("bold", 6 * s)
+
+    draw.text((card_x + 16 * s, cy + 16 * s), "Partly Cloudy",
+              font=f_cond, fill=(200, 200, 210))
+    draw.text((card_x + 16 * s, cy + 36 * s), "18°",
+              font=f_temp, fill=(255, 255, 255))
+    draw.text((card_x + 16 * s, cy + 80 * s), "L:14°  H:21°",
+              font=f_small, fill=(148, 163, 184))
+
+    # Cloud icon
+    _draw_sun_partial(draw, card_x + card_w - 50 * s, cy + 50 * s,
+                      18 * s, (245, 200, 60), (180, 180, 190))
+
+    # Hourly forecast (3 columns)
+    hour_y = cy + 110 * s
+    draw.line([(card_x + 16 * s, hour_y), (card_x + card_w - 16 * s, hour_y)],
+              fill=(255, 255, 255, 30))
+    hours = [("14:00", "18°"), ("15:00", "17°"), ("16:00", "16°")]
+    col_w = (card_w - 32 * s) // 3
+    for i, (hr, tmp) in enumerate(hours):
+        hx = card_x + 16 * s + i * col_w + col_w // 2
+        draw.text((hx - 12 * s, hour_y + 8 * s), hr, font=f_label,
+                  fill=(148, 163, 184))
+        draw.text((hx - 8 * s, hour_y + 22 * s), tmp,
+                  font=_font("bold", 10 * s), fill=(255, 255, 255))
+
+    # Wind + Humidity
+    info_y = hour_y + 50 * s
+    draw.line([(card_x + 16 * s, info_y), (card_x + card_w - 16 * s, info_y)],
+              fill=(255, 255, 255, 30))
+    draw.text((card_x + 16 * s, info_y + 8 * s), "WIND", font=f_label,
+              fill=(148, 163, 184))
+    draw.text((card_x + 16 * s, info_y + 20 * s), "12 km/h",
+              font=_font("bold", 9 * s), fill=(255, 255, 255))
+    draw.text((card_x + 16 * s, info_y + 42 * s), "HUMIDITY", font=f_label,
+              fill=(148, 163, 184))
+    draw.text((card_x + 16 * s, info_y + 54 * s), "42%",
+              font=_font("bold", 9 * s), fill=(255, 255, 255))
+
+    return img
+
+
+def render_a3_autodelta():
+    """Autodelta A3: Black bg, bento grid, weather hero + map + forecast strip."""
+    s = SS
+    img, draw, (cx, cy, cw, ch) = render_frame(AUTODELTA, active_nav=2)
+
+    pad = 10 * s
+    # Top row (65% height): weather hero (left 5/12) + map (right 7/12)
+    r1_h = int(ch * 0.62)
+    r2_h = ch - r1_h - pad
+
+    hero_w = int(cw * 5 / 12)
+    map_w = cw - hero_w - pad
+
+    # --- Weather Hero Card ---
+    draw_card(draw, cx, cy + pad, hero_w, r1_h,
+              fill=(24, 24, 27, 127), border_color=(39, 39, 42))
+
+    f_city = _font("bold", 10 * s)
+    f_cond = _font("regular", 8 * s)
+    f_temp = _font("bold", 36 * s)
+
+    draw.text((cx + 14 * s, cy + pad + 10 * s), "MILANO, IT",
+              font=f_city, fill=(236, 91, 19))
+    draw.text((cx + 14 * s, cy + pad + 26 * s), "Partly Cloudy",
+              font=f_cond, fill=(161, 161, 170))
+
+    # Cloud bg (faded)
+    _draw_cloud_icon_large(draw, cx + hero_w - 40 * s, cy + pad + 50 * s,
+                           30 * s, (236, 91, 19, 30))
+
+    draw.text((cx + 14 * s, cy + pad + 60 * s), "24°",
+              font=f_temp, fill=(255, 255, 255))
+    draw.text((cx + 14 * s, cy + pad + 100 * s), "Feels like 26°",
+              font=_font("regular", 7 * s), fill=(113, 113, 122))
+
+    # Wind + humidity in hero
+    info_y = cy + pad + r1_h - 40 * s
+    draw.text((cx + 14 * s, info_y), "Wind: 15 km/h",
+              font=_font("regular", 7 * s), fill=(161, 161, 170))
+    draw.text((cx + 14 * s, info_y + 14 * s), "Humidity: 38%",
+              font=_font("regular", 7 * s), fill=(161, 161, 170))
+
+    # --- Map Placeholder ---
+    map_x = cx + hero_w + pad
+    draw_card(draw, map_x, cy + pad, map_w, r1_h,
+              fill=(15, 15, 18), border_color=(39, 39, 42))
+    draw_simple_map(img, draw, map_x + 2 * s, cy + pad + 2 * s,
+                    map_w - 4 * s, r1_h - 4 * s, AUTODELTA)
+    draw = ImageDraw.Draw(img)
+
+    # Location label on map
+    label_y = cy + pad + r1_h - 28 * s
+    rrect(draw, map_x + 10 * s, label_y, map_w - 20 * s, 20 * s, 4 * s,
+          fill=(0, 0, 0, 180))
+    draw.text((map_x + 20 * s, label_y + 4 * s),
+              "Live Tracking \u2022 Viale Monza",
+              font=_font("bold", 7 * s), fill=(236, 91, 19))
+
+    # --- Bottom row: Forecast strip ---
+    strip_y = cy + pad + r1_h + pad
+    draw_card(draw, cx, strip_y, cw, r2_h,
+              fill=(24, 24, 27, 127), border_color=(39, 39, 42))
+
+    # 3 day forecast cards + stats
+    days = [("TODAY", "26°", "18°"), ("WED", "22°", "15°"), ("THU", "19°", "13°")]
+    day_w = int(cw * 0.18)
+    f_day = _font("bold", 7 * s)
+    f_hi = _font("bold", 12 * s)
+    f_lo = _font("regular", 8 * s)
+
+    for i, (day, hi, lo) in enumerate(days):
+        dx = cx + 10 * s + i * (day_w + 8 * s)
+        dy = strip_y + 8 * s
+        draw_card(draw, dx, dy, day_w, r2_h - 16 * s,
+                  fill=(9, 9, 11), border_color=(39, 39, 42))
+        text_centered(draw, dx + day_w // 2, dy + 10 * s, day, f_day,
+                      (236, 91, 19))
+        text_centered(draw, dx + day_w // 2, dy + 30 * s, hi, f_hi,
+                      (255, 255, 255))
+        text_centered(draw, dx + day_w // 2, dy + 48 * s, lo, f_lo,
+                      (113, 113, 122))
+
+    # Stats at right side of strip
+    stats = [("WIND", "15 km/h"), ("HUMIDITY", "38%"), ("UV INDEX", "6")]
+    stat_x = cx + 10 * s + 3 * (day_w + 8 * s) + 10 * s
+    stat_w = (cw - stat_x + cx) // 3
+    for i, (label, val) in enumerate(stats):
+        sx = stat_x + i * stat_w
+        sy = strip_y + 14 * s
+        draw.text((sx, sy), label, font=_font("bold", 6 * s),
+                  fill=(113, 113, 122))
+        draw.text((sx, sy + 14 * s), val, font=_font("bold", 10 * s),
+                  fill=(255, 255, 255))
+
+    return img
+
+
+def render_a3_weather(theme):
+    """Dispatch to theme-specific A3 weather renderer."""
+    if theme.name == "heritage":
+        return render_a3_heritage()
+    elif theme.name == "modern":
+        return render_a3_modern()
+    elif theme.name == "autodelta":
+        return render_a3_autodelta()
+
+
+# --- A4 Service Screens (Step 1.10) ---
+
+def render_a4_heritage():
+    """Heritage A4: Light bg, car silhouette left, diagnostics right."""
+    s = SS
+    # Light bg like Heritage A2
+    img = Image.new("RGBA", (SW, SH), (248, 246, 246, 255))
+    draw = ImageDraw.Draw(img)
+
+    # Custom header
+    bar_h = 56 * s
+    draw.rectangle([0, 0, SW, bar_h], fill=(34, 22, 16))
+    draw.line([(0, bar_h - 1), (SW, bar_h - 1)], fill=(236, 91, 19, 50))
+    f_time = _font("bold", 14 * s)
+    f_brand = _font("bold", 14 * s)
+    draw.text((24 * s, 16 * s), "10:42 AM", font=f_time, fill=(248, 246, 246))
+    text_spaced_centered(draw, SW // 2, bar_h // 2, "ALFA ROMEO", f_brand,
+                         (236, 91, 19), spacing=5 * s)
+    text_right(draw, SW - 24 * s, 16 * s, "68°F", f_time, (248, 246, 246))
+
+    cy = bar_h + 8 * s
+    ch = SH - bar_h - 72 * s
+    pad = 12 * s
+
+    # Left ~45%: Car silhouette in white card
+    left_w = int(SW * 0.45)
+    left_x = 24 * s
+    car_card_h = ch - pad
+    draw_card(draw, left_x, cy + pad, left_w - 24 * s, car_card_h,
+              fill=(255, 255, 255), border_color=(236, 91, 19, 25))
+    draw_car_silhouette(draw, left_x + (left_w - 24 * s) // 2,
+                        cy + pad + car_card_h // 2 - 20 * s,
+                        int(left_w * 0.75), int(car_card_h * 0.45),
+                        (34, 22, 16, 60), "outline")
+    # Car label
+    f_car_label = _font("bold", 9 * s)
+    text_centered(draw, left_x + (left_w - 24 * s) // 2,
+                  cy + pad + car_card_h - 30 * s,
+                  "Giulia GTA (1965)", f_car_label, (34, 22, 16, 127))
+
+    # Right ~55%: Diagnostics
+    right_x = left_x + left_w
+    right_w = SW - right_x - 24 * s
+
+    f_header = _font("bold", 12 * s)
+    f_label = _font("bold", 8 * s)
+    f_status = _font("bold", 8 * s)
+    f_detail = _font("regular", 7 * s)
+
+    draw.text((right_x, cy + pad), "System Status", font=f_header,
+              fill=(34, 22, 16))
+    # "Last checked" badge
+    badge_y = cy + pad + 2 * s
+    rrect(draw, right_x + 150 * s, badge_y, 100 * s, 16 * s, 8 * s,
+          fill=(226, 232, 240))
+    text_centered(draw, right_x + 200 * s, badge_y + 8 * s,
+                  "2 min ago", _font("regular", 6 * s), (100, 116, 139))
+
+    # Diagnostic rows
+    diags = [
+        ("Engine Mechanics", "OK", (34, 197, 94), None),
+        ("Tire Pressure", "WARNING", (245, 158, 11), "Front Right Low 28 psi"),
+        ("Fluid Levels", "OK", (34, 197, 94), None),
+        ("Electrical", "OK", (34, 197, 94), "14.2V"),
+    ]
+    row_h = 44 * s
+    row_y = cy + pad + 28 * s
+    for name, status, color, detail in diags:
+        draw_card(draw, right_x, row_y, right_w, row_h,
+                  fill=(255, 255, 255), border_color=(236, 91, 19, 25))
+        # Left accent
+        draw.rectangle([right_x, row_y, right_x + 3 * s, row_y + row_h],
+                       fill=color)
+        # Status icon
+        if status == "OK":
+            draw_icon_check(draw, right_x + 20 * s, row_y + row_h // 2,
+                            8 * s, color)
+        else:
+            draw_icon_warning(draw, right_x + 20 * s, row_y + row_h // 2,
+                              8 * s, color)
+        # Text
+        draw.text((right_x + 38 * s, row_y + 8 * s), name, font=f_label,
+                  fill=(34, 22, 16))
+        text_right(draw, right_x + right_w - 12 * s, row_y + 8 * s,
+                   status, f_status, color)
+        if detail:
+            draw.text((right_x + 38 * s, row_y + 24 * s), detail,
+                      font=f_detail, fill=(34, 22, 16, 127))
+        row_y += row_h + 8 * s
+
+    # Bottom nav
+    nav_y = SH - 72 * s
+    draw.rectangle([0, nav_y, SW, SH], fill=(34, 22, 16))
+    draw.line([(0, nav_y), (SW, nav_y)], fill=(236, 91, 19, 50))
+    item_w = SW // 4
+    for i in range(4):
+        ix = item_w * i + item_w // 2
+        iy = nav_y + 36 * s
+        c = (236, 91, 19) if i == 3 else (248, 246, 246, 178)
+        NAV_ICONS[i](draw, ix, iy, 12 * s, c)
+
+    return img
+
+
+def render_a4_modern():
+    """Modern A4: White bg, engine analytics, oil life, tire pressure cards."""
+    s = SS
+    img, draw, (cx, cy, cw, ch) = render_frame(MODERN, active_nav=3,
+                                                 bg_override=(255, 255, 255))
+    pad = 12 * s
+
+    # Header
+    f_header = _font("bold", 10 * s)
+    f_sub = _font("regular", 7 * s)
+    draw.text((cx, cy + 8 * s), "A4 SERVICE", font=f_header, fill=(15, 23, 42))
+    draw.text((cx + 100 * s, cy + 10 * s), "/ Detailed Vehicle Diagnostics",
+              font=f_sub, fill=(148, 163, 184))
+
+    content_y = cy + 30 * s
+    content_h = ch - 34 * s
+
+    # Top row: Engine Analytics (8/12) + Oil Life (4/12)
+    top_h = int(content_h * 0.45)
+    eng_w = int(cw * 8 / 12) - pad // 2
+    oil_w = cw - eng_w - pad
+
+    # Engine Analytics card
+    draw_card(draw, cx, content_y, eng_w, top_h,
+              fill=(248, 250, 252), border_color=(226, 232, 240))
+    draw.text((cx + 14 * s, content_y + 10 * s), "Engine Analytics",
+              font=_font("bold", 9 * s), fill=(15, 23, 42))
+    # Big PSI value
+    draw.text((cx + 14 * s, content_y + 30 * s), "92",
+              font=_font("bold", 28 * s), fill=(15, 23, 42))
+    tw92, _ = text_bbox_size(draw, "92", _font("bold", 28 * s))
+    draw.text((cx + 18 * s + tw92, content_y + 42 * s), "PSI",
+              font=_font("bold", 10 * s), fill=(148, 163, 184))
+    # Thermal load bar
+    draw.text((cx + 14 * s, content_y + top_h - 32 * s), "THERMAL LOAD 78%",
+              font=_font("bold", 6 * s), fill=(148, 163, 184))
+    draw_progress_bar(draw, cx + 14 * s, content_y + top_h - 18 * s,
+                      eng_w - 28 * s, 8 * s, 0.78,
+                      (0, 85, 150), (226, 232, 240), radius=4 * s)
+
+    # Oil Life card (dark)
+    oil_x = cx + eng_w + pad
+    draw_card(draw, oil_x, content_y, oil_w, top_h,
+              fill=(15, 23, 42), border_color=None)
+    draw.text((oil_x + 14 * s, content_y + 10 * s), "OIL LIFE",
+              font=_font("bold", 7 * s), fill=(255, 255, 255, 178))
+    draw.text((oil_x + 14 * s, content_y + 30 * s), "84%",
+              font=_font("bold", 28 * s), fill=(255, 255, 255))
+    # Circle gauge
+    gauge_cx = oil_x + oil_w // 2
+    gauge_cy = content_y + top_h - 35 * s
+    draw_circle_gauge(draw, gauge_cx, gauge_cy, 20 * s, 0.84,
+                      (34, 197, 94), (50, 50, 60), 4 * s)
+
+    # Bottom row: 4 tire pressure cards
+    tire_y = content_y + top_h + pad
+    tire_h = content_h - top_h - pad
+    tire_w = (cw - pad * 3) // 4
+    tires = [("FL", "2.4", "BAR"), ("FR", "2.4", "BAR"),
+             ("RL", "2.2", "BAR"), ("RR", "2.2", "BAR")]
+    for i, (pos, val, unit) in enumerate(tires):
+        tx = cx + i * (tire_w + pad)
+        draw_card(draw, tx, tire_y, tire_w, tire_h,
+                  fill=(255, 255, 255), border_color=(226, 232, 240))
+        draw.text((tx + 10 * s, tire_y + 6 * s), pos,
+                  font=_font("bold", 8 * s), fill=(148, 163, 184))
+        text_centered(draw, tx + tire_w // 2, tire_y + tire_h // 2,
+                      val, _font("bold", 16 * s), (15, 23, 42))
+        text_centered(draw, tx + tire_w // 2, tire_y + tire_h - 16 * s,
+                      unit, _font("regular", 7 * s), (148, 163, 184))
+
+    # "EXPORT LOG" button
+    btn_w = 100 * s
+    btn_x = cx + cw - btn_w
+    btn_y = cy + 4 * s
+    rrect(draw, btn_x, btn_y, btn_w, 20 * s, 6 * s, fill=(0, 85, 150))
+    text_centered(draw, btn_x + btn_w // 2, btn_y + 10 * s,
+                  "EXPORT LOG", _font("bold", 7 * s), (255, 255, 255))
+
+    return img
+
+
+def render_a4_autodelta():
+    """Autodelta A4: Black bg, diagnostic cards left, car silhouette right."""
+    s = SS
+    img, draw, (cx, cy, cw, ch) = render_frame(AUTODELTA, active_nav=3)
+
+    pad = 10 * s
+    col1_w = int(cw * 0.35)
+    col2_w = cw - col1_w - pad
+    col1_x = cx
+    col2_x = col1_x + col1_w + pad
+
+    # --- Left: A4 Diagnostics header + 4 cards ---
+    f_header = _font("bold", 11 * s)
+    draw.text((col1_x, cy + 8 * s), "A4 Diagnostics", font=f_header,
+              fill=(236, 91, 19))
+
+    diags = [
+        ("Engine Temp", "195°F", 0.78),
+        ("Oil Pressure", "45 PSI", 0.60),
+        ("Battery", "13.8V", 0.92),
+        ("Tire Pressure", "34 PSI", 0.85),
+    ]
+    card_h = (ch - 40 * s - pad * 3) // 4
+    card_y = cy + 30 * s
+    f_label = _font("bold", 7 * s)
+    f_value = _font("bold", 14 * s)
+
+    for name, val, frac in diags:
+        draw_card(draw, col1_x, card_y, col1_w, card_h,
+                  fill=(24, 24, 27), border_color=(236, 91, 19, 76))
+        draw.text((col1_x + 10 * s, card_y + 6 * s), name.upper(),
+                  font=f_label, fill=(113, 113, 122))
+        draw.text((col1_x + 10 * s, card_y + 20 * s), val,
+                  font=f_value, fill=(255, 255, 255))
+        # Progress bar
+        bar_y = card_y + card_h - 12 * s
+        draw_progress_bar(draw, col1_x + 10 * s, bar_y,
+                          col1_w - 20 * s, 4 * s, frac,
+                          (236, 91, 19), (39, 39, 42), radius=2 * s)
+        card_y += card_h + pad
+
+    # --- Right: Car silhouette in orange-bordered card ---
+    car_card_h = ch - pad
+    draw_card(draw, col2_x, cy + pad, col2_w, car_card_h,
+              fill=(9, 9, 11), border_color=(236, 91, 19, 76))
+
+    # Car silhouette (orange outline)
+    draw_car_silhouette(draw, col2_x + col2_w // 2,
+                        cy + pad + car_card_h // 2 - 20 * s,
+                        int(col2_w * 0.75), int(car_card_h * 0.40),
+                        (236, 91, 19, 180), "outline")
+
+    # Car label
+    f_car = _font("bold", 9 * s)
+    f_car_sub = _font("regular", 7 * s)
+    text_centered(draw, col2_x + col2_w // 2,
+                  cy + pad + car_card_h - 40 * s,
+                  "1600 Junior Z", f_car, (255, 255, 255))
+    text_centered(draw, col2_x + col2_w // 2,
+                  cy + pad + car_card_h - 24 * s,
+                  "Autodelta Sport", f_car_sub, (113, 113, 122))
+
+    return img
 
 
 def render_a4_service(theme):
-    """A4: Service info (left) + error codes (right) + wrench icon."""
-    s = SS
-    img, draw, (cx0, cy0, cw, ch) = render_chrome(theme, "A4  SERVICE")
-
-    # --- Left column: service info ---
-    lx = cx0 + 20 * s
-    col_w = cw * 0.45
-
-    f_lbl = _font(theme.font, 13 * s)
-    f_val = _font(theme.font_bold, 22 * s)
-    f_unit = _font(theme.font, 11 * s)
-
-    # Section title
-    f_sect = _font(theme.font_bold, 12 * s)
-    ry = cy0 + 16 * s
-    draw.text((lx, ry), "INFORMACJE SERWISOWE", font=f_sect, fill=theme.accent)
-    ry += 28 * s
-
-    # Separator
-    draw.line([(lx, ry), (lx + col_w - 20 * s, ry)],
-              fill=rgba(theme.accent, 50), width=s)
-    ry += 12 * s
-
-    # Row: Next service
-    draw.text((lx + 10 * s, ry), "NASTĘPNY SERWIS:", font=f_lbl, fill=theme.text_dim)
-    ry += 20 * s
-    draw.text((lx + 16 * s, ry), "4 500", font=f_val, fill=theme.ok)
-    bw = draw.textbbox((0, 0), "4 500", font=f_val)[2]
-    draw.text((lx + 16 * s + bw + 6 * s, ry + 6 * s), "km", font=f_unit, fill=theme.text_dim)
-    ry += 38 * s
-
-    # Row: TPMS sensors
-    draw.text((lx + 10 * s, ry), "CZUJNIKI TPMS:", font=f_lbl, fill=theme.text_dim)
-    ry += 20 * s
-
-    # TPMS grid (2x2)
-    tpms_vals = [("FL", "2.3"), ("FR", "2.3"), ("RL", "2.1"), ("RR", "2.1")]
-    f_tpms_lbl = _font(theme.font, 10 * s)
-    f_tpms_val = _font(theme.font_bold, 16 * s)
-    for i, (pos, pressure) in enumerate(tpms_vals):
-        col = i % 2
-        row = i // 2
-        tx = lx + 16 * s + col * 80 * s
-        ty = ry + row * 34 * s
-        draw.text((tx, ty), pos, font=f_tpms_lbl, fill=theme.text_dim)
-        draw.text((tx + 22 * s, ty - 2 * s), pressure, font=f_tpms_val, fill=theme.text)
-        draw.text((tx + 22 * s + draw.textbbox((0, 0), pressure, font=f_tpms_val)[2] + 2 * s,
-                   ty + 4 * s), "bar", font=f_tpms_lbl, fill=theme.text_dim)
-    ry += 76 * s
-
-    # Row: Atmospheric pressure
-    draw.text((lx + 10 * s, ry), "CIŚNIENIE ATMOSF.:", font=f_lbl, fill=theme.text_dim)
-    ry += 20 * s
-    draw.text((lx + 16 * s, ry), "1013", font=f_val, fill=theme.text)
-    bw4 = draw.textbbox((0, 0), "1013", font=f_val)[2]
-    draw.text((lx + 16 * s + bw4 + 4 * s, ry + 6 * s), "hPa",
-              font=f_unit, fill=theme.text_dim)
-
-    # --- Vertical separator ---
-    sep_x = cx0 + cw * 0.48
-    draw.line([(sep_x, cy0 + 16 * s), (sep_x, cy0 + ch - 16 * s)],
-              fill=rgba(theme.accent, 35), width=s)
-
-    # --- Right column: error codes + wrench icon ---
-    rx = cx0 + cw * 0.52
-    rw = cw * 0.45
-
-    f_sect2 = _font(theme.font_bold, 12 * s)
-    ery = cy0 + 16 * s
-    draw.text((rx, ery), "BŁĘDY STEROWNIKA", font=f_sect2, fill=theme.accent)
-    ery += 28 * s
-    draw.line([(rx, ery), (rx + rw - 10 * s, ery)],
-              fill=rgba(theme.accent, 50), width=s)
-    ery += 12 * s
-
-    # Error code list
-    f_err = _font(theme.font, 12 * s)
-    f_err_code = _font(theme.font_bold, 13 * s)
-    errors = [
-        ("P0100", "MAF sensor circuit"),
-        ("P0340", "CMP sensor A circuit"),
-        ("P1130", "Swirl flap actuator"),
-    ]
-    for code, desc in errors:
-        # Colored dot
-        draw.ellipse([rx + 4 * s, ery + 4 * s, rx + 10 * s, ery + 10 * s],
-                     fill=theme.warning)
-        draw.text((rx + 16 * s, ery), code, font=f_err_code, fill=theme.warning)
-        cw_code = draw.textbbox((0, 0), code, font=f_err_code)[2]
-        draw.text((rx + 16 * s + cw_code + 6 * s, ery + 1 * s), desc,
-                  font=f_err, fill=theme.text_dim)
-        ery += 22 * s
-
-    # "Brak krytycznych" (no critical) status
-    ery += 8 * s
-    f_status = _font(theme.font_bold, 14 * s)
-    draw.text((rx + 4 * s, ery), "Brak krytycznych błędów", font=f_status, fill=theme.ok)
-
-    # Wrench icon — bottom right of right column
-    wrench_cx = int(rx + rw * 0.5)
-    wrench_cy = int(cy0 + ch * 0.78)
-    draw_wrench_icon(draw, wrench_cx, wrench_cy, 55, theme)
-
-    return img.resize((W, H), Image.LANCZOS)
+    """Dispatch to theme-specific A4 service renderer."""
+    if theme.name == "heritage":
+        return render_a4_heritage()
+    elif theme.name == "modern":
+        return render_a4_modern()
+    elif theme.name == "autodelta":
+        return render_a4_autodelta()
 
 
 # =========================================================================
-#  MAIN — All 4 screens × 3 themes
+#  Main entry point — generate all 15 renders
 # =========================================================================
 
 ALL_SCREENS = [
-    ("a1_dashboard",   render_a1_dashboard),
-    ("a2_consumption", render_a2_consumption),
-    ("a3_environment", render_a3_environment),
-    ("a4_service",     render_a4_service),
+    ("init", render_initialization),
+    ("a1_main", render_a1_main),
+    ("a2_trip", render_a2_trip),
+    ("a3_weather", render_a3_weather),
+    ("a4_service", render_a4_service),
 ]
 
 
-def main():
-    import sys
+def generate_all():
+    """Generate all 15 PNG mockups (5 screens × 3 themes)."""
     os.makedirs(OUTPUT_DIR, exist_ok=True)
-
-    total = len(ALL_THEMES) * len(ALL_SCREENS)
-    n = 0
-    for theme in ALL_THEMES:
-        for sid, render_fn in ALL_SCREENS:
-            n += 1
-            label = f"[{n}/{total}] {theme.display_name} / {sid}"
-            print(f"Rendering {label} ...")
+    count = 0
+    for screen_name, render_fn in ALL_SCREENS:
+        for theme in ALL_THEMES:
             img = render_fn(theme)
-            path = os.path.join(OUTPUT_DIR, f"mockup_{sid}_{theme.name}.png")
-            img.save(path, "PNG", optimize=True)
-            print(f"  -> {path}")
+            filename = f"{screen_name}_{theme.name}.png"
+            path = os.path.join(OUTPUT_DIR, filename)
+            img.resize((W, H), Image.LANCZOS).save(path)
+            print(f"  [{count + 1:2d}/15] {filename}")
+            count += 1
+    print(f"\nDone — {count} renders saved to {OUTPUT_DIR}")
 
-    print(f"\nDone! {total} mockups generated.")
 
-
+# --- Self-test ---
 if __name__ == "__main__":
-    main()
+    os.makedirs(OUTPUT_DIR, exist_ok=True)
+    s = SS
+    print(f"Step 1.1 self-test: W={W}, H={H}, SS={SS}, SW={SW}, SH={SH}")
+    print(f"Layout: APPBAR_H={APPBAR_H}, NAVBAR_H={NAVBAR_H}, CONTENT_H={CONTENT_H}")
+
+    # Test font loading
+    f = _font("bold", 36 * s)
+    print(f"Font loaded: {f.getname()}")
+
+    # Test drawing primitives on a test image
+    img = Image.new("RGBA", (SW, SH), (20, 12, 8, 255))
+    draw = ImageDraw.Draw(img)
+
+    # Test rrect
+    rrect(draw, 20 * s, 20 * s, 200 * s, 100 * s, 12 * s,
+          fill=(40, 30, 25, 255), outline=(255, 191, 0, 100))
+
+    # Test grad_rect
+    grad_rect(draw, 240 * s, 20 * s, 200 * s, 100 * s,
+              (255, 191, 0), (200, 100, 0))
+
+    # Test text primitives
+    font_lg = _font("bold", 24 * s)
+    font_sm = _font("regular", 12 * s)
+    text_centered(draw, 400 * s, 180 * s, "ALFA ROMEO", font_lg, (255, 191, 0))
+    text_right(draw, 780 * s, 200 * s, "21°C", font_sm, (200, 200, 200))
+    text_spaced(draw, 20 * s, 250 * s, "HERITAGE", _font("bold", 14 * s),
+                (255, 191, 0), spacing=8 * s)
+    text_spaced_centered(draw, 400 * s, 300 * s, "CHECKING SYSTEMS",
+                         _font("bold", 10 * s), (255, 191, 0, 150), spacing=6 * s)
+
+    # Test thick_arc
+    thick_arc(draw, 600 * s, 300 * s, 60 * s, 8 * s, 180, 180,
+              (255, 191, 0), (200, 50, 0))
+
+    # Test shadow card
+    img = draw_shadow_rrect(img, 20 * s, 340 * s, 300 * s, 100 * s,
+                            12 * s, (30, 20, 15, 255))
+
+    # Test text_bbox_size
+    tw, th = text_bbox_size(draw, "Test", font_lg)
+    print(f"text_bbox_size('Test'): {tw}x{th}")
+
+    # Downsample and save
+    out = img.resize((W, H), Image.LANCZOS)
+    test_path = os.path.join(OUTPUT_DIR, "_test_step1_1.png")
+    out.save(test_path)
+    print(f"Saved test image: {test_path}")
+    print("Step 1.1 PASSED — all primitives working.")
+
+    # Step 1.2: Verify themes
+    print(f"\nStep 1.2: {len(ALL_THEMES)} themes defined")
+    for t in ALL_THEMES:
+        assert hasattr(t, 'bg'), f"{t.name} missing bg"
+        assert hasattr(t, 'accent'), f"{t.name} missing accent"
+        assert hasattr(t, 'card_bg'), f"{t.name} missing card_bg"
+        assert hasattr(t, 'appbar_bg'), f"{t.name} missing appbar_bg"
+        assert hasattr(t, 'navbar_bg'), f"{t.name} missing navbar_bg"
+        assert hasattr(t, 'is_light'), f"{t.name} missing is_light"
+        print(f"  {t.name}: bg={t.bg} accent={t.accent} is_light={t.is_light}")
+    print("Step 1.2 PASSED — all themes verified.")
+
+    # Step 1.3: Verify render_frame for each theme
+    print("\nStep 1.3: Testing render_frame for all themes...")
+    for t in ALL_THEMES:
+        frame_img, frame_draw, cr = render_frame(t, active_nav=1)
+        assert frame_img.size == (SW, SH), f"{t.name} wrong size"
+        assert len(cr) == 4, f"{t.name} bad content_rect"
+        test_path = os.path.join(OUTPUT_DIR, f"_test_step1_3_{t.name}.png")
+        frame_img.resize((W, H), Image.LANCZOS).save(test_path)
+        print(f"  {t.name}: content_rect={cr} -> {test_path}")
+    print("Step 1.3 PASSED — all frames rendered.")
+
+    # Step 1.4: Test card/icon primitives
+    print("\nStep 1.4: Testing card, progress, icon primitives...")
+    test_img = Image.new("RGBA", (SW, SH), (20, 12, 8, 255))
+    td = ImageDraw.Draw(test_img)
+    draw_card(td, 20 * s, 20 * s, 200 * s, 80 * s, (40, 30, 25),
+              border_color=(245, 158, 11))
+    draw_progress_bar(td, 20 * s, 120 * s, 200 * s, 12 * s, 0.65,
+                      (245, 158, 11), (40, 40, 40), radius=6 * s)
+    draw_circle_gauge(td, 350 * s, 80 * s, 40 * s, 0.75,
+                      (0, 85, 150), (40, 40, 40), 6 * s)
+    # Test all icons
+    icons = [draw_icon_thermometer, draw_icon_fuel, draw_icon_warning,
+             draw_icon_music, draw_icon_check, draw_icon_route, draw_icon_eco]
+    for i, icon_fn in enumerate(icons):
+        icon_fn(td, (50 + i * 60) * s, 200 * s, 15 * s, (245, 158, 11))
+    # Test notification
+    draw_notification_item(td, 20 * s, 260 * s, 400 * s, 40 * s,
+                           HERITAGE, (245, 158, 11), draw_icon_warning,
+                           "Tire Pressure Low", "Front right: 28 psi")
+    test_path = os.path.join(OUTPUT_DIR, "_test_step1_4.png")
+    test_img.resize((W, H), Image.LANCZOS).save(test_path)
+    print(f"  Saved: {test_path}")
+    print("Step 1.4 PASSED — card/icon primitives working.")
+
+    # Step 1.5: Test charts, map, car silhouette, burl texture
+    print("\nStep 1.5: Testing complex drawing primitives...")
+    test_img = Image.new("RGBA", (SW, SH), (20, 12, 8, 255))
+    td = ImageDraw.Draw(test_img)
+
+    # Bar chart
+    vals = [0.15, 0.25, 0.45, 0.6, 0.75, 0.55, 0.85]
+    bar_colors = [(40, 40, 40)] * 3 + [(236, 91, 19, 100), (236, 91, 19, 150),
+                  (236, 91, 19, 200), (236, 91, 19)]
+    draw_bar_chart(td, 20 * s, 20 * s, 300 * s, 150 * s, vals, bar_colors,
+                   x_labels=["-50m", "-40m", "-30m", "-20m", "-10m", "-5m", "Now"],
+                   y_labels=["50", "40", "30", "20", "10"])
+
+    # Line graph
+    pts = [0.3, 0.5, 0.4, 0.7, 0.35, 0.6, 0.8, 0.45, 0.65]
+    draw_line_graph(test_img, td, 350 * s, 20 * s, 400 * s, 150 * s,
+                    pts, (0, 85, 150), fill_color=(0, 85, 150, 50),
+                    highlight_idx=6)
+
+    # Car silhouette
+    draw_car_silhouette(td, 200 * s, 300 * s, 250 * s, 120 * s,
+                        (245, 158, 11), "outline")
+    draw_car_silhouette(td, 500 * s, 300 * s, 250 * s, 120 * s,
+                        (236, 91, 19, 80), "filled")
+
+    # Corner accents
+    draw_corner_accents(td, 20 * s, 380 * s, 200 * s, 80 * s,
+                        (255, 191, 0, 50), size=20 * s)
+
+    test_path = os.path.join(OUTPUT_DIR, "_test_step1_5.png")
+    test_img.resize((W, H), Image.LANCZOS).save(test_path)
+    print(f"  Saved: {test_path}")
+
+    # Burl texture test
+    burl_img = Image.new("RGBA", (SW, SH), (0, 0, 0, 255))
+    burl_draw = ImageDraw.Draw(burl_img)
+    draw_burl_texture(burl_img, burl_draw)
+    burl_path = os.path.join(OUTPUT_DIR, "_test_step1_5_burl.png")
+    burl_img.resize((W, H), Image.LANCZOS).save(burl_path)
+    print(f"  Burl texture: {burl_path}")
+
+    # Map test
+    map_img = Image.new("RGBA", (SW, SH), (0, 0, 0, 255))
+    map_draw = ImageDraw.Draw(map_img)
+    draw_simple_map(map_img, map_draw, 0, 0, SW, SH, HERITAGE)
+    map_path = os.path.join(OUTPUT_DIR, "_test_step1_5_map.png")
+    map_img.resize((W, H), Image.LANCZOS).save(map_path)
+    print(f"  Map: {map_path}")
+
+    # Vignette test
+    vig_img = Image.new("RGBA", (SW, SH), (26, 15, 10, 255))
+    vig_img = draw_radial_vignette(vig_img, SW // 2, SH // 2)
+    vig_path = os.path.join(OUTPUT_DIR, "_test_step1_5_vignette.png")
+    vig_img.resize((W, H), Image.LANCZOS).save(vig_path)
+    print(f"  Vignette: {vig_path}")
+
+    print("Step 1.5 PASSED — complex primitives working.")
+
+    # Step 1.6: Initialization screens
+    print("\nStep 1.6: Rendering initialization screens...")
+    for t in ALL_THEMES:
+        init_img = render_initialization(t)
+        out_path = os.path.join(OUTPUT_DIR, f"init_{t.name}.png")
+        init_img.resize((W, H), Image.LANCZOS).save(out_path)
+        print(f"  {t.name}: {out_path}")
+    print("Step 1.6 PASSED — 3 initialization screens rendered.")
+
+    # Step 1.7: A1 Main screens
+    print("\nStep 1.7: Rendering A1 main screens...")
+    for t in ALL_THEMES:
+        a1_img = render_a1_main(t)
+        out_path = os.path.join(OUTPUT_DIR, f"a1_main_{t.name}.png")
+        a1_img.resize((W, H), Image.LANCZOS).save(out_path)
+        print(f"  {t.name}: {out_path}")
+    print("Step 1.7 PASSED — 3 A1 main screens rendered.")
+
+    # Step 1.8: A2 Trip screens
+    print("\nStep 1.8: Rendering A2 trip screens...")
+    for t in ALL_THEMES:
+        a2_img = render_a2_trip(t)
+        out_path = os.path.join(OUTPUT_DIR, f"a2_trip_{t.name}.png")
+        a2_img.resize((W, H), Image.LANCZOS).save(out_path)
+        print(f"  {t.name}: {out_path}")
+    print("Step 1.8 PASSED — 3 A2 trip screens rendered.")
+
+    # Step 1.9: A3 Weather screens
+    print("\nStep 1.9: Rendering A3 weather screens...")
+    for t in ALL_THEMES:
+        a3_img = render_a3_weather(t)
+        out_path = os.path.join(OUTPUT_DIR, f"a3_weather_{t.name}.png")
+        a3_img.resize((W, H), Image.LANCZOS).save(out_path)
+        print(f"  {t.name}: {out_path}")
+    print("Step 1.9 PASSED — 3 A3 weather screens rendered.")
+
+    # Step 1.10: A4 Service screens
+    print("\nStep 1.10: Rendering A4 service screens...")
+    for t in ALL_THEMES:
+        a4_img = render_a4_service(t)
+        out_path = os.path.join(OUTPUT_DIR, f"a4_service_{t.name}.png")
+        a4_img.resize((W, H), Image.LANCZOS).save(out_path)
+        print(f"  {t.name}: {out_path}")
+    print("Step 1.10 PASSED — 3 A4 service screens rendered.")
+
+    # Final: Generate all 15 via generate_all()
+    print("\n=== Generating all 15 renders via generate_all() ===")
+    generate_all()
+    print("\n=== Phase 1 COMPLETE — All 15 mockup PNGs generated ===")
