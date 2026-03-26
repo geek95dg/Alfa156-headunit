@@ -29,6 +29,7 @@ from src.input.bt_remote import start_input
 from src.camera.reverse_cam import start_camera
 from src.power.shutdown import start_power
 from src.multimedia.openauto import start_multimedia
+from src.location.gps import start_location
 
 
 # Module registry — maps module names to their (future) start functions.
@@ -45,6 +46,7 @@ MODULE_REGISTRY: dict[str, dict] = {
     "camera":      {"part": 9, "description": "Camera & Dashcam", "start": start_camera},
     "power":       {"part": 10, "description": "Power Management", "start": start_power},
     "multimedia":  {"part": 11, "description": "Android Auto / Multimedia", "start": start_multimedia},
+    "location":    {"part": 12, "description": "GPS/GNSS Positioning", "start": start_location},
 }
 
 # Dashboard is listed for --dry-run reporting but started separately

@@ -15,6 +15,7 @@ modules:
   camera: true
   power: true
   multimedia: true
+  location: true
 display:
   dashboard:
     width: 800
@@ -50,6 +51,15 @@ serial:
     port_opi: /dev/ttyS3
     baudrate: 10400
     ecu_address: 1
+hardware:
+  gps:
+    enabled: true
+    port: /dev/ttyUSB0
+    baudrate: 9600
+  lte:
+    enabled: true
+    device: ""
+    apn: ""
 audio:
   eq_preset: jazz
   master_volume: 70
