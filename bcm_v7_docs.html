@@ -122,6 +122,22 @@ svg text{font-family:'JetBrains Mono',monospace}
       <tr><td>Przełączanie trybów</td><td>Menu z kafelkami na 1 ekranie</td><td><strong>Nie potrzebne</strong> — każdy ekran ma swoją funkcję stale</td><td><span class="dt dt-chg">ZMIANA</span></td></tr>
     </table>
   </div>
+
+  <div class="changelog" style="margin-top:20px;border-color:var(--accent2)">
+    <h4 style="color:var(--accent2)">🔵 Zmiany w wersji 7.1 (v7.0 → v7.1)</h4>
+    <table>
+      <tr><th>Element</th><th>v7.0</th><th>v7.1</th><th>Status</th></tr>
+      <tr><td>Moduł GPS/GNSS</td><td>—</td><td><strong>NEO-6M/NEO-M8N via UART, NMEA parsing, pozycja + prędkość + satelity</strong></td><td><span class="dt dt-new">NOWE</span></td></tr>
+      <tr><td>Moduł LTE/komórkowy</td><td>—</td><td><strong>USB modem LTE (Huawei E3372 / SIM7600), NetworkManager, AT+CSQ</strong></td><td><span class="dt dt-new">NOWE</span></td></tr>
+      <tr><td>Pogoda (OpenWeatherMap)</td><td>—</td><td><strong>Aktualna pogoda + prognoza 3-dniowa, cache dyskowy, polling 15 min</strong></td><td><span class="dt dt-new">NOWE</span></td></tr>
+      <tr><td>Mapa OSM</td><td>—</td><td><strong>Renderowanie kafelków OSM z filtrem kolorów per motyw, cache ~100MB</strong></td><td><span class="dt dt-new">NOWE</span></td></tr>
+      <tr><td>BT AVRCP Media</td><td>Tylko A2DP audio</td><td><strong>Metadane AVRCP (tytuł, artysta, album, pozycja) via D-Bus MediaPlayer1</strong></td><td><span class="dt dt-new">NOWE</span></td></tr>
+      <tr><td>Motywy</td><td>Classic Alfa / Modern Dark / OEM Digital (analogowe)</td><td><strong>Heritage / Modern / Autodelta (card-based, bento grid)</strong></td><td><span class="dt dt-chg">ZMIANA</span></td></tr>
+      <tr><td>Ekrany BCM</td><td>A1-A2, B1-B2, C1-C2 (obrotowe grupy)</td><td><strong>Init → A1 Main → A2 Trip → A3 Weather/Map → A4 Service → Settings</strong></td><td><span class="dt dt-chg">ZMIANA</span></td></tr>
+      <tr><td>Pasek statusu</td><td>Nazwa ekranu + badge + zegar</td><td><strong>Themed app bar: czas, data, marka, temp, BT, sygnał LTE</strong></td><td><span class="dt dt-chg">ZMIANA</span></td></tr>
+      <tr><td>Generator mockupów</td><td>Podstawowe szkice</td><td><strong>15 renderów PNG (3 motywy × 5 ekranów) z PIL/Pillow, 3× supersampling</strong></td><td><span class="dt dt-chg">ZMIANA</span></td></tr>
+    </table>
+  </div>
 </section>
 
 <!-- ═══ S2 — DUAL DISPLAY CONCEPT ═══ -->
@@ -396,25 +412,52 @@ Sub crossover: LP 80-120 Hz (regulowany na płytce AMP)</div>
 
 <!-- ═══ S9 — BCM SCREENS ═══ -->
 <section id="s9">
-  <h2><span class="n">09</span>Ekrany BCM (4.3") — nawigacja</h2>
+  <h2><span class="n">09</span>Ekrany BCM (4.3") — nawigacja <span class="dt dt-chg">v7.1</span></h2>
 
-  <h3>Grupy ekranów (800×480)</h3>
+  <h3>Ekrany v7.1 (800×480, card-based layout)</h3>
   <table>
-    <tr><th>Grupa</th><th>Ekrany</th><th>Nawigacja</th></tr>
-    <tr><td><strong>🚗 A: JAZDA</strong> (domyślna)</td><td>A1: temp silnika + paliwo + spalanie + RPM + prędkość<br>A2: spalanie szczegółowo + doładowanie + trip dystans</td><td>Enkoder obrót = A1↔A2</td></tr>
-    <tr><td><strong>🌡️ B: KLIMAT</strong></td><td>B1: data/czas + temp zewnętrzna + oblodzenie<br>B2: paliwo graficzny + zasięg szacunkowy</td><td>Enkoder obrót = B1↔B2</td></tr>
-    <tr><td><strong>🔧 C: SERWIS</strong></td><td>C1: trip computer (push = reset)<br>C2: serwis — olej, opony, przegląd (push = potwierdź)</td><td>Enkoder obrót = C1↔C2</td></tr>
+    <tr><th>Ekran</th><th>Zawartość</th><th>Dane źródłowe</th></tr>
+    <tr><td><strong>Init</strong></td><td>Ekran powitalny (splash ~4s): logo Alfa Romeo, animacja postępu, tekst boot<br>Heritage: burl texture + amber glow | Modern: charcoal + blue | Autodelta: scanlines + orange</td><td>—</td></tr>
+    <tr><td><strong>A1: Main</strong></td><td>Hub powiadomień + karty silnika/paliwa + odtwarzacz multimediów BT<br>Engine temp gauge + fuel bar + notification list + now playing card</td><td>obd.coolant_temp, obd.fuel_level, bt.media.*, weather.*</td></tr>
+    <tr><td><strong>A2: Trip</strong></td><td>Statystyki podróży + wykres zużycia paliwa (7 słupków)<br>Distance, avg speed, travel time + consumption bar chart</td><td>trip.*, obd.fuel_rate</td></tr>
+    <tr><td><strong>A3: Weather</strong></td><td>Pogoda aktualna + prognoza 3-dniowa + mapa OSM z pozycją GPS<br>Temp, wiatr, wilgotność + tile map z filtrem kolorów per motyw</td><td>weather.*, gps.*, lte.*</td></tr>
+    <tr><td><strong>A4: Service</strong></td><td>Diagnostyka pojazdu + TPMS + sylwetka samochodu<br>Engine status, oil, battery, service km + car sketch with tire pressures</td><td>obd.*, service_km, tpms_*</td></tr>
+    <tr><td><strong>Settings</strong></td><td>Motyw, język, jednostki, jasność, EQ, mapowanie SWC</td><td>config.*</td></tr>
   </table>
-  <p>Zmiana grupy: długi push enkodera (1.5s) → A→B→C→A (cyklicznie).</p>
+  <p>Nawigacja: enkoder lewo/prawo = A1↔A2↔A3↔A4↔Settings (cyklicznie). HOME = settings overlay.</p>
 
-  <h3>Pasek statusu (stały, 800×28 px, góra ekranu 4.3")</h3>
+  <h3>3 motywy — Heritage / Modern / Autodelta</h3>
+  <table>
+    <tr><th>Motyw</th><th>Styl</th><th>Paleta</th></tr>
+    <tr><td><strong>Heritage</strong></td><td>Ciepłe, eleganckie — drewniane tło, złote akcenty</td><td>bg: #1a0f0a, accent: amber (#f59e0b), card: #09090b</td></tr>
+    <tr><td><strong>Modern</strong></td><td>Jasne, minimalne — białe karty, niebieskie akcenty</td><td>bg: #f8fafc, accent: blue (#005596), card: #ffffff</td></tr>
+    <tr><td><strong>Autodelta</strong></td><td>Ciemne, sportowe — czarne tło, pomarańczowe akcenty</td><td>bg: #000000, accent: orange (#ec5b13), card: #18181b</td></tr>
+  </table>
+
+  <h3>App Bar (themed, 800×48 px)</h3>
   <div class="code-block">┌──────────────────────────────────────────────────────────────────┐
-│ ALFA 156 JTD  [●○○ A]  🔴REC  14:35  -3°C ❄  ⛽67%  📱  🔧  │
-│                grupa  dashcam  czas  temp.z  paliwo  tel serwis │
+│ 10:45  Oct 24    ALFA ROMEO         21°  BT  ▐▐▐▐▐ (LTE)     │
+│  czas   data      marka (red)      temp  bt  sygnał           │
 └──────────────────────────────────────────────────────────────────┘</div>
 
   <h3>Override kamera cofania</h3>
   <p>Bieg wsteczny → ekran 4.3" natychmiast przechodzi na widok kamery (800×540 góra) + czujniki parkowania (800×200 dół) + buzzer. Po wyjściu z wstecznego → powrót do poprzedniego ekranu BCM. Kontroler zablokowany w trybie kamery.</p>
+
+  <h3>Moduły danych (v7.1)</h3>
+  <h4>GPS/GNSS (src/location/gps.py)</h4>
+  <p>GPSManager: UART do NEO-6M/NEO-M8N, parsowanie NMEA ($GPGGA, $GPRMC, $GPGSV z weryfikacją checksum). Demo na x86: symulacja trasy po Mediolanie (12 punktów). Event bus: gps.position, gps.speed, gps.heading, gps.fix, gps.satellites.</p>
+
+  <h4>LTE/Cellular (src/network/lte.py)</h4>
+  <p>LTEManager: OPi — USB modem LTE via NetworkManager (nmcli) + siła sygnału AT+CSQ. x86 — ping check, raport jako connected. Event bus: lte.connected, lte.signal, lte.ip.</p>
+
+  <h4>Weather (src/weather/weather.py)</h4>
+  <p>WeatherManager: OpenWeatherMap API (Current + 5-day Forecast), polling 15 min, cache dyskowy ~/.cache/bcm/weather.json. Demo: dane Mediolanu (Partly Cloudy, 22°C). Event bus: weather.current, weather.forecast, weather.city.</p>
+
+  <h4>Map (src/location/map_renderer.py)</h4>
+  <p>TileManager: kafelki OSM 256×256 PNG, cache dyskowy ~100MB LRU, rate limit 2 req/s. MapRenderer: siatka kafelków → PyGame surface, filtr kolorów per motyw (amber/blue/orange), marker GPS + strzałka kierunku.</p>
+
+  <h4>BT AVRCP Media (src/multimedia/bluetooth.py)</h4>
+  <p>Monitoring metadanych AVRCP via D-Bus org.bluez.MediaPlayer1: tytuł, artysta, album, status. DemoMediaGenerator: lista 5 utworów z symulacją odtwarzania. Event bus: bt.media.track, bt.media.status, bt.media.position.</p>
 </section>
 
 <!-- ═══ S10 — REVERSE CAMERA + PARKING ═══ -->
@@ -692,8 +735,12 @@ T=2.3s  Oba ekrany aktywne równolegle, dashcam nagrywa</div>
     <tr><td>28</td><td>Kable (AHD, OBD, USB, RCA, głośnikowe)</td><td>—</td><td>Okablowanie pojazdu</td><td>60</td></tr>
     <tr><td>29</td><td>Obudowa alu SBC + radiator + PCB</td><td>—</td><td>Montaż</td><td>55</td></tr>
     <tr><td>30</td><td>Ramka 7" do deski + uchwyt 4.3" (3D print)</td><td>2</td><td>Montaż wyświetlaczy</td><td>30</td></tr>
-    <tr><td colspan="4" style="text-align:right;font-weight:700;font-size:1.05rem">RAZEM (pełna wersja ze wszystkimi opcjami):</td><td style="font-weight:700;font-size:1.05rem;color:var(--accent)">~2 016 PLN</td></tr>
-    <tr><td colspan="4" style="text-align:right;font-size:0.9rem;color:var(--text-dim)">RAZEM (bez opcji CarPlay/FM):</td><td style="color:var(--text-dim)">~1 916 PLN</td></tr>
+    <tr style="background:rgba(0,180,216,0.04)"><td>31</td><td style="color:var(--accent2)"><strong>Moduł GPS NEO-6M / NEO-M8N + antena aktywna</strong></td><td>1</td><td>Pozycja GPS, prędkość, mapa (v7.1)</td><td>25</td></tr>
+    <tr style="background:rgba(0,180,216,0.04)"><td>32</td><td style="color:var(--accent2)"><strong>USB LTE dongle (Huawei E3372 / SIM7600)</strong></td><td>1</td><td>Internet: pogoda, mapy, dane (v7.1)</td><td>100</td></tr>
+    <tr style="background:rgba(0,180,216,0.04)"><td>33</td><td style="color:var(--accent2)">Karta SIM data-only</td><td>1</td><td>Abonament danych LTE (v7.1)</td><td>15/mies.</td></tr>
+    <tr style="background:rgba(0,180,216,0.04)"><td>34</td><td style="color:var(--accent2)">Antena LTE zewnętrzna SMA (opcja SIM7600)</td><td>1</td><td>Lepszy zasięg (v7.1)</td><td>20</td></tr>
+    <tr><td colspan="4" style="text-align:right;font-weight:700;font-size:1.05rem">RAZEM (pełna wersja v7.1 ze wszystkimi opcjami):</td><td style="font-weight:700;font-size:1.05rem;color:var(--accent)">~2 161 PLN</td></tr>
+    <tr><td colspan="4" style="text-align:right;font-size:0.9rem;color:var(--text-dim)">RAZEM (bez opcji CarPlay/FM/LTE):</td><td style="color:var(--text-dim)">~1 941 PLN</td></tr>
   </table>
 
   <div class="note"><strong>Porównanie z rynkiem:</strong> Za ~2000 PLN masz: head-unit z AA/CarPlay + dashcam 2-kanałowy + kamera cofania + czujniki parkowania + komputer pokładowy z K-Line + audio 4.1 z sub + pilot BT. Kupione osobno (radio z AA ~800 PLN, dashcam ~300 PLN, czujniki ~200 PLN, komputer OBD ~200 PLN, wzmacniacz+sub ~400 PLN) = ~1900 PLN — i bez integracji, bez dual display, bez customizacji.</div>
@@ -719,6 +766,9 @@ T=2.3s  Oba ekrany aktywne równolegle, dashcam nagrywa</div>
     <tr><td>PWM × 2</td><td>Backlight MOSFET ekran 4.3" + MOSFET ekran 7"</td><td>40-pin GPIO</td></tr>
     <tr><td>GPIO IN</td><td>5× opto (drzwi, IGN, deszcz, sprys., CL) + 4× ECHO parking</td><td>40-pin GPIO</td></tr>
     <tr><td>GPIO OUT</td><td>4× relay + buzzer + TRIG parking</td><td>40-pin GPIO</td></tr>
+    <tr style="background:rgba(0,180,216,0.04)"><td><strong>UART (2)</strong></td><td>GPS NEO-6M/NEO-M8N (9600 baud, NMEA)</td><td>/dev/ttyUSB0 lub 40-pin GPIO <span class="dt dt-new">v7.1</span></td></tr>
+    <tr style="background:rgba(0,180,216,0.04)"><td><strong>USB 2.0 (LTE)</strong></td><td>USB LTE modem (Huawei E3372 / SIM7600)</td><td>USB 2.0 via hub <span class="dt dt-new">v7.1</span></td></tr>
+    <tr style="background:rgba(0,180,216,0.04)"><td><strong>Network</strong></td><td>OpenWeatherMap API + tile.openstreetmap.org (via LTE)</td><td>Internet <span class="dt dt-new">v7.1</span></td></tr>
   </table>
 
   <div class="ok"><strong>40-pin GPIO OPi 5 Plus:</strong> Pełna kompatybilność z RPi — wszystkie potrzebne interfejsy (UART, SPI, I²C, 1-Wire, PWM, GPIO) dostępne bez dodatkowych złączy czy ekspanderów. Przewaga nad OPi 5B (26-pin).</div>
@@ -798,7 +848,7 @@ Buzzer: GPIO → [1kΩ] → BC547 → Buzzer → +5V | [1N4148 flyback]</div>
 
 <!-- ═══ FOOTER ═══ -->
 <section style="text-align:center;padding:60px 0 40px;border-top:2px solid var(--accent);">
-  <p style="font-family:'JetBrains Mono',monospace;font-size:0.9rem;color:var(--accent)">BCM v7.0 — Phase 1: Dokumentacja Techniczna</p>
+  <p style="font-family:'JetBrains Mono',monospace;font-size:0.9rem;color:var(--accent)">BCM v7.1 — Dokumentacja Techniczna</p>
   <p style="font-size:0.85rem;color:var(--text-dim)">Alfa Romeo 156 1.9 JTD 8V (przedlift) • Bosch EDC15C7 • K-Line KWP2000</p>
   <p style="font-size:0.85rem;color:var(--text-dim)">Orange Pi 5 Plus (RK3588, 2× HDMI, WiFi 6, BT 5.0) • Dual Display: 4.3" BCM + 7" Multimedia</p>
   <p style="font-size:0.85rem;color:var(--text-dim)">Audio 4.1: USB DAC → TPA3116D2 Class-D (4×50W + 100W Sub) • Pilot BT CR2032 kierownica</p>
