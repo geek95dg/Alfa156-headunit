@@ -24,7 +24,7 @@ def _get_font(name: str, size: int) -> pygame.font.Font:
 # --- Page 1: General settings ---
 # (config_key, display_label, options_list)
 SETTINGS = [
-    ("display.dashboard.theme", "Theme", ["classic_alfa", "modern_dark", "oem_digital"]),
+    ("display.dashboard.theme", "Theme", ["heritage", "modern", "autodelta"]),
     ("language", "Language", ["pl", "en"]),
     ("units.speed", "Speed Units", ["km/h", "mph"]),
     ("units.temperature", "Temp Units", ["C", "F"]),
@@ -62,8 +62,8 @@ ACTION_DISPLAY_NAMES = {
 }
 
 DISPLAY_LABELS = {
-    "classic_alfa": "Classic Alfa Racing", "modern_dark": "Modern Dark",
-    "oem_digital": "OEM Digital", "pl": "Polski", "en": "English",
+    "heritage": "Heritage Warmth", "modern": "Modern Elegance",
+    "autodelta": "Autodelta Sport", "pl": "Polski", "en": "English",
     "flat": "Flat", "rock": "Rock", "jazz": "Jazz",
     "bass_boost": "Bass Boost", "custom": "Custom",
     "low": "Low", "medium": "Medium", "high": "High",

@@ -98,7 +98,7 @@ class DashboardRenderer:
 
         # Load theme — prefer heritage for card-based themes
         theme_name = config.get("display.dashboard.theme", "heritage")
-        theme_cls = THEMES.get(theme_name, THEMES.get("classic_alfa", list(THEMES.values())[0]))
+        theme_cls = THEMES.get(theme_name, THEMES.get("heritage", list(THEMES.values())[0]))
         self.theme: ThemeBase = theme_cls()
 
         # Dashboard data (shared state for all screens)
