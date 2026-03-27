@@ -262,6 +262,52 @@ class WebViewer:
             strings = STRINGS.get(lang, STRINGS.get("en", {}))
             return jsonify(strings)
 
+        # --- Camera MJPEG stream for reverse view ---
+
+        @app.route("/api/camera/stream")
+        def camera_stream():
+            """MJPEG stream from USB camera (/dev/video0)."""
+            try:
+                import cv2
+            except ImportError:
+                return "opencv not available", 503
+
+            from flask import Response
+
+            def gen_frames():
+                cap = cv2.VideoCapture(0)
+                if not cap.isOpened():
+                    return
+                cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
+                cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
+                try:
+                    while viewer._running:
+                        ok, frame = cap.read()
+                        if not ok:
+                            break
+                        _, buf = cv2.imencode('.jpg', frame,
+                                              [cv2.IMWRITE_JPEG_QUALITY, 70])
+                        yield (b'--frame\r\n'
+                               b'Content-Type: image/jpeg\r\n\r\n' +
+                               buf.tobytes() + b'\r\n')
+                finally:
+                    cap.release()
+
+            return Response(gen_frames(),
+                            mimetype='multipart/x-mixed-replace; boundary=frame')
+
+        @app.route("/api/camera/available")
+        def camera_available():
+            """Check if a USB camera is available."""
+            try:
+                import cv2
+                cap = cv2.VideoCapture(0)
+                available = cap.isOpened()
+                cap.release()
+                return jsonify({"available": available})
+            except Exception:
+                return jsonify({"available": False})
+
         # --- WebSocket: real-time data stream ---
 
         @sock.route("/ws")

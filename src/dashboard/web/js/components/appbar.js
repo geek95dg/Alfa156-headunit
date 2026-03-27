@@ -1,18 +1,27 @@
 /**
- * Shared Top App Bar — Alfa Romeo logo (PNG per theme), time, temp, icons.
- * Logo files expected at:
- *   /assets/logo_heritage.png  (color logo on dark/transparent bg)
- *   /assets/logo_modern.png    (black outline on white/transparent bg)
- *   /assets/logo_autodelta.png (white logo on black/transparent bg)
- *   Falls back to SVG if PNG not found.
+ * Shared Top App Bar — Alfa Romeo logo PNG center, time left, temp+icons right.
+ *
+ * Logo: uses single /assets/alfa_logo.png (black outline on transparent bg).
+ * Per-theme CSS applies: invert for dark themes, tint via filter.
+ * Place the black-outline Alfa Romeo logo PNG at:
+ *   src/dashboard/web/assets/alfa_logo.png
  */
 
 const AppBar = (() => {
-    function _logoHtml(theme) {
-        const file = `/assets/logo_${theme}.png`;
-        const fallback = `/assets/alfa_romeo_logo.svg`;
-        return `<img src="${file}" alt="Alfa Romeo" class="h-9 w-9 object-contain"
-                     onerror="this.onerror=null;this.src='${fallback}';this.style.color='var(--color-primary)';">`;
+    function _logoImg(theme) {
+        // Single PNG, CSS-differentiated per theme
+        let filterStyle = "";
+        if (theme === "heritage") {
+            // Invert to white, then tint amber
+            filterStyle = "filter: invert(1) sepia(1) saturate(3) hue-rotate(15deg) brightness(1.1);";
+        } else if (theme === "modern") {
+            // Invert to white, slight red tint
+            filterStyle = "filter: invert(1) sepia(0.3) saturate(2) hue-rotate(-20deg) brightness(1);";
+        } else if (theme === "autodelta") {
+            // Invert to white, orange tint
+            filterStyle = "filter: invert(1) sepia(1) saturate(5) hue-rotate(-10deg) brightness(1.2);";
+        }
+        return `<img src="/assets/alfa_logo.png" alt="Alfa Romeo" class="h-10 w-10 object-contain" style="${filterStyle}" onerror="this.parentElement.innerHTML='<span class=\\'text-sm font-bold\\'>AR</span>';">`;
     }
 
     function render(theme, data) {
@@ -22,57 +31,22 @@ const AppBar = (() => {
         const btClass = data.bt_connected ? "text-green-500" : "text-zinc-600";
         const btIcon = `<span class="material-symbols-outlined ${btClass}" style="font-size:16px;font-variation-settings:'FILL' ${data.bt_connected ? 1 : 0};">bluetooth</span>`;
 
-        if (theme === "heritage") return _renderHeritage(time, date, temp, btIcon);
-        if (theme === "modern") return _renderModern(time, date, temp, btIcon);
-        if (theme === "autodelta") return _renderAutodelta(time, date, temp, btIcon);
-        return _renderHeritage(time, date, temp, btIcon);
-    }
+        const bgColor = theme === "autodelta" ? "bg-[#111111] border-[#222222]"
+            : "bg-black border-zinc-800";
 
-    function _renderHeritage(time, date, temp, btIcon) {
-        return `<header class="w-full h-12 bg-black border-b border-zinc-800 flex items-center px-4 shrink-0 z-50">
+        const timeColor = theme === "autodelta" ? "text-white" : theme === "modern" ? "text-white" : "text-zinc-400";
+        const tempColor = theme === "autodelta" ? "text-[#FF5F00]" : theme === "modern" ? "text-white" : "text-zinc-500";
+
+        return `<header class="w-full h-12 ${bgColor} border-b flex items-center px-4 shrink-0 z-50">
             <div class="flex items-center gap-2 w-[200px]">
-                <span class="text-sm font-bold text-zinc-400" data-bind="time">${time}</span>
+                <span class="text-sm font-bold ${timeColor}" data-bind="time">${time}</span>
                 <span class="text-[10px] font-bold text-zinc-600 uppercase" data-bind="date">${date}</span>
             </div>
             <div class="flex-1 flex justify-center">
-                ${_logoHtml("heritage")}
+                ${_logoImg(theme)}
             </div>
             <div class="flex items-center gap-3 w-[200px] justify-end">
-                <span class="text-zinc-500 text-sm font-bold" data-bind="ext_temp">${temp}</span>
-                ${btIcon}
-                <span class="material-symbols-outlined text-zinc-600 text-[18px] cursor-pointer hover:text-zinc-400" onclick="App.navigateTo('settings')">settings</span>
-            </div>
-        </header>`;
-    }
-
-    function _renderModern(time, date, temp, btIcon) {
-        return `<header class="w-full h-12 bg-black border-b border-zinc-800 flex items-center px-4 shrink-0 z-50">
-            <div class="flex items-center gap-2 w-[200px] text-zinc-400">
-                <span class="font-bold text-white text-sm" data-bind="time">${time}</span>
-                <span class="text-[10px] uppercase font-bold" data-bind="date">${date}</span>
-            </div>
-            <div class="flex-1 flex justify-center">
-                ${_logoHtml("modern")}
-            </div>
-            <div class="flex items-center gap-3 w-[200px] justify-end">
-                <span class="text-sm font-bold text-white" data-bind="ext_temp">${temp}</span>
-                ${btIcon}
-                <span class="material-symbols-outlined text-zinc-600 text-[18px] cursor-pointer hover:text-zinc-400" onclick="App.navigateTo('settings')">settings</span>
-            </div>
-        </header>`;
-    }
-
-    function _renderAutodelta(time, date, temp, btIcon) {
-        return `<header class="w-full h-12 bg-[#111111] border-b border-[#222222] flex items-center px-4 shrink-0 z-50">
-            <div class="flex items-center gap-2 w-[200px]">
-                <span class="text-sm font-bold text-white tracking-wider" data-bind="time">${time}</span>
-                <span class="text-[10px] text-gray-500 font-medium uppercase" data-bind="date">${date}</span>
-            </div>
-            <div class="flex-1 flex justify-center">
-                ${_logoHtml("autodelta")}
-            </div>
-            <div class="flex items-center gap-3 w-[200px] justify-end">
-                <span class="text-sm font-bold text-[#FF5F00]" data-bind="ext_temp">${temp}</span>
+                <span class="${tempColor} text-sm font-bold" data-bind="ext_temp">${temp}</span>
                 ${btIcon}
                 <span class="material-symbols-outlined text-zinc-600 text-[18px] cursor-pointer hover:text-zinc-400" onclick="App.navigateTo('settings')">settings</span>
             </div>
@@ -95,8 +69,8 @@ const AppBar = (() => {
         const temp = data.ext_temp;
         if (temp == null) return "--";
         const unit = (App && App.getConfig().temp_unit) || "C";
-        if (unit === "F") return `${Math.round(temp * 9/5 + 32)}°F`;
-        return `${Math.round(temp)}°C`;
+        if (unit === "F") return `${Math.round(temp * 9/5 + 32)}\u00b0F`;
+        return `${Math.round(temp)}\u00b0C`;
     }
 
     function update(container, data) {

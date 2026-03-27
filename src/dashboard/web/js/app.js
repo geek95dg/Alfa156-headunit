@@ -160,51 +160,104 @@ const App = (() => {
 
         const data = DataStore.getAll();
         const distances = data.parking_distances || [];
-        const labels = ["FL", "FR", "RL", "RR"];
+        const lang = App.getLang();
+        // Sensor labels: EN = LL, CL, CR, RR / PL = LL, CL, CP, PP
+        const labels = lang === "pl"
+            ? ["LL", "CL", "CP", "PP"]
+            : ["LL", "CL", "CR", "RR"];
+        const closestLabel = lang === "pl" ? "NAJBLI\u017bEJ" : "CLOSEST";
+        const noCameraText = lang === "pl" ? "BRAK KAMERY COFANIA" : "NO REVERSE CAMERA";
+        const exitText = lang === "pl" ? "NACI\u015aNIJ R LUB ESC ABY WYJ\u015a\u0106" : "PRESS R OR ESC TO EXIT REVERSE VIEW";
 
         overlay = document.createElement("div");
         overlay.id = "reverse-overlay";
         overlay.className = "absolute inset-0 z-[200] flex flex-col bg-black";
+
+        // Sensor bar: each sensor at 1/4 width, aligned spatially
+        const sensorBar = labels.map((lbl, i) => {
+            const dist = distances[i] || 0;
+            const pct = dist > 0 ? Math.min(100, (dist / 2.0) * 100) : 0;
+            const color = dist <= 0 ? "bg-zinc-800" : dist < 0.3 ? "bg-red-500" : dist < 0.5 ? "bg-orange-500" : dist < 1.0 ? "bg-yellow-500" : "bg-green-500";
+            const textColor = dist <= 0 ? "text-zinc-600" : dist < 0.3 ? "text-red-400" : dist < 0.5 ? "text-orange-400" : dist < 1.0 ? "text-yellow-400" : "text-green-400";
+            return `<div class="flex-1 flex flex-col items-center gap-1">
+                <span class="text-[10px] font-bold text-zinc-500">${lbl}</span>
+                <div class="w-8 h-14 bg-zinc-900 rounded relative overflow-hidden">
+                    <div class="${color} absolute bottom-0 w-full rounded transition-all duration-300" style="height:${pct}%"></div>
+                </div>
+                <span class="text-xs font-bold ${textColor}">${dist > 0 ? dist.toFixed(1) + 'm' : '--'}</span>
+            </div>`;
+        }).join("");
+
+        const closestDist = distances.filter(d => d > 0);
+        const closestVal = closestDist.length > 0 ? Math.min(...closestDist).toFixed(1) : '--';
+
         overlay.innerHTML = `
-            <!-- Camera area -->
-            <div class="flex-1 relative bg-zinc-900 flex items-center justify-center">
-                <div class="absolute top-4 right-4 bg-red-600 text-white font-black text-2xl w-12 h-12 rounded-full flex items-center justify-center z-10">R</div>
-                <div class="flex flex-col items-center text-zinc-600">
+            <!-- Camera area — tries live feed, falls back to placeholder -->
+            <div class="flex-1 relative bg-zinc-900 flex items-center justify-center overflow-hidden">
+                <img id="reverse-cam-feed" src="/api/camera/stream" alt=""
+                     class="absolute inset-0 w-full h-full object-cover z-0"
+                     style="display:none;"
+                     onload="this.style.display='block';document.getElementById('reverse-cam-placeholder').style.display='none';"
+                     onerror="this.style.display='none';document.getElementById('reverse-cam-placeholder').style.display='flex';">
+                <div id="reverse-cam-placeholder" class="flex flex-col items-center text-zinc-600 z-[1]">
                     <span class="material-symbols-outlined text-6xl">videocam_off</span>
-                    <span class="text-sm font-bold mt-2 uppercase tracking-wider">No Reverse Camera</span>
+                    <span class="text-sm font-bold mt-2 uppercase tracking-wider">${noCameraText}</span>
                 </div>
-                <!-- Parking guidelines -->
-                <div class="absolute bottom-0 left-1/2 -translate-x-1/2 w-[60%] h-[70%] border-l-2 border-r-2 border-b-2 border-green-500/40 rounded-b-xl"></div>
-                <div class="absolute bottom-[20%] left-1/2 -translate-x-1/2 w-[50%] border-t-2 border-dashed border-yellow-500/40"></div>
-                <div class="absolute bottom-[40%] left-1/2 -translate-x-1/2 w-[40%] border-t-2 border-dashed border-red-500/40"></div>
+                <!-- R badge -->
+                <div class="absolute top-3 right-3 bg-red-600 text-white font-black text-xl w-10 h-10 rounded-full flex items-center justify-center z-10">R</div>
+                <!-- Parking guidelines overlay -->
+                <div class="absolute bottom-0 left-1/2 -translate-x-1/2 w-[55%] h-[65%] border-l-2 border-r-2 border-b-2 border-green-500/40 rounded-b-xl z-[2]"></div>
+                <div class="absolute bottom-[18%] left-1/2 -translate-x-1/2 w-[45%] border-t-2 border-dashed border-yellow-500/40 z-[2]"></div>
+                <div class="absolute bottom-[36%] left-1/2 -translate-x-1/2 w-[35%] border-t-2 border-dashed border-red-500/40 z-[2]"></div>
             </div>
-            <!-- Parking sensors bar -->
-            <div class="h-[120px] bg-zinc-950 border-t border-zinc-800 flex items-center justify-around px-8">
-                ${labels.map((lbl, i) => {
-                    const dist = distances[i] || 0;
-                    const pct = dist > 0 ? Math.min(100, (dist / 2.0) * 100) : 0;
-                    const color = dist <= 0 ? "bg-zinc-800" : dist < 0.3 ? "bg-red-500" : dist < 0.5 ? "bg-orange-500" : dist < 1.0 ? "bg-yellow-500" : "bg-green-500";
-                    const textColor = dist <= 0 ? "text-zinc-600" : dist < 0.3 ? "text-red-400" : dist < 0.5 ? "text-orange-400" : dist < 1.0 ? "text-yellow-400" : "text-green-400";
-                    return `<div class="flex flex-col items-center gap-2">
-                        <span class="text-[10px] font-bold text-zinc-500 uppercase">${lbl}</span>
-                        <div class="w-8 h-16 bg-zinc-900 rounded relative overflow-hidden">
-                            <div class="${color} absolute bottom-0 w-full rounded transition-all duration-300" style="height:${pct}%"></div>
-                        </div>
-                        <span class="text-xs font-bold ${textColor}">${dist > 0 ? dist.toFixed(1) + 'm' : '--'}</span>
-                    </div>`;
-                }).join("")}
-                <div class="flex flex-col items-center">
-                    <span class="text-[10px] font-bold text-zinc-500 uppercase">Closest</span>
-                    <span class="text-3xl font-black text-white">${distances.length > 0 ? Math.min(...distances.filter(d => d > 0)).toFixed(1) : '--'}<span class="text-sm text-zinc-500 ml-1">m</span></span>
+            <!-- Parking sensors: 4 sensors aligned to 1/4 screen width each + closest readout -->
+            <div class="h-[110px] bg-zinc-950 border-t border-zinc-800 flex items-center px-4 shrink-0">
+                <div class="flex flex-1 items-center">
+                    ${sensorBar}
+                </div>
+                <div class="w-[140px] flex flex-col items-center shrink-0 pl-4 border-l border-zinc-800">
+                    <span class="text-[9px] font-bold text-zinc-500 uppercase">${closestLabel}</span>
+                    <span class="text-3xl font-black text-white">${closestVal}<span class="text-sm text-zinc-500 ml-1">m</span></span>
                 </div>
             </div>
-            <div class="text-center py-1 bg-zinc-950 text-zinc-600 text-[10px] font-bold uppercase tracking-widest">Press R or ESC to exit reverse view</div>
+            <div class="text-center py-1 bg-zinc-950 text-zinc-600 text-[9px] font-bold uppercase tracking-widest shrink-0">${exitText}</div>
         `;
         _appEl.appendChild(overlay);
+
+        // Start updating sensor values
+        _reverseUpdateInterval = setInterval(_updateReverseSensors, 200);
+    }
+
+    let _reverseUpdateInterval = null;
+
+    function _updateReverseSensors() {
+        const data = DataStore.getAll();
+        const distances = data.parking_distances || [];
+        const overlay = document.getElementById("reverse-overlay");
+        if (!overlay) return;
+
+        const bars = overlay.querySelectorAll('.flex-1 .flex-1');
+        bars.forEach((bar, i) => {
+            const dist = distances[i] || 0;
+            const pct = dist > 0 ? Math.min(100, (dist / 2.0) * 100) : 0;
+            const fill = bar.querySelector('[class*="absolute bottom-0"]');
+            const label = bar.querySelector('.text-xs');
+            if (fill) {
+                fill.style.height = `${pct}%`;
+                fill.className = fill.className.replace(/bg-\S+/, '');
+                const color = dist <= 0 ? "bg-zinc-800" : dist < 0.3 ? "bg-red-500" : dist < 0.5 ? "bg-orange-500" : dist < 1.0 ? "bg-yellow-500" : "bg-green-500";
+                fill.classList.add(color, "absolute", "bottom-0", "w-full", "rounded", "transition-all", "duration-300");
+            }
+            if (label) label.textContent = dist > 0 ? dist.toFixed(1) + 'm' : '--';
+        });
     }
 
     function _hideReverseOverlay() {
         _reverseOverlayActive = false;
+        if (_reverseUpdateInterval) {
+            clearInterval(_reverseUpdateInterval);
+            _reverseUpdateInterval = null;
+        }
         const overlay = document.getElementById("reverse-overlay");
         if (overlay) overlay.remove();
     }
@@ -258,10 +311,14 @@ const App = (() => {
 
     /** Listen for config changes from backend */
     function onConfigChanged(value) {
-        if (value && value.theme && value.theme !== _currentTheme) {
+        if (!value) return;
+        if (value.theme && value.theme !== _currentTheme) {
             applyTheme(value.theme);
-            // Re-render current screen with new theme
             navigateTo(_currentScreen);
+        }
+        if (value.language) {
+            _config.language = value.language;
+            loadI18n(value.language).then(() => navigateTo(_currentScreen));
         }
     }
 
@@ -303,6 +360,20 @@ const App = (() => {
                     method: "POST",
                     headers: { "Content-Type": "application/json" },
                     body: JSON.stringify({ theme }),
+                });
+            } catch (e) { /* ignore */ }
+        },
+
+        /** Set language, reload translations, and re-render */
+        async setLang(lang) {
+            _config.language = lang;
+            await loadI18n(lang);
+            navigateTo(_currentScreen);
+            try {
+                await fetch("/api/config", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ language: lang }),
                 });
             } catch (e) { /* ignore */ }
         },
