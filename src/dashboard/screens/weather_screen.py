@@ -9,6 +9,7 @@ import pygame
 from src.dashboard.themes.theme_base import ThemeBase
 from src.dashboard.i18n import t
 from .base_screen import BaseScreen, DashboardData, _font
+from .assets import draw_stylized_map
 
 
 class WeatherScreen(BaseScreen):
@@ -148,9 +149,9 @@ class WeatherScreen(BaseScreen):
                                       data.gps_lat, data.gps_lon,
                                       data.gps_heading, theme_name)
         else:
-            # Stylized map placeholder
-            self._draw_map_placeholder(surface, x + 2, y + 2, w - 4, h - 4,
-                                       accent, card_bg, theme_name)
+            # Stylized map — uses shared drawing from assets.py (1:1 with mockups)
+            draw_stylized_map(surface, x + 2, y + 2, w - 4, h - 4,
+                              accent, theme_name)
 
         # Location overlay
         if data.weather_city:
@@ -171,48 +172,6 @@ class WeatherScreen(BaseScreen):
             gps_color = (245, 158, 11)
         gps_surf = font_tiny.render(gps_text, True, gps_color)
         surface.blit(gps_surf, (x + 10, y + 8))
-
-    def _draw_map_placeholder(self, surface, x, y, w, h, accent, bg, theme_name):
-        """Draw a stylized map placeholder with grid streets."""
-        # Dark background
-        map_bg = {
-            "heritage": (30, 20, 12),
-            "modern": (20, 25, 35),
-            "autodelta": (15, 15, 15),
-        }.get(theme_name, (20, 20, 20))
-        pygame.draw.rect(surface, map_bg, (x, y, w, h))
-
-        # Grid lines (streets)
-        grid_color = tuple(min(255, c + 15) for c in map_bg)
-        spacing = 30
-        for gx in range(x, x + w, spacing):
-            pygame.draw.line(surface, grid_color, (gx, y), (gx, y + h), 1)
-        for gy in range(y, y + h, spacing):
-            pygame.draw.line(surface, grid_color, (x, gy), (x + w, gy), 1)
-
-        # Main roads (thicker, accent-colored)
-        road_color = tuple(min(255, c // 2 + 30) for c in accent)
-        pygame.draw.line(surface, road_color, (x + w // 3, y), (x + w // 3, y + h), 2)
-        pygame.draw.line(surface, road_color, (x, y + h // 2), (x + w, y + h // 2), 2)
-
-        # Curved "river" line
-        import math
-        river_color = (40, 80, 120) if theme_name == "modern" else (60, 50, 30)
-        prev_point = None
-        for i in range(0, w, 3):
-            rx = x + i
-            ry = y + h * 3 // 4 + int(20 * math.sin(i * 0.03))
-            if prev_point:
-                pygame.draw.line(surface, river_color, prev_point, (rx, ry), 2)
-            prev_point = (rx, ry)
-
-        # Location dot at center
-        cx, cy = x + w // 2, y + h // 2
-        glow = pygame.Surface((30, 30), pygame.SRCALPHA)
-        pygame.draw.circle(glow, (*accent, 40), (15, 15), 12)
-        surface.blit(glow, (cx - 15, cy - 15))
-        pygame.draw.circle(surface, accent, (cx, cy), 5)
-        pygame.draw.circle(surface, (255, 255, 255), (cx, cy), 3)
 
     def _draw_legacy(self, surface, theme, data):
         """Legacy weather display for classic themes."""
