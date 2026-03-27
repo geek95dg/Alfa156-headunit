@@ -10,6 +10,30 @@ const App = (() => {
     let _currentTheme = "heritage";
     let _config = {};
     let _i18n = {};
+    // Fallback English strings (used when backend i18n not available)
+    const _fallbackStrings = {
+        "screen.a1": "MAIN", "screen.a2": "TRIP", "screen.a3": "WEATHER", "screen.a4": "SERVICE",
+        "screen.settings": "SETTINGS",
+        "engine_temp": "Engine Temp", "fuel_level": "Fuel Level", "coolant": "Coolant",
+        "fuel": "Fuel", "oil_press": "Oil Press", "battery": "Battery",
+        "notifications": "Notifications", "now_playing": "Now Playing",
+        "avg_speed": "Avg Speed", "drive_time": "Drive Time", "voltage": "Voltage",
+        "distance": "Distance", "time": "Time", "avg_fuel": "Avg Consumption",
+        "instant_cons": "Inst. Cons.", "range": "Range", "trip_dist": "Trip Distance",
+        "trip_time": "Trip Time", "est_range": "Est. Range",
+        "weather": "Weather", "forecast": "Forecast", "wind": "Wind", "humidity": "Humidity",
+        "system_status": "System Status", "engine": "Engine", "oil_life": "Oil Life",
+        "tires": "TPMS", "tire_pressure": "Tire Pressure",
+        "service_interval": "Next Service", "diagnostics": "Diagnostics",
+        "driving_style": "Driving Style", "consumption": "Consumption",
+        "icing_title": "ICING WARNING", "icing_msg": "Temperature dropping below 3°C",
+        "icing_msg2": "Possible ice on road",
+        "reverse_no_camera": "NO REVERSE CAMERA", "reverse_closest": "CLOSEST",
+        "parking": "PARKING",
+        "settings_title": "SETTINGS", "theme": "Theme", "language": "Language",
+        "speed_units": "Speed Units", "temp_units": "Temp Units",
+        "ok": "OK", "all_ok": "All OK", "warning": "Warning",
+    };
     let _appEl = null;
 
     // Screen renderers (populated by screen modules)
@@ -117,11 +141,14 @@ const App = (() => {
 
     // --- Reverse Camera Overlay ---
     let _reverseOverlayActive = false;
+    let _reverseManual = false; // true when toggled via R key (not auto from event bus)
 
     function _toggleReverseOverlay() {
         if (_reverseOverlayActive) {
+            _reverseManual = false;
             _hideReverseOverlay();
         } else {
+            _reverseManual = true;
             _showReverseOverlay();
         }
     }
@@ -218,10 +245,11 @@ const App = (() => {
         if (_renderers[_currentScreen] && _renderers[_currentScreen].update) {
             _renderers[_currentScreen].update(data, _currentTheme);
         }
-        // Auto-show reverse overlay when gear=R from event bus
-        if (data.reverse && !_reverseOverlayActive) {
+        // Auto-show reverse overlay when gear=R from event bus (not manual toggle)
+        if (data.reverse === true && !_reverseOverlayActive) {
+            _reverseManual = false;
             _showReverseOverlay();
-        } else if (!data.reverse && _reverseOverlayActive) {
+        } else if (data.reverse === false && _reverseOverlayActive && !_reverseManual) {
             _hideReverseOverlay();
         }
         // Icing alert check
@@ -249,10 +277,13 @@ const App = (() => {
         /** Get config */
         getConfig() { return _config; },
 
-        /** Get translation string */
+        /** Get translation string — checks loaded i18n, then fallback, then key */
         t(key, fallback) {
-            return _i18n[key] || fallback || key;
+            return _i18n[key] || _fallbackStrings[key] || fallback || key;
         },
+
+        /** Get current language */
+        getLang() { return _config.language || "pl"; },
 
         /** Navigate to a screen */
         navigateTo,

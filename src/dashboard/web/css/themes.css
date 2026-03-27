@@ -241,9 +241,9 @@ body[data-theme="autodelta"] {
 ::-webkit-scrollbar { display: none; }
 * { scrollbar-width: none; }
 
-/* SVG logo inherits text color */
+/* Logo in appbar — clean, no glow */
 .appbar-logo {
-    filter: drop-shadow(0 0 2px currentColor);
+    object-fit: contain;
 }
 
 /* ---- LEAFLET MAP OVERRIDES ---- */
