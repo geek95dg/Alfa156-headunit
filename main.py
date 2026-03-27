@@ -87,6 +87,12 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Run PyGame with dummy video/audio drivers (no X display needed)",
     )
+    parser.add_argument(
+        "--frontend",
+        action="store_true",
+        help="Use HTML5/Tailwind web frontend instead of Pygame renderer. "
+             "Dashboard served at http://localhost:5002",
+    )
     return parser.parse_args()
 
 
@@ -252,38 +258,66 @@ def main() -> None:
     signal.signal(signal.SIGINT, signal_handler)
     signal.signal(signal.SIGTERM, signal_handler)
 
-    # Start dashboard LAST — it blocks the main thread with PyGame event loop.
-    # All other modules (BT, AA display, etc.) are already running in their
-    # daemon threads by this point.
+    # Start dashboard LAST — it blocks the main thread.
+    # In --frontend mode: start web server + demo data, block main thread.
+    # In Pygame mode: start Pygame renderer which blocks main thread.
     if dashboard_enabled:
-        log.info("Starting dashboard (main thread — blocking)...")
-        try:
-            # Create renderer before starting so signal handler can stop it
-            from src.dashboard.renderer import DashboardRenderer, DemoDataGenerator
+        # Always start demo data generators on x86
+        demo = None
+        demo_media = None
+        if config.platform == "x86":
+            from src.dashboard.renderer import DemoDataGenerator
             from src.multimedia.bluetooth import DemoMediaGenerator
-            dashboard_renderer = DashboardRenderer(config, event_bus)
-            demo = None
-            demo_media = None
-            if config.platform == "x86":
-                demo = DemoDataGenerator(event_bus)
-                demo.start()
-                demo_media = DemoMediaGenerator(event_bus)
-                demo_media.start()
+            demo = DemoDataGenerator(event_bus)
+            demo.start()
+            demo_media = DemoMediaGenerator(event_bus)
+            demo_media.start()
+            log.info("Demo data generators started (OBD + Media)")
+
+        if args.frontend:
+            # HTML5/Tailwind frontend mode — no Pygame needed
+            log.info("Starting HTML5/Tailwind dashboard frontend...")
             try:
-                dashboard_renderer.run()
+                from src.dashboard.web_viewer import WebViewer
+                web_viewer = WebViewer(
+                    host="0.0.0.0", port=5002,
+                    event_bus=event_bus, config=config,
+                )
+                web_viewer.start()
+                log.info("Dashboard frontend started at http://localhost:5002")
+                log.info("  Themes: Heritage / Modern / Autodelta")
+                log.info("  Screens: Init -> A1 Main -> A2 Trip -> A3 Weather -> A4 Service")
+                log.info("BCM v8 running (frontend mode). Press Ctrl+C to stop.")
+                while not shutdown:
+                    time.sleep(0.5)
+            except Exception:
+                log.exception("Frontend dashboard failed")
             finally:
                 if demo:
                     demo.stop()
                 if demo_media:
                     demo_media.stop()
-        except Exception:
-            log.exception("Dashboard failed")
+        else:
+            # Legacy Pygame renderer mode
+            log.info("Starting Pygame dashboard (main thread — blocking)...")
+            try:
+                from src.dashboard.renderer import DashboardRenderer
+                dashboard_renderer = DashboardRenderer(config, event_bus)
+                try:
+                    dashboard_renderer.run()
+                finally:
+                    if demo:
+                        demo.stop()
+                    if demo_media:
+                        demo_media.stop()
+            except Exception:
+                log.exception("Dashboard failed")
     else:
         if started_modules:
-            log.info("BCM v7 running (no dashboard). Press Ctrl+C to stop.")
+            log.info("BCM v8 running (no dashboard). Press Ctrl+C to stop.")
             while not shutdown:
                 time.sleep(0.5)
-            log.info("BCM v7 shutdown complete.")
+            log.info("BCM v8 shutdown complete.")
         else:
             log.info("No implemented modules to start. Core infrastructure is ready.")
 
