@@ -91,6 +91,7 @@ App.registerScreen("a3", (() => {
     }
 
     function _renderHeritage(data) {
+        const t = App.t.bind(App);
         const city = data.weather_city || "Milan, IT";
         const condition = data.weather_condition || "Partly Cloudy";
         const temp = data.weather_temp != null ? Math.round(data.weather_temp) : 22;
@@ -111,7 +112,7 @@ App.registerScreen("a3", (() => {
                         <span class="material-symbols-outlined text-4xl text-amber-500" style="font-variation-settings:'FILL' 1;">${_weatherIcon(condition)}</span>
                         <div>
                             <span id="weather-temp" class="text-4xl font-bold text-white">${temp}°</span>
-                            <p id="weather-feels" class="text-[11px] text-zinc-500">Feels ${feels}°</p>
+                            <p id="weather-feels" class="text-[11px] text-zinc-500">${t("feels_like")} ${feels}°</p>
                         </div>
                     </div>
                     <!-- Wind + Humidity -->
@@ -127,7 +128,7 @@ App.registerScreen("a3", (() => {
                     </div>
                     <!-- Forecast -->
                     <div class="mt-auto">
-                        <h3 class="text-[10px] uppercase tracking-widest text-zinc-600 mb-1 border-b border-amber-900/30 pb-1">Forecast</h3>
+                        <h3 class="text-[10px] uppercase tracking-widest text-zinc-600 mb-1 border-b border-amber-900/30 pb-1">${t("forecast")}</h3>
                         ${_forecastRow("Today", "sunny", temp + 3, temp - 5, "heritage")}
                         ${_forecastRow("Wed", "cloud", temp - 2, temp - 8, "heritage")}
                         ${_forecastRow("Thu", "rainy", temp - 5, temp - 10, "heritage")}
@@ -140,7 +141,7 @@ App.registerScreen("a3", (() => {
                     <div class="absolute top-3 left-3 z-10 bg-black/70 backdrop-blur-sm rounded-lg px-3 py-2 border border-amber-900/30">
                         <div class="flex items-center gap-2">
                             <span class="material-symbols-outlined text-amber-500" style="font-size:16px;">location_on</span>
-                            <span class="text-[10px] text-zinc-400 font-bold uppercase">GPS Active</span>
+                            <span class="text-[10px] text-zinc-400 font-bold uppercase">${t("gps_active")}</span>
                         </div>
                     </div>
                     <div class="absolute bottom-3 left-3 right-3 z-10 bg-black/70 backdrop-blur-sm rounded-lg px-3 py-2 border border-amber-900/30 flex justify-between items-center">
@@ -149,8 +150,8 @@ App.registerScreen("a3", (() => {
                             <span class="text-sm font-bold text-white">${temp}° ${condition}</span>
                         </div>
                         <div class="flex items-center gap-3 text-[10px] text-zinc-400">
-                            <span>Wind: ${wind} km/h</span>
-                            <span>Hum: ${humidity}%</span>
+                            <span>${t("wind")}: ${wind} km/h</span>
+                            <span>${t("humidity")}: ${humidity}%</span>
                         </div>
                     </div>
                 </div>
@@ -160,6 +161,7 @@ App.registerScreen("a3", (() => {
     }
 
     function _renderModern(data) {
+        const t = App.t.bind(App);
         const city = data.weather_city || "Milan";
         const condition = data.weather_condition || "Partly Cloudy";
         const temp = data.weather_temp != null ? Math.round(data.weather_temp) : 18;
@@ -196,7 +198,7 @@ App.registerScreen("a3", (() => {
                 <div class="col-span-4 flex flex-col gap-3 h-full">
                     <div class="rounded-xl p-4 flex flex-col justify-between flex-grow" style="background:rgba(24,24,27,0.8);backdrop-filter:blur(12px);border:1px solid rgba(255,255,255,0.1);">
                         <div>
-                            <p class="text-xs font-bold text-zinc-500 uppercase tracking-widest">Weather</p>
+                            <p class="text-xs font-bold text-zinc-500 uppercase tracking-widest">${t("weather")}</p>
                             <span class="text-5xl font-light tracking-tighter text-white">${temp}°</span>
                         </div>
                         <div class="mt-3 pt-3 border-t border-white/10 grid grid-cols-3 gap-1 text-center">
@@ -208,11 +210,11 @@ App.registerScreen("a3", (() => {
                     <div class="rounded-xl p-3 grid grid-cols-2 gap-2" style="background:rgba(24,24,27,0.8);border:1px solid rgba(255,255,255,0.1);">
                         <div class="flex items-center gap-1">
                             <span class="material-symbols-outlined text-zinc-500" style="font-size:16px;">air</span>
-                            <div><p class="text-[8px] text-zinc-500 uppercase">Wind</p><p class="text-xs font-bold">${wind} km/h</p></div>
+                            <div><p class="text-[8px] text-zinc-500 uppercase">${t("wind")}</p><p class="text-xs font-bold">${wind} km/h</p></div>
                         </div>
                         <div class="flex items-center gap-1">
                             <span class="material-symbols-outlined text-zinc-500" style="font-size:16px;">humidity_percentage</span>
-                            <div><p class="text-[8px] text-zinc-500 uppercase">Hum</p><p class="text-xs font-bold">${humidity}%</p></div>
+                            <div><p class="text-[8px] text-zinc-500 uppercase">${t("humidity")}</p><p class="text-xs font-bold">${humidity}%</p></div>
                         </div>
                     </div>
                 </div>
@@ -222,6 +224,7 @@ App.registerScreen("a3", (() => {
     }
 
     function _renderAutodelta(data) {
+        const t = App.t.bind(App);
         const city = data.weather_city || "Milano, IT";
         const condition = data.weather_condition || "Partly Cloudy";
         const temp = data.weather_temp != null ? Math.round(data.weather_temp) : 24;
@@ -247,7 +250,7 @@ App.registerScreen("a3", (() => {
                         </div>
                         <div class="relative z-10">
                             <span id="weather-temp" class="text-6xl font-black text-white tracking-tighter">${temp}°</span>
-                            <p id="weather-feels" class="text-[#FF5F00] font-bold text-[10px] uppercase">Feels like ${feels}°</p>
+                            <p id="weather-feels" class="text-[#FF5F00] font-bold text-[10px] uppercase">${t("feels_like")} ${feels}°</p>
                         </div>
                     </div>
                     <!-- Map -->
@@ -257,12 +260,12 @@ App.registerScreen("a3", (() => {
                         <div class="absolute bottom-3 left-3 right-3 z-10 flex justify-between items-center">
                             <div class="px-3 py-1 rounded-full flex items-center gap-2" style="background:rgba(24,24,27,0.8);border:1px solid rgba(255,95,0,0.15);">
                                 <div class="w-2 h-2 bg-[#FF5F00] rounded-full animate-pulse"></div>
-                                <span class="text-[10px] font-bold text-white uppercase">Live Tracking</span>
+                                <span class="text-[10px] font-bold text-white uppercase">${t("live_tracking")}</span>
                             </div>
                             <div class="flex items-center gap-2 text-[10px] text-zinc-400 px-2 py-1 rounded-full" style="background:rgba(24,24,27,0.8);">
                                 <span class="material-symbols-outlined text-[#FF5F00]" style="font-size:14px;font-variation-settings:'FILL' 1;">${_weatherIcon(condition)}</span>
                                 <span class="text-white font-bold">${temp}°</span>
-                                <span>Wind ${wind}km/h</span>
+                                <span>${t("wind")} ${wind}km/h</span>
                             </div>
                         </div>
                     </div>
@@ -286,11 +289,11 @@ App.registerScreen("a3", (() => {
                         </div>` : ''}
                         <div class="flex-[1.5] autodelta-glass rounded-xl p-2 flex flex-col justify-center gap-1">
                             <div class="flex justify-between items-center border-b border-zinc-800 pb-1">
-                                <span class="text-[9px] font-bold text-zinc-500 uppercase">Wind</span>
+                                <span class="text-[9px] font-bold text-zinc-500 uppercase">${t("wind")}</span>
                                 <span id="weather-wind" class="text-xs font-bold text-white">${wind} km/h</span>
                             </div>
                             <div class="flex justify-between items-center border-b border-zinc-800 pb-1">
-                                <span class="text-[9px] font-bold text-zinc-500 uppercase">Humidity</span>
+                                <span class="text-[9px] font-bold text-zinc-500 uppercase">${t("humidity")}</span>
                                 <span id="weather-humidity" class="text-xs font-bold text-white">${humidity}%</span>
                             </div>
                             <div class="flex justify-between items-center">

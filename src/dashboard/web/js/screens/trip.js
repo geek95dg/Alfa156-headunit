@@ -27,10 +27,11 @@ App.registerScreen("a2", (() => {
 
     /** Driving profile based on consumption */
     function _drivingProfile(avgCons) {
-        if (avgCons < 5) return { label: "ECO", color: "text-green-400", bg: "bg-green-900/30", icon: "eco" };
-        if (avgCons < 7) return { label: "NORMAL", color: "text-blue-400", bg: "bg-blue-900/30", icon: "speed" };
-        if (avgCons < 10) return { label: "DYNAMIC", color: "text-amber-400", bg: "bg-amber-900/30", icon: "bolt" };
-        return { label: "SPORT", color: "text-red-400", bg: "bg-red-900/30", icon: "local_fire_department" };
+        const t = App.t.bind(App);
+        if (avgCons < 5) return { label: t("eco"), color: "text-green-400", bg: "bg-green-900/30", icon: "eco" };
+        if (avgCons < 7) return { label: t("normal"), color: "text-blue-400", bg: "bg-blue-900/30", icon: "speed" };
+        if (avgCons < 10) return { label: t("dynamic"), color: "text-amber-400", bg: "bg-amber-900/30", icon: "bolt" };
+        return { label: t("sport"), color: "text-red-400", bg: "bg-red-900/30", icon: "local_fire_department" };
     }
 
     /** Bar chart with Y-axis scale and time labels */
@@ -67,6 +68,7 @@ App.registerScreen("a2", (() => {
     }
 
     function _renderHeritage(data) {
+        const t = App.t.bind(App);
         const dist = (data.trip_distance || 0).toFixed(1);
         const avgSpd = Math.round(data.avg_speed || 0);
         const time = data.trip_time || "0h 0m";
@@ -82,29 +84,29 @@ App.registerScreen("a2", (() => {
             <main class="content-area flex overflow-hidden">
                 <!-- Left: Compact stats -->
                 <div class="w-[220px] p-4 flex flex-col gap-3 border-r border-amber-900/30 bg-[#221610] shrink-0">
-                    <h1 class="text-lg font-bold text-amber-500 uppercase tracking-wide amber-glow">Trip A2</h1>
+                    <h1 class="text-lg font-bold text-amber-500 uppercase tracking-wide amber-glow">${t("trip_title")}</h1>
                     <div class="p-3 rounded-lg bg-zinc-900/60 border border-zinc-800">
-                        <p class="text-[9px] text-zinc-500 uppercase tracking-wider">Distance</p>
+                        <p class="text-[9px] text-zinc-500 uppercase tracking-wider">${t("distance")}</p>
                         <p class="text-2xl font-bold text-amber-500 amber-glow"><span id="trip-dist">${dist}</span> <span class="text-xs text-zinc-500">km</span></p>
                     </div>
                     <div class="flex gap-2">
                         <div class="flex-1 p-2 rounded-lg bg-zinc-900/60 border border-zinc-800">
-                            <p class="text-[8px] text-zinc-500 uppercase">Avg Speed</p>
+                            <p class="text-[8px] text-zinc-500 uppercase">${t("avg_speed")}</p>
                             <p class="text-lg font-bold text-zinc-200"><span id="trip-avg-speed">${avgSpd}</span> <span class="text-[9px] text-zinc-500">km/h</span></p>
                         </div>
                         <div class="flex-1 p-2 rounded-lg bg-zinc-900/60 border border-zinc-800">
-                            <p class="text-[8px] text-zinc-500 uppercase">Time</p>
+                            <p class="text-[8px] text-zinc-500 uppercase">${t("time")}</p>
                             <p id="trip-time" class="text-lg font-bold text-zinc-200">${time}</p>
                         </div>
                     </div>
                     <div class="p-3 rounded-lg bg-zinc-900/60 border border-zinc-800">
-                        <p class="text-[9px] text-zinc-500 uppercase tracking-wider">Avg Consumption</p>
+                        <p class="text-[9px] text-zinc-500 uppercase tracking-wider">${t("avg_consumption")}</p>
                         <p class="text-2xl font-bold text-amber-500 amber-glow"><span id="trip-avg-cons">${avgCons}</span> <span class="text-xs text-zinc-500">L/100km</span></p>
                     </div>
                     <div class="p-2 rounded-lg ${profile.bg} border border-zinc-800 flex items-center gap-2">
                         <span class="material-symbols-outlined ${profile.color}" style="font-size:20px;">${profile.icon}</span>
                         <div>
-                            <p class="text-[8px] text-zinc-500 uppercase">Driving Style</p>
+                            <p class="text-[8px] text-zinc-500 uppercase">${t("driving_style")}</p>
                             <p class="text-sm font-bold ${profile.color}">${profile.label}</p>
                         </div>
                     </div>
@@ -112,7 +114,7 @@ App.registerScreen("a2", (() => {
                 <!-- Right: Chart with scale -->
                 <div class="flex-1 p-4 flex flex-col bg-[#1a0f0a]">
                     <div class="flex justify-between items-center mb-2">
-                        <span class="text-[10px] text-zinc-500 font-bold uppercase tracking-wider">Fuel Consumption (L/100km)</span>
+                        <span class="text-[10px] text-zinc-500 font-bold uppercase tracking-wider">${t("fuel_consumption")} (L/100km)</span>
                         <div class="flex items-center gap-2">
                             <span class="text-[9px] text-zinc-600">Now:</span>
                             <span id="trip-instant" class="text-sm font-bold text-amber-500">${instantCons}</span>
@@ -123,7 +125,7 @@ App.registerScreen("a2", (() => {
                         ${_chartWithScale(chartValues, chartLabels, "heritage", 15)}
                     </div>
                     <div class="flex justify-between items-center mt-2 px-1">
-                        <span class="text-[9px] text-zinc-600">EST. RANGE: <span id="trip-range" class="text-amber-500 font-bold">${range}</span> km</span>
+                        <span class="text-[9px] text-zinc-600">${t("est_range")}: <span id="trip-range" class="text-amber-500 font-bold">${range}</span> km</span>
                     </div>
                 </div>
             </main>
@@ -132,6 +134,7 @@ App.registerScreen("a2", (() => {
     }
 
     function _renderModern(data) {
+        const t = App.t.bind(App);
         const dist = (data.trip_distance || 0).toFixed(1);
         const avgSpd = Math.round(data.avg_speed || 0);
         const time = data.trip_time || "01:45";
@@ -149,17 +152,17 @@ App.registerScreen("a2", (() => {
                 <div class="w-[200px] flex flex-col gap-2 shrink-0">
                     <div class="bg-white rounded-xl p-3 shadow-sm border border-slate-200 flex-1 flex flex-col justify-between">
                         <div>
-                            <span class="text-[9px] font-bold text-slate-400 uppercase tracking-wider">Trip Distance</span>
+                            <span class="text-[9px] font-bold text-slate-400 uppercase tracking-wider">${t("trip_dist")}</span>
                             <h2 class="text-2xl font-extrabold text-[#005596]"><span id="trip-dist">${dist}</span> <span class="text-xs font-normal text-slate-500">km</span></h2>
                         </div>
                         <div class="flex justify-between mt-2">
-                            <div><span class="text-[8px] font-bold text-slate-400 uppercase">Speed</span><br><span id="trip-avg-speed" class="font-bold text-slate-700 text-sm">${avgSpd}</span> <span class="text-[9px]">km/h</span></div>
-                            <div><span class="text-[8px] font-bold text-slate-400 uppercase">Time</span><br><span id="trip-time" class="font-bold text-slate-700 text-sm">${time}</span></div>
+                            <div><span class="text-[8px] font-bold text-slate-400 uppercase">${t("avg_speed")}</span><br><span id="trip-avg-speed" class="font-bold text-slate-700 text-sm">${avgSpd}</span> <span class="text-[9px]">km/h</span></div>
+                            <div><span class="text-[8px] font-bold text-slate-400 uppercase">${t("time")}</span><br><span id="trip-time" class="font-bold text-slate-700 text-sm">${time}</span></div>
                         </div>
                     </div>
                     <div class="bg-[#005596] text-white rounded-xl p-3 shadow-md flex items-center justify-between">
                         <div>
-                            <span class="text-[9px] font-bold text-white/70 uppercase">Avg Fuel</span>
+                            <span class="text-[9px] font-bold text-white/70 uppercase">${t("avg_consumption")}</span>
                             <div class="text-xl font-bold"><span id="trip-avg-cons">${avgCons}</span> <span class="text-[9px] font-light">l/100km</span></div>
                         </div>
                         <span class="material-symbols-outlined text-2xl opacity-30">local_gas_station</span>
@@ -167,7 +170,7 @@ App.registerScreen("a2", (() => {
                     <div class="bg-white rounded-lg p-2 shadow-sm border border-slate-200 flex items-center gap-2">
                         <span class="material-symbols-outlined ${profile.color}" style="font-size:18px;">${profile.icon}</span>
                         <div>
-                            <span class="text-[8px] font-bold text-slate-400 uppercase">Profile</span>
+                            <span class="text-[8px] font-bold text-slate-400 uppercase">${t("driving_style")}</span>
                             <p class="text-xs font-bold ${profile.color}">${profile.label}</p>
                         </div>
                     </div>
@@ -177,7 +180,7 @@ App.registerScreen("a2", (() => {
                     <div class="flex justify-between items-center mb-2">
                         <span class="text-[10px] font-bold text-slate-800 flex items-center gap-1">
                             <span class="material-symbols-outlined text-[#005596]" style="font-size:16px;">monitoring</span>
-                            Consumption (L/100km)
+                            ${t("fuel_consumption")} (L/100km)
                         </span>
                         <span class="text-[9px] text-slate-500">Now: <span id="trip-instant" class="font-bold text-slate-700">${instantCons}</span></span>
                     </div>
@@ -185,7 +188,7 @@ App.registerScreen("a2", (() => {
                         ${_chartWithScale(graphValues, graphLabels, "modern", 20)}
                     </div>
                     <div class="flex justify-between mt-1 pt-1 border-t border-slate-100 text-[9px]">
-                        <span class="text-slate-400">Range: <span id="trip-range" class="font-bold text-slate-700">${range}</span> km</span>
+                        <span class="text-slate-400">${t("est_range")}: <span id="trip-range" class="font-bold text-slate-700">${range}</span> km</span>
                     </div>
                 </div>
             </main>
@@ -194,6 +197,7 @@ App.registerScreen("a2", (() => {
     }
 
     function _renderAutodelta(data) {
+        const t = App.t.bind(App);
         const dist = (data.trip_distance || 0).toFixed(1);
         const avgSpd = Math.round(data.avg_speed || 0);
         const time = data.trip_time || "01:54";
@@ -210,7 +214,7 @@ App.registerScreen("a2", (() => {
                 <!-- Header row -->
                 <div class="flex justify-between items-center mb-2">
                     <div>
-                        <h1 class="text-[#FF5F00] font-bold text-lg tracking-tight leading-none uppercase">Trip Analytics</h1>
+                        <h1 class="text-[#FF5F00] font-bold text-lg tracking-tight leading-none uppercase">${t("trip_analytics")}</h1>
                     </div>
                     <div class="flex items-center gap-3">
                         <div class="px-2 py-1 rounded ${profile.bg} flex items-center gap-1">
@@ -224,7 +228,7 @@ App.registerScreen("a2", (() => {
                 <div class="flex-1 flex gap-3 min-h-0">
                     <!-- Chart -->
                     <div class="flex-1 bg-zinc-900/50 rounded-xl border border-zinc-800 p-3 flex flex-col">
-                        <span class="text-[9px] text-zinc-500 font-bold uppercase tracking-wider mb-1">Consumption L/100km</span>
+                        <span class="text-[9px] text-zinc-500 font-bold uppercase tracking-wider mb-1">${t("fuel_consumption")} L/100km</span>
                         <div class="flex-1">
                             ${_chartWithScale(chartValues, chartLabels, "autodelta", 15)}
                         </div>
@@ -232,22 +236,22 @@ App.registerScreen("a2", (() => {
                     <!-- Stats column -->
                     <div class="w-[180px] flex flex-col gap-2 shrink-0">
                         <div class="bg-zinc-900/50 rounded-xl border border-zinc-800 p-3 flex-1 flex flex-col justify-center">
-                            <span class="text-[9px] text-zinc-500 font-bold uppercase tracking-widest">Avg Speed</span>
+                            <span class="text-[9px] text-zinc-500 font-bold uppercase tracking-widest">${t("avg_speed")}</span>
                             <span class="text-2xl font-bold text-white"><span id="trip-avg-speed">${avgSpd}</span> <span class="text-xs text-[#FF5F00]">KM/H</span></span>
                         </div>
                         <div class="bg-zinc-900/50 rounded-xl border border-zinc-800 p-3 flex-1 flex flex-col justify-center">
-                            <span class="text-[9px] text-zinc-500 font-bold uppercase tracking-widest">Avg Fuel</span>
+                            <span class="text-[9px] text-zinc-500 font-bold uppercase tracking-widest">${t("avg_consumption")}</span>
                             <span class="text-2xl font-bold text-white"><span id="trip-avg-cons">${avgCons}</span> <span class="text-xs text-[#FF5F00]">L/100</span></span>
                         </div>
                         <div class="bg-zinc-950 rounded-xl border border-[#FF5F00]/30 p-3 flex-1 flex items-center justify-between">
                             <div>
-                                <span class="text-[9px] text-zinc-500 font-bold uppercase">Range</span>
+                                <span class="text-[9px] text-zinc-500 font-bold uppercase">${t("est_range")}</span>
                                 <div class="text-xl font-bold"><span id="trip-range">${range}</span> <span class="text-xs text-[#FF5F00]">KM</span></div>
                             </div>
                             <span class="material-symbols-outlined text-[#FF5F00]" style="font-variation-settings:'FILL' 1;font-size:20px;">local_gas_station</span>
                         </div>
                         <div class="bg-zinc-900/50 rounded-xl border border-zinc-800 p-3 flex-1 flex flex-col justify-center">
-                            <span class="text-[9px] text-zinc-500 font-bold uppercase tracking-widest">Drive Time</span>
+                            <span class="text-[9px] text-zinc-500 font-bold uppercase tracking-widest">${t("drive_time")}</span>
                             <span id="trip-time" class="text-xl font-bold text-white">${time}</span>
                         </div>
                     </div>
