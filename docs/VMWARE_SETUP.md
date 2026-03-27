@@ -167,7 +167,7 @@ systemctl --user restart pipewire pipewire-pulse wireplumber
 
 ## 5. Running the System
 
-### 5.1 Quick test — all modules (dry run)
+### 5.1 Quick test — dry run
 
 ```bash
 cd ~/Alfa156-headunit
@@ -176,105 +176,96 @@ source .venv/bin/activate
 python main.py --platform x86 --dry-run
 ```
 
-Expected output: all 11 modules listed with their status.
-
-### 5.2 Start all modules
+### 5.2 Start with HTML5 Frontend (Recommended)
 
 ```bash
-python main.py --platform x86
+./run_x86.sh
 ```
 
-This will start all enabled modules in x86 simulation mode:
-- **Dashboard:** PyGame window (800×480) with 7 BCM screens (A1–C2), Polish/English UI
-- **Android Auto Display:** Web-based second screen at http://localhost:5001
-- **OBD:** Simulated ECU data (RPM, speed, temp, boost, etc.)
-- **Parking:** Simulated ultrasonic sensors
-- **Environment:** Simulated temperature readings
-- **Audio:** PipeWire integration (or stub if PipeWire unavailable)
-- **Voice:** Vosk offline recognition (or stub)
-- **Input:** Keyboard fallback for rotary encoder
-- **Camera:** Simulated camera frames (or real USB cam if passed through)
-- **Power:** Simulated ignition/shutdown state machine
-- **Multimedia:** Bluetooth manager (simulated) + OpenAuto stub
+This starts the system with the **HTML5/Tailwind dashboard frontend**. No Pygame or X display needed.
 
-### 5.2.1 Dashboard keyboard controls
+**Open your browser:** http://localhost:5002
+
+You'll see the head unit dashboard with:
+- **3 themes:** Heritage (amber/walnut), Modern (blue/white), Autodelta (orange/black)
+- **5 screens:** Init → A1 Main → A2 Trip → A3 Weather → A4 Service
+- **Live telemetry:** simulated engine data updating at ~15 FPS
+- **Interactive maps:** Leaflet.js with OpenStreetMap on Weather screen
+- **Real-time WebSocket:** all data streams via WebSocket to the browser
+
+**Access from your host machine (outside the VM):**
+1. Find VM IP: `ip addr show`
+2. Open host browser: `http://<VM_IP>:5002`
+3. If using VMware NAT and host can't reach VM, switch to **Bridged** networking
+
+### 5.2.1 Dashboard keyboard controls (in browser)
 
 | Key | Action |
 |-----|--------|
-| **LEFT/RIGHT** | Navigate between screens (A1→A2→B1→B2→C1→C2) |
-| **UP/DOWN** | Adjust RPM (demo) |
-| **HOME / H** | Open/close settings menu |
-| **ESC** | Close settings or quit |
-| **R** | Toggle reverse gear (camera + parking overlay) |
-| **T** | Cycle exterior temperature |
-| **I** | Trigger icing alert |
-| **ENTER (hold 2s)** | Long press action (reset trip on C1, confirm service on C2) |
+| **LEFT/RIGHT** | Navigate between screens (A1 → A2 → A3 → A4) |
+| **HOME** | Jump to A1 Main screen |
+| **ESC** | Return from Settings to dashboard |
 
-### 5.2.2 BCM Dashboard screens
+### 5.2.2 Dashboard screens (v8 — HTML5 Frontend)
 
 | Screen | Name | Content |
 |--------|------|---------|
-| **A1** | GŁÓWNY / MAIN | Tachometer, speed, RPM, instant consumption |
-| **A2** | SPALANIE / CONSUMPTION | Avg/instant fuel consumption, boost bar, trip distance |
-| **B1** | KLIMAT / CLIMATE | Analog clock, date, exterior temperature, defrost/climate |
-| **B2** | PALIWO / FUEL | Fuel tank graphic, estimated range, reserve indicator |
-| **C1** | TRIP | Distance, time, avg consumption (long push = reset) |
-| **C2** | SERWIS / SERVICE | Oil (placeholder), TPMS (future), service interval |
+| **Init** | Boot Sequence | Car sketch with breathing animation, progress bar, brand identity |
+| **A1** | Main Hub | Engine temp, fuel level, notifications, media player, driving stats |
+| **A2** | Trip Stats | Trip distance/time/speed, consumption chart (bar or line graph) |
+| **A3** | Weather | Live map (Leaflet.js), current conditions, 3-day forecast |
+| **A4** | Service | Vehicle diagnostics, car sketch, TPMS, oil/battery/engine status |
+| **Settings** | Config | Theme switch, language, units, brightness |
 
-### 5.2.3 Dual display (Android Auto simulation)
+### 5.2.3 Theme switching
 
-The system automatically starts a web-based Android Auto display simulator.
-The server binds to `0.0.0.0:5001` so it's accessible from any device on the network.
-
-**From the VM itself:**
-1. Open Firefox/Chrome → **http://localhost:5001**
-2. If using dual monitors in VMware, drag the browser to the second display
-
-**From another computer/tablet/phone (recommended):**
-1. Find the VM's IP: `ip addr show` (look for the NAT or bridged adapter IP)
-2. Open a browser on the other device → **http://VM_IP:5001**
-3. This lets you use a separate screen as the 7" Android Auto display
-
-> **VMware network note:** If using NAT, the VM IP is typically `192.168.x.x`.
-> If the host can't reach the VM, switch the VMware network adapter to **Bridged**
-> mode (VM → Settings → Network Adapter → Bridged) so both devices are on the same subnet.
-
-### 5.2.4 Reverse camera testing with USB camera
-
-Press **R** to toggle reverse mode. The screen shows:
-- **Top 2/3:** Live camera feed (or placeholder if no camera)
-- **Bottom 1/3:** Parking sensor distance bars with closest-distance readout
-
-**To test with a real USB camera in VMware:**
-
-1. Plug a USB webcam into your host machine
-2. In VMware: **VM → Removable Devices → USB Camera → Connect**
-3. Verify the camera appears: `ls /dev/video*`
-4. Press **R** in the dashboard to see the live feed
-
-> **Note:** Install `opencv-python-headless` (included in `requirements-x86.txt`)
-> for camera capture. Without it, the camera area shows a placeholder.
-
-### 5.3 Start specific modules only
+Switch themes via the Settings screen in the browser, or via REST API:
 
 ```bash
-# Just OBD + Dashboard
-python main.py --platform x86 --modules obd,dashboard
-
-# Just audio + multimedia (BT testing)
-python main.py --platform x86 --modules audio,multimedia
+curl -X POST http://localhost:5002/api/config \
+  -H "Content-Type: application/json" \
+  -d '{"theme": "autodelta"}'
 ```
 
-### 5.4 Run tests
+Available themes: `heritage`, `modern`, `autodelta`
+
+### 5.2.4 REST API for testing
 
 ```bash
-# All tests
+# Get live telemetry data
+curl -s http://localhost:5002/api/data | python3 -m json.tool
+
+# Get current config
+curl -s http://localhost:5002/api/config
+
+# Switch language to English
+curl -X POST http://localhost:5002/api/config \
+  -H "Content-Type: application/json" -d '{"language":"en"}'
+```
+
+### 5.3 Start with Legacy Pygame Renderer (Optional)
+
+```bash
+./run_x86.sh --pygame
+```
+
+Requires X display (`$DISPLAY` must be set). Opens a Pygame window at 800x480.
+
+### 5.4 Dual display (Android Auto)
+
+The AA/BT management web UI runs at http://localhost:5001 regardless of frontend mode.
+
+### 5.5 Start specific modules only
+
+```bash
+./run_x86.sh --modules obd,dashboard
+./run_x86.sh --pygame --modules obd,dashboard
+```
+
+### 5.6 Run tests
+
+```bash
 python -m pytest tests/ -v
-
-# Specific module
-python -m pytest tests/test_multimedia.py -v
-
-# With coverage
 python -m pytest tests/ --cov=src --cov-report=term-missing
 ```
 
@@ -357,12 +348,26 @@ while True:
 Run through this checklist to verify the full system:
 
 ### Core
-- [ ] `python main.py --platform x86 --dry-run` — lists all 11 modules
+- [ ] `python main.py --platform x86 --dry-run` — lists all modules
 - [ ] `python -m pytest tests/ -v` — all tests pass
 - [ ] Event bus delivers messages between modules
 
-### Dashboard (Part 2)
-- [ ] Pygame window opens at 480×272
+### HTML5 Frontend (v8)
+- [ ] `./run_x86.sh` starts without errors
+- [ ] http://localhost:5002 loads the dashboard
+- [ ] Init screen: car sketch + breathing animation + progress bar
+- [ ] A1 Main: engine temp, fuel level, notifications update in real-time
+- [ ] A2 Trip: consumption chart renders, stats update
+- [ ] A3 Weather: Leaflet map loads, weather data displays
+- [ ] A4 Service: diagnostics list, car sketch renders
+- [ ] Theme switch: Heritage/Modern/Autodelta all render correctly
+- [ ] `curl /api/data` returns JSON with live RPM/speed/temp values
+- [ ] WebSocket reconnects after disconnect (refresh browser, verify)
+- [ ] Keyboard nav: LEFT/RIGHT cycles screens in browser
+- [ ] Multiple tabs: all receive real-time updates simultaneously
+
+### Legacy Pygame (Part 2 — optional, with --pygame)
+- [ ] Pygame window opens at 800×480
 - [ ] Gauges render (RPM, speed, coolant temp)
 - [ ] Updates in real-time from simulated OBD data
 

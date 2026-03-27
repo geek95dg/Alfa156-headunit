@@ -1,6 +1,13 @@
 #!/usr/bin/env bash
-# BCM v7 — Alfa Romeo 156 Head Unit — x86 launcher
-# Auto-detects headless environment and activates venv if present.
+# BCM v8 — Alfa Romeo 156 Head Unit — x86 launcher
+# Supports both Pygame (legacy) and HTML5/Tailwind frontend modes.
+#
+# Usage:
+#   ./run_x86.sh                  # HTML5 frontend (default) — open http://localhost:5002
+#   ./run_x86.sh --frontend       # Same as above (explicit)
+#   ./run_x86.sh --pygame         # Legacy Pygame renderer
+#   ./run_x86.sh --headless       # Backend only, no display (web viewer on :5002)
+#   ./run_x86.sh --modules obd,dashboard   # Specific modules only
 
 set -euo pipefail
 
@@ -16,23 +23,52 @@ else
     echo "[run_x86] No .venv found, using system python3"
 fi
 
+# Default mode: frontend (HTML5/Tailwind)
+MODE="frontend"
+
 # Build argument list
 ARGS=("--platform" "x86")
 
-# Auto-detect headless (no DISPLAY set)
-if [ -z "${DISPLAY:-}" ]; then
-    echo "[run_x86] No \$DISPLAY detected — enabling --headless mode"
-    ARGS+=("--headless")
+# Parse our own flags before passing to main.py
+PASSTHROUGH_ARGS=()
+for arg in "$@"; do
+    case "$arg" in
+        --pygame)
+            MODE="pygame"
+            ;;
+        --frontend)
+            MODE="frontend"
+            ;;
+        --headless)
+            MODE="headless"
+            ARGS+=("--headless")
+            ;;
+        *)
+            PASSTHROUGH_ARGS+=("$arg")
+            ;;
+    esac
+done
+
+# Auto-detect headless if no DISPLAY and not explicitly set
+if [ "$MODE" != "headless" ] && [ -z "${DISPLAY:-}" ]; then
+    echo "[run_x86] No \$DISPLAY detected — using frontend mode (no Pygame)"
+    MODE="frontend"
 fi
 
-# Append any extra arguments passed to this script
-ARGS+=("$@")
+# Set mode-specific flags
+if [ "$MODE" = "frontend" ]; then
+    ARGS+=("--frontend")
+elif [ "$MODE" = "headless" ]; then
+    ARGS+=("--frontend")
+fi
+
+# Append passthrough arguments
+ARGS+=("${PASSTHROUGH_ARGS[@]}")
 
 # Clean shutdown on SIGTERM/SIGINT
 cleanup() {
     echo ""
     echo "[run_x86] Shutting down..."
-    # Forward signal to the python process
     if [ -n "${PID:-}" ]; then
         kill -TERM "$PID" 2>/dev/null || true
         wait "$PID" 2>/dev/null || true
@@ -41,11 +77,33 @@ cleanup() {
 }
 trap cleanup SIGTERM SIGINT
 
-echo "[run_x86] Starting BCM v7..."
-echo "[run_x86] Dashboard WebViewer: http://localhost:5002"
-echo "[run_x86] AA/BT Management:   http://localhost:5001"
-echo "[run_x86] WiFi AP for AA:     SSID=Alfa156_AA (10.0.0.1)"
-echo "[run_x86] Android Auto TCP:   port 5000 (via WiFi AP)"
+echo ""
+echo "  ╔══════════════════════════════════════════════════╗"
+echo "  ║   BCM v8 — Alfa Romeo 156 Head Unit             ║"
+echo "  ╠══════════════════════════════════════════════════╣"
+
+if [ "$MODE" = "frontend" ]; then
+    echo "  ║   Mode: HTML5/Tailwind Frontend                  ║"
+    echo "  ║                                                  ║"
+    echo "  ║   Dashboard:    http://localhost:5002             ║"
+    echo "  ║   AA/BT Mgmt:  http://localhost:5001             ║"
+    echo "  ║                                                  ║"
+    echo "  ║   Open your browser to see the dashboard.        ║"
+    echo "  ║   3 themes: Heritage / Modern / Autodelta        ║"
+elif [ "$MODE" = "pygame" ]; then
+    echo "  ║   Mode: Pygame Renderer (legacy)                 ║"
+    echo "  ║                                                  ║"
+    echo "  ║   Dashboard:    Pygame window (800x480)          ║"
+    echo "  ║   Web Viewer:   http://localhost:5002             ║"
+    echo "  ║   AA/BT Mgmt:  http://localhost:5001             ║"
+elif [ "$MODE" = "headless" ]; then
+    echo "  ║   Mode: Headless (backend + web frontend)        ║"
+    echo "  ║                                                  ║"
+    echo "  ║   Dashboard:    http://localhost:5002             ║"
+    echo "  ║   AA/BT Mgmt:  http://localhost:5001             ║"
+fi
+
+echo "  ╚══════════════════════════════════════════════════╝"
 echo ""
 
 python3 main.py "${ARGS[@]}" &
