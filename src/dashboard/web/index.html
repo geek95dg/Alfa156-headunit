@@ -42,8 +42,9 @@
     <!-- Screen Container — all screens render here -->
     <div id="app" class="relative w-full h-full"></div>
 
-    <!-- Scripts -->
+    <!-- Scripts: app.js MUST load first (defines App), then components, then screens -->
     <script src="/js/websocket.js"></script>
+    <script src="/js/app.js"></script>
     <script src="/js/components/appbar.js"></script>
     <script src="/js/components/navbar.js"></script>
     <script src="/js/components/notifications.js"></script>
@@ -55,6 +56,5 @@
     <script src="/js/screens/weather.js"></script>
     <script src="/js/screens/service.js"></script>
     <script src="/js/screens/settings.js"></script>
-    <script src="/js/app.js"></script>
 </body>
 </html>

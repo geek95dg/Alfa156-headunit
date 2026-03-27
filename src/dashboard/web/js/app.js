@@ -203,5 +203,5 @@ const App = (() => {
     };
 })();
 
-// Boot
-document.addEventListener("DOMContentLoaded", () => App.init());
+// Boot — use window.onload to ensure all screen scripts have registered
+window.addEventListener("load", () => App.init());

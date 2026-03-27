@@ -270,9 +270,21 @@ class WebViewer:
                 viewer._ws_clients.append(ws)
             log.info("WebSocket client connected (data)")
             try:
+                # Send initial full state snapshot
+                try:
+                    snapshot = json.dumps(viewer._get_dashboard_data(), default=str)
+                    ws.send(snapshot)
+                except Exception:
+                    pass
+
                 while viewer._running:
-                    # Keep connection alive by receiving pings
-                    msg = ws.receive(timeout=5)
+                    try:
+                        # Keep connection alive — receive pings/pongs
+                        msg = ws.receive(timeout=5)
+                    except TimeoutError:
+                        continue
+                    except Exception:
+                        break
                     if msg is None:
                         continue
             except Exception:
