@@ -32,34 +32,34 @@ App.registerScreen("a2", (() => {
         const chartValues = [15, 25, 45, 60, 75, 55, 85];
         const chartLabels = ["-50km", "-40km", "-30km", "-20km", "-10km", "-5km", "Now"];
 
-        return `<div class="screen-container bg-[#f8f6f6] text-[#221610]">
+        return `<div class="screen-container bg-[#1a0f0a] text-zinc-100">
             ${AppBar.render("heritage", data)}
             <main class="content-area flex overflow-hidden">
                 <!-- Left: Stats -->
-                <div class="w-[300px] p-6 flex flex-col gap-4 border-r border-[#ec5b13]/20 bg-[#221610]/5">
-                    <h1 class="text-2xl font-bold text-[#221610] uppercase tracking-wide mb-2">Trip A2</h1>
-                    <div class="flex flex-col gap-1 p-4 rounded-xl bg-white shadow-sm border border-[#ec5b13]/10">
-                        <p class="text-sm font-medium text-[#221610]/70 uppercase tracking-wider">Distance</p>
-                        <p class="text-3xl font-bold text-[#221610]"><span id="trip-dist">${dist}</span> <span class="text-lg text-[#221610]/50">km</span></p>
+                <div class="w-[300px] p-6 flex flex-col gap-4 border-r border-amber-900/30 bg-[#221610]">
+                    <h1 class="text-2xl font-bold text-amber-500 uppercase tracking-wide mb-2 amber-glow">Trip A2</h1>
+                    <div class="flex flex-col gap-1 p-4 rounded-xl bg-zinc-900/60 border border-zinc-800">
+                        <p class="text-sm font-medium text-zinc-500 uppercase tracking-wider">Distance</p>
+                        <p class="text-3xl font-bold text-amber-500 amber-glow"><span id="trip-dist">${dist}</span> <span class="text-lg text-zinc-500">km</span></p>
                     </div>
-                    <div class="flex flex-col gap-1 p-4 rounded-xl bg-white shadow-sm border border-[#ec5b13]/10">
-                        <p class="text-sm font-medium text-[#221610]/70 uppercase tracking-wider">Avg Speed</p>
-                        <p class="text-3xl font-bold text-[#221610]"><span id="trip-avg-speed">${avgSpd}</span> <span class="text-lg text-[#221610]/50">km/h</span></p>
+                    <div class="flex flex-col gap-1 p-4 rounded-xl bg-zinc-900/60 border border-zinc-800">
+                        <p class="text-sm font-medium text-zinc-500 uppercase tracking-wider">Avg Speed</p>
+                        <p class="text-3xl font-bold text-amber-500 amber-glow"><span id="trip-avg-speed">${avgSpd}</span> <span class="text-lg text-zinc-500">km/h</span></p>
                     </div>
-                    <div class="flex flex-col gap-1 p-4 rounded-xl bg-white shadow-sm border border-[#ec5b13]/10">
-                        <p class="text-sm font-medium text-[#221610]/70 uppercase tracking-wider">Travel Time</p>
-                        <p id="trip-time" class="text-3xl font-bold text-[#221610]">${time}</p>
+                    <div class="flex flex-col gap-1 p-4 rounded-xl bg-zinc-900/60 border border-zinc-800">
+                        <p class="text-sm font-medium text-zinc-500 uppercase tracking-wider">Travel Time</p>
+                        <p id="trip-time" class="text-3xl font-bold text-amber-500 amber-glow">${time}</p>
                     </div>
                 </div>
                 <!-- Right: Chart -->
-                <div class="flex-1 p-6 flex flex-col">
+                <div class="flex-1 p-6 flex flex-col bg-[#1a0f0a]">
                     <div class="flex justify-between items-end mb-6">
                         <div>
-                            <p class="text-sm font-medium text-[#221610]/70 uppercase tracking-wider">Avg Fuel Consumption</p>
-                            <p class="text-4xl font-bold text-[#ec5b13] mt-1"><span id="trip-avg-cons">${avgCons}</span> <span class="text-xl text-[#221610]/50">L/100KM</span></p>
+                            <p class="text-sm font-medium text-zinc-500 uppercase tracking-wider">Avg Fuel Consumption</p>
+                            <p class="text-4xl font-bold text-amber-500 mt-1 amber-glow"><span id="trip-avg-cons">${avgCons}</span> <span class="text-xl text-zinc-500">L/100KM</span></p>
                         </div>
                     </div>
-                    <div class="flex-1 bg-white rounded-xl shadow-sm border border-[#ec5b13]/10 p-6">
+                    <div class="flex-1 bg-zinc-900/50 rounded-xl border border-zinc-800 p-6">
                         ${Charts.renderBarChart(chartValues, "heritage", { labels: chartLabels })}
                     </div>
                 </div>

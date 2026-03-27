@@ -32,6 +32,7 @@ const AppBar = (() => {
             <div class="flex items-center gap-4">
                 <span class="text-zinc-500 font-sans text-sm font-bold" data-bind="ext_temp">${temp}</span>
                 <span class="text-red-600 text-xl">${btIcon}</span>
+                <span class="material-symbols-outlined text-zinc-600 text-xl cursor-pointer hover:text-zinc-400 transition-colors" onclick="App.navigateTo('settings')" title="Settings">settings</span>
             </div>
         </header>`;
     }
@@ -52,6 +53,7 @@ const AppBar = (() => {
                 <div class="flex items-center gap-3 text-zinc-500">
                     ${lteIcon}
                     <span class="text-red-600">${btIcon}</span>
+                    <span class="material-symbols-outlined text-zinc-600 text-xl cursor-pointer hover:text-zinc-400 transition-colors" onclick="App.navigateTo('settings')" title="Settings">settings</span>
                 </div>
             </div>
         </header>`;
@@ -72,6 +74,7 @@ const AppBar = (() => {
                 <div class="flex gap-2 text-gray-400">
                     ${btIcon}
                     ${lteIcon}
+                    <span class="material-symbols-outlined text-zinc-600 text-xl cursor-pointer hover:text-zinc-400 transition-colors" onclick="App.navigateTo('settings')" title="Settings">settings</span>
                 </div>
                 <div class="flex flex-col items-end border-l border-[#333333] pl-4">
                     <span class="text-xl font-bold text-white" data-bind="ext_temp">${temp}</span>
