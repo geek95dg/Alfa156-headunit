@@ -1,85 +1,71 @@
 /**
  * Shared Top App Bar component — renders differently per theme.
+ * Uses Alfa Romeo logo image centered instead of text.
  */
 
 const AppBar = (() => {
+    const LOGO_HTML = `<img src="/assets/alfa_romeo_logo.svg" alt="Alfa Romeo" class="h-8 w-8 appbar-logo">`;
+
     function render(theme, data) {
         const time = _formatTime();
         const date = _formatDate();
         const temp = _formatTemp(data);
-        const btIcon = data.bt_connected
-            ? '<span class="material-symbols-outlined" style="font-variation-settings:\'FILL\' 1;">bluetooth_connected</span>'
-            : '<span class="material-symbols-outlined">bluetooth</span>';
-        const lteIcon = data.lte_connected
-            ? '<span class="material-symbols-outlined">smartphone</span>'
-            : '';
+        const btClass = data.bt_connected ? "text-green-500" : "text-zinc-600";
+        const btIcon = `<span class="material-symbols-outlined ${btClass}" style="font-size:18px;font-variation-settings:'FILL' ${data.bt_connected ? 1 : 0};">bluetooth</span>`;
 
-        if (theme === "heritage") return _renderHeritage(time, date, temp, btIcon, lteIcon);
-        if (theme === "modern") return _renderModern(time, date, temp, btIcon, lteIcon);
-        if (theme === "autodelta") return _renderAutodelta(time, date, temp, btIcon, lteIcon, data);
-        return _renderHeritage(time, date, temp, btIcon, lteIcon);
+        if (theme === "heritage") return _renderHeritage(time, date, temp, btIcon);
+        if (theme === "modern") return _renderModern(time, date, temp, btIcon);
+        if (theme === "autodelta") return _renderAutodelta(time, date, temp, btIcon);
+        return _renderHeritage(time, date, temp, btIcon);
     }
 
-    function _renderHeritage(time, date, temp, btIcon, lteIcon) {
-        return `<header class="w-full h-12 bg-black border-b border-zinc-800 flex justify-between items-center px-6 shrink-0 z-50">
-            <div class="flex items-center gap-4">
+    function _renderHeritage(time, date, temp, btIcon) {
+        return `<header class="w-full h-12 bg-black border-b border-zinc-800 flex justify-between items-center px-4 shrink-0 z-50">
+            <div class="flex items-center gap-3">
                 <span class="font-sans tracking-tight text-sm font-bold text-zinc-400" data-bind="time">${time}</span>
-                <span class="font-sans tracking-tight text-sm font-bold text-zinc-500" data-bind="date">${date}</span>
+                <span class="font-sans tracking-tight text-[10px] font-bold text-zinc-600 uppercase" data-bind="date">${date}</span>
             </div>
-            <div class="flex items-center gap-2">
-                <span class="text-red-600 font-black tracking-widest text-lg uppercase">Alfa Romeo</span>
+            <div class="absolute left-1/2 -translate-x-1/2 flex items-center">
+                <div class="text-amber-500">${LOGO_HTML}</div>
             </div>
-            <div class="flex items-center gap-4">
+            <div class="flex items-center gap-3">
                 <span class="text-zinc-500 font-sans text-sm font-bold" data-bind="ext_temp">${temp}</span>
-                <span class="text-red-600 text-xl">${btIcon}</span>
-                <span class="material-symbols-outlined text-zinc-600 text-xl cursor-pointer hover:text-zinc-400 transition-colors" onclick="App.navigateTo('settings')" title="Settings">settings</span>
+                ${btIcon}
+                <span class="material-symbols-outlined text-zinc-600 text-lg cursor-pointer hover:text-zinc-400" onclick="App.navigateTo('settings')">settings</span>
             </div>
         </header>`;
     }
 
-    function _renderModern(time, date, temp, btIcon, lteIcon) {
-        return `<header class="w-full h-12 bg-black border-b border-zinc-800 flex justify-between items-center px-6 shrink-0 z-50">
-            <div class="flex items-center gap-4 text-zinc-400">
+    function _renderModern(time, date, temp, btIcon) {
+        return `<header class="w-full h-12 bg-black border-b border-zinc-800 flex justify-between items-center px-4 shrink-0 z-50">
+            <div class="flex items-center gap-3 text-zinc-400">
                 <span class="font-bold text-white text-sm" data-bind="time">${time}</span>
                 <span class="text-[10px] uppercase font-bold" data-bind="date">${date}</span>
             </div>
-            <div class="absolute left-1/2 -translate-x-1/2 flex items-center gap-2">
-                <span class="font-bold italic text-red-600 text-lg tracking-tighter">Alfa Romeo</span>
+            <div class="absolute left-1/2 -translate-x-1/2 flex items-center">
+                <div class="text-red-600">${LOGO_HTML}</div>
             </div>
-            <div class="flex items-center gap-4">
-                <div class="flex items-center gap-1 text-white">
-                    <span class="text-sm font-bold" data-bind="ext_temp">${temp}</span>
-                </div>
-                <div class="flex items-center gap-3 text-zinc-500">
-                    ${lteIcon}
-                    <span class="text-red-600">${btIcon}</span>
-                    <span class="material-symbols-outlined text-zinc-600 text-xl cursor-pointer hover:text-zinc-400 transition-colors" onclick="App.navigateTo('settings')" title="Settings">settings</span>
-                </div>
+            <div class="flex items-center gap-3">
+                <span class="text-sm font-bold text-white" data-bind="ext_temp">${temp}</span>
+                ${btIcon}
+                <span class="material-symbols-outlined text-zinc-600 text-lg cursor-pointer hover:text-zinc-400" onclick="App.navigateTo('settings')">settings</span>
             </div>
         </header>`;
     }
 
-    function _renderAutodelta(time, date, temp, btIcon, lteIcon, data) {
-        return `<header class="w-full h-12 bg-[#111111] border-b border-[#222222] flex justify-between items-center px-6 shrink-0 z-50">
-            <div class="flex flex-col">
-                <span class="text-xl font-bold text-white tracking-wider" data-bind="time">${time}</span>
-                <span class="text-sm text-gray-400 font-medium" data-bind="date">${date}</span>
+    function _renderAutodelta(time, date, temp, btIcon) {
+        return `<header class="w-full h-12 bg-[#111111] border-b border-[#222222] flex justify-between items-center px-4 shrink-0 z-50">
+            <div class="flex items-center gap-3">
+                <span class="text-sm font-bold text-white tracking-wider" data-bind="time">${time}</span>
+                <span class="text-[10px] text-gray-500 font-medium uppercase" data-bind="date">${date}</span>
             </div>
-            <div class="flex-1 flex justify-center items-center">
-                <div class="w-12 h-12 rounded-full border-2 border-[#FF5F00] flex items-center justify-center bg-black shadow-[0_0_15px_rgba(236,91,19,0.3)]">
-                    <span class="text-[#FF5F00] font-bold text-lg tracking-tighter">AR</span>
-                </div>
+            <div class="absolute left-1/2 -translate-x-1/2 flex items-center">
+                <div class="text-[#FF5F00]">${LOGO_HTML}</div>
             </div>
-            <div class="flex items-center gap-4">
-                <div class="flex gap-2 text-gray-400">
-                    ${btIcon}
-                    ${lteIcon}
-                    <span class="material-symbols-outlined text-zinc-600 text-xl cursor-pointer hover:text-zinc-400 transition-colors" onclick="App.navigateTo('settings')" title="Settings">settings</span>
-                </div>
-                <div class="flex flex-col items-end border-l border-[#333333] pl-4">
-                    <span class="text-xl font-bold text-white" data-bind="ext_temp">${temp}</span>
-                    <span class="text-xs text-gray-400">EXT</span>
-                </div>
+            <div class="flex items-center gap-3">
+                <span class="text-sm font-bold text-[#FF5F00]" data-bind="ext_temp">${temp}</span>
+                ${btIcon}
+                <span class="material-symbols-outlined text-zinc-600 text-lg cursor-pointer hover:text-zinc-400" onclick="App.navigateTo('settings')">settings</span>
             </div>
         </header>`;
     }
@@ -104,7 +90,6 @@ const AppBar = (() => {
         return `${Math.round(temp)}°C`;
     }
 
-    /** Update dynamic fields in the appbar */
     function update(container, data) {
         const timeEl = container.querySelector('[data-bind="time"]');
         const dateEl = container.querySelector('[data-bind="date"]');

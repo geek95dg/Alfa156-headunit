@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200" fill="currentColor">
+  <!-- Outer ring -->
+  <circle cx="100" cy="100" r="95" fill="none" stroke="currentColor" stroke-width="5"/>
+  <circle cx="100" cy="100" r="82" fill="none" stroke="currentColor" stroke-width="2"/>
+  <!-- Text ALFA on top arc -->
+  <path id="topArc" d="M 30,100 A 70,70 0 0,1 170,100" fill="none"/>
+  <text font-family="sans-serif" font-weight="bold" font-size="22" letter-spacing="4">
+    <textPath href="#topArc" startOffset="50%" text-anchor="middle">ALFA ROMEO</textPath>
+  </text>
+  <!-- Divider line -->
+  <line x1="100" y1="35" x2="100" y2="165" stroke="currentColor" stroke-width="2.5"/>
+  <!-- Cross (left side) -->
+  <line x1="55" y1="100" x2="95" y2="100" stroke="currentColor" stroke-width="2.5"/>
+  <line x1="75" y1="55" x2="75" y2="145" stroke="currentColor" stroke-width="2.5"/>
+  <!-- Serpent (right side) - simplified -->
+  <path d="M 120,60 C 130,65 135,75 130,85 C 125,95 115,95 118,105 C 121,115 130,115 128,125 C 126,135 115,140 115,150" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"/>
+  <!-- Crown on top of serpent -->
+  <path d="M 112,58 L 115,50 L 120,56 L 125,48 L 130,56 L 133,50 L 136,58 Z" fill="currentColor"/>
+  <!-- Serpent tongue -->
+  <path d="M 118,150 L 112,158 M 118,150 L 124,158" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+</svg>
