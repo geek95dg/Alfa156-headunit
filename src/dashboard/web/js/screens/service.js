@@ -32,27 +32,27 @@ App.registerScreen("a4", (() => {
         const oilOk = data.oil_level_pct < 0 || data.oil_level_pct > 20;
         const batteryV = (data.battery_voltage || 13.8).toFixed(1);
 
-        return `<div class="screen-container bg-[#f8f6f6] text-[#221610]">
+        return `<div class="screen-container bg-[#1a0f0a] text-zinc-100">
             ${AppBar.render("heritage", data)}
             <main class="content-area flex px-6 py-5 gap-6">
                 <!-- Left: Car sketch -->
                 <div class="w-[45%] h-full flex flex-col gap-2">
-                    <div class="flex-1 rounded-xl overflow-hidden bg-white border border-neutral-200 shadow-sm relative p-2">
-                        <div class="w-full h-full rounded-lg bg-center bg-no-repeat bg-contain" style="background-image:url('/assets/heritage/giulia_gta_sketch.png');filter:contrast(1.25) sepia(0.2);"></div>
-                        <div class="absolute bottom-4 left-4 right-4 bg-white/90 backdrop-blur-sm p-3 rounded-lg border border-neutral-100 flex justify-between items-center">
+                    <div class="flex-1 rounded-xl overflow-hidden bg-zinc-900/60 border border-zinc-800 relative p-2">
+                        <div class="w-full h-full rounded-lg bg-center bg-no-repeat bg-contain" style="background-image:url('/assets/heritage/giulia_gta_sketch.png');filter:contrast(1.25) sepia(0.3) brightness(0.9);"></div>
+                        <div class="absolute bottom-4 left-4 right-4 bg-black/80 backdrop-blur-sm p-3 rounded-lg border border-amber-900/30 flex justify-between items-center">
                             <div>
-                                <p class="text-xs font-bold text-neutral-500 uppercase tracking-wider">Vehicle</p>
-                                <p class="text-sm font-semibold text-[#221610]">Giulia GTA (1965)</p>
+                                <p class="text-xs font-bold text-zinc-500 uppercase tracking-wider">Vehicle</p>
+                                <p class="text-sm font-semibold text-amber-500">Giulia GTA (1965)</p>
                             </div>
-                            <span class="material-symbols-outlined text-[#ec5b13]">directions_car</span>
+                            <span class="material-symbols-outlined text-amber-500">directions_car</span>
                         </div>
                     </div>
                 </div>
                 <!-- Right: Diagnostics -->
                 <div class="w-[55%] flex flex-col h-full">
                     <div class="flex items-end justify-between mb-4">
-                        <h2 class="text-2xl font-bold text-[#221610] tracking-tight">System Status</h2>
-                        <span class="text-xs font-semibold px-2 py-1 bg-green-100 text-green-700 rounded-md">All OK</span>
+                        <h2 class="text-2xl font-bold text-amber-500 tracking-tight amber-glow">System Status</h2>
+                        <span class="text-xs font-semibold px-2 py-1 bg-green-900/40 text-green-400 rounded-md">All OK</span>
                     </div>
                     <div class="flex-1 overflow-y-auto pr-2 space-y-3">
                         ${_diagItem("engineering", "Engine Mechanics", `${temp}°C — nominal`, "OK", false)}
@@ -69,10 +69,23 @@ App.registerScreen("a4", (() => {
     }
 
     function _diagItem(icon, title, desc, status, isWarning) {
-        const bgCls = isWarning ? "bg-orange-50 border-[#ec5b13]/30" : "bg-white border-neutral-200";
-        const leftBar = isWarning ? '<div class="absolute left-0 top-0 bottom-0 w-1 bg-[#ec5b13]"></div>' : '';
-        const iconBg = isWarning ? "bg-white text-[#ec5b13] shadow-sm" : "bg-neutral-100 text-[#221610]";
-        const statusColor = isWarning ? "text-[#ec5b13]" : "text-green-600";
+        const theme = App.getTheme();
+        const isHeritage = theme === "heritage";
+
+        const bgCls = isWarning
+            ? (isHeritage ? "bg-amber-900/20 border-amber-600/30" : "bg-orange-50 border-[#ec5b13]/30")
+            : (isHeritage ? "bg-zinc-900/60 border-zinc-800" : "bg-white border-neutral-200");
+        const leftBar = isWarning ? `<div class="absolute left-0 top-0 bottom-0 w-1 ${isHeritage ? 'bg-amber-500' : 'bg-[#ec5b13]'}"></div>` : '';
+        const iconBg = isWarning
+            ? (isHeritage ? "bg-zinc-800 text-amber-500" : "bg-white text-[#ec5b13] shadow-sm")
+            : (isHeritage ? "bg-zinc-800 text-zinc-400" : "bg-neutral-100 text-[#221610]");
+        const statusColor = isWarning
+            ? (isHeritage ? "text-amber-500" : "text-[#ec5b13]")
+            : (isHeritage ? "text-green-400" : "text-green-600");
+        const titleColor = isHeritage ? "text-zinc-200" : "text-[#221610]";
+        const descColor = isWarning
+            ? (isHeritage ? "text-amber-500 font-medium" : "text-[#ec5b13] font-medium")
+            : (isHeritage ? "text-zinc-500" : "text-neutral-500");
 
         return `<div class="flex items-center justify-between p-3.5 ${bgCls} rounded-xl shadow-sm relative overflow-hidden">
             ${leftBar}
@@ -81,8 +94,8 @@ App.registerScreen("a4", (() => {
                     <span class="material-symbols-outlined">${icon}</span>
                 </div>
                 <div>
-                    <p class="text-sm font-bold text-[#221610]">${title}</p>
-                    <p class="text-xs ${isWarning ? 'text-[#ec5b13] font-medium' : 'text-neutral-500'}">${desc}</p>
+                    <p class="text-sm font-bold ${titleColor}">${title}</p>
+                    <p class="text-xs ${descColor}">${desc}</p>
                 </div>
             </div>
             <span class="text-sm font-bold ${statusColor}">${status}</span>
