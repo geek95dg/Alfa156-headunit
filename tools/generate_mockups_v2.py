@@ -6,7 +6,7 @@ Phase 1, Step 1.1: Foundation — constants, fonts, base primitives.
 
 import math
 import os
-from PIL import Image, ImageDraw, ImageFont, ImageFilter
+from PIL import Image, ImageDraw, ImageFont, ImageFilter, ImageChops
 
 # --- Constants ---
 W, H = 800, 480
@@ -47,6 +47,107 @@ def _font(variant, size):
         except OSError:
             _font_cache[key] = ImageFont.truetype(FONT_PATHS["regular"], size)
     return _font_cache[key]
+
+
+# --- Car PNG assets ---
+_PNG_DIR = os.path.join(os.path.dirname(__file__), "..", "pngs - alfa")
+
+CAR_PNGS = {
+    "heritage": {"init": "giulia od góry skos.png", "service": "giulia side.png"},
+    "modern":   {"init": "156 bok.png",              "service": "156side.png"},
+    "autodelta":{"init": "1600side.png",             "service": "1600side.png"},
+}
+
+_pil_png_cache = {}
+
+
+def _remove_bg(img):
+    """Remove background from car PNG, auto-detecting bg type.
+
+    Light-bg images (pencil sketches on white): make light pixels transparent.
+    Dark-bg images (pre-composited with glow): make pure-black edges transparent.
+    """
+    r, g, b, a = img.split()
+    gray = img.convert("L")
+
+    # Detect bg type from corner brightness
+    w, h = img.size
+    corners = [img.getpixel((5, 5)), img.getpixel((w - 5, 5)),
+               img.getpixel((5, h - 5)), img.getpixel((w - 5, h - 5))]
+    avg_brightness = sum(sum(c[:3]) / 3 for c in corners) / 4
+
+    if avg_brightness > 128:
+        # Light bg — pixels above 210 become transparent, below become opaque
+        new_alpha = gray.point(lambda p: 0 if p > 210 else min(255, int((210 - p) / 210 * 3.0 * 255)))
+    else:
+        # Dark bg — eliminate both black bg AND checkerboard gray (120-150 range)
+        # Only keep pixels with distinctive brightness (the actual car drawing)
+        def dark_bg_alpha(p):
+            if p < 15:
+                return 0  # Pure black bg
+            if 115 < p < 155:
+                return 0  # Checkerboard gray
+            if p <= 115:
+                return min(255, int((p - 15) / 100 * 255))
+            return min(255, int((p - 155) / 100 * 255))
+        new_alpha = gray.point(dark_bg_alpha)
+
+    return Image.merge("RGBA", (r, g, b, new_alpha))
+
+
+def load_car_png_pil(theme_name, screen):
+    """Load a car PNG as a PIL RGBA Image with bg removed, with caching."""
+    key = f"{theme_name}_{screen}"
+    if key in _pil_png_cache:
+        return _pil_png_cache[key].copy()
+    mapping = CAR_PNGS.get(theme_name, CAR_PNGS["heritage"])
+    filename = mapping.get(screen)
+    if not filename:
+        return None
+    path = os.path.join(_PNG_DIR, filename)
+    if not os.path.exists(path):
+        return None
+    img = Image.open(path).convert("RGBA")
+    img = _remove_bg(img)
+    _pil_png_cache[key] = img
+    return img.copy()
+
+
+def paste_car_png(target, theme_name, screen, cx, cy, max_w, max_h,
+                  tint=None, alpha=255):
+    """Load, scale, tint, and paste a car PNG centered at (cx, cy) on target.
+
+    tint: RGB tuple for multiply blend (e.g. (255, 191, 0) for amber).
+    alpha: overall opacity 0-255.
+    Returns True if pasted, False if file missing (caller should use fallback).
+    """
+    src = load_car_png_pil(theme_name, screen)
+    if src is None:
+        return False
+
+    # Scale preserving aspect
+    sw, sh = src.size
+    scale = min(max_w / sw, max_h / sh)
+    new_w, new_h = int(sw * scale), int(sh * scale)
+    scaled = src.resize((new_w, new_h), Image.LANCZOS)
+
+    if tint is not None:
+        # Multiply-blend: create a solid tint layer and multiply RGB channels
+        tint_layer = Image.new("RGB", (new_w, new_h), tint[:3])
+        rgb = scaled.convert("RGB")
+        tinted_rgb = ImageChops.multiply(rgb, tint_layer)
+        scaled = Image.merge("RGBA", (*tinted_rgb.split(), scaled.split()[3]))
+
+    if alpha < 255:
+        # Reduce alpha of all pixels
+        r, g, b, a = scaled.split()
+        a = a.point(lambda p: int(p * alpha / 255))
+        scaled = Image.merge("RGBA", (r, g, b, a))
+
+    paste_x = cx - new_w // 2
+    paste_y = cy - new_h // 2
+    target.paste(scaled, (paste_x, paste_y), scaled)
+    return True
 
 
 # --- Drawing primitives ---
@@ -1087,9 +1188,13 @@ def render_init_heritage():
     img = Image.alpha_composite(img, glow)
     draw = ImageDraw.Draw(img)
 
-    # Car silhouette (outline, amber, mix-blend-screen look)
-    draw_car_silhouette(draw, SW // 2, SH // 2 - 20 * s,
-                        480 * s, 220 * s, (255, 191, 0, 200), "outline")
+    # Car image — static PNG (giulia od góry skos already has amber glow baked in)
+    if not paste_car_png(img, "heritage", "init",
+                         SW // 2, SH // 2 - 20 * s,
+                         480 * s, 280 * s):
+        draw_car_silhouette(draw, SW // 2, SH // 2 - 20 * s,
+                            480 * s, 220 * s, (255, 191, 0, 200), "outline")
+    draw = ImageDraw.Draw(img)
 
     # "ALFA ROMEO" text with flanking lines
     brand_y = SH // 2 + 100 * s
@@ -1146,9 +1251,13 @@ def render_init_modern():
     img = Image.alpha_composite(img, glow)
     draw = ImageDraw.Draw(img)
 
-    # Car silhouette (filled, white/gray, semi-transparent)
-    draw_car_silhouette(draw, SW // 2, SH // 2 - 10 * s,
-                        420 * s, 200 * s, (255, 255, 255, 60), "filled")
+    # Car image — static PNG, semi-transparent (fallback to drawn silhouette)
+    if not paste_car_png(img, "modern", "init",
+                         SW // 2, SH // 2 - 10 * s,
+                         420 * s, 260 * s, alpha=160):
+        draw_car_silhouette(draw, SW // 2, SH // 2 - 10 * s,
+                            420 * s, 200 * s, (255, 255, 255, 60), "filled")
+    draw = ImageDraw.Draw(img)
 
     # "CENTRO STILE ALFA ROMEO" top text
     f_top = _font("regular", 8 * s)
@@ -1206,9 +1315,13 @@ def render_init_autodelta():
     draw.line([(cx, 0), (cx, SH)], fill=line_color, width=1)
     draw.line([(0, cy), (SW, cy)], fill=line_color, width=1)
 
-    # Car silhouette (inverted — orange filled with dark windows)
-    draw_car_silhouette(draw, cx, cy, 400 * s, 190 * s,
-                        (236, 91, 19, 100), "inverted")
+    # Car image — static PNG with orange tint (fallback to drawn silhouette)
+    if not paste_car_png(img, "autodelta", "init",
+                         cx, cy, 440 * s, 240 * s,
+                         tint=(236, 91, 19), alpha=180):
+        draw_car_silhouette(draw, cx, cy, 400 * s, 190 * s,
+                            (236, 91, 19, 100), "inverted")
+    draw = ImageDraw.Draw(img)
 
     # Corner accents (orange TL/BR, white TR/BL)
     pad = 24 * s
@@ -2315,13 +2428,19 @@ def render_a4_heritage():
     car_card_h = ch - pad
     draw_card(draw, left_x, cy + pad, left_w - 24 * s, car_card_h,
               fill=(255, 255, 255), border_color=(236, 91, 19, 25))
-    draw_car_silhouette(draw, left_x + (left_w - 24 * s) // 2,
-                        cy + pad + car_card_h // 2 - 20 * s,
-                        int(left_w * 0.75), int(car_card_h * 0.45),
-                        (34, 22, 16, 60), "outline")
+    car_cx = left_x + (left_w - 24 * s) // 2
+    car_cy = cy + pad + car_card_h // 2 - 20 * s
+    if not paste_car_png(img, "heritage", "service",
+                         car_cx, car_cy,
+                         int(left_w * 0.75), int(car_card_h * 0.55),
+                         alpha=160):
+        draw_car_silhouette(draw, car_cx, car_cy,
+                            int(left_w * 0.75), int(car_card_h * 0.45),
+                            (34, 22, 16, 60), "outline")
+    draw = ImageDraw.Draw(img)
     # Car label
     f_car_label = _font("bold", 9 * s)
-    text_centered(draw, left_x + (left_w - 24 * s) // 2,
+    text_centered(draw, car_cx,
                   cy + pad + car_card_h - 30 * s,
                   "Giulia GTA (1965)", f_car_label, (34, 22, 16, 127))
 
@@ -2517,19 +2636,25 @@ def render_a4_autodelta():
     draw_card(draw, col2_x, cy + pad, col2_w, car_card_h,
               fill=(9, 9, 11), border_color=(236, 91, 19, 76))
 
-    # Car silhouette (orange outline)
-    draw_car_silhouette(draw, col2_x + col2_w // 2,
-                        cy + pad + car_card_h // 2 - 20 * s,
-                        int(col2_w * 0.75), int(car_card_h * 0.40),
-                        (236, 91, 19, 180), "outline")
+    # Car image — static PNG with orange tint (fallback to drawn silhouette)
+    ad_car_cx = col2_x + col2_w // 2
+    ad_car_cy = cy + pad + car_card_h // 2 - 20 * s
+    if not paste_car_png(img, "autodelta", "service",
+                         ad_car_cx, ad_car_cy,
+                         int(col2_w * 0.75), int(car_card_h * 0.50),
+                         tint=(236, 91, 19), alpha=200):
+        draw_car_silhouette(draw, ad_car_cx, ad_car_cy,
+                            int(col2_w * 0.75), int(car_card_h * 0.40),
+                            (236, 91, 19, 180), "outline")
+    draw = ImageDraw.Draw(img)
 
     # Car label
     f_car = _font("bold", 9 * s)
     f_car_sub = _font("regular", 7 * s)
-    text_centered(draw, col2_x + col2_w // 2,
+    text_centered(draw, ad_car_cx,
                   cy + pad + car_card_h - 40 * s,
                   "1600 Junior Z", f_car, (255, 255, 255))
-    text_centered(draw, col2_x + col2_w // 2,
+    text_centered(draw, ad_car_cx,
                   cy + pad + car_card_h - 24 * s,
                   "Autodelta Sport", f_car_sub, (113, 113, 122))
 

@@ -11,7 +11,7 @@ import time
 import pygame
 from src.dashboard.themes.theme_base import ThemeBase
 from .base_screen import BaseScreen, DashboardData, _font
-from .assets import draw_car_silhouette, draw_corner_accents
+from .assets import draw_car_silhouette, draw_corner_accents, blit_car_png
 
 
 class InitializationScreen(BaseScreen):
@@ -78,9 +78,11 @@ class InitializationScreen(BaseScreen):
             pygame.draw.circle(glow, (255, 191, 0, a), (cx, cy - 20), r)
         surface.blit(glow, (0, 0))
 
-        # Car silhouette — outline, amber
-        draw_car_silhouette(surface, cx, cy - 20, 480, 220,
-                            (255, 191, 0), "outline")
+        # Car image — static PNG (giulia od góry skos already has amber glow baked in)
+        if not blit_car_png(surface, "heritage", "init",
+                            cx, cy - 20, 480, 280):
+            draw_car_silhouette(surface, cx, cy - 20, 480, 220,
+                                (255, 191, 0), "outline")
 
         # "ALFA ROMEO" spaced text with flanking lines
         brand_y = cy + 100
@@ -131,11 +133,13 @@ class InitializationScreen(BaseScreen):
             pygame.draw.circle(glow, (0, 85, 150, a), (cx, cy), r)
         surface.blit(glow, (0, 0))
 
-        # Car silhouette — filled, semi-transparent white
-        car_surf = pygame.Surface((w, h), pygame.SRCALPHA)
-        draw_car_silhouette(car_surf, cx, cy - 10, 420, 200,
-                            (255, 255, 255, 60), "filled")
-        surface.blit(car_surf, (0, 0))
+        # Car image — static PNG, semi-transparent (fallback to drawn silhouette)
+        if not blit_car_png(surface, "modern", "init",
+                            cx, cy - 10, 420, 260, alpha=160):
+            car_surf = pygame.Surface((w, h), pygame.SRCALPHA)
+            draw_car_silhouette(car_surf, cx, cy - 10, 420, 200,
+                                (255, 255, 255, 60), "filled")
+            surface.blit(car_surf, (0, 0))
 
         # "CENTRO STILE ALFA ROMEO" top
         font_top = _font("sans-serif", 10)
@@ -183,11 +187,14 @@ class InitializationScreen(BaseScreen):
         pygame.draw.line(cross_surf, (236, 91, 19, 40), (0, cy), (w, cy), 1)
         surface.blit(cross_surf, (0, 0))
 
-        # Car silhouette — inverted (orange body, dark windows)
-        car_surf = pygame.Surface((w, h), pygame.SRCALPHA)
-        draw_car_silhouette(car_surf, cx, cy, 400, 190,
-                            (236, 91, 19, 100), "inverted")
-        surface.blit(car_surf, (0, 0))
+        # Car image — static PNG with orange tint (fallback to drawn silhouette)
+        if not blit_car_png(surface, "autodelta", "init",
+                            cx, cy, 440, 240,
+                            tint=(236, 91, 19), alpha=180):
+            car_surf = pygame.Surface((w, h), pygame.SRCALPHA)
+            draw_car_silhouette(car_surf, cx, cy, 400, 190,
+                                (236, 91, 19, 100), "inverted")
+            surface.blit(car_surf, (0, 0))
 
         # Corner accents (orange TL/BR, white TR/BL)
         pad = 24

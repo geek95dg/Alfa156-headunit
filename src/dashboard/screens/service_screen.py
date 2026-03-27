@@ -9,7 +9,7 @@ import pygame
 from src.dashboard.themes.theme_base import ThemeBase
 from src.dashboard.i18n import t
 from .base_screen import BaseScreen, DashboardData, _font
-from .assets import draw_car_silhouette
+from .assets import draw_car_silhouette, blit_car_png
 
 
 class ServiceScreen(BaseScreen):
@@ -120,22 +120,34 @@ class ServiceScreen(BaseScreen):
 
         self.draw_card(surface, x, y, w, h, card_bg, card_border)
 
-        # Car silhouette — uses shared 22-point profile from assets.py (1:1 with mockups)
+        # Car image — static PNG (fallback to drawn silhouette)
         cx = x + w // 2
         cy = y + h // 2 - 30
         car_w = int(w * 0.85)
-        car_h = int(car_w * 0.46)  # Maintain aspect ratio
+        car_h = int(h * 0.55)
 
+        tint = None
+        alpha = 255
         if theme_name == "autodelta":
-            draw_car_silhouette(surface, cx, cy, car_w, car_h,
-                                accent, "inverted")
+            tint = (236, 91, 19)
+            alpha = 200
         elif theme_name == "modern":
-            draw_car_silhouette(surface, cx, cy, car_w, car_h,
-                                (*accent[:3], 60) if len(accent) >= 3 else accent,
-                                "filled")
-        else:
-            draw_car_silhouette(surface, cx, cy, car_w, car_h,
-                                accent, "outline")
+            alpha = 140
+
+        drawn = blit_car_png(surface, theme_name, "service",
+                             cx, cy, car_w, car_h,
+                             tint=tint, alpha=alpha)
+        if not drawn:
+            sil_h = int(car_w * 0.46)
+            if theme_name == "autodelta":
+                draw_car_silhouette(surface, cx, cy, car_w, sil_h,
+                                    accent, "inverted")
+            elif theme_name == "modern":
+                draw_car_silhouette(surface, cx, cy, car_w, sil_h,
+                                    (*accent[:3], 60), "filled")
+            else:
+                draw_car_silhouette(surface, cx, cy, car_w, sil_h,
+                                    accent, "outline")
 
         # Car model label
         font_model = _font("sans-serif", 11)
