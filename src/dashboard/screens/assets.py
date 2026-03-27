@@ -1,12 +1,141 @@
 """Shared drawing assets for BCM dashboard screens.
 
-Provides car silhouette and stylized map drawing functions that match
-the mockup generator renders 1:1. Used by initialization_screen.py,
-service_screen.py, and weather_screen.py.
+Provides car PNG loading/tinting, stylized map, and corner accent
+drawing functions. Used by initialization_screen.py, service_screen.py,
+and weather_screen.py.
 """
 
 import math
+import os
 import pygame
+
+
+# ── Static car PNG assets ──────────────────────────────────────────────
+# Directory containing the car sketch PNGs
+_PNG_DIR = os.path.join(os.path.dirname(__file__), "..", "..", "..", "pngs - alfa")
+
+# Theme → {screen: filename} mapping
+CAR_PNGS = {
+    "heritage": {
+        "init": "giulia od góry skos.png",
+        "service": "giulia side.png",
+    },
+    "modern": {
+        "init": "156 bok.png",
+        "service": "156side.png",
+    },
+    "autodelta": {
+        "init": "1600side.png",
+        "service": "1600side.png",
+    },
+}
+
+_png_cache: dict[str, pygame.Surface] = {}
+
+
+def _remove_bg_surface(surf: pygame.Surface) -> pygame.Surface:
+    """Remove background from car PNG, auto-detecting bg type.
+
+    Light-bg (pencil on white): light pixels → transparent.
+    Dark-bg (pre-composited glow): black pixels → transparent.
+    """
+    try:
+        arr = pygame.surfarray.pixels3d(surf)
+        alpha_arr = pygame.surfarray.pixels_alpha(surf)
+    except Exception:
+        return surf
+
+    import numpy as np
+    brightness = arr.mean(axis=2)
+
+    # Detect bg type from corners
+    corners = [brightness[5, 5], brightness[-5, 5],
+               brightness[5, -5], brightness[-5, -5]]
+    avg_corner = sum(corners) / 4
+
+    if avg_corner > 128:
+        # Light bg — pixels above 210 become transparent, below become opaque
+        new_alpha = np.where(brightness > 210, 0,
+                             np.clip((210 - brightness) / 210 * 3.0 * 255, 0, 255)).astype(np.uint8)
+    else:
+        # Dark bg — eliminate black bg AND checkerboard gray (115-155 range)
+        new_alpha = np.where(
+            brightness < 15, 0,
+            np.where(
+                (brightness > 115) & (brightness < 155), 0,
+                np.where(
+                    brightness <= 115,
+                    np.clip((brightness - 15) / 100 * 255, 0, 255),
+                    np.clip((brightness - 155) / 100 * 255, 0, 255)
+                )
+            )
+        ).astype(np.uint8)
+
+    alpha_arr[:] = new_alpha
+    del arr, alpha_arr
+    return surf
+
+
+def load_car_png(theme_name: str, screen: str) -> pygame.Surface | None:
+    """Load a car PNG for the given theme/screen with bg removed, with caching.
+
+    Returns a pygame Surface with alpha, or None if file not found.
+    """
+    key = f"{theme_name}_{screen}"
+    if key in _png_cache:
+        return _png_cache[key]
+
+    mapping = CAR_PNGS.get(theme_name, CAR_PNGS["heritage"])
+    filename = mapping.get(screen)
+    if not filename:
+        return None
+
+    path = os.path.join(_PNG_DIR, filename)
+    if not os.path.exists(path):
+        return None
+
+    try:
+        surf = pygame.image.load(path).convert_alpha()
+        surf = _remove_bg_surface(surf)
+        _png_cache[key] = surf
+        return surf
+    except pygame.error:
+        return None
+
+
+def blit_car_png(surface: pygame.Surface, theme_name: str, screen: str,
+                 cx: int, cy: int, max_w: int, max_h: int,
+                 tint: tuple | None = None, alpha: int = 255) -> bool:
+    """Load, scale, optionally tint, and blit a car PNG centered at (cx, cy).
+
+    tint: RGB tuple to multiply-blend over the image (e.g. amber for heritage).
+    alpha: overall surface alpha (0-255).
+    Returns True if PNG was drawn, False if fallback needed.
+    """
+    src = load_car_png(theme_name, screen)
+    if src is None:
+        return False
+
+    # Scale to fit within max_w × max_h, preserving aspect ratio
+    sw, sh = src.get_size()
+    scale = min(max_w / sw, max_h / sh)
+    new_w = int(sw * scale)
+    new_h = int(sh * scale)
+    scaled = pygame.transform.smoothscale(src, (new_w, new_h))
+
+    if tint is not None:
+        # Multiply-blend: tint all RGB pixels toward the given color
+        tint_layer = pygame.Surface((new_w, new_h))
+        tint_layer.fill(tint[:3])
+        scaled.blit(tint_layer, (0, 0), special_flags=pygame.BLEND_RGB_MULT)
+
+    if alpha < 255:
+        scaled.set_alpha(alpha)
+
+    blit_x = cx - new_w // 2
+    blit_y = cy - new_h // 2
+    surface.blit(scaled, (blit_x, blit_y))
+    return True
 
 
 # Normalized car profile points (0-1 range) — matches generate_mockups_v2.py
