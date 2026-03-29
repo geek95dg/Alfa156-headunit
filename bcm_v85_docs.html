@@ -443,6 +443,59 @@ tr:hover td{background:var(--bg-card)}
   <p>Implementacja: <code>src/obd/dtc.py</code> — klasa <code>DTCReader</code> z metodami <code>read_dtcs()</code> i <code>clear_dtcs()</code>.</p>
 </section>
 
+<!-- ═══ S11 — GPS ═══ -->
+<section id="s11">
+  <h2><span class="n">11</span>GPS i lokalizacja</h2>
+  <table>
+    <tr><th>Parametr</th><th>Wartość</th></tr>
+    <tr><td>Moduł</td><td>u-blox NEO-6M lub NEO-M8N</td></tr>
+    <tr><td>Interfejs</td><td>UART 9600 baud (/dev/ttyUSB0)</td></tr>
+    <tr><td>Protokół</td><td>NMEA ($GPGGA, $GPRMC, $GPGSV)</td></tr>
+    <tr><td>Dane</td><td>Lat, Lon, prędkość, kierunek, satelity, fix</td></tr>
+  </table>
+  <h3>GPS Tracking <span class="dt dt-new">NOWE</span></h3>
+  <p>Ciągłe logowanie pozycji do bazy SQLite. Schemat: <code>timestamp, lat, lon, speed, heading, altitude</code>. Auto-start podróży przy prędkości &gt; 5 km/h, auto-stop po postoju. Eksport do formatu GPX. Statystyki per podróż: dystans, śr./max prędkość. Dane zasilają ekran A3 (Trip).</p>
+  <p>Implementacja: <code>src/location/tracker.py</code></p>
+</section>
+
+<!-- ═══ S12 — LTE ═══ -->
+<section id="s12">
+  <h2><span class="n">12</span>LTE / sieć / ruch drogowy</h2>
+  <h3>Modem LTE</h3>
+  <p>USB LTE modem (Huawei E3372 / SIM7600). Zarządzanie: NetworkManager (nmcli). Sygnał: AT+CSQ → 0-5 kresek. Event bus: <code>lte.connected</code>, <code>lte.signal</code>.</p>
+  <h3>Ruch drogowy na żywo <span class="dt dt-new">NOWE</span></h3>
+  <p>Integracja z TomTom Traffic API lub HERE Traffic. Nakładka kafelkowa na mapie Leaflet.js (ekran A4). Przycisk toggle włącz/wyłącz warstwę ruchu. Implementacja: <code>src/network/traffic.py</code></p>
+  <h3>Zdalny status pojazdu <span class="dt dt-new">NOWE</span></h3>
+  <p>REST API: <code>GET /api/remote/status</code> — zwraca lokalizację, temperaturę, stan zamka. Dostęp przez LTE z zewnątrz. Opcjonalnie: interfejs SMS via komendy AT na modemie LTE. Autentykacja: klucz API w konfiguracji. Implementacja: <code>src/network/remote_status.py</code></p>
+</section>
+
+<!-- ═══ S13 — INPUT ═══ -->
+<section id="s13">
+  <h2><span class="n">13</span>System wejścia</h2>
+  <table>
+    <tr><th>Źródło</th><th>Typ</th><th>Funkcja</th></tr>
+    <tr><td><strong>Ekran dotykowy 7/8"</strong></td><td>Capacitive USB HID</td><td>Główne sterowanie — tap, swipe L/R (zmiana ekranu)</td></tr>
+    <tr><td><strong>Przycisk SWC (kierownica)</strong></td><td>Analog → Arduino ADC</td><td>1 przycisk: cyklowanie ekranów A1→A2→...→A7→A1</td></tr>
+    <tr><td><strong>Przyciski fizyczne</strong></td><td>Arduino USB HID</td><td>Power on/off, previous track, next track</td></tr>
+    <tr><td><strong>Klawiatura (x86)</strong></td><td>Fallback do testów</td><td>Strzałki, Enter, Home, R (reverse), H (settings)</td></tr>
+  </table>
+  <div class="warn"><strong>Usunięte w v8.5:</strong> Enkoder obrotowy — niepotrzebny przy ekranie dotykowym. Kod Arduino do usunięcia.</div>
+</section>
+
+<!-- ═══ S14 — POWER ═══ -->
+<section id="s14">
+  <h2><span class="n">14</span>Zarządzanie energią</h2>
+  <h3>Maszyna stanów</h3>
+  <div class="code-block">STANDBY ──(zapłon ON)──→ WAKE ──→ ACTIVE ←──→ REVERSE
+    ↑                                    │
+    └───(zapłon OFF, 30s delay)──── SHUTDOWN</div>
+  <p><strong>Ignition:</strong> GPIO 85 (wejście optoisolowane). <strong>Central lock:</strong> GPIO 89 (sygnał zamknięcia → 30s odliczanie do shutdown).</p>
+  <h3>Podświetlenie</h3>
+  <p>PWM 1000Hz na GPIO 32 (4.3") i GPIO 33 (7/8"). Płynne przejścia (50 kroków, 1s). Jasność 0-100% niezależnie per ekran. Auto-jasność z czujnika LDR (Arduino A1).</p>
+  <h3>Shutdown</h3>
+  <p>Sekwencja: zatrzymaj DVR → zapisz stan → flush logi → sync → <code>sudo poweroff</code>.</p>
+</section>
+
 <!-- CONTENT_MARKER -->
 
 </div>
