@@ -507,6 +507,17 @@ tr:hover td{background:var(--bg-card)}
   <p>PWM 1000Hz na GPIO 32 (4.3") i GPIO 33 (7/8"). Płynne przejścia (50 kroków, 1s). Jasność 0-100% niezależnie per ekran. Auto-jasność z czujnika LDR (Arduino A1).</p>
   <h3>Shutdown</h3>
   <p>Sekwencja: zatrzymaj DVR → zapisz stan → flush logi → sync → <code>sudo poweroff</code>.</p>
+
+  <h3>Tryb RADIO <span class="dt dt-new">NOWE</span></h3>
+  <p>Uruchamiany <strong>fizycznym przyciskiem Power</strong> (NIE zapłonem). Ekran główny 7/8" ON, audio ON, mały ekran 4.3" OFF. Moduły OBD/parking/DVR wyłączone. Pobór: ~2A 5V + wzmacniacze audio. Wyjście: przycisk Power ponownie LUB uruchomienie silnika (zapłon → ACTIVE). Auto-timeout po konfigurowalnym czasie (30/60/120 min) aby nie rozładować akumulatora.</p>
+
+  <h3>Bateria backup <span class="dt dt-new">NOWE</span></h3>
+  <p>Li-ion 18650 3.7V 5000mAh z ładowarką TP4056 i boost MT3608 (3.7V→5V). Przekaźnik przełącza między akumulatorem samochodowym a baterią backup. W trybie <strong>SUSPEND</strong> bateria zasila: Arduino centralnego zamka + modem LTE + GPS. Pobór: ~0.15A, wytrzymałość: ~30 godzin śledzenia intermittent.</p>
+  <p>Implementacja: <code>src/power/battery.py</code> — monitorowanie napięcia baterii (Arduino ADC), progi: full 4.2V, nominal 3.7V, low 3.3V, krytyczny 3.0V.</p>
+
+  <h3>Detekcja wypadku <span class="dt dt-new">NOWE</span></h3>
+  <p>Po wykryciu wypadku (GPS: spadek prędkości >30 km/h w <2s, lub akcelerometr >3G) — bateria backup zapewnia zasilanie DVR przez 60s. Nagrania wypadku chronione przed nadpisaniem.</p>
+  <p>Implementacja: <code>src/camera/crash_detect.py</code></p>
 </section>
 
 <!-- ═══ S15 — RAIN SENSOR ═══ -->
@@ -556,6 +567,30 @@ tr:hover td{background:var(--bg-card)}
 
   <p><strong>Serial JSON:</strong> <code>{"cmd":"lock"}</code>, <code>{"cmd":"unlock"}</code>, <code>{"cmd":"window_up"}</code>, <code>{"cmd":"window_down"}</code>, <code>{"cmd":"trunk"}</code>, <code>{"cmd":"blink","count":2}</code>, <code>{"cmd":"headlights","duration":60}</code>, <code>{"cmd":"learn"}</code></p>
   <p><strong>Implementacja:</strong> Arduino: <code>arduino/central_lock/central_lock.ino</code>, Python: <code>src/vehicle/central_lock.py</code> + <code>src/vehicle/lighting.py</code></p>
+
+  <h3>System alarmowy <span class="dt dt-new">NOWE</span></h3>
+  <p>Alarm zintegrowany z centralnym zamkiem Arduino. Automat stanów: DISARMED → ARMING (30s) → ARMED → TRIGGERED. Auto-uzbrajanie przy zamknięciu, rozbrojenie przy otwarciu.</p>
+  <h4>Czujniki alarmu</h4>
+  <table>
+    <tr><th>Czujnik</th><th>Model</th><th>Detekcja</th></tr>
+    <tr><td>Kontakty drzwi</td><td>GPIO 86 (istniejący)</td><td>Otwarcie drzwi gdy uzbrojony</td></tr>
+    <tr><td><strong>PIR ruchu</strong></td><td>HC-SR501 mini</td><td>Ruch wewnątrz kabiny</td></tr>
+    <tr><td><strong>Czujnik wstrząsów</strong></td><td>Piezo vibration</td><td>Uderzenia w karoserię</td></tr>
+    <tr><td><strong>Tilt / holowanie</strong></td><td>MPU6050 akcelerometr</td><td>Podnoszenie / holowanie auta</td></tr>
+  </table>
+  <h4>Reakcja na alarm</h4>
+  <ul>
+    <li><strong>Syrena</strong>: 120dB piezo (kanał przekaźnika #9), czas: 30/60/120s konfigurowalny</li>
+    <li><strong>Kierunkowskazy</strong>: miganie L+P podczas alarmu (kanały #6, #7)</li>
+    <li><strong>LED alarmu</strong>: dioda na desce rozdzielczej miga w stanie ARMED (kanał #10)</li>
+    <li><strong>SMS alert</strong>: wysłanie SMS przez modem LTE z info o przyczynie alarmu</li>
+    <li><strong>Powiadomienie GPS</strong>: pozycja samochodu w momencie alarmu</li>
+  </ul>
+  <p>Implementacja: <code>src/vehicle/alarm.py</code> — maszyna stanów alarmu</p>
+
+  <h3>Śledzenie pojazdu (anti-theft) <span class="dt dt-new">NOWE</span></h3>
+  <p>GPS loguje pozycję co 30s do pamięci Arduino. LTE budzi się co 15 min i wysyła paczkę pozycji do API zdalnego. Pobór: ~0.15A z baterii backup → ~30h śledzenia. Geofencing: alert SMS gdy auto opuści skonfigurowany obszar.</p>
+  <p>Implementacja: <code>src/location/tracker.py</code> + <code>src/network/remote_status.py</code></p>
 </section>
 
 <!-- ═══ S17 — BLOCK DIAGRAM ═══ -->
@@ -564,7 +599,7 @@ tr:hover td{background:var(--bg-card)}
   <div class="code-block">
                     ┌──────────────────────────┐
                     │    ORANGE PI 5 PLUS       │
-                    │    (RK3588, 16GB RAM)     │
+                    │    (RK3588, 8GB RAM)      │
                     │                          │
   HDMI-1 ──────────┤  4.3" Stats Display      │
   HDMI-2 ──────────┤  7/8" Touch Display      │
