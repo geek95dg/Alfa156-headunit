@@ -139,3 +139,25 @@ modules_v85:
   central_lock: true
   lighting: true
   performance: true
+  alarm: true
+  crash_detect: true
+  battery_backup: true
+alarm:
+  siren_duration: 60
+  arming_delay: 30
+  sensors:
+    door: true
+    motion: true
+    tilt: true
+    shock: true
+crash_detection:
+  speed_drop_threshold: 30
+  g_force_threshold: 3.0
+  post_crash_record_sec: 60
+tracking:
+  interval_sec: 30
+  lte_sync_min: 15
+  geofence_lat: 0
+  geofence_lon: 0
+  geofence_radius_km: 0
+  sms_number: ""

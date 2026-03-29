@@ -507,6 +507,17 @@ tr:hover td{background:var(--bg-card)}
   <p>PWM 1000Hz na GPIO 32 (4.3") i GPIO 33 (7/8"). Płynne przejścia (50 kroków, 1s). Jasność 0-100% niezależnie per ekran. Auto-jasność z czujnika LDR (Arduino A1).</p>
   <h3>Shutdown</h3>
   <p>Sekwencja: zatrzymaj DVR → zapisz stan → flush logi → sync → <code>sudo poweroff</code>.</p>
+
+  <h3>Tryb RADIO <span class="dt dt-new">NOWE</span></h3>
+  <p>Uruchamiany <strong>fizycznym przyciskiem Power</strong> (NIE zapłonem). Ekran główny 7/8" ON, audio ON, mały ekran 4.3" OFF. Moduły OBD/parking/DVR wyłączone. Pobór: ~2A 5V + wzmacniacze audio. Wyjście: przycisk Power ponownie LUB uruchomienie silnika (zapłon → ACTIVE). Auto-timeout po konfigurowalnym czasie (30/60/120 min) aby nie rozładować akumulatora.</p>
+
+  <h3>Bateria backup <span class="dt dt-new">NOWE</span></h3>
+  <p>Li-ion 18650 3.7V 5000mAh z ładowarką TP4056 i boost MT3608 (3.7V→5V). Przekaźnik przełącza między akumulatorem samochodowym a baterią backup. W trybie <strong>SUSPEND</strong> bateria zasila: Arduino centralnego zamka + modem LTE + GPS. Pobór: ~0.15A, wytrzymałość: ~30 godzin śledzenia intermittent.</p>
+  <p>Implementacja: <code>src/power/battery.py</code> — monitorowanie napięcia baterii (Arduino ADC), progi: full 4.2V, nominal 3.7V, low 3.3V, krytyczny 3.0V.</p>
+
+  <h3>Detekcja wypadku <span class="dt dt-new">NOWE</span></h3>
+  <p>Po wykryciu wypadku (GPS: spadek prędkości >30 km/h w <2s, lub akcelerometr >3G) — bateria backup zapewnia zasilanie DVR przez 60s. Nagrania wypadku chronione przed nadpisaniem.</p>
+  <p>Implementacja: <code>src/camera/crash_detect.py</code></p>
 </section>
 
 <!-- ═══ S15 — RAIN SENSOR ═══ -->
@@ -556,6 +567,30 @@ tr:hover td{background:var(--bg-card)}
 
   <p><strong>Serial JSON:</strong> <code>{"cmd":"lock"}</code>, <code>{"cmd":"unlock"}</code>, <code>{"cmd":"window_up"}</code>, <code>{"cmd":"window_down"}</code>, <code>{"cmd":"trunk"}</code>, <code>{"cmd":"blink","count":2}</code>, <code>{"cmd":"headlights","duration":60}</code>, <code>{"cmd":"learn"}</code></p>
   <p><strong>Implementacja:</strong> Arduino: <code>arduino/central_lock/central_lock.ino</code>, Python: <code>src/vehicle/central_lock.py</code> + <code>src/vehicle/lighting.py</code></p>
+
+  <h3>System alarmowy <span class="dt dt-new">NOWE</span></h3>
+  <p>Alarm zintegrowany z centralnym zamkiem Arduino. Automat stanów: DISARMED → ARMING (30s) → ARMED → TRIGGERED. Auto-uzbrajanie przy zamknięciu, rozbrojenie przy otwarciu.</p>
+  <h4>Czujniki alarmu</h4>
+  <table>
+    <tr><th>Czujnik</th><th>Model</th><th>Detekcja</th></tr>
+    <tr><td>Kontakty drzwi</td><td>GPIO 86 (istniejący)</td><td>Otwarcie drzwi gdy uzbrojony</td></tr>
+    <tr><td><strong>PIR ruchu</strong></td><td>HC-SR501 mini</td><td>Ruch wewnątrz kabiny</td></tr>
+    <tr><td><strong>Czujnik wstrząsów</strong></td><td>Piezo vibration</td><td>Uderzenia w karoserię</td></tr>
+    <tr><td><strong>Tilt / holowanie</strong></td><td>MPU6050 akcelerometr</td><td>Podnoszenie / holowanie auta</td></tr>
+  </table>
+  <h4>Reakcja na alarm</h4>
+  <ul>
+    <li><strong>Syrena</strong>: 120dB piezo (kanał przekaźnika #9), czas: 30/60/120s konfigurowalny</li>
+    <li><strong>Kierunkowskazy</strong>: miganie L+P podczas alarmu (kanały #6, #7)</li>
+    <li><strong>LED alarmu</strong>: dioda na desce rozdzielczej miga w stanie ARMED (kanał #10)</li>
+    <li><strong>SMS alert</strong>: wysłanie SMS przez modem LTE z info o przyczynie alarmu</li>
+    <li><strong>Powiadomienie GPS</strong>: pozycja samochodu w momencie alarmu</li>
+  </ul>
+  <p>Implementacja: <code>src/vehicle/alarm.py</code> — maszyna stanów alarmu</p>
+
+  <h3>Śledzenie pojazdu (anti-theft) <span class="dt dt-new">NOWE</span></h3>
+  <p>GPS loguje pozycję co 30s do pamięci Arduino. LTE budzi się co 15 min i wysyła paczkę pozycji do API zdalnego. Pobór: ~0.15A z baterii backup → ~30h śledzenia. Geofencing: alert SMS gdy auto opuści skonfigurowany obszar.</p>
+  <p>Implementacja: <code>src/location/tracker.py</code> + <code>src/network/remote_status.py</code></p>
 </section>
 
 <!-- ═══ S17 — BLOCK DIAGRAM ═══ -->
@@ -564,7 +599,7 @@ tr:hover td{background:var(--bg-card)}
   <div class="code-block">
                     ┌──────────────────────────┐
                     │    ORANGE PI 5 PLUS       │
-                    │    (RK3588, 16GB RAM)     │
+                    │    (RK3588, 8GB RAM)      │
                     │                          │
   HDMI-1 ──────────┤  4.3" Stats Display      │
   HDMI-2 ──────────┤  7/8" Touch Display      │
@@ -618,40 +653,111 @@ tr:hover td{background:var(--bg-card)}
 
 <!-- ═══ S19 — BOM ═══ -->
 <section id="s19">
-  <h2><span class="n">19</span>BOM — lista komponentów</h2>
+  <h2><span class="n">19</span>BOM — lista komponentów z cenami</h2>
+
+  <h3>System bazowy</h3>
   <table>
-    <tr><th>Komponent</th><th>Model / Typ</th><th>Ilość</th><th>Uwagi</th></tr>
-    <tr><td>SBC</td><td>Orange Pi 5 Plus 16GB</td><td>1</td><td>RK3588, 2× HDMI</td></tr>
-    <tr><td>Ekran mały</td><td>4.3" TFT HDMI 800×480</td><td>1</td><td>Stats + cofanie</td></tr>
-    <tr><td>Ekran główny</td><td>7" lub 8" IPS HDMI + Touch</td><td>1</td><td>1024×600 lub 1280×800</td></tr>
-    <tr><td>Zasilacz</td><td>LM2596 DC-DC 12V→5.1V</td><td>1</td><td>Min 4A output</td></tr>
-    <tr><td>Bezpiecznik 5V</td><td>20A blade fuse</td><td>1</td><td>Przed LM2596</td></tr>
-    <tr><td>Bezpiecznik 12V</td><td>25A blade fuse</td><td>1</td><td>Linia audio</td></tr>
-    <tr><td>DAC USB</td><td>ES9038Q2M</td><td>1</td><td>32-bit/384kHz</td></tr>
-    <tr><td>AMP główny</td><td>TDA7388</td><td>1</td><td>4×45W Class AB</td></tr>
-    <tr><td>AMP sub</td><td>TDA2050</td><td>1</td><td>40W mono</td></tr>
-    <tr><td>Transceiver OBD</td><td>L9637D</td><td>1</td><td>K-Line 10400 baud</td></tr>
-    <tr><td>Czujniki parkowania</td><td>HC-SR04</td><td>4</td><td>Ultrasonic + dzielnik napięcia</td></tr>
-    <tr><td>Buzzer</td><td>Piezo 5V</td><td>1</td><td>BC547 driver</td></tr>
-    <tr><td>Czujnik temp</td><td>DS18B20</td><td>1</td><td>Waterproof, pod zderzakiem</td></tr>
-    <tr><td>Kamery</td><td>AHD 720P</td><td>2</td><td>Przód + tył</td></tr>
-    <tr><td>Grabber wideo</td><td>USB3.0 4-ch AHD</td><td>1</td><td>Video capture card</td></tr>
-    <tr><td>Modem LTE</td><td>Huawei E3372 / SIM7600</td><td>1</td><td>USB stick + antena</td></tr>
-    <tr><td>Moduł GPS</td><td>NEO-6M lub NEO-M8N</td><td>1</td><td>UART, antena ceramiczna</td></tr>
-    <tr><td>Adapter BT</td><td>USB Bluetooth 5.0</td><td>1</td><td>A2DP + HFP</td></tr>
-    <tr><td>Mikrofon</td><td>USB condenser</td><td>1</td><td>Sufitowy montaż</td></tr>
-    <tr><td>Arduino (input)</td><td>Pro Micro ATmega32U4</td><td>1</td><td>SWC + buttons + LDR</td></tr>
-    <tr><td>Arduino (zamek)</td><td>Nano / Pro Mini</td><td>1</td><td>Central lock + RF + relay</td></tr>
-    <tr><td>Moduł przekaźników</td><td>8-ch relay 5V</td><td>1</td><td>Zamek, okna, bagażnik, światła</td></tr>
-    <tr><td>Odbiornik RF</td><td>RXB6 433MHz</td><td>1</td><td>Superheterodyne receiver</td></tr>
-    <tr><td>Czujnik deszczu</td><td>Rain sensor module</td><td>1</td><td>Cyfrowy output</td></tr>
-    <tr><td>Optoisolatory</td><td>PC817</td><td>6</td><td>Ignition, door, rain, sprayer, lock, reverse</td></tr>
-    <tr><td>Rezystory</td><td>Różne</td><td>~20</td><td>Pull-up, dzielniki, ograniczające</td></tr>
-    <tr><td>MOSFET</td><td>IRLZ44N</td><td>2</td><td>Backlight PWM drivers</td></tr>
-    <tr><td>Tranzystory</td><td>BC547</td><td>3</td><td>Buzzer + relay drivers</td></tr>
-    <tr><td>USB hub</td><td>USB 3.0 powered hub</td><td>1</td><td>Rozszerzenie portów USB</td></tr>
-    <tr><td>Pendrive</td><td>USB 3.0 128GB</td><td>1</td><td>DVR storage + eksport</td></tr>
+    <tr><th>Komponent</th><th>Model</th><th>Szt.</th><th>Cena PLN</th><th>Uwagi</th></tr>
+    <tr><td>SBC</td><td><strong>Orange Pi 5 Plus 8GB</strong></td><td>1</td><td>600-750</td><td>RK3588, 2× HDMI. 8GB wystarczy — 16GB niepotrzebne</td></tr>
+    <tr><td>Ekran mały</td><td>4.3" TFT HDMI 800×480</td><td>1</td><td>200-300</td><td>Stats + cofanie</td></tr>
+    <tr><td>Ekran główny</td><td>7/8" IPS HDMI + Touch</td><td>1</td><td>400-600</td><td>1024×600 lub 1280×800</td></tr>
   </table>
+  <div class="ok"><strong>Podkategoria: ~1200-1650 PLN</strong></div>
+
+  <h3>Zasilanie + backup</h3>
+  <table>
+    <tr><th>Komponent</th><th>Model</th><th>Szt.</th><th>Cena PLN</th><th>Uwagi</th></tr>
+    <tr><td>Przetwornica DC-DC</td><td>LM2596 12V→5.1V 4A</td><td>1</td><td>30-50</td><td>Regulowana</td></tr>
+    <tr><td>Bezpiecznik 5V</td><td>20A blade fuse</td><td>1</td><td>5</td><td>Przed LM2596</td></tr>
+    <tr><td>Bezpiecznik 12V</td><td>25A blade fuse</td><td>1</td><td>5</td><td>Linia audio</td></tr>
+    <tr><td><strong>Bateria backup</strong></td><td>Li-ion 18650 3.7V 5000mAh</td><td>1</td><td>20-30</td><td>Zasilanie lock + GPS + LTE w suspend</td></tr>
+    <tr><td><strong>Ładowarka baterii</strong></td><td>TP4056 + zabezpieczenie</td><td>1</td><td>8-15</td><td>Ładowanie z 5V</td></tr>
+    <tr><td><strong>Boost converter</strong></td><td>MT3608 3.7V→5V 2A</td><td>1</td><td>10-15</td><td>5V z baterii backup</td></tr>
+    <tr><td>Przekaźnik power</td><td>Relay 5V → switching zasilania</td><td>1</td><td>8-12</td><td>Car battery ↔ Li-ion backup</td></tr>
+  </table>
+  <div class="ok"><strong>Podkategoria: ~85-130 PLN</strong></div>
+
+  <h3>Audio</h3>
+  <table>
+    <tr><th>Komponent</th><th>Model</th><th>Szt.</th><th>Cena PLN</th></tr>
+    <tr><td>DAC USB</td><td>ES9038Q2M</td><td>1</td><td>45-75</td></tr>
+    <tr><td>AMP główny</td><td>TDA7388 (4×45W)</td><td>1</td><td>45-70</td></tr>
+    <tr><td>AMP sub</td><td>TDA2050 (40W mono)</td><td>1</td><td>20-30</td></tr>
+    <tr><td>Radiator</td><td>Aluminiowy</td><td>2</td><td>15-25</td></tr>
+  </table>
+  <div class="ok"><strong>Podkategoria: ~125-200 PLN</strong></div>
+
+  <h3>Czujniki + I/O</h3>
+  <table>
+    <tr><th>Komponent</th><th>Model</th><th>Szt.</th><th>Cena PLN</th></tr>
+    <tr><td>Czujniki parkowania</td><td>HC-SR04</td><td>4</td><td>60-80</td></tr>
+    <tr><td>Buzzer parkowania</td><td>Piezo 5V</td><td>1</td><td>5-10</td></tr>
+    <tr><td>Czujnik temperatury</td><td>DS18B20 waterproof</td><td>1</td><td>20-30</td></tr>
+    <tr><td>Transceiver OBD</td><td>L9637D + rez. 510Ω</td><td>1</td><td>15-25</td></tr>
+    <tr><td>Czujnik deszczu</td><td>Rain sensor digital</td><td>1</td><td>30-50</td></tr>
+    <tr><td>Optoisolatory</td><td>PC817</td><td>6</td><td>12-18</td></tr>
+    <tr><td>MOSFET backlight</td><td>IRLZ44N</td><td>2</td><td>8-12</td></tr>
+    <tr><td>Tranzystory</td><td>BC547</td><td>3</td><td>3-5</td></tr>
+    <tr><td>Rezystory zestaw</td><td>Różne wartości</td><td>~20</td><td>10-15</td></tr>
+  </table>
+  <div class="ok"><strong>Podkategoria: ~165-245 PLN</strong></div>
+
+  <h3>Kamery + DVR</h3>
+  <table>
+    <tr><th>Komponent</th><th>Model</th><th>Szt.</th><th>Cena PLN</th></tr>
+    <tr><td>Kamery AHD</td><td>720P przód + tył</td><td>2</td><td>200-400</td></tr>
+    <tr><td>Grabber wideo</td><td>USB3.0 4-ch AHD capture</td><td>1</td><td>150-250</td></tr>
+    <tr><td>Pendrive DVR</td><td>USB 3.0 128GB</td><td>1</td><td>80-150</td></tr>
+  </table>
+  <div class="ok"><strong>Podkategoria: ~430-800 PLN</strong></div>
+
+  <h3>Łączność</h3>
+  <table>
+    <tr><th>Komponent</th><th>Model</th><th>Szt.</th><th>Cena PLN</th></tr>
+    <tr><td>Modem LTE</td><td>Huawei E3372 / SIM7600</td><td>1</td><td>100-200</td></tr>
+    <tr><td>Moduł GPS</td><td>NEO-6M lub NEO-M8N</td><td>1</td><td>40-80</td></tr>
+    <tr><td>Adapter BT</td><td>USB Bluetooth 5.0</td><td>1</td><td>30-60</td></tr>
+    <tr><td>Mikrofon USB</td><td>Condenser sufitowy</td><td>1</td><td>30-50</td></tr>
+  </table>
+  <div class="ok"><strong>Podkategoria: ~200-390 PLN</strong></div>
+
+  <h3>Sterowanie + centralny zamek</h3>
+  <table>
+    <tr><th>Komponent</th><th>Model</th><th>Szt.</th><th>Cena PLN</th></tr>
+    <tr><td>Arduino (input)</td><td>Pro Micro ATmega32U4</td><td>1</td><td>40-60</td></tr>
+    <tr><td>Arduino (zamek)</td><td>Nano / Pro Mini</td><td>1</td><td>20-30</td></tr>
+    <tr><td>Moduł przekaźników</td><td><strong>10-ch relay 5V</strong></td><td>1</td><td>40-60</td></tr>
+    <tr><td>Odbiornik RF</td><td>RXB6 433MHz</td><td>1</td><td>15-25</td></tr>
+    <tr><td>USB hub</td><td>USB 3.0 powered hub</td><td>1</td><td>50-80</td></tr>
+  </table>
+  <div class="ok"><strong>Podkategoria: ~165-255 PLN</strong></div>
+
+  <h3>Alarm + bezpieczeństwo <span class="dt dt-new">NOWE</span></h3>
+  <table>
+    <tr><th>Komponent</th><th>Model</th><th>Szt.</th><th>Cena PLN</th></tr>
+    <tr><td><strong>Syrena alarmowa</strong></td><td>12V piezo 120dB</td><td>1</td><td>25-40</td></tr>
+    <tr><td><strong>Czujnik ruchu PIR</strong></td><td>HC-SR501 mini</td><td>1</td><td>10-15</td></tr>
+    <tr><td><strong>Czujnik wstrząsów</strong></td><td>Piezo vibration sensor</td><td>1</td><td>8-12</td></tr>
+    <tr><td><strong>Akcelerometr (tilt/crash)</strong></td><td>MPU6050 6-axis</td><td>1</td><td>15-30</td></tr>
+    <tr><td><strong>LED alarmu</strong></td><td>LED 5mm + rezystor</td><td>1</td><td>2-3</td></tr>
+  </table>
+  <div class="ok"><strong>Podkategoria: ~60-100 PLN</strong></div>
+
+  <h3>Podsumowanie kosztów</h3>
+  <table>
+    <tr><th>Kategoria</th><th>Min PLN</th><th>Max PLN</th></tr>
+    <tr><td>System bazowy (OPi 8GB + ekrany)</td><td>1200</td><td>1650</td></tr>
+    <tr><td>Zasilanie + bateria backup</td><td>85</td><td>130</td></tr>
+    <tr><td>Audio (DAC + wzmacniacze)</td><td>125</td><td>200</td></tr>
+    <tr><td>Czujniki + I/O</td><td>165</td><td>245</td></tr>
+    <tr><td>Kamery + DVR</td><td>430</td><td>800</td></tr>
+    <tr><td>Łączność (LTE, GPS, BT, mic)</td><td>200</td><td>390</td></tr>
+    <tr><td>Sterowanie + centralny zamek</td><td>165</td><td>255</td></tr>
+    <tr><td>Alarm + bezpieczeństwo</td><td>60</td><td>100</td></tr>
+    <tr><td>Różne (kable, złącza, obudowy)</td><td>100</td><td>200</td></tr>
+    <tr style="font-weight:bold;color:var(--accent)"><td><strong>RAZEM</strong></td><td><strong>~2 530</strong></td><td><strong>~3 970</strong></td></tr>
+  </table>
+  <div class="warn"><strong>Uwaga:</strong> Ceny orientacyjne na dzień 2026-03. Nie uwzględniają głośników, subwoofera, kabli samochodowych, obudowy DIN, ani robocizny. OPi 5 Plus 8GB zamiast 16GB — 8GB jest w pełni wystarczające dla tego zastosowania.</div>
 </section>
 
 <!-- ═══ S20 — VM TESTING ═══ -->

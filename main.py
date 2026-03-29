@@ -36,6 +36,9 @@ from src.vehicle.rain_sensor import start_rain_sensor
 from src.vehicle.central_lock import start_central_lock
 from src.vehicle.lighting import start_lighting
 from src.performance.timer import start_performance
+from src.vehicle.alarm import start_alarm
+from src.camera.crash_detect import start_crash_detect
+from src.power.battery import start_battery
 
 
 # Module registry — maps module names to their (future) start functions.
@@ -59,6 +62,9 @@ MODULE_REGISTRY: dict[str, dict] = {
     "central_lock":{"part": 16, "description": "Central Lock + 433MHz RF", "start": start_central_lock},
     "lighting":    {"part": 17, "description": "Lighting (Follow-me-home, Greeting)", "start": start_lighting},
     "performance": {"part": 18, "description": "Performance (0-100 Timer, Boost)", "start": start_performance},
+    "alarm":       {"part": 19, "description": "Car Alarm (PIR, Tilt, Shock, Siren)", "start": start_alarm},
+    "crash_detect":{"part": 20, "description": "Crash Detection + DVR Protection", "start": start_crash_detect},
+    "battery":     {"part": 21, "description": "Battery Backup Monitor", "start": start_battery},
 }
 
 # Dashboard is listed for --dry-run reporting but started separately
