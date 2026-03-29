@@ -641,6 +641,94 @@ tr:hover td{background:var(--bg-card)}
   </table>
 </section>
 
+<!-- ═══ S20 — VM TESTING ═══ -->
+<section id="s20">
+  <h2><span class="n">20</span>Testowanie na VM</h2>
+  <h3>Wymagania VM</h3>
+  <p>VMware Workstation 17+ / VirtualBox. Ubuntu 24.04, 4 CPU, 8GB RAM, 40GB dysk, 3D acceleration ON.</p>
+  <h3>Szybki start</h3>
+  <div class="code-block">cd ~/Alfa156-headunit
+source .venv/bin/activate
+pip install -r requirements-x86.txt
+./run_x86.sh</div>
+  <p>Ekran główny: <strong>http://localhost:5002</strong> — 7 ekranów BCM + settings</p>
+  <p>Mały ekran: <strong>http://localhost:5003</strong> — karuzela danych + reverse</p>
+  <p>AA/BT management: <strong>http://localhost:5001</strong></p>
+
+  <h3>REST API (do testów)</h3>
+  <div class="code-block"># Live data
+curl http://localhost:5002/api/data | python3 -m json.tool
+
+# Zmień motyw
+curl -X POST http://localhost:5002/api/config \
+  -H "Content-Type: application/json" -d '{"theme":"autodelta"}'
+
+# Zmień język
+curl -X POST http://localhost:5002/api/config \
+  -H "Content-Type: application/json" -d '{"language":"en"}'</div>
+
+  <h3>Sterowanie klawiaturą (w przeglądarce)</h3>
+  <table>
+    <tr><th>Klawisz</th><th>Akcja</th></tr>
+    <tr><td>← / →</td><td>Zmiana ekranu</td></tr>
+    <tr><td>Home / H</td><td>Ustawienia</td></tr>
+    <tr><td>R</td><td>Toggle reverse camera</td></tr>
+    <tr><td>ESC</td><td>Powrót z ustawień</td></tr>
+  </table>
+
+  <h3>Checklist testowy</h3>
+  <ul>
+    <li>☐ <code>./run_x86.sh</code> startuje bez błędów</li>
+    <li>☐ http://localhost:5002 — ładuje dashboard</li>
+    <li>☐ Init screen → auto-transition do A1</li>
+    <li>☐ Wszystkie 7 ekranów (A1-A7) renderują się poprawnie</li>
+    <li>☐ 3 motywy: Heritage / Modern / Autodelta</li>
+    <li>☐ Przełączanie języka PL↔EN</li>
+    <li>☐ http://localhost:5003 — karuzela danych</li>
+    <li>☐ Press R — reverse camera overlay</li>
+    <li>☐ WebSocket — dane aktualizują się w real-time</li>
+  </ul>
+</section>
+
+<!-- ═══ S21 — OPi DEPLOY ═══ -->
+<section id="s21">
+  <h2><span class="n">21</span>Wdrożenie na Orange Pi</h2>
+  <h3>Instalacja systemu</h3>
+  <ol>
+    <li>Flash Armbian na eMMC (lub SD card)</li>
+    <li>Konfiguracja: <code>armbian-config</code> → UART3, GPIO, I2C, SPI, 1-Wire overlays</li>
+    <li>Instalacja pakietów: Python 3.12, PipeWire, Bluetooth, GStreamer</li>
+    <li>Clone repo: <code>git clone https://github.com/geek95dg/Alfa156-headunit.git</code></li>
+    <li>Virtualenv: <code>python3.12 -m venv .venv && source .venv/bin/activate</code></li>
+    <li>Instalacja zależności: <code>pip install -r requirements.txt -r requirements-opi.txt</code></li>
+  </ol>
+
+  <h3>Dual display — Chromium kiosk</h3>
+  <div class="code-block"># Ekran główny (HDMI-2, 7/8" touch)
+chromium-browser --kiosk --window-size=1024,600 \
+  --display=:0.1 http://localhost:5002
+
+# Mały ekran (HDMI-1, 4.3")
+chromium-browser --kiosk --window-size=800,480 \
+  --display=:0.0 http://localhost:5003</div>
+
+  <h3>Usługi systemd</h3>
+  <p>Konfiguracja w <code>config/systemd/</code>: <code>bcm-main.service</code>, <code>bcm-dashboard.service</code>, <code>bcm-small-display.service</code>, <code>bcm-multimedia.service</code>.</p>
+
+  <h3>Weryfikacja first-run</h3>
+  <ul>
+    <li>☐ Oba ekrany działają (4.3" + 7/8")</li>
+    <li>☐ Audio: <code>speaker-test -t wav -c 2</code></li>
+    <li>☐ OBD: dane z ECU (RPM, temp, prędkość)</li>
+    <li>☐ GPS: fix i pozycja</li>
+    <li>☐ LTE: internet działa</li>
+    <li>☐ Bluetooth: parowanie telefonu</li>
+    <li>☐ DVR: nagrywanie przód/tył</li>
+    <li>☐ Czujniki parkowania: dystanse w 4 strefach</li>
+    <li>☐ Centralny zamek: lock/unlock z pilota RF</li>
+  </ul>
+</section>
+
 <!-- CONTENT_MARKER -->
 
 </div>
