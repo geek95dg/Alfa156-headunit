@@ -1,0 +1,812 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>BCM v8.5 — AR156 1.9 JTD — Dokumentacja Techniczna</title>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&family=DM+Sans:wght@400;500;700&family=Playfair+Display:wght@700;900&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#0a0c10;--bg-card:#12151c;--bg-card-hover:#1a1e28;--border:#1e2330;--accent:#c8102e;--accent-glow:rgba(200,16,46,0.25);--accent2:#00b4d8;--accent2-glow:rgba(0,180,216,0.15);--text:#e8e9ed;--text-dim:#8b8fa3;--text-bright:#fff;--green:#22c55e;--yellow:#eab308;--orange:#f97316;--red:#ef4444}
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:var(--bg);color:var(--text);font-family:'DM Sans',sans-serif;line-height:1.7;font-size:15px}
+.container{max-width:1140px;margin:0 auto;padding:0 32px}
+.hero{padding:80px 0 40px;position:relative;overflow:hidden}
+.hero::before{content:'';position:absolute;top:-200px;right:-200px;width:600px;height:600px;background:radial-gradient(circle,var(--accent-glow) 0%,transparent 70%);pointer-events:none}
+.hero-badge{display:inline-block;padding:6px 16px;border:1px solid var(--accent);color:var(--accent);font-family:'JetBrains Mono',monospace;font-size:11px;text-transform:uppercase;letter-spacing:2px;margin-bottom:24px}
+.hero h1{font-family:'Playfair Display',serif;font-size:3rem;font-weight:900;color:var(--text-bright);line-height:1.1;margin-bottom:16px}
+.hero h1 span{color:var(--accent)}
+.hero p.sub{font-size:1.05rem;color:var(--text-dim);max-width:720px}
+.hero .tags{display:flex;gap:10px;flex-wrap:wrap;margin-top:16px}
+.hero .tag{padding:6px 14px;background:var(--bg-card);border:1px solid var(--border);border-radius:6px;font-family:'JetBrains Mono',monospace;font-size:0.78rem;color:var(--accent2)}
+section{padding:40px 0;border-top:1px solid var(--border)}
+section h2{font-family:'Playfair Display',serif;font-size:1.8rem;font-weight:700;color:var(--text-bright);margin-bottom:8px}
+section h2 .n{color:var(--accent);font-family:'JetBrains Mono',monospace;font-size:0.85rem;vertical-align:super;margin-right:8px}
+section h3{font-size:1.15rem;font-weight:700;color:var(--accent2);margin:28px 0 10px}
+section h4{font-size:1rem;font-weight:700;color:var(--text-bright);margin:18px 0 6px}
+p{margin:8px 0}
+ul,ol{margin:8px 0 8px 24px}
+li{margin:4px 0}
+.card-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:14px;margin:20px 0}
+.card{background:var(--bg-card);border:1px solid var(--border);border-radius:10px;padding:20px;transition:all 0.3s}
+.card:hover{background:var(--bg-card-hover);border-color:var(--accent);box-shadow:0 0 25px var(--accent-glow)}
+.card .ic{width:36px;height:36px;background:var(--accent);border-radius:7px;display:flex;align-items:center;justify-content:center;font-size:18px;margin-bottom:12px}
+.card h4{color:var(--text-bright);margin:0 0 6px;font-size:0.95rem}
+.card p{color:var(--text-dim);font-size:0.85rem;margin:0}
+table{width:100%;border-collapse:collapse;margin:16px 0;font-size:0.88rem}
+th{background:var(--bg-card);color:var(--accent);font-family:'JetBrains Mono',monospace;font-size:0.78rem;text-transform:uppercase;letter-spacing:1px;padding:10px 14px;text-align:left;border-bottom:2px solid var(--accent)}
+td{padding:8px 14px;border-bottom:1px solid var(--border)}
+tr:hover td{background:var(--bg-card)}
+.code-block{background:#0d1017;border:1px solid var(--border);border-radius:7px;padding:16px;margin:14px 0;font-family:'JetBrains Mono',monospace;font-size:0.8rem;color:var(--green);overflow-x:auto;line-height:1.55;white-space:pre}
+.note{border-left:3px solid var(--accent2);background:var(--accent2-glow);padding:12px 18px;border-radius:0 7px 7px 0;margin:16px 0;font-size:0.9rem}
+.warn{border-left:3px solid var(--orange);background:rgba(249,115,22,0.1);padding:12px 18px;border-radius:0 7px 7px 0;margin:16px 0;font-size:0.9rem}
+.crit{border-left:3px solid var(--red);background:rgba(239,68,68,0.1);padding:12px 18px;border-radius:0 7px 7px 0;margin:16px 0;font-size:0.9rem}
+.ok{border-left:3px solid var(--green);background:rgba(34,197,94,0.08);padding:12px 18px;border-radius:0 7px 7px 0;margin:16px 0;font-size:0.9rem}
+.note strong,.warn strong,.crit strong,.ok strong{color:var(--text-bright)}
+.toc{background:var(--bg-card);border:1px solid var(--border);border-radius:10px;padding:20px 28px;margin:28px 0}
+.toc h3{margin-top:0;color:var(--text-bright)}
+.toc ol{list-style:none;counter-reset:toc;padding:0;columns:2;column-gap:32px}
+.toc li{counter-increment:toc;padding:5px 0;border-bottom:1px solid var(--border)}
+.toc li::before{content:counter(toc,decimal-leading-zero);color:var(--accent);font-family:'JetBrains Mono',monospace;font-weight:700;margin-right:10px}
+.toc a{color:var(--text);text-decoration:none}.toc a:hover{color:var(--accent)}
+.dt{display:inline-block;padding:2px 7px;border-radius:3px;font-family:'JetBrains Mono',monospace;font-size:0.68rem;font-weight:700;vertical-align:middle;margin-left:6px}
+.dt-new{background:rgba(34,197,94,0.2);color:var(--green);border:1px solid var(--green)}
+.dt-chg{background:rgba(234,179,8,0.2);color:var(--yellow);border:1px solid var(--yellow)}
+.dt-del{background:rgba(239,68,68,0.2);color:var(--red);border:1px solid var(--red)}
+.pinout td:first-child{color:var(--accent2);font-weight:700}
+.changelog{border:2px solid var(--accent);border-radius:10px;padding:20px;margin:20px 0;background:rgba(200,16,46,0.03)}
+.changelog h4{color:var(--accent);margin-top:0}
+.dual{display:grid;grid-template-columns:1fr 1fr;gap:20px;margin:20px 0}
+.dual>div{background:var(--bg-card);border-radius:10px;padding:20px;border:1px solid var(--border)}
+.triple{display:grid;grid-template-columns:1fr 1fr 1fr;gap:14px;margin:20px 0}
+.triple>div{background:var(--bg-card);border-radius:10px;padding:16px;border:1px solid var(--border)}
+@media(max-width:768px){.dual,.triple{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<div class="container">
+
+<!-- ═══ HERO ═══ -->
+<div class="hero">
+  <div class="hero-badge">BCM v8.5 — Dokumentacja Techniczna</div>
+  <h1>Alfa Romeo <span>156</span><br>Body Computer Module</h1>
+  <p class="sub">Dual-display: 4.3" karuzela danych + 7/8" ekran dotykowy z Android Auto kiosk. 7 ekranów BCM (A1-A7) + ustawienia. 3 motywy graficzne. DVR z GPS overlay + eksport USB. Performance: boost gauge + timer 0-100. Centralny zamek z pilotem RF 433MHz. Follow-me-home. Czujnik deszczu. Orange Pi 5 Plus z 2× HDMI.</p>
+  <div class="tags">
+    <span class="tag">1.9 JTD 8V przedlift</span>
+    <span class="tag">Bosch EDC15C7</span>
+    <span class="tag">Orange Pi 5 Plus</span>
+    <span class="tag">Dual HDMI</span>
+    <span class="tag">4.3" Stats + 7/8" Touch</span>
+    <span class="tag">Android Auto Kiosk</span>
+    <span class="tag">Audio 4.1 + Sub</span>
+    <span class="tag">DVR 2-ch + GPS</span>
+    <span class="tag">Performance / 0-100</span>
+    <span class="tag">433MHz RF Central Lock</span>
+    <span class="tag">Follow-me-home</span>
+    <span class="tag">Rain Sensor</span>
+    <span class="tag">GPS Tracking</span>
+    <span class="tag">LTE + Traffic</span>
+  </div>
+</div>
+
+<!-- ═══ TOC ═══ -->
+<nav class="toc">
+  <h3>Spis treści</h3>
+  <ol>
+    <li><a href="#s1">Changelog v8.0 → v8.5</a></li>
+    <li><a href="#s2">Architektura systemu</a></li>
+    <li><a href="#s3">Specyfikacja ekranów (A1-A7)</a></li>
+    <li><a href="#s4">System motywów</a></li>
+    <li><a href="#s5">Platforma sprzętowa</a></li>
+    <li><a href="#s6">Nowe moduły sprzętowe</a></li>
+    <li><a href="#s7">Android Auto — integracja kiosk</a></li>
+    <li><a href="#s8">System audio 4.1</a></li>
+    <li><a href="#s9">System kamer (DVR + cofanie)</a></li>
+    <li><a href="#s10">OBD-II / K-Line / DTC</a></li>
+    <li><a href="#s11">GPS i lokalizacja</a></li>
+    <li><a href="#s12">LTE / sieć / ruch drogowy</a></li>
+    <li><a href="#s13">System wejścia (dotyk, SWC, przyciski)</a></li>
+    <li><a href="#s14">Zarządzanie energią</a></li>
+    <li><a href="#s15">Czujnik deszczu i wycieraczki</a></li>
+    <li><a href="#s16">Centralny zamek i oświetlenie</a></li>
+    <li><a href="#s17">Schemat blokowy systemu</a></li>
+    <li><a href="#s18">Alokacja GPIO (40-pin header)</a></li>
+    <li><a href="#s19">BOM — lista komponentów</a></li>
+    <li><a href="#s20">Testowanie na VM</a></li>
+    <li><a href="#s21">Wdrożenie na Orange Pi</a></li>
+    <li><a href="#s22">Referencja API</a></li>
+  </ol>
+</nav>
+
+<!-- ═══ S1 — CHANGELOG ═══ -->
+<section id="s1">
+  <h2><span class="n">01</span>Changelog v8.0 → v8.5</h2>
+  <div class="changelog">
+    <h4>Zmiany w wersji 8.5</h4>
+    <table>
+      <tr><th>Element</th><th>v8.0</th><th>v8.5</th><th>Status</th></tr>
+      <tr><td>Architektura ekranów</td><td>5 ekranów, jeden wyświetlacz 800×480</td><td><strong>7 ekranów (A1-A7) + Settings, dual display (4.3" + 7/8" touch)</strong></td><td><span class="dt dt-chg">ZMIANA</span></td></tr>
+      <tr><td>Ekran główny</td><td>800×480 single</td><td><strong>7/8" touchscreen adaptive (1024×600 / 1280×800), port 5002</strong></td><td><span class="dt dt-chg">ZMIANA</span></td></tr>
+      <tr><td>Mały ekran 4.3"</td><td>Frame streaming z Pygame</td><td><strong>Dedykowany serwer Flask (port 5003), karuzela danych, kamera cofania</strong></td><td><span class="dt dt-chg">ZMIANA</span></td></tr>
+      <tr><td>A2: Android Auto</td><td>Osobny ekran AA (port 5001)</td><td><strong>Kiosk embedded w BCM — iframe z nagłówkiem i nawigacją BCM</strong></td><td><span class="dt dt-new">NOWE</span></td></tr>
+      <tr><td>A6: Nagrania DVR</td><td>Brak</td><td><strong>Przeglądarka nagrań przód/tył, odtwarzanie z GPS overlay, eksport USB</strong></td><td><span class="dt dt-new">NOWE</span></td></tr>
+      <tr><td>A7: Performance</td><td>Brak</td><td><strong>Gauge boost turbo (SVG), timer 0-100 km/h (GPS), G-Force, statystyki</strong></td><td><span class="dt dt-new">NOWE</span></td></tr>
+      <tr><td>Diagnostyka DTC</td><td>Brak</td><td><strong>A5: odczyt i kasowanie kodów błędów ECU (KWP2000)</strong></td><td><span class="dt dt-new">NOWE</span></td></tr>
+      <tr><td>Czujnik deszczu</td><td>GPIO 87 skonfigurowany, brak implementacji</td><td><strong>Moduł auto-wycieraczki: czujnik → przekaźnik wycieraczek</strong></td><td><span class="dt dt-new">NOWE</span></td></tr>
+      <tr><td>Centralny zamek</td><td>Tylko sygnał wejścia (GPIO 89)</td><td><strong>Arduino + 433MHz RF: zamek/odblokowanie, okna, bagażnik, pilot RF</strong></td><td><span class="dt dt-new">NOWE</span></td></tr>
+      <tr><td>Oświetlenie</td><td>Brak</td><td><strong>Follow-me-home (30/60/90s), powitanie (mrugnięcia kierunkowskazów), leaving-home</strong></td><td><span class="dt dt-new">NOWE</span></td></tr>
+      <tr><td>GPS Tracking</td><td>Tylko pozycja bieżąca</td><td><strong>Ciągłe logowanie trasy do SQLite, statystyki podróży, eksport GPX</strong></td><td><span class="dt dt-chg">ZMIANA</span></td></tr>
+      <tr><td>Ruch drogowy</td><td>Brak</td><td><strong>Nakładka ruchu na żywo na mapie (TomTom/HERE API)</strong></td><td><span class="dt dt-new">NOWE</span></td></tr>
+      <tr><td>Zdalny status</td><td>Brak</td><td><strong>REST API statusu pojazdu przez LTE (lokalizacja, temp, zamek)</strong></td><td><span class="dt dt-new">NOWE</span></td></tr>
+      <tr><td>Sterowanie</td><td>Enkoder + SWC + klawiatura</td><td><strong>Dotyk (główny) + 1 przycisk SWC (cyklowanie ekranów) + fizyczne przyciski</strong></td><td><span class="dt dt-chg">ZMIANA</span></td></tr>
+      <tr><td>Przyciski fizyczne</td><td>Brak</td><td><strong>Power on/off, prev/next track przy ekranie głównym (Arduino USB HID)</strong></td><td><span class="dt dt-new">NOWE</span></td></tr>
+      <tr><td>Wyszukiwanie lokalizacji</td><td>Usunięte (brak dotyku)</td><td><strong>Przywrócone na A4 Weather — ekran dotykowy</strong></td><td><span class="dt dt-chg">ZMIANA</span></td></tr>
+      <tr><td>Enkoder obrotowy</td><td>Aktywny (Arduino)</td><td><strong>Usunięty — niepotrzebny przy ekranie dotykowym</strong></td><td><span class="dt dt-del">USUNIĘTE</span></td></tr>
+    </table>
+  </div>
+</section>
+
+<!-- ═══ S2 — ARCHITEKTURA ═══ -->
+<section id="s2">
+  <h2><span class="n">02</span>Architektura systemu</h2>
+  <h3>Dual Display</h3>
+  <div class="code-block">┌─────────────────────────────────────┐    ┌───────────────────────┐
+│  EKRAN GŁÓWNY (7/8" touchscreen)    │    │  MAŁY EKRAN (4.3")    │
+│  Port 5002 — Flask SPA              │    │  Port 5003 — Flask    │
+│  Rozdzielczość: adaptacyjna         │    │  800×480 stała        │
+│  (1024×600 lub 1280×800)            │    │                       │
+│                                     │    │  Karuzela danych:     │
+│  A1: Dashboard (Hub główny)         │    │  - Poziom paliwa      │
+│  A2: Android Auto (kiosk embed)     │    │  - Temp. płynu chłodn.│
+│  A3: Podróż i spalanie              │    │  - Temp. zewn./wewn.  │
+│  A4: Pogoda i mapa (+ruch drogowy)  │    │  - Czas/data nagłówek │
+│  A5: Serwis i diagnostyka (DTC)     │    │                       │
+│  A6: Nagrania DVR (+eksport USB)    │    │  + Kamera cofania     │
+│  A7: Performance (boost, 0-100)     │    │  + Czujniki parkowania │
+│  Settings: BT, WiFi, motyw, język   │    │                       │
+└──────────────┬──────────────────────┘    └───────────┬───────────┘
+               │                                       │
+               └───────────── Event Bus ───────────────┘
+                              │
+          ┌───────────────────┼───────────────────┐
+          │                   │                   │
+     ┌────▼────┐        ┌────▼────┐         ┌────▼────┐
+     │  OBD-II │        │  GPS    │         │  LTE    │
+     │ K-Line  │        │ NEO-M8N │         │ Modem   │
+     └─────────┘        └─────────┘         └─────────┘</div>
+
+  <h3>Moduły systemu</h3>
+  <table>
+    <tr><th>Moduł</th><th>Port/GPIO</th><th>Opis</th></tr>
+    <tr><td><strong>dashboard</strong></td><td>:5002</td><td>Ekran główny 7/8" — 7 ekranów + settings</td></tr>
+    <tr><td><strong>small_display</strong></td><td>:5003</td><td>Mały ekran 4.3" — karuzela + cofanie</td></tr>
+    <tr><td><strong>obd</strong></td><td>UART3</td><td>K-Line/KWP2000, EDC15C7, DTC</td></tr>
+    <tr><td><strong>parking</strong></td><td>GPIO 79-83</td><td>4× HC-SR04 ultrasonic + buzzer (84)</td></tr>
+    <tr><td><strong>environment</strong></td><td>GPIO 7</td><td>DS18B20 temp + icing detection</td></tr>
+    <tr><td><strong>audio</strong></td><td>USB DAC</td><td>PipeWire 4.1, EQ, ducking</td></tr>
+    <tr><td><strong>voice</strong></td><td>USB Mic</td><td>Vosk offline (PL/EN)</td></tr>
+    <tr><td><strong>input</strong></td><td>USB HID</td><td>Touch + SWC + physical buttons</td></tr>
+    <tr><td><strong>camera</strong></td><td>USB3 grab</td><td>DVR 2-ch AHD + reverse cam</td></tr>
+    <tr><td><strong>power</strong></td><td>GPIO 85,89</td><td>Ignition, shutdown, backlight PWM</td></tr>
+    <tr><td><strong>multimedia</strong></td><td>USB BT</td><td>BlueZ A2DP/HFP + OpenAuto Pro</td></tr>
+    <tr><td><strong>location</strong></td><td>UART USB</td><td>GPS/GNSS + tracking + GPX export</td></tr>
+    <tr><td><strong>network</strong></td><td>USB LTE</td><td>LTE modem + traffic API + remote status</td></tr>
+    <tr><td><strong>weather</strong></td><td>LTE</td><td>OpenWeatherMap + prognoza 3-dniowa</td></tr>
+    <tr><td><strong>rain_sensor</strong></td><td>GPIO 87,88</td><td>Czujnik deszczu → auto-wycieraczki</td></tr>
+    <tr><td><strong>central_lock</strong></td><td>Serial</td><td>Arduino + 433MHz RF, zamek, okna, bagażnik</td></tr>
+    <tr><td><strong>lighting</strong></td><td>Serial</td><td>Follow-me-home, powitanie, leaving-home</td></tr>
+    <tr><td><strong>performance</strong></td><td>Event bus</td><td>Timer 0-100, boost peak, G-Force</td></tr>
+  </table>
+
+  <h3>Event Bus</h3>
+  <p>Wszystkie moduły komunikują się przez <strong>publish/subscribe event bus</strong>. Moduł publikuje dane (np. <code>obd.rpm</code>), a inne moduły subskrybują te tematy. Event bus wspiera również IPC (Unix socket) dla komunikacji między procesami.</p>
+</section>
+
+<!-- ═══ S3 — EKRANY ═══ -->
+<section id="s3">
+  <h2><span class="n">03</span>Specyfikacja ekranów (A1-A7)</h2>
+  <p>Ekran główny (7/8") wyświetla 7 ekranów funkcjonalnych + ekran ustawień. Nawigacja: dotyk (swipe lub nav bar) + przycisk SWC na kierownicy.</p>
+
+  <div class="card-grid">
+    <div class="card">
+      <div class="ic">A1</div>
+      <h4>Dashboard — Hub główny</h4>
+      <p>Temperatura silnika (gauge okrągły), poziom paliwa (progress bar z glow), powiadomienia systemowe (ciśnienie opon, serwis, trasa), media BT (teraz grane), szybkie statystyki (śr. prędkość, czas jazdy, napięcie).</p>
+    </div>
+    <div class="card">
+      <div class="ic">A2</div>
+      <h4>Android Auto — Kiosk</h4>
+      <p>Android Auto osadzony jako iframe/karta w ramach BCM. Nagłówek BCM (logo, czas, temp) i pasek nawigacji widoczne. Stream video z OpenAuto Pro. Fallback: placeholder "Podłącz Android Auto". Touch pass-through do AA.</p>
+    </div>
+    <div class="card">
+      <div class="ic">A3</div>
+      <h4>Podróż i spalanie</h4>
+      <p>GPS tracking: ciągłe logowanie trasy do SQLite. Wizualizacja trasy na mini mapie. Historia podróży (ostatnia, dziś, tydzień, miesiąc). Wykres spalania z prawdziwymi danymi (oś Y: L/100km, oś X: czas). Profil jazdy (ECO/NORMAL/DYNAMIC/SPORT). Eksport danych podróży.</p>
+    </div>
+    <div class="card">
+      <div class="ic">A4</div>
+      <h4>Pogoda i mapa</h4>
+      <p>Leaflet.js z kafelkami OSM. Wyszukiwanie lokalizacji (ekran dotykowy). Nakładka ruchu drogowego na żywo (TomTom/HERE API). Aktualna pogoda + prognoza 3-dniowa. Wiatr, wilgotność, odczuwalna temperatura. Marker GPS z pozycji event bus.</p>
+    </div>
+    <div class="card">
+      <div class="ic">A5</div>
+      <h4>Serwis i diagnostyka</h4>
+      <p>Lista diagnostyczna: silnik, olej, akumulator, opony (TPMS). Odczyt kodów błędów DTC z ECU (KWP2000 readDiagnosticTroubleCodes). Kasowanie DTC (clearDiagnosticInformation) z dialogiem potwierdzenia. Szkic auta z ilustracją. Licznik do następnego przeglądu.</p>
+    </div>
+    <div class="card">
+      <div class="ic">A6</div>
+      <h4>Nagrania DVR</h4>
+      <p>Przeglądarka nagrań przód/tył. Siatka miniatur z datą i rozmiarem. Odtwarzanie HTML5 video z nakładką GPS (prędkość, pozycja, kierunek, czas). Filtrowanie: kamera, zakres dat. Informacja o pamięci (wewnętrzna + USB). <strong>Eksport USB</strong>: zaznaczenie nagrań → kopiowanie na pendrive z paskiem postępu.</p>
+    </div>
+    <div class="card">
+      <div class="ic">A7</div>
+      <h4>Performance</h4>
+      <p><strong>Gauge boost turbo</strong>: SVG arc gauge (0-1.5 BAR) z kolorowymi strefami (vacuum/low/high/overboost). <strong>Timer 0-100 km/h</strong>: GPS-based, historia ostatnich 10 pomiarów, najlepszy czas podświetlony. Statystyki: peak boost, RPM bar, prędkość, szacunek G-Force (z GPS heading), szacunek mocy chwilowej.</p>
+    </div>
+    <div class="card">
+      <div class="ic">⚙</div>
+      <h4>Ustawienia</h4>
+      <p>Motyw (Heritage/Modern/Autodelta). Język (PL/EN). Jednostki (km/h↔mph, °C↔°F). Parowanie Bluetooth (skanowanie, parowanie, łączenie, usuwanie urządzeń). Konfiguracja WiFi AP (SSID, hasło, włącz/wyłącz). Jasność ekranów. Konfiguracja czujnika deszczu. Konfiguracja oświetlenia (follow-me-home czas).</p>
+    </div>
+  </div>
+
+  <h3>Mały ekran 4.3" (port 5003)</h3>
+  <p>Wyświetlacz nie-dotykowy z karuzelą danych. Auto-cyklowanie co 5 sekund lub zmiana przyciskiem SWC. Nagłówek z czasem i datą zawsze widoczny. Podczas cofania: pełnoekranowy overlay z kamerą + 4 paski czujników parkowania (LL, CL, CP/CR, PP/RR).</p>
+  <div class="note"><strong>Karuzela danych:</strong> Poziom paliwa (%) → Temperatura płynu chłodniczego (°C) → Temperatura zewnętrzna (°C) → Temperatura wewnętrzna (°C, jeśli czujnik dostępny)</div>
+
+  <h4>Powiadomienia popup na małym ekranie <span class="dt dt-new">NOWE</span></h4>
+  <p>Mały ekran wyświetla krótkotrwałe powiadomienia popup nakładane na karuzelę danych:</p>
+  <table>
+    <tr><th>Typ</th><th>Źródło</th><th>Wygląd</th><th>Czas wyświetlania</th></tr>
+    <tr><td><strong>Pogoda — alert</strong></td><td>OpenWeatherMap (nagłe zmiany)</td><td>Ikona pogody + opis (np. "Burza za 30 min")</td><td>10s</td></tr>
+    <tr><td><strong>Ruch drogowy</strong></td><td>TomTom/HERE Traffic API</td><td>Ikona korka + opis (np. "Korek 2km przed Tobą")</td><td>8s</td></tr>
+    <tr><td><strong>Oblodzenie</strong></td><td>DS18B20 temp &lt; 3°C</td><td>Ikona śniegu + "Uwaga oblodzenie"</td><td>5s (auto-dismiss)</td></tr>
+    <tr><td><strong>Niski poziom paliwa</strong></td><td>OBD fuel_level &lt; 15%</td><td>Ikona paliwa + "Rezerwa paliwa"</td><td>Persistent do kasowania</td></tr>
+    <tr><td><strong>Serwis</strong></td><td>service_km &lt; 500</td><td>Ikona klucza + "Zbliża się przegląd"</td><td>10s</td></tr>
+    <tr><td><strong>Ciśnienie opon</strong></td><td>TPMS &lt; 2.0 BAR</td><td>Ikona opony + pozycja + ciśnienie</td><td>8s</td></tr>
+  </table>
+  <p>Popup wyświetlany jako overlay na górze karuzeli danych. Motyw (Heritage/Modern/Autodelta) — kolorystyka popupu dopasowana do aktywnego motywu. Priorytet: oblodzenie &gt; ruch &gt; pogoda &gt; paliwo &gt; serwis &gt; opony. Kolejka — tylko 1 popup widoczny na raz, kolejne czekają.</p>
+</section>
+
+<!-- ═══ S4 — MOTYWY ═══ -->
+<section id="s4">
+  <h2><span class="n">04</span>System motywów</h2>
+  <p>Trzy motywy graficzne, spójne na wszystkich 7 ekranach + Settings + mały ekran. Przełączanie bez przeładowania strony.</p>
+  <div class="triple">
+    <div>
+      <h4 style="color:#f59e0b">Heritage Warmth</h4>
+      <p><strong>Kolory:</strong> amber (#f59e0b), walnut (#1a0f0a), czarny</p>
+      <p><strong>Efekty:</strong> burl-texture (CSS radial-gradient), amber glow text-shadow, ciepłe odcienie</p>
+      <p><strong>Czcionka:</strong> Public Sans</p>
+      <p><strong>Auto szkic:</strong> Giulia GTA 1965 (sepia filter)</p>
+    </div>
+    <div>
+      <h4 style="color:#3b82f6">Modern Elegance</h4>
+      <p><strong>Kolory:</strong> blue (#005596), biały, slate grey</p>
+      <p><strong>Efekty:</strong> glass-card (backdrop-filter blur), czyste cienie, jasne tła</p>
+      <p><strong>Czcionka:</strong> Public Sans</p>
+      <p><strong>Auto szkic:</strong> 156 Berlina (grayscale, contrast)</p>
+    </div>
+    <div>
+      <h4 style="color:#FF5F00">Autodelta Sport</h4>
+      <p><strong>Kolory:</strong> orange (#FF5F00), czarny, carbon</p>
+      <p><strong>Efekty:</strong> scanline overlay, ostry kontrast, glow na pomarańczu</p>
+      <p><strong>Czcionka:</strong> Public Sans</p>
+      <p><strong>Auto szkic:</strong> 1600 Junior Z (inverted, orange tint)</p>
+    </div>
+  </div>
+  <div class="note"><strong>CSS Custom Properties:</strong> motywy zaimplementowane przez <code>data-theme</code> atrybut na <code>&lt;body&gt;</code>. Zmienne CSS: <code>--color-primary</code>, <code>--color-accent</code>, <code>--color-surface</code>, <code>--card-bg</code>, <code>--card-border</code>, <code>--progress-fill</code>, itd.</div>
+</section>
+
+<!-- ═══ S5 — HARDWARE ═══ -->
+<section id="s5">
+  <h2><span class="n">05</span>Platforma sprzętowa</h2>
+  <h3>SBC: Orange Pi 5 Plus</h3>
+  <table>
+    <tr><th>Parametr</th><th>Wartość</th></tr>
+    <tr><td>SoC</td><td>Rockchip RK3588 (4× A76 + 4× A55)</td></tr>
+    <tr><td>RAM</td><td>16 GB LPDDR4X</td></tr>
+    <tr><td>Storage</td><td>64 GB eMMC + slot M.2 NVMe</td></tr>
+    <tr><td>GPU</td><td>Mali-G610 MP4</td></tr>
+    <tr><td>Video</td><td>2× HDMI 2.1 (8K + 4K)</td></tr>
+    <tr><td>WiFi</td><td>WiFi 6 (802.11ax) + BT 5.0</td></tr>
+    <tr><td>USB</td><td>1× USB 3.0 + 2× USB 2.0 + USB-C (OTG/Power)</td></tr>
+    <tr><td>GPIO</td><td>40-pin header (3.3V logic)</td></tr>
+    <tr><td>OS</td><td>Armbian (Ubuntu 24.04 / Debian 12)</td></tr>
+  </table>
+
+  <h3>Wyświetlacze</h3>
+  <div class="dual">
+    <div>
+      <h4>Mały ekran — 4.3" TFT</h4>
+      <p><strong>Rozdzielczość:</strong> 800 × 480</p>
+      <p><strong>Interfejs:</strong> HDMI-1</p>
+      <p><strong>Funkcja:</strong> Karuzela danych + kamera cofania + czujniki parkowania</p>
+      <p><strong>Dotyk:</strong> NIE — sterowanie tylko SWC</p>
+      <p><strong>Podświetlenie:</strong> PWM GPIO 32</p>
+    </div>
+    <div>
+      <h4>Ekran główny — 7" lub 8" IPS</h4>
+      <p><strong>Rozdzielczość:</strong> 1024×600 (7") lub 1280×800 (8") — adaptacyjna</p>
+      <p><strong>Interfejs:</strong> HDMI-2</p>
+      <p><strong>Funkcja:</strong> BCM A1-A7 + Settings + Android Auto kiosk</p>
+      <p><strong>Dotyk:</strong> TAK — capacitive touch (USB HID)</p>
+      <p><strong>Podświetlenie:</strong> PWM GPIO 33</p>
+    </div>
+  </div>
+</section>
+
+<!-- ═══ S6 — NOWE MODUŁY ═══ -->
+<section id="s6">
+  <h2><span class="n">06</span>Nowe moduły sprzętowe</h2>
+
+  <h3>Czujnik deszczu + wycieraczki</h3>
+  <p>Optoisolowany sygnał cyfrowy z czujnika deszczu na zderzaku (GPIO 87 wejście). Przekaźnik aktywujący wycieraczki (GPIO 88 wyjście). Logika: wykrycie deszczu → aktywacja wycieraczek na konfigurowalny czas. Czułość: lekki / umiarkowany / intensywny → różne prędkości wycieraczek.</p>
+
+  <h3>Centralny zamek — Arduino + 433MHz RF</h3>
+  <div class="card-grid">
+    <div class="card">
+      <div class="ic">🔒</div>
+      <h4>Zamek / odblokowanie</h4>
+      <p>2 przekaźniki sterujące elektrozamkami drzwi. Sygnał zwrotny na event bus.</p>
+    </div>
+    <div class="card">
+      <div class="ic">📡</div>
+      <h4>Pilot RF 433MHz</h4>
+      <p>Odbiornik RXB6. Tryb uczenia: nauka kodów nowych pilotów. Zastępuje oryginalny pilot Alfy.</p>
+    </div>
+    <div class="card">
+      <div class="ic">🪟</div>
+      <h4>Sterowanie oknami</h4>
+      <p>2 przekaźniki: góra/dół. Relay module podłączony równolegle do przełączników okien.</p>
+    </div>
+    <div class="card">
+      <div class="ic">🚗</div>
+      <h4>Bagażnik</h4>
+      <p>Przekaźnik elektrozamka bagażnika. Aktywacja z BCM lub pilota RF.</p>
+    </div>
+  </div>
+  <div class="note"><strong>MCU:</strong> Arduino Nano/Pro Mini. Komunikacja: Serial JSON do OPi BCM. 8-kanałowy moduł przekaźników (zamek×2, okna×2, bagażnik, kierunkowskaz L, kierunkowskaz P, światła).</div>
+
+  <h3>Oświetlenie inteligentne</h3>
+  <table>
+    <tr><th>Funkcja</th><th>Opis</th><th>Konfiguracja</th></tr>
+    <tr><td><strong>Follow-me-home</strong></td><td>Światła mijania pozostają włączone po zamknięciu auta</td><td>30 / 60 / 90 sekund</td></tr>
+    <tr><td><strong>Powitanie (Greeting)</strong></td><td>Podwójne mrugnięcie kierunkowskazami przy odblokowaniu, pojedyncze przy zamknięciu</td><td>Liczba mrugnięć: 1-3</td></tr>
+    <tr><td><strong>Leaving-home</strong></td><td>Krótkie włączenie świateł przy odblokowaniu w nocy (czujnik LDR)</td><td>Wł./Wył.</td></tr>
+  </table>
+  <p>Sterowanie przez te same przekaźniki co centralny zamek Arduino (kanały: kierunkowskaz L, kierunkowskaz P, światła). Logika czasowa w module <code>src/vehicle/lighting.py</code>.</p>
+
+  <h3>Przyciski fizyczne</h3>
+  <p>3 przyciski montowane przy ekranie 7/8": <strong>Power on/off</strong>, <strong>Previous track</strong>, <strong>Next track</strong>. Podłączone do Arduino USB HID → keycody → action_dispatch → event bus.</p>
+</section>
+
+<!-- ═══ S7 — ANDROID AUTO ═══ -->
+<section id="s7">
+  <h2><span class="n">07</span>Android Auto — integracja kiosk</h2>
+  <h3>Architektura</h3>
+  <p>OpenAuto Pro działa na OPi jako osobny proces. BCM osadza stream video AA jako iframe/card na ekranie A2. Nagłówek BCM (logo, czas, temperatura) i pasek nawigacji pozostają widoczne — użytkownik może przełączyć ekran bez opuszczania AA.</p>
+
+  <h3>Połączenie</h3>
+  <ul>
+    <li><strong>Bezprzewodowe:</strong> WiFi AP (SSID: ALFA, hasło konfigurowane) — telefon łączy się do hotspotu OPi</li>
+    <li><strong>Przewodowe:</strong> USB-C OTG — telefon podłączony kablem</li>
+    <li><strong>Video stream:</strong> MJPEG z Xvfb (DISPLAY=:99) via ffmpeg → endpoint <code>/aa/stream</code></li>
+  </ul>
+
+  <div class="warn"><strong>WiFi AP vs LTE:</strong> Hotspot WiFi AP dla AA działa na wewnętrznym WiFi OPi. LTE modem ma osobne połączenie (USB). Nie kolidują ze sobą — AA używa WiFi direct, internet idzie przez LTE.</div>
+
+  <h3>Fallback</h3>
+  <p>Gdy AA nie jest podłączone, ekran A2 wyświetla placeholder z instrukcją połączenia (ikona telefonu + tekst "Podłącz Android Auto").</p>
+</section>
+
+<!-- ═══ S8 — AUDIO ═══ -->
+<section id="s8">
+  <h2><span class="n">08</span>System audio 4.1</h2>
+  <table>
+    <tr><th>Komponent</th><th>Model</th><th>Opis</th></tr>
+    <tr><td>DAC USB</td><td>ES9038Q2M</td><td>32-bit/384kHz, wyjście RCA stereo</td></tr>
+    <tr><td>AMP główny</td><td>TDA7388</td><td>4 × 45W Class AB (przód L/P + tył L/P)</td></tr>
+    <tr><td>AMP sub</td><td>TDA2050</td><td>40W mono, filtr LP ~120Hz</td></tr>
+    <tr><td>Głośniki</td><td>4× koaksyjne</td><td>Drzwi przód + tył</td></tr>
+    <tr><td>Subwoofer</td><td>1× 8"</td><td>Bagażnik, obudowa bass-reflex</td></tr>
+  </table>
+  <h3>PipeWire routing</h3>
+  <p>Routing audio: Android Auto / BT A2DP / system sounds → PipeWire → USB DAC → wzmacniacze. EQ 10-pasmowy parametryczny (presety: flat, rock, jazz, bass_boost, custom). Ducking priorytetowy: beep parkowania > głos > rozmowa > muzyka.</p>
+</section>
+
+<!-- ═══ S9 — KAMERY ═══ -->
+<section id="s9">
+  <h2><span class="n">09</span>System kamer (DVR + cofanie)</h2>
+  <h3>DVR — rejestrator jazdy</h3>
+  <table>
+    <tr><th>Parametr</th><th>Wartość</th></tr>
+    <tr><td>Kamery</td><td>2× AHD 720P (przód + tył)</td></tr>
+    <tr><td>Grabber</td><td>USB3.0 4-ch AHD capture card</td></tr>
+    <tr><td>Kodowanie</td><td>H.264 (HW mpph264enc na OPi, SW x264enc na x86)</td></tr>
+    <tr><td>Segmenty</td><td>5-minutowe pliki, loop recording</td></tr>
+    <tr><td>Pojemność</td><td>128GB USB → ~47h nagrań</td></tr>
+    <tr><td>GPS overlay</td><td>Prędkość, pozycja, kierunek, czas/data w metadanych</td></tr>
+    <tr><td>Eksport</td><td>USB pendrive — zaznacz nagrania → kopiuj z progress bar</td></tr>
+  </table>
+
+  <h3>Kamera cofania</h3>
+  <p>Aktywacja: sygnał biegu wstecznego (OBD gear="R" lub GPIO). Wyświetlanie na <strong>małym ekranie 4.3"</strong> z overlay czujników parkowania. Linie pomocnicze (zielona/żółta/czerwona strefa). Stream: AHD → grabber → fbdevsink (OPi) lub MJPEG (x86).</p>
+</section>
+
+<!-- ═══ S10 — OBD ═══ -->
+<section id="s10">
+  <h2><span class="n">10</span>OBD-II / K-Line / DTC</h2>
+  <h3>ECU: Bosch EDC15C7</h3>
+  <p>Protokół: KWP2000 via K-Line (10400 baud, slow init 5-baud). Transceiver: L9637D z rezystorem pull-up 510Ω.</p>
+
+  <h3>PID — odczytywane parametry</h3>
+  <table>
+    <tr><th>PID</th><th>Parametr</th><th>Zakres</th></tr>
+    <tr><td>0x0C</td><td>RPM</td><td>0-5000 obr/min</td></tr>
+    <tr><td>0x05</td><td>Temperatura płynu chłodniczego</td><td>-40 — 215°C</td></tr>
+    <tr><td>0x0D</td><td>Prędkość pojazdu</td><td>0-255 km/h</td></tr>
+    <tr><td>0x5E</td><td>Dawka paliwa</td><td>0-50 L/h</td></tr>
+    <tr><td>0x0B</td><td>Ciśnienie doładowania (boost)</td><td>0-2.55 BAR</td></tr>
+    <tr><td>0x42</td><td>Napięcie akumulatora</td><td>0-65V</td></tr>
+  </table>
+
+  <h3>DTC — kody błędów <span class="dt dt-new">NOWE</span></h3>
+  <p><strong>Odczyt:</strong> KWP2000 service <code>readDiagnosticTroubleCodes</code> — zwraca listę aktywnych kodów błędów z ECU.</p>
+  <p><strong>Kasowanie:</strong> KWP2000 service <code>clearDiagnosticInformation</code> — kasuje zapisane DTC. Dialog potwierdzenia w UI przed wykonaniem.</p>
+  <p>Implementacja: <code>src/obd/dtc.py</code> — klasa <code>DTCReader</code> z metodami <code>read_dtcs()</code> i <code>clear_dtcs()</code>.</p>
+</section>
+
+<!-- ═══ S11 — GPS ═══ -->
+<section id="s11">
+  <h2><span class="n">11</span>GPS i lokalizacja</h2>
+  <table>
+    <tr><th>Parametr</th><th>Wartość</th></tr>
+    <tr><td>Moduł</td><td>u-blox NEO-6M lub NEO-M8N</td></tr>
+    <tr><td>Interfejs</td><td>UART 9600 baud (/dev/ttyUSB0)</td></tr>
+    <tr><td>Protokół</td><td>NMEA ($GPGGA, $GPRMC, $GPGSV)</td></tr>
+    <tr><td>Dane</td><td>Lat, Lon, prędkość, kierunek, satelity, fix</td></tr>
+  </table>
+  <h3>GPS Tracking <span class="dt dt-new">NOWE</span></h3>
+  <p>Ciągłe logowanie pozycji do bazy SQLite. Schemat: <code>timestamp, lat, lon, speed, heading, altitude</code>. Auto-start podróży przy prędkości &gt; 5 km/h, auto-stop po postoju. Eksport do formatu GPX. Statystyki per podróż: dystans, śr./max prędkość. Dane zasilają ekran A3 (Trip).</p>
+  <p>Implementacja: <code>src/location/tracker.py</code></p>
+</section>
+
+<!-- ═══ S12 — LTE ═══ -->
+<section id="s12">
+  <h2><span class="n">12</span>LTE / sieć / ruch drogowy</h2>
+  <h3>Modem LTE</h3>
+  <p>USB LTE modem (Huawei E3372 / SIM7600). Zarządzanie: NetworkManager (nmcli). Sygnał: AT+CSQ → 0-5 kresek. Event bus: <code>lte.connected</code>, <code>lte.signal</code>.</p>
+  <h3>Ruch drogowy na żywo <span class="dt dt-new">NOWE</span></h3>
+  <p>Integracja z TomTom Traffic API lub HERE Traffic. Nakładka kafelkowa na mapie Leaflet.js (ekran A4). Przycisk toggle włącz/wyłącz warstwę ruchu. Implementacja: <code>src/network/traffic.py</code></p>
+  <h3>Zdalny status pojazdu <span class="dt dt-new">NOWE</span></h3>
+  <p>REST API: <code>GET /api/remote/status</code> — zwraca lokalizację, temperaturę, stan zamka. Dostęp przez LTE z zewnątrz. Opcjonalnie: interfejs SMS via komendy AT na modemie LTE. Autentykacja: klucz API w konfiguracji. Implementacja: <code>src/network/remote_status.py</code></p>
+</section>
+
+<!-- ═══ S13 — INPUT ═══ -->
+<section id="s13">
+  <h2><span class="n">13</span>System wejścia</h2>
+  <table>
+    <tr><th>Źródło</th><th>Typ</th><th>Funkcja</th></tr>
+    <tr><td><strong>Ekran dotykowy 7/8"</strong></td><td>Capacitive USB HID</td><td>Główne sterowanie — tap, swipe L/R (zmiana ekranu)</td></tr>
+    <tr><td><strong>Przycisk SWC (kierownica)</strong></td><td>Analog → Arduino ADC</td><td>1 przycisk: cyklowanie ekranów A1→A2→...→A7→A1</td></tr>
+    <tr><td><strong>Przyciski fizyczne</strong></td><td>Arduino USB HID</td><td>Power on/off, previous track, next track</td></tr>
+    <tr><td><strong>Klawiatura (x86)</strong></td><td>Fallback do testów</td><td>Strzałki, Enter, Home, R (reverse), H (settings)</td></tr>
+  </table>
+  <div class="warn"><strong>Usunięte w v8.5:</strong> Enkoder obrotowy — niepotrzebny przy ekranie dotykowym. Kod Arduino do usunięcia.</div>
+</section>
+
+<!-- ═══ S14 — POWER ═══ -->
+<section id="s14">
+  <h2><span class="n">14</span>Zarządzanie energią</h2>
+  <h3>Maszyna stanów</h3>
+  <div class="code-block">STANDBY ──(zapłon ON)──→ WAKE ──→ ACTIVE ←──→ REVERSE
+    ↑                                    │
+    └───(zapłon OFF, 30s delay)──── SHUTDOWN</div>
+  <p><strong>Ignition:</strong> GPIO 85 (wejście optoisolowane). <strong>Central lock:</strong> GPIO 89 (sygnał zamknięcia → 30s odliczanie do shutdown).</p>
+  <h3>Podświetlenie</h3>
+  <p>PWM 1000Hz na GPIO 32 (4.3") i GPIO 33 (7/8"). Płynne przejścia (50 kroków, 1s). Jasność 0-100% niezależnie per ekran. Auto-jasność z czujnika LDR (Arduino A1).</p>
+  <h3>Shutdown</h3>
+  <p>Sekwencja: zatrzymaj DVR → zapisz stan → flush logi → sync → <code>sudo poweroff</code>.</p>
+</section>
+
+<!-- ═══ S15 — RAIN SENSOR ═══ -->
+<section id="s15">
+  <h2><span class="n">15</span>Czujnik deszczu i wycieraczki</h2>
+  <p>Moduł czujnika deszczu podłączony przez optoisolator (PC817) do GPIO 87 (wejście). Przekaźnik wycieraczek na GPIO 88 (wyjście) — podłączony równolegle do istniejącego sterowania wycieraczkami w Alfie 156.</p>
+  <table>
+    <tr><th>GPIO</th><th>Kierunek</th><th>Funkcja</th></tr>
+    <tr><td>87</td><td>INPUT</td><td>Sygnał z czujnika deszczu (optoisolowany)</td></tr>
+    <tr><td>88</td><td>OUTPUT</td><td>Przekaźnik wycieraczek (równoległy do przełącznika)</td></tr>
+  </table>
+  <p><strong>Logika:</strong> deszcz wykryty → aktywacja wycieraczek na konfigurowalny czas. 3 poziomy czułości (lekki / umiarkowany / intensywny) → różne czasy pracy.</p>
+  <p><strong>Event bus:</strong> <code>vehicle.rain_detected</code>, <code>vehicle.wipers_active</code></p>
+  <p><strong>Implementacja:</strong> <code>src/vehicle/rain_sensor.py</code></p>
+</section>
+
+<!-- ═══ S16 — CENTRAL LOCK + LIGHTING ═══ -->
+<section id="s16">
+  <h2><span class="n">16</span>Centralny zamek i oświetlenie</h2>
+  <h3>Moduł Arduino — centralny zamek</h3>
+  <p>Oddzielny Arduino Nano/Pro Mini z modułem 8-kanałowych przekaźników i odbiornikiem RF 433MHz (RXB6). Komunikacja z OPi BCM przez Serial (JSON). Moduł montowany w bagażniku (blisko oryginalnego centralnego zamka Alfy 156).</p>
+
+  <h4>Kanały przekaźników (8×)</h4>
+  <table>
+    <tr><th>#</th><th>Funkcja</th><th>Podłączenie</th></tr>
+    <tr><td>1</td><td>Zamknięcie drzwi (LOCK)</td><td>Solenoid centralnego zamka — sygnał zamknięcia</td></tr>
+    <tr><td>2</td><td>Otwarcie drzwi (UNLOCK)</td><td>Solenoid centralnego zamka — sygnał otwarcia</td></tr>
+    <tr><td>3</td><td>Okna — góra (UP)</td><td>Przekaźnik równoległy do przełącznika okien</td></tr>
+    <tr><td>4</td><td>Okna — dół (DOWN)</td><td>Przekaźnik równoległy do przełącznika okien</td></tr>
+    <tr><td>5</td><td>Bagażnik (TRUNK)</td><td>Elektrozamek bagażnika</td></tr>
+    <tr><td>6</td><td>Kierunkowskaz lewy (L_BLINK)</td><td>Przekaźnik równoległy do kierunkowskazu</td></tr>
+    <tr><td>7</td><td>Kierunkowskaz prawy (R_BLINK)</td><td>Przekaźnik równoległy do kierunkowskazu</td></tr>
+    <tr><td>8</td><td>Światła mijania (HEADLIGHTS)</td><td>Przekaźnik równoległy do świateł</td></tr>
+  </table>
+
+  <h4>Protokół RF 433MHz</h4>
+  <p>Odbiornik RXB6 na pin Arduino. Tryb uczenia: BCM wysyła komendę <code>{"cmd":"learn"}</code> → Arduino czeka 10s na sygnał z nowego pilota → zapisuje kod w EEPROM. Obsługa wielu pilotów (do 4 zakodowanych).</p>
+
+  <h4>Funkcje oświetlenia</h4>
+  <table>
+    <tr><th>Funkcja</th><th>Wyzwolenie</th><th>Działanie</th></tr>
+    <tr><td>Follow-me-home</td><td>Zamknięcie + zapłon OFF</td><td>Światła mijania ON przez 30/60/90s, timer w Python</td></tr>
+    <tr><td>Greeting (powitanie)</td><td>Odblokowanie drzwi</td><td>2× mrugnięcie kierunkowskazami L+P (konfigurowalnie 1-3)</td></tr>
+    <tr><td>Greeting (zamknięcie)</td><td>Zamknięcie drzwi</td><td>1× mrugnięcie kierunkowskazami L+P</td></tr>
+    <tr><td>Leaving-home</td><td>Odblokowanie w nocy (LDR)</td><td>Światła ON na 5s</td></tr>
+  </table>
+
+  <p><strong>Serial JSON:</strong> <code>{"cmd":"lock"}</code>, <code>{"cmd":"unlock"}</code>, <code>{"cmd":"window_up"}</code>, <code>{"cmd":"window_down"}</code>, <code>{"cmd":"trunk"}</code>, <code>{"cmd":"blink","count":2}</code>, <code>{"cmd":"headlights","duration":60}</code>, <code>{"cmd":"learn"}</code></p>
+  <p><strong>Implementacja:</strong> Arduino: <code>arduino/central_lock/central_lock.ino</code>, Python: <code>src/vehicle/central_lock.py</code> + <code>src/vehicle/lighting.py</code></p>
+</section>
+
+<!-- ═══ S17 — BLOCK DIAGRAM ═══ -->
+<section id="s17">
+  <h2><span class="n">17</span>Schemat blokowy systemu v8.5</h2>
+  <div class="code-block">
+                    ┌──────────────────────────┐
+                    │    ORANGE PI 5 PLUS       │
+                    │    (RK3588, 16GB RAM)     │
+                    │                          │
+  HDMI-1 ──────────┤  4.3" Stats Display      │
+  HDMI-2 ──────────┤  7/8" Touch Display      │
+                    │                          │
+  USB DAC ─────────┤  Audio → TDA7388 + TDA2050│
+  USB Webcam ──────┤  DVR 2-ch AHD 720P       │
+  USB LTE ─────────┤  Internet + Traffic + SMS │
+  USB GPS ─────────┤  NEO-M8N NMEA            │
+  USB Arduino(1) ──┤  SWC + Buttons + LDR     │
+  USB Arduino(2) ──┤  Central Lock + RF + Relay│
+  USB BT ──────────┤  BlueZ A2DP/HFP          │
+  USB Mic ─────────┤  Vosk Voice Control       │
+                    │                          │
+  UART3 (K-Line) ──┤  L9637D → OBD-II ECU     │
+                    │                          │
+  GPIO 7  ─────────┤  DS18B20 Temp (1-Wire)   │
+  GPIO 32 ─────────┤  Backlight PWM 4.3"      │
+  GPIO 33 ─────────┤  Backlight PWM 7/8"      │
+  GPIO 79 ─────────┤  Parking TRIG            │
+  GPIO 80-83 ──────┤  Parking ECHO ×4         │
+  GPIO 84 ─────────┤  Parking Buzzer          │
+  GPIO 85 ─────────┤  Ignition Input          │
+  GPIO 87 ─────────┤  Rain Sensor Input       │
+  GPIO 88 ─────────┤  Wiper Relay Output      │
+  GPIO 89 ─────────┤  Central Lock Input      │
+                    └──────────────────────────┘</div>
+</section>
+
+<!-- ═══ S18 — GPIO ═══ -->
+<section id="s18">
+  <h2><span class="n">18</span>Alokacja GPIO (40-pin header)</h2>
+  <table class="pinout">
+    <tr><th>GPIO</th><th>Pin</th><th>Funkcja</th><th>Moduł</th><th>Kierunek</th></tr>
+    <tr><td>7</td><td>7</td><td>1-Wire bus (DS18B20)</td><td>environment</td><td>I/O</td></tr>
+    <tr><td>32</td><td>32</td><td>Backlight PWM 4.3"</td><td>power</td><td>OUT (PWM)</td></tr>
+    <tr><td>33</td><td>33</td><td>Backlight PWM 7/8"</td><td>power</td><td>OUT (PWM)</td></tr>
+    <tr><td>79</td><td>—</td><td>Parking sensors TRIG (shared)</td><td>parking</td><td>OUT</td></tr>
+    <tr><td>80</td><td>—</td><td>Parking ECHO sensor 1 (LL)</td><td>parking</td><td>IN</td></tr>
+    <tr><td>81</td><td>—</td><td>Parking ECHO sensor 2 (CL)</td><td>parking</td><td>IN</td></tr>
+    <tr><td>82</td><td>—</td><td>Parking ECHO sensor 3 (CR)</td><td>parking</td><td>IN</td></tr>
+    <tr><td>83</td><td>—</td><td>Parking ECHO sensor 4 (RR)</td><td>parking</td><td>IN</td></tr>
+    <tr><td>84</td><td>—</td><td>Parking buzzer (piezo)</td><td>parking</td><td>OUT</td></tr>
+    <tr><td>85</td><td>—</td><td>Ignition signal (optoisolator)</td><td>power</td><td>IN</td></tr>
+    <tr><td>86</td><td>—</td><td>Door signal (optoisolator)</td><td>power</td><td>IN</td></tr>
+    <tr><td>87</td><td>—</td><td>Rain sensor (optoisolator)</td><td>rain_sensor</td><td>IN</td></tr>
+    <tr><td>88</td><td>—</td><td>Wiper relay (transistor driver)</td><td>rain_sensor</td><td>OUT</td></tr>
+    <tr><td>89</td><td>—</td><td>Central lock signal (optoisolator)</td><td>power / central_lock</td><td>IN</td></tr>
+  </table>
+  <div class="note"><strong>Uwaga:</strong> Centralny zamek (przekaźniki, RF, okna) sterowany jest przez <strong>oddzielny Arduino</strong> via USB Serial — nie przez GPIO OPi bezpośrednio. GPIO 89 to tylko sygnał wejściowy (zamknięcie → shutdown timer).</div>
+</section>
+
+<!-- ═══ S19 — BOM ═══ -->
+<section id="s19">
+  <h2><span class="n">19</span>BOM — lista komponentów</h2>
+  <table>
+    <tr><th>Komponent</th><th>Model / Typ</th><th>Ilość</th><th>Uwagi</th></tr>
+    <tr><td>SBC</td><td>Orange Pi 5 Plus 16GB</td><td>1</td><td>RK3588, 2× HDMI</td></tr>
+    <tr><td>Ekran mały</td><td>4.3" TFT HDMI 800×480</td><td>1</td><td>Stats + cofanie</td></tr>
+    <tr><td>Ekran główny</td><td>7" lub 8" IPS HDMI + Touch</td><td>1</td><td>1024×600 lub 1280×800</td></tr>
+    <tr><td>Zasilacz</td><td>LM2596 DC-DC 12V→5.1V</td><td>1</td><td>Min 4A output</td></tr>
+    <tr><td>Bezpiecznik 5V</td><td>20A blade fuse</td><td>1</td><td>Przed LM2596</td></tr>
+    <tr><td>Bezpiecznik 12V</td><td>25A blade fuse</td><td>1</td><td>Linia audio</td></tr>
+    <tr><td>DAC USB</td><td>ES9038Q2M</td><td>1</td><td>32-bit/384kHz</td></tr>
+    <tr><td>AMP główny</td><td>TDA7388</td><td>1</td><td>4×45W Class AB</td></tr>
+    <tr><td>AMP sub</td><td>TDA2050</td><td>1</td><td>40W mono</td></tr>
+    <tr><td>Transceiver OBD</td><td>L9637D</td><td>1</td><td>K-Line 10400 baud</td></tr>
+    <tr><td>Czujniki parkowania</td><td>HC-SR04</td><td>4</td><td>Ultrasonic + dzielnik napięcia</td></tr>
+    <tr><td>Buzzer</td><td>Piezo 5V</td><td>1</td><td>BC547 driver</td></tr>
+    <tr><td>Czujnik temp</td><td>DS18B20</td><td>1</td><td>Waterproof, pod zderzakiem</td></tr>
+    <tr><td>Kamery</td><td>AHD 720P</td><td>2</td><td>Przód + tył</td></tr>
+    <tr><td>Grabber wideo</td><td>USB3.0 4-ch AHD</td><td>1</td><td>Video capture card</td></tr>
+    <tr><td>Modem LTE</td><td>Huawei E3372 / SIM7600</td><td>1</td><td>USB stick + antena</td></tr>
+    <tr><td>Moduł GPS</td><td>NEO-6M lub NEO-M8N</td><td>1</td><td>UART, antena ceramiczna</td></tr>
+    <tr><td>Adapter BT</td><td>USB Bluetooth 5.0</td><td>1</td><td>A2DP + HFP</td></tr>
+    <tr><td>Mikrofon</td><td>USB condenser</td><td>1</td><td>Sufitowy montaż</td></tr>
+    <tr><td>Arduino (input)</td><td>Pro Micro ATmega32U4</td><td>1</td><td>SWC + buttons + LDR</td></tr>
+    <tr><td>Arduino (zamek)</td><td>Nano / Pro Mini</td><td>1</td><td>Central lock + RF + relay</td></tr>
+    <tr><td>Moduł przekaźników</td><td>8-ch relay 5V</td><td>1</td><td>Zamek, okna, bagażnik, światła</td></tr>
+    <tr><td>Odbiornik RF</td><td>RXB6 433MHz</td><td>1</td><td>Superheterodyne receiver</td></tr>
+    <tr><td>Czujnik deszczu</td><td>Rain sensor module</td><td>1</td><td>Cyfrowy output</td></tr>
+    <tr><td>Optoisolatory</td><td>PC817</td><td>6</td><td>Ignition, door, rain, sprayer, lock, reverse</td></tr>
+    <tr><td>Rezystory</td><td>Różne</td><td>~20</td><td>Pull-up, dzielniki, ograniczające</td></tr>
+    <tr><td>MOSFET</td><td>IRLZ44N</td><td>2</td><td>Backlight PWM drivers</td></tr>
+    <tr><td>Tranzystory</td><td>BC547</td><td>3</td><td>Buzzer + relay drivers</td></tr>
+    <tr><td>USB hub</td><td>USB 3.0 powered hub</td><td>1</td><td>Rozszerzenie portów USB</td></tr>
+    <tr><td>Pendrive</td><td>USB 3.0 128GB</td><td>1</td><td>DVR storage + eksport</td></tr>
+  </table>
+</section>
+
+<!-- ═══ S20 — VM TESTING ═══ -->
+<section id="s20">
+  <h2><span class="n">20</span>Testowanie na VM</h2>
+  <h3>Wymagania VM</h3>
+  <p>VMware Workstation 17+ / VirtualBox. Ubuntu 24.04, 4 CPU, 8GB RAM, 40GB dysk, 3D acceleration ON.</p>
+  <h3>Szybki start</h3>
+  <div class="code-block">cd ~/Alfa156-headunit
+source .venv/bin/activate
+pip install -r requirements-x86.txt
+./run_x86.sh</div>
+  <p>Ekran główny: <strong>http://localhost:5002</strong> — 7 ekranów BCM + settings</p>
+  <p>Mały ekran: <strong>http://localhost:5003</strong> — karuzela danych + reverse</p>
+  <p>AA/BT management: <strong>http://localhost:5001</strong></p>
+
+  <h3>REST API (do testów)</h3>
+  <div class="code-block"># Live data
+curl http://localhost:5002/api/data | python3 -m json.tool
+
+# Zmień motyw
+curl -X POST http://localhost:5002/api/config \
+  -H "Content-Type: application/json" -d '{"theme":"autodelta"}'
+
+# Zmień język
+curl -X POST http://localhost:5002/api/config \
+  -H "Content-Type: application/json" -d '{"language":"en"}'</div>
+
+  <h3>Sterowanie klawiaturą (w przeglądarce)</h3>
+  <table>
+    <tr><th>Klawisz</th><th>Akcja</th></tr>
+    <tr><td>← / →</td><td>Zmiana ekranu</td></tr>
+    <tr><td>Home / H</td><td>Ustawienia</td></tr>
+    <tr><td>R</td><td>Toggle reverse camera</td></tr>
+    <tr><td>ESC</td><td>Powrót z ustawień</td></tr>
+  </table>
+
+  <h3>Checklist testowy</h3>
+  <ul>
+    <li>☐ <code>./run_x86.sh</code> startuje bez błędów</li>
+    <li>☐ http://localhost:5002 — ładuje dashboard</li>
+    <li>☐ Init screen → auto-transition do A1</li>
+    <li>☐ Wszystkie 7 ekranów (A1-A7) renderują się poprawnie</li>
+    <li>☐ 3 motywy: Heritage / Modern / Autodelta</li>
+    <li>☐ Przełączanie języka PL↔EN</li>
+    <li>☐ http://localhost:5003 — karuzela danych</li>
+    <li>☐ Press R — reverse camera overlay</li>
+    <li>☐ WebSocket — dane aktualizują się w real-time</li>
+  </ul>
+</section>
+
+<!-- ═══ S21 — OPi DEPLOY ═══ -->
+<section id="s21">
+  <h2><span class="n">21</span>Wdrożenie na Orange Pi</h2>
+  <h3>Instalacja systemu</h3>
+  <ol>
+    <li>Flash Armbian na eMMC (lub SD card)</li>
+    <li>Konfiguracja: <code>armbian-config</code> → UART3, GPIO, I2C, SPI, 1-Wire overlays</li>
+    <li>Instalacja pakietów: Python 3.12, PipeWire, Bluetooth, GStreamer</li>
+    <li>Clone repo: <code>git clone https://github.com/geek95dg/Alfa156-headunit.git</code></li>
+    <li>Virtualenv: <code>python3.12 -m venv .venv && source .venv/bin/activate</code></li>
+    <li>Instalacja zależności: <code>pip install -r requirements.txt -r requirements-opi.txt</code></li>
+  </ol>
+
+  <h3>Dual display — Chromium kiosk</h3>
+  <div class="code-block"># Ekran główny (HDMI-2, 7/8" touch)
+chromium-browser --kiosk --window-size=1024,600 \
+  --display=:0.1 http://localhost:5002
+
+# Mały ekran (HDMI-1, 4.3")
+chromium-browser --kiosk --window-size=800,480 \
+  --display=:0.0 http://localhost:5003</div>
+
+  <h3>Usługi systemd</h3>
+  <p>Konfiguracja w <code>config/systemd/</code>: <code>bcm-main.service</code>, <code>bcm-dashboard.service</code>, <code>bcm-small-display.service</code>, <code>bcm-multimedia.service</code>.</p>
+
+  <h3>Weryfikacja first-run</h3>
+  <ul>
+    <li>☐ Oba ekrany działają (4.3" + 7/8")</li>
+    <li>☐ Audio: <code>speaker-test -t wav -c 2</code></li>
+    <li>☐ OBD: dane z ECU (RPM, temp, prędkość)</li>
+    <li>☐ GPS: fix i pozycja</li>
+    <li>☐ LTE: internet działa</li>
+    <li>☐ Bluetooth: parowanie telefonu</li>
+    <li>☐ DVR: nagrywanie przód/tył</li>
+    <li>☐ Czujniki parkowania: dystanse w 4 strefach</li>
+    <li>☐ Centralny zamek: lock/unlock z pilota RF</li>
+  </ul>
+</section>
+
+<!-- ═══ S22 — API ═══ -->
+<section id="s22">
+  <h2><span class="n">22</span>Referencja API</h2>
+
+  <h3>REST Endpoints (port 5002)</h3>
+  <table>
+    <tr><th>Metoda</th><th>Endpoint</th><th>Opis</th></tr>
+    <tr><td>GET</td><td><code>/api/data</code></td><td>Pełny snapshot telemetrii (JSON)</td></tr>
+    <tr><td>GET</td><td><code>/api/config</code></td><td>Bieżąca konfiguracja (motyw, język, jednostki)</td></tr>
+    <tr><td>POST</td><td><code>/api/config</code></td><td>Zmiana konfiguracji <code>{"theme":"modern"}</code></td></tr>
+    <tr><td>GET</td><td><code>/api/i18n/pl</code></td><td>Tłumaczenia PL</td></tr>
+    <tr><td>GET</td><td><code>/api/i18n/en</code></td><td>Tłumaczenia EN</td></tr>
+    <tr><td>GET</td><td><code>/api/camera/stream</code></td><td>MJPEG stream z kamery USB</td></tr>
+    <tr><td>GET</td><td><code>/api/camera/available</code></td><td>Czy kamera jest dostępna</td></tr>
+    <tr><td>GET</td><td><code>/api/dvr/list</code></td><td>Lista nagrań DVR</td></tr>
+    <tr><td>GET</td><td><code>/api/dvr/play/&lt;file&gt;</code></td><td>Stream nagrania do odtworzenia</td></tr>
+    <tr><td>DELETE</td><td><code>/api/dvr/delete/&lt;file&gt;</code></td><td>Usunięcie nagrania</td></tr>
+    <tr><td>POST</td><td><code>/api/dvr/export</code></td><td>Eksport zaznaczonych nagrań na USB</td></tr>
+    <tr><td>GET</td><td><code>/api/dvr/usb/status</code></td><td>Status pendrive USB (wolne miejsce)</td></tr>
+    <tr><td>GET</td><td><code>/api/remote/status</code></td><td>Zdalny status pojazdu (LTE)</td></tr>
+  </table>
+
+  <h3>WebSocket Endpoints</h3>
+  <table>
+    <tr><th>Endpoint</th><th>Kierunek</th><th>Opis</th></tr>
+    <tr><td><code>ws://host:5002/ws</code></td><td>Server → Client</td><td>Streaming danych telemetrycznych (JSON, ~15 FPS)</td></tr>
+    <tr><td><code>ws://host:5002/ws/input</code></td><td>Client → Server</td><td>Input z klawiatury przeglądarki <code>{"type":"keydown","key":"ArrowRight"}</code></td></tr>
+    <tr><td><code>ws://host:5003/ws</code></td><td>Server → Client</td><td>Dane dla małego ekranu (karuzela)</td></tr>
+  </table>
+
+  <h3>Event Bus — kluczowe topiki</h3>
+  <table>
+    <tr><th>Topik</th><th>Typ</th><th>Opis</th></tr>
+    <tr><td><code>obd.rpm</code></td><td>float</td><td>Obroty silnika (0-5000)</td></tr>
+    <tr><td><code>obd.speed</code></td><td>float</td><td>Prędkość (km/h)</td></tr>
+    <tr><td><code>obd.coolant_temp</code></td><td>float</td><td>Temperatura płynu chłodniczego (°C)</td></tr>
+    <tr><td><code>obd.fuel_level</code></td><td>float</td><td>Poziom paliwa (0-100%)</td></tr>
+    <tr><td><code>obd.boost</code></td><td>float</td><td>Ciśnienie doładowania (BAR)</td></tr>
+    <tr><td><code>obd.battery_voltage</code></td><td>float</td><td>Napięcie akumulatora (V)</td></tr>
+    <tr><td><code>env.temperature</code></td><td>float</td><td>Temperatura zewnętrzna (°C)</td></tr>
+    <tr><td><code>gps.position</code></td><td>dict</td><td>{lat, lon, speed, heading}</td></tr>
+    <tr><td><code>gps.fix</code></td><td>bool</td><td>GPS fix aktywny</td></tr>
+    <tr><td><code>lte.connected</code></td><td>bool</td><td>Połączenie LTE aktywne</td></tr>
+    <tr><td><code>lte.signal</code></td><td>int</td><td>Siła sygnału (0-5)</td></tr>
+    <tr><td><code>bt.media_title</code></td><td>str</td><td>Tytuł aktualnie grającego utworu</td></tr>
+    <tr><td><code>bt.media_artist</code></td><td>str</td><td>Artysta</td></tr>
+    <tr><td><code>bt.media_playing</code></td><td>bool</td><td>Czy odtwarzanie aktywne</td></tr>
+    <tr><td><code>vehicle.rain_detected</code></td><td>bool</td><td>Deszcz wykryty</td></tr>
+    <tr><td><code>vehicle.locked</code></td><td>bool</td><td>Zamek zamknięty</td></tr>
+    <tr><td><code>vehicle.lights_follow_me</code></td><td>bool</td><td>Follow-me-home aktywne</td></tr>
+    <tr><td><code>parking.distances</code></td><td>list</td><td>[LL, CL, CR, RR] w metrach</td></tr>
+    <tr><td><code>parking.active</code></td><td>bool</td><td>Tryb parkowania aktywny</td></tr>
+    <tr><td><code>performance.timer_running</code></td><td>bool</td><td>Timer 0-100 aktywny</td></tr>
+    <tr><td><code>performance.timer_result</code></td><td>float</td><td>Wynik 0-100 (sekundy)</td></tr>
+    <tr><td><code>config.changed</code></td><td>dict</td><td>Zmiana konfiguracji</td></tr>
+    <tr><td><code>input.raw_keyname</code></td><td>str</td><td>Klawisz z przeglądarki/SWC</td></tr>
+  </table>
+</section>
+
+<!-- ═══ FOOTER ═══ -->
+<div style="padding:40px 0;border-top:1px solid var(--border);text-align:center;color:var(--text-dim);font-size:0.85rem">
+  <p>BCM v8.5 — Alfa Romeo 156 1.9 JTD — Body Computer Module</p>
+  <p style="font-family:'JetBrains Mono',monospace;font-size:0.75rem;color:var(--accent)">Dokumentacja wygenerowana automatycznie · 2026</p>
+</div>
+
+</div>
+</body>
+</html>

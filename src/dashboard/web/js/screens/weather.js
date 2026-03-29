@@ -4,7 +4,7 @@
  * Optimized for encoder navigation (no touch inputs).
  */
 
-App.registerScreen("a3", (() => {
+App.registerScreen("a4", (() => {
     let _map = null;
     let _marker = null;
 
@@ -104,6 +104,11 @@ App.registerScreen("a3", (() => {
             <main class="content-area flex overflow-hidden">
                 <!-- Left: Weather data -->
                 <div class="w-[260px] p-4 flex flex-col bg-[#221610] border-r border-amber-900/30 shrink-0">
+                    <!-- Search (touch) -->
+                    <div class="flex items-center gap-2 bg-zinc-900/60 border border-amber-900/30 rounded-full px-3 py-1.5 mb-3">
+                        <span class="material-symbols-outlined text-amber-500" style="font-size:16px;">search</span>
+                        <input type="text" placeholder="${t("weather_search", "Szukaj lokalizacji...")}" class="bg-transparent border-none text-sm text-white placeholder-zinc-600 w-full outline-none p-0" style="font-size:12px;">
+                    </div>
                     <div class="mb-2">
                         <h1 id="weather-city" class="text-xl font-bold text-white">${city}</h1>
                         <p id="weather-condition" class="text-amber-500 text-sm">${condition}</p>
@@ -156,7 +161,7 @@ App.registerScreen("a3", (() => {
                     </div>
                 </div>
             </main>
-            ${NavBar.render("heritage", "a3")}
+            ${NavBar.render("heritage", "a4")}
         </div>`;
     }
 
@@ -219,7 +224,7 @@ App.registerScreen("a3", (() => {
                     </div>
                 </div>
             </main>
-            ${NavBar.render("modern", "a3")}
+            ${NavBar.render("modern", "a4")}
         </div>`;
     }
 
@@ -304,7 +309,7 @@ App.registerScreen("a3", (() => {
                     </div>
                 </div>
             </main>
-            ${NavBar.render("autodelta", "a3")}
+            ${NavBar.render("autodelta", "a4")}
         </div>`;
     }
 

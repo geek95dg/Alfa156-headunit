@@ -2,8 +2,8 @@
 <html lang="en">
 <head>
     <meta charset="utf-8">
-    <meta name="viewport" content="width=800, height=480, initial-scale=1.0, user-scalable=no">
-    <title>BCM v8 — Alfa Romeo 156 Head Unit</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>BCM v8.5 — Alfa Romeo 156 Head Unit</title>
     <script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
     <link href="https://fonts.googleapis.com/css2?family=Public+Sans:ital,wght@0,300;0,400;0,500;0,600;0,700;0,800;0,900;1,400;1,700&display=swap" rel="stylesheet">
     <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap" rel="stylesheet">
@@ -36,8 +36,14 @@
             },
         };
     </script>
+    <style>
+        /* Adaptive resolution: fits 1024x600 or 1280x800 or scales to window */
+        body { margin: 0; overflow: hidden; }
+        #app { width: 100vw; height: 100vh; position: relative; }
+        .screen-container { width: 100%; height: 100%; }
+    </style>
 </head>
-<body class="font-body overflow-hidden select-none" style="width:800px;height:480px;margin:0 auto;">
+<body class="font-body overflow-hidden select-none">
 
     <!-- Screen Container — all screens render here -->
     <div id="app" class="relative w-full h-full"></div>
@@ -52,9 +58,12 @@
     <script src="/js/components/charts.js"></script>
     <script src="/js/screens/init.js"></script>
     <script src="/js/screens/main.js"></script>
+    <script src="/js/screens/android_auto.js"></script>
     <script src="/js/screens/trip.js"></script>
     <script src="/js/screens/weather.js"></script>
     <script src="/js/screens/service.js"></script>
+    <script src="/js/screens/dvr.js"></script>
+    <script src="/js/screens/performance.js"></script>
     <script src="/js/screens/settings.js"></script>
 </body>
 </html>

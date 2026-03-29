@@ -32,6 +32,10 @@ from src.multimedia.openauto import start_multimedia
 from src.location.gps import start_location
 from src.network.lte import start_network
 from src.weather.weather import start_weather
+from src.vehicle.rain_sensor import start_rain_sensor
+from src.vehicle.central_lock import start_central_lock
+from src.vehicle.lighting import start_lighting
+from src.performance.timer import start_performance
 
 
 # Module registry — maps module names to their (future) start functions.
@@ -51,6 +55,10 @@ MODULE_REGISTRY: dict[str, dict] = {
     "location":    {"part": 12, "description": "GPS/GNSS Positioning", "start": start_location},
     "network":     {"part": 13, "description": "LTE/Cellular Connectivity", "start": start_network},
     "weather":     {"part": 14, "description": "Weather Data (OpenWeatherMap)", "start": start_weather},
+    "rain_sensor": {"part": 15, "description": "Rain Sensor + Auto Wipers", "start": start_rain_sensor},
+    "central_lock":{"part": 16, "description": "Central Lock + 433MHz RF", "start": start_central_lock},
+    "lighting":    {"part": 17, "description": "Lighting (Follow-me-home, Greeting)", "start": start_lighting},
+    "performance": {"part": 18, "description": "Performance (0-100 Timer, Boost)", "start": start_performance},
 }
 
 # Dashboard is listed for --dry-run reporting but started separately
@@ -284,10 +292,21 @@ def main() -> None:
                     event_bus=event_bus, config=config,
                 )
                 web_viewer.start()
-                log.info("Dashboard frontend started at http://localhost:5002")
+                log.info("Main display started at http://localhost:5002")
+
+                # Start small display server (4.3" stats carousel)
+                from src.dashboard.small_viewer import SmallDisplayServer
+                small_display = SmallDisplayServer(
+                    host="0.0.0.0", port=5003,
+                    event_bus=event_bus, config=config,
+                )
+                small_display.start()
+                log.info("Small display started at http://localhost:5003")
+
                 log.info("  Themes: Heritage / Modern / Autodelta")
-                log.info("  Screens: Init -> A1 Main -> A2 Trip -> A3 Weather -> A4 Service")
-                log.info("BCM v8 running (frontend mode). Press Ctrl+C to stop.")
+                log.info("  Main:  A1-A7 + Settings (7/8\" touch)")
+                log.info("  Small: Stats carousel + reverse camera (4.3\")")
+                log.info("BCM v8.5 running (frontend mode). Press Ctrl+C to stop.")
                 while not shutdown:
                     time.sleep(0.5)
             except Exception:

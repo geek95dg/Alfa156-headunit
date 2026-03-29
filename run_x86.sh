@@ -85,11 +85,12 @@ echo "  ╠═══════════════════════
 if [ "$MODE" = "frontend" ]; then
     echo "  ║   Mode: HTML5/Tailwind Frontend                  ║"
     echo "  ║                                                  ║"
-    echo "  ║   Dashboard:    http://localhost:5002             ║"
-    echo "  ║   AA/BT Mgmt:  http://localhost:5001             ║"
+    echo "  ║   Main display (7/8\" touch): http://localhost:5002║"
+    echo "  ║   Small display (4.3\"):      http://localhost:5003║"
+    echo "  ║   AA/BT Management:         http://localhost:5001║"
     echo "  ║                                                  ║"
-    echo "  ║   Open your browser to see the dashboard.        ║"
-    echo "  ║   3 themes: Heritage / Modern / Autodelta        ║"
+    echo "  ║   Main: A1-A7 + Settings (3 themes)              ║"
+    echo "  ║   Small: Stats carousel + reverse camera         ║"
 elif [ "$MODE" = "pygame" ]; then
     echo "  ║   Mode: Pygame Renderer (legacy)                 ║"
     echo "  ║                                                  ║"

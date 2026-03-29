@@ -3,8 +3,8 @@
  */
 
 const App = (() => {
-    const SCREENS = ["init", "a1", "a2", "a3", "a4", "settings"];
-    const NAV_SCREENS = ["a1", "a2", "a3", "a4"]; // screens with navbar
+    const SCREENS = ["init", "a1", "a2", "a3", "a4", "a5", "a6", "a7", "settings"];
+    const NAV_SCREENS = ["a1", "a2", "a3", "a4", "a5", "a6", "a7"]; // screens with navbar
 
     let _currentScreen = "init";
     let _currentTheme = "heritage";
@@ -12,8 +12,13 @@ const App = (() => {
     let _i18n = {};
     // Fallback English strings (used when backend i18n not available)
     const _fallbackStrings = {
-        "screen.a1": "MAIN", "screen.a2": "TRIP", "screen.a3": "WEATHER", "screen.a4": "SERVICE",
+        "screen.a1": "MAIN", "screen.a2": "ANDROID AUTO", "screen.a3": "TRIP",
+        "screen.a4": "WEATHER", "screen.a5": "SERVICE", "screen.a6": "DVR", "screen.a7": "PERFORMANCE",
         "screen.settings": "SETTINGS",
+        "android_auto": "Android Auto", "connect_aa": "Connect Android Auto",
+        "dvr": "DVR Recordings", "dvr_export": "Export to USB", "dvr_front": "Front", "dvr_rear": "Rear",
+        "performance_title": "Performance", "boost": "Boost", "timer_0_100": "0-100 km/h",
+        "best_time": "Best Time", "peak_boost": "Peak Boost", "g_force": "G-Force",
         "engine_temp": "Engine Temp", "fuel_level": "Fuel Level", "coolant": "Coolant",
         "fuel": "Fuel", "oil_press": "Oil Press", "battery": "Battery",
         "notifications": "Notifications", "now_playing": "Now Playing",
@@ -279,6 +284,25 @@ const App = (() => {
         }
     }
 
+    // --- Touch Swipe Navigation ---
+    function _initTouchSwipe() {
+        let startX = 0;
+        let startY = 0;
+        document.addEventListener("touchstart", (e) => {
+            startX = e.touches[0].clientX;
+            startY = e.touches[0].clientY;
+        }, { passive: true });
+        document.addEventListener("touchend", (e) => {
+            const dx = e.changedTouches[0].clientX - startX;
+            const dy = e.changedTouches[0].clientY - startY;
+            // Require horizontal swipe > 60px and more horizontal than vertical
+            if (Math.abs(dx) > 60 && Math.abs(dx) > Math.abs(dy) * 1.5) {
+                if (dx < 0) navNext();  // Swipe left → next screen
+                else navPrev();          // Swipe right → prev screen
+            }
+        }, { passive: true });
+    }
+
     function navPrev() {
         const idx = NAV_SCREENS.indexOf(_currentScreen);
         if (idx > 0) {
@@ -351,6 +375,37 @@ const App = (() => {
         /** Get current screen name */
         getCurrentScreen() { return _currentScreen; },
 
+        /** DTC: Read error codes from ECU */
+        async _readDTC() {
+            const el = document.getElementById("dtc-list");
+            if (el) el.textContent = App.t("dtc_reading", "Reading...");
+            try {
+                const res = await fetch("/api/dtc/read");
+                const result = await res.json();
+                if (el) {
+                    if (result.codes && result.codes.length > 0) {
+                        el.innerHTML = result.codes.map(c =>
+                            `<div class="flex justify-between py-0.5"><span class="text-amber-500 font-bold">${c.code}</span><span>${c.desc || ''}</span></div>`
+                        ).join("");
+                    } else {
+                        el.textContent = App.t("dtc_none", "No error codes");
+                    }
+                }
+            } catch (e) {
+                if (el) el.textContent = App.t("dtc_error", "Read failed");
+            }
+        },
+
+        /** DTC: Clear error codes */
+        async _clearDTC() {
+            if (!confirm(App.t("dtc_confirm", "Clear all error codes from ECU?"))) return;
+            try {
+                await fetch("/api/dtc/clear", { method: "POST" });
+                const el = document.getElementById("dtc-list");
+                if (el) el.textContent = App.t("dtc_cleared", "Codes cleared");
+            } catch (e) { /* ignore */ }
+        },
+
         /** Set theme and notify backend */
         async setTheme(theme) {
             applyTheme(theme);
@@ -397,6 +452,9 @@ const App = (() => {
 
             // Keyboard input
             document.addEventListener("keydown", handleKeyDown);
+
+            // Touch swipe navigation (for touchscreen)
+            _initTouchSwipe();
 
             // Start at init screen, then auto-transition to A1
             navigateTo("init");

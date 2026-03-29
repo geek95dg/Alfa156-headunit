@@ -206,8 +206,8 @@ body[data-theme="autodelta"] {
 
 /* ---- SHARED LAYOUT ---- */
 .screen-container {
-    width: 800px;
-    height: 480px;
+    width: 100%;
+    height: 100%;
     position: relative;
     overflow: hidden;
     display: flex;

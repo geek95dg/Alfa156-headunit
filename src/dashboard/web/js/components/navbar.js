@@ -1,73 +1,50 @@
 /**
- * Shared Bottom Navigation Bar component.
+ * Shared Bottom Navigation Bar — 7 screens (A1-A7).
+ * Compact icons, no labels (to fit 7 items).
  */
 
 const NavBar = (() => {
     const NAV_ITEMS = [
-        { id: "a1", icon: "home", label: "Home", screen: "a1" },
-        { id: "a2", icon: "directions_car", label: "Drive", screen: "a2" },
-        { id: "a3", icon: "cloud", label: "Climate", screen: "a3" },
-        { id: "a4", icon: "build", label: "Service", screen: "a4" },
+        { icon: "home", screen: "a1", tip: "Dashboard" },
+        { icon: "android", screen: "a2", tip: "Android Auto" },
+        { icon: "route", screen: "a3", tip: "Trip" },
+        { icon: "cloud", screen: "a4", tip: "Weather" },
+        { icon: "build", screen: "a5", tip: "Service" },
+        { icon: "videocam", screen: "a6", tip: "DVR" },
+        { icon: "speed", screen: "a7", tip: "Performance" },
     ];
 
     function render(theme, activeScreen) {
         const activeIdx = NAV_ITEMS.findIndex(n => n.screen === activeScreen);
 
-        if (theme === "heritage") return _renderHeritage(activeIdx);
-        if (theme === "modern") return _renderModern(activeIdx);
-        if (theme === "autodelta") return _renderAutodelta(activeIdx);
-        return _renderHeritage(activeIdx);
+        if (theme === "heritage") return _render(activeIdx, "bg-zinc-950 border-zinc-800", "text-red-500", "text-zinc-500", "bg-red-950/30");
+        if (theme === "modern") return _render(activeIdx, "bg-black border-zinc-800", "text-red-500", "text-zinc-400", "bg-red-600/20");
+        if (theme === "autodelta") return _render(activeIdx, "bg-zinc-950 border-zinc-800", "text-red-500", "text-zinc-500", "bg-red-950/30");
+        return _render(activeIdx, "bg-zinc-950 border-zinc-800", "text-red-500", "text-zinc-500", "bg-red-950/30");
     }
 
-    function _renderHeritage(activeIdx) {
+    function _render(activeIdx, barCls, activeColor, inactiveColor, activeBg) {
         const items = NAV_ITEMS.map((item, i) => {
             const isActive = i === activeIdx;
-            const cls = isActive
-                ? "flex flex-col items-center justify-center text-red-500 scale-110 transition-transform p-2 rounded-lg"
-                : "flex flex-col items-center justify-center text-zinc-500 p-2 rounded-lg transition-all hover:text-zinc-300";
-            const fill = isActive ? "font-variation-settings: 'FILL' 1;" : "";
-            return `<a class="${cls}" href="#" data-nav="${item.screen}" onclick="event.preventDefault(); App.navigateTo('${item.screen}')">
-                <span class="material-symbols-outlined text-2xl" style="${fill}">${item.icon}</span>
-                <span class="text-[10px] font-bold uppercase mt-1">${item.label}</span>
-            </a>`;
-        }).join("");
-
-        return `<nav class="w-full z-50 flex justify-around items-center h-20 pb-2 bg-zinc-950 border-t border-zinc-800 shadow-2xl shrink-0">
-            ${items}
-        </nav>`;
-    }
-
-    function _renderModern(activeIdx) {
-        const items = NAV_ITEMS.map((item, i) => {
-            const isActive = i === activeIdx;
-            const cls = isActive
-                ? "flex items-center justify-center bg-red-600/20 text-red-500 rounded-xl w-16 h-12 active:scale-95 transition-transform cursor-pointer"
-                : "flex items-center justify-center text-zinc-400 w-16 h-12 active:scale-95 transition-transform cursor-pointer";
-            const fill = isActive ? "font-variation-settings: 'FILL' 1;" : "";
-            return `<div class="${cls}" data-nav="${item.screen}" onclick="App.navigateTo('${item.screen}')">
-                <span class="material-symbols-outlined" style="${fill}">${item.icon}</span>
+            const iconStyle = isActive ? "font-variation-settings:'FILL' 1;" : "";
+            if (isActive) {
+                return `<div class="flex items-center justify-center ${activeBg} ${activeColor} rounded-xl w-12 h-10 cursor-pointer transition-all"
+                         title="${item.tip}" onclick="App.navigateTo('${item.screen}')">
+                    <span class="material-symbols-outlined" style="font-size:22px;${iconStyle}">${item.icon}</span>
+                </div>`;
+            }
+            return `<div class="flex items-center justify-center ${inactiveColor} w-12 h-10 cursor-pointer hover:text-zinc-300 transition-all"
+                     title="${item.tip}" onclick="App.navigateTo('${item.screen}')">
+                <span class="material-symbols-outlined" style="font-size:22px;">${item.icon}</span>
             </div>`;
         }).join("");
 
-        return `<nav class="w-full h-16 z-50 flex justify-around items-center px-4 bg-black border-t border-zinc-800 shrink-0">
+        return `<nav class="w-full z-50 flex justify-around items-center h-12 ${barCls} border-t shrink-0">
             ${items}
-        </nav>`;
-    }
-
-    function _renderAutodelta(activeIdx) {
-        const items = NAV_ITEMS.map((item, i) => {
-            const isActive = i === activeIdx;
-            const cls = isActive
-                ? "flex items-center justify-center bg-red-950/30 text-red-500 rounded-xl w-16 h-12 active:bg-zinc-800 transition-opacity cursor-pointer"
-                : "flex items-center justify-center text-zinc-500 w-16 h-12 active:bg-zinc-800 transition-opacity cursor-pointer";
-            const fill = isActive ? "font-variation-settings: 'FILL' 1;" : "";
-            return `<div class="${cls}" data-nav="${item.screen}" onclick="App.navigateTo('${item.screen}')">
-                <span class="material-symbols-outlined" style="${fill}">${item.icon}</span>
-            </div>`;
-        }).join("");
-
-        return `<nav class="w-full z-50 flex justify-around items-center pb-2 bg-zinc-950 h-16 border-t border-zinc-800 shrink-0">
-            ${items}
+            <div class="flex items-center justify-center text-zinc-600 w-10 h-10 cursor-pointer hover:text-zinc-400 transition-all"
+                 title="Settings" onclick="App.navigateTo('settings')">
+                <span class="material-symbols-outlined" style="font-size:20px;">settings</span>
+            </div>
         </nav>`;
     }
 

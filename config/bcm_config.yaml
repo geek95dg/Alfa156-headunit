@@ -118,3 +118,24 @@ weather:
 power:
   shutdown_delay_seconds: 30
   backlight_fade_ms: 1000
+# v8.5 new modules
+rain_sensor:
+  sensitivity: medium
+central_lock:
+  port: /dev/ttyUSB1
+  baudrate: 9600
+lighting:
+  follow_me_home_seconds: 60
+  greeting_blinks: 2
+  leaving_home: true
+traffic:
+  api_key: ""
+  provider: tomtom
+  poll_interval_min: 5
+remote_status:
+  api_key: ""
+modules_v85:
+  rain_sensor: true
+  central_lock: true
+  lighting: true
+  performance: true
