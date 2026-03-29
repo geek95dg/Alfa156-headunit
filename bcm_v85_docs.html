@@ -117,6 +117,34 @@ tr:hover td{background:var(--bg-card)}
   </ol>
 </nav>
 
+<!-- ═══ S1 — CHANGELOG ═══ -->
+<section id="s1">
+  <h2><span class="n">01</span>Changelog v8.0 → v8.5</h2>
+  <div class="changelog">
+    <h4>Zmiany w wersji 8.5</h4>
+    <table>
+      <tr><th>Element</th><th>v8.0</th><th>v8.5</th><th>Status</th></tr>
+      <tr><td>Architektura ekranów</td><td>5 ekranów, jeden wyświetlacz 800×480</td><td><strong>7 ekranów (A1-A7) + Settings, dual display (4.3" + 7/8" touch)</strong></td><td><span class="dt dt-chg">ZMIANA</span></td></tr>
+      <tr><td>Ekran główny</td><td>800×480 single</td><td><strong>7/8" touchscreen adaptive (1024×600 / 1280×800), port 5002</strong></td><td><span class="dt dt-chg">ZMIANA</span></td></tr>
+      <tr><td>Mały ekran 4.3"</td><td>Frame streaming z Pygame</td><td><strong>Dedykowany serwer Flask (port 5003), karuzela danych, kamera cofania</strong></td><td><span class="dt dt-chg">ZMIANA</span></td></tr>
+      <tr><td>A2: Android Auto</td><td>Osobny ekran AA (port 5001)</td><td><strong>Kiosk embedded w BCM — iframe z nagłówkiem i nawigacją BCM</strong></td><td><span class="dt dt-new">NOWE</span></td></tr>
+      <tr><td>A6: Nagrania DVR</td><td>Brak</td><td><strong>Przeglądarka nagrań przód/tył, odtwarzanie z GPS overlay, eksport USB</strong></td><td><span class="dt dt-new">NOWE</span></td></tr>
+      <tr><td>A7: Performance</td><td>Brak</td><td><strong>Gauge boost turbo (SVG), timer 0-100 km/h (GPS), G-Force, statystyki</strong></td><td><span class="dt dt-new">NOWE</span></td></tr>
+      <tr><td>Diagnostyka DTC</td><td>Brak</td><td><strong>A5: odczyt i kasowanie kodów błędów ECU (KWP2000)</strong></td><td><span class="dt dt-new">NOWE</span></td></tr>
+      <tr><td>Czujnik deszczu</td><td>GPIO 87 skonfigurowany, brak implementacji</td><td><strong>Moduł auto-wycieraczki: czujnik → przekaźnik wycieraczek</strong></td><td><span class="dt dt-new">NOWE</span></td></tr>
+      <tr><td>Centralny zamek</td><td>Tylko sygnał wejścia (GPIO 89)</td><td><strong>Arduino + 433MHz RF: zamek/odblokowanie, okna, bagażnik, pilot RF</strong></td><td><span class="dt dt-new">NOWE</span></td></tr>
+      <tr><td>Oświetlenie</td><td>Brak</td><td><strong>Follow-me-home (30/60/90s), powitanie (mrugnięcia kierunkowskazów), leaving-home</strong></td><td><span class="dt dt-new">NOWE</span></td></tr>
+      <tr><td>GPS Tracking</td><td>Tylko pozycja bieżąca</td><td><strong>Ciągłe logowanie trasy do SQLite, statystyki podróży, eksport GPX</strong></td><td><span class="dt dt-chg">ZMIANA</span></td></tr>
+      <tr><td>Ruch drogowy</td><td>Brak</td><td><strong>Nakładka ruchu na żywo na mapie (TomTom/HERE API)</strong></td><td><span class="dt dt-new">NOWE</span></td></tr>
+      <tr><td>Zdalny status</td><td>Brak</td><td><strong>REST API statusu pojazdu przez LTE (lokalizacja, temp, zamek)</strong></td><td><span class="dt dt-new">NOWE</span></td></tr>
+      <tr><td>Sterowanie</td><td>Enkoder + SWC + klawiatura</td><td><strong>Dotyk (główny) + 1 przycisk SWC (cyklowanie ekranów) + fizyczne przyciski</strong></td><td><span class="dt dt-chg">ZMIANA</span></td></tr>
+      <tr><td>Przyciski fizyczne</td><td>Brak</td><td><strong>Power on/off, prev/next track przy ekranie głównym (Arduino USB HID)</strong></td><td><span class="dt dt-new">NOWE</span></td></tr>
+      <tr><td>Wyszukiwanie lokalizacji</td><td>Usunięte (brak dotyku)</td><td><strong>Przywrócone na A4 Weather — ekran dotykowy</strong></td><td><span class="dt dt-chg">ZMIANA</span></td></tr>
+      <tr><td>Enkoder obrotowy</td><td>Aktywny (Arduino)</td><td><strong>Usunięty — niepotrzebny przy ekranie dotykowym</strong></td><td><span class="dt dt-del">USUNIĘTE</span></td></tr>
+    </table>
+  </div>
+</section>
+
 <!-- CONTENT_MARKER -->
 
 </div>
