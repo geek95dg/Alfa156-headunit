@@ -201,6 +201,59 @@ tr:hover td{background:var(--bg-card)}
   <p>Wszystkie moduły komunikują się przez <strong>publish/subscribe event bus</strong>. Moduł publikuje dane (np. <code>obd.rpm</code>), a inne moduły subskrybują te tematy. Event bus wspiera również IPC (Unix socket) dla komunikacji między procesami.</p>
 </section>
 
+<!-- ═══ S3 — EKRANY ═══ -->
+<section id="s3">
+  <h2><span class="n">03</span>Specyfikacja ekranów (A1-A7)</h2>
+  <p>Ekran główny (7/8") wyświetla 7 ekranów funkcjonalnych + ekran ustawień. Nawigacja: dotyk (swipe lub nav bar) + przycisk SWC na kierownicy.</p>
+
+  <div class="card-grid">
+    <div class="card">
+      <div class="ic">A1</div>
+      <h4>Dashboard — Hub główny</h4>
+      <p>Temperatura silnika (gauge okrągły), poziom paliwa (progress bar z glow), powiadomienia systemowe (ciśnienie opon, serwis, trasa), media BT (teraz grane), szybkie statystyki (śr. prędkość, czas jazdy, napięcie).</p>
+    </div>
+    <div class="card">
+      <div class="ic">A2</div>
+      <h4>Android Auto — Kiosk</h4>
+      <p>Android Auto osadzony jako iframe/karta w ramach BCM. Nagłówek BCM (logo, czas, temp) i pasek nawigacji widoczne. Stream video z OpenAuto Pro. Fallback: placeholder "Podłącz Android Auto". Touch pass-through do AA.</p>
+    </div>
+    <div class="card">
+      <div class="ic">A3</div>
+      <h4>Podróż i spalanie</h4>
+      <p>GPS tracking: ciągłe logowanie trasy do SQLite. Wizualizacja trasy na mini mapie. Historia podróży (ostatnia, dziś, tydzień, miesiąc). Wykres spalania z prawdziwymi danymi (oś Y: L/100km, oś X: czas). Profil jazdy (ECO/NORMAL/DYNAMIC/SPORT). Eksport danych podróży.</p>
+    </div>
+    <div class="card">
+      <div class="ic">A4</div>
+      <h4>Pogoda i mapa</h4>
+      <p>Leaflet.js z kafelkami OSM. Wyszukiwanie lokalizacji (ekran dotykowy). Nakładka ruchu drogowego na żywo (TomTom/HERE API). Aktualna pogoda + prognoza 3-dniowa. Wiatr, wilgotność, odczuwalna temperatura. Marker GPS z pozycji event bus.</p>
+    </div>
+    <div class="card">
+      <div class="ic">A5</div>
+      <h4>Serwis i diagnostyka</h4>
+      <p>Lista diagnostyczna: silnik, olej, akumulator, opony (TPMS). Odczyt kodów błędów DTC z ECU (KWP2000 readDiagnosticTroubleCodes). Kasowanie DTC (clearDiagnosticInformation) z dialogiem potwierdzenia. Szkic auta z ilustracją. Licznik do następnego przeglądu.</p>
+    </div>
+    <div class="card">
+      <div class="ic">A6</div>
+      <h4>Nagrania DVR</h4>
+      <p>Przeglądarka nagrań przód/tył. Siatka miniatur z datą i rozmiarem. Odtwarzanie HTML5 video z nakładką GPS (prędkość, pozycja, kierunek, czas). Filtrowanie: kamera, zakres dat. Informacja o pamięci (wewnętrzna + USB). <strong>Eksport USB</strong>: zaznaczenie nagrań → kopiowanie na pendrive z paskiem postępu.</p>
+    </div>
+    <div class="card">
+      <div class="ic">A7</div>
+      <h4>Performance</h4>
+      <p><strong>Gauge boost turbo</strong>: SVG arc gauge (0-1.5 BAR) z kolorowymi strefami (vacuum/low/high/overboost). <strong>Timer 0-100 km/h</strong>: GPS-based, historia ostatnich 10 pomiarów, najlepszy czas podświetlony. Statystyki: peak boost, RPM bar, prędkość, szacunek G-Force (z GPS heading), szacunek mocy chwilowej.</p>
+    </div>
+    <div class="card">
+      <div class="ic">⚙</div>
+      <h4>Ustawienia</h4>
+      <p>Motyw (Heritage/Modern/Autodelta). Język (PL/EN). Jednostki (km/h↔mph, °C↔°F). Parowanie Bluetooth (skanowanie, parowanie, łączenie, usuwanie urządzeń). Konfiguracja WiFi AP (SSID, hasło, włącz/wyłącz). Jasność ekranów. Konfiguracja czujnika deszczu. Konfiguracja oświetlenia (follow-me-home czas).</p>
+    </div>
+  </div>
+
+  <h3>Mały ekran 4.3" (port 5003)</h3>
+  <p>Wyświetlacz nie-dotykowy z karuzelą danych. Auto-cyklowanie co 5 sekund lub zmiana przyciskiem SWC. Nagłówek z czasem i datą zawsze widoczny. Podczas cofania: pełnoekranowy overlay z kamerą + 4 paski czujników parkowania (LL, CL, CP/CR, PP/RR).</p>
+  <div class="note"><strong>Karuzela danych:</strong> Poziom paliwa (%) → Temperatura płynu chłodniczego (°C) → Temperatura zewnętrzna (°C) → Temperatura wewnętrzna (°C, jeśli czujnik dostępny)</div>
+</section>
+
 <!-- CONTENT_MARKER -->
 
 </div>
