@@ -496,6 +496,90 @@ tr:hover td{background:var(--bg-card)}
   <p>Sekwencja: zatrzymaj DVR → zapisz stan → flush logi → sync → <code>sudo poweroff</code>.</p>
 </section>
 
+<!-- ═══ S15 — RAIN SENSOR ═══ -->
+<section id="s15">
+  <h2><span class="n">15</span>Czujnik deszczu i wycieraczki</h2>
+  <p>Moduł czujnika deszczu podłączony przez optoisolator (PC817) do GPIO 87 (wejście). Przekaźnik wycieraczek na GPIO 88 (wyjście) — podłączony równolegle do istniejącego sterowania wycieraczkami w Alfie 156.</p>
+  <table>
+    <tr><th>GPIO</th><th>Kierunek</th><th>Funkcja</th></tr>
+    <tr><td>87</td><td>INPUT</td><td>Sygnał z czujnika deszczu (optoisolowany)</td></tr>
+    <tr><td>88</td><td>OUTPUT</td><td>Przekaźnik wycieraczek (równoległy do przełącznika)</td></tr>
+  </table>
+  <p><strong>Logika:</strong> deszcz wykryty → aktywacja wycieraczek na konfigurowalny czas. 3 poziomy czułości (lekki / umiarkowany / intensywny) → różne czasy pracy.</p>
+  <p><strong>Event bus:</strong> <code>vehicle.rain_detected</code>, <code>vehicle.wipers_active</code></p>
+  <p><strong>Implementacja:</strong> <code>src/vehicle/rain_sensor.py</code></p>
+</section>
+
+<!-- ═══ S16 — CENTRAL LOCK + LIGHTING ═══ -->
+<section id="s16">
+  <h2><span class="n">16</span>Centralny zamek i oświetlenie</h2>
+  <h3>Moduł Arduino — centralny zamek</h3>
+  <p>Oddzielny Arduino Nano/Pro Mini z modułem 8-kanałowych przekaźników i odbiornikiem RF 433MHz (RXB6). Komunikacja z OPi BCM przez Serial (JSON). Moduł montowany w bagażniku (blisko oryginalnego centralnego zamka Alfy 156).</p>
+
+  <h4>Kanały przekaźników (8×)</h4>
+  <table>
+    <tr><th>#</th><th>Funkcja</th><th>Podłączenie</th></tr>
+    <tr><td>1</td><td>Zamknięcie drzwi (LOCK)</td><td>Solenoid centralnego zamka — sygnał zamknięcia</td></tr>
+    <tr><td>2</td><td>Otwarcie drzwi (UNLOCK)</td><td>Solenoid centralnego zamka — sygnał otwarcia</td></tr>
+    <tr><td>3</td><td>Okna — góra (UP)</td><td>Przekaźnik równoległy do przełącznika okien</td></tr>
+    <tr><td>4</td><td>Okna — dół (DOWN)</td><td>Przekaźnik równoległy do przełącznika okien</td></tr>
+    <tr><td>5</td><td>Bagażnik (TRUNK)</td><td>Elektrozamek bagażnika</td></tr>
+    <tr><td>6</td><td>Kierunkowskaz lewy (L_BLINK)</td><td>Przekaźnik równoległy do kierunkowskazu</td></tr>
+    <tr><td>7</td><td>Kierunkowskaz prawy (R_BLINK)</td><td>Przekaźnik równoległy do kierunkowskazu</td></tr>
+    <tr><td>8</td><td>Światła mijania (HEADLIGHTS)</td><td>Przekaźnik równoległy do świateł</td></tr>
+  </table>
+
+  <h4>Protokół RF 433MHz</h4>
+  <p>Odbiornik RXB6 na pin Arduino. Tryb uczenia: BCM wysyła komendę <code>{"cmd":"learn"}</code> → Arduino czeka 10s na sygnał z nowego pilota → zapisuje kod w EEPROM. Obsługa wielu pilotów (do 4 zakodowanych).</p>
+
+  <h4>Funkcje oświetlenia</h4>
+  <table>
+    <tr><th>Funkcja</th><th>Wyzwolenie</th><th>Działanie</th></tr>
+    <tr><td>Follow-me-home</td><td>Zamknięcie + zapłon OFF</td><td>Światła mijania ON przez 30/60/90s, timer w Python</td></tr>
+    <tr><td>Greeting (powitanie)</td><td>Odblokowanie drzwi</td><td>2× mrugnięcie kierunkowskazami L+P (konfigurowalnie 1-3)</td></tr>
+    <tr><td>Greeting (zamknięcie)</td><td>Zamknięcie drzwi</td><td>1× mrugnięcie kierunkowskazami L+P</td></tr>
+    <tr><td>Leaving-home</td><td>Odblokowanie w nocy (LDR)</td><td>Światła ON na 5s</td></tr>
+  </table>
+
+  <p><strong>Serial JSON:</strong> <code>{"cmd":"lock"}</code>, <code>{"cmd":"unlock"}</code>, <code>{"cmd":"window_up"}</code>, <code>{"cmd":"window_down"}</code>, <code>{"cmd":"trunk"}</code>, <code>{"cmd":"blink","count":2}</code>, <code>{"cmd":"headlights","duration":60}</code>, <code>{"cmd":"learn"}</code></p>
+  <p><strong>Implementacja:</strong> Arduino: <code>arduino/central_lock/central_lock.ino</code>, Python: <code>src/vehicle/central_lock.py</code> + <code>src/vehicle/lighting.py</code></p>
+</section>
+
+<!-- ═══ S17 — BLOCK DIAGRAM ═══ -->
+<section id="s17">
+  <h2><span class="n">17</span>Schemat blokowy systemu v8.5</h2>
+  <div class="code-block">
+                    ┌──────────────────────────┐
+                    │    ORANGE PI 5 PLUS       │
+                    │    (RK3588, 16GB RAM)     │
+                    │                          │
+  HDMI-1 ──────────┤  4.3" Stats Display      │
+  HDMI-2 ──────────┤  7/8" Touch Display      │
+                    │                          │
+  USB DAC ─────────┤  Audio → TDA7388 + TDA2050│
+  USB Webcam ──────┤  DVR 2-ch AHD 720P       │
+  USB LTE ─────────┤  Internet + Traffic + SMS │
+  USB GPS ─────────┤  NEO-M8N NMEA            │
+  USB Arduino(1) ──┤  SWC + Buttons + LDR     │
+  USB Arduino(2) ──┤  Central Lock + RF + Relay│
+  USB BT ──────────┤  BlueZ A2DP/HFP          │
+  USB Mic ─────────┤  Vosk Voice Control       │
+                    │                          │
+  UART3 (K-Line) ──┤  L9637D → OBD-II ECU     │
+                    │                          │
+  GPIO 7  ─────────┤  DS18B20 Temp (1-Wire)   │
+  GPIO 32 ─────────┤  Backlight PWM 4.3"      │
+  GPIO 33 ─────────┤  Backlight PWM 7/8"      │
+  GPIO 79 ─────────┤  Parking TRIG            │
+  GPIO 80-83 ──────┤  Parking ECHO ×4         │
+  GPIO 84 ─────────┤  Parking Buzzer          │
+  GPIO 85 ─────────┤  Ignition Input          │
+  GPIO 87 ─────────┤  Rain Sensor Input       │
+  GPIO 88 ─────────┤  Wiper Relay Output      │
+  GPIO 89 ─────────┤  Central Lock Input      │
+                    └──────────────────────────┘</div>
+</section>
+
 <!-- CONTENT_MARKER -->
 
 </div>
