@@ -27,10 +27,10 @@ App.registerScreen("a7", (() => {
                     <svg viewBox="0 0 180 120" class="w-full">
                         <path d="M 10,100 A 80,80 0 0,1 170,100" fill="none" stroke="${theme==='modern'?'#e2e8f0':'#27272a'}" stroke-width="${sw}" stroke-linecap="round"/>
                         <path d="M 10,100 A 80,80 0 0,1 170,100" fill="none" stroke="${accentClr}" stroke-width="${sw}" stroke-linecap="round"
-                              stroke-dasharray="${circumference}" stroke-dashoffset="${offset}" style="transition:stroke-dashoffset 0.5s;"/>
+                              stroke-dasharray="${circumference}" stroke-dashoffset="${offset}" style="transition:stroke-dashoffset 0.5s;" data-perf="boost-arc"/>
                     </svg>
                     <div class="text-center -mt-8">
-                        <span class="text-4xl font-black" style="color:${accentClr};">${boost}</span>
+                        <span class="text-4xl font-black" style="color:${accentClr};" data-perf="boost-val">${boost}</span>
                         <span class="text-sm opacity-50 ml-1">BAR</span>
                     </div>
                     <span class="text-[10px] font-bold uppercase tracking-wider opacity-40 mt-2">${t("boost", "BOOST")}</span>
@@ -40,13 +40,13 @@ App.registerScreen("a7", (() => {
                     <!-- Speed -->
                     <div class="${cardBg} border rounded-xl p-4 flex flex-col justify-center items-center">
                         <span class="text-[9px] font-bold uppercase opacity-40">${t("speed", "SPEED")}</span>
-                        <span class="text-4xl font-black">${speed}</span>
+                        <span class="text-4xl font-black" data-perf="speed">${speed}</span>
                         <span class="text-xs opacity-40">km/h</span>
                     </div>
                     <!-- RPM -->
                     <div class="${cardBg} border rounded-xl p-4 flex flex-col justify-center items-center">
                         <span class="text-[9px] font-bold uppercase opacity-40">RPM</span>
-                        <span class="text-3xl font-black">${rpm}</span>
+                        <span class="text-3xl font-black" data-perf="rpm">${rpm}</span>
                         <div class="w-full h-1.5 rounded-full mt-2" style="background:${theme==='modern'?'#e2e8f0':'#27272a'};">
                             <div class="h-full rounded-full transition-all" style="width:${Math.min(100,rpm/50)}%;background:${accentClr};"></div>
                         </div>
@@ -54,7 +54,7 @@ App.registerScreen("a7", (() => {
                     <!-- 0-100 Timer -->
                     <div class="${cardBg} border rounded-xl p-4 flex flex-col justify-center items-center">
                         <span class="text-[9px] font-bold uppercase opacity-40">${t("timer_0_100", "0-100 km/h")}</span>
-                        <span class="text-3xl font-black">--.-</span>
+                        <span class="text-3xl font-black" data-perf="timer">--.-</span>
                         <span class="text-[9px] opacity-30">${t("best_time", "Best")}: --.-s</span>
                     </div>
                     <!-- G-Force -->
@@ -80,8 +80,56 @@ App.registerScreen("a7", (() => {
         </div>`;
     }
 
+    let _peakBoost = 0;
+    let _timerStart = 0;
+    let _timerRunning = false;
+    let _bestTime = null;
+
     function update(data) {
-        // Will be implemented with live boost gauge updates in Phase 9
+        const boost = parseFloat(data.boost || 0);
+        const speed = Math.round(data.speed || 0);
+        const rpm = Math.round(data.rpm || 0);
+
+        // Track peak boost
+        if (boost > _peakBoost) _peakBoost = boost;
+
+        // 0-100 timer logic
+        if (!_timerRunning && speed >= 3 && speed < 10) {
+            _timerRunning = true;
+            _timerStart = Date.now();
+        }
+        if (_timerRunning && speed >= 100) {
+            const elapsed = ((Date.now() - _timerStart) / 1000).toFixed(1);
+            _timerRunning = false;
+            if (!_bestTime || parseFloat(elapsed) < parseFloat(_bestTime)) {
+                _bestTime = elapsed;
+            }
+            const timerEl = document.querySelector('[data-perf="timer"]');
+            if (timerEl) timerEl.textContent = elapsed;
+            const bestEl = document.querySelector('[data-perf="best"]');
+            if (bestEl) bestEl.textContent = `${App.t("best_time")}: ${_bestTime}s`;
+        }
+        if (_timerRunning && speed < 2) _timerRunning = false;
+
+        // Update DOM elements
+        const boostEl = document.querySelector('[data-perf="boost-val"]');
+        if (boostEl) boostEl.textContent = boost.toFixed(2);
+        const speedEl = document.querySelector('[data-perf="speed"]');
+        if (speedEl) speedEl.textContent = speed;
+        const rpmEl = document.querySelector('[data-perf="rpm"]');
+        if (rpmEl) rpmEl.textContent = rpm;
+        const peakEl = document.querySelector('[data-perf="peak"]');
+        if (peakEl) peakEl.textContent = _peakBoost.toFixed(2);
+        const rpmBar = document.querySelector('[data-perf="rpm-bar"]');
+        if (rpmBar) rpmBar.style.width = `${Math.min(100, rpm / 50)}%`;
+        // Update boost gauge arc
+        const arc = document.querySelector('[data-perf="boost-arc"]');
+        if (arc) {
+            const pct = Math.min(100, Math.max(0, (boost / 1.5) * 100));
+            const r = 70;
+            const circ = Math.PI * r;
+            arc.setAttribute("stroke-dashoffset", String(circ - (pct / 100 * circ)));
+        }
     }
 
     return { render, update };

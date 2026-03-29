@@ -256,6 +256,96 @@ class WebViewer:
 
             return jsonify({"ok": True})
 
+        # --- DVR API ---
+
+        @app.route("/api/dvr/list")
+        def api_dvr_list():
+            """List DVR recordings."""
+            import glob
+            rec_dir = "/media/dashcam"
+            recordings = []
+            for path in sorted(glob.glob(f"{rec_dir}/*.mp4"), reverse=True)[:50]:
+                fname = os.path.basename(path)
+                try:
+                    size_mb = os.path.getsize(path) / (1024 * 1024)
+                except OSError:
+                    size_mb = 0
+                cam = "front" if "front" in fname else "rear" if "rear" in fname else "front"
+                recordings.append({
+                    "filename": fname,
+                    "camera": cam,
+                    "size": f"{size_mb:.0f}MB",
+                    "date": fname[:19].replace("_", " ") if len(fname) > 19 else fname,
+                })
+            return jsonify({"recordings": recordings})
+
+        @app.route("/api/dvr/play/<filename>")
+        def api_dvr_play(filename):
+            rec_dir = "/media/dashcam"
+            return send_from_directory(rec_dir, filename)
+
+        @app.route("/api/dvr/delete/<filename>", methods=["DELETE"])
+        def api_dvr_delete(filename):
+            rec_dir = "/media/dashcam"
+            path = os.path.join(rec_dir, filename)
+            if os.path.exists(path):
+                os.remove(path)
+                return jsonify({"ok": True})
+            return jsonify({"error": "not found"}), 404
+
+        @app.route("/api/dvr/export", methods=["POST"])
+        def api_dvr_export():
+            """Export selected files to USB drive."""
+            data = request.get_json(silent=True) or {}
+            files = data.get("files", [])
+            # Find USB mount point
+            import glob as g
+            usb_mounts = g.glob("/media/usb*") + g.glob("/mnt/usb*")
+            if not usb_mounts:
+                return jsonify({"error": "no USB drive"}), 400
+            usb_path = usb_mounts[0]
+            import shutil
+            for f in files:
+                src = os.path.join("/media/dashcam", f)
+                if os.path.exists(src):
+                    shutil.copy2(src, os.path.join(usb_path, f))
+            return jsonify({"ok": True, "count": len(files)})
+
+        @app.route("/api/dvr/usb/status")
+        def api_dvr_usb_status():
+            import glob as g
+            usb_mounts = g.glob("/media/usb*") + g.glob("/mnt/usb*")
+            if not usb_mounts:
+                return jsonify({"available": False})
+            import shutil
+            usage = shutil.disk_usage(usb_mounts[0])
+            return jsonify({
+                "available": True,
+                "free_gb": round(usage.free / (1024**3), 1),
+                "total_gb": round(usage.total / (1024**3), 1),
+            })
+
+        # --- DTC API ---
+
+        @app.route("/api/dtc/read")
+        def api_dtc_read():
+            """Read DTC error codes from ECU."""
+            if viewer._event_bus:
+                viewer._event_bus.publish("obd.dtc.read_request", True)
+            codes = []
+            if viewer._event_bus:
+                result = viewer._event_bus.get_last("obd.dtc.codes")
+                if result:
+                    codes = result[0] or []
+            return jsonify({"codes": codes})
+
+        @app.route("/api/dtc/clear", methods=["POST"])
+        def api_dtc_clear():
+            """Clear DTC error codes from ECU."""
+            if viewer._event_bus:
+                viewer._event_bus.publish("obd.dtc.clear_request", True)
+            return jsonify({"ok": True})
+
         @app.route("/api/i18n/<lang>")
         def api_i18n(lang):
             from src.dashboard.i18n import STRINGS

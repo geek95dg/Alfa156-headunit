@@ -159,6 +159,16 @@ STRINGS: dict[str, dict[str, str]] = {
         "best_time": "Najlepszy",
         "peak_boost": "Szczyt boost",
         "g_force": "G-FORCE",
+        "dtc_read": "Odczytaj",
+        "dtc_clear": "Wyczyść",
+        "dtc_none": "Brak kodów błędów",
+        "dtc_reading": "Odczytywanie...",
+        "dtc_cleared": "Kody wyczyszczone",
+        "dtc_confirm": "Wyczyścić kody błędów z ECU?",
+        "dtc_error": "Błąd odczytu",
+        "dvr_empty": "Brak nagrań",
+        "dvr_export_done": "Eksport rozpoczęty",
+        "weather_search": "Szukaj lokalizacji...",
 
         # Days of week
         "mon": "PON", "tue": "WT", "wed": "ŚR", "thu": "CZW",
@@ -321,6 +331,16 @@ STRINGS: dict[str, dict[str, str]] = {
         "best_time": "Best",
         "peak_boost": "Peak Boost",
         "g_force": "G-FORCE",
+        "dtc_read": "Read",
+        "dtc_clear": "Clear",
+        "dtc_none": "No error codes",
+        "dtc_reading": "Reading...",
+        "dtc_cleared": "Codes cleared",
+        "dtc_confirm": "Clear all error codes from ECU?",
+        "dtc_error": "Read failed",
+        "dvr_empty": "No recordings found",
+        "dvr_export_done": "Export started",
+        "weather_search": "Search location...",
 
         # Days
         "mon": "MON", "tue": "TUE", "wed": "WED", "thu": "THU",

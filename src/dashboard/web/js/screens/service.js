@@ -98,6 +98,21 @@ App.registerScreen("a5", (() => {
                             <p class="text-sm font-bold text-zinc-300"><span id="svc-tire-${pos.toLowerCase()}">${tpms[i].toFixed(1)}</span> <span class="text-[8px] text-zinc-600">BAR</span></p>
                         </div>`).join("")}
                     </div>
+                    <!-- DTC Error Codes -->
+                    <div class="mt-2 p-2 bg-zinc-900/40 border border-zinc-800 rounded-lg">
+                        <div class="flex justify-between items-center mb-1">
+                            <span class="text-[9px] font-bold text-zinc-500 uppercase">${t("diagnostics", "DTC Error Codes")}</span>
+                            <div class="flex gap-2">
+                                <button class="text-[8px] font-bold px-2 py-0.5 bg-zinc-800 rounded text-amber-500 hover:bg-zinc-700" onclick="App._readDTC()">
+                                    ${t("dtc_read", "Read")}
+                                </button>
+                                <button class="text-[8px] font-bold px-2 py-0.5 bg-zinc-800 rounded text-red-400 hover:bg-zinc-700" onclick="App._clearDTC()">
+                                    ${t("dtc_clear", "Clear")}
+                                </button>
+                            </div>
+                        </div>
+                        <div id="dtc-list" class="text-[10px] text-zinc-500">${t("dtc_none", "No error codes")}</div>
+                    </div>
                 </div>
             </main>
             ${NavBar.render("heritage", "a5")}

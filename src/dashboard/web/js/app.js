@@ -375,6 +375,37 @@ const App = (() => {
         /** Get current screen name */
         getCurrentScreen() { return _currentScreen; },
 
+        /** DTC: Read error codes from ECU */
+        async _readDTC() {
+            const el = document.getElementById("dtc-list");
+            if (el) el.textContent = App.t("dtc_reading", "Reading...");
+            try {
+                const res = await fetch("/api/dtc/read");
+                const result = await res.json();
+                if (el) {
+                    if (result.codes && result.codes.length > 0) {
+                        el.innerHTML = result.codes.map(c =>
+                            `<div class="flex justify-between py-0.5"><span class="text-amber-500 font-bold">${c.code}</span><span>${c.desc || ''}</span></div>`
+                        ).join("");
+                    } else {
+                        el.textContent = App.t("dtc_none", "No error codes");
+                    }
+                }
+            } catch (e) {
+                if (el) el.textContent = App.t("dtc_error", "Read failed");
+            }
+        },
+
+        /** DTC: Clear error codes */
+        async _clearDTC() {
+            if (!confirm(App.t("dtc_confirm", "Clear all error codes from ECU?"))) return;
+            try {
+                await fetch("/api/dtc/clear", { method: "POST" });
+                const el = document.getElementById("dtc-list");
+                if (el) el.textContent = App.t("dtc_cleared", "Codes cleared");
+            } catch (e) { /* ignore */ }
+        },
+
         /** Set theme and notify backend */
         async setTheme(theme) {
             applyTheme(theme);
