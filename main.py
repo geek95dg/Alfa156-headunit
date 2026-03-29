@@ -32,6 +32,10 @@ from src.multimedia.openauto import start_multimedia
 from src.location.gps import start_location
 from src.network.lte import start_network
 from src.weather.weather import start_weather
+from src.vehicle.rain_sensor import start_rain_sensor
+from src.vehicle.central_lock import start_central_lock
+from src.vehicle.lighting import start_lighting
+from src.performance.timer import start_performance
 
 
 # Module registry — maps module names to their (future) start functions.
@@ -51,6 +55,10 @@ MODULE_REGISTRY: dict[str, dict] = {
     "location":    {"part": 12, "description": "GPS/GNSS Positioning", "start": start_location},
     "network":     {"part": 13, "description": "LTE/Cellular Connectivity", "start": start_network},
     "weather":     {"part": 14, "description": "Weather Data (OpenWeatherMap)", "start": start_weather},
+    "rain_sensor": {"part": 15, "description": "Rain Sensor + Auto Wipers", "start": start_rain_sensor},
+    "central_lock":{"part": 16, "description": "Central Lock + 433MHz RF", "start": start_central_lock},
+    "lighting":    {"part": 17, "description": "Lighting (Follow-me-home, Greeting)", "start": start_lighting},
+    "performance": {"part": 18, "description": "Performance (0-100 Timer, Boost)", "start": start_performance},
 }
 
 # Dashboard is listed for --dry-run reporting but started separately
