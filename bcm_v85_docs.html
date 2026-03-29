@@ -729,7 +729,70 @@ chromium-browser --kiosk --window-size=800,480 \
   </ul>
 </section>
 
-<!-- CONTENT_MARKER -->
+<!-- ═══ S22 — API ═══ -->
+<section id="s22">
+  <h2><span class="n">22</span>Referencja API</h2>
+
+  <h3>REST Endpoints (port 5002)</h3>
+  <table>
+    <tr><th>Metoda</th><th>Endpoint</th><th>Opis</th></tr>
+    <tr><td>GET</td><td><code>/api/data</code></td><td>Pełny snapshot telemetrii (JSON)</td></tr>
+    <tr><td>GET</td><td><code>/api/config</code></td><td>Bieżąca konfiguracja (motyw, język, jednostki)</td></tr>
+    <tr><td>POST</td><td><code>/api/config</code></td><td>Zmiana konfiguracji <code>{"theme":"modern"}</code></td></tr>
+    <tr><td>GET</td><td><code>/api/i18n/pl</code></td><td>Tłumaczenia PL</td></tr>
+    <tr><td>GET</td><td><code>/api/i18n/en</code></td><td>Tłumaczenia EN</td></tr>
+    <tr><td>GET</td><td><code>/api/camera/stream</code></td><td>MJPEG stream z kamery USB</td></tr>
+    <tr><td>GET</td><td><code>/api/camera/available</code></td><td>Czy kamera jest dostępna</td></tr>
+    <tr><td>GET</td><td><code>/api/dvr/list</code></td><td>Lista nagrań DVR</td></tr>
+    <tr><td>GET</td><td><code>/api/dvr/play/&lt;file&gt;</code></td><td>Stream nagrania do odtworzenia</td></tr>
+    <tr><td>DELETE</td><td><code>/api/dvr/delete/&lt;file&gt;</code></td><td>Usunięcie nagrania</td></tr>
+    <tr><td>POST</td><td><code>/api/dvr/export</code></td><td>Eksport zaznaczonych nagrań na USB</td></tr>
+    <tr><td>GET</td><td><code>/api/dvr/usb/status</code></td><td>Status pendrive USB (wolne miejsce)</td></tr>
+    <tr><td>GET</td><td><code>/api/remote/status</code></td><td>Zdalny status pojazdu (LTE)</td></tr>
+  </table>
+
+  <h3>WebSocket Endpoints</h3>
+  <table>
+    <tr><th>Endpoint</th><th>Kierunek</th><th>Opis</th></tr>
+    <tr><td><code>ws://host:5002/ws</code></td><td>Server → Client</td><td>Streaming danych telemetrycznych (JSON, ~15 FPS)</td></tr>
+    <tr><td><code>ws://host:5002/ws/input</code></td><td>Client → Server</td><td>Input z klawiatury przeglądarki <code>{"type":"keydown","key":"ArrowRight"}</code></td></tr>
+    <tr><td><code>ws://host:5003/ws</code></td><td>Server → Client</td><td>Dane dla małego ekranu (karuzela)</td></tr>
+  </table>
+
+  <h3>Event Bus — kluczowe topiki</h3>
+  <table>
+    <tr><th>Topik</th><th>Typ</th><th>Opis</th></tr>
+    <tr><td><code>obd.rpm</code></td><td>float</td><td>Obroty silnika (0-5000)</td></tr>
+    <tr><td><code>obd.speed</code></td><td>float</td><td>Prędkość (km/h)</td></tr>
+    <tr><td><code>obd.coolant_temp</code></td><td>float</td><td>Temperatura płynu chłodniczego (°C)</td></tr>
+    <tr><td><code>obd.fuel_level</code></td><td>float</td><td>Poziom paliwa (0-100%)</td></tr>
+    <tr><td><code>obd.boost</code></td><td>float</td><td>Ciśnienie doładowania (BAR)</td></tr>
+    <tr><td><code>obd.battery_voltage</code></td><td>float</td><td>Napięcie akumulatora (V)</td></tr>
+    <tr><td><code>env.temperature</code></td><td>float</td><td>Temperatura zewnętrzna (°C)</td></tr>
+    <tr><td><code>gps.position</code></td><td>dict</td><td>{lat, lon, speed, heading}</td></tr>
+    <tr><td><code>gps.fix</code></td><td>bool</td><td>GPS fix aktywny</td></tr>
+    <tr><td><code>lte.connected</code></td><td>bool</td><td>Połączenie LTE aktywne</td></tr>
+    <tr><td><code>lte.signal</code></td><td>int</td><td>Siła sygnału (0-5)</td></tr>
+    <tr><td><code>bt.media_title</code></td><td>str</td><td>Tytuł aktualnie grającego utworu</td></tr>
+    <tr><td><code>bt.media_artist</code></td><td>str</td><td>Artysta</td></tr>
+    <tr><td><code>bt.media_playing</code></td><td>bool</td><td>Czy odtwarzanie aktywne</td></tr>
+    <tr><td><code>vehicle.rain_detected</code></td><td>bool</td><td>Deszcz wykryty</td></tr>
+    <tr><td><code>vehicle.locked</code></td><td>bool</td><td>Zamek zamknięty</td></tr>
+    <tr><td><code>vehicle.lights_follow_me</code></td><td>bool</td><td>Follow-me-home aktywne</td></tr>
+    <tr><td><code>parking.distances</code></td><td>list</td><td>[LL, CL, CR, RR] w metrach</td></tr>
+    <tr><td><code>parking.active</code></td><td>bool</td><td>Tryb parkowania aktywny</td></tr>
+    <tr><td><code>performance.timer_running</code></td><td>bool</td><td>Timer 0-100 aktywny</td></tr>
+    <tr><td><code>performance.timer_result</code></td><td>float</td><td>Wynik 0-100 (sekundy)</td></tr>
+    <tr><td><code>config.changed</code></td><td>dict</td><td>Zmiana konfiguracji</td></tr>
+    <tr><td><code>input.raw_keyname</code></td><td>str</td><td>Klawisz z przeglądarki/SWC</td></tr>
+  </table>
+</section>
+
+<!-- ═══ FOOTER ═══ -->
+<div style="padding:40px 0;border-top:1px solid var(--border);text-align:center;color:var(--text-dim);font-size:0.85rem">
+  <p>BCM v8.5 — Alfa Romeo 156 1.9 JTD — Body Computer Module</p>
+  <p style="font-family:'JetBrains Mono',monospace;font-size:0.75rem;color:var(--accent)">Dokumentacja wygenerowana automatycznie · 2026</p>
+</div>
 
 </div>
 </body>
