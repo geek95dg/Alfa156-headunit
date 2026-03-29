@@ -284,10 +284,21 @@ def main() -> None:
                     event_bus=event_bus, config=config,
                 )
                 web_viewer.start()
-                log.info("Dashboard frontend started at http://localhost:5002")
+                log.info("Main display started at http://localhost:5002")
+
+                # Start small display server (4.3" stats carousel)
+                from src.dashboard.small_viewer import SmallDisplayServer
+                small_display = SmallDisplayServer(
+                    host="0.0.0.0", port=5003,
+                    event_bus=event_bus, config=config,
+                )
+                small_display.start()
+                log.info("Small display started at http://localhost:5003")
+
                 log.info("  Themes: Heritage / Modern / Autodelta")
-                log.info("  Screens: Init -> A1 Main -> A2 Trip -> A3 Weather -> A4 Service")
-                log.info("BCM v8 running (frontend mode). Press Ctrl+C to stop.")
+                log.info("  Main:  A1-A7 + Settings (7/8\" touch)")
+                log.info("  Small: Stats carousel + reverse camera (4.3\")")
+                log.info("BCM v8.5 running (frontend mode). Press Ctrl+C to stop.")
                 while not shutdown:
                     time.sleep(0.5)
             except Exception:
