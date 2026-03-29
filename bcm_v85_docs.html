@@ -322,6 +322,70 @@ tr:hover td{background:var(--bg-card)}
   </div>
 </section>
 
+<!-- ═══ S6 — NOWE MODUŁY ═══ -->
+<section id="s6">
+  <h2><span class="n">06</span>Nowe moduły sprzętowe</h2>
+
+  <h3>Czujnik deszczu + wycieraczki</h3>
+  <p>Optoisolowany sygnał cyfrowy z czujnika deszczu na zderzaku (GPIO 87 wejście). Przekaźnik aktywujący wycieraczki (GPIO 88 wyjście). Logika: wykrycie deszczu → aktywacja wycieraczek na konfigurowalny czas. Czułość: lekki / umiarkowany / intensywny → różne prędkości wycieraczek.</p>
+
+  <h3>Centralny zamek — Arduino + 433MHz RF</h3>
+  <div class="card-grid">
+    <div class="card">
+      <div class="ic">🔒</div>
+      <h4>Zamek / odblokowanie</h4>
+      <p>2 przekaźniki sterujące elektrozamkami drzwi. Sygnał zwrotny na event bus.</p>
+    </div>
+    <div class="card">
+      <div class="ic">📡</div>
+      <h4>Pilot RF 433MHz</h4>
+      <p>Odbiornik RXB6. Tryb uczenia: nauka kodów nowych pilotów. Zastępuje oryginalny pilot Alfy.</p>
+    </div>
+    <div class="card">
+      <div class="ic">🪟</div>
+      <h4>Sterowanie oknami</h4>
+      <p>2 przekaźniki: góra/dół. Relay module podłączony równolegle do przełączników okien.</p>
+    </div>
+    <div class="card">
+      <div class="ic">🚗</div>
+      <h4>Bagażnik</h4>
+      <p>Przekaźnik elektrozamka bagażnika. Aktywacja z BCM lub pilota RF.</p>
+    </div>
+  </div>
+  <div class="note"><strong>MCU:</strong> Arduino Nano/Pro Mini. Komunikacja: Serial JSON do OPi BCM. 8-kanałowy moduł przekaźników (zamek×2, okna×2, bagażnik, kierunkowskaz L, kierunkowskaz P, światła).</div>
+
+  <h3>Oświetlenie inteligentne</h3>
+  <table>
+    <tr><th>Funkcja</th><th>Opis</th><th>Konfiguracja</th></tr>
+    <tr><td><strong>Follow-me-home</strong></td><td>Światła mijania pozostają włączone po zamknięciu auta</td><td>30 / 60 / 90 sekund</td></tr>
+    <tr><td><strong>Powitanie (Greeting)</strong></td><td>Podwójne mrugnięcie kierunkowskazami przy odblokowaniu, pojedyncze przy zamknięciu</td><td>Liczba mrugnięć: 1-3</td></tr>
+    <tr><td><strong>Leaving-home</strong></td><td>Krótkie włączenie świateł przy odblokowaniu w nocy (czujnik LDR)</td><td>Wł./Wył.</td></tr>
+  </table>
+  <p>Sterowanie przez te same przekaźniki co centralny zamek Arduino (kanały: kierunkowskaz L, kierunkowskaz P, światła). Logika czasowa w module <code>src/vehicle/lighting.py</code>.</p>
+
+  <h3>Przyciski fizyczne</h3>
+  <p>3 przyciski montowane przy ekranie 7/8": <strong>Power on/off</strong>, <strong>Previous track</strong>, <strong>Next track</strong>. Podłączone do Arduino USB HID → keycody → action_dispatch → event bus.</p>
+</section>
+
+<!-- ═══ S7 — ANDROID AUTO ═══ -->
+<section id="s7">
+  <h2><span class="n">07</span>Android Auto — integracja kiosk</h2>
+  <h3>Architektura</h3>
+  <p>OpenAuto Pro działa na OPi jako osobny proces. BCM osadza stream video AA jako iframe/card na ekranie A2. Nagłówek BCM (logo, czas, temperatura) i pasek nawigacji pozostają widoczne — użytkownik może przełączyć ekran bez opuszczania AA.</p>
+
+  <h3>Połączenie</h3>
+  <ul>
+    <li><strong>Bezprzewodowe:</strong> WiFi AP (SSID: ALFA, hasło konfigurowane) — telefon łączy się do hotspotu OPi</li>
+    <li><strong>Przewodowe:</strong> USB-C OTG — telefon podłączony kablem</li>
+    <li><strong>Video stream:</strong> MJPEG z Xvfb (DISPLAY=:99) via ffmpeg → endpoint <code>/aa/stream</code></li>
+  </ul>
+
+  <div class="warn"><strong>WiFi AP vs LTE:</strong> Hotspot WiFi AP dla AA działa na wewnętrznym WiFi OPi. LTE modem ma osobne połączenie (USB). Nie kolidują ze sobą — AA używa WiFi direct, internet idzie przez LTE.</div>
+
+  <h3>Fallback</h3>
+  <p>Gdy AA nie jest podłączone, ekran A2 wyświetla placeholder z instrukcją połączenia (ikona telefonu + tekst "Podłącz Android Auto").</p>
+</section>
+
 <!-- CONTENT_MARKER -->
 
 </div>
