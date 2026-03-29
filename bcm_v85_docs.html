@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>BCM v8.5 — AR156 1.9 JTD — Dokumentacja Techniczna</title>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&family=DM+Sans:wght@400;500;700&family=Playfair+Display:wght@700;900&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#0a0c10;--bg-card:#12151c;--bg-card-hover:#1a1e28;--border:#1e2330;--accent:#c8102e;--accent-glow:rgba(200,16,46,0.25);--accent2:#00b4d8;--accent2-glow:rgba(0,180,216,0.15);--text:#e8e9ed;--text-dim:#8b8fa3;--text-bright:#fff;--green:#22c55e;--yellow:#eab308;--orange:#f97316;--red:#ef4444}
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:var(--bg);color:var(--text);font-family:'DM Sans',sans-serif;line-height:1.7;font-size:15px}
+.container{max-width:1140px;margin:0 auto;padding:0 32px}
+.hero{padding:80px 0 40px;position:relative;overflow:hidden}
+.hero::before{content:'';position:absolute;top:-200px;right:-200px;width:600px;height:600px;background:radial-gradient(circle,var(--accent-glow) 0%,transparent 70%);pointer-events:none}
+.hero-badge{display:inline-block;padding:6px 16px;border:1px solid var(--accent);color:var(--accent);font-family:'JetBrains Mono',monospace;font-size:11px;text-transform:uppercase;letter-spacing:2px;margin-bottom:24px}
+.hero h1{font-family:'Playfair Display',serif;font-size:3rem;font-weight:900;color:var(--text-bright);line-height:1.1;margin-bottom:16px}
+.hero h1 span{color:var(--accent)}
+.hero p.sub{font-size:1.05rem;color:var(--text-dim);max-width:720px}
+.hero .tags{display:flex;gap:10px;flex-wrap:wrap;margin-top:16px}
+.hero .tag{padding:6px 14px;background:var(--bg-card);border:1px solid var(--border);border-radius:6px;font-family:'JetBrains Mono',monospace;font-size:0.78rem;color:var(--accent2)}
+section{padding:40px 0;border-top:1px solid var(--border)}
+section h2{font-family:'Playfair Display',serif;font-size:1.8rem;font-weight:700;color:var(--text-bright);margin-bottom:8px}
+section h2 .n{color:var(--accent);font-family:'JetBrains Mono',monospace;font-size:0.85rem;vertical-align:super;margin-right:8px}
+section h3{font-size:1.15rem;font-weight:700;color:var(--accent2);margin:28px 0 10px}
+section h4{font-size:1rem;font-weight:700;color:var(--text-bright);margin:18px 0 6px}
+p{margin:8px 0}
+ul,ol{margin:8px 0 8px 24px}
+li{margin:4px 0}
+.card-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:14px;margin:20px 0}
+.card{background:var(--bg-card);border:1px solid var(--border);border-radius:10px;padding:20px;transition:all 0.3s}
+.card:hover{background:var(--bg-card-hover);border-color:var(--accent);box-shadow:0 0 25px var(--accent-glow)}
+.card .ic{width:36px;height:36px;background:var(--accent);border-radius:7px;display:flex;align-items:center;justify-content:center;font-size:18px;margin-bottom:12px}
+.card h4{color:var(--text-bright);margin:0 0 6px;font-size:0.95rem}
+.card p{color:var(--text-dim);font-size:0.85rem;margin:0}
+table{width:100%;border-collapse:collapse;margin:16px 0;font-size:0.88rem}
+th{background:var(--bg-card);color:var(--accent);font-family:'JetBrains Mono',monospace;font-size:0.78rem;text-transform:uppercase;letter-spacing:1px;padding:10px 14px;text-align:left;border-bottom:2px solid var(--accent)}
+td{padding:8px 14px;border-bottom:1px solid var(--border)}
+tr:hover td{background:var(--bg-card)}
+.code-block{background:#0d1017;border:1px solid var(--border);border-radius:7px;padding:16px;margin:14px 0;font-family:'JetBrains Mono',monospace;font-size:0.8rem;color:var(--green);overflow-x:auto;line-height:1.55;white-space:pre}
+.note{border-left:3px solid var(--accent2);background:var(--accent2-glow);padding:12px 18px;border-radius:0 7px 7px 0;margin:16px 0;font-size:0.9rem}
+.warn{border-left:3px solid var(--orange);background:rgba(249,115,22,0.1);padding:12px 18px;border-radius:0 7px 7px 0;margin:16px 0;font-size:0.9rem}
+.crit{border-left:3px solid var(--red);background:rgba(239,68,68,0.1);padding:12px 18px;border-radius:0 7px 7px 0;margin:16px 0;font-size:0.9rem}
+.ok{border-left:3px solid var(--green);background:rgba(34,197,94,0.08);padding:12px 18px;border-radius:0 7px 7px 0;margin:16px 0;font-size:0.9rem}
+.note strong,.warn strong,.crit strong,.ok strong{color:var(--text-bright)}
+.toc{background:var(--bg-card);border:1px solid var(--border);border-radius:10px;padding:20px 28px;margin:28px 0}
+.toc h3{margin-top:0;color:var(--text-bright)}
+.toc ol{list-style:none;counter-reset:toc;padding:0;columns:2;column-gap:32px}
+.toc li{counter-increment:toc;padding:5px 0;border-bottom:1px solid var(--border)}
+.toc li::before{content:counter(toc,decimal-leading-zero);color:var(--accent);font-family:'JetBrains Mono',monospace;font-weight:700;margin-right:10px}
+.toc a{color:var(--text);text-decoration:none}.toc a:hover{color:var(--accent)}
+.dt{display:inline-block;padding:2px 7px;border-radius:3px;font-family:'JetBrains Mono',monospace;font-size:0.68rem;font-weight:700;vertical-align:middle;margin-left:6px}
+.dt-new{background:rgba(34,197,94,0.2);color:var(--green);border:1px solid var(--green)}
+.dt-chg{background:rgba(234,179,8,0.2);color:var(--yellow);border:1px solid var(--yellow)}
+.dt-del{background:rgba(239,68,68,0.2);color:var(--red);border:1px solid var(--red)}
+.pinout td:first-child{color:var(--accent2);font-weight:700}
+.changelog{border:2px solid var(--accent);border-radius:10px;padding:20px;margin:20px 0;background:rgba(200,16,46,0.03)}
+.changelog h4{color:var(--accent);margin-top:0}
+.dual{display:grid;grid-template-columns:1fr 1fr;gap:20px;margin:20px 0}
+.dual>div{background:var(--bg-card);border-radius:10px;padding:20px;border:1px solid var(--border)}
+.triple{display:grid;grid-template-columns:1fr 1fr 1fr;gap:14px;margin:20px 0}
+.triple>div{background:var(--bg-card);border-radius:10px;padding:16px;border:1px solid var(--border)}
+@media(max-width:768px){.dual,.triple{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<div class="container">
+
+<!-- ═══ HERO ═══ -->
+<div class="hero">
+  <div class="hero-badge">BCM v8.5 — Dokumentacja Techniczna</div>
+  <h1>Alfa Romeo <span>156</span><br>Body Computer Module</h1>
+  <p class="sub">Dual-display: 4.3" karuzela danych + 7/8" ekran dotykowy z Android Auto kiosk. 7 ekranów BCM (A1-A7) + ustawienia. 3 motywy graficzne. DVR z GPS overlay + eksport USB. Performance: boost gauge + timer 0-100. Centralny zamek z pilotem RF 433MHz. Follow-me-home. Czujnik deszczu. Orange Pi 5 Plus z 2× HDMI.</p>
+  <div class="tags">
+    <span class="tag">1.9 JTD 8V przedlift</span>
+    <span class="tag">Bosch EDC15C7</span>
+    <span class="tag">Orange Pi 5 Plus</span>
+    <span class="tag">Dual HDMI</span>
+    <span class="tag">4.3" Stats + 7/8" Touch</span>
+    <span class="tag">Android Auto Kiosk</span>
+    <span class="tag">Audio 4.1 + Sub</span>
+    <span class="tag">DVR 2-ch + GPS</span>
+    <span class="tag">Performance / 0-100</span>
+    <span class="tag">433MHz RF Central Lock</span>
+    <span class="tag">Follow-me-home</span>
+    <span class="tag">Rain Sensor</span>
+    <span class="tag">GPS Tracking</span>
+    <span class="tag">LTE + Traffic</span>
+  </div>
+</div>
+
+<!-- ═══ TOC ═══ -->
+<nav class="toc">
+  <h3>Spis treści</h3>
+  <ol>
+    <li><a href="#s1">Changelog v8.0 → v8.5</a></li>
+    <li><a href="#s2">Architektura systemu</a></li>
+    <li><a href="#s3">Specyfikacja ekranów (A1-A7)</a></li>
+    <li><a href="#s4">System motywów</a></li>
+    <li><a href="#s5">Platforma sprzętowa</a></li>
+    <li><a href="#s6">Nowe moduły sprzętowe</a></li>
+    <li><a href="#s7">Android Auto — integracja kiosk</a></li>
+    <li><a href="#s8">System audio 4.1</a></li>
+    <li><a href="#s9">System kamer (DVR + cofanie)</a></li>
+    <li><a href="#s10">OBD-II / K-Line / DTC</a></li>
+    <li><a href="#s11">GPS i lokalizacja</a></li>
+    <li><a href="#s12">LTE / sieć / ruch drogowy</a></li>
+    <li><a href="#s13">System wejścia (dotyk, SWC, przyciski)</a></li>
+    <li><a href="#s14">Zarządzanie energią</a></li>
+    <li><a href="#s15">Czujnik deszczu i wycieraczki</a></li>
+    <li><a href="#s16">Centralny zamek i oświetlenie</a></li>
+    <li><a href="#s17">Schemat blokowy systemu</a></li>
+    <li><a href="#s18">Alokacja GPIO (40-pin header)</a></li>
+    <li><a href="#s19">BOM — lista komponentów</a></li>
+    <li><a href="#s20">Testowanie na VM</a></li>
+    <li><a href="#s21">Wdrożenie na Orange Pi</a></li>
+    <li><a href="#s22">Referencja API</a></li>
+  </ol>
+</nav>
+
+<!-- CONTENT_MARKER -->
+
+</div>
+</body>
+</html>
