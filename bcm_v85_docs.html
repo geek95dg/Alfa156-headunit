@@ -252,6 +252,19 @@ tr:hover td{background:var(--bg-card)}
   <h3>Mały ekran 4.3" (port 5003)</h3>
   <p>Wyświetlacz nie-dotykowy z karuzelą danych. Auto-cyklowanie co 5 sekund lub zmiana przyciskiem SWC. Nagłówek z czasem i datą zawsze widoczny. Podczas cofania: pełnoekranowy overlay z kamerą + 4 paski czujników parkowania (LL, CL, CP/CR, PP/RR).</p>
   <div class="note"><strong>Karuzela danych:</strong> Poziom paliwa (%) → Temperatura płynu chłodniczego (°C) → Temperatura zewnętrzna (°C) → Temperatura wewnętrzna (°C, jeśli czujnik dostępny)</div>
+
+  <h4>Powiadomienia popup na małym ekranie <span class="dt dt-new">NOWE</span></h4>
+  <p>Mały ekran wyświetla krótkotrwałe powiadomienia popup nakładane na karuzelę danych:</p>
+  <table>
+    <tr><th>Typ</th><th>Źródło</th><th>Wygląd</th><th>Czas wyświetlania</th></tr>
+    <tr><td><strong>Pogoda — alert</strong></td><td>OpenWeatherMap (nagłe zmiany)</td><td>Ikona pogody + opis (np. "Burza za 30 min")</td><td>10s</td></tr>
+    <tr><td><strong>Ruch drogowy</strong></td><td>TomTom/HERE Traffic API</td><td>Ikona korka + opis (np. "Korek 2km przed Tobą")</td><td>8s</td></tr>
+    <tr><td><strong>Oblodzenie</strong></td><td>DS18B20 temp &lt; 3°C</td><td>Ikona śniegu + "Uwaga oblodzenie"</td><td>5s (auto-dismiss)</td></tr>
+    <tr><td><strong>Niski poziom paliwa</strong></td><td>OBD fuel_level &lt; 15%</td><td>Ikona paliwa + "Rezerwa paliwa"</td><td>Persistent do kasowania</td></tr>
+    <tr><td><strong>Serwis</strong></td><td>service_km &lt; 500</td><td>Ikona klucza + "Zbliża się przegląd"</td><td>10s</td></tr>
+    <tr><td><strong>Ciśnienie opon</strong></td><td>TPMS &lt; 2.0 BAR</td><td>Ikona opony + pozycja + ciśnienie</td><td>8s</td></tr>
+  </table>
+  <p>Popup wyświetlany jako overlay na górze karuzeli danych. Motyw (Heritage/Modern/Autodelta) — kolorystyka popupu dopasowana do aktywnego motywu. Priorytet: oblodzenie &gt; ruch &gt; pogoda &gt; paliwo &gt; serwis &gt; opony. Kolejka — tylko 1 popup widoczny na raz, kolejne czekają.</p>
 </section>
 
 <!-- ═══ S4 — MOTYWY ═══ -->
