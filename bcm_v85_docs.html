@@ -386,6 +386,63 @@ tr:hover td{background:var(--bg-card)}
   <p>Gdy AA nie jest podłączone, ekran A2 wyświetla placeholder z instrukcją połączenia (ikona telefonu + tekst "Podłącz Android Auto").</p>
 </section>
 
+<!-- ═══ S8 — AUDIO ═══ -->
+<section id="s8">
+  <h2><span class="n">08</span>System audio 4.1</h2>
+  <table>
+    <tr><th>Komponent</th><th>Model</th><th>Opis</th></tr>
+    <tr><td>DAC USB</td><td>ES9038Q2M</td><td>32-bit/384kHz, wyjście RCA stereo</td></tr>
+    <tr><td>AMP główny</td><td>TDA7388</td><td>4 × 45W Class AB (przód L/P + tył L/P)</td></tr>
+    <tr><td>AMP sub</td><td>TDA2050</td><td>40W mono, filtr LP ~120Hz</td></tr>
+    <tr><td>Głośniki</td><td>4× koaksyjne</td><td>Drzwi przód + tył</td></tr>
+    <tr><td>Subwoofer</td><td>1× 8"</td><td>Bagażnik, obudowa bass-reflex</td></tr>
+  </table>
+  <h3>PipeWire routing</h3>
+  <p>Routing audio: Android Auto / BT A2DP / system sounds → PipeWire → USB DAC → wzmacniacze. EQ 10-pasmowy parametryczny (presety: flat, rock, jazz, bass_boost, custom). Ducking priorytetowy: beep parkowania > głos > rozmowa > muzyka.</p>
+</section>
+
+<!-- ═══ S9 — KAMERY ═══ -->
+<section id="s9">
+  <h2><span class="n">09</span>System kamer (DVR + cofanie)</h2>
+  <h3>DVR — rejestrator jazdy</h3>
+  <table>
+    <tr><th>Parametr</th><th>Wartość</th></tr>
+    <tr><td>Kamery</td><td>2× AHD 720P (przód + tył)</td></tr>
+    <tr><td>Grabber</td><td>USB3.0 4-ch AHD capture card</td></tr>
+    <tr><td>Kodowanie</td><td>H.264 (HW mpph264enc na OPi, SW x264enc na x86)</td></tr>
+    <tr><td>Segmenty</td><td>5-minutowe pliki, loop recording</td></tr>
+    <tr><td>Pojemność</td><td>128GB USB → ~47h nagrań</td></tr>
+    <tr><td>GPS overlay</td><td>Prędkość, pozycja, kierunek, czas/data w metadanych</td></tr>
+    <tr><td>Eksport</td><td>USB pendrive — zaznacz nagrania → kopiuj z progress bar</td></tr>
+  </table>
+
+  <h3>Kamera cofania</h3>
+  <p>Aktywacja: sygnał biegu wstecznego (OBD gear="R" lub GPIO). Wyświetlanie na <strong>małym ekranie 4.3"</strong> z overlay czujników parkowania. Linie pomocnicze (zielona/żółta/czerwona strefa). Stream: AHD → grabber → fbdevsink (OPi) lub MJPEG (x86).</p>
+</section>
+
+<!-- ═══ S10 — OBD ═══ -->
+<section id="s10">
+  <h2><span class="n">10</span>OBD-II / K-Line / DTC</h2>
+  <h3>ECU: Bosch EDC15C7</h3>
+  <p>Protokół: KWP2000 via K-Line (10400 baud, slow init 5-baud). Transceiver: L9637D z rezystorem pull-up 510Ω.</p>
+
+  <h3>PID — odczytywane parametry</h3>
+  <table>
+    <tr><th>PID</th><th>Parametr</th><th>Zakres</th></tr>
+    <tr><td>0x0C</td><td>RPM</td><td>0-5000 obr/min</td></tr>
+    <tr><td>0x05</td><td>Temperatura płynu chłodniczego</td><td>-40 — 215°C</td></tr>
+    <tr><td>0x0D</td><td>Prędkość pojazdu</td><td>0-255 km/h</td></tr>
+    <tr><td>0x5E</td><td>Dawka paliwa</td><td>0-50 L/h</td></tr>
+    <tr><td>0x0B</td><td>Ciśnienie doładowania (boost)</td><td>0-2.55 BAR</td></tr>
+    <tr><td>0x42</td><td>Napięcie akumulatora</td><td>0-65V</td></tr>
+  </table>
+
+  <h3>DTC — kody błędów <span class="dt dt-new">NOWE</span></h3>
+  <p><strong>Odczyt:</strong> KWP2000 service <code>readDiagnosticTroubleCodes</code> — zwraca listę aktywnych kodów błędów z ECU.</p>
+  <p><strong>Kasowanie:</strong> KWP2000 service <code>clearDiagnosticInformation</code> — kasuje zapisane DTC. Dialog potwierdzenia w UI przed wykonaniem.</p>
+  <p>Implementacja: <code>src/obd/dtc.py</code> — klasa <code>DTCReader</code> z metodami <code>read_dtcs()</code> i <code>clear_dtcs()</code>.</p>
+</section>
+
 <!-- CONTENT_MARKER -->
 
 </div>
