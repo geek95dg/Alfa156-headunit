@@ -145,6 +145,62 @@ tr:hover td{background:var(--bg-card)}
   </div>
 </section>
 
+<!-- ═══ S2 — ARCHITEKTURA ═══ -->
+<section id="s2">
+  <h2><span class="n">02</span>Architektura systemu</h2>
+  <h3>Dual Display</h3>
+  <div class="code-block">┌─────────────────────────────────────┐    ┌───────────────────────┐
+│  EKRAN GŁÓWNY (7/8" touchscreen)    │    │  MAŁY EKRAN (4.3")    │
+│  Port 5002 — Flask SPA              │    │  Port 5003 — Flask    │
+│  Rozdzielczość: adaptacyjna         │    │  800×480 stała        │
+│  (1024×600 lub 1280×800)            │    │                       │
+│                                     │    │  Karuzela danych:     │
+│  A1: Dashboard (Hub główny)         │    │  - Poziom paliwa      │
+│  A2: Android Auto (kiosk embed)     │    │  - Temp. płynu chłodn.│
+│  A3: Podróż i spalanie              │    │  - Temp. zewn./wewn.  │
+│  A4: Pogoda i mapa (+ruch drogowy)  │    │  - Czas/data nagłówek │
+│  A5: Serwis i diagnostyka (DTC)     │    │                       │
+│  A6: Nagrania DVR (+eksport USB)    │    │  + Kamera cofania     │
+│  A7: Performance (boost, 0-100)     │    │  + Czujniki parkowania │
+│  Settings: BT, WiFi, motyw, język   │    │                       │
+└──────────────┬──────────────────────┘    └───────────┬───────────┘
+               │                                       │
+               └───────────── Event Bus ───────────────┘
+                              │
+          ┌───────────────────┼───────────────────┐
+          │                   │                   │
+     ┌────▼────┐        ┌────▼────┐         ┌────▼────┐
+     │  OBD-II │        │  GPS    │         │  LTE    │
+     │ K-Line  │        │ NEO-M8N │         │ Modem   │
+     └─────────┘        └─────────┘         └─────────┘</div>
+
+  <h3>Moduły systemu</h3>
+  <table>
+    <tr><th>Moduł</th><th>Port/GPIO</th><th>Opis</th></tr>
+    <tr><td><strong>dashboard</strong></td><td>:5002</td><td>Ekran główny 7/8" — 7 ekranów + settings</td></tr>
+    <tr><td><strong>small_display</strong></td><td>:5003</td><td>Mały ekran 4.3" — karuzela + cofanie</td></tr>
+    <tr><td><strong>obd</strong></td><td>UART3</td><td>K-Line/KWP2000, EDC15C7, DTC</td></tr>
+    <tr><td><strong>parking</strong></td><td>GPIO 79-83</td><td>4× HC-SR04 ultrasonic + buzzer (84)</td></tr>
+    <tr><td><strong>environment</strong></td><td>GPIO 7</td><td>DS18B20 temp + icing detection</td></tr>
+    <tr><td><strong>audio</strong></td><td>USB DAC</td><td>PipeWire 4.1, EQ, ducking</td></tr>
+    <tr><td><strong>voice</strong></td><td>USB Mic</td><td>Vosk offline (PL/EN)</td></tr>
+    <tr><td><strong>input</strong></td><td>USB HID</td><td>Touch + SWC + physical buttons</td></tr>
+    <tr><td><strong>camera</strong></td><td>USB3 grab</td><td>DVR 2-ch AHD + reverse cam</td></tr>
+    <tr><td><strong>power</strong></td><td>GPIO 85,89</td><td>Ignition, shutdown, backlight PWM</td></tr>
+    <tr><td><strong>multimedia</strong></td><td>USB BT</td><td>BlueZ A2DP/HFP + OpenAuto Pro</td></tr>
+    <tr><td><strong>location</strong></td><td>UART USB</td><td>GPS/GNSS + tracking + GPX export</td></tr>
+    <tr><td><strong>network</strong></td><td>USB LTE</td><td>LTE modem + traffic API + remote status</td></tr>
+    <tr><td><strong>weather</strong></td><td>LTE</td><td>OpenWeatherMap + prognoza 3-dniowa</td></tr>
+    <tr><td><strong>rain_sensor</strong></td><td>GPIO 87,88</td><td>Czujnik deszczu → auto-wycieraczki</td></tr>
+    <tr><td><strong>central_lock</strong></td><td>Serial</td><td>Arduino + 433MHz RF, zamek, okna, bagażnik</td></tr>
+    <tr><td><strong>lighting</strong></td><td>Serial</td><td>Follow-me-home, powitanie, leaving-home</td></tr>
+    <tr><td><strong>performance</strong></td><td>Event bus</td><td>Timer 0-100, boost peak, G-Force</td></tr>
+  </table>
+
+  <h3>Event Bus</h3>
+  <p>Wszystkie moduły komunikują się przez <strong>publish/subscribe event bus</strong>. Moduł publikuje dane (np. <code>obd.rpm</code>), a inne moduły subskrybują te tematy. Event bus wspiera również IPC (Unix socket) dla komunikacji między procesami.</p>
+</section>
+
 <!-- CONTENT_MARKER -->
 
 </div>
