@@ -3,7 +3,7 @@
  * Everything fits in 800x480 — no scrolling.
  */
 
-App.registerScreen("a4", (() => {
+App.registerScreen("a5", (() => {
     function render(container, theme, data) {
         if (theme === "heritage") container.innerHTML = _renderHeritage(data);
         else if (theme === "modern") container.innerHTML = _renderModern(data);
@@ -100,7 +100,7 @@ App.registerScreen("a4", (() => {
                     </div>
                 </div>
             </main>
-            ${NavBar.render("heritage", "a4")}
+            ${NavBar.render("heritage", "a5")}
         </div>`;
     }
 
@@ -167,7 +167,7 @@ App.registerScreen("a4", (() => {
                     </div>
                 </div>
             </main>
-            ${NavBar.render("modern", "a4")}
+            ${NavBar.render("modern", "a5")}
         </div>`;
     }
 
@@ -201,7 +201,7 @@ App.registerScreen("a4", (() => {
                     </div>
                 </div>
             </main>
-            ${NavBar.render("autodelta", "a4")}
+            ${NavBar.render("autodelta", "a5")}
         </div>`;
     }
 

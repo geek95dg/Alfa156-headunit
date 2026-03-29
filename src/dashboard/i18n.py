@@ -8,11 +8,14 @@ from typing import Any
 
 STRINGS: dict[str, dict[str, str]] = {
     "pl": {
-        # Screen titles (v7.1)
+        # Screen titles (v8.5)
         "screen.a1": "A1: GŁÓWNY",
-        "screen.a2": "A2: PODRÓŻ",
-        "screen.a3": "A3: POGODA",
-        "screen.a4": "A4: SERWIS",
+        "screen.a2": "A2: ANDROID AUTO",
+        "screen.a3": "A3: PODRÓŻ",
+        "screen.a4": "A4: POGODA",
+        "screen.a5": "A5: SERWIS",
+        "screen.a6": "A6: NAGRANIA DVR",
+        "screen.a7": "A7: PERFORMANCE",
         "screen.settings": "USTAWIENIA",
         # Legacy screen titles
         "screen.b1": "B1: KLIMAT",
@@ -143,6 +146,19 @@ STRINGS: dict[str, dict[str, str]] = {
         "normal": "NORMALNY",
         "dynamic": "DYNAMICZNY",
         "sport": "SPORT",
+        # v8.5 new screens
+        "android_auto": "Android Auto",
+        "connect_aa": "Podłącz telefon przez USB lub WiFi",
+        "dvr": "Nagrania DVR",
+        "dvr_export": "Eksport na USB",
+        "dvr_front": "Przód",
+        "dvr_rear": "Tył",
+        "performance_title": "Performance",
+        "boost": "DOŁADOWANIE",
+        "timer_0_100": "0-100 km/h",
+        "best_time": "Najlepszy",
+        "peak_boost": "Szczyt boost",
+        "g_force": "G-FORCE",
 
         # Days of week
         "mon": "PON", "tue": "WT", "wed": "ŚR", "thu": "CZW",
@@ -154,11 +170,14 @@ STRINGS: dict[str, dict[str, str]] = {
         "sep": "WRZ", "oct": "PAŹ", "nov": "LIS", "dec": "GRU",
     },
     "en": {
-        # Screen titles (v7.1)
+        # Screen titles (v8.5)
         "screen.a1": "A1: MAIN",
-        "screen.a2": "A2: TRIP",
-        "screen.a3": "A3: WEATHER",
-        "screen.a4": "A4: SERVICE",
+        "screen.a2": "A2: ANDROID AUTO",
+        "screen.a3": "A3: TRIP",
+        "screen.a4": "A4: WEATHER",
+        "screen.a5": "A5: SERVICE",
+        "screen.a6": "A6: DVR RECORDINGS",
+        "screen.a7": "A7: PERFORMANCE",
         "screen.settings": "SETTINGS",
         # Legacy screen titles
         "screen.b1": "B1: CLIMATE",
@@ -289,6 +308,19 @@ STRINGS: dict[str, dict[str, str]] = {
         "normal": "NORMAL",
         "dynamic": "DYNAMIC",
         "sport": "SPORT",
+        # v8.5 new screens
+        "android_auto": "Android Auto",
+        "connect_aa": "Connect your phone via USB or WiFi",
+        "dvr": "DVR Recordings",
+        "dvr_export": "Export to USB",
+        "dvr_front": "Front",
+        "dvr_rear": "Rear",
+        "performance_title": "Performance",
+        "boost": "BOOST",
+        "timer_0_100": "0-100 km/h",
+        "best_time": "Best",
+        "peak_boost": "Peak Boost",
+        "g_force": "G-FORCE",
 
         # Days
         "mon": "MON", "tue": "TUE", "wed": "WED", "thu": "THU",

@@ -4,7 +4,7 @@
  * Optimized for encoder navigation (no touch inputs).
  */
 
-App.registerScreen("a3", (() => {
+App.registerScreen("a4", (() => {
     let _map = null;
     let _marker = null;
 
@@ -156,7 +156,7 @@ App.registerScreen("a3", (() => {
                     </div>
                 </div>
             </main>
-            ${NavBar.render("heritage", "a3")}
+            ${NavBar.render("heritage", "a4")}
         </div>`;
     }
 
@@ -219,7 +219,7 @@ App.registerScreen("a3", (() => {
                     </div>
                 </div>
             </main>
-            ${NavBar.render("modern", "a3")}
+            ${NavBar.render("modern", "a4")}
         </div>`;
     }
 
@@ -304,7 +304,7 @@ App.registerScreen("a3", (() => {
                     </div>
                 </div>
             </main>
-            ${NavBar.render("autodelta", "a3")}
+            ${NavBar.render("autodelta", "a4")}
         </div>`;
     }
 
