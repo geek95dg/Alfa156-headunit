@@ -653,80 +653,97 @@ tr:hover td{background:var(--bg-card)}
 
 <!-- ═══ S19 — BOM ═══ -->
 <section id="s19">
-  <h2><span class="n">19</span>BOM — lista komponentów z cenami</h2>
+  <h2><span class="n">19</span>BOM — lista komponentów (etapowa budowa)</h2>
+  <p>Projekt podzielony na <strong>4 etapy budowy</strong> — możesz zacząć od minimum i rozbudowywać stopniowo.</p>
 
-  <h3>System bazowy</h3>
+  <!-- ETAP 1 -->
+  <h3 style="color:var(--accent)">ETAP 1: Podstawa — Dashboard + Audio + OBD <span class="dt dt-new">START TUTAJ</span></h3>
+  <p>Minimalny zestaw do uruchomienia BCM z ekranem, dźwiękiem i odczytem danych silnika.</p>
   <table>
     <tr><th>Komponent</th><th>Model</th><th>Szt.</th><th>Cena PLN</th><th>Uwagi</th></tr>
-    <tr><td>SBC</td><td><strong>Orange Pi 5 Plus 8GB</strong></td><td>1</td><td>600-750</td><td>RK3588, 2× HDMI. 8GB wystarczy — 16GB niepotrzebne</td></tr>
-    <tr><td>Ekran mały</td><td>4.3" TFT HDMI 800×480</td><td>1</td><td>200-300</td><td>Stats + cofanie</td></tr>
-    <tr><td>Ekran główny</td><td>7/8" IPS HDMI + Touch</td><td>1</td><td>400-600</td><td>1024×600 lub 1280×800</td></tr>
+    <tr><td>SBC</td><td><strong>Orange Pi 5 Plus 8GB</strong></td><td>1</td><td>600-750</td><td>RK3588, 2× HDMI, WiFi, BT</td></tr>
+    <tr><td>Ekran główny</td><td>7/8" IPS HDMI + Touch</td><td>1</td><td>400-600</td><td>Dotykowy — A1-A7 + Settings</td></tr>
+    <tr><td>Przetwornica DC-DC</td><td>LM2596 12V→5.1V 4A</td><td>1</td><td>30-50</td><td>Regulowana, ustaw na 5.1V</td></tr>
+    <tr><td>Bezpieczniki</td><td>20A + 25A blade fuse</td><td>2</td><td>10</td><td>5V linia + 12V audio</td></tr>
+    <tr><td>DAC USB</td><td>ES9038Q2M</td><td>1</td><td>45-75</td><td>32-bit audio</td></tr>
+    <tr><td>AMP główny</td><td>TDA7388 (4×45W)</td><td>1</td><td>45-70</td><td>4 kanały Class AB</td></tr>
+    <tr><td>Radiator</td><td>Aluminiowy</td><td>1</td><td>10-15</td><td>Dla TDA7388</td></tr>
+    <tr><td>Transceiver OBD</td><td>L9637D + rez. 510Ω</td><td>1</td><td>15-25</td><td>K-Line do ECU</td></tr>
+    <tr><td>Adapter BT</td><td>USB Bluetooth 5.0</td><td>1</td><td>30-60</td><td>A2DP + HFP (muzyka + telefon)</td></tr>
+    <tr><td>Arduino (input)</td><td>Pro Micro ATmega32U4</td><td>1</td><td>40-60</td><td>SWC + przyciski + LDR</td></tr>
+    <tr><td>Optoisolatory</td><td>PC817</td><td>3</td><td>6-9</td><td>Ignition, door, reverse</td></tr>
+    <tr><td>Rezystory/tranzystory</td><td>Zestaw BC547 + rezystory</td><td>—</td><td>15-20</td><td>Pull-up, dzielniki</td></tr>
+    <tr><td>MOSFET backlight</td><td>IRLZ44N</td><td>1</td><td>4-6</td><td>PWM backlight ekranu</td></tr>
+    <tr><td>USB hub</td><td>USB 3.0 powered hub</td><td>1</td><td>50-80</td><td>Rozszerzenie portów</td></tr>
+    <tr><td>Kable + złącza</td><td>—</td><td>—</td><td>50-80</td><td>HDMI, USB, zasilanie, OBD</td></tr>
   </table>
-  <div class="ok"><strong>Podkategoria: ~1200-1650 PLN</strong></div>
+  <div class="changelog" style="border-color:var(--green)"><h4 style="color:var(--green)">ETAP 1 koszt: ~1 350 — 1 900 PLN</h4>
+  <p>Daje: ekran dotykowy z BCM, muzyka przez BT, odczyt danych z ECU (RPM, temp, boost), Android Auto przez WiFi. Możesz już jeździć z tym zestawem.</p></div>
 
-  <h3>Zasilanie + backup</h3>
-  <table>
-    <tr><th>Komponent</th><th>Model</th><th>Szt.</th><th>Cena PLN</th><th>Uwagi</th></tr>
-    <tr><td>Przetwornica DC-DC</td><td>LM2596 12V→5.1V 4A</td><td>1</td><td>30-50</td><td>Regulowana</td></tr>
-    <tr><td>Bezpiecznik 5V</td><td>20A blade fuse</td><td>1</td><td>5</td><td>Przed LM2596</td></tr>
-    <tr><td>Bezpiecznik 12V</td><td>25A blade fuse</td><td>1</td><td>5</td><td>Linia audio</td></tr>
-    <tr><td><strong>Bateria backup</strong></td><td>Li-ion 18650 3.7V 5000mAh</td><td>1</td><td>20-30</td><td>Zasilanie lock + GPS + LTE w suspend</td></tr>
-    <tr><td><strong>Ładowarka baterii</strong></td><td>TP4056 + zabezpieczenie</td><td>1</td><td>8-15</td><td>Ładowanie z 5V</td></tr>
-    <tr><td><strong>Boost converter</strong></td><td>MT3608 3.7V→5V 2A</td><td>1</td><td>10-15</td><td>5V z baterii backup</td></tr>
-    <tr><td>Przekaźnik power</td><td>Relay 5V → switching zasilania</td><td>1</td><td>8-12</td><td>Car battery ↔ Li-ion backup</td></tr>
-  </table>
-  <div class="ok"><strong>Podkategoria: ~85-130 PLN</strong></div>
-
-  <h3>Audio</h3>
-  <table>
-    <tr><th>Komponent</th><th>Model</th><th>Szt.</th><th>Cena PLN</th></tr>
-    <tr><td>DAC USB</td><td>ES9038Q2M</td><td>1</td><td>45-75</td></tr>
-    <tr><td>AMP główny</td><td>TDA7388 (4×45W)</td><td>1</td><td>45-70</td></tr>
-    <tr><td>AMP sub</td><td>TDA2050 (40W mono)</td><td>1</td><td>20-30</td></tr>
-    <tr><td>Radiator</td><td>Aluminiowy</td><td>2</td><td>15-25</td></tr>
-  </table>
-  <div class="ok"><strong>Podkategoria: ~125-200 PLN</strong></div>
-
-  <h3>Czujniki + I/O</h3>
+  <!-- ETAP 2 -->
+  <h3 style="color:var(--accent2)">ETAP 2: Kamery + Czujniki + Mały ekran</h3>
+  <p>DVR przód/tył, kamera cofania, czujniki parkowania, temperatura, mały ekran 4.3".</p>
   <table>
     <tr><th>Komponent</th><th>Model</th><th>Szt.</th><th>Cena PLN</th></tr>
-    <tr><td>Czujniki parkowania</td><td>HC-SR04</td><td>4</td><td>60-80</td></tr>
-    <tr><td>Buzzer parkowania</td><td>Piezo 5V</td><td>1</td><td>5-10</td></tr>
-    <tr><td>Czujnik temperatury</td><td>DS18B20 waterproof</td><td>1</td><td>20-30</td></tr>
-    <tr><td>Transceiver OBD</td><td>L9637D + rez. 510Ω</td><td>1</td><td>15-25</td></tr>
-    <tr><td>Czujnik deszczu</td><td>Rain sensor digital</td><td>1</td><td>30-50</td></tr>
-    <tr><td>Optoisolatory</td><td>PC817</td><td>6</td><td>12-18</td></tr>
-    <tr><td>MOSFET backlight</td><td>IRLZ44N</td><td>2</td><td>8-12</td></tr>
-    <tr><td>Tranzystory</td><td>BC547</td><td>3</td><td>3-5</td></tr>
-    <tr><td>Rezystory zestaw</td><td>Różne wartości</td><td>~20</td><td>10-15</td></tr>
-  </table>
-  <div class="ok"><strong>Podkategoria: ~165-245 PLN</strong></div>
-
-  <h3>Kamery + DVR</h3>
-  <table>
-    <tr><th>Komponent</th><th>Model</th><th>Szt.</th><th>Cena PLN</th></tr>
+    <tr><td>Ekran mały</td><td>4.3" TFT HDMI 800×480</td><td>1</td><td>200-300</td></tr>
+    <tr><td>MOSFET backlight 2</td><td>IRLZ44N</td><td>1</td><td>4-6</td></tr>
     <tr><td>Kamery AHD</td><td>720P przód + tył</td><td>2</td><td>200-400</td></tr>
     <tr><td>Grabber wideo</td><td>USB3.0 4-ch AHD capture</td><td>1</td><td>150-250</td></tr>
     <tr><td>Pendrive DVR</td><td>USB 3.0 128GB</td><td>1</td><td>80-150</td></tr>
+    <tr><td>Czujniki parkowania</td><td>HC-SR04</td><td>4</td><td>60-80</td></tr>
+    <tr><td>Buzzer parkowania</td><td>Piezo 5V</td><td>1</td><td>5-10</td></tr>
+    <tr><td>Czujnik temperatury</td><td>DS18B20 waterproof</td><td>1</td><td>20-30</td></tr>
+    <tr><td>Mikrofon USB</td><td>Condenser sufitowy</td><td>1</td><td>30-50</td></tr>
+    <tr><td>Optoisolatory dodatkowe</td><td>PC817</td><td>3</td><td>6-9</td></tr>
   </table>
-  <div class="ok"><strong>Podkategoria: ~430-800 PLN</strong></div>
+  <div class="changelog" style="border-color:var(--accent2)"><h4 style="color:var(--accent2)">ETAP 2 koszt: ~755 — 1 285 PLN</h4>
+  <p>Daje: nagrywanie jazdy (DVR przód+tył), kamera cofania z czujnikami parkowania, temperatura zewnętrzna, mały ekran z karuzelą danych, komendy głosowe.</p></div>
 
-  <h3>Łączność</h3>
+  <!-- ETAP 3 -->
+  <h3 style="color:var(--orange)">ETAP 3: Łączność + GPS + Sub</h3>
+  <p>Internet LTE, GPS tracking, pogoda na żywo, subwoofer.</p>
   <table>
     <tr><th>Komponent</th><th>Model</th><th>Szt.</th><th>Cena PLN</th></tr>
     <tr><td>Modem LTE</td><td>Huawei E3372 / SIM7600</td><td>1</td><td>100-200</td></tr>
     <tr><td>Moduł GPS</td><td>NEO-6M lub NEO-M8N</td><td>1</td><td>40-80</td></tr>
-    <tr><td>Adapter BT</td><td>USB Bluetooth 5.0</td><td>1</td><td>30-60</td></tr>
-    <tr><td>Mikrofon USB</td><td>Condenser sufitowy</td><td>1</td><td>30-50</td></tr>
+    <tr><td>AMP sub</td><td>TDA2050 (40W mono)</td><td>1</td><td>20-30</td></tr>
+    <tr><td>Radiator sub</td><td>Aluminiowy</td><td>1</td><td>5-10</td></tr>
+    <tr><td>Czujnik deszczu</td><td>Rain sensor digital</td><td>1</td><td>30-50</td></tr>
   </table>
-  <div class="ok"><strong>Podkategoria: ~200-390 PLN</strong></div>
+  <div class="changelog" style="border-color:var(--orange)"><h4 style="color:var(--orange)">ETAP 3 koszt: ~195 — 370 PLN</h4>
+  <p>Daje: internet w aucie, pogoda na żywo z mapą, GPS tracking podróży, auto-wycieraczki, subwoofer, zdalny status pojazdu.</p></div>
 
-  <h3>Sterowanie + centralny zamek</h3>
+  <!-- ETAP 4 -->
+  <h3 style="color:var(--red)">ETAP 4: Centralny zamek + Alarm + Tracking</h3>
+  <p>Zamek z pilotem RF, alarm z syreną, śledzenie pojazdu, bateria backup.</p>
   <table>
     <tr><th>Komponent</th><th>Model</th><th>Szt.</th><th>Cena PLN</th></tr>
-    <tr><td>Arduino (input)</td><td>Pro Micro ATmega32U4</td><td>1</td><td>40-60</td></tr>
     <tr><td>Arduino (zamek)</td><td>Nano / Pro Mini</td><td>1</td><td>20-30</td></tr>
-    <tr><td>Moduł przekaźników</td><td><strong>10-ch relay 5V</strong></td><td>1</td><td>40-60</td></tr>
+    <tr><td>Moduł przekaźników</td><td>10-ch relay 5V</td><td>1</td><td>40-60</td></tr>
+    <tr><td>Odbiornik RF</td><td>RXB6 433MHz</td><td>1</td><td>15-25</td></tr>
+    <tr><td>Syrena alarmowa</td><td>12V piezo 120dB</td><td>1</td><td>25-40</td></tr>
+    <tr><td>Czujnik ruchu PIR</td><td>HC-SR501 mini</td><td>1</td><td>10-15</td></tr>
+    <tr><td>Czujnik wstrząsów</td><td>Piezo vibration sensor</td><td>1</td><td>8-12</td></tr>
+    <tr><td>Akcelerometr</td><td>MPU6050 6-axis</td><td>1</td><td>15-30</td></tr>
+    <tr><td>LED alarmu</td><td>LED 5mm + rezystor</td><td>1</td><td>2-3</td></tr>
+    <tr><td>Bateria backup</td><td>Li-ion 18650 5000mAh</td><td>1</td><td>20-30</td></tr>
+    <tr><td>Ładowarka + boost</td><td>TP4056 + MT3608</td><td>1</td><td>18-30</td></tr>
+    <tr><td>Przekaźnik power</td><td>Relay switching zasilania</td><td>1</td><td>8-12</td></tr>
+  </table>
+  <div class="changelog" style="border-color:var(--red)"><h4 style="color:var(--red)">ETAP 4 koszt: ~180 — 285 PLN</h4>
+  <p>Daje: centralny zamek z pilotem RF 433MHz, sterowanie oknami/bagażnikiem, alarm z syreną + czujnikami (ruch, wstrząsy, holowanie), follow-me-home, powitanie kierunkowskazami, bateria backup dla śledzenia GPS 30h, detekcja wypadku z ochroną nagrań DVR.</p></div>
+
+  <!-- PODSUMOWANIE -->
+  <h3>Podsumowanie kosztów etapów</h3>
+  <table>
+    <tr><th>Etap</th><th>Co dostajesz</th><th>Min PLN</th><th>Max PLN</th><th>Narastająco</th></tr>
+    <tr><td style="color:var(--accent)"><strong>1. Podstawa</strong></td><td>Ekran + audio + OBD + AA + BT</td><td>1 350</td><td>1 900</td><td>1 350-1 900</td></tr>
+    <tr><td style="color:var(--accent2)"><strong>2. Kamery</strong></td><td>DVR + cofanie + parkowanie + temp + głos</td><td>755</td><td>1 285</td><td>2 105-3 185</td></tr>
+    <tr><td style="color:var(--orange)"><strong>3. Łączność</strong></td><td>LTE + GPS + pogoda + sub + deszcz</td><td>195</td><td>370</td><td>2 300-3 555</td></tr>
+    <tr><td style="color:var(--red)"><strong>4. Zamek/Alarm</strong></td><td>Zamek RF + alarm + tracking + bateria</td><td>180</td><td>285</td><td>2 480-3 840</td></tr>
+  </table>
+  <div class="warn"><strong>Uwaga:</strong> Ceny orientacyjne 2026-03. Nie uwzględniają głośników, subwoofera, kabli samochodowych, obudowy DIN, ani robocizny. Każdy etap jest w pełni funkcjonalny — możesz jeździć po etapie 1.</div>
+</section>
     <tr><td>Odbiornik RF</td><td>RXB6 433MHz</td><td>1</td><td>15-25</td></tr>
     <tr><td>USB hub</td><td>USB 3.0 powered hub</td><td>1</td><td>50-80</td></tr>
   </table>
