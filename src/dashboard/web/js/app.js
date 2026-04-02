@@ -3,8 +3,8 @@
  */
 
 const App = (() => {
-    const SCREENS = ["init", "a1", "a2", "a3", "a4", "a5", "a6", "a7", "settings"];
-    const NAV_SCREENS = ["a1", "a2", "a3", "a4", "a5", "a6", "a7"]; // screens with navbar
+    const SCREENS = ["init", "a1", "a2", "a3", "a4", "a5", "a6", "a7", "a8", "settings"];
+    const NAV_SCREENS = ["a1", "a2", "a3", "a4", "a5", "a6", "a7", "a8"]; // screens with navbar
 
     let _currentScreen = "init";
     let _currentTheme = "heritage";

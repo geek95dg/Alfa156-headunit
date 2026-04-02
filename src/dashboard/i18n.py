@@ -16,6 +16,7 @@ STRINGS: dict[str, dict[str, str]] = {
         "screen.a5": "A5: SERWIS",
         "screen.a6": "A6: NAGRANIA DVR",
         "screen.a7": "A7: PERFORMANCE",
+        "screen.a8": "A8: TELEFON",
         "screen.settings": "USTAWIENIA",
         # Legacy screen titles
         "screen.b1": "B1: KLIMAT",
@@ -169,6 +170,21 @@ STRINGS: dict[str, dict[str, str]] = {
         "dvr_empty": "Brak nagrań",
         "dvr_export_done": "Eksport rozpoczęty",
         "weather_search": "Szukaj lokalizacji...",
+        # Phone
+        "phone": "Telefon",
+        "dialer": "Klawiatura",
+        "contacts": "Kontakty",
+        "call_history": "Historia",
+        "incoming_call": "Połączenie przychodzące",
+        "calling": "Dzwonię...",
+        "on_call": "Rozmowa",
+        "mute": "Wycisz",
+        "answer": "Odbierz",
+        "reject": "Odrzuć",
+        "hangup": "Rozłącz",
+        "no_contacts": "Brak zsynchronizowanych kontaktów",
+        "no_history": "Brak historii połączeń",
+        "search_contacts": "Szukaj kontaktu...",
 
         # Days of week
         "mon": "PON", "tue": "WT", "wed": "ŚR", "thu": "CZW",
@@ -188,6 +204,7 @@ STRINGS: dict[str, dict[str, str]] = {
         "screen.a5": "A5: SERVICE",
         "screen.a6": "A6: DVR RECORDINGS",
         "screen.a7": "A7: PERFORMANCE",
+        "screen.a8": "A8: PHONE",
         "screen.settings": "SETTINGS",
         # Legacy screen titles
         "screen.b1": "B1: CLIMATE",
@@ -341,6 +358,21 @@ STRINGS: dict[str, dict[str, str]] = {
         "dvr_empty": "No recordings found",
         "dvr_export_done": "Export started",
         "weather_search": "Search location...",
+        # Phone
+        "phone": "Phone",
+        "dialer": "Dialer",
+        "contacts": "Contacts",
+        "call_history": "History",
+        "incoming_call": "Incoming call",
+        "calling": "Calling...",
+        "on_call": "On call",
+        "mute": "Mute",
+        "answer": "Answer",
+        "reject": "Reject",
+        "hangup": "Hang up",
+        "no_contacts": "No contacts synced",
+        "no_history": "No call history",
+        "search_contacts": "Search contacts...",
 
         # Days
         "mon": "MON", "tue": "TUE", "wed": "WED", "thu": "THU",

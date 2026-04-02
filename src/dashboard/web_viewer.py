@@ -325,6 +325,57 @@ class WebViewer:
                 "total_gb": round(usage.total / (1024**3), 1),
             })
 
+        # --- Phone API ---
+
+        @app.route("/api/phone/contacts")
+        def api_phone_contacts():
+            """Get synced contacts from BT PBAP."""
+            if viewer._event_bus:
+                contacts = viewer._event_bus.get_last("bt.contacts")
+                if contacts and contacts[0]:
+                    return jsonify({"contacts": contacts[0]})
+            return jsonify({"contacts": []})
+
+        @app.route("/api/phone/history")
+        def api_phone_history():
+            """Get call history from BT PBAP."""
+            if viewer._event_bus:
+                history = viewer._event_bus.get_last("bt.call_history")
+                if history and history[0]:
+                    return jsonify({"history": history[0]})
+            return jsonify({"history": []})
+
+        @app.route("/api/phone/dial", methods=["POST"])
+        def api_phone_dial():
+            data = request.get_json(silent=True) or {}
+            number = data.get("number", "")
+            if number and viewer._event_bus:
+                viewer._event_bus.publish("bt.cmd.dial", number)
+            return jsonify({"ok": True, "number": number})
+
+        @app.route("/api/phone/answer", methods=["POST"])
+        def api_phone_answer():
+            if viewer._event_bus:
+                viewer._event_bus.publish("bt.cmd.answer", True)
+            return jsonify({"ok": True})
+
+        @app.route("/api/phone/hangup", methods=["POST"])
+        def api_phone_hangup():
+            if viewer._event_bus:
+                viewer._event_bus.publish("bt.cmd.hangup", True)
+            return jsonify({"ok": True})
+
+        @app.route("/api/phone/status")
+        def api_phone_status():
+            state = "idle"
+            info = {}
+            if viewer._event_bus:
+                s = viewer._event_bus.get_last("bt.call_state")
+                if s: state = s[0] or "idle"
+                i = viewer._event_bus.get_last("bt.call_info")
+                if i: info = i[0] or {}
+            return jsonify({"state": state, "info": info})
+
         # --- DTC API ---
 
         @app.route("/api/dtc/read")

@@ -12,6 +12,7 @@ const NavBar = (() => {
         { icon: "build", screen: "a5", tip: "Service" },
         { icon: "videocam", screen: "a6", tip: "DVR" },
         { icon: "speed", screen: "a7", tip: "Performance" },
+        { icon: "call", screen: "a8", tip: "Phone" },
     ];
 
     function render(theme, activeScreen) {
@@ -28,12 +29,12 @@ const NavBar = (() => {
             const isActive = i === activeIdx;
             const iconStyle = isActive ? "font-variation-settings:'FILL' 1;" : "";
             if (isActive) {
-                return `<div class="flex items-center justify-center ${activeBg} ${activeColor} rounded-xl w-12 h-10 cursor-pointer transition-all"
+                return `<div class="flex items-center justify-center ${activeBg} ${activeColor} rounded-xl w-10 h-10 cursor-pointer transition-all"
                          title="${item.tip}" onclick="App.navigateTo('${item.screen}')">
                     <span class="material-symbols-outlined" style="font-size:22px;${iconStyle}">${item.icon}</span>
                 </div>`;
             }
-            return `<div class="flex items-center justify-center ${inactiveColor} w-12 h-10 cursor-pointer hover:text-zinc-300 transition-all"
+            return `<div class="flex items-center justify-center ${inactiveColor} w-10 h-10 cursor-pointer hover:text-zinc-300 transition-all"
                      title="${item.tip}" onclick="App.navigateTo('${item.screen}')">
                 <span class="material-symbols-outlined" style="font-size:22px;">${item.icon}</span>
             </div>`;
