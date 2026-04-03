@@ -135,6 +135,7 @@ class WeatherManager:
             log.info("Weather API key set, will fetch real data (key=%s...)",
                      self._api_key[:8])
 
+        _first_fetch = True  # Skip poll_interval on first attempt
         while self._running:
             now = time.time()
 
@@ -145,18 +146,34 @@ class WeatherManager:
                 self._lon = self._default_lon
                 has_location = True
 
-            # Fetch if we have location, connectivity (or x86 dev), API key, and enough time passed
-            if (self._api_key and has_location
-                    and (self._lte_connected or self._platform == "x86")
-                    and now - self._last_fetch >= self._poll_interval):
+            # Log state on first iteration for debugging
+            if _first_fetch:
+                log.info("Weather poll state: api_key=%s, has_location=%s (%.2f,%.2f), "
+                         "lte=%s, platform=%s, poll_interval=%ds",
+                         bool(self._api_key), has_location, self._lat, self._lon,
+                         self._lte_connected, self._platform, self._poll_interval)
+
+            # Fetch if conditions met — skip poll_interval on first fetch
+            should_fetch = (self._api_key and has_location
+                            and (self._lte_connected or self._platform == "x86")
+                            and (_first_fetch or now - self._last_fetch >= self._poll_interval))
+            if should_fetch:
+                log.info("Weather: attempting fetch for %.2f,%.2f (first=%s)",
+                         self._lat, self._lon, _first_fetch)
+                _first_fetch = False
                 try:
                     data = self._fetch_weather()
                     if data:
                         self._publish_data(data)
                         self._save_cache(data)
                         self._last_fetch = now
+                        log.info("Weather fetch SUCCESS: %s, %.1f°C",
+                                 data.get("city", "?"),
+                                 data.get("current", {}).get("temp", 0))
+                    else:
+                        log.warning("Weather fetch returned None")
                 except Exception as e:
-                    log.warning("Weather fetch failed: %s", e)
+                    log.error("Weather fetch FAILED: %s", e, exc_info=True)
 
             time.sleep(5)  # Check conditions every 5s (fast response to search)
 

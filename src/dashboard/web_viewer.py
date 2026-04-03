@@ -657,6 +657,32 @@ class WebViewer:
                 return jsonify({"ok": True})
             return jsonify({"error": "missing lat/lon"}), 400
 
+        # --- Debug endpoints ---
+
+        @app.route("/api/debug/weather")
+        def api_debug_weather():
+            """Debug endpoint: dump weather module state for troubleshooting."""
+            bus = viewer._event_bus
+            if not bus:
+                return jsonify({"error": "no event bus"})
+            def _last(topic):
+                r = bus.get_last(topic)
+                return r[0] if r else None
+            return jsonify({
+                "weather_current": _last("weather.current"),
+                "weather_city": _last("weather.city"),
+                "weather_lat": _last("weather.lat"),
+                "weather_lon": _last("weather.lon"),
+                "weather_forecast": _last("weather.forecast"),
+                "gps_lat": _last("gps.lat"),
+                "gps_lon": _last("gps.lon"),
+                "gps_fix": _last("gps.fix"),
+                "lte_connected": _last("lte.connected"),
+                "config_api_key_set": bool(viewer._config.get("weather", {}).get("api_key", "")) if viewer._config else False,
+                "config_platform": viewer._config.get("system", {}).get("platform", "?") if viewer._config else "?",
+                "hint": "If weather_current is null and api_key is set, check server logs for HTTP errors. New OWM keys take up to 2h to activate.",
+            })
+
         # --- Client-side logging ---
 
         @app.route("/api/log", methods=["POST"])

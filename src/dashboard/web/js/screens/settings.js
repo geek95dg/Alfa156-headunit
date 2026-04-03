@@ -30,8 +30,11 @@ const Settings = {
     },
 
     async btConnect(addr) {
-        try { await fetch(`/bt/connect/${addr}`, { method: "POST" }); } catch (e) {}
-        setTimeout(() => Settings.btRefresh(), 1000);
+        // Start pairing poll — connecting can also trigger PIN confirmation
+        Settings._startPairingPoll();
+        fetch(`/bt/connect/${addr}`, { method: "POST" })
+            .then(() => Settings.btRefresh())
+            .catch(() => {});
     },
 
     async btDisconnect() {

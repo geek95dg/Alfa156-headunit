@@ -422,13 +422,21 @@ const WeatherSearch = {
         }
         console.log("[WeatherSearch] Selected:", cityName, r.lat, r.lon);
 
+        // Show loading state on weather data elements
+        const condEl = document.getElementById("weather-condition");
+        const tempEl = document.getElementById("weather-temp");
+        if (condEl) condEl.textContent = "Loading...";
+        if (tempEl) tempEl.textContent = "...";
+
         // Tell backend to re-fetch weather for this location
         try {
-            await fetch("/api/weather/location", {
+            const resp = await fetch("/api/weather/location", {
                 method: "POST",
                 headers: {"Content-Type": "application/json"},
                 body: JSON.stringify({lat: r.lat, lon: r.lon, city: cityName}),
             });
+            const result = await resp.json();
+            console.log("[WeatherSearch] location POST response:", result);
         } catch (e) { console.error("[WeatherSearch] location POST failed:", e); }
     },
 };

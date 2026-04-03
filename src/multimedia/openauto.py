@@ -43,8 +43,7 @@ def _create_openauto_config(project_dir: str, app_config: Any = None) -> None:
     config at runtime (stores last BT device, settings, etc.).
     """
     config_path = os.path.join(project_dir, "openauto.ini")
-    if os.path.exists(config_path):
-        return
+    # Always regenerate — our settings (resolution, touchscreen, WiFi) must match config
 
     ssid = ""
     password = ""
