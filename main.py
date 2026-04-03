@@ -230,15 +230,9 @@ def main() -> None:
         log.warning("WiFi AP disabled — wireless Android Auto will not work. "
                      "Set wifi.enabled=true in config.")
 
-    # Start Android Auto display + BT management web UI on x86
-    aa_display = None
-    if config.platform == "x86":
-        try:
-            from src.multimedia.aa_display import start_aa_display
-            aa_display = start_aa_display(config, event_bus, bt_manager=bt_manager)
-            log.info("AA display + BT management web UI started (http://localhost:5001)")
-        except Exception:
-            log.exception("AA display failed to start")
+    # NOTE: Port 5001 (aa_display.py) is no longer used.
+    # AA MJPEG stream + BT management are now served directly from
+    # the BCM dashboard on port 5002 (web_viewer.py).
 
     # Start non-blocking modules first
     for name, info in started_modules:
@@ -296,6 +290,7 @@ def main() -> None:
                 web_viewer = WebViewer(
                     host="0.0.0.0", port=5002,
                     event_bus=event_bus, config=config,
+                    bt_manager=bt_manager,
                 )
                 web_viewer.start()
                 log.info("Main display started at http://localhost:5002")

@@ -117,6 +117,8 @@ wifi:
 weather:
   api_key: ""
   poll_interval_min: 15
+  default_lat: 50.06    # Fallback when no GPS fix (Krakow)
+  default_lon: 19.94
 power:
   shutdown_delay_seconds: 30
   backlight_fade_ms: 1000
