@@ -147,6 +147,8 @@ class WebViewer:
             "weather_wind_speed": _wc.get("wind_speed", 0),
             "weather_city": _val("weather.city", ""),
             "weather_forecast": _val("weather.forecast", []),
+            "weather_lat": _val("weather.lat", None),
+            "weather_lon": _val("weather.lon", None),
             # BT Media
             "bt_media_title": _val("bt.media_title", ""),
             "bt_media_artist": _val("bt.media_artist", ""),
@@ -156,6 +158,8 @@ class WebViewer:
             "bt_media_duration": _val("bt.media_duration", 0),
             # Connectivity
             "bt_connected": _val("bt.connected", False),
+            "bt_call_state": _val("bt.call_state", "idle"),
+            "bt_call_info": _val("bt.call_info", {}),
             "lte_connected": _val("lte.connected", False),
             "lte_signal": _val("lte.signal_strength", 0),
             # Notifications

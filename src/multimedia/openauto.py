@@ -48,17 +48,21 @@ def _create_openauto_config(project_dir: str, app_config: Any = None) -> None:
 
     ssid = ""
     password = ""
+    width = 1024
+    height = 600
     if app_config:
         ssid = app_config.get("wifi.ssid", "")
         password = app_config.get("wifi.password", "")
+        width = app_config.get("display.multimedia.width", 1024)
+        height = app_config.get("display.multimedia.height", 600)
 
     config_content = f"""; OpenAuto configuration for Alfa156 Headunit
 [General]
 HandednessOfTrafficType=0
 
 [Video]
-FPS=1
-Resolution=3
+FPS=30
+Resolution=4
 MarginWidth=0
 MarginHeight=0
 
@@ -80,8 +84,8 @@ ButtonCodes.Down=20
 ButtonCodes.Back=4
 ButtonCodes.Home=3
 TouchscreenEnabled=1
-TouchscreenWidth=800
-TouchscreenHeight=480
+TouchscreenWidth={width}
+TouchscreenHeight={height}
 
 [WiFi]
 SSID={ssid}

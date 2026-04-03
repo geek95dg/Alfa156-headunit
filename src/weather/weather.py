@@ -254,6 +254,9 @@ class WeatherManager:
         self._bus.publish("weather.current", data.get("current", {}))
         self._bus.publish("weather.forecast", data.get("forecast", []))
         self._bus.publish("weather.city", data.get("city", ""))
+        # Publish weather-specific coordinates so map can center on weather city
+        self._bus.publish("weather.lat", self._lat)
+        self._bus.publish("weather.lon", self._lon)
 
     @staticmethod
     def _load_cache() -> dict | None:

@@ -936,6 +936,8 @@ class BluetoothManager:
         self._monitor_thread.start()
         # Start AVRCP media metadata monitor (D-Bus)
         self._start_media_monitor()
+        # Register HFP call command handlers
+        self._init_hfp_commands()
 
     def stop_monitor(self) -> None:
         """Stop the connection monitor."""
@@ -983,7 +985,123 @@ class BluetoothManager:
 
             time.sleep(5)
 
-    # --- HFP call handling ---
+    # --- HFP call handling via D-Bus / ofono / BlueZ ---
+
+    def _init_hfp_commands(self) -> None:
+        """Subscribe to HFP call command events from the dashboard."""
+        self._event_bus.subscribe("bt.cmd.dial", self._on_cmd_dial)
+        self._event_bus.subscribe("bt.cmd.answer", self._on_cmd_answer)
+        self._event_bus.subscribe("bt.cmd.hangup", self._on_cmd_hangup)
+        log.info("HFP call command handlers registered")
+
+    def _on_cmd_dial(self, topic: str, value: Any, timestamp: float) -> None:
+        """Initiate an outgoing call via BT HFP."""
+        number = str(value).strip()
+        if not number:
+            return
+        log.info("HFP dial request: %s", number)
+        self._hfp_active = True
+        self._event_bus.publish("bt.hfp_active", True)
+        self._event_bus.publish("bt.call_state", "ringing")
+        self._event_bus.publish("bt.call_info", {"number": number, "name": ""})
+        # Try ofono D-Bus for actual call
+        if HAS_DBUS:
+            try:
+                self._hfp_dial_dbus(number)
+            except Exception as e:
+                log.warning("HFP D-Bus dial failed: %s (call may still work via phone)", e)
+
+    def _on_cmd_answer(self, topic: str, value: Any, timestamp: float) -> None:
+        """Answer an incoming call via BT HFP."""
+        log.info("HFP answer request")
+        self._hfp_active = True
+        self._event_bus.publish("bt.hfp_active", True)
+        self._event_bus.publish("bt.call_state", "active")
+        self._event_bus.publish("audio.phone_call", True)
+        if HAS_DBUS:
+            try:
+                self._hfp_answer_dbus()
+            except Exception as e:
+                log.warning("HFP D-Bus answer failed: %s", e)
+
+    def _on_cmd_hangup(self, topic: str, value: Any, timestamp: float) -> None:
+        """Hang up or reject a call via BT HFP."""
+        log.info("HFP hangup request")
+        self._hfp_active = False
+        self._event_bus.publish("bt.hfp_active", False)
+        self._event_bus.publish("bt.call_state", "idle")
+        self._event_bus.publish("bt.call_info", {})
+        self._event_bus.publish("audio.phone_call", False)
+        if HAS_DBUS:
+            try:
+                self._hfp_hangup_dbus()
+            except Exception as e:
+                log.warning("HFP D-Bus hangup failed: %s", e)
+
+    def _hfp_dial_dbus(self, number: str) -> None:
+        """Dial via ofono VoiceCallManager or direct AT command."""
+        import dbus
+        bus = dbus.SystemBus()
+        # Try ofono first (standard HFP interface)
+        try:
+            manager = bus.get_object("org.ofono", "/")
+            modems = dbus.Interface(manager, "org.ofono.Manager").GetModems()
+            for path, props in modems:
+                if "org.ofono.VoiceCallManager" in props.get("Interfaces", []):
+                    vcm = dbus.Interface(
+                        bus.get_object("org.ofono", path),
+                        "org.ofono.VoiceCallManager"
+                    )
+                    vcm.Dial(number, "")
+                    log.info("HFP dial via ofono: %s", number)
+                    return
+        except dbus.DBusException:
+            pass
+        log.debug("ofono not available for dial — phone app handles the call")
+
+    def _hfp_answer_dbus(self) -> None:
+        """Answer via ofono VoiceCall."""
+        import dbus
+        bus = dbus.SystemBus()
+        try:
+            manager = bus.get_object("org.ofono", "/")
+            modems = dbus.Interface(manager, "org.ofono.Manager").GetModems()
+            for path, props in modems:
+                if "org.ofono.VoiceCallManager" in props.get("Interfaces", []):
+                    vcm_obj = bus.get_object("org.ofono", path)
+                    calls = dbus.Interface(vcm_obj, "org.ofono.VoiceCallManager").GetCalls()
+                    for call_path, call_props in calls:
+                        if call_props.get("State") == "incoming":
+                            call_iface = dbus.Interface(
+                                bus.get_object("org.ofono", call_path),
+                                "org.ofono.VoiceCall"
+                            )
+                            call_iface.Answer()
+                            log.info("HFP answered via ofono")
+                            return
+        except dbus.DBusException:
+            pass
+        log.debug("ofono not available for answer")
+
+    def _hfp_hangup_dbus(self) -> None:
+        """Hangup via ofono VoiceCallManager.HangupAll()."""
+        import dbus
+        bus = dbus.SystemBus()
+        try:
+            manager = bus.get_object("org.ofono", "/")
+            modems = dbus.Interface(manager, "org.ofono.Manager").GetModems()
+            for path, props in modems:
+                if "org.ofono.VoiceCallManager" in props.get("Interfaces", []):
+                    vcm = dbus.Interface(
+                        bus.get_object("org.ofono", path),
+                        "org.ofono.VoiceCallManager"
+                    )
+                    vcm.HangupAll()
+                    log.info("HFP hangup via ofono")
+                    return
+        except dbus.DBusException:
+            pass
+        log.debug("ofono not available for hangup")
 
     # --- AVRCP media metadata ---
 
