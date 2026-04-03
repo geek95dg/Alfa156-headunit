@@ -7,12 +7,12 @@ const NavBar = (() => {
     const NAV_ITEMS = [
         { icon: "home", screen: "a1", tip: "Dashboard" },
         { icon: "android", screen: "a2", tip: "Android Auto" },
+        { icon: "call", screen: "a8", tip: "Phone" },
         { icon: "route", screen: "a3", tip: "Trip" },
         { icon: "cloud", screen: "a4", tip: "Weather" },
         { icon: "build", screen: "a5", tip: "Service" },
         { icon: "videocam", screen: "a6", tip: "DVR" },
         { icon: "speed", screen: "a7", tip: "Performance" },
-        { icon: "call", screen: "a8", tip: "Phone" },
     ];
 
     function render(theme, activeScreen) {

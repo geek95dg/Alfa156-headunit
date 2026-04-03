@@ -20,7 +20,7 @@ log = get_logger("web_viewer")
 
 # Optional imports — Flask/gevent not required on OPi if using Pygame only
 try:
-    from flask import Flask, send_from_directory, jsonify, request
+    from flask import Flask, send_from_directory, jsonify, request, Response
     from flask_sock import Sock
     HAS_FLASK = True
 except ImportError:
@@ -295,21 +295,28 @@ class WebViewer:
 
         @app.route("/api/dvr/export", methods=["POST"])
         def api_dvr_export():
-            """Export selected files to USB drive."""
+            """Export selected files to USB drive (with optional target folder)."""
             data = request.get_json(silent=True) or {}
             files = data.get("files", [])
+            target_path = data.get("target_path", "/")
             # Find USB mount point
             import glob as g
             usb_mounts = g.glob("/media/usb*") + g.glob("/mnt/usb*")
             if not usb_mounts:
                 return jsonify({"error": "no USB drive"}), 400
-            usb_path = usb_mounts[0]
+            usb_root = usb_mounts[0]
+            dest = os.path.normpath(os.path.join(usb_root, target_path.lstrip("/")))
+            if not dest.startswith(usb_root):
+                return jsonify({"error": "invalid target path"}), 400
+            os.makedirs(dest, exist_ok=True)
             import shutil
+            copied = 0
             for f in files:
                 src = os.path.join("/media/dashcam", f)
                 if os.path.exists(src):
-                    shutil.copy2(src, os.path.join(usb_path, f))
-            return jsonify({"ok": True, "count": len(files)})
+                    shutil.copy2(src, os.path.join(dest, f))
+                    copied += 1
+            return jsonify({"ok": True, "count": copied, "target": dest})
 
         @app.route("/api/dvr/usb/status")
         def api_dvr_usb_status():
@@ -324,6 +331,53 @@ class WebViewer:
                 "free_gb": round(usage.free / (1024**3), 1),
                 "total_gb": round(usage.total / (1024**3), 1),
             })
+
+        @app.route("/api/dvr/usb/browse")
+        def api_dvr_usb_browse():
+            """List directories on USB drive for export target selection."""
+            import glob as g
+            usb_mounts = g.glob("/media/usb*") + g.glob("/mnt/usb*")
+            if not usb_mounts:
+                return jsonify({"error": "no USB drive"}), 400
+            usb_root = usb_mounts[0]
+            rel_path = request.args.get("path", "/")
+            abs_path = os.path.normpath(os.path.join(usb_root, rel_path.lstrip("/")))
+            if not abs_path.startswith(usb_root):
+                return jsonify({"error": "invalid path"}), 400
+            if not os.path.isdir(abs_path):
+                return jsonify({"error": "not a directory"}), 400
+            entries = []
+            for name in sorted(os.listdir(abs_path)):
+                full = os.path.join(abs_path, name)
+                if os.path.isdir(full):
+                    entries.append({"name": name, "type": "dir"})
+            rel = os.path.relpath(abs_path, usb_root)
+            return jsonify({"path": "/" if rel == "." else "/" + rel, "dirs": entries})
+
+        # --- Android Auto proxy ---
+
+        @app.route("/aa/stream")
+        def aa_stream():
+            """Proxy MJPEG stream from OpenAuto (port 5001) through BCM port 5002."""
+            import urllib.request
+            try:
+                req = urllib.request.urlopen("http://localhost:5001/stream", timeout=3)
+                return Response(
+                    req,
+                    mimetype=req.headers.get("Content-Type", "multipart/x-mixed-replace; boundary=frame"),
+                )
+            except Exception:
+                return "", 503
+
+        @app.route("/aa/status")
+        def aa_status():
+            """Check if OpenAuto is reachable."""
+            import urllib.request
+            try:
+                urllib.request.urlopen("http://localhost:5001/", timeout=2)
+                return jsonify({"available": True})
+            except Exception:
+                return jsonify({"available": False})
 
         # --- Phone API ---
 
