@@ -736,13 +736,13 @@ class BluetoothManager:
             log.info("BT pair (simulated): %s", address)
             return True
 
-        # Trust first to auto-accept
-        log.debug("BT pair: trusting %s before pairing", address)
-        _run_btctl(["trust", address])
+        # DO NOT trust before pairing — trust defeats PIN confirmation
         rc, out, err = _run_btctl(["pair", address], timeout=30.0)
         combined = (out + err).lower()
         if rc == 0 or "already" in combined:
-            log.info("BT paired successfully: %s", address)
+            # Trust AFTER successful pairing (enables auto-reconnect)
+            _run_btctl(["trust", address])
+            log.info("BT paired + trusted: %s", address)
             return True
         if "org.bluez.error" in combined:
             log.error("BT pair failed (BlueZ error): %s — %s", address,
@@ -773,9 +773,10 @@ class BluetoothManager:
         if self._connected_device and self._connected_device["address"] == address:
             self.disconnect()
 
+        _run_btctl(["untrust", address])
         rc, _, err = _run_btctl(["remove", address])
         if rc == 0:
-            log.info("BT removed: %s", address)
+            log.info("BT removed + untrusted: %s", address)
             return True
         log.error("BT remove failed: %s", err)
         return False

@@ -43,7 +43,15 @@ def _create_openauto_config(project_dir: str, app_config: Any = None) -> None:
     config at runtime (stores last BT device, settings, etc.).
     """
     config_path = os.path.join(project_dir, "openauto.ini")
-    # Always regenerate — our settings (resolution, touchscreen, WiFi) must match config
+    # Regenerate if missing or outdated (version marker check)
+    VERSION_MARKER = "; BCM_CONFIG_V3"
+    if os.path.exists(config_path):
+        try:
+            with open(config_path) as f:
+                if VERSION_MARKER in f.read():
+                    return  # Already up to date
+        except Exception:
+            pass
 
     ssid = ""
     password = ""
@@ -55,16 +63,15 @@ def _create_openauto_config(project_dir: str, app_config: Any = None) -> None:
         width = app_config.get("display.multimedia.width", 1024)
         height = app_config.get("display.multimedia.height", 600)
 
-    config_content = f"""; OpenAuto configuration for Alfa156 Headunit
+    config_content = f"""; BCM_CONFIG_V3 — OpenAuto configuration for Alfa156 Headunit
 [General]
 HandednessOfTrafficType=0
 
 [Video]
-FPS=30
-Resolution=0
+FPS=1
+Resolution=3
 MarginWidth=0
 MarginHeight=0
-ScreenDPI=120
 
 [Audio]
 MusicAudioChannelEnabled=1
@@ -84,8 +91,8 @@ ButtonCodes.Down=20
 ButtonCodes.Back=4
 ButtonCodes.Home=3
 TouchscreenEnabled=1
-TouchscreenWidth={width}
-TouchscreenHeight={height}
+TouchscreenWidth=800
+TouchscreenHeight=480
 
 [WiFi]
 SSID={ssid}
