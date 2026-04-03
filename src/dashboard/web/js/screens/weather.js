@@ -105,9 +105,14 @@ App.registerScreen("a4", (() => {
                 <!-- Left: Weather data -->
                 <div class="w-[260px] p-4 flex flex-col bg-[#221610] border-r border-amber-900/30 shrink-0">
                     <!-- Search (touch) -->
-                    <div class="flex items-center gap-2 bg-zinc-900/60 border border-amber-900/30 rounded-full px-3 py-1.5 mb-3">
-                        <span class="material-symbols-outlined text-amber-500" style="font-size:16px;">search</span>
-                        <input type="text" placeholder="${t("weather_search", "Szukaj lokalizacji...")}" class="bg-transparent border-none text-sm text-white placeholder-zinc-600 w-full outline-none p-0" style="font-size:12px;">
+                    <div class="relative mb-3">
+                        <div class="flex items-center gap-2 bg-zinc-900/60 border border-amber-900/30 rounded-full px-3 py-1.5">
+                            <span class="material-symbols-outlined text-amber-500" style="font-size:16px;">search</span>
+                            <input id="weather-search-input" type="text" placeholder="${t("weather_search", "Szukaj lokalizacji...")}"
+                                   class="bg-transparent border-none text-sm text-white placeholder-zinc-600 w-full outline-none p-0" style="font-size:12px;"
+                                   oninput="WeatherSearch.query(this.value)">
+                        </div>
+                        <div id="weather-search-results" class="absolute left-0 right-0 top-full mt-1 z-50 rounded-lg overflow-hidden" style="display:none;"></div>
                     </div>
                     <div class="mb-2">
                         <h1 id="weather-city" class="text-xl font-bold text-white">${city}</h1>
@@ -180,10 +185,18 @@ App.registerScreen("a4", (() => {
                 <div class="col-span-8 flex flex-col gap-3 h-full">
                     <div class="relative flex-grow rounded-xl overflow-hidden border border-zinc-800">
                         <div id="weather-map" class="absolute inset-0 z-0"></div>
-                        <!-- Location + weather overlay -->
-                        <div class="absolute top-3 left-3 z-10 px-3 py-2 rounded-lg flex items-center gap-2" style="background:rgba(0,0,0,0.75);border:1px solid rgba(255,255,255,0.1);">
-                            <span class="material-symbols-outlined text-red-500" style="font-size:16px;">location_on</span>
-                            <span id="weather-city" class="text-xs font-bold text-white">${city}</span>
+                        <!-- Search bar overlay -->
+                        <div class="absolute top-3 left-3 right-3 z-20 flex gap-2">
+                            <div class="relative flex-1">
+                                <div class="flex items-center gap-2 rounded-lg px-3 py-1.5" style="background:rgba(0,0,0,0.75);border:1px solid rgba(255,255,255,0.1);">
+                                    <span class="material-symbols-outlined text-red-500" style="font-size:16px;">search</span>
+                                    <input id="weather-search-input" type="text" placeholder="${t("weather_search","Search location...")}"
+                                           class="bg-transparent border-none text-xs text-white placeholder-zinc-500 w-full outline-none p-0"
+                                           oninput="WeatherSearch.query(this.value)" value="">
+                                    <span id="weather-city" class="text-xs font-bold text-white whitespace-nowrap">${city}</span>
+                                </div>
+                                <div id="weather-search-results" class="absolute left-0 right-0 top-full mt-1 z-50 rounded-lg overflow-hidden" style="display:none;"></div>
+                            </div>
                         </div>
                         <div class="absolute bottom-3 left-3 right-3 z-10 rounded-lg px-3 py-2 flex justify-between items-center" style="background:rgba(0,0,0,0.75);border:1px solid rgba(255,255,255,0.1);">
                             <div class="flex items-center gap-2">
@@ -247,6 +260,16 @@ App.registerScreen("a4", (() => {
                             <span class="material-symbols-outlined text-[120px] text-[#FF5F00]" style="font-variation-settings:'FILL' 1;">cloud</span>
                         </div>
                         <div class="relative z-10">
+                            <!-- Search bar -->
+                            <div class="relative mb-2">
+                                <div class="flex items-center gap-2 bg-black/40 border border-[#FF5F00]/20 rounded-full px-3 py-1">
+                                    <span class="material-symbols-outlined text-[#FF5F00]" style="font-size:14px;">search</span>
+                                    <input id="weather-search-input" type="text" placeholder="${t("weather_search","Search...")}"
+                                           class="bg-transparent border-none text-[11px] text-white placeholder-zinc-500 w-full outline-none p-0"
+                                           oninput="WeatherSearch.query(this.value)">
+                                </div>
+                                <div id="weather-search-results" class="absolute left-0 right-0 top-full mt-1 z-50 rounded-lg overflow-hidden" style="display:none;"></div>
+                            </div>
                             <div class="flex items-center gap-1 text-[#FF5F00] mb-1">
                                 <span class="material-symbols-outlined" style="font-size:14px;">location_on</span>
                                 <span id="weather-city" class="text-[10px] font-bold tracking-widest uppercase">${city}</span>
@@ -319,3 +342,73 @@ App.registerScreen("a4", (() => {
 
     return { render, mount, unmount, update };
 })());
+
+// WeatherSearch — live city autocomplete with debounce
+const WeatherSearch = {
+    _timer: null,
+    _results: [],
+
+    query(q) {
+        clearTimeout(WeatherSearch._timer);
+        if (!q || q.length < 2) {
+            WeatherSearch._hideResults();
+            return;
+        }
+        WeatherSearch._timer = setTimeout(() => WeatherSearch._fetch(q), 300);
+    },
+
+    async _fetch(q) {
+        try {
+            const res = await fetch(`/api/weather/search?q=${encodeURIComponent(q)}`);
+            const data = await res.json();
+            WeatherSearch._results = data.results || [];
+            WeatherSearch._showResults();
+        } catch (e) {
+            WeatherSearch._hideResults();
+        }
+    },
+
+    _showResults() {
+        const el = document.getElementById("weather-search-results");
+        if (!el || WeatherSearch._results.length === 0) {
+            WeatherSearch._hideResults();
+            return;
+        }
+        const theme = App.getTheme();
+        const bg = theme === "autodelta" ? "bg-black/90 border-[#FF5F00]/20" : theme === "modern" ? "bg-zinc-900/95 border-zinc-700" : "bg-[#1a0f0a]/95 border-amber-900/30";
+        const hoverCls = theme === "autodelta" ? "hover:bg-[#FF5F00]/10" : theme === "modern" ? "hover:bg-zinc-800" : "hover:bg-amber-900/20";
+        const accent = theme === "autodelta" ? "text-[#FF5F00]" : theme === "modern" ? "text-blue-400" : "text-amber-500";
+
+        el.innerHTML = `<div class="${bg} border rounded-lg overflow-hidden shadow-2xl">
+            ${WeatherSearch._results.map((r, i) => `<div class="px-3 py-2 cursor-pointer ${hoverCls} flex items-center gap-2 transition-colors"
+                 onclick="WeatherSearch.select(${i})">
+                <span class="material-symbols-outlined ${accent}" style="font-size:14px;">location_on</span>
+                <div>
+                    <span class="text-xs font-bold text-white">${r.name}</span>
+                    <span class="text-[10px] text-zinc-400 ml-1">${r.state ? r.state + ', ' : ''}${r.country}</span>
+                </div>
+            </div>`).join("")}
+        </div>`;
+        el.style.display = "block";
+    },
+
+    _hideResults() {
+        const el = document.getElementById("weather-search-results");
+        if (el) { el.style.display = "none"; el.innerHTML = ""; }
+    },
+
+    async select(idx) {
+        const r = WeatherSearch._results[idx];
+        if (!r) return;
+        WeatherSearch._hideResults();
+        const input = document.getElementById("weather-search-input");
+        if (input) input.value = "";
+        try {
+            await fetch("/api/weather/location", {
+                method: "POST",
+                headers: {"Content-Type": "application/json"},
+                body: JSON.stringify({lat: r.lat, lon: r.lon, city: `${r.name}, ${r.country}`}),
+            });
+        } catch (e) {}
+    },
+};

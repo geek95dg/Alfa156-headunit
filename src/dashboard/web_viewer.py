@@ -368,8 +368,9 @@ class WebViewer:
                 proc = subprocess.Popen(
                     ["ffmpeg", "-f", "x11grab", "-framerate", "15",
                      "-video_size", f"{w}x{h}",
+                     "-draw_mouse", "0",
                      "-i", ":99",
-                     "-f", "mjpeg", "-q:v", "5",
+                     "-f", "mjpeg", "-q:v", "2",
                      "-an", "pipe:1"],
                     stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
                 )
@@ -417,6 +418,27 @@ class WebViewer:
                 if st and st[0] in ("running", "connected"):
                     available = True
             return jsonify({"available": available})
+
+        @app.route("/aa/touch", methods=["POST"])
+        def aa_touch():
+            """Forward touch/click to Xvfb via xdotool."""
+            data = request.get_json(silent=True) or {}
+            rel_x = data.get("x", 0.5)
+            rel_y = data.get("y", 0.5)
+            cfg = viewer._config
+            w = cfg.get("display.multimedia.width", 1024) if cfg else 1024
+            h = cfg.get("display.multimedia.height", 600) if cfg else 600
+            px = max(0, min(w, int(rel_x * w)))
+            py = max(0, min(h, int(rel_y * h)))
+            try:
+                subprocess.run(
+                    ["xdotool", "mousemove", "--screen", "0",
+                     str(px), str(py), "click", "1"],
+                    timeout=2, capture_output=True,
+                )
+                return jsonify({"ok": True, "x": px, "y": py})
+            except Exception:
+                return jsonify({"ok": False}), 500
 
         # --- Bluetooth management API (moved from aa_display.py) ---
 
@@ -586,6 +608,49 @@ class WebViewer:
                 i = viewer._event_bus.get_last("bt.call_info")
                 if i: info = i[0] or {}
             return jsonify({"state": state, "info": info})
+
+        # --- Weather search API ---
+
+        @app.route("/api/weather/search")
+        def api_weather_search():
+            """Geocode city name via OpenWeatherMap Geocoding API."""
+            import urllib.request
+            import urllib.parse
+            query = request.args.get("q", "").strip()
+            if not query or len(query) < 2:
+                return jsonify({"results": []})
+            api_key = ""
+            if viewer._config:
+                api_key = viewer._config.get("weather", {}).get("api_key", "")
+            if not api_key:
+                return jsonify({"results": [], "error": "no API key"}), 400
+            url = (f"https://api.openweathermap.org/geo/1.0/direct"
+                   f"?q={urllib.parse.quote(query)}&limit=5&appid={api_key}")
+            try:
+                req = urllib.request.Request(url, headers={"User-Agent": "BCM/1.0"})
+                with urllib.request.urlopen(req, timeout=5) as resp:
+                    raw = json.loads(resp.read())
+                results = [{"name": r.get("name", ""),
+                            "country": r.get("country", ""),
+                            "state": r.get("state", ""),
+                            "lat": r.get("lat", 0),
+                            "lon": r.get("lon", 0)} for r in raw]
+                return jsonify({"results": results})
+            except Exception as e:
+                return jsonify({"results": [], "error": str(e)}), 500
+
+        @app.route("/api/weather/location", methods=["POST"])
+        def api_weather_set_location():
+            """Set weather location (from search). Triggers re-fetch."""
+            data = request.get_json(silent=True) or {}
+            lat = data.get("lat")
+            lon = data.get("lon")
+            city = data.get("city", "")
+            if lat is not None and lon is not None and viewer._event_bus:
+                viewer._event_bus.publish("weather.search_location",
+                                          {"lat": lat, "lon": lon, "city": city})
+                return jsonify({"ok": True})
+            return jsonify({"error": "missing lat/lon"}), 400
 
         # --- DTC API ---
 

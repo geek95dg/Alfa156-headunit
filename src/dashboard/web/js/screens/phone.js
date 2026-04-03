@@ -14,6 +14,8 @@ const Phone = {
     _contacts: [],
     _history: [],
     _contactsFilter: "",
+    _callState: "idle",      // "idle" | "ringing" | "active" | "incoming"
+    _callInfo: {},
 
     setTab(tab) { Phone._tab = tab; App.navigateTo("a8"); },
 
@@ -34,13 +36,27 @@ const Phone = {
 
     async dial() {
         if (!Phone._input) return;
+        const number = Phone._input;
+        // Show calling overlay immediately
+        Phone._callState = "ringing";
+        Phone._callInfo = { number: number, name: "" };
+        Phone._input = "";
+        App.navigateTo("a8");
         try {
             await fetch("/api/phone/dial", {
                 method: "POST",
                 headers: {"Content-Type": "application/json"},
-                body: JSON.stringify({number: Phone._input}),
+                body: JSON.stringify({number: number}),
             });
         } catch (e) {}
+        // Simulate call ending after 5s (until real BT HFP integration)
+        setTimeout(() => {
+            if (Phone._callState === "ringing") {
+                Phone._callState = "idle";
+                Phone._callInfo = {};
+                App.navigateTo("a8");
+            }
+        }, 5000);
     },
 
     async answer() {
@@ -84,8 +100,6 @@ const Phone = {
 };
 
 App.registerScreen("a8", (() => {
-    let _callState = "idle"; // "idle" | "ringing" | "active" | "incoming"
-    let _callInfo = {};
     let _contactsLoaded = false;
     let _historyLoaded = false;
 
@@ -98,6 +112,8 @@ App.registerScreen("a8", (() => {
         const tabInactive = theme === "modern" ? "bg-slate-200 text-slate-600" : "bg-zinc-800 text-zinc-400";
 
         const tab = Phone._tab;
+        const _callState = Phone._callState || "idle";
+        const _callInfo = Phone._callInfo || {};
         const callActive = _callState !== "idle";
 
         container.innerHTML = `<div class="screen-container ${bgCls}">
@@ -252,9 +268,9 @@ App.registerScreen("a8", (() => {
     }
 
     function update(data) {
-        if (data.bt_call_state && data.bt_call_state !== _callState) {
-            _callState = data.bt_call_state;
-            _callInfo = data.bt_call_info || {};
+        if (data.bt_call_state && data.bt_call_state !== Phone._callState) {
+            Phone._callState = data.bt_call_state;
+            Phone._callInfo = data.bt_call_info || {};
             App.navigateTo("a8");
         }
     }

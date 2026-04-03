@@ -75,9 +75,10 @@ class WeatherManager:
             return
         self._running = True
 
-        # Subscribe to GPS and LTE events
+        # Subscribe to GPS, LTE, and search location events
         self._bus.subscribe("gps.position", self._on_gps_position)
         self._bus.subscribe("lte.connected", self._on_lte_status)
+        self._bus.subscribe("weather.search_location", self._on_search_location)
 
         self._thread = threading.Thread(target=self._run, daemon=True,
                                         name="weather-poller")
@@ -90,6 +91,7 @@ class WeatherManager:
         self._running = False
         self._bus.unsubscribe("gps.position", self._on_gps_position)
         self._bus.unsubscribe("lte.connected", self._on_lte_status)
+        self._bus.unsubscribe("weather.search_location", self._on_search_location)
         if self._thread:
             self._thread.join(timeout=3)
         log.info("WeatherManager stopped")
@@ -104,6 +106,16 @@ class WeatherManager:
     def _on_lte_status(self, topic, value, timestamp):
         """Handle LTE connectivity updates."""
         self._lte_connected = bool(value)
+
+    def _on_search_location(self, topic, value, timestamp):
+        """Handle user-selected city from weather search."""
+        if isinstance(value, dict):
+            self._lat = value.get("lat", self._lat)
+            self._lon = value.get("lon", self._lon)
+            self._has_gps = True
+            self._last_fetch = 0  # Force immediate re-fetch
+            log.info("Weather location set via search: %.2f, %.2f (%s)",
+                     self._lat, self._lon, value.get("city", ""))
 
     def _run(self):
         """Main weather polling loop."""
