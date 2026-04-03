@@ -26,7 +26,9 @@ const Settings = {
         Settings._btScanning = true;
         App.navigateTo("settings");
         try { await fetch("/bt/scan", { method: "POST" }); } catch (e) {}
-        setTimeout(() => Settings.btRefresh(), 3000);
+        // Backend scans for 15s — refresh at 10s and 16s to catch all devices
+        setTimeout(() => Settings.btRefresh(), 10000);
+        setTimeout(() => Settings.btRefresh(), 16000);
     },
 
     async btConnect(addr) {

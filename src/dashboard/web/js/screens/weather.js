@@ -438,5 +438,7 @@ const WeatherSearch = {
             const result = await resp.json();
             console.log("[WeatherSearch] location POST response:", result);
         } catch (e) { console.error("[WeatherSearch] location POST failed:", e); }
+        // Force full re-render after backend fetches new data (5s poll + fetch time)
+        setTimeout(() => { App.navigateTo("a4"); }, 6000);
     },
 };
