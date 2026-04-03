@@ -62,9 +62,10 @@ HandednessOfTrafficType=0
 
 [Video]
 FPS=30
-Resolution=4
+Resolution=0
 MarginWidth=0
 MarginHeight=0
+ScreenDPI=120
 
 [Audio]
 MusicAudioChannelEnabled=1

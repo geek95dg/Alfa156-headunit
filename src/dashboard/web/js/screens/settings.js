@@ -41,13 +41,27 @@ const Settings = {
 
     async btPair(addr) {
         console.log("[BT] Pairing:", addr);
-        try { await fetch(`/bt/pair/${addr}`, { method: "POST" }); } catch (e) {}
-        // Poll for pairing confirmation (PIN popup)
+        // Start polling for PIN popup FIRST (before the blocking pair request)
+        Settings._startPairingPoll();
+        // Fire pair request WITHOUT awaiting — backend blocks up to 30s during pairing
+        fetch(`/bt/pair/${addr}`, { method: "POST" })
+            .then(() => { console.log("[BT] Pair request completed"); Settings.btRefresh(); })
+            .catch((e) => { console.error("[BT] Pair request failed:", e); });
+    },
+
+    _pairingPopupVisible: false,
+    _pairingPoll: null,
+    _pairingPollCount: 0,
+
+    _startPairingPoll() {
+        // Stop any existing poll
+        if (Settings._pairingPoll) clearInterval(Settings._pairingPoll);
         Settings._pairingPollCount = 0;
         Settings._pairingPoll = setInterval(async () => {
             Settings._pairingPollCount++;
             if (Settings._pairingPollCount > 60) { // 30s timeout
                 clearInterval(Settings._pairingPoll);
+                Settings._pairingPoll = null;
                 Settings._hidePairingPopup();
                 Settings.btRefresh();
                 return;
@@ -58,17 +72,15 @@ const Settings = {
                 if (data.pending && data.request) {
                     Settings._showPairingPopup(data.request);
                 } else if (Settings._pairingPopupVisible) {
-                    // Pairing resolved
+                    // Pairing resolved — close popup
                     clearInterval(Settings._pairingPoll);
+                    Settings._pairingPoll = null;
                     Settings._hidePairingPopup();
                     Settings.btRefresh();
                 }
             } catch (e) {}
         }, 500);
-        setTimeout(() => Settings.btRefresh(), 3000);
     },
-
-    _pairingPopupVisible: false,
 
     _showPairingPopup(req) {
         if (Settings._pairingPopupVisible) return;

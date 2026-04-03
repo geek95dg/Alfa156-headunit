@@ -2,6 +2,10 @@
  * A2 Android Auto Screen — kiosk embed with BCM header + nav.
  * MJPEG stream fills content area between AppBar and NavBar.
  * Touch events forwarded to Xvfb via xdotool.
+ *
+ * NOTE: On x86/VM, AA is streamed via MJPEG from Xvfb — quality is limited.
+ * On Orange Pi hardware, OpenAuto renders natively via SDL2/EGL to HDMI-2
+ * at full quality without MJPEG overhead.
  */
 
 App.registerScreen("a2", (() => {

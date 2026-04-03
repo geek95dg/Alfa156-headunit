@@ -370,11 +370,11 @@ class WebViewer:
             h = cfg.get("display.multimedia.height", 600) if cfg else 600
             try:
                 proc = subprocess.Popen(
-                    ["ffmpeg", "-f", "x11grab", "-framerate", "30",
+                    ["ffmpeg", "-f", "x11grab", "-framerate", "25",
                      "-video_size", f"{w}x{h}",
                      "-draw_mouse", "0",
                      "-i", ":99",
-                     "-f", "mjpeg", "-q:v", "2",
+                     "-f", "mjpeg", "-q:v", "3",
                      "-an", "pipe:1"],
                     stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
                 )

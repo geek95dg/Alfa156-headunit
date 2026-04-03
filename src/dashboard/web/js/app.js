@@ -323,11 +323,10 @@ const App = (() => {
         if (_renderers[_currentScreen] && _renderers[_currentScreen].update) {
             _renderers[_currentScreen].update(data, _currentTheme);
         }
-        // Auto-show reverse overlay when gear=R from event bus (not manual toggle)
-        if (data.reverse === true && !_reverseOverlayActive) {
-            _reverseManual = false;
-            _showReverseOverlay();
-        } else if (data.reverse === false && _reverseOverlayActive && !_reverseManual) {
+        // Reverse camera shows on small display (5003) only — not on big display
+        // Manual toggle via R key still works for testing
+        // if (data.reverse === true && !_reverseOverlayActive) { _showReverseOverlay(); }
+        if (data.reverse === false && _reverseOverlayActive && !_reverseManual) {
             _hideReverseOverlay();
         }
         // Icing alert check
