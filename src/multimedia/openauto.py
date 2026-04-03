@@ -181,32 +181,41 @@ class OpenAutoController:
                 xvfb_display = self._start_xvfb()
                 if xvfb_display:
                     env["DISPLAY"] = xvfb_display
-                    log.info("x86: rendering to Xvfb %s", xvfb_display)
+                    # Force Qt to use xcb platform with Xvfb (not offscreen)
+                    env["QT_QPA_PLATFORM"] = "xcb"
+                    log.info("x86: rendering to Xvfb %s (Qt xcb)", xvfb_display)
                 else:
                     env["QT_QPA_PLATFORM"] = "offscreen"
-                    log.warning("x86: Xvfb failed, falling back to offscreen")
+                    log.warning("x86: Xvfb failed, falling back to offscreen "
+                                "(AA video will NOT work)")
             else:
                 log.info("x86 with display: DISPLAY=%s", env.get("DISPLAY"))
 
-        # Ensure XDG_RUNTIME_DIR is set with correct permissions (0700)
-        if "XDG_RUNTIME_DIR" not in env:
-            runtime_dir = "/tmp/runtime-root"
-            env["XDG_RUNTIME_DIR"] = runtime_dir
-            os.makedirs(runtime_dir, exist_ok=True)
-            os.chmod(runtime_dir, 0o700)
-            log.debug("Set XDG_RUNTIME_DIR=%s (mode 0700)", runtime_dir)
-
-        # Connect to PipeWire-pulse if running under different user
+        # Connect to PipeWire-pulse if running under different user.
+        # Set PULSE_SERVER so autoapp can reach PipeWire-pulse socket.
+        # XDG_RUNTIME_DIR must point to our own process (root) runtime dir
+        # to avoid Qt warnings, but PULSE_SERVER can reference another user.
         if "PULSE_SERVER" not in env:
-            # Try common PipeWire-pulse socket paths
             for uid in [1000, os.getuid()]:
                 sock = f"/run/user/{uid}/pulse/native"
                 if os.path.exists(sock):
                     env["PULSE_SERVER"] = f"unix:{sock}"
-                    log.info("PulseAudio socket: %s", sock)
+                    env["PIPEWIRE_RUNTIME_DIR"] = f"/run/user/{uid}"
+                    log.info("Audio: PULSE_SERVER=%s", sock)
                     break
             else:
                 log.warning("No PulseAudio socket found — audio may not work")
+
+        # Ensure XDG_RUNTIME_DIR is set for the running process's own UID
+        if "XDG_RUNTIME_DIR" not in env:
+            my_uid = os.getuid()
+            runtime_dir = f"/run/user/{my_uid}"
+            if not os.path.isdir(runtime_dir):
+                runtime_dir = "/tmp/runtime-root"
+                os.makedirs(runtime_dir, exist_ok=True)
+                os.chmod(runtime_dir, 0o700)
+            env["XDG_RUNTIME_DIR"] = runtime_dir
+            log.debug("Set XDG_RUNTIME_DIR=%s", runtime_dir)
 
         try:
             self._process = subprocess.Popen(
@@ -264,27 +273,74 @@ class OpenAutoController:
         """Start Xvfb virtual framebuffer for AA rendering."""
         if self._xvfb_process and self._xvfb_process.poll() is None:
             return self.XVFB_DISPLAY
+
+        display_num = self.XVFB_DISPLAY  # e.g. ":99"
+
+        # Clean up stale Xvfb on this display (previous crash / unclean shutdown)
+        self._cleanup_stale_xvfb(display_num)
+
         try:
             width = self._config.get("display.multimedia.width", 1024)
             height = self._config.get("display.multimedia.height", 600)
             self._xvfb_process = subprocess.Popen(
-                ["Xvfb", self.XVFB_DISPLAY, "-screen", "0",
+                ["Xvfb", display_num, "-screen", "0",
                  f"{width}x{height}x24", "-ac"],
-                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                stdout=subprocess.DEVNULL, stderr=subprocess.PIPE,
             )
             time.sleep(0.5)
             if self._xvfb_process.poll() is not None:
-                log.error("Xvfb exited immediately")
+                stderr = ""
+                try:
+                    stderr = self._xvfb_process.stderr.read().decode(
+                        errors="replace")[:200]
+                except Exception:
+                    pass
+                log.error("Xvfb exited immediately: %s", stderr)
                 return None
-            log.info("Xvfb started on %s (%dx%d)", self.XVFB_DISPLAY,
-                     width, height)
-            return self.XVFB_DISPLAY
+            log.info("Xvfb started on %s (%dx%d)", display_num, width, height)
+            return display_num
         except FileNotFoundError:
             log.warning("Xvfb not installed")
             return None
         except Exception as e:
             log.error("Xvfb start failed: %s", e)
             return None
+
+    @staticmethod
+    def _cleanup_stale_xvfb(display: str) -> None:
+        """Kill stale Xvfb process and remove lock file for given display."""
+        num = display.lstrip(":")
+        lock_file = f"/tmp/.X{num}-lock"
+        try:
+            if os.path.exists(lock_file):
+                with open(lock_file) as f:
+                    old_pid = int(f.read().strip())
+                # Check if that PID is still an Xvfb process
+                try:
+                    cmdline_path = f"/proc/{old_pid}/cmdline"
+                    if os.path.exists(cmdline_path):
+                        with open(cmdline_path, "rb") as cf:
+                            cmdline = cf.read().decode(errors="replace")
+                        if "Xvfb" in cmdline:
+                            os.kill(old_pid, signal.SIGTERM)
+                            time.sleep(0.5)
+                            # Force kill if still alive
+                            try:
+                                os.kill(old_pid, signal.SIGKILL)
+                            except ProcessLookupError:
+                                pass
+                            log.info("Killed stale Xvfb (PID %d) on %s",
+                                     old_pid, display)
+                except (ProcessLookupError, PermissionError):
+                    pass
+                # Remove lock and socket files
+                for path in [lock_file, f"/tmp/.X11-unix/X{num}"]:
+                    try:
+                        os.remove(path)
+                    except FileNotFoundError:
+                        pass
+        except Exception as e:
+            log.debug("Xvfb stale cleanup: %s", e)
 
     def _stop_xvfb(self) -> None:
         """Stop Xvfb."""
@@ -352,7 +408,11 @@ class OpenAutoController:
             log.exception("Error reading autoapp logs")
 
     def _watchdog(self) -> None:
-        """Monitor OpenAuto process and restart on crash."""
+        """Monitor OpenAuto process and restart on crash.
+
+        Uses exponential backoff (3s→6s→12s) and stops after max restarts.
+        Publishes detailed status to event bus so the web UI can show the state.
+        """
         _restart_count = 0
         _max_restarts = 3
         while self._running:
@@ -366,17 +426,22 @@ class OpenAutoController:
                               "Check port 5000 and BT service conflicts.",
                               _restart_count)
                     self._event_bus.publish("multimedia.openauto_status",
-                                            "error")
+                                            "failed")
+                    self._event_bus.publish("multimedia.openauto_error",
+                                            f"Crashed {_restart_count} times "
+                                            f"(last exit code: {exit_code})")
                     self._running = False
                     return
 
                 # Exponential backoff: 3s, 6s, 12s
-                delay = 3 * (2 ** (_restart_count - 1))
+                delay = min(60, 3 * (2 ** (_restart_count - 1)))
                 log.warning("OpenAuto exited (code %d) — restart %d/%d in %ds",
                             exit_code, _restart_count, _max_restarts, delay)
                 self._event_bus.publish("multimedia.openauto_status",
                                         "restarting")
 
+                # Clean up Xvfb between restarts to prevent stale display
+                self._stop_xvfb()
                 time.sleep(delay)
                 if self._running:
                     self.start()

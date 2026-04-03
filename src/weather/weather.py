@@ -11,13 +11,13 @@ Publishes to event bus:
 """
 
 import json
-import logging
+from src.core.logger import get_logger
 import os
 import threading
 import time
 from pathlib import Path
 
-log = logging.getLogger(__name__)
+log = get_logger("weather")
 
 CACHE_DIR = Path.home() / ".cache" / "bcm"
 CACHE_FILE = CACHE_DIR / "weather.json"
@@ -113,9 +113,30 @@ class WeatherManager:
             self._lat = value.get("lat", self._lat)
             self._lon = value.get("lon", self._lon)
             self._has_gps = True
-            self._last_fetch = 0  # Force immediate re-fetch
             log.info("Weather location set via search: %.2f, %.2f (%s)",
                      self._lat, self._lon, value.get("city", ""))
+            # Directly trigger fetch in background thread instead of relying on poll loop
+            threading.Thread(target=self._immediate_fetch, daemon=True,
+                             name="weather-search-fetch").start()
+
+    def _immediate_fetch(self):
+        """Fetch weather immediately (called from search handler)."""
+        if not self._api_key:
+            log.warning("Cannot fetch weather: no API key")
+            return
+        try:
+            data = self._fetch_weather()
+            if data:
+                self._publish_data(data)
+                self._save_cache(data)
+                self._last_fetch = time.time()
+                log.info("Weather search fetch SUCCESS: %s, %.1f°C",
+                         data.get("city", "?"),
+                         data.get("current", {}).get("temp", 0))
+            else:
+                log.warning("Weather search fetch returned None")
+        except Exception as e:
+            log.error("Weather search fetch FAILED: %s", e, exc_info=True)
 
     def _run(self):
         """Main weather polling loop."""

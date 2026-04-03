@@ -12,13 +12,40 @@ App.registerScreen("a2", (() => {
     function render(container, theme, data) {
         const t = App.t.bind(App);
         const bgCls = theme === "modern" ? "bg-slate-100 text-slate-900" : "bg-black text-white";
+        const aaStatus = data.aa_status || "unavailable";
+        const isFailed = aaStatus === "failed" || aaStatus === "error";
+        const isUnavailable = aaStatus === "unavailable";
+        const isRestarting = aaStatus === "restarting";
+
+        // Status badge for header
+        let statusBadge = "";
+        if (isFailed) {
+            statusBadge = `<div class="absolute top-16 left-1/2 -translate-x-1/2 z-20 bg-red-600/90 text-white text-xs font-bold px-4 py-1.5 rounded-full">AA Service Failed</div>`;
+        } else if (isRestarting) {
+            statusBadge = `<div class="absolute top-16 left-1/2 -translate-x-1/2 z-20 bg-amber-600/90 text-white text-xs font-bold px-4 py-1.5 rounded-full animate-pulse">Restarting...</div>`;
+        }
+
+        // Placeholder message varies by status
+        let placeholderMsg = t("connect_aa");
+        let placeholderIcon = "link_off";
+        if (isUnavailable) {
+            placeholderMsg = "OpenAuto not installed";
+            placeholderIcon = "block";
+        } else if (isFailed) {
+            placeholderMsg = "Android Auto service failed. Check logs or restart.";
+            placeholderIcon = "error";
+        } else if (isRestarting) {
+            placeholderMsg = "Android Auto is restarting...";
+            placeholderIcon = "sync";
+        }
 
         container.innerHTML = `<div class="screen-container ${bgCls}">
             ${AppBar.render(theme, data)}
             <main class="content-area relative overflow-hidden bg-black">
+                ${statusBadge}
                 <!-- AA Stream — fills content area between header and nav -->
                 <img id="aa-stream" src="/aa/stream" alt=""
-                     class="absolute inset-0 w-full h-full object-contain z-0"
+                     class="absolute inset-0 w-full h-full object-fill z-0"
                      style="display:none;"
                      onload="this.style.display='block';document.getElementById('aa-placeholder').style.display='none';document.getElementById('aa-touch-overlay').style.display='block';"
                      onerror="this.style.display='none';document.getElementById('aa-placeholder').style.display='flex';document.getElementById('aa-touch-overlay').style.display='none';">
@@ -34,12 +61,12 @@ App.registerScreen("a2", (() => {
                     <div class="relative">
                         <span class="material-symbols-outlined text-8xl opacity-20">android</span>
                         <div class="absolute -bottom-1 -right-1 w-6 h-6 rounded-full ${theme==='modern'?'bg-slate-300':'bg-zinc-700'} flex items-center justify-center">
-                            <span class="material-symbols-outlined text-sm opacity-60">link_off</span>
+                            <span class="material-symbols-outlined text-sm opacity-60">${placeholderIcon}</span>
                         </div>
                     </div>
                     <div class="text-center">
                         <h2 class="text-2xl font-bold mb-2">${t("android_auto")}</h2>
-                        <p class="opacity-50 text-sm max-w-md">${t("connect_aa")}</p>
+                        <p class="opacity-50 text-sm max-w-md">${placeholderMsg}</p>
                     </div>
                     <div class="flex gap-6 mt-4">
                         <div class="flex flex-col items-center gap-2 opacity-30">

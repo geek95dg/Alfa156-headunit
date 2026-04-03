@@ -6,8 +6,8 @@
 const NavBar = (() => {
     const NAV_ITEMS = [
         { icon: "home", screen: "a1", tip: "Dashboard" },
-        { icon: "android", screen: "a2", tip: "Android Auto" },
-        { icon: "call", screen: "a8", tip: "Phone" },
+        { icon: "android", screen: "a2", tip: "Android Auto", requiresAA: true },
+        { icon: "call", screen: "a8", tip: "Phone", requiresBT: true },
         { icon: "route", screen: "a3", tip: "Trip" },
         { icon: "cloud", screen: "a4", tip: "Weather" },
         { icon: "build", screen: "a5", tip: "Service" },
@@ -25,9 +25,22 @@ const NavBar = (() => {
     }
 
     function _render(activeIdx, barCls, activeColor, inactiveColor, activeBg) {
+        const data = DataStore.getAll();
+        const aaAvailable = data.aa_available || data.aa_status === "running" || data.aa_status === "connected";
+        const btAvailable = data.bt_available || data.bt_connected;
+
         const items = NAV_ITEMS.map((item, i) => {
             const isActive = i === activeIdx;
+            // Dim items that require unavailable features
+            const isDisabled = (item.requiresAA && !aaAvailable) || (item.requiresBT && !btAvailable);
             const iconStyle = isActive ? "font-variation-settings:'FILL' 1;" : "";
+
+            if (isDisabled && !isActive) {
+                return `<div class="flex items-center justify-center text-zinc-500 w-10 h-10 cursor-pointer opacity-50 transition-all"
+                         title="${item.tip} (unavailable)" onclick="App.navigateTo('${item.screen}')">
+                    <span class="material-symbols-outlined" style="font-size:22px;">${item.icon}</span>
+                </div>`;
+            }
             if (isActive) {
                 return `<div class="flex items-center justify-center ${activeBg} ${activeColor} rounded-xl w-10 h-10 cursor-pointer transition-all"
                          title="${item.tip}" onclick="App.navigateTo('${item.screen}')">
