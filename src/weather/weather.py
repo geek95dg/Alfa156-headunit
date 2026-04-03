@@ -119,16 +119,21 @@ class WeatherManager:
 
     def _run(self):
         """Main weather polling loop."""
-        # Load cached data on startup
+        # Always publish demo data on startup so UI is never empty
+        self._publish_data(DEMO_WEATHER)
+        log.info("Weather: published demo data as initial fallback")
+
+        # Load cached data on startup (overrides demo)
         cached = self._load_cache()
         if cached:
             self._publish_data(cached)
             log.info("Weather loaded from cache: %s", cached.get("city", "?"))
 
-        # If no API key or x86, publish demo data immediately
         if not self._api_key:
-            self._publish_data(DEMO_WEATHER)
-            log.info("No weather API key — using demo data (Milan)")
+            log.warning("No weather API key — staying on demo/cached data")
+        else:
+            log.info("Weather API key set, will fetch real data (key=%s...)",
+                     self._api_key[:8])
 
         while self._running:
             now = time.time()
