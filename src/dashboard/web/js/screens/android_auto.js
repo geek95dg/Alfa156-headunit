@@ -14,7 +14,7 @@ App.registerScreen("a2", (() => {
             <main class="content-area relative overflow-hidden bg-black">
                 <!-- AA Stream — fills content area between header and nav -->
                 <img id="aa-stream" src="/aa/stream" alt=""
-                     class="absolute inset-0 w-full h-full object-cover z-0"
+                     class="absolute inset-0 w-full h-full object-contain z-0"
                      style="display:none;"
                      onload="this.style.display='block';document.getElementById('aa-placeholder').style.display='none';document.getElementById('aa-touch-overlay').style.display='block';"
                      onerror="this.style.display='none';document.getElementById('aa-placeholder').style.display='flex';document.getElementById('aa-touch-overlay').style.display='none';">

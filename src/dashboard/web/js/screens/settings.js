@@ -40,8 +40,81 @@ const Settings = {
     },
 
     async btPair(addr) {
+        console.log("[BT] Pairing:", addr);
         try { await fetch(`/bt/pair/${addr}`, { method: "POST" }); } catch (e) {}
-        setTimeout(() => Settings.btRefresh(), 2000);
+        // Poll for pairing confirmation (PIN popup)
+        Settings._pairingPollCount = 0;
+        Settings._pairingPoll = setInterval(async () => {
+            Settings._pairingPollCount++;
+            if (Settings._pairingPollCount > 60) { // 30s timeout
+                clearInterval(Settings._pairingPoll);
+                Settings._hidePairingPopup();
+                Settings.btRefresh();
+                return;
+            }
+            try {
+                const res = await fetch("/bt/pairing");
+                const data = await res.json();
+                if (data.pending && data.request) {
+                    Settings._showPairingPopup(data.request);
+                } else if (Settings._pairingPopupVisible) {
+                    // Pairing resolved
+                    clearInterval(Settings._pairingPoll);
+                    Settings._hidePairingPopup();
+                    Settings.btRefresh();
+                }
+            } catch (e) {}
+        }, 500);
+        setTimeout(() => Settings.btRefresh(), 3000);
+    },
+
+    _pairingPopupVisible: false,
+
+    _showPairingPopup(req) {
+        if (Settings._pairingPopupVisible) return;
+        Settings._pairingPopupVisible = true;
+        const t = (App && App.t) ? App.t.bind(App) : (k, d) => d;
+        let overlay = document.getElementById("bt-pairing-overlay");
+        if (!overlay) {
+            overlay = document.createElement("div");
+            overlay.id = "bt-pairing-overlay";
+            document.body.appendChild(overlay);
+        }
+        overlay.className = "fixed inset-0 z-[200] flex items-center justify-center";
+        overlay.style.background = "rgba(0,0,0,0.85)";
+        overlay.innerHTML = `<div class="bg-zinc-900 border border-zinc-700 rounded-2xl p-6 w-[360px] shadow-2xl text-white text-center">
+            <span class="material-symbols-outlined text-4xl text-blue-400 mb-3">bluetooth</span>
+            <h3 class="text-lg font-bold mb-2">${t("bt_pair_confirm","Confirm Pairing")}</h3>
+            <p class="text-sm text-zinc-400 mb-4">${req.address}</p>
+            <div class="bg-zinc-800 rounded-xl py-4 px-6 mb-4">
+                <span class="text-3xl font-mono font-bold tracking-[0.3em] text-white">${req.passkey || "------"}</span>
+            </div>
+            <p class="text-[10px] text-zinc-500 mb-4">${t("bt_pair_match","Does this code match your device?")}</p>
+            <div class="flex gap-3 justify-center">
+                <button class="px-6 py-2 bg-zinc-700 rounded-lg text-sm font-bold hover:bg-zinc-600" onclick="Settings.btPairingRespond(false)">${t("reject","Reject")}</button>
+                <button class="px-6 py-2 bg-green-600 rounded-lg text-sm font-bold hover:bg-green-500" onclick="Settings.btPairingRespond(true)">${t("answer","Accept")}</button>
+            </div>
+        </div>`;
+    },
+
+    _hidePairingPopup() {
+        Settings._pairingPopupVisible = false;
+        const overlay = document.getElementById("bt-pairing-overlay");
+        if (overlay) overlay.remove();
+    },
+
+    async btPairingRespond(accept) {
+        console.log("[BT] Pairing response:", accept);
+        try {
+            await fetch("/bt/pairing/confirm", {
+                method: "POST",
+                headers: {"Content-Type": "application/json"},
+                body: JSON.stringify({accept}),
+            });
+        } catch (e) {}
+        if (Settings._pairingPoll) clearInterval(Settings._pairingPoll);
+        Settings._hidePairingPopup();
+        setTimeout(() => Settings.btRefresh(), 1000);
     },
 
     async btRemove(addr) {

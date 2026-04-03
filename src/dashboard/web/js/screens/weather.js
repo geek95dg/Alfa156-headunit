@@ -63,6 +63,10 @@ App.registerScreen("a4", (() => {
 
         L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 19 }).addTo(_map);
 
+        // Store map reference globally so WeatherSearch can access it
+        window._weatherMap = _map;
+        window._weatherMarker = null;
+
         const theme = App.getTheme();
         const color = theme === "modern" ? "#3b82f6" : theme === "autodelta" ? "#FF5F00" : "#f59e0b";
         _marker = L.marker([lat, lon], {
@@ -72,6 +76,7 @@ App.registerScreen("a4", (() => {
                 iconSize: [14, 14], iconAnchor: [7, 7],
             }),
         }).addTo(_map);
+        window._weatherMarker = _marker;
     }
 
     function _forecastRow(day, icon, high, low, theme) {
@@ -406,12 +411,24 @@ const WeatherSearch = {
         WeatherSearch._hideResults();
         const input = document.getElementById("weather-search-input");
         if (input) input.value = "";
+
+        // Move map + update city IMMEDIATELY (don't wait for backend)
+        const cityName = `${r.name}, ${r.country}`;
+        const cityEl = document.getElementById("weather-city");
+        if (cityEl) cityEl.textContent = cityName;
+        if (window._weatherMap) {
+            window._weatherMap.setView([r.lat, r.lon], 11);
+            if (window._weatherMarker) window._weatherMarker.setLatLng([r.lat, r.lon]);
+        }
+        console.log("[WeatherSearch] Selected:", cityName, r.lat, r.lon);
+
+        // Tell backend to re-fetch weather for this location
         try {
             await fetch("/api/weather/location", {
                 method: "POST",
                 headers: {"Content-Type": "application/json"},
-                body: JSON.stringify({lat: r.lat, lon: r.lon, city: `${r.name}, ${r.country}`}),
+                body: JSON.stringify({lat: r.lat, lon: r.lon, city: cityName}),
             });
-        } catch (e) {}
+        } catch (e) { console.error("[WeatherSearch] location POST failed:", e); }
     },
 };

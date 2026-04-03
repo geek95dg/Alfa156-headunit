@@ -188,6 +188,8 @@ STRINGS: dict[str, dict[str, str]] = {
         "bt_remove": "Usuń",
         "bt_no_devices": "Brak urządzeń. Naciśnij Skanuj.",
         "bt_discoverable": "Widoczny",
+        "bt_pair_confirm": "Potwierdź parowanie",
+        "bt_pair_match": "Czy ten kod pasuje do Twojego urządzenia?",
         # Phone
         "phone": "Telefon",
         "dialer": "Klawiatura",
@@ -394,6 +396,8 @@ STRINGS: dict[str, dict[str, str]] = {
         "bt_remove": "Remove",
         "bt_no_devices": "No devices. Tap Scan.",
         "bt_discoverable": "Discoverable",
+        "bt_pair_confirm": "Confirm Pairing",
+        "bt_pair_match": "Does this code match your device?",
         # Phone
         "phone": "Phone",
         "dialer": "Dialer",
