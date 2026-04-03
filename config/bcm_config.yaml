@@ -68,6 +68,8 @@ audio:
   dac: ES9038Q2M
   amp_main: TDA7388
   amp_sub: TDA2050
+  mic_vosk: ""          # PipeWire node name for Vosk voice control mic (USB condenser, ceiling)
+  mic_phone: ""         # PipeWire node name for phone calls / Android Auto mic (USB/BT headset)
 voice:
   wake_word_sensitivity: medium
   model_pl: src/voice/models/vosk-model-small-pl
