@@ -1,23 +1,23 @@
 /**
- * A2 Android Auto Screen — fullscreen kiosk mode with touch forwarding.
- * Stream fills entire content area. Touch events forwarded to Xvfb via xdotool.
- * Small floating "Back" button to return to BCM navigation.
+ * A2 Android Auto Screen — kiosk embed with BCM header + nav.
+ * MJPEG stream fills content area between AppBar and NavBar.
+ * Touch events forwarded to Xvfb via xdotool.
  */
 
 App.registerScreen("a2", (() => {
     function render(container, theme, data) {
         const t = App.t.bind(App);
-        const bgCls = "bg-black text-white";
+        const bgCls = theme === "modern" ? "bg-slate-100 text-slate-900" : "bg-black text-white";
 
-        // Kiosk mode: no AppBar, no NavBar — fullscreen AA
         container.innerHTML = `<div class="screen-container ${bgCls}">
-            <main class="relative w-full h-full overflow-hidden">
-                <!-- AA Stream — fullscreen -->
+            ${AppBar.render(theme, data)}
+            <main class="content-area relative overflow-hidden bg-black">
+                <!-- AA Stream — fills content area between header and nav -->
                 <img id="aa-stream" src="/aa/stream" alt=""
-                     class="absolute inset-0 w-full h-full object-fill z-0"
+                     class="absolute inset-0 w-full h-full object-cover z-0"
                      style="display:none;"
-                     onload="this.style.display='block';document.getElementById('aa-placeholder').style.display='none';"
-                     onerror="this.style.display='none';document.getElementById('aa-placeholder').style.display='flex';">
+                     onload="this.style.display='block';document.getElementById('aa-placeholder').style.display='none';document.getElementById('aa-touch-overlay').style.display='block';"
+                     onerror="this.style.display='none';document.getElementById('aa-placeholder').style.display='flex';document.getElementById('aa-touch-overlay').style.display='none';">
 
                 <!-- Touch overlay — captures clicks and forwards to OpenAuto -->
                 <div id="aa-touch-overlay" class="absolute inset-0 z-10"
@@ -29,7 +29,7 @@ App.registerScreen("a2", (() => {
                 <div id="aa-placeholder" class="flex flex-col items-center justify-center h-full gap-6">
                     <div class="relative">
                         <span class="material-symbols-outlined text-8xl opacity-20">android</span>
-                        <div class="absolute -bottom-1 -right-1 w-6 h-6 rounded-full bg-zinc-700 flex items-center justify-center">
+                        <div class="absolute -bottom-1 -right-1 w-6 h-6 rounded-full ${theme==='modern'?'bg-slate-300':'bg-zinc-700'} flex items-center justify-center">
                             <span class="material-symbols-outlined text-sm opacity-60">link_off</span>
                         </div>
                     </div>
@@ -39,36 +39,22 @@ App.registerScreen("a2", (() => {
                     </div>
                     <div class="flex gap-6 mt-4">
                         <div class="flex flex-col items-center gap-2 opacity-30">
-                            <div class="w-16 h-16 rounded-2xl bg-zinc-800 flex items-center justify-center">
+                            <div class="w-16 h-16 rounded-2xl ${theme==='modern'?'bg-slate-200':'bg-zinc-800'} flex items-center justify-center">
                                 <span class="material-symbols-outlined text-2xl">usb</span>
                             </div>
                             <span class="text-xs font-bold">USB-C</span>
                         </div>
                         <div class="flex flex-col items-center gap-2 opacity-30">
-                            <div class="w-16 h-16 rounded-2xl bg-zinc-800 flex items-center justify-center">
+                            <div class="w-16 h-16 rounded-2xl ${theme==='modern'?'bg-slate-200':'bg-zinc-800'} flex items-center justify-center">
                                 <span class="material-symbols-outlined text-2xl">wifi</span>
                             </div>
                             <span class="text-xs font-bold">WiFi</span>
                         </div>
                     </div>
                 </div>
-
-                <!-- Floating back button (always visible) -->
-                <button class="absolute top-3 left-3 z-20 w-10 h-10 rounded-full bg-black/60 backdrop-blur text-white flex items-center justify-center hover:bg-black/80 transition-all border border-white/10"
-                        onclick="App.navigateTo('a1')" title="Back to BCM">
-                    <span class="material-symbols-outlined" style="font-size:20px;">arrow_back</span>
-                </button>
             </main>
+            ${NavBar.render(theme, "a2")}
         </div>`;
-
-        // Enable touch overlay when stream loads
-        const img = document.getElementById("aa-stream");
-        if (img) {
-            img.addEventListener("load", () => {
-                const overlay = document.getElementById("aa-touch-overlay");
-                if (overlay) overlay.style.display = "block";
-            });
-        }
     }
 
     return { render };

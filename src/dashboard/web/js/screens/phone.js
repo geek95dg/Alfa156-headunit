@@ -48,15 +48,13 @@ const Phone = {
                 headers: {"Content-Type": "application/json"},
                 body: JSON.stringify({number: number}),
             });
-        } catch (e) {}
-        // Simulate call ending after 5s (until real BT HFP integration)
-        setTimeout(() => {
-            if (Phone._callState === "ringing") {
-                Phone._callState = "idle";
-                Phone._callInfo = {};
-                App.navigateTo("a8");
-            }
-        }, 5000);
+            // Call state will be updated via WebSocket when bt.call_state changes
+        } catch (e) {
+            // If request fails, reset to idle
+            Phone._callState = "idle";
+            Phone._callInfo = {};
+            App.navigateTo("a8");
+        }
     },
 
     async answer() {
@@ -69,6 +67,9 @@ const Phone = {
 
     async hangup() {
         try { await fetch("/api/phone/hangup", {method: "POST"}); } catch (e) {}
+        Phone._callState = "idle";
+        Phone._callInfo = {};
+        App.navigateTo("a8");
     },
 
     toggleMute() {

@@ -31,8 +31,11 @@ App.registerScreen("a4", (() => {
         _updateEl("weather-wind", `${Math.round(data.weather_wind_speed || 0)} km/h`);
         _updateEl("weather-humidity", `${data.weather_humidity || 0}%`);
 
-        if (_map && data.gps_lat && data.gps_lon && data.gps_fix) {
-            const pos = [data.gps_lat, data.gps_lon];
+        // Move map to weather location (from search) or GPS position
+        const wLat = data.weather_lat || data.gps_lat;
+        const wLon = data.weather_lon || data.gps_lon;
+        if (_map && wLat && wLon) {
+            const pos = [wLat, wLon];
             _map.setView(pos, _map.getZoom());
             if (_marker) _marker.setLatLng(pos);
         }
@@ -48,8 +51,8 @@ App.registerScreen("a4", (() => {
         if (!mapEl || _map) return;
 
         const data = DataStore.getAll();
-        const lat = data.gps_lat || 45.4642;
-        const lon = data.gps_lon || 9.1900;
+        const lat = data.weather_lat || data.gps_lat || 45.4642;
+        const lon = data.weather_lon || data.gps_lon || 9.1900;
 
         _map = L.map(mapEl, {
             center: [lat, lon], zoom: 13,
