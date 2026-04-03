@@ -187,6 +187,7 @@ STRINGS: dict[str, dict[str, str]] = {
         "bt_disconnect": "Rozłącz",
         "bt_remove": "Usuń",
         "bt_no_devices": "Brak urządzeń. Naciśnij Skanuj.",
+        "bt_discoverable": "Widoczny",
         # Phone
         "phone": "Telefon",
         "dialer": "Klawiatura",
@@ -392,6 +393,7 @@ STRINGS: dict[str, dict[str, str]] = {
         "bt_disconnect": "Disconnect",
         "bt_remove": "Remove",
         "bt_no_devices": "No devices. Tap Scan.",
+        "bt_discoverable": "Discoverable",
         # Phone
         "phone": "Phone",
         "dialer": "Dialer",

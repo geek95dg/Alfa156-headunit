@@ -115,7 +115,7 @@ wifi:
   dhcp_start: 10.0.0.10
   dhcp_end: 10.0.0.50
 weather:
-  api_key: ""
+  api_key: "631c2365675e193584b0f986798554c1"
   poll_interval_min: 15
   default_lat: 50.06    # Fallback when no GPS fix (Krakow)
   default_lon: 19.94
