@@ -69,7 +69,7 @@ tr:hover td{background:var(--bg-card)}
 <div class="hero">
   <div class="hero-badge">BCM v8.5 — Dokumentacja Techniczna</div>
   <h1>Alfa Romeo <span>156</span><br>Body Computer Module</h1>
-  <p class="sub">Dual-display: 4.3" karuzela danych + 7/8" ekran dotykowy z Android Auto kiosk. 7 ekranów BCM (A1-A7) + ustawienia. 3 motywy graficzne. DVR z GPS overlay + eksport USB. Performance: boost gauge + timer 0-100. Centralny zamek z pilotem RF 433MHz. Follow-me-home. Czujnik deszczu. Orange Pi 5 Plus z 2× HDMI.</p>
+  <p class="sub">Dual-display: 4.3" karuzela danych + 7/8" ekran dotykowy z Android Auto kiosk. 8 ekranów BCM (A1-A8) + ustawienia. 3 motywy graficzne. DVR z GPS overlay + eksport USB. Performance: boost gauge + timer 0-100. Telefon BT (dialer, kontakty PBAP, historia). Centralny zamek z pilotem RF 433MHz. Follow-me-home. Czujnik deszczu. Dual mikrofon (Vosk + telefon). Orange Pi 5 Plus z 2× HDMI.</p>
   <div class="tags">
     <span class="tag">1.9 JTD 8V przedlift</span>
     <span class="tag">Bosch EDC15C7</span>
@@ -83,6 +83,8 @@ tr:hover td{background:var(--bg-card)}
     <span class="tag">433MHz RF Central Lock</span>
     <span class="tag">Follow-me-home</span>
     <span class="tag">Rain Sensor</span>
+    <span class="tag">BT Phone / PBAP</span>
+    <span class="tag">Dual Microphone</span>
     <span class="tag">GPS Tracking</span>
     <span class="tag">LTE + Traffic</span>
   </div>
@@ -94,7 +96,7 @@ tr:hover td{background:var(--bg-card)}
   <ol>
     <li><a href="#s1">Changelog v8.0 → v8.5</a></li>
     <li><a href="#s2">Architektura systemu</a></li>
-    <li><a href="#s3">Specyfikacja ekranów (A1-A7)</a></li>
+    <li><a href="#s3">Specyfikacja ekranów (A1-A8)</a></li>
     <li><a href="#s4">System motywów</a></li>
     <li><a href="#s5">Platforma sprzętowa</a></li>
     <li><a href="#s6">Nowe moduły sprzętowe</a></li>
@@ -124,12 +126,14 @@ tr:hover td{background:var(--bg-card)}
     <h4>Zmiany w wersji 8.5</h4>
     <table>
       <tr><th>Element</th><th>v8.0</th><th>v8.5</th><th>Status</th></tr>
-      <tr><td>Architektura ekranów</td><td>5 ekranów, jeden wyświetlacz 800×480</td><td><strong>7 ekranów (A1-A7) + Settings, dual display (4.3" + 7/8" touch)</strong></td><td><span class="dt dt-chg">ZMIANA</span></td></tr>
+      <tr><td>Architektura ekranów</td><td>5 ekranów, jeden wyświetlacz 800×480</td><td><strong>8 ekranów (A1-A8) + Settings, dual display (4.3" + 7/8" touch)</strong></td><td><span class="dt dt-chg">ZMIANA</span></td></tr>
       <tr><td>Ekran główny</td><td>800×480 single</td><td><strong>7/8" touchscreen adaptive (1024×600 / 1280×800), port 5002</strong></td><td><span class="dt dt-chg">ZMIANA</span></td></tr>
       <tr><td>Mały ekran 4.3"</td><td>Frame streaming z Pygame</td><td><strong>Dedykowany serwer Flask (port 5003), karuzela danych, kamera cofania</strong></td><td><span class="dt dt-chg">ZMIANA</span></td></tr>
       <tr><td>A2: Android Auto</td><td>Osobny ekran AA (port 5001)</td><td><strong>Kiosk embedded w BCM — iframe z nagłówkiem i nawigacją BCM</strong></td><td><span class="dt dt-new">NOWE</span></td></tr>
       <tr><td>A6: Nagrania DVR</td><td>Brak</td><td><strong>Przeglądarka nagrań przód/tył, odtwarzanie z GPS overlay, eksport USB</strong></td><td><span class="dt dt-new">NOWE</span></td></tr>
       <tr><td>A7: Performance</td><td>Brak</td><td><strong>Gauge boost turbo (SVG), timer 0-100 km/h (GPS), G-Force, statystyki</strong></td><td><span class="dt dt-new">NOWE</span></td></tr>
+      <tr><td>A8: Telefon</td><td>Brak</td><td><strong>BT dialer, kontakty PBAP, historia połączeń, overlay incoming/active call</strong></td><td><span class="dt dt-new">NOWE</span></td></tr>
+      <tr><td>Mikrofon</td><td>1× USB (Vosk)</td><td><strong>Dual mikrofon: #1 USB sufitowy (Vosk voice), #2 USB mini (telefon/AA)</strong></td><td><span class="dt dt-chg">ZMIANA</span></td></tr>
       <tr><td>Diagnostyka DTC</td><td>Brak</td><td><strong>A5: odczyt i kasowanie kodów błędów ECU (KWP2000)</strong></td><td><span class="dt dt-new">NOWE</span></td></tr>
       <tr><td>Czujnik deszczu</td><td>GPIO 87 skonfigurowany, brak implementacji</td><td><strong>Moduł auto-wycieraczki: czujnik → przekaźnik wycieraczek</strong></td><td><span class="dt dt-new">NOWE</span></td></tr>
       <tr><td>Centralny zamek</td><td>Tylko sygnał wejścia (GPIO 89)</td><td><strong>Arduino + 433MHz RF: zamek/odblokowanie, okna, bagażnik, pilot RF</strong></td><td><span class="dt dt-new">NOWE</span></td></tr>
@@ -162,6 +166,7 @@ tr:hover td{background:var(--bg-card)}
 │  A5: Serwis i diagnostyka (DTC)     │    │                       │
 │  A6: Nagrania DVR (+eksport USB)    │    │  + Kamera cofania     │
 │  A7: Performance (boost, 0-100)     │    │  + Czujniki parkowania │
+│  A8: Telefon BT (dialer, PBAP)     │    │                       │
 │  Settings: BT, WiFi, motyw, język   │    │                       │
 └──────────────┬──────────────────────┘    └───────────┬───────────┘
                │                                       │
@@ -177,13 +182,14 @@ tr:hover td{background:var(--bg-card)}
   <h3>Moduły systemu</h3>
   <table>
     <tr><th>Moduł</th><th>Port/GPIO</th><th>Opis</th></tr>
-    <tr><td><strong>dashboard</strong></td><td>:5002</td><td>Ekran główny 7/8" — 7 ekranów + settings</td></tr>
+    <tr><td><strong>dashboard</strong></td><td>:5002</td><td>Ekran główny 7/8" — 8 ekranów (A1-A8) + settings</td></tr>
     <tr><td><strong>small_display</strong></td><td>:5003</td><td>Mały ekran 4.3" — karuzela + cofanie</td></tr>
     <tr><td><strong>obd</strong></td><td>UART3</td><td>K-Line/KWP2000, EDC15C7, DTC</td></tr>
     <tr><td><strong>parking</strong></td><td>GPIO 79-83</td><td>4× HC-SR04 ultrasonic + buzzer (84)</td></tr>
     <tr><td><strong>environment</strong></td><td>GPIO 7</td><td>DS18B20 temp + icing detection</td></tr>
     <tr><td><strong>audio</strong></td><td>USB DAC</td><td>PipeWire 4.1, EQ, ducking</td></tr>
-    <tr><td><strong>voice</strong></td><td>USB Mic</td><td>Vosk offline (PL/EN)</td></tr>
+    <tr><td><strong>voice</strong></td><td>USB Mic #1</td><td>Vosk offline (PL/EN) — mikrofon sufitowy</td></tr>
+    <tr><td><strong>phone</strong></td><td>USB Mic #2 + BT HFP</td><td>BT dialer, kontakty PBAP, historia, mic telefonu/AA</td></tr>
     <tr><td><strong>input</strong></td><td>USB HID</td><td>Touch + SWC + physical buttons</td></tr>
     <tr><td><strong>camera</strong></td><td>USB3 grab</td><td>DVR 2-ch AHD + reverse cam</td></tr>
     <tr><td><strong>power</strong></td><td>GPIO 85,89</td><td>Ignition, shutdown, backlight PWM</td></tr>
@@ -203,8 +209,8 @@ tr:hover td{background:var(--bg-card)}
 
 <!-- ═══ S3 — EKRANY ═══ -->
 <section id="s3">
-  <h2><span class="n">03</span>Specyfikacja ekranów (A1-A7)</h2>
-  <p>Ekran główny (7/8") wyświetla 7 ekranów funkcjonalnych + ekran ustawień. Nawigacja: dotyk (swipe lub nav bar) + przycisk SWC na kierownicy.</p>
+  <h2><span class="n">03</span>Specyfikacja ekranów (A1-A8)</h2>
+  <p>Ekran główny (7/8") wyświetla 8 ekranów funkcjonalnych + ekran ustawień. Nawigacja: dotyk (swipe lub nav bar) + przycisk SWC na kierownicy.</p>
 
   <div class="card-grid">
     <div class="card">
@@ -243,6 +249,11 @@ tr:hover td{background:var(--bg-card)}
       <p><strong>Gauge boost turbo</strong>: SVG arc gauge (0-1.5 BAR) z kolorowymi strefami (vacuum/low/high/overboost). <strong>Timer 0-100 km/h</strong>: GPS-based, historia ostatnich 10 pomiarów, najlepszy czas podświetlony. Statystyki: peak boost, RPM bar, prędkość, szacunek G-Force (z GPS heading), szacunek mocy chwilowej.</p>
     </div>
     <div class="card">
+      <div class="ic">A8</div>
+      <h4>Telefon BT</h4>
+      <p><strong>Dialer</strong>: klawiatura numeryczna (0-9, *, #), przycisk dzwonienia i usuwania. <strong>Kontakty</strong>: synchronizacja PBAP z telefonu, wyszukiwanie, tap-to-call. <strong>Historia</strong>: połączenia przychodzące/wychodzące/nieodebrane z ikoną typu, czasem i długością. <strong>Incoming call overlay</strong>: akceptacja/odrzucenie z danymi dzwoniącego (pulsujące ring_volume). <strong>Active call overlay</strong>: timer, mute/unmute (dual mic routing), hangup. Mikrofon #2 (USB mini/clip) dedykowany dla telefonu i Android Auto.</p>
+    </div>
+    <div class="card">
       <div class="ic">⚙</div>
       <h4>Ustawienia</h4>
       <p>Motyw (Heritage/Modern/Autodelta). Język (PL/EN). Jednostki (km/h↔mph, °C↔°F). Parowanie Bluetooth (skanowanie, parowanie, łączenie, usuwanie urządzeń). Konfiguracja WiFi AP (SSID, hasło, włącz/wyłącz). Jasność ekranów. Konfiguracja czujnika deszczu. Konfiguracja oświetlenia (follow-me-home czas).</p>
@@ -270,7 +281,7 @@ tr:hover td{background:var(--bg-card)}
 <!-- ═══ S4 — MOTYWY ═══ -->
 <section id="s4">
   <h2><span class="n">04</span>System motywów</h2>
-  <p>Trzy motywy graficzne, spójne na wszystkich 7 ekranach + Settings + mały ekran. Przełączanie bez przeładowania strony.</p>
+  <p>Trzy motywy graficzne, spójne na wszystkich 8 ekranach + Settings + mały ekran. Przełączanie bez przeładowania strony.</p>
   <div class="triple">
     <div>
       <h4 style="color:#f59e0b">Heritage Warmth</h4>
@@ -611,7 +622,8 @@ tr:hover td{background:var(--bg-card)}
   USB Arduino(1) ──┤  SWC + Buttons + LDR     │
   USB Arduino(2) ──┤  Central Lock + RF + Relay│
   USB BT ──────────┤  BlueZ A2DP/HFP          │
-  USB Mic ─────────┤  Vosk Voice Control       │
+  USB Mic #1 ──────┤  Vosk Voice Control       │
+  USB Mic #2 ──────┤  Phone / AA Mic           │
                     │                          │
   UART3 (K-Line) ──┤  L9637D → OBD-II ECU     │
                     │                          │
@@ -886,6 +898,12 @@ chromium-browser --kiosk --window-size=800,480 \
     <tr><td>POST</td><td><code>/api/dvr/export</code></td><td>Eksport zaznaczonych nagrań na USB</td></tr>
     <tr><td>GET</td><td><code>/api/dvr/usb/status</code></td><td>Status pendrive USB (wolne miejsce)</td></tr>
     <tr><td>GET</td><td><code>/api/remote/status</code></td><td>Zdalny status pojazdu (LTE)</td></tr>
+    <tr><td>GET</td><td><code>/api/phone/contacts</code></td><td>Zsynchronizowane kontakty (BT PBAP)</td></tr>
+    <tr><td>GET</td><td><code>/api/phone/history</code></td><td>Historia połączeń</td></tr>
+    <tr><td>POST</td><td><code>/api/phone/dial</code></td><td>Inicjuj połączenie <code>{"number":"+48..."}</code></td></tr>
+    <tr><td>POST</td><td><code>/api/phone/answer</code></td><td>Odbierz połączenie przychodzące</td></tr>
+    <tr><td>POST</td><td><code>/api/phone/hangup</code></td><td>Rozłącz aktywne połączenie</td></tr>
+    <tr><td>GET</td><td><code>/api/phone/status</code></td><td>Stan połączenia + info dzwoniącego</td></tr>
   </table>
 
   <h3>WebSocket Endpoints</h3>
@@ -913,6 +931,13 @@ chromium-browser --kiosk --window-size=800,480 \
     <tr><td><code>bt.media_title</code></td><td>str</td><td>Tytuł aktualnie grającego utworu</td></tr>
     <tr><td><code>bt.media_artist</code></td><td>str</td><td>Artysta</td></tr>
     <tr><td><code>bt.media_playing</code></td><td>bool</td><td>Czy odtwarzanie aktywne</td></tr>
+    <tr><td><code>bt.call_state</code></td><td>str</td><td>Stan połączenia: idle/ringing/active/incoming</td></tr>
+    <tr><td><code>bt.call_info</code></td><td>dict</td><td>{name, number, muted} — info o rozmówcy</td></tr>
+    <tr><td><code>bt.contacts</code></td><td>list</td><td>Kontakty zsynchronizowane przez PBAP</td></tr>
+    <tr><td><code>bt.call_history</code></td><td>list</td><td>Historia połączeń (type, number, name, time, duration)</td></tr>
+    <tr><td><code>bt.cmd.dial</code></td><td>str</td><td>Komenda: zadzwoń na numer</td></tr>
+    <tr><td><code>bt.cmd.answer</code></td><td>bool</td><td>Komenda: odbierz połączenie</td></tr>
+    <tr><td><code>bt.cmd.hangup</code></td><td>bool</td><td>Komenda: rozłącz</td></tr>
     <tr><td><code>vehicle.rain_detected</code></td><td>bool</td><td>Deszcz wykryty</td></tr>
     <tr><td><code>vehicle.locked</code></td><td>bool</td><td>Zamek zamknięty</td></tr>
     <tr><td><code>vehicle.lights_follow_me</code></td><td>bool</td><td>Follow-me-home aktywne</td></tr>
