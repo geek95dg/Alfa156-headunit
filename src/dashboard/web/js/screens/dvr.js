@@ -186,7 +186,16 @@ App.registerScreen("a6", (() => {
             App.navigateTo("a6");
         };
         App._dvrExport = () => {
-            if (_selectedFiles.size === 0) return;
+            if (_selectedFiles.size === 0) {
+                // Flash the export button to indicate no files selected
+                const btn = document.querySelector('[onclick="App._dvrExport()"]');
+                if (btn) {
+                    btn.classList.add("ring-2", "ring-red-500");
+                    setTimeout(() => btn.classList.remove("ring-2", "ring-red-500"), 1500);
+                }
+                console.log("[DVR] Export: no files selected");
+                return;
+            }
             _showBrowseModal = true;
             _loadUsbDirs("/");
         };

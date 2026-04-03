@@ -439,6 +439,7 @@ class WebViewer:
                     ["xdotool", "mousemove", "--screen", "0",
                      str(px), str(py), "click", "1"],
                     timeout=2, capture_output=True,
+                    env={**os.environ, "DISPLAY": ":99"},
                 )
                 return jsonify({"ok": True, "x": px, "y": py})
             except Exception:
@@ -655,6 +656,22 @@ class WebViewer:
                                           {"lat": lat, "lon": lon, "city": city})
                 return jsonify({"ok": True})
             return jsonify({"error": "missing lat/lon"}), 400
+
+        # --- Client-side logging ---
+
+        @app.route("/api/log", methods=["POST"])
+        def api_client_log():
+            """Receive log messages from frontend JS for server-side logging."""
+            data = request.get_json(silent=True) or {}
+            level = data.get("level", "info")
+            msg = data.get("message", "")
+            if level == "error":
+                log.error("[FRONTEND] %s", msg)
+            elif level == "warn":
+                log.warning("[FRONTEND] %s", msg)
+            else:
+                log.info("[FRONTEND] %s", msg)
+            return jsonify({"ok": True})
 
         # --- DTC API ---
 

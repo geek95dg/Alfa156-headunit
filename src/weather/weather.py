@@ -153,7 +153,7 @@ class WeatherManager:
                 except Exception as e:
                     log.warning("Weather fetch failed: %s", e)
 
-            time.sleep(30)  # Check conditions every 30s
+            time.sleep(5)  # Check conditions every 5s (fast response to search)
 
     def _fetch_weather(self) -> dict | None:
         """Fetch current weather + forecast from OpenWeatherMap API."""
