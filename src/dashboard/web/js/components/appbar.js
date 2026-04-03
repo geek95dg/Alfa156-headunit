@@ -21,7 +21,7 @@ const AppBar = (() => {
             // Invert to white, orange tint
             filterStyle = "filter: invert(1) sepia(1) saturate(5) hue-rotate(-10deg) brightness(1.2);";
         }
-        return `<img src="/assets/alfa_logo.png" alt="Alfa Romeo" class="h-14 w-auto object-contain" style="${filterStyle}" onerror="this.parentElement.innerHTML='<span class=\\'text-sm font-bold\\'>AR</span>';">`;
+        return `<img src="/assets/alfa_logo.png" alt="Alfa Romeo" class="h-11 w-auto object-contain" style="${filterStyle}" onerror="this.parentElement.innerHTML='<span class=\\'text-sm font-bold\\'>AR</span>';">`;
     }
 
     function render(theme, data) {
