@@ -136,11 +136,7 @@ const App = (() => {
                     _hideReverseOverlay();
                 }
                 break;
-            case "r":
-            case "R":
-                e.preventDefault();
-                _toggleReverseOverlay();
-                break;
+            // R key reverse toggle removed — reverse camera only on small display
         }
     }
 
@@ -323,12 +319,7 @@ const App = (() => {
         if (_renderers[_currentScreen] && _renderers[_currentScreen].update) {
             _renderers[_currentScreen].update(data, _currentTheme);
         }
-        // Reverse camera shows on small display (5003) only — not on big display
-        // Manual toggle via R key still works for testing
-        // if (data.reverse === true && !_reverseOverlayActive) { _showReverseOverlay(); }
-        if (data.reverse === false && _reverseOverlayActive && !_reverseManual) {
-            _hideReverseOverlay();
-        }
+        // Reverse camera only on small display (port 5003) — disabled on big display
         // Icing alert check
         _checkIcingAlert(data);
     }

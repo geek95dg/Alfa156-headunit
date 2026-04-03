@@ -344,8 +344,24 @@ def _configure_adapter(bus) -> None:
         log.debug("Could not set BT adapter alias on %s (non-critical)", adapter_path)
 
 
+def _is_autoapp_available() -> bool:
+    """Check if OpenAuto (autoapp) binary is installed."""
+    import os
+    for path in ["/usr/local/bin/autoapp", "/opt/openauto/bin/autoapp",
+                 "/usr/bin/autoapp"]:
+        if os.path.isfile(path) and os.access(path, os.X_OK):
+            return True
+    return False
+
+
 def _start_pairing_agent() -> bool:
     """Register the D-Bus pairing agent and BT profiles with BlueZ.
+
+    When autoapp (OpenAuto) is available, we register our agent but do NOT
+    request to be the default agent. This avoids conflicting with autoapp's
+    btservice which needs to be the default agent for AA wireless RFCOMM
+    handshake. Our agent still handles non-AA pairing requests that BlueZ
+    routes to us.
 
     Safe to call multiple times — only registers once.
     """
@@ -359,6 +375,8 @@ def _start_pairing_agent() -> bool:
         log.warning("dbus-python not available — pairing agent disabled")
         return False
 
+    autoapp_present = _is_autoapp_available()
+
     try:
         dbus.mainloop.glib.DBusGMainLoop(set_as_default=True)
         bus = dbus.SystemBus()
@@ -370,8 +388,15 @@ def _start_pairing_agent() -> bool:
             "org.bluez.AgentManager1",
         )
         manager.RegisterAgent(AGENT_PATH, AGENT_CAPABILITY)
-        manager.RequestDefaultAgent(AGENT_PATH)
-        log.info("BT pairing agent active (capability=%s)", AGENT_CAPABILITY)
+
+        if autoapp_present:
+            # Do NOT claim default agent — let autoapp's btservice own it.
+            # Our agent is still registered and can handle explicit pairing
+            # requests routed to it, but won't intercept AA BT bootstrapping.
+            log.info("BT pairing agent registered (non-default, autoapp present)")
+        else:
+            manager.RequestDefaultAgent(AGENT_PATH)
+            log.info("BT pairing agent active as default (no autoapp)")
 
         # Configure adapter name for discovery
         _configure_adapter(bus)
@@ -686,7 +711,10 @@ class BluetoothManager:
     def get_paired_devices(self) -> list[dict[str, str]]:
         """List paired Bluetooth devices."""
         if not self._available:
-            return []
+            return [
+                {"address": "AA:BB:CC:DD:EE:01", "name": "iPhone (simulated)"},
+                {"address": "AA:BB:CC:DD:EE:02", "name": "Samsung Galaxy (simulated)"},
+            ]
 
         # BlueZ 5.72+: "paired-devices" was removed, use "devices Paired"
         rc, out, _ = _run_btctl(["devices", "Paired"])

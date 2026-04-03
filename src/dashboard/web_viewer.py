@@ -128,7 +128,7 @@ class WebViewer:
             "tpms_pressures": _val("service.tpms_pressures", [0, 0, 0, 0]),
             # State
             "gear": _val("vehicle.gear", "N"),
-            "reverse": _val("vehicle.reverse", False),
+            # "reverse" removed — reverse camera only on small display (port 5003)
             "defrost_active": _val("vehicle.defrost", False),
             # External
             "ext_temp": _val("env.temperature", None),
@@ -158,8 +158,12 @@ class WebViewer:
             "bt_media_duration": _val("bt.media_duration", 0),
             # Connectivity
             "bt_connected": _val("bt.connected", False),
+            "bt_available": self._bt_manager.available if self._bt_manager else False,
             "bt_call_state": _val("bt.call_state", "idle"),
             "bt_call_info": _val("bt.call_info", {}),
+            "aa_status": _val("multimedia.openauto_status", "unavailable"),
+            "aa_available": _val("multimedia.openauto_status", "unavailable") in (
+                "running", "connected", "restarting"),
             "lte_connected": _val("lte.connected", False),
             "lte_signal": _val("lte.signal_strength", 0),
             # Notifications
