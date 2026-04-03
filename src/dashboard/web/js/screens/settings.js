@@ -18,6 +18,10 @@ const Settings = {
         } catch (e) {}
     },
 
+    async btMakeDiscoverable() {
+        try { await fetch("/bt/discoverable", { method: "POST" }); } catch (e) {}
+    },
+
     async btScan() {
         Settings._btScanning = true;
         App.navigateTo("settings");
@@ -124,10 +128,16 @@ App.registerScreen("settings", (() => {
                     <div class="bg-zinc-900 rounded-xl p-3 border border-zinc-800 flex flex-col">
                         <div class="flex justify-between items-center mb-2">
                             <p class="text-[10px] font-bold text-zinc-400 uppercase tracking-wider">Bluetooth</p>
-                            <button class="text-[9px] font-bold px-2 py-1 bg-zinc-800 rounded text-zinc-300 hover:bg-zinc-700"
-                                    onclick="Settings.btScan()">
-                                ${scanning ? `<span class="animate-pulse">${t("bt_scanning","Scanning...")}</span>` : t("bt_scan", "Scan")}
-                            </button>
+                            <div class="flex gap-1">
+                                <button class="text-[9px] font-bold px-2 py-1 bg-zinc-800 rounded text-zinc-300 hover:bg-zinc-700"
+                                        onclick="Settings.btMakeDiscoverable()">
+                                    ${t("bt_discoverable","Discoverable")}
+                                </button>
+                                <button class="text-[9px] font-bold px-2 py-1 bg-zinc-800 rounded text-zinc-300 hover:bg-zinc-700"
+                                        onclick="Settings.btScan()">
+                                    ${scanning ? `<span class="animate-pulse">${t("bt_scanning","Scanning...")}</span>` : t("bt_scan", "Scan")}
+                                </button>
+                            </div>
                         </div>
                         <div class="flex-1 space-y-1 overflow-y-auto">
                             ${paired.length > 0 ? `

@@ -166,16 +166,25 @@ class WeatherManager:
                    f"?lat={self._lat}&lon={self._lon}"
                    f"&appid={self._api_key}&units=metric")
             req = urllib.request.Request(url, headers={"User-Agent": "BCM-v7/1.0"})
-            with urllib.request.urlopen(req, timeout=10) as resp:
-                current_raw = json.loads(resp.read())
+            try:
+                with urllib.request.urlopen(req, timeout=10) as resp:
+                    current_raw = json.loads(resp.read())
+            except urllib.error.HTTPError as e:
+                log.error("Weather API error: HTTP %d — %s (key may not be activated yet)",
+                          e.code, e.reason)
+                return None
 
             # 5-day forecast
             url_fc = (f"https://api.openweathermap.org/data/2.5/forecast"
                       f"?lat={self._lat}&lon={self._lon}"
                       f"&appid={self._api_key}&units=metric&cnt=24")
             req_fc = urllib.request.Request(url_fc, headers={"User-Agent": "BCM-v7/1.0"})
-            with urllib.request.urlopen(req_fc, timeout=10) as resp:
-                forecast_raw = json.loads(resp.read())
+            try:
+                with urllib.request.urlopen(req_fc, timeout=10) as resp:
+                    forecast_raw = json.loads(resp.read())
+            except urllib.error.HTTPError as e:
+                log.warning("Weather forecast API error: HTTP %d — %s", e.code, e.reason)
+                forecast_raw = {"list": []}
 
             # Parse current
             weather = current_raw.get("weather", [{}])[0]
