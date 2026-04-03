@@ -65,6 +65,9 @@ class WeatherManager:
         self._last_fetch = 0
         self._poll_interval = config.get("weather", {}).get("poll_interval_min", 15) * 60
         self._api_key = config.get("weather", {}).get("api_key", "")
+        # Default location fallback when GPS is not available
+        self._default_lat = config.get("weather", {}).get("default_lat", 50.06)
+        self._default_lon = config.get("weather", {}).get("default_lon", 19.94)
 
     def start(self):
         """Start weather polling in background thread."""
@@ -118,8 +121,16 @@ class WeatherManager:
         while self._running:
             now = time.time()
 
-            # Only fetch if we have GPS, connectivity, API key, and enough time has passed
-            if (self._api_key and self._has_gps and self._lte_connected
+            # Use default location when GPS is not available
+            has_location = self._has_gps
+            if not has_location and self._default_lat and self._default_lon:
+                self._lat = self._default_lat
+                self._lon = self._default_lon
+                has_location = True
+
+            # Fetch if we have location, connectivity (or x86 dev), API key, and enough time passed
+            if (self._api_key and has_location
+                    and (self._lte_connected or self._platform == "x86")
                     and now - self._last_fetch >= self._poll_interval):
                 try:
                     data = self._fetch_weather()

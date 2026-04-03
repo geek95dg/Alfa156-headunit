@@ -87,21 +87,21 @@ if [ "$MODE" = "frontend" ]; then
     echo "  ║                                                  ║"
     echo "  ║   Main display (7/8\" touch): http://localhost:5002║"
     echo "  ║   Small display (4.3\"):      http://localhost:5003║"
-    echo "  ║   AA/BT Management:         http://localhost:5001║"
+    echo "  ║   (AA + BT integrated on port 5002)              ║"
     echo "  ║                                                  ║"
-    echo "  ║   Main: A1-A7 + Settings (3 themes)              ║"
+    echo "  ║   Main: A1-A8 + Settings (3 themes)              ║"
     echo "  ║   Small: Stats carousel + reverse camera         ║"
 elif [ "$MODE" = "pygame" ]; then
     echo "  ║   Mode: Pygame Renderer (legacy)                 ║"
     echo "  ║                                                  ║"
     echo "  ║   Dashboard:    Pygame window (800x480)          ║"
     echo "  ║   Web Viewer:   http://localhost:5002             ║"
-    echo "  ║   AA/BT Mgmt:  http://localhost:5001             ║"
+    echo "  ║   (AA + BT integrated on port 5002)              ║"
 elif [ "$MODE" = "headless" ]; then
     echo "  ║   Mode: Headless (backend + web frontend)        ║"
     echo "  ║                                                  ║"
     echo "  ║   Dashboard:    http://localhost:5002             ║"
-    echo "  ║   AA/BT Mgmt:  http://localhost:5001             ║"
+    echo "  ║   (AA + BT integrated on port 5002)              ║"
 fi
 
 echo "  ╚══════════════════════════════════════════════════╝"

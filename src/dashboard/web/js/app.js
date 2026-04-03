@@ -271,13 +271,14 @@ const App = (() => {
     function _checkIcingAlert(data) {
         const temp = data.ext_temp;
         if (temp != null && temp < 3 && !document.getElementById("icing-alert")) {
+            const t = App.t.bind(App);
             const alert = document.createElement("div");
             alert.id = "icing-alert";
             alert.className = "absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-[150] bg-black/90 border-2 border-amber-500 rounded-xl p-6 flex flex-col items-center gap-3 shadow-2xl";
             alert.innerHTML = `
                 <span class="material-symbols-outlined text-4xl text-amber-500">ac_unit</span>
-                <h3 class="text-lg font-black text-amber-500 uppercase tracking-wider">Icing Warning</h3>
-                <p class="text-sm text-zinc-400 text-center">External temperature ${Math.round(temp)}°C<br>Road surface may be icy</p>
+                <h3 class="text-lg font-black text-amber-500 uppercase tracking-wider">${t("icing_title", "ICING WARNING")}</h3>
+                <p class="text-sm text-zinc-400 text-center">${t("icing_msg", "External temperature")} ${Math.round(temp)}\u00b0C<br>${t("icing_msg2", "Road surface may be icy")}</p>
             `;
             _appEl.appendChild(alert);
             setTimeout(() => { alert.remove(); }, 5000);

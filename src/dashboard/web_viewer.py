@@ -8,8 +8,11 @@ Serves the SPA frontend and provides:
 Replaces the old Pygame frame-streaming viewer.
 """
 
+import glob
 import json
 import os
+import shutil
+import subprocess
 import time
 import threading
 from typing import Optional, Any
@@ -50,11 +53,12 @@ class WebViewer:
     """
 
     def __init__(self, host: str = "0.0.0.0", port: int = 5002,
-                 event_bus=None, config=None) -> None:
+                 event_bus=None, config=None, bt_manager=None) -> None:
         self.host = host
         self.port = port
         self._event_bus = event_bus
         self._config = config
+        self._bt_manager = bt_manager
         self._thread: Optional[threading.Thread] = None
         self._running = False
         self._ws_clients: list = []
@@ -95,6 +99,11 @@ class WebViewer:
             result = bus.get_last(topic)
             return result[0] if result is not None else default
 
+        # Weather: weather.py publishes weather.current as a single dict
+        _wc = _val("weather.current", {})
+        if not isinstance(_wc, dict):
+            _wc = {}
+
         return {
             # Engine
             "rpm": _val("obd.rpm", 0),
@@ -131,11 +140,11 @@ class WebViewer:
             "gps_fix": _val("gps.fix", False),
             "gps_satellites": _val("gps.satellites", 0),
             # Weather
-            "weather_condition": _val("weather.condition", ""),
-            "weather_temp": _val("weather.temp", None),
-            "weather_feels_like": _val("weather.feels_like", None),
-            "weather_humidity": _val("weather.humidity", 0),
-            "weather_wind_speed": _val("weather.wind_speed", 0),
+            "weather_condition": _wc.get("condition", ""),
+            "weather_temp": _wc.get("temp", None),
+            "weather_feels_like": _wc.get("feels_like", None),
+            "weather_humidity": _wc.get("humidity", 0),
+            "weather_wind_speed": _wc.get("wind_speed", 0),
             "weather_city": _val("weather.city", ""),
             "weather_forecast": _val("weather.forecast", []),
             # BT Media
@@ -261,7 +270,6 @@ class WebViewer:
         @app.route("/api/dvr/list")
         def api_dvr_list():
             """List DVR recordings."""
-            import glob
             rec_dir = "/media/dashcam"
             recordings = []
             for path in sorted(glob.glob(f"{rec_dir}/*.mp4"), reverse=True)[:50]:
@@ -300,8 +308,7 @@ class WebViewer:
             files = data.get("files", [])
             target_path = data.get("target_path", "/")
             # Find USB mount point
-            import glob as g
-            usb_mounts = g.glob("/media/usb*") + g.glob("/mnt/usb*")
+            usb_mounts = glob.glob("/media/usb*") + glob.glob("/mnt/usb*")
             if not usb_mounts:
                 return jsonify({"error": "no USB drive"}), 400
             usb_root = usb_mounts[0]
@@ -309,7 +316,6 @@ class WebViewer:
             if not dest.startswith(usb_root):
                 return jsonify({"error": "invalid target path"}), 400
             os.makedirs(dest, exist_ok=True)
-            import shutil
             copied = 0
             for f in files:
                 src = os.path.join("/media/dashcam", f)
@@ -320,11 +326,9 @@ class WebViewer:
 
         @app.route("/api/dvr/usb/status")
         def api_dvr_usb_status():
-            import glob as g
-            usb_mounts = g.glob("/media/usb*") + g.glob("/mnt/usb*")
+            usb_mounts = glob.glob("/media/usb*") + glob.glob("/mnt/usb*")
             if not usb_mounts:
                 return jsonify({"available": False})
-            import shutil
             usage = shutil.disk_usage(usb_mounts[0])
             return jsonify({
                 "available": True,
@@ -335,8 +339,7 @@ class WebViewer:
         @app.route("/api/dvr/usb/browse")
         def api_dvr_usb_browse():
             """List directories on USB drive for export target selection."""
-            import glob as g
-            usb_mounts = g.glob("/media/usb*") + g.glob("/mnt/usb*")
+            usb_mounts = glob.glob("/media/usb*") + glob.glob("/mnt/usb*")
             if not usb_mounts:
                 return jsonify({"error": "no USB drive"}), 400
             usb_root = usb_mounts[0]
@@ -354,30 +357,184 @@ class WebViewer:
             rel = os.path.relpath(abs_path, usb_root)
             return jsonify({"path": "/" if rel == "." else "/" + rel, "dirs": entries})
 
-        # --- Android Auto proxy ---
+        # --- Android Auto — direct Xvfb MJPEG stream (no port 5001) ---
+
+        def _aa_mjpeg_generator():
+            """Stream MJPEG frames from Xvfb (:99) using ffmpeg."""
+            cfg = viewer._config
+            w = cfg.get("display.multimedia.width", 1024) if cfg else 1024
+            h = cfg.get("display.multimedia.height", 600) if cfg else 600
+            try:
+                proc = subprocess.Popen(
+                    ["ffmpeg", "-f", "x11grab", "-framerate", "15",
+                     "-video_size", f"{w}x{h}",
+                     "-i", ":99",
+                     "-f", "mjpeg", "-q:v", "5",
+                     "-an", "pipe:1"],
+                    stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+                )
+            except Exception:
+                return
+            buf = b""
+            SOI = b"\xff\xd8"
+            EOI = b"\xff\xd9"
+            try:
+                while True:
+                    chunk = proc.stdout.read(4096)
+                    if not chunk:
+                        break
+                    buf += chunk
+                    while True:
+                        start = buf.find(SOI)
+                        if start == -1:
+                            buf = b""
+                            break
+                        end = buf.find(EOI, start + 2)
+                        if end == -1:
+                            buf = buf[start:]
+                            break
+                        frame = buf[start:end + 2]
+                        buf = buf[end + 2:]
+                        yield (b"--frame\r\n"
+                               b"Content-Type: image/jpeg\r\n\r\n"
+                               + frame + b"\r\n")
+            finally:
+                proc.terminate()
+                proc.wait(timeout=3)
 
         @app.route("/aa/stream")
         def aa_stream():
-            """Proxy MJPEG stream from OpenAuto (port 5001) through BCM port 5002."""
-            import urllib.request
-            try:
-                req = urllib.request.urlopen("http://localhost:5001/stream", timeout=3)
-                return Response(
-                    req,
-                    mimetype=req.headers.get("Content-Type", "multipart/x-mixed-replace; boundary=frame"),
-                )
-            except Exception:
-                return "", 503
+            """Direct MJPEG stream from Xvfb (:99) — no port 5001 proxy."""
+            return Response(_aa_mjpeg_generator(),
+                            mimetype="multipart/x-mixed-replace; boundary=frame")
 
         @app.route("/aa/status")
         def aa_status():
-            """Check if OpenAuto is reachable."""
-            import urllib.request
+            """Check if OpenAuto / Xvfb is running."""
+            available = False
+            if viewer._event_bus:
+                st = viewer._event_bus.get_last("multimedia.openauto_status")
+                if st and st[0] in ("running", "connected"):
+                    available = True
+            return jsonify({"available": available})
+
+        # --- Bluetooth management API (moved from aa_display.py) ---
+
+        @app.route("/bt/status")
+        def bt_status():
+            bt = viewer._bt_manager
+            if not bt:
+                return jsonify({"error": "BT manager not available"}), 503
+            ctrl = bt.get_controller_info()
+            ctrl["connected"] = bt.connected
+            ctrl["connected_device"] = bt.connected_device
+            ctrl["scanning"] = bt.scanning
+            ctrl["a2dp_active"] = bt.a2dp_active
+            ctrl["hfp_active"] = bt.hfp_active
+            return jsonify(ctrl)
+
+        @app.route("/bt/devices")
+        def bt_devices():
+            bt = viewer._bt_manager
+            if not bt:
+                return jsonify({"paired": [], "discovered": []})
+            paired = bt.get_paired_devices()
+            for dev in paired:
+                info = bt.get_device_info(dev["address"])
+                dev["connected"] = info.get("connected", False)
+            discovered = bt.discovered_devices
+            return jsonify({"paired": paired, "discovered": discovered})
+
+        @app.route("/bt/scan", methods=["POST"])
+        def bt_scan():
+            bt = viewer._bt_manager
+            if not bt:
+                return jsonify({"error": "BT not available"}), 503
+            duration = 15
+            if request.is_json:
+                duration = request.json.get("duration", 15)
+            ok = bt.start_scan(duration=duration)
+            return jsonify({"started": ok, "scanning": bt.scanning})
+
+        @app.route("/bt/scan/stop", methods=["POST"])
+        def bt_scan_stop():
+            bt = viewer._bt_manager
+            if not bt:
+                return jsonify({"error": "BT not available"}), 503
+            bt.stop_scan()
+            return jsonify({"scanning": False})
+
+        @app.route("/bt/pair/<address>", methods=["POST"])
+        def bt_pair(address):
+            bt = viewer._bt_manager
+            if not bt:
+                return jsonify({"error": "BT not available"}), 503
+            ok = bt.pair(address)
+            return jsonify({"success": ok, "address": address})
+
+        @app.route("/bt/connect/<address>", methods=["POST"])
+        def bt_connect(address):
+            bt = viewer._bt_manager
+            if not bt:
+                return jsonify({"error": "BT not available"}), 503
+            ok = bt.connect(address)
+            return jsonify({"success": ok, "address": address})
+
+        @app.route("/bt/disconnect", methods=["POST"])
+        def bt_disconnect():
+            bt = viewer._bt_manager
+            if not bt:
+                return jsonify({"error": "BT not available"}), 503
+            bt.disconnect()
+            return jsonify({"success": True})
+
+        @app.route("/bt/remove/<address>", methods=["POST"])
+        def bt_remove(address):
+            bt = viewer._bt_manager
+            if not bt:
+                return jsonify({"error": "BT not available"}), 503
+            ok = bt.remove(address)
+            return jsonify({"success": ok, "address": address})
+
+        @app.route("/bt/discoverable", methods=["POST"])
+        def bt_discoverable():
+            bt = viewer._bt_manager
+            if not bt:
+                return jsonify({"error": "BT not available"}), 503
+            timeout = 120
+            if request.is_json:
+                timeout = request.json.get("timeout", 120)
+            ok = bt.enable_discoverable(timeout=timeout)
+            return jsonify({"success": ok})
+
+        @app.route("/bt/connected")
+        def bt_connected():
+            bt = viewer._bt_manager
+            if not bt:
+                return jsonify({"connected": []})
+            connected = bt.get_connected_devices()
+            return jsonify({"connected": connected})
+
+        @app.route("/bt/pairing")
+        def bt_pairing_status():
             try:
-                urllib.request.urlopen("http://localhost:5001/", timeout=2)
-                return jsonify({"available": True})
+                from src.multimedia.bluetooth import get_pending_pairing
+                req = get_pending_pairing()
+                return jsonify({"pending": req is not None, "request": req})
             except Exception:
-                return jsonify({"available": False})
+                return jsonify({"pending": False, "request": None})
+
+        @app.route("/bt/pairing/confirm", methods=["POST"])
+        def bt_pairing_confirm():
+            try:
+                from src.multimedia.bluetooth import confirm_pairing
+                accept = True
+                if request.is_json:
+                    accept = request.json.get("accept", True)
+                ok = confirm_pairing(accept)
+                return jsonify({"success": ok})
+            except Exception:
+                return jsonify({"success": False})
 
         # --- Phone API ---
 
@@ -466,8 +623,6 @@ class WebViewer:
                 import cv2
             except ImportError:
                 return "opencv not available", 503
-
-            from flask import Response
 
             def gen_frames():
                 cap = cv2.VideoCapture(0)

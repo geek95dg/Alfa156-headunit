@@ -253,7 +253,7 @@ Requires X display (`$DISPLAY` must be set). Opens a Pygame window at 800x480.
 
 ### 5.4 Dual display (Android Auto)
 
-The AA/BT management web UI runs at http://localhost:5001 regardless of frontend mode.
+Android Auto stream and Bluetooth management are integrated into the BCM dashboard at http://localhost:5002 (screen A2 and Settings).
 
 ### 5.5 Start specific modules only
 
