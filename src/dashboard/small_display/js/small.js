@@ -12,6 +12,7 @@
     let popupActive = false;
     let reverseActive = false;
     let theme = "heritage";
+    let lang = "pl";
 
     // --- WebSocket ---
     function connectWS() {
@@ -33,6 +34,7 @@
             const res = await fetch("/api/config");
             const cfg = await res.json();
             theme = cfg.theme || "heritage";
+            lang = cfg.language || "pl";
             document.body.setAttribute("data-theme", theme);
         } catch (e) {}
     }
@@ -43,8 +45,16 @@
     }
     function formatDate() {
         const d = new Date();
-        const days = ["NIE","PON","WT","ŚR","CZW","PT","SOB"];
-        const months = ["STY","LUT","MAR","KWI","MAJ","CZE","LIP","SIE","WRZ","PAŹ","LIS","GRU"];
+        const daysMap = {
+            pl: ["NIE","PON","WT","\u015aR","CZW","PT","SOB"],
+            en: ["SUN","MON","TUE","WED","THU","FRI","SAT"]
+        };
+        const monthsMap = {
+            pl: ["STY","LUT","MAR","KWI","MAJ","CZE","LIP","SIE","WRZ","PA\u0179","LIS","GRU"],
+            en: ["JAN","FEB","MAR","APR","MAY","JUN","JUL","AUG","SEP","OCT","NOV","DEC"]
+        };
+        const days = daysMap[lang] || daysMap["pl"];
+        const months = monthsMap[lang] || monthsMap["pl"];
         return `${days[d.getDay()]} ${d.getDate()} ${months[d.getMonth()]}`;
     }
 

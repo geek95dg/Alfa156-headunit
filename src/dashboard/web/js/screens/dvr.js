@@ -1,5 +1,5 @@
 /**
- * A6 DVR Recordings Browser — browse, play, export.
+ * A6 DVR Recordings Browser — browse, play, export with USB folder picker.
  * Fetches recording list from /api/dvr/list.
  */
 
@@ -7,6 +7,11 @@ App.registerScreen("a6", (() => {
     let _recordings = [];
     let _filter = "all"; // "all", "front", "rear"
     let _selectedFiles = new Set();
+    // USB browse modal state
+    let _showBrowseModal = false;
+    let _browsePath = "/";
+    let _browseDirs = [];
+    let _browseLoading = false;
 
     function render(container, theme, data) {
         const t = App.t.bind(App);
@@ -17,7 +22,7 @@ App.registerScreen("a6", (() => {
 
         container.innerHTML = `<div class="screen-container ${bgCls}">
             ${AppBar.render(theme, data)}
-            <main class="content-area p-3 flex flex-col">
+            <main class="content-area p-3 flex flex-col relative">
                 <!-- Header -->
                 <div class="flex justify-between items-center mb-2">
                     <h1 class="text-lg font-bold ${accentClr}">${t("dvr")}</h1>
@@ -42,6 +47,8 @@ App.registerScreen("a6", (() => {
                         ${t("dvr_export")}
                     </button>
                 </div>
+                <!-- USB Browse Modal -->
+                ${_showBrowseModal ? _renderBrowseModal(theme, cardBg, btnBg) : ""}
             </main>
             ${NavBar.render(theme, "a6")}
         </div>`;
@@ -74,6 +81,60 @@ App.registerScreen("a6", (() => {
         }).join("");
     }
 
+    function _renderBrowseModal(theme, cardBg, btnBg) {
+        const t = App.t.bind(App);
+        const overlayBg = "rgba(0,0,0,0.85)";
+        const modalBg = theme === "modern" ? "bg-white text-slate-900" : "bg-zinc-900 text-white";
+        const borderClr = theme === "modern" ? "border-slate-200" : "border-zinc-700";
+        const accentBtn = theme === "autodelta" ? "bg-[#FF5F00]" : theme === "modern" ? "bg-blue-600" : "bg-amber-600";
+        const isRoot = _browsePath === "/";
+
+        return `<div class="absolute inset-0 z-50 flex items-center justify-center" style="background:${overlayBg};">
+            <div class="${modalBg} ${borderClr} border rounded-2xl w-[420px] max-h-[80%] flex flex-col shadow-2xl">
+                <!-- Modal header -->
+                <div class="flex items-center justify-between px-4 py-3 border-b ${borderClr}">
+                    <div class="flex items-center gap-2">
+                        <span class="material-symbols-outlined" style="font-size:20px;">usb</span>
+                        <span class="text-sm font-bold">${t("dvr_export","Export to USB")}</span>
+                    </div>
+                    <button class="opacity-50 hover:opacity-100" onclick="App._dvrBrowseClose()">
+                        <span class="material-symbols-outlined" style="font-size:20px;">close</span>
+                    </button>
+                </div>
+                <!-- Current path -->
+                <div class="px-4 py-2 border-b ${borderClr} flex items-center gap-2">
+                    <span class="material-symbols-outlined opacity-40" style="font-size:16px;">folder</span>
+                    <span class="text-xs font-mono opacity-60">${_browsePath}</span>
+                </div>
+                <!-- Directory list -->
+                <div class="flex-1 overflow-y-auto px-2 py-2 space-y-1" style="max-height:300px;">
+                    ${!isRoot ? `<div class="${cardBg} border ${borderClr} rounded-lg px-3 py-2 flex items-center gap-2 cursor-pointer hover:opacity-80" onclick="App._dvrBrowseUp()">
+                        <span class="material-symbols-outlined" style="font-size:18px;">arrow_upward</span>
+                        <span class="text-xs font-bold">..</span>
+                    </div>` : ""}
+                    ${_browseLoading ? `<div class="flex items-center justify-center py-6 opacity-40">
+                        <span class="text-xs">${t("loading","Loading...")}</span>
+                    </div>` : ""}
+                    ${!_browseLoading && _browseDirs.length === 0 ? `<div class="flex items-center justify-center py-6 opacity-30">
+                        <span class="text-xs">${t("dvr_no_folders","No subfolders")}</span>
+                    </div>` : ""}
+                    ${!_browseLoading ? _browseDirs.map(d => `<div class="${cardBg} border ${borderClr} rounded-lg px-3 py-2 flex items-center gap-2 cursor-pointer hover:opacity-80" onclick="App._dvrBrowseInto('${d.name}')">
+                        <span class="material-symbols-outlined text-amber-500" style="font-size:18px;">folder</span>
+                        <span class="text-xs font-bold">${d.name}</span>
+                    </div>`).join("") : ""}
+                </div>
+                <!-- Modal footer -->
+                <div class="flex justify-between items-center px-4 py-3 border-t ${borderClr}">
+                    <span class="text-[10px] opacity-40">${_selectedFiles.size} ${t("dvr_files_selected","files selected")}</span>
+                    <div class="flex gap-2">
+                        <button class="${btnBg} px-4 py-2 rounded-lg text-xs font-bold" onclick="App._dvrBrowseClose()">${t("cancel","Cancel")}</button>
+                        <button class="${accentBtn} text-white px-4 py-2 rounded-lg text-xs font-bold" onclick="App._dvrExportToPath()">${t("dvr_export_here","Export Here")}</button>
+                    </div>
+                </div>
+            </div>
+        </div>`;
+    }
+
     async function _loadRecordings() {
         try {
             const res = await fetch("/api/dvr/list");
@@ -82,7 +143,6 @@ App.registerScreen("a6", (() => {
         } catch (e) {
             _recordings = [];
         }
-        // Update grid
         const grid = document.getElementById("dvr-grid");
         if (grid) {
             const theme = App.getTheme();
@@ -92,13 +152,29 @@ App.registerScreen("a6", (() => {
         }
         const countEl = document.getElementById("dvr-count");
         if (countEl) countEl.textContent = `${_recordings.length} recordings`;
-        // Check USB
         try {
             const usbRes = await fetch("/api/dvr/usb/status");
             const usb = await usbRes.json();
             const storageEl = document.getElementById("dvr-storage");
             if (storageEl) storageEl.textContent = usb.available ? `USB: ${usb.free_gb||'?'}GB free` : "No USB";
         } catch (e) {}
+    }
+
+    async function _loadUsbDirs(path) {
+        _browseLoading = true;
+        _browsePath = path;
+        _browseDirs = [];
+        App.navigateTo("a6");
+        try {
+            const res = await fetch(`/api/dvr/usb/browse?path=${encodeURIComponent(path)}`);
+            const data = await res.json();
+            _browsePath = data.path || path;
+            _browseDirs = data.dirs || [];
+        } catch (e) {
+            _browseDirs = [];
+        }
+        _browseLoading = false;
+        App.navigateTo("a6");
     }
 
     // Expose DVR methods on App
@@ -109,15 +185,39 @@ App.registerScreen("a6", (() => {
             else _selectedFiles.add(filename);
             App.navigateTo("a6");
         };
-        App._dvrExport = async () => {
+        App._dvrExport = () => {
+            if (_selectedFiles.size === 0) return;
+            _showBrowseModal = true;
+            _loadUsbDirs("/");
+        };
+        App._dvrBrowseClose = () => {
+            _showBrowseModal = false;
+            App.navigateTo("a6");
+        };
+        App._dvrBrowseInto = (dirName) => {
+            const newPath = _browsePath === "/" ? `/${dirName}` : `${_browsePath}/${dirName}`;
+            _loadUsbDirs(newPath);
+        };
+        App._dvrBrowseUp = () => {
+            const parts = _browsePath.split("/").filter(Boolean);
+            parts.pop();
+            const parent = parts.length === 0 ? "/" : "/" + parts.join("/");
+            _loadUsbDirs(parent);
+        };
+        App._dvrExportToPath = async () => {
             if (_selectedFiles.size === 0) return;
             try {
                 await fetch("/api/dvr/export", {
                     method: "POST",
                     headers: {"Content-Type": "application/json"},
-                    body: JSON.stringify({files: [..._selectedFiles]}),
+                    body: JSON.stringify({
+                        files: [..._selectedFiles],
+                        target_path: _browsePath,
+                    }),
                 });
-                alert(App.t("dvr_export_done", "Export started"));
+                _showBrowseModal = false;
+                _selectedFiles.clear();
+                App.navigateTo("a6");
             } catch (e) {}
         };
     }

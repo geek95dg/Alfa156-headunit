@@ -1,17 +1,93 @@
 /**
  * A8 Phone Screen — BT dialer, contacts (PBAP), call history.
- * Tabs: Dialer | Contacts | History
+ * Tabs: Contacts | History | Dialer
  * Incoming call overlay with accept/reject.
+ *
+ * State lives on the global Phone object so render() and Phone methods
+ * share the same source of truth.
  */
 
+// Phone state & API — defined BEFORE the screen IIFE so render() can read it.
+const Phone = {
+    _tab: "contacts",        // "contacts" | "history" | "dialer"
+    _input: "",
+    _contacts: [],
+    _history: [],
+    _contactsFilter: "",
+
+    setTab(tab) { Phone._tab = tab; App.navigateTo("a8"); },
+
+    key(k) {
+        if (k === "del") {
+            Phone._input = Phone._input.slice(0, -1);
+        } else {
+            Phone._input += k;
+        }
+        App.navigateTo("a8");
+    },
+
+    dialNumber(num) {
+        Phone._input = num;
+        Phone._tab = "dialer";
+        App.navigateTo("a8");
+    },
+
+    async dial() {
+        if (!Phone._input) return;
+        try {
+            await fetch("/api/phone/dial", {
+                method: "POST",
+                headers: {"Content-Type": "application/json"},
+                body: JSON.stringify({number: Phone._input}),
+            });
+        } catch (e) {}
+    },
+
+    async answer() {
+        try { await fetch("/api/phone/answer", {method: "POST"}); } catch (e) {}
+    },
+
+    async reject() {
+        try { await fetch("/api/phone/hangup", {method: "POST"}); } catch (e) {}
+    },
+
+    async hangup() {
+        try { await fetch("/api/phone/hangup", {method: "POST"}); } catch (e) {}
+    },
+
+    toggleMute() {
+        DataStore.sendKey("mute_mic");
+    },
+
+    filterContacts(val) {
+        Phone._contactsFilter = val;
+        App.navigateTo("a8");
+    },
+
+    async loadContacts() {
+        try {
+            const res = await fetch("/api/phone/contacts");
+            const data = await res.json();
+            Phone._contacts = data.contacts || [];
+            App.navigateTo("a8");
+        } catch (e) {}
+    },
+
+    async loadHistory() {
+        try {
+            const res = await fetch("/api/phone/history");
+            const data = await res.json();
+            Phone._history = data.history || [];
+            App.navigateTo("a8");
+        } catch (e) {}
+    },
+};
+
 App.registerScreen("a8", (() => {
-    let _tab = "dialer"; // "dialer" | "contacts" | "history"
-    let _dialInput = "";
-    let _contacts = [];
-    let _history = [];
     let _callState = "idle"; // "idle" | "ringing" | "active" | "incoming"
     let _callInfo = {};
-    let _contactsFilter = "";
+    let _contactsLoaded = false;
+    let _historyLoaded = false;
 
     function render(container, theme, data) {
         const t = App.t.bind(App);
@@ -21,6 +97,7 @@ App.registerScreen("a8", (() => {
         const tabActive = theme === "modern" ? "bg-blue-600 text-white" : "bg-zinc-700 text-white";
         const tabInactive = theme === "modern" ? "bg-slate-200 text-slate-600" : "bg-zinc-800 text-zinc-400";
 
+        const tab = Phone._tab;
         const callActive = _callState !== "idle";
 
         container.innerHTML = `<div class="screen-container ${bgCls}">
@@ -28,22 +105,22 @@ App.registerScreen("a8", (() => {
             <main class="content-area flex flex-col p-3 relative">
                 <!-- Tab bar -->
                 <div class="flex gap-2 mb-3 shrink-0">
-                    <button class="px-4 py-1.5 rounded-lg text-xs font-bold ${_tab==='dialer'?tabActive:tabInactive}" onclick="Phone.setTab('dialer')">
-                        <span class="material-symbols-outlined mr-1" style="font-size:14px;vertical-align:-2px;">dialpad</span>${t("dialer","Dialer")}
-                    </button>
-                    <button class="px-4 py-1.5 rounded-lg text-xs font-bold ${_tab==='contacts'?tabActive:tabInactive}" onclick="Phone.setTab('contacts')">
+                    <button class="px-4 py-1.5 rounded-lg text-xs font-bold ${tab==='contacts'?tabActive:tabInactive}" onclick="Phone.setTab('contacts')">
                         <span class="material-symbols-outlined mr-1" style="font-size:14px;vertical-align:-2px;">contacts</span>${t("contacts","Contacts")}
                     </button>
-                    <button class="px-4 py-1.5 rounded-lg text-xs font-bold ${_tab==='history'?tabActive:tabInactive}" onclick="Phone.setTab('history')">
+                    <button class="px-4 py-1.5 rounded-lg text-xs font-bold ${tab==='history'?tabActive:tabInactive}" onclick="Phone.setTab('history')">
                         <span class="material-symbols-outlined mr-1" style="font-size:14px;vertical-align:-2px;">history</span>${t("call_history","History")}
+                    </button>
+                    <button class="px-4 py-1.5 rounded-lg text-xs font-bold ${tab==='dialer'?tabActive:tabInactive}" onclick="Phone.setTab('dialer')">
+                        <span class="material-symbols-outlined mr-1" style="font-size:14px;vertical-align:-2px;">dialpad</span>${t("dialer","Dialer")}
                     </button>
                 </div>
 
                 <!-- Tab content -->
                 <div class="flex-1 overflow-hidden">
-                    ${_tab === "dialer" ? _renderDialer(theme, cardBg, accentClr, t) : ""}
-                    ${_tab === "contacts" ? _renderContacts(theme, cardBg, accentClr, t) : ""}
-                    ${_tab === "history" ? _renderHistory(theme, cardBg, accentClr, t) : ""}
+                    ${tab === "contacts" ? _renderContacts(theme, cardBg, accentClr, t) : ""}
+                    ${tab === "history" ? _renderHistory(theme, cardBg, accentClr, t) : ""}
+                    ${tab === "dialer" ? _renderDialer(theme, cardBg, accentClr, t) : ""}
                 </div>
 
                 <!-- Active call overlay -->
@@ -54,9 +131,9 @@ App.registerScreen("a8", (() => {
             ${NavBar.render(theme, "a8")}
         </div>`;
 
-        // Load contacts/history on first render
-        if (_contacts.length === 0) Phone.loadContacts();
-        if (_history.length === 0) Phone.loadHistory();
+        // Load contacts/history once
+        if (!_contactsLoaded) { _contactsLoaded = true; Phone.loadContacts(); }
+        if (!_historyLoaded) { _historyLoaded = true; Phone.loadHistory(); }
     }
 
     function _renderDialer(theme, cardBg, accent, t) {
@@ -65,7 +142,7 @@ App.registerScreen("a8", (() => {
 
         return `<div class="flex flex-col items-center h-full">
             <!-- Number display -->
-            <div class="text-3xl font-bold tracking-wider mb-3 h-10" style="color:${accent};">${_dialInput || "\u00a0"}</div>
+            <div class="text-3xl font-bold tracking-wider mb-3 h-10" style="color:${accent};">${Phone._input || "\u00a0"}</div>
             <!-- Keypad -->
             <div class="grid grid-cols-3 gap-2 w-[280px]">
                 ${keys.map(k => `<button class="${keyBg} rounded-xl py-3 text-xl font-bold active:scale-95 transition-transform" onclick="Phone.key('${k}')">${k}</button>`).join("")}
@@ -84,14 +161,14 @@ App.registerScreen("a8", (() => {
 
     function _renderContacts(theme, cardBg, accent, t) {
         const filterBg = theme === "modern" ? "bg-white border-slate-200" : "bg-zinc-800 border-zinc-700";
-        const filtered = _contactsFilter
-            ? _contacts.filter(c => c.name.toLowerCase().includes(_contactsFilter.toLowerCase()))
-            : _contacts;
+        const filtered = Phone._contactsFilter
+            ? Phone._contacts.filter(c => c.name.toLowerCase().includes(Phone._contactsFilter.toLowerCase()))
+            : Phone._contacts;
 
         return `<div class="flex flex-col h-full">
             <div class="flex items-center gap-2 ${filterBg} border rounded-lg px-3 py-1.5 mb-2 shrink-0">
                 <span class="material-symbols-outlined opacity-40" style="font-size:18px;">search</span>
-                <input type="text" value="${_contactsFilter}" placeholder="${t("search_contacts","Search...")}"
+                <input type="text" value="${Phone._contactsFilter}" placeholder="${t("search_contacts","Search...")}"
                        class="bg-transparent border-none outline-none text-sm flex-1 p-0"
                        oninput="Phone.filterContacts(this.value)">
             </div>
@@ -121,12 +198,12 @@ App.registerScreen("a8", (() => {
         const colorMap = { incoming: "text-green-500", outgoing: "text-blue-500", missed: "text-red-500" };
 
         return `<div class="flex-1 overflow-y-auto space-y-1">
-            ${_history.length === 0
+            ${Phone._history.length === 0
                 ? `<div class="flex flex-col items-center justify-center py-8 opacity-30">
                     <span class="material-symbols-outlined text-4xl mb-2">history</span>
                     <span class="text-sm font-bold">${t("no_history","No call history")}</span>
                    </div>`
-                : _history.map(h => `<div class="${cardBg} border rounded-lg p-2 flex justify-between items-center cursor-pointer hover:opacity-80" onclick="Phone.dialNumber('${h.number}')">
+                : Phone._history.map(h => `<div class="${cardBg} border rounded-lg p-2 flex justify-between items-center cursor-pointer hover:opacity-80" onclick="Phone.dialNumber('${h.number}')">
                     <div class="flex items-center gap-3">
                         <span class="material-symbols-outlined ${colorMap[h.type]||''}" style="font-size:20px;">${iconMap[h.type]||'call'}</span>
                         <div>
@@ -175,85 +252,12 @@ App.registerScreen("a8", (() => {
     }
 
     function update(data) {
-        // Update call state from event bus
         if (data.bt_call_state && data.bt_call_state !== _callState) {
             _callState = data.bt_call_state;
             _callInfo = data.bt_call_info || {};
-            App.navigateTo("a8"); // Re-render
+            App.navigateTo("a8");
         }
     }
 
     return { render, update };
 })());
-
-// Phone API object
-const Phone = {
-    setTab(tab) { Phone._tab = tab; App.navigateTo("a8"); },
-    _tab: "dialer",
-
-    key(k) {
-        const screen = App._renderers?.a8;
-        if (k === "del") {
-            Phone._input = (Phone._input || "").slice(0, -1);
-        } else {
-            Phone._input = (Phone._input || "") + k;
-        }
-        App.navigateTo("a8");
-    },
-    _input: "",
-
-    dialNumber(num) {
-        Phone._input = num;
-        Phone._tab = "dialer";
-        App.navigateTo("a8");
-    },
-
-    async dial() {
-        if (!Phone._input) return;
-        try {
-            await fetch("/api/phone/dial", {
-                method: "POST",
-                headers: {"Content-Type": "application/json"},
-                body: JSON.stringify({number: Phone._input}),
-            });
-        } catch (e) {}
-    },
-
-    async answer() {
-        try { await fetch("/api/phone/answer", {method: "POST"}); } catch (e) {}
-    },
-
-    async reject() {
-        try { await fetch("/api/phone/hangup", {method: "POST"}); } catch (e) {}
-    },
-
-    async hangup() {
-        try { await fetch("/api/phone/hangup", {method: "POST"}); } catch (e) {}
-    },
-
-    toggleMute() {
-        // Toggle mic mute via event bus
-        DataStore.sendKey("mute_mic");
-    },
-
-    filterContacts(val) {
-        Phone._contactsFilter = val;
-        App.navigateTo("a8");
-    },
-    _contactsFilter: "",
-
-    async loadContacts() {
-        try {
-            const res = await fetch("/api/phone/contacts");
-            const data = await res.json();
-            // Store in closure — re-render will pick up
-        } catch (e) {}
-    },
-
-    async loadHistory() {
-        try {
-            const res = await fetch("/api/phone/history");
-            const data = await res.json();
-        } catch (e) {}
-    },
-};

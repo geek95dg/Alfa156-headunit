@@ -169,6 +169,11 @@ STRINGS: dict[str, dict[str, str]] = {
         "dtc_error": "Błąd odczytu",
         "dvr_empty": "Brak nagrań",
         "dvr_export_done": "Eksport rozpoczęty",
+        "dvr_export_here": "Eksportuj tutaj",
+        "dvr_no_folders": "Brak podfolderów",
+        "dvr_files_selected": "plików zaznaczonych",
+        "cancel": "Anuluj",
+        "loading": "Ładowanie...",
         "weather_search": "Szukaj lokalizacji...",
         # Phone
         "phone": "Telefon",
@@ -357,6 +362,11 @@ STRINGS: dict[str, dict[str, str]] = {
         "dtc_error": "Read failed",
         "dvr_empty": "No recordings found",
         "dvr_export_done": "Export started",
+        "dvr_export_here": "Export Here",
+        "dvr_no_folders": "No subfolders",
+        "dvr_files_selected": "files selected",
+        "cancel": "Cancel",
+        "loading": "Loading...",
         "weather_search": "Search location...",
         # Phone
         "phone": "Phone",

@@ -21,7 +21,7 @@ const AppBar = (() => {
             // Invert to white, orange tint
             filterStyle = "filter: invert(1) sepia(1) saturate(5) hue-rotate(-10deg) brightness(1.2);";
         }
-        return `<img src="/assets/alfa_logo.png" alt="Alfa Romeo" class="h-10 w-10 object-contain" style="${filterStyle}" onerror="this.parentElement.innerHTML='<span class=\\'text-sm font-bold\\'>AR</span>';">`;
+        return `<img src="/assets/alfa_logo.png" alt="Alfa Romeo" class="h-14 w-auto object-contain" style="${filterStyle}" onerror="this.parentElement.innerHTML='<span class=\\'text-sm font-bold\\'>AR</span>';">`;
     }
 
     function render(theme, data) {
@@ -60,9 +60,11 @@ const AppBar = (() => {
 
     function _formatDate() {
         const now = new Date();
-        const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-        const days = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
-        return `${days[now.getDay()]} ${months[now.getMonth()]} ${now.getDate()}`;
+        const dayKeys = ["sun","mon","tue","wed","thu","fri","sat"];
+        const monthKeys = ["jan","feb","mar","apr","may","jun","jul","aug","sep","oct","nov","dec"];
+        const day = (App && App.t) ? App.t(dayKeys[now.getDay()]) : dayKeys[now.getDay()].toUpperCase();
+        const month = (App && App.t) ? App.t(monthKeys[now.getMonth()]) : monthKeys[now.getMonth()].toUpperCase();
+        return `${day} ${month} ${now.getDate()}`;
     }
 
     function _formatTemp(data) {
