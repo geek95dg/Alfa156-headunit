@@ -77,7 +77,7 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--platform",
-        choices=["x86", "opi", "auto"],
+        choices=["x86", "opi", "redmi", "auto"],
         default="auto",
         help="Target platform (default: auto-detect)",
     )
@@ -273,14 +273,15 @@ def main() -> None:
         # Always start demo data generators on x86
         demo = None
         demo_media = None
-        if config.platform == "x86":
+        if config.platform in ("x86", "redmi"):
             from src.dashboard.renderer import DemoDataGenerator
             from src.multimedia.bluetooth import DemoMediaGenerator
             demo = DemoDataGenerator(event_bus)
             demo.start()
             demo_media = DemoMediaGenerator(event_bus)
             demo_media.start()
-            log.info("Demo data generators started (OBD + Media)")
+            log.info("Demo data generators started (OBD + Media) "
+                     "[platform=%s]", config.platform)
 
         if args.frontend:
             # HTML5/Tailwind frontend mode — no Pygame needed
