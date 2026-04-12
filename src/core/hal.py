@@ -455,10 +455,11 @@ class HAL:
     """Hardware Abstraction Layer — factory for platform-appropriate drivers.
 
     Supported platforms:
-        - "x86"   — Mock drivers for development/testing
-        - "opi"   — Real GPIO/UART/SPI/I2C via libgpiod/pyserial on Orange Pi
-        - "redmi" — USB-serial sensor hub + native phone hardware on
-                     Redmi Note 8 Pro with Ubuntu Touch
+        - "x86"    — Mock drivers for development/testing
+        - "opi"    — Real GPIO/UART/SPI/I2C via libgpiod/pyserial on Orange Pi 5 Plus
+        - "opi_pc" — Same as opi but for Orange Pi PC 1.2 (Allwinner H3, gpiochip0)
+        - "redmi"  — USB-serial sensor hub + native phone hardware on
+                      Redmi Note 8 Pro with Ubuntu Touch
 
     Usage:
         hal = HAL(platform="x86")
@@ -491,14 +492,14 @@ class HAL:
         return self._sensor_hub
 
     def gpio(self, pin: int, direction: str = "in") -> Any:
-        if self.platform == "opi":
+        if self.platform in ("opi", "opi_pc"):
             return RealGPIOPin(pin, direction)
         if self.platform == "redmi":
             return RedmiSensorHubGPIO(pin, direction, hub=self._sensor_hub)
         return MockGPIOPin(pin, direction)
 
     def uart(self, port: str, baudrate: int = 9600) -> Any:
-        if self.platform in ("opi", "redmi"):
+        if self.platform in ("opi", "opi_pc", "redmi"):
             return RealUART(port, baudrate)
         return MockUART(port, baudrate)
 
@@ -509,17 +510,17 @@ class HAL:
         return MockPWM(pin, frequency)
 
     def spi(self, bus: int = 0, device: int = 0) -> Any:
-        if self.platform == "opi":
+        if self.platform in ("opi", "opi_pc"):
             return RealSPI(bus, device)
         return MockSPI(bus, device)
 
     def i2c(self, bus: int = 1) -> Any:
-        if self.platform == "opi":
+        if self.platform in ("opi", "opi_pc"):
             return RealI2C(bus)
         return MockI2C(bus)
 
     def onewire(self) -> Any:
-        if self.platform == "opi":
+        if self.platform in ("opi", "opi_pc"):
             return RealOneWire()
         if self.platform == "redmi":
             return RedmiOneWire(sensor_hub=self._sensor_hub)

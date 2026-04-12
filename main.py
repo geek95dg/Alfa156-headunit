@@ -77,7 +77,7 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--platform",
-        choices=["x86", "opi", "redmi", "auto"],
+        choices=["x86", "opi", "opi_pc", "redmi", "auto"],
         default="auto",
         help="Target platform (default: auto-detect)",
     )
