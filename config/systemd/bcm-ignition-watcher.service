@@ -1,0 +1,26 @@
+[Unit]
+Description=BCM — Ignition Watcher (GPIO monitor, starts headunit on ignition)
+Documentation=https://github.com/geek95dg/Alfa156-headunit
+After=multi-user.target
+
+[Service]
+Type=simple
+ExecStart=/opt/bcm/venv/bin/python -m src.power.ignition_watcher \
+    --config config/bcm_config_opi_pc.yaml \
+    --service bcm-headunit.service
+WorkingDirectory=/opt/bcm
+Environment=PYTHONPATH=/opt/bcm
+
+Restart=always
+RestartSec=5
+
+# Run as root for GPIO access and systemctl permissions
+User=root
+
+# Logging via journald
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=bcm-ignition-watcher
+
+[Install]
+WantedBy=multi-user.target

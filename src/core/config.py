@@ -13,13 +13,14 @@ DEFAULT_CONFIG_PATH = Path(__file__).resolve().parent.parent.parent / "config" /
 
 
 def _detect_platform() -> str:
-    """Detect whether we're running on x86, Orange Pi, or Redmi (Ubuntu Touch).
+    """Detect whether we're running on x86, Orange Pi 5 Plus, OPi PC, or Redmi.
 
     Detection order:
       1. Check for Ubuntu Touch marker (/etc/ubuntu-touch-session.d or UBUNTU_TOUCH env)
       2. Check for Redmi Note 8 Pro (begonia) device tree
-      3. Generic ARM64 → opi
-      4. Fallback → x86
+      3. armv7l with Allwinner H3 → opi_pc (Orange Pi PC 1.2)
+      4. aarch64 (RK3588 etc.) → opi (Orange Pi 5 Plus)
+      5. Fallback → x86
     """
     machine = platform.machine().lower()
     if machine in ("aarch64", "armv7l", "armv8l"):
@@ -29,8 +30,30 @@ def _detect_platform() -> str:
                 or os.path.exists("/android/data")  # Halium-based UT
                 or _is_redmi_device()):
             return "redmi"
+        # Distinguish OPi PC (H3, armv7l) from OPi 5 Plus (RK3588, aarch64)
+        if machine == "armv7l" and _is_allwinner_h3():
+            return "opi_pc"
         return "opi"
     return "x86"
+
+
+def _is_allwinner_h3() -> bool:
+    """Check if running on Allwinner H3 SoC (Orange Pi PC / PC Plus / One)."""
+    try:
+        dt_model = Path("/proc/device-tree/model")
+        if dt_model.exists():
+            model = dt_model.read_text().lower()
+            if "orange pi pc" in model or "sun8i-h3" in model:
+                return True
+        # Fallback: check /proc/cpuinfo for sun8i
+        cpuinfo = Path("/proc/cpuinfo")
+        if cpuinfo.exists():
+            text = cpuinfo.read_text().lower()
+            if "sun8i" in text or "allwinner" in text:
+                return True
+    except Exception:
+        pass
+    return False
 
 
 def _is_redmi_device() -> bool:

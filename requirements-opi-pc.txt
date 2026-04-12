@@ -1,0 +1,28 @@
+# BCM v8.5 — Orange Pi PC 1.2 (Allwinner H3, armv7l) dependencies
+#
+# Install: pip install -r requirements.txt -r requirements-opi-pc.txt -r requirements-x86.txt
+#
+# The OPi PC has only 1GB RAM. Keep dependencies lean.
+# Flask/web frontend deps come from requirements-x86.txt (same web stack).
+
+# GPIO via libgpiod (H3 uses gpiochip0, sun8i-h3-pinctrl)
+gpiod>=2.0
+
+# SPI bus (MCP3008 ADC for SWC analog, optional)
+spidev>=3.6
+
+# I2C bus (optional, for future sensor expansion)
+smbus2>=0.4
+
+# Note: System packages required (install via apt):
+#   - libgpiod2 libgpiod-dev    (gpiod Python bindings)
+#   - python3-dev               (build extensions)
+#   - chromium-browser           (kiosk display)
+#   - pipewire pipewire-alsa    (audio routing)
+#   - bluez                     (Bluetooth via USB dongle)
+#   - usb-modeswitch            (Huawei E3372 LTE modem)
+#   - gstreamer1.0-tools gstreamer1.0-plugins-good  (dashcam)
+#
+# Optional (enable voice module — tight on 1GB RAM):
+#   pip install vosk sounddevice
+#   Download: vosk-model-small-pl (~50MB)
