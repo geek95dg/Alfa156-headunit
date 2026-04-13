@@ -1,9 +1,10 @@
 """Flask server for the 4.3" small display (port 5003).
 
-Shows a stats carousel (fuel, coolant temp, ext temp, int temp)
+Shows a static 2x2 grid of 4 values (fuel, coolant temp, ext temp, int temp)
 with time/date header and notification popups (weather, traffic,
-icing, low fuel, service, TPMS). Overlays reverse camera + parking
-sensors when reverse gear is engaged.
+icing, low fuel, service, TPMS). Overlays the active camera feed
+(rear/left/right) when reverse gear or a turn signal is engaged —
+priority: reverse > left blinker > right blinker.
 """
 
 import json
@@ -99,12 +100,32 @@ class SmallDisplayServer:
                                   "text": str(traffic_alert),
                                   "severity": "info", "duration": 8000})
 
+        # Camera trigger logic — priority: reverse > left blinker > right blinker.
+        # `camera.active_feed` is authoritative when CameraController is running;
+        # otherwise derive the state here as a fallback for bench/simulator mode.
+        reverse_on = bool(v("power.reverse_gear", False))
+        left_blink = bool(v("vehicle.left_blinker", False))
+        right_blink = bool(v("vehicle.right_blinker", False))
+        camera_active = v("camera.active_feed", None)
+        if camera_active is None:
+            if reverse_on:
+                camera_active = "rear"
+            elif left_blink:
+                camera_active = "left"
+            elif right_blink:
+                camera_active = "right"
+            else:
+                camera_active = None
+
         return {
             "fuel_level": fuel,
             "coolant_temp": v("obd.coolant_temp", 0),
             "ext_temp": ext_temp,
             "int_temp": v("env.int_temperature"),
-            "reverse": v("vehicle.reverse", False),
+            "reverse": reverse_on,
+            "left_blinker": left_blink,
+            "right_blinker": right_blink,
+            "camera_active": camera_active,
             "parking_distances": v("parking.distances", []),
             "parking_active": v("parking.active", False),
             "notifications": notifications,
