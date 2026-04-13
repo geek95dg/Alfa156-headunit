@@ -36,6 +36,27 @@ def _find_openauto() -> Optional[str]:
     return None
 
 
+def _aa_canvas_size(app_config: Any) -> tuple[int, int]:
+    """Return the (width, height) that AA / Xvfb should use.
+
+    BCM renders a 48 px AppBar at the top and a 48 px NavBar at the
+    bottom of every A-screen, so the actual content area available to
+    the Android Auto iframe is ``(dashboard.width, dashboard.height -
+    48 - 48)``.  If ``display.multimedia.{width,height}`` is explicitly
+    set in the config we honour it verbatim; otherwise we compute the
+    inner-frame size so the AA canvas never gets clipped behind the
+    header or the nav bar.
+    """
+    dash_w = int(app_config.get("display.dashboard.width", 1024))
+    dash_h = int(app_config.get("display.dashboard.height", 600))
+    appbar = int(app_config.get("display.appbar_px", 48))
+    navbar = int(app_config.get("display.navbar_px", 48))
+    inner_h = max(240, dash_h - appbar - navbar)
+    w = int(app_config.get("display.multimedia.width", dash_w))
+    h = int(app_config.get("display.multimedia.height", inner_h))
+    return w, h
+
+
 def _create_openauto_config(project_dir: str, app_config: Any = None) -> None:
     """Create openauto.ini in the project directory (autoapp's working dir).
 
@@ -58,12 +79,11 @@ def _create_openauto_config(project_dir: str, app_config: Any = None) -> None:
     ssid = ""
     password = ""
     width = 1024
-    height = 600
+    height = 504  # 600 - AppBar 48 - NavBar 48
     if app_config:
         ssid = app_config.get("wifi.ssid", "")
         password = app_config.get("wifi.password", "")
-        width = app_config.get("display.multimedia.width", 1024)
-        height = app_config.get("display.multimedia.height", 600)
+        width, height = _aa_canvas_size(app_config)
 
     # OpenAuto Resolution codes (per autoapp source):
     #   0 = 480p, 1 = 720p, 2 = 1080p, 3 = auto/stretch
@@ -317,8 +337,7 @@ class OpenAutoController:
         few times in case the window gets re-created after a phone
         reconnect.
         """
-        width = int(self._config.get("display.multimedia.width", 1024))
-        height = int(self._config.get("display.multimedia.height", 600))
+        width, height = _aa_canvas_size(self._config)
         env = {**os.environ, "DISPLAY": display}
         candidates = ["autoapp", "OpenAuto", "openauto", "openDsh"]
         last_wid: Optional[str] = None
@@ -434,8 +453,7 @@ class OpenAutoController:
         self._cleanup_stale_xvfb(display_num)
 
         try:
-            width = self._config.get("display.multimedia.width", 1024)
-            height = self._config.get("display.multimedia.height", 600)
+            width, height = _aa_canvas_size(self._config)
             self._xvfb_process = subprocess.Popen(
                 ["Xvfb", display_num, "-screen", "0",
                  f"{width}x{height}x24", "-ac"],

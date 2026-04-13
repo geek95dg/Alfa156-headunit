@@ -43,12 +43,11 @@ App.registerScreen("a2", (() => {
             ${AppBar.render(theme, data)}
             <main class="content-area relative overflow-hidden bg-black">
                 ${statusBadge}
-                <!-- AA Stream — fills content area between header and nav.
-                     object-cover prevents the letterboxed right/bottom
-                     black bars that appeared with the previous object-fill
-                     when the AA canvas aspect didn't match the panel. -->
+                <!-- AA Stream — Xvfb renders at exactly the content-area
+                     size (dashboard height − AppBar − NavBar) so
+                     object-fill maps it 1:1 without cropping or letterbox. -->
                 <img id="aa-stream" src="/aa/stream" alt=""
-                     class="absolute inset-0 w-full h-full object-cover z-0"
+                     class="absolute inset-0 w-full h-full object-fill z-0"
                      style="display:none;"
                      onload="this.style.display='block';document.getElementById('aa-placeholder').style.display='none';document.getElementById('aa-touch-overlay').style.display='block';"
                      onerror="this.style.display='none';document.getElementById('aa-placeholder').style.display='flex';document.getElementById('aa-touch-overlay').style.display='none';">
