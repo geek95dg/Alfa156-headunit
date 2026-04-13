@@ -41,9 +41,17 @@ sudo apt install -y \
   v4l-utils ffmpeg \
   gstreamer1.0-tools gstreamer1.0-plugins-good \
   gstreamer1.0-plugins-bad gstreamer1.0-rockchip1 \
+  xdotool matchbox-window-manager \
   usb-modeswitch \
   i2c-tools
 ```
+
+> **Important:** `matchbox-window-manager` is what makes Android Auto
+> fill the whole screen. BCM launches it inside the Xvfb / :0 display
+> before starting autoapp so every Qt window is forced to maximize.
+> Without it, OpenAuto opens at its internal default of ~800×480 and
+> leaves a black strip on the right, which also breaks touch
+> coordinate mapping. `xdotool` is the secondary fallback.
 
 ## 3. Clone BCM + create venv
 

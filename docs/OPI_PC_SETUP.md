@@ -65,6 +65,7 @@ sudo apt install -y \
   pipewire pipewire-alsa wireplumber \
   bluez blueman \
   v4l-utils ffmpeg \
+  xdotool matchbox-window-manager \
   usb-modeswitch \
   i2c-tools
 ```

@@ -136,6 +136,7 @@ class OpenAutoController:
         self._binary = _find_openauto()
         self._process: Optional[subprocess.Popen] = None
         self._xvfb_process: Optional[subprocess.Popen] = None
+        self._wm_process: Optional[subprocess.Popen] = None
         self._running = False
         self._monitor_thread: Optional[threading.Thread] = None
         self._log_thread: Optional[threading.Thread] = None
@@ -188,6 +189,11 @@ class OpenAutoController:
             env["DISPLAY"] = ":0"
             env["SDL_VIDEODRIVER"] = "kmsdrm"
             log.info("OPi display config: DISPLAY=:0, SDL_VIDEODRIVER=kmsdrm")
+            # On a real OPi the framebuffer usually doesn't have a WM
+            # either (bcm-kiosk runs Chromium directly via Xorg). Start
+            # a matchbox-window-manager on :0 so the autoapp window is
+            # forced fullscreen, same trick as the x86 Xvfb path.
+            self._start_window_manager(":0")
         else:
             # On x86: render to Xvfb virtual display for browser streaming
             if not env.get("DISPLAY"):
@@ -362,6 +368,61 @@ class OpenAutoController:
                     log.debug("windowsize failed: %s", e)
             time.sleep(0.5)
 
+    def _start_window_manager(self, display: str) -> None:
+        """Launch a minimal WM inside Xvfb so every window auto-maximises.
+
+        Tries candidates in order of preference:
+          1. matchbox-window-manager — tiny, kiosk-friendly, always-fullscreen
+          2. openbox — slightly heavier but widely available
+          3. twm — ancient fallback, ships with X.org
+
+        Each candidate is launched non-blocking; if none are available
+        the worker falls back to the xdotool windowsize trick in
+        _force_fullscreen_window(). Logs a warning but never raises.
+        """
+        if self._wm_process and self._wm_process.poll() is None:
+            return
+
+        env = {**os.environ, "DISPLAY": display}
+        candidates = [
+            ["matchbox-window-manager", "-use_titlebar", "no",
+             "-use_cursor", "no"],
+            ["openbox"],
+            ["twm"],
+        ]
+        for cmd in candidates:
+            try:
+                self._wm_process = subprocess.Popen(
+                    cmd, env=env,
+                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                )
+                time.sleep(0.3)
+                if self._wm_process.poll() is None:
+                    log.info("Window manager running inside %s: %s",
+                             display, cmd[0])
+                    return
+            except FileNotFoundError:
+                continue
+            except Exception as e:
+                log.debug("WM candidate %s failed: %s", cmd[0], e)
+                continue
+
+        log.warning(
+            "No window manager found inside Xvfb — install "
+            "`matchbox-window-manager` (apt) for best results. Falling "
+            "back to xdotool windowsize which is less reliable."
+        )
+        self._wm_process = None
+
+    def _stop_window_manager(self) -> None:
+        if self._wm_process and self._wm_process.poll() is None:
+            self._wm_process.terminate()
+            try:
+                self._wm_process.wait(timeout=2)
+            except subprocess.TimeoutExpired:
+                self._wm_process.kill()
+            self._wm_process = None
+
     def _start_xvfb(self) -> Optional[str]:
         """Start Xvfb virtual framebuffer for AA rendering."""
         if self._xvfb_process and self._xvfb_process.poll() is None:
@@ -391,6 +452,15 @@ class OpenAutoController:
                 log.error("Xvfb exited immediately: %s", stderr)
                 return None
             log.info("Xvfb started on %s (%dx%d)", display_num, width, height)
+
+            # Launch a minimal window manager inside Xvfb so that every
+            # top-level window created by openauto/autoapp is forced to
+            # maximize to the full canvas. Without a WM, Qt apps open at
+            # their internal default size (typically 800x480) leaving a
+            # black strip on the right and breaking touch coordinate
+            # mapping.
+            self._start_window_manager(display_num)
+
             return display_num
         except FileNotFoundError:
             log.warning("Xvfb not installed")
@@ -436,7 +506,8 @@ class OpenAutoController:
             log.debug("Xvfb stale cleanup: %s", e)
 
     def _stop_xvfb(self) -> None:
-        """Stop Xvfb."""
+        """Stop Xvfb and any window manager we launched inside it."""
+        self._stop_window_manager()
         if self._xvfb_process and self._xvfb_process.poll() is None:
             self._xvfb_process.terminate()
             try:
