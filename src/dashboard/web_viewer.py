@@ -734,14 +734,37 @@ class WebViewer:
 
         @app.route("/api/camera/stream")
         def camera_stream():
-            """MJPEG stream from USB camera (/dev/video0)."""
+            """MJPEG stream from a role-addressed USB camera.
+
+            Query param ``cam`` selects the camera role
+            (``front`` | ``rear`` | ``left`` | ``right``). The role is
+            resolved to a /dev/videoN device via the master config.
+            Defaults to ``rear`` for backwards compatibility with the
+            original reverse-camera-only endpoint.
+            """
             try:
                 import cv2
             except ImportError:
                 return "opencv not available", 503
 
+            role = (request.args.get("cam") or "rear").lower()
+            if role not in ("front", "rear", "left", "right"):
+                return "invalid cam role", 400
+
+            device_path = viewer._config.get(
+                f"camera.{role}_device", None
+            ) if viewer._config else None
+
+            def _open_capture():
+                # Prefer config-supplied /dev/videoN; fall back to 0 for legacy.
+                if device_path:
+                    c = cv2.VideoCapture(device_path)
+                    if c.isOpened():
+                        return c
+                return cv2.VideoCapture(0)
+
             def gen_frames():
-                cap = cv2.VideoCapture(0)
+                cap = _open_capture()
                 if not cap.isOpened():
                     return
                 cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
@@ -764,15 +787,33 @@ class WebViewer:
 
         @app.route("/api/camera/available")
         def camera_available():
-            """Check if a USB camera is available."""
+            """Check which cameras are available.
+
+            Returns a dict keyed by role (front/rear/left/right) with
+            bool values. Legacy callers that ignore keys still see
+            ``available`` set to True iff any camera is reachable.
+            """
             try:
                 import cv2
-                cap = cv2.VideoCapture(0)
-                available = cap.isOpened()
-                cap.release()
-                return jsonify({"available": available})
-            except Exception:
+            except ImportError:
                 return jsonify({"available": False})
+
+            result: dict[str, bool] = {}
+            for role in ("front", "rear", "left", "right"):
+                dev = viewer._config.get(
+                    f"camera.{role}_device", None
+                ) if viewer._config else None
+                if not dev:
+                    result[role] = False
+                    continue
+                try:
+                    c = cv2.VideoCapture(dev)
+                    result[role] = bool(c.isOpened())
+                    c.release()
+                except Exception:
+                    result[role] = False
+            result["available"] = any(result.values())
+            return jsonify(result)
 
         # --- WebSocket: real-time data stream ---
 
