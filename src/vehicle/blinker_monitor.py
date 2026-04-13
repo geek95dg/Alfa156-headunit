@@ -140,3 +140,10 @@ class BlinkerMonitor:
                 log.debug("Blinker read error: %s", e)
 
             time.sleep(DEFAULT_POLL_S)
+
+
+def start_blinker_monitor(config, event_bus, hal=None, **kwargs):
+    """Module registry entry point — instantiates and starts BlinkerMonitor."""
+    mon = BlinkerMonitor(config, event_bus, hal)
+    mon.start()
+    return mon

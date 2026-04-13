@@ -33,6 +33,7 @@ from src.location.gps import start_location
 from src.network.lte import start_network
 from src.weather.weather import start_weather
 from src.vehicle.rain_sensor import start_rain_sensor
+from src.vehicle.blinker_monitor import start_blinker_monitor
 from src.vehicle.central_lock import start_central_lock
 from src.vehicle.lighting import start_lighting
 from src.performance.timer import start_performance
@@ -59,6 +60,7 @@ MODULE_REGISTRY: dict[str, dict] = {
     "network":     {"part": 13, "description": "LTE/Cellular Connectivity", "start": start_network},
     "weather":     {"part": 14, "description": "Weather Data (OpenWeatherMap)", "start": start_weather},
     "rain_sensor": {"part": 15, "description": "Rain Sensor + Auto Wipers", "start": start_rain_sensor},
+    "blinker_monitor": {"part": 15, "description": "Turn Signal GPIO Monitor", "start": start_blinker_monitor},
     "central_lock":{"part": 16, "description": "Central Lock + 433MHz RF", "start": start_central_lock},
     "lighting":    {"part": 17, "description": "Lighting (Follow-me-home, Greeting)", "start": start_lighting},
     "performance": {"part": 18, "description": "Performance (0-100 Timer, Boost)", "start": start_performance},
