@@ -146,6 +146,15 @@ camera:
   device: /dev/video0
   resolution: 640x480  # Lower res for software H.264 on H3
   encoder: x264        # Software encoding (no HW encoder on H3)
+  # Role mapping — on the test rig we only have one camera by default,
+  # so front=/dev/video0 and the rest are intentionally left at paths
+  # that probably don't exist. The multi-camera controller will log a
+  # warning but still operate for rear (falls through to placeholder).
+  front_device: /dev/video0
+  rear_device: /dev/video1
+  left_device: /dev/video2
+  right_device: /dev/video3
+  controller: false    # Disabled by default on the 1 GB test rig
 
 swc:
   enabled: true

@@ -78,6 +78,15 @@ camera:
   segment_minutes: 5
   max_storage_gb: 128
   recording_path: /media/dashcam
+  # 4-camera set via USB 4-channel AHD grabber
+  # Default mapping — override per deployment if v4l2 enumerates differently
+  front_device: /dev/video0
+  rear_device: /dev/video1
+  left_device: /dev/video2
+  right_device: /dev/video3
+  # Enable the multi-camera controller with priority logic
+  # (reverse_gear > left_blinker > right_blinker)
+  controller: true
 swc:
   enabled: true
   buttons:
