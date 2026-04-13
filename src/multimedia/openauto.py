@@ -256,6 +256,19 @@ class OpenAutoController:
                 "source": "android_auto", "available": True,
             })
             log.info("OpenAuto launched (PID %d)", self._process.pid)
+
+            # Kick off a one-shot window-resizer thread — without a window
+            # manager inside Xvfb the Qt window comes up at its own default
+            # size (typically 800x480) and leaves black space on the right,
+            # which also makes touch coordinate mapping wrong because the
+            # browser's relative clicks end up outside the autoapp window.
+            threading.Thread(
+                target=self._force_fullscreen_window,
+                args=(env.get("DISPLAY", self.XVFB_DISPLAY),),
+                daemon=True,
+                name="aa-window-resizer",
+            ).start()
+
             return True
 
         except Exception as e:
@@ -281,6 +294,73 @@ class OpenAutoController:
         self._event_bus.publish("audio.source_available", {
             "source": "android_auto", "available": False,
         })
+
+    def _force_fullscreen_window(self, display: str) -> None:
+        """Force the autoapp Qt window to cover the full Xvfb canvas.
+
+        Without a window manager inside Xvfb, Qt opens windows at their
+        native default size (usually 800x480 for openauto/autoapp). That
+        leaves black space on the right of the captured MJPEG stream and,
+        more importantly, breaks touch coordinate mapping — browser clicks
+        get translated to the full 1024x600 canvas but the AA window
+        itself only occupies a sub-region.
+
+        This helper polls xdotool until the autoapp window appears, then
+        issues windowmove + windowsize so it fills the canvas from (0,0).
+        Also calls windowactivate so the window is focused, and loops a
+        few times in case the window gets re-created after a phone
+        reconnect.
+        """
+        width = int(self._config.get("display.multimedia.width", 1024))
+        height = int(self._config.get("display.multimedia.height", 600))
+        env = {**os.environ, "DISPLAY": display}
+        candidates = ["autoapp", "OpenAuto", "openauto", "openDsh"]
+        last_wid: Optional[str] = None
+        deadline = time.time() + 30.0     # 30 s bootstrap window
+
+        def _find_window_id() -> Optional[str]:
+            for name in candidates:
+                try:
+                    r = subprocess.run(
+                        ["xdotool", "search", "--name", name],
+                        capture_output=True, text=True, timeout=2, env=env,
+                    )
+                    lines = [l for l in r.stdout.splitlines() if l.strip()]
+                    if lines:
+                        return lines[-1]
+                except Exception:
+                    continue
+            # Fallback: any top-level X window.
+            try:
+                r = subprocess.run(
+                    ["xdotool", "search", "--onlyvisible", "--class", ".*"],
+                    capture_output=True, text=True, timeout=2, env=env,
+                )
+                lines = [l for l in r.stdout.splitlines() if l.strip()]
+                if lines:
+                    return lines[-1]
+            except Exception:
+                pass
+            return None
+
+        while self._running and time.time() < deadline:
+            wid = _find_window_id()
+            if wid and wid != last_wid:
+                try:
+                    subprocess.run(
+                        ["xdotool",
+                         "windowmove", wid, "0", "0",
+                         "windowsize", wid, str(width), str(height),
+                         "windowactivate", wid],
+                        timeout=2, env=env, capture_output=True,
+                    )
+                    log.info("Resized autoapp window %s to %dx%d",
+                             wid, width, height)
+                    last_wid = wid
+                    deadline = time.time() + 10.0  # keep monitoring briefly
+                except Exception as e:
+                    log.debug("windowsize failed: %s", e)
+            time.sleep(0.5)
 
     def _start_xvfb(self) -> Optional[str]:
         """Start Xvfb virtual framebuffer for AA rendering."""
