@@ -1,4 +1,27 @@
-# BCM v7 — Orange Pi 5 Plus (arm64) dependencies
+# BCM v8.5 — Orange Pi 5 Pro 4GB / 5 Plus (arm64) dependencies
+#
+# Install: pip install -r requirements.txt -r requirements-opi.txt -r requirements-x86.txt
+#
+# Python dependencies
 gpiod>=2.0
 spidev>=3.6
 smbus2>=0.4
+
+# Note: System packages required (install via apt) — see docs/OPI5PRO_SETUP.md
+#   Core:
+#     - libgpiod2 libgpiod-dev         (gpiod Python bindings)
+#     - python3-dev                    (build extensions)
+#     - chromium-browser               (main kiosk display)
+#     - pipewire pipewire-alsa wireplumber  (audio routing)
+#     - bluez blueman                  (Bluetooth A2DP/HFP)
+#     - usb-modeswitch                 (LTE / Huawei E3372)
+#     - v4l-utils ffmpeg               (camera + MJPEG capture)
+#     - gstreamer1.0-tools gstreamer1.0-plugins-good
+#     - gstreamer1.0-plugins-bad gstreamer1.0-rockchip1   (HW H.264 on RK3588)
+#     - i2c-tools
+#   Android Auto (required for A2 to fill the content area correctly):
+#     - matchbox-window-manager        (auto-maximises autoapp Qt window)
+#     - xdotool                        (touch passthrough + fallback resizer)
+#     - Xvfb                           (x86/headless AA rendering)
+#
+# Optional: voice (Vosk) — pip install vosk sounddevice

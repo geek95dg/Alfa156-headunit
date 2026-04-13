@@ -70,6 +70,25 @@ sudo apt install -y \
   i2c-tools
 ```
 
+> **Android Auto sizing (same as the OPi 5 Pro build).**
+> The three packages `matchbox-window-manager`, `xdotool` and `Xvfb`
+> are used together so the A2 Android Auto screen fits exactly inside
+> the BCM frame — no overlap with the AppBar or NavBar, no black strip
+> on the right, and touch passthrough lands on the right pixels:
+>
+> - `matchbox-window-manager` runs inside Xvfb and force-maximises the
+>   autoapp Qt window (otherwise it opens at its native ~800×480).
+> - BCM sizes the Xvfb canvas to `(dashboard.width, dashboard.height
+>   − AppBar − NavBar)` = **1024×504** on the default 7" panel, so
+>   the AA projection matches the BCM content-area pixel-for-pixel.
+> - `xdotool` forwards browser touch coordinates to the same canvas
+>   and acts as a fallback resizer if matchbox isn't installed.
+>
+> On the OPi PC test rig the Android Auto module is memory-heavy
+> (`modules.multimedia: true` is experimental on 1 GB RAM), so you
+> may prefer to disable it in `config/bcm_config_opi_pc.yaml` and
+> only test A2 on the OPi 5 Pro.
+
 ### 1.4 Clone & Setup BCM
 
 ```bash
@@ -567,6 +586,25 @@ Connect per the wiring from phases 3a/3b. Key connections:
 ---
 
 ## Troubleshooting
+
+### Android Auto is too big / overlaps the BCM header or nav bar
+
+Same fix as on the OPi 5 Pro: delete the cached OpenAuto config so
+BCM regenerates it with the correct inner-frame size, and make sure
+`matchbox-window-manager` + `xdotool` are installed.
+
+```bash
+sudo apt install -y matchbox-window-manager xdotool
+rm -f /opt/bcm/openauto.ini
+sudo systemctl restart bcm-headunit
+grep Touchscreen /opt/bcm/openauto.ini
+# Expected: TouchscreenWidth=1024 / TouchscreenHeight=504
+```
+
+`modules.multimedia` is memory-heavy — on the 1 GB test rig it can
+push the system into swap. If A2 still flickers after restart,
+consider setting `modules.multimedia: false` in
+`config/bcm_config_opi_pc.yaml` and only testing A2 on the 5 Pro.
 
 ### GPIO Permission Denied
 
