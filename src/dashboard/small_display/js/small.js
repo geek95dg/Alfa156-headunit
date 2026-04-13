@@ -258,11 +258,34 @@
         renderGrid();
     }
 
+    // --- Dev keyboard shortcuts (bench testing without GPIO) ---
+    // R = toggle rear camera, L = toggle left blinker, P = toggle right blinker
+    // The shortcuts fake a camera_active field directly so the UI reacts
+    // without needing the backend to publish anything on the event bus.
+    function installDevKeys() {
+        let fakeRole = null;
+        document.addEventListener("keydown", (e) => {
+            const key = e.key.toLowerCase();
+            if (key === "r") {
+                fakeRole = fakeRole === "rear" ? null : "rear";
+            } else if (key === "l") {
+                fakeRole = fakeRole === "left" ? null : "left";
+            } else if (key === "p") {
+                fakeRole = fakeRole === "right" ? null : "right";
+            } else {
+                return;
+            }
+            data.camera_active = fakeRole;
+            onDataUpdate();
+        });
+    }
+
     // --- Init ---
     async function init() {
         await loadConfig();
         renderGrid();
         connectWS();
+        installDevKeys();
         // Update time every second
         setInterval(() => {
             const timeEl = app.querySelector(".time");
