@@ -428,6 +428,11 @@ const WeatherSearch = {
         if (condEl) condEl.textContent = "Loading...";
         if (tempEl) tempEl.textContent = "...";
 
+        // Capture the current search_done marker so we can detect a new
+        // one arriving via the WebSocket (indicating the backend fetch
+        // completed — success or failure).
+        const baseMarker = DataStore.get("weather_search_done", 0);
+
         // Tell backend to re-fetch weather for this location
         try {
             const resp = await fetch("/api/weather/location", {
@@ -438,7 +443,21 @@ const WeatherSearch = {
             const result = await resp.json();
             console.log("[WeatherSearch] location POST response:", result);
         } catch (e) { console.error("[WeatherSearch] location POST failed:", e); }
-        // Force full re-render after backend fetches new data (5s poll + fetch time)
-        setTimeout(() => { App.navigateTo("a4"); }, 6000);
+
+        // Reactive re-render: subscribe once to the weather_search_done
+        // marker and re-render A4 as soon as the backend fires it. Keeps
+        // a 10s hard fallback so the UI never stays stuck on "Loading..."
+        // if the event never comes (network error, no API key, etc.).
+        const handler = (value) => {
+            if (value && value !== baseMarker) {
+                DataStore.unsubscribe("weather_search_done", handler);
+                if (App.getCurrentScreen() === "a4") App.navigateTo("a4");
+            }
+        };
+        DataStore.subscribe("weather_search_done", handler);
+        setTimeout(() => {
+            DataStore.unsubscribe("weather_search_done", handler);
+            if (App.getCurrentScreen() === "a4") App.navigateTo("a4");
+        }, 10000);
     },
 };

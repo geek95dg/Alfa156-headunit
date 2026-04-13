@@ -149,6 +149,10 @@ class WebViewer:
             "weather_forecast": _val("weather.forecast", []),
             "weather_lat": _val("weather.lat", None),
             "weather_lon": _val("weather.lon", None),
+            # Increments each time the WeatherManager finishes an immediate
+            # fetch after a location change — used by A4 Weather to drop
+            # the "Loading..." spinner reactively (no hardcoded setTimeout).
+            "weather_search_done": _val("weather.search_done", 0),
             # BT Media
             "bt_media_title": _val("bt.media_title", ""),
             "bt_media_artist": _val("bt.media_artist", ""),

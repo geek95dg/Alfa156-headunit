@@ -123,6 +123,9 @@ class WeatherManager:
         """Fetch weather immediately (called from search handler)."""
         if not self._api_key:
             log.warning("Cannot fetch weather: no API key")
+            # Still signal "done" so the frontend can clear its spinner
+            # instead of waiting forever when there's no API key.
+            self._bus.publish("weather.search_done", time.time())
             return
         try:
             data = self._fetch_weather()
@@ -137,6 +140,10 @@ class WeatherManager:
                 log.warning("Weather search fetch returned None")
         except Exception as e:
             log.error("Weather search fetch FAILED: %s", e, exc_info=True)
+        finally:
+            # Always notify the frontend that the search fetch cycle ended
+            # (success or failure) so it can drop the loading spinner.
+            self._bus.publish("weather.search_done", time.time())
 
     def _run(self):
         """Main weather polling loop."""
