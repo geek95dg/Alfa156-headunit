@@ -163,13 +163,34 @@ App.registerScreen("a3", (() => {
 
     function _injectToggleButton(host) {
         if (host.querySelector(".tp-toggle-btn")) return;
-        const main = host.querySelector("main");
-        if (!main) return;
+        // Attach to .screen-container directly (which is position:relative)
+        // rather than to <main>, which in the modern theme is a flex
+        // container that would absorb the button into its layout.
         const btn = document.createElement("button");
-        btn.className = "tp-toggle-btn absolute top-3 right-3 z-30 flex items-center gap-1 px-2 py-1 rounded-md bg-zinc-800/80 border border-zinc-700 text-amber-500 text-[10px] font-bold uppercase tracking-wider hover:bg-zinc-700";
-        btn.innerHTML = `<span class="material-symbols-outlined" style="font-size:14px;">route</span>Travel Plan`;
+        btn.className = "tp-toggle-btn";
+        btn.style.cssText = [
+            "position:absolute",
+            "top:56px",         // below AppBar (48px)
+            "right:12px",
+            "z-index:30",
+            "display:flex",
+            "align-items:center",
+            "gap:6px",
+            "padding:6px 12px",
+            "border-radius:8px",
+            "background:rgba(24,24,27,0.85)",
+            "border:1px solid rgba(255,255,255,0.15)",
+            "color:#f59e0b",
+            "font-size:11px",
+            "font-weight:800",
+            "text-transform:uppercase",
+            "letter-spacing:1px",
+            "cursor:pointer",
+            "box-shadow:0 2px 8px rgba(0,0,0,0.35)",
+        ].join(";");
+        btn.innerHTML = `<span class="material-symbols-outlined" style="font-size:16px;">route</span>Travel Plan`;
         btn.onclick = _toggleTravelPlan;
-        main.appendChild(btn);
+        host.appendChild(btn);
     }
 
     function _conditionIcon(cond) {
