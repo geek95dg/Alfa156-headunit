@@ -42,9 +42,29 @@ App.registerScreen("a3", (() => {
 
     // --- Travel Plan UI ---------------------------------------------------
 
+    // Snapshot of the plan fingerprint used to detect real changes so we
+    // don't rebuild the overlay (and destroy user touch targets) on every
+    // ~200 ms WebSocket tick. Only a real plan change triggers a rerender.
+    let _lastPlanKey = null;
+    function _planKey(data) {
+        const p = data.trip_plan || {};
+        return JSON.stringify([
+            p.destination_name || "",
+            p.distance_km || 0,
+            p.eta_min || 0,
+            p.predicted_fuel_l || 0,
+            (p.weather_points || []).length,
+            (p.incidents || []).length,
+            !!data.trip_planning,
+        ]);
+    }
+
+    // --- Travel Plan UI ---------------------------------------------------
+
     function _toggleTravelPlan() {
         travelPlanActive = !travelPlanActive;
         try { localStorage.setItem("bcm.travelPlan", travelPlanActive ? "1" : "0"); } catch (e) {}
+        _lastPlanKey = null;
         _renderTravelPlanOverlay(DataStore.getAll());
     }
 
@@ -98,15 +118,6 @@ App.registerScreen("a3", (() => {
                </span>`
             : "";
 
-        const searchResultsHtml = _searchResults.length > 0
-            ? `<div class="tp-search-results" style="position:absolute;top:44px;left:0;right:0;background:#18181b;border:1px solid #3f3f46;border-radius:6px;max-height:160px;overflow:auto;z-index:60;">
-                   ${_searchResults.map((r, i) => `
-                       <div class="tp-result-item" data-idx="${i}" style="padding:8px 12px;font-size:12px;color:#e4e4e7;cursor:pointer;border-bottom:1px solid #27272a;">
-                           ${r.name}${r.state ? ", " + r.state : ""}, ${r.country}
-                       </div>`).join("")}
-               </div>`
-            : "";
-
         const overlay = document.createElement("div");
         overlay.className = "travel-plan-overlay";
         overlay.style.cssText = [
@@ -131,11 +142,10 @@ App.registerScreen("a3", (() => {
                     Travel Plan
                 </h2>
             </div>
-            <div style="position:relative;">
+            <div class="tp-search-wrap" style="position:relative;">
                 <input class="tp-search" type="text" placeholder="Destination (e.g. Gdynia)"
                        value="${name.replace(/"/g, '&quot;')}"
                        style="width:100%;background:#18181b;border:1px solid #3f3f46;border-radius:6px;padding:10px 12px;font-size:14px;color:#f4f4f5;outline:none;">
-                ${searchResultsHtml}
             </div>
             <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;">
                 <div style="background:rgba(24,24,27,0.6);border:1px solid #27272a;border-radius:8px;padding:8px;">
@@ -180,15 +190,16 @@ App.registerScreen("a3", (() => {
                 _searchDestination(e.target.value);
             });
         }
-        overlay.querySelectorAll(".tp-result-item").forEach((el) => {
-            el.addEventListener("click", () => {
-                _selectResult(parseInt(el.dataset.idx, 10));
-            });
-        });
         const clearBtn = overlay.querySelector(".tp-clear-btn");
         if (clearBtn) {
             clearBtn.addEventListener("click", _clearPlan);
+            clearBtn.addEventListener("touchend", (e) => {
+                e.preventDefault();
+                _clearPlan();
+            });
         }
+        // Preserve any pending search results across overlay rebuilds.
+        _renderSearchResults();
     }
 
     function _injectToggleButton(host) {
@@ -226,6 +237,11 @@ App.registerScreen("a3", (() => {
             e.stopPropagation();
             _toggleTravelPlan();
         });
+        btn.addEventListener("touchend", (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            _toggleTravelPlan();
+        });
         host.appendChild(btn);
     }
 
@@ -250,15 +266,21 @@ App.registerScreen("a3", (() => {
     }
 
     function _refreshTravelPlan(data) {
-        // Re-render overlay whenever the travel plan field changes
-        if (travelPlanActive) _renderTravelPlanOverlay(data);
+        // Only rerender when the plan *actually* changes. Otherwise the
+        // 5 Hz WebSocket ticks would destroy the overlay DOM faster than
+        // a touch tap can register on any of its buttons.
+        if (!travelPlanActive) return;
+        const key = _planKey(data);
+        if (key === _lastPlanKey) return;
+        _lastPlanKey = key;
+        _renderTravelPlanOverlay(data);
     }
 
     function _searchDestination(query) {
         if (_searchDebounce) clearTimeout(_searchDebounce);
         if (!query || query.length < 2) {
             _searchResults = [];
-            _renderTravelPlanOverlay(DataStore.getAll());
+            _renderSearchResults();
             return;
         }
         _searchDebounce = setTimeout(async () => {
@@ -269,8 +291,49 @@ App.registerScreen("a3", (() => {
             } catch (e) {
                 _searchResults = [];
             }
-            _renderTravelPlanOverlay(DataStore.getAll());
+            _renderSearchResults();
         }, 300);
+    }
+
+    function _renderSearchResults() {
+        // Update only the search-results dropdown inside an already
+        // rendered overlay; keeps the input focused and preserves
+        // user-typed text.
+        const overlay = document.querySelector(".travel-plan-overlay");
+        if (!overlay) return;
+        const container = overlay.querySelector(".tp-search-wrap");
+        if (!container) return;
+        let list = container.querySelector(".tp-search-results");
+        if (list) list.remove();
+        if (_searchResults.length === 0) return;
+        list = document.createElement("div");
+        list.className = "tp-search-results";
+        list.style.cssText = [
+            "position:absolute",
+            "top:44px",
+            "left:0",
+            "right:0",
+            "background:#18181b",
+            "border:1px solid #3f3f46",
+            "border-radius:6px",
+            "max-height:180px",
+            "overflow:auto",
+            "z-index:60",
+        ].join(";");
+        _searchResults.forEach((r, i) => {
+            const item = document.createElement("div");
+            item.className = "tp-result-item";
+            item.dataset.idx = String(i);
+            item.style.cssText = "padding:10px 14px;font-size:13px;color:#e4e4e7;cursor:pointer;border-bottom:1px solid #27272a;";
+            item.textContent = `${r.name}${r.state ? ", " + r.state : ""}, ${r.country}`;
+            item.addEventListener("click", () => _selectResult(i));
+            item.addEventListener("touchend", (e) => {
+                e.preventDefault();
+                _selectResult(i);
+            });
+            list.appendChild(item);
+        });
+        container.appendChild(list);
     }
 
     async function _selectResult(idx) {
