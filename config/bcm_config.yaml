@@ -132,6 +132,14 @@ weather:
   poll_interval_min: 15
   default_lat: 50.06    # Fallback when no GPS fix (Krakow)
   default_lon: 19.94
+travel:
+  # A3 Travel Plan requires two optional external keys:
+  #   openrouteservice_key: free tier, needed for real driving directions.
+  #     Without it, RoutePlanner falls back to a straight-line estimate.
+  #   tomtom_key: paid API, enables road works + incident detection along
+  #     the planned route. Without it, the incidents panel is hidden.
+  openrouteservice_key: ""
+  tomtom_key: ""
 power:
   shutdown_delay_seconds: 30
   backlight_fade_ms: 1000

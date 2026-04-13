@@ -53,12 +53,15 @@ class WebViewer:
     """
 
     def __init__(self, host: str = "0.0.0.0", port: int = 5002,
-                 event_bus=None, config=None, bt_manager=None) -> None:
+                 event_bus=None, config=None, bt_manager=None,
+                 trip_computer=None, route_planner=None) -> None:
         self.host = host
         self.port = port
         self._event_bus = event_bus
         self._config = config
         self._bt_manager = bt_manager
+        self._trip_computer = trip_computer
+        self._route_planner = route_planner
         self._thread: Optional[threading.Thread] = None
         self._running = False
         self._ws_clients: list = []
@@ -67,6 +70,16 @@ class WebViewer:
 
         # Path to the web frontend files
         self._web_dir = os.path.join(os.path.dirname(__file__), "web")
+
+    def attach_trip(self, trip_computer, route_planner=None) -> None:
+        """Attach trip computer + planner after construction.
+
+        Used by the dashboard renderer which owns the TripComputer
+        instance — it wires it up before calling ``start()``.
+        """
+        self._trip_computer = trip_computer
+        if route_planner is not None:
+            self._route_planner = route_planner
 
     def start(self) -> None:
         """Start the Flask web server in a background thread."""
@@ -153,6 +166,10 @@ class WebViewer:
             # fetch after a location change — used by A4 Weather to drop
             # the "Loading..." spinner reactively (no hardcoded setTimeout).
             "weather_search_done": _val("weather.search_done", 0),
+            # Travel plan (A3 Trip — only populated when destination is set)
+            "trip_plan": (self._trip_computer.get_plan_dict()
+                          if self._trip_computer else None),
+            "trip_planning": _val("trip.planning", False),
             # BT Media
             "bt_media_title": _val("bt.media_title", ""),
             "bt_media_artist": _val("bt.media_artist", ""),
@@ -664,6 +681,74 @@ class WebViewer:
                                           {"lat": lat, "lon": lon, "city": city})
                 return jsonify({"ok": True})
             return jsonify({"error": "missing lat/lon"}), 400
+
+        # --- Travel plan API (A3 Trip screen "Travel Plan" toggle) ---
+
+        @app.route("/api/trip/search")
+        def api_trip_search():
+            """Geocode a city name for destination selection.
+
+            Reuses the OpenWeatherMap Geocoding API since BCM already
+            depends on it for weather search. Results share the same
+            shape as /api/weather/search.
+            """
+            import urllib.request
+            import urllib.parse
+            query = request.args.get("q", "").strip()
+            if not query or len(query) < 2:
+                return jsonify({"results": []})
+            api_key = ""
+            if viewer._config:
+                api_key = viewer._config.get("weather", {}).get("api_key", "")
+            if not api_key:
+                return jsonify({"results": [], "error": "no API key"}), 400
+            url = (f"https://api.openweathermap.org/geo/1.0/direct"
+                   f"?q={urllib.parse.quote(query)}&limit=5&appid={api_key}")
+            try:
+                req = urllib.request.Request(url, headers={"User-Agent": "BCM/1.0"})
+                with urllib.request.urlopen(req, timeout=5) as resp:
+                    raw = json.loads(resp.read())
+                results = [{
+                    "name": r.get("name", ""),
+                    "country": r.get("country", ""),
+                    "state": r.get("state", ""),
+                    "lat": r.get("lat", 0),
+                    "lon": r.get("lon", 0),
+                } for r in raw]
+                return jsonify({"results": results})
+            except Exception as e:
+                return jsonify({"results": [], "error": str(e)}), 500
+
+        @app.route("/api/trip/destination", methods=["POST"])
+        def api_trip_set_destination():
+            """Set travel-plan destination and trigger RoutePlanner.plan()."""
+            if viewer._trip_computer is None:
+                return jsonify({"error": "trip computer not available"}), 503
+            data = request.get_json(silent=True) or {}
+            lat = data.get("lat")
+            lon = data.get("lon")
+            name = data.get("name") or data.get("city") or "Destination"
+            if lat is None or lon is None:
+                return jsonify({"error": "missing lat/lon"}), 400
+            viewer._trip_computer.set_destination(
+                float(lat), float(lon), str(name),
+            )
+            return jsonify({"ok": True, "name": name})
+
+        @app.route("/api/trip/clear", methods=["POST"])
+        def api_trip_clear():
+            """Clear the active travel plan."""
+            if viewer._trip_computer is None:
+                return jsonify({"error": "trip computer not available"}), 503
+            viewer._trip_computer.clear_destination()
+            return jsonify({"ok": True})
+
+        @app.route("/api/trip/route")
+        def api_trip_route():
+            """Return the current computed travel plan (or null)."""
+            if viewer._trip_computer is None:
+                return jsonify(None)
+            return jsonify(viewer._trip_computer.get_plan_dict())
 
         # --- Debug endpoints ---
 

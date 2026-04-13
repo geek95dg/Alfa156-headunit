@@ -290,10 +290,20 @@ def main() -> None:
             log.info("Starting HTML5/Tailwind dashboard frontend...")
             try:
                 from src.dashboard.web_viewer import WebViewer
+                from src.dashboard.trip_computer import TripComputer
+                try:
+                    from src.trip.route_planner import RoutePlanner
+                    _rp = RoutePlanner(config, event_bus)
+                except Exception as _e:
+                    log.warning("RoutePlanner unavailable: %s", _e)
+                    _rp = None
+                _tc = TripComputer(event_bus=event_bus, route_planner=_rp)
                 web_viewer = WebViewer(
                     host="0.0.0.0", port=5002,
                     event_bus=event_bus, config=config,
                     bt_manager=bt_manager,
+                    trip_computer=_tc,
+                    route_planner=_rp,
                 )
                 web_viewer.start()
                 log.info("Main display started at http://localhost:5002")

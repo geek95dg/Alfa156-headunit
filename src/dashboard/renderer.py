@@ -107,8 +107,17 @@ class DashboardRenderer:
         self.data.speed_unit = config.get("units.speed", "km/h")
         self.data.temp_unit = config.get("units.temperature", "C")
 
-        # Sub-components
-        self.trip = TripComputer()
+        # Sub-components — TripComputer owns the travel-plan state and
+        # delegates routing to RoutePlanner (optional: skipped if the
+        # trip package is missing or imports fail).
+        try:
+            from src.trip.route_planner import RoutePlanner
+            self.route_planner = RoutePlanner(config, event_bus)
+        except Exception as e:
+            log.warning("RoutePlanner unavailable: %s", e)
+            self.route_planner = None
+        self.trip = TripComputer(event_bus=event_bus,
+                                 route_planner=self.route_planner)
         self.status_bar = StatusBar()
         self.parking_overlay = ParkingOverlay()
         self.icing_alert = IcingAlert()
