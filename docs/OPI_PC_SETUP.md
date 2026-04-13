@@ -1,6 +1,15 @@
 # Orange Pi PC 1.2 — Setup & Testing Guide
 
-Pre-production test rig using Orange Pi PC (Allwinner H3, 1GB RAM) before buying the Orange Pi 5 Plus.
+Pre-production test rig using Orange Pi PC (Allwinner H3, 1GB RAM) before
+moving to the primary production board — the **Orange Pi 5 Pro 4GB**
+(see [`OPI5PRO_SETUP.md`](OPI5PRO_SETUP.md) for the final in-car build).
+
+> **Note:** On the OPi PC test rig the 4-camera set, the multi-camera
+> priority controller, and the blinker GPIO monitor are all disabled
+> by default in `config/bcm_config_opi_pc.yaml`. The 1 GB of RAM and
+> USB 2.0 bandwidth on the H3 can't drive four AHD streams at once.
+> Test each subsystem individually by flipping `modules.blinker_monitor`
+> and `camera.controller` to `true` one at a time.
 
 ---
 

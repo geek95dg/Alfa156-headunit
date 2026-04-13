@@ -475,19 +475,28 @@ SWC decoder: red → 12V ACC, black → chassis GND, white → A0
 
 ## PART 9: Camera & Dashcam System
 
-**Goal:** Dual-channel AHD dashcam recording + reverse camera feed on 4.3" display.
+**Goal:** 4-channel AHD dashcam recording + multi-camera auto-switching
+feed on 4.3" display (reverse gear + turn signal triggered).
 
 **Files to create:**
-- `src/camera/ahd_grabber.py` — AHD USB3.0 grabber interface (V4L2)
+- `src/camera/ahd_grabber.py` — AHD USB grabber interface (V4L2), role-based API
+  (`front`/`rear`/`left`/`right`)
 - `src/camera/dashcam.py` — GStreamer pipeline: capture → H.264 encode → loop record to USB drive
-- `src/camera/reverse_cam.py` — Reverse camera: on reverse-gear event, pipe rear camera to dashboard overlay
+- `src/camera/camera_controller.py` — priority-based multi-camera selector.
+  Publishes `camera.active_feed` based on reverse gear + blinker state.
+- `src/camera/reverse_cam.py` — thin back-compat shim re-exporting
+  `CameraController` as `ReverseCamera` so existing imports still work.
+- `src/vehicle/blinker_monitor.py` (Part 15/17 extension) — GPIO watcher
+  that publishes `vehicle.left_blinker` / `vehicle.right_blinker`.
 
 **Key specs:**
-- 2× AHD 720P cameras (front windshield + rear license plate frame)
-- 4-channel USB3.0 AHD grabber (presents as V4L2 devices)
+- **4× AHD 720P cameras** (front windshield, rear plate frame, left wing, right wing)
+- 4-channel USB AHD grabber (presents 4 V4L2 devices, `/dev/video0..3`)
+- Camera priority: `power.reverse_gear > vehicle.left_blinker > vehicle.right_blinker > none`
 - GStreamer pipeline: `v4l2src → videoconvert → x264enc/mpph264enc → splitmuxsink`
 - Loop recording: 5-minute segments, oldest deleted when 128GB full (~47 hours capacity)
-- Reverse camera: on `power.reverse_gear` event, feed rear camera to Part 2 overlay
+- MJPEG stream endpoint (`/api/camera/stream?cam=front|rear|left|right`) for the
+  small display (:5003) and the reverse overlay.
 - Hardware H.264 on RK3588 via `mpph264enc` (GStreamer rockchip plugin)
 
 **x86 vs OPi:**
