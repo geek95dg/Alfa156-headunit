@@ -57,6 +57,7 @@ modules:
   location: true
   network: true        # LTE via Huawei E3372
   weather: true
+  blinker_monitor: false  # Off by default on the test rig (no car wiring)
 
 display:
   # Single HDMI output = main display
@@ -98,6 +99,9 @@ gpio:
   central_lock: 20     # PA20, physical pin 37
   # Bench test button — optional momentary push button for ignition sim
   bench_button: 37     # PB5/PWM1, physical pin 33
+  # Turn signal inputs (via PC817 optoisolators) — test-rig pins
+  blinker_left: 10     # PA10, physical pin 19 (change to match your wiring)
+  blinker_right: 11    # PA11, physical pin 23
 
 serial:
   kline:
