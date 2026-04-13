@@ -74,6 +74,23 @@ const App = (() => {
         document.body.classList.add(`theme-${theme}`);
     }
 
+    /** Persist the last user-visible screen to localStorage so we can
+     *  restore it on the next app launch. "init" and "settings" are
+     *  intentionally excluded — we only remember A-screens (a1..a8). */
+    const LAST_SCREEN_KEY = "bcm.lastScreen";
+    function _saveLastScreen(screen) {
+        if (!NAV_SCREENS.includes(screen)) return;
+        try { localStorage.setItem(LAST_SCREEN_KEY, screen); } catch (e) {}
+    }
+    function _loadLastScreen() {
+        try {
+            const s = localStorage.getItem(LAST_SCREEN_KEY);
+            return NAV_SCREENS.includes(s) ? s : null;
+        } catch (e) {
+            return null;
+        }
+    }
+
     /** Navigate to a screen */
     function navigateTo(screen) {
         if (!_renderers[screen]) return;
@@ -94,6 +111,9 @@ const App = (() => {
         if (_renderers[screen].mount) {
             _renderers[screen].mount();
         }
+
+        // Persist A-screens so next launch lands on the same screen.
+        _saveLastScreen(screen);
     }
 
     /** Get nav index for current screen */
@@ -447,13 +467,14 @@ const App = (() => {
             // Touch swipe navigation (for touchscreen)
             _initTouchSwipe();
 
-            // Start at init screen, then auto-transition to A1
+            // Start at init screen, then auto-transition to the last
+            // remembered screen (or A1 on first launch).
+            const restoreTarget = _loadLastScreen() || "a1";
             navigateTo("init");
 
-            // After init animation, go to A1
             setTimeout(() => {
                 if (_currentScreen === "init") {
-                    navigateTo("a1");
+                    navigateTo(restoreTarget);
                 }
             }, 4000);
         },

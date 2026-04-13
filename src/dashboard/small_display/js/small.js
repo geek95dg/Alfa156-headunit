@@ -1,16 +1,20 @@
 /**
  * BCM v8.5 — Small Display (4.3" 800x480)
- * Stats carousel + notification popups + reverse camera overlay.
+ * Static 2x2 stats grid + notification popups + multi-camera overlay.
+ *
+ * Camera priority (computed backend-side in small_viewer.py::_get_data):
+ *   1. reverse gear → rear camera
+ *   2. left blinker → left camera
+ *   3. right blinker → right camera
+ *   otherwise → hide overlay, show grid
  */
 
 (() => {
     const app = document.getElementById("app");
     let data = {};
-    let currentPage = 0;
-    let cycleTimer = null;
     let popupQueue = [];
     let popupActive = false;
-    let reverseActive = false;
+    let activeCamera = null;   // "rear" | "left" | "right" | null
     let theme = "heritage";
     let lang = "pl";
 
@@ -58,53 +62,58 @@
         return `${days[d.getDay()]} ${d.getDate()} ${months[d.getMonth()]}`;
     }
 
-    // --- Carousel pages ---
-    const pages = [
-        { icon: "local_gas_station", key: "fuel_level", label: "POZIOM PALIWA", unit: "%", format: v => Math.round(v || 0) },
-        { icon: "device_thermostat", key: "coolant_temp", label: "TEMP. PŁYNU", unit: "°C", format: v => Math.round(v || 0) },
-        { icon: "thermostat", key: "ext_temp", label: "TEMP. ZEWN.", unit: "°C", format: v => v != null ? Math.round(v) : "--" },
-        { icon: "thermostat_auto", key: "int_temp", label: "TEMP. WEWN.", unit: "°C", format: v => v != null ? Math.round(v) : "--" },
+    // --- 2x2 grid cells ---
+    const cells = [
+        { icon: "local_gas_station", key: "fuel_level",   label: "POZIOM PALIWA", unit: "%",  format: v => Math.round(v || 0) },
+        { icon: "device_thermostat", key: "coolant_temp", label: "TEMP. PŁYNU",   unit: "°C", format: v => Math.round(v || 0) },
+        { icon: "thermostat",        key: "ext_temp",     label: "TEMP. ZEWN.",   unit: "°C", format: v => v != null ? Math.round(v) : "--" },
+        { icon: "thermostat_auto",   key: "int_temp",     label: "TEMP. WEWN.",   unit: "°C", format: v => v != null ? Math.round(v) : "--" },
     ];
 
-    function renderCarousel() {
-        const p = pages[currentPage];
-        const val = p.format(data[p.key]);
+    function renderGrid() {
+        const cellHtml = cells.map(c => {
+            const val = c.format(data[c.key]);
+            return `
+                <div class="cell">
+                    <span class="material-symbols-outlined cell-icon">${c.icon}</span>
+                    <div class="cell-value">${val}<span class="cell-unit">${c.unit}</span></div>
+                    <div class="cell-label">${c.label}</div>
+                </div>`;
+        }).join("");
+
         app.innerHTML = `
             <div class="screen">
                 <div class="header">
                     <div><span class="time">${formatTime()}</span> <span class="date">${formatDate()}</span></div>
                     <div style="font-size:12px;font-weight:600;opacity:0.4;">BCM v8.5</div>
                 </div>
-                <div class="content">
-                    <span class="material-symbols-outlined stat-icon">${p.icon}</span>
-                    <div class="stat-value">${val}<span class="stat-unit">${p.unit}</span></div>
-                    <div class="stat-label">${p.label}</div>
-                </div>
-                <div class="dots">
-                    ${pages.map((_, i) => `<div class="dot ${i === currentPage ? 'active' : ''}"></div>`).join("")}
-                </div>
+                <div class="grid">${cellHtml}</div>
                 <div id="popup-container"></div>
             </div>`;
     }
 
-    function nextPage() {
-        currentPage = (currentPage + 1) % pages.length;
-        renderCarousel();
-        showCurrentPopup();
+    function updateGridValues() {
+        // Lightweight in-place update without re-rendering the whole grid
+        const valueEls = app.querySelectorAll(".cell-value");
+        cells.forEach((c, i) => {
+            const el = valueEls[i];
+            if (!el) return;
+            const val = c.format(data[c.key]);
+            el.innerHTML = `${val}<span class="cell-unit">${c.unit}</span>`;
+        });
     }
 
-    function startCycle() {
-        if (cycleTimer) clearInterval(cycleTimer);
-        cycleTimer = setInterval(nextPage, 5000);
-    }
-
-    // --- Notification Popups ---
+    // --- Notification popups (unchanged) ---
     function onDataUpdate() {
-        // Check reverse
-        if (data.reverse === true && !reverseActive) {
-            showReverse();
-        } else if (data.reverse === false && reverseActive) {
-            hideReverse();
+        // Camera overlay — backend decides which feed is active
+        const newCam = data.camera_active || null;
+        if (newCam !== activeCamera) {
+            activeCamera = newCam;
+            if (activeCamera) {
+                showCameraOverlay(activeCamera);
+            } else {
+                hideCameraOverlay();
+            }
         }
 
         // Queue notifications
@@ -121,8 +130,11 @@
             showNextPopup();
         }
 
-        // Update reverse sensors if active
-        if (reverseActive) updateReverseSensors();
+        // If reverse overlay is active, update the parking sensors
+        if (activeCamera === "rear") updateReverseSensors();
+
+        // Update grid values (if grid is visible)
+        if (!activeCamera) updateGridValues();
 
         // Update time in header
         const timeEl = app.querySelector(".time");
@@ -161,27 +173,21 @@
         if (container) container.innerHTML = "";
     }
 
-    // --- Reverse Camera Overlay ---
-    function showReverse() {
-        reverseActive = true;
-        if (cycleTimer) clearInterval(cycleTimer);
+    // --- Camera overlay (rear/left/right) ---
+    const CAMERA_LABELS = {
+        rear:  { badge: "R", title: "KAMERA COFANIA",   missing: "BRAK KAMERY COFANIA" },
+        left:  { badge: "L", title: "KAMERA LEWA",      missing: "BRAK KAMERY LEWEJ"  },
+        right: { badge: "P", title: "KAMERA PRAWA",     missing: "BRAK KAMERY PRAWEJ" },
+    };
+
+    function showCameraOverlay(role) {
+        const meta = CAMERA_LABELS[role] || CAMERA_LABELS.rear;
+        const streamUrl = `/api/camera/stream?cam=${role}&t=${Date.now()}`;
+        const showParking = role === "rear";
         const labels = ["LL", "CL", "CP", "PP"];
         const dists = data.parking_distances || [];
 
-        app.innerHTML = `<div class="reverse-overlay">
-            <div class="camera-area">
-                <img id="cam-feed" src="/api/camera/stream" style="display:none;position:absolute;inset:0;width:100%;height:100%;object-fit:cover;"
-                     onload="this.style.display='block';document.getElementById('cam-placeholder').style.display='none';"
-                     onerror="this.style.display='none';">
-                <div id="cam-placeholder" style="display:flex;flex-direction:column;align-items:center;color:#52525b;">
-                    <span class="material-symbols-outlined" style="font-size:64px;">videocam_off</span>
-                    <span style="font-size:14px;font-weight:700;margin-top:8px;">BRAK KAMERY COFANIA</span>
-                </div>
-                <div class="badge">R</div>
-                <div style="position:absolute;bottom:0;left:50%;transform:translateX(-50%);width:55%;height:65%;border-left:2px solid rgba(34,197,94,0.4);border-right:2px solid rgba(34,197,94,0.4);border-bottom:2px solid rgba(34,197,94,0.4);border-radius:0 0 16px 16px;"></div>
-                <div style="position:absolute;bottom:18%;left:50%;transform:translateX(-50%);width:45%;border-top:2px dashed rgba(234,179,8,0.4);"></div>
-                <div style="position:absolute;bottom:36%;left:50%;transform:translateX(-50%);width:35%;border-top:2px dashed rgba(239,68,68,0.4);"></div>
-            </div>
+        const sensorBarHtml = showParking ? `
             <div class="sensor-bar" id="sensor-bar">
                 ${labels.map((lbl, i) => {
                     const d = dists[i] || 0;
@@ -199,7 +205,28 @@
                     <span class="closest-value">${_closest(dists)}</span>
                     <span class="closest-unit">m</span>
                 </div>
+            </div>` : "";
+
+        // For rear: overlay guide lines. For left/right: simple fullscreen feed.
+        const guidesHtml = showParking ? `
+            <div style="position:absolute;bottom:0;left:50%;transform:translateX(-50%);width:55%;height:65%;border-left:2px solid rgba(34,197,94,0.4);border-right:2px solid rgba(34,197,94,0.4);border-bottom:2px solid rgba(34,197,94,0.4);border-radius:0 0 16px 16px;"></div>
+            <div style="position:absolute;bottom:18%;left:50%;transform:translateX(-50%);width:45%;border-top:2px dashed rgba(234,179,8,0.4);"></div>
+            <div style="position:absolute;bottom:36%;left:50%;transform:translateX(-50%);width:35%;border-top:2px dashed rgba(239,68,68,0.4);"></div>` : "";
+
+        app.innerHTML = `<div class="reverse-overlay camera-${role}">
+            <div class="camera-area">
+                <img id="cam-feed" src="${streamUrl}" style="display:none;position:absolute;inset:0;width:100%;height:100%;object-fit:cover;"
+                     onload="this.style.display='block';document.getElementById('cam-placeholder').style.display='none';"
+                     onerror="this.style.display='none';">
+                <div id="cam-placeholder" style="display:flex;flex-direction:column;align-items:center;color:#52525b;">
+                    <span class="material-symbols-outlined" style="font-size:64px;">videocam_off</span>
+                    <span style="font-size:14px;font-weight:700;margin-top:8px;">${meta.missing}</span>
+                </div>
+                <div class="badge">${meta.badge}</div>
+                <div class="camera-title">${meta.title}</div>
+                ${guidesHtml}
             </div>
+            ${sensorBarHtml}
         </div>`;
     }
 
@@ -227,18 +254,38 @@
         if (cv) cv.textContent = _closest(dists);
     }
 
-    function hideReverse() {
-        reverseActive = false;
-        renderCarousel();
-        startCycle();
+    function hideCameraOverlay() {
+        renderGrid();
+    }
+
+    // --- Dev keyboard shortcuts (bench testing without GPIO) ---
+    // R = toggle rear camera, L = toggle left blinker, P = toggle right blinker
+    // The shortcuts fake a camera_active field directly so the UI reacts
+    // without needing the backend to publish anything on the event bus.
+    function installDevKeys() {
+        let fakeRole = null;
+        document.addEventListener("keydown", (e) => {
+            const key = e.key.toLowerCase();
+            if (key === "r") {
+                fakeRole = fakeRole === "rear" ? null : "rear";
+            } else if (key === "l") {
+                fakeRole = fakeRole === "left" ? null : "left";
+            } else if (key === "p") {
+                fakeRole = fakeRole === "right" ? null : "right";
+            } else {
+                return;
+            }
+            data.camera_active = fakeRole;
+            onDataUpdate();
+        });
     }
 
     // --- Init ---
     async function init() {
         await loadConfig();
-        renderCarousel();
-        startCycle();
+        renderGrid();
         connectWS();
+        installDevKeys();
         // Update time every second
         setInterval(() => {
             const timeEl = app.querySelector(".time");

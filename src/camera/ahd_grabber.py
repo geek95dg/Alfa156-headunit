@@ -4,7 +4,11 @@ Detects and manages AHD camera inputs via V4L2. On x86, falls back
 to USB webcam or test pattern.
 
 Hardware: 4-channel USB3.0 AHD grabber → presents as /dev/video0..N
-Cameras: 2× AHD 720P (front windshield + rear license plate frame)
+Cameras (default mapping, config-overridable):
+    video0 = front   (windscreen / dashcam front)
+    video1 = rear    (license plate frame, reverse camera)
+    video2 = left    (left wing, activated by left blinker)
+    video3 = right   (right wing, activated by right blinker)
 """
 
 import subprocess
@@ -16,9 +20,14 @@ from src.core.logger import get_logger
 
 log = get_logger("camera.grabber")
 
-# AHD grabber typically presents multiple V4L2 devices
+# AHD grabber typically presents multiple V4L2 devices — one per camera input.
+# The defaults match the AliExpress 4-camera set + 4-ch USB AHD grabber setup.
 DEFAULT_FRONT_DEVICE = "/dev/video0"
 DEFAULT_REAR_DEVICE = "/dev/video1"
+DEFAULT_LEFT_DEVICE = "/dev/video2"
+DEFAULT_RIGHT_DEVICE = "/dev/video3"
+
+CAMERA_ROLES = ("front", "rear", "left", "right")
 
 RESOLUTION_720P = (1280, 720)
 RESOLUTION_480P = (640, 480)  # Fallback for webcams
@@ -77,8 +86,8 @@ def list_video_devices() -> list[str]:
 class AHDGrabber:
     """Manages AHD camera devices via V4L2.
 
-    Detects front and rear cameras and provides device paths
-    for GStreamer pipelines.
+    Detects up to 4 cameras (front, rear, left, right) and provides
+    device paths for GStreamer pipelines / MJPEG stream endpoints.
     """
 
     def __init__(self, config: Any, event_bus: EventBus):
@@ -86,16 +95,14 @@ class AHDGrabber:
         self._event_bus = event_bus
         self._platform = config.get("system.platform", "x86")
 
-        # Device assignments
-        self._front_device: Optional[str] = None
-        self._rear_device: Optional[str] = None
-        self._front_info: Optional[dict] = None
-        self._rear_info: Optional[dict] = None
+        # Device assignments — one per role
+        self._devices: dict[str, Optional[str]] = {r: None for r in CAMERA_ROLES}
+        self._infos: dict[str, Optional[dict]] = {r: None for r in CAMERA_ROLES}
 
         self._detect_cameras()
 
     def _detect_cameras(self) -> None:
-        """Auto-detect camera devices."""
+        """Auto-detect camera devices for all 4 roles."""
         devices = list_video_devices()
         log.info("Video devices found: %s", devices)
 
@@ -103,62 +110,95 @@ class AHDGrabber:
             log.warning("No video devices found — camera will be simulated")
             return
 
-        # Configure front camera
-        front_cfg = self._config.get("camera.front_device", DEFAULT_FRONT_DEVICE)
-        if front_cfg in devices:
-            self._front_info = _probe_v4l2_device(front_cfg)
-            if self._front_info:
-                self._front_device = front_cfg
-                log.info("Front camera: %s (%s)",
-                         front_cfg, self._front_info.get("card", "unknown"))
+        defaults = {
+            "front": DEFAULT_FRONT_DEVICE,
+            "rear":  DEFAULT_REAR_DEVICE,
+            "left":  DEFAULT_LEFT_DEVICE,
+            "right": DEFAULT_RIGHT_DEVICE,
+        }
 
-        # Configure rear camera
-        rear_cfg = self._config.get("camera.rear_device", DEFAULT_REAR_DEVICE)
-        if rear_cfg in devices:
-            self._rear_info = _probe_v4l2_device(rear_cfg)
-            if self._rear_info:
-                self._rear_device = rear_cfg
-                log.info("Rear camera: %s (%s)",
-                         rear_cfg, self._rear_info.get("card", "unknown"))
+        for role, default_dev in defaults.items():
+            cfg_dev = self._config.get(f"camera.{role}_device", default_dev)
+            if cfg_dev in devices:
+                info = _probe_v4l2_device(cfg_dev)
+                if info:
+                    self._devices[role] = cfg_dev
+                    self._infos[role] = info
+                    log.info(
+                        "%s camera: %s (%s)",
+                        role.capitalize(), cfg_dev, info.get("card", "unknown"),
+                    )
 
-        # Fallback: if only one device, use it as front
-        if not self._front_device and devices:
-            info = _probe_v4l2_device(devices[0])
+        # Fallback: if no front camera but some device exists, use the first.
+        if not self._devices["front"] and devices:
+            first = devices[0]
+            info = _probe_v4l2_device(first)
             if info:
-                self._front_device = devices[0]
-                self._front_info = info
-                log.info("Using %s as front camera (fallback)", devices[0])
+                self._devices["front"] = first
+                self._infos["front"] = info
+                log.info("Using %s as front camera (fallback)", first)
 
-    @property
-    def front_device(self) -> Optional[str]:
-        return self._front_device
+    # ------------------------------------------------------------------ #
+    # Role-based accessors (new API)                                     #
+    # ------------------------------------------------------------------ #
 
-    @property
-    def rear_device(self) -> Optional[str]:
-        return self._rear_device
+    def device(self, role: str) -> Optional[str]:
+        """Return the /dev/videoN path for a camera role, or None if absent."""
+        return self._devices.get(role)
 
-    @property
-    def has_front(self) -> bool:
-        return self._front_device is not None
+    def has(self, role: str) -> bool:
+        return self._devices.get(role) is not None
 
-    @property
-    def has_rear(self) -> bool:
-        return self._rear_device is not None
-
-    def get_resolution(self, camera: str = "front") -> tuple[int, int]:
-        """Get the resolution for a camera.
+    def get_resolution(self, role: str = "front") -> tuple[int, int]:
+        """Get the resolution for a camera role.
 
         Args:
-            camera: 'front' or 'rear'.
+            role: one of 'front', 'rear', 'left', 'right'.
 
         Returns:
             (width, height) tuple.
         """
-        info = self._front_info if camera == "front" else self._rear_info
+        info = self._infos.get(role)
         if info and "width" in info:
             return (info["width"], info["height"])
 
         # AHD cameras are 720p, webcams may be 480p
-        if self._platform == "opi":
+        if self._platform in ("opi", "opi_pc"):
             return RESOLUTION_720P
         return RESOLUTION_480P
+
+    # ------------------------------------------------------------------ #
+    # Legacy property accessors (kept for backward compatibility)        #
+    # ------------------------------------------------------------------ #
+
+    @property
+    def front_device(self) -> Optional[str]:
+        return self._devices["front"]
+
+    @property
+    def rear_device(self) -> Optional[str]:
+        return self._devices["rear"]
+
+    @property
+    def left_device(self) -> Optional[str]:
+        return self._devices["left"]
+
+    @property
+    def right_device(self) -> Optional[str]:
+        return self._devices["right"]
+
+    @property
+    def has_front(self) -> bool:
+        return self.has("front")
+
+    @property
+    def has_rear(self) -> bool:
+        return self.has("rear")
+
+    @property
+    def has_left(self) -> bool:
+        return self.has("left")
+
+    @property
+    def has_right(self) -> bool:
+        return self.has("right")

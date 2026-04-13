@@ -69,14 +69,15 @@ tr:hover td{background:var(--bg-card)}
 <div class="hero">
   <div class="hero-badge">BCM v8.5 — Dokumentacja Techniczna</div>
   <h1>Alfa Romeo <span>156</span><br>Body Computer Module</h1>
-  <p class="sub">Dual-display: 4.3" karuzela danych + 7/8" ekran dotykowy z Android Auto kiosk. 8 ekranów BCM (A1-A8) + ustawienia. 3 motywy graficzne. DVR z GPS overlay + eksport USB. Performance: boost gauge + timer 0-100. Telefon BT (dialer, kontakty PBAP, historia). Centralny zamek z pilotem RF 433MHz. Follow-me-home. Czujnik deszczu. Dual mikrofon (Vosk + telefon). Orange Pi 5 Plus z 2× HDMI.</p>
+  <p class="sub">Dual-display: 4.3" statyczna siatka 2×2 z automatyczną kamerą (cofanie / lewy / prawy kierunkowskaz) + 7/8" ekran dotykowy z Android Auto kiosk. 8 ekranów BCM (A1-A8) + ustawienia. 3 motywy graficzne. DVR z GPS overlay + eksport USB. Performance: boost gauge + timer 0-100. Telefon BT (dialer, kontakty PBAP, historia). Centralny zamek z pilotem RF 433MHz. Follow-me-home. Czujnik deszczu. Dual mikrofon (Vosk + telefon). <strong>Orange Pi 5 Pro 4GB</strong> z 2× HDMI (2.1 + 2.0), WiFi 6 i BT 5.0. Moduł Travel Plan na ekranie A3 z prognozą pogody, incydentami drogowymi i estymacją paliwa.</p>
   <div class="tags">
     <span class="tag">1.9 JTD 8V przedlift</span>
     <span class="tag">Bosch EDC15C7</span>
-    <span class="tag">Orange Pi 5 Plus</span>
-    <span class="tag">Dual HDMI</span>
-    <span class="tag">4.3" Stats + 7/8" Touch</span>
+    <span class="tag">Orange Pi 5 Pro 4GB</span>
+    <span class="tag">HDMI 2.1 + HDMI 2.0</span>
+    <span class="tag">4.3" 2×2 Grid + 7/8" Touch</span>
     <span class="tag">Android Auto Kiosk</span>
+    <span class="tag">4-kamery (front/rear/L/R)</span>
     <span class="tag">Audio 4.1 + Sub</span>
     <span class="tag">DVR 2-ch + GPS</span>
     <span class="tag">Performance / 0-100</span>
@@ -86,7 +87,7 @@ tr:hover td{background:var(--bg-card)}
     <span class="tag">BT Phone / PBAP</span>
     <span class="tag">Dual Microphone</span>
     <span class="tag">GPS Tracking</span>
-    <span class="tag">LTE + Traffic</span>
+    <span class="tag">LTE + Travel Plan</span>
   </div>
 </div>
 
@@ -147,6 +148,23 @@ tr:hover td{background:var(--bg-card)}
       <tr><td>Enkoder obrotowy</td><td>Aktywny (Arduino)</td><td><strong>Usunięty — niepotrzebny przy ekranie dotykowym</strong></td><td><span class="dt dt-del">USUNIĘTE</span></td></tr>
     </table>
   </div>
+
+  <div class="changelog">
+    <h4>Zmiany w aktualizacji v8.5.1 (multi-feature)</h4>
+    <table>
+      <tr><th>Element</th><th>Poprzednio</th><th>Teraz</th><th>Status</th></tr>
+      <tr><td>Platforma produkcyjna</td><td>Orange Pi 5 Plus (600-750 PLN)</td><td><strong>Orange Pi 5 Pro 4GB (350-450 PLN)</strong>, HDMI 2.1 + HDMI 2.0, WiFi 6/BT 5.0</td><td><span class="dt dt-chg">ZMIANA</span></td></tr>
+      <tr><td>Mały ekran 4.3"</td><td>Karuzela (5s/klatka)</td><td><strong>Statyczna siatka 2×2</strong> z 4 wartościami na raz</td><td><span class="dt dt-chg">ZMIANA</span></td></tr>
+      <tr><td>Zestaw kamer</td><td>2× AHD (front + rear)</td><td><strong>4× AHD</strong> (front / rear / left / right) + 4-kanałowy USB grabber</td><td><span class="dt dt-chg">ZMIANA</span></td></tr>
+      <tr><td>Kontroler kamer</td><td>Tylko bieg wsteczny → rear</td><td><strong>Priorytetowy:</strong> reverse &gt; left blinker &gt; right blinker, publikacja <code>camera.active_feed</code></td><td><span class="dt dt-new">NOWE</span></td></tr>
+      <tr><td>Monitor kierunkowskazów</td><td>Brak</td><td><strong>src/vehicle/blinker_monitor.py</strong> — 2× PC817 na GPIO</td><td><span class="dt dt-new">NOWE</span></td></tr>
+      <tr><td>Android Auto kiosk</td><td>Touchscreen hardcoded 800×480, czarny pas z prawej</td><td><strong>Rozdzielczość zsynchronizowana</strong> z display.multimedia w openauto.ini + <code>object-cover</code></td><td><span class="dt dt-new">POPRAWKA</span></td></tr>
+      <tr><td>Pamięć ekranu</td><td>Zawsze A1 po starcie</td><td><strong>localStorage</strong> pamięta ostatni ekran A1-A8</td><td><span class="dt dt-new">NOWE</span></td></tr>
+      <tr><td>Opóźnienie mapy pogodowej</td><td>Twardy 6s setTimeout</td><td><strong>Reaktywna aktualizacja</strong> przez topic <code>weather.search_done</code></td><td><span class="dt dt-new">POPRAWKA</span></td></tr>
+      <tr><td>A3 Travel Plan</td><td>Brak</td><td><strong>Tryb "Travel Plan"</strong> na A3: cel, pogoda wzdłuż trasy, incydenty TomTom, estymacja paliwa</td><td><span class="dt dt-new">NOWE</span></td></tr>
+      <tr><td>Moduł routingu</td><td>Brak</td><td><strong>src/trip/route_planner.py</strong> — OpenRouteService + TomTom + fallback haversine</td><td><span class="dt dt-new">NOWE</span></td></tr>
+    </table>
+  </div>
 </section>
 
 <!-- ═══ S2 — ARCHITEKTURA ═══ -->
@@ -158,14 +176,14 @@ tr:hover td{background:var(--bg-card)}
 │  Port 5002 — Flask SPA              │    │  Port 5003 — Flask    │
 │  Rozdzielczość: adaptacyjna         │    │  800×480 stała        │
 │  (1024×600 lub 1280×800)            │    │                       │
-│                                     │    │  Karuzela danych:     │
+│                                     │    │  Statyczna siatka 2×2:│
 │  A1: Dashboard (Hub główny)         │    │  - Poziom paliwa      │
 │  A2: Android Auto (kiosk embed)     │    │  - Temp. płynu chłodn.│
-│  A3: Podróż i spalanie              │    │  - Temp. zewn./wewn.  │
-│  A4: Pogoda i mapa (+ruch drogowy)  │    │  - Czas/data nagłówek │
+│  A3: Podróż + Travel Plan           │    │  - Temp. zewn.        │
+│  A4: Pogoda i mapa (+ruch drogowy)  │    │  - Temp. wewn.        │
 │  A5: Serwis i diagnostyka (DTC)     │    │                       │
-│  A6: Nagrania DVR (+eksport USB)    │    │  + Kamera cofania     │
-│  A7: Performance (boost, 0-100)     │    │  + Czujniki parkowania │
+│  A6: Nagrania DVR (+eksport USB)    │    │  + Kamera auto:       │
+│  A7: Performance (boost, 0-100)     │    │    cofanie/L/P + sens │
 │  A8: Telefon BT (dialer, PBAP)     │    │                       │
 │  Settings: BT, WiFi, motyw, język   │    │                       │
 └──────────────┬──────────────────────┘    └───────────┬───────────┘
@@ -311,39 +329,61 @@ tr:hover td{background:var(--bg-card)}
 <!-- ═══ S5 — HARDWARE ═══ -->
 <section id="s5">
   <h2><span class="n">05</span>Platforma sprzętowa</h2>
-  <h3>SBC: Orange Pi 5 Plus</h3>
+  <h3>SBC: Orange Pi 5 Pro 4GB <small>(zalecana wersja produkcyjna)</small></h3>
   <table>
     <tr><th>Parametr</th><th>Wartość</th></tr>
-    <tr><td>SoC</td><td>Rockchip RK3588 (4× A76 + 4× A55)</td></tr>
-    <tr><td>RAM</td><td>16 GB LPDDR4X</td></tr>
-    <tr><td>Storage</td><td>64 GB eMMC + slot M.2 NVMe</td></tr>
-    <tr><td>GPU</td><td>Mali-G610 MP4</td></tr>
-    <tr><td>Video</td><td>2× HDMI 2.1 (8K + 4K)</td></tr>
-    <tr><td>WiFi</td><td>WiFi 6 (802.11ax) + BT 5.0</td></tr>
-    <tr><td>USB</td><td>1× USB 3.0 + 2× USB 2.0 + USB-C (OTG/Power)</td></tr>
+    <tr><td>SoC</td><td>Rockchip RK3588S (4× A76 + 4× A55)</td></tr>
+    <tr><td>RAM</td><td>4 GB LPDDR4X (z zapasem dla pełnej funkcjonalności)</td></tr>
+    <tr><td>Storage</td><td>microSD + slot M.2 NVMe</td></tr>
+    <tr><td>GPU</td><td>Mali-G610 MP4 (HW H.264 encode via rkmpp)</td></tr>
+    <tr><td>Video</td><td><strong>2× HDMI: HDMI 2.1 + HDMI 2.0</strong> (wersja 1.2+)</td></tr>
+    <tr><td>WiFi</td><td>WiFi 6 (802.11ax) + BT 5.0 — wbudowane</td></tr>
+    <tr><td>USB</td><td>USB 3.0 + USB 2.0 + USB-C (OTG/Power)</td></tr>
     <tr><td>GPIO</td><td>40-pin header (3.3V logic)</td></tr>
     <tr><td>OS</td><td>Armbian (Ubuntu 24.04 / Debian 12)</td></tr>
+    <tr><td>Cena</td><td>~350-450 PLN (vs ~600-750 PLN dla OPi 5 Plus)</td></tr>
   </table>
+  <p><em>Uwaga:</em> Dotychczasowa dokumentacja referuje też Orange Pi 5 Plus jako alternatywę.
+     OPi 5 Pro ma wystarczające 4 GB RAM dla pełnej listy modułów
+     (Android Auto + Vosk + DVR + Travel Plan) i jest tańszy o 250-300 PLN.</p>
 
   <h3>Wyświetlacze</h3>
   <div class="dual">
     <div>
-      <h4>Mały ekran — 4.3" TFT</h4>
+      <h4>Mały ekran — 4.3" TFT (statyczna siatka 2×2)</h4>
       <p><strong>Rozdzielczość:</strong> 800 × 480</p>
-      <p><strong>Interfejs:</strong> HDMI-1</p>
-      <p><strong>Funkcja:</strong> Karuzela danych + kamera cofania + czujniki parkowania</p>
+      <p><strong>Interfejs:</strong> HDMI 2.0 (OPi 5 Pro)</p>
+      <p><strong>Funkcja:</strong> Statyczna siatka 2×2 (paliwo, temp. płynu, temp. zewnętrzna, temp. wewnętrzna) +
+         automatyczne przełączanie na kamerę tylną / lewą / prawą na podstawie biegu wstecznego i kierunkowskazów.</p>
       <p><strong>Dotyk:</strong> NIE — sterowanie tylko SWC</p>
       <p><strong>Podświetlenie:</strong> PWM GPIO 32</p>
     </div>
     <div>
       <h4>Ekran główny — 7" lub 8" IPS</h4>
       <p><strong>Rozdzielczość:</strong> 1024×600 (7") lub 1280×800 (8") — adaptacyjna</p>
-      <p><strong>Interfejs:</strong> HDMI-2</p>
-      <p><strong>Funkcja:</strong> BCM A1-A7 + Settings + Android Auto kiosk</p>
+      <p><strong>Interfejs:</strong> HDMI 2.1 (OPi 5 Pro)</p>
+      <p><strong>Funkcja:</strong> BCM A1-A8 + Settings + Android Auto kiosk (pełnoekranowy, rozdzielczość zsynchronizowana z display.multimedia).</p>
       <p><strong>Dotyk:</strong> TAK — capacitive touch (USB HID)</p>
       <p><strong>Podświetlenie:</strong> PWM GPIO 33</p>
+      <p><strong>Pamięć ekranu:</strong> ostatnio oglądany ekran A1-A8 jest zapamiętywany w localStorage i przywracany po restarcie.</p>
     </div>
   </div>
+
+  <h3>4-kanałowy zestaw kamer (nowy w v8.5)</h3>
+  <table>
+    <tr><th>Kamera</th><th>Umiejscowienie</th><th>Trigger</th><th>Urządzenie V4L2</th></tr>
+    <tr><td>Front</td><td>Przednia szyba</td><td>DVR (ciągłe nagrywanie)</td><td>/dev/video0</td></tr>
+    <tr><td>Rear</td><td>Ramka tablicy rejestracyjnej</td><td>Bieg wsteczny (power.reverse_gear)</td><td>/dev/video1</td></tr>
+    <tr><td>Left</td><td>Lewe lusterko / błotnik</td><td>Lewy kierunkowskaz (vehicle.left_blinker)</td><td>/dev/video2</td></tr>
+    <tr><td>Right</td><td>Prawe lusterko / błotnik</td><td>Prawy kierunkowskaz (vehicle.right_blinker)</td><td>/dev/video3</td></tr>
+  </table>
+  <p>Wszystkie 4 kamery podłączone do <strong>4-kanałowego grabera USB AHD</strong>.
+     Kontroler kamer (src/camera/camera_controller.py) ustala priorytet:
+     <code>cofanie &gt; lewy kierunkowskaz &gt; prawy kierunkowskaz &gt; brak</code>
+     i publikuje stan przez <code>camera.active_feed</code>.
+     Sygnały kierunkowskazów są odczytywane przez dwa dodatkowe PC817
+     na GPIO (patrz <a href="docs/OPI5PRO_BOM.md">OPI5PRO_BOM.md</a> oraz
+     <a href="docs/OPI5PRO_SETUP.md">OPI5PRO_SETUP.md</a>).</p>
 </section>
 
 <!-- ═══ S6 — NOWE MODUŁY ═══ -->

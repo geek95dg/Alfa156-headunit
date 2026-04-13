@@ -18,6 +18,7 @@ modules:
   location: true
   network: true
   weather: true
+  blinker_monitor: true      # GPIO watcher that publishes vehicle.left_blinker/right_blinker
 display:
   dashboard:
     width: 800
@@ -48,6 +49,9 @@ gpio:
   rain_sensor: 87
   sprayer: 88
   central_lock: 89
+  # Turn signal inputs (via PC817 optoisolator from 12V blinker wires)
+  blinker_left: 90
+  blinker_right: 91
 serial:
   kline:
     port_opi: /dev/ttyS3
@@ -78,6 +82,15 @@ camera:
   segment_minutes: 5
   max_storage_gb: 128
   recording_path: /media/dashcam
+  # 4-camera set via USB 4-channel AHD grabber
+  # Default mapping — override per deployment if v4l2 enumerates differently
+  front_device: /dev/video0
+  rear_device: /dev/video1
+  left_device: /dev/video2
+  right_device: /dev/video3
+  # Enable the multi-camera controller with priority logic
+  # (reverse_gear > left_blinker > right_blinker)
+  controller: true
 swc:
   enabled: true
   buttons:
@@ -119,6 +132,14 @@ weather:
   poll_interval_min: 15
   default_lat: 50.06    # Fallback when no GPS fix (Krakow)
   default_lon: 19.94
+travel:
+  # A3 Travel Plan requires two optional external keys:
+  #   openrouteservice_key: free tier, needed for real driving directions.
+  #     Without it, RoutePlanner falls back to a straight-line estimate.
+  #   tomtom_key: paid API, enables road works + incident detection along
+  #     the planned route. Without it, the incidents panel is hidden.
+  openrouteservice_key: ""
+  tomtom_key: ""
 power:
   shutdown_delay_seconds: 30
   backlight_fade_ms: 1000

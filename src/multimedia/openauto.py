@@ -43,8 +43,10 @@ def _create_openauto_config(project_dir: str, app_config: Any = None) -> None:
     config at runtime (stores last BT device, settings, etc.).
     """
     config_path = os.path.join(project_dir, "openauto.ini")
-    # Regenerate if missing or outdated (version marker check)
-    VERSION_MARKER = "; BCM_CONFIG_V3"
+    # Regenerate if missing or outdated (version marker check).
+    # V4 bumped so older config files with the hardcoded 800x480
+    # touchscreen dimensions get regenerated with the correct values.
+    VERSION_MARKER = "; BCM_CONFIG_V4"
     if os.path.exists(config_path):
         try:
             with open(config_path) as f:
@@ -63,13 +65,24 @@ def _create_openauto_config(project_dir: str, app_config: Any = None) -> None:
         width = app_config.get("display.multimedia.width", 1024)
         height = app_config.get("display.multimedia.height", 600)
 
-    config_content = f"""; BCM_CONFIG_V3 — OpenAuto configuration for Alfa156 Headunit
+    # OpenAuto Resolution codes (per autoapp source):
+    #   0 = 480p, 1 = 720p, 2 = 1080p, 3 = auto/stretch
+    # Pick the closest match so the AA canvas actually fills the panel.
+    if height >= 1080:
+        resolution_code = 2
+    elif height >= 720:
+        resolution_code = 1
+    else:
+        resolution_code = 0
+
+    config_content = f"""; BCM_CONFIG_V4 — OpenAuto configuration for Alfa156 Headunit
 [General]
 HandednessOfTrafficType=0
 
 [Video]
 FPS=1
-Resolution=3
+Resolution={resolution_code}
+ScreenDPI=140
 MarginWidth=0
 MarginHeight=0
 
@@ -91,8 +104,8 @@ ButtonCodes.Down=20
 ButtonCodes.Back=4
 ButtonCodes.Home=3
 TouchscreenEnabled=1
-TouchscreenWidth=800
-TouchscreenHeight=480
+TouchscreenWidth={width}
+TouchscreenHeight={height}
 
 [WiFi]
 SSID={ssid}

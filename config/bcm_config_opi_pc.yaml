@@ -57,6 +57,7 @@ modules:
   location: true
   network: true        # LTE via Huawei E3372
   weather: true
+  blinker_monitor: false  # Off by default on the test rig (no car wiring)
 
 display:
   # Single HDMI output = main display
@@ -98,6 +99,9 @@ gpio:
   central_lock: 20     # PA20, physical pin 37
   # Bench test button — optional momentary push button for ignition sim
   bench_button: 37     # PB5/PWM1, physical pin 33
+  # Turn signal inputs (via PC817 optoisolators) — test-rig pins
+  blinker_left: 10     # PA10, physical pin 19 (change to match your wiring)
+  blinker_right: 11    # PA11, physical pin 23
 
 serial:
   kline:
@@ -146,6 +150,15 @@ camera:
   device: /dev/video0
   resolution: 640x480  # Lower res for software H.264 on H3
   encoder: x264        # Software encoding (no HW encoder on H3)
+  # Role mapping — on the test rig we only have one camera by default,
+  # so front=/dev/video0 and the rest are intentionally left at paths
+  # that probably don't exist. The multi-camera controller will log a
+  # warning but still operate for rear (falls through to placeholder).
+  front_device: /dev/video0
+  rear_device: /dev/video1
+  left_device: /dev/video2
+  right_device: /dev/video3
+  controller: false    # Disabled by default on the 1 GB test rig
 
 swc:
   enabled: true

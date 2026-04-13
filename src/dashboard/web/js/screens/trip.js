@@ -4,11 +4,25 @@
  */
 
 App.registerScreen("a3", (() => {
+    // --- Travel Plan mode state -------------------------------------------
+    // Toggled by the [Travel Plan] button in the trip header. When active
+    // we overlay a destination search + route summary panel on top of the
+    // normal trip stats. Persisted to localStorage so the toggle state
+    // survives page reloads (the saved destination lives server-side in
+    // TripComputer).
+    let travelPlanActive = false;
+    let _searchResults = [];
+    let _searchDebounce = null;
+    try {
+        travelPlanActive = localStorage.getItem("bcm.travelPlan") === "1";
+    } catch (e) {}
+
     function render(container, theme, data) {
         if (theme === "heritage") container.innerHTML = _renderHeritage(data);
         else if (theme === "modern") container.innerHTML = _renderModern(data);
         else if (theme === "autodelta") container.innerHTML = _renderAutodelta(data);
         else container.innerHTML = _renderHeritage(data);
+        _renderTravelPlanOverlay(data);
     }
 
     function update(data) {
@@ -18,11 +32,202 @@ App.registerScreen("a3", (() => {
         _updateEl("trip-avg-cons", (data.avg_consumption || 0).toFixed(1));
         _updateEl("trip-range", Math.round(data.estimated_range || 0));
         _updateEl("trip-instant", (data.instant_consumption || 0).toFixed(1));
+        _refreshTravelPlan(data);
     }
 
     function _updateEl(id, text) {
         const el = document.getElementById(id);
         if (el) el.textContent = text;
+    }
+
+    // --- Travel Plan UI ---------------------------------------------------
+
+    function _toggleTravelPlan() {
+        travelPlanActive = !travelPlanActive;
+        try { localStorage.setItem("bcm.travelPlan", travelPlanActive ? "1" : "0"); } catch (e) {}
+        _renderTravelPlanOverlay(DataStore.getAll());
+    }
+    // Expose for inline onclick handlers in the rendered header
+    window.TripPlan = { toggle: _toggleTravelPlan, search: _searchDestination,
+                       selectResult: _selectResult, clear: _clearPlan };
+
+    function _renderTravelPlanOverlay(data) {
+        const host = document.querySelector("#app .screen-container");
+        if (!host) return;
+        // Remove any existing overlay before re-rendering
+        const prev = host.querySelector(".travel-plan-overlay");
+        if (prev) prev.remove();
+        // Always inject the toggle button into the trip header if not present
+        _injectToggleButton(host);
+        if (!travelPlanActive) return;
+
+        const plan = data.trip_plan || {};
+        const planning = !!data.trip_planning;
+        const name = plan.destination_name || "";
+        const dist = (plan.distance_km || 0).toFixed(1);
+        const etaMin = Math.round(plan.eta_min || 0);
+        const etaH = Math.floor(etaMin / 60);
+        const etaM = etaMin % 60;
+        const etaStr = etaH > 0 ? `${etaH}h ${etaM}m` : `${etaM}m`;
+        const fuel = (plan.predicted_fuel_l || 0).toFixed(1);
+        const weatherPts = plan.weather_points || [];
+        const incidents = plan.incidents || [];
+
+        // Weather strip — icons for each waypoint
+        const weatherStripHtml = weatherPts.length > 0
+            ? weatherPts.map(w => `
+                <div class="flex flex-col items-center" style="min-width:56px;">
+                    <span class="material-symbols-outlined text-amber-400" style="font-size:20px;">${_conditionIcon(w.condition)}</span>
+                    <span class="text-[9px] text-zinc-400">${w.temp != null ? Math.round(w.temp) + "°" : "--"}</span>
+                    <span class="text-[8px] text-zinc-600">+${Math.round(w.eta_min)}m</span>
+                </div>`).join("")
+            : `<span class="text-[9px] text-zinc-500">No route weather yet</span>`;
+
+        // Incidents list
+        const incidentsHtml = incidents.length > 0
+            ? incidents.slice(0, 4).map(inc => `
+                <div class="flex items-center gap-2 text-[10px]">
+                    <span class="material-symbols-outlined text-red-400" style="font-size:14px;">warning</span>
+                    <span class="text-zinc-300 truncate">${inc.description || "Incident"}</span>
+                </div>`).join("")
+            : `<span class="text-[9px] text-zinc-500">${plan.destination_name ? "No road works reported" : "Set destination to see incidents"}</span>`;
+
+        const loadingNotice = planning
+            ? `<span class="text-[9px] text-amber-400 flex items-center gap-1">
+                   <span class="material-symbols-outlined" style="font-size:12px;">sync</span>Computing route…
+               </span>`
+            : "";
+
+        const searchResultsHtml = _searchResults.length > 0
+            ? `<div class="absolute top-12 left-3 right-3 bg-zinc-900 border border-zinc-700 rounded-md max-h-32 overflow-auto z-50">
+                   ${_searchResults.map((r, i) => `
+                       <div class="px-3 py-2 text-xs text-zinc-200 hover:bg-zinc-800 cursor-pointer border-b border-zinc-800"
+                            onclick="TripPlan.selectResult(${i})">
+                           ${r.name}${r.state ? ", " + r.state : ""}, ${r.country}
+                       </div>`).join("")}
+               </div>`
+            : "";
+
+        const overlay = document.createElement("div");
+        overlay.className = "travel-plan-overlay absolute inset-0 z-40 bg-black/85 backdrop-blur-sm p-4 flex flex-col gap-3";
+        overlay.innerHTML = `
+            <div class="flex items-center justify-between">
+                <h2 class="text-amber-500 font-bold text-base uppercase tracking-wider flex items-center gap-2">
+                    <span class="material-symbols-outlined">route</span>
+                    Travel Plan
+                </h2>
+                <button class="text-zinc-400 hover:text-white" onclick="TripPlan.toggle()">
+                    <span class="material-symbols-outlined">close</span>
+                </button>
+            </div>
+            <div class="relative">
+                <input id="tp-search" type="text" placeholder="Destination (e.g. Gdynia)"
+                       class="w-full bg-zinc-900 border border-zinc-700 rounded-md px-3 py-2 text-sm text-zinc-100 placeholder-zinc-500 focus:outline-none focus:border-amber-500"
+                       value="${name}"
+                       oninput="TripPlan.search(this.value)">
+                ${searchResultsHtml}
+            </div>
+            <div class="grid grid-cols-3 gap-2">
+                <div class="bg-zinc-900/60 border border-zinc-800 rounded-lg p-2">
+                    <div class="text-[9px] text-zinc-500 uppercase">Distance</div>
+                    <div class="text-lg font-bold text-amber-500">${dist} <span class="text-[10px] text-zinc-500">km</span></div>
+                </div>
+                <div class="bg-zinc-900/60 border border-zinc-800 rounded-lg p-2">
+                    <div class="text-[9px] text-zinc-500 uppercase">ETA</div>
+                    <div class="text-lg font-bold text-amber-500">${etaStr}</div>
+                </div>
+                <div class="bg-zinc-900/60 border border-zinc-800 rounded-lg p-2">
+                    <div class="text-[9px] text-zinc-500 uppercase">Fuel</div>
+                    <div class="text-lg font-bold text-amber-500">${fuel} <span class="text-[10px] text-zinc-500">l</span></div>
+                </div>
+            </div>
+            <div>
+                <div class="text-[9px] text-zinc-500 uppercase mb-1">Weather along route</div>
+                <div class="flex gap-2 overflow-x-auto bg-zinc-900/40 border border-zinc-800 rounded-lg p-2">
+                    ${weatherStripHtml}
+                </div>
+            </div>
+            <div class="flex-1 min-h-0">
+                <div class="text-[9px] text-zinc-500 uppercase mb-1">Road works / incidents</div>
+                <div class="bg-zinc-900/40 border border-zinc-800 rounded-lg p-2 flex flex-col gap-1">
+                    ${incidentsHtml}
+                </div>
+            </div>
+            <div class="flex items-center justify-between mt-auto">
+                ${loadingNotice}
+                <button class="ml-auto px-3 py-1 bg-zinc-800 hover:bg-zinc-700 text-xs text-zinc-200 rounded-md border border-zinc-700"
+                        onclick="TripPlan.clear()">Clear plan</button>
+            </div>`;
+        host.appendChild(overlay);
+    }
+
+    function _injectToggleButton(host) {
+        if (host.querySelector(".tp-toggle-btn")) return;
+        const main = host.querySelector("main");
+        if (!main) return;
+        const btn = document.createElement("button");
+        btn.className = "tp-toggle-btn absolute top-3 right-3 z-30 flex items-center gap-1 px-2 py-1 rounded-md bg-zinc-800/80 border border-zinc-700 text-amber-500 text-[10px] font-bold uppercase tracking-wider hover:bg-zinc-700";
+        btn.innerHTML = `<span class="material-symbols-outlined" style="font-size:14px;">route</span>Travel Plan`;
+        btn.onclick = _toggleTravelPlan;
+        main.appendChild(btn);
+    }
+
+    function _conditionIcon(cond) {
+        const c = (cond || "").toLowerCase();
+        if (c.includes("rain")) return "rainy";
+        if (c.includes("storm") || c.includes("thunder")) return "thunderstorm";
+        if (c.includes("snow")) return "ac_unit";
+        if (c.includes("cloud")) return "cloud";
+        if (c.includes("clear") || c.includes("sun")) return "wb_sunny";
+        return "cloud_queue";
+    }
+
+    function _refreshTravelPlan(data) {
+        // Re-render overlay whenever the travel plan field changes
+        if (travelPlanActive) _renderTravelPlanOverlay(data);
+    }
+
+    function _searchDestination(query) {
+        if (_searchDebounce) clearTimeout(_searchDebounce);
+        if (!query || query.length < 2) {
+            _searchResults = [];
+            _renderTravelPlanOverlay(DataStore.getAll());
+            return;
+        }
+        _searchDebounce = setTimeout(async () => {
+            try {
+                const r = await fetch(`/api/trip/search?q=${encodeURIComponent(query)}`);
+                const json = await r.json();
+                _searchResults = (json.results || []).slice(0, 5);
+            } catch (e) {
+                _searchResults = [];
+            }
+            _renderTravelPlanOverlay(DataStore.getAll());
+        }, 300);
+    }
+
+    async function _selectResult(idx) {
+        const r = _searchResults[idx];
+        if (!r) return;
+        _searchResults = [];
+        try {
+            await fetch("/api/trip/destination", {
+                method: "POST",
+                headers: {"Content-Type": "application/json"},
+                body: JSON.stringify({
+                    lat: r.lat, lon: r.lon,
+                    name: `${r.name}, ${r.country}`,
+                }),
+            });
+        } catch (e) { /* ignore */ }
+        _renderTravelPlanOverlay(DataStore.getAll());
+    }
+
+    async function _clearPlan() {
+        try {
+            await fetch("/api/trip/clear", { method: "POST" });
+        } catch (e) { /* ignore */ }
+        _renderTravelPlanOverlay(DataStore.getAll());
     }
 
     /** Driving profile based on consumption */
