@@ -47,9 +47,6 @@ App.registerScreen("a3", (() => {
         try { localStorage.setItem("bcm.travelPlan", travelPlanActive ? "1" : "0"); } catch (e) {}
         _renderTravelPlanOverlay(DataStore.getAll());
     }
-    // Expose for inline onclick handlers in the rendered header
-    window.TripPlan = { toggle: _toggleTravelPlan, search: _searchDestination,
-                       selectResult: _selectResult, clear: _clearPlan };
 
     function _renderTravelPlanOverlay(data) {
         const host = document.querySelector("#app .screen-container");
@@ -57,8 +54,11 @@ App.registerScreen("a3", (() => {
         // Remove any existing overlay before re-rendering
         const prev = host.querySelector(".travel-plan-overlay");
         if (prev) prev.remove();
-        // Always inject the toggle button into the trip header if not present
+        // Always inject the toggle button — it needs to sit above the
+        // overlay (z-index 50 > overlay 40) so the user can toggle
+        // back to live trip stats regardless of plan state.
         _injectToggleButton(host);
+        _updateToggleButton();
         if (!travelPlanActive) return;
 
         const plan = data.trip_plan || {};
@@ -99,66 +99,96 @@ App.registerScreen("a3", (() => {
             : "";
 
         const searchResultsHtml = _searchResults.length > 0
-            ? `<div class="absolute top-12 left-3 right-3 bg-zinc-900 border border-zinc-700 rounded-md max-h-32 overflow-auto z-50">
+            ? `<div class="tp-search-results" style="position:absolute;top:44px;left:0;right:0;background:#18181b;border:1px solid #3f3f46;border-radius:6px;max-height:160px;overflow:auto;z-index:60;">
                    ${_searchResults.map((r, i) => `
-                       <div class="px-3 py-2 text-xs text-zinc-200 hover:bg-zinc-800 cursor-pointer border-b border-zinc-800"
-                            onclick="TripPlan.selectResult(${i})">
+                       <div class="tp-result-item" data-idx="${i}" style="padding:8px 12px;font-size:12px;color:#e4e4e7;cursor:pointer;border-bottom:1px solid #27272a;">
                            ${r.name}${r.state ? ", " + r.state : ""}, ${r.country}
                        </div>`).join("")}
                </div>`
             : "";
 
         const overlay = document.createElement("div");
-        overlay.className = "travel-plan-overlay absolute inset-0 z-40 bg-black/85 backdrop-blur-sm p-4 flex flex-col gap-3";
+        overlay.className = "travel-plan-overlay";
+        overlay.style.cssText = [
+            "position:absolute",
+            "top:48px",          // leave AppBar clickable
+            "bottom:48px",       // leave NavBar clickable
+            "left:0",
+            "right:0",
+            "z-index:40",
+            "background:rgba(0,0,0,0.92)",
+            "backdrop-filter:blur(4px)",
+            "padding:16px 16px 16px 16px",
+            "display:flex",
+            "flex-direction:column",
+            "gap:12px",
+            "overflow:auto",
+        ].join(";");
         overlay.innerHTML = `
-            <div class="flex items-center justify-between">
-                <h2 class="text-amber-500 font-bold text-base uppercase tracking-wider flex items-center gap-2">
+            <div style="display:flex;align-items:center;justify-content:space-between;padding-right:140px;">
+                <h2 style="color:#f59e0b;font-weight:800;font-size:16px;text-transform:uppercase;letter-spacing:2px;display:flex;align-items:center;gap:8px;">
                     <span class="material-symbols-outlined">route</span>
                     Travel Plan
                 </h2>
-                <button class="text-zinc-400 hover:text-white" onclick="TripPlan.toggle()">
-                    <span class="material-symbols-outlined">close</span>
-                </button>
             </div>
-            <div class="relative">
-                <input id="tp-search" type="text" placeholder="Destination (e.g. Gdynia)"
-                       class="w-full bg-zinc-900 border border-zinc-700 rounded-md px-3 py-2 text-sm text-zinc-100 placeholder-zinc-500 focus:outline-none focus:border-amber-500"
-                       value="${name}"
-                       oninput="TripPlan.search(this.value)">
+            <div style="position:relative;">
+                <input class="tp-search" type="text" placeholder="Destination (e.g. Gdynia)"
+                       value="${name.replace(/"/g, '&quot;')}"
+                       style="width:100%;background:#18181b;border:1px solid #3f3f46;border-radius:6px;padding:10px 12px;font-size:14px;color:#f4f4f5;outline:none;">
                 ${searchResultsHtml}
             </div>
-            <div class="grid grid-cols-3 gap-2">
-                <div class="bg-zinc-900/60 border border-zinc-800 rounded-lg p-2">
-                    <div class="text-[9px] text-zinc-500 uppercase">Distance</div>
-                    <div class="text-lg font-bold text-amber-500">${dist} <span class="text-[10px] text-zinc-500">km</span></div>
+            <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;">
+                <div style="background:rgba(24,24,27,0.6);border:1px solid #27272a;border-radius:8px;padding:8px;">
+                    <div style="font-size:9px;color:#71717a;text-transform:uppercase;">Distance</div>
+                    <div style="font-size:18px;font-weight:800;color:#f59e0b;">${dist} <span style="font-size:10px;color:#71717a;">km</span></div>
                 </div>
-                <div class="bg-zinc-900/60 border border-zinc-800 rounded-lg p-2">
-                    <div class="text-[9px] text-zinc-500 uppercase">ETA</div>
-                    <div class="text-lg font-bold text-amber-500">${etaStr}</div>
+                <div style="background:rgba(24,24,27,0.6);border:1px solid #27272a;border-radius:8px;padding:8px;">
+                    <div style="font-size:9px;color:#71717a;text-transform:uppercase;">ETA</div>
+                    <div style="font-size:18px;font-weight:800;color:#f59e0b;">${etaStr}</div>
                 </div>
-                <div class="bg-zinc-900/60 border border-zinc-800 rounded-lg p-2">
-                    <div class="text-[9px] text-zinc-500 uppercase">Fuel</div>
-                    <div class="text-lg font-bold text-amber-500">${fuel} <span class="text-[10px] text-zinc-500">l</span></div>
+                <div style="background:rgba(24,24,27,0.6);border:1px solid #27272a;border-radius:8px;padding:8px;">
+                    <div style="font-size:9px;color:#71717a;text-transform:uppercase;">Fuel</div>
+                    <div style="font-size:18px;font-weight:800;color:#f59e0b;">${fuel} <span style="font-size:10px;color:#71717a;">l</span></div>
                 </div>
             </div>
             <div>
-                <div class="text-[9px] text-zinc-500 uppercase mb-1">Weather along route</div>
-                <div class="flex gap-2 overflow-x-auto bg-zinc-900/40 border border-zinc-800 rounded-lg p-2">
+                <div style="font-size:9px;color:#71717a;text-transform:uppercase;margin-bottom:4px;">Weather along route</div>
+                <div style="display:flex;gap:8px;overflow-x:auto;background:rgba(24,24,27,0.4);border:1px solid #27272a;border-radius:8px;padding:8px;">
                     ${weatherStripHtml}
                 </div>
             </div>
-            <div class="flex-1 min-h-0">
-                <div class="text-[9px] text-zinc-500 uppercase mb-1">Road works / incidents</div>
-                <div class="bg-zinc-900/40 border border-zinc-800 rounded-lg p-2 flex flex-col gap-1">
+            <div style="flex:1;min-height:0;">
+                <div style="font-size:9px;color:#71717a;text-transform:uppercase;margin-bottom:4px;">Road works / incidents</div>
+                <div style="background:rgba(24,24,27,0.4);border:1px solid #27272a;border-radius:8px;padding:8px;display:flex;flex-direction:column;gap:4px;">
                     ${incidentsHtml}
                 </div>
             </div>
-            <div class="flex items-center justify-between mt-auto">
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-top:auto;">
                 ${loadingNotice}
-                <button class="ml-auto px-3 py-1 bg-zinc-800 hover:bg-zinc-700 text-xs text-zinc-200 rounded-md border border-zinc-700"
-                        onclick="TripPlan.clear()">Clear plan</button>
+                <button class="tp-clear-btn" type="button"
+                        style="margin-left:auto;padding:6px 14px;background:#27272a;color:#e4e4e7;font-size:12px;border-radius:6px;border:1px solid #3f3f46;cursor:pointer;">
+                    Clear plan
+                </button>
             </div>`;
         host.appendChild(overlay);
+
+        // Attach handlers with addEventListener so they always fire even
+        // if DataStore or window globals aren't yet ready.
+        const searchInput = overlay.querySelector(".tp-search");
+        if (searchInput) {
+            searchInput.addEventListener("input", (e) => {
+                _searchDestination(e.target.value);
+            });
+        }
+        overlay.querySelectorAll(".tp-result-item").forEach((el) => {
+            el.addEventListener("click", () => {
+                _selectResult(parseInt(el.dataset.idx, 10));
+            });
+        });
+        const clearBtn = overlay.querySelector(".tp-clear-btn");
+        if (clearBtn) {
+            clearBtn.addEventListener("click", _clearPlan);
+        }
     }
 
     function _injectToggleButton(host) {
@@ -166,31 +196,47 @@ App.registerScreen("a3", (() => {
         // Attach to .screen-container directly (which is position:relative)
         // rather than to <main>, which in the modern theme is a flex
         // container that would absorb the button into its layout.
+        // z-index:50 keeps the button ABOVE the overlay (z-40) so the
+        // user can always toggle back to live trip stats.
         const btn = document.createElement("button");
         btn.className = "tp-toggle-btn";
+        btn.type = "button";
         btn.style.cssText = [
             "position:absolute",
             "top:56px",         // below AppBar (48px)
             "right:12px",
-            "z-index:30",
+            "z-index:50",
             "display:flex",
             "align-items:center",
             "gap:6px",
             "padding:6px 12px",
             "border-radius:8px",
-            "background:rgba(24,24,27,0.85)",
-            "border:1px solid rgba(255,255,255,0.15)",
+            "background:rgba(24,24,27,0.92)",
+            "border:1px solid rgba(245,158,11,0.5)",
             "color:#f59e0b",
             "font-size:11px",
             "font-weight:800",
             "text-transform:uppercase",
             "letter-spacing:1px",
             "cursor:pointer",
-            "box-shadow:0 2px 8px rgba(0,0,0,0.35)",
+            "box-shadow:0 2px 8px rgba(0,0,0,0.5)",
         ].join(";");
-        btn.innerHTML = `<span class="material-symbols-outlined" style="font-size:16px;">route</span>Travel Plan`;
-        btn.onclick = _toggleTravelPlan;
+        btn.addEventListener("click", (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            _toggleTravelPlan();
+        });
         host.appendChild(btn);
+    }
+
+    function _updateToggleButton() {
+        const btn = document.querySelector(".tp-toggle-btn");
+        if (!btn) return;
+        if (travelPlanActive) {
+            btn.innerHTML = `<span class="material-symbols-outlined" style="font-size:16px;">arrow_back</span>Trip Stats`;
+        } else {
+            btn.innerHTML = `<span class="material-symbols-outlined" style="font-size:16px;">route</span>Travel Plan`;
+        }
     }
 
     function _conditionIcon(cond) {
