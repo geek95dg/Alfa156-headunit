@@ -388,11 +388,24 @@ class WebViewer:
 
         # --- Android Auto — direct Xvfb MJPEG stream (no port 5001) ---
 
+        def _aa_canvas_size_local() -> tuple[int, int]:
+            """Match the AA canvas calculation in src.multimedia.openauto.
+
+            Imported lazily so the web viewer doesn't hard-fail if the
+            multimedia module is missing (e.g. when AA is disabled).
+            """
+            try:
+                from src.multimedia.openauto import _aa_canvas_size
+                return _aa_canvas_size(viewer._config) if viewer._config else (1024, 504)
+            except Exception:
+                cfg = viewer._config
+                w = cfg.get("display.multimedia.width", 1024) if cfg else 1024
+                h = cfg.get("display.multimedia.height", 504) if cfg else 504
+                return int(w), int(h)
+
         def _aa_mjpeg_generator():
             """Stream MJPEG frames from Xvfb (:99) using ffmpeg."""
-            cfg = viewer._config
-            w = cfg.get("display.multimedia.width", 1024) if cfg else 1024
-            h = cfg.get("display.multimedia.height", 600) if cfg else 600
+            w, h = _aa_canvas_size_local()
             try:
                 proc = subprocess.Popen(
                     ["ffmpeg", "-f", "x11grab", "-framerate", "25",
@@ -454,9 +467,7 @@ class WebViewer:
             data = request.get_json(silent=True) or {}
             rel_x = data.get("x", 0.5)
             rel_y = data.get("y", 0.5)
-            cfg = viewer._config
-            w = cfg.get("display.multimedia.width", 1024) if cfg else 1024
-            h = cfg.get("display.multimedia.height", 600) if cfg else 600
+            w, h = _aa_canvas_size_local()
             px = max(0, min(w, int(rel_x * w)))
             py = max(0, min(h, int(rel_y * h)))
             try:
