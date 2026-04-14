@@ -14,14 +14,21 @@ spidev>=3.6
 # I2C bus (optional, for future sensor expansion)
 smbus2>=0.4
 
-# Note: System packages required (install via apt):
-#   - libgpiod2 libgpiod-dev    (gpiod Python bindings)
-#   - python3-dev               (build extensions)
-#   - chromium-browser           (kiosk display)
-#   - pipewire pipewire-alsa    (audio routing)
-#   - bluez                     (Bluetooth via USB dongle)
-#   - usb-modeswitch            (Huawei E3372 LTE modem)
-#   - gstreamer1.0-tools gstreamer1.0-plugins-good  (dashcam)
+# Note: System packages required (install via apt) — see docs/OPI_PC_SETUP.md
+#   Core:
+#     - libgpiod2 libgpiod-dev        (gpiod Python bindings)
+#     - python3-dev                   (build extensions)
+#     - chromium-browser              (main kiosk display)
+#     - pipewire pipewire-alsa wireplumber  (audio routing)
+#     - bluez blueman                 (Bluetooth via USB dongle)
+#     - usb-modeswitch                (Huawei E3372 LTE modem)
+#     - v4l-utils ffmpeg              (camera + MJPEG capture)
+#     - gstreamer1.0-tools gstreamer1.0-plugins-good  (dashcam, SW H.264 on H3)
+#     - i2c-tools
+#   Android Auto (required for A2 to fill the content area correctly):
+#     - matchbox-window-manager       (auto-maximises autoapp Qt window)
+#     - xdotool                       (touch passthrough + fallback resizer)
+#     - Xvfb                          (headless AA rendering on the test rig)
 #
 # Optional (enable voice module — tight on 1GB RAM):
 #   pip install vosk sounddevice

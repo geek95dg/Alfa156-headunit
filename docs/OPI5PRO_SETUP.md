@@ -46,12 +46,29 @@ sudo apt install -y \
   i2c-tools
 ```
 
-> **Important:** `matchbox-window-manager` is what makes Android Auto
-> fill the whole screen. BCM launches it inside the Xvfb / :0 display
-> before starting autoapp so every Qt window is forced to maximize.
-> Without it, OpenAuto opens at its internal default of ~800×480 and
-> leaves a black strip on the right, which also breaks touch
-> coordinate mapping. `xdotool` is the secondary fallback.
+> **Important — Android Auto sizing**
+>
+> Three pieces have to line up for the A2 Android Auto screen to
+> render correctly (fills the BCM frame, no header/nav overlap, and
+> touch passthrough works):
+>
+> 1. **`matchbox-window-manager`** — BCM launches it inside the Xvfb
+>    virtual display (on x86) or directly on `:0` (on OPi) before
+>    starting autoapp. It force-maximises every Qt window so autoapp
+>    can't render at its internal default size (~800×480).
+> 2. **`xdotool`** — a secondary fallback that calls
+>    `windowmove / windowsize / windowactivate` on the autoapp window
+>    in case matchbox isn't present. Also used by `/aa/touch` to
+>    forward browser clicks to Xvfb.
+> 3. **`Xvfb`** — the virtual framebuffer AA renders into on x86 and
+>    the OPi test rig. BCM sizes it to
+>    `(dashboard.width, dashboard.height − AppBar − NavBar)`, i.e.
+>    `1024×504` on the default 7" panel, so the AA canvas fits
+>    exactly inside the BCM frame with no clipping.
+>
+> If you skip `matchbox-window-manager` the A2 screen will still work
+> but you'll get black space on the right and broken touch mapping.
+> All three packages are in the apt install line above.
 
 ## 3. Clone BCM + create venv
 
@@ -234,3 +251,40 @@ Expected boot sequence:
       strip. With a TomTom key set, the incidents list populates.
 - [ ] `free -h` shows plenty of headroom on 4 GB RAM.
 - [ ] `cat /sys/class/thermal/thermal_zone0/temp` stays below 80 °C.
+
+## 10. Troubleshooting
+
+### Android Auto window is too big / overlaps header or nav bar
+
+BCM caches the OpenAuto config in `openauto.ini` next to `main.py`.
+If you upgraded BCM from an earlier version, delete the cached file
+and restart the headunit so the new canvas size (`1024×504`) is
+regenerated:
+
+```bash
+rm -f /opt/bcm/openauto.ini
+sudo systemctl restart bcm-headunit
+```
+
+Confirm the new file has the right dimensions:
+```bash
+grep Touchscreen /opt/bcm/openauto.ini
+# Expected:
+#   TouchscreenWidth=1024
+#   TouchscreenHeight=504
+```
+
+### Android Auto still opens at 800×480
+
+`matchbox-window-manager` is likely missing. Install it and restart:
+```bash
+sudo apt install -y matchbox-window-manager xdotool
+sudo systemctl restart bcm-headunit
+```
+Then check the logs for `Window manager running inside …: matchbox-window-manager`.
+
+### A2 touches don't reach the phone
+
+Verify `xdotool` is installed (`which xdotool`) and that
+`DISPLAY=:99 xdotool mousemove 100 100 click 1` works from the
+shell. If not, `xdotool` itself is missing or Xvfb isn't running.
