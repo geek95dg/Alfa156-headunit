@@ -7,6 +7,14 @@
 # pygame which isn't needed for the Flask / Chromium kiosk path
 # and requires the full libsdl2-dev toolchain to build from source.
 #
+# aarch64 has pre-built PyPI wheels for both opencv-python-headless
+# and Pillow, so unlike the armv7l OPi PC build this file *does*
+# include them. If pip ever falls back to a source build (old PyPI
+# cache, unusual Python version), the Armbian apt packages
+# python3-opencv and python3-pil are the same-day replacement —
+# create the venv with `python3 -m venv --system-site-packages .venv`
+# so the system packages are visible from inside it.
+
 # Python dependencies
 gpiod>=2.0
 spidev>=3.6
@@ -18,6 +26,7 @@ flask-sock>=0.7
 simple-websocket>=1.0
 
 # Pillow + opencv for camera MJPEG and small-display snapshots
+# (both have pre-built aarch64 wheels on PyPI, no compilation needed)
 Pillow>=10.0
 opencv-python-headless>=4.8
 

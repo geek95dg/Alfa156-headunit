@@ -24,12 +24,37 @@ flask>=3.0
 flask-sock>=0.7
 simple-websocket>=1.0
 
-# Pillow — image helpers for the small display snapshots
-Pillow>=10.0
-
-# opencv-python-headless — camera MJPEG endpoint, no GUI deps needed.
-# Pre-built wheels exist for armv7l on piwheels.
-opencv-python-headless>=4.8
+# -----------------------------------------------------------------------------
+# NOT installed via pip on armv7l:
+#
+#   Pillow (PIL) and opencv-python-headless are *only* used inside lazy
+#   try/except imports in src/dashboard/web_viewer.py, src/dashboard/
+#   small_viewer.py, src/dashboard/overlays.py, and
+#   src/location/map_renderer.py — BCM degrades gracefully (camera stream
+#   returns a placeholder, map overlay skips image composition) when they
+#   aren't available. The desk test in docs/OPI_PC_SETUP.md Parts 1-2 does
+#   not need either package.
+#
+#   Both packages have no pre-built armv7l wheels on PyPI, so pip falls
+#   back to a source build that needs 4+ GB RAM and a full C++ toolchain.
+#   The OPi PC can't do that — it OOM-kills mid-build and wastes an hour.
+#
+#   If you later want the /api/camera/stream endpoint to work with a real
+#   USB webcam (Part 3.4) or GPS overlay images on the map, install the
+#   Debian system packages instead and expose them to the venv with
+#   --system-site-packages:
+#
+#     sudo apt install -y python3-opencv python3-pil
+#     cd /opt/bcm
+#     rm -rf .venv
+#     python3 -m venv --system-site-packages .venv
+#     source .venv/bin/activate
+#     pip install -r requirements.txt -r requirements-opi-pc.txt
+#
+#   On Armbian Trixie (Debian 13) python3-opencv is ~80 MB and builds on
+#   prebuilt wheels shipped in the distro — it is *not* compiled on the
+#   device.
+# -----------------------------------------------------------------------------
 
 # Note: System packages required (install via apt) — see docs/OPI_PC_SETUP.md
 #   Core:
