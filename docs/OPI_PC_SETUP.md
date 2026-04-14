@@ -524,3 +524,227 @@ cat /sys/class/thermal/thermal_zone0/temp
 If all boxes are ticked, you now have a booting-to-kiosk OPi PC
 rig. **No wires connected yet.** Everything from here on is
 additive — Parts 3, 4, 5 can be tackled in any order.
+
+---
+
+## Part 3 — USB dongles (plug-and-play, no soldering)
+
+This Part is a collection of independent recipes for the USB
+peripherals BCM talks to. Plug each one in, follow the one-page
+recipe for that device, then move on. Nothing in Part 3 requires
+anything from Part 4 — these are all pure USB.
+
+### 3.1 USB WiFi dongle
+
+Any recent realtek-based dongle (RTL8188EUS / RTL8821CU / RTL8192CU)
+works out of the box on Armbian Trixie — the drivers are in the
+kernel. Plug it in and check:
+
+```bash
+lsusb | grep -i -e realtek -e wireless
+ip link show          # a `wlan0` or `wlx...` interface appears
+```
+
+Connect to the network with NetworkManager (already installed as
+part of Armbian):
+
+```bash
+sudo nmcli device wifi list
+sudo nmcli device wifi connect "SSID_HERE" password "PASS_HERE"
+```
+
+For the "car hotspot" use case (the BCM itself broadcasts an AP
+the driver's phone joins), that's Part 5 material — leave `wlan0`
+as a client for now.
+
+### 3.2 USB Bluetooth dongle
+
+Same story — any CSR-based or Broadcom dongle just works:
+
+```bash
+lsusb | grep -i bluetooth
+hciconfig            # expect `hci0` with state UP
+systemctl status bluetooth
+```
+
+Pair a test device (phone or speaker):
+
+```bash
+bluetoothctl
+> power on
+> agent on
+> default-agent
+> scan on
+# ... wait for your phone to appear ...
+> pair AA:BB:CC:DD:EE:FF
+> trust AA:BB:CC:DD:EE:FF
+> connect AA:BB:CC:DD:EE:FF
+> quit
+```
+
+Verify A2DP audio:
+
+```bash
+pactl list sinks short | grep -i bluez
+# bluez_output.AA_BB_CC_DD_EE_FF.a2dp_sink  ...
+```
+
+Start BCM and play a test track from the phone — the A1 dashboard
+should show the media card populated from BlueZ MediaPlayer1.
+
+### 3.3 CP2102 / CH340 USB-UART for K-Line / OBD
+
+BCM uses a USB-UART adapter plus an L9637D transceiver chip as
+the K-Line front end. For the bench test you can skip the L9637D
+entirely — the OBD module has a built-in simulator that creates a
+virtual PTY pair and responds to KWP2000 requests, so you can
+verify the A1 gauge wiring without a car.
+
+Physical check anyway:
+
+```bash
+lsusb | grep -i -e cp210 -e ch340 -e ftdi
+dmesg | tail -n 5    # look for `cp210x converter now attached to ttyUSB0`
+ls -la /dev/ttyUSB*
+sudo usermod -aG dialout $USER      # then log out + back in
+```
+
+The port is already set in `config/bcm_config_opi_pc.yaml`:
+
+```yaml
+serial:
+  kline:
+    port_opi_pc: /dev/ttyUSB0
+    baudrate: 10400
+    ecu_address: 1
+```
+
+Change the port if `dmesg` reported something other than `ttyUSB0`.
+
+### 3.4 USB webcam (first-camera sanity check)
+
+Before you invest in a real 4-channel USB AHD grabber, a single
+random USB webcam is enough to prove the camera module works.
+
+```bash
+lsusb
+ls -la /dev/video*
+v4l2-ctl --list-devices
+
+# Capture one frame
+ffmpeg -f v4l2 -video_size 640x480 -i /dev/video0 -frames 1 /tmp/test.jpg
+ls -l /tmp/test.jpg
+```
+
+In `config/bcm_config_opi_pc.yaml` the front camera already
+defaults to `/dev/video0`, so BCM picks it up automatically. In
+the running dashboard you should see a preview whenever the
+camera module is active.
+
+### 3.5 USB GPS (u-blox 7 / 8)
+
+u-blox GPS sticks enumerate as `/dev/ttyACM0` (or `ttyACM1` if
+you have the USB-UART adapter in `ttyACM0`). Verify raw NMEA:
+
+```bash
+lsusb | grep -i u-blox
+dmesg | tail -n 5
+sudo cat /dev/ttyACM0 | head -5
+# Expect NMEA sentences like $GNRMC,123519.00,...
+```
+
+The BCM `location` module opens `/dev/ttyACM0` at 9600 baud by
+default. If your GPS is on a different port, edit
+`config/bcm_config_opi_pc.yaml` → `hardware.gps.port`.
+
+### 3.6 Huawei E3372 LTE dongle — full recipe
+
+This is the part the old manual left blank. The E3372 ships in
+three possible USB modes; you need to know which one yours is in
+before you can bring it up.
+
+**Step 1 — detect the mode:**
+
+```bash
+lsusb | grep -i huawei
+```
+
+| USB ID      | Mode         | What it is                                     |
+|-------------|--------------|------------------------------------------------|
+| `12d1:1f01` | Mass Storage | "Install CD-ROM" — needs `usb_modeswitch`      |
+| `12d1:14db` | HiLink       | USB Ethernet (`usb0`, fixed 192.168.8.x)       |
+| `12d1:155e` | Stick        | Serial modem (`/dev/ttyUSB*`), needs ModemManager |
+
+**Step 2 — kick it out of storage mode (if `1f01`):**
+
+```bash
+sudo usb_modeswitch -v 12d1 -p 1f01 -J
+# Re-run lsusb — it should now show 14db or 155e.
+```
+
+If the re-detection doesn't stick, a udev rule persists it across
+reboots. On Debian Trixie this file usually already exists:
+
+```bash
+ls /usr/share/usb_modeswitch/12d1:1f01 2>/dev/null && \
+  echo "usb_modeswitch data present — reboot should re-switch"
+```
+
+**Step 3a — HiLink path (14db, easy):**
+
+The dongle runs its own DHCP server on 192.168.8.1. Linux just
+needs to DHCP on `usb0`:
+
+```bash
+nmcli device status
+sudo nmcli connection add type ethernet \
+     ifname usb0 con-name huawei-lte autoconnect yes
+sudo nmcli connection up huawei-lte
+
+ip addr show usb0       # 192.168.8.x/24
+ping -c 3 -I usb0 8.8.8.8
+```
+
+Open the dongle's built-in web UI at <http://192.168.8.1/> from a
+browser to set the APN, PIN, and carrier settings (one-time).
+
+**Step 3b — Stick / ModemManager path (155e):**
+
+```bash
+sudo apt install -y modemmanager
+sudo systemctl enable --now ModemManager
+
+sudo mmcli -L
+# /org/freedesktop/ModemManager1/Modem/0 [Huawei] E3372
+
+sudo nmcli connection add type gsm ifname '*' \
+     con-name huawei-3g apn internet
+sudo nmcli connection up huawei-3g
+ping -c 3 8.8.8.8
+```
+
+Replace `internet` with your carrier's APN (Orange PL: `internet`,
+Play: `internet`, T-Mobile PL: `internet`, Plus: `plus`).
+
+**Step 4 — flip BCM back on:**
+
+Once LTE is up, re-enable the BCM network module you disabled in
+§1.8:
+
+```bash
+sed -i 's/^  network: false.*/  network: true/' \
+    config/bcm_config_opi_pc.yaml
+```
+
+Restart `bcm-headunit` (via the ignition file trigger) and verify
+the A1 status bar shows the LTE bars icon.
+
+### 3.7 Part 3 checklist
+
+- [ ] `lsusb` shows every dongle you plugged in.
+- [ ] WiFi: `nmcli connection show --active` lists the SSID.
+- [ ] BT: `bluetoothctl paired-devices` lists the test phone.
+- [ ] USB-UART: `/dev/ttyUSB0` exists and the user is in `dialout`.
+- [ ] Webcam: `/tmp/test.jpg` contains an actual image.
+- [ ] GPS: NMEA sentences stream on `/dev/ttyACM0`.
+- [ ] LTE: `ping -I usb0 8.8.8.8` returns replies.
