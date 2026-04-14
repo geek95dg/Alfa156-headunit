@@ -9,15 +9,15 @@
 # uses Flask + Chromium instead of the pygame renderer).
 #
 # The OPi PC has only 1 GB RAM. Keep dependencies lean.
+# Everything in this file ships as a pure-Python wheel on PyPI —
+# there are NO C extensions to build and the install takes under
+# a minute even on the OPi PC.
 
-# GPIO via libgpiod (H3 uses gpiochip0, sun8i-h3-pinctrl)
+# GPIO via libgpiod (H3 uses gpiochip0, sun8i-h3-pinctrl).
+# gpiod 2.x is a pure-Python package that wraps the libgpiod2 C
+# library via ctypes — the C library itself comes from the apt
+# package libgpiod2, installed in §1.3 of OPI_PC_SETUP.md.
 gpiod>=2.0
-
-# SPI bus (MCP3008 ADC for SWC analog, optional)
-spidev>=3.6
-
-# I2C bus (optional, for future sensor expansion)
-smbus2>=0.4
 
 # Flask web frontend (A1-A8 dashboard on :5002, small display on :5003)
 flask>=3.0
@@ -27,22 +27,38 @@ simple-websocket>=1.0
 # -----------------------------------------------------------------------------
 # NOT installed via pip on armv7l:
 #
-#   Pillow (PIL) and opencv-python-headless are *only* used inside lazy
-#   try/except imports in src/dashboard/web_viewer.py, src/dashboard/
-#   small_viewer.py, src/dashboard/overlays.py, and
-#   src/location/map_renderer.py — BCM degrades gracefully (camera stream
-#   returns a placeholder, map overlay skips image composition) when they
-#   aren't available. The desk test in docs/OPI_PC_SETUP.md Parts 1-2 does
-#   not need either package.
+#   spidev and smbus2 — both would compile a tiny C extension on
+#   install (spidev in particular fails against Python 3.13 headers
+#   on Debian Trixie). BCM's HAL only imports them lazily inside
+#   src/core/hal.py::RealSPI.__init__ and RealI2C.__init__, and no
+#   module currently calls hal.spi() / hal.i2c() — they are stubs
+#   reserved for a future MCP3008 ADC and I²C sensor expansion.
+#   Skip them on the OPi PC until you actually need them, then:
 #
-#   Both packages have no pre-built armv7l wheels on PyPI, so pip falls
-#   back to a source build that needs 4+ GB RAM and a full C++ toolchain.
-#   The OPi PC can't do that — it OOM-kills mid-build and wastes an hour.
+#     sudo apt install -y python3-spidev python3-smbus
+#     cd /opt/bcm
+#     rm -rf .venv
+#     python3 -m venv --system-site-packages .venv
+#     source .venv/bin/activate
+#     pip install -r requirements.txt -r requirements-opi-pc.txt
 #
-#   If you later want the /api/camera/stream endpoint to work with a real
-#   USB webcam (Part 3.4) or GPS overlay images on the map, install the
-#   Debian system packages instead and expose them to the venv with
-#   --system-site-packages:
+#   Pillow (PIL) and opencv-python-headless — only used inside
+#   lazy try/except imports in src/dashboard/web_viewer.py, src/
+#   dashboard/small_viewer.py, src/dashboard/overlays.py, and
+#   src/location/map_renderer.py — BCM degrades gracefully (camera
+#   stream returns a placeholder, map overlay skips image
+#   composition) when they aren't available. The desk test in
+#   docs/OPI_PC_SETUP.md Parts 1-2 does not need either package.
+#
+#   Both opencv and Pillow have no pre-built armv7l wheels on
+#   PyPI, so pip would otherwise fall back to a source build
+#   that needs 4+ GB RAM and a full C++ toolchain. The OPi PC
+#   can't do that — it OOM-kills mid-build.
+#
+#   If you later want the /api/camera/stream endpoint to work with
+#   a real USB webcam (Part 3.4) or GPS overlay images on the map,
+#   install the Debian system packages instead and expose them to
+#   the venv with --system-site-packages:
 #
 #     sudo apt install -y python3-opencv python3-pil
 #     cd /opt/bcm
@@ -51,9 +67,9 @@ simple-websocket>=1.0
 #     source .venv/bin/activate
 #     pip install -r requirements.txt -r requirements-opi-pc.txt
 #
-#   On Armbian Trixie (Debian 13) python3-opencv is ~80 MB and builds on
-#   prebuilt wheels shipped in the distro — it is *not* compiled on the
-#   device.
+#   On Armbian Trixie (Debian 13) python3-opencv is ~80 MB and
+#   ships as a prebuilt distro binary — nothing is compiled on
+#   the device.
 # -----------------------------------------------------------------------------
 
 # Note: System packages required (install via apt) — see docs/OPI_PC_SETUP.md
