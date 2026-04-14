@@ -35,7 +35,7 @@ sudo apt update && sudo apt upgrade -y
 sudo apt install -y \
   python3 python3-pip python3-venv python3-dev \
   git chromium \
-  libgpiod2 libgpiod-dev \
+  libgpiod-dev gpiod python3-libgpiod \
   pipewire pipewire-alsa wireplumber \
   bluez blueman \
   v4l-utils ffmpeg \
@@ -83,14 +83,21 @@ sudo apt install -y \
 
 ## 3. Clone BCM + create venv
 
+The venv must be created with `--system-site-packages` so it can
+see the Debian `python3-libgpiod` package installed in §2 —
+pip's own `gpiod` won't build from source against Python 3.13
+headers on Trixie, same story as `spidev` and `opencv-python-headless`
+on aarch64 when wheels are stale.
+
 ```bash
 cd /opt
 sudo git clone https://github.com/geek95dg/Alfa156-headunit.git bcm
 sudo chown -R $USER:$USER /opt/bcm
 cd /opt/bcm
 
-python3 -m venv .venv
+python3 -m venv --system-site-packages .venv
 source .venv/bin/activate
+pip install --upgrade pip
 pip install -r requirements.txt -r requirements-opi.txt
 ```
 

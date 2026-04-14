@@ -1,7 +1,18 @@
 # BCM v8.5 — Orange Pi PC 1.2 (Allwinner H3, armv7l) dependencies
 #
-# Install:
+# Install (see docs/OPI_PC_SETUP.md §1.7 for the full recipe):
+#   python3 -m venv --system-site-packages .venv
+#   source .venv/bin/activate
 #   pip install -r requirements.txt -r requirements-opi-pc.txt
+#
+# The --system-site-packages flag is MANDATORY — it lets the venv
+# see the `python3-libgpiod` apt package installed in §1.3 which
+# provides the `gpiod` Python binding compiled against the right
+# libgpiod runtime for this Debian release (libgpiod2 on Bookworm,
+# libgpiod3 on Trixie). BCM imports `gpiod` as a hard requirement
+# at startup; pip-installing it would otherwise need to compile
+# from source against Python 3.13 headers on Trixie, which fails
+# the same way spidev's C extension fails.
 #
 # DO NOT also install requirements-x86.txt on the OPi PC — it pulls
 # pygame which fails to build from source on ARM without the full
@@ -9,15 +20,13 @@
 # uses Flask + Chromium instead of the pygame renderer).
 #
 # The OPi PC has only 1 GB RAM. Keep dependencies lean.
-# Everything in this file ships as a pure-Python wheel on PyPI —
-# there are NO C extensions to build and the install takes under
-# a minute even on the OPi PC.
+# Everything in this file is a pure-Python package with pre-built
+# wheels on PyPI — there are NO C extensions to compile.
 
-# GPIO via libgpiod (H3 uses gpiochip0, sun8i-h3-pinctrl).
-# gpiod 2.x is a pure-Python package that wraps the libgpiod2 C
-# library via ctypes — the C library itself comes from the apt
-# package libgpiod2, installed in §1.3 of OPI_PC_SETUP.md.
-gpiod>=2.0
+# NOTE: `gpiod` is installed via the Debian `python3-libgpiod` apt
+# package, NOT via pip. Do not re-add it here — pip `gpiod>=2.0`
+# would try to compile against libgpiod2 headers which isn't the
+# current Trixie runtime. See the setup guide's libgpiod comment.
 
 # Flask web frontend (A1-A8 dashboard on :5002, small display on :5003)
 flask>=3.0
@@ -74,7 +83,10 @@ simple-websocket>=1.0
 
 # Note: System packages required (install via apt) — see docs/OPI_PC_SETUP.md
 #   Core:
-#     - libgpiod2 libgpiod-dev        (gpiod Python bindings)
+#     - python3-libgpiod              (Debian-built Python binding —
+#                                      the pip gpiod package cannot
+#                                      be built from source on Trixie)
+#     - libgpiod-dev gpiod            (headers + gpioinfo/gpioget/gpioset CLI)
 #     - python3-dev                   (build extensions)
 #     - chromium                      (main kiosk display — Debian Trixie package)
 #     - pipewire pipewire-alsa wireplumber  (audio routing)

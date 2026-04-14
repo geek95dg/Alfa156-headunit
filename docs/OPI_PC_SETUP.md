@@ -97,7 +97,7 @@ the Python modules import):
 sudo apt install -y \
   python3 python3-pip python3-venv python3-dev \
   git curl \
-  libgpiod2 libgpiod-dev gpiod \
+  libgpiod-dev gpiod python3-libgpiod \
   pipewire pipewire-alsa wireplumber \
   bluez blueman \
   v4l-utils ffmpeg \
@@ -105,6 +105,28 @@ sudo apt install -y \
   usb-modeswitch usb-modeswitch-data \
   i2c-tools
 ```
+
+> **Debian Trixie vs Bookworm — the libgpiod rename.**
+> On Bookworm the runtime package was `libgpiod2` (= libgpiod 1.x).
+> On Trixie it's been bumped to `libgpiod3` (= libgpiod 2.x) and the
+> old `libgpiod2` name is gone. The apt line above sidesteps the
+> rename entirely by installing **`libgpiod-dev` + `python3-libgpiod`**:
+>
+> - `libgpiod-dev` is a virtual name that resolves to whichever
+>   runtime (libgpiod2 or libgpiod3) matches the current release.
+> - `python3-libgpiod` is the Debian-built Python binding — it's
+>   compiled by the distro against the matching runtime, so BCM
+>   doesn't have to build `gpiod` from source via pip (which fails
+>   against Python 3.13 headers on Trixie, same reason `spidev`
+>   fails).
+> - The `gpiod` CLI tool (`gpioinfo`, `gpioget`, `gpioset`) ships in
+>   the `gpiod` package — you'll use it from Part 4 onwards to
+>   verify individual GPIO lines before BCM touches them.
+>
+> This means the BCM Python venv in §1.7 must be created with
+> `python3 -m venv --system-site-packages .venv` so it can see the
+> apt-installed `python3-libgpiod`. That's the default for the
+> OPi PC from here on.
 
 Quick sanity check:
 
@@ -199,6 +221,13 @@ and you're ready to install BCM itself.
 
 ### 1.7 Clone BCM and create the Python venv
 
+> **Important — always use `--system-site-packages` on the OPi PC.**
+> The venv must be able to see the `python3-libgpiod` apt package
+> installed in §1.3; without `--system-site-packages` the venv
+> hides every apt-installed Python module and BCM fails to import
+> `gpiod` at startup. This is the single most common gotcha on
+> Trixie — see §7 Troubleshooting.
+
 ```bash
 sudo mkdir -p /opt
 cd /opt
@@ -206,7 +235,7 @@ sudo git clone https://github.com/geek95dg/Alfa156-headunit.git bcm
 sudo chown -R $USER:$USER /opt/bcm
 cd /opt/bcm
 
-python3 -m venv .venv
+python3 -m venv --system-site-packages .venv
 source .venv/bin/activate
 pip install --upgrade pip
 pip install -r requirements.txt -r requirements-opi-pc.txt
@@ -243,7 +272,7 @@ pip install -r requirements.txt -r requirements-opi-pc.txt
 > nor an I²C sensor is connected yet.
 
 Sanity-check that every **required** runtime import succeeds — this
-catches missing `libgpiod2` or `python3-dev` early:
+catches missing `python3-libgpiod` (or the wrong venv flag) early:
 
 ```bash
 python3 -c "import gpiod, yaml, flask, flask_sock, serial; print('ok')"
@@ -253,8 +282,16 @@ python3 -c "import gpiod, yaml, flask, flask_sock, serial; print('ok')"
 actually want them.)
 
 If you see `ImportError: No module named gpiod` even though the
-apt package is installed, your venv was created before libgpiod2
-landed — rebuild it: `rm -rf .venv && python3 -m venv .venv`.
+apt package is installed, the venv was created **without**
+`--system-site-packages` and can't see `python3-libgpiod`. Fix:
+
+```bash
+rm -rf .venv
+python3 -m venv --system-site-packages .venv
+source .venv/bin/activate
+pip install -r requirements.txt -r requirements-opi-pc.txt
+python3 -c "import gpiod; print(gpiod.__version__)"
+```
 
 If you see `ImportError: No module named pygame` when you later
 run `main.py` **without** `--frontend`, you accidentally installed
@@ -402,7 +439,7 @@ Check each box before moving to Part 2. If any fails, the later
 parts will fail too.
 
 - [ ] Armbian boots to a `login:` prompt within ~20 s.
-- [ ] `gpioinfo gpiochip0` lists PA lines (libgpiod2 works).
+- [ ] `gpioinfo gpiochip0` lists PA lines (libgpiod runtime works).
 - [ ] `startx ... matchbox-window-manager` shows a grey X screen.
 - [ ] Python venv import smoke test prints `ok`.
 - [ ] `./run_opi_pc.sh --no-watcher` stays running without tracebacks.
@@ -1177,10 +1214,29 @@ build: [`OPI5PRO_BOM.md`](OPI5PRO_BOM.md).
   doesn't preserve permissions. Run `chmod +x run_opi_pc.sh`.
 
 **`ImportError: No module named gpiod`**
-  → `libgpiod2` / `libgpiod-dev` wasn't installed before you ran
-  `python3 -m venv .venv`. Fix: install the apt package, then
-  `rm -rf .venv && python3 -m venv .venv && source .venv/bin/activate
-  && pip install -r requirements.txt -r requirements-opi-pc.txt`.
+  → On Debian Trixie BCM uses the apt-installed `python3-libgpiod`
+  (not pip) because the pip `gpiod>=2.0` package won't build from
+  source against Python 3.13 headers. If you see this error,
+  either the apt package is missing or the venv wasn't created
+  with `--system-site-packages`:
+  ```bash
+  sudo apt install -y python3-libgpiod libgpiod-dev gpiod
+  cd /opt/bcm
+  rm -rf .venv
+  python3 -m venv --system-site-packages .venv
+  source .venv/bin/activate
+  pip install -r requirements.txt -r requirements-opi-pc.txt
+  python3 -c "import gpiod; print(gpiod.__version__)"
+  ```
+
+**`E: Unable to locate package libgpiod2`** (from the old setup guide)
+  → The package was renamed between Debian Bookworm and Trixie.
+  On Trixie the runtime library is `libgpiod3` and the Python
+  binding is `python3-libgpiod`. Install both via `libgpiod-dev`
+  (meta-package that pulls the right runtime) + `python3-libgpiod`:
+  ```bash
+  sudo apt install -y libgpiod-dev python3-libgpiod gpiod
+  ```
 
 **`Failed to request lines: Device or resource busy`**
   → Another process already owns the GPIO. Usually
