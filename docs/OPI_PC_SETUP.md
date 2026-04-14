@@ -211,17 +211,30 @@ pip install -r requirements.txt -r requirements-opi-pc.txt
 > `libsdl2-ttf-dev`, `libfreetype6-dev`, `libportmidi-dev`) and will
 > fail to build from source on armv7l. The OPi PC runs BCM in
 > `--frontend` mode using Flask + Chromium instead of the pygame
-> dashboard renderer, so pygame is genuinely unnecessary here. Both
-> `requirements.txt` and `requirements-opi-pc.txt` already list
-> every runtime dependency (Flask, flask-sock, Pillow, opencv-python-headless,
-> gpiod, pyserial, PyYAML) the web frontend needs.
+> dashboard renderer, so pygame is genuinely unnecessary here.
 
-Sanity-check that every runtime import succeeds — this catches
-missing `libgpiod2` or `python3-dev` early:
+> **Also note — `opencv-python-headless` and `Pillow` are NOT in
+> `requirements-opi-pc.txt`.** Neither package has pre-built wheels
+> for `armv7l` on PyPI, so pip would otherwise try to build them
+> from source which needs 4+ GB of RAM and an hour of compile time —
+> the OPi PC's 1 GB will OOM-kill the build. The BCM code uses both
+> libraries only through lazy `try/except import` blocks
+> (`src/dashboard/web_viewer.py`, `src/dashboard/small_viewer.py`,
+> `src/dashboard/overlays.py`, `src/location/map_renderer.py`), so
+> BCM starts and runs cleanly without them — the camera stream
+> endpoint just returns a placeholder JPEG. That is exactly what
+> you want for the desk test in Parts 1–2 anyway, because there
+> is no camera attached yet.
+
+Sanity-check that every **required** runtime import succeeds — this
+catches missing `libgpiod2` or `python3-dev` early:
 
 ```bash
-python3 -c "import gpiod, yaml, flask, flask_sock, serial, PIL, cv2; print('ok')"
+python3 -c "import gpiod, yaml, flask, flask_sock, serial; print('ok')"
 ```
+
+(Don't add `cv2` or `PIL` here — see the next section for when you
+actually want them.)
 
 If you see `ImportError: No module named gpiod` even though the
 apt package is installed, your venv was created before libgpiod2
@@ -231,6 +244,33 @@ If you see `ImportError: No module named pygame` when you later
 run `main.py` **without** `--frontend`, you accidentally installed
 the x86 requirements. Rebuild the venv and install only
 `requirements.txt` + `requirements-opi-pc.txt`.
+
+#### Optional — enabling the camera stream endpoint later
+
+Once you actually plug in a USB webcam in Part 3.4 and want the
+`/api/camera/stream?cam=front` endpoint on `:5002`/`:5003` to
+return real frames instead of a placeholder, install the Debian
+system packages and recreate the venv with `--system-site-packages`
+so the apt-installed OpenCV is visible from inside the venv:
+
+```bash
+sudo apt install -y python3-opencv python3-pil
+
+cd /opt/bcm
+rm -rf .venv
+python3 -m venv --system-site-packages .venv
+source .venv/bin/activate
+pip install --upgrade pip
+pip install -r requirements.txt -r requirements-opi-pc.txt
+
+# Verify
+python3 -c "import cv2, PIL; print(cv2.__version__, PIL.__version__)"
+```
+
+The `--system-site-packages` flag is the critical bit — without
+it the venv hides the `python3-opencv` apt package. On Armbian
+Trixie the Debian `python3-opencv` binary weighs ~80 MB and is
+pre-built by the distro; the OPi PC never has to compile anything.
 
 ### 1.8 Lean the config for a 1 GB RAM bench test
 
@@ -647,7 +687,7 @@ lsusb
 ls -la /dev/video*
 v4l2-ctl --list-devices
 
-# Capture one frame
+# Capture one frame (purely through ffmpeg — no opencv needed here)
 ffmpeg -f v4l2 -video_size 640x480 -i /dev/video0 -frames 1 /tmp/test.jpg
 ls -l /tmp/test.jpg
 ```
@@ -656,6 +696,16 @@ In `config/bcm_config_opi_pc.yaml` the front camera already
 defaults to `/dev/video0`, so BCM picks it up automatically. In
 the running dashboard you should see a preview whenever the
 camera module is active.
+
+> **If the browser shows "NO CAMERA" instead of a live feed**, the
+> BCM `/api/camera/stream?cam=front` endpoint needs OpenCV to turn
+> V4L2 frames into MJPEG. On the OPi PC (armv7l) OpenCV is an
+> optional extra — run the Debian `python3-opencv` install recipe
+> from §1.7 ("Optional — enabling the camera stream endpoint later")
+> to install it through apt and expose it to the venv with
+> `--system-site-packages`. Restart BCM afterwards. The ffmpeg
+> capture above still works regardless — it bypasses OpenCV
+> entirely.
 
 ### 3.5 USB GPS (u-blox 7 / 8)
 
@@ -1102,6 +1152,40 @@ build: [`OPI5PRO_BOM.md`](OPI5PRO_BOM.md).
   → Another process already owns the GPIO. Usually
   `bcm-ignition-watcher` started from a previous run. Stop it:
   `sudo systemctl stop bcm-ignition-watcher`.
+
+### pip install fails
+
+**`Failed to build opencv-python-headless`** / `skbuild`, `cmake`,
+or `ninja` error during pip install
+  → You're on the OPi PC (armv7l) and pip is trying to build
+  OpenCV from source because PyPI has no pre-built wheel for this
+  architecture. This **should not happen** with a fresh
+  `requirements-opi-pc.txt` checkout (opencv was dropped from it
+  in commit `ccb8761` and the file explicitly explains why).
+  If it does, you probably have an older copy of the file — `git
+  pull` and try again, or install via apt:
+  ```bash
+  sudo apt install -y python3-opencv
+  cd /opt/bcm
+  rm -rf .venv
+  python3 -m venv --system-site-packages .venv
+  source .venv/bin/activate
+  pip install -r requirements.txt -r requirements-opi-pc.txt
+  ```
+
+**`Failed to build Pillow`** / missing `zlib.h`, `jpeglib.h`, etc.
+  → Same story — Pillow is not a required OPi PC dep, use
+  `sudo apt install -y python3-pil` plus `--system-site-packages`
+  as above.
+
+**`Failed to build pygame`** / `sdl-config: command not found`
+  → You accidentally installed `requirements-x86.txt`. Rebuild the
+  venv and only install `requirements.txt` + `requirements-opi-pc.txt`.
+
+**`error: externally-managed-environment`** (Debian Trixie)
+  → You ran `pip install` outside a virtual environment. Always
+  `source .venv/bin/activate` first. Never `sudo pip install`
+  anything.
 
 ### Chromium / kiosk
 
