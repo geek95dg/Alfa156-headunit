@@ -943,3 +943,229 @@ anything else is running.
 - [ ] With `modules.blinker_monitor: true`, grounding the left
       blinker input flips the small display (:5003) to the left
       camera overlay (or placeholder if no camera is attached).
+
+---
+
+## Part 5 — Full bench run (real ignition GPIO)
+
+At this point the rig has:
+
+- A working X + kiosk auto-start from Part 2.
+- Some or all of the sensors from Part 4 wired up.
+- Optionally: the dongles from Part 3.
+
+The only thing left to replace is the `/tmp/bcm_ignition_on` file
+trigger — swap it for a real GPIO line so the rig behaves exactly
+like the production car.
+
+### 5.1 Wire a bench button on PA7 (ignition)
+
+A single momentary push button between physical pin 29 (PA7)
+and GND, plus the standard PC817 pattern from §4.5 if you want
+to test the 12 V side too.
+
+For a pure bench button (no optoisolator):
+
+```
+OPi Pin 29 (PA7) ──┬── button ── GND
+                    └── [10 kΩ pull-up] ── 3.3 V
+```
+
+The ignition watcher is `active_low: true` in the config, so
+pressed = GND = line LOW = ignition ON.
+
+### 5.2 Switch the watcher from simulation to real GPIO
+
+Nothing to change in the config — the watcher auto-detects real
+GPIO. Just remove any stale trigger file and restart the service:
+
+```bash
+sudo rm -f /tmp/bcm_ignition_on
+sudo systemctl restart bcm-ignition-watcher
+sudo journalctl -fu bcm-ignition-watcher
+```
+
+Expected log:
+
+```
+Ignition watcher started — waiting for ignition signal...
+Opened GPIO chip: gpiochip0
+Watching: ignition=line 7, button=line 37
+```
+
+### 5.3 Test the full cycle
+
+Press the bench button once:
+
+```
+=== IGNITION ON — Starting BCM headunit ===
+systemctl start bcm-headunit.service — OK
+BCM headunit service started successfully
+```
+
+Release the button and watch the Chromium kiosk on :5002 load
+the dashboard. Press again to trigger the ignition-OFF shutdown
+sequence. `systemctl status bcm-headunit` should go from
+`active (running)` to `inactive (dead)`.
+
+### 5.4 Part 5 checklist
+
+- [ ] `systemctl is-enabled bcm-ignition-watcher` returns `enabled`.
+- [ ] On boot, the watcher starts and logs `Opened GPIO chip`.
+- [ ] Pressing the bench button triggers a start / stop of
+      `bcm-headunit` within ~1 s.
+- [ ] All Part 4 sensors still read correctly while BCM is running
+      (no GPIO ownership conflicts).
+- [ ] The rig can cycle through at least 10 ignition on/off events
+      without a service failure or memory leak.
+
+At the end of Part 5 the test rig behaves exactly like the
+production head unit. Any bug you can still reproduce here is a
+BCM bug, not a wiring or environment bug.
+
+---
+
+## Part 6 — Moving to the car
+
+The OPi PC 1.2 is intentionally **not** the production target —
+it's a cheap bench rig for validating everything before you spend
+money on the real board. Once Part 5 passes end to end, migrate
+to the Orange Pi 5 Pro 4 GB for the in-car install.
+
+Everything you learned in Parts 1-5 carries over. The only
+differences on the 5 Pro are:
+
+- Dual HDMI (2.1 + 2.0) drives both 7" main and 4.3" small
+  screens natively — no second X server trick needed.
+- Hardware H.264 encoding (RK3588 VPU) for the dashcam.
+- 4 GB RAM makes Android Auto + Vosk comfortable.
+- Built-in WiFi 6 + BT 5.0 — no USB dongles.
+
+The full install sequence for the 5 Pro is in
+[`OPI5PRO_SETUP.md`](OPI5PRO_SETUP.md). Wiring reuses the Part 4
+sensor topology verbatim — same PC817 optoisolators, same HC-SR04
+voltage dividers, same DS18B20, same buzzer.
+
+Bill of materials (with Q1 2026 PLN prices) for the production
+build: [`OPI5PRO_BOM.md`](OPI5PRO_BOM.md).
+
+---
+
+## Part 7 — Troubleshooting
+
+### X server won't start
+
+**`startx: command not found`**
+  → `xinit` package missing. Re-run the §1.4 apt install line.
+
+**`Only console users are allowed to run the X server`**
+  → §1.5 wasn't applied. Edit `/etc/X11/Xwrapper.config` and set
+  `allowed_users=anybody`. Log out and back in.
+
+**`no screens found`**
+  → Missing `xserver-xorg-video-fbdev`. Reinstall the §1.4 set.
+  If HDMI still isn't detected, check `/boot/armbianEnv.txt` has
+  `console=both` and the HDMI cable was connected before power-on.
+
+**`Failed to load module matchbox-window-manager`**
+  → `matchbox-window-manager` package not installed. Same fix.
+
+### BCM launcher
+
+**`./run_opi_pc.sh: command not found`**
+  → Forgot `chmod +x` after `git clone` on a filesystem that
+  doesn't preserve permissions. Run `chmod +x run_opi_pc.sh`.
+
+**`ImportError: No module named gpiod`**
+  → `libgpiod2` / `libgpiod-dev` wasn't installed before you ran
+  `python3 -m venv .venv`. Fix: install the apt package, then
+  `rm -rf .venv && python3 -m venv .venv && source .venv/bin/activate
+  && pip install -r requirements.txt -r requirements-opi-pc.txt`.
+
+**`Failed to request lines: Device or resource busy`**
+  → Another process already owns the GPIO. Usually
+  `bcm-ignition-watcher` started from a previous run. Stop it:
+  `sudo systemctl stop bcm-ignition-watcher`.
+
+### Chromium / kiosk
+
+**Chromium opens but shows a blank page**
+  → Flask isn't up yet. Confirm with `curl http://localhost:5002`
+  from another terminal first. In the kiosk path, `.xinitrc` waits
+  for `/5002` to answer before spawning Chromium.
+
+**Chromium opens but doesn't go full-screen**
+  → Matchbox window manager isn't running. `pgrep matchbox-window-manager`
+  should return a PID. If not, the `.xinitrc` from §2.3 didn't run
+  properly — check `~/.xsession-errors`.
+
+**Android Auto canvas is too big and overlaps AppBar / NavBar**
+  → Stale `openauto.ini`. Delete it and restart BCM:
+  ```
+  rm -f /opt/bcm/openauto.ini
+  sudo systemctl restart bcm-headunit
+  grep Touchscreen /opt/bcm/openauto.ini
+  # Expect TouchscreenWidth=1024 / TouchscreenHeight=504
+  ```
+  Cross-reference: `docs/OPI5PRO_SETUP.md` §10 has the full
+  explanation of the AA canvas-sizing mechanism.
+
+### Audio (sun4i-codec)
+
+**No sound from `aplay -l`**
+  → On kernel 6.x the sun4i-codec driver needs `asound.state` to
+  be initialised. Run `sudo alsactl init sun4i-codec` and retry.
+  Also check `amixer -c 0` — the `Line Out` mixer is muted by
+  default on some Armbian builds:
+  ```
+  amixer -c 0 sset 'Line Out' unmute
+  amixer -c 0 sset 'Line Out' 80%
+  ```
+
+**PipeWire reports no default sink**
+  → `systemctl --user status pipewire wireplumber`. If they aren't
+  running, `systemctl --user enable --now pipewire wireplumber`.
+  Remember PipeWire runs per-user, not as root.
+
+### LTE modem
+
+**`lsusb` shows `12d1:1f01` forever**
+  → `usb_modeswitch` isn't running automatically. Force it once:
+  `sudo usb_modeswitch -v 12d1 -p 1f01 -J`. If the mode doesn't
+  stick across reboots, add the udev rule shipped with
+  `usb-modeswitch-data` (`dpkg -L usb-modeswitch-data | grep
+  40-usb_modeswitch.rules`).
+
+**`ping -I usb0 8.8.8.8` returns "Destination Host Unreachable"**
+  → HiLink mode DHCP didn't complete. Check `ip addr show usb0` —
+  if there's no IPv4 address, run `sudo nmcli connection up huawei-lte`
+  again. If the dongle is in storage mode (§3.6 Step 2 failed),
+  ping will never work.
+
+### Memory pressure (1 GB RAM)
+
+**OOM killer takes down `bcm-headunit`**
+  → Disable `modules.multimedia` and `modules.voice` in
+  `config/bcm_config_opi_pc.yaml` — Android Auto + Vosk are the
+  two biggest consumers. Add a 512 MB swap file as a safety net:
+  ```
+  sudo fallocate -l 512M /swapfile
+  sudo chmod 600 /swapfile
+  sudo mkswap /swapfile
+  sudo swapon /swapfile
+  echo '/swapfile none swap sw 0 0' | sudo tee -a /etc/fstab
+  ```
+
+**`free -h` shows `Swap` growing by the minute**
+  → One of the modules is leaking. Most likely suspects are
+  `camera` (if `opencv-python` is loaded but no camera is
+  attached) and `weather` (if the OpenWeatherMap API key is
+  invalid and the retry loop keeps allocating JSON objects).
+  Check with `sudo journalctl -fu bcm-headunit`.
+
+### CPU temperature
+
+**`thermal_zone0/temp` climbs past 85 °C**
+  → Add a small heatsink. The H3 aggressively throttles at 90 °C,
+  which causes visible UI stutter and Chromium frame drops. A
+  cheap 14×14 mm aluminium heatsink is enough for idle use.
