@@ -1,6 +1,18 @@
-# BCM v8 — x86 development/simulation dependencies
+# BCM v8.5 — x86 development / simulation dependencies
+#
+# The Flask web frontend + PyGame legacy dashboard both live here.
+# --frontend mode doesn't use pygame; it's kept in this file only
+# because x86 is the one platform where we still run the original
+# pygame renderer for dev/debug. OPi PC (armv7l) and OPi 5 Pro
+# (aarch64) should install requirements-opi-pc.txt or
+# requirements-opi.txt instead — neither of which pulls pygame.
 flask>=3.0
 flask-sock>=0.7
 simple-websocket>=1.0
 Pillow>=10.0
 opencv-python-headless>=4.8
+
+# PyGame legacy renderer (x86 only — never install on OPi).
+# System packages required on Debian: libsdl2-dev libsdl2-image-dev
+# libsdl2-mixer-dev libsdl2-ttf-dev libfreetype6-dev libportmidi-dev
+pygame>=2.5

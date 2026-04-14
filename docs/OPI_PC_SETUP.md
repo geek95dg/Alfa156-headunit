@@ -205,16 +205,32 @@ pip install --upgrade pip
 pip install -r requirements.txt -r requirements-opi-pc.txt
 ```
 
+> **Important — do NOT install `requirements-x86.txt` on the OPi PC.**
+> The x86 file pulls `pygame`, which in turn requires the full SDL2
+> dev toolchain (`libsdl2-dev`, `libsdl2-image-dev`, `libsdl2-mixer-dev`,
+> `libsdl2-ttf-dev`, `libfreetype6-dev`, `libportmidi-dev`) and will
+> fail to build from source on armv7l. The OPi PC runs BCM in
+> `--frontend` mode using Flask + Chromium instead of the pygame
+> dashboard renderer, so pygame is genuinely unnecessary here. Both
+> `requirements.txt` and `requirements-opi-pc.txt` already list
+> every runtime dependency (Flask, flask-sock, Pillow, opencv-python-headless,
+> gpiod, pyserial, PyYAML) the web frontend needs.
+
 Sanity-check that every runtime import succeeds — this catches
 missing `libgpiod2` or `python3-dev` early:
 
 ```bash
-python3 -c "import gpiod, yaml, flask, flask_sock, serial; print('ok')"
+python3 -c "import gpiod, yaml, flask, flask_sock, serial, PIL, cv2; print('ok')"
 ```
 
 If you see `ImportError: No module named gpiod` even though the
 apt package is installed, your venv was created before libgpiod2
 landed — rebuild it: `rm -rf .venv && python3 -m venv .venv`.
+
+If you see `ImportError: No module named pygame` when you later
+run `main.py` **without** `--frontend`, you accidentally installed
+the x86 requirements. Rebuild the venv and install only
+`requirements.txt` + `requirements-opi-pc.txt`.
 
 ### 1.8 Lean the config for a 1 GB RAM bench test
 
