@@ -7,3 +7,11 @@
 # from source.
 PyYAML>=6.0
 pyserial>=3.5
+
+# HTTP client — used by src/trip/route_planner.py for the
+# OpenRouteService + TomTom travel-plan calls. The import is wrapped
+# in try/except so BCM still boots without it, but the Travel Plan
+# feature then silently falls back to the haversine straight-line
+# estimate, which is not what the user wants. Pure Python, wheels on
+# every architecture.
+requests>=2.28
