@@ -1,7 +1,14 @@
 # BCM v8.5 — Orange Pi 5 Pro 4GB / 5 Plus (aarch64) dependencies
 #
-# Install:
+# Install (see docs/OPI5PRO_SETUP.md for the full recipe):
+#   python3 -m venv --system-site-packages .venv
+#   source .venv/bin/activate
 #   pip install -r requirements.txt -r requirements-opi.txt
+#
+# --system-site-packages is MANDATORY on Debian Trixie so the venv
+# can see the `python3-libgpiod` apt package — pip `gpiod>=2.0`
+# won't build from source against Python 3.13 headers. Same story
+# as the OPi PC build; see requirements-opi-pc.txt for details.
 #
 # DO NOT also install requirements-x86.txt on the OPi — it pulls
 # pygame which isn't needed for the Flask / Chromium kiosk path
@@ -11,14 +18,12 @@
 # and Pillow, so unlike the armv7l OPi PC build this file *does*
 # include them. If pip ever falls back to a source build (old PyPI
 # cache, unusual Python version), the Armbian apt packages
-# python3-opencv and python3-pil are the same-day replacement —
-# create the venv with `python3 -m venv --system-site-packages .venv`
-# so the system packages are visible from inside it.
+# python3-opencv and python3-pil are the same-day replacement.
 
-# Python dependencies
-gpiod>=2.0
-spidev>=3.6
-smbus2>=0.4
+# NOTE: `gpiod` is installed via the Debian `python3-libgpiod` apt
+# package, NOT via pip. spidev/smbus2 are also skipped from pip
+# for the same reason — use `python3-spidev` / `python3-smbus` apt
+# packages if you need the MCP3008 / I²C features.
 
 # Flask web frontend (A1-A8 dashboard on :5002, small display on :5003)
 flask>=3.0
@@ -32,7 +37,12 @@ opencv-python-headless>=4.8
 
 # Note: System packages required (install via apt) — see docs/OPI5PRO_SETUP.md
 #   Core:
-#     - libgpiod2 libgpiod-dev         (gpiod Python bindings)
+#     - python3-libgpiod               (Debian Python binding — pip gpiod
+#                                       cannot build against Py3.13 on Trixie)
+#     - libgpiod-dev gpiod             (C headers + gpioinfo/gpioget/gpioset CLI.
+#                                       libgpiod-dev resolves to whichever runtime
+#                                       the current Debian release ships:
+#                                       libgpiod2 on Bookworm, libgpiod3 on Trixie)
 #     - python3-dev                    (build extensions)
 #     - chromium                       (main kiosk display — Debian Trixie package)
 #     - pipewire pipewire-alsa wireplumber  (audio routing)
