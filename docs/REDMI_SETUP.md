@@ -110,7 +110,7 @@ Or from your PC on the same network:
       A4 (Weather), A5 (Service), A6 (DVR), A7 (Performance)
 - [ ] Theme switching works: Heritage / Modern / Autodelta
 - [ ] Language switching: PL ↔ EN
-- [ ] `http://localhost:5003` shows stats carousel (small display)
+- [ ] `http://localhost:5003` shows the static 2×2 stats grid (small display)
 - [ ] Press R key → reverse camera overlay appears
 - [ ] WebSocket data updates in real-time (gauges animate)
 - [ ] REST API responds: `curl http://localhost:5002/api/data`

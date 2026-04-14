@@ -98,7 +98,8 @@ The only option is a **wired HDMI connection** through the USB-C hub.
 | Generic 4.3" TFT HDMI | 800×480 | HDMI | No | 100-150 |
 
 > The 4.3" display does NOT need touch — it's controlled by SWC and shows
-> only the stats carousel + reverse camera overlay.
+> only the static 2×2 stats grid + auto-switching camera overlay (rear on
+> reverse gear, left on left blinker, right on right blinker).
 
 ### HDMI Configuration
 
@@ -298,5 +299,6 @@ transfers (audio, video) get priority. If you experience USB glitches:
 
 **Alternative:** If you have a spare phone/tablet, use it as the 4.3" display
 by simply opening `http://<redmi-ip>:5003` in its browser. This requires no
-cable and works well for the stats carousel. However, the reverse camera
-feed may have 50-100ms additional latency over WiFi.
+cable and works well for the static 2×2 stats grid. However, the camera
+feed (reverse / left blinker / right blinker) may have 50–100 ms of
+additional latency over WiFi.

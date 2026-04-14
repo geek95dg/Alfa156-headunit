@@ -49,7 +49,7 @@ built-in GPS, built-in LTE internet, voice control via built-in mic.
 
 | # | Component | Model / Spec | Qty | Price (PLN) | Notes |
 |---|-----------|-------------|-----|-------------|-------|
-| 15 | Second screen | 4.3" TFT HDMI 800×480 | 1 | 150-250 | Stats carousel + reverse cam |
+| 15 | Second screen | 4.3" TFT HDMI 800×480 | 1 | 150-250 | Static 2×2 stats grid + auto-switching camera |
 | 16 | AHD Cameras | 720P front + rear | 2 | 200-400 | Waterproof, IR night vision |
 | 17 | Video grabber | USB3.0 4-ch AHD capture | 1 | 150-250 | Via OTG hub |
 | 18 | USB drive (DVR) | USB 3.0 128GB | 1 | 80-150 | Loop recording storage |
