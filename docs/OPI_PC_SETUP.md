@@ -189,3 +189,139 @@ If this fails, **stop here and fix X first**. Common failures:
 
 Once the grey X screen appears, you have a working display stack
 and you're ready to install BCM itself.
+
+### 1.7 Clone BCM and create the Python venv
+
+```bash
+sudo mkdir -p /opt
+cd /opt
+sudo git clone https://github.com/geek95dg/Alfa156-headunit.git bcm
+sudo chown -R $USER:$USER /opt/bcm
+cd /opt/bcm
+
+python3 -m venv .venv
+source .venv/bin/activate
+pip install --upgrade pip
+pip install -r requirements.txt -r requirements-opi-pc.txt
+```
+
+Sanity-check that every runtime import succeeds — this catches
+missing `libgpiod2` or `python3-dev` early:
+
+```bash
+python3 -c "import gpiod, yaml, flask, flask_sock, serial; print('ok')"
+```
+
+If you see `ImportError: No module named gpiod` even though the
+apt package is installed, your venv was created before libgpiod2
+landed — rebuild it: `rm -rf .venv && python3 -m venv .venv`.
+
+### 1.8 Lean the config for a 1 GB RAM bench test
+
+The default OPi PC config enables Android Auto (`modules.multimedia`)
+and LTE (`modules.network`). Both are memory-heavy and pointless on
+an empty bench — disable them now so BCM has room to breathe on the
+first manual run. You can flip them back on later in Part 3 / Part 5.
+
+```bash
+cd /opt/bcm
+sed -i \
+  -e 's/^  multimedia: true.*/  multimedia: false/' \
+  -e 's/^  network: true.*/  network: false/' \
+  -e 's/^  voice: .*/  voice: false/' \
+  config/bcm_config_opi_pc.yaml
+
+grep -E 'multimedia:|network:|voice:' config/bcm_config_opi_pc.yaml
+# Expect all three to read `false`.
+```
+
+Leave `obd`, `parking`, `environment`, `audio`, `camera`, `power`,
+`location`, `weather`, `input` and `dashboard` on their defaults —
+all of them degrade gracefully to mock / simulator mode when their
+hardware isn't present (confirmed in `src/camera/ahd_grabber.py`,
+`src/environment/ds18b20.py`, and the HAL factory in
+`src/core/hal.py`).
+
+### 1.9 First manual run — the only correct desk invocation
+
+```bash
+cd /opt/bcm
+source .venv/bin/activate
+./run_opi_pc.sh --no-watcher
+```
+
+**Important** — don't add `--simulate`. That flag is only meaningful
+when the **ignition watcher** is running; with `--no-watcher` it is
+silently passed through to `main.py` as an unknown positional arg
+and ignored. The launcher prints:
+
+```
+╠══════════════════════════════════════════════════╣
+║   Mode: Direct start (no ignition watcher)       ║
+║   Web frontend: http://localhost:5002             ║
+║   Small display: http://localhost:5003            ║
+╚══════════════════════════════════════════════════╝
+```
+
+The process stays in the foreground and prints log lines
+(Dashboard, OBD simulator, WebViewer on :5002, SmallDisplayServer
+on :5003). You'll need a **second terminal** (SSH, a second tty
+switched with `Ctrl+Alt+F2`, or tmux) for §1.10.
+
+### 1.10 Open the dashboard in Chromium
+
+From the second terminal:
+
+```bash
+# First verify Flask is actually answering
+curl -sf http://localhost:5002 | head -c 200 && echo
+curl -sf http://localhost:5003 | head -c 200 && echo
+```
+
+Both should return HTML. Then in an X session (from §1.6 — start
+a new one if you closed it), launch the two browser windows:
+
+```bash
+export DISPLAY=:0
+chromium --kiosk --noerrdialogs --disable-infobars \
+    --user-data-dir=/tmp/bcm-chromium-main \
+    http://localhost:5002 &
+
+# Optional — second Chromium for the small display (4.3" 2×2 grid)
+chromium --new-window --noerrdialogs \
+    --user-data-dir=/tmp/bcm-chromium-small \
+    http://localhost:5003 &
+```
+
+What you should see on :5002:
+
+1. **Init splash** (~4 seconds) with the Alfa logo.
+2. **A1 Dashboard** — simulated RPM / speed / coolant / fuel gauges
+   ramping on demo data.
+3. Use the nav bar at the bottom to walk through A2 (AA placeholder
+   — "Waiting for device" because `multimedia` is off), A3 (Trip
+   with the **Travel Plan** toggle button), A4 (Weather demo card),
+   A5 (Service), A6 (DVR), A7 (Performance), A8 (Phone).
+
+And on :5003: the static 2×2 stats grid (fuel / coolant / ext
+temp / int temp) with the top clock header.
+
+### 1.11 Part 1 checklist
+
+Check each box before moving to Part 2. If any fails, the later
+parts will fail too.
+
+- [ ] Armbian boots to a `login:` prompt within ~20 s.
+- [ ] `gpioinfo gpiochip0` lists PA lines (libgpiod2 works).
+- [ ] `startx ... matchbox-window-manager` shows a grey X screen.
+- [ ] Python venv import smoke test prints `ok`.
+- [ ] `./run_opi_pc.sh --no-watcher` stays running without tracebacks.
+- [ ] `curl -sf http://localhost:5002` returns HTML.
+- [ ] Chromium loads `http://localhost:5002` and the init splash
+      animates into A1 Dashboard.
+- [ ] Nav bar at the bottom cycles through A1 → A8.
+- [ ] `http://localhost:5003` shows the 2×2 stats grid.
+- [ ] `Ctrl+C` on the launcher shuts everything down cleanly.
+
+Once all ten boxes are ticked, you have a fully functional BCM
+running on simulated data with zero wiring. Move on to Part 2.
