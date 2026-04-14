@@ -748,3 +748,198 @@ the A1 status bar shows the LTE bars icon.
 - [ ] Webcam: `/tmp/test.jpg` contains an actual image.
 - [ ] GPS: NMEA sentences stream on `/dev/ttyACM0`.
 - [ ] LTE: `ping -I usb0 8.8.8.8` returns replies.
+
+---
+
+## Part 4 — GPIO and sensors (soldering starts here)
+
+Up to this point the rig has zero wires. Part 4 is the first time
+you touch a soldering iron. Everything here is optional — if you
+just want to validate BCM on the desk, Parts 1+2+3 are enough.
+Part 4 prepares the rig to validate the in-car wiring *before*
+you actually drive to the car.
+
+Every sensor below is individually verifiable with a one-shot
+command, so you can wire them one at a time and only move on when
+the previous one works.
+
+### 4.1 Enable the device-tree overlays you need
+
+Armbian manages overlays through `/boot/armbianEnv.txt`. Edit:
+
+```bash
+sudo nano /boot/armbianEnv.txt
+```
+
+Add (or merge into the existing `overlays=` line):
+
+```
+overlays=uart3 i2c0 spi-spidev w1-gpio
+param_w1_pin=PA6
+param_w1_pin_int_pullup=1
+```
+
+| Overlay | What it enables |
+|---------|-----------------|
+| `uart3` | UART3 on PA13/PA14 (physical pins 8 + 10) for K-Line |
+| `i2c0`  | I²C bus 0 on PA11/PA12 (pins 3 + 5) — optional sensors |
+| `spi-spidev` | SPI bus for the MCP3008 ADC (optional SWC decoder) |
+| `w1-gpio` | 1-Wire for DS18B20 temperature probe |
+| `param_w1_pin=PA6` | Puts 1-Wire on physical pin 7 |
+| `param_w1_pin_int_pullup=1` | Built-in pull-up — skip the 4.7 kΩ |
+
+Reboot, then verify:
+
+```bash
+sudo reboot
+# ...after it comes back:
+ls /sys/bus/w1/devices/         # expect w1_bus_master1
+ls /dev/ttyS*                   # ttyS3 should now exist (UART3)
+gpioinfo gpiochip0 | grep -E 'PA6|PA13|PA14'
+```
+
+### 4.2 Parking sensors — 4× HC-SR04
+
+HC-SR04 sensors run at 5 V and their ECHO pins output 5 V, which
+will damage the H3's 3.3 V GPIO if you connect directly. A simple
+resistive voltage divider fixes that.
+
+**Wiring (per sensor):**
+
+```
+           5V ──────── VCC
+          GND ──────── GND
+   OPi Pin 16 ──────── TRIG   (all four sensors share this)
+                                                   (ECHO)
+                      1 kΩ                           │
+                  ┌────/\/\────┐                     │
+  OPi GPIO ◄──────┤            │◄───────────────────┘
+                  │            │
+                  └────/\/\────┴──── GND
+                      2 kΩ
+```
+
+Pin map (from `config/bcm_config_opi_pc.yaml`):
+
+| Sensor | Role | OPi physical pin | H3 line | Config key |
+|--------|------|------------------|---------|------------|
+| Shared | TRIG | 16 | PC4 (68) | `gpio.parking_trig` |
+| #1     | ECHO LL | 18 | PC7 (71) | `gpio.parking_echo[0]` |
+| #2     | ECHO CL | 22 | PA2 (2) | `gpio.parking_echo[1]` |
+| #3     | ECHO CR | 24 | PA3 (3) | `gpio.parking_echo[2]` |
+| #4     | ECHO RR | 26 | PA21 (21) | `gpio.parking_echo[3]` |
+
+**Wiring verification — each sensor, one at a time:**
+
+```bash
+# Fire the TRIG pulse manually
+gpioset --mode=time --sec=0 --usec=10 gpiochip0 68=1
+# Read the ECHO line
+gpioget gpiochip0 71
+```
+
+If you see a `1` briefly after a TRIG pulse (object in front of
+the sensor), the divider is correct. Repeat for lines 2, 3, 21.
+
+### 4.3 DS18B20 temperature probe
+
+Wiring with the built-in pull-up enabled in §4.1:
+
+```
+DS18B20 VDD ── 3.3 V  (OPi pin 1)
+DS18B20 GND ── GND    (OPi pin 6)
+DS18B20 DQ  ── PA6    (OPi pin 7)
+```
+
+Verify:
+
+```bash
+ls /sys/bus/w1/devices/
+# w1_bus_master1  28-xxxxxxxxxxxx
+cat /sys/bus/w1/devices/28-*/temperature
+# e.g. 21750  (millidegrees C → 21.75 °C)
+```
+
+The BCM `environment` module polls `/sys/bus/w1/devices/28-*/temperature`
+automatically — no config changes needed.
+
+### 4.4 Piezo buzzer (BC547 + flyback diode)
+
+The H3 GPIO can't source enough current to drive a 5 V piezo
+directly. A BC547 NPN on a 1 kΩ base resistor does the job:
+
+```
+ OPi Pin 12 (PD14, line 110) ── [1 kΩ] ── BC547 base
+                                            BC547 emitter ── GND
+                                            BC547 collector ── Buzzer (-)
+                                                               Buzzer (+) ── 5 V
+                                [1N4148 across the buzzer, cathode to +5 V]
+```
+
+Smoke test:
+
+```bash
+gpioset gpiochip0 110=1 ; sleep 0.3 ; gpioset gpiochip0 110=0
+# You should hear a short beep.
+```
+
+### 4.5 Ignition / door / blinker inputs via PC817 optoisolators
+
+Every 12 V vehicle signal BCM reads is isolated via a PC817.
+Identical pattern for all of them — ignition (PA7), door (PA8),
+rain sensor (PA19), central lock (PA20), left blinker (PA10),
+right blinker (PA11):
+
+```
+ 12 V signal ── [4.7 kΩ] ── PC817 anode (pin 1)
+                             PC817 cathode (pin 2) ── GND
+
+        3.3 V ── [10 kΩ] ── PC817 collector (pin 4) ──── OPi GPIO line
+                            PC817 emitter  (pin 3) ── GND
+```
+
+Active-low: when 12 V is present on the input side, PC817 pulls
+the OPi line LOW.
+
+Verify ignition wiring (no 12 V connected → line reads HIGH; add
+a test jumper from 12 V to the PC817 input → line reads LOW):
+
+```bash
+gpioget gpiochip0 7        # ignition, PA7
+gpioget gpiochip0 8        # door, PA8
+gpioget gpiochip0 10       # blinker left, PA10
+gpioget gpiochip0 11       # blinker right, PA11
+```
+
+For bench testing without 12 V, you can also short each PC817
+input to GND with a jumper — same effect.
+
+### 4.6 Re-enable modules in the config
+
+Back in §1.8 you turned off `multimedia`, `network`, and `voice`.
+Parking / environment / camera are already `true` by default.
+Once the wiring is verified, enable the blinker monitor:
+
+```bash
+sed -i 's/^  blinker_monitor: false.*/  blinker_monitor: true/' \
+    config/bcm_config_opi_pc.yaml
+```
+
+If you want to test the multi-camera priority logic, also set
+`camera.controller: true`. Leave `multimedia` and `voice` off on
+the 1 GB test rig — the H3 doesn't have the RAM for them when
+anything else is running.
+
+### 4.7 Part 4 checklist
+
+- [ ] `/sys/bus/w1/devices/28-*/temperature` returns millidegrees.
+- [ ] `gpioget gpiochip0 71/2/3/21` reads individual HC-SR04 ECHOs.
+- [ ] `gpioset gpiochip0 110=1` produces an audible beep.
+- [ ] `gpioget gpiochip0 7` flips from 1 to 0 when you short the
+      ignition PC817 input.
+- [ ] With `modules.parking: true`, the A1 dashboard parking
+      overlay shows distances changing in real time when you
+      wave your hand at a sensor.
+- [ ] With `modules.blinker_monitor: true`, grounding the left
+      blinker input flips the small display (:5003) to the left
+      camera overlay (or placeholder if no camera is attached).
