@@ -27,8 +27,19 @@ display:
     theme: heritage
     brightness: 70
   multimedia:
+    # Target resolution of the Android Auto canvas. When omitted, BCM
+    # derives it from (dashboard.width, dashboard.height − appbar_px
+    # − navbar_px) so the AA stream fits the content area without
+    # overlapping the BCM header / nav bar. See
+    # src/multimedia/openauto.py::_aa_canvas_size().
     width: 1024
-    height: 600
+    height: 504
+  # BCM's web UI reserves 48 px at the top (AppBar) and 48 px at the
+  # bottom (NavBar) of every A-screen. These values drive the AA
+  # canvas sizing and the A3 Travel Plan overlay offsets — override
+  # only if you customised the frontend theme heights.
+  appbar_px: 48
+  navbar_px: 48
 units:
   speed: km/h
   temperature: C
@@ -52,6 +63,18 @@ gpio:
   # Turn signal inputs (via PC817 optoisolator from 12V blinker wires)
   blinker_left: 90
   blinker_right: 91
+
+# Vehicle input signal behaviour — tuning knobs for src/vehicle/.
+vehicle:
+  # Turn signals come in via PC817 optoisolators (LOW when 12 V is
+  # present on the blinker wire). Set to false if you wired the
+  # inputs without an optoisolator and they are active-HIGH.
+  blinker_active_low: true
+  # How long after the last HIGH edge we still treat the blinker as
+  # "active". Blinker wires flash every ~400 ms; a hold of 0.8 s
+  # prevents the camera overlay from flickering between flashes.
+  blinker_hold_sec: 0.8
+
 serial:
   kline:
     port_opi: /dev/ttyS3

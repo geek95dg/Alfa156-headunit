@@ -11,7 +11,10 @@ Type=simple
 # Wait for Flask server to be ready before launching Chromium
 ExecStartPre=/bin/bash -c 'for i in $(seq 1 30); do curl -s http://localhost:5002 >/dev/null && exit 0; sleep 1; done; exit 1'
 
-ExecStart=/usr/bin/chromium-browser \
+# Debian Trixie ships the binary as `chromium` (package: chromium).
+# Ubuntu / older Debian ship `chromium-browser` (package: chromium-browser).
+# Resolve whichever exists on this system so the service works on both.
+ExecStart=/bin/bash -c 'CHROME=$(command -v chromium 2>/dev/null || command -v chromium-browser); exec "$CHROME" \
     --kiosk \
     --noerrdialogs \
     --disable-translate \
@@ -30,7 +33,7 @@ ExecStart=/usr/bin/chromium-browser \
     --window-size=1024,600 \
     --window-position=0,0 \
     --user-data-dir=/tmp/bcm-chromium \
-    http://localhost:5002
+    http://localhost:5002'
 
 WorkingDirectory=/opt/bcm
 Environment=DISPLAY=:0

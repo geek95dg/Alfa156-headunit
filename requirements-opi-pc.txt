@@ -76,17 +76,21 @@ simple-websocket>=1.0
 #   Core:
 #     - libgpiod2 libgpiod-dev        (gpiod Python bindings)
 #     - python3-dev                   (build extensions)
-#     - chromium-browser              (main kiosk display)
+#     - chromium                      (main kiosk display — Debian Trixie package)
 #     - pipewire pipewire-alsa wireplumber  (audio routing)
 #     - bluez blueman                 (Bluetooth via USB dongle)
 #     - usb-modeswitch                (Huawei E3372 LTE modem)
-#     - v4l-utils ffmpeg              (camera + MJPEG capture)
+#     - v4l-utils ffmpeg              (camera + MJPEG capture via /api/camera/stream)
 #     - gstreamer1.0-tools gstreamer1.0-plugins-good  (dashcam, SW H.264 on H3)
 #     - i2c-tools
 #   Android Auto (required for A2 to fill the content area correctly):
 #     - matchbox-window-manager       (auto-maximises autoapp Qt window)
 #     - xdotool                       (touch passthrough + fallback resizer)
-#     - Xvfb                          (headless AA rendering on the test rig)
+#     - xvfb                          (virtual framebuffer autoapp renders into)
+#   X server on Armbian minimal images (required for startx):
+#     - xserver-xorg xserver-xorg-video-fbdev xserver-xorg-video-modesetting
+#     - xserver-xorg-input-libinput xserver-xorg-input-evdev
+#     - xserver-xorg-legacy xinit x11-xserver-utils unclutter
 #
 # Optional (enable voice module — tight on 1GB RAM):
 #   pip install vosk sounddevice

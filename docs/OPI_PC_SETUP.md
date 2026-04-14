@@ -128,8 +128,15 @@ sudo apt install -y \
   xserver-xorg-input-libinput xserver-xorg-input-evdev \
   xserver-xorg-legacy xinit x11-xserver-utils \
   matchbox-window-manager unclutter \
-  chromium xdotool
+  chromium xdotool \
+  xvfb
 ```
+
+> `xvfb` is the headless X framebuffer that `src/multimedia/openauto.py`
+> launches when the multimedia module is enabled (even on the OPi PC
+> it's used as a fallback when Android Auto is tested off the main
+> HDMI output). Keep it installed so the `modules.multimedia: true`
+> path works later.
 
 `matchbox-window-manager` is reused by BCM to force-maximise the
 Android Auto window later — keep it installed even if you're not
@@ -280,6 +287,24 @@ The `--system-site-packages` flag is the critical bit — without
 it the venv hides the `python3-opencv` apt package. On Armbian
 Trixie the Debian `python3-opencv` binary weighs ~80 MB and is
 pre-built by the distro; the OPi PC never has to compile anything.
+
+The same recipe enables two other optional BCM features that live
+behind lazy imports:
+
+| apt package    | Enables (lazy import site)                    |
+|----------------|-----------------------------------------------|
+| `python3-opencv` | `/api/camera/stream` MJPEG endpoint (cv2)  |
+| `python3-pil`    | GPS map PNG export in `src/location/map_renderer.py` |
+| `python3-evdev`  | BT remote + rotary encoder input modules (`src/input/bt_remote.py`, `src/input/rotary_encoder.py`) |
+| `python3-dbus`   | Native Linux Bluetooth manager in `src/multimedia/bluetooth.py` |
+| `python3-spidev` | SPI MCP3008 ADC for SWC analog decoder (not used yet, reserved for Part 4+) |
+| `python3-smbus`  | I²C sensor expansion (not used yet, reserved for Part 4+) |
+
+All six have pre-built Debian binaries — none of them compile on
+the OPi PC. Install only the ones you actually need and rebuild
+the venv with `--system-site-packages` to expose them. Leaving
+them uninstalled is also fine; BCM just skips the corresponding
+feature and logs a single warning at startup.
 
 ### 1.8 Lean the config for a 1 GB RAM bench test
 

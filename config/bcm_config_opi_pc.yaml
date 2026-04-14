@@ -69,8 +69,15 @@ display:
     theme: heritage
     brightness: 70
   multimedia:
+    # Android Auto canvas size — must fit BCM's content area
+    # (dashboard.height − appbar_px − navbar_px = 504) so the AA
+    # stream doesn't overlap the header or nav bar. Leave as the
+    # auto-derived value unless you customised the frontend theme.
     width: 1024
-    height: 600
+    height: 504
+  # BCM frontend chrome sizing — see comments in config/bcm_config.yaml
+  appbar_px: 48
+  navbar_px: 48
 
 units:
   speed: km/h
@@ -102,6 +109,23 @@ gpio:
   # Turn signal inputs (via PC817 optoisolators) — test-rig pins
   blinker_left: 10     # PA10, physical pin 19 (change to match your wiring)
   blinker_right: 11    # PA11, physical pin 23
+
+# Vehicle input signal behaviour — tuning knobs for src/vehicle/.
+vehicle:
+  # Active-low via PC817 optoisolator (same pattern as ignition).
+  # Flip to false if you skip the optoisolator on the bench rig.
+  blinker_active_low: true
+  # Debounce hold so the camera overlay doesn't flicker between
+  # the ~400 ms blinker flashes.
+  blinker_hold_sec: 0.8
+
+# A3 Travel Plan external API keys — same semantics as in
+# config/bcm_config.yaml. Both optional; BCM falls back to a
+# haversine straight-line estimate when openrouteservice_key is
+# blank and hides the incidents panel when tomtom_key is blank.
+travel:
+  openrouteservice_key: ""
+  tomtom_key: ""
 
 serial:
   kline:
