@@ -1,11 +1,25 @@
-# BCM v8.5 — Orange Pi 5 Pro 4GB / 5 Plus (arm64) dependencies
+# BCM v8.5 — Orange Pi 5 Pro 4GB / 5 Plus (aarch64) dependencies
 #
-# Install: pip install -r requirements.txt -r requirements-opi.txt -r requirements-x86.txt
+# Install:
+#   pip install -r requirements.txt -r requirements-opi.txt
+#
+# DO NOT also install requirements-x86.txt on the OPi — it pulls
+# pygame which isn't needed for the Flask / Chromium kiosk path
+# and requires the full libsdl2-dev toolchain to build from source.
 #
 # Python dependencies
 gpiod>=2.0
 spidev>=3.6
 smbus2>=0.4
+
+# Flask web frontend (A1-A8 dashboard on :5002, small display on :5003)
+flask>=3.0
+flask-sock>=0.7
+simple-websocket>=1.0
+
+# Pillow + opencv for camera MJPEG and small-display snapshots
+Pillow>=10.0
+opencv-python-headless>=4.8
 
 # Note: System packages required (install via apt) — see docs/OPI5PRO_SETUP.md
 #   Core:

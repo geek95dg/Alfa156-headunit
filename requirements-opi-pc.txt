@@ -1,9 +1,14 @@
 # BCM v8.5 — Orange Pi PC 1.2 (Allwinner H3, armv7l) dependencies
 #
-# Install: pip install -r requirements.txt -r requirements-opi-pc.txt -r requirements-x86.txt
+# Install:
+#   pip install -r requirements.txt -r requirements-opi-pc.txt
 #
-# The OPi PC has only 1GB RAM. Keep dependencies lean.
-# Flask/web frontend deps come from requirements-x86.txt (same web stack).
+# DO NOT also install requirements-x86.txt on the OPi PC — it pulls
+# pygame which fails to build from source on ARM without the full
+# libsdl2-dev toolchain and isn't needed anyway (--frontend mode
+# uses Flask + Chromium instead of the pygame renderer).
+#
+# The OPi PC has only 1 GB RAM. Keep dependencies lean.
 
 # GPIO via libgpiod (H3 uses gpiochip0, sun8i-h3-pinctrl)
 gpiod>=2.0
@@ -13,6 +18,18 @@ spidev>=3.6
 
 # I2C bus (optional, for future sensor expansion)
 smbus2>=0.4
+
+# Flask web frontend (A1-A8 dashboard on :5002, small display on :5003)
+flask>=3.0
+flask-sock>=0.7
+simple-websocket>=1.0
+
+# Pillow — image helpers for the small display snapshots
+Pillow>=10.0
+
+# opencv-python-headless — camera MJPEG endpoint, no GUI deps needed.
+# Pre-built wheels exist for armv7l on piwheels.
+opencv-python-headless>=4.8
 
 # Note: System packages required (install via apt) — see docs/OPI_PC_SETUP.md
 #   Core:

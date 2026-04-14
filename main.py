@@ -19,7 +19,18 @@ from src.core.config import BCMConfig
 from src.core.logger import setup_logging, get_logger
 from src.core.event_bus import EventBus
 from src.core.hal import HAL
-from src.dashboard.renderer import start_dashboard
+
+# NOTE: ``start_dashboard`` is imported lazily so ``main.py`` can run
+# on hosts that don't have ``pygame`` installed. In --frontend mode
+# (OPi PC, OPi 5 Pro, Redmi) the dashboard is rendered by the Flask
+# ``WebViewer`` and pygame never gets exercised. The legacy pygame
+# renderer lives in ``requirements-x86.txt`` and is dev/debug-only.
+def _lazy_start_dashboard(*args, **kwargs):
+    from src.dashboard.renderer import start_dashboard as _sd
+    return _sd(*args, **kwargs)
+
+start_dashboard = _lazy_start_dashboard
+
 from src.obd.simulator import start_obd
 from src.parking.simulator import start_parking
 from src.environment.simulator import start_environment

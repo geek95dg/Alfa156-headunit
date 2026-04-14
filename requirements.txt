@@ -1,4 +1,9 @@
-# BCM v7 — Common dependencies (all platforms)
+# BCM v8.5 — Common dependencies (all platforms)
+#
+# These are safe to install on any target — no C extensions that need
+# SDL / X / GTK. The pygame-based PyGame dashboard renderer is opt-in
+# and lives in requirements-x86.txt so armv7l / aarch64 builds that
+# use the Flask frontend (--frontend) don't have to build pygame
+# from source.
 PyYAML>=6.0
 pyserial>=3.5
-pygame>=2.5
