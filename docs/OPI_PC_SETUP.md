@@ -213,18 +213,27 @@ pip install -r requirements.txt -r requirements-opi-pc.txt
 > `--frontend` mode using Flask + Chromium instead of the pygame
 > dashboard renderer, so pygame is genuinely unnecessary here.
 
-> **Also note — `opencv-python-headless` and `Pillow` are NOT in
-> `requirements-opi-pc.txt`.** Neither package has pre-built wheels
-> for `armv7l` on PyPI, so pip would otherwise try to build them
-> from source which needs 4+ GB of RAM and an hour of compile time —
-> the OPi PC's 1 GB will OOM-kill the build. The BCM code uses both
-> libraries only through lazy `try/except import` blocks
+> **Also note — `opencv-python-headless`, `Pillow`, `spidev` and
+> `smbus2` are NOT in `requirements-opi-pc.txt`.** All four would
+> compile C code on install:
+>
+> - `opencv-python-headless` and `Pillow` have no pre-built armv7l
+>   wheels on PyPI, so pip falls back to a 4+ GB RAM source build
+>   that OOM-kills on the 1 GB OPi PC.
+> - `spidev` always ships as a source distribution and its C
+>   extension refuses to build against the Python 3.13 headers that
+>   Armbian Trixie installs.
+> - `smbus2` is pure Python but depends on `i2c-tools` + kernel
+>   i2c-dev nodes that the bench rig doesn't use yet.
+>
+> BCM uses all four through lazy `try/except import` blocks
 > (`src/dashboard/web_viewer.py`, `src/dashboard/small_viewer.py`,
-> `src/dashboard/overlays.py`, `src/location/map_renderer.py`), so
-> BCM starts and runs cleanly without them — the camera stream
-> endpoint just returns a placeholder JPEG. That is exactly what
-> you want for the desk test in Parts 1–2 anyway, because there
-> is no camera attached yet.
+> `src/dashboard/overlays.py`, `src/location/map_renderer.py`,
+> `src/core/hal.py::RealSPI`, `src/core/hal.py::RealI2C`), so BCM
+> starts and runs cleanly without them — SPI / I²C / camera /
+> map-image features just stay inactive. That is exactly what you
+> want for the desk test in Parts 1–2 because neither a camera
+> nor an I²C sensor is connected yet.
 
 Sanity-check that every **required** runtime import succeeds — this
 catches missing `libgpiod2` or `python3-dev` early:
@@ -1177,6 +1186,22 @@ or `ninja` error during pip install
   → Same story — Pillow is not a required OPi PC dep, use
   `sudo apt install -y python3-pil` plus `--system-site-packages`
   as above.
+
+**`Failed to build spidev`** / `Python.h: No such file or directory`
+  or `error: unknown type name 'PyObject'` against Python 3.13
+  → spidev is NOT required for the desk test (Parts 1-2) or for any
+  currently-shipping BCM module; it's listed as a stub in
+  `src/core/hal.py::RealSPI` for future MCP3008 SWC decoder use. If
+  you need it later (Part 4+), install via apt and recreate the
+  venv with `--system-site-packages`:
+  ```bash
+  sudo apt install -y python3-spidev python3-smbus
+  cd /opt/bcm
+  rm -rf .venv
+  python3 -m venv --system-site-packages .venv
+  source .venv/bin/activate
+  pip install -r requirements.txt -r requirements-opi-pc.txt
+  ```
 
 **`Failed to build pygame`** / `sdl-config: command not found`
   → You accidentally installed `requirements-x86.txt`. Rebuild the
