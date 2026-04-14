@@ -623,18 +623,26 @@ Optoisolators (5× PC817):
 
 **Goal:** Wire all modules together, create systemd services, perform end-to-end testing.
 
-**Files to create:**
-- `config/systemd/bcm-dashboard.service` — 4.3" dashboard renderer
-- `config/systemd/bcm-obd.service` — OBD-II reader
-- `config/systemd/bcm-dashcam.service` — Dashcam recording
-- `config/systemd/bcm-voice.service` — Voice recognition
-- `config/systemd/bcm-power.service` — Power manager (started first)
-- `src/core/event_bus.py` — Enhance for cross-process communication (Unix sockets or Redis)
-- Integration tests in `tests/`
+**Files that now exist** (shipped under `config/systemd/`):
+- `bcm-ignition-watcher.service` — GPIO watcher / simulation-file
+  watcher that starts/stops `bcm-headunit.service` on ignition change
+- `bcm-headunit.service` — `main.py --platform opi_pc --frontend`
+  runs the full BCM stack in one process
+- `bcm-kiosk.service` — Chromium kiosk bound to `bcm-headunit` via
+  systemd `BindsTo=`. Starts after Flask on :5002 is reachable.
+
+The earlier draft of this plan listed a separate service per
+module (bcm-dashboard, bcm-obd, bcm-dashcam, bcm-voice, bcm-power)
+but the actual implementation consolidates every module into the
+single `bcm-headunit` service — all modules share one event bus
+and one Python process, which is simpler and lets the ignition
+watcher control the whole stack atomically.
 
 **Key specs:**
-- Each module runs as independent systemd service
-- Inter-service communication via Unix domain sockets (or shared event bus)
+- Three systemd units total: ignition-watcher → headunit → kiosk
+- Event bus is in-process (`src/core/event_bus.py`) — no Unix
+  sockets / Redis IPC is required because everything runs in the
+  same `main.py` process under `--frontend` mode
 - Boot sequence: power_manager → dashboard → obd → dashcam → voice → multimedia
 - Total boot time target: <3 seconds from ignition to dashboard display
 - Watchdog: systemd watchdog for each service, auto-restart on crash
@@ -694,8 +702,14 @@ For each part on x86:
 For OPi deployment:
 1. Flash Armbian to eMMC/SD
 2. Install dependencies: `pip install -r requirements.txt -r requirements-opi.txt`
-3. Configure GPIO/UART in `bcm_config.yaml`
-4. Deploy systemd services: `sudo cp config/systemd/*.service /etc/systemd/system/`
-5. `sudo systemctl enable --now bcm-power bcm-dashboard bcm-obd bcm-dashcam bcm-voice`
-6. Connect hardware per Part 12 schematics
-7. Full integration test per Part 13
+3. Configure GPIO/UART in `config/bcm_config_opi_pc.yaml` (bench)
+   or `config/bcm_config.yaml` (production)
+4. Deploy systemd services:
+   `sudo cp config/systemd/*.service /etc/systemd/system/`
+5. `sudo systemctl daemon-reload`
+6. `sudo systemctl enable bcm-ignition-watcher.service`
+   (the watcher pulls in `bcm-headunit` and `bcm-kiosk` via
+   `Requires=` / `BindsTo=` — do NOT enable those two directly)
+7. Connect hardware per Part 12 schematics
+8. Full integration test per Part 13 (see `docs/OPI_PC_SETUP.md`
+   or `docs/OPI5PRO_SETUP.md` for the verified step-by-step flow)
