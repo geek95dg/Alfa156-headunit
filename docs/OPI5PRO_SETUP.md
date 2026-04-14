@@ -34,17 +34,28 @@ sudo apt update && sudo apt upgrade -y
 ```bash
 sudo apt install -y \
   python3 python3-pip python3-venv python3-dev \
-  git chromium-browser \
+  git chromium \
   libgpiod2 libgpiod-dev \
   pipewire pipewire-alsa wireplumber \
   bluez blueman \
   v4l-utils ffmpeg \
   gstreamer1.0-tools gstreamer1.0-plugins-good \
   gstreamer1.0-plugins-bad gstreamer1.0-rockchip1 \
-  xdotool matchbox-window-manager \
+  xdotool matchbox-window-manager xvfb \
   usb-modeswitch \
   i2c-tools
 ```
+
+> **Debian Trixie note:** the package is now `chromium` and the
+> binary is `/usr/bin/chromium`. Older Debian releases and Ubuntu
+> ship `chromium-browser`; the `bcm-kiosk.service` unit resolves
+> whichever exists at runtime, so you don't need to care which one
+> is installed.
+>
+> **Why `xvfb`:** when Android Auto is enabled, BCM renders autoapp
+> inside an Xvfb virtual framebuffer and captures it as MJPEG for
+> the A2 screen. Without this package the multimedia module fails
+> silently at startup.
 
 > **Important — Android Auto sizing**
 >

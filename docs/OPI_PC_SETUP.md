@@ -128,8 +128,15 @@ sudo apt install -y \
   xserver-xorg-input-libinput xserver-xorg-input-evdev \
   xserver-xorg-legacy xinit x11-xserver-utils \
   matchbox-window-manager unclutter \
-  chromium xdotool
+  chromium xdotool \
+  xvfb
 ```
+
+> `xvfb` is the headless X framebuffer that `src/multimedia/openauto.py`
+> launches when the multimedia module is enabled (even on the OPi PC
+> it's used as a fallback when Android Auto is tested off the main
+> HDMI output). Keep it installed so the `modules.multimedia: true`
+> path works later.
 
 `matchbox-window-manager` is reused by BCM to force-maximise the
 Android Auto window later — keep it installed even if you're not

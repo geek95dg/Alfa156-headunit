@@ -34,7 +34,7 @@ opencv-python-headless>=4.8
 #   Core:
 #     - libgpiod2 libgpiod-dev         (gpiod Python bindings)
 #     - python3-dev                    (build extensions)
-#     - chromium-browser               (main kiosk display)
+#     - chromium                       (main kiosk display — Debian Trixie package)
 #     - pipewire pipewire-alsa wireplumber  (audio routing)
 #     - bluez blueman                  (Bluetooth A2DP/HFP)
 #     - usb-modeswitch                 (LTE / Huawei E3372)
@@ -45,6 +45,6 @@ opencv-python-headless>=4.8
 #   Android Auto (required for A2 to fill the content area correctly):
 #     - matchbox-window-manager        (auto-maximises autoapp Qt window)
 #     - xdotool                        (touch passthrough + fallback resizer)
-#     - Xvfb                           (x86/headless AA rendering)
+#     - xvfb                           (virtual framebuffer autoapp renders into)
 #
 # Optional: voice (Vosk) — pip install vosk sounddevice
