@@ -151,8 +151,14 @@ sudo apt install -y \
   xserver-xorg-legacy xinit x11-xserver-utils \
   matchbox-window-manager unclutter \
   chromium xdotool \
-  xvfb
+  xvfb mpv
 ```
+
+`mpv` is only needed if you later enable the optional boot-splash
+services (Part 6.5) — it's the video player that loops a branded
+MP4 on the HDMI output to hide the Armbian kernel log during
+boot. Keep it installed even on the bench rig so the service
+files work out of the box when you copy them.
 
 > `xvfb` is the headless X framebuffer that `src/multimedia/openauto.py`
 > launches when the multimedia module is enabled (even on the OPi PC
@@ -1092,29 +1098,66 @@ At this point the rig has:
 - Optionally: the dongles from Part 3.
 
 The only thing left to replace is the `/tmp/bcm_ignition_on` file
-trigger — swap it for a real GPIO line so the rig behaves exactly
+trigger — swap it for a real GPIO input so the rig behaves exactly
 like the production car.
 
-### 5.1 Wire a bench button on PA7 (ignition)
+### 5.1 The two ignition inputs — pick one
 
-A single momentary push button between physical pin 29 (PA7)
-and GND, plus the standard PC817 pattern from §4.5 if you want
-to test the 12 V side too.
+The ignition watcher (`src/power/ignition_watcher.py`) reads
+**two** GPIO inputs every 100 ms. Either of them can start / stop
+BCM, and you only need to wire one.
 
-For a pure bench button (no optoisolator):
+| Input | Config key | OPi PC pin | Behaviour |
+|-------|-----------|-----------|-----------|
+| **Ignition line** (car 12 V via PC817) | `power.ignition_watcher.ignition_line` (default **7**, PA7) | Physical pin 29 | **Level-triggered.** Holding the line LOW (= 12 V present on the PC817 input) keeps BCM ON. Releasing it shuts BCM down. |
+| **Bench push button** (PC-style momentary) | `power.ignition_watcher.bench_button_line` (default **37**, PB5) | Physical pin 33 | **Edge-triggered toggle.** Press once → BCM ON. Press again → BCM OFF. No optoisolator required, no 12 V supply needed. |
+
+Both use `active_low: true` — the GPIO pin reads LOW when the
+input is "active". You can wire both, only the bench button, or
+only the ignition line.
+
+### 5.2 Wire a PC-style push button (recommended for bench testing)
+
+This is the quickest path to a production-equivalent rig: the
+same kind of **two-pin momentary push button** you'd find on a
+PC case power button. Wire one leg to physical pin 33 (PB5,
+GPIO line 37) and the other leg to any GND pin on the header
+(pin 6 / 14 / 20 / 25 / 30 / 34 / 39):
 
 ```
-OPi Pin 29 (PA7) ──┬── button ── GND
-                    └── [10 kΩ pull-up] ── 3.3 V
+   OPi Pin 33 (PB5, line 37) ──┐
+                                │   [push button — normally open]
+                                │
+   OPi Pin 34 (GND)         ────┘
 ```
 
-The ignition watcher is `active_low: true` in the config, so
-pressed = GND = line LOW = ignition ON.
+**No pull-up resistor, no optoisolator, no 12 V** — the OPi PC
+libgpiod request already configures `Bias.PULL_UP` inside
+`ignition_watcher._start_gpio()` so the line sits at 3.3 V when
+the button is open and drops to GND when pressed.
 
-### 5.2 Switch the watcher from simulation to real GPIO
+### 5.3 Wire the real ignition line (optional — mirrors car wiring)
+
+Only needed if you also want to test the 12 V optoisolated path
+that the car will actually use. Same pattern as all the other
+PC817 inputs from §4.5:
+
+```
+    12 V signal ── [4.7 kΩ] ── PC817 anode
+                                PC817 cathode ── GND
+
+         3.3 V ── [10 kΩ] ── PC817 collector ──── OPi Pin 29 (PA7)
+                             PC817 emitter   ── GND
+```
+
+Active-low: 12 V present on the input side pulls pin 29 LOW,
+which the watcher sees as "ignition ON".
+
+### 5.4 Switch the watcher from simulation to real GPIO
 
 Nothing to change in the config — the watcher auto-detects real
-GPIO. Just remove any stale trigger file and restart the service:
+GPIO as soon as `libgpiod` can open `gpiochip0`. Just remove any
+stale simulation trigger file and restart the service:
 
 ```bash
 sudo rm -f /tmp/bcm_ignition_on
@@ -1130,20 +1173,35 @@ Opened GPIO chip: gpiochip0
 Watching: ignition=line 7, button=line 37
 ```
 
-### 5.3 Test the full cycle
+If you see `SIMULATION MODE — ignition watcher`, libgpiod
+couldn't open the chip. Check that `gpioinfo gpiochip0` returns
+output and that `/tmp/bcm_ignition_on` isn't still present.
 
-Press the bench button once:
+### 5.5 Test the full cycle
+
+Press the PC-style button once:
 
 ```
+Bench button pressed — ignition ON
 === IGNITION ON — Starting BCM headunit ===
 systemctl start bcm-headunit.service — OK
 BCM headunit service started successfully
 ```
 
-Release the button and watch the Chromium kiosk on :5002 load
-the dashboard. Press again to trigger the ignition-OFF shutdown
-sequence. `systemctl status bcm-headunit` should go from
-`active (running)` to `inactive (dead)`.
+Within ~5 s the Chromium kiosk on `:5002` flips from
+"connection refused" to the BCM init splash → A1 Dashboard.
+Press the button **again** to trigger the graceful shutdown:
+
+```
+Bench button pressed — ignition OFF
+=== IGNITION OFF — Stopping BCM headunit ===
+systemctl stop bcm-headunit.service — OK
+BCM headunit service stopped
+```
+
+`systemctl status bcm-headunit` should go from
+`active (running)` to `inactive (dead)`. Each subsequent press
+flips the state.
 
 ### 5.4 Part 5 checklist
 
@@ -1185,6 +1243,70 @@ voltage dividers, same DS18B20, same buzzer.
 
 Bill of materials (with Q1 2026 PLN prices) for the production
 build: [`OPI5PRO_BOM.md`](OPI5PRO_BOM.md).
+
+---
+
+## Part 6.5 — Optional: boot splash (hide the Armbian kernel log)
+
+By default Armbian prints a kernel boot log to the HDMI output
+for ~12–15 s until `bcm-kiosk.service` opens Chromium. The user
+sees a wall of `[  0.123] usb ...` text. To replace that with a
+branded MP4 loop, drop two systemd services and one video file.
+
+> **OPi PC is the single-HDMI bench rig.** Only the "main"
+> splash applies here — the small-display splash
+> (`bcm-splash-small.service`) is a no-op because there's no
+> second HDMI. Everything below installs both service files for
+> consistency with the OPi 5 Pro build; the small one disables
+> itself via `ConditionPathExists=` when `small.mp4` is absent.
+
+### Quick install
+
+```bash
+# 1. Drop your MP4 file in (user-supplied, no audio, ~5-10 s loop)
+sudo mkdir -p /opt/bcm/assets/splash
+sudo cp my_splash.mp4 /opt/bcm/assets/splash/main.mp4
+sudo chown -R $USER:$USER /opt/bcm/assets/splash
+
+# 2. Install the systemd units shipped in the repo
+cd /opt/bcm
+sudo cp config/systemd/bcm-splash-main.service  /etc/systemd/system/
+sudo cp config/systemd/bcm-splash-small.service /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable bcm-splash-main.service bcm-splash-small.service
+
+# 3. Hide the kernel log (OPi PC uses /boot/armbianEnv.txt)
+sudo sed -i '/^extraargs=/d' /boot/armbianEnv.txt
+echo 'extraargs=quiet loglevel=3 vt.global_cursor_default=0' | \
+    sudo tee -a /boot/armbianEnv.txt
+
+sudo reboot
+```
+
+After reboot the HDMI output goes:
+
+1. U-Boot (~1 s of unavoidable serial text)
+2. Kernel loads silently
+3. `bcm-splash-main.service` starts mpv → your MP4 loops on the
+   HDMI output
+4. Ignition watcher waits for the button press or file trigger
+5. Ignition ON → `bcm-headunit.service` starts → Chromium kiosk
+   opens → splash mpv is killed by `PartOf=bcm-headunit.service`
+6. BCM dashboard visible
+
+### DRM connector name — fixing the wrong HDMI on the OPi PC
+
+The H3's mainline DRM driver names its one HDMI output
+`HDMI-A-1` on most kernels, which matches the default in
+`bcm-splash-main.service`. If your kernel exposes something
+different, `ls /sys/class/drm/` lists the actual name — pick
+whatever comes after `card0-` and edit the `--drm-connector=`
+flag in `/etc/systemd/system/bcm-splash-main.service`.
+
+See [`OPI5PRO_SETUP.md`](OPI5PRO_SETUP.md) §10 for the full
+dual-display version of this recipe, the troubleshooting notes,
+and the suggested video specs (1024×600 main, 800×480 small,
+both H.264, no audio track).
 
 ---
 
