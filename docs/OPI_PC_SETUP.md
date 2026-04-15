@@ -1092,29 +1092,66 @@ At this point the rig has:
 - Optionally: the dongles from Part 3.
 
 The only thing left to replace is the `/tmp/bcm_ignition_on` file
-trigger — swap it for a real GPIO line so the rig behaves exactly
+trigger — swap it for a real GPIO input so the rig behaves exactly
 like the production car.
 
-### 5.1 Wire a bench button on PA7 (ignition)
+### 5.1 The two ignition inputs — pick one
 
-A single momentary push button between physical pin 29 (PA7)
-and GND, plus the standard PC817 pattern from §4.5 if you want
-to test the 12 V side too.
+The ignition watcher (`src/power/ignition_watcher.py`) reads
+**two** GPIO inputs every 100 ms. Either of them can start / stop
+BCM, and you only need to wire one.
 
-For a pure bench button (no optoisolator):
+| Input | Config key | OPi PC pin | Behaviour |
+|-------|-----------|-----------|-----------|
+| **Ignition line** (car 12 V via PC817) | `power.ignition_watcher.ignition_line` (default **7**, PA7) | Physical pin 29 | **Level-triggered.** Holding the line LOW (= 12 V present on the PC817 input) keeps BCM ON. Releasing it shuts BCM down. |
+| **Bench push button** (PC-style momentary) | `power.ignition_watcher.bench_button_line` (default **37**, PB5) | Physical pin 33 | **Edge-triggered toggle.** Press once → BCM ON. Press again → BCM OFF. No optoisolator required, no 12 V supply needed. |
+
+Both use `active_low: true` — the GPIO pin reads LOW when the
+input is "active". You can wire both, only the bench button, or
+only the ignition line.
+
+### 5.2 Wire a PC-style push button (recommended for bench testing)
+
+This is the quickest path to a production-equivalent rig: the
+same kind of **two-pin momentary push button** you'd find on a
+PC case power button. Wire one leg to physical pin 33 (PB5,
+GPIO line 37) and the other leg to any GND pin on the header
+(pin 6 / 14 / 20 / 25 / 30 / 34 / 39):
 
 ```
-OPi Pin 29 (PA7) ──┬── button ── GND
-                    └── [10 kΩ pull-up] ── 3.3 V
+   OPi Pin 33 (PB5, line 37) ──┐
+                                │   [push button — normally open]
+                                │
+   OPi Pin 34 (GND)         ────┘
 ```
 
-The ignition watcher is `active_low: true` in the config, so
-pressed = GND = line LOW = ignition ON.
+**No pull-up resistor, no optoisolator, no 12 V** — the OPi PC
+libgpiod request already configures `Bias.PULL_UP` inside
+`ignition_watcher._start_gpio()` so the line sits at 3.3 V when
+the button is open and drops to GND when pressed.
 
-### 5.2 Switch the watcher from simulation to real GPIO
+### 5.3 Wire the real ignition line (optional — mirrors car wiring)
+
+Only needed if you also want to test the 12 V optoisolated path
+that the car will actually use. Same pattern as all the other
+PC817 inputs from §4.5:
+
+```
+    12 V signal ── [4.7 kΩ] ── PC817 anode
+                                PC817 cathode ── GND
+
+         3.3 V ── [10 kΩ] ── PC817 collector ──── OPi Pin 29 (PA7)
+                             PC817 emitter   ── GND
+```
+
+Active-low: 12 V present on the input side pulls pin 29 LOW,
+which the watcher sees as "ignition ON".
+
+### 5.4 Switch the watcher from simulation to real GPIO
 
 Nothing to change in the config — the watcher auto-detects real
-GPIO. Just remove any stale trigger file and restart the service:
+GPIO as soon as `libgpiod` can open `gpiochip0`. Just remove any
+stale simulation trigger file and restart the service:
 
 ```bash
 sudo rm -f /tmp/bcm_ignition_on
@@ -1130,20 +1167,35 @@ Opened GPIO chip: gpiochip0
 Watching: ignition=line 7, button=line 37
 ```
 
-### 5.3 Test the full cycle
+If you see `SIMULATION MODE — ignition watcher`, libgpiod
+couldn't open the chip. Check that `gpioinfo gpiochip0` returns
+output and that `/tmp/bcm_ignition_on` isn't still present.
 
-Press the bench button once:
+### 5.5 Test the full cycle
+
+Press the PC-style button once:
 
 ```
+Bench button pressed — ignition ON
 === IGNITION ON — Starting BCM headunit ===
 systemctl start bcm-headunit.service — OK
 BCM headunit service started successfully
 ```
 
-Release the button and watch the Chromium kiosk on :5002 load
-the dashboard. Press again to trigger the ignition-OFF shutdown
-sequence. `systemctl status bcm-headunit` should go from
-`active (running)` to `inactive (dead)`.
+Within ~5 s the Chromium kiosk on `:5002` flips from
+"connection refused" to the BCM init splash → A1 Dashboard.
+Press the button **again** to trigger the graceful shutdown:
+
+```
+Bench button pressed — ignition OFF
+=== IGNITION OFF — Stopping BCM headunit ===
+systemctl stop bcm-headunit.service — OK
+BCM headunit service stopped
+```
+
+`systemctl status bcm-headunit` should go from
+`active (running)` to `inactive (dead)`. Each subsequent press
+flips the state.
 
 ### 5.4 Part 5 checklist
 

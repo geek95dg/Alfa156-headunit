@@ -201,6 +201,72 @@ touch /tmp/bcm_blinker_left
 rm /tmp/bcm_blinker_left
 ```
 
+## 6.5 Ignition wiring — PC-style push button OR 12 V optoisolator
+
+The `bcm-ignition-watcher.service` daemon polls **two** GPIO
+inputs to decide when `bcm-headunit.service` should run. Wire
+whichever of the two matches your physical setup — or both.
+
+| Input | Config key | Behaviour |
+|-------|-----------|-----------|
+| **12 V ignition line** (via PC817 optoisolator) | `power.ignition_watcher.ignition_line` | **Level-triggered.** Holding the line LOW (= 12 V accessory present) keeps BCM ON. This is how the real car will wire it. |
+| **Push button** (2-pin momentary — PC-case style) | `power.ignition_watcher.bench_button_line` | **Edge-triggered toggle.** Press once → BCM ON. Press again → BCM OFF. Ideal for bench tests on the desk, or as a manual override in the car. |
+
+Both are configured with `active_low: true` — the line reads
+LOW when active. Defaults in `config/bcm_config.yaml` are
+`ignition_line: 7` and `bench_button_line: 37`; adjust the
+integers to match whichever OPi 5 Pro GPIO lines you picked.
+`gpioinfo gpiochip0` lists every line by name so you can choose
+two unused ones.
+
+### 6.5.1 PC-style push button (simplest — no 12 V needed)
+
+Two legs of a normally-open momentary button → two pins on the
+OPi 5 Pro header. One leg to the chosen GPIO (e.g. line 37), the
+other to any GND pin:
+
+```
+   OPi GPIO line 37 ──┐
+                      │  [push button — normally open]
+   OPi GND            ┘
+```
+
+libgpiod enables `Bias.PULL_UP` internally inside
+`ignition_watcher._start_gpio()` so the pin sits at 3.3 V while
+the button is open and drops to GND when pressed — no external
+resistor required. Each press toggles BCM on / off via
+`bcm-headunit.service`.
+
+### 6.5.2 12 V ignition line (production wiring)
+
+Same PC817 pattern as the door / rain / blinker inputs:
+
+```
+    12 V ACC ── [4.7 kΩ] ── PC817 anode
+                             PC817 cathode ── GND
+
+       3.3 V ── [10 kΩ] ── PC817 collector ──── OPi ignition GPIO
+                          PC817 emitter   ── GND
+```
+
+12 V present → OPi pin LOW → ignition ON. 12 V off → OPi pin
+HIGH (pull-up) → BCM stops gracefully after
+`power.shutdown_delay_seconds`.
+
+### 6.5.3 Test from the shell
+
+```bash
+# Watch the daemon in one terminal
+sudo journalctl -fu bcm-ignition-watcher
+
+# In another, press the button or toggle the 12 V source. Expect:
+#   Bench button pressed — ignition ON
+#   === IGNITION ON — Starting BCM headunit ===
+# or:
+#   Ignition signal changed — ON
+#   === IGNITION ON — Starting BCM headunit ===
+```
+
 ## 7. Travel Plan API keys
 
 The A3 Travel Plan feature uses two external APIs. Both are optional —

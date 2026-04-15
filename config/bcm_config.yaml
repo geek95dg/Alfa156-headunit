@@ -166,6 +166,29 @@ travel:
 power:
   shutdown_delay_seconds: 30
   backlight_fade_ms: 1000
+  # Ignition watcher — the systemd-level daemon that decides when
+  # bcm-headunit.service runs. Two independent inputs are polled:
+  #
+  #   ignition_line    - a level-triggered input, normally driven
+  #                      by the car's 12 V switched accessory line
+  #                      through a PC817 optoisolator (active-low).
+  #                      HOLDING the line low = ignition ON.
+  #
+  #   bench_button_line - an edge-triggered input, intended for a
+  #                      momentary push button (the same kind used
+  #                      as a PC case power button — two pins shorted
+  #                      when pressed, active-low via internal pull-up).
+  #                      PRESSING once toggles ignition ON; pressing
+  #                      again toggles it OFF. Works even without the
+  #                      12 V optoisolator wired.
+  #
+  # Either input can start/stop BCM. Wire whichever you prefer.
+  ignition_watcher:
+    gpio_chip: gpiochip0
+    ignition_line: 7         # PA7 equivalent on OPi 5 Pro — adjust
+    bench_button_line: 37    # PB5 equivalent on OPi 5 Pro — adjust
+    debounce_ms: 200
+    active_low: true
 # v8.5 new modules
 rain_sensor:
   sensitivity: medium
