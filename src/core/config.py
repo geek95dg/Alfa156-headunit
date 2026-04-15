@@ -13,24 +13,17 @@ DEFAULT_CONFIG_PATH = Path(__file__).resolve().parent.parent.parent / "config" /
 
 
 def _detect_platform() -> str:
-    """Detect whether we're running on x86, Orange Pi 5 Plus, OPi PC, or Redmi.
+    """Detect whether we're running on x86, Orange Pi 5 Pro/Plus, or OPi PC.
 
     Detection order:
-      1. Check for Ubuntu Touch marker (/etc/ubuntu-touch-session.d or UBUNTU_TOUCH env)
-      2. Check for Redmi Note 8 Pro (begonia) device tree
-      3. armv7l with Allwinner H3 → opi_pc (Orange Pi PC 1.2)
-      4. aarch64 (RK3588 etc.) → opi (Orange Pi 5 Plus)
-      5. Fallback → x86
+      1. armv7l with Allwinner H3 → opi_pc (Orange Pi PC 1.2, bench rig)
+      2. aarch64 (RK3588 / RK3588S / etc.) → opi (Orange Pi 5 Pro / 5 Plus,
+         production)
+      3. Fallback → x86 (development / simulation)
     """
     machine = platform.machine().lower()
     if machine in ("aarch64", "armv7l", "armv8l"):
-        # Check for Ubuntu Touch / Redmi environment
-        if (os.environ.get("UBUNTU_TOUCH") == "1"
-                or os.path.exists("/etc/ubuntu-touch-session.d")
-                or os.path.exists("/android/data")  # Halium-based UT
-                or _is_redmi_device()):
-            return "redmi"
-        # Distinguish OPi PC (H3, armv7l) from OPi 5 Plus (RK3588, aarch64)
+        # Distinguish OPi PC (H3, armv7l) from OPi 5 Pro / 5 Plus (aarch64)
         if machine == "armv7l" and _is_allwinner_h3():
             return "opi_pc"
         return "opi"
@@ -50,25 +43,6 @@ def _is_allwinner_h3() -> bool:
         if cpuinfo.exists():
             text = cpuinfo.read_text().lower()
             if "sun8i" in text or "allwinner" in text:
-                return True
-    except Exception:
-        pass
-    return False
-
-
-def _is_redmi_device() -> bool:
-    """Check if running on Redmi Note 8 Pro (begonia) via device tree."""
-    try:
-        dt_model = Path("/proc/device-tree/model")
-        if dt_model.exists():
-            model = dt_model.read_text().lower()
-            if "begonia" in model or "redmi" in model:
-                return True
-        # Halium: check Android props
-        prop_file = Path("/android/system/build.prop")
-        if prop_file.exists():
-            props = prop_file.read_text().lower()
-            if "begonia" in props or "redmi note 8 pro" in props:
                 return True
     except Exception:
         pass

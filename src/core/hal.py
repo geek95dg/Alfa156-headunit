@@ -268,186 +268,6 @@ class RealOneWire:
 
 
 # ---------------------------------------------------------------------------
-# Redmi / Ubuntu Touch implementations
-# ---------------------------------------------------------------------------
-
-class RedmiSensorHubGPIO:
-    """GPIO proxy via Arduino sensor hub over USB serial.
-
-    On Redmi Note 8 Pro (Ubuntu Touch), there is no GPIO header.
-    All GPIO-dependent sensors (parking, ignition, rain, etc.) are
-    offloaded to an Arduino Nano/ESP32 "sensor hub" connected via
-    USB-C OTG hub. The Arduino reads sensors and relays and
-    communicates via JSON over serial.
-
-    Wire protocol (newline-delimited JSON):
-        BCM → Arduino: {"cmd":"write","pin":84,"val":1}
-        BCM → Arduino: {"cmd":"read","pin":85}
-        Arduino → BCM: {"pin":85,"val":1}
-        Arduino → BCM: {"type":"parking","distances":[0.5,1.2,1.8,2.5]}
-        Arduino → BCM: {"type":"ignition","val":1}
-    """
-
-    def __init__(self, pin: int, direction: str = "in",
-                 hub: Optional[Any] = None):
-        self.pin = pin
-        self.direction = direction
-        self._value = 0
-        self._hub = hub  # Reference to shared SensorHubSerial instance
-        log.debug("RedmiSensorHubGPIO pin %d configured as %s (via USB hub)",
-                  pin, direction)
-
-    def read(self) -> int:
-        if self._hub:
-            return self._hub.read_pin(self.pin)
-        return self._value
-
-    def write(self, value: int) -> None:
-        self._value = value
-        if self._hub:
-            self._hub.write_pin(self.pin, value)
-        log.debug("RedmiSensorHubGPIO pin %d -> %d", self.pin, value)
-
-    def set_mock_value(self, value: int) -> None:
-        """Allow simulators to inject values (desk testing without hub)."""
-        self._value = value
-
-
-class SensorHubSerial:
-    """Manages serial connection to Arduino sensor hub for Redmi platform.
-
-    The sensor hub Arduino handles:
-    - HC-SR04 parking sensors (4x)
-    - Parking buzzer
-    - Ignition/door/rain optoisolated inputs
-    - Wiper relay output
-    - DS18B20 temperature (via Arduino 1-Wire)
-    - PWM backlight (if external display used)
-
-    All data exchanged as newline-delimited JSON at 115200 baud.
-    """
-
-    def __init__(self, port: str = "/dev/ttyUSB0", baudrate: int = 115200):
-        self.port = port
-        self.baudrate = baudrate
-        self._serial = None
-        self._pin_values: dict[int, int] = {}
-        self._temperature: Optional[float] = None
-        self._distances: list[float] = [2.5, 2.5, 2.5, 2.5]
-        self._lock = __import__("threading").Lock()
-        self._running = False
-        self._thread: Optional[Any] = None
-        log.info("SensorHub initialized: %s @ %d baud", port, baudrate)
-        self._connect()
-
-    def _connect(self) -> None:
-        """Attempt to open serial connection to sensor hub."""
-        try:
-            import serial  # type: ignore
-            self._serial = serial.Serial(
-                self.port, self.baudrate, timeout=0.1
-            )
-            log.info("SensorHub connected: %s", self.port)
-        except Exception as e:
-            log.warning("SensorHub not available (%s) — running in "
-                        "simulation mode", e)
-            self._serial = None
-
-    def read_pin(self, pin: int) -> int:
-        with self._lock:
-            return self._pin_values.get(pin, 0)
-
-    def write_pin(self, pin: int, value: int) -> None:
-        with self._lock:
-            self._pin_values[pin] = value
-        if self._serial:
-            import json
-            cmd = json.dumps({"cmd": "write", "pin": pin, "val": value})
-            try:
-                self._serial.write((cmd + "\n").encode())
-            except Exception:
-                log.warning("SensorHub write failed for pin %d", pin)
-
-    @property
-    def temperature(self) -> Optional[float]:
-        with self._lock:
-            return self._temperature
-
-    @property
-    def distances(self) -> list[float]:
-        with self._lock:
-            return list(self._distances)
-
-    def start_listener(self) -> None:
-        """Start background thread that reads sensor hub data."""
-        if self._running or not self._serial:
-            return
-        self._running = True
-        self._thread = __import__("threading").Thread(
-            target=self._listen_loop, daemon=True
-        )
-        self._thread.start()
-        log.info("SensorHub listener started")
-
-    def stop(self) -> None:
-        self._running = False
-        if self._thread:
-            self._thread.join(timeout=2)
-        if self._serial:
-            self._serial.close()
-
-    def _listen_loop(self) -> None:
-        """Read JSON lines from sensor hub and update pin values."""
-        import json
-        while self._running and self._serial:
-            try:
-                line = self._serial.readline().decode("utf-8", errors="replace").strip()
-                if not line:
-                    continue
-                data = json.loads(line)
-                with self._lock:
-                    if "pin" in data and "val" in data:
-                        self._pin_values[data["pin"]] = data["val"]
-                    if data.get("type") == "parking":
-                        self._distances = data.get("distances", self._distances)
-                    if data.get("type") == "temperature":
-                        self._temperature = data.get("value")
-            except Exception:
-                pass  # Malformed line, skip
-
-
-class RedmiOneWire:
-    """1-Wire proxy via Arduino sensor hub for Redmi platform.
-
-    DS18B20 temperature sensor is connected to the Arduino sensor hub
-    (since Redmi has no GPIO). The hub reports temperature via JSON serial.
-    Falls back to mock if hub not available.
-    """
-
-    def __init__(self, sensor_hub: Optional[SensorHubSerial] = None):
-        self._hub = sensor_hub
-        self._mock_devices: dict[str, float] = {}
-        log.debug("RedmiOneWire initialized (hub=%s)",
-                  "connected" if sensor_hub else "mock")
-
-    def add_device(self, device_id: str, initial_value: float = 20.0) -> None:
-        self._mock_devices[device_id] = initial_value
-
-    def list_devices(self) -> list[str]:
-        if self._hub and self._hub.temperature is not None:
-            return ["28-redmi-hub"]
-        return list(self._mock_devices.keys())
-
-    def read_temperature(self, device_id: str) -> Optional[float]:
-        if self._hub and device_id == "28-redmi-hub":
-            return self._hub.temperature
-        return self._mock_devices.get(device_id)
-
-    def set_mock_temperature(self, device_id: str, temp: float) -> None:
-        self._mock_devices[device_id] = temp
-
-
-# ---------------------------------------------------------------------------
 # HAL factory
 # ---------------------------------------------------------------------------
 
@@ -456,10 +276,10 @@ class HAL:
 
     Supported platforms:
         - "x86"    — Mock drivers for development/testing
-        - "opi"    — Real GPIO/UART/SPI/I2C via libgpiod/pyserial on Orange Pi 5 Plus
-        - "opi_pc" — Same as opi but for Orange Pi PC 1.2 (Allwinner H3, gpiochip0)
-        - "redmi"  — USB-serial sensor hub + native phone hardware on
-                      Redmi Note 8 Pro with Ubuntu Touch
+        - "opi"    — Real GPIO/UART/SPI/I2C via libgpiod/pyserial on
+                     Orange Pi 5 Pro / 5 Plus (production)
+        - "opi_pc" — Same as opi but for Orange Pi PC 1.2 (Allwinner
+                     H3, gpiochip0) — bench test rig
 
     Usage:
         hal = HAL(platform="x86")
@@ -472,41 +292,21 @@ class HAL:
 
     def __init__(self, platform: str = "x86"):
         self.platform = platform
-        self._sensor_hub: Optional[SensorHubSerial] = None
-
-        # On Redmi, initialize the sensor hub (Arduino via USB serial)
-        if platform == "redmi":
-            hub_port = "/dev/ttyUSB0"
-            try:
-                self._sensor_hub = SensorHubSerial(port=hub_port)
-                self._sensor_hub.start_listener()
-            except Exception as e:
-                log.warning("Sensor hub init failed (%s) — GPIO will use "
-                            "mock values", e)
-
         log.info("HAL initialized for platform: %s", platform)
-
-    @property
-    def sensor_hub(self) -> Optional[SensorHubSerial]:
-        """Access the sensor hub (Redmi only, None on other platforms)."""
-        return self._sensor_hub
 
     def gpio(self, pin: int, direction: str = "in") -> Any:
         if self.platform in ("opi", "opi_pc"):
             return RealGPIOPin(pin, direction)
-        if self.platform == "redmi":
-            return RedmiSensorHubGPIO(pin, direction, hub=self._sensor_hub)
         return MockGPIOPin(pin, direction)
 
     def uart(self, port: str, baudrate: int = 9600) -> Any:
-        if self.platform in ("opi", "opi_pc", "redmi"):
+        if self.platform in ("opi", "opi_pc"):
             return RealUART(port, baudrate)
         return MockUART(port, baudrate)
 
     def pwm(self, pin: int, frequency: int = 1000) -> Any:
-        # Real PWM on OPi would use sysfs or a dedicated library
-        # On Redmi: backlight is handled by phone OS, external display
-        # PWM via sensor hub Arduino
+        # Real PWM on OPi would use sysfs or a dedicated library.
+        # Not yet implemented — returns the mock for every platform.
         return MockPWM(pin, frequency)
 
     def spi(self, bus: int = 0, device: int = 0) -> Any:
@@ -522,11 +322,8 @@ class HAL:
     def onewire(self) -> Any:
         if self.platform in ("opi", "opi_pc"):
             return RealOneWire()
-        if self.platform == "redmi":
-            return RedmiOneWire(sensor_hub=self._sensor_hub)
         return MockOneWire()
 
     def shutdown(self) -> None:
-        """Clean up HAL resources."""
-        if self._sensor_hub:
-            self._sensor_hub.stop()
+        """Clean up HAL resources. No-op on current platforms."""
+        return None

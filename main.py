@@ -22,7 +22,7 @@ from src.core.hal import HAL
 
 # NOTE: ``start_dashboard`` is imported lazily so ``main.py`` can run
 # on hosts that don't have ``pygame`` installed. In --frontend mode
-# (OPi PC, OPi 5 Pro, Redmi) the dashboard is rendered by the Flask
+# (OPi PC, OPi 5 Pro) the dashboard is rendered by the Flask
 # ``WebViewer`` and pygame never gets exercised. The legacy pygame
 # renderer lives in ``requirements-x86.txt`` and is dev/debug-only.
 def _lazy_start_dashboard(*args, **kwargs):
@@ -90,7 +90,7 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--platform",
-        choices=["x86", "opi", "opi_pc", "redmi", "auto"],
+        choices=["x86", "opi", "opi_pc", "auto"],
         default="auto",
         help="Target platform (default: auto-detect)",
     )
@@ -286,7 +286,7 @@ def main() -> None:
         # Always start demo data generators on x86
         demo = None
         demo_media = None
-        if config.platform in ("x86", "redmi"):
+        if config.platform == "x86":
             from src.dashboard.renderer import DemoDataGenerator
             from src.multimedia.bluetooth import DemoMediaGenerator
             demo = DemoDataGenerator(event_bus)
