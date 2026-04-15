@@ -36,7 +36,7 @@ sudo apt install -y \
   python3 python3-pip python3-venv python3-dev \
   git chromium \
   libgpiod-dev gpiod python3-libgpiod \
-  pipewire pipewire-alsa wireplumber \
+  pipewire pipewire-alsa wireplumber alsa-utils \
   bluez blueman \
   v4l-utils ffmpeg mpv \
   gstreamer1.0-tools gstreamer1.0-plugins-good \
@@ -46,10 +46,12 @@ sudo apt install -y \
   i2c-tools
 ```
 
-`mpv` is optional but highly recommended — it's the video player
-the optional boot-splash services (§11) use to loop branded MP4
-clips on both HDMI outputs before Chromium comes up, hiding the
-Armbian boot log.
+`mpv` + `alsa-utils` are optional-but-recommended — they power
+the §10 boot splash. `mpv` loops branded MP4 clips on both HDMI
+outputs before Chromium comes up; `alsa-utils` provides the
+`alsactl` command that unmutes the default mixer state so the
+audio track embedded in `main.mp4` actually reaches the car
+speakers during boot.
 
 > **Debian Trixie note:** the package is now `chromium` and the
 > binary is `/usr/bin/chromium`. Older Debian releases and Ubuntu
@@ -347,9 +349,9 @@ By default Armbian prints a kernel log to both HDMI outputs until
 `bcm-kiosk.service` opens Chromium ~12–15 s into the boot. That's
 ugly for an in-car head unit. This optional section replaces that
 period with two branded MP4 loops — one full-screen loading
-animation on the big display, and a slow breathing Alfa Romeo
-logo on the small display — that hand over to the BCM UI as soon
-as the Flask servers are ready.
+animation **with audio** on the big display, and a silent slow
+breathing Alfa Romeo logo on the small display — that hand over
+to the BCM UI as soon as the Flask servers are ready.
 
 ### 10.1 Drop your video files in
 
@@ -358,24 +360,40 @@ branding. Put whatever you want in here:
 
 ```bash
 sudo mkdir -p /opt/bcm/assets/splash
-sudo cp main.mp4  /opt/bcm/assets/splash/main.mp4     # 1024x600,  5–10 s loop, no audio
-sudo cp small.mp4 /opt/bcm/assets/splash/small.mp4    #  800x480,  3–5 s loop, no audio
+sudo cp main.mp4  /opt/bcm/assets/splash/main.mp4     # 1024x600,  5–10 s loop, H.264+AAC
+sudo cp small.mp4 /opt/bcm/assets/splash/small.mp4    #  800x480,  3–5 s loop, H.264 (silent)
 sudo chown -R $USER:$USER /opt/bcm/assets/splash
 ```
 
-Both files should be plain H.264 MP4 with **no audio track** (or
-BlueZ/PipeWire will flinch). 5–10 s at ~24 fps is plenty because
-the files are played with `--loop-file=inf`.
+| File | Audio track? | Size | Length |
+|------|--------------|------|--------|
+| `main.mp4`  | **Yes** — plays through the car speakers during the boot-to-kiosk handoff. AAC 128 kbps stereo is fine. | 1024×600 (7") or 1280×800 (8"). Match `display.dashboard.{width,height}` in `config/bcm_config.yaml`. | 5–10 s seamless loop. |
+| `small.mp4` | **No** — silent breathing logo. Don't ship an audio track (or at least don't expect it to play). | 800×480 to match the 4.3" stats display. | 3–5 s loop. |
 
-Size suggestions:
-- `main.mp4`  ≈ 1024×600 if you're on the 7" panel, or 1280×800
-  for the 8" panel. Match `display.dashboard.{width,height}` from
-  `config/bcm_config.yaml`.
-- `small.mp4` ≈ 800×480 to match the 4.3" stats display.
+One-liner to transcode any source video into a loop-friendly
+`main.mp4` with audio:
+
+```bash
+ffmpeg -i INPUT \
+    -c:v libx264 -preset medium -crf 22 \
+    -c:a aac -b:a 128k -ac 2 \
+    -t 8 -vf "scale=1024:600" \
+    -movflags +faststart \
+    main.mp4
+```
 
 If a file is missing the matching systemd service no-ops via
 `ConditionPathExists=` — the boot just falls back to the normal
 kernel log + the existing Flask init splash.
+
+> **Why does only `main.mp4` play audio?** The boot splash runs
+> before any user session exists, so PipeWire isn't up yet; the
+> `bcm-splash-main.service` opens ALSA directly through
+> `mpv --ao=alsa,pipewire,pulse`. Running two mpv instances
+> against the same ALSA card would fight for the device and
+> produce crackling, so the small display stays silent. The
+> "main" in the service name refers to "main audio source", not
+> just "main display".
 
 ### 10.2 Install the two splash services
 
@@ -423,27 +441,54 @@ After `sudo reboot` the boot sequence looks like:
 ### 10.4 Smoke test
 
 ```bash
-# Play the main splash manually to verify mpv + DRM work
-mpv --vo=drm --drm-connector=HDMI-A-1 \
-    --fs --loop-file=inf --really-quiet --no-audio \
+# Play the main splash manually with audio (exactly as the
+# systemd unit will run it at boot)
+sudo mpv --vo=drm --drm-connector=HDMI-A-1 \
+    --ao=alsa,pipewire,pulse \
+    --fs --loop-file=inf --really-quiet \
     /opt/bcm/assets/splash/main.mp4
 
-# Ctrl+C to stop, then same for the small display
-mpv --vo=drm --drm-connector=HDMI-A-2 \
+# Ctrl+C to stop, then the silent small-display splash
+sudo mpv --vo=drm --drm-connector=HDMI-A-2 \
     --fs --loop-file=inf --really-quiet --no-audio \
     /opt/bcm/assets/splash/small.mp4
 ```
 
-If either command fails with `Failed to open DRM device` you
-need to add your user to the `video` and `render` groups
-(`sudo usermod -aG video,render $USER`, log out + back in) or
-just let the systemd services do it — they run as root.
+Run these as root so they match exactly what the systemd
+services do (both units run as root and pick up the `video`,
+`render`, and — for the main one only — `audio` supplementary
+groups). If the main one works but the audio is silent, skip
+ahead to §10.5 for the ALSA mixer fix.
+
+If either command fails with `Failed to open DRM device` your
+kernel doesn't expose DRM modesetting on that HDMI output — on
+Armbian Trixie this usually means you booted with `extlinux.conf`
+rather than a proper Armbian image; re-flash from an official
+`Armbian_*_Orangepi5-pro_trixie_*.img.xz`.
 
 ### 10.5 Troubleshooting the splash
 
 - **Splash never shows, kernel log still visible** →
   `quiet loglevel=3` wasn't applied. Check `/boot/armbianEnv.txt`
   has the `extraargs=` line and reboot.
+- **Splash video plays but there is no sound** → ALSA mixers
+  are muted by default on some Armbian images. Install
+  `alsa-utils` and restore the state:
+  ```bash
+  sudo apt install -y alsa-utils
+  sudo alsactl init
+  amixer set Master unmute 90%    # or the name your card uses
+  sudo alsactl store              # persist for next boot
+  sudo systemctl restart bcm-splash-main
+  ```
+  `aplay -l` should list the sound card and `speaker-test -c 2
+  -t wav -l 1` should produce an audible tone. If it does, the
+  splash service will play audio on the next boot.
+- **Audio plays but stutters or loops** → the `main.mp4` audio
+  track isn't a seamless loop. Re-encode with a 1–2 frame
+  fade-in/fade-out so the boundary is silent, or use a shorter
+  one-shot jingle and accept that it'll repeat every 5–10 s
+  until BCM takes over.
 - **Splash shows but doesn't go away when BCM starts** → the
   `PartOf=bcm-headunit.service` directive didn't take. Re-run
   `sudo systemctl daemon-reload && sudo systemctl restart
