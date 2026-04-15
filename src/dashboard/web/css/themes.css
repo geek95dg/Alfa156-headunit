@@ -1,0 +1,275 @@
+/* ========================================
+   BCM v8 — Theme System (CSS Custom Properties)
+   ======================================== */
+
+/* Material Symbols baseline */
+.material-symbols-outlined {
+    font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+    vertical-align: middle;
+}
+
+/* Base body */
+body {
+    margin: 0;
+    padding: 0;
+    width: 100vw;
+    height: 100vh;
+    overflow: hidden;
+}
+
+/* Disconnected indicator */
+body.ws-disconnected::after {
+    content: "DISCONNECTED";
+    position: fixed;
+    top: 4px;
+    right: 4px;
+    color: #f44;
+    font-size: 9px;
+    font-weight: bold;
+    z-index: 9999;
+    letter-spacing: 0.1em;
+}
+
+/* ---- HERITAGE THEME ---- */
+[data-theme="heritage"] {
+    --color-primary: #f59e0b;
+    --color-accent: #ec5b13;
+    --color-surface: #1a0f0a;
+    --color-on-surface: #f4f4f5;
+    --color-on-surface-variant: #71717a;
+
+    --appbar-bg: #000000;
+    --appbar-border: #27272a;
+    --brand-color: #dc2626;
+    --nav-bg: #09090b;
+    --nav-active-bg: rgba(127, 29, 29, 0.3);
+    --nav-active-color: #ef4444;
+    --nav-inactive-color: #71717a;
+
+    --card-bg: #18181b;
+    --card-border: #27272a;
+    --text-primary: #f4f4f5;
+    --text-dim: #71717a;
+    --text-mid: #a1a1aa;
+    --progress-bg: #27272a;
+    --progress-fill: #f59e0b;
+}
+
+[data-theme="heritage"] body,
+body[data-theme="heritage"] {
+    background-color: #000;
+    color: #f4f4f5;
+}
+
+/* Burl wood texture */
+.burl-texture {
+    background-color: #1a0f0a;
+    background-image: radial-gradient(circle at 20% 30%, #2c1a12 0%, transparent 50%),
+                      radial-gradient(circle at 80% 70%, #25160e 0%, transparent 50%);
+    position: relative;
+}
+.burl-texture::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    opacity: 0.05;
+    background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.65' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+    pointer-events: none;
+}
+
+.amber-glow {
+    text-shadow: 0 0 10px rgba(245, 158, 11, 0.4);
+}
+
+/* ---- MODERN THEME ---- */
+[data-theme="modern"] {
+    --color-primary: #005596;
+    --color-accent: #ef4444;
+    --color-surface: #f8fafc;
+    --color-on-surface: #0f172a;
+    --color-on-surface-variant: #64748b;
+
+    --appbar-bg: #000000;
+    --appbar-border: #27272a;
+    --brand-color: #dc2626;
+    --nav-bg: #000000;
+    --nav-active-bg: rgba(220, 38, 38, 0.2);
+    --nav-active-color: #ef4444;
+    --nav-inactive-color: #71717a;
+
+    --card-bg: #ffffff;
+    --card-border: #e2e8f0;
+    --text-primary: #0f172a;
+    --text-dim: #94a3b8;
+    --text-mid: #64748b;
+    --progress-bg: #e2e8f0;
+    --progress-fill: #3b82f6;
+}
+
+[data-theme="modern"] body,
+body[data-theme="modern"] {
+    background-color: #f1f5f9;
+    color: #0f172a;
+}
+
+.glass-card {
+    background: rgba(255, 255, 255, 0.05);
+    backdrop-filter: blur(12px);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+[data-theme="modern"] .glass-card {
+    background: rgba(255, 255, 255, 0.8);
+    backdrop-filter: blur(8px);
+    border: 1px solid rgba(255, 255, 255, 0.3);
+}
+
+/* ---- AUTODELTA THEME ---- */
+[data-theme="autodelta"] {
+    --color-primary: #FF5F00;
+    --color-accent: #ec5b13;
+    --color-surface: #000000;
+    --color-on-surface: #ffffff;
+    --color-on-surface-variant: #71717a;
+
+    --appbar-bg: #111111;
+    --appbar-border: #222222;
+    --brand-color: #b91c1c;
+    --nav-bg: #09090b;
+    --nav-active-bg: rgba(127, 29, 29, 0.3);
+    --nav-active-color: #ef4444;
+    --nav-inactive-color: #71717a;
+
+    --card-bg: rgba(24, 24, 27, 0.5);
+    --card-border: #27272a;
+    --text-primary: #ffffff;
+    --text-dim: #71717a;
+    --text-mid: #a1a1aa;
+    --progress-bg: #222222;
+    --progress-fill: #FF5F00;
+}
+
+[data-theme="autodelta"] body,
+body[data-theme="autodelta"] {
+    background-color: #000;
+    color: #fff;
+}
+
+.autodelta-glass {
+    background: rgba(24, 24, 27, 0.8);
+    backdrop-filter: blur(12px);
+    border: 1px solid rgba(255, 95, 0, 0.1);
+}
+
+/* Scanline effect */
+.scanline::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(to bottom, transparent 50%, rgba(255, 69, 0, 0.05) 50%);
+    background-size: 100% 4px;
+    pointer-events: none;
+    opacity: 0.3;
+    z-index: 1;
+}
+
+/* ---- SHARED ANIMATIONS ---- */
+@keyframes pulse-soft {
+    0%, 100% { opacity: 0.4; filter: drop-shadow(0 0 15px rgba(var(--glow-rgb, 245, 158, 11), 0.2)); }
+    50% { opacity: 0.9; filter: drop-shadow(0 0 35px rgba(var(--glow-rgb, 245, 158, 11), 0.5)); }
+}
+
+@keyframes breathing {
+    0%, 100% { opacity: 0.4; transform: scale(1); }
+    50% { opacity: 1; transform: scale(1.02); }
+}
+
+.animate-pulse-soft {
+    animation: pulse-soft 4s ease-in-out infinite;
+}
+
+.animate-breathing {
+    animation: breathing 3s ease-in-out infinite;
+}
+
+/* Sketch mask for init screens */
+.sketch-mask {
+    mask-image: radial-gradient(circle, black 60%, transparent 95%);
+    -webkit-mask-image: radial-gradient(circle, black 60%, transparent 95%);
+}
+
+/* Pencil sketch mask for service screen */
+.pencil-sketch-mask {
+    mask-image: linear-gradient(to bottom, black 70%, transparent 100%);
+    -webkit-mask-image: linear-gradient(to bottom, black 70%, transparent 100%);
+}
+
+/* ---- SHARED LAYOUT ---- */
+.screen-container {
+    width: 100%;
+    height: 100%;
+    position: relative;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+}
+
+.content-area {
+    flex: 1;
+    overflow: hidden;
+}
+
+/* ---- ENCODER/SWITCH NAVIGATION ---- */
+/* Focus ring for encoder-navigable elements */
+[data-nav]:focus, [data-nav].focused {
+    outline: 2px solid var(--color-primary, #f59e0b);
+    outline-offset: 2px;
+    border-radius: 8px;
+}
+
+/* Active nav indicator pulse */
+[data-nav].active-nav {
+    animation: nav-pulse 0.3s ease-out;
+}
+@keyframes nav-pulse {
+    0% { transform: scale(1); }
+    50% { transform: scale(1.05); }
+    100% { transform: scale(1); }
+}
+
+/* No scrollbars — everything must fit */
+::-webkit-scrollbar { display: none; }
+* { scrollbar-width: none; }
+
+/* Logo in appbar — clean, no glow */
+.appbar-logo {
+    object-fit: contain;
+}
+
+/* ---- LEAFLET MAP OVERRIDES ---- */
+[data-theme="heritage"] .leaflet-container {
+    background: #1a0f0a;
+}
+[data-theme="heritage"] .leaflet-tile {
+    filter: sepia(0.3) brightness(0.6) saturate(1.2) hue-rotate(-10deg);
+}
+
+[data-theme="modern"] .leaflet-container {
+    background: #0a0a0a;
+}
+[data-theme="modern"] .leaflet-tile {
+    filter: brightness(0.8) saturate(0.8);
+}
+
+[data-theme="autodelta"] .leaflet-container {
+    background: #000;
+}
+[data-theme="autodelta"] .leaflet-tile {
+    filter: grayscale(1) brightness(0.5) contrast(1.25);
+}
+
+/* Hide leaflet default controls — we use custom */
+.leaflet-control-zoom,
+.leaflet-control-attribution {
+    display: none !important;
+}

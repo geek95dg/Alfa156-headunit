@@ -1,0 +1,60 @@
+# BCM v8.5 — Orange Pi 5 Pro 4GB / 5 Plus (aarch64) dependencies
+#
+# Install (see docs/OPI5PRO_SETUP.md for the full recipe):
+#   python3 -m venv --system-site-packages .venv
+#   source .venv/bin/activate
+#   pip install -r requirements.txt -r requirements-opi.txt
+#
+# --system-site-packages is MANDATORY on Debian Trixie so the venv
+# can see the `python3-libgpiod` apt package — pip `gpiod>=2.0`
+# won't build from source against Python 3.13 headers. Same story
+# as the OPi PC build; see requirements-opi-pc.txt for details.
+#
+# DO NOT also install requirements-x86.txt on the OPi — it pulls
+# pygame which isn't needed for the Flask / Chromium kiosk path
+# and requires the full libsdl2-dev toolchain to build from source.
+#
+# aarch64 has pre-built PyPI wheels for both opencv-python-headless
+# and Pillow, so unlike the armv7l OPi PC build this file *does*
+# include them. If pip ever falls back to a source build (old PyPI
+# cache, unusual Python version), the Armbian apt packages
+# python3-opencv and python3-pil are the same-day replacement.
+
+# NOTE: `gpiod` is installed via the Debian `python3-libgpiod` apt
+# package, NOT via pip. spidev/smbus2 are also skipped from pip
+# for the same reason — use `python3-spidev` / `python3-smbus` apt
+# packages if you need the MCP3008 / I²C features.
+
+# Flask web frontend (A1-A8 dashboard on :5002, small display on :5003)
+flask>=3.0
+flask-sock>=0.7
+simple-websocket>=1.0
+
+# Pillow + opencv for camera MJPEG and small-display snapshots
+# (both have pre-built aarch64 wheels on PyPI, no compilation needed)
+Pillow>=10.0
+opencv-python-headless>=4.8
+
+# Note: System packages required (install via apt) — see docs/OPI5PRO_SETUP.md
+#   Core:
+#     - python3-libgpiod               (Debian Python binding — pip gpiod
+#                                       cannot build against Py3.13 on Trixie)
+#     - libgpiod-dev gpiod             (C headers + gpioinfo/gpioget/gpioset CLI.
+#                                       libgpiod-dev resolves to whichever runtime
+#                                       the current Debian release ships:
+#                                       libgpiod2 on Bookworm, libgpiod3 on Trixie)
+#     - python3-dev                    (build extensions)
+#     - chromium                       (main kiosk display — Debian Trixie package)
+#     - pipewire pipewire-alsa wireplumber  (audio routing)
+#     - bluez blueman                  (Bluetooth A2DP/HFP)
+#     - usb-modeswitch                 (LTE / Huawei E3372)
+#     - v4l-utils ffmpeg               (camera + MJPEG capture)
+#     - gstreamer1.0-tools gstreamer1.0-plugins-good
+#     - gstreamer1.0-plugins-bad gstreamer1.0-rockchip1   (HW H.264 on RK3588)
+#     - i2c-tools
+#   Android Auto (required for A2 to fill the content area correctly):
+#     - matchbox-window-manager        (auto-maximises autoapp Qt window)
+#     - xdotool                        (touch passthrough + fallback resizer)
+#     - xvfb                           (virtual framebuffer autoapp renders into)
+#
+# Optional: voice (Vosk) — pip install vosk sounddevice

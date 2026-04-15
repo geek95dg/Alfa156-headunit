@@ -1,0 +1,52 @@
+[Unit]
+Description=BCM — Chromium Kiosk Display (HDMI full-screen browser)
+Documentation=https://github.com/geek95dg/Alfa156-headunit
+After=bcm-headunit.service
+Requires=bcm-headunit.service
+BindsTo=bcm-headunit.service
+
+[Service]
+Type=simple
+
+# Wait for Flask server to be ready before launching Chromium
+ExecStartPre=/bin/bash -c 'for i in $(seq 1 30); do curl -s http://localhost:5002 >/dev/null && exit 0; sleep 1; done; exit 1'
+
+# Debian Trixie ships the binary as `chromium` (package: chromium).
+# Ubuntu / older Debian ship `chromium-browser` (package: chromium-browser).
+# Resolve whichever exists on this system so the service works on both.
+ExecStart=/bin/bash -c 'CHROME=$(command -v chromium 2>/dev/null || command -v chromium-browser); exec "$CHROME" \
+    --kiosk \
+    --noerrdialogs \
+    --disable-translate \
+    --disable-infobars \
+    --disable-suggestions-service \
+    --disable-save-password-bubble \
+    --disable-session-crashed-bubble \
+    --disable-features=TranslateUI \
+    --no-first-run \
+    --fast \
+    --fast-start \
+    --disable-pinch \
+    --overscroll-history-navigation=0 \
+    --disable-gpu-compositing \
+    --enable-features=OverlayScrollbar \
+    --window-size=1024,600 \
+    --window-position=0,0 \
+    --user-data-dir=/tmp/bcm-chromium \
+    http://localhost:5002'
+
+WorkingDirectory=/opt/bcm
+Environment=DISPLAY=:0
+
+Restart=on-failure
+RestartSec=3
+
+# Run as the display user (not root)
+User=bcm
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=bcm-kiosk
+
+[Install]
+# Not in WantedBy — started automatically via BindsTo bcm-headunit

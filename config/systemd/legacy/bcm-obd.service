@@ -1,0 +1,27 @@
+[Unit]
+Description=BCM v7 — OBD-II / K-Line Reader
+Documentation=https://github.com/geek95dg/Alfa156-headunit
+After=bcm-power.service
+Requires=bcm-power.service
+BindsTo=bcm-power.service
+
+[Service]
+Type=notify
+ExecStart=/opt/bcm/venv/bin/python -m src.obd.simulator --service
+WorkingDirectory=/opt/bcm
+Environment=PYTHONPATH=/opt/bcm
+Environment=BCM_PLATFORM=opi
+Restart=always
+RestartSec=2
+WatchdogSec=15
+NotifyAccess=all
+
+# UART access for K-Line
+SupplementaryGroups=dialout gpio
+ProtectSystem=strict
+ReadWritePaths=/opt/bcm/data /opt/bcm/logs /run/bcm /dev/ttyS* /dev/ttyUSB* /dev/ttyAMA*
+ProtectHome=yes
+NoNewPrivileges=yes
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,74 @@
+[Unit]
+Description=BCM Boot Splash — main display (HDMI 2.1, audio+video)
+Documentation=https://github.com/geek95dg/Alfa156-headunit
+DefaultDependencies=no
+
+# Fire as soon as the kernel hands off to systemd, *before* the BCM
+# stack, so the viewer never sees the raw kernel log.
+#
+# Order dependencies:
+#   * After systemd-vconsole-setup so the framebuffer exists.
+#   * After sound.target so ALSA is initialised (alsa-utils ran
+#     `alsactl init` / `alsactl restore` and the mixers are unmuted).
+#   * Before the BCM triad so the splash is up before anything races
+#     us for the framebuffer or the sound card.
+After=systemd-vconsole-setup.service sound.target
+Before=multi-user.target bcm-ignition-watcher.service bcm-headunit.service bcm-kiosk.service
+
+# Bound to the headunit lifecycle — when BCM Flask is up and Chromium
+# takes over the display, PartOf= tears the splash down cleanly so it
+# doesn't fight Chromium for the framebuffer or PipeWire for the
+# audio sink.
+PartOf=bcm-headunit.service
+
+ConditionPathExists=/opt/bcm/assets/splash/main.mp4
+
+[Service]
+Type=simple
+
+# mpv is the primary player (ffplay is a last-ditch fallback that
+# doesn't support --vo=drm, so only video will come out — still
+# better than a kernel log).
+#
+# --ao=alsa,pipewire,pulse — explicit audio-output fallback chain.
+# At boot the user session hasn't started yet, so PipeWire/Pulse
+# are almost certainly not running; mpv picks the ALSA backend,
+# opens /dev/snd/ directly, and plays the audio track embedded in
+# main.mp4. If the rig happens to have a system-wide PipeWire
+# socket running (unusual on Armbian minimal images), mpv falls
+# through to that instead. Either way the audio device is released
+# the moment the BCM headunit service starts and kills this unit
+# (PartOf=bcm-headunit.service), so PipeWire can claim it for the
+# normal in-car audio pipeline.
+#
+# Splash file must be at:
+#   /opt/bcm/assets/splash/main.mp4
+# User-supplied, resolution matching `display.dashboard.{width,height}`
+# (1024x600 on the default 7" panel), 5-10 s seamless loop, H.264
+# video with optional AAC/MP3 audio track.
+ExecStart=/bin/bash -c '\
+    MPV=$(command -v mpv 2>/dev/null || command -v ffplay 2>/dev/null); \
+    if [ -z "$MPV" ]; then \
+        echo "bcm-splash: no mpv/ffplay found — install with apt"; \
+        exit 0; \
+    fi; \
+    exec "$MPV" \
+        --fs --loop-file=inf --really-quiet \
+        --vo=drm --drm-connector=HDMI-A-1 \
+        --ao=alsa,pipewire,pulse \
+        /opt/bcm/assets/splash/main.mp4'
+
+# Fail silently if the splash can't start — it's cosmetic, not
+# critical. Never hold the rest of the boot hostage.
+SuccessExitStatus=0 1
+Restart=no
+
+# Needs framebuffer (DRM) access and the sound card.
+SupplementaryGroups=video render audio
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=bcm-splash-main
+
+[Install]
+WantedBy=multi-user.target

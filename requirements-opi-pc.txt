@@ -1,0 +1,109 @@
+# BCM v8.5 — Orange Pi PC 1.2 (Allwinner H3, armv7l) dependencies
+#
+# Install (see docs/OPI_PC_SETUP.md §1.7 for the full recipe):
+#   python3 -m venv --system-site-packages .venv
+#   source .venv/bin/activate
+#   pip install -r requirements.txt -r requirements-opi-pc.txt
+#
+# The --system-site-packages flag is MANDATORY — it lets the venv
+# see the `python3-libgpiod` apt package installed in §1.3 which
+# provides the `gpiod` Python binding compiled against the right
+# libgpiod runtime for this Debian release (libgpiod2 on Bookworm,
+# libgpiod3 on Trixie). BCM imports `gpiod` as a hard requirement
+# at startup; pip-installing it would otherwise need to compile
+# from source against Python 3.13 headers on Trixie, which fails
+# the same way spidev's C extension fails.
+#
+# DO NOT also install requirements-x86.txt on the OPi PC — it pulls
+# pygame which fails to build from source on ARM without the full
+# libsdl2-dev toolchain and isn't needed anyway (--frontend mode
+# uses Flask + Chromium instead of the pygame renderer).
+#
+# The OPi PC has only 1 GB RAM. Keep dependencies lean.
+# Everything in this file is a pure-Python package with pre-built
+# wheels on PyPI — there are NO C extensions to compile.
+
+# NOTE: `gpiod` is installed via the Debian `python3-libgpiod` apt
+# package, NOT via pip. Do not re-add it here — pip `gpiod>=2.0`
+# would try to compile against libgpiod2 headers which isn't the
+# current Trixie runtime. See the setup guide's libgpiod comment.
+
+# Flask web frontend (A1-A8 dashboard on :5002, small display on :5003)
+flask>=3.0
+flask-sock>=0.7
+simple-websocket>=1.0
+
+# -----------------------------------------------------------------------------
+# NOT installed via pip on armv7l:
+#
+#   spidev and smbus2 — both would compile a tiny C extension on
+#   install (spidev in particular fails against Python 3.13 headers
+#   on Debian Trixie). BCM's HAL only imports them lazily inside
+#   src/core/hal.py::RealSPI.__init__ and RealI2C.__init__, and no
+#   module currently calls hal.spi() / hal.i2c() — they are stubs
+#   reserved for a future MCP3008 ADC and I²C sensor expansion.
+#   Skip them on the OPi PC until you actually need them, then:
+#
+#     sudo apt install -y python3-spidev python3-smbus
+#     cd /opt/bcm
+#     rm -rf .venv
+#     python3 -m venv --system-site-packages .venv
+#     source .venv/bin/activate
+#     pip install -r requirements.txt -r requirements-opi-pc.txt
+#
+#   Pillow (PIL) and opencv-python-headless — only used inside
+#   lazy try/except imports in src/dashboard/web_viewer.py, src/
+#   dashboard/small_viewer.py, src/dashboard/overlays.py, and
+#   src/location/map_renderer.py — BCM degrades gracefully (camera
+#   stream returns a placeholder, map overlay skips image
+#   composition) when they aren't available. The desk test in
+#   docs/OPI_PC_SETUP.md Parts 1-2 does not need either package.
+#
+#   Both opencv and Pillow have no pre-built armv7l wheels on
+#   PyPI, so pip would otherwise fall back to a source build
+#   that needs 4+ GB RAM and a full C++ toolchain. The OPi PC
+#   can't do that — it OOM-kills mid-build.
+#
+#   If you later want the /api/camera/stream endpoint to work with
+#   a real USB webcam (Part 3.4) or GPS overlay images on the map,
+#   install the Debian system packages instead and expose them to
+#   the venv with --system-site-packages:
+#
+#     sudo apt install -y python3-opencv python3-pil
+#     cd /opt/bcm
+#     rm -rf .venv
+#     python3 -m venv --system-site-packages .venv
+#     source .venv/bin/activate
+#     pip install -r requirements.txt -r requirements-opi-pc.txt
+#
+#   On Armbian Trixie (Debian 13) python3-opencv is ~80 MB and
+#   ships as a prebuilt distro binary — nothing is compiled on
+#   the device.
+# -----------------------------------------------------------------------------
+
+# Note: System packages required (install via apt) — see docs/OPI_PC_SETUP.md
+#   Core:
+#     - python3-libgpiod              (Debian-built Python binding —
+#                                      the pip gpiod package cannot
+#                                      be built from source on Trixie)
+#     - libgpiod-dev gpiod            (headers + gpioinfo/gpioget/gpioset CLI)
+#     - python3-dev                   (build extensions)
+#     - chromium                      (main kiosk display — Debian Trixie package)
+#     - pipewire pipewire-alsa wireplumber  (audio routing)
+#     - bluez blueman                 (Bluetooth via USB dongle)
+#     - usb-modeswitch                (Huawei E3372 LTE modem)
+#     - v4l-utils ffmpeg              (camera + MJPEG capture via /api/camera/stream)
+#     - gstreamer1.0-tools gstreamer1.0-plugins-good  (dashcam, SW H.264 on H3)
+#     - i2c-tools
+#   Android Auto (required for A2 to fill the content area correctly):
+#     - matchbox-window-manager       (auto-maximises autoapp Qt window)
+#     - xdotool                       (touch passthrough + fallback resizer)
+#     - xvfb                          (virtual framebuffer autoapp renders into)
+#   X server on Armbian minimal images (required for startx):
+#     - xserver-xorg xserver-xorg-video-fbdev xserver-xorg-video-modesetting
+#     - xserver-xorg-input-libinput xserver-xorg-input-evdev
+#     - xserver-xorg-legacy xinit x11-xserver-utils unclutter
+#
+# Optional (enable voice module — tight on 1GB RAM):
+#   pip install vosk sounddevice
+#   Download: vosk-model-small-pl (~50MB)
