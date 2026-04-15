@@ -1,0 +1,51 @@
+[Unit]
+Description=BCM Boot Splash — main display (HDMI 2.1 / :5002 target)
+Documentation=https://github.com/geek95dg/Alfa156-headunit
+DefaultDependencies=no
+Conflicts=getty@tty1.service
+
+# Fire as soon as the kernel hands off to systemd, *before* the BCM
+# stack, so the viewer never sees the raw kernel log.
+After=systemd-vconsole-setup.service
+Before=multi-user.target bcm-ignition-watcher.service bcm-headunit.service bcm-kiosk.service
+
+# Bound to the headunit lifecycle — when BCM Flask is up and Chromium
+# takes over the display, BindsTo/StopWhenUnneeded tears the splash
+# down cleanly so it doesn't fight Chromium for the framebuffer.
+PartOf=bcm-headunit.service
+
+ConditionPathExists=/opt/bcm/assets/splash/main.mp4
+
+[Service]
+Type=simple
+
+# Resolve either `mpv --vo=drm` (KMS, works on H3 and RK3588S with
+# the mainline DRM driver) or `mpv --vo=fb` (legacy framebuffer).
+# Either one plays a looped, muted, full-screen MP4 on the main
+# display — stop the service (or start Chromium on the same
+# display) to relinquish the framebuffer.
+#
+# Splash file must be at:
+#   /opt/bcm/assets/splash/main.mp4
+# User-supplied, ~1024x600, ~5-10 s loop, no audio.
+ExecStart=/bin/bash -c '\
+    MPV=$(command -v mpv 2>/dev/null || command -v ffplay 2>/dev/null); \
+    if [ -z "$MPV" ]; then \
+        echo "bcm-splash: no mpv/ffplay found — install with apt"; \
+        exit 0; \
+    fi; \
+    exec "$MPV" \
+        --fs --loop-file=inf --really-quiet --no-audio \
+        --vo=drm --drm-connector=HDMI-A-1 \
+        /opt/bcm/assets/splash/main.mp4'
+
+# Fail silently if the splash can't start — it's cosmetic, not
+# critical. Never hold the rest of the boot hostage.
+SuccessExitStatus=0 1
+Restart=no
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=bcm-splash-main
+
+[Install]
+WantedBy=multi-user.target

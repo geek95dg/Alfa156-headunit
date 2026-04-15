@@ -1,0 +1,43 @@
+[Unit]
+Description=BCM v8.5 — Alfa Romeo 156 Head Unit (OPi PC test rig)
+Documentation=https://github.com/geek95dg/Alfa156-headunit
+After=network.target sound.target
+# Started/stopped by bcm-ignition-watcher.service — not at boot
+# PartOf ensures this stops when the watcher stops
+PartOf=bcm-ignition-watcher.service
+
+[Service]
+Type=simple
+
+# Resolve the Python venv at service-start time — the setup guides
+# (OPI_PC_SETUP.md / OPI5PRO_SETUP.md) create the venv at
+# /opt/bcm/.venv (PEP 405 hidden dir) but older drafts of this
+# unit file and of some forks use /opt/bcm/venv (no dot). Honour
+# either so a fresh install with the current manual works and
+# upgrades from older clones don't break.
+ExecStart=/bin/bash -c 'VENV=/opt/bcm/.venv; [ -x "$VENV/bin/python" ] || VENV=/opt/bcm/venv; exec "$VENV/bin/python" main.py --platform opi_pc --config config/bcm_config_opi_pc.yaml --frontend'
+WorkingDirectory=/opt/bcm
+Environment=PYTHONPATH=/opt/bcm
+Environment=BCM_PLATFORM=opi_pc
+
+# Allow graceful shutdown (30s shutdown timer in power manager)
+TimeoutStopSec=45
+KillMode=mixed
+KillSignal=SIGTERM
+
+# Do NOT auto-restart — ignition watcher manages lifecycle
+Restart=no
+
+# Run as root for GPIO access
+User=root
+
+# GPIO + audio + video access
+SupplementaryGroups=gpio i2c spi audio video render
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=bcm-headunit
+
+[Install]
+# Not in WantedBy — started by ignition watcher, not at boot

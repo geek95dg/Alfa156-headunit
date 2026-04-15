@@ -1,0 +1,302 @@
+# BCM v8.5 — Configuration for Orange Pi PC 1.2 (Allwinner H3, 1GB RAM)
+#
+# Purpose: Pre-production testing platform before Orange Pi 5 Plus purchase.
+# Tests the full BCM stack with real hardware (GPIO, UART, sensors, audio)
+# using the OPi PC's internal DAC and single HDMI output.
+#
+# Key differences from OPi 5 Plus config:
+#   - Platform: opi_pc (Allwinner H3, armv7l, 1GB RAM)
+#   - Single HDMI output = main 7" display (Chromium kiosk)
+#   - Internal audio DAC (sun4i-codec, 3.5mm jack) instead of USB ES9038Q2M
+#   - GPIO via sun8i-h3 gpiochip (gpiochip0, PA/PC/PG banks)
+#   - USB 2.0 only (no USB 3.0) — single camera, lower bandwidth
+#   - No built-in WiFi/BT — USB dongles required
+#   - LTE via Huawei E3372 USB stick
+#   - Android Auto over USB cable (experimental, RAM-limited)
+#   - Voice recognition uses smallest Vosk model to fit in 1GB RAM
+#
+# GPIO physical pin → H3 line mapping (active-low via PC817 optoisolators):
+#   Pin  7 → PA6   (line  6)  — 1-Wire DS18B20
+#   Pin  8 → PA13  (line 13)  — UART3 TX (K-Line)
+#   Pin 10 → PA14  (line 14)  — UART3 RX (K-Line)
+#   Pin 12 → PD14  (line 110) — Buzzer
+#   Pin 16 → PC4   (line 68)  — HC-SR04 shared TRIG
+#   Pin 18 → PC7   (line 71)  — HC-SR04 ECHO 1
+#   Pin 22 → PA2   (line  2)  — HC-SR04 ECHO 2
+#   Pin 24 → PA3   (line  3)  — HC-SR04 ECHO 3 (active low, directly usable)
+#   Pin 26 → PA21  (line 21)  — HC-SR04 ECHO 4
+#   Pin 29 → PA7   (line  7)  — Ignition signal (PC817)
+#   Pin 31 → PA8   (line  8)  — Door open signal (PC817)
+#   Pin 32 → PB4   (line 36)  — PWM0 — display backlight
+#   Pin 33 → PB5   (line 37)  — PWM1 — (spare / bench button)
+#   Pin 35 → PA19  (line 19)  — Washer sprayer signal (PC817)
+#   Pin 37 → PA20  (line 20)  — Central lock signal (PC817)
+#
+# NOTE: H3 GPIO lines are on gpiochip0 (sun8i-h3-pinctrl, 224 lines).
+#       Numbers above are PA_base=0, PB_base=32, PC_base=64, PD_base=96, etc.
+#       Verify with: gpioinfo gpiochip0 | grep -i "PA\|PC\|PD"
+
+system:
+  name: BCM v8.5 (OPi PC Test)
+  version: 0.1.0
+  platform: opi_pc
+  log_level: DEBUG
+  log_file: logs/bcm.log
+
+modules:
+  dashboard: true
+  obd: true
+  parking: true
+  environment: true
+  audio: true
+  voice: false         # Disabled by default — enable if Vosk fits in RAM
+  input: true
+  camera: true
+  power: true
+  multimedia: true     # Android Auto over USB (experimental)
+  location: true
+  network: true        # LTE via Huawei E3372
+  weather: true
+  blinker_monitor: false  # Off by default on the test rig (no car wiring)
+
+display:
+  # Single HDMI output = main display
+  # Chromium kiosk on localhost:5002 renders the web frontend full-screen
+  dashboard:
+    width: 1024
+    height: 600
+    fps: 10            # Lower FPS for H3 CPU
+    theme: heritage
+    brightness: 70
+  multimedia:
+    # Android Auto canvas size — must fit BCM's content area
+    # (dashboard.height − appbar_px − navbar_px = 504) so the AA
+    # stream doesn't overlap the header or nav bar. Leave as the
+    # auto-derived value unless you customised the frontend theme.
+    width: 1024
+    height: 504
+  # BCM frontend chrome sizing — see comments in config/bcm_config.yaml
+  appbar_px: 48
+  navbar_px: 48
+
+units:
+  speed: km/h
+  temperature: C
+
+language: pl
+
+# GPIO pins — H3 gpiochip0 line numbers
+# See mapping table at top of this file
+gpio:
+  chip: gpiochip0
+  parking_trig: 68     # PC4, physical pin 16
+  parking_echo:
+    - 71               # PC7, physical pin 18
+    - 2                # PA2, physical pin 22
+    - 3                # PA3, physical pin 24 (directly usable)
+    - 21               # PA21, physical pin 26
+  buzzer: 110          # PD14, physical pin 12
+  backlight_dashboard: 36   # PB4/PWM0, physical pin 32
+  backlight_multimedia: 37  # PB5/PWM1, physical pin 33
+  onewire: 6           # PA6, physical pin 7
+  ignition: 7          # PA7, physical pin 29
+  door: 8              # PA8, physical pin 31
+  rain_sensor: 19      # PA19, physical pin 35 (reused for rain)
+  sprayer: 19          # PA19, physical pin 35
+  central_lock: 20     # PA20, physical pin 37
+  # Bench test button — optional momentary push button for ignition sim
+  bench_button: 37     # PB5/PWM1, physical pin 33
+  # Turn signal inputs (via PC817 optoisolators) — test-rig pins
+  blinker_left: 10     # PA10, physical pin 19 (change to match your wiring)
+  blinker_right: 11    # PA11, physical pin 23
+
+# Vehicle input signal behaviour — tuning knobs for src/vehicle/.
+vehicle:
+  # Active-low via PC817 optoisolator (same pattern as ignition).
+  # Flip to false if you skip the optoisolator on the bench rig.
+  blinker_active_low: true
+  # Debounce hold so the camera overlay doesn't flicker between
+  # the ~400 ms blinker flashes.
+  blinker_hold_sec: 0.8
+
+# A3 Travel Plan external API keys — same semantics as in
+# config/bcm_config.yaml. Both optional; BCM falls back to a
+# haversine straight-line estimate when openrouteservice_key is
+# blank and hides the incidents panel when tomtom_key is blank.
+travel:
+  openrouteservice_key: ""
+  tomtom_key: ""
+
+serial:
+  kline:
+    # H3 UART3 is on PA13/PA14 (pins 8/10) — needs DT overlay
+    # Alternatively: USB-UART adapter (CP2102/CH340) on /dev/ttyUSB0
+    port_opi_pc: /dev/ttyUSB0
+    baudrate: 10400
+    ecu_address: 1
+
+hardware:
+  gps:
+    enabled: true
+    # USB GPS module (e.g., u-blox 7/8)
+    port: /dev/ttyACM0
+    baudrate: 9600
+  lte:
+    enabled: true
+    # Huawei E3372 — appears as usb0 (HiLink) or ttyUSB0 (stick mode)
+    device: "huawei-e3372"
+    apn: "internet"    # Adjust to your carrier
+    interface: usb0    # HiLink mode network interface
+
+audio:
+  eq_preset: jazz
+  master_volume: 70
+  # OPi PC internal DAC — 3.5mm headphone jack
+  # ALSA card name: "Codec" or "sun4i-codec" (check with: aplay -l)
+  dac: internal
+  dac_alsa_device: "hw:0,0"    # Usually hw:0,0 for internal codec
+  amp_main: TDA7388
+  amp_sub: TDA2050
+  mic_vosk: ""
+  mic_phone: ""
+
+voice:
+  wake_word_sensitivity: medium
+  # Use smallest Vosk models to fit in 1GB RAM
+  model_pl: src/voice/models/vosk-model-small-pl
+  model_en: src/voice/models/vosk-model-small-en-us
+
+camera:
+  segment_minutes: 5
+  max_storage_gb: 32   # Smaller SD card expected on test rig
+  recording_path: /media/dashcam
+  # Single USB webcam for testing (USB 2.0 bandwidth limit)
+  device: /dev/video0
+  resolution: 640x480  # Lower res for software H.264 on H3
+  encoder: x264        # Software encoding (no HW encoder on H3)
+  # Role mapping — on the test rig we only have one camera by default,
+  # so front=/dev/video0 and the rest are intentionally left at paths
+  # that probably don't exist. The multi-camera controller will log a
+  # warning but still operate for rear (falls through to placeholder).
+  front_device: /dev/video0
+  rear_device: /dev/video1
+  left_device: /dev/video2
+  right_device: /dev/video3
+  controller: false    # Disabled by default on the 1 GB test rig
+
+swc:
+  enabled: true
+  buttons:
+    SWC_VOLUP: volume_up
+    SWC_VOLDN: volume_down
+    SWC_UP: menu_up
+    SWC_DOWN: menu_down
+    SWC_MUTE: mute
+    SWC_MODE: home
+    SWC_NEXT: next_track
+    SWC_PREV: prev_track
+    SWC_PICKUP: phone_pickup
+    SWC_HANGUP: phone_hangup
+    SWC_VOICE: voice_trigger
+    SWC_SRC: source_cycle
+
+brightness:
+  mode: manual         # No LDR on test rig unless wired
+  steps:
+    - 15
+    - 30
+    - 45
+    - 60
+    - 80
+    - 100
+
+music_panel:
+  enabled: true
+
+wifi:
+  enabled: false       # No built-in WiFi — use USB dongle if needed
+  ssid: ALFA
+  password: "87654321"
+  channel: 6
+  interface: "wlan0"   # USB WiFi dongle
+  ip: 10.0.0.1
+  netmask: 255.255.255.0
+  dhcp_start: 10.0.0.10
+  dhcp_end: 10.0.0.50
+
+weather:
+  api_key: ""
+  poll_interval_min: 15
+  default_lat: 50.06
+  default_lon: 19.94
+
+power:
+  shutdown_delay_seconds: 30
+  backlight_fade_ms: 1000
+  # Ignition watcher config
+  ignition_watcher:
+    gpio_chip: gpiochip0
+    ignition_line: 7         # PA7, physical pin 29
+    bench_button_line: 37    # PB5, physical pin 33 (optional button)
+    debounce_ms: 200
+    active_low: true         # PC817 pulls LOW when 12V present
+
+# v8.5 modules — enable what's testable
+rain_sensor:
+  sensitivity: medium
+
+central_lock:
+  port: /dev/ttyUSB1
+  baudrate: 9600
+
+lighting:
+  follow_me_home_seconds: 60
+  greeting_blinks: 2
+  leaving_home: true
+
+traffic:
+  api_key: ""
+  provider: tomtom
+  poll_interval_min: 5
+
+remote_status:
+  api_key: ""
+
+modules_v85:
+  rain_sensor: true
+  central_lock: false    # Only if 433MHz module wired
+  lighting: false        # Only if relay board wired
+  performance: true
+  alarm: false           # Only if PIR/tilt/shock wired
+  crash_detect: false    # No accelerometer on test rig
+  battery_backup: true
+
+alarm:
+  siren_duration: 60
+  arming_delay: 30
+  sensors:
+    door: true
+    motion: false
+    tilt: false
+    shock: false
+
+crash_detection:
+  speed_drop_threshold: 30
+  g_force_threshold: 3.0
+  post_crash_record_sec: 60
+
+tracking:
+  interval_sec: 30
+  lte_sync_min: 15
+  geofence_lat: 0
+  geofence_lon: 0
+  geofence_radius_km: 0
+  sms_number: ""
+
+# OPi PC test rig specific
+test_rig:
+  description: "Orange Pi PC 1.2 bench test — pre-production validation"
+  target_device: "Orange Pi 5 Plus"
+  single_display: true
+  chromium_kiosk: true
+  kiosk_url: "http://localhost:5002"
