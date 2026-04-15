@@ -893,12 +893,14 @@ curl -X POST http://localhost:5002/api/config \
   </ol>
 
   <h3>Dual display — Chromium kiosk</h3>
-  <div class="code-block"># Ekran główny (HDMI-2, 7/8" touch)
-chromium-browser --kiosk --window-size=1024,600 \
+  <div class="code-block"># Ekran główny (HDMI 2.1, 7/8" touch)
+# Na Debian Trixie binarka nazywa się `chromium` (nie chromium-browser);
+# bcm-kiosk.service sam rozpoznaje jedno lub drugie.
+chromium --kiosk --window-size=1024,504 \
   --display=:0.1 http://localhost:5002
 
-# Mały ekran (HDMI-1, 4.3")
-chromium-browser --kiosk --window-size=800,480 \
+# Mały ekran (HDMI 2.0, 4.3")
+chromium --kiosk --window-size=800,480 \
   --display=:0.0 http://localhost:5003</div>
 
   <h3>Usługi systemd</h3>
