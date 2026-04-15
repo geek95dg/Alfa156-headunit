@@ -1,10 +1,11 @@
 [Unit]
-Description=BCM Boot Splash — small display (HDMI 2.0 / :5003 target)
+Description=BCM Boot Splash — small display (HDMI 2.0, silent)
 Documentation=https://github.com/geek95dg/Alfa156-headunit
 DefaultDependencies=no
 
 # Same timing as the main splash: fire before the BCM stack comes
-# up, yield the framebuffer once Chromium takes over.
+# up, yield the framebuffer once Chromium takes over. No sound.target
+# dependency because this unit never opens the audio device.
 After=systemd-vconsole-setup.service
 Before=multi-user.target bcm-ignition-watcher.service bcm-headunit.service bcm-kiosk.service
 
@@ -21,8 +22,10 @@ Type=simple
 # service just no-ops via ConditionPathExists.
 #
 # Content suggestion: a slow breathing Alfa Romeo logo loop
-# (~3-5 s), muted, 800x480, user-supplied at
+# (~3-5 s), SILENT (no audio track), 800x480, user-supplied at
 #   /opt/bcm/assets/splash/small.mp4
+# Audio playback for the bigger "startup jingle" happens on the
+# main display via bcm-splash-main.service.
 ExecStart=/bin/bash -c '\
     MPV=$(command -v mpv 2>/dev/null || command -v ffplay 2>/dev/null); \
     if [ -z "$MPV" ]; then \
@@ -36,6 +39,10 @@ ExecStart=/bin/bash -c '\
 
 SuccessExitStatus=0 1
 Restart=no
+
+# Framebuffer access only; no audio device needed.
+SupplementaryGroups=video render
+
 StandardOutput=journal
 StandardError=journal
 SyslogIdentifier=bcm-splash-small
