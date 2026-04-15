@@ -353,6 +353,15 @@ animation **with audio** on the big display, and a silent slow
 breathing Alfa Romeo logo on the small display — that hand over
 to the BCM UI as soon as the Flask servers are ready.
 
+> **OPi 5 Pro has full hardware video acceleration.** The
+> RK3588S VPU decodes 1080p H.264 at 60 FPS through the kernel's
+> `rkmpp` GStreamer/FFmpeg plugin, which mpv picks up
+> automatically. Use whatever resolution matches your panel
+> (1024×600 / 1280×800) and mpv will play it smoothly at
+> 25 FPS+. The 1-FPS slideshow problem that the OPi PC bench
+> rig hits with 720p video does **not** apply here — don't
+> downsize your source clips for the production board.
+
 ### 10.1 Drop your video files in
 
 The repo doesn't ship the actual videos — they're user-supplied

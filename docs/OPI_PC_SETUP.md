@@ -964,27 +964,48 @@ resistive voltage divider fixes that.
                       2 kΩ
 ```
 
-Pin map (from `config/bcm_config_opi_pc.yaml`):
+Pin map (from `config/bcm_config_opi_pc.yaml` — every line below
+is exposed on the OPi PC 40-pin header AND marked "unused" in
+`gpioinfo gpiochip0` on a stock Armbian Trixie image. Don't use
+PA2 / PA3 — on Trixie they're claimed by the UART2 serial
+console. Don't use anything on PB* / PD* — those banks aren't on
+the 40-pin header at all):
 
-| Sensor | Role | OPi physical pin | H3 line | Config key |
-|--------|------|------------------|---------|------------|
-| Shared | TRIG | 16 | PC4 (68) | `gpio.parking_trig` |
-| #1     | ECHO LL | 18 | PC7 (71) | `gpio.parking_echo[0]` |
-| #2     | ECHO CL | 22 | PA2 (2) | `gpio.parking_echo[1]` |
-| #3     | ECHO CR | 24 | PA3 (3) | `gpio.parking_echo[2]` |
-| #4     | ECHO RR | 26 | PA21 (21) | `gpio.parking_echo[3]` |
+| Sensor | Role     | OPi pin | H3 pin | libgpiod line | Config key |
+|--------|----------|---------|--------|--------------- |------------|
+| Shared | TRIG     | 16      | PC4    | 68             | `gpio.parking_trig` |
+| #1     | ECHO LL  | 18      | PC7    | 71             | `gpio.parking_echo[0]` |
+| #2     | ECHO CL  | 26      | PA21   | 21             | `gpio.parking_echo[1]` |
+| #3     | ECHO CR  | 32      | PG8    | 200            | `gpio.parking_echo[2]` |
+| #4     | ECHO RR  | 33      | PG9    | 201            | `gpio.parking_echo[3]` |
 
 **Wiring verification — each sensor, one at a time:**
+
+First, confirm the lines you intend to use are actually free on
+your specific Armbian image — a stray overlay might already have
+grabbed one:
+
+```bash
+gpioinfo gpiochip0 | awk 'NR==1 || /unused/'  | \
+    sed -n '1p; /line  *\(6\|68\|71\|21\|200\|201\|9\|7\|8\|203\)/p'
+# Every one of those line numbers should appear in the output with
+# its "consumer" column showing "unused". If a line is missing, it
+# means another driver has claimed it — pick a different line from
+# the "RELIABLY FREE" table at the top of
+# config/bcm_config_opi_pc.yaml and update the config.
+```
+
+Then test one sensor at a time:
 
 ```bash
 # Fire the TRIG pulse manually
 gpioset --mode=time --sec=0 --usec=10 gpiochip0 68=1
-# Read the ECHO line
+# Read one of the ECHO lines
 gpioget gpiochip0 71
 ```
 
 If you see a `1` briefly after a TRIG pulse (object in front of
-the sensor), the divider is correct. Repeat for lines 2, 3, 21.
+the sensor), the divider is correct. Repeat for lines 21, 200, 201.
 
 ### 4.3 DS18B20 temperature probe
 
@@ -1011,29 +1032,34 @@ automatically — no config changes needed.
 ### 4.4 Piezo buzzer (BC547 + flyback diode)
 
 The H3 GPIO can't source enough current to drive a 5 V piezo
-directly. A BC547 NPN on a 1 kΩ base resistor does the job:
+directly. A BC547 NPN on a 1 kΩ base resistor does the job.
+
+> **Pin correction** — older drafts of this manual used
+> `gpio.buzzer=110` (H3 line PD14), but PD* lines are the
+> parallel LCD data bus and are *not* exposed on the OPi PC
+> 40-pin header at all. The correct default is now
+> `gpio.buzzer=9` (PA9, physical pin 35).
 
 ```
- OPi Pin 12 (PD14, line 110) ── [1 kΩ] ── BC547 base
-                                            BC547 emitter ── GND
-                                            BC547 collector ── Buzzer (-)
-                                                               Buzzer (+) ── 5 V
+ OPi Pin 35 (PA9, line 9) ── [1 kΩ] ── BC547 base
+                                         BC547 emitter ── GND
+                                         BC547 collector ── Buzzer (-)
+                                                            Buzzer (+) ── 5 V
                                 [1N4148 across the buzzer, cathode to +5 V]
 ```
 
 Smoke test:
 
 ```bash
-gpioset gpiochip0 110=1 ; sleep 0.3 ; gpioset gpiochip0 110=0
+gpioset gpiochip0 9=1 ; sleep 0.3 ; gpioset gpiochip0 9=0
 # You should hear a short beep.
 ```
 
 ### 4.5 Ignition / door / blinker inputs via PC817 optoisolators
 
 Every 12 V vehicle signal BCM reads is isolated via a PC817.
-Identical pattern for all of them — ignition (PA7), door (PA8),
-rain sensor (PA19), central lock (PA20), left blinker (PA10),
-right blinker (PA11):
+Identical wiring pattern for all of them — 12 V on the car side,
+3.3 V on the OPi side, active-low from the OPi's point of view.
 
 ```
  12 V signal ── [4.7 kΩ] ── PC817 anode (pin 1)
@@ -1046,15 +1072,38 @@ right blinker (PA11):
 Active-low: when 12 V is present on the input side, PC817 pulls
 the OPi line LOW.
 
-Verify ignition wiring (no 12 V connected → line reads HIGH; add
-a test jumper from 12 V to the PC817 input → line reads LOW):
+| Signal          | OPi pin | H3 pin | libgpiod line | Config key |
+|-----------------|---------|--------|---------------|------------|
+| Ignition        | 29      | PA7    | 7             | `gpio.ignition`, `power.ignition_watcher.ignition_line` |
+| Door            | 31      | PA8    | 8             | `gpio.door` |
+| Rain / sprayer  | 36      | PA10   | 10            | `gpio.rain_sensor` / `gpio.sprayer` (shared) |
+| Central lock    | 37      | PA20   | 20            | `gpio.central_lock` |
+| Bench button    | 38      | PG11   | 203           | `gpio.bench_button`, `power.ignition_watcher.bench_button_line` |
+| Left blinker    | 40      | PG10   | 202           | `gpio.blinker_left` |
+| Right blinker   | **—**   | **—**  | **—**         | `gpio.blinker_right` — left at 0 in the shipped config; pick a free PG* line and edit |
+
+> **Pin correction from older drafts:** the previous config
+> claimed `blinker_left=10` (PA10) on physical pin 19 and
+> `blinker_right=11` (PA11) on physical pin 23. Those are wrong —
+> PA11 is on pin 5 and is claimed by the I²C0 driver, and
+> PA10 is on pin 36 not 19. The new config uses PA10 for rain
+> sensor and PG10 for left blinker, both of which are on the
+> header and unused by kernel drivers.
+
+Verify each input line with:
 
 ```bash
-gpioget gpiochip0 7        # ignition, PA7
-gpioget gpiochip0 8        # door, PA8
-gpioget gpiochip0 10       # blinker left, PA10
-gpioget gpiochip0 11       # blinker right, PA11
+gpioget gpiochip0 7        # ignition, PA7 (pin 29)
+gpioget gpiochip0 8        # door, PA8 (pin 31)
+gpioget gpiochip0 10       # rain/sprayer, PA10 (pin 36)
+gpioget gpiochip0 20       # central lock, PA20 (pin 37)
+gpioget gpiochip0 203      # bench button, PG11 (pin 38)
+gpioget gpiochip0 202      # blinker left, PG10 (pin 40)
 ```
+
+Every line reads `1` (pull-up) with no input connected. Grounding
+the OPi side of the PC817 (or pressing the bench button) should
+flip that reading to `0`.
 
 For bench testing without 12 V, you can also short each PC817
 input to GND with a jumper — same effect.
@@ -1077,17 +1126,25 @@ anything else is running.
 
 ### 4.7 Part 4 checklist
 
+- [ ] `gpioinfo gpiochip0 | grep -v '\[used\]'` confirms every
+      line from §4.1–§4.5 is marked `unused` (i.e. no other
+      kernel driver has claimed it).
 - [ ] `/sys/bus/w1/devices/28-*/temperature` returns millidegrees.
-- [ ] `gpioget gpiochip0 71/2/3/21` reads individual HC-SR04 ECHOs.
-- [ ] `gpioset gpiochip0 110=1` produces an audible beep.
+- [ ] `gpioget gpiochip0 71` / `21` / `200` / `201` each read the
+      four HC-SR04 ECHO lines individually.
+- [ ] `gpioset gpiochip0 9=1` produces an audible beep through
+      the piezo buzzer on pin 35.
 - [ ] `gpioget gpiochip0 7` flips from 1 to 0 when you short the
-      ignition PC817 input.
+      ignition PC817 input (pin 29 → GND for the bench test).
+- [ ] `gpioget gpiochip0 203` flips from 1 to 0 while the
+      PC-style push button on pin 38 is held down.
 - [ ] With `modules.parking: true`, the A1 dashboard parking
       overlay shows distances changing in real time when you
       wave your hand at a sensor.
 - [ ] With `modules.blinker_monitor: true`, grounding the left
-      blinker input flips the small display (:5003) to the left
-      camera overlay (or placeholder if no camera is attached).
+      blinker input on pin 40 (line 202, PG10) flips the small
+      display (:5003) to the left camera overlay (or placeholder
+      if no camera is attached).
 
 ---
 
@@ -1109,28 +1166,34 @@ The ignition watcher (`src/power/ignition_watcher.py`) reads
 **two** GPIO inputs every 100 ms. Either of them can start / stop
 BCM, and you only need to wire one.
 
-| Input | Config key | OPi PC pin | Behaviour |
-|-------|-----------|-----------|-----------|
-| **Ignition line** (car 12 V via PC817) | `power.ignition_watcher.ignition_line` (default **7**, PA7) | Physical pin 29 | **Level-triggered.** Holding the line LOW (= 12 V present on the PC817 input) keeps BCM ON. Releasing it shuts BCM down. |
-| **Bench push button** (PC-style momentary) | `power.ignition_watcher.bench_button_line` (default **37**, PB5) | Physical pin 33 | **Edge-triggered toggle.** Press once → BCM ON. Press again → BCM OFF. No optoisolator required, no 12 V supply needed. |
+| Input | Config key | OPi PC pin | H3 pin | libgpiod line | Behaviour |
+|-------|-----------|-----------|--------|----------------|-----------|
+| **Ignition line** (car 12 V via PC817) | `power.ignition_watcher.ignition_line` (default **7**) | Physical pin 29 | PA7 | 7 | **Level-triggered.** Holding the line LOW (= 12 V present on the PC817 input) keeps BCM ON. Releasing it shuts BCM down. |
+| **Bench push button** (PC-style momentary) | `power.ignition_watcher.bench_button_line` (default **203**) | Physical pin 38 | PG11 | 203 | **Edge-triggered toggle.** Press once → BCM ON. Press again → BCM OFF. No optoisolator required, no 12 V supply needed. |
 
 Both use `active_low: true` — the GPIO pin reads LOW when the
 input is "active". You can wire both, only the bench button, or
 only the ignition line.
 
+> **Pin correction:** older drafts said the bench button was on
+> physical pin 33 / PB5 / line 37. That was wrong — PB5 is not
+> exposed on the OPi PC 40-pin header at all, so that wiring
+> could never work. The correct default is physical pin 38 /
+> PG11 / line 203.
+
 ### 5.2 Wire a PC-style push button (recommended for bench testing)
 
 This is the quickest path to a production-equivalent rig: the
 same kind of **two-pin momentary push button** you'd find on a
-PC case power button. Wire one leg to physical pin 33 (PB5,
-GPIO line 37) and the other leg to any GND pin on the header
-(pin 6 / 14 / 20 / 25 / 30 / 34 / 39):
+PC case power button. Wire one leg to **physical pin 38**
+(PG11, libgpiod line 203) and the other leg to any GND pin on
+the header (pin 6 / 9 / 14 / 20 / 25 / 30 / 34 / 39):
 
 ```
-   OPi Pin 33 (PB5, line 37) ──┐
-                                │   [push button — normally open]
-                                │
-   OPi Pin 34 (GND)         ────┘
+   OPi Pin 38 (PG11, line 203) ──┐
+                                  │   [push button — normally open]
+                                  │
+   OPi Pin 39 (GND)           ────┘
 ```
 
 **No pull-up resistor, no optoisolator, no 12 V** — the OPi PC
@@ -1172,7 +1235,7 @@ Expected log:
 ```
 Ignition watcher started — waiting for ignition signal...
 Opened GPIO chip: gpiochip0
-Watching: ignition=line 7, button=line 37
+Watching: ignition=line 7, button=line 203
 ```
 
 If you see `SIMULATION MODE — ignition watcher`, libgpiod
@@ -1250,6 +1313,42 @@ build: [`OPI5PRO_BOM.md`](OPI5PRO_BOM.md).
 
 ## Part 6.5 — Optional: boot splash with audio
 
+> ### ⚠ OPi PC cannot decode 720p video in software
+>
+> The Allwinner H3 is a 1.2 GHz quad-core Cortex-A7 with no
+> hardware video decoder that mainline mpv knows how to drive
+> by default. Software-decoding a 1024×600 H.264 MP4 with mpv
+> runs at roughly **1–2 FPS** (the exact number users have seen
+> on real OPi PC hardware is "1/16 framerate" — i.e. one frame
+> every ~500 ms). This is useless for a boot splash.
+>
+> **Two fixes, pick one:**
+>
+> 1. **Use a small SD-resolution MP4.** Transcode your splash
+>    to **640×360** (or 480×272) H.264 with the audio track
+>    preserved. At that size the H3's software path manages
+>    ~20–25 FPS which is enough. `ffmpeg` one-liner in the
+>    "Prepare the video" subsection below.
+>
+> 2. **Enable cedrus hardware decode.** Armbian Trixie kernel
+>    6.x ships the `sun4i-drm` + `cedrus` drivers in mainline.
+>    mpv can offload H.264 to the cedrus v4l2m2m endpoint with
+>    `--hwdec=v4l2m2m-copy`, which gets the full 25 FPS at
+>    720p on real H3 silicon. Needs `v4l2-utils` and a kernel
+>    that exposes `/dev/video0` as a v4l2m2m decoder node (run
+>    `v4l2-ctl --list-devices` — you want "sun4i-decoder" or
+>    "sunxi-cedrus").
+>
+> Both approaches are documented below. The 640×360 fallback is
+> the safer first choice because it requires nothing beyond
+> mpv and ffmpeg from the apt repo, and it works even on
+> kernels where cedrus hasn't been wired up yet.
+>
+> The production **Orange Pi 5 Pro** does not have this problem
+> — RK3588S has a hardware VPU that mpv uses via the rkmpp
+> plugin, and full 1080p video plays at 60 FPS without any
+> special flags. This caveat is OPi PC only.
+
 By default Armbian prints a kernel boot log to the HDMI output
 for ~12–15 s until `bcm-kiosk.service` opens Chromium. The user
 sees a wall of `[  0.123] usb ...` text. To replace that with a
@@ -1263,12 +1362,34 @@ drop one video file and install two systemd services.
 > consistency with the OPi 5 Pro build; the small one disables
 > itself via `ConditionPathExists=` when `small.mp4` is absent.
 
+### Prepare the video — keep it small
+
+Transcode your source clip down to a size the H3 can actually
+play. 640×360 H.264 + AAC at ~500 kbps is a good target:
+
+```bash
+# On your desktop / the OPi PC (ffmpeg is cheap)
+ffmpeg -i INPUT.mov \
+    -vf "scale=640:360" \
+    -c:v libx264 -preset veryfast -crf 28 -maxrate 600k -bufsize 1M \
+    -c:a aac -b:a 96k -ac 2 \
+    -t 8 -movflags +faststart \
+    main.mp4
+```
+
+The 8-second clip loops via `--loop-file=inf` so the viewer
+doesn't care how long it is. Keep it under ~10 s so the loop
+boundary isn't noticeable while waiting for ignition. The
+frame will be upscaled to 1024×600 by the DRM scaler
+automatically — a slightly soft image is a fair trade for
+smooth playback on a 1 GB bench rig.
+
 ### Quick install
 
 ```bash
-# 1. Drop your MP4 file in — H.264 video + AAC audio, ~5-10 s loop
+# 1. Drop your (640×360) MP4 file in
 sudo mkdir -p /opt/bcm/assets/splash
-sudo cp my_splash.mp4 /opt/bcm/assets/splash/main.mp4
+sudo cp main.mp4 /opt/bcm/assets/splash/main.mp4
 sudo chown -R $USER:$USER /opt/bcm/assets/splash
 
 # 2. Make sure the ALSA mixer isn't muted (default on sun4i-codec)
@@ -1322,7 +1443,54 @@ sudo mpv --vo=drm --drm-connector=HDMI-A-1 \
 ```
 
 Press `Ctrl+C` to exit. If the video plays but there's no
-sound, see the "no sound from splash" entry in Part 7.
+sound, see the "no sound from splash" entry in Part 7. If the
+video plays at 1–2 FPS you either skipped the 640×360
+transcode step above or you're on a kernel without cedrus —
+read the next subsection.
+
+### Optional: hardware decode via cedrus (v4l2m2m)
+
+If you want 720p or larger video on the OPi PC, the H3's
+built-in cedrus video decoder has to do the work — software
+decoding on 4× Cortex-A7 @ 1.2 GHz simply isn't fast enough.
+
+Check whether cedrus is exposed as a v4l2m2m node:
+
+```bash
+sudo apt install -y v4l-utils
+v4l2-ctl --list-devices
+# Expect something like:
+#   sun4i-codec (platform:1c22c00.codec):
+#     /dev/video0
+#   sun4i-csi (platform:1cb0000.csi):
+#     /dev/video1
+```
+
+If the list includes a node labelled `sun4i-codec`, `cedrus`,
+or `sunxi-cedrus`, mpv can use it via its v4l2m2m hwdec path:
+
+```bash
+sudo mpv --vo=drm --drm-connector=HDMI-A-1 \
+    --hwdec=v4l2m2m-copy \
+    --ao=alsa,pipewire,pulse \
+    --fs --loop-file=inf --really-quiet \
+    /opt/bcm/assets/splash/main.mp4
+```
+
+Watch `journalctl -f` while it runs — if mpv logs `Using
+hardware decoding (v4l2m2m-copy)` you're getting accelerated
+decode. If it falls back to `Software decoding` the kernel
+doesn't have cedrus wired up on this image; stay with the
+640×360 software path.
+
+To make the systemd service use hwdec, edit
+`/etc/systemd/system/bcm-splash-main.service` and add
+`--hwdec=v4l2m2m-copy` to the `ExecStart` shim's mpv flag
+list, then `sudo systemctl daemon-reload && sudo systemctl
+restart bcm-splash-main`. The change is purely local — the
+repo's shipped unit file stays at the safer software-decode
+default because cedrus availability varies between Armbian
+builds.
 
 ### DRM connector name — fixing the wrong HDMI on the OPi PC
 
@@ -1509,6 +1677,27 @@ or `ninja` error during pip install
   a shorter one-shot jingle and accept that it will repeat until
   ignition fires and BCM takes over. See OPI5PRO_SETUP.md §10.1
   for a loop-friendly `ffmpeg` one-liner.
+
+**Splash video plays at ~1 FPS (slideshow)**
+  → The Allwinner H3 cannot decode 720p H.264 in software in
+  real time. Either transcode `main.mp4` down to 640×360
+  (Part 6.5 "Prepare the video — keep it small"), or switch to
+  hardware decode via cedrus v4l2m2m (Part 6.5 "Optional:
+  hardware decode via cedrus"). Do NOT try to solve this by
+  raising `mpv --hwdec=auto` — mpv's auto path on armv7l
+  doesn't pick cedrus and will stay on software decode.
+
+**`bcm-splash-main.service` status=0 but nothing happens on the
+display**
+  → The mpv shim exited immediately because
+  `/opt/bcm/assets/splash/main.mp4` didn't exist (the service
+  has `ConditionPathExists=` so it silently no-ops). Check the
+  file is in place and readable by root:
+  ```
+  sudo ls -l /opt/bcm/assets/splash/main.mp4
+  sudo systemctl restart bcm-splash-main
+  sudo journalctl -u bcm-splash-main -n 20
+  ```
 
 ### LTE modem
 
