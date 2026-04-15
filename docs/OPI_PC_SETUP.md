@@ -151,14 +151,16 @@ sudo apt install -y \
   xserver-xorg-legacy xinit x11-xserver-utils \
   matchbox-window-manager unclutter \
   chromium xdotool \
-  xvfb mpv
+  xvfb mpv alsa-utils
 ```
 
-`mpv` is only needed if you later enable the optional boot-splash
-services (Part 6.5) — it's the video player that loops a branded
+`mpv` + `alsa-utils` are only needed if you later enable the
+optional boot-splash services (Part 6.5) — `mpv` loops a branded
 MP4 on the HDMI output to hide the Armbian kernel log during
-boot. Keep it installed even on the bench rig so the service
-files work out of the box when you copy them.
+boot, and `alsa-utils` provides `alsactl` so the audio track
+embedded in `main.mp4` actually plays through the 3.5 mm jack
+at boot time. Keep both installed even on the bench rig so the
+service files work out of the box when you copy them.
 
 > `xvfb` is the headless X framebuffer that `src/multimedia/openauto.py`
 > launches when the multimedia module is enabled (even on the OPi PC
@@ -1246,12 +1248,13 @@ build: [`OPI5PRO_BOM.md`](OPI5PRO_BOM.md).
 
 ---
 
-## Part 6.5 — Optional: boot splash (hide the Armbian kernel log)
+## Part 6.5 — Optional: boot splash with audio
 
 By default Armbian prints a kernel boot log to the HDMI output
 for ~12–15 s until `bcm-kiosk.service` opens Chromium. The user
 sees a wall of `[  0.123] usb ...` text. To replace that with a
-branded MP4 loop, drop two systemd services and one video file.
+branded MP4 loop (video **+ audio** through the 3.5 mm jack),
+drop one video file and install two systemd services.
 
 > **OPi PC is the single-HDMI bench rig.** Only the "main"
 > splash applies here — the small-display splash
@@ -1263,19 +1266,25 @@ branded MP4 loop, drop two systemd services and one video file.
 ### Quick install
 
 ```bash
-# 1. Drop your MP4 file in (user-supplied, no audio, ~5-10 s loop)
+# 1. Drop your MP4 file in — H.264 video + AAC audio, ~5-10 s loop
 sudo mkdir -p /opt/bcm/assets/splash
 sudo cp my_splash.mp4 /opt/bcm/assets/splash/main.mp4
 sudo chown -R $USER:$USER /opt/bcm/assets/splash
 
-# 2. Install the systemd units shipped in the repo
+# 2. Make sure the ALSA mixer isn't muted (default on sun4i-codec)
+sudo alsactl init
+amixer set 'Line Out' unmute 85% || true
+amixer set Master unmute 85% || true
+sudo alsactl store
+
+# 3. Install the systemd units shipped in the repo
 cd /opt/bcm
 sudo cp config/systemd/bcm-splash-main.service  /etc/systemd/system/
 sudo cp config/systemd/bcm-splash-small.service /etc/systemd/system/
 sudo systemctl daemon-reload
 sudo systemctl enable bcm-splash-main.service bcm-splash-small.service
 
-# 3. Hide the kernel log (OPi PC uses /boot/armbianEnv.txt)
+# 4. Hide the kernel log (OPi PC uses /boot/armbianEnv.txt)
 sudo sed -i '/^extraargs=/d' /boot/armbianEnv.txt
 echo 'extraargs=quiet loglevel=3 vt.global_cursor_default=0' | \
     sudo tee -a /boot/armbianEnv.txt
@@ -1283,16 +1292,37 @@ echo 'extraargs=quiet loglevel=3 vt.global_cursor_default=0' | \
 sudo reboot
 ```
 
-After reboot the HDMI output goes:
+After reboot the HDMI output + 3.5 mm jack goes:
 
 1. U-Boot (~1 s of unavoidable serial text)
 2. Kernel loads silently
-3. `bcm-splash-main.service` starts mpv → your MP4 loops on the
-   HDMI output
+3. `bcm-splash-main.service` starts `mpv` → your MP4 loops on
+   the HDMI output **and** the audio track plays through the
+   3.5 mm headphone jack / amplifier
 4. Ignition watcher waits for the button press or file trigger
 5. Ignition ON → `bcm-headunit.service` starts → Chromium kiosk
-   opens → splash mpv is killed by `PartOf=bcm-headunit.service`
-6. BCM dashboard visible
+   opens → splash mpv is killed by `PartOf=bcm-headunit.service`,
+   releasing both the framebuffer and the ALSA device
+6. BCM dashboard visible, normal PipeWire audio pipeline takes
+   over the card
+
+### Quick audio smoke test (before the first reboot)
+
+```bash
+# Verify ALSA sees the sun4i-codec
+aplay -l
+speaker-test -c 2 -t wav -l 1
+
+# Verify mpv plays audio + video to HDMI-A-1 as root (exactly
+# what the systemd unit does)
+sudo mpv --vo=drm --drm-connector=HDMI-A-1 \
+    --ao=alsa,pipewire,pulse \
+    --fs --loop-file=inf --really-quiet \
+    /opt/bcm/assets/splash/main.mp4
+```
+
+Press `Ctrl+C` to exit. If the video plays but there's no
+sound, see the "no sound from splash" entry in Part 7.
 
 ### DRM connector name — fixing the wrong HDMI on the OPi PC
 
@@ -1304,9 +1334,10 @@ whatever comes after `card0-` and edit the `--drm-connector=`
 flag in `/etc/systemd/system/bcm-splash-main.service`.
 
 See [`OPI5PRO_SETUP.md`](OPI5PRO_SETUP.md) §10 for the full
-dual-display version of this recipe, the troubleshooting notes,
-and the suggested video specs (1024×600 main, 800×480 small,
-both H.264, no audio track).
+dual-display version of this recipe, the deeper audio
+troubleshooting section, and a transcoding one-liner for
+creating a properly-sized, loop-friendly `main.mp4` with an
+AAC audio track.
 
 ---
 
@@ -1454,6 +1485,30 @@ or `ninja` error during pip install
   → `systemctl --user status pipewire wireplumber`. If they aren't
   running, `systemctl --user enable --now pipewire wireplumber`.
   Remember PipeWire runs per-user, not as root.
+
+**Boot splash video plays on HDMI but there's no sound at all**
+  → The splash service runs as root before PipeWire is up and
+  opens ALSA directly. If ALSA's default mixer state ships muted
+  (common on sun4i-codec), `mpv` will happily write silence to
+  the device. Fix once:
+  ```
+  sudo alsactl init
+  amixer -c 0 sset 'Line Out' unmute 85%
+  amixer -c 0 sset Master    unmute 85%  2>/dev/null || true
+  sudo alsactl store
+  sudo systemctl restart bcm-splash-main
+  ```
+  `speaker-test -c 2 -t wav -l 1` should now produce an audible
+  tone on the 3.5 mm jack. The state is persisted to
+  `/var/lib/alsa/asound.state`, so the next boot will pick it up
+  automatically.
+
+**Splash video + audio play, but stutter every 5 s**
+  → The `main.mp4` audio track is not a seamless loop. Either
+  re-encode with a 1–2 frame silent fade at the boundary, or use
+  a shorter one-shot jingle and accept that it will repeat until
+  ignition fires and BCM takes over. See OPI5PRO_SETUP.md §10.1
+  for a loop-friendly `ffmpeg` one-liner.
 
 ### LTE modem
 
