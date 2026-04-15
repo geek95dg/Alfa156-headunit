@@ -50,8 +50,17 @@ except ImportError:
 
 DEFAULT_CONFIG = "config/bcm_config_opi_pc.yaml"
 DEFAULT_CHIP = "gpiochip0"
-DEFAULT_IGNITION_LINE = 7       # PA7, physical pin 29
-DEFAULT_BENCH_BUTTON_LINE = 37  # PB5, physical pin 33
+
+# OPi PC (Allwinner H3) 40-pin header safe defaults — the old draft
+# of this module had DEFAULT_BENCH_BUTTON_LINE=37 but line 37 is PB5
+# on the H3, which is NOT exposed on the 40-pin header at all. BCM
+# never could have claimed that line on real hardware. Pick two
+# libgpiod lines that are actually on the header and marked "unused"
+# by `gpioinfo gpiochip0` on a stock Armbian Trixie image:
+#   ignition_line     = 7    → PA7,  physical pin 29
+#   bench_button_line = 203  → PG11, physical pin 38
+DEFAULT_IGNITION_LINE = 7
+DEFAULT_BENCH_BUTTON_LINE = 203
 DEFAULT_DEBOUNCE_MS = 200
 DEFAULT_ACTIVE_LOW = True
 BCM_SERVICE_NAME = "bcm-headunit.service"
