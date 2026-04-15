@@ -38,13 +38,18 @@ sudo apt install -y \
   libgpiod-dev gpiod python3-libgpiod \
   pipewire pipewire-alsa wireplumber \
   bluez blueman \
-  v4l-utils ffmpeg \
+  v4l-utils ffmpeg mpv \
   gstreamer1.0-tools gstreamer1.0-plugins-good \
   gstreamer1.0-plugins-bad gstreamer1.0-rockchip1 \
   xdotool matchbox-window-manager xvfb \
   usb-modeswitch \
   i2c-tools
 ```
+
+`mpv` is optional but highly recommended — it's the video player
+the optional boot-splash services (§11) use to loop branded MP4
+clips on both HDMI outputs before Chromium comes up, hiding the
+Armbian boot log.
 
 > **Debian Trixie note:** the package is now `chromium` and the
 > binary is `/usr/bin/chromium`. Older Debian releases and Ubuntu
@@ -336,7 +341,122 @@ Expected boot sequence:
 - [ ] `free -h` shows plenty of headroom on 4 GB RAM.
 - [ ] `cat /sys/class/thermal/thermal_zone0/temp` stays below 80 °C.
 
-## 10. Troubleshooting
+## 10. Boot splash (optional but highly recommended)
+
+By default Armbian prints a kernel log to both HDMI outputs until
+`bcm-kiosk.service` opens Chromium ~12–15 s into the boot. That's
+ugly for an in-car head unit. This optional section replaces that
+period with two branded MP4 loops — one full-screen loading
+animation on the big display, and a slow breathing Alfa Romeo
+logo on the small display — that hand over to the BCM UI as soon
+as the Flask servers are ready.
+
+### 10.1 Drop your video files in
+
+The repo doesn't ship the actual videos — they're user-supplied
+branding. Put whatever you want in here:
+
+```bash
+sudo mkdir -p /opt/bcm/assets/splash
+sudo cp main.mp4  /opt/bcm/assets/splash/main.mp4     # 1024x600,  5–10 s loop, no audio
+sudo cp small.mp4 /opt/bcm/assets/splash/small.mp4    #  800x480,  3–5 s loop, no audio
+sudo chown -R $USER:$USER /opt/bcm/assets/splash
+```
+
+Both files should be plain H.264 MP4 with **no audio track** (or
+BlueZ/PipeWire will flinch). 5–10 s at ~24 fps is plenty because
+the files are played with `--loop-file=inf`.
+
+Size suggestions:
+- `main.mp4`  ≈ 1024×600 if you're on the 7" panel, or 1280×800
+  for the 8" panel. Match `display.dashboard.{width,height}` from
+  `config/bcm_config.yaml`.
+- `small.mp4` ≈ 800×480 to match the 4.3" stats display.
+
+If a file is missing the matching systemd service no-ops via
+`ConditionPathExists=` — the boot just falls back to the normal
+kernel log + the existing Flask init splash.
+
+### 10.2 Install the two splash services
+
+The repo ships two systemd unit files for this, already at
+`config/systemd/bcm-splash-main.service` and
+`config/systemd/bcm-splash-small.service`:
+
+```bash
+cd /opt/bcm
+sudo cp config/systemd/bcm-splash-main.service  /etc/systemd/system/
+sudo cp config/systemd/bcm-splash-small.service /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable bcm-splash-main.service
+sudo systemctl enable bcm-splash-small.service
+```
+
+Both units are `PartOf=bcm-headunit.service`, so the moment
+Chromium comes up the splash `mpv` instance is killed cleanly
+and the HDMI framebuffer is released.
+
+### 10.3 Hide the kernel boot log
+
+`quiet loglevel=3` in the kernel cmdline removes 95 % of the
+Armbian printk noise. On the OPi 5 Pro Armbian uses
+`/boot/armbianEnv.txt`:
+
+```bash
+sudo sed -i '/^extraargs=/d' /boot/armbianEnv.txt
+echo 'extraargs=quiet loglevel=3 vt.global_cursor_default=0' | \
+    sudo tee -a /boot/armbianEnv.txt
+```
+
+After `sudo reboot` the boot sequence looks like:
+
+1. U-Boot (unavoidable — ~1 s of serial text on HDMI)
+2. Kernel loads (quiet → blank screen)
+3. `systemd-vconsole-setup` → tty1 blank
+4. **`bcm-splash-main.service` + `bcm-splash-small.service` fire**
+   → your two MP4 loops start on the two HDMI outputs
+5. `bcm-ignition-watcher.service` starts (splash still running)
+6. Ignition → `bcm-headunit.service` starts, Flask on :5002 / :5003
+7. `bcm-kiosk.service` opens Chromium → splash mpv processes exit
+8. BCM UI visible
+
+### 10.4 Smoke test
+
+```bash
+# Play the main splash manually to verify mpv + DRM work
+mpv --vo=drm --drm-connector=HDMI-A-1 \
+    --fs --loop-file=inf --really-quiet --no-audio \
+    /opt/bcm/assets/splash/main.mp4
+
+# Ctrl+C to stop, then same for the small display
+mpv --vo=drm --drm-connector=HDMI-A-2 \
+    --fs --loop-file=inf --really-quiet --no-audio \
+    /opt/bcm/assets/splash/small.mp4
+```
+
+If either command fails with `Failed to open DRM device` you
+need to add your user to the `video` and `render` groups
+(`sudo usermod -aG video,render $USER`, log out + back in) or
+just let the systemd services do it — they run as root.
+
+### 10.5 Troubleshooting the splash
+
+- **Splash never shows, kernel log still visible** →
+  `quiet loglevel=3` wasn't applied. Check `/boot/armbianEnv.txt`
+  has the `extraargs=` line and reboot.
+- **Splash shows but doesn't go away when BCM starts** → the
+  `PartOf=bcm-headunit.service` directive didn't take. Re-run
+  `sudo systemctl daemon-reload && sudo systemctl restart
+  bcm-headunit`.
+- **"no mpv/ffplay found — install with apt"** → the ExecStart
+  shim couldn't find a player binary. `sudo apt install -y mpv`.
+- **DRM connector name wrong** → run `ls /sys/class/drm/` on the
+  live system. You should see entries like `card0-HDMI-A-1` and
+  `card0-HDMI-A-2`. If your SoC exposes different names (e.g.
+  `HDMI-A-0`), edit the two unit files' `--drm-connector=` flags
+  and `sudo systemctl daemon-reload`.
+
+## 11. Troubleshooting
 
 ### Android Auto window is too big / overlaps header or nav bar
 

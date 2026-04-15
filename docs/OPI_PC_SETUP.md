@@ -151,8 +151,14 @@ sudo apt install -y \
   xserver-xorg-legacy xinit x11-xserver-utils \
   matchbox-window-manager unclutter \
   chromium xdotool \
-  xvfb
+  xvfb mpv
 ```
+
+`mpv` is only needed if you later enable the optional boot-splash
+services (Part 6.5) — it's the video player that loops a branded
+MP4 on the HDMI output to hide the Armbian kernel log during
+boot. Keep it installed even on the bench rig so the service
+files work out of the box when you copy them.
 
 > `xvfb` is the headless X framebuffer that `src/multimedia/openauto.py`
 > launches when the multimedia module is enabled (even on the OPi PC
@@ -1237,6 +1243,70 @@ voltage dividers, same DS18B20, same buzzer.
 
 Bill of materials (with Q1 2026 PLN prices) for the production
 build: [`OPI5PRO_BOM.md`](OPI5PRO_BOM.md).
+
+---
+
+## Part 6.5 — Optional: boot splash (hide the Armbian kernel log)
+
+By default Armbian prints a kernel boot log to the HDMI output
+for ~12–15 s until `bcm-kiosk.service` opens Chromium. The user
+sees a wall of `[  0.123] usb ...` text. To replace that with a
+branded MP4 loop, drop two systemd services and one video file.
+
+> **OPi PC is the single-HDMI bench rig.** Only the "main"
+> splash applies here — the small-display splash
+> (`bcm-splash-small.service`) is a no-op because there's no
+> second HDMI. Everything below installs both service files for
+> consistency with the OPi 5 Pro build; the small one disables
+> itself via `ConditionPathExists=` when `small.mp4` is absent.
+
+### Quick install
+
+```bash
+# 1. Drop your MP4 file in (user-supplied, no audio, ~5-10 s loop)
+sudo mkdir -p /opt/bcm/assets/splash
+sudo cp my_splash.mp4 /opt/bcm/assets/splash/main.mp4
+sudo chown -R $USER:$USER /opt/bcm/assets/splash
+
+# 2. Install the systemd units shipped in the repo
+cd /opt/bcm
+sudo cp config/systemd/bcm-splash-main.service  /etc/systemd/system/
+sudo cp config/systemd/bcm-splash-small.service /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable bcm-splash-main.service bcm-splash-small.service
+
+# 3. Hide the kernel log (OPi PC uses /boot/armbianEnv.txt)
+sudo sed -i '/^extraargs=/d' /boot/armbianEnv.txt
+echo 'extraargs=quiet loglevel=3 vt.global_cursor_default=0' | \
+    sudo tee -a /boot/armbianEnv.txt
+
+sudo reboot
+```
+
+After reboot the HDMI output goes:
+
+1. U-Boot (~1 s of unavoidable serial text)
+2. Kernel loads silently
+3. `bcm-splash-main.service` starts mpv → your MP4 loops on the
+   HDMI output
+4. Ignition watcher waits for the button press or file trigger
+5. Ignition ON → `bcm-headunit.service` starts → Chromium kiosk
+   opens → splash mpv is killed by `PartOf=bcm-headunit.service`
+6. BCM dashboard visible
+
+### DRM connector name — fixing the wrong HDMI on the OPi PC
+
+The H3's mainline DRM driver names its one HDMI output
+`HDMI-A-1` on most kernels, which matches the default in
+`bcm-splash-main.service`. If your kernel exposes something
+different, `ls /sys/class/drm/` lists the actual name — pick
+whatever comes after `card0-` and edit the `--drm-connector=`
+flag in `/etc/systemd/system/bcm-splash-main.service`.
+
+See [`OPI5PRO_SETUP.md`](OPI5PRO_SETUP.md) §10 for the full
+dual-display version of this recipe, the troubleshooting notes,
+and the suggested video specs (1024×600 main, 800×480 small,
+both H.264, no audio track).
 
 ---
 

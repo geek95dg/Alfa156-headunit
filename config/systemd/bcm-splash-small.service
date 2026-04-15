@@ -1,0 +1,44 @@
+[Unit]
+Description=BCM Boot Splash — small display (HDMI 2.0 / :5003 target)
+Documentation=https://github.com/geek95dg/Alfa156-headunit
+DefaultDependencies=no
+
+# Same timing as the main splash: fire before the BCM stack comes
+# up, yield the framebuffer once Chromium takes over.
+After=systemd-vconsole-setup.service
+Before=multi-user.target bcm-ignition-watcher.service bcm-headunit.service bcm-kiosk.service
+
+PartOf=bcm-headunit.service
+
+ConditionPathExists=/opt/bcm/assets/splash/small.mp4
+
+[Service]
+Type=simple
+
+# Small display = second HDMI connector. On the OPi 5 Pro that's
+# `HDMI-A-2`; on a single-HDMI rig (OPi PC bench test) the file
+# /opt/bcm/assets/splash/small.mp4 is usually absent and this
+# service just no-ops via ConditionPathExists.
+#
+# Content suggestion: a slow breathing Alfa Romeo logo loop
+# (~3-5 s), muted, 800x480, user-supplied at
+#   /opt/bcm/assets/splash/small.mp4
+ExecStart=/bin/bash -c '\
+    MPV=$(command -v mpv 2>/dev/null || command -v ffplay 2>/dev/null); \
+    if [ -z "$MPV" ]; then \
+        echo "bcm-splash: no mpv/ffplay found — install with apt"; \
+        exit 0; \
+    fi; \
+    exec "$MPV" \
+        --fs --loop-file=inf --really-quiet --no-audio \
+        --vo=drm --drm-connector=HDMI-A-2 \
+        /opt/bcm/assets/splash/small.mp4'
+
+SuccessExitStatus=0 1
+Restart=no
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=bcm-splash-small
+
+[Install]
+WantedBy=multi-user.target
