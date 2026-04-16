@@ -5,6 +5,8 @@ After=network.target sound.target
 # Started/stopped by bcm-ignition-watcher.service — not at boot
 # PartOf ensures this stops when the watcher stops
 PartOf=bcm-ignition-watcher.service
+# Pull in the kiosk on every start (cold boot and warm wake)
+Wants=bcm-kiosk.service
 
 [Service]
 Type=simple

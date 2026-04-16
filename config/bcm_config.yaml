@@ -162,6 +162,8 @@ travel:
 power:
   shutdown_delay_seconds: 30
   backlight_fade_ms: 1000
+  standby_max_hours: 12
+  splash_duration_seconds: 15
   # Ignition watcher — the systemd-level daemon that decides when
   # bcm-headunit.service runs. Two independent inputs are polled:
   #

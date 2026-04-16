@@ -69,12 +69,9 @@ class ShutdownHandler:
             self._event_bus.publish("power.shutdown_complete", True)
 
     def _power_down(self) -> None:
-        """Issue system poweroff command (OPi only)."""
-        log.info("Issuing system poweroff")
-        try:
-            subprocess.run(["sudo", "poweroff"], timeout=5)
-        except Exception as e:
-            log.error("Poweroff failed: %s", e)
+        """App shutdown complete — OS lifecycle managed by ignition watcher."""
+        log.info("App shutdown complete — OS stays alive (deep idle)")
+        self._event_bus.publish("power.shutdown_complete", True)
 
     def _on_shutdown(self, topic: str, value: Any, timestamp: float) -> None:
         if value:

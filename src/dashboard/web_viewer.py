@@ -15,6 +15,7 @@ import shutil
 import subprocess
 import time
 import threading
+from pathlib import Path
 from typing import Optional, Any
 
 from src.core.logger import get_logger
@@ -352,6 +353,22 @@ class WebViewer:
             if viewer._event_bus:
                 viewer._event_bus.publish("input.swc_config_changed", mapping)
             return jsonify({"ok": True})
+
+        # --- Boot mode API ---
+
+        @app.route("/api/boot_mode")
+        def api_boot_mode():
+            state_file = Path("/tmp/bcm_power_state")
+            result = {"boot_mode": "warm"}
+            if state_file.exists():
+                try:
+                    for line in state_file.read_text().strip().split("\n"):
+                        if "=" in line:
+                            k, v = line.split("=", 1)
+                            result[k.strip()] = v.strip()
+                except Exception:
+                    pass
+            return jsonify(result)
 
         # --- DVR API ---
 
