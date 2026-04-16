@@ -22,7 +22,7 @@ Alfa156-headunit/
 ├── config/
 │   ├── bcm_config.yaml           # Master configuration
 │   ├── pipewire/                 # PipeWire configs (Part 6)
-│   └── systemd/                  # Service files (Part 13)
+│   └── systemd/                  # Service files (Part 12)
 ├── src/
 │   ├── core/                     # Part 1: Skeleton
 │   │   ├── __init__.py
@@ -68,30 +68,30 @@ Alfa156-headunit/
 │   │   ├── source_manager.py     # Audio source switching
 │   │   ├── ducking.py            # Audio priority & ducking system
 │   │   └── volume.py             # Volume control
-│   ├── input/                    # Part 8: Input Controllers
+│   ├── input/                    # Part 7: Input Controllers
 │   │   ├── __init__.py
 │   │   ├── rotary_encoder.py     # USB HID rotary encoder handler
 │   │   ├── swc_remote.py         # Steering wheel control (analog) button mapping
 │   │   ├── bt_remote.py          # BT steering wheel remote
 │   │   └── action_dispatch.py    # Key mapping → actions
-│   ├── camera/                   # Part 9: Cameras & Dashcam
+│   ├── camera/                   # Part 8: Cameras & Dashcam
 │   │   ├── __init__.py
 │   │   ├── dashcam.py            # GStreamer recording pipeline
 │   │   ├── reverse_cam.py        # Reverse camera display
 │   │   └── ahd_grabber.py        # AHD USB grabber interface
-│   ├── power/                    # Part 10: Power Management
+│   ├── power/                    # Part 9: Power Management
 │   │   ├── __init__.py
 │   │   ├── power_manager.py      # Wake/sleep state machine
 │   │   ├── backlight.py          # PWM backlight control
 │   │   └── shutdown.py           # Graceful shutdown sequence
-│   └── multimedia/               # Part 11: Android Auto / Media
+│   └── multimedia/               # Part 10: Android Auto / Media
 │       ├── __init__.py
 │       ├── openauto.py           # OpenAuto Pro integration
 │       └── bluetooth.py          # A2DP/HFP management
 ├── arduino/                      # Part 7: Arduino firmware
 │   └── rotary_encoder/
 │       └── rotary_encoder.ino    # ATmega32U4 USB HID firmware
-├── schematics/                   # Part 12: Electrical diagrams
+├── schematics/                   # Part 11: Electrical diagrams
 │   ├── README.md                 # Assembly instructions
 │   ├── main_wiring.svg           # Complete wiring diagram
 │   ├── kline_circuit.svg         # L9637D schematic
@@ -650,6 +650,6 @@ For OPi deployment:
 6. `sudo systemctl enable bcm-ignition-watcher.service`
    (the watcher pulls in `bcm-headunit` and `bcm-kiosk` via
    `Requires=` / `BindsTo=` — do NOT enable those two directly)
-7. Connect hardware per Part 12 schematics
-8. Full integration test per Part 13 (see `docs/OPI_PC_SETUP.md`
+7. Connect hardware per Part 11 schematics
+8. Full integration test per Part 12 (see `docs/OPI_PC_SETUP.md`
    or `docs/OPI5PRO_SETUP.md` for the verified step-by-step flow)
