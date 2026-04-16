@@ -35,7 +35,6 @@ or that only work in the old per-module deployment:
 | `bcm-dashboard.service` | starts `src.dashboard.renderer --service` (pygame) | pygame isn't installed on OPi PC / 5 Pro, and `--frontend` renders via Flask instead |
 | `bcm-obd.service` | starts a standalone OBD reader | OBD is a module inside main.py now |
 | `bcm-dashcam.service` | starts the dashcam in its own process | dashcam is part of the camera module inside main.py |
-| `bcm-voice.service` | standalone Vosk process | voice module is inside main.py (and disabled by default on 1 GB RAM) |
 | `bcm-multimedia.service` | standalone OpenAuto controller | multimedia module is inside main.py |
 
 If you need the v7-style split architecture (e.g. for a headless

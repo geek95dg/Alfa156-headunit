@@ -10,7 +10,6 @@ modules:
   parking: true
   environment: true
   audio: true
-  voice: true
   input: true
   camera: true
   power: true
@@ -95,12 +94,9 @@ audio:
   dac: ES9038Q2M
   amp_main: TDA7388
   amp_sub: TDA2050
-  mic_vosk: ""          # PipeWire node name for Vosk voice control mic (USB condenser, ceiling)
   mic_phone: ""         # PipeWire node name for phone calls / Android Auto mic (USB/BT headset)
-voice:
-  wake_word_sensitivity: medium
-  model_pl: src/voice/models/vosk-model-small-pl
-  model_en: src/voice/models/vosk-model-small-en-us
+  voice_duck_pct: 40    # duck to 40% of normal volume during AA voice activation
+  voice_listen_sec: 8   # auto-unduck after 8s of no activity
 camera:
   segment_minutes: 5
   max_storage_gb: 128
@@ -116,19 +112,19 @@ camera:
   controller: true
 swc:
   enabled: true
-  buttons:
-    SWC_VOLUP: volume_up
-    SWC_VOLDN: volume_down
-    SWC_UP: menu_up
-    SWC_DOWN: menu_down
-    SWC_MUTE: mute
-    SWC_MODE: home
-    SWC_NEXT: next_track
-    SWC_PREV: prev_track
-    SWC_PICKUP: phone_pickup
-    SWC_HANGUP: phone_hangup
-    SWC_VOICE: voice_trigger
-    SWC_SRC: source_cycle
+  mapping:
+    volume_up:        [SWC_VOLUP,   SWC2_VOLUP]
+    volume_down:      [SWC_VOLDN,   SWC2_VOLDN]
+    next_track:       [SWC_NEXT,    SWC2_NEXT]
+    prev_track:       [SWC_PREV,    SWC2_PREV]
+    mute:             [SWC_MUTE,    SWC2_MUTE]
+    phone_pickup:     [SWC_PICKUP,  SWC2_PICKUP]
+    phone_hangup:     [SWC_HANGUP,  SWC2_HANGUP]
+    bcm_power_toggle: [SWC_MODE,    SWC2_MODE]
+    voice_aa_trigger: [SWC_VOICE,   SWC2_VOICE]
+    navigate_aa:      [SWC_SRC,     SWC2_SRC]
+    menu_up:          [SWC_UP,      SWC2_UP]
+    menu_down:        [SWC_DOWN,    SWC2_DOWN]
 brightness:
   mode: auto
   steps:

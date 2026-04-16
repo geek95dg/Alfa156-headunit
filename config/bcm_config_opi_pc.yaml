@@ -13,8 +13,7 @@
 #     as /dev/gpiochip0 internally; verify with `gpioinfo gpiochip0`)
 #   - USB 2.0 only — single camera, lower bandwidth
 #   - No built-in WiFi/BT — USB dongles required
-#   - Voice recognition and Android Auto are memory-heavy on 1 GB RAM
-#     and disabled by default; enable one at a time
+#   - Android Auto is memory-heavy on 1 GB RAM and disabled by default
 #
 # =============================================================================
 # OPi PC 40-PIN HEADER — only the lines that are RELIABLY FREE on
@@ -70,7 +69,6 @@ modules:
   parking: true
   environment: true
   audio: true
-  voice: false         # Disabled by default — enable if Vosk fits in RAM
   input: true
   camera: true
   power: true
@@ -216,14 +214,9 @@ audio:
   dac_alsa_device: "hw:0,0"    # Usually hw:0,0 for internal codec
   amp_main: TDA7388
   amp_sub: TDA2050
-  mic_vosk: ""
   mic_phone: ""
-
-voice:
-  wake_word_sensitivity: medium
-  # Use smallest Vosk models to fit in 1GB RAM
-  model_pl: src/voice/models/vosk-model-small-pl
-  model_en: src/voice/models/vosk-model-small-en-us
+  voice_duck_pct: 40
+  voice_listen_sec: 8
 
 camera:
   segment_minutes: 5
@@ -245,19 +238,19 @@ camera:
 
 swc:
   enabled: true
-  buttons:
-    SWC_VOLUP: volume_up
-    SWC_VOLDN: volume_down
-    SWC_UP: menu_up
-    SWC_DOWN: menu_down
-    SWC_MUTE: mute
-    SWC_MODE: home
-    SWC_NEXT: next_track
-    SWC_PREV: prev_track
-    SWC_PICKUP: phone_pickup
-    SWC_HANGUP: phone_hangup
-    SWC_VOICE: voice_trigger
-    SWC_SRC: source_cycle
+  mapping:
+    volume_up:        [SWC_VOLUP,   SWC2_VOLUP]
+    volume_down:      [SWC_VOLDN,   SWC2_VOLDN]
+    next_track:       [SWC_NEXT,    SWC2_NEXT]
+    prev_track:       [SWC_PREV,    SWC2_PREV]
+    mute:             [SWC_MUTE,    SWC2_MUTE]
+    phone_pickup:     [SWC_PICKUP,  SWC2_PICKUP]
+    phone_hangup:     [SWC_HANGUP,  SWC2_HANGUP]
+    bcm_power_toggle: [SWC_MODE,    SWC2_MODE]
+    voice_aa_trigger: [SWC_VOICE,   SWC2_VOICE]
+    navigate_aa:      [SWC_SRC,     SWC2_SRC]
+    menu_up:          [SWC_UP,      SWC2_UP]
+    menu_down:        [SWC_DOWN,    SWC2_DOWN]
 
 brightness:
   mode: manual         # No LDR on test rig unless wired

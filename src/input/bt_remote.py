@@ -14,6 +14,7 @@ from src.core.logger import get_logger
 from src.input.action_dispatch import ActionDispatcher
 from src.input.rotary_encoder import RotaryEncoderListener
 from src.input.arduino_serial import ArduinoSerialListener
+from src.input.voice_aa import VoiceAAHandler
 
 log = get_logger("input.bt_remote")
 
@@ -127,6 +128,9 @@ def start_input(config: Any, event_bus: EventBus, hal: Any = None,
     arduino_serial = ArduinoSerialListener(event_bus)
     arduino_serial.start()
 
+    # Voice-AA handler (duck audio + tap AA mic on SWC voice button)
+    voice_aa = VoiceAAHandler(config, event_bus)
+
     # BT steering wheel remote
     bt_remote = BTRemoteListener(event_bus)
     bt_remote.start()
@@ -141,4 +145,5 @@ def start_input(config: Any, event_bus: EventBus, hal: Any = None,
         "encoder": encoder,
         "arduino_serial": arduino_serial,
         "bt_remote": bt_remote,
+        "voice_aa": voice_aa,
     })

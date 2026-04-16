@@ -35,7 +35,6 @@ from src.obd.simulator import start_obd
 from src.parking.simulator import start_parking
 from src.environment.simulator import start_environment
 from src.audio.volume import start_audio
-from src.voice.recognizer import start_voice
 from src.input.bt_remote import start_input
 from src.camera.reverse_cam import start_camera
 from src.power.shutdown import start_power
@@ -62,7 +61,6 @@ MODULE_REGISTRY: dict[str, dict] = {
     "parking":     {"part": 4, "description": "Parking Sensors System", "start": start_parking},
     "environment": {"part": 5, "description": "Temperature & Environment Monitoring", "start": start_environment},
     "audio":       {"part": 6, "description": "Audio System & PipeWire", "start": start_audio},
-    "voice":       {"part": 7, "description": "Voice Control (Vosk)", "start": start_voice},
     "input":       {"part": 8, "description": "Input Controllers", "start": start_input},
     "camera":      {"part": 9, "description": "Camera & Dashcam", "start": start_camera},
     "power":       {"part": 10, "description": "Power Management", "start": start_power},

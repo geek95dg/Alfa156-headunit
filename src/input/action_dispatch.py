@@ -38,6 +38,7 @@ KEY_F6 = 64   # SWC phone hangup
 KEY_F7 = 65   # SWC voice assistant trigger
 KEY_F8 = 66   # SWC audio source cycle
 KEY_F9 = 67   # Stalk button: brightness cycle
+KEY_F10 = 68  # SWC power toggle (BCM on/off)
 
 # Map evdev keycodes → event bus topics
 KEYCODE_MAP: dict[int, str] = {
@@ -57,10 +58,12 @@ KEYCODE_MAP: dict[int, str] = {
     # SWC-specific actions (via Arduino F-keys)
     KEY_F5: "input.phone_pickup",
     KEY_F6: "input.phone_hangup",
-    KEY_F7: "input.voice_trigger",
-    KEY_F8: "input.source_cycle",
+    KEY_F7: "input.voice_aa_trigger",
+    KEY_F8: "input.navigate_aa",
     # Stalk button
     KEY_F9: "input.brightness_cycle",
+    # SWC power toggle
+    KEY_F10: "input.bcm_power_toggle",
 }
 
 # Keyboard key names → keycodes (for x86 development without HID devices)
