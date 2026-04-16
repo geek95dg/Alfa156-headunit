@@ -71,6 +71,10 @@ class WebViewer:
         # Path to the web frontend files
         self._web_dir = os.path.join(os.path.dirname(__file__), "web")
 
+        # Forward voice-AA trigger to xdotool tap on AA mic icon
+        if event_bus:
+            event_bus.subscribe("aa.voice_trigger", self._on_aa_voice_trigger)
+
     def attach_trip(self, trip_computer, route_planner=None) -> None:
         """Attach trip computer + planner after construction.
 
@@ -192,6 +196,8 @@ class WebViewer:
             # Parking
             "parking_distances": _val("parking.distances", []),
             "parking_active": _val("parking.active", False),
+            # SWC navigation
+            "navigate_aa": _val("input.navigate_aa", False),
         }
 
     def _handle_browser_key(self, key: str) -> None:
@@ -201,6 +207,26 @@ class WebViewer:
         mapped = _BROWSER_KEY_MAP.get(key, key.lower())
         self._event_bus.publish("input.raw_keyname", mapped)
         log.debug("Browser key: %s -> %s", key, mapped)
+
+    def _on_aa_voice_trigger(self, topic: str, value, timestamp: float) -> None:
+        """Tap the AA mic icon via xdotool when voice button is pressed."""
+        if not value:
+            return
+        try:
+            rel_x, rel_y = 0.05, 0.08
+            w = self._config.get("display.multimedia.width", 1024) if self._config else 1024
+            h = self._config.get("display.multimedia.height", 504) if self._config else 504
+            px = int(rel_x * w)
+            py = int(rel_y * h)
+            subprocess.run(
+                ["xdotool", "mousemove", "--screen", "0",
+                 str(px), str(py), "click", "1"],
+                timeout=2, capture_output=True,
+                env={**os.environ, "DISPLAY": ":99"},
+            )
+            log.info("Voice-AA: tapped AA mic icon at (%d, %d)", px, py)
+        except Exception as e:
+            log.warning("Voice-AA tap failed: %s", e)
 
     def _broadcast_loop(self) -> None:
         """Periodically broadcast event bus data to all WebSocket clients."""
@@ -292,6 +318,39 @@ class WebViewer:
             if viewer._event_bus:
                 viewer._event_bus.publish("config.changed", data)
 
+            return jsonify({"ok": True})
+
+        # --- SWC mapping API ---
+
+        @app.route("/api/config/swc", methods=["GET"])
+        def api_swc_get():
+            cfg = viewer._config
+            if cfg is None:
+                return jsonify({})
+            mapping = cfg.get("swc.mapping")
+            if not isinstance(mapping, dict):
+                from src.input.swc_remote import DEFAULT_MAPPING
+                mapping = DEFAULT_MAPPING
+            from src.input.swc_remote import ALL_BUTTONS, ACTIONS
+            return jsonify({
+                "mapping": mapping,
+                "all_buttons": ALL_BUTTONS,
+                "actions": [a for a in ACTIONS if a != "disabled"],
+            })
+
+        @app.route("/api/config/swc", methods=["POST"])
+        def api_swc_set():
+            cfg = viewer._config
+            if cfg is None:
+                return jsonify({"error": "no config"}), 500
+            data = request.get_json(silent=True) or {}
+            mapping = data.get("mapping")
+            if not isinstance(mapping, dict):
+                return jsonify({"error": "mapping must be a dict"}), 400
+            cfg.set("swc.mapping", mapping)
+            cfg.save()
+            if viewer._event_bus:
+                viewer._event_bus.publish("input.swc_config_changed", mapping)
             return jsonify({"ok": True})
 
         # --- DVR API ---

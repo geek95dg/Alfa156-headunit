@@ -363,15 +363,14 @@ cd /opt/bcm
 sed -i \
   -e 's/^  multimedia: true.*/  multimedia: false/' \
   -e 's/^  network: true.*/  network: false/' \
-  -e 's/^  voice: .*/  voice: false/' \
   config/bcm_config_opi_pc.yaml
 
-grep -E 'multimedia:|network:|voice:' config/bcm_config_opi_pc.yaml
-# Expect all three to read `false`.
+grep -E 'multimedia:|network:' config/bcm_config_opi_pc.yaml
+# Expect both to read `false`.
 ```
 
 Leave `obd`, `parking`, `environment`, `audio`, `camera`, `power`,
-`location`, `weather`, `input` and `dashboard` on their defaults —
+`location`, `weather`, `input`, `swc` and `dashboard` on their defaults —
 all of them degrade gracefully to mock / simulator mode when their
 hardware isn't present (confirmed in `src/camera/ahd_grabber.py`,
 `src/environment/ds18b20.py`, and the HAL factory in
@@ -1110,7 +1109,7 @@ input to GND with a jumper — same effect.
 
 ### 4.6 Re-enable modules in the config
 
-Back in §1.8 you turned off `multimedia`, `network`, and `voice`.
+Back in §1.8 you turned off `multimedia` and `network`.
 Parking / environment / camera are already `true` by default.
 Once the wiring is verified, enable the blinker monitor:
 
@@ -1120,9 +1119,16 @@ sed -i 's/^  blinker_monitor: false.*/  blinker_monitor: true/' \
 ```
 
 If you want to test the multi-camera priority logic, also set
-`camera.controller: true`. Leave `multimedia` and `voice` off on
-the 1 GB test rig — the H3 doesn't have the RAM for them when
+`camera.controller: true`. Leave `multimedia` off on
+the 1 GB test rig — the H3 doesn't have the RAM for it when
 anything else is running.
+
+> **SWC calibration note:** If you have an SWC button kit wired to the
+> Arduino A0 analog input, run the calibration mode (hold HOME+BACK at
+> Arduino boot) and follow the serial prompts before configuring button
+> mappings in the Web Settings UI. Each button's analog voltage threshold
+> is stored in the Arduino EEPROM and doesn't need to be repeated unless
+> you change the resistor ladder or swap pods.
 
 ### 4.7 Part 4 checklist
 
@@ -1298,7 +1304,7 @@ differences on the 5 Pro are:
 - Dual HDMI (2.1 + 2.0) drives both 7" main and 4.3" small
   screens natively — no second X server trick needed.
 - Hardware H.264 encoding (RK3588 VPU) for the dashcam.
-- 4 GB RAM makes Android Auto + Vosk comfortable.
+- 4 GB RAM makes Android Auto comfortable with headroom to spare.
 - Built-in WiFi 6 + BT 5.0 — no USB dongles.
 
 The full install sequence for the 5 Pro is in
@@ -1717,9 +1723,9 @@ display**
 ### Memory pressure (1 GB RAM)
 
 **OOM killer takes down `bcm-headunit`**
-  → Disable `modules.multimedia` and `modules.voice` in
-  `config/bcm_config_opi_pc.yaml` — Android Auto + Vosk are the
-  two biggest consumers. Add a 512 MB swap file as a safety net:
+  → Disable `modules.multimedia` in
+  `config/bcm_config_opi_pc.yaml` — Android Auto is the
+  biggest consumer. Add a 512 MB swap file as a safety net:
   ```
   sudo fallocate -l 512M /swapfile
   sudo chmod 600 /swapfile

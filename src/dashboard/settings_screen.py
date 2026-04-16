@@ -30,7 +30,6 @@ SETTINGS = [
     ("units.temperature", "Temp Units", ["C", "F"]),
     ("display.dashboard.brightness", "Brightness", list(range(0, 101, 10))),
     ("audio.eq_preset", "EQ Preset", ["flat", "rock", "jazz", "bass_boost", "custom"]),
-    ("voice.wake_word_sensitivity", "Wake Sensitivity", ["low", "medium", "high"]),
 ]
 
 # --- Page 2: SWC button configuration ---
@@ -48,7 +47,8 @@ SWC_DISPLAY_NAMES = {
 SWC_AVAILABLE_ACTIONS = [
     "volume_up", "volume_down", "mute", "menu_up", "menu_down", "home", "back",
     "next_track", "prev_track", "play_pause", "phone_pickup", "phone_hangup",
-    "voice_trigger", "source_cycle", "brightness_cycle", "disabled",
+    "bcm_power_toggle", "voice_aa_trigger", "navigate_aa",
+    "source_cycle", "brightness_cycle", "disabled",
 ]
 
 ACTION_DISPLAY_NAMES = {
@@ -56,7 +56,9 @@ ACTION_DISPLAY_NAMES = {
     "menu_up": "Menu Up", "menu_down": "Menu Down", "home": "Home / Settings",
     "back": "Back", "next_track": "Next Track", "prev_track": "Prev Track",
     "play_pause": "Play/Pause", "phone_pickup": "Phone Pickup",
-    "phone_hangup": "Phone Hangup", "voice_trigger": "Voice Assist",
+    "phone_hangup": "Phone Hangup",
+    "bcm_power_toggle": "Power Toggle", "voice_aa_trigger": "AA Voice",
+    "navigate_aa": "Open AA",
     "source_cycle": "Source Cycle", "brightness_cycle": "Brightness",
     "disabled": "-- Disabled --",
 }
@@ -85,12 +87,13 @@ class SettingsScreen:
         self._init_swc_config()
 
     def _init_swc_config(self) -> None:
-        from src.input.swc_remote import SWC_BUTTONS
+        from src.input.swc_remote import build_button_to_action_map
+        btn_map = build_button_to_action_map(self.config)
         for btn_name in SWC_BUTTON_NAMES:
             config_key = f"swc.buttons.{btn_name}"
             current = self.config.get(config_key)
             if current is None:
-                default_action = SWC_BUTTONS.get(btn_name, "disabled")
+                default_action = btn_map.get(btn_name, "disabled")
                 self.config.set(config_key, default_action)
 
     def _current_items(self) -> list:

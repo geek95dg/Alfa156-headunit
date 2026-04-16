@@ -12,7 +12,8 @@
  *   D7 ← MEDIA button (active LOW, internal pull-up)
  *   D8 ← VOL+ button  (active LOW, internal pull-up)
  *   D9 ← VOL- button  (active LOW, internal pull-up)
- *   A0 ← Steering wheel remote decoder (white wire, analog 0-5V)
+ *   A0 ← SWC Pod 1 (white wire, analog 0-5V)
+ *   A6 ← SWC Pod 2 (white wire, analog 0-5V)
  *
  *   Music panel (5 buttons near 7" AA screen, active LOW, internal pull-ups):
  *   D10 ← MUSIC PREV
@@ -25,7 +26,7 @@
  *   A1  ← LDR light sensor (voltage divider: LDR + 10kΩ to GND → A1)
  *   A2  ← Stalk button (spare button on column stalk, active LOW, internal pull-up)
  *
- * SWC decoder box: white → A0, black → GND, red → 12V ACC
+ * SWC decoder boxes: Pod 1 white → A0, Pod 2 white → A6, both black → GND, both red → 12V ACC
  *
  * Music panel buttons send same keycodes as SWC/encoder equivalents:
  *   MUSIC PREV  → MEDIA_PREVIOUS (consumer)
@@ -53,7 +54,8 @@
 #define BTN_MEDIA 7
 #define BTN_VOLUP 8
 #define BTN_VOLDN 9
-#define SWC_PIN   A0
+#define SWC_PIN1  A0
+#define SWC_PIN2  A6
 
 // Music panel buttons (near 7" Android Auto screen)
 #define MUS_PREV  10
@@ -73,16 +75,17 @@
 #define ADC_TOLERANCE 40
 #define LIGHT_REPORT_MS 2000  // Send light level every 2 seconds
 
-// --- SWC button count ---
-#define SWC_BUTTON_COUNT 12
+// --- SWC button count (12 per pod x 2 pods = 24 total) ---
+#define SWC_BUTTONS_PER_POD 12
+#define SWC_BUTTON_COUNT 24
 #define SWC_IDLE_THRESHOLD 1000
 
 // --- EEPROM layout ---
 #define EEPROM_MAGIC_ADDR 0
-#define EEPROM_MAGIC_VALUE 0xBC
-#define EEPROM_SWC_ADDR 1   // 12 x 2 bytes = 24 bytes
+#define EEPROM_MAGIC_VALUE 0xBD   // bumped from 0xBC to force re-calibration
+#define EEPROM_SWC_ADDR 1         // 24 x 2 bytes = 48 bytes
 
-// SWC button indices
+// SWC button indices — Pod 1 (0-11), Pod 2 (12-23)
 enum SWCButton {
   SWC_VOLUP   = 0,
   SWC_VOLDN   = 1,
@@ -96,14 +99,31 @@ enum SWCButton {
   SWC_HANGUP  = 9,
   SWC_VOICE   = 10,
   SWC_SRC     = 11,
+  SWC2_VOLUP  = 12,
+  SWC2_VOLDN  = 13,
+  SWC2_UP     = 14,
+  SWC2_DOWN   = 15,
+  SWC2_MUTE   = 16,
+  SWC2_MODE   = 17,
+  SWC2_NEXT   = 18,
+  SWC2_PREV   = 19,
+  SWC2_PICKUP = 20,
+  SWC2_HANGUP = 21,
+  SWC2_VOICE  = 22,
+  SWC2_SRC    = 23,
 };
 
 const char* SWC_NAMES[SWC_BUTTON_COUNT] = {
   "VOL+", "VOL-", "UP", "DOWN", "MUTE", "MODE",
-  "NEXT", "PREV", "PICKUP", "HANGUP", "VOICE", "SRC"
+  "NEXT", "PREV", "PICKUP", "HANGUP", "VOICE", "SRC",
+  "2:VOL+", "2:VOL-", "2:UP", "2:DOWN", "2:MUTE", "2:MODE",
+  "2:NEXT", "2:PREV", "2:PICKUP", "2:HANGUP", "2:VOICE", "2:SRC"
 };
 
+// ADC calibration values — Pod 1 indices 0-11, Pod 2 indices 12-23
 uint16_t swcValues[SWC_BUTTON_COUNT] = {
+  75, 150, 230, 310, 390, 470,
+  540, 610, 690, 760, 830, 900,
   75, 150, 230, 310, 390, 470,
   540, 610, 690, 760, 830, 900,
 };
@@ -129,9 +149,11 @@ const int musicPins[MUSIC_BTN_COUNT] = {MUS_PREV, MUS_NEXT, MUS_VOLUP, MUS_VOLDN
 unsigned long lastStalkTime = 0;
 bool lastStalkState = HIGH;
 
-// --- State: SWC ---
-int lastSWCButton = -1;
-unsigned long lastSWCTime = 0;
+// --- State: SWC (per-pod) ---
+int lastSWCButton1 = -1;
+int lastSWCButton2 = -1;
+unsigned long lastSWCTime1 = 0;
+unsigned long lastSWCTime2 = 0;
 bool calibrationMode = false;
 
 // --- State: light sensor ---
@@ -145,7 +167,7 @@ void readEncoder();
 void loadSWCCalibration();
 void saveSWCCalibration();
 void runCalibration();
-int readSWCButton();
+int readSWCButton(int pin, int offset);
 void reportLightLevel();
 
 void setup() {
@@ -172,7 +194,8 @@ void setup() {
   pinMode(STALK_BTN_PIN, INPUT_PULLUP);
 
   // Analog inputs (no pull-up needed)
-  pinMode(SWC_PIN, INPUT);
+  pinMode(SWC_PIN1, INPUT);
+  pinMode(SWC_PIN2, INPUT);
   pinMode(LDR_PIN, INPUT);
 
   // Encoder interrupt
@@ -262,20 +285,35 @@ void loop() {
     }
   }
 
-  // --- Handle SWC analog buttons ---
-  if ((now - lastSWCTime) > SWC_DEBOUNCE_MS) {
-    int btn = readSWCButton();
-    if (btn != lastSWCButton) {
+  // --- Handle SWC analog buttons (Pod 1 on A0, Pod 2 on A6) ---
+  if ((now - lastSWCTime1) > SWC_DEBOUNCE_MS) {
+    int btn = readSWCButton(SWC_PIN1, 0);
+    if (btn != lastSWCButton1) {
       if (btn >= 0) {
         handleSWCButton(btn);
-        Serial.print("SWC: ");
+        Serial.print("SWC1: ");
         Serial.print(SWC_NAMES[btn]);
         Serial.print(" (ADC=");
-        Serial.print(analogRead(SWC_PIN));
+        Serial.print(analogRead(SWC_PIN1));
         Serial.println(")");
       }
-      lastSWCButton = btn;
-      lastSWCTime = now;
+      lastSWCButton1 = btn;
+      lastSWCTime1 = now;
+    }
+  }
+  if ((now - lastSWCTime2) > SWC_DEBOUNCE_MS) {
+    int btn = readSWCButton(SWC_PIN2, SWC_BUTTONS_PER_POD);
+    if (btn != lastSWCButton2) {
+      if (btn >= 0) {
+        handleSWCButton(btn);
+        Serial.print("SWC2: ");
+        Serial.print(SWC_NAMES[btn]);
+        Serial.print(" (ADC=");
+        Serial.print(analogRead(SWC_PIN2));
+        Serial.println(")");
+      }
+      lastSWCButton2 = btn;
+      lastSWCTime2 = now;
     }
   }
 
@@ -343,53 +381,55 @@ void handleMusicButton(int buttonIndex) {
 }
 
 void handleSWCButton(int buttonIndex) {
-  switch (buttonIndex) {
-    case SWC_VOLUP:
+  // Pod 2 buttons (12-23) send the same keycodes as their Pod 1 equivalents
+  int base = buttonIndex % SWC_BUTTONS_PER_POD;
+  switch (base) {
+    case 0:  // VOLUP
       Consumer.write(MEDIA_VOLUME_UP);
       break;
-    case SWC_VOLDN:
+    case 1:  // VOLDN
       Consumer.write(MEDIA_VOLUME_DOWN);
       break;
-    case SWC_UP:
+    case 2:  // UP
       Keyboard.press(KEY_UP_ARROW);
       delay(10);
       Keyboard.release(KEY_UP_ARROW);
       break;
-    case SWC_DOWN:
+    case 3:  // DOWN
       Keyboard.press(KEY_DOWN_ARROW);
       delay(10);
       Keyboard.release(KEY_DOWN_ARROW);
       break;
-    case SWC_MUTE:
+    case 4:  // MUTE
       Consumer.write(MEDIA_VOLUME_MUTE);
       break;
-    case SWC_MODE:
-      Keyboard.press(KEY_HOME);
+    case 5:  // MODE → power toggle (F10)
+      Keyboard.press(KEY_F10);
       delay(10);
-      Keyboard.release(KEY_HOME);
+      Keyboard.release(KEY_F10);
       break;
-    case SWC_NEXT:
+    case 6:  // NEXT
       Consumer.write(MEDIA_NEXT);
       break;
-    case SWC_PREV:
+    case 7:  // PREV
       Consumer.write(MEDIA_PREVIOUS);
       break;
-    case SWC_PICKUP:
+    case 8:  // PICKUP
       Keyboard.press(KEY_F5);
       delay(10);
       Keyboard.release(KEY_F5);
       break;
-    case SWC_HANGUP:
+    case 9:  // HANGUP
       Keyboard.press(KEY_F6);
       delay(10);
       Keyboard.release(KEY_F6);
       break;
-    case SWC_VOICE:
+    case 10: // VOICE → voice AA trigger (F7)
       Keyboard.press(KEY_F7);
       delay(10);
       Keyboard.release(KEY_F7);
       break;
-    case SWC_SRC:
+    case 11: // SRC → navigate AA (F8)
       Keyboard.press(KEY_F8);
       delay(10);
       Keyboard.release(KEY_F8);
@@ -397,10 +437,10 @@ void handleSWCButton(int buttonIndex) {
   }
 }
 
-int readSWCButton() {
+int readSWCButton(int pin, int offset) {
   long sum = 0;
   for (int i = 0; i < 4; i++) {
-    sum += analogRead(SWC_PIN);
+    sum += analogRead(pin);
     delayMicroseconds(100);
   }
   int adc = sum / 4;
@@ -412,11 +452,11 @@ int readSWCButton() {
   int bestMatch = -1;
   int bestDiff = ADC_TOLERANCE + 1;
 
-  for (int i = 0; i < SWC_BUTTON_COUNT; i++) {
-    int diff = abs(adc - (int)swcValues[i]);
+  for (int i = 0; i < SWC_BUTTONS_PER_POD; i++) {
+    int diff = abs(adc - (int)swcValues[offset + i]);
     if (diff < bestDiff) {
       bestDiff = diff;
-      bestMatch = i;
+      bestMatch = offset + i;
     }
   }
 
@@ -466,19 +506,17 @@ void saveSWCCalibration() {
   Serial.println("SWC: Calibration saved to EEPROM");
 }
 
-void runCalibration() {
-  Serial.println();
-  Serial.println("=== SWC CALIBRATION MODE ===");
-  Serial.println("Press each steering wheel button when prompted.");
-  Serial.println("Release all buttons between presses.");
-  Serial.println();
+void calibratePod(int pin, int offset, const char* podName) {
+  Serial.print("--- Calibrating ");
+  Serial.print(podName);
+  Serial.println(" ---");
 
-  for (int i = 0; i < SWC_BUTTON_COUNT; i++) {
+  for (int i = 0; i < SWC_BUTTONS_PER_POD; i++) {
     Serial.print("Press: ");
-    Serial.print(SWC_NAMES[i]);
+    Serial.print(SWC_NAMES[offset + i]);
     Serial.println(" ...");
 
-    while (analogRead(SWC_PIN) < SWC_IDLE_THRESHOLD) {
+    while (analogRead(pin) < SWC_IDLE_THRESHOLD) {
       delay(50);
     }
     delay(300);
@@ -487,7 +525,7 @@ void runCalibration() {
     while (true) {
       long s = 0;
       for (int j = 0; j < 8; j++) {
-        s += analogRead(SWC_PIN);
+        s += analogRead(pin);
         delay(5);
       }
       adc = s / 8;
@@ -497,11 +535,36 @@ void runCalibration() {
       delay(20);
     }
 
-    swcValues[i] = adc;
+    swcValues[offset + i] = adc;
     Serial.print("  -> ADC = ");
     Serial.println(adc);
     delay(300);
   }
+
+  // Check for collisions within this pod
+  for (int i = 0; i < SWC_BUTTONS_PER_POD; i++) {
+    for (int j = i + 1; j < SWC_BUTTONS_PER_POD; j++) {
+      if (abs((int)swcValues[offset + i] - (int)swcValues[offset + j]) < ADC_TOLERANCE) {
+        Serial.print("  WARNING: ");
+        Serial.print(SWC_NAMES[offset + i]);
+        Serial.print(" and ");
+        Serial.print(SWC_NAMES[offset + j]);
+        Serial.println(" are too close! Re-calibrate.");
+      }
+    }
+  }
+}
+
+void runCalibration() {
+  Serial.println();
+  Serial.println("=== SWC CALIBRATION MODE (Dual Pod) ===");
+  Serial.println("Press each steering wheel button when prompted.");
+  Serial.println("Release all buttons between presses.");
+  Serial.println();
+
+  calibratePod(SWC_PIN1, 0, "Pod 1 (A0)");
+  Serial.println();
+  calibratePod(SWC_PIN2, SWC_BUTTONS_PER_POD, "Pod 2 (A6)");
 
   Serial.println();
   Serial.println("Calibration results:");
@@ -510,16 +573,6 @@ void runCalibration() {
     Serial.print(SWC_NAMES[i]);
     Serial.print(": ");
     Serial.println(swcValues[i]);
-
-    for (int j = i + 1; j < SWC_BUTTON_COUNT; j++) {
-      if (abs((int)swcValues[i] - (int)swcValues[j]) < ADC_TOLERANCE) {
-        Serial.print("  WARNING: ");
-        Serial.print(SWC_NAMES[i]);
-        Serial.print(" and ");
-        Serial.print(SWC_NAMES[j]);
-        Serial.println(" are too close! Re-calibrate.");
-      }
-    }
   }
 
   saveSWCCalibration();

@@ -57,4 +57,3 @@ opencv-python-headless>=4.8
 #     - xdotool                        (touch passthrough + fallback resizer)
 #     - xvfb                           (virtual framebuffer autoapp renders into)
 #
-# Optional: voice (Vosk) — pip install vosk sounddevice

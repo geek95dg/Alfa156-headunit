@@ -461,6 +461,11 @@ const App = (() => {
             // Listen for data updates
             DataStore.subscribe("*", onDataUpdate);
 
+            // SWC navigate_aa → switch to Android Auto screen
+            DataStore.subscribe("navigate_aa", (val) => {
+                if (val && _currentScreen !== "a2") navigateTo("a2");
+            });
+
             // Keyboard input
             document.addEventListener("keydown", handleKeyDown);
 
