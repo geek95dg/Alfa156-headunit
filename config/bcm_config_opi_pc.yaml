@@ -285,6 +285,8 @@ weather:
 power:
   shutdown_delay_seconds: 30
   backlight_fade_ms: 1000
+  standby_max_hours: 12
+  splash_duration_seconds: 15
   # Ignition watcher — see the header comment block at the top of
   # this file for the full 40-pin header map. Both lines below must
   # be picked from the "RELIABLY FREE" list; pin 33 maps to line
