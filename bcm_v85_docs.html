@@ -541,31 +541,46 @@ tr:hover td{background:var(--bg-card)}
   <table>
     <tr><th>Źródło</th><th>Typ</th><th>Funkcja</th></tr>
     <tr><td><strong>Ekran dotykowy 7/8"</strong></td><td>Capacitive USB HID</td><td>Główne sterowanie — tap, swipe L/R (zmiana ekranu)</td></tr>
-    <tr><td><strong>Przycisk SWC (kierownica)</strong></td><td>Analog → Arduino ADC</td><td>1 przycisk: cyklowanie ekranów A1→A2→...→A7→A1</td></tr>
+    <tr><td><strong>Dual-pod SWC (kierownica)</strong></td><td>Analog → Arduino ADC (A0, A6)</td><td>24 przyciski (12 per pod), konfigurowalne mapowanie w trybie uczenia (learn mode). Akcje: volume, mute, menu, next/prev track, phone, power toggle, voice AA, navigate AA</td></tr>
     <tr><td><strong>Przyciski fizyczne</strong></td><td>Arduino USB HID</td><td>Power on/off, previous track, next track</td></tr>
     <tr><td><strong>Klawiatura (x86)</strong></td><td>Fallback do testów</td><td>Strzałki, Enter, Home, R (reverse), H (settings)</td></tr>
   </table>
-  <div class="warn"><strong>Usunięte w v8.5:</strong> Enkoder obrotowy — niepotrzebny przy ekranie dotykowym. Kod Arduino do usunięcia.</div>
+  <h3>SWC Learn Mode <span class="dt dt-new">NOWE</span></h3>
+  <p>Konfiguracja przycisków SWC w ustawieniach (ekran Settings). Dla każdej akcji i każdego poda: kliknij ikonę konfiguracji → BCM czeka na sygnał z poda → po naciśnięciu przycisku na SWC, keycode jest przechwycony przez evdev i automatycznie zapisany jako mapowanie. Timeout: 10s. Backend: <code>/api/config/swc/learn</code> (POST start, GET poll). Mapowanie: <code>KEYCODE_TO_BUTTON</code> w <code>src/input/swc_remote.py</code>.</p>
+  <div class="warn"><strong>Usunięte w v8.5:</strong> Enkoder obrotowy — niepotrzebny przy ekranie dotykowym. SWC dropdown selectory zastąpione trybem uczenia (learn mode).</div>
 </section>
 
 <!-- ═══ S14 — POWER ═══ -->
 <section id="s14">
   <h2><span class="n">14</span>Zarządzanie energią</h2>
-  <h3>Maszyna stanów</h3>
-  <div class="code-block">STANDBY ──(zapłon ON)──→ WAKE ──→ ACTIVE ←──→ REVERSE
-    ↑                                    │
-    └───(zapłon OFF, 30s delay)──── SHUTDOWN</div>
-  <p><strong>Ignition:</strong> GPIO 85 (wejście optoisolowane). <strong>Central lock:</strong> GPIO 89 (sygnał zamknięcia → 30s odliczanie do shutdown).</p>
+  <h3>Maszyna stanów — deep idle (bez poweroff) <span class="dt dt-chg">ZMIANA</span></h3>
+  <div class="code-block">OS Boot → splash (mpv) → ignition watcher polls GPIO + evdev
+    │
+    ├─ [zapłon ON lub SWC MODE] → boot_mode cold/warm → start BCM
+    │   cold: skip init screen → ostatni ekran
+    │   warm: init 4s → ostatni ekran
+    │
+    ├─ [zapłon OFF lub SWC MODE] → stop BCM → deep idle (OS działa)
+    │
+    └─ [12h timer] → past_12h=True → następne wake = cold-like (splash)</div>
+  <p><strong>Deep idle:</strong> OS nigdy nie robi <code>sudo poweroff</code>. Po zapłonie OFF, BCM app zatrzymuje się, ale OPi działa dalej na baterii backup. Po 12h bez cold boot, następne wake odtwarza splash (mpv) i resetuje okno 12h.</p>
+  <p><strong>SWC power toggle:</strong> Przycisk SWC_MODE (KEY_F10) może włączyć BCM ze standby ORAZ wyłączyć BCM nawet gdy zapłon jest ON. Zarówno SWC jak i zapłon budzą BCM ze standby.</p>
+  <p><strong>Ignition:</strong> GPIO 7 / PA7 (wejście optoisolowane, pin 29). <strong>Central lock:</strong> GPIO 20 / PA20 (pin 37).</p>
+  <p><strong>Konfiguracja:</strong> <code>power.standby_max_hours: 12</code>, <code>power.splash_duration_seconds: 15</code> — czas trwania splasha konfigurowalny, domyślnie 15s.</p>
+  <p><strong>Stan:</strong> <code>/tmp/bcm_power_state</code> — plik stanu (boot_mode, first_boot_ts) odczytywany przez frontend via <code>/api/boot_mode</code>.</p>
+  <p>Implementacja: <code>src/power/ignition_watcher.py</code> (StandbyTimer, EvdevWakeMonitor, write_state)</p>
+
   <h3>Podświetlenie</h3>
   <p>PWM 1000Hz na GPIO 32 (4.3") i GPIO 33 (7/8"). Płynne przejścia (50 kroków, 1s). Jasność 0-100% niezależnie per ekran. Auto-jasność z czujnika LDR (Arduino A1).</p>
-  <h3>Shutdown</h3>
-  <p>Sekwencja: zatrzymaj DVR → zapisz stan → flush logi → sync → <code>sudo poweroff</code>.</p>
+  <h3>Shutdown (graceful app cleanup)</h3>
+  <p>Sekwencja: zatrzymaj DVR → zapisz stan → flush logi → sync → <strong>OS zostaje w deep idle</strong> (brak <code>sudo poweroff</code>). Cykl życia OS zarządzany wyłącznie przez ignition watcher.</p>
 
   <h3>Tryb RADIO <span class="dt dt-new">NOWE</span></h3>
-  <p>Uruchamiany <strong>fizycznym przyciskiem Power</strong> (NIE zapłonem). Ekran główny 7/8" ON, audio ON, mały ekran 4.3" OFF. Moduły OBD/parking/DVR wyłączone. Pobór: ~2A 5V + wzmacniacze audio. Wyjście: przycisk Power ponownie LUB uruchomienie silnika (zapłon → ACTIVE). Auto-timeout po konfigurowalnym czasie (30/60/120 min) aby nie rozładować akumulatora.</p>
+  <p>Uruchamiany <strong>przyciskiem SWC MODE</strong> (lub fizycznym Power). Ekran główny 7/8" ON, audio ON, mały ekran 4.3" OFF. Moduły OBD/parking/DVR wyłączone. Pobór: ~2A 5V + wzmacniacze audio. Wyjście: przycisk SWC MODE ponownie LUB uruchomienie silnika (zapłon → ACTIVE). Auto-timeout po konfigurowalnym czasie (30/60/120 min) aby nie rozładować akumulatora.</p>
 
   <h3>Bateria backup <span class="dt dt-new">NOWE</span></h3>
-  <p>Li-ion 18650 3.7V 5000mAh z ładowarką TP4056 i boost MT3608 (3.7V→5V). Przekaźnik przełącza między akumulatorem samochodowym a baterią backup. W trybie <strong>SUSPEND</strong> bateria zasila: Arduino centralnego zamka + modem LTE + GPS. Pobór: ~0.15A, wytrzymałość: ~30 godzin śledzenia intermittent.</p>
+  <p>Dodatkowa mała bateria (oddzielna od akumulatora samochodu) zasila OPi podczas 12h okna standby (deep idle). Arduino jest zawsze zasilane (bateria backup) i wysyła USB HID keycody.</p>
+  <p>Li-ion 18650 3.7V 5000mAh z ładowarką TP4056 i boost MT3608 (3.7V→5V). Przekaźnik przełącza między akumulatorem samochodowym a baterią backup. W trybie <strong>deep idle</strong> bateria zasila: OPi (OS idle) + Arduino + modem LTE + GPS. Pobór: ~0.15A, wytrzymałość: ~30 godzin.</p>
   <p>Implementacja: <code>src/power/battery.py</code> — monitorowanie napięcia baterii (Arduino ADC), progi: full 4.2V, nominal 3.7V, low 3.3V, krytyczny 3.0V.</p>
 
   <h3>Detekcja wypadku <span class="dt dt-new">NOWE</span></h3>

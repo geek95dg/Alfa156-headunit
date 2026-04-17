@@ -601,10 +601,11 @@ Now simulate ignition ON — from a second terminal (SSH in or
 sudo touch /tmp/bcm_ignition_on
 ```
 
-Within ~1 second the watcher starts `bcm-headunit.service`, which
-starts the Flask servers on :5002/:5003, which `bcm-kiosk.service`
-then connects to. The Chromium windows flip from "connection refused"
-to the init splash → A1 Dashboard.
+Within ~1 second the watcher starts `bcm-headunit.service` (first
+start logs `Boot mode: cold`), which starts the Flask servers on
+:5002/:5003, which `bcm-kiosk.service` then connects to. The
+Chromium windows flip from "connection refused" to the A1
+Dashboard (cold boot skips the 4s init screen).
 
 Simulate ignition OFF:
 
@@ -613,9 +614,16 @@ sudo rm /tmp/bcm_ignition_on
 ```
 
 `bcm-headunit.service` and `bcm-kiosk.service` stop cleanly. The
-Chromium windows stay open but show a connection error again, which
-is exactly the intended behaviour in car — the display stays lit
-but BCM is unloaded to save RAM.
+OS stays running (deep idle on backup battery). The Chromium
+windows stay open but show a connection error again. Repeat
+`touch /tmp/bcm_ignition_on` — this time the log shows
+`Boot mode: warm` and the frontend shows the 4s init screen.
+
+You can also test the SWC toggle (while BCM is running or stopped):
+
+```bash
+touch /tmp/bcm_swc_toggle
+```
 
 ### 2.6 journalctl cheat sheet
 
@@ -1255,31 +1263,63 @@ Press the PC-style button once:
 ```
 Bench button pressed — ignition ON
 === IGNITION ON — Starting BCM headunit ===
+Boot mode: cold
 systemctl start bcm-headunit.service — OK
 BCM headunit service started successfully
 ```
 
 Within ~5 s the Chromium kiosk on `:5002` flips from
-"connection refused" to the BCM init splash → A1 Dashboard.
-Press the button **again** to trigger the graceful shutdown:
+"connection refused" to the BCM dashboard (cold boot skips
+the 4s init screen, goes straight to last screen).
+
+Press the button **again** to stop BCM:
 
 ```
 Bench button pressed — ignition OFF
 === IGNITION OFF — Stopping BCM headunit ===
 systemctl stop bcm-headunit.service — OK
-BCM headunit service stopped
+BCM headunit service stopped — OS stays in deep idle
 ```
 
 `systemctl status bcm-headunit` should go from
-`active (running)` to `inactive (dead)`. Each subsequent press
-flips the state.
+`active (running)` to `inactive (dead)`. The OS stays running
+(deep idle). Each subsequent press flips the state. The second
+start will show `Boot mode: warm` (with 4s init screen).
+
+**SWC toggle test (simulation mode):** From another terminal:
+
+```bash
+# While BCM is running — puts BCM in standby:
+touch /tmp/bcm_swc_toggle
+
+# While BCM is stopped — wakes BCM:
+touch /tmp/bcm_swc_toggle
+```
+
+**12h timer test:** Set a short timeout in
+`config/bcm_config_opi_pc.yaml`:
+
+```yaml
+power:
+  standby_max_hours: 0.001    # 3.6 seconds for testing
+  splash_duration_seconds: 3  # shorter splash for testing
+```
+
+Then: ignition ON → BCM starts (cold) → ignition OFF → wait
+5s → ignition ON → splash plays 3s → BCM starts (cold-like,
+skip init).
 
 ### 5.4 Part 5 checklist
 
 - [ ] `systemctl is-enabled bcm-ignition-watcher` returns `enabled`.
-- [ ] On boot, the watcher starts and logs `Opened GPIO chip`.
+- [ ] On boot, the watcher starts and logs `Opened GPIO chip`,
+      `Standby window: 12h`, `Splash duration: 15s`.
 - [ ] Pressing the bench button triggers a start / stop of
       `bcm-headunit` within ~1 s.
+- [ ] First start shows `Boot mode: cold`. Second shows `warm`.
+- [ ] `touch /tmp/bcm_swc_toggle` toggles BCM on/off (simulation).
+- [ ] After ignition OFF, OS stays running (no poweroff).
+- [ ] `/tmp/bcm_power_state` file exists with `boot_mode=` line.
 - [ ] All Part 4 sensors still read correctly while BCM is running
       (no GPIO ownership conflicts).
 - [ ] The rig can cycle through at least 10 ignition on/off events

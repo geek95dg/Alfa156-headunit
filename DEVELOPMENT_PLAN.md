@@ -453,22 +453,32 @@ feed on 4.3" display (reverse gear + turn signal triggered).
 
 ## PART 9: Power Management
 
-**Goal:** Handle ignition-based wake/sleep, backlight control, graceful shutdown.
+**Goal:** Handle ignition-based wake/sleep, backlight control, graceful app cleanup. OS never powers off — deep idle with 12h standby window on backup battery.
 
 **Files to create:**
-- `src/power/power_manager.py` — State machine: STANDBY → WAKE → ACTIVE → REVERSE → SHUTDOWN
+- `src/power/power_manager.py` — In-app state machine: STANDBY → WAKE → ACTIVE → REVERSE → SHUTDOWN
 - `src/power/backlight.py` — PWM control for 2× display backlights (independent fade-in/out)
-- `src/power/shutdown.py` — Graceful shutdown: stop dashcam, flush logs, sync filesystem
+- `src/power/shutdown.py` — Graceful app cleanup: stop dashcam, flush logs, sync filesystem (no `sudo poweroff`)
+- `src/power/ignition_watcher.py` — Standalone systemd daemon: GPIO/evdev polling, 12h StandbyTimer, SWC EvdevWakeMonitor, boot mode state file
 
 **Key specs:**
-- Ignition signal via optoisolator (12V → 3.3V GPIO): HIGH = ignition ON
+- Ignition signal via optoisolator (12V → 3.3V GPIO): LOW = ignition ON (active-low via PC817)
+- SWC MODE button (KEY_F10 via Arduino evdev): toggles BCM on/off, works even without ignition
 - Central lock signal via optoisolator: lock → initiate shutdown timer (30s)
-- State machine:
+- **Deep idle lifecycle** (no poweroff):
+  - Cold boot: OS boots → mpv splash (15s configurable) → BCM starts → skip init → last screen
+  - Ignition OFF (within 12h): BCM stops, OS stays running (deep idle on backup battery)
+  - Ignition ON (within 12h): warm wake → init screen 4s → last screen
+  - After 12h: next wake replays splash (cold-like), resets 12h window
+  - If ignition ON when 12h expires: BCM keeps running, next stop marks boundary
+- Config: `power.standby_max_hours: 12`, `power.splash_duration_seconds: 15`
+- State file: `/tmp/bcm_power_state` (boot_mode, first_boot_ts) → frontend `/api/boot_mode`
+- State machine (in-app):
   - STANDBY: backlights OFF, ~100mA draw
   - WAKE: ignition ON → backlights fade-in (1s), start modules
   - ACTIVE: full operation, ~1.2A
   - REVERSE: reverse gear detected → parking mode on 4.3" screen
-  - SHUTDOWN: lock detected → save state → power down
+  - SHUTDOWN: lock detected → save state → OS stays alive (deep idle)
 - PWM backlight: 2× independent channels (GPIO PWM2 pin 32, PWM3 pin 33)
 
 **Electrical (OPi only):**
@@ -491,8 +501,8 @@ Optoisolators (5× PC817):
 ```
 
 **x86 vs OPi:**
-- x86: Simulated state machine via keyboard (I=ignition, R=reverse, L=lock)
-- OPi: Real GPIO inputs via optoisolators
+- x86: Simulated state machine via keyboard (I=ignition, R=reverse, L=lock). SWC sim: `touch /tmp/bcm_swc_toggle`. Ignition sim: `touch /tmp/bcm_ignition_on`
+- OPi: Real GPIO inputs via optoisolators + SWC via Arduino evdev (KEY_F10)
 
 **Dependencies:** Part 1 (HAL, event bus, config)
 
