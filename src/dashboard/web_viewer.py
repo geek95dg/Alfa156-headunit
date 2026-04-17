@@ -354,6 +354,65 @@ class WebViewer:
                 viewer._event_bus.publish("input.swc_config_changed", mapping)
             return jsonify({"ok": True})
 
+        # --- SWC learn mode ---
+
+        _swc_learn = {"active": False, "action": "", "pod": 0,
+                      "result": None, "ts": 0}
+
+        def _on_learn_keycode(topic, value, timestamp):
+            if not _swc_learn["active"] or not isinstance(value, int):
+                return
+            from src.input.swc_remote import KEYCODE_TO_BUTTON
+            btn_pair = KEYCODE_TO_BUTTON.get(value)
+            if not btn_pair:
+                return
+            pod = _swc_learn["pod"]
+            button_name = btn_pair[min(pod, 1)]
+            action = _swc_learn["action"]
+            _swc_learn["result"] = button_name
+            _swc_learn["active"] = False
+            cfg = viewer._config
+            if cfg and action:
+                from src.input.swc_remote import DEFAULT_MAPPING
+                mapping = cfg.get("swc.mapping")
+                if not isinstance(mapping, dict):
+                    mapping = dict(DEFAULT_MAPPING)
+                if action in mapping and isinstance(mapping[action], list):
+                    mapping[action][min(pod, len(mapping[action]) - 1)] = button_name
+                    cfg.set("swc.mapping", mapping)
+                    cfg.save()
+
+        def _on_learn_keyname(topic, value, timestamp):
+            if not _swc_learn["active"] or not isinstance(value, str):
+                return
+            from src.input.action_dispatch import KEYBOARD_MAP
+            keycode = KEYBOARD_MAP.get(value.lower())
+            if keycode is not None:
+                _on_learn_keycode("", keycode, timestamp)
+
+        if viewer._event_bus:
+            viewer._event_bus.subscribe("input.raw_keycode", _on_learn_keycode)
+            viewer._event_bus.subscribe("input.raw_keyname", _on_learn_keyname)
+
+        @app.route("/api/config/swc/learn", methods=["POST"])
+        def api_swc_learn_start():
+            data = request.get_json(silent=True) or {}
+            _swc_learn.update(
+                active=True, action=data.get("action", ""),
+                pod=data.get("pod", 0), result=None, ts=time.time())
+            return jsonify({"ok": True})
+
+        @app.route("/api/config/swc/learn", methods=["GET"])
+        def api_swc_learn_status():
+            if _swc_learn["active"] and time.time() - _swc_learn["ts"] > 10:
+                _swc_learn["active"] = False
+            return jsonify({
+                "active": _swc_learn["active"],
+                "result": _swc_learn["result"],
+                "action": _swc_learn["action"],
+                "pod": _swc_learn["pod"],
+            })
+
         # --- Boot mode API ---
 
         @app.route("/api/boot_mode")
