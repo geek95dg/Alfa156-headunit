@@ -8,7 +8,7 @@ this build: it has the same RK3588S SoC class, two HDMI outputs
 (**HDMI 2.1 + HDMI 2.0** — perfect for the 7" main + 4.3" small displays),
 built-in WiFi 6 + BT 5.0, and hardware H.264 encoding for the dashcam.
 4 GB of RAM is plenty for the full feature set including Android Auto,
-Vosk voice recognition, dashcam recording and the travel planner.
+dashcam recording and the travel planner.
 
 ---
 
@@ -62,17 +62,18 @@ instead of two, plus a 4-channel USB video grabber.
 
 ---
 
-## STAGE 3: Voice, Input, Connectivity
+## STAGE 3: Input, Connectivity
 
 | # | Component | Model / Spec | Qty | Price (PLN) | Notes |
 |---|-----------|-------------|-----|-------------|-------|
-| 25 | USB microphone #1 | Condenser, ceiling-mount | 1 | 30-60 | Vosk + HFP |
+| 25 | USB microphone | Condenser, ceiling-mount | 1 | 30-60 | HFP phone calls |
 | 26 | Input Arduino | Pro Micro (ATmega32U4) | 1 | 40-60 | SWC + rotary encoder |
+| 26a | **SWC button kits** | AliExpress round pods (2× pods + decoder box) | 2 | ~80 | Dual-pod, 24 buttons total, resistor-ladder → Arduino A0 |
 | 27 | Rotary encoder | Panel-mount with push button | 1 | 10-20 | |
 | 28 | GPS module | u-blox 7/8 USB | 1 | 40-80 | Built-in on some OPi 5 Pro revisions |
 | 29 | LTE modem | Huawei E3372 HiLink | 1 | 60-120 | Optional (for travel planner) |
 
-**Stage 3 cost: ~180 — 340 PLN**
+**Stage 3 cost: ~260 — 420 PLN**
 
 ---
 
@@ -114,11 +115,11 @@ instead of two, plus a 4-channel USB video grabber.
 |-------|--------------|-----|-----|------------|
 | 1. Core | Dashboard + Audio + OBD + dual HDMI + WiFi/BT | 1 000 | 1 560 | 1 000 – 1 560 |
 | 2. Cameras + sensors | 4-way cameras, parking, DS18B20, dashcam | 447 | 798 | 1 447 – 2 358 |
-| 3. Voice + input + LTE | SWC, GPS, LTE modem | 180 | 340 | 1 627 – 2 698 |
-| 4. Subwoofer + rain | | 63 | 102 | 1 690 – 2 800 |
-| 5. Security + tracking | Alarm, central lock, battery backup | 180 | 285 | 1 870 – 3 085 |
+| 3. Input + LTE | SWC dual-pod, GPS, LTE modem | 260 | 420 | 1 707 – 2 778 |
+| 4. Subwoofer + rain | | 63 | 102 | 1 770 – 2 880 |
+| 5. Security + tracking | Alarm, central lock, battery backup | 180 | 285 | 1 950 – 3 165 |
 
-### **Total: ~1 870 — 3 085 PLN**
+### **Total: ~1 950 — 3 165 PLN**
 
 ### Savings vs. the older OPi 5 Plus build
 

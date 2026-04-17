@@ -2,13 +2,13 @@
 
 ## Context
 
-This project builds a complete Body Computer Module (BCM v7) for an Alfa Romeo 156 1.9 JTD 8V (pre-facelift). It replaces the factory head unit with a dual-screen system based on Orange Pi 5 Plus, providing: vehicle diagnostics (K-Line/KWP2000), multimedia (Android Auto/CarPlay), dashcam, parking sensors, voice control, and a 4.1 audio system.
+This project builds a complete Body Computer Module (BCM v7) for an Alfa Romeo 156 1.9 JTD 8V (pre-facelift). It replaces the factory head unit with a dual-screen system based on Orange Pi 5 Plus, providing: vehicle diagnostics (K-Line/KWP2000), multimedia (Android Auto/CarPlay), dashcam, parking sensors, SWC steering wheel remote, and a 4.1 audio system.
 
 **Two-phase approach:**
 - **Phase A (x86):** Proof of concept on Debian/Ubuntu desktop — test UI, logic, and integration using simulated hardware (mock sensors, virtual displays in windows)
 - **Phase B (OPi):** Production deployment on Orange Pi 5 Plus with real GPIO, UART, cameras, and framebuffer rendering
 
-The plan is split into **13 independent parts**. Each part can be requested and implemented separately. Dependencies between parts are clearly noted.
+The plan is split into **12 independent parts**. Each part can be requested and implemented separately. Dependencies between parts are clearly noted.
 
 ---
 
@@ -22,7 +22,7 @@ Alfa156-headunit/
 ├── config/
 │   ├── bcm_config.yaml           # Master configuration
 │   ├── pipewire/                 # PipeWire configs (Part 6)
-│   └── systemd/                  # Service files (Part 13)
+│   └── systemd/                  # Service files (Part 12)
 ├── src/
 │   ├── core/                     # Part 1: Skeleton
 │   │   ├── __init__.py
@@ -68,38 +68,30 @@ Alfa156-headunit/
 │   │   ├── source_manager.py     # Audio source switching
 │   │   ├── ducking.py            # Audio priority & ducking system
 │   │   └── volume.py             # Volume control
-│   ├── voice/                    # Part 7: Vosk Voice Control
-│   │   ├── __init__.py
-│   │   ├── recognizer.py         # Vosk speech recognition
-│   │   ├── wake_word.py          # Wake word detection
-│   │   ├── commands.py           # Command grammar & dispatch
-│   │   ├── languages.py          # PL + EN command definitions
-│   │   ├── tts.py                # Text-to-speech announcements (pyttsx3)
-│   │   └── models/               # Vosk models (Polish + English)
-│   ├── input/                    # Part 8: Input Controllers
+│   ├── input/                    # Part 7: Input Controllers
 │   │   ├── __init__.py
 │   │   ├── rotary_encoder.py     # USB HID rotary encoder handler
 │   │   ├── swc_remote.py         # Steering wheel control (analog) button mapping
 │   │   ├── bt_remote.py          # BT steering wheel remote
 │   │   └── action_dispatch.py    # Key mapping → actions
-│   ├── camera/                   # Part 9: Cameras & Dashcam
+│   ├── camera/                   # Part 8: Cameras & Dashcam
 │   │   ├── __init__.py
 │   │   ├── dashcam.py            # GStreamer recording pipeline
 │   │   ├── reverse_cam.py        # Reverse camera display
 │   │   └── ahd_grabber.py        # AHD USB grabber interface
-│   ├── power/                    # Part 10: Power Management
+│   ├── power/                    # Part 9: Power Management
 │   │   ├── __init__.py
 │   │   ├── power_manager.py      # Wake/sleep state machine
 │   │   ├── backlight.py          # PWM backlight control
 │   │   └── shutdown.py           # Graceful shutdown sequence
-│   └── multimedia/               # Part 11: Android Auto / Media
+│   └── multimedia/               # Part 10: Android Auto / Media
 │       ├── __init__.py
 │       ├── openauto.py           # OpenAuto Pro integration
 │       └── bluetooth.py          # A2DP/HFP management
-├── arduino/                      # Part 8: Arduino firmware
+├── arduino/                      # Part 7: Arduino firmware
 │   └── rotary_encoder/
 │       └── rotary_encoder.ino    # ATmega32U4 USB HID firmware
-├── schematics/                   # Part 12: Electrical diagrams
+├── schematics/                   # Part 11: Electrical diagrams
 │   ├── README.md                 # Assembly instructions
 │   ├── main_wiring.svg           # Complete wiring diagram
 │   ├── kline_circuit.svg         # L9637D schematic
@@ -114,7 +106,7 @@ Alfa156-headunit/
 │   ├── test_obd.py
 │   ├── test_parking.py
 │   ├── test_environment.py
-│   ├── test_voice.py
+│   ├── test_input.py
 │   └── ...
 ├── requirements.txt              # Python dependencies
 ├── requirements-x86.txt          # x86-only deps (mock libs)
@@ -178,11 +170,10 @@ Alfa156-headunit/
 
 **BCM Settings Menu** (accessible via rotary encoder long-press HOME):
 - Theme selection (Classic Alfa / Modern Dark / OEM Digital)
-- Voice language (Polski / English)
 - Unit system (km/h + °C / mph + °F)
 - Display brightness (0-100%)
 - Audio EQ preset (Flat / Rock / Jazz / Bass Boost / Custom)
-- Wake word sensitivity (Low / Medium / High)
+- SWC button mapping (configurable via Web Settings UI)
 - All settings persisted in `bcm_config.yaml`
 
 **x86 vs OPi:**
@@ -362,90 +353,41 @@ Sensor mounted under front bumper (shielded from engine heat)
 - x86: PipeWire with default sound card (laptop/desktop speakers)
 - OPi: PipeWire with USB DAC (PCM5102A) as default sink
 
-**Dependencies:** Part 1 (config, event bus), Part 8 (volume control from input)
+**Dependencies:** Part 1 (config, event bus), Part 7 (volume control from input)
 
 **Testing:** x86 — play test tones, switch between sources, verify EQ applies
 
 ---
 
-## PART 7: Voice Control (Vosk Integration)
+## PART 7: Input Controllers
 
-**Goal:** Offline speech recognition with Vosk for hands-free car control.
-
-**Files to create:**
-- `src/voice/recognizer.py` — Vosk recognizer: microphone capture, continuous recognition
-- `src/voice/wake_word.py` — Wake word detection ("Hej komputer" or configurable)
-- `src/voice/commands.py` — Command grammar and dispatch to BCM modules
-- `src/voice/languages.py` — Language-specific command definitions (PL + EN)
-- `src/voice/tts.py` — Text-to-speech engine for voice announcements (pyttsx3, bilingual)
-- Download/place Vosk models:
-  - `src/voice/models/vosk-model-small-pl/` — Polish model (~50MB)
-  - `src/voice/models/vosk-model-small-en-us/` — English model (~40MB)
-
-**Key specs:**
-- **Dual language support** — Polish and English, switchable from BCM settings
-- Vosk small models (~40-50MB each) for low latency
-- Active language saved in config, switchable at runtime via voice command or settings menu
-- USB microphone input (mounted on ceiling/sun visor)
-- Wake word activates 5-second listening window
-  - Polish wake word: "Hej komputer"
-  - English wake word: "Hey computer"
-- Commands (Polish / English):
-  - "Pokaż temperaturę" / "Show temperature" → show temperature overlay
-  - "Włącz radio" / "Turn on radio" → switch audio to FM
-  - "Następny utwór" / "Next track" → track control
-  - "Poprzedni utwór" / "Previous track" → track control
-  - "Głośniej" / "Volume up" → volume +10%
-  - "Ciszej" / "Volume down" → volume -10%
-  - "Pokaż zużycie" / "Show consumption" → fuel consumption screen
-  - "Status samochodu" / "Car status" → read out RPM, temp, fuel via TTS
-  - "Nagrywaj" / "Start recording" → dashcam on
-  - "Zatrzymaj nagrywanie" / "Stop recording" → dashcam off
-  - "Zmień język" / "Change language" → toggle PL↔EN
-  - "Zmień styl" / "Change theme" → cycle dashboard theme
-- Audio feedback: short beep on wake word detection, spoken response via TTS (pyttsx3, language-matched)
-- **Voice announcements (TTS alerts)** — BCM speaks important events aloud:
-  - Icing warning: "Uwaga, temperatura spada poniżej zera, możliwy lód na drodze" / "Warning, temperature below zero, possible ice on road"
-  - Engine overheating: "Uwaga, wysoka temperatura silnika" / "Warning, engine temperature high"
-  - Low fuel: "Niski poziom paliwa" / "Low fuel level"
-  - Service reminder: "Zbliża się termin przeglądu" / "Service due soon"
-  - Reverse gear engaged: short beep (no voice, parking sensors take over)
-  - All voice announcements trigger audio ducking (music fades to background)
-
-**x86 vs OPi:**
-- x86: Same — USB microphone or laptop built-in mic, Vosk works on x86 natively
-- OPi: Same Vosk model, USB mic, may need to test latency
-
-**Dependencies:** Part 1 (event bus), Part 6 (audio source management for mic routing)
-
-**Testing:** x86 — speak commands into mic, verify events dispatched correctly. Test in quiet and noisy (car engine sound playback) conditions.
-
----
-
-## PART 8: Input Controllers
-
-**Goal:** Handle rotary encoder (USB HID), steering wheel control (SWC) remote, and Bluetooth steering wheel remote.
+**Goal:** Handle rotary encoder (USB HID), steering wheel control (SWC) remote with dual-pod support, and Bluetooth steering wheel remote.
 
 **Files to create:**
 - `arduino/rotary_encoder/rotary_encoder.ino` — Arduino Pro Micro firmware: encoder + 5 buttons + SWC analog → USB HID keycodes
 - `src/input/rotary_encoder.py` — Listen for USB HID events from Arduino (via `evdev` or `hidapi`)
-- `src/input/swc_remote.py` — SWC button definitions and action mappings
+- `src/input/swc_remote.py` — SWC button definitions and action mappings (action-centric config via `swc.mapping`)
 - `src/input/bt_remote.py` — Listen for BT HID events from steering wheel remote (via `evdev`)
-- `src/input/action_dispatch.py` — Map keycodes to actions (navigate menu, volume, phone, voice, etc.)
+- `src/input/action_dispatch.py` — Map keycodes to actions (navigate menu, volume, phone, etc.)
 
 **Key specs:**
 - Arduino Pro Micro (ATmega32U4) as USB HID keyboard
   - Encoder rotation → UP/DOWN arrows
   - Encoder push → ENTER
   - Buttons: HOME, BACK, MEDIA, VOL+, VOL-
-  - SWC analog input (A0): 12 steering wheel buttons via resistor-ladder decoder
-- SWC Remote (2× round pods + decoder box):
-  - Pod 1: VOL+, VOL-, UP, DOWN, MUTE, MODE
-  - Pod 2: PHONE PICKUP, PHONE HANGUP, PREV, NEXT, VOICE, SRC
+  - SWC analog input (A0): up to 24 steering wheel buttons via resistor-ladder decoder (dual-pod)
+- **Dual-pod SWC Remote** (2× round pods from AliExpress button kits + decoder box, 24 buttons total):
+  - Pod 1: VOL+, VOL-, UP, DOWN, MUTE, MODE, and more
+  - Pod 2: PHONE PICKUP, PHONE HANGUP, PREV, NEXT, SRC, and more
   - Decoder box: red=12V, black=GND, white=analog signal → Arduino A0
   - Calibration mode: hold HOME+BACK at Arduino boot, follow serial prompts
+  - **Configurable button mapping** via Web Settings UI — buttons are mapped to actions through `swc.mapping` config (action-centric, replaces old `swc.buttons`)
+- **New action types:**
+  - `bcm_power_toggle` — toggle BCM power on/off from steering wheel
+  - `voice_aa_trigger` — trigger Android Auto voice assistant
+  - `navigate_aa` — navigate to the Android Auto screen
 - BT Remote (off-the-shelf BT HID): VOL+, VOL-, NEXT, PREV, PLAY/PAUSE, PHONE
-- Action mapping published to event bus: `input.menu_up`, `input.volume_up`, `input.phone_pickup`, `input.voice_trigger`, `input.source_cycle`, etc.
+- Action mapping published to event bus: `input.menu_up`, `input.volume_up`, `input.phone_pickup`, `input.source_cycle`, etc.
 
 **Arduino wiring:**
 ```
@@ -473,7 +415,7 @@ SWC decoder: red → 12V ACC, black → chassis GND, white → A0
 
 ---
 
-## PART 9: Camera & Dashcam System
+## PART 8: Camera & Dashcam System
 
 **Goal:** 4-channel AHD dashcam recording + multi-camera auto-switching
 feed on 4.3" display (reverse gear + turn signal triggered).
@@ -503,13 +445,13 @@ feed on 4.3" display (reverse gear + turn signal triggered).
 - x86: USB webcam as mock camera, software x264 encoding
 - OPi: AHD grabber + hardware H.264 encoding (RK3588 VPU)
 
-**Dependencies:** Part 1 (config, event bus), Part 2 (reverse camera overlay), Part 10 (reverse gear event)
+**Dependencies:** Part 1 (config, event bus), Part 2 (reverse camera overlay), Part 9 (reverse gear event)
 
 **Testing:** x86 — record from webcam for 60s, verify file created and playable
 
 ---
 
-## PART 10: Power Management
+## PART 9: Power Management
 
 **Goal:** Handle ignition-based wake/sleep, backlight control, graceful shutdown.
 
@@ -558,7 +500,7 @@ Optoisolators (5× PC817):
 
 ---
 
-## PART 11: Android Auto / Multimedia (7" Screen)
+## PART 10: Android Auto / Multimedia (7" Screen)
 
 **Goal:** Set up OpenAuto Pro on the 7" screen with Bluetooth audio.
 
@@ -578,13 +520,13 @@ Optoisolators (5× PC817):
 - x86: OpenAuto Pro in windowed mode (if available) or stub with BT audio only
 - OPi: OpenAuto Pro full-screen on HDMI-2, EGL/SDL2 rendering
 
-**Dependencies:** Part 1 (config), Part 6 (PipeWire routing), Part 8 (BT remote control)
+**Dependencies:** Part 1 (config), Part 6 (PipeWire routing), Part 7 (BT remote control)
 
 **Testing:** x86 — pair phone via BT, stream music, verify audio output
 
 ---
 
-## PART 12: Electrical Schematics & Hardware Assembly
+## PART 11: Electrical Schematics & Hardware Assembly
 
 **Goal:** Create clear, complete electrical diagrams and assembly instructions.
 
@@ -619,7 +561,7 @@ Optoisolators (5× PC817):
 
 ---
 
-## PART 13: System Integration & Testing
+## PART 12: System Integration & Testing
 
 **Goal:** Wire all modules together, create systemd services, perform end-to-end testing.
 
@@ -632,7 +574,7 @@ Optoisolators (5× PC817):
   systemd `BindsTo=`. Starts after Flask on :5002 is reachable.
 
 The earlier draft of this plan listed a separate service per
-module (bcm-dashboard, bcm-obd, bcm-dashcam, bcm-voice, bcm-power)
+module (bcm-dashboard, bcm-obd, bcm-dashcam, bcm-power)
 but the actual implementation consolidates every module into the
 single `bcm-headunit` service — all modules share one event bus
 and one Python process, which is simpler and lets the ignition
@@ -643,7 +585,7 @@ watcher control the whole stack atomically.
 - Event bus is in-process (`src/core/event_bus.py`) — no Unix
   sockets / Redis IPC is required because everything runs in the
   same `main.py` process under `--frontend` mode
-- Boot sequence: power_manager → dashboard → obd → dashcam → voice → multimedia
+- Boot sequence: power_manager → dashboard → obd → dashcam → multimedia
 - Total boot time target: <3 seconds from ignition to dashboard display
 - Watchdog: systemd watchdog for each service, auto-restart on crash
 
@@ -653,7 +595,7 @@ watcher control the whole stack atomically.
 
 **Dependencies:** All other parts (this is the final integration)
 
-**Testing:** Full integration test: simulate ignition → dashboard appears → OBD data flows → voice command → dashcam recording → reverse gear → parking overlay → shutdown
+**Testing:** Full integration test: simulate ignition → dashboard appears → OBD data flows → dashcam recording → reverse gear → parking overlay → SWC button actions → shutdown
 
 ---
 
@@ -666,13 +608,12 @@ Part 1 (Skeleton) ← foundation for everything
   │     └── Part 5 (Environment) ← overlay on dashboard
   ├── Part 3 (OBD) ← data for dashboard
   ├── Part 6 (Audio) ← sound system
-  │     └── Part 7 (Voice) ← uses audio for mic
-  ├── Part 8 (Input) ← controls everything
-  ├── Part 9 (Camera) ← depends on Part 2 (overlay) + Part 10 (reverse)
-  ├── Part 10 (Power) ← state management
-  ├── Part 11 (Multimedia) ← depends on Part 6 (audio)
-  ├── Part 12 (Schematics) ← independent, hardware docs
-  └── Part 13 (Integration) ← depends on all
+  ├── Part 7 (Input) ← controls everything (dual-pod SWC, BT remote)
+  ├── Part 8 (Camera) ← depends on Part 2 (overlay) + Part 9 (reverse)
+  ├── Part 9 (Power) ← state management
+  ├── Part 10 (Multimedia) ← depends on Part 6 (audio)
+  ├── Part 11 (Schematics) ← independent, hardware docs
+  └── Part 12 (Integration) ← depends on all
 ```
 
 ## Recommended Implementation Order
@@ -680,16 +621,15 @@ Part 1 (Skeleton) ← foundation for everything
 1. **Part 1** — Project Skeleton (required first)
 2. **Part 2** — Dashboard Renderer (visual feedback early)
 3. **Part 3** — OBD-II Communication (core car data)
-4. **Part 8** — Input Controllers (interact with dashboard)
+4. **Part 7** — Input Controllers / SWC Remote (interact with dashboard)
 5. **Part 5** — Temperature Monitoring (simple sensor, visible result)
-6. **Part 7** — Voice Control / Vosk (key feature, test early)
-7. **Part 4** — Parking Sensors (needs dashboard overlay)
-8. **Part 10** — Power Management (state machine)
-9. **Part 6** — Audio / PipeWire (complex config)
-10. **Part 9** — Camera / Dashcam (GStreamer pipeline)
-11. **Part 11** — Multimedia / Android Auto (external dependency)
-12. **Part 12** — Electrical Schematics (can be done anytime)
-13. **Part 13** — System Integration (last)
+6. **Part 4** — Parking Sensors (needs dashboard overlay)
+7. **Part 9** — Power Management (state machine)
+8. **Part 6** — Audio / PipeWire (complex config)
+9. **Part 8** — Camera / Dashcam (GStreamer pipeline)
+10. **Part 10** — Multimedia / Android Auto (external dependency)
+11. **Part 11** — Electrical Schematics (can be done anytime)
+12. **Part 12** — System Integration (last)
 
 ## Verification
 
@@ -710,6 +650,6 @@ For OPi deployment:
 6. `sudo systemctl enable bcm-ignition-watcher.service`
    (the watcher pulls in `bcm-headunit` and `bcm-kiosk` via
    `Requires=` / `BindsTo=` — do NOT enable those two directly)
-7. Connect hardware per Part 12 schematics
-8. Full integration test per Part 13 (see `docs/OPI_PC_SETUP.md`
+7. Connect hardware per Part 11 schematics
+8. Full integration test per Part 12 (see `docs/OPI_PC_SETUP.md`
    or `docs/OPI5PRO_SETUP.md` for the verified step-by-step flow)

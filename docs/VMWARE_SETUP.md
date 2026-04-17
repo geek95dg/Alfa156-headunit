@@ -390,7 +390,7 @@ Run through this checklist to verify the full system:
 - [ ] EQ configuration loads
 
 ### Voice (Part 7)
-- [ ] Vosk model loads (or stub mode)
+- [ ] SWC voice button triggers Google Assistant via xdotool tap
 - [ ] Keyboard commands work as fallback
 - [ ] Voice events published to event bus
 

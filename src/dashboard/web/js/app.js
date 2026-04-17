@@ -461,25 +461,37 @@ const App = (() => {
             // Listen for data updates
             DataStore.subscribe("*", onDataUpdate);
 
+            // SWC navigate_aa → switch to Android Auto screen
+            DataStore.subscribe("navigate_aa", (val) => {
+                if (val && _currentScreen !== "a2") navigateTo("a2");
+            });
+
             // Keyboard input
             document.addEventListener("keydown", handleKeyDown);
 
             // Touch swipe navigation (for touchscreen)
             _initTouchSwipe();
 
-            // Start at init screen, then auto-transition to the last
-            // remembered screen (or A1 on first launch).
             const restoreTarget = _loadLastScreen() || "a1";
-            navigateTo("init");
+            let bootMode = "warm";
+            try {
+                const res = await fetch("/api/boot_mode");
+                const bm = await res.json();
+                bootMode = bm.boot_mode || "warm";
+            } catch (e) { /* default to warm */ }
 
-            setTimeout(() => {
-                if (_currentScreen === "init") {
-                    navigateTo(restoreTarget);
-                }
-            }, 4000);
+            if (bootMode === "cold") {
+                navigateTo(restoreTarget);
+            } else {
+                navigateTo("init");
+                setTimeout(() => {
+                    if (_currentScreen === "init") {
+                        navigateTo(restoreTarget);
+                    }
+                }, 4000);
+            }
         },
     };
 })();
 
-// Boot — use window.onload to ensure all screen scripts have registered
 window.addEventListener("load", () => App.init());

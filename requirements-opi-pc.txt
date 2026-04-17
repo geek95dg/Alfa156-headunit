@@ -104,6 +104,3 @@ simple-websocket>=1.0
 #     - xserver-xorg-input-libinput xserver-xorg-input-evdev
 #     - xserver-xorg-legacy xinit x11-xserver-utils unclutter
 #
-# Optional (enable voice module — tight on 1GB RAM):
-#   pip install vosk sounddevice
-#   Download: vosk-model-small-pl (~50MB)
