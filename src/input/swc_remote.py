@@ -1,56 +1,76 @@
-"""Steering wheel control (SWC) remote — analog resistor-ladder buttons.
+"""Steering wheel control (SWC) remote — dual-pod analog resistor-ladder buttons.
 
-The SWC decoder box converts button presses into analog voltages on a single
-wire. The Arduino Pro Micro reads this via ADC pin A0 and sends USB HID
-keycodes to the host (same as rotary encoder — single Arduino handles both).
+Two identical AliExpress button pods (12 buttons each, 24 total) connected via
+resistor ladders to Arduino ADC pins A0 (Pod 1) and A1 (Pod 2). The Arduino
+decodes voltage levels and sends USB HID keycodes to the host.
 
-This module provides:
-    - SWC-specific keycode constants
-    - Default and configurable button-to-action mappings
-    - Simulator for x86 development (keyboard shortcuts)
-    - Button name/action mapping for UI display
+Config format (action-centric, supports 2 buttons per action):
 
-Button actions can be overridden in BCM settings (page 2: SWC BUTTON MAPPING).
-Custom mappings are stored in config under swc.buttons.<BUTTON_NAME>.
+    swc:
+      mapping:
+        volume_up:   [SWC_VOLUP, SWC2_VOLUP]
+        next_track:  [SWC_NEXT,  ""]           # Pod 2 slot disabled
 
-The actual hardware input is handled by the Arduino firmware
-(arduino/rotary_encoder/rotary_encoder.ino) which outputs standard USB HID
-keycodes. Those keycodes are received by RotaryEncoderListener (same evdev
-device) and dispatched through ActionDispatcher.
+Physical button names: SWC_VOLUP..SWC_SRC for Pod 1,
+SWC2_VOLUP..SWC2_SRC for Pod 2.
 
-SWC button layout (2x round pods, 6 buttons each):
+SWC button layout (2x round pods, 6 buttons each, duplicated for 2 kits):
 
-  Pod 1 (media/nav):        Pod 2 (phone/audio):
-    VOL+  VOL-                PICKUP  HANGUP
-    UP    DOWN                PREV    NEXT
-    MUTE  MODE                VOICE   SRC
+  Pod 1 kit 1 (media/nav):     Pod 1 kit 2 (phone/audio):
+    VOL+  VOL-                    PICKUP  HANGUP
+    UP    DOWN                    PREV    NEXT
+    MUTE  MODE                    VOICE   SRC
+
+  Pod 2 kit 1:                  Pod 2 kit 2:
+    (same layout as above, prefixed SWC2_)
 """
 
-from typing import Any, Optional
+from typing import Any
 
 from src.core.logger import get_logger
 
 log = get_logger("input.swc")
 
-# Default SWC button-to-action mappings
-# These are the base mappings; user can override via settings
-SWC_BUTTONS = {
-    "SWC_VOLUP":  "volume_up",       # Consumer: MEDIA_VOLUME_UP
-    "SWC_VOLDN":  "volume_down",     # Consumer: MEDIA_VOLUME_DOWN
-    "SWC_UP":     "menu_up",         # KEY_UP_ARROW
-    "SWC_DOWN":   "menu_down",       # KEY_DOWN_ARROW
-    "SWC_MUTE":   "mute",            # Consumer: MEDIA_VOLUME_MUTE
-    "SWC_MODE":   "home",            # KEY_HOME
-    "SWC_NEXT":   "next_track",      # Consumer: MEDIA_NEXT
-    "SWC_PREV":   "prev_track",      # Consumer: MEDIA_PREVIOUS
-    "SWC_PICKUP": "phone_pickup",    # KEY_F5
-    "SWC_HANGUP": "phone_hangup",    # KEY_F6
-    "SWC_VOICE":  "voice_trigger",   # KEY_F7
-    "SWC_SRC":    "source_cycle",    # KEY_F8
+# All 24 physical SWC button names (12 per pod)
+POD1_BUTTONS = [
+    "SWC_VOLUP", "SWC_VOLDN", "SWC_UP", "SWC_DOWN", "SWC_MUTE", "SWC_MODE",
+    "SWC_NEXT", "SWC_PREV", "SWC_PICKUP", "SWC_HANGUP", "SWC_VOICE", "SWC_SRC",
+]
+
+POD2_BUTTONS = [
+    "SWC2_VOLUP", "SWC2_VOLDN", "SWC2_UP", "SWC2_DOWN", "SWC2_MUTE", "SWC2_MODE",
+    "SWC2_NEXT", "SWC2_PREV", "SWC2_PICKUP", "SWC2_HANGUP", "SWC2_VOICE", "SWC2_SRC",
+]
+
+ALL_BUTTONS = POD1_BUTTONS + POD2_BUTTONS
+
+ACTIONS = [
+    "volume_up", "volume_down", "mute",
+    "menu_up", "menu_down",
+    "next_track", "prev_track", "play_pause",
+    "phone_pickup", "phone_hangup",
+    "bcm_power_toggle", "voice_aa_trigger", "navigate_aa",
+    "home", "back", "source_cycle", "brightness_cycle",
+    "disabled",
+]
+
+# Default mapping: action → [pod1_button, pod2_button]
+DEFAULT_MAPPING: dict[str, list[str]] = {
+    "volume_up":        ["SWC_VOLUP",   "SWC2_VOLUP"],
+    "volume_down":      ["SWC_VOLDN",   "SWC2_VOLDN"],
+    "next_track":       ["SWC_NEXT",    "SWC2_NEXT"],
+    "prev_track":       ["SWC_PREV",    "SWC2_PREV"],
+    "mute":             ["SWC_MUTE",    "SWC2_MUTE"],
+    "phone_pickup":     ["SWC_PICKUP",  "SWC2_PICKUP"],
+    "phone_hangup":     ["SWC_HANGUP",  "SWC2_HANGUP"],
+    "bcm_power_toggle": ["SWC_MODE",    "SWC2_MODE"],
+    "voice_aa_trigger": ["SWC_VOICE",   "SWC2_VOICE"],
+    "navigate_aa":      ["SWC_SRC",     "SWC2_SRC"],
+    "menu_up":          ["SWC_UP",      "SWC2_UP"],
+    "menu_down":        ["SWC_DOWN",    "SWC2_DOWN"],
 }
 
 # evdev keycodes for the F-key SWC actions (phone, voice, source)
-# These are the Linux input event codes for the keys the Arduino sends
 KEY_F5 = 63     # Phone pickup
 KEY_F6 = 64     # Phone hangup
 KEY_F7 = 65     # Voice assistant
@@ -58,32 +78,39 @@ KEY_F8 = 66     # Audio source cycle
 KEY_MUTE = 113  # Volume mute
 
 
-def get_swc_button_names() -> list[str]:
-    """Return list of SWC button names for UI/config display."""
-    return list(SWC_BUTTONS.keys())
+def get_all_button_names() -> list[str]:
+    """Return all 24 physical SWC button names."""
+    return list(ALL_BUTTONS)
 
 
-def get_swc_action(button_name: str) -> str | None:
-    """Get the default action for a SWC button."""
-    return SWC_BUTTONS.get(button_name)
+def build_button_to_action_map(config: Any = None) -> dict[str, str]:
+    """Build inverted button→action lookup from the action→[btn1,btn2] config.
+
+    Reads swc.mapping from config (action-centric), inverts it into
+    a flat dict: {"SWC_VOLUP": "volume_up", "SWC2_VOLUP": "volume_up", ...}.
+    """
+    mapping = DEFAULT_MAPPING
+    if config:
+        cfg_mapping = config.get("swc.mapping")
+        if isinstance(cfg_mapping, dict):
+            mapping = cfg_mapping
+
+    result: dict[str, str] = {}
+    for action, buttons in mapping.items():
+        if action == "disabled" or action not in ACTIONS:
+            continue
+        if not isinstance(buttons, list):
+            buttons = [buttons]
+        for btn in buttons:
+            if btn and isinstance(btn, str) and btn in ALL_BUTTONS:
+                result[btn] = action
+    return result
 
 
 def get_swc_action_with_override(button_name: str, config: Any) -> str | None:
-    """Get the effective action for a SWC button, checking config overrides first.
-
-    Args:
-        button_name: SWC button name (e.g. "SWC_VOLUP")
-        config: BCMConfig instance
-
-    Returns:
-        Action suffix string (e.g. "volume_up") or None if disabled.
-    """
-    config_key = f"swc.buttons.{button_name}"
-    override = config.get(config_key) if config else None
-
-    if override is not None:
-        if override == "disabled":
-            return None
-        return override
-
-    return SWC_BUTTONS.get(button_name)
+    """Get the effective action for a SWC button from the config mapping."""
+    btn_map = build_button_to_action_map(config)
+    action = btn_map.get(button_name)
+    if action == "disabled":
+        return None
+    return action

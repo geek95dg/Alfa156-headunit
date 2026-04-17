@@ -136,9 +136,6 @@ sudo apt install -y \
 sudo apt install -y \
     v4l-utils
 
-# Optional: voice control
-sudo apt install -y \
-    python3-sounddevice portaudio19-dev
 ```
 
 ### 3.2 Enable hardware interfaces
@@ -214,23 +211,7 @@ pip install -r requirements-opi.txt
 python -m pytest tests/ -v
 ```
 
-### 4.2 Vosk speech models
-
-```bash
-cd /opt/bcm/src/voice/models
-
-# Polish model (~40MB)
-wget https://alphacephei.com/vosk/models/vosk-model-small-pl-0.22.zip
-unzip vosk-model-small-pl-0.22.zip
-mv vosk-model-small-pl-0.22 vosk-model-small-pl
-
-# English model (~40MB)
-wget https://alphacephei.com/vosk/models/vosk-model-small-en-us-0.15.zip
-unzip vosk-model-small-en-us-0.15.zip
-mv vosk-model-small-en-us-0.15 vosk-model-small-en-us
-```
-
-### 4.3 PipeWire configuration
+### 4.2 PipeWire configuration
 
 ```bash
 # User-level PipeWire config for USB DAC
@@ -284,7 +265,6 @@ bcm-power.service          ← starts first (ignition, shutdown, backlight)
     ├── bcm-dashboard.service  ← depends on power (4.3" TFT renderer)
     ├── bcm-obd.service        ← depends on power (K-Line ECU comms)
     ├── bcm-dashcam.service    ← depends on power (GStreamer recording)
-    ├── bcm-voice.service      ← depends on power (Vosk recognition)
     └── bcm-multimedia.service ← depends on power (OpenAuto + BT)
 ```
 
@@ -293,7 +273,7 @@ bcm-power.service          ← starts first (ignition, shutdown, backlight)
 ```bash
 # Enable all services
 sudo systemctl enable bcm-power bcm-dashboard bcm-obd \
-    bcm-dashcam bcm-voice bcm-multimedia
+    bcm-dashcam bcm-multimedia
 
 # Start manually (for testing)
 sudo systemctl start bcm-power
@@ -633,7 +613,7 @@ bcm-dashboard.service starts (gauges render in ~2s)
     ↓
 bcm-obd.service starts (K-Line init, ECU handshake)
     ↓
-bcm-dashcam.service, bcm-voice.service, bcm-multimedia.service
+bcm-dashcam.service, bcm-multimedia.service
 ```
 
 **Target boot time:** < 3 seconds from ignition to dashboard visible.
@@ -712,7 +692,7 @@ df -h                          # Disk usage
 journalctl -u bcm-* --since today  # Today's logs
 
 # BCM status
-sudo systemctl status bcm-power bcm-dashboard bcm-obd bcm-dashcam bcm-voice bcm-multimedia
+sudo systemctl status bcm-power bcm-dashboard bcm-obd bcm-dashcam bcm-multimedia
 ```
 
 ### 14.4 Common issues
@@ -726,7 +706,6 @@ sudo systemctl status bcm-power bcm-dashboard bcm-obd bcm-dashcam bcm-voice bcm-
 | High CPU temp | Check heatsink on RK3588, add small fan if >75C |
 | Dashboard freezes | Check `journalctl -u bcm-dashboard`, restart service |
 | Bluetooth won't pair | `bluetoothctl power off && bluetoothctl power on`, re-scan |
-| Vosk not loading | Verify model paths in config, check RAM usage (needs ~200MB) |
 | Boot too slow | Apply fast boot optimizations (section 13.3) |
 
 ---

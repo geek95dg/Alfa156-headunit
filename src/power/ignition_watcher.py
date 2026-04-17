@@ -5,10 +5,16 @@ Runs at boot as a lightweight daemon. When the ignition signal arrives
 (12V via PC817 optoisolator → GPIO LOW), it starts the main BCM headunit
 service. When ignition goes OFF, it triggers graceful BCM shutdown.
 
-This mimics real in-car behavior: the OPi PC is always powered (standby),
-but the BCM application only runs while the ignition key is turned.
+The OPi stays powered via a small backup battery. The OS never shuts
+down — it idles without BCM (deep idle) until the next wake signal.
+After 12 hours without a fresh boot, the next wake replays the boot
+splash (cold-like wake) and resets the 12h window.
 
-Supports two input modes:
+Wake signals:
+  - Ignition ON (GPIO / bench button / sim file)
+  - SWC MODE button press (Arduino evdev KEY_F10)
+
+Supports two GPIO input modes:
   1. Optoisolator input (production/car): 12V ignition → PC817 → GPIO
      Active-low: GPIO reads LOW when 12V is present (PC817 pulls down)
   2. Bench button (test rig): momentary push button on a GPIO pin
@@ -27,6 +33,7 @@ import argparse
 import signal
 import subprocess
 import sys
+import threading
 import time
 from pathlib import Path
 from typing import Optional
@@ -50,12 +57,25 @@ except ImportError:
 
 DEFAULT_CONFIG = "config/bcm_config_opi_pc.yaml"
 DEFAULT_CHIP = "gpiochip0"
-DEFAULT_IGNITION_LINE = 7       # PA7, physical pin 29
-DEFAULT_BENCH_BUTTON_LINE = 37  # PB5, physical pin 33
+
+# OPi PC (Allwinner H3) 40-pin header safe defaults — the old draft
+# of this module had DEFAULT_BENCH_BUTTON_LINE=37 but line 37 is PB5
+# on the H3, which is NOT exposed on the 40-pin header at all. BCM
+# never could have claimed that line on real hardware. Pick two
+# libgpiod lines that are actually on the header and marked "unused"
+# by `gpioinfo gpiochip0` on a stock Armbian Trixie image:
+#   ignition_line     = 7    → PA7,  physical pin 29
+#   bench_button_line = 203  → PG11, physical pin 38
+DEFAULT_IGNITION_LINE = 7
+DEFAULT_BENCH_BUTTON_LINE = 203
 DEFAULT_DEBOUNCE_MS = 200
 DEFAULT_ACTIVE_LOW = True
 BCM_SERVICE_NAME = "bcm-headunit.service"
+SPLASH_SERVICE_NAME = "bcm-splash-main.service"
 POLL_INTERVAL_S = 0.1
+STATE_FILE = Path("/tmp/bcm_power_state")
+DEFAULT_STANDBY_MAX_HOURS = 12
+DEFAULT_SPLASH_DURATION_S = 15
 
 
 # ── Config loader ──────────────────────────────────────────────────────────
@@ -68,6 +88,8 @@ def load_config(config_path: str) -> dict:
         "bench_button_line": DEFAULT_BENCH_BUTTON_LINE,
         "debounce_ms": DEFAULT_DEBOUNCE_MS,
         "active_low": DEFAULT_ACTIVE_LOW,
+        "standby_max_hours": DEFAULT_STANDBY_MAX_HOURS,
+        "splash_duration_seconds": DEFAULT_SPLASH_DURATION_S,
     }
     path = Path(config_path)
     if not path.exists() or yaml is None:
@@ -76,10 +98,18 @@ def load_config(config_path: str) -> dict:
     with open(path) as f:
         data = yaml.safe_load(f) or {}
 
-    iw = data.get("power", {}).get("ignition_watcher", {})
-    for key in defaults:
+    power = data.get("power", {})
+    iw = power.get("ignition_watcher", {})
+    for key in ("gpio_chip", "ignition_line", "bench_button_line",
+                "debounce_ms", "active_low"):
         if key in iw:
             defaults[key] = iw[key]
+
+    if "standby_max_hours" in power:
+        defaults["standby_max_hours"] = power["standby_max_hours"]
+    if "splash_duration_seconds" in power:
+        defaults["splash_duration_seconds"] = power["splash_duration_seconds"]
+
     return defaults
 
 
@@ -212,6 +242,166 @@ class SimulatedIgnitionWatcher:
         pass
 
 
+# ── State file ────────────────────────────────────────────────────────────
+
+def write_state(boot_mode: str, first_boot_ts: float) -> None:
+    """Write power state file atomically for the frontend to read."""
+    tmp = STATE_FILE.with_suffix(".tmp")
+    try:
+        tmp.write_text(
+            f"first_boot_ts={first_boot_ts}\n"
+            f"boot_mode={boot_mode}\n"
+        )
+        tmp.rename(STATE_FILE)
+    except OSError as e:
+        log(f"WARNING: Failed to write state file: {e}")
+
+
+# ── 12-hour standby timer ────────────────────────────────────────────────
+
+class StandbyTimer:
+    """Background timer that sets past_12h flag after the standby window."""
+
+    def __init__(self, standby_max_s: float):
+        self._standby_max_s = standby_max_s
+        self._first_boot_ts = time.time()
+        self._past_12h = False
+        self._lock = threading.Lock()
+        self._stop_event = threading.Event()
+        self._thread: Optional[threading.Thread] = None
+
+    @property
+    def first_boot_ts(self) -> float:
+        with self._lock:
+            return self._first_boot_ts
+
+    @property
+    def past_12h(self) -> bool:
+        with self._lock:
+            return self._past_12h
+
+    def reset(self) -> None:
+        """Reset the 12h window (called on cold-like wake)."""
+        with self._lock:
+            self._first_boot_ts = time.time()
+            self._past_12h = False
+        self._stop_event.set()
+        if self._thread and self._thread.is_alive():
+            self._thread.join(timeout=2)
+        self._stop_event.clear()
+        self._start_thread()
+
+    def start(self) -> None:
+        self._start_thread()
+
+    def stop(self) -> None:
+        self._stop_event.set()
+
+    def _start_thread(self) -> None:
+        self._thread = threading.Thread(target=self._run, daemon=True)
+        self._thread.start()
+
+    def _run(self) -> None:
+        with self._lock:
+            deadline = self._first_boot_ts + self._standby_max_s
+        remaining = deadline - time.time()
+        if remaining > 0:
+            self._stop_event.wait(timeout=remaining)
+        if not self._stop_event.is_set():
+            with self._lock:
+                self._past_12h = True
+            log(f"12h standby window expired — next wake will be cold-like")
+
+
+# ── SWC evdev monitor ────────────────────────────────────────────────────
+
+try:
+    import evdev  # type: ignore
+    HAS_EVDEV = True
+except ImportError:
+    HAS_EVDEV = False
+
+KEY_F10 = 68
+
+
+class EvdevWakeMonitor:
+    """Monitors the Arduino's evdev device for SWC MODE (KEY_F10)."""
+
+    DEVICE_PATTERNS = ("arduino", "pro micro", "leonardo", "atmega32u4")
+    RESCAN_INTERVAL_S = 30
+
+    def __init__(self):
+        self._device = None
+        self._last_scan = 0.0
+
+    def check_f10(self) -> bool:
+        """Non-blocking check for KEY_F10 press. Returns True once per press."""
+        if not HAS_EVDEV:
+            return False
+
+        now = time.time()
+        if self._device is None:
+            if now - self._last_scan < self.RESCAN_INTERVAL_S:
+                return False
+            self._find_device()
+            self._last_scan = now
+            if self._device is None:
+                return False
+
+        import select as _select
+        try:
+            r, _, _ = _select.select([self._device.fd], [], [], 0)
+            if not r:
+                return False
+            for event in self._device.read():
+                if (event.type == evdev.ecodes.EV_KEY
+                        and event.code == KEY_F10
+                        and event.value == 1):
+                    return True
+        except OSError:
+            log("Arduino evdev device disconnected — will rescan")
+            self._device = None
+        return False
+
+    def close(self) -> None:
+        if self._device:
+            try:
+                self._device.close()
+            except Exception:
+                pass
+
+    def _find_device(self) -> None:
+        try:
+            for path in evdev.list_devices():
+                dev = evdev.InputDevice(path)
+                name = dev.name.lower()
+                if any(p in name for p in self.DEVICE_PATTERNS):
+                    log(f"Found Arduino evdev device: {dev.name} ({path})")
+                    self._device = dev
+                    return
+                dev.close()
+        except Exception as e:
+            log(f"evdev scan error: {e}")
+
+
+class SimulatedSwcMonitor:
+    """Simulates SWC F10 via /tmp/bcm_swc_toggle file."""
+
+    TRIGGER = Path("/tmp/bcm_swc_toggle")
+
+    def check_f10(self) -> bool:
+        if self.TRIGGER.exists():
+            try:
+                self.TRIGGER.unlink()
+            except OSError:
+                pass
+            return True
+        return False
+
+    def close(self) -> None:
+        pass
+
+
 # ── Main loop ──────────────────────────────────────────────────────────────
 
 def main() -> None:
@@ -234,9 +424,12 @@ def main() -> None:
 
     cfg = load_config(args.config)
     service = args.service
+    standby_max_s = cfg["standby_max_hours"] * 3600
+    splash_duration = cfg["splash_duration_seconds"]
+    simulate = args.simulate or not HAS_GPIOD
 
     # Select watcher implementation
-    if args.simulate or not HAS_GPIOD:
+    if simulate:
         if not HAS_GPIOD:
             log("gpiod not available — falling back to simulation mode")
         watcher = SimulatedIgnitionWatcher()
@@ -245,10 +438,28 @@ def main() -> None:
 
     watcher.setup()
 
+    # Select SWC monitor
+    if simulate:
+        swc_monitor = SimulatedSwcMonitor()
+        log(f"  SWC sim: touch /tmp/bcm_swc_toggle to toggle BCM")
+    elif HAS_EVDEV:
+        swc_monitor = EvdevWakeMonitor()
+    else:
+        swc_monitor = SimulatedSwcMonitor()
+        log("evdev not available — SWC monitor uses file trigger")
+
     # State tracking
     bcm_running = False
     ignition_on = False
+    bcm_started_once = False
+    user_standby = False
     shutdown_requested = False
+
+    # 12h standby timer
+    timer = StandbyTimer(standby_max_s)
+    timer.start()
+    log(f"  Standby window: {cfg['standby_max_hours']}h")
+    log(f"  Splash duration: {splash_duration}s")
 
     def handle_signal(signum, frame):
         nonlocal shutdown_requested
@@ -265,6 +476,47 @@ def main() -> None:
     # Track bench button state for toggle behavior
     btn_was_pressed = False
 
+    def start_bcm() -> bool:
+        """Determine boot mode, write state, optionally start splash, start BCM."""
+        nonlocal bcm_started_once
+
+        # Determine boot mode
+        if not bcm_started_once:
+            boot_mode = "cold"
+        elif timer.past_12h:
+            boot_mode = "cold"
+            timer.reset()
+            log("12h window reset — cold-like wake")
+        else:
+            boot_mode = "warm"
+
+        write_state(boot_mode, timer.first_boot_ts)
+        log(f"Boot mode: {boot_mode}")
+
+        # Cold-like wake from deep idle: replay splash
+        if boot_mode == "cold" and bcm_started_once:
+            log(f"Starting splash for cold-like wake ({splash_duration}s)...")
+            systemctl("start", SPLASH_SERVICE_NAME)
+            time.sleep(splash_duration)
+
+        bcm_started_once = True
+
+        if systemctl("start", service):
+            log("BCM headunit service started successfully")
+            return True
+        else:
+            log("WARNING: Failed to start BCM headunit service")
+            return False
+
+    def stop_bcm() -> bool:
+        """Stop BCM headunit."""
+        if systemctl("stop", service):
+            log("BCM headunit service stopped — OS stays in deep idle")
+            return True
+        else:
+            log("WARNING: Failed to stop BCM headunit service")
+            return False
+
     try:
         while not shutdown_requested:
             # Read ignition line
@@ -273,36 +525,51 @@ def main() -> None:
             # Read bench button (toggle on press)
             btn_pressed = watcher.read_bench_button()
             if btn_pressed and not btn_was_pressed:
-                # Rising edge of button press — toggle ignition
                 ignition_on = not ignition_on
-                log(f"Bench button pressed — ignition {'ON' if ignition_on else 'OFF'}")
+                log(f"Bench button pressed — ignition "
+                    f"{'ON' if ignition_on else 'OFF'}")
             elif ign_state != ignition_on and not btn_pressed:
-                # Ignition line changed (and button not overriding)
                 ignition_on = ign_state
-                log(f"Ignition signal changed — {'ON' if ignition_on else 'OFF'}")
+                log(f"Ignition signal changed — "
+                    f"{'ON' if ignition_on else 'OFF'}")
             btn_was_pressed = btn_pressed
 
-            # Act on state changes
-            if ignition_on and not bcm_running:
-                log("=== IGNITION ON — Starting BCM headunit ===")
-                if systemctl("start", service):
+            # Check SWC MODE button (F10)
+            f10 = swc_monitor.check_f10()
+
+            # --- SWC toggle ---
+            if f10 and bcm_running:
+                log("=== SWC MODE — Putting BCM in standby ===")
+                if stop_bcm():
+                    bcm_running = False
+                    user_standby = True
+
+            elif f10 and not bcm_running:
+                log("=== SWC MODE — Waking BCM from standby ===")
+                user_standby = False
+                if start_bcm():
                     bcm_running = True
-                    log("BCM headunit service started successfully")
-                else:
-                    log("WARNING: Failed to start BCM headunit service")
+
+            # --- Ignition OFF clears user_standby ---
+            if not ignition_on and user_standby:
+                user_standby = False
+
+            # --- Ignition-driven start/stop (suppressed during user_standby) ---
+            if ignition_on and not bcm_running and not user_standby:
+                log("=== IGNITION ON — Starting BCM headunit ===")
+                if start_bcm():
+                    bcm_running = True
 
             elif not ignition_on and bcm_running:
                 log("=== IGNITION OFF — Stopping BCM headunit ===")
-                if systemctl("stop", service):
+                if stop_bcm():
                     bcm_running = False
-                    log("BCM headunit service stopped")
-                else:
-                    log("WARNING: Failed to stop BCM headunit service")
 
             time.sleep(POLL_INTERVAL_S)
 
     finally:
-        # Ensure BCM is stopped on exit
+        timer.stop()
+        swc_monitor.close()
         if bcm_running:
             log("Watcher exiting — stopping BCM headunit...")
             systemctl("stop", service)

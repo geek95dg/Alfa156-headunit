@@ -69,7 +69,7 @@ tr:hover td{background:var(--bg-card)}
 <div class="hero">
   <div class="hero-badge">BCM v8.5 — Dokumentacja Techniczna</div>
   <h1>Alfa Romeo <span>156</span><br>Body Computer Module</h1>
-  <p class="sub">Dual-display: 4.3" statyczna siatka 2×2 z automatyczną kamerą (cofanie / lewy / prawy kierunkowskaz) + 7/8" ekran dotykowy z Android Auto kiosk. 8 ekranów BCM (A1-A8) + ustawienia. 3 motywy graficzne. DVR z GPS overlay + eksport USB. Performance: boost gauge + timer 0-100. Telefon BT (dialer, kontakty PBAP, historia). Centralny zamek z pilotem RF 433MHz. Follow-me-home. Czujnik deszczu. Dual mikrofon (Vosk + telefon). <strong>Orange Pi 5 Pro 4GB</strong> z 2× HDMI (2.1 + 2.0), WiFi 6 i BT 5.0. Moduł Travel Plan na ekranie A3 z prognozą pogody, incydentami drogowymi i estymacją paliwa.</p>
+  <p class="sub">Dual-display: 4.3" statyczna siatka 2×2 z automatyczną kamerą (cofanie / lewy / prawy kierunkowskaz) + 7/8" ekran dotykowy z Android Auto kiosk. 8 ekranów BCM (A1-A8) + ustawienia. 3 motywy graficzne. DVR z GPS overlay + eksport USB. Performance: boost gauge + timer 0-100. Telefon BT (dialer, kontakty PBAP, historia). Centralny zamek z pilotem RF 433MHz. Follow-me-home. Czujnik deszczu. SWC remote z konfigurowalnym mapowaniem przycisków (dual-pod, 24 przyciski). <strong>Orange Pi 5 Pro 4GB</strong> z 2× HDMI (2.1 + 2.0), WiFi 6 i BT 5.0. Moduł Travel Plan na ekranie A3 z prognozą pogody, incydentami drogowymi i estymacją paliwa.</p>
   <div class="tags">
     <span class="tag">1.9 JTD 8V przedlift</span>
     <span class="tag">Bosch EDC15C7</span>
@@ -85,7 +85,7 @@ tr:hover td{background:var(--bg-card)}
     <span class="tag">Follow-me-home</span>
     <span class="tag">Rain Sensor</span>
     <span class="tag">BT Phone / PBAP</span>
-    <span class="tag">Dual Microphone</span>
+    <span class="tag">SWC Remote</span>
     <span class="tag">GPS Tracking</span>
     <span class="tag">LTE + Travel Plan</span>
   </div>
@@ -134,7 +134,8 @@ tr:hover td{background:var(--bg-card)}
       <tr><td>A6: Nagrania DVR</td><td>Brak</td><td><strong>Przeglądarka nagrań przód/tył, odtwarzanie z GPS overlay, eksport USB</strong></td><td><span class="dt dt-new">NOWE</span></td></tr>
       <tr><td>A7: Performance</td><td>Brak</td><td><strong>Gauge boost turbo (SVG), timer 0-100 km/h (GPS), G-Force, statystyki</strong></td><td><span class="dt dt-new">NOWE</span></td></tr>
       <tr><td>A8: Telefon</td><td>Brak</td><td><strong>BT dialer, kontakty PBAP, historia połączeń, overlay incoming/active call</strong></td><td><span class="dt dt-new">NOWE</span></td></tr>
-      <tr><td>Mikrofon</td><td>1× USB (Vosk)</td><td><strong>Dual mikrofon: #1 USB sufitowy (Vosk voice), #2 USB mini (telefon/AA)</strong></td><td><span class="dt dt-chg">ZMIANA</span></td></tr>
+      <tr><td>Mikrofon</td><td>1× USB</td><td><strong>USB mini mikrofon (telefon/AA)</strong></td><td><span class="dt dt-chg">ZMIANA</span></td></tr>
+      <tr><td>SWC Remote</td><td>Brak</td><td><strong>Dual-pod AliExpress SWC (24 przyciski), konfigurowalne mapowanie w ustawieniach</strong></td><td><span class="dt dt-new">NOWE</span></td></tr>
       <tr><td>Diagnostyka DTC</td><td>Brak</td><td><strong>A5: odczyt i kasowanie kodów błędów ECU (KWP2000)</strong></td><td><span class="dt dt-new">NOWE</span></td></tr>
       <tr><td>Czujnik deszczu</td><td>GPIO 87 skonfigurowany, brak implementacji</td><td><strong>Moduł auto-wycieraczki: czujnik → przekaźnik wycieraczek</strong></td><td><span class="dt dt-new">NOWE</span></td></tr>
       <tr><td>Centralny zamek</td><td>Tylko sygnał wejścia (GPIO 89)</td><td><strong>Arduino + 433MHz RF: zamek/odblokowanie, okna, bagażnik, pilot RF</strong></td><td><span class="dt dt-new">NOWE</span></td></tr>
@@ -142,7 +143,7 @@ tr:hover td{background:var(--bg-card)}
       <tr><td>GPS Tracking</td><td>Tylko pozycja bieżąca</td><td><strong>Ciągłe logowanie trasy do SQLite, statystyki podróży, eksport GPX</strong></td><td><span class="dt dt-chg">ZMIANA</span></td></tr>
       <tr><td>Ruch drogowy</td><td>Brak</td><td><strong>Nakładka ruchu na żywo na mapie (TomTom/HERE API)</strong></td><td><span class="dt dt-new">NOWE</span></td></tr>
       <tr><td>Zdalny status</td><td>Brak</td><td><strong>REST API statusu pojazdu przez LTE (lokalizacja, temp, zamek)</strong></td><td><span class="dt dt-new">NOWE</span></td></tr>
-      <tr><td>Sterowanie</td><td>Enkoder + SWC + klawiatura</td><td><strong>Dotyk (główny) + 1 przycisk SWC (cyklowanie ekranów) + fizyczne przyciski</strong></td><td><span class="dt dt-chg">ZMIANA</span></td></tr>
+      <tr><td>Sterowanie</td><td>Enkoder + SWC + klawiatura</td><td><strong>Dotyk (główny) + dual-pod SWC (24 przyciski, konfigurowalne mapowanie) + fizyczne przyciski</strong></td><td><span class="dt dt-chg">ZMIANA</span></td></tr>
       <tr><td>Przyciski fizyczne</td><td>Brak</td><td><strong>Power on/off, prev/next track przy ekranie głównym (Arduino USB HID)</strong></td><td><span class="dt dt-new">NOWE</span></td></tr>
       <tr><td>Wyszukiwanie lokalizacji</td><td>Usunięte (brak dotyku)</td><td><strong>Przywrócone na A4 Weather — ekran dotykowy</strong></td><td><span class="dt dt-chg">ZMIANA</span></td></tr>
       <tr><td>Enkoder obrotowy</td><td>Aktywny (Arduino)</td><td><strong>Usunięty — niepotrzebny przy ekranie dotykowym</strong></td><td><span class="dt dt-del">USUNIĘTE</span></td></tr>
@@ -163,6 +164,8 @@ tr:hover td{background:var(--bg-card)}
       <tr><td>Opóźnienie mapy pogodowej</td><td>Twardy 6s setTimeout</td><td><strong>Reaktywna aktualizacja</strong> przez topic <code>weather.search_done</code></td><td><span class="dt dt-new">POPRAWKA</span></td></tr>
       <tr><td>A3 Travel Plan</td><td>Brak</td><td><strong>Tryb "Travel Plan"</strong> na A3: cel, pogoda wzdłuż trasy, incydenty TomTom, estymacja paliwa</td><td><span class="dt dt-new">NOWE</span></td></tr>
       <tr><td>Moduł routingu</td><td>Brak</td><td><strong>src/trip/route_planner.py</strong> — OpenRouteService + TomTom + fallback haversine</td><td><span class="dt dt-new">NOWE</span></td></tr>
+      <tr><td>Vosk voice control</td><td>Moduł voice + Vosk + pyttsx3 + sounddevice</td><td><strong>Usunięty</strong> — cały katalog src/voice/, zależności Vosk/pyttsx3/sounddevice, moduł z main.py i konfiguracji</td><td><span class="dt dt-del">USUNIĘTE</span></td></tr>
+      <tr><td>SWC Remote</td><td>1 przycisk SWC (cyklowanie ekranów)</td><td><strong>Dual-pod SWC</strong> (2× AliExpress button kit, 24 przyciski), konfigurowalne mapowanie w Web Settings, akcje: bcm_power_toggle, voice_aa_trigger, navigate_aa</td><td><span class="dt dt-new">NOWE</span></td></tr>
     </table>
   </div>
 </section>
@@ -206,9 +209,8 @@ tr:hover td{background:var(--bg-card)}
     <tr><td><strong>parking</strong></td><td>GPIO 79-83</td><td>4× HC-SR04 ultrasonic + buzzer (84)</td></tr>
     <tr><td><strong>environment</strong></td><td>GPIO 7</td><td>DS18B20 temp + icing detection</td></tr>
     <tr><td><strong>audio</strong></td><td>USB DAC</td><td>PipeWire 4.1, EQ, ducking</td></tr>
-    <tr><td><strong>voice</strong></td><td>USB Mic #1</td><td>Vosk offline (PL/EN) — mikrofon sufitowy</td></tr>
-    <tr><td><strong>phone</strong></td><td>USB Mic #2 + BT HFP</td><td>BT dialer, kontakty PBAP, historia, mic telefonu/AA</td></tr>
-    <tr><td><strong>input</strong></td><td>USB HID</td><td>Touch + SWC + physical buttons</td></tr>
+    <tr><td><strong>phone</strong></td><td>USB Mic + BT HFP</td><td>BT dialer, kontakty PBAP, historia, mic telefonu/AA</td></tr>
+    <tr><td><strong>input</strong></td><td>USB HID</td><td>Touch + dual-pod SWC (24 btn) + physical buttons</td></tr>
     <tr><td><strong>camera</strong></td><td>USB3 grab</td><td>DVR 2-ch AHD + reverse cam</td></tr>
     <tr><td><strong>power</strong></td><td>GPIO 85,89</td><td>Ignition, shutdown, backlight PWM</td></tr>
     <tr><td><strong>multimedia</strong></td><td>USB BT</td><td>BlueZ A2DP/HFP + OpenAuto Pro</td></tr>
@@ -345,7 +347,7 @@ tr:hover td{background:var(--bg-card)}
   </table>
   <p><em>Uwaga:</em> Dotychczasowa dokumentacja referuje też Orange Pi 5 Plus jako alternatywę.
      OPi 5 Pro ma wystarczające 4 GB RAM dla pełnej listy modułów
-     (Android Auto + Vosk + DVR + Travel Plan) i jest tańszy o 250-300 PLN.</p>
+     (Android Auto + DVR + Travel Plan) i jest tańszy o 250-300 PLN.</p>
 
   <h3>Wyświetlacze</h3>
   <div class="dual">
@@ -662,8 +664,7 @@ tr:hover td{background:var(--bg-card)}
   USB Arduino(1) ──┤  SWC + Buttons + LDR     │
   USB Arduino(2) ──┤  Central Lock + RF + Relay│
   USB BT ──────────┤  BlueZ A2DP/HFP          │
-  USB Mic #1 ──────┤  Vosk Voice Control       │
-  USB Mic #2 ──────┤  Phone / AA Mic           │
+  USB Mic ─────────┤  Phone / AA Mic           │
                     │                          │
   UART3 (K-Line) ──┤  L9637D → OBD-II ECU     │
                     │                          │
@@ -745,12 +746,12 @@ tr:hover td{background:var(--bg-card)}
     <tr><td>Czujniki parkowania</td><td>HC-SR04</td><td>4</td><td>60-80</td></tr>
     <tr><td>Buzzer parkowania</td><td>Piezo 5V</td><td>1</td><td>5-10</td></tr>
     <tr><td>Czujnik temperatury</td><td>DS18B20 waterproof</td><td>1</td><td>20-30</td></tr>
-    <tr><td>Mikrofon #1 (Vosk)</td><td>USB Condenser sufitowy</td><td>1</td><td>30-50</td></tr>
-    <tr><td><strong>Mikrofon #2 (telefon/AA)</strong></td><td>USB mini/clip mic</td><td>1</td><td>20-40</td></tr>
+    <tr><td>Mikrofon (telefon/AA)</td><td>USB mini/clip mic</td><td>1</td><td>20-40</td></tr>
+    <tr><td><strong>SWC Button Kit</strong></td><td>AliExpress universal 2-pod (12 btn each)</td><td>1</td><td>60-80</td></tr>
     <tr><td>Optoisolatory dodatkowe</td><td>PC817</td><td>3</td><td>6-9</td></tr>
   </table>
   <div class="changelog" style="border-color:var(--accent2)"><h4 style="color:var(--accent2)">ETAP 2 koszt: ~755 — 1 285 PLN</h4>
-  <p>Daje: nagrywanie jazdy (DVR przód+tył), kamera cofania z czujnikami parkowania, temperatura zewnętrzna, mały ekran z karuzelą danych, komendy głosowe.</p></div>
+  <p>Daje: nagrywanie jazdy (DVR przód+tył), kamera cofania z czujnikami parkowania, temperatura zewnętrzna, mały ekran z karuzelą danych, SWC remote z konfigurowalnym mapowaniem.</p></div>
 
   <!-- ETAP 3 -->
   <h3 style="color:var(--orange)">ETAP 3: Łączność + GPS + Sub</h3>

@@ -7,6 +7,9 @@ const Settings = {
     _btPaired: [],
     _btDiscovered: [],
     _btScanning: false,
+    _swcMapping: null,
+    _swcAllButtons: [],
+    _swcActions: [],
 
     async setUnit(type, value) {
         const body = {};
@@ -151,6 +154,38 @@ const Settings = {
             Settings._btScanning = false;
         }
     },
+
+    async swcLoad() {
+        try {
+            const res = await fetch("/api/config/swc");
+            const data = await res.json();
+            Settings._swcMapping = data.mapping || {};
+            Settings._swcAllButtons = data.all_buttons || [];
+            Settings._swcActions = data.actions || [];
+        } catch (e) {
+            console.error("[SWC] Load failed:", e);
+        }
+    },
+
+    async swcSave() {
+        if (!Settings._swcMapping) return;
+        try {
+            await fetch("/api/config/swc", {
+                method: "POST",
+                headers: {"Content-Type": "application/json"},
+                body: JSON.stringify({ mapping: Settings._swcMapping }),
+            });
+        } catch (e) {
+            console.error("[SWC] Save failed:", e);
+        }
+    },
+
+    swcSetButton(action, slotIndex, btnName) {
+        if (!Settings._swcMapping || !Settings._swcMapping[action]) return;
+        Settings._swcMapping[action][slotIndex] = btnName;
+        Settings.swcSave();
+        App.navigateTo("settings");
+    },
 };
 
 App.registerScreen("settings", (() => {
@@ -244,6 +279,11 @@ App.registerScreen("settings", (() => {
                         </div>
                     </div>
                 </div>
+                <!-- SWC Button Mapping -->
+                <div class="bg-zinc-900 rounded-xl p-3 border border-zinc-800 mt-3">
+                    <p class="text-[10px] font-bold text-zinc-400 uppercase tracking-wider mb-2">SWC Button Mapping</p>
+                    ${_renderSwcTable()}
+                </div>
                 <button class="mt-3 px-4 py-2 bg-zinc-800 rounded-lg text-xs font-bold hover:bg-zinc-700" onclick="App.navigateTo('a1')">
                     \u2190 ${t("back_to_dash")}
                 </button>
@@ -287,6 +327,52 @@ App.registerScreen("settings", (() => {
             </div>
             ${actions}
         </div>`;
+    }
+
+    function _actionLabel(action) {
+        const labels = {
+            volume_up: "Volume Up", volume_down: "Volume Down", mute: "Mute",
+            menu_up: "Menu Up", menu_down: "Menu Down", next_track: "Next Track",
+            prev_track: "Prev Track", play_pause: "Play/Pause",
+            phone_pickup: "Phone Pickup", phone_hangup: "Phone Hangup",
+            bcm_power_toggle: "Power Toggle", voice_aa_trigger: "AA Voice",
+            navigate_aa: "Open AA", home: "Home", back: "Back",
+            source_cycle: "Source Cycle", brightness_cycle: "Brightness",
+        };
+        return labels[action] || action;
+    }
+
+    function _renderSwcTable() {
+        const m = Settings._swcMapping;
+        if (!m) {
+            Settings.swcLoad().then(() => App.navigateTo("settings"));
+            return '<p class="text-[10px] text-zinc-500">Loading...</p>';
+        }
+        const allBtns = Settings._swcAllButtons;
+        const actions = Object.keys(m);
+        let html = '<table class="w-full text-[10px]">';
+        html += '<thead><tr class="text-zinc-500 uppercase tracking-wider">';
+        html += '<th class="text-left py-1 font-bold">Action</th>';
+        html += '<th class="text-left py-1 font-bold">Pod 1 Button</th>';
+        html += '<th class="text-left py-1 font-bold">Pod 2 Button</th></tr></thead>';
+        html += '<tbody>';
+        for (const action of actions) {
+            const btns = m[action] || ["", ""];
+            html += `<tr class="border-t border-zinc-800">`;
+            html += `<td class="py-1.5 text-zinc-300 font-bold">${_actionLabel(action)}</td>`;
+            for (let slot = 0; slot < 2; slot++) {
+                const cur = btns[slot] || "";
+                html += `<td class="py-1.5"><select class="bg-zinc-800 text-zinc-300 text-[10px] rounded px-1 py-0.5 border border-zinc-700" onchange="Settings.swcSetButton('${action}',${slot},this.value)">`;
+                html += `<option value=""${cur === "" ? " selected" : ""}>-- None --</option>`;
+                for (const b of allBtns) {
+                    html += `<option value="${b}"${b === cur ? " selected" : ""}>${b}</option>`;
+                }
+                html += '</select></td>';
+            }
+            html += '</tr>';
+        }
+        html += '</tbody></table>';
+        return html;
     }
 
     function _themeBtn(v, label, current) {

@@ -274,6 +274,25 @@ sudo journalctl -fu bcm-ignition-watcher
 #   === IGNITION ON — Starting BCM headunit ===
 ```
 
+## 6.6 SWC calibration (dual-pod steering wheel remote)
+
+If you have one or two AliExpress SWC button kits (up to 24 buttons
+across two pods) wired through a resistor-ladder decoder to the
+Arduino A0 analog input, run the calibration procedure before
+configuring button mappings:
+
+1. Hold **HOME + BACK** on the Arduino at boot to enter calibration mode.
+2. Follow the serial prompts — press each button in turn; the Arduino
+   records the analog voltage threshold for every button.
+3. Thresholds are stored in Arduino EEPROM and persist across reboots.
+
+After calibration, open the BCM **Web Settings UI** (accessible from
+the Settings screen) to assign actions to each button. The config uses
+an action-centric `swc.mapping` schema (replaces the old `swc.buttons`
+format). Available action types include `bcm_power_toggle`,
+`voice_aa_trigger`, and `navigate_aa` in addition to the standard
+volume / track / phone / source actions.
+
 ## 7. Travel Plan API keys
 
 The A3 Travel Plan feature uses two external APIs. Both are optional —
@@ -352,6 +371,15 @@ period with two branded MP4 loops — one full-screen loading
 animation **with audio** on the big display, and a silent slow
 breathing Alfa Romeo logo on the small display — that hand over
 to the BCM UI as soon as the Flask servers are ready.
+
+> **OPi 5 Pro has full hardware video acceleration.** The
+> RK3588S VPU decodes 1080p H.264 at 60 FPS through the kernel's
+> `rkmpp` GStreamer/FFmpeg plugin, which mpv picks up
+> automatically. Use whatever resolution matches your panel
+> (1024×600 / 1280×800) and mpv will play it smoothly at
+> 25 FPS+. The 1-FPS slideshow problem that the OPi PC bench
+> rig hits with 720p video does **not** apply here — don't
+> downsize your source clips for the production board.
 
 ### 10.1 Drop your video files in
 
