@@ -1,6 +1,6 @@
 system:
-  name: BCM v7
-  version: 0.1.0
+  name: BCM v8.5
+  version: 8.5.1
   platform: x86
   log_level: DEBUG
   log_file: logs/bcm.log
