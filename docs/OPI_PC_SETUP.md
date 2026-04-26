@@ -250,12 +250,9 @@ pip install -r requirements.txt -r requirements-opi-pc.txt
 ```
 
 > **Important — do NOT install `requirements-x86.txt` on the OPi PC.**
-> The x86 file pulls `pygame`, which in turn requires the full SDL2
-> dev toolchain (`libsdl2-dev`, `libsdl2-image-dev`, `libsdl2-mixer-dev`,
-> `libsdl2-ttf-dev`, `libfreetype6-dev`, `libportmidi-dev`) and will
-> fail to build from source on armv7l. The OPi PC runs BCM in
-> `--frontend` mode using Flask + Chromium instead of the pygame
-> dashboard renderer, so pygame is genuinely unnecessary here.
+> The x86 file contains desktop-only dependencies that may fail to
+> build on armv7l. The OPi PC runs BCM in `--frontend` mode using
+> Flask + Chromium, so desktop rendering libraries are unnecessary.
 
 > **Also note — `opencv-python-headless`, `Pillow`, `spidev` and
 > `smbus2` are NOT in `requirements-opi-pc.txt`.** All four would
@@ -301,7 +298,7 @@ pip install -r requirements.txt -r requirements-opi-pc.txt
 python3 -c "import gpiod; print(gpiod.__version__)"
 ```
 
-If you see `ImportError: No module named pygame` when you later
+If you see import errors for desktop-only packages when you later
 run `main.py` **without** `--frontend`, you accidentally installed
 the x86 requirements. Rebuild the venv and install only
 `requirements.txt` + `requirements-opi-pc.txt`.
@@ -340,7 +337,7 @@ behind lazy imports:
 |----------------|-----------------------------------------------|
 | `python3-opencv` | `/api/camera/stream` MJPEG endpoint (cv2)  |
 | `python3-pil`    | GPS map PNG export in `src/location/map_renderer.py` |
-| `python3-evdev`  | BT remote + rotary encoder input modules (`src/input/bt_remote.py`, `src/input/rotary_encoder.py`) |
+| `python3-evdev`  | BT remote + Arduino HID input modules (`src/input/bt_remote.py`, `src/input/arduino_hid.py`) |
 | `python3-dbus`   | Native Linux Bluetooth manager in `src/multimedia/bluetooth.py` |
 | `python3-spidev` | SPI MCP3008 ADC for SWC analog decoder (not used yet, reserved for Part 4+) |
 | `python3-smbus`  | I²C sensor expansion (not used yet, reserved for Part 4+) |
@@ -1651,7 +1648,7 @@ or `ninja` error during pip install
   pip install -r requirements.txt -r requirements-opi-pc.txt
   ```
 
-**`Failed to build pygame`** / `sdl-config: command not found`
+**`Failed to build` a C-extension package** / `sdl-config: command not found`
   → You accidentally installed `requirements-x86.txt`. Rebuild the
   venv and only install `requirements.txt` + `requirements-opi-pc.txt`.
 
