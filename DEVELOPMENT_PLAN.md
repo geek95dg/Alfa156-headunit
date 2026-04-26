@@ -1,12 +1,12 @@
-# BCM v7 - Alfa Romeo 156 Head Unit - Development Plan
+# BCM v8.5 - Alfa Romeo 156 Head Unit - Development Plan
 
 ## Context
 
-This project builds a complete Body Computer Module (BCM v7) for an Alfa Romeo 156 1.9 JTD 8V (pre-facelift). It replaces the factory head unit with a dual-screen system based on Orange Pi 5 Plus, providing: vehicle diagnostics (K-Line/KWP2000), multimedia (Android Auto/CarPlay), dashcam, parking sensors, SWC steering wheel remote, and a 4.1 audio system.
+This project builds a complete Body Computer Module (BCM v8.5) for an Alfa Romeo 156 1.9 JTD 8V (pre-facelift). It replaces the factory head unit with a dual-screen system based on Orange Pi 5 Pro 4GB, providing: vehicle diagnostics (K-Line/KWP2000), multimedia (Android Auto), dashcam, parking sensors, SWC steering wheel remote, and a 4.1 audio system.
 
 **Two-phase approach:**
 - **Phase A (x86):** Proof of concept on Debian/Ubuntu desktop — test UI, logic, and integration using simulated hardware (mock sensors, virtual displays in windows)
-- **Phase B (OPi):** Production deployment on Orange Pi 5 Plus with real GPIO, UART, cameras, and framebuffer rendering
+- **Phase B (OPi):** Production deployment on Orange Pi 5 Pro 4GB with real GPIO, UART, cameras. Bench testing on Orange Pi PC 1.2.
 
 The plan is split into **12 independent parts**. Each part can be requested and implemented separately. Dependencies between parts are clearly noted.
 
@@ -67,10 +67,11 @@ Alfa156-headunit/
 │   │   ├── pipewire_ctrl.py      # PipeWire routing/EQ control
 │   │   ├── source_manager.py     # Audio source switching
 │   │   ├── ducking.py            # Audio priority & ducking system
+│   │   ├── spectrum.py           # Real-time FFT spectrum analyzer
 │   │   └── volume.py             # Volume control
 │   ├── input/                    # Part 7: Input Controllers
 │   │   ├── __init__.py
-│   │   ├── rotary_encoder.py     # USB HID rotary encoder handler
+│   │   ├── arduino_hid.py        # Arduino USB HID listener (resistor-ladder buttons)
 │   │   ├── swc_remote.py         # Steering wheel control (analog) button mapping
 │   │   ├── bt_remote.py          # BT steering wheel remote
 │   │   └── action_dispatch.py    # Key mapping → actions
@@ -90,7 +91,7 @@ Alfa156-headunit/
 │       └── bluetooth.py          # A2DP/HFP management
 ├── arduino/                      # Part 7: Arduino firmware
 │   └── rotary_encoder/
-│       └── rotary_encoder.ino    # ATmega32U4 USB HID firmware
+│       └── rotary_encoder.ino    # ATmega32U4 USB HID firmware (resistor-ladder buttons)
 ├── schematics/                   # Part 11: Electrical diagrams
 │   ├── README.md                 # Assembly instructions
 │   ├── main_wiring.svg           # Complete wiring diagram
@@ -161,14 +162,14 @@ Alfa156-headunit/
 - Resolution: 800x480 (4.3" screen)
 - Target frame rate: 10-15 FPS (gauge data changes slowly)
 - Layout: gauges in center, status bar on top, trip data at bottom
-- **3 switchable UI themes** — selectable from BCM settings menu via rotary encoder:
-  1. **Classic Alfa Racing** (default) — red/dark, circular analog-style gauges, Alfa heritage
-  2. **Modern Dark Minimal** — flat gauges, clean dark theme, Tesla-like
-  3. **OEM Digital** — mimics modern Alfa Romeo digital dashboards (Giulia/Stelvio)
+- **3 switchable UI themes** — selectable from touchscreen Settings screen:
+  1. **Heritage** (default) — amber/dark, burl texture, circular gauges, Alfa heritage
+  2. **Modern** — flat white cards, blue accents, clean minimal
+  3. **Autodelta** — racing orange on black, Autodelta motorsport inspired
 - Theme saved in config, persists across reboots
 - Reverse mode: full-screen camera feed with parking distance overlay
 
-**BCM Settings Menu** (accessible via rotary encoder long-press HOME):
+**BCM Settings Screen** (accessible via AppBar settings icon or SWC):
 - Theme selection (Classic Alfa / Modern Dark / OEM Digital)
 - Unit system (km/h + °C / mph + °F)
 - Display brightness (0-100%)
@@ -333,7 +334,7 @@ Sensor mounted under front bumper (shielded from engine heat)
   - Priority 4 (lowest): **Music/radio** — normal playback
   - Ducking: instant on trigger, smooth 1-second fade-back when priority event ends
   - Multiple priorities can stack (e.g., parking beeps + voice warning = music at -18dB, both beeps and voice audible)
-- Volume control via BT remote (VOL+/VOL-) and rotary encoder
+- Volume control via BT remote (VOL+/VOL-) and SWC buttons
 - **Audio EQ settings screen** (accessible from AppBar EQ icon or Settings → Audio/EQ):
   - EQ preset selector (flat/rock/jazz/bass_boost/custom)
   - 10-band graphic EQ with vertical sliders (-12 to +12 dB per band)
@@ -374,45 +375,39 @@ Sensor mounted under front bumper (shielded from engine heat)
 
 ## PART 7: Input Controllers
 
-**Goal:** Handle rotary encoder (USB HID), steering wheel control (SWC) remote with dual-pod support, and Bluetooth steering wheel remote.
+**Goal:** Handle Arduino USB HID buttons (resistor-ladder), SWC remote with dual-pod support, and Bluetooth steering wheel remote.
 
 **Files to create:**
-- `arduino/rotary_encoder/rotary_encoder.ino` — Arduino Pro Micro firmware: encoder + 5 buttons + SWC analog → USB HID keycodes
-- `src/input/rotary_encoder.py` — Listen for USB HID events from Arduino (via `evdev` or `hidapi`)
+- `arduino/rotary_encoder/rotary_encoder.ino` — Arduino Pro Micro firmware: two resistor-ladder button inputs + SWC analog → USB HID keycodes
+- `src/input/arduino_hid.py` — Listen for USB HID events from Arduino (via `evdev`)
 - `src/input/swc_remote.py` — SWC button definitions and action mappings (action-centric config via `swc.mapping`)
 - `src/input/bt_remote.py` — Listen for BT HID events from steering wheel remote (via `evdev`)
 - `src/input/action_dispatch.py` — Map keycodes to actions (navigate menu, volume, phone, etc.)
 
 **Key specs:**
 - Arduino Pro Micro (ATmega32U4) as USB HID keyboard
-  - Encoder rotation → UP/DOWN arrows
-  - Encoder push → ENTER
-  - Buttons: HOME, BACK, MEDIA, VOL+, VOL-
-  - SWC analog input (A0): up to 24 steering wheel buttons via resistor-ladder decoder (dual-pod)
+  - Two resistor-ladder button inputs on analog pins (A0, A6)
+  - Each ladder reads multiple buttons by voltage divider (no rotary encoder)
+  - Buttons decoded to keycodes: HOME, BACK, MEDIA, VOL+, VOL-, NEXT, PREV, etc.
 - **Dual-pod SWC Remote** (2× round pods from AliExpress button kits + decoder box, 24 buttons total):
   - Pod 1: VOL+, VOL-, UP, DOWN, MUTE, MODE, and more
   - Pod 2: PHONE PICKUP, PHONE HANGUP, PREV, NEXT, SRC, and more
   - Decoder box: red=12V, black=GND, white=analog signal → Arduino A0
   - Calibration mode: hold HOME+BACK at Arduino boot, follow serial prompts
-  - **Configurable button mapping** via Web Settings UI — buttons are mapped to actions through `swc.mapping` config (action-centric, replaces old `swc.buttons`)
-- **New action types:**
+  - **Configurable button mapping** via Web Settings UI with learn mode
+- **Action types:**
   - `bcm_power_toggle` — toggle BCM power on/off from steering wheel
-  - `voice_aa_trigger` — trigger Android Auto voice assistant
+  - `voice_aa_trigger` — trigger Android Auto voice assistant (xdotool tap on AA mic)
   - `navigate_aa` — navigate to the Android Auto screen
 - BT Remote (off-the-shelf BT HID): VOL+, VOL-, NEXT, PREV, PLAY/PAUSE, PHONE
 - Action mapping published to event bus: `input.menu_up`, `input.volume_up`, `input.phone_pickup`, `input.source_cycle`, etc.
 
 **Arduino wiring:**
 ```
-D2 ← Encoder CLK + [10kΩ pull-up]
-D3 ← Encoder DT + [10kΩ pull-up]
-D4 ← Encoder SW (push button)
-D5 ← HOME button
-D6 ← BACK button
-D7 ← MEDIA button
-D8 ← VOL+ button
-D9 ← VOL- button
-A0 ← SWC decoder white wire (analog 0-5V resistor-ladder)
+A0 ← SWC decoder white wire (analog 0-5V resistor-ladder, pod 1)
+A6 ← Resistor-ladder music panel buttons (analog 0-5V)
+D5 ← HOME button (optional physical)
+D6 ← BACK button (optional physical)
 All buttons: active LOW with internal pull-ups
 USB micro-B → cable 0.5m → OPi USB hub
 SWC decoder: red → 12V ACC, black → chassis GND, white → A0
@@ -424,7 +419,7 @@ SWC decoder: red → 12V ACC, black → chassis GND, white → A0
 
 **Dependencies:** Part 1 (event bus)
 
-**Testing:** x86 — plug in Arduino, rotate encoder, verify events. SWC: calibrate, press buttons, verify serial output + HID keycodes. BT remote: pair and test key events.
+**Testing:** x86 — plug in Arduino, press buttons, verify HID keycodes. SWC: calibrate, press buttons, verify serial output + HID keycodes. BT remote: pair and test key events.
 
 ---
 
