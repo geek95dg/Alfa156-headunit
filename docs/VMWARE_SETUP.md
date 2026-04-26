@@ -115,7 +115,6 @@ sudo apt install -y \
 
 # Display libraries (for dashboard renderer)
 sudo apt install -y \
-    python3-pygame libsdl2-dev libsdl2-image-dev \
     libcairo2-dev libgirepository1.0-dev
 
 # USB serial (for K-Line simulation)
@@ -182,7 +181,7 @@ python main.py --platform x86 --dry-run
 ./run_x86.sh
 ```
 
-This starts the system with the **HTML5/Tailwind dashboard frontend**. No Pygame or X display needed.
+This starts the system with the **HTML5/Tailwind dashboard frontend**. No X display needed.
 
 **Open your browser:** http://localhost:5002
 
@@ -243,15 +242,7 @@ curl -X POST http://localhost:5002/api/config \
   -H "Content-Type: application/json" -d '{"language":"en"}'
 ```
 
-### 5.3 Start with Legacy Pygame Renderer (Optional)
-
-```bash
-./run_x86.sh --pygame
-```
-
-Requires X display (`$DISPLAY` must be set). Opens a Pygame window at 800x480.
-
-### 5.4 Dual display (Android Auto)
+### 5.3 Dual display (Android Auto)
 
 Android Auto stream and Bluetooth management are integrated into the BCM dashboard at http://localhost:5002 (screen A2 and Settings).
 
@@ -259,7 +250,6 @@ Android Auto stream and Bluetooth management are integrated into the BCM dashboa
 
 ```bash
 ./run_x86.sh --modules obd,dashboard
-./run_x86.sh --pygame --modules obd,dashboard
 ```
 
 ### 5.6 Run tests
@@ -366,11 +356,6 @@ Run through this checklist to verify the full system:
 - [ ] Keyboard nav: LEFT/RIGHT cycles screens in browser
 - [ ] Multiple tabs: all receive real-time updates simultaneously
 
-### Legacy Pygame (Part 2 — optional, with --pygame)
-- [ ] Pygame window opens at 800×480
-- [ ] Gauges render (RPM, speed, coolant temp)
-- [ ] Updates in real-time from simulated OBD data
-
 ### OBD (Part 3)
 - [ ] Simulated ECU data flows to event bus
 - [ ] RPM, speed, coolant temp values are realistic
@@ -389,15 +374,11 @@ Run through this checklist to verify the full system:
 - [ ] Volume control responds to events
 - [ ] EQ configuration loads
 
-### Voice (Part 7)
-- [ ] SWC voice button triggers Google Assistant via xdotool tap
-- [ ] Keyboard commands work as fallback
-- [ ] Voice events published to event bus
-
-### Input (Part 8)
+### Input (Part 7)
 - [ ] Keyboard input captured
-- [ ] Rotary encoder simulated via arrow keys
-- [ ] Button events published
+- [ ] SWC voice button triggers AA voice via xdotool tap
+- [ ] Arduino HID events forwarded (or keyboard fallback)
+- [ ] Button events published to event bus
 
 ### Camera (Part 9)
 - [ ] Simulated camera frames generated
@@ -424,14 +405,6 @@ Run through this checklist to verify the full system:
 systemctl --user restart pipewire wireplumber
 # Check VMware sound card is connected
 # VM → Removable Devices → Sound Card → Connect
-```
-
-### Pygame window doesn't open
-```bash
-# Install display dependencies
-sudo apt install -y python3-pygame libsdl2-dev
-# If running headless, use virtual display
-export SDL_VIDEODRIVER=dummy
 ```
 
 ### `No module named pytest`
