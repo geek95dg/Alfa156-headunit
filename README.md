@@ -1,9 +1,15 @@
 # Alfa156-headunit
-This repository contains code and description of Head unit for Alfa Romeo 156 which offer:
-- body computers functions(fuel consumption, fuel level, temperatures, wheater notification, service notifications)
-- integrated care stereo with Bluetooth 
-- dual DVR + reverse camera
-- parking sensor
-- Android Auto reciver
-- dual screen (replacement for original InfoCenter + radio/fuel level cluster)
-- SWC steering wheel remote with configurable button mapping (dual-pod, 24 buttons)
+
+BCM v8.5 — custom head unit for Alfa Romeo 156 1.9 JTD 8V, built on Orange Pi 5 Pro 4GB.
+
+- Body computer functions (fuel consumption, fuel level, temperatures, weather, service notifications)
+- 4.1 audio system with 10-band EQ, spectrum visualizer (ES9038Q2M DAC + TDA7388 amp)
+- Dual DVR (front + rear) + 4-camera auto-switching (reverse, blinkers)
+- Ultrasonic parking sensors with buzzer
+- Android Auto (kiosk mode, integrated in dashboard)
+- Dual screen: 7/8" touchscreen (A1-A8 + Settings) + 4.3" stats display
+- SWC steering wheel remote with configurable button mapping (dual-pod, 24 buttons, learn mode)
+- K-Line OBD-II diagnostics (KWP2000) with DTC read/clear
+- GPS tracking, weather, LTE connectivity
+- Central lock with RF 433MHz remote, alarm system
+- 3 themes: Heritage, Modern, Autodelta
