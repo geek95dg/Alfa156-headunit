@@ -1,0 +1,29 @@
+[Unit]
+Description=BCM v7 — Multimedia (Android Auto / Bluetooth)
+Documentation=https://github.com/geek95dg/Alfa156-headunit
+After=bcm-power.service pipewire.service bluetooth.service
+Requires=bcm-power.service
+BindsTo=bcm-power.service
+Wants=bluetooth.service
+
+[Service]
+Type=notify
+ExecStart=/opt/bcm/venv/bin/python -m src.multimedia.openauto --service
+WorkingDirectory=/opt/bcm
+Environment=PYTHONPATH=/opt/bcm
+Environment=BCM_PLATFORM=opi
+Environment=DISPLAY=:0
+Environment=SDL_VIDEODRIVER=kmsdrm
+Restart=always
+RestartSec=3
+WatchdogSec=30
+NotifyAccess=all
+
+# Needs display, audio, and BT
+SupplementaryGroups=video audio bluetooth render
+ProtectSystem=strict
+ReadWritePaths=/opt/bcm/data /opt/bcm/logs /run/bcm /dev/dri
+ProtectHome=yes
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,102 @@
+/* BCM v8.5 — Small Display (4.3" 800x480) */
+* { margin:0; padding:0; box-sizing:border-box; }
+body { font-family:'Public Sans',sans-serif; overflow:hidden; }
+.material-symbols-outlined { font-variation-settings:'FILL' 0,'wght' 400,'GRAD' 0,'opsz' 24; vertical-align:middle; }
+
+/* Heritage */
+[data-theme="heritage"] { background:#0a0a0a; color:#f4f4f5; }
+[data-theme="heritage"] .header { background:#000; border-bottom:1px solid #27272a; }
+[data-theme="heritage"] .stat-value { color:#f59e0b; text-shadow:0 0 10px rgba(245,158,11,0.4); }
+[data-theme="heritage"] .stat-label { color:#71717a; }
+[data-theme="heritage"] .stat-unit { color:#52525b; }
+[data-theme="heritage"] .popup { background:rgba(0,0,0,0.92); border:1px solid #f59e0b; }
+[data-theme="heritage"] .popup-icon { color:#f59e0b; }
+[data-theme="heritage"] .dots .dot.active { background:#f59e0b; }
+
+/* Modern */
+[data-theme="modern"] { background:#f1f5f9; color:#0f172a; }
+[data-theme="modern"] .header { background:#000; border-bottom:1px solid #27272a; color:#fff; }
+[data-theme="modern"] .stat-value { color:#005596; }
+[data-theme="modern"] .stat-label { color:#64748b; }
+[data-theme="modern"] .stat-unit { color:#94a3b8; }
+[data-theme="modern"] .popup { background:rgba(255,255,255,0.95); border:1px solid #005596; color:#0f172a; }
+[data-theme="modern"] .popup-icon { color:#005596; }
+[data-theme="modern"] .dots .dot.active { background:#005596; }
+
+/* Autodelta */
+[data-theme="autodelta"] { background:#000; color:#fff; }
+[data-theme="autodelta"] .header { background:#111; border-bottom:1px solid #222; }
+[data-theme="autodelta"] .stat-value { color:#FF5F00; text-shadow:0 0 10px rgba(255,95,0,0.3); }
+[data-theme="autodelta"] .stat-label { color:#71717a; }
+[data-theme="autodelta"] .stat-unit { color:#52525b; }
+[data-theme="autodelta"] .popup { background:rgba(0,0,0,0.92); border:1px solid #FF5F00; }
+[data-theme="autodelta"] .popup-icon { color:#FF5F00; }
+[data-theme="autodelta"] .dots .dot.active { background:#FF5F00; }
+
+/* Layout */
+.screen { width:800px; height:480px; display:flex; flex-direction:column; position:relative; }
+.header { height:48px; display:flex; justify-content:space-between; align-items:center; padding:0 24px; flex-shrink:0; }
+.header .time { font-size:18px; font-weight:700; }
+.header .date { font-size:12px; font-weight:600; opacity:0.6; }
+
+/* 2x2 grid of stat cells — replaces the time-based carousel */
+.grid { flex:1; display:grid; grid-template-columns:1fr 1fr; grid-template-rows:1fr 1fr; gap:2px;
+        background:rgba(255,255,255,0.05); padding:2px; }
+.cell { background:inherit; display:flex; flex-direction:column; align-items:center; justify-content:center;
+        padding:8px; position:relative; min-width:0; min-height:0; }
+.cell-icon { font-size:28px; opacity:0.5; margin-bottom:4px; }
+.cell-value { font-size:56px; font-weight:900; line-height:1; }
+.cell-unit { font-size:16px; font-weight:400; margin-left:4px; }
+.cell-label { font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:2px; margin-top:6px; opacity:0.7; }
+
+[data-theme="heritage"] .grid { background:#000; }
+[data-theme="heritage"] .cell { background:#0a0a0a; }
+[data-theme="heritage"] .cell-value { color:#f59e0b; text-shadow:0 0 10px rgba(245,158,11,0.4); }
+[data-theme="heritage"] .cell-label { color:#71717a; }
+[data-theme="heritage"] .cell-unit { color:#52525b; }
+
+[data-theme="modern"] .grid { background:#cbd5e1; }
+[data-theme="modern"] .cell { background:#f1f5f9; }
+[data-theme="modern"] .cell-value { color:#005596; }
+[data-theme="modern"] .cell-label { color:#64748b; }
+[data-theme="modern"] .cell-unit { color:#94a3b8; }
+
+[data-theme="autodelta"] .grid { background:#111; }
+[data-theme="autodelta"] .cell { background:#000; }
+[data-theme="autodelta"] .cell-value { color:#FF5F00; text-shadow:0 0 10px rgba(255,95,0,0.3); }
+[data-theme="autodelta"] .cell-label { color:#71717a; }
+[data-theme="autodelta"] .cell-unit { color:#52525b; }
+
+/* Camera overlay title (shared across rear/left/right) */
+.camera-title { position:absolute; top:12px; left:12px; font-size:11px; font-weight:800; letter-spacing:2px;
+                color:rgba(255,255,255,0.7); text-transform:uppercase; z-index:10; }
+
+/* Popup notification */
+.popup { position:absolute; top:56px; left:50%; transform:translateX(-50%); width:90%; max-width:720px;
+         border-radius:12px; padding:16px 24px; display:flex; align-items:center; gap:16px;
+         z-index:100; animation:popup-in 0.3s ease-out; }
+.popup-icon { font-size:32px; }
+.popup-text { font-size:16px; font-weight:700; flex:1; }
+.popup.severity-danger { border-color:#ef4444 !important; }
+.popup.severity-danger .popup-icon { color:#ef4444 !important; }
+@keyframes popup-in { from{opacity:0;transform:translateX(-50%) translateY(-20px);} to{opacity:1;transform:translateX(-50%) translateY(0);} }
+@keyframes popup-out { from{opacity:1;} to{opacity:0;transform:translateX(-50%) translateY(-20px);} }
+
+/* Camera overlay (rear / left / right) — .reverse-overlay class kept for back-compat */
+.reverse-overlay { position:absolute; inset:0; z-index:200; display:flex; flex-direction:column; background:#000; }
+.camera-area { flex:1; position:relative; display:flex; align-items:center; justify-content:center; background:#111; }
+.camera-area .badge { position:absolute; top:12px; right:12px; width:40px; height:40px; border-radius:50%;
+                      background:#dc2626; color:#fff; font-weight:900; font-size:20px;
+                      display:flex; align-items:center; justify-content:center; z-index:10; }
+.camera-left  .camera-area .badge { background:#f59e0b; }
+.camera-right .camera-area .badge { background:#10b981; }
+.sensor-bar { height:100px; background:#09090b; border-top:1px solid #27272a; display:flex; align-items:center; padding:0 16px; flex-shrink:0; }
+.sensor-item { flex:1; display:flex; flex-direction:column; align-items:center; gap:4px; }
+.sensor-label { font-size:11px; font-weight:700; color:#71717a; }
+.sensor-gauge { width:32px; height:56px; background:#18181b; border-radius:4px; position:relative; overflow:hidden; }
+.sensor-fill { position:absolute; bottom:0; width:100%; border-radius:4px; transition:all 0.3s; }
+.sensor-value { font-size:13px; font-weight:700; }
+.closest { width:140px; flex-shrink:0; display:flex; flex-direction:column; align-items:center; padding-left:16px; border-left:1px solid #27272a; }
+.closest-label { font-size:10px; font-weight:700; color:#71717a; text-transform:uppercase; }
+.closest-value { font-size:48px; font-weight:900; color:#fff; }
+.closest-unit { font-size:14px; color:#71717a; }

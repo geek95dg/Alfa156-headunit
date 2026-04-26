@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>BCM v8.5 — Alfa Romeo 156 Head Unit</title>
+    <script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Public+Sans:ital,wght@0,300;0,400;0,500;0,600;0,700;0,800;0,900;1,400;1,700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <link rel="stylesheet" href="/css/themes.css">
+    <script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    colors: {
+                        primary: "var(--color-primary)",
+                        accent: "var(--color-accent)",
+                        surface: "var(--color-surface)",
+                        "on-surface": "var(--color-on-surface)",
+                        "on-surface-variant": "var(--color-on-surface-variant)",
+                    },
+                    fontFamily: {
+                        display: ["Public Sans", "sans-serif"],
+                        body: ["Public Sans", "sans-serif"],
+                    },
+                    borderRadius: {
+                        DEFAULT: "0.25rem",
+                        lg: "0.5rem",
+                        xl: "0.75rem",
+                        full: "9999px",
+                    },
+                },
+            },
+        };
+    </script>
+    <style>
+        /* Adaptive resolution: fits 1024x600 or 1280x800 or scales to window */
+        body { margin: 0; overflow: hidden; }
+        #app { width: 100vw; height: 100vh; position: relative; }
+        .screen-container { width: 100%; height: 100%; }
+    </style>
+</head>
+<body class="font-body overflow-hidden select-none">
+
+    <!-- Screen Container — all screens render here -->
+    <div id="app" class="relative w-full h-full"></div>
+
+    <!-- Scripts: app.js MUST load first (defines App), then components, then screens -->
+    <script src="/js/websocket.js"></script>
+    <script src="/js/app.js"></script>
+    <script src="/js/components/appbar.js"></script>
+    <script src="/js/components/navbar.js"></script>
+    <script src="/js/components/keyboard.js"></script>
+    <script src="/js/components/notifications.js"></script>
+    <script src="/js/components/media-player.js"></script>
+    <script src="/js/components/charts.js"></script>
+    <script src="/js/screens/init.js"></script>
+    <script src="/js/screens/main.js"></script>
+    <script src="/js/screens/android_auto.js"></script>
+    <script src="/js/screens/trip.js"></script>
+    <script src="/js/screens/weather.js"></script>
+    <script src="/js/screens/service.js"></script>
+    <script src="/js/screens/dvr.js"></script>
+    <script src="/js/screens/performance.js"></script>
+    <script src="/js/screens/phone.js"></script>
+    <script src="/js/screens/audio.js"></script>
+    <script src="/js/screens/settings.js"></script>
+</body>
+</html>

@@ -1,0 +1,27 @@
+[Unit]
+Description=BCM v7 — Dashcam Recording
+Documentation=https://github.com/geek95dg/Alfa156-headunit
+After=bcm-power.service
+Requires=bcm-power.service
+BindsTo=bcm-power.service
+
+[Service]
+Type=notify
+ExecStart=/opt/bcm/venv/bin/python -m src.camera.reverse_cam --service
+WorkingDirectory=/opt/bcm
+Environment=PYTHONPATH=/opt/bcm
+Environment=BCM_PLATFORM=opi
+Restart=always
+RestartSec=2
+WatchdogSec=30
+NotifyAccess=all
+
+# Camera and storage access
+SupplementaryGroups=video
+ProtectSystem=strict
+ReadWritePaths=/opt/bcm/data /opt/bcm/logs /run/bcm /dev/video*
+ProtectHome=yes
+NoNewPrivileges=yes
+
+[Install]
+WantedBy=multi-user.target

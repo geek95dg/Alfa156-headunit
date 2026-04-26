@@ -1,0 +1,107 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 500" font-family="monospace" font-size="11">
+  <title>BCM v7 — HC-SR04 Parking Sensor Wiring</title>
+  <style>
+    .box { fill: #f8f8f8; stroke: #333; stroke-width: 2; rx: 6; }
+    .wire { stroke: #333; stroke-width: 1.5; fill: none; }
+    .label { font-size: 11px; fill: #333; text-anchor: middle; }
+    .title { font-size: 14px; font-weight: bold; fill: #111; }
+    .pin { font-size: 9px; fill: #666; }
+    .comp { font-size: 10px; fill: #06c; text-anchor: middle; }
+  </style>
+
+  <text x="400" y="25" class="title" text-anchor="middle">Parking Sensors — 4× HC-SR04 with Voltage Dividers</text>
+
+  <!-- OPi GPIO -->
+  <rect x="30" y="80" width="130" height="200" class="box" fill="#e0f0ff"/>
+  <text x="95" y="105" class="label" font-weight="bold">OPi GPIO</text>
+  <text x="95" y="130" class="pin">Pin 16: TRIG (shared)</text>
+  <text x="95" y="155" class="pin">Pin 18: ECHO 1</text>
+  <text x="95" y="175" class="pin">Pin 22: ECHO 2</text>
+  <text x="95" y="195" class="pin">Pin 24: ECHO 3</text>
+  <text x="95" y="215" class="pin">Pin 26: ECHO 4</text>
+  <text x="95" y="245" class="pin">Pin 12: Buzzer</text>
+  <text x="95" y="265" class="pin">3.3V / 5V / GND</text>
+
+  <!-- Shared TRIG line -->
+  <line x1="160" y1="125" x2="300" y2="125" class="wire" stroke="#c00"/>
+  <text x="230" y="120" class="comp">TRIG (shared)</text>
+
+  <!-- Sensor 1 -->
+  <rect x="350" y="70" width="110" height="60" class="box" fill="#f0f0ff"/>
+  <text x="405" y="90" class="label" font-weight="bold">HC-SR04 #1</text>
+  <text x="405" y="110" class="pin">Left outer</text>
+  <line x1="300" y1="125" x2="350" y2="85" class="wire" stroke="#c00"/>
+
+  <!-- Voltage divider 1 -->
+  <line x1="460" y1="95" x2="500" y2="95" class="wire"/>
+  <rect x="500" y="88" width="30" height="14" fill="#ffe" stroke="#333" rx="2"/>
+  <text x="515" y="98" class="comp" font-size="8">1kΩ</text>
+  <line x1="530" y1="95" x2="560" y2="95" class="wire"/>
+  <rect x="560" y="88" width="30" height="14" fill="#ffe" stroke="#333" rx="2"/>
+  <text x="575" y="98" class="comp" font-size="8">2kΩ</text>
+  <line x1="590" y1="95" x2="630" y2="95" class="wire"/>
+  <text x="660" y="98" class="pin">→ Pin 18</text>
+  <line x1="560" y1="102" x2="560" y2="120" class="wire"/>
+  <text x="560" y="132" class="pin">GND</text>
+
+  <!-- Sensor 2 -->
+  <rect x="350" y="150" width="110" height="60" class="box" fill="#f0f0ff"/>
+  <text x="405" y="170" class="label" font-weight="bold">HC-SR04 #2</text>
+  <text x="405" y="190" class="pin">Left inner</text>
+  <line x1="300" y1="125" x2="350" y2="165" class="wire" stroke="#c00"/>
+
+  <line x1="460" y1="175" x2="500" y2="175" class="wire"/>
+  <rect x="500" y="168" width="30" height="14" fill="#ffe" stroke="#333" rx="2"/>
+  <text x="515" y="178" class="comp" font-size="8">1kΩ</text>
+  <line x1="530" y1="175" x2="560" y2="175" class="wire"/>
+  <rect x="560" y="168" width="30" height="14" fill="#ffe" stroke="#333" rx="2"/>
+  <text x="575" y="178" class="comp" font-size="8">2kΩ</text>
+  <line x1="590" y1="175" x2="630" y2="175" class="wire"/>
+  <text x="660" y="178" class="pin">→ Pin 22</text>
+  <line x1="560" y1="182" x2="560" y2="200" class="wire"/>
+  <text x="560" y="212" class="pin">GND</text>
+
+  <!-- Sensor 3 -->
+  <rect x="350" y="230" width="110" height="60" class="box" fill="#f0f0ff"/>
+  <text x="405" y="250" class="label" font-weight="bold">HC-SR04 #3</text>
+  <text x="405" y="270" class="pin">Right inner</text>
+  <line x1="300" y1="125" x2="350" y2="245" class="wire" stroke="#c00"/>
+
+  <line x1="460" y1="255" x2="500" y2="255" class="wire"/>
+  <rect x="500" y="248" width="30" height="14" fill="#ffe" stroke="#333" rx="2"/>
+  <text x="515" y="258" class="comp" font-size="8">1kΩ</text>
+  <line x1="530" y1="255" x2="560" y2="255" class="wire"/>
+  <rect x="560" y="248" width="30" height="14" fill="#ffe" stroke="#333" rx="2"/>
+  <text x="575" y="258" class="comp" font-size="8">2kΩ</text>
+  <line x1="590" y1="255" x2="630" y2="255" class="wire"/>
+  <text x="660" y="258" class="pin">→ Pin 24</text>
+  <line x1="560" y1="262" x2="560" y2="280" class="wire"/>
+  <text x="560" y="292" class="pin">GND</text>
+
+  <!-- Sensor 4 -->
+  <rect x="350" y="310" width="110" height="60" class="box" fill="#f0f0ff"/>
+  <text x="405" y="330" class="label" font-weight="bold">HC-SR04 #4</text>
+  <text x="405" y="350" class="pin">Right outer</text>
+  <line x1="300" y1="125" x2="350" y2="325" class="wire" stroke="#c00"/>
+
+  <line x1="460" y1="335" x2="500" y2="335" class="wire"/>
+  <rect x="500" y="328" width="30" height="14" fill="#ffe" stroke="#333" rx="2"/>
+  <text x="515" y="338" class="comp" font-size="8">1kΩ</text>
+  <line x1="530" y1="335" x2="560" y2="335" class="wire"/>
+  <rect x="560" y="328" width="30" height="14" fill="#ffe" stroke="#333" rx="2"/>
+  <text x="575" y="338" class="comp" font-size="8">2kΩ</text>
+  <line x1="590" y1="335" x2="630" y2="335" class="wire"/>
+  <text x="660" y="338" class="pin">→ Pin 26</text>
+  <line x1="560" y1="342" x2="560" y2="360" class="wire"/>
+  <text x="560" y="372" class="pin">GND</text>
+
+  <!-- Buzzer -->
+  <rect x="350" y="400" width="110" height="50" class="box" fill="#fff0e0"/>
+  <text x="405" y="420" class="label" font-weight="bold">Piezo Buzzer</text>
+  <text x="405" y="440" class="pin">NPN + flyback diode</text>
+  <line x1="160" y1="240" x2="350" y2="425" class="wire"/>
+
+  <!-- Notes -->
+  <rect x="30" y="460" width="740" height="30" fill="#f8f8ff" stroke="#ccc" rx="4"/>
+  <text x="50" y="480" class="pin" text-anchor="start">Voltage divider: 5V ECHO → 1kΩ → junction (3.3V) → 2kΩ → GND. Safe for 3.3V GPIO input.</text>
+</svg>

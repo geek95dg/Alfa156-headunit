@@ -1,0 +1,367 @@
+# BCM v8.5 — Configuration for Orange Pi PC 1.2 (Allwinner H3, 1 GB RAM)
+#
+# Purpose: Pre-production bench test rig before committing to the
+# production Orange Pi 5 Pro 4 GB. Validates the full BCM stack
+# (config, event bus, HAL, web frontend, sensor wiring) with real
+# GPIO and the H3's internal 3.5 mm DAC on a cheap board.
+#
+# Key differences from OPi 5 Pro config:
+#   - Platform: opi_pc (Allwinner H3, armv7l, 1 GB RAM)
+#   - Single HDMI output = main display (Chromium kiosk on :5002)
+#   - Internal sun4i-codec DAC on the 3.5 mm jack
+#   - GPIO via sun8i-h3 gpiochip0 (NOT /dev/gpio — libgpiod opens it
+#     as /dev/gpiochip0 internally; verify with `gpioinfo gpiochip0`)
+#   - USB 2.0 only — single camera, lower bandwidth
+#   - No built-in WiFi/BT — USB dongles required
+#   - Android Auto is memory-heavy on 1 GB RAM and disabled by default
+#
+# =============================================================================
+# OPi PC 40-PIN HEADER — only the lines that are RELIABLY FREE on
+# Armbian Trixie with mainline kernel 6.x are listed below. The old
+# draft of this file referenced PB4 / PB5 / PD14 pins that are NOT
+# exposed on the OPi PC header at all (PB is inside the SoC, PD is
+# the parallel LCD bus) and some I²C / UART lines that the kernel
+# claims at boot. Running `gpioinfo gpiochip0` on a live OPi PC
+# shows which lines are already "used" by other drivers.
+#
+#   Physical pin   H3 pin   libgpiod line   Notes
+#   ─────────────  ──────   ─────────────   ──────────────────────────
+#   7              PA6      6               1-Wire DS18B20 (needs w1-gpio overlay)
+#   16             PC4      68              Generic GPIO
+#   18             PC7      71              Generic GPIO
+#   26             PA21     21              Generic GPIO
+#   29             PA7      7               Generic GPIO — ignition line
+#   31             PA8      8               Generic GPIO — door
+#   32             PG8      200             Generic GPIO
+#   33             PG9      201             Generic GPIO
+#   35             PA9      9               Generic GPIO — buzzer drive
+#   36             PA10     10              Generic GPIO
+#   37             PA20     20              Generic GPIO
+#   38             PG11     203             Generic GPIO — bench button
+#   40             PG10     202             Generic GPIO
+#
+# Lines AVOIDED in this config because they are claimed by kernel
+# drivers on the stock Armbian Trixie image:
+#   PA11/PA12 (lines 11/12)  — I²C0 (pins 3 and 5)
+#   PA18/PA19 (lines 18/19)  — I²C1 (pins 27 and 28)
+#   PA0/PA1/PA2/PA3 (lines 0-3) — UART2 (pins 11/13/15/22; used for
+#                                 the serial console on some images)
+#   PC0/PC1/PC2/PC3 (lines 64-67) — SPI0 (pins 19/21/23/24)
+#   PG6/PG7 (lines 198/199)  — UART1 (pins 8/10)
+#   PD* (lines 96-127)       — parallel LCD / HDMI data path
+#   PB* (lines 32-63)        — NOT exposed on the 40-pin header
+#
+# VERIFY each line you pick with `gpioinfo gpiochip0 | sed -n "7p;29p"`
+# on the live board — the line index is the number after "line".
+# Any line whose "consumer" column is not "unused" is already taken.
+# =============================================================================
+
+system:
+  name: BCM v8.5 (OPi PC Test)
+  version: 0.1.0
+  platform: opi_pc
+  log_level: DEBUG
+  log_file: logs/bcm.log
+
+modules:
+  dashboard: true
+  obd: true
+  parking: true
+  environment: true
+  audio: true
+  input: true
+  camera: true
+  power: true
+  multimedia: false    # Android Auto is RAM-heavy and 720p video decode
+                       # does not fit the H3 CPU budget — see Part 6.5
+                       # note in OPI_PC_SETUP.md. Enable only to test.
+  location: true
+  network: true        # LTE via Huawei E3372
+  weather: true
+  blinker_monitor: false  # Off by default on the test rig (no car wiring)
+
+display:
+  # Single HDMI output = main display
+  # Chromium kiosk on localhost:5002 renders the web frontend full-screen
+  dashboard:
+    width: 1024
+    height: 600
+    fps: 10            # Lower FPS for H3 CPU
+    theme: heritage
+    brightness: 70
+  multimedia:
+    # Android Auto canvas size — must fit BCM's content area
+    # (dashboard.height − appbar_px − navbar_px = 504) so the AA
+    # stream doesn't overlap the header or nav bar. Leave as the
+    # auto-derived value unless you customised the frontend theme.
+    width: 1024
+    height: 504
+  # BCM frontend chrome sizing — see comments in config/bcm_config.yaml
+  appbar_px: 48
+  navbar_px: 48
+
+units:
+  speed: km/h
+  temperature: C
+
+language: pl
+
+# -----------------------------------------------------------------------------
+# GPIO pin map — libgpiod line numbers on gpiochip0 (NOT physical pin
+# numbers, and NOT the legacy sysfs GPIO numbers). See the header-
+# ranges table at the top of this file for the full pin → line map.
+#
+# Every line used here was chosen because it (a) is exposed on the
+# OPi PC 40-pin header, (b) has "unused" consumer in `gpioinfo
+# gpiochip0` on a stock Armbian Trixie image, and (c) does not
+# conflict with any of the other GPIO assignments in this file.
+# -----------------------------------------------------------------------------
+gpio:
+  chip: gpiochip0
+
+  # 1-Wire temperature sensor — pin 7 = PA6 = line 6.
+  # Requires `w1-gpio` overlay enabled in /boot/armbianEnv.txt with
+  # param_w1_pin=PA6 param_w1_pin_int_pullup=1 (see OPI_PC_SETUP.md §4.3).
+  onewire: 6
+
+  # HC-SR04 parking sensors — one shared TRIG, four independent ECHO.
+  # The 5 V ECHO line MUST go through a 1 kΩ / 2 kΩ divider to the
+  # H3's 3.3 V GPIO.
+  parking_trig: 68      # PC4,  physical pin 16  (TRIG, shared by all 4)
+  parking_echo:
+    - 71                # PC7,  physical pin 18  (ECHO 1)
+    - 21                # PA21, physical pin 26  (ECHO 2)
+    - 200               # PG8,  physical pin 32  (ECHO 3)
+    - 201               # PG9,  physical pin 33  (ECHO 4)
+
+  # Parking buzzer — BC547 + 1 kΩ base resistor + flyback diode, see
+  # OPI_PC_SETUP.md §4.4. Drive is active-high from the GPIO.
+  buzzer: 9             # PA9,  physical pin 35
+
+  # PC817-isolated vehicle signal inputs (all active-low from the
+  # OPi's perspective: 12 V present on the car side pulls the line
+  # LOW through the optoisolator).
+  ignition: 7           # PA7,  physical pin 29  (ignition 12 V via PC817)
+  door: 8               # PA8,  physical pin 31  (door switch via PC817)
+  rain_sensor: 10       # PA10, physical pin 36  (rain sensor module)
+  sprayer: 10           # PA10, physical pin 36  (aliased to rain_sensor)
+  central_lock: 20      # PA20, physical pin 37  (central lock feedback)
+
+  # Bench push button — PC-style 2-pin momentary button between the
+  # GPIO and any GND pin. libgpiod enables internal pull-up.
+  bench_button: 203     # PG11, physical pin 38
+
+  # Turn signal inputs (PC817 optoisolators from the car blinker
+  # wires). Active-low, same pattern as ignition.
+  blinker_left: 202     # PG10, physical pin 40
+  blinker_right: 0      # UNUSED — pick one of the free PG* lines and
+                        # edit this entry before enabling
+                        # modules.blinker_monitor. Leaving at 0 is
+                        # intentional so the wrong pin can't be
+                        # claimed by accident.
+
+  # Display backlight PWM — the OPi PC does NOT expose a usable PWM
+  # pin on the 40-pin header (PA5/PB4/PB5 are not physically
+  # brought out). BCM's backlight control is a no-op on this
+  # platform; the HDMI panel's own backlight is always on. These
+  # keys are intentionally absent so `hal.pwm()` falls through to
+  # the mock implementation.
+
+# Vehicle input signal behaviour — tuning knobs for src/vehicle/.
+vehicle:
+  # Active-low via PC817 optoisolator (same pattern as ignition).
+  # Flip to false if you skip the optoisolator on the bench rig.
+  blinker_active_low: true
+  # Debounce hold so the camera overlay doesn't flicker between
+  # the ~400 ms blinker flashes.
+  blinker_hold_sec: 0.8
+
+# A3 Travel Plan external API keys — same semantics as in
+# config/bcm_config.yaml. Both optional; BCM falls back to a
+# haversine straight-line estimate when openrouteservice_key is
+# blank and hides the incidents panel when tomtom_key is blank.
+travel:
+  openrouteservice_key: ""
+  tomtom_key: ""
+
+serial:
+  kline:
+    # H3 UART3 is on PA13/PA14 (pins 8/10) — needs DT overlay
+    # Alternatively: USB-UART adapter (CP2102/CH340) on /dev/ttyUSB0
+    port_opi_pc: /dev/ttyUSB0
+    baudrate: 10400
+    ecu_address: 1
+
+hardware:
+  gps:
+    enabled: true
+    # USB GPS module (e.g., u-blox 7/8)
+    port: /dev/ttyACM0
+    baudrate: 9600
+  lte:
+    enabled: true
+    # Huawei E3372 — appears as usb0 (HiLink) or ttyUSB0 (stick mode)
+    device: "huawei-e3372"
+    apn: "internet"    # Adjust to your carrier
+    interface: usb0    # HiLink mode network interface
+
+audio:
+  eq_preset: jazz
+  master_volume: 70
+  bass: 0
+  treble: 0
+  fader: 0
+  balance: 0
+  spectrum_enabled: true
+  # OPi PC internal DAC — 3.5mm headphone jack
+  # ALSA card name: "Codec" or "sun4i-codec" (check with: aplay -l)
+  dac: internal
+  dac_alsa_device: "hw:0,0"    # Usually hw:0,0 for internal codec
+  amp_main: TDA7388
+  amp_sub: TDA2050
+  mic_phone: ""
+  voice_duck_pct: 40
+  voice_listen_sec: 8
+
+camera:
+  segment_minutes: 5
+  max_storage_gb: 32   # Smaller SD card expected on test rig
+  recording_path: /media/dashcam
+  # Single USB webcam for testing (USB 2.0 bandwidth limit)
+  device: /dev/video0
+  resolution: 640x480  # Lower res for software H.264 on H3
+  encoder: x264        # Software encoding (no HW encoder on H3)
+  # Role mapping — on the test rig we only have one camera by default,
+  # so front=/dev/video0 and the rest are intentionally left at paths
+  # that probably don't exist. The multi-camera controller will log a
+  # warning but still operate for rear (falls through to placeholder).
+  front_device: /dev/video0
+  rear_device: /dev/video1
+  left_device: /dev/video2
+  right_device: /dev/video3
+  controller: false    # Disabled by default on the 1 GB test rig
+
+swc:
+  enabled: true
+  mapping:
+    volume_up:        [SWC_VOLUP,   SWC2_VOLUP]
+    volume_down:      [SWC_VOLDN,   SWC2_VOLDN]
+    next_track:       [SWC_NEXT,    SWC2_NEXT]
+    prev_track:       [SWC_PREV,    SWC2_PREV]
+    mute:             [SWC_MUTE,    SWC2_MUTE]
+    phone_pickup:     [SWC_PICKUP,  SWC2_PICKUP]
+    phone_hangup:     [SWC_HANGUP,  SWC2_HANGUP]
+    bcm_power_toggle: [SWC_MODE,    SWC2_MODE]
+    voice_aa_trigger: [SWC_VOICE,   SWC2_VOICE]
+    navigate_aa:      [SWC_SRC,     SWC2_SRC]
+    menu_up:          [SWC_UP,      SWC2_UP]
+    menu_down:        [SWC_DOWN,    SWC2_DOWN]
+
+brightness:
+  mode: manual         # No LDR on test rig unless wired
+  steps:
+    - 15
+    - 30
+    - 45
+    - 60
+    - 80
+    - 100
+
+music_panel:
+  enabled: true
+
+wifi:
+  enabled: false       # No built-in WiFi — use USB dongle if needed
+  ssid: ALFA
+  password: "87654321"
+  channel: 6
+  interface: "wlan0"   # USB WiFi dongle
+  ip: 10.0.0.1
+  netmask: 255.255.255.0
+  dhcp_start: 10.0.0.10
+  dhcp_end: 10.0.0.50
+
+weather:
+  api_key: ""
+  poll_interval_min: 15
+  default_lat: 50.06
+  default_lon: 19.94
+
+power:
+  shutdown_delay_seconds: 30
+  backlight_fade_ms: 1000
+  standby_max_hours: 12
+  splash_duration_seconds: 15
+  # Ignition watcher — see the header comment block at the top of
+  # this file for the full 40-pin header map. Both lines below must
+  # be picked from the "RELIABLY FREE" list; pin 33 maps to line
+  # 201 (PG9), not line 37 (PB5) — the old default referenced PB5
+  # which is not exposed on the OPi PC header at all.
+  ignition_watcher:
+    gpio_chip: gpiochip0
+    ignition_line: 7         # PA7,  physical pin 29 (PC817 or button)
+    bench_button_line: 203   # PG11, physical pin 38 (PC-style push button)
+    debounce_ms: 200
+    active_low: true         # PC817 pulls LOW when 12 V present;
+                             # the bench button always uses the H3's
+                             # internal pull-up which libgpiod enables.
+
+# v8.5 modules — enable what's testable
+rain_sensor:
+  sensitivity: medium
+
+central_lock:
+  port: /dev/ttyUSB1
+  baudrate: 9600
+
+lighting:
+  follow_me_home_seconds: 60
+  greeting_blinks: 2
+  leaving_home: true
+
+traffic:
+  api_key: ""
+  provider: tomtom
+  poll_interval_min: 5
+
+remote_status:
+  api_key: ""
+
+modules_v85:
+  rain_sensor: true
+  central_lock: false    # Only if 433MHz module wired
+  lighting: false        # Only if relay board wired
+  performance: true
+  alarm: false           # Only if PIR/tilt/shock wired
+  crash_detect: false    # No accelerometer on test rig
+  battery_backup: true
+
+alarm:
+  siren_duration: 60
+  arming_delay: 30
+  sensors:
+    door: true
+    motion: false
+    tilt: false
+    shock: false
+
+crash_detection:
+  speed_drop_threshold: 30
+  g_force_threshold: 3.0
+  post_crash_record_sec: 60
+
+tracking:
+  interval_sec: 30
+  lte_sync_min: 15
+  geofence_lat: 0
+  geofence_lon: 0
+  geofence_radius_km: 0
+  sms_number: ""
+
+# OPi PC test rig specific
+test_rig:
+  description: "Orange Pi PC 1.2 bench test — pre-production validation"
+  target_device: "Orange Pi 5 Plus"
+  single_display: true
+  chromium_kiosk: true
+  kiosk_url: "http://localhost:5002"
