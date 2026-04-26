@@ -1,8 +1,7 @@
 """Map keycodes to actions and dispatch to event bus.
 
 Handles keycodes from:
-    - Arduino rotary encoder (USB HID keyboard)
-    - Steering wheel control remote (SWC, analog via Arduino ADC)
+    - Arduino USB HID (resistor-ladder buttons + SWC pods)
     - BT steering wheel remote (BT HID)
     - Keyboard fallback (x86 development)
 

@@ -1,6 +1,6 @@
 """Volume control — master and per-source volume management.
 
-Handles volume up/down from BT remote and rotary encoder inputs.
+Handles volume up/down from BT remote and SWC button inputs.
 Publishes volume changes to event bus for status bar display.
 
 Also serves as the module entry point (start_audio) called from main.py.

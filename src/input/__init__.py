@@ -1,1 +1,1 @@
-"""Input Controllers — rotary encoder (USB HID) and Bluetooth steering wheel remote."""
+"""Input Controllers — Arduino HID (USB), SWC remote, and Bluetooth remote."""
