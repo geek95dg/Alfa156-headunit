@@ -307,6 +307,8 @@ Sensor mounted under front bumper (shielded from engine heat)
 - `src/audio/source_manager.py` — Audio source switching: Android Auto, BT A2DP, FM Radio, system sounds
 - `src/audio/ducking.py` — Audio priority & ducking: parking beeps > voice announcements > calls > music
 - `src/audio/volume.py` — Volume control (master + per-source)
+- `src/audio/spectrum.py` — Real-time FFT spectrum analyzer (16-band, PipeWire capture)
+- `src/dashboard/web/js/screens/audio.js` — EQ settings screen (presets, 10-band EQ, bass/treble, fader/balance)
 - `config/pipewire/pipewire.conf` — PipeWire configuration for USB DAC
 - `config/pipewire/eq-profile.json` — 10-band EQ preset
 
@@ -332,6 +334,17 @@ Sensor mounted under front bumper (shielded from engine heat)
   - Ducking: instant on trigger, smooth 1-second fade-back when priority event ends
   - Multiple priorities can stack (e.g., parking beeps + voice warning = music at -18dB, both beeps and voice audible)
 - Volume control via BT remote (VOL+/VOL-) and rotary encoder
+- **Audio EQ settings screen** (accessible from AppBar EQ icon or Settings → Audio/EQ):
+  - EQ preset selector (flat/rock/jazz/bass_boost/custom)
+  - 10-band graphic EQ with vertical sliders (-12 to +12 dB per band)
+  - Bass/Treble quick controls (-12 to +12)
+  - Fader (front/rear, -10 to +10) — requires multi-channel DAC for actual routing
+  - Balance (left/right, -10 to +10)
+- **Real-time spectrum visualizer** on A1 main screen:
+  - 16-band FFT from PipeWire monitor sink (pw-record / parec)
+  - Canvas-based bar visualizer, ~15fps, theme-colored (amber/blue/orange)
+  - Graceful fallback to simulated bars when capture unavailable
+- REST API: `GET/POST /api/audio/eq` for EQ state, `POST /api/audio/volume` for volume/mute
 
 **Why ES9038Q2M over PCM5102A?**
 - With Class AB amplification, DAC quality matters — AB faithfully reproduces the input signal

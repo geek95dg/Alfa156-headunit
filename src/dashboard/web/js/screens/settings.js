@@ -305,6 +305,17 @@ App.registerScreen("settings", (() => {
                         </div>
                     </div>
                 </div>
+                <!-- Audio / EQ -->
+                <div class="rounded-xl p-3 mt-3 cursor-pointer hover:opacity-80" style="background:var(--card-bg);border:1px solid var(--card-border)" onclick="App.navigateTo('audio')">
+                    <div class="flex items-center gap-3">
+                        <span class="material-symbols-outlined" style="color:var(--color-primary)">equalizer</span>
+                        <div>
+                            <p class="text-sm font-bold" style="color:var(--color-on-surface)">Audio / Equalizer</p>
+                            <p class="text-[10px]" style="color:var(--text-dim)">EQ presets, bass, treble, fader</p>
+                        </div>
+                        <span class="material-symbols-outlined ml-auto" style="color:var(--text-dim)">chevron_right</span>
+                    </div>
+                </div>
                 <!-- SWC Button Mapping -->
                 <div class="rounded-xl p-3 mt-3" style="background:var(--card-bg);border:1px solid var(--card-border)">
                     <p class="text-[10px] font-bold uppercase tracking-wider mb-2" style="color:var(--text-dim)">SWC Button Mapping</p>

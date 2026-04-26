@@ -208,6 +208,11 @@ hardware:
 audio:
   eq_preset: jazz
   master_volume: 70
+  bass: 0
+  treble: 0
+  fader: 0
+  balance: 0
+  spectrum_enabled: true
   # OPi PC internal DAC — 3.5mm headphone jack
   # ALSA card name: "Codec" or "sun4i-codec" (check with: aplay -l)
   dac: internal

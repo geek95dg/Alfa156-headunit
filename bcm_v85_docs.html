@@ -465,6 +465,21 @@ tr:hover td{background:var(--bg-card)}
   </table>
   <h3>PipeWire routing</h3>
   <p>Routing audio: Android Auto / BT A2DP / system sounds → PipeWire → USB DAC → wzmacniacze. EQ 10-pasmowy parametryczny (presety: flat, rock, jazz, bass_boost, custom). Ducking priorytetowy: beep parkowania > głos > rozmowa > muzyka.</p>
+
+  <h3>Ekran EQ (Audio Settings)</h3>
+  <p>Pełnoekranowy panel sterowania audio, dostępny z AppBar (ikona equalizera) lub Settings → Audio/EQ:</p>
+  <ul>
+    <li><strong>Presety EQ:</strong> flat, rock, jazz, bass_boost, custom — przełączanie jednym klikiem</li>
+    <li><strong>10-pasmowy graficzny EQ:</strong> regulacja każdego pasma (-12 do +12 dB): 31Hz, 62Hz, 125Hz, 250Hz, 500Hz, 1kHz, 2kHz, 4kHz, 8kHz, 16kHz</li>
+    <li><strong>Bass / Treble:</strong> szybka regulacja niskich i wysokich tonów (-12 do +12)</li>
+    <li><strong>Fader (R↔F):</strong> balans przód/tył (-10 do +10). Wymaga wielokanałowego DAC.</li>
+    <li><strong>Balance (L↔R):</strong> balans lewy/prawy (-10 do +10)</li>
+  </ul>
+
+  <h3>Wizualizator widma (Spectrum)</h3>
+  <p>Canvas-owy wizualizator 16-pasmowy na ekranie A1 (głównym). Pobiera dane FFT z PipeWire
+  (pw-record/parec) w czasie rzeczywistym ~15fps. Fallback na symulowane dane gdy PipeWire niedostępny.
+  Kolory dopasowane do motywu: amber (Heritage), niebieski (Modern), pomarańczowy (Autodelta).</p>
 </section>
 
 <!-- ═══ S9 — KAMERY ═══ -->

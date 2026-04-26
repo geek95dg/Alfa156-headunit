@@ -91,6 +91,11 @@ hardware:
 audio:
   eq_preset: jazz
   master_volume: 70
+  bass: 0
+  treble: 0
+  fader: 0              # -10 (rear) to +10 (front), requires multi-channel DAC
+  balance: 0            # -10 (left) to +10 (right)
+  spectrum_enabled: true
   dac: ES9038Q2M
   amp_main: TDA7388
   amp_sub: TDA2050

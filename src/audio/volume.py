@@ -13,6 +13,7 @@ from src.core.logger import get_logger
 from src.audio.pipewire_ctrl import PipeWireController
 from src.audio.source_manager import SourceManager
 from src.audio.ducking import DuckingManager
+from src.audio.spectrum import SpectrumAnalyzer
 
 log = get_logger("audio.volume")
 
@@ -105,6 +106,13 @@ def start_audio(config: Any, event_bus: EventBus, hal: Any = None,
     eq_preset = config.get("audio.eq_preset", "flat")
     pw.apply_eq_preset(eq_preset)
 
+    # Spectrum analyzer
+    spectrum_enabled = config.get("audio.spectrum_enabled", True)
+    spectrum = None
+    if spectrum_enabled:
+        spectrum = SpectrumAnalyzer(event_bus)
+        spectrum.start()
+
     log.info("Audio module running (PipeWire %s)",
              "active" if pw.available else "simulated")
 
@@ -114,4 +122,5 @@ def start_audio(config: Any, event_bus: EventBus, hal: Any = None,
         "source_manager": source_mgr,
         "ducking": ducking,
         "volume": volume,
+        "spectrum": spectrum,
     })
