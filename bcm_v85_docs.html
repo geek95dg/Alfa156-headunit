@@ -562,7 +562,7 @@ tr:hover td{background:var(--bg-card)}
   </table>
   <h3>SWC Learn Mode <span class="dt dt-new">NOWE</span></h3>
   <p>Konfiguracja przycisków SWC w ustawieniach (ekran Settings). Dla każdej akcji i każdego poda: kliknij ikonę konfiguracji → BCM czeka na sygnał z poda → po naciśnięciu przycisku na SWC, keycode jest przechwycony przez evdev i automatycznie zapisany jako mapowanie. Timeout: 10s. Backend: <code>/api/config/swc/learn</code> (POST start, GET poll). Mapowanie: <code>KEYCODE_TO_BUTTON</code> w <code>src/input/swc_remote.py</code>.</p>
-  <div class="warn"><strong>Usunięte w v8.5:</strong> Enkoder obrotowy — niepotrzebny przy ekranie dotykowym. SWC dropdown selectory zastąpione trybem uczenia (learn mode).</div>
+  <div class="warn"><strong>Usunięte w v8.5:</strong> Enkoder obrotowy — niepotrzebny przy ekranie dotykowym. Przyciski fizyczne jako drabinki rezystorowe (resistor ladder) na Arduino ADC. SWC dropdown selectory zastąpione trybem uczenia (learn mode).</div>
 </section>
 
 <!-- ═══ S14 — POWER ═══ -->
@@ -681,8 +681,8 @@ tr:hover td{background:var(--bg-card)}
   <h2><span class="n">17</span>Schemat blokowy systemu v8.5</h2>
   <div class="code-block">
                     ┌──────────────────────────┐
-                    │    ORANGE PI 5 PLUS       │
-                    │    (RK3588, 8GB RAM)      │
+                    │    ORANGE PI 5 PRO 4GB    │
+                    │    (RK3588S, 4GB RAM)     │
                     │                          │
   HDMI-1 ──────────┤  4.3" Stats Display      │
   HDMI-2 ──────────┤  7/8" Touch Display      │
@@ -744,7 +744,7 @@ tr:hover td{background:var(--bg-card)}
   <p>Minimalny zestaw do uruchomienia BCM z ekranem, dźwiękiem i odczytem danych silnika.</p>
   <table>
     <tr><th>Komponent</th><th>Model</th><th>Szt.</th><th>Cena PLN</th><th>Uwagi</th></tr>
-    <tr><td>SBC</td><td><strong>Orange Pi 5 Plus 8GB</strong></td><td>1</td><td>600-750</td><td>RK3588, 2× HDMI, WiFi, BT</td></tr>
+    <tr><td>SBC</td><td><strong>Orange Pi 5 Pro 4GB</strong></td><td>1</td><td>350-450</td><td>RK3588S, HDMI 2.1 + HDMI 2.0, WiFi 6, BT 5.0</td></tr>
     <tr><td>Ekran główny</td><td>7/8" IPS HDMI + Touch</td><td>1</td><td>400-600</td><td>Dotykowy — A1-A7 + Settings</td></tr>
     <tr><td>Przetwornica DC-DC</td><td>LM2596 12V→5.1V 4A</td><td>1</td><td>30-50</td><td>Regulowana, ustaw na 5.1V</td></tr>
     <tr><td>Bezpieczniki</td><td>20A + 25A blade fuse</td><td>2</td><td>10</td><td>5V linia + 12V audio</td></tr>
@@ -822,43 +822,11 @@ tr:hover td{background:var(--bg-card)}
   <table>
     <tr><th>Etap</th><th>Co dostajesz</th><th>Min PLN</th><th>Max PLN</th><th>Narastająco</th></tr>
     <tr><td style="color:var(--accent)"><strong>1. Podstawa</strong></td><td>Ekran + audio + OBD + AA + BT</td><td>1 350</td><td>1 900</td><td>1 350-1 900</td></tr>
-    <tr><td style="color:var(--accent2)"><strong>2. Kamery</strong></td><td>DVR + cofanie + parkowanie + temp + głos</td><td>755</td><td>1 285</td><td>2 105-3 185</td></tr>
+    <tr><td style="color:var(--accent2)"><strong>2. Kamery</strong></td><td>DVR + cofanie + parkowanie + temp + SWC</td><td>755</td><td>1 285</td><td>2 105-3 185</td></tr>
     <tr><td style="color:var(--orange)"><strong>3. Łączność</strong></td><td>LTE + GPS + pogoda + sub + deszcz</td><td>195</td><td>370</td><td>2 300-3 555</td></tr>
     <tr><td style="color:var(--red)"><strong>4. Zamek/Alarm</strong></td><td>Zamek RF + alarm + tracking + bateria</td><td>180</td><td>285</td><td>2 480-3 840</td></tr>
   </table>
   <div class="warn"><strong>Uwaga:</strong> Ceny orientacyjne 2026-03. Nie uwzględniają głośników, subwoofera, kabli samochodowych, obudowy DIN, ani robocizny. Każdy etap jest w pełni funkcjonalny — możesz jeździć po etapie 1.</div>
-</section>
-    <tr><td>Odbiornik RF</td><td>RXB6 433MHz</td><td>1</td><td>15-25</td></tr>
-    <tr><td>USB hub</td><td>USB 3.0 powered hub</td><td>1</td><td>50-80</td></tr>
-  </table>
-  <div class="ok"><strong>Podkategoria: ~165-255 PLN</strong></div>
-
-  <h3>Alarm + bezpieczeństwo <span class="dt dt-new">NOWE</span></h3>
-  <table>
-    <tr><th>Komponent</th><th>Model</th><th>Szt.</th><th>Cena PLN</th></tr>
-    <tr><td><strong>Syrena alarmowa</strong></td><td>12V piezo 120dB</td><td>1</td><td>25-40</td></tr>
-    <tr><td><strong>Czujnik ruchu PIR</strong></td><td>HC-SR501 mini</td><td>1</td><td>10-15</td></tr>
-    <tr><td><strong>Czujnik wstrząsów</strong></td><td>Piezo vibration sensor</td><td>1</td><td>8-12</td></tr>
-    <tr><td><strong>Akcelerometr (tilt/crash)</strong></td><td>MPU6050 6-axis</td><td>1</td><td>15-30</td></tr>
-    <tr><td><strong>LED alarmu</strong></td><td>LED 5mm + rezystor</td><td>1</td><td>2-3</td></tr>
-  </table>
-  <div class="ok"><strong>Podkategoria: ~60-100 PLN</strong></div>
-
-  <h3>Podsumowanie kosztów</h3>
-  <table>
-    <tr><th>Kategoria</th><th>Min PLN</th><th>Max PLN</th></tr>
-    <tr><td>System bazowy (OPi 8GB + ekrany)</td><td>1200</td><td>1650</td></tr>
-    <tr><td>Zasilanie + bateria backup</td><td>85</td><td>130</td></tr>
-    <tr><td>Audio (DAC + wzmacniacze)</td><td>125</td><td>200</td></tr>
-    <tr><td>Czujniki + I/O</td><td>165</td><td>245</td></tr>
-    <tr><td>Kamery + DVR</td><td>430</td><td>800</td></tr>
-    <tr><td>Łączność (LTE, GPS, BT, mic)</td><td>200</td><td>390</td></tr>
-    <tr><td>Sterowanie + centralny zamek</td><td>165</td><td>255</td></tr>
-    <tr><td>Alarm + bezpieczeństwo</td><td>60</td><td>100</td></tr>
-    <tr><td>Różne (kable, złącza, obudowy)</td><td>100</td><td>200</td></tr>
-    <tr style="font-weight:bold;color:var(--accent)"><td><strong>RAZEM</strong></td><td><strong>~2 530</strong></td><td><strong>~3 970</strong></td></tr>
-  </table>
-  <div class="warn"><strong>Uwaga:</strong> Ceny orientacyjne na dzień 2026-03. Nie uwzględniają głośników, subwoofera, kabli samochodowych, obudowy DIN, ani robocizny. OPi 5 Plus 8GB zamiast 16GB — 8GB jest w pełni wystarczające dla tego zastosowania.</div>
 </section>
 
 <!-- ═══ S20 — VM TESTING ═══ -->
