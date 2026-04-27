@@ -41,8 +41,9 @@ Environment=DISPLAY=:0
 Restart=on-failure
 RestartSec=3
 
-# Run as the display user (not root)
-User=bcm
+# Run as the display user (not root).
+# Must match the user who owns the X/Wayland session (DISPLAY=:0).
+User=abner
 
 StandardOutput=journal
 StandardError=journal
