@@ -12,7 +12,7 @@ from typing import Any, Optional
 from src.core.event_bus import EventBus
 from src.core.logger import get_logger
 from src.input.action_dispatch import ActionDispatcher
-from src.input.rotary_encoder import RotaryEncoderListener
+from src.input.arduino_hid import ArduinoHidListener
 from src.input.arduino_serial import ArduinoSerialListener
 from src.input.voice_aa import VoiceAAHandler
 
@@ -38,7 +38,7 @@ def find_bt_remote() -> Optional[Any]:
         devices = [evdev.InputDevice(path) for path in evdev.list_devices()]
         for dev in devices:
             name_lower = dev.name.lower()
-            # Skip Arduino devices (handled by rotary_encoder)
+            # Skip Arduino devices (handled by arduino_hid)
             if any(p in name_lower for p in ["arduino", "pro micro", "leonardo"]):
                 continue
             if any(pat in name_lower for pat in BT_REMOTE_PATTERNS):
@@ -118,11 +118,9 @@ def start_input(config: Any, event_bus: EventBus, hal: Any = None,
     # Action dispatcher (keycode → event bus actions)
     dispatcher = ActionDispatcher(event_bus)
 
-    # Rotary encoder + SWC + music panel (Arduino USB HID — single device)
-    # SWC analog buttons and music panel buttons are read by Arduino
-    # and sent as HID keycodes alongside encoder events.
-    encoder = RotaryEncoderListener(event_bus)
-    encoder.start()
+    # Arduino HID (resistor-ladder buttons → USB HID keycodes)
+    arduino_hid = ArduinoHidListener(event_bus)
+    arduino_hid.start()
 
     # Arduino serial listener (light sensor data + debug)
     arduino_serial = ArduinoSerialListener(event_bus)
@@ -135,14 +133,14 @@ def start_input(config: Any, event_bus: EventBus, hal: Any = None,
     bt_remote = BTRemoteListener(event_bus)
     bt_remote.start()
 
-    log.info("Input module running (encoder+swc+music=%s, light_sensor=%s, bt_remote=%s)",
-             "active" if encoder.available else "simulated",
+    log.info("Input module running (arduino_hid=%s, light_sensor=%s, bt_remote=%s)",
+             "active" if arduino_hid.available else "simulated",
              "active" if arduino_serial.available else "disabled",
              "active" if bt_remote.available else "simulated")
 
     event_bus.publish("input._internals", {
         "dispatcher": dispatcher,
-        "encoder": encoder,
+        "arduino_hid": arduino_hid,
         "arduino_serial": arduino_serial,
         "bt_remote": bt_remote,
         "voice_aa": voice_aa,

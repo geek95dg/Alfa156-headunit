@@ -48,6 +48,7 @@ const AppBar = (() => {
             <div class="flex items-center gap-3 w-[200px] justify-end">
                 <span class="${tempColor} text-sm font-bold" data-bind="ext_temp">${temp}</span>
                 ${btIcon}
+                <span class="material-symbols-outlined text-zinc-600 text-[18px] cursor-pointer hover:text-zinc-400" onclick="App.navigateTo('audio')">equalizer</span>
                 <span class="material-symbols-outlined text-zinc-600 text-[18px] cursor-pointer hover:text-zinc-400" onclick="App.navigateTo('settings')">settings</span>
             </div>
         </header>`;

@@ -28,6 +28,50 @@ App.registerScreen("a1", (() => {
             const pct = Math.min(100, Math.max(0, ((data.coolant_temp || 0) - 40) / 90 * 100));
             tempBar.style.width = `${pct}%`;
         }
+
+        // Spectrum visualizer
+        const canvas = document.getElementById("spectrum-canvas");
+        if (canvas && data.audio_spectrum) {
+            _drawSpectrum(canvas, data.audio_spectrum, theme);
+        }
+    }
+
+    function _drawSpectrum(canvas, bands, theme) {
+        const ctx = canvas.getContext("2d");
+        if (!ctx) return;
+        const dpr = window.devicePixelRatio || 1;
+        const w = canvas.clientWidth;
+        const h = canvas.clientHeight;
+        if (canvas.width !== w * dpr || canvas.height !== h * dpr) {
+            canvas.width = w * dpr;
+            canvas.height = h * dpr;
+            ctx.scale(dpr, dpr);
+        }
+        ctx.clearRect(0, 0, w, h);
+
+        const n = bands.length;
+        const gap = 2;
+        const barW = Math.max(2, (w - gap * (n + 1)) / n);
+        const colors = {
+            heritage: ["#f59e0b", "#d97706"],
+            modern: ["#3b82f6", "#1d4ed8"],
+            autodelta: ["#FF5F00", "#ec5b13"],
+        };
+        const [c1, c2] = colors[theme] || colors.heritage;
+
+        for (let i = 0; i < n; i++) {
+            const val = Math.max(0, Math.min(1, bands[i]));
+            const barH = val * (h - 4);
+            const x = gap + i * (barW + gap);
+            const y = h - barH;
+            const grad = ctx.createLinearGradient(x, y, x, h);
+            grad.addColorStop(0, c1);
+            grad.addColorStop(1, c2);
+            ctx.fillStyle = grad;
+            ctx.beginPath();
+            ctx.roundRect(x, y, barW, barH, 1.5);
+            ctx.fill();
+        }
     }
 
     function _updateEl(id, text) {
@@ -89,7 +133,14 @@ App.registerScreen("a1", (() => {
                     <div class="col-span-4">
                         ${MediaPlayer.renderHeritage(data)}
                     </div>
-                    <div class="col-span-8 bg-zinc-900/30 rounded-xl border border-zinc-800 p-4 flex items-center justify-between px-8">
+                    <div class="col-span-4 bg-zinc-950 rounded-xl border border-zinc-800 p-3 flex flex-col cursor-pointer" onclick="App.navigateTo('audio')">
+                        <div class="flex items-center justify-between mb-1">
+                            <span class="text-[9px] font-bold uppercase tracking-wider text-zinc-500">Spectrum</span>
+                            <span class="material-symbols-outlined text-zinc-600" style="font-size:14px">equalizer</span>
+                        </div>
+                        <canvas id="spectrum-canvas" class="flex-1 w-full" style="min-height:50px"></canvas>
+                    </div>
+                    <div class="col-span-4 bg-zinc-900/30 rounded-xl border border-zinc-800 p-4 flex items-center justify-between px-6">
                         <div class="flex flex-col items-center">
                             <span class="text-[10px] text-zinc-500 font-bold uppercase">${t("avg_speed")}</span>
                             <span class="text-xl font-black text-zinc-200"><span id="avg-speed-val">${avgSpd}</span> <span class="text-[10px] text-zinc-500">km/h</span></span>
@@ -164,6 +215,13 @@ App.registerScreen("a1", (() => {
                 <!-- Right: Media + Status -->
                 <div class="col-span-3 flex flex-col gap-4">
                     ${MediaPlayer.renderModern(data)}
+                    <div class="bg-white p-3 rounded-xl shadow-sm border border-slate-100 cursor-pointer" onclick="App.navigateTo('audio')">
+                        <div class="flex items-center justify-between mb-1">
+                            <span class="text-[9px] font-bold uppercase tracking-wider text-slate-400">Spectrum</span>
+                            <span class="material-symbols-outlined text-blue-400" style="font-size:14px">equalizer</span>
+                        </div>
+                        <canvas id="spectrum-canvas" class="w-full" style="height:40px"></canvas>
+                    </div>
                     <div class="bg-white p-4 rounded-xl shadow-sm border border-slate-100 flex items-center justify-between">
                         <div>
                             <span class="text-[10px] font-bold text-slate-400 uppercase tracking-wider block mb-1">Status</span>
@@ -231,6 +289,13 @@ App.registerScreen("a1", (() => {
                         ${notifHtml}
                         <div class="mt-auto">
                             ${MediaPlayer.renderAutodelta(data)}
+                            <div class="mt-3 p-2 rounded-lg border border-[#222222] cursor-pointer" onclick="App.navigateTo('audio')">
+                                <div class="flex items-center justify-between mb-1">
+                                    <span class="text-[8px] font-bold uppercase tracking-wider text-gray-500">Spectrum</span>
+                                    <span class="material-symbols-outlined text-[#FF5F00]" style="font-size:12px">equalizer</span>
+                                </div>
+                                <canvas id="spectrum-canvas" class="w-full" style="height:32px"></canvas>
+                            </div>
                         </div>
                     </div>
                 </div>

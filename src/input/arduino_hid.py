@@ -1,7 +1,8 @@
-"""Rotary encoder input — listen for USB HID events from Arduino Pro Micro.
+"""Arduino USB HID input — listen for key events from Arduino Pro Micro.
 
-The Arduino presents as a USB HID keyboard. We listen for key events
-using evdev and forward them to the ActionDispatcher.
+The Arduino reads two resistor-ladder button pods (SWC + music panel)
+and sends keycodes as a USB HID keyboard. We listen via evdev and
+forward to the ActionDispatcher.
 
 Falls back gracefully if evdev is not available or no device found.
 """
@@ -12,7 +13,7 @@ from typing import Any, Optional
 from src.core.event_bus import EventBus
 from src.core.logger import get_logger
 
-log = get_logger("input.rotary")
+log = get_logger("input.arduino_hid")
 
 try:
     import evdev
@@ -20,7 +21,7 @@ try:
     _EVDEV_AVAILABLE = True
 except ImportError:
     _EVDEV_AVAILABLE = False
-    log.info("evdev not installed — rotary encoder will be simulated")
+    log.info("evdev not installed — Arduino HID will be simulated")
 
 # Arduino Pro Micro identifies with these USB IDs
 ARDUINO_VENDOR_IDS = [0x2341, 0x1B4F, 0x2A03]  # Arduino, SparkFun, Arduino.org
@@ -50,10 +51,12 @@ def find_arduino_device() -> Optional[Any]:
     return None
 
 
-class RotaryEncoderListener:
-    """Listens for USB HID key events from the Arduino rotary encoder.
+class ArduinoHidListener:
+    """Listens for USB HID key events from the Arduino button controller.
 
-    Publishes raw keycodes to the event bus for ActionDispatcher.
+    The Arduino reads two resistor-ladder pods and physical buttons,
+    encoding each as a USB HID keycode. This listener captures those
+    events via evdev and publishes raw keycodes to the event bus.
     """
 
     def __init__(self, event_bus: EventBus):
@@ -75,7 +78,7 @@ class RotaryEncoderListener:
         return "none"
 
     def start(self) -> None:
-        """Start listening for encoder events."""
+        """Start listening for Arduino HID events."""
         if self._running:
             return
 
@@ -84,9 +87,9 @@ class RotaryEncoderListener:
         if self.available:
             self._thread = threading.Thread(target=self._listen_loop, daemon=True)
             self._thread.start()
-            log.info("Rotary encoder listener started: %s", self.device_name)
+            log.info("Arduino HID listener started: %s", self.device_name)
         else:
-            log.info("Rotary encoder: no device (use keyboard fallback)")
+            log.info("Arduino HID: no device (use keyboard fallback)")
 
     def stop(self) -> None:
         """Stop listening."""
@@ -103,10 +106,10 @@ class RotaryEncoderListener:
                     break
                 if event.type == ecodes.EV_KEY and event.value == 1:  # Key press
                     self._event_bus.publish("input.raw_keycode", event.code)
-                    log.debug("Encoder key: %d", event.code)
+                    log.debug("Arduino key: %d", event.code)
         except OSError as e:
-            log.error("Encoder device lost: %s", e)
+            log.error("Arduino device lost: %s", e)
             self._running = False
         except Exception as e:
-            log.error("Encoder listener error: %s", e)
+            log.error("Arduino HID listener error: %s", e)
             self._running = False

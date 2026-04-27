@@ -192,6 +192,16 @@ class WebViewer:
                 "running", "connected", "restarting"),
             "lte_connected": _val("lte.connected", False),
             "lte_signal": _val("lte.signal_strength", 0),
+            # Audio
+            "audio_volume": _val("audio.volume", 70),
+            "audio_muted": _val("audio.mute_changed", False),
+            "audio_eq_preset": _val("audio.eq_preset", "jazz"),
+            "audio_eq_gains": _val("audio.eq_gains", [0] * 10),
+            "audio_spectrum": _val("audio.spectrum", [0] * 16),
+            "audio_bass": _val("audio.bass", 0),
+            "audio_treble": _val("audio.treble", 0),
+            "audio_fader": _val("audio.fader", 0),
+            "audio_balance": _val("audio.balance", 0),
             # Notifications
             "notifications": _val("system.notifications", []),
             # Parking
@@ -353,6 +363,131 @@ class WebViewer:
             if viewer._event_bus:
                 viewer._event_bus.publish("input.swc_config_changed", mapping)
             return jsonify({"ok": True})
+
+        # --- SWC learn mode ---
+
+        _swc_learn = {"active": False, "action": "", "pod": 0,
+                      "result": None, "ts": 0}
+
+        def _on_learn_keycode(topic, value, timestamp):
+            if not _swc_learn["active"] or not isinstance(value, int):
+                return
+            from src.input.swc_remote import KEYCODE_TO_BUTTON
+            btn_pair = KEYCODE_TO_BUTTON.get(value)
+            if not btn_pair:
+                return
+            pod = _swc_learn["pod"]
+            button_name = btn_pair[min(pod, 1)]
+            action = _swc_learn["action"]
+            _swc_learn["result"] = button_name
+            _swc_learn["active"] = False
+            cfg = viewer._config
+            if cfg and action:
+                from src.input.swc_remote import DEFAULT_MAPPING
+                mapping = cfg.get("swc.mapping")
+                if not isinstance(mapping, dict):
+                    mapping = dict(DEFAULT_MAPPING)
+                if action in mapping and isinstance(mapping[action], list):
+                    mapping[action][min(pod, len(mapping[action]) - 1)] = button_name
+                    cfg.set("swc.mapping", mapping)
+                    cfg.save()
+
+        def _on_learn_keyname(topic, value, timestamp):
+            if not _swc_learn["active"] or not isinstance(value, str):
+                return
+            from src.input.action_dispatch import KEYBOARD_MAP
+            keycode = KEYBOARD_MAP.get(value.lower())
+            if keycode is not None:
+                _on_learn_keycode("", keycode, timestamp)
+
+        if viewer._event_bus:
+            viewer._event_bus.subscribe("input.raw_keycode", _on_learn_keycode)
+            viewer._event_bus.subscribe("input.raw_keyname", _on_learn_keyname)
+
+        @app.route("/api/config/swc/learn", methods=["POST"])
+        def api_swc_learn_start():
+            data = request.get_json(silent=True) or {}
+            _swc_learn.update(
+                active=True, action=data.get("action", ""),
+                pod=data.get("pod", 0), result=None, ts=time.time())
+            return jsonify({"ok": True})
+
+        @app.route("/api/config/swc/learn", methods=["GET"])
+        def api_swc_learn_status():
+            if _swc_learn["active"] and time.time() - _swc_learn["ts"] > 10:
+                _swc_learn["active"] = False
+            return jsonify({
+                "active": _swc_learn["active"],
+                "result": _swc_learn["result"],
+                "action": _swc_learn["action"],
+                "pod": _swc_learn["pod"],
+            })
+
+        # --- Audio EQ API ---
+
+        def _get_audio_ctrl():
+            if viewer._event_bus:
+                result = viewer._event_bus.get_last("audio._internals")
+                if result and result[0]:
+                    return result[0].get("pipewire")
+            return None
+
+        @app.route("/api/audio/eq", methods=["GET"])
+        def api_audio_eq_get():
+            from src.audio.pipewire_ctrl import EQ_PRESETS, EQ_FREQUENCIES
+            pw = _get_audio_ctrl()
+            return jsonify({
+                "preset": pw.current_eq_preset if pw else "flat",
+                "gains": EQ_PRESETS.get(
+                    pw.current_eq_preset if pw else "flat",
+                    [0] * 10),
+                "frequencies": EQ_FREQUENCIES,
+                "presets": list(EQ_PRESETS.keys()),
+                "bass": pw.bass if pw else 0,
+                "treble": pw.treble if pw else 0,
+                "fader": pw.fader if pw else 0,
+                "balance": pw.balance if pw else 0,
+            })
+
+        @app.route("/api/audio/eq", methods=["POST"])
+        def api_audio_eq_set():
+            pw = _get_audio_ctrl()
+            if not pw:
+                return jsonify({"error": "audio not available"}), 503
+            data = request.get_json(silent=True) or {}
+            ok = True
+            if "preset" in data:
+                ok = pw.apply_eq_preset(data["preset"]) and ok
+            if "gains" in data:
+                ok = pw.set_custom_gains(data["gains"]) and ok
+            if "bass" in data or "treble" in data:
+                ok = pw.set_bass_treble(
+                    data.get("bass", pw.bass),
+                    data.get("treble", pw.treble),
+                ) and ok
+            if "fader" in data:
+                ok = pw.set_fader(data["fader"]) and ok
+            if "balance" in data:
+                ok = pw.set_balance(data["balance"]) and ok
+            return jsonify({"ok": ok})
+
+        @app.route("/api/audio/volume", methods=["POST"])
+        def api_audio_volume_set():
+            data = request.get_json(silent=True) or {}
+            if viewer._event_bus:
+                internals = viewer._event_bus.get_last("audio._internals")
+                if internals and internals[0]:
+                    vol_ctrl = internals[0].get("volume")
+                    if vol_ctrl:
+                        if "volume" in data:
+                            vol_ctrl.set_volume(int(data["volume"]))
+                        if "mute" in data:
+                            if data["mute"]:
+                                vol_ctrl.mute()
+                            else:
+                                vol_ctrl.unmute()
+                        return jsonify({"ok": True})
+            return jsonify({"error": "audio not available"}), 503
 
         # --- Boot mode API ---
 

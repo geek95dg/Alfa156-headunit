@@ -1,6 +1,10 @@
-# BCM v7 — Orange Pi 5 Plus Installation Manual
+# BCM v8.5 — Orange Pi 5 Plus Installation Manual
 
-Complete guide to deploying the BCM v7 headunit system on Orange Pi 5 Plus (RK3588) for the Alfa Romeo 156.
+> **Note:** Production build has moved to **Orange Pi 5 Pro 4GB**. See
+> [`OPI5PRO_SETUP.md`](OPI5PRO_SETUP.md) for the recommended setup.
+> This document is retained for reference if using an OPi 5 Plus board.
+
+Complete guide to deploying the BCM headunit system on Orange Pi 5 Plus (RK3588) for the Alfa Romeo 156.
 
 ---
 
@@ -28,7 +32,7 @@ Complete guide to deploying the BCM v7 headunit system on Orange Pi 5 Plus (RK35
 | K-Line transceiver | L9637D on perfboard | UART3 (pins 8, 10) |
 | Parking sensors | 4× HC-SR04 | GPIO (see pin table) |
 | Temperature sensor | DS18B20 waterproof probe | 1-Wire (pin 7) |
-| Input controller | Arduino Pro Micro + rotary encoder | USB |
+| Input controller | Arduino Pro Micro (resistor-ladder buttons) | USB |
 | Cameras | 2× AHD 720P | USB3.0 grabber |
 | Microphone | USB condenser | USB |
 | BT remote | Steering wheel remote | Bluetooth |
@@ -115,7 +119,6 @@ sudo apt install -y \
 
 # Display / framebuffer
 sudo apt install -y \
-    python3-pygame libsdl2-dev libsdl2-image-dev \
     libdrm-dev
 
 # Serial / UART
@@ -235,7 +238,7 @@ sudo -u bcm wpctl status
 
 ```bash
 # On a PC with Arduino IDE:
-# 1. Open arduino/rotary_encoder/rotary_encoder.ino
+# 1. Open arduino/rotary_encoder/rotary_encoder.ino (button controller firmware)
 # 2. Select Board: Arduino Micro
 # 3. Install HID-Project library
 # 4. Upload to Arduino Pro Micro
@@ -397,7 +400,7 @@ EQ is managed via PipeWire filter chain. Presets defined in `config/pipewire/eq-
 - **Bass Boost** — +6dB below 120Hz
 - **Custom** — user-defined 10-band parametric
 
-Switch presets via settings menu (press H on dashboard) or voice: "zmien styl" / "change theme".
+Switch presets via the Audio/EQ screen (AppBar equalizer icon or Settings → Audio/EQ).
 
 ---
 
@@ -545,9 +548,9 @@ Phone calls route through PipeWire with automatic audio ducking (music volume re
 
 ---
 
-## 12. Voice Control
+## 12. Microphone & SWC Remote
 
-### 12.1 Microphone setup
+### 12.1 Microphone setup (phone calls / Android Auto)
 
 ```bash
 # List input devices
@@ -561,19 +564,15 @@ aplay /tmp/test.wav
 wpctl set-default <source-node-id>
 ```
 
-### 12.2 Wake word
+> **Note:** Vosk voice control was removed in v8.5. Voice input is
+> handled by Android Auto (Google Assistant) via the SWC voice button.
 
-- Polish: **"Hej komputer"**
-- English: **"Hey computer"**
+### 12.2 SWC remote (steering wheel buttons)
 
-After wake word detection, speak a command within 5 seconds.
-
-### 12.3 SWC remote (steering wheel buttons)
-
-The steering wheel control remote uses two round button pods with a decoder box:
+The steering wheel control uses two round button pods with a decoder box:
 - Red wire → 12V accessory
 - Black wire → chassis ground
-- White wire → Arduino Pro Micro pin A0
+- White wire → Arduino Pro Micro pin A0 (resistor-ladder)
 
 Calibrate after installation:
 1. Connect Arduino to PC (or SSH to OPi and open `picocom /dev/ttyACM0 -b 115200`)
@@ -581,22 +580,7 @@ Calibrate after installation:
 3. Press each button when prompted
 4. Values saved to EEPROM
 
-### 12.4 Available commands
-
-| Polish | English | Action |
-|--------|---------|--------|
-| pokaz temperature | show temperature | Display exterior temp |
-| wlacz radio | turn on radio | Switch audio source |
-| nastepny utwor | next track | Next track |
-| poprzedni utwor | previous track | Previous track |
-| glosniej | volume up | Volume +10% |
-| ciszej | volume down | Volume -10% |
-| pokaz zuzycie | show consumption | Show fuel consumption |
-| status samochodu | car status | Show vehicle status |
-| nagrywaj | start recording | Start dashcam |
-| zatrzymaj nagrywanie | stop recording | Stop dashcam |
-| zmien styl | change theme | Cycle dashboard theme |
-| zmien jezyk | change language | Switch PL/EN |
+Button mapping is configurable in the web Settings screen (learn mode).
 
 ---
 
@@ -747,12 +731,12 @@ After full installation, verify each subsystem:
 - [ ] USB DAC detected: `aplay -l | grep ES9038`
 - [ ] Speakers output: `speaker-test -t wav -c 2`
 - [ ] Dashboard renders on 4.3" TFT (check `/dev/fb0`)
-- [ ] Arduino encoder works: `evtest /dev/input/eventX`
+- [ ] Arduino HID buttons work: `evtest /dev/input/eventX`
 - [ ] Cameras visible: `v4l2-ctl --list-devices`
 - [ ] Bluetooth adapter up: `bluetoothctl show`
 - [ ] K-Line responds: ECU handshake via `bcm-obd.service`
 - [ ] Parking sensors trigger: reverse gear → overlay appears
-- [ ] Voice responds: "Hej komputer" → "Slucham"
+- [ ] SWC voice button triggers AA voice assistant
 - [ ] Dashcam records: check `/media/dashcam/*.mp4`
 - [ ] `python -m pytest tests/ -v` — all tests pass
 - [ ] All 6 systemd services: `sudo systemctl status bcm-*`
