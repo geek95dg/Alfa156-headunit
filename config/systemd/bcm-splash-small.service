@@ -41,7 +41,7 @@ SuccessExitStatus=0 1
 Restart=no
 
 # Framebuffer access only; no audio device needed.
-SupplementaryGroups=video render
+SupplementaryGroups=video
 
 StandardOutput=journal
 StandardError=journal

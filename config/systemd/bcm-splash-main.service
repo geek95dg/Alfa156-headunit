@@ -64,7 +64,7 @@ SuccessExitStatus=0 1
 Restart=no
 
 # Needs framebuffer (DRM) access and the sound card.
-SupplementaryGroups=video render audio
+SupplementaryGroups=video audio
 
 StandardOutput=journal
 StandardError=journal

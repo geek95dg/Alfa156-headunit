@@ -30,11 +30,15 @@ KillSignal=SIGTERM
 # Do NOT auto-restart — ignition watcher manages lifecycle
 Restart=no
 
-# Run as root for GPIO access
+# Run as root for GPIO access — root already has full device access,
+# but we add common hardware groups if they exist on the system.
 User=root
 
-# GPIO + audio + video access
-SupplementaryGroups=gpio i2c spi audio video render
+# Audio + video groups (gpio/i2c/spi/render may not exist on all images —
+# if systemd fails with "Failed to determine supplementary groups", remove
+# the missing groups from this line, or just comment it out since root
+# already has full access).
+SupplementaryGroups=audio video
 
 # Logging
 StandardOutput=journal
