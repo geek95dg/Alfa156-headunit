@@ -436,7 +436,18 @@ def main() -> None:
     else:
         watcher = GPIOIgnitionWatcher(cfg)
 
-    watcher.setup()
+    try:
+        watcher.setup()
+    except (FileNotFoundError, PermissionError, OSError) as exc:
+        if not simulate:
+            log(f"GPIO setup failed: {exc}")
+            log("Falling back to simulation mode — "
+                "check that /dev/gpiochip0 exists (ls /dev/gpiochip*)")
+            simulate = True
+            watcher = SimulatedIgnitionWatcher()
+            watcher.setup()
+        else:
+            raise
 
     # Select SWC monitor
     if simulate:
