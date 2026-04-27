@@ -1,6 +1,7 @@
 /**
- * Settings Screen — Theme, Language, Units, Bluetooth, WiFi.
- * BT state lives on the global Settings object for cross-scope access.
+ * Settings Screen — Theme, Language, Units, Bluetooth, WiFi, SWC Mapping.
+ * Theme-aware via CSS custom properties (--card-bg, --card-border, etc.).
+ * SWC uses a learn mode: press "Configure" then press a button on the pod.
  */
 
 const Settings = {
@@ -10,6 +11,8 @@ const Settings = {
     _swcMapping: null,
     _swcAllButtons: [],
     _swcActions: [],
+    _swcLearning: null,
+    _swcLearnTimer: null,
 
     async setUnit(type, value) {
         const body = {};
@@ -29,13 +32,11 @@ const Settings = {
         Settings._btScanning = true;
         App.navigateTo("settings");
         try { await fetch("/bt/scan", { method: "POST" }); } catch (e) {}
-        // Backend scans for 15s — refresh at 10s and 16s to catch all devices
         setTimeout(() => Settings.btRefresh(), 10000);
         setTimeout(() => Settings.btRefresh(), 16000);
     },
 
     async btConnect(addr) {
-        // Start pairing poll — connecting can also trigger PIN confirmation
         Settings._startPairingPoll();
         fetch(`/bt/connect/${addr}`, { method: "POST" })
             .then(() => Settings.btRefresh())
@@ -49,9 +50,7 @@ const Settings = {
 
     async btPair(addr) {
         console.log("[BT] Pairing:", addr);
-        // Start polling for PIN popup FIRST (before the blocking pair request)
         Settings._startPairingPoll();
-        // Fire pair request WITHOUT awaiting — backend blocks up to 30s during pairing
         fetch(`/bt/pair/${addr}`, { method: "POST" })
             .then(() => { console.log("[BT] Pair request completed"); Settings.btRefresh(); })
             .catch((e) => { console.error("[BT] Pair request failed:", e); });
@@ -62,12 +61,11 @@ const Settings = {
     _pairingPollCount: 0,
 
     _startPairingPoll() {
-        // Stop any existing poll
         if (Settings._pairingPoll) clearInterval(Settings._pairingPoll);
         Settings._pairingPollCount = 0;
         Settings._pairingPoll = setInterval(async () => {
             Settings._pairingPollCount++;
-            if (Settings._pairingPollCount > 60) { // 30s timeout
+            if (Settings._pairingPollCount > 60) {
                 clearInterval(Settings._pairingPoll);
                 Settings._pairingPoll = null;
                 Settings._hidePairingPopup();
@@ -80,7 +78,6 @@ const Settings = {
                 if (data.pending && data.request) {
                     Settings._showPairingPopup(data.request);
                 } else if (Settings._pairingPopupVisible) {
-                    // Pairing resolved — close popup
                     clearInterval(Settings._pairingPoll);
                     Settings._pairingPoll = null;
                     Settings._hidePairingPopup();
@@ -102,17 +99,17 @@ const Settings = {
         }
         overlay.className = "fixed inset-0 z-[200] flex items-center justify-center";
         overlay.style.background = "rgba(0,0,0,0.85)";
-        overlay.innerHTML = `<div class="bg-zinc-900 border border-zinc-700 rounded-2xl p-6 w-[360px] shadow-2xl text-white text-center">
+        overlay.innerHTML = `<div style="background:var(--card-bg);border:1px solid var(--card-border)" class="rounded-2xl p-6 w-[360px] shadow-2xl text-center" style="color:var(--text-primary)">
             <span class="material-symbols-outlined text-4xl text-blue-400 mb-3">bluetooth</span>
-            <h3 class="text-lg font-bold mb-2">${t("bt_pair_confirm","Confirm Pairing")}</h3>
-            <p class="text-sm text-zinc-400 mb-4">${req.address}</p>
-            <div class="bg-zinc-800 rounded-xl py-4 px-6 mb-4">
-                <span class="text-3xl font-mono font-bold tracking-[0.3em] text-white">${req.passkey || "------"}</span>
+            <h3 class="text-lg font-bold mb-2" style="color:var(--text-primary)">${t("bt_pair_confirm","Confirm Pairing")}</h3>
+            <p class="text-sm mb-4" style="color:var(--text-dim)">${req.address}</p>
+            <div class="rounded-xl py-4 px-6 mb-4" style="background:var(--color-surface)">
+                <span class="text-3xl font-mono font-bold tracking-[0.3em]" style="color:var(--text-primary)">${req.passkey || "------"}</span>
             </div>
-            <p class="text-[10px] text-zinc-500 mb-4">${t("bt_pair_match","Does this code match your device?")}</p>
+            <p class="text-[10px] mb-4" style="color:var(--text-dim)">${t("bt_pair_match","Does this code match your device?")}</p>
             <div class="flex gap-3 justify-center">
-                <button class="px-6 py-2 bg-zinc-700 rounded-lg text-sm font-bold hover:bg-zinc-600" onclick="Settings.btPairingRespond(false)">${t("reject","Reject")}</button>
-                <button class="px-6 py-2 bg-green-600 rounded-lg text-sm font-bold hover:bg-green-500" onclick="Settings.btPairingRespond(true)">${t("answer","Accept")}</button>
+                <button class="px-6 py-2 rounded-lg text-sm font-bold" style="background:var(--card-border);color:var(--text-mid)" onclick="Settings.btPairingRespond(false)">${t("reject","Reject")}</button>
+                <button class="px-6 py-2 bg-green-600 rounded-lg text-sm font-bold text-white hover:bg-green-500" onclick="Settings.btPairingRespond(true)">${t("answer","Accept")}</button>
             </div>
         </div>`;
     },
@@ -180,10 +177,37 @@ const Settings = {
         }
     },
 
-    swcSetButton(action, slotIndex, btnName) {
-        if (!Settings._swcMapping || !Settings._swcMapping[action]) return;
-        Settings._swcMapping[action][slotIndex] = btnName;
-        Settings.swcSave();
+    swcLearnStart(action, pod) {
+        Settings._swcLearning = { action, pod };
+        App.navigateTo("settings");
+        fetch("/api/config/swc/learn", {
+            method: "POST",
+            headers: {"Content-Type": "application/json"},
+            body: JSON.stringify({ action, pod }),
+        });
+        if (Settings._swcLearnTimer) clearInterval(Settings._swcLearnTimer);
+        Settings._swcLearnTimer = setInterval(async () => {
+            try {
+                const res = await fetch("/api/config/swc/learn");
+                const data = await res.json();
+                if (!data.active) {
+                    clearInterval(Settings._swcLearnTimer);
+                    Settings._swcLearnTimer = null;
+                    if (data.result && Settings._swcMapping) {
+                        if (!Settings._swcMapping[action]) Settings._swcMapping[action] = ["", ""];
+                        Settings._swcMapping[action][pod] = data.result;
+                    }
+                    Settings._swcLearning = null;
+                    App.navigateTo("settings");
+                }
+            } catch (e) {}
+        }, 500);
+    },
+
+    swcLearnCancel() {
+        if (Settings._swcLearnTimer) clearInterval(Settings._swcLearnTimer);
+        Settings._swcLearnTimer = null;
+        Settings._swcLearning = null;
         App.navigateTo("settings");
     },
 };
@@ -196,15 +220,15 @@ App.registerScreen("settings", (() => {
         const discovered = Settings._btDiscovered;
         const scanning = Settings._btScanning;
 
-        container.innerHTML = `<div class="screen-container bg-black text-white">
+        container.innerHTML = `<div class="screen-container" style="background:var(--color-surface);color:var(--color-on-surface)">
             ${AppBar.render(theme, data)}
             <main class="content-area p-4 overflow-y-auto">
                 <div class="grid grid-cols-2 gap-3">
                     <!-- Left column -->
                     <div class="flex flex-col gap-3">
                         <!-- Theme -->
-                        <div class="bg-zinc-900 rounded-xl p-3 border border-zinc-800">
-                            <p class="text-[10px] font-bold text-zinc-400 uppercase tracking-wider mb-2">${t("theme")}</p>
+                        <div class="rounded-xl p-3" style="background:var(--card-bg);border:1px solid var(--card-border)">
+                            <p class="text-[10px] font-bold uppercase tracking-wider mb-2" style="color:var(--text-dim)">${t("theme")}</p>
                             <div class="flex gap-2">
                                 ${_themeBtn("heritage", "Heritage", config.theme)}
                                 ${_themeBtn("modern", "Modern", config.theme)}
@@ -212,23 +236,23 @@ App.registerScreen("settings", (() => {
                             </div>
                         </div>
                         <!-- Language + Units -->
-                        <div class="bg-zinc-900 rounded-xl p-3 border border-zinc-800 flex gap-6">
+                        <div class="rounded-xl p-3 flex gap-6" style="background:var(--card-bg);border:1px solid var(--card-border)">
                             <div>
-                                <p class="text-[10px] font-bold text-zinc-400 uppercase tracking-wider mb-2">${t("language")}</p>
+                                <p class="text-[10px] font-bold uppercase tracking-wider mb-2" style="color:var(--text-dim)">${t("language")}</p>
                                 <div class="flex gap-2">
                                     ${_langBtn("pl", "PL", config.language)}
                                     ${_langBtn("en", "EN", config.language)}
                                 </div>
                             </div>
                             <div>
-                                <p class="text-[10px] font-bold text-zinc-400 uppercase tracking-wider mb-2">${t("speed_units")}</p>
+                                <p class="text-[10px] font-bold uppercase tracking-wider mb-2" style="color:var(--text-dim)">${t("speed_units")}</p>
                                 <div class="flex gap-2">
                                     ${_unitBtn("km/h", "km/h", config.speed_unit, "speed")}
                                     ${_unitBtn("mph", "mph", config.speed_unit, "speed")}
                                 </div>
                             </div>
                             <div>
-                                <p class="text-[10px] font-bold text-zinc-400 uppercase tracking-wider mb-2">${t("temp_units")}</p>
+                                <p class="text-[10px] font-bold uppercase tracking-wider mb-2" style="color:var(--text-dim)">${t("temp_units")}</p>
                                 <div class="flex gap-2">
                                     ${_unitBtn("C", "\u00b0C", config.temp_unit, "temp")}
                                     ${_unitBtn("F", "\u00b0F", config.temp_unit, "temp")}
@@ -236,12 +260,12 @@ App.registerScreen("settings", (() => {
                             </div>
                         </div>
                         <!-- WiFi AP -->
-                        <div class="bg-zinc-900 rounded-xl p-3 border border-zinc-800">
-                            <p class="text-[10px] font-bold text-zinc-400 uppercase tracking-wider mb-2">WiFi AP</p>
+                        <div class="rounded-xl p-3" style="background:var(--card-bg);border:1px solid var(--card-border)">
+                            <p class="text-[10px] font-bold uppercase tracking-wider mb-2" style="color:var(--text-dim)">WiFi AP</p>
                             <div class="flex items-center justify-between">
                                 <div>
-                                    <p class="text-sm font-bold">SSID: <span class="text-zinc-400">ALFA</span></p>
-                                    <p class="text-[10px] text-zinc-500">Android Auto wireless link</p>
+                                    <p class="text-sm font-bold">SSID: <span style="color:var(--text-mid)">ALFA</span></p>
+                                    <p class="text-[10px]" style="color:var(--text-dim)">Android Auto wireless link</p>
                                 </div>
                                 <div class="w-10 h-6 bg-green-600 rounded-full flex items-center justify-end px-0.5 cursor-pointer">
                                     <div class="w-5 h-5 bg-white rounded-full"></div>
@@ -250,15 +274,17 @@ App.registerScreen("settings", (() => {
                         </div>
                     </div>
                     <!-- Right column: Bluetooth -->
-                    <div class="bg-zinc-900 rounded-xl p-3 border border-zinc-800 flex flex-col">
+                    <div class="rounded-xl p-3 flex flex-col" style="background:var(--card-bg);border:1px solid var(--card-border)">
                         <div class="flex justify-between items-center mb-2">
-                            <p class="text-[10px] font-bold text-zinc-400 uppercase tracking-wider">Bluetooth</p>
+                            <p class="text-[10px] font-bold uppercase tracking-wider" style="color:var(--text-dim)">Bluetooth</p>
                             <div class="flex gap-1">
-                                <button class="text-[9px] font-bold px-2 py-1 bg-zinc-800 rounded text-zinc-300 hover:bg-zinc-700"
+                                <button class="text-[9px] font-bold px-2 py-1 rounded hover:opacity-80"
+                                        style="background:var(--card-border);color:var(--text-mid)"
                                         onclick="Settings.btMakeDiscoverable()">
                                     ${t("bt_discoverable","Discoverable")}
                                 </button>
-                                <button class="text-[9px] font-bold px-2 py-1 bg-zinc-800 rounded text-zinc-300 hover:bg-zinc-700"
+                                <button class="text-[9px] font-bold px-2 py-1 rounded hover:opacity-80"
+                                        style="background:var(--card-border);color:var(--text-mid)"
                                         onclick="Settings.btScan()">
                                     ${scanning ? `<span class="animate-pulse">${t("bt_scanning","Scanning...")}</span>` : t("bt_scan", "Scan")}
                                 </button>
@@ -266,25 +292,36 @@ App.registerScreen("settings", (() => {
                         </div>
                         <div class="flex-1 space-y-1 overflow-y-auto">
                             ${paired.length > 0 ? `
-                                <p class="text-[8px] font-bold text-zinc-500 uppercase tracking-widest mt-1 mb-1">${t("bt_paired","Paired")}</p>
+                                <p class="text-[8px] font-bold uppercase tracking-widest mt-1 mb-1" style="color:var(--text-dim)">${t("bt_paired","Paired")}</p>
                                 ${paired.map(d => _renderDevice(d, "paired", t)).join("")}
                             ` : ""}
                             ${discovered.length > 0 ? `
-                                <p class="text-[8px] font-bold text-zinc-500 uppercase tracking-widest mt-2 mb-1">${t("bt_discovered","Discovered")}</p>
+                                <p class="text-[8px] font-bold uppercase tracking-widest mt-2 mb-1" style="color:var(--text-dim)">${t("bt_discovered","Discovered")}</p>
                                 ${discovered.map(d => _renderDevice(d, "discovered", t)).join("")}
                             ` : ""}
                             ${paired.length === 0 && discovered.length === 0
-                                ? `<p class="text-[10px] text-zinc-600 py-4 text-center">${t("bt_no_devices", "No devices. Tap Scan.")}</p>`
+                                ? `<p class="text-[10px] py-4 text-center" style="color:var(--text-dim)">${t("bt_no_devices", "No devices. Tap Scan.")}</p>`
                                 : ""}
                         </div>
                     </div>
                 </div>
+                <!-- Audio / EQ -->
+                <div class="rounded-xl p-3 mt-3 cursor-pointer hover:opacity-80" style="background:var(--card-bg);border:1px solid var(--card-border)" onclick="App.navigateTo('audio')">
+                    <div class="flex items-center gap-3">
+                        <span class="material-symbols-outlined" style="color:var(--color-primary)">equalizer</span>
+                        <div>
+                            <p class="text-sm font-bold" style="color:var(--color-on-surface)">Audio / Equalizer</p>
+                            <p class="text-[10px]" style="color:var(--text-dim)">EQ presets, bass, treble, fader</p>
+                        </div>
+                        <span class="material-symbols-outlined ml-auto" style="color:var(--text-dim)">chevron_right</span>
+                    </div>
+                </div>
                 <!-- SWC Button Mapping -->
-                <div class="bg-zinc-900 rounded-xl p-3 border border-zinc-800 mt-3">
-                    <p class="text-[10px] font-bold text-zinc-400 uppercase tracking-wider mb-2">SWC Button Mapping</p>
+                <div class="rounded-xl p-3 mt-3" style="background:var(--card-bg);border:1px solid var(--card-border)">
+                    <p class="text-[10px] font-bold uppercase tracking-wider mb-2" style="color:var(--text-dim)">SWC Button Mapping</p>
                     ${_renderSwcTable()}
                 </div>
-                <button class="mt-3 px-4 py-2 bg-zinc-800 rounded-lg text-xs font-bold hover:bg-zinc-700" onclick="App.navigateTo('a1')">
+                <button class="mt-3 px-4 py-2 rounded-lg text-xs font-bold hover:opacity-80" style="background:var(--card-border);color:var(--text-mid)" onclick="App.navigateTo('a1')">
                     \u2190 ${t("back_to_dash")}
                 </button>
             </main>
@@ -297,7 +334,7 @@ App.registerScreen("settings", (() => {
         const statusBadge = isConnected
             ? `<span class="text-[7px] font-bold px-1.5 py-0.5 rounded bg-green-600/20 text-green-400">${t("bt_connected","Connected")}</span>`
             : isPaired
-                ? `<span class="text-[7px] font-bold px-1.5 py-0.5 rounded bg-zinc-700 text-zinc-400">${t("bt_paired","Paired")}</span>`
+                ? `<span class="text-[7px] font-bold px-1.5 py-0.5 rounded" style="background:var(--card-border);color:var(--text-dim)">${t("bt_paired","Paired")}</span>`
                 : `<span class="text-[7px] font-bold px-1.5 py-0.5 rounded bg-blue-600/20 text-blue-400">New</span>`;
 
         let actions = "";
@@ -308,21 +345,21 @@ App.registerScreen("settings", (() => {
         } else {
             actions = `<div class="flex gap-1">
                 <button class="text-[8px] font-bold px-2 py-1 rounded bg-green-700 text-white hover:bg-green-600" onclick="Settings.btConnect('${d.address}')">${t("bt_connect","Connect")}</button>
-                <button class="text-[8px] font-bold px-1.5 py-1 rounded bg-zinc-700 text-zinc-300 hover:bg-zinc-600" onclick="Settings.btRemove('${d.address}')" title="${t("bt_remove","Remove")}">
+                <button class="text-[8px] font-bold px-1.5 py-1 rounded hover:opacity-80" style="background:var(--card-border);color:var(--text-mid)" onclick="Settings.btRemove('${d.address}')" title="${t("bt_remove","Remove")}">
                     <span class="material-symbols-outlined" style="font-size:12px;">delete</span>
                 </button>
             </div>`;
         }
 
-        return `<div class="flex justify-between items-center p-2 bg-zinc-800/50 rounded-lg ${isConnected ? 'border border-green-600/30' : ''}">
+        return `<div class="flex justify-between items-center p-2 rounded-lg ${isConnected ? 'border border-green-600/30' : ''}" style="background:color-mix(in srgb, var(--card-bg) 80%, var(--card-border))">
             <div class="flex items-center gap-2">
-                <span class="material-symbols-outlined ${isConnected ? 'text-green-500' : 'text-zinc-500'}" style="font-size:16px;">bluetooth</span>
+                <span class="material-symbols-outlined ${isConnected ? 'text-green-500' : ''}" style="font-size:16px;${isConnected ? '' : 'color:var(--text-dim)'}">bluetooth</span>
                 <div>
                     <div class="flex items-center gap-2">
                         <p class="text-xs font-bold">${d.name || d.address}</p>
                         ${statusBadge}
                     </div>
-                    <p class="text-[9px] text-zinc-500">${d.address}</p>
+                    <p class="text-[9px]" style="color:var(--text-dim)">${d.address}</p>
                 </div>
             </div>
             ${actions}
@@ -346,28 +383,44 @@ App.registerScreen("settings", (() => {
         const m = Settings._swcMapping;
         if (!m) {
             Settings.swcLoad().then(() => App.navigateTo("settings"));
-            return '<p class="text-[10px] text-zinc-500">Loading...</p>';
+            return '<p class="text-[10px]" style="color:var(--text-dim)">Loading...</p>';
         }
-        const allBtns = Settings._swcAllButtons;
         const actions = Object.keys(m);
+        const learning = Settings._swcLearning;
         let html = '<table class="w-full text-[10px]">';
-        html += '<thead><tr class="text-zinc-500 uppercase tracking-wider">';
+        html += '<thead><tr class="uppercase tracking-wider" style="color:var(--text-dim)">';
         html += '<th class="text-left py-1 font-bold">Action</th>';
-        html += '<th class="text-left py-1 font-bold">Pod 1 Button</th>';
-        html += '<th class="text-left py-1 font-bold">Pod 2 Button</th></tr></thead>';
+        html += '<th class="text-left py-1 font-bold">Pod 1</th>';
+        html += '<th class="text-left py-1 font-bold">Pod 2</th></tr></thead>';
         html += '<tbody>';
         for (const action of actions) {
             const btns = m[action] || ["", ""];
-            html += `<tr class="border-t border-zinc-800">`;
-            html += `<td class="py-1.5 text-zinc-300 font-bold">${_actionLabel(action)}</td>`;
-            for (let slot = 0; slot < 2; slot++) {
-                const cur = btns[slot] || "";
-                html += `<td class="py-1.5"><select class="bg-zinc-800 text-zinc-300 text-[10px] rounded px-1 py-0.5 border border-zinc-700" onchange="Settings.swcSetButton('${action}',${slot},this.value)">`;
-                html += `<option value=""${cur === "" ? " selected" : ""}>-- None --</option>`;
-                for (const b of allBtns) {
-                    html += `<option value="${b}"${b === cur ? " selected" : ""}>${b}</option>`;
+            html += `<tr style="border-top:1px solid var(--card-border)">`;
+            html += `<td class="py-1.5 font-bold" style="color:var(--text-mid)">${_actionLabel(action)}</td>`;
+            for (let pod = 0; pod < 2; pod++) {
+                const cur = btns[pod] || "";
+                const isLearning = learning && learning.action === action && learning.pod === pod;
+                if (isLearning) {
+                    html += `<td class="py-1.5">
+                        <span class="inline-flex items-center gap-1">
+                            <span class="animate-pulse font-bold" style="color:var(--color-primary)">Press button...</span>
+                            <button class="text-[9px] px-1.5 py-0.5 rounded font-bold hover:opacity-80"
+                                    style="background:var(--card-border);color:var(--text-dim)"
+                                    onclick="Settings.swcLearnCancel()">Cancel</button>
+                        </span>
+                    </td>`;
+                } else {
+                    html += `<td class="py-1.5">
+                        <span class="inline-flex items-center gap-1">
+                            <span class="font-bold" style="color:var(--color-on-surface)">${cur || "---"}</span>
+                            <button class="text-[9px] px-1.5 py-0.5 rounded font-bold hover:opacity-80"
+                                    style="background:var(--color-primary);color:#fff"
+                                    onclick="Settings.swcLearnStart('${action}',${pod})">
+                                <span class="material-symbols-outlined" style="font-size:11px;vertical-align:-1px">tune</span>
+                            </button>
+                        </span>
+                    </td>`;
                 }
-                html += '</select></td>';
             }
             html += '</tr>';
         }
@@ -376,16 +429,25 @@ App.registerScreen("settings", (() => {
     }
 
     function _themeBtn(v, label, current) {
-        const cls = v === current ? "bg-red-600 text-white border-red-600" : "bg-zinc-800 text-zinc-300 border-zinc-700 hover:border-zinc-500";
-        return `<button class="px-3 py-1.5 rounded-lg text-xs font-bold border ${cls}" onclick="App.setTheme('${v}')">${label}</button>`;
+        const isActive = v === current;
+        const style = isActive
+            ? `background:var(--color-primary);color:#fff;border:1px solid var(--color-primary)`
+            : `background:var(--card-bg);color:var(--text-mid);border:1px solid var(--card-border)`;
+        return `<button class="px-3 py-1.5 rounded-lg text-xs font-bold hover:opacity-80" style="${style}" onclick="App.setTheme('${v}')">${label}</button>`;
     }
     function _langBtn(v, label, current) {
-        const cls = v === current ? "bg-zinc-600 text-white" : "bg-zinc-800 text-zinc-400 hover:bg-zinc-700";
-        return `<button class="px-2 py-1 rounded text-xs font-bold ${cls}" onclick="App.setLang('${v}')">${label}</button>`;
+        const isActive = v === current;
+        const style = isActive
+            ? `background:var(--color-primary);color:#fff`
+            : `background:var(--card-border);color:var(--text-dim)`;
+        return `<button class="px-2 py-1 rounded text-xs font-bold hover:opacity-80" style="${style}" onclick="App.setLang('${v}')">${label}</button>`;
     }
     function _unitBtn(v, label, current, type) {
-        const cls = v === current ? "bg-zinc-600 text-white" : "bg-zinc-800 text-zinc-400 hover:bg-zinc-700";
-        return `<button class="px-2 py-1 rounded text-xs font-bold ${cls}" onclick="Settings.setUnit('${type}','${v}')">${label}</button>`;
+        const isActive = v === current;
+        const style = isActive
+            ? `background:var(--color-primary);color:#fff`
+            : `background:var(--card-border);color:var(--text-dim)`;
+        return `<button class="px-2 py-1 rounded text-xs font-bold hover:opacity-80" style="${style}" onclick="Settings.setUnit('${type}','${v}')">${label}</button>`;
     }
 
     return { render };

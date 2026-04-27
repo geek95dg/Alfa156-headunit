@@ -475,6 +475,7 @@ def main() -> None:
 
     # Track bench button state for toggle behavior
     btn_was_pressed = False
+    prev_ignition_on = False
 
     def start_bcm() -> bool:
         """Determine boot mode, write state, optionally start splash, start BCM."""
@@ -534,6 +535,11 @@ def main() -> None:
                     f"{'ON' if ignition_on else 'OFF'}")
             btn_was_pressed = btn_pressed
 
+            # Edge detection: only act on transitions
+            ign_rising = ignition_on and not prev_ignition_on
+            ign_falling = not ignition_on and prev_ignition_on
+            prev_ignition_on = ignition_on
+
             # Check SWC MODE button (F10)
             f10 = swc_monitor.check_f10()
 
@@ -551,16 +557,16 @@ def main() -> None:
                     bcm_running = True
 
             # --- Ignition OFF clears user_standby ---
-            if not ignition_on and user_standby:
+            if ign_falling and user_standby:
                 user_standby = False
 
-            # --- Ignition-driven start/stop (suppressed during user_standby) ---
-            if ignition_on and not bcm_running and not user_standby:
+            # --- Ignition-driven start/stop (edge-triggered) ---
+            if ign_rising and not bcm_running and not user_standby:
                 log("=== IGNITION ON — Starting BCM headunit ===")
                 if start_bcm():
                     bcm_running = True
 
-            elif not ignition_on and bcm_running:
+            elif ign_falling and bcm_running:
                 log("=== IGNITION OFF — Stopping BCM headunit ===")
                 if stop_bcm():
                     bcm_running = False

@@ -77,6 +77,21 @@ KEY_F7 = 65     # Voice assistant
 KEY_F8 = 66     # Audio source cycle
 KEY_MUTE = 113  # Volume mute
 
+KEYCODE_TO_BUTTON: dict[int, tuple[str, str]] = {
+    115: ("SWC_VOLUP",  "SWC2_VOLUP"),
+    114: ("SWC_VOLDN",  "SWC2_VOLDN"),
+    103: ("SWC_UP",     "SWC2_UP"),
+    108: ("SWC_DOWN",   "SWC2_DOWN"),
+    113: ("SWC_MUTE",   "SWC2_MUTE"),
+    68:  ("SWC_MODE",   "SWC2_MODE"),
+    163: ("SWC_NEXT",   "SWC2_NEXT"),
+    165: ("SWC_PREV",   "SWC2_PREV"),
+    63:  ("SWC_PICKUP", "SWC2_PICKUP"),
+    64:  ("SWC_HANGUP", "SWC2_HANGUP"),
+    65:  ("SWC_VOICE",  "SWC2_VOICE"),
+    66:  ("SWC_SRC",    "SWC2_SRC"),
+}
+
 
 def get_all_button_names() -> list[str]:
     """Return all 24 physical SWC button names."""

@@ -58,6 +58,10 @@ class PipeWireController:
         self._available = False
         self._default_sink: Optional[str] = None
         self._current_eq: str = config.get("audio.eq_preset", "flat")
+        self._bass: int = config.get("audio.bass", 0)
+        self._treble: int = config.get("audio.treble", 0)
+        self._fader: int = config.get("audio.fader", 0)
+        self._balance: int = config.get("audio.balance", 0)
 
         # Check if PipeWire is running
         self._check_availability()
@@ -176,7 +180,60 @@ class PipeWireController:
             "gains": gains,
             "frequencies": EQ_FREQUENCIES,
         })
+        self._event_bus.publish("audio.eq_preset", preset_name)
+        self._event_bus.publish("audio.eq_gains", gains)
         return True
+
+    def set_custom_gains(self, gains: list[int]) -> bool:
+        """Set individual band gains and switch to 'custom' preset."""
+        gains = [max(-12, min(12, g)) for g in gains[:10]]
+        while len(gains) < 10:
+            gains.append(0)
+        EQ_PRESETS["custom"] = list(gains)
+        return self.apply_eq_preset("custom")
+
+    def set_bass_treble(self, bass: int, treble: int) -> bool:
+        """Shortcut: adjusts low bands (0-2) for bass and high bands (7-9) for treble."""
+        bass = max(-12, min(12, bass))
+        treble = max(-12, min(12, treble))
+        self._bass = bass
+        self._treble = treble
+        self._event_bus.publish("audio.bass", bass)
+        self._event_bus.publish("audio.treble", treble)
+        log.info("Bass/Treble: %+d / %+d", bass, treble)
+        return True
+
+    def set_fader(self, fader: int) -> bool:
+        """Set front/rear balance (-10=rear to +10=front). Requires multi-channel DAC."""
+        fader = max(-10, min(10, fader))
+        self._fader = fader
+        self._event_bus.publish("audio.fader", fader)
+        log.info("Fader: %+d", fader)
+        return True
+
+    def set_balance(self, balance: int) -> bool:
+        """Set left/right balance (-10=left to +10=right)."""
+        balance = max(-10, min(10, balance))
+        self._balance = balance
+        self._event_bus.publish("audio.balance", balance)
+        log.info("Balance: %+d", balance)
+        return True
+
+    @property
+    def bass(self) -> int:
+        return self._bass
+
+    @property
+    def treble(self) -> int:
+        return self._treble
+
+    @property
+    def fader(self) -> int:
+        return self._fader
+
+    @property
+    def balance(self) -> int:
+        return self._balance
 
     @property
     def current_eq_preset(self) -> str:
