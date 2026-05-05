@@ -23,16 +23,59 @@ needs USB + HDMI + audio.
 | Audio | USB DAC (ES9038Q2M) | same |
 | Network | USB WiFi + USB BT | same |
 
-### 1.2 Display — single HDMI only
+### 1.2 Displays — HDMI + optional USB-HDMI
 
 Most mini-ITX Celeron boards (including GA-N3050N-D2P) have only **one
-HDMI output**. USB-to-HDMI adapters (DisplayLink) do **not** work
-reliably on Linux — they require proprietary drivers, have high latency,
-and break kiosk mode.
+HDMI output**. For a second display, use a USB-to-HDMI adapter with
+a DisplayLink chipset.
 
-**Recommended approach:** Use the single HDMI for the main 7" touchscreen.
-Skip the small 4.3" display — or drive it from a separate Raspberry Pi
-Zero W showing `http://<x86-ip>:5003` in its own Chromium kiosk.
+**Primary:** HDMI → 7" touchscreen (main dashboard, port 5002)
+**Secondary (optional):** USB-HDMI → 4.3" display (small dashboard, port 5003)
+
+#### USB-HDMI adapter setup (DisplayLink)
+
+DisplayLink adapters need the proprietary `evdi` kernel module.
+
+```bash
+# 1. Install build dependencies
+sudo apt install -y dkms build-essential linux-headers-$(uname -r)
+
+# 2. Download the DisplayLink driver
+#    Go to https://www.synaptics.com/products/displaylink-graphics/downloads/ubuntu
+#    Download the latest .run file (e.g., DisplayLink USB Graphics Software for Ubuntu 6.x)
+#    Or from the direct URL:
+cd /tmp
+wget https://www.synaptics.com/sites/default/files/exe_files/2024-04/DisplayLink%20USB%20Graphics%20Software%20for%20Ubuntu6.0-EXE.zip
+unzip "DisplayLink USB Graphics Software for Ubuntu6.0-EXE.zip"
+chmod +x displaylink-driver-*.run
+sudo ./displaylink-driver-*.run
+
+# 3. Reboot
+sudo reboot
+
+# 4. Verify the adapter appears as a display
+xrandr --listmonitors
+# Should show: HDMI-1 (or similar) + DVI-I-1-1 (DisplayLink)
+```
+
+**Known limitations:**
+- ~10-30ms latency compared to native HDMI (acceptable for status display)
+- CPU usage ~5-10% for USB frame compression
+- Must use the proprietary driver — no open-source alternative
+- Some cheap adapters have compatibility issues — recommended chipsets:
+  DL-3500, DL-3900, DL-6950
+
+**Configure dual display in .xinitrc** (see §4.4 for full file):
+```bash
+# After matchbox starts, arrange displays:
+xrandr --output HDMI-1 --primary --auto
+xrandr --output DVI-I-1-1 --right-of HDMI-1 --auto
+# Then open two Chromium windows on each display
+```
+
+If DisplayLink doesn't work on your hardware, use the single HDMI for
+the main display and optionally drive the small screen from a Raspberry
+Pi Zero W showing `http://<x86-ip>:5003` in its own Chromium kiosk.
 
 ### 1.3 WiFi and Bluetooth dongles
 
@@ -174,8 +217,9 @@ bluetoothctl show
 
 ## 3. Boot Optimization — Fast + Silent + Splash Video
 
-Goal: **BIOS logo → black → your Alfa Romeo video → BCM dashboard**.
-No GRUB menu, no kernel log, no service spam.
+Goal: **BIOS logo → black → your Alfa Romeo splash video → BCM dashboard**.
+No GRUB menu, no kernel log, no service status spam. The splash video
+(not a Plymouth spinner) plays from early boot until the dashboard is ready.
 
 ### 3.1 BIOS settings (GA-N3050N-D2P)
 
@@ -185,21 +229,21 @@ Enter BIOS (press DEL at boot):
 - **Boot → Quiet Boot:** Enabled (shows Gigabyte logo briefly)
 - **Peripherals → USB Configuration → Legacy USB:** Disabled
   (saves ~2s — Linux handles USB natively)
+- **Power → Restore on AC Power Loss:** Power On (auto-boot after
+  battery disconnect/reconnect)
 
 ### 3.2 GRUB — hidden, zero timeout, silent kernel
 
 ```bash
-# Backup
 sudo cp /etc/default/grub /etc/default/grub.bak
 
-# Configure
 sudo tee /etc/default/grub >/dev/null <<'EOF'
 GRUB_DEFAULT=0
 GRUB_TIMEOUT=0
 GRUB_HIDDEN_TIMEOUT=0
 GRUB_HIDDEN_TIMEOUT_QUIET=true
 GRUB_DISTRIBUTOR=""
-GRUB_CMDLINE_LINUX_DEFAULT="quiet splash loglevel=0 vt.global_cursor_default=0 rd.systemd.show_status=false rd.udev.log_level=3 fsck.mode=skip"
+GRUB_CMDLINE_LINUX_DEFAULT="quiet loglevel=0 vt.global_cursor_default=0 rd.systemd.show_status=false rd.udev.log_level=3 fsck.mode=skip console=tty2"
 GRUB_CMDLINE_LINUX=""
 GRUB_DISABLE_OS_PROBER=true
 EOF
@@ -207,73 +251,91 @@ EOF
 sudo update-grub
 ```
 
-What each parameter does:
-- `quiet splash` — suppress kernel boot messages
+Key parameters:
+- `quiet` — suppress kernel boot messages
 - `loglevel=0` — no kernel messages on console
 - `vt.global_cursor_default=0` — hide blinking text cursor
-- `rd.systemd.show_status=false` — hide "[  OK  ] Started ..." lines
-- `rd.udev.log_level=3` — suppress udev spam
-- `fsck.mode=skip` — skip filesystem check (saves 1-2s; SSD doesn't need it)
+- `rd.systemd.show_status=false` — hide `[  OK  ] Started ...` lines
+- `console=tty2` — redirect any remaining output to tty2 (invisible)
+- `fsck.mode=skip` — skip filesystem check on SSD
 
-### 3.3 Plymouth — graphical boot animation
+**Do NOT add `splash`** — that keyword enables Plymouth, which would
+show a spinner instead of your splash video.
 
-Plymouth replaces the text console with a graphical splash immediately
-after GRUB hands off to the kernel:
+### 3.3 Disable Plymouth (we use mpv splash instead)
+
+Plymouth shows a spinner/logo during boot. We don't want that — we
+want the mpv splash video to own the screen from early boot.
 
 ```bash
-sudo apt install -y plymouth plymouth-themes
+# Remove Plymouth completely
+sudo apt remove -y plymouth plymouth-themes
+# Or if you want to keep it installed but disabled:
+sudo systemctl mask plymouth-start.service
+sudo systemctl mask plymouth-quit.service
+sudo systemctl mask plymouth-quit-wait.service
+sudo systemctl mask plymouth-read-write.service
 
-# Use the simplest theme (solid black + spinner)
-sudo plymouth-set-default-theme -R bgrt
-
-# Or for a clean fade-to-black:
-sudo plymouth-set-default-theme -R spinner
+# Rebuild initramfs without Plymouth
+sudo update-initramfs -u
 ```
 
-Plymouth shows during kernel + systemd init. Once X starts and Chromium
-opens, it takes over the display automatically.
+### 3.4 BCM splash video — plays from early boot
 
-### 3.4 Boot splash video (Alfa Romeo animation)
-
-For a custom MP4 splash that plays with audio while BCM loads:
+The `bcm-splash-main.service` plays your MP4 fullscreen on the
+framebuffer using `mpv --vo=drm` (no X server needed). It starts
+immediately after the kernel hands off to systemd, and auto-stops
+when BCM takes over the display.
 
 ```bash
-# Place your splash video (H.264, 1024x600 or matching display):
-sudo mkdir -p /opt/bcm/assets/splash
-# Copy your video:
-cp your_alfa_animation.mp4 /opt/bcm/assets/splash/main.mp4
-
 # Install mpv
 sudo apt install -y mpv
 
-# Enable the splash service
+# Create splash directory and place your video
+mkdir -p /opt/bcm/assets/splash
+
+# Your video should be H.264, matching display resolution (e.g. 1024x600),
+# 5-15 seconds, with optional audio track:
+cp your_alfa_romeo_animation.mp4 /opt/bcm/assets/splash/main.mp4
+
+# Install and enable the splash service
 sudo cp /opt/bcm/config/systemd/bcm-splash-main.service /etc/systemd/system/
+sudo systemctl daemon-reload
 sudo systemctl enable bcm-splash-main
 ```
 
-The splash service starts before BCM and plays the video fullscreen on
-the framebuffer (no X needed). It auto-stops when BCM takes over.
+**Test the splash manually** (without rebooting):
+```bash
+# This should play your video fullscreen, no X needed:
+sudo mpv --fs --vo=drm --drm-connector=HDMI-A-1 /opt/bcm/assets/splash/main.mp4
+
+# If --vo=drm doesn't work on your Intel GPU, try:
+sudo mpv --fs --vo=drm /opt/bcm/assets/splash/main.mp4
+# Or check which connectors exist:
+ls /sys/class/drm/
+# Look for card0-HDMI-A-1, card0-VGA-1, etc.
+```
 
 ### 3.5 Disable unnecessary services (saves 3-5s boot time)
 
 ```bash
-# Check what's slow
+# Check what's slow:
 systemd-analyze blame | head -20
 
-# Common things to disable on a car PC:
-sudo systemctl disable ModemManager      # we use NetworkManager for LTE
+# Disable common bloat:
+sudo systemctl disable ModemManager 2>/dev/null
 sudo systemctl disable apt-daily.timer
 sudo systemctl disable apt-daily-upgrade.timer
-sudo systemctl disable e2scrub_reap.service
-sudo systemctl mask plymouth-quit-wait.service  # don't wait for Plymouth to finish
+sudo systemctl disable e2scrub_reap.service 2>/dev/null
+sudo systemctl disable man-db.timer 2>/dev/null
+sudo systemctl disable logrotate.timer
 ```
 
-### 3.6 Use zram instead of swap (faster, no SSD wear)
+### 3.6 Use zram instead of swap
 
 ```bash
 sudo apt install -y zram-tools
-echo 'ALGO=lz4' | sudo tee /etc/default/zramswap
-echo 'PERCENT=50' | sudo tee -a /etc/default/zramswap
+echo -e 'ALGO=lz4\nPERCENT=50' | sudo tee /etc/default/zramswap
 sudo systemctl enable zramswap
 ```
 
@@ -281,16 +343,16 @@ sudo systemctl enable zramswap
 
 | Time | What happens |
 |------|-------------|
-| 0-3s | BIOS POST (Gigabyte logo) |
-| 3s | GRUB (hidden, instant) |
-| 3-5s | Kernel loads (black screen, Plymouth spinner) |
-| 5-6s | bcm-splash-main starts → MP4 plays fullscreen |
-| 6-12s | BCM loads behind splash, Flask starts |
+| 0-3s | BIOS POST (Gigabyte logo — fast boot enabled) |
+| 3s | GRUB (hidden, zero timeout, instant) |
+| 3-5s | Kernel loads (black screen, silent — no Plymouth) |
+| 5-6s | `bcm-splash-main` starts → **your MP4 plays fullscreen** |
+| 6-12s | BCM loads behind splash (Flask starts, services init) |
 | 12-14s | X starts, Chromium kiosk opens, splash auto-stops |
 | **~14s** | **Dashboard visible** |
 
-With SSD and boot optimizations, total boot-to-dashboard: **~12-15s**.
-S3 resume-to-dashboard: **~3-5s**.
+Cold boot: **~12-15s**. S3 resume: **~3-5s**.
+After 24h standby, next wake replays the splash video (cold-like wake).
 
 ---
 
@@ -331,35 +393,31 @@ EOF
 
 ### 4.4 Create ~/.xinitrc — kiosk Chromium
 
+**Single display (HDMI only):**
+
 ```bash
 cat > ~/.xinitrc <<'XEOF'
 #!/bin/sh
-# BCM kiosk session — single display, port 5002 only
+# BCM kiosk — single display
 
-# Disable screen blanking
-xset s off
-xset -dpms
-xset s noblank
-
-# Hide mouse cursor
+xset s off && xset -dpms && xset s noblank
 unclutter -idle 0.5 -root &
-
-# Matchbox auto-maximises every window, no title bar
 matchbox-window-manager -use_titlebar no -use_cursor no &
 
-# Wait for BCM Flask server (up to 60s)
+# Wait for Flask (up to 60s)
 for i in $(seq 1 60); do
     curl -sf http://localhost:5002 >/dev/null && break
     sleep 1
 done
 
-# Single Chromium kiosk — main dashboard only
+# Clear stale Chromium profile (prevents "restore session" bar)
+rm -rf /tmp/bcm-chromium-main
+
+# Main dashboard — full kiosk
 chromium --kiosk --noerrdialogs --disable-infobars \
     --disable-features=TranslateUI --no-first-run --fast \
     --disable-session-crashed-bubble --disable-translate \
     --disable-pinch --overscroll-history-navigation=0 \
-    --disable-gpu-compositing \
-    --enable-features=OverlayScrollbar \
     --user-data-dir=/tmp/bcm-chromium-main \
     http://localhost:5002 &
 
@@ -368,11 +426,53 @@ XEOF
 chmod +x ~/.xinitrc
 ```
 
-### 4.5 Clear Chromium crash state (prevents "restore session" bar)
+**Dual display (HDMI + USB-HDMI DisplayLink):**
 
 ```bash
-# Add to .xinitrc before the chromium line, or run once:
-rm -rf /tmp/bcm-chromium-main
+cat > ~/.xinitrc <<'XEOF'
+#!/bin/sh
+# BCM kiosk — dual display (HDMI + DisplayLink)
+
+xset s off && xset -dpms && xset s noblank
+unclutter -idle 0.5 -root &
+matchbox-window-manager -use_titlebar no -use_cursor no &
+
+# Arrange displays (adjust output names from: xrandr --listmonitors)
+sleep 1
+xrandr --output HDMI-1 --primary --auto
+xrandr --output DVI-I-1-1 --right-of HDMI-1 --mode 800x480 2>/dev/null
+
+# Wait for Flask
+for i in $(seq 1 60); do
+    curl -sf http://localhost:5002 >/dev/null && break
+    sleep 1
+done
+
+rm -rf /tmp/bcm-chromium-main /tmp/bcm-chromium-small
+
+# Main display (HDMI) — port 5002
+chromium --kiosk --noerrdialogs --disable-infobars \
+    --disable-features=TranslateUI --no-first-run --fast \
+    --disable-session-crashed-bubble --disable-translate \
+    --disable-pinch --overscroll-history-navigation=0 \
+    --user-data-dir=/tmp/bcm-chromium-main \
+    http://localhost:5002 &
+
+sleep 2
+
+# Small display (DisplayLink) — port 5003
+# window-position places it on the second monitor
+MAIN_W=$(xrandr | grep 'HDMI-1' | grep -oP '\d+x\d+\+\K\d+' | head -1)
+chromium --kiosk --noerrdialogs --disable-infobars \
+    --disable-features=TranslateUI --no-first-run \
+    --window-size=800,480 \
+    --window-position=${MAIN_W:-1024},0 \
+    --user-data-dir=/tmp/bcm-chromium-small \
+    http://localhost:5003 &
+
+wait
+XEOF
+chmod +x ~/.xinitrc
 ```
 
 ---
@@ -443,25 +543,21 @@ sudo systemctl daemon-reload
 sudo systemctl enable bcm-resume
 ```
 
-### 5.3 Ignition-triggered suspend (for car use)
+### 5.3 Ignition / Arduino poweroff → auto-suspend
 
-The ignition watcher already handles start/stop of BCM. To add
-suspend on ignition-off, edit the systemd service or use this hook
-in `/usr/local/bin/bcm-suspend-on-ign-off.sh`:
+The ignition watcher has built-in suspend support. When BCM stops
+(ignition off, Arduino POWEROFF button, SWC MODE), it waits 5 seconds
+then suspends to S3 automatically. This is enabled in the config:
 
-```bash
-sudo tee /usr/local/bin/bcm-suspend-on-ign-off.sh >/dev/null <<'EOF'
-#!/bin/bash
-# Called by ignition_watcher after stopping BCM
-# Waits 5s (driver might restart engine), then suspends
-sleep 5
-# Check if BCM was restarted during the wait
-if ! systemctl is-active --quiet bcm-headunit.service; then
-    systemctl suspend
-fi
-EOF
-sudo chmod +x /usr/local/bin/bcm-suspend-on-ign-off.sh
+```yaml
+# config/bcm_config.yaml → power.ignition_watcher:
+autostart: true            # start BCM immediately on boot
+suspend_on_stop: true      # suspend to S3 when BCM stops
+suspend_delay_seconds: 5   # wait before suspend (engine restart grace)
+standby_max_hours: 24      # after 24h, next wake = cold boot with splash
 ```
+
+No extra scripts needed — the ignition watcher handles everything.
 
 ### 5.4 BIOS wake settings
 
@@ -510,29 +606,53 @@ sudo usermod -aG dialout $USER
 ### 6.3 Install systemd services
 
 ```bash
+# Copy service files
 sudo cp config/systemd/bcm-ignition-watcher.service /etc/systemd/system/
 sudo cp config/systemd/bcm-headunit.service /etc/systemd/system/
 sudo cp config/systemd/bcm-splash-main.service /etc/systemd/system/
-sudo systemctl daemon-reload
-sudo systemctl enable bcm-ignition-watcher
-sudo systemctl enable bcm-splash-main
-```
+sudo cp config/systemd/bcm-resume.service /etc/systemd/system/
 
-Edit the headunit service for x86:
-```bash
+# The ignition watcher service already has --autostart and x86 config.
+# Edit the headunit service for x86:
 sudo sed -i 's/--platform opi_pc/--platform x86/' /etc/systemd/system/bcm-headunit.service
 sudo sed -i 's/bcm_config_opi_pc.yaml/bcm_config.yaml/' /etc/systemd/system/bcm-headunit.service
-sudo systemctl daemon-reload
-```
 
-### 6.4 Mask the kiosk service
-
-The `.xinitrc` handles Chromium kiosk — the separate kiosk service
-is not needed and would conflict:
-
-```bash
+# Mask the kiosk service (.xinitrc handles Chromium, not systemd)
 sudo systemctl mask bcm-kiosk.service
+
+# Enable services
+sudo systemctl daemon-reload
+sudo systemctl enable bcm-ignition-watcher   # starts BCM on boot (--autostart)
+sudo systemctl enable bcm-splash-main        # splash video on cold boot
+sudo systemctl enable bcm-resume             # restart BCM after S3 wake
+
+# Set up power button → suspend
+sudo apt install -y acpid
+sudo mkdir -p /etc/acpi/events
+sudo tee /etc/acpi/events/power-button >/dev/null <<EOF
+event=button/power
+action=/usr/local/bin/bcm-power-toggle.sh
+EOF
+sudo cp /opt/bcm/config/scripts/bcm-power-toggle.sh /usr/local/bin/
+sudo chmod +x /usr/local/bin/bcm-power-toggle.sh
+sudo systemctl enable acpid
 ```
+
+**What happens on boot:**
+1. OS boots → splash video plays (mpv, no X)
+2. `bcm-ignition-watcher` starts with `--autostart`
+3. BCM starts immediately (no ignition file needed)
+4. X starts → Chromium kiosk opens → splash auto-stops
+5. Dashboard visible
+
+**What happens on standby trigger** (power button / Arduino / ignition off):
+1. BCM stops
+2. Wait 5 seconds (grace period)
+3. System suspends to S3 (~2W draw)
+4. Press power button (or ignition on) → wake in ~2-3s
+5. `bcm-resume.service` restarts BCM
+
+**After 24h standby:** next wake replays the splash video (cold-like wake).
 
 ### 6.5 Test manually before reboot
 

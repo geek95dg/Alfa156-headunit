@@ -167,7 +167,7 @@ travel:
 power:
   shutdown_delay_seconds: 30
   backlight_fade_ms: 1000
-  standby_max_hours: 12
+  standby_max_hours: 24
   splash_duration_seconds: 15
   # Ignition watcher — the systemd-level daemon that decides when
   # bcm-headunit.service runs. Two independent inputs are polled:
@@ -201,7 +201,8 @@ power:
     bench_button_line: 21    # adjust per `gpioinfo gpiochip0`
     debounce_ms: 200
     active_low: true
-    suspend_on_stop: false     # true = suspend to S3 when BCM stops (x86 car PC)
+    autostart: true            # start BCM immediately on boot (no ignition needed)
+    suspend_on_stop: true      # suspend to S3 when BCM stops (x86 car PC)
     suspend_delay_seconds: 5   # wait before suspend (driver might restart engine)
 # v8.5 new modules
 rain_sensor:
