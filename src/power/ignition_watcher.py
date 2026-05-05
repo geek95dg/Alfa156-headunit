@@ -90,6 +90,8 @@ def load_config(config_path: str) -> dict:
         "active_low": DEFAULT_ACTIVE_LOW,
         "standby_max_hours": DEFAULT_STANDBY_MAX_HOURS,
         "splash_duration_seconds": DEFAULT_SPLASH_DURATION_S,
+        "suspend_on_stop": False,
+        "suspend_delay_seconds": 5,
     }
     path = Path(config_path)
     if not path.exists() or yaml is None:
@@ -118,8 +120,9 @@ def load_config(config_path: str) -> dict:
 def systemctl(action: str, service: str) -> bool:
     """Run systemctl action on a service. Returns True on success."""
     try:
+        cmd = ["systemctl", action] + ([service] if service else [])
         result = subprocess.run(
-            ["systemctl", action, service],
+            cmd,
             capture_output=True, text=True, timeout=30,
         )
         if result.returncode == 0:
@@ -520,10 +523,21 @@ def main() -> None:
             log("WARNING: Failed to start BCM headunit service")
             return False
 
-    def stop_bcm() -> bool:
-        """Stop BCM headunit."""
+    suspend_on_stop = cfg.get("suspend_on_stop", False)
+    suspend_delay = cfg.get("suspend_delay_seconds", 5)
+
+    def stop_bcm(do_suspend: bool = False) -> bool:
+        """Stop BCM headunit. Optionally suspend to S3 after."""
         if systemctl("stop", service):
             log("BCM headunit service stopped — OS stays in deep idle")
+            if do_suspend and suspend_on_stop:
+                log(f"Suspending to S3 in {suspend_delay}s...")
+                time.sleep(suspend_delay)
+                if not ignition_on:
+                    systemctl("suspend", "")
+                    log("System suspended (S3)")
+                else:
+                    log("Ignition came back during delay — skip suspend")
             return True
         else:
             log("WARNING: Failed to stop BCM headunit service")
@@ -579,7 +593,7 @@ def main() -> None:
 
             elif ign_falling and bcm_running:
                 log("=== IGNITION OFF — Stopping BCM headunit ===")
-                if stop_bcm():
+                if stop_bcm(do_suspend=True):
                     bcm_running = False
 
             time.sleep(POLL_INTERVAL_S)
