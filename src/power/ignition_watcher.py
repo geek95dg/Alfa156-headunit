@@ -74,7 +74,7 @@ BCM_SERVICE_NAME = "bcm-headunit.service"
 SPLASH_SERVICE_NAME = "bcm-splash-main.service"
 POLL_INTERVAL_S = 0.1
 STATE_FILE = Path("/tmp/bcm_power_state")
-DEFAULT_STANDBY_MAX_HOURS = 12
+DEFAULT_STANDBY_MAX_HOURS = 24
 DEFAULT_SPLASH_DURATION_S = 15
 
 
@@ -420,6 +420,10 @@ def main() -> None:
         help="Run in simulation mode (no GPIO, use /tmp/bcm_ignition_on file)",
     )
     parser.add_argument(
+        "--autostart", action="store_true",
+        help="Start BCM immediately on boot (no ignition signal required)",
+    )
+    parser.add_argument(
         "--service", default=BCM_SERVICE_NAME,
         help=f"Systemd service to start/stop (default: {BCM_SERVICE_NAME})",
     )
@@ -429,6 +433,7 @@ def main() -> None:
     service = args.service
     standby_max_s = cfg["standby_max_hours"] * 3600
     splash_duration = cfg["splash_duration_seconds"]
+    autostart = args.autostart or cfg.get("autostart", False)
     simulate = args.simulate or not HAS_GPIOD
 
     # Select watcher implementation
@@ -483,13 +488,22 @@ def main() -> None:
     signal.signal(signal.SIGINT, handle_signal)
     signal.signal(signal.SIGTERM, handle_signal)
 
-    log("Ignition watcher started — waiting for ignition signal...")
+    log("Ignition watcher started")
     log(f"  Target service: {service}")
     log(f"  Active-low: {cfg['active_low']}")
+    log(f"  Autostart: {autostart}")
+    log(f"  Suspend on stop: {suspend_on_stop}")
+
+    # Autostart: launch BCM immediately on boot (x86 desk/car mode)
+    if autostart and not bcm_running:
+        log("=== AUTOSTART — Starting BCM immediately ===")
+        if start_bcm():
+            bcm_running = True
+            ignition_on = True
 
     # Track bench button state for toggle behavior
     btn_was_pressed = False
-    prev_ignition_on = False
+    prev_ignition_on = ignition_on
 
     def start_bcm() -> bool:
         """Determine boot mode, write state, optionally start splash, start BCM."""

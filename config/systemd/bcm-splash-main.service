@@ -46,6 +46,9 @@ Type=simple
 # User-supplied, resolution matching `display.dashboard.{width,height}`
 # (1024x600 on the default 7" panel), 5-10 s seamless loop, H.264
 # video with optional AAC/MP3 audio track.
+# Try DRM output first (works without X, direct framebuffer).
+# Fall back to gpu/x11 if DRM is unavailable (x86 with KMS issues).
+# On x86 with Intel GPU: --vo=drm usually works; if not, --vo=gpu.
 ExecStart=/bin/bash -c '\
     MPV=$(command -v mpv 2>/dev/null || command -v ffplay 2>/dev/null); \
     if [ -z "$MPV" ]; then \
@@ -54,8 +57,9 @@ ExecStart=/bin/bash -c '\
     fi; \
     exec "$MPV" \
         --fs --loop-file=inf --really-quiet \
-        --vo=drm --drm-connector=HDMI-A-1 \
+        --vo=drm,gpu,fbdev --drm-connector=HDMI-A-1 \
         --ao=alsa,pipewire,pulse \
+        --input-conf=/dev/null \
         /opt/bcm/assets/splash/main.mp4'
 
 # Fail silently if the splash can't start — it's cosmetic, not
