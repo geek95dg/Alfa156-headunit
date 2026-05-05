@@ -14,6 +14,18 @@ sleep 1
 xrandr --output HDMI-1 --primary --mode 1024x600 --pos 0x0 \
        --output DP-2 --mode 800x600 --pos 1024x0
 
+# Map touchscreen to main display only (prevents touch offset).
+# Auto-detect common touch controllers, then fall back to matching any pointer.
+TOUCH_MAPPED=false
+for TOUCH in $(xinput list --name-only | grep -iE "touch|eGalax|ILITEK|Goodix|FT5|QDtech|MPI"); do
+    xinput map-to-output "$TOUCH" HDMI-1 2>/dev/null && \
+        TOUCH_MAPPED=true && echo "Mapped touch '$TOUCH' → HDMI-1"
+done
+if [ "$TOUCH_MAPPED" = "false" ]; then
+    echo "WARNING: no touchscreen auto-detected. Map manually:"
+    echo "  xinput map-to-output '<device-name>' HDMI-1"
+fi
+
 # Wait for BCM Flask server
 for i in $(seq 1 90); do
     curl -sf http://localhost:5002 >/dev/null && break
