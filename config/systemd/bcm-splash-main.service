@@ -1,73 +1,46 @@
 [Unit]
-Description=BCM Boot Splash — main display (HDMI 2.1, audio+video)
+Description=BCM Boot Splash — plays until dashboard is ready
 Documentation=https://github.com/geek95dg/Alfa156-headunit
 DefaultDependencies=no
 
-# Fire as soon as the kernel hands off to systemd, *before* the BCM
-# stack, so the viewer never sees the raw kernel log.
-#
-# Order dependencies:
-#   * After systemd-vconsole-setup so the framebuffer exists.
-#   * After sound.target so ALSA is initialised (alsa-utils ran
-#     `alsactl init` / `alsactl restore` and the mixers are unmuted).
-#   * Before the BCM triad so the splash is up before anything races
-#     us for the framebuffer or the sound card.
-After=systemd-vconsole-setup.service sound.target
-Before=multi-user.target bcm-ignition-watcher.service bcm-headunit.service bcm-kiosk.service
-
-# Bound to the headunit lifecycle — when BCM Flask is up and Chromium
-# takes over the display, PartOf= tears the splash down cleanly so it
-# doesn't fight Chromium for the framebuffer or PipeWire for the
-# audio sink.
-PartOf=bcm-headunit.service
+# Start early, before BCM stack
+After=systemd-vconsole-setup.service
+Before=multi-user.target bcm-ignition-watcher.service
 
 ConditionPathExists=/opt/bcm/assets/splash/main.mp4
 
 [Service]
 Type=simple
 
-# mpv is the primary player (ffplay is a last-ditch fallback that
-# doesn't support --vo=drm, so only video will come out — still
-# better than a kernel log).
-#
-# --ao=alsa,pipewire,pulse — explicit audio-output fallback chain.
-# At boot the user session hasn't started yet, so PipeWire/Pulse
-# are almost certainly not running; mpv picks the ALSA backend,
-# opens /dev/snd/ directly, and plays the audio track embedded in
-# main.mp4. If the rig happens to have a system-wide PipeWire
-# socket running (unusual on Armbian minimal images), mpv falls
-# through to that instead. Either way the audio device is released
-# the moment the BCM headunit service starts and kills this unit
-# (PartOf=bcm-headunit.service), so PipeWire can claim it for the
-# normal in-car audio pipeline.
-#
-# Splash file must be at:
-#   /opt/bcm/assets/splash/main.mp4
-# User-supplied, resolution matching `display.dashboard.{width,height}`
-# (1024x600 on the default 7" panel), 5-10 s seamless loop, H.264
-# video with optional AAC/MP3 audio track.
-# Try DRM output first (works without X, direct framebuffer).
-# Fall back to gpu/x11 if DRM is unavailable (x86 with KMS issues).
-# On x86 with Intel GPU: --vo=drm usually works; if not, --vo=gpu.
+# Start mpv splash in background, then poll for Flask readiness.
+# Once Flask responds on port 5002, kill mpv and exit cleanly.
+# If Flask never comes up within 120s, kill splash anyway.
 ExecStart=/bin/bash -c '\
-    MPV=$(command -v mpv 2>/dev/null || command -v ffplay 2>/dev/null); \
-    if [ -z "$MPV" ]; then \
-        echo "bcm-splash: no mpv/ffplay found — install with apt"; \
-        exit 0; \
-    fi; \
-    exec "$MPV" \
-        --fs --loop-file=inf --really-quiet \
-        --vo=drm,gpu,fbdev --drm-connector=HDMI-A-1 \
+    MPV=$(command -v mpv 2>/dev/null); \
+    if [ -z "$MPV" ]; then exit 0; fi; \
+    "$MPV" --fs --loop-file=inf --really-quiet \
+        --vo=drm,gpu,sdl,fbdev \
         --ao=alsa,pipewire,pulse \
         --input-conf=/dev/null \
-        /opt/bcm/assets/splash/main.mp4'
+        /opt/bcm/assets/splash/main.mp4 & \
+    MPV_PID=$!; \
+    for i in $(seq 1 120); do \
+        if curl -sf http://localhost:5002 >/dev/null 2>&1; then \
+            sleep 2; \
+            kill $MPV_PID 2>/dev/null; \
+            exit 0; \
+        fi; \
+        sleep 1; \
+    done; \
+    kill $MPV_PID 2>/dev/null; \
+    exit 0'
 
-# Fail silently if the splash can't start — it's cosmetic, not
-# critical. Never hold the rest of the boot hostage.
+ExecStop=/bin/bash -c 'pkill -f "mpv.*splash" 2>/dev/null; true'
+
 SuccessExitStatus=0 1
 Restart=no
 
-# Needs framebuffer (DRM) access and the sound card.
+User=root
 SupplementaryGroups=video audio
 
 StandardOutput=journal

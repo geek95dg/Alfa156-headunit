@@ -1,0 +1,24 @@
+#!/bin/sh
+# BCM kiosk — x86 single display (HDMI only)
+# Copy to ~/.xinitrc
+
+xset s off
+xset -dpms
+xset s noblank
+unclutter -idle 0.5 -root &
+matchbox-window-manager -use_titlebar no -use_cursor no &
+
+for i in $(seq 1 90); do
+    curl -sf http://localhost:5002 >/dev/null && break
+    sleep 1
+done
+
+rm -rf /tmp/bcm-chromium-main
+chromium --kiosk --noerrdialogs --disable-infobars \
+    --disable-features=TranslateUI --no-first-run --fast \
+    --disable-session-crashed-bubble --disable-translate \
+    --disable-pinch --overscroll-history-navigation=0 \
+    --user-data-dir=/tmp/bcm-chromium-main \
+    http://localhost:5002 &
+
+wait
