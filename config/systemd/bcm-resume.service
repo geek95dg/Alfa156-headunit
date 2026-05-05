@@ -1,0 +1,10 @@
+[Unit]
+Description=BCM — Resume from suspend (restart headunit + kiosk)
+After=suspend.target
+
+[Service]
+Type=oneshot
+ExecStart=/bin/bash -c 'sleep 2 && systemctl start bcm-headunit.service'
+
+[Install]
+WantedBy=suspend.target
