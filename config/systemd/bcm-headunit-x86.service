@@ -1,0 +1,36 @@
+[Unit]
+Description=BCM v8.5 — Alfa Romeo 156 Head Unit
+Documentation=https://github.com/geek95dg/Alfa156-headunit
+After=network.target sound.target
+
+# Started/stopped by bcm-ignition-watcher.service
+PartOf=bcm-ignition-watcher.service
+
+[Service]
+Type=simple
+
+# Resolve venv path (.venv or venv)
+# Platform and config are set here — edit for your target:
+#   x86:    --platform x86    --config config/bcm_config.yaml
+#   OPi PC: --platform opi_pc --config config/bcm_config_opi_pc.yaml
+ExecStart=/bin/bash -c 'VENV=/opt/bcm/.venv; [ -x "$VENV/bin/python" ] || VENV=/opt/bcm/venv; exec "$VENV/bin/python" main.py --platform x86 --config config/bcm_config.yaml --frontend'
+WorkingDirectory=/opt/bcm
+Environment=PYTHONPATH=/opt/bcm
+Environment=BCM_PLATFORM=x86
+
+TimeoutStopSec=45
+KillMode=mixed
+KillSignal=SIGTERM
+
+# Do NOT auto-restart — ignition watcher manages lifecycle
+Restart=no
+
+User=root
+SupplementaryGroups=audio video
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=bcm-headunit
+
+[Install]
+# Not in WantedBy — started by ignition watcher, not at boot
