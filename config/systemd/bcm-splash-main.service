@@ -57,7 +57,7 @@ ExecStart=/bin/bash -c '\
     fi; \
     exec "$MPV" \
         --fs --loop-file=inf --really-quiet \
-        --vo=drm,gpu,fbdev --drm-connector=HDMI-A-1 \
+        --vo=drm,gpu,sdl,fbdev \
         --ao=alsa,pipewire,pulse \
         --input-conf=/dev/null \
         /opt/bcm/assets/splash/main.mp4'
