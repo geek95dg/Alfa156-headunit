@@ -546,15 +546,18 @@ def main() -> None:
     log(f"  Autostart: {autostart}")
     log(f"  Suspend on stop: {suspend_on_stop}")
 
-    # Autostart: launch BCM immediately on boot (x86 desk/car mode)
+    # Autostart: launch BCM immediately on boot (x86 desk/car mode).
+    # Set autostart_active flag so the poll loop ignores the initial
+    # "ignition OFF" from the simulated watcher (no /tmp file yet).
+    autostart_active = False
     if autostart and not bcm_running:
         log("=== AUTOSTART — Starting BCM immediately ===")
         if start_bcm():
             bcm_running = True
-            ignition_on = True
+            autostart_active = True
 
     btn_was_pressed = False
-    prev_ignition_on = ignition_on
+    prev_ignition_on = False
 
     try:
         while not shutdown_requested:
@@ -564,13 +567,18 @@ def main() -> None:
             # Read bench button (toggle on press)
             btn_pressed = watcher.read_bench_button()
             if btn_pressed and not btn_was_pressed:
+                autostart_active = False
                 ignition_on = not ignition_on
                 log(f"Bench button pressed — ignition "
                     f"{'ON' if ignition_on else 'OFF'}")
             elif ign_state != ignition_on and not btn_pressed:
-                ignition_on = ign_state
-                log(f"Ignition signal changed — "
-                    f"{'ON' if ignition_on else 'OFF'}")
+                if autostart_active and not ign_state:
+                    pass
+                else:
+                    autostart_active = False
+                    ignition_on = ign_state
+                    log(f"Ignition signal changed — "
+                        f"{'ON' if ignition_on else 'OFF'}")
             btn_was_pressed = btn_pressed
 
             # Edge detection: only act on transitions
