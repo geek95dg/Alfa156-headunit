@@ -14,6 +14,14 @@ sleep 1
 xrandr --output HDMI-1 --primary --mode 1024x600 --pos 0x0 \
        --output DP-2 --mode 800x600 --pos 1024x0
 
+# Map touchscreen to main display only (prevents touch offset).
+# Find touch device: xinput list | grep -i touch
+# Adjust the name below to match your actual touchscreen device.
+for TOUCH in $(xinput list --name-only | grep -i "touch\|hid.*touch\|eGalax\|ILITEK\|Goodix\|FT5"); do
+    xinput map-to-output "$TOUCH" HDMI-1 2>/dev/null && \
+        echo "Mapped touch '$TOUCH' → HDMI-1"
+done
+
 # Wait for BCM Flask server
 for i in $(seq 1 90); do
     curl -sf http://localhost:5002 >/dev/null && break
