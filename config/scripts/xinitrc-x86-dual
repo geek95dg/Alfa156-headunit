@@ -1,0 +1,56 @@
+#!/bin/sh
+# BCM kiosk — x86 dual display (HDMI-1 main + DP-2/VGA small)
+# Copy to ~/.xinitrc
+
+# Disable screen blanking
+xset s off
+xset -dpms
+xset s noblank
+
+# Hide cursor
+unclutter -idle 0.5 -root &
+
+# Window manager — NO matchbox (it merges screens).
+# Use openbox or none. With --window-position we don't need a WM.
+# If openbox is installed, use it for proper multi-window:
+if command -v openbox >/dev/null 2>&1; then
+    openbox --config-file /dev/null &
+fi
+
+# Set up dual display: HDMI-1 (main 1024x600) + DP-2 (VGA small 800x600)
+sleep 1
+xrandr --output HDMI-1 --primary --mode 1024x600 --pos 0x0 \
+       --output DP-2 --mode 800x600 --pos 1024x0
+
+# Wait for BCM Flask server (started by bcm-headunit.service)
+echo "Waiting for Flask on :5002..."
+for i in $(seq 1 90); do
+    curl -sf http://localhost:5002 >/dev/null && break
+    sleep 1
+done
+echo "Flask ready, launching Chromium..."
+
+# Clean old profiles
+rm -rf /tmp/bcm-chromium-main /tmp/bcm-chromium-small
+
+# Main display (HDMI-1, 1024x600, position 0,0)
+chromium --noerrdialogs --disable-infobars \
+    --disable-features=TranslateUI --no-first-run --fast \
+    --disable-session-crashed-bubble --disable-translate \
+    --disable-pinch --overscroll-history-navigation=0 \
+    --start-fullscreen \
+    --window-size=1024,600 --window-position=0,0 \
+    --user-data-dir=/tmp/bcm-chromium-main \
+    http://localhost:5002 &
+
+sleep 3
+
+# Small display (DP-2/VGA, 800x600, position 1024,0)
+chromium --noerrdialogs --disable-infobars \
+    --disable-features=TranslateUI --no-first-run \
+    --start-fullscreen \
+    --window-size=800,600 --window-position=1024,0 \
+    --user-data-dir=/tmp/bcm-chromium-small \
+    http://localhost:5003 &
+
+wait
