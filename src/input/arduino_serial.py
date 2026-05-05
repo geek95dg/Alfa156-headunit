@@ -1,15 +1,25 @@
-"""Arduino serial data reader — parses non-HID data from Arduino Pro Micro.
+"""Arduino serial data reader — parses telemetry and vehicle signals.
 
-The Arduino sends HID keycodes for button presses (handled by evdev),
-but also sends serial text data for:
-    - Light sensor readings: "LIGHT:XXX" (ADC 0-1023)
-    - Debug messages: "SWC: ...", "MUSIC: ...", etc.
+The Arduino sends HID keycodes for button presses (handled by evdev/arduino_hid),
+but also sends plain-text serial data for sensors and vehicle status:
 
-This module reads the serial port and publishes light sensor data
-to the event bus for the BrightnessController.
+    Inputs (Arduino reads):
+        LIGHT:XXX          — LDR light sensor (ADC 0-1023)
+        DOOR:FL=1,FR=0,RL=0,RR=0,BONNET=0,TRUNK=0  — door/panel states
+        HBRAKE:1           — handbrake engaged (1) or released (0)
+        IGN:1              — ignition/ACC 12V detected
+        RAIN:1             — rain sensor triggered
+        TEMP:23.5          — DS18B20 external temperature
+        PARK:FL=123,FR=45,RL=200,RR=180  — parking sensor distances (cm)
+        CRUISE:1           — cruise control active
+        IMMO:1             — immobilizer recognized key
+        AIRBAG:1           — airbag system OK (0=fault)
 
-On x86: tries /dev/ttyACM0, falls back to stub mode.
-On OPi: uses configured port (default /dev/ttyACM0).
+    Debug (logged only):
+        SWC:..., MUSIC:..., STALK:...
+
+On x86: tries /dev/ttyACM0..1, /dev/ttyUSB0..2, falls back to stub mode.
+On OPi: same auto-detection.
 """
 
 import threading
@@ -31,6 +41,8 @@ ARDUINO_SERIAL_PORTS = [
     "/dev/ttyACM0",
     "/dev/ttyACM1",
     "/dev/ttyUSB0",
+    "/dev/ttyUSB1",
+    "/dev/ttyUSB2",
 ]
 BAUD_RATE = 115200
 
@@ -51,7 +63,20 @@ def find_arduino_serial() -> Optional[str]:
 
 
 class ArduinoSerialListener:
-    """Reads serial data from Arduino and publishes to event bus."""
+    """Reads serial data from Arduino and publishes to event bus.
+
+    Publishes:
+        arduino.light_level  — int (0-1023 ADC)
+        vehicle.doors        — dict {fl, fr, rl, rr, bonnet, trunk} bool
+        vehicle.handbrake    — bool
+        vehicle.ignition_raw — bool (raw 12V detection from Arduino)
+        vehicle.rain         — bool
+        vehicle.ext_temp_raw — float (DS18B20 reading)
+        vehicle.parking_raw  — dict {fl, fr, rl, rr} int (cm)
+        vehicle.cruise       — bool
+        vehicle.immo_ok      — bool
+        vehicle.airbag_ok    — bool
+    """
 
     def __init__(self, event_bus: EventBus):
         self._bus = event_bus
@@ -73,7 +98,7 @@ class ArduinoSerialListener:
             self._thread.start()
             log.info("Arduino serial listener started: %s", self._port)
         else:
-            log.info("Arduino serial: no port found (light sensor disabled)")
+            log.info("Arduino serial: no port found (sensors disabled)")
 
     def stop(self) -> None:
         self._running = False
@@ -97,12 +122,64 @@ class ArduinoSerialListener:
             self._running = False
 
     def _parse_line(self, line: str) -> None:
-        """Parse Arduino serial output."""
-        if line.startswith("LIGHT:"):
-            try:
-                adc = int(line[6:])
-                self._bus.publish("arduino.light_level", adc)
-            except ValueError:
-                pass
-        elif line.startswith("SWC:") or line.startswith("MUSIC:") or line.startswith("STALK:"):
-            log.debug("Arduino: %s", line)
+        """Parse Arduino serial output line."""
+        try:
+            if line.startswith("LIGHT:"):
+                self._bus.publish("arduino.light_level", int(line[6:]))
+
+            elif line.startswith("DOOR:"):
+                self._parse_doors(line[5:])
+
+            elif line.startswith("HBRAKE:"):
+                self._bus.publish("vehicle.handbrake", line[7:] == "1")
+
+            elif line.startswith("IGN:"):
+                self._bus.publish("vehicle.ignition_raw", line[4:] == "1")
+
+            elif line.startswith("RAIN:"):
+                self._bus.publish("vehicle.rain", line[5:] == "1")
+
+            elif line.startswith("TEMP:"):
+                self._bus.publish("vehicle.ext_temp_raw", float(line[5:]))
+
+            elif line.startswith("PARK:"):
+                self._parse_parking(line[5:])
+
+            elif line.startswith("CRUISE:"):
+                self._bus.publish("vehicle.cruise", line[7:] == "1")
+
+            elif line.startswith("IMMO:"):
+                self._bus.publish("vehicle.immo_ok", line[5:] == "1")
+
+            elif line.startswith("AIRBAG:"):
+                self._bus.publish("vehicle.airbag_ok", line[7:] == "1")
+
+            elif line.startswith(("SWC:", "MUSIC:", "STALK:")):
+                log.debug("Arduino: %s", line)
+
+            else:
+                log.debug("Arduino unknown: %s", line)
+
+        except (ValueError, IndexError) as e:
+            log.debug("Parse error '%s': %s", line, e)
+
+    def _parse_doors(self, payload: str) -> None:
+        """Parse DOOR:FL=1,FR=0,RL=0,RR=0,BONNET=0,TRUNK=0"""
+        doors = {}
+        for pair in payload.split(","):
+            if "=" in pair:
+                key, val = pair.split("=", 1)
+                doors[key.strip().lower()] = val.strip() == "1"
+        self._bus.publish("vehicle.doors", doors)
+
+    def _parse_parking(self, payload: str) -> None:
+        """Parse PARK:FL=123,FR=45,RL=200,RR=180 (distances in cm)"""
+        distances = {}
+        for pair in payload.split(","):
+            if "=" in pair:
+                key, val = pair.split("=", 1)
+                try:
+                    distances[key.strip().lower()] = int(val.strip())
+                except ValueError:
+                    distances[key.strip().lower()] = 999
+        self._bus.publish("vehicle.parking_raw", distances)
