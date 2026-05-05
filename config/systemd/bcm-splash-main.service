@@ -27,7 +27,7 @@ ExecStart=/bin/bash -c '\
     MPV_PID=$!; \
     for i in $(seq 1 120); do \
         if curl -sf http://localhost:5002 >/dev/null 2>&1; then \
-            sleep 2; \
+            sleep 5; \
             kill $MPV_PID 2>/dev/null; \
             exit 0; \
         fi; \
