@@ -204,6 +204,13 @@ class WebViewer:
             "audio_balance": _val("audio.balance", 0),
             # Notifications
             "notifications": _val("system.notifications", []),
+            # Vehicle status (from Arduino serial)
+            "vehicle_doors": _val("vehicle.doors", {}),
+            "vehicle_handbrake": _val("vehicle.handbrake", False),
+            "vehicle_cruise": _val("vehicle.cruise", False),
+            "vehicle_immo_ok": _val("vehicle.immo_ok", True),
+            "vehicle_airbag_ok": _val("vehicle.airbag_ok", True),
+            "vehicle_rain": _val("vehicle.rain", False),
             # Parking
             "parking_distances": _val("parking.distances", []),
             "parking_active": _val("parking.active", False),
