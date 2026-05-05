@@ -1,56 +1,45 @@
 #!/bin/sh
-# BCM kiosk — x86 dual display (HDMI-1 main + DP-2/VGA small)
+# BCM kiosk — x86 dual display (HDMI-1 + DP-2/VGA)
+# No window manager — Chromium handles its own windows.
 # Copy to ~/.xinitrc
 
-# Disable screen blanking
+# Disable screen blanking and cursor
 xset s off
 xset -dpms
 xset s noblank
-
-# Hide cursor
 unclutter -idle 0.5 -root &
 
-# Window manager — NO matchbox (it merges screens).
-# Use openbox or none. With --window-position we don't need a WM.
-# If openbox is installed, use it for proper multi-window:
-if command -v openbox >/dev/null 2>&1; then
-    openbox --config-file /dev/null &
-fi
-
-# Set up dual display: HDMI-1 (main 1024x600) + DP-2 (VGA small 800x600)
+# Set up dual display
 sleep 1
 xrandr --output HDMI-1 --primary --mode 1024x600 --pos 0x0 \
        --output DP-2 --mode 800x600 --pos 1024x0
 
-# Wait for BCM Flask server (started by bcm-headunit.service)
-echo "Waiting for Flask on :5002..."
+# Wait for BCM Flask server
 for i in $(seq 1 90); do
     curl -sf http://localhost:5002 >/dev/null && break
     sleep 1
 done
-echo "Flask ready, launching Chromium..."
 
 # Clean old profiles
 rm -rf /tmp/bcm-chromium-main /tmp/bcm-chromium-small
 
-# Main display (HDMI-1, 1024x600, position 0,0)
-chromium --noerrdialogs --disable-infobars \
-    --disable-features=TranslateUI --no-first-run --fast \
-    --disable-session-crashed-bubble --disable-translate \
-    --disable-pinch --overscroll-history-navigation=0 \
-    --start-fullscreen \
+# Main display (HDMI-1) — use --app for no UI chrome
+chromium --app=http://localhost:5002 \
     --window-size=1024,600 --window-position=0,0 \
-    --user-data-dir=/tmp/bcm-chromium-main \
-    http://localhost:5002 &
-
-sleep 3
-
-# Small display (DP-2/VGA, 800x600, position 1024,0)
-chromium --noerrdialogs --disable-infobars \
+    --noerrdialogs --disable-infobars \
     --disable-features=TranslateUI --no-first-run \
-    --start-fullscreen \
-    --window-size=800,600 --window-position=1024,0 \
-    --user-data-dir=/tmp/bcm-chromium-small \
-    http://localhost:5003 &
+    --disable-session-crashed-bubble \
+    --user-data-dir=/tmp/bcm-chromium-main &
 
+sleep 2
+
+# Small display (DP-2/VGA) — positioned at x=1024 (right of main)
+chromium --app=http://localhost:5003 \
+    --window-size=800,600 --window-position=1024,0 \
+    --noerrdialogs --disable-infobars \
+    --disable-features=TranslateUI --no-first-run \
+    --disable-session-crashed-bubble \
+    --user-data-dir=/tmp/bcm-chromium-small &
+
+# Keep X alive
 wait

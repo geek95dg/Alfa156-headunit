@@ -488,22 +488,8 @@ def main() -> None:
     signal.signal(signal.SIGINT, handle_signal)
     signal.signal(signal.SIGTERM, handle_signal)
 
-    log("Ignition watcher started")
-    log(f"  Target service: {service}")
-    log(f"  Active-low: {cfg['active_low']}")
-    log(f"  Autostart: {autostart}")
-    log(f"  Suspend on stop: {suspend_on_stop}")
-
-    # Autostart: launch BCM immediately on boot (x86 desk/car mode)
-    if autostart and not bcm_running:
-        log("=== AUTOSTART — Starting BCM immediately ===")
-        if start_bcm():
-            bcm_running = True
-            ignition_on = True
-
-    # Track bench button state for toggle behavior
-    btn_was_pressed = False
-    prev_ignition_on = ignition_on
+    suspend_on_stop = cfg.get("suspend_on_stop", False)
+    suspend_delay = cfg.get("suspend_delay_seconds", 5)
 
     def start_bcm() -> bool:
         """Determine boot mode, write state, optionally start splash, start BCM."""
@@ -537,9 +523,6 @@ def main() -> None:
             log("WARNING: Failed to start BCM headunit service")
             return False
 
-    suspend_on_stop = cfg.get("suspend_on_stop", False)
-    suspend_delay = cfg.get("suspend_delay_seconds", 5)
-
     def stop_bcm(do_suspend: bool = False) -> bool:
         """Stop BCM headunit. Optionally suspend to S3 after."""
         if systemctl("stop", service):
@@ -556,6 +539,22 @@ def main() -> None:
         else:
             log("WARNING: Failed to stop BCM headunit service")
             return False
+
+    log("Ignition watcher started")
+    log(f"  Target service: {service}")
+    log(f"  Active-low: {cfg['active_low']}")
+    log(f"  Autostart: {autostart}")
+    log(f"  Suspend on stop: {suspend_on_stop}")
+
+    # Autostart: launch BCM immediately on boot (x86 desk/car mode)
+    if autostart and not bcm_running:
+        log("=== AUTOSTART — Starting BCM immediately ===")
+        if start_bcm():
+            bcm_running = True
+            ignition_on = True
+
+    btn_was_pressed = False
+    prev_ignition_on = ignition_on
 
     try:
         while not shutdown_requested:
