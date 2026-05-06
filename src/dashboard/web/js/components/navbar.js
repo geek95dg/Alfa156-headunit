@@ -36,28 +36,28 @@ const NavBar = (() => {
             const iconStyle = isActive ? "font-variation-settings:'FILL' 1;" : "";
 
             if (isDisabled && !isActive) {
-                return `<div class="flex items-center justify-center text-zinc-500 w-10 h-10 cursor-pointer opacity-50 transition-all"
+                return `<div class="flex items-center justify-center text-zinc-500 w-12 h-12 cursor-pointer opacity-50 transition-all"
                          title="${item.tip} (unavailable)" onclick="App.navigateTo('${item.screen}')">
-                    <span class="material-symbols-outlined" style="font-size:22px;">${item.icon}</span>
+                    <span class="material-symbols-outlined" style="font-size:26px;">${item.icon}</span>
                 </div>`;
             }
             if (isActive) {
-                return `<div class="flex items-center justify-center ${activeBg} ${activeColor} rounded-xl w-10 h-10 cursor-pointer transition-all"
+                return `<div class="flex items-center justify-center ${activeBg} ${activeColor} rounded-xl w-12 h-12 cursor-pointer transition-all"
                          title="${item.tip}" onclick="App.navigateTo('${item.screen}')">
-                    <span class="material-symbols-outlined" style="font-size:22px;${iconStyle}">${item.icon}</span>
+                    <span class="material-symbols-outlined" style="font-size:26px;${iconStyle}">${item.icon}</span>
                 </div>`;
             }
-            return `<div class="flex items-center justify-center ${inactiveColor} w-10 h-10 cursor-pointer hover:text-zinc-300 transition-all"
+            return `<div class="flex items-center justify-center ${inactiveColor} w-12 h-12 cursor-pointer hover:text-zinc-300 transition-all"
                      title="${item.tip}" onclick="App.navigateTo('${item.screen}')">
-                <span class="material-symbols-outlined" style="font-size:22px;">${item.icon}</span>
+                <span class="material-symbols-outlined" style="font-size:26px;">${item.icon}</span>
             </div>`;
         }).join("");
 
         return `<nav class="w-full z-50 flex justify-around items-center h-12 ${barCls} border-t shrink-0">
             ${items}
-            <div class="flex items-center justify-center text-zinc-600 w-10 h-10 cursor-pointer hover:text-zinc-400 transition-all"
+            <div class="flex items-center justify-center text-zinc-600 w-12 h-12 cursor-pointer hover:text-zinc-400 transition-all"
                  title="Settings" onclick="App.navigateTo('settings')">
-                <span class="material-symbols-outlined" style="font-size:20px;">settings</span>
+                <span class="material-symbols-outlined" style="font-size:24px;">settings</span>
             </div>
         </nav>`;
     }

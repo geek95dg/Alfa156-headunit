@@ -63,11 +63,7 @@ if [ -n "$SMALL" ]; then
     xrandr --output "$SMALL" --right-of "$MAIN" --auto
 fi
 
-# Scale: 7" (<=1024) gets 1.1x, 10"+ gets native
-SCALE=1.0
-if [ -n "$MAIN_W" ] && [ "$MAIN_W" -le 1024 ] 2>/dev/null; then
-    SCALE=1.1
-fi
+# No whole-UI scaling — button sizes are handled in CSS/JS directly
 
 # Map touchscreen to main display
 for TOUCH in $(xinput list --name-only 2>/dev/null | grep -iE "touch|eGalax|ILITEK|Goodix|FT5|QDtech|MPI"); do
@@ -85,7 +81,6 @@ rm -rf /tmp/bcm-chromium-main /tmp/bcm-chromium-small
 
 # Main display — BCM dashboard
 chromium --app=http://localhost:5002 \
-    --force-device-scale-factor=$SCALE \
     --window-size=${MAIN_W},${MAIN_H} --window-position=0,0 \
     --noerrdialogs --disable-infobars \
     --disable-features=TranslateUI --no-first-run \
