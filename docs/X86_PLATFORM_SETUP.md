@@ -155,9 +155,12 @@ AGM standby: 7.2Ah ÷ 0.2A = **36 hours** (exceeds 24h cycle requirement).
 
 ## 3. OS Installation
 
-### 3.1 Install Debian 12 (Bookworm) minimal
+### 3.1 Install Debian 13 (Trixie) minimal
 
-Download **Debian 12 netinst** amd64 ISO. Write to USB stick (Rufus/Etcher).
+Download **Debian 13 (Trixie) netinst** amd64 ISO. Write to USB stick (Rufus/Etcher).
+
+> Debian 12 (Bookworm) also works. Trixie has newer kernel (6.x),
+> better Intel GPU support, and Python 3.12+ out of the box.
 
 **Lenovo BIOS:** Press **F1** at boot (not DEL like Gigabyte).
 - Startup → Boot Priority → USB first
@@ -171,12 +174,19 @@ Download **Debian 12 netinst** amd64 ISO. Write to USB stick (Rufus/Etcher).
 
 ### 3.2 Enable non-free firmware
 
-Intel 8265 needs `firmware-iwlwifi` from non-free:
+Intel 8265 needs `firmware-iwlwifi` from non-free. On Debian 13 (Trixie)
+the installer usually enables non-free-firmware by default. Verify:
 
 ```bash
+grep non-free /etc/apt/sources.list
+# If missing, add it:
 sudo sed -i 's/main$/main contrib non-free non-free-firmware/' /etc/apt/sources.list
 sudo apt update
 ```
+
+> **Debian 13 note:** Trixie uses `t64` ABI transition packages. If
+> `apt install` suggests replacing packages with `t64` suffixes, accept.
+> This is normal and harmless.
 
 ---
 
@@ -191,6 +201,7 @@ sudo apt install -y \
     git curl wget
 
 # Display / kiosk
+# Debian 13: package is "chromium". Debian 12: may be "chromium-browser".
 sudo apt install -y \
     xserver-xorg xinit x11-xserver-utils \
     unclutter chromium
@@ -375,6 +386,8 @@ sudo git clone https://github.com/geek95dg/Alfa156-headunit.git bcm
 sudo chown -R $USER:$USER /opt/bcm
 cd /opt/bcm
 
+# Debian 13 enforces PEP 668 (externally-managed-environment).
+# Always use a venv — never sudo pip install.
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
