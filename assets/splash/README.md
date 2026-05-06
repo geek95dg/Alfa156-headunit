@@ -5,8 +5,14 @@ boot log with a branded BCM startup animation:
 
 | File | Target display | Audio? | Suggested format |
 |------|----------------|--------|------------------|
-| `main.mp4`  | Main 7" / 8" touchscreen (HDMI 2.1, `HDMI-A-1`) | **Yes — plays through the car audio system during boot** | 1024×600 or 1280×800, 5–10 s seamless loop, H.264 video + AAC/MP3 audio track |
-| `small.mp4` | Small 4.3" stats display (HDMI 2.0, `HDMI-A-2`) — breathing Alfa Romeo logo | No (silent) | 800×480, 3–5 s loop, no audio track, H.264 |
+| `main.mp4`  | Main 7"/10" touchscreen | **Yes — plays through the car audio system during boot** | 1024×600 or 1280×800, 5–10 s seamless loop, H.264 video + AAC/MP3 audio track |
+| `small.mp4` | Small 4.3" stats display — breathing Alfa Romeo logo | No (silent) | 800×480, 3–5 s loop, no audio track, H.264 |
+
+**DRM connector names vary by platform:**
+- OPi 5 Pro (2× HDMI): `HDMI-A-1` (main), `HDMI-A-2` (small)
+- Lenovo M910q (2× DP): `DP-1` (main), `DP-2` (small) — use passive DP-to-HDMI adapters for HDMI displays
+- GA-N3050N-D2P (HDMI+VGA): `HDMI-1` (main), `DP-2` (VGA/small)
+- Discover yours: `for f in /sys/class/drm/card*-*/status; do echo "$f: $(cat $f)"; done`
 
 Both are picked up by the two systemd services at
 `config/systemd/bcm-splash-main.service` and
