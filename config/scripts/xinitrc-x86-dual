@@ -1,7 +1,6 @@
 #!/bin/sh
-# BCM kiosk — x86 dual DisplayPort (M910q: DP-1 main + DP-2 small)
-# Both outputs are DisplayPort. Use passive DP-to-HDMI adapters
-# if your displays have HDMI inputs.
+# BCM kiosk — x86 dual display
+# Auto-detects connected HDMI/DP outputs.
 # Copy to ~/.xinitrc
 
 # Disable screen blanking and cursor
@@ -10,27 +9,55 @@ xset -dpms
 xset s noblank
 unclutter -idle 0.5 -root &
 
-# Set up dual display — discover connected outputs
 sleep 1
-xrandr --output DP-1 --primary --auto --pos 0x0
-xrandr --output DP-2 --right-of DP-1 --mode 800x480 2>/dev/null || \
-    xrandr --output DP-2 --right-of DP-1 --auto
 
-# Auto-detect main display resolution for scaling
-MAIN_W=$(xrandr | grep 'DP-1 connected' | grep -oP '\d+(?=x)' | head -1)
+# Auto-detect: find the two connected outputs and their resolutions
+MAIN=""
+SMALL=""
+MAIN_W=1024
+MAIN_H=600
+
+for output in $(xrandr | grep ' connected' | awk '{print $1}'); do
+    RES=$(xrandr | grep "^$output " | grep -oP '\d+x\d+\+' | head -1 | tr -d '+')
+    W=$(echo "$RES" | cut -dx -f1)
+    if [ -z "$MAIN" ]; then
+        # First connected output = main (larger or first found)
+        MAIN="$output"
+        MAIN_W="$W"
+        MAIN_H=$(echo "$RES" | cut -dx -f2)
+    else
+        SMALL="$output"
+    fi
+done
+
+# If we found two outputs, pick the higher-res one as main
+if [ -n "$SMALL" ]; then
+    SMALL_W=$(xrandr | grep "^$SMALL " | grep -oP '\d+x\d+\+' | head -1 | cut -dx -f1 | tr -d '+')
+    if [ -n "$SMALL_W" ] && [ "$SMALL_W" -gt "$MAIN_W" ] 2>/dev/null; then
+        SWAP="$MAIN"; MAIN="$SMALL"; SMALL="$SWAP"
+        MAIN_W="$SMALL_W"
+    fi
+fi
+
+echo "Main display: $MAIN (${MAIN_W}px)"
+echo "Small display: $SMALL"
+
+# Configure displays
+xrandr --output "$MAIN" --primary --auto --pos 0x0
+if [ -n "$SMALL" ]; then
+    xrandr --output "$SMALL" --right-of "$MAIN" --auto
+fi
+
+# Scale: 7" (<=1024) gets 1.1x, 10"+ gets native
 SCALE=1.0
 if [ -n "$MAIN_W" ] && [ "$MAIN_W" -le 1024 ] 2>/dev/null; then
     SCALE=1.1
 fi
 
-# Get main display width for positioning the small display window
-MAIN_FULL_W=$(xrandr | grep 'DP-1 connected' | grep -oP '\d+(?=x)' | head -1)
-MAIN_FULL_W=${MAIN_FULL_W:-1024}
-
-# Map touchscreen to main display only (prevents touch offset)
+# Map touchscreen to main display
 for TOUCH in $(xinput list --name-only 2>/dev/null | grep -iE "touch|eGalax|ILITEK|Goodix|FT5|QDtech|MPI"); do
-    xinput map-to-output "$TOUCH" DP-1 2>/dev/null && \
-        echo "Mapped touch '$TOUCH' → DP-1"
+    xinput map-to-output "$TOUCH" "$MAIN" 2>/dev/null && \
+        echo "Mapped touch '$TOUCH' → $MAIN"
 done
 
 # Wait for BCM Flask server
@@ -39,27 +66,31 @@ for i in $(seq 1 90); do
     sleep 1
 done
 
-# Clean stale Chromium profiles
 rm -rf /tmp/bcm-chromium-main /tmp/bcm-chromium-small
 
-# Main display (DP-1) — with auto scale factor
+# Main display — BCM dashboard
 chromium --app=http://localhost:5002 \
     --force-device-scale-factor=$SCALE \
-    --window-size=${MAIN_FULL_W},600 --window-position=0,0 \
+    --window-size=${MAIN_W},${MAIN_H} --window-position=0,0 \
     --noerrdialogs --disable-infobars \
     --disable-features=TranslateUI --no-first-run \
     --disable-session-crashed-bubble \
     --user-data-dir=/tmp/bcm-chromium-main &
 
-sleep 2
+# Small display — status dashboard
+if [ -n "$SMALL" ]; then
+    sleep 2
+    SMALL_RES=$(xrandr | grep "^$SMALL " | grep -oP '\d+x\d+\+' | head -1 | tr -d '+')
+    SW=$(echo "$SMALL_RES" | cut -dx -f1)
+    SH=$(echo "$SMALL_RES" | cut -dx -f2)
+    SW=${SW:-800}
+    SH=${SH:-480}
+    chromium --app=http://localhost:5003 \
+        --window-size=${SW},${SH} --window-position=${MAIN_W},0 \
+        --noerrdialogs --disable-infobars \
+        --disable-features=TranslateUI --no-first-run \
+        --disable-session-crashed-bubble \
+        --user-data-dir=/tmp/bcm-chromium-small &
+fi
 
-# Small display (DP-2) — no scale, positioned right of main
-chromium --app=http://localhost:5003 \
-    --window-size=800,480 --window-position=${MAIN_FULL_W},0 \
-    --noerrdialogs --disable-infobars \
-    --disable-features=TranslateUI --no-first-run \
-    --disable-session-crashed-bubble \
-    --user-data-dir=/tmp/bcm-chromium-small &
-
-# Keep X alive
 wait
