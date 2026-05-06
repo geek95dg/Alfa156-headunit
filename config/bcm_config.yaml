@@ -20,8 +20,8 @@ modules:
   blinker_monitor: true      # GPIO watcher that publishes vehicle.left_blinker/right_blinker
 display:
   dashboard:
-    width: 800
-    height: 480
+    width: 1024       # 7" display; for 10" use 1280
+    height: 600       # 7" display; for 10" use 800
     fps: 15
     theme: heritage
     brightness: 70
