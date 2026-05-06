@@ -28,6 +28,7 @@
                 onDataUpdate();
             } catch (err) {}
         };
+        ws.onopen = () => { loadConfig().then(() => renderGrid()); };
         ws.onclose = () => setTimeout(connectWS, 2000);
         ws.onerror = () => ws.close();
     }
@@ -62,12 +63,28 @@
         return `${days[d.getDay()]} ${d.getDate()} ${months[d.getMonth()]}`;
     }
 
+    // --- i18n labels ---
+    const LABELS = {
+        pl: {
+            fuel: "POZIOM PALIWA", coolant: "TEMP. PŁYNU",
+            ext_temp: "TEMP. ZEWN.", int_temp: "TEMP. WEWN.",
+        },
+        en: {
+            fuel: "FUEL LEVEL", coolant: "COOLANT TEMP",
+            ext_temp: "EXT. TEMP", int_temp: "INT. TEMP",
+        },
+    };
+
+    function l(key) {
+        return (LABELS[lang] || LABELS["pl"])[key] || key;
+    }
+
     // --- 2x2 grid cells ---
     const cells = [
-        { icon: "local_gas_station", key: "fuel_level",   label: "POZIOM PALIWA", unit: "%",  format: v => Math.round(v || 0) },
-        { icon: "device_thermostat", key: "coolant_temp", label: "TEMP. PŁYNU",   unit: "°C", format: v => Math.round(v || 0) },
-        { icon: "thermostat",        key: "ext_temp",     label: "TEMP. ZEWN.",   unit: "°C", format: v => v != null ? Math.round(v) : "--" },
-        { icon: "thermostat_auto",   key: "int_temp",     label: "TEMP. WEWN.",   unit: "°C", format: v => v != null ? Math.round(v) : "--" },
+        { icon: "local_gas_station", key: "fuel_level",   labelKey: "fuel",     unit: "%",  format: v => Math.round(v || 0) },
+        { icon: "device_thermostat", key: "coolant_temp", labelKey: "coolant",  unit: "°C", format: v => Math.round(v || 0) },
+        { icon: "thermostat",        key: "ext_temp",     labelKey: "ext_temp", unit: "°C", format: v => v != null ? Math.round(v) : "--" },
+        { icon: "thermostat_auto",   key: "int_temp",     labelKey: "int_temp", unit: "°C", format: v => v != null ? Math.round(v) : "--" },
     ];
 
     function renderGrid() {
@@ -77,7 +94,7 @@
                 <div class="cell">
                     <span class="material-symbols-outlined cell-icon">${c.icon}</span>
                     <div class="cell-value">${val}<span class="cell-unit">${c.unit}</span></div>
-                    <div class="cell-label">${c.label}</div>
+                    <div class="cell-label">${l(c.labelKey)}</div>
                 </div>`;
         }).join("");
 
