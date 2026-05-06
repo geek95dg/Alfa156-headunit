@@ -1,7 +1,11 @@
 #!/bin/sh
 # BCM kiosk — x86 dual display
-# Auto-detects connected HDMI/DP outputs.
 # Copy to ~/.xinitrc
+#
+# Set MAIN_OUTPUT to your touchscreen connector.
+# Find yours: xrandr | grep ' connected'
+# Leave empty for auto-detect (picks the touchscreen by input device).
+MAIN_OUTPUT=""
 
 # Disable screen blanking and cursor
 xset s off
@@ -11,35 +15,46 @@ unclutter -idle 0.5 -root &
 
 sleep 1
 
-# Auto-detect: find the two connected outputs and their resolutions
-MAIN=""
-SMALL=""
-MAIN_W=1024
-MAIN_H=600
+# Auto-detect: find connected outputs
+CONNECTED=$(xrandr | grep ' connected' | awk '{print $1}')
+FIRST=$(echo "$CONNECTED" | head -1)
+SECOND=$(echo "$CONNECTED" | tail -1)
 
-for output in $(xrandr | grep ' connected' | awk '{print $1}'); do
-    RES=$(xrandr | grep "^$output " | grep -oP '\d+x\d+\+' | head -1 | tr -d '+')
-    W=$(echo "$RES" | cut -dx -f1)
-    if [ -z "$MAIN" ]; then
-        # First connected output = main (larger or first found)
-        MAIN="$output"
-        MAIN_W="$W"
-        MAIN_H=$(echo "$RES" | cut -dx -f2)
+if [ -n "$MAIN_OUTPUT" ]; then
+    MAIN="$MAIN_OUTPUT"
+    SMALL=$(echo "$CONNECTED" | grep -v "^${MAIN}$" | head -1)
+elif [ -n "$FIRST" ] && [ -n "$SECOND" ] && [ "$FIRST" != "$SECOND" ]; then
+    # Auto-detect: find which output has the touchscreen
+    TOUCH_DEV=$(xinput list --name-only 2>/dev/null | grep -iE "touch|eGalax|ILITEK|Goodix|FT5|QDtech|MPI" | head -1)
+    if [ -n "$TOUCH_DEV" ]; then
+        # Try each output — map touch, check if it works at expected coords
+        # Heuristic: the smaller resolution is likely the car touchscreen
+        FIRST_W=$(xrandr | grep "^$FIRST " | grep -oP '\d+(?=x)' | head -1)
+        SECOND_W=$(xrandr | grep "^$SECOND " | grep -oP '\d+(?=x)' | head -1)
+        if [ -n "$SECOND_W" ] && [ -n "$FIRST_W" ] && [ "$SECOND_W" -lt "$FIRST_W" ] 2>/dev/null; then
+            MAIN="$SECOND"
+            SMALL="$FIRST"
+        else
+            MAIN="$FIRST"
+            SMALL="$SECOND"
+        fi
     else
-        SMALL="$output"
+        MAIN="$FIRST"
+        SMALL="$SECOND"
     fi
-done
-
-# If we found two outputs, pick the higher-res one as main
-if [ -n "$SMALL" ]; then
-    SMALL_W=$(xrandr | grep "^$SMALL " | grep -oP '\d+x\d+\+' | head -1 | cut -dx -f1 | tr -d '+')
-    if [ -n "$SMALL_W" ] && [ "$SMALL_W" -gt "$MAIN_W" ] 2>/dev/null; then
-        SWAP="$MAIN"; MAIN="$SMALL"; SMALL="$SWAP"
-        MAIN_W="$SMALL_W"
-    fi
+else
+    MAIN="$FIRST"
+    SMALL=""
 fi
 
-echo "Main display: $MAIN (${MAIN_W}px)"
+# Get main display native resolution
+MAIN_MODE=$(xrandr | grep "^$MAIN " | grep -oP '\d+x\d+' | head -1)
+MAIN_W=$(echo "$MAIN_MODE" | cut -dx -f1)
+MAIN_H=$(echo "$MAIN_MODE" | cut -dx -f2)
+MAIN_W=${MAIN_W:-1024}
+MAIN_H=${MAIN_H:-600}
+
+echo "Main display: $MAIN (${MAIN_W}x${MAIN_H})"
 echo "Small display: $SMALL"
 
 # Configure displays
