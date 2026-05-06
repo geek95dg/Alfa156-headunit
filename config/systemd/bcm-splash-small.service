@@ -1,46 +1,53 @@
 [Unit]
-Description=BCM Boot Splash — small display (HDMI 2.0, silent)
+Description=BCM Boot Splash — small display (DP-2 / secondary HDMI)
 Documentation=https://github.com/geek95dg/Alfa156-headunit
 DefaultDependencies=no
 
-# Same timing as the main splash: fire before the BCM stack comes
-# up, yield the framebuffer once Chromium takes over. No sound.target
-# dependency because this unit never opens the audio device.
 After=systemd-vconsole-setup.service
-Before=multi-user.target bcm-ignition-watcher.service bcm-headunit.service bcm-kiosk.service
-
-PartOf=bcm-headunit.service
+Before=multi-user.target bcm-ignition-watcher.service
 
 ConditionPathExists=/opt/bcm/assets/splash/small.mp4
 
 [Service]
 Type=simple
 
-# Small display = second HDMI connector. On the OPi 5 Pro that's
-# `HDMI-A-2`; on a single-HDMI rig (OPi PC bench test) the file
-# /opt/bcm/assets/splash/small.mp4 is usually absent and this
-# service just no-ops via ConditionPathExists.
-#
-# Content suggestion: a slow breathing Alfa Romeo logo loop
-# (~3-5 s), SILENT (no audio track), 800x480, user-supplied at
-#   /opt/bcm/assets/splash/small.mp4
-# Audio playback for the bigger "startup jingle" happens on the
-# main display via bcm-splash-main.service.
+# DRM connector for the small display. Override per platform:
+#   M910q (2× DP):     DP-2
+#   OPi 5 Pro (2× HDMI): HDMI-A-2
+#   GA-N3050N-D2P (VGA): DP-2
+# To find your connector names: ls /sys/class/drm/
+# Override: systemctl edit bcm-splash-small → [Service] Environment=BCM_SPLASH_DRM_SMALL=HDMI-A-2
+Environment=BCM_SPLASH_DRM_SMALL=DP-2
+
+# Play splash on secondary display (silent, no audio).
+# Polls Flask :5002 — keeps playing until dashboard is ready.
 ExecStart=/bin/bash -c '\
-    MPV=$(command -v mpv 2>/dev/null || command -v ffplay 2>/dev/null); \
-    if [ -z "$MPV" ]; then \
-        echo "bcm-splash: no mpv/ffplay found — install with apt"; \
-        exit 0; \
-    fi; \
-    exec "$MPV" \
-        --fs --loop-file=inf --really-quiet --no-audio \
-        --vo=drm --drm-connector=HDMI-A-2 \
-        /opt/bcm/assets/splash/small.mp4'
+    MPV=$(command -v mpv 2>/dev/null); \
+    if [ -z "$MPV" ]; then exit 0; fi; \
+    "$MPV" --fs --loop-file=inf --really-quiet --no-audio \
+        --vo=drm,gpu,sdl \
+        --hwdec=auto \
+        --drm-connector=${BCM_SPLASH_DRM_SMALL} \
+        --input-conf=/dev/null \
+        /opt/bcm/assets/splash/small.mp4 & \
+    MPV_PID=$!; \
+    for i in $(seq 1 120); do \
+        if curl -sf http://localhost:5002 >/dev/null 2>&1; then \
+            sleep 5; \
+            kill $MPV_PID 2>/dev/null; \
+            exit 0; \
+        fi; \
+        sleep 1; \
+    done; \
+    kill $MPV_PID 2>/dev/null; \
+    exit 0'
+
+ExecStop=/bin/bash -c 'pkill -f "mpv.*small" 2>/dev/null; true'
 
 SuccessExitStatus=0 1
 Restart=no
 
-# Framebuffer access only; no audio device needed.
+User=root
 SupplementaryGroups=video
 
 StandardOutput=journal
