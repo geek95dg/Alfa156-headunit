@@ -193,6 +193,11 @@ class SmallDisplayServer:
         def js(f):
             return send_from_directory(os.path.join(server._web_dir, "js"), f)
 
+        @app.route("/assets/<path:f>")
+        def assets(f):
+            main_assets = os.path.join(os.path.dirname(__file__), "web", "assets")
+            return send_from_directory(main_assets, f)
+
         @app.route("/api/data")
         def api_data():
             return jsonify(server._get_data())
