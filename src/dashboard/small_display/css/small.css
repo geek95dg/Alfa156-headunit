@@ -1,7 +1,7 @@
 /* BCM v8.5 — Small Display (4.3" 800x480) */
 * { margin:0; padding:0; box-sizing:border-box; }
 body { font-family:'Public Sans',sans-serif; overflow:hidden; }
-.material-symbols-outlined { font-variation-settings:'FILL' 0,'wght' 400,'GRAD' 0,'opsz' 24; vertical-align:middle; }
+.material-symbols-outlined { font-variation-settings:'FILL' 0,'wght' 400,'GRAD' 0,'opsz' 24; vertical-align:middle; overflow:hidden; max-width:1.2em; display:inline-block; }
 
 /* Heritage */
 [data-theme="heritage"] { background:#0a0a0a; color:#f4f4f5; }
