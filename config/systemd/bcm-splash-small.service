@@ -48,6 +48,7 @@ SuccessExitStatus=0 1
 Restart=no
 
 User=root
+Environment=XDG_RUNTIME_DIR=/run/user/0
 SupplementaryGroups=video
 
 StandardOutput=journal
