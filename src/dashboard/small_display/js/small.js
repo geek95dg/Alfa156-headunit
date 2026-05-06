@@ -92,7 +92,7 @@
             const val = c.format(data[c.key]);
             return `
                 <div class="cell">
-                    <span class="material-symbols-outlined cell-icon">${c.icon}</span>
+                    <span class="material-symbols-outlined cell-icon" aria-hidden="true">${c.icon}</span>
                     <div class="cell-value">${val}<span class="cell-unit">${c.unit}</span></div>
                     <div class="cell-label">${l(c.labelKey)}</div>
                 </div>`;
