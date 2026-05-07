@@ -17,22 +17,47 @@ unclutter -idle 0.5 -root &
 
 sleep 1
 
-# Get main display resolution
+# Detect main display resolution
 MAIN_W=$(xrandr | grep "^${MAIN_OUTPUT} " | grep -oP '\d+(?=x)' | head -1)
 MAIN_H=$(xrandr | grep "^${MAIN_OUTPUT} " | grep -oP 'x\K\d+' | head -1)
 MAIN_W=${MAIN_W:-1024}
 MAIN_H=${MAIN_H:-600}
 
-# Arrange displays
+# Arrange: main at 0,0 — small to the right
 xrandr --output "$MAIN_OUTPUT" --primary --auto --pos 0x0
 if xrandr | grep -q "^${SMALL_OUTPUT} connected"; then
     xrandr --output "$SMALL_OUTPUT" --right-of "$MAIN_OUTPUT" --auto
 fi
 
-# Map touch to main display only
+# ──── Touch calibration ────
+# map-to-output alone often fails on cheap USB touchscreens with
+# dual displays because X sees the combined desktop as one coordinate
+# space. We compute the Coordinate Transformation Matrix manually.
 if [ -n "$TOUCH_DEVICE" ]; then
-    xinput map-to-output "$TOUCH_DEVICE" "$MAIN_OUTPUT" 2>/dev/null && \
-        echo "Touch mapped: $TOUCH_DEVICE → $MAIN_OUTPUT"
+    TOUCH_ID=$(xinput list --id-only "$TOUCH_DEVICE" 2>/dev/null || true)
+    if [ -n "$TOUCH_ID" ]; then
+        # Total desktop size (both displays combined)
+        TOTAL_W=$(xrandr | grep "^Screen 0:" | grep -oP 'current \K\d+')
+        TOTAL_H=$(xrandr | grep "^Screen 0:" | grep -oP 'current \d+ x \K\d+')
+        TOTAL_W=${TOTAL_W:-1824}
+        TOTAL_H=${TOTAL_H:-600}
+
+        # CTM maps touch coordinates to the fraction of desktop the main display occupies
+        # Matrix: [ sx  0  ox ]
+        #         [  0 sy  oy ]
+        #         [  0  0   1 ]
+        # Main at pos 0,0 → offset is 0,0
+        SX=$(awk "BEGIN {printf \"%.6f\", $MAIN_W / $TOTAL_W}")
+        SY=$(awk "BEGIN {printf \"%.6f\", $MAIN_H / $TOTAL_H}")
+
+        xinput set-prop "$TOUCH_ID" "Coordinate Transformation Matrix" \
+            $SX 0 0 0 $SY 0 0 0 1 2>/dev/null && \
+            echo "Touch CTM: ${SX},${SY} (main=${MAIN_W}x${MAIN_H} total=${TOTAL_W}x${TOTAL_H})"
+
+        xinput map-to-output "$TOUCH_ID" "$MAIN_OUTPUT" 2>/dev/null || true
+    else
+        echo "Touch device '$TOUCH_DEVICE' not found in xinput"
+    fi
 fi
 
 # Wait for Flask
@@ -54,11 +79,11 @@ chromium --app=http://localhost:5002 \
 # Small display
 if xrandr | grep -q "^${SMALL_OUTPUT} connected"; then
     sleep 2
-    SW=$(xrandr | grep "^${SMALL_OUTPUT} " | grep -oP '\d+(?=x)' | head -1)
-    SH=$(xrandr | grep "^${SMALL_OUTPUT} " | grep -oP 'x\K\d+' | head -1)
-    SW=${SW:-800}; SH=${SH:-480}
+    S_W=$(xrandr | grep "^${SMALL_OUTPUT} " | grep -oP '\d+(?=x)' | head -1)
+    S_H=$(xrandr | grep "^${SMALL_OUTPUT} " | grep -oP 'x\K\d+' | head -1)
+    S_W=${S_W:-800}; S_H=${S_H:-480}
     chromium --app=http://localhost:5003 \
-        --window-size=${SW},${SH} --window-position=${MAIN_W},0 \
+        --window-size=${S_W},${S_H} --window-position=${MAIN_W},0 \
         --noerrdialogs --disable-infobars \
         --disable-features=TranslateUI --no-first-run \
         --disable-session-crashed-bubble \
