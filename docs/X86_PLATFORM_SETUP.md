@@ -481,11 +481,28 @@ Press F1:
 - **Power → After Power Loss:** Power On
 - **Power → Wake on USB:** Enabled (Arduino can wake from S3)
 
-### 9.3 Test
+### 9.3 Prevent systemd-logind from handling power button
+
+By default, logind intercepts the power button and triggers shutdown
+(that's why you see 40s boot — it's a full shutdown, not suspend).
+Tell logind to ignore it so only acpid handles it:
+
+```bash
+sudo mkdir -p /etc/systemd/logind.conf.d
+sudo tee /etc/systemd/logind.conf.d/bcm-power.conf >/dev/null <<EOF
+[Login]
+HandlePowerKey=ignore
+HandleSuspendKey=ignore
+HandleLidSwitch=ignore
+EOF
+sudo systemctl restart systemd-logind
+```
+
+### 9.4 Test
 
 ```bash
 sudo systemctl suspend
-# Press power button → should wake in ~3s
+# Press power button → should wake in ~3s (not 40s cold boot)
 journalctl -u bcm-resume --no-pager -n5
 ```
 
@@ -541,12 +558,15 @@ sudo reboot
 
 ### 10.3 Persistent AP
 
-Once you know which interface works (`wlp2s0` or `wlxXXXX`):
+Once you confirmed the test AP works (phone sees SSID):
 
 ```bash
 WIFI_IFACE=wlp2s0   # change if using USB dongle
 
-# hostapd config
+# Step 1: Release interface from NetworkManager
+sudo nmcli device set $WIFI_IFACE managed no
+
+# Step 2: hostapd config
 sudo tee /etc/hostapd/hostapd.conf >/dev/null <<EOF
 interface=$WIFI_IFACE
 driver=nl80211
@@ -567,19 +587,31 @@ sudo tee /etc/default/hostapd >/dev/null <<EOF
 DAEMON_CONF="/etc/hostapd/hostapd.conf"
 EOF
 
-# DHCP for connected clients
+# Step 3: DHCP — must bind to specific interface only
 sudo tee /etc/dnsmasq.d/bcm-ap.conf >/dev/null <<EOF
 interface=$WIFI_IFACE
+bind-interfaces
 dhcp-range=192.168.44.10,192.168.44.50,255.255.255.0,24h
 EOF
 
-# Static IP on the AP interface
+# Step 4: Static IP (assign BEFORE hostapd starts)
 sudo tee /etc/network/interfaces.d/bcm-ap >/dev/null <<EOF
 auto $WIFI_IFACE
 iface $WIFI_IFACE inet static
     address 192.168.44.1
     netmask 255.255.255.0
 EOF
+
+# Step 5: Prevent NetworkManager from reclaiming the interface on reboot
+sudo tee /etc/NetworkManager/conf.d/bcm-unmanage-wifi.conf >/dev/null <<EOF
+[keyfile]
+unmanaged-devices=interface-name:$WIFI_IFACE
+EOF
+
+# Step 6: Apply IP now and start services
+sudo ip addr flush dev $WIFI_IFACE
+sudo ip addr add 192.168.44.1/24 dev $WIFI_IFACE
+sudo ip link set $WIFI_IFACE up
 
 sudo systemctl unmask hostapd
 sudo systemctl enable hostapd dnsmasq
@@ -770,7 +802,30 @@ RF input:  D12 ← RXB6 433MHz receiver
 
 ---
 
-## 14. Troubleshooting
+## 14. Clean Reset (if things are broken)
+
+If you have config conflicts from multiple setup attempts, reset everything
+and start fresh from §5:
+
+```bash
+cd /opt/bcm
+sudo bash config/scripts/cleanup-x86.sh
+git pull
+```
+
+Then follow §5 → §10 in order. The cleanup script removes:
+- All BCM systemd services
+- ~/.xinitrc, ~/.bash_profile
+- Autologin override
+- hostapd, dnsmasq, NetworkManager WiFi configs
+- acpid power button override
+- Chromium policy
+- X11 wrapper config
+- Python venv (rebuilt in §5)
+
+---
+
+## 15. Troubleshooting
 
 **Splash not playing:**
 ```bash
