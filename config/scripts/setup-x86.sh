@@ -118,7 +118,7 @@ apt-get update -qq
 apt-get install -y -qq \
     python3 python3-venv python3-full python3-dev python3-serial \
     git curl wget \
-    xserver-xorg xinit x11-xserver-utils \
+    xserver-xorg xinit x11-xserver-utils xinput \
     unclutter chromium \
     intel-media-va-driver vainfo libva-drm2 \
     pipewire pipewire-pulse wireplumber alsa-utils mpv \
