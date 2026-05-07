@@ -2,12 +2,14 @@
 # BCM kiosk — x86 dual display
 # Copy to ~/.xinitrc
 #
-# Set MAIN_OUTPUT to your touchscreen connector.
-# Find yours: xrandr | grep ' connected'
-# Leave empty for auto-detect (picks the touchscreen by input device).
-MAIN_OUTPUT=""
+# ──── USER CONFIG (set these for your hardware) ────
+# Find outputs:  xrandr | grep ' connected'
+# Find touch:    xinput list
+MAIN_OUTPUT="HDMI-2"           # 7" touchscreen
+SMALL_OUTPUT="HDMI-1"          # 4.3" status display (or FHD dev monitor)
+TOUCH_DEVICE="QDtech MPI5001"  # touchscreen xinput name
+# ───────────────────────────────────────────────────
 
-# Disable screen blanking and cursor
 xset s off
 xset -dpms
 xset s noblank
@@ -15,63 +17,25 @@ unclutter -idle 0.5 -root &
 
 sleep 1
 
-# Auto-detect: find connected outputs
-CONNECTED=$(xrandr | grep ' connected' | awk '{print $1}')
-FIRST=$(echo "$CONNECTED" | head -1)
-SECOND=$(echo "$CONNECTED" | tail -1)
-
-if [ -n "$MAIN_OUTPUT" ]; then
-    MAIN="$MAIN_OUTPUT"
-    SMALL=$(echo "$CONNECTED" | grep -v "^${MAIN}$" | head -1)
-elif [ -n "$FIRST" ] && [ -n "$SECOND" ] && [ "$FIRST" != "$SECOND" ]; then
-    # Auto-detect: find which output has the touchscreen
-    TOUCH_DEV=$(xinput list --name-only 2>/dev/null | grep -iE "touch|eGalax|ILITEK|Goodix|FT5|QDtech|MPI" | head -1)
-    if [ -n "$TOUCH_DEV" ]; then
-        # Try each output — map touch, check if it works at expected coords
-        # Heuristic: the smaller resolution is likely the car touchscreen
-        FIRST_W=$(xrandr | grep "^$FIRST " | grep -oP '\d+(?=x)' | head -1)
-        SECOND_W=$(xrandr | grep "^$SECOND " | grep -oP '\d+(?=x)' | head -1)
-        if [ -n "$SECOND_W" ] && [ -n "$FIRST_W" ] && [ "$SECOND_W" -lt "$FIRST_W" ] 2>/dev/null; then
-            MAIN="$SECOND"
-            SMALL="$FIRST"
-        else
-            MAIN="$FIRST"
-            SMALL="$SECOND"
-        fi
-    else
-        MAIN="$FIRST"
-        SMALL="$SECOND"
-    fi
-else
-    MAIN="$FIRST"
-    SMALL=""
-fi
-
-# Get main display native resolution
-MAIN_MODE=$(xrandr | grep "^$MAIN " | grep -oP '\d+x\d+' | head -1)
-MAIN_W=$(echo "$MAIN_MODE" | cut -dx -f1)
-MAIN_H=$(echo "$MAIN_MODE" | cut -dx -f2)
+# Get main display resolution
+MAIN_W=$(xrandr | grep "^${MAIN_OUTPUT} " | grep -oP '\d+(?=x)' | head -1)
+MAIN_H=$(xrandr | grep "^${MAIN_OUTPUT} " | grep -oP 'x\K\d+' | head -1)
 MAIN_W=${MAIN_W:-1024}
 MAIN_H=${MAIN_H:-600}
 
-echo "Main display: $MAIN (${MAIN_W}x${MAIN_H})"
-echo "Small display: $SMALL"
-
-# Configure displays
-xrandr --output "$MAIN" --primary --auto --pos 0x0
-if [ -n "$SMALL" ]; then
-    xrandr --output "$SMALL" --right-of "$MAIN" --auto
+# Arrange displays
+xrandr --output "$MAIN_OUTPUT" --primary --auto --pos 0x0
+if xrandr | grep -q "^${SMALL_OUTPUT} connected"; then
+    xrandr --output "$SMALL_OUTPUT" --right-of "$MAIN_OUTPUT" --auto
 fi
 
-# No whole-UI scaling — button sizes are handled in CSS/JS directly
+# Map touch to main display only
+if [ -n "$TOUCH_DEVICE" ]; then
+    xinput map-to-output "$TOUCH_DEVICE" "$MAIN_OUTPUT" 2>/dev/null && \
+        echo "Touch mapped: $TOUCH_DEVICE → $MAIN_OUTPUT"
+fi
 
-# Map touchscreen to main display
-for TOUCH in $(xinput list --name-only 2>/dev/null | grep -iE "touch|eGalax|ILITEK|Goodix|FT5|QDtech|MPI"); do
-    xinput map-to-output "$TOUCH" "$MAIN" 2>/dev/null && \
-        echo "Mapped touch '$TOUCH' → $MAIN"
-done
-
-# Wait for BCM Flask server
+# Wait for Flask
 for i in $(seq 1 90); do
     curl -sf http://localhost:5002 >/dev/null && break
     sleep 1
@@ -87,14 +51,12 @@ chromium --app=http://localhost:5002 \
     --disable-session-crashed-bubble \
     --user-data-dir=/tmp/bcm-chromium-main &
 
-# Small display — status dashboard
-if [ -n "$SMALL" ]; then
+# Small display
+if xrandr | grep -q "^${SMALL_OUTPUT} connected"; then
     sleep 2
-    SMALL_RES=$(xrandr | grep "^$SMALL " | grep -oP '\d+x\d+\+' | head -1 | tr -d '+')
-    SW=$(echo "$SMALL_RES" | cut -dx -f1)
-    SH=$(echo "$SMALL_RES" | cut -dx -f2)
-    SW=${SW:-800}
-    SH=${SH:-480}
+    SW=$(xrandr | grep "^${SMALL_OUTPUT} " | grep -oP '\d+(?=x)' | head -1)
+    SH=$(xrandr | grep "^${SMALL_OUTPUT} " | grep -oP 'x\K\d+' | head -1)
+    SW=${SW:-800}; SH=${SH:-480}
     chromium --app=http://localhost:5003 \
         --window-size=${SW},${SH} --window-position=${MAIN_W},0 \
         --noerrdialogs --disable-infobars \
