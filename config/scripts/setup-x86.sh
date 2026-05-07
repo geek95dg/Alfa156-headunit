@@ -78,6 +78,7 @@ for svc in bcm-ignition-watcher bcm-headunit bcm-splash-main bcm-splash-small bc
     systemctl disable "$svc" 2>/dev/null || true
 done
 rm -f /etc/systemd/system/bcm-*.service
+rm -rf /etc/systemd/system/bcm-splash-main.service.d
 rm -rf /etc/systemd/system/bcm-splash-small.service.d
 rm -rf /etc/systemd/system/hostapd.service.d
 rm -f /etc/modprobe.d/bcm-wifi-regdom.conf
@@ -118,11 +119,11 @@ apt-get update -qq
 apt-get install -y -qq \
     python3 python3-venv python3-full python3-dev python3-serial \
     git curl wget \
-    xserver-xorg xinit x11-xserver-utils \
+    xserver-xorg xinit x11-xserver-utils xinput \
     unclutter chromium \
     intel-media-va-driver vainfo libva-drm2 \
     pipewire pipewire-pulse wireplumber alsa-utils mpv \
-    firmware-iwlwifi bluez bluez-tools network-manager hostapd dnsmasq \
+    firmware-iwlwifi bluez bluez-tools network-manager hostapd dnsmasq iw wireless-tools \
     ffmpeg v4l-utils \
     acpid \
     zram-tools \
@@ -268,7 +269,13 @@ cp "$BCM_DIR/config/systemd/bcm-resume.service" /etc/systemd/system/
 
 systemctl mask bcm-kiosk.service 2>/dev/null || true
 
-# Override DRM connector for small splash to match user's actual hardware
+# Override DRM connectors to match user's actual hardware
+mkdir -p /etc/systemd/system/bcm-splash-main.service.d
+cat > /etc/systemd/system/bcm-splash-main.service.d/connector.conf <<EOF
+[Service]
+Environment=BCM_SPLASH_DRM_MAIN=$MAIN_OUTPUT
+EOF
+
 mkdir -p /etc/systemd/system/bcm-splash-small.service.d
 cat > /etc/systemd/system/bcm-splash-small.service.d/connector.conf <<EOF
 [Service]
