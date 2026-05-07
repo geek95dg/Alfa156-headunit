@@ -3,8 +3,8 @@ Description=BCM Boot Splash — plays until dashboard is ready
 Documentation=https://github.com/geek95dg/Alfa156-headunit
 DefaultDependencies=no
 
-# Start early, before BCM stack
-After=systemd-vconsole-setup.service
+# Start early, before BCM stack. sound.target ensures ALSA cards are ready.
+After=systemd-vconsole-setup.service sound.target
 Before=multi-user.target bcm-ignition-watcher.service
 
 ConditionPathExists=/opt/bcm/assets/splash/main.mp4
@@ -12,15 +12,21 @@ ConditionPathExists=/opt/bcm/assets/splash/main.mp4
 [Service]
 Type=simple
 
-# Start mpv splash in background, then poll for Flask readiness.
-# Once Flask responds on port 5002, kill mpv and exit cleanly.
-# If Flask never comes up within 120s, kill splash anyway.
+# DRM connector for the main display. Override per platform:
+#   M910q (DP-to-HDMI): HDMI-1 or HDMI-2
+#   OPi 5 Pro (2× HDMI): HDMI-A-1
+#   Override: systemctl edit bcm-splash-main → [Service] Environment=BCM_SPLASH_DRM_MAIN=HDMI-A-1
+Environment=BCM_SPLASH_DRM_MAIN=
+
 ExecStart=/bin/bash -c '\
     MPV=$(command -v mpv 2>/dev/null); \
     if [ -z "$MPV" ]; then exit 0; fi; \
+    DRM_ARG=""; \
+    [ -n "$BCM_SPLASH_DRM_MAIN" ] && DRM_ARG="--drm-connector=$BCM_SPLASH_DRM_MAIN"; \
     "$MPV" --fs --loop-file=inf --really-quiet \
         --vo=drm,gpu,sdl \
         --hwdec=auto \
+        $DRM_ARG \
         --ao=alsa,pipewire,pulse \
         --input-conf=/dev/null \
         /opt/bcm/assets/splash/main.mp4 & \
