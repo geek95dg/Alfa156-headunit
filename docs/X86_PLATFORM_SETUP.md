@@ -813,7 +813,10 @@ sudo bash config/scripts/cleanup-x86.sh
 git pull
 ```
 
-Then follow §5 → §10 in order. The cleanup script removes:
+**Important:** If you also reinstalled the OS, run §4 (System Packages) first —
+Debian 13 minimal doesn't include Python. Then follow §5 → §10 in order.
+
+The cleanup script removes:
 - All BCM systemd services
 - ~/.xinitrc, ~/.bash_profile
 - Autologin override
