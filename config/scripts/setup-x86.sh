@@ -19,8 +19,8 @@ BCM_HOME=$(eval echo "~$BCM_USER")
 BCM_DIR="/opt/bcm"
 
 # Display outputs (find with: for f in /sys/class/drm/card*-*/status; do echo "$f: $(cat $f)"; done)
-MAIN_OUTPUT="HDMI-2"
-SMALL_OUTPUT="HDMI-1"
+MAIN_OUTPUT="HDMI-1"
+SMALL_OUTPUT="HDMI-2"
 TOUCH_DEVICE="QDtech MPI5001"
 
 # Main display resolution (used for splash generation + touch calibration)
