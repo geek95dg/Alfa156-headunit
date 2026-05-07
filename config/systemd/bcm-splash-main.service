@@ -27,7 +27,7 @@ ExecStart=/bin/bash -c '\
         --vo=drm,gpu,sdl \
         --hwdec=auto \
         $DRM_ARG \
-        --ao=alsa,pipewire,pulse \
+        --no-audio \
         --input-conf=/dev/null \
         /opt/bcm/assets/splash/main.mp4 & \
     MPV_PID=$!; \
