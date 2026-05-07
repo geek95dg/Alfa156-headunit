@@ -29,34 +29,26 @@ if xrandr | grep -q "^${SMALL_OUTPUT} connected"; then
     xrandr --output "$SMALL_OUTPUT" --right-of "$MAIN_OUTPUT" --auto
 fi
 
-# ──── Touch calibration ────
-# map-to-output alone often fails on cheap USB touchscreens with
-# dual displays because X sees the combined desktop as one coordinate
-# space. We compute the Coordinate Transformation Matrix manually.
+# ──── Touch mapping ────
 if [ -n "$TOUCH_DEVICE" ]; then
+    sleep 1
+    TLOG="/tmp/bcm-xinput.log"
+    echo "=== Touch setup $(date) ===" > "$TLOG"
+    echo "MAIN_OUTPUT=$MAIN_OUTPUT TOUCH_DEVICE=$TOUCH_DEVICE" >> "$TLOG"
+    xinput list >> "$TLOG" 2>&1
+    xrandr >> "$TLOG" 2>&1
+
     TOUCH_ID=$(xinput list --id-only "$TOUCH_DEVICE" 2>/dev/null || true)
     if [ -n "$TOUCH_ID" ]; then
-        # Total desktop size (both displays combined)
-        TOTAL_W=$(xrandr | grep "^Screen 0:" | grep -oP 'current \K\d+')
-        TOTAL_H=$(xrandr | grep "^Screen 0:" | grep -oP 'current \d+ x \K\d+')
-        TOTAL_W=${TOTAL_W:-1824}
-        TOTAL_H=${TOTAL_H:-600}
-
-        # CTM maps touch coordinates to the fraction of desktop the main display occupies
-        # Matrix: [ sx  0  ox ]
-        #         [  0 sy  oy ]
-        #         [  0  0   1 ]
-        # Main at pos 0,0 → offset is 0,0
-        SX=$(awk "BEGIN {printf \"%.6f\", $MAIN_W / $TOTAL_W}")
-        SY=$(awk "BEGIN {printf \"%.6f\", $MAIN_H / $TOTAL_H}")
-
-        xinput set-prop "$TOUCH_ID" "Coordinate Transformation Matrix" \
-            $SX 0 0 0 $SY 0 0 0 1 2>/dev/null && \
-            echo "Touch CTM: ${SX},${SY} (main=${MAIN_W}x${MAIN_H} total=${TOTAL_W}x${TOTAL_H})"
-
-        xinput map-to-output "$TOUCH_ID" "$MAIN_OUTPUT" 2>/dev/null || true
+        echo "TOUCH_ID=$TOUCH_ID" >> "$TLOG"
+        xinput map-to-output "$TOUCH_ID" "$MAIN_OUTPUT" 2>>"$TLOG" && \
+            echo "Touch mapped: id=$TOUCH_ID -> $MAIN_OUTPUT" | tee -a "$TLOG" || \
+            echo "WARN: map-to-output failed" | tee -a "$TLOG"
+        xinput list-props "$TOUCH_ID" >> "$TLOG" 2>&1
     else
-        echo "Touch device '$TOUCH_DEVICE' not found in xinput"
+        echo "Touch device '$TOUCH_DEVICE' not found" | tee -a "$TLOG"
+        echo "Available:" >> "$TLOG"
+        xinput list --name-only >> "$TLOG" 2>&1
     fi
 fi
 

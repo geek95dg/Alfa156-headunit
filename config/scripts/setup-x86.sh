@@ -78,6 +78,9 @@ for svc in bcm-ignition-watcher bcm-headunit bcm-splash-main bcm-splash-small bc
     systemctl disable "$svc" 2>/dev/null || true
 done
 rm -f /etc/systemd/system/bcm-*.service
+rm -rf /etc/systemd/system/bcm-splash-small.service.d
+rm -rf /etc/systemd/system/hostapd.service.d
+rm -f /etc/modprobe.d/bcm-wifi-regdom.conf
 systemctl unmask bcm-kiosk.service 2>/dev/null || true
 
 rm -f "$BCM_HOME/.xinitrc"
@@ -122,7 +125,8 @@ apt-get install -y -qq \
     firmware-iwlwifi bluez bluez-tools network-manager hostapd dnsmasq \
     ffmpeg v4l-utils \
     acpid \
-    zram-tools
+    zram-tools \
+    fonts-dejavu-core
 
 # zram config
 echo -e 'ALGO=lz4\nPERCENT=50' > /etc/default/zramswap
@@ -190,34 +194,61 @@ else
     if ! command -v ffmpeg >/dev/null 2>&1; then
         warn "ffmpeg not found — splash videos not generated."
     else
+        FONT_FILE="/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"
+
         # Main splash (1024x600, 8s, dark background + text + fade)
         if [ ! -f "$SPLASH_DIR/main.mp4" ]; then
+            if [ -f "$FONT_FILE" ]; then
+                MAIN_VF="drawtext=fontfile=${FONT_FILE}:text='ALFA ROMEO 156':fontcolor=white:fontsize=48:x=(w-text_w)/2:y=(h-text_h)/2-30,drawtext=fontfile=${FONT_FILE}:text='BCM v8.5':fontcolor=0xcccccc:fontsize=24:x=(w-text_w)/2:y=(h-text_h)/2+30,fade=t=in:st=0:d=1,fade=t=out:st=7:d=1"
+            else
+                warn "No font found — splash will be plain (no text)"
+                MAIN_VF="fade=t=in:st=0:d=1,fade=t=out:st=7:d=1"
+            fi
             ffmpeg -y -f lavfi \
                 -i "color=c=0x1a1a2e:s=${MAIN_W}x${MAIN_H}:d=8:r=30" \
                 -f lavfi -i "anullsrc=r=44100:cl=stereo" \
-                -vf "drawtext=text='ALFA ROMEO 156':fontcolor=white:fontsize=48:x=(w-text_w)/2:y=(h-text_h)/2-30,\
-drawtext=text='BCM v8.5':fontcolor=0xcccccc:fontsize=24:x=(w-text_w)/2:y=(h-text_h)/2+30,\
-fade=t=in:st=0:d=1,fade=t=out:st=7:d=1" \
+                -vf "$MAIN_VF" \
                 -c:v libx264 -preset fast -crf 23 \
                 -c:a aac -b:a 64k -ac 2 \
-                -t 8 -movflags +faststart \
-                -shortest \
-                "$SPLASH_DIR/main.mp4" 2>/dev/null && \
-                echo "  Created: main.mp4 (${MAIN_W}x${MAIN_H}, 8s)" || \
-                warn "Failed to create main.mp4"
+                -t 8 -movflags +faststart -shortest \
+                "$SPLASH_DIR/main.mp4" 2>/tmp/bcm-ffmpeg-main.log && \
+                echo "  Created: main.mp4 (${MAIN_W}x${MAIN_H}, 8s)" || {
+                warn "drawtext failed — generating plain video (see /tmp/bcm-ffmpeg-main.log)"
+                ffmpeg -y -f lavfi \
+                    -i "color=c=0x1a1a2e:s=${MAIN_W}x${MAIN_H}:d=8:r=30" \
+                    -f lavfi -i "anullsrc=r=44100:cl=stereo" \
+                    -c:v libx264 -preset fast -crf 23 \
+                    -c:a aac -b:a 64k -ac 2 \
+                    -t 8 -movflags +faststart -shortest \
+                    "$SPLASH_DIR/main.mp4" 2>/dev/null && \
+                    echo "  Created: main.mp4 (plain, no text)" || \
+                    warn "Could not generate any main splash video"
+            }
         fi
 
-        # Small splash (800x480, 5s, silent, dark background + text)
+        # Small splash (800x480, 5s, silent)
         if [ ! -f "$SPLASH_DIR/small.mp4" ]; then
+            if [ -f "$FONT_FILE" ]; then
+                SMALL_VF="drawtext=fontfile=${FONT_FILE}:text='ALFA ROMEO':fontcolor=white:fontsize=32:x=(w-text_w)/2:y=(h-text_h)/2,fade=t=in:st=0:d=1,fade=t=out:st=4:d=1"
+            else
+                SMALL_VF="fade=t=in:st=0:d=1,fade=t=out:st=4:d=1"
+            fi
             ffmpeg -y -f lavfi \
                 -i "color=c=0x1a1a2e:s=${SMALL_W}x${SMALL_H}:d=5:r=30" \
-                -vf "drawtext=text='ALFA ROMEO':fontcolor=white:fontsize=32:x=(w-text_w)/2:y=(h-text_h)/2,\
-fade=t=in:st=0:d=1,fade=t=out:st=4:d=1" \
+                -vf "$SMALL_VF" \
                 -c:v libx264 -preset fast -crf 23 -an \
                 -t 5 -movflags +faststart \
-                "$SPLASH_DIR/small.mp4" 2>/dev/null && \
-                echo "  Created: small.mp4 (${SMALL_W}x${SMALL_H}, 5s)" || \
-                warn "Failed to create small.mp4"
+                "$SPLASH_DIR/small.mp4" 2>/tmp/bcm-ffmpeg-small.log && \
+                echo "  Created: small.mp4 (${SMALL_W}x${SMALL_H}, 5s)" || {
+                warn "drawtext failed — generating plain video (see /tmp/bcm-ffmpeg-small.log)"
+                ffmpeg -y -f lavfi \
+                    -i "color=c=0x1a1a2e:s=${SMALL_W}x${SMALL_H}:d=5:r=30" \
+                    -c:v libx264 -preset fast -crf 23 -an \
+                    -t 5 -movflags +faststart \
+                    "$SPLASH_DIR/small.mp4" 2>/dev/null && \
+                    echo "  Created: small.mp4 (plain, no text)" || \
+                    warn "Could not generate any small splash video"
+            }
         fi
     fi
 fi
@@ -236,6 +267,14 @@ cp "$BCM_DIR/config/systemd/bcm-splash-small.service" /etc/systemd/system/
 cp "$BCM_DIR/config/systemd/bcm-resume.service" /etc/systemd/system/
 
 systemctl mask bcm-kiosk.service 2>/dev/null || true
+
+# Override DRM connector for small splash to match user's actual hardware
+mkdir -p /etc/systemd/system/bcm-splash-small.service.d
+cat > /etc/systemd/system/bcm-splash-small.service.d/connector.conf <<EOF
+[Service]
+Environment=BCM_SPLASH_DRM_SMALL=$SMALL_OUTPUT
+EOF
+
 systemctl daemon-reload
 systemctl enable bcm-ignition-watcher bcm-splash-main bcm-splash-small bcm-resume
 ok
@@ -302,37 +341,26 @@ if xrandr | grep -q "^${SMALL_OUTPUT} connected"; then
     xrandr --output "$SMALL_OUTPUT" --right-of "$MAIN_OUTPUT" --auto
 fi
 
-# ──── Touch calibration ────
-# map-to-output alone often fails on cheap USB touchscreens with
-# dual displays because X sees the combined desktop as one coordinate
-# space. We compute the Coordinate Transformation Matrix manually.
+# ──── Touch mapping ────
 if [ -n "$TOUCH_DEVICE" ]; then
+    sleep 1
+    TLOG="/tmp/bcm-xinput.log"
+    echo "=== Touch setup $(date) ===" > "$TLOG"
+    echo "MAIN_OUTPUT=$MAIN_OUTPUT TOUCH_DEVICE=$TOUCH_DEVICE" >> "$TLOG"
+    xinput list >> "$TLOG" 2>&1
+    xrandr >> "$TLOG" 2>&1
+
     TOUCH_ID=$(xinput list --id-only "$TOUCH_DEVICE" 2>/dev/null || true)
     if [ -n "$TOUCH_ID" ]; then
-        # Total desktop width (main + small side by side)
-        TOTAL_W=$(xrandr | grep "^Screen 0:" | grep -oP 'current \K\d+')
-        TOTAL_H=$(xrandr | grep "^Screen 0:" | grep -oP 'current \d+ x \K\d+')
-        TOTAL_W=${TOTAL_W:-1824}
-        TOTAL_H=${TOTAL_H:-600}
-
-        # Main display starts at x=0, y=0 and is MAIN_W x MAIN_H
-        # CTM maps touch area to the fraction of total desktop occupied by main
-        # Matrix: [ sw  0  ox ]
-        #         [  0 sh  oy ]
-        #         [  0  0   1 ]
-        SW=$(awk "BEGIN {printf \"%.6f\", $MAIN_W / $TOTAL_W}")
-        SH=$(awk "BEGIN {printf \"%.6f\", $MAIN_H / $TOTAL_H}")
-        OX="0.000000"
-        OY="0.000000"
-
-        xinput set-prop "$TOUCH_ID" "Coordinate Transformation Matrix" \
-            $SW 0 $OX 0 $SH $OY 0 0 1 2>/dev/null && \
-            echo "Touch CTM: ${SW},${SH} offset ${OX},${OY} (main=${MAIN_W}x${MAIN_H} total=${TOTAL_W}x${TOTAL_H})"
-
-        # Also try map-to-output as belt-and-suspenders
-        xinput map-to-output "$TOUCH_ID" "$MAIN_OUTPUT" 2>/dev/null || true
+        echo "TOUCH_ID=$TOUCH_ID" >> "$TLOG"
+        xinput map-to-output "$TOUCH_ID" "$MAIN_OUTPUT" 2>>"$TLOG" && \
+            echo "Touch mapped: id=$TOUCH_ID -> $MAIN_OUTPUT" | tee -a "$TLOG" || \
+            echo "WARN: map-to-output failed" | tee -a "$TLOG"
+        xinput list-props "$TOUCH_ID" >> "$TLOG" 2>&1
     else
-        echo "Touch device '$TOUCH_DEVICE' not found in xinput"
+        echo "Touch device '$TOUCH_DEVICE' not found" | tee -a "$TLOG"
+        echo "Available:" >> "$TLOG"
+        xinput list --name-only >> "$TLOG" 2>&1
     fi
 fi
 
@@ -462,6 +490,16 @@ iface $WIFI_IFACE inet static
     netmask 255.255.255.0
 EOF
 
+    # Set regulatory domain (required for 5GHz channels like 149)
+    iw reg set "$WIFI_COUNTRY" 2>/dev/null || true
+    mkdir -p /etc/modprobe.d
+    echo "options cfg80211 ieee80211_regdom=$WIFI_COUNTRY" > /etc/modprobe.d/bcm-wifi-regdom.conf
+    if [ -f /etc/default/crda ]; then
+        sed -i "s/^REGDOMAIN=.*/REGDOMAIN=$WIFI_COUNTRY/" /etc/default/crda
+    else
+        echo "REGDOMAIN=$WIFI_COUNTRY" > /etc/default/crda
+    fi
+
     # Apply now
     ip addr flush dev "$WIFI_IFACE" 2>/dev/null || true
     ip addr add 192.168.44.1/24 dev "$WIFI_IFACE" 2>/dev/null || true
@@ -469,6 +507,33 @@ EOF
 
     systemctl unmask hostapd 2>/dev/null || true
     systemctl enable hostapd dnsmasq
+
+    # Ensure hostapd starts after network is ready and restarts on failure
+    mkdir -p /etc/systemd/system/hostapd.service.d
+    cat > /etc/systemd/system/hostapd.service.d/bcm-ordering.conf <<EOF
+[Unit]
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Restart=on-failure
+RestartSec=3
+EOF
+
+    # Disable BCM's internal WiFi AP manager (conflicts with system hostapd)
+    if [ -f "$BCM_DIR/config/bcm_config.yaml" ]; then
+        sed -i '/^wifi:/,/^[^ ]/{s/^\(  enabled:\) true/\1 false/}' \
+            "$BCM_DIR/config/bcm_config.yaml"
+        if grep -A1 "^wifi:" "$BCM_DIR/config/bcm_config.yaml" | grep -q "enabled: true"; then
+            warn "Could not patch wifi.enabled — edit bcm_config.yaml manually: set wifi.enabled to false"
+        else
+            echo "  Set wifi.enabled=false in bcm_config.yaml (systemd manages the AP)"
+        fi
+    fi
+
+    systemctl daemon-reload
+    systemctl restart hostapd dnsmasq 2>/dev/null || \
+        warn "hostapd/dnsmasq failed to start now — check: journalctl -u hostapd -n 20"
     ok
 fi
 
