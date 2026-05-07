@@ -4,6 +4,15 @@ Complete step-by-step guide to building the BCM headunit on a Lenovo
 ThinkCentre M910q Tiny (or similar x86 mini-PC). Follow sections in
 order — each builds on the previous one.
 
+> **Quick setup:** After installing Debian 13 (§3), you can run the all-in-one
+> script instead of following §4–§10 manually:
+> ```bash
+> cd /opt/bcm
+> sudo bash config/scripts/setup-x86.sh
+> ```
+> Edit the USER CONFIG section at the top of the script first (display outputs,
+> WiFi settings). The script is idempotent — safe to re-run after fixing issues.
+
 > **Primary platform:** Lenovo M910q Tiny (i5-6400T, 8GB DDR4, 256GB NVMe)
 > **Also tested:** Gigabyte GA-N3050N-D2P (Celeron N3050, legacy)
 
@@ -804,16 +813,21 @@ RF input:  D12 ← RXB6 433MHz receiver
 
 ## 14. Clean Reset (if things are broken)
 
-If you have config conflicts from multiple setup attempts, reset everything
-and start fresh from §5:
+If you have config conflicts from multiple setup attempts, the easiest
+path is the all-in-one script — it cleans everything and reinstalls:
 
 ```bash
-cd /opt/bcm
-sudo bash config/scripts/cleanup-x86.sh
-git pull
+cd /opt/bcm && git pull
+sudo bash config/scripts/setup-x86.sh
 ```
 
-Then follow §5 → §10 in order. The cleanup script removes:
+Or for cleanup only (then follow §4 → §10 manually):
+
+```bash
+sudo bash config/scripts/cleanup-x86.sh
+```
+
+The cleanup removes:
 - All BCM systemd services
 - ~/.xinitrc, ~/.bash_profile
 - Autologin override
