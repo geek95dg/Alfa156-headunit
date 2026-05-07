@@ -93,9 +93,11 @@ const OnScreenKeyboard = (() => {
 
         let html = `<div class="flex flex-col gap-1.5 max-w-[800px] mx-auto">`;
 
-        // Display current value
         html += `<div class="flex items-center gap-2 px-2 mb-1">
             <span id="osk-display" class="text-sm font-mono opacity-60 truncate flex-1">${_escHtml(_value)}</span>
+            <button class="${keyBg} rounded-lg px-2 py-1 text-xs transition-colors" onclick="OnScreenKeyboard.close()" title="Hide keyboard">
+                <span class="material-symbols-outlined" style="font-size:18px;">keyboard_hide</span>
+            </button>
         </div>`;
 
         for (const row of ROWS) {
@@ -141,9 +143,16 @@ const OnScreenKeyboard = (() => {
     return { attach, key, close: _close };
 })();
 
-// Auto-attach to all text inputs on focus (global handler)
 document.addEventListener("focusin", (e) => {
     if (e.target && e.target.tagName === "INPUT" && e.target.type === "text") {
         OnScreenKeyboard.attach(e.target);
+    }
+});
+
+document.addEventListener("click", (e) => {
+    const overlay = document.getElementById("osk-overlay");
+    if (overlay && !overlay.contains(e.target) &&
+        !(e.target.tagName === "INPUT" && e.target.type === "text")) {
+        OnScreenKeyboard.close();
     }
 });
