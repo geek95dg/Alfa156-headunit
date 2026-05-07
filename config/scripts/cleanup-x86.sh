@@ -59,5 +59,9 @@ rm -rf /opt/bcm/.venv
 systemctl daemon-reload
 echo ""
 echo "=== Cleanup complete ==="
-echo "Now follow docs/X86_PLATFORM_SETUP.md from §5 onwards."
-echo "Start with: cd /opt/bcm && git pull"
+echo ""
+echo "Before reinstalling, make sure system packages are installed (§4):"
+echo "  sudo apt install -y python3 python3-venv python3-full python3-dev git curl"
+echo ""
+echo "Then follow docs/X86_PLATFORM_SETUP.md from §5 onwards:"
+echo "  cd /opt/bcm && git pull"
