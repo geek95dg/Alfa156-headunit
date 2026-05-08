@@ -10,14 +10,16 @@ if systemctl is-active --quiet bcm-headunit.service; then
     sleep 1
 fi
 
-# Disable USB wake sources (touchscreens, hubs send spurious wake events)
+# Disable ALL USB wake sources
 for f in /sys/bus/usb/devices/*/power/wakeup; do
     echo disabled > "$f" 2>/dev/null
 done
 
-# Unbind LTE modem — it blocks suspend with "Failed to suspend device"
-for dev in /sys/bus/usb/drivers/cdc_ether/*/; do
-    [ -e "$dev" ] && echo "$(basename "$dev")" > /sys/bus/usb/drivers/cdc_ether/unbind 2>/dev/null
-done
+# Disable XHCI/EHCI/USB wake in ACPI (main culprit for instant wake)
+if [ -f /proc/acpi/wakeup ]; then
+    awk '/XHC|EHC|USB/ && /enabled/ {print $1}' /proc/acpi/wakeup | while read -r dev; do
+        echo "$dev" > /proc/acpi/wakeup 2>/dev/null
+    done
+fi
 
 systemctl suspend

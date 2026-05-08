@@ -320,8 +320,12 @@ EOF
 # .bash_profile — start X on tty1
 cat > "$BCM_HOME/.bash_profile" <<'BASHEOF'
 if [ -z "$DISPLAY" ] && [ "$(tty)" = "/dev/tty1" ]; then
-    # Wait for splash video to finish before starting X.
-    # Splash uses DRM framebuffer — X would steal it and kill the splash.
+    # Wait for splash to START (it may not be active yet when autologin runs)
+    for _w in $(seq 1 50); do
+        systemctl is-active --quiet bcm-splash-main.service 2>/dev/null && break
+        sleep 0.1
+    done
+    # Wait for splash to FINISH (mpv releases DRM when Flask is ready)
     while systemctl is-active --quiet bcm-splash-main.service 2>/dev/null; do
         sleep 1
     done
