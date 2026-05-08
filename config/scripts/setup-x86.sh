@@ -33,7 +33,7 @@ SMALL_H=480
 WIFI_IFACE="wlp2s0"
 WIFI_SSID="ALFA_AA"
 WIFI_PASS="AlfaRomeo156"
-WIFI_CHANNEL="149"
+WIFI_CHANNEL="36"
 WIFI_COUNTRY="PL"
 # ─────────────────────────────────────────────────────────────────
 
@@ -309,6 +309,11 @@ EOF
 # .bash_profile — start X on tty1
 cat > "$BCM_HOME/.bash_profile" <<'BASHEOF'
 if [ -z "$DISPLAY" ] && [ "$(tty)" = "/dev/tty1" ]; then
+    # Wait for splash video to finish before starting X.
+    # Splash uses DRM framebuffer — X would steal it and kill the splash.
+    while systemctl is-active --quiet bcm-splash-main.service 2>/dev/null; do
+        sleep 1
+    done
     exec startx -- -nocursor
 fi
 BASHEOF
@@ -583,7 +588,21 @@ chown -R "$BCM_USER:$BCM_USER" "$BCM_DIR"
 systemctl enable bluetooth 2>/dev/null || true
 systemctl start bluetooth 2>/dev/null || true
 
-# Make BT adapter discoverable and pairable
+# Auto-power BT adapter on boot (survives reboot)
+if [ -f /etc/bluetooth/main.conf ]; then
+    sed -i 's/^#*AutoEnable.*/AutoEnable=true/' /etc/bluetooth/main.conf
+    if ! grep -q "^AutoEnable" /etc/bluetooth/main.conf; then
+        sed -i '/^\[Policy\]/a AutoEnable=true' /etc/bluetooth/main.conf
+    fi
+else
+    mkdir -p /etc/bluetooth
+    cat > /etc/bluetooth/main.conf <<EOF
+[Policy]
+AutoEnable=true
+EOF
+fi
+
+# Power on now and set discoverable
 if command -v bluetoothctl >/dev/null 2>&1; then
     bluetoothctl power on 2>/dev/null || true
     bluetoothctl discoverable on 2>/dev/null || true
