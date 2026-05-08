@@ -24,13 +24,21 @@ Environment=BCM_SPLASH_DRM_SMALL=DP-2
 ExecStart=/bin/bash -c '\
     MPV=$(command -v mpv 2>/dev/null); \
     if [ -z "$MPV" ]; then exit 0; fi; \
-    "$MPV" --fs --loop-file=inf --really-quiet --no-audio \
-        --vo=drm,gpu,sdl \
+    for w in $(seq 1 50); do [ -e /dev/dri/card0 ] && break; sleep 0.2; done; \
+    if [ ! -e /dev/dri/card0 ]; then echo "DRM device not found"; exit 0; fi; \
+    "$MPV" --fs --loop-file=inf --no-audio \
+        --vo=drm \
         --hwdec=auto \
         --drm-connector=${BCM_SPLASH_DRM_SMALL} \
         --input-conf=/dev/null \
+        --msg-level=all=warn \
         /opt/bcm/assets/splash/small.mp4 & \
     MPV_PID=$!; \
+    sleep 1; \
+    if ! kill -0 $MPV_PID 2>/dev/null; then \
+        echo "WARN: mpv exited — small DRM connector ${BCM_SPLASH_DRM_SMALL} may be wrong"; \
+        exit 0; \
+    fi; \
     for i in $(seq 1 120); do \
         if curl -sf http://localhost:5002 >/dev/null 2>&1; then \
             sleep 5; \
