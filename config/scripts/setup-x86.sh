@@ -47,7 +47,7 @@ warn() { echo -e "${YELLOW}  WARN: $1${NC}"; }
 fail() { echo -e "${RED}  FAIL: $1${NC}"; exit 1; }
 ok()   { echo -e "${GREEN}  OK${NC}"; }
 
-TOTAL=13
+TOTAL=14
 
 if [ "$(id -u)" -ne 0 ]; then
     fail "Run with sudo: sudo bash $0"
@@ -579,9 +579,63 @@ EOF
     ok
 fi
 
-# ─── Phase 9: GRUB (silent boot) ─────────────────────────────────
+# ─── Phase 9b: LTE modem (Huawei E3372) ──────────────────────────
 
-step 10 "Configuring silent boot (GRUB)..."
+step 10 "Configuring LTE modem..."
+
+LTE_IFACE=""
+for iface in /sys/class/net/ww*; do
+    [ -e "$iface" ] && LTE_IFACE=$(basename "$iface") && break
+done
+
+if [ -n "$LTE_IFACE" ]; then
+    echo "  Found LTE interface: $LTE_IFACE"
+
+    # Don't let NetworkManager manage the LTE interface
+    # (we use simple DHCP so it doesn't conflict with WiFi AP)
+    cat >> /etc/NetworkManager/conf.d/bcm-unmanage-wifi.conf <<EOF
+
+[keyfile]
+unmanaged-devices=interface-name:$LTE_IFACE
+EOF
+
+    # Bring up with DHCP via systemd-networkd or dhclient
+    mkdir -p /etc/systemd/network
+    cat > /etc/systemd/network/50-lte.network <<EOF
+[Match]
+Name=$LTE_IFACE
+
+[Network]
+DHCP=yes
+
+[DHCPv4]
+RouteMetric=700
+UseDNS=yes
+EOF
+
+    systemctl enable systemd-networkd 2>/dev/null || true
+    systemctl restart systemd-networkd 2>/dev/null || true
+
+    # Bring up now
+    ip link set "$LTE_IFACE" up 2>/dev/null || true
+    dhclient -nw "$LTE_IFACE" 2>/dev/null || true
+
+    sleep 3
+    if ip addr show "$LTE_IFACE" 2>/dev/null | grep -q "inet "; then
+        LTE_IP=$(ip -4 addr show "$LTE_IFACE" | grep -oP 'inet \K[\d.]+')
+        echo -e "  ${GREEN}LTE online: $LTE_IP${NC}"
+    else
+        warn "LTE interface up but no IP yet — may need SIM PIN or APN config"
+    fi
+    ok
+else
+    echo "  No LTE modem found — skipping."
+    ok
+fi
+
+# ─── Phase 10: GRUB (silent boot) ────────────────────────────────
+
+step 11 "Configuring silent boot (GRUB)..."
 
 if [ -f /etc/default/grub ]; then
     cp /etc/default/grub /etc/default/grub.bak
@@ -605,7 +659,7 @@ ok
 
 # ─── Phase 10: Permissions ────────────────────────────────────────
 
-step 11 "Setting permissions..."
+step 12 "Setting permissions..."
 
 usermod -aG dialout "$BCM_USER" 2>/dev/null || true
 usermod -aG video "$BCM_USER" 2>/dev/null || true
@@ -637,7 +691,7 @@ ok
 
 # ─── Phase 11: Quick test ────────────────────────────────────────
 
-step 12 "Testing BCM (headless)..."
+step 13 "Testing BCM (headless)..."
 
 TEST_OUTPUT=$(su - "$BCM_USER" -c "cd $BCM_DIR && source .venv/bin/activate && timeout 10 python main.py --platform x86 --config config/bcm_config.yaml --frontend 2>&1" || true)
 
@@ -651,7 +705,7 @@ fi
 
 # ─── Phase 12: Summary ───────────────────────────────────────────
 
-step 13 "Done!"
+step 14 "Done!"
 
 echo ""
 echo "========================================="
