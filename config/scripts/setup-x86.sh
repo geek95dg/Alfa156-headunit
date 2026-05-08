@@ -550,15 +550,16 @@ EOF
     echo "  hostapd config: SSID=$WIFI_SSID channel=$WIFI_CHANNEL iface=$WIFI_IFACE"
     grep "^channel=" /etc/hostapd/hostapd.conf || warn "No channel in hostapd.conf"
 
-    # Start services now
-    systemctl restart hostapd dnsmasq 2>/dev/null
+    # Start services now (|| true prevents set -e from killing the script)
+    systemctl restart hostapd 2>/dev/null || true
+    systemctl restart dnsmasq 2>/dev/null || true
     sleep 2
     if systemctl is-active --quiet hostapd; then
         echo -e "  ${GREEN}hostapd running${NC}"
     else
         warn "hostapd failed — trying channel 36 fallback..."
         sed -i 's/^channel=.*/channel=36/' /etc/hostapd/hostapd.conf
-        systemctl restart hostapd 2>/dev/null
+        systemctl restart hostapd 2>/dev/null || true
         sleep 2
         if systemctl is-active --quiet hostapd; then
             echo -e "  ${GREEN}hostapd running (ch36 fallback)${NC}"
