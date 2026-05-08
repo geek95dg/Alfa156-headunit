@@ -545,8 +545,27 @@ EOF
     fi
 
     systemctl daemon-reload
-    systemctl restart hostapd dnsmasq 2>/dev/null || \
-        warn "hostapd/dnsmasq failed to start now — check: journalctl -u hostapd -n 20"
+
+    # Verify config is correct
+    echo "  hostapd config: SSID=$WIFI_SSID channel=$WIFI_CHANNEL iface=$WIFI_IFACE"
+    grep "^channel=" /etc/hostapd/hostapd.conf || warn "No channel in hostapd.conf"
+
+    # Start services now
+    systemctl restart hostapd dnsmasq 2>/dev/null
+    sleep 2
+    if systemctl is-active --quiet hostapd; then
+        echo -e "  ${GREEN}hostapd running${NC}"
+    else
+        warn "hostapd failed — trying channel 36 fallback..."
+        sed -i 's/^channel=.*/channel=36/' /etc/hostapd/hostapd.conf
+        systemctl restart hostapd 2>/dev/null
+        sleep 2
+        if systemctl is-active --quiet hostapd; then
+            echo -e "  ${GREEN}hostapd running (ch36 fallback)${NC}"
+        else
+            warn "hostapd still failing — check: sudo journalctl -u hostapd -n 20"
+        fi
+    fi
     ok
 fi
 
@@ -585,10 +604,13 @@ usermod -aG bluetooth "$BCM_USER" 2>/dev/null || true
 chown -R "$BCM_USER:$BCM_USER" "$BCM_DIR"
 
 # Enable Bluetooth (needed for AA wireless pairing)
-systemctl enable bluetooth 2>/dev/null || true
+cp "$BCM_DIR/config/systemd/bcm-bluetooth.service" /etc/systemd/system/
+systemctl daemon-reload
+systemctl enable bluetooth bcm-bluetooth 2>/dev/null || true
 systemctl start bluetooth 2>/dev/null || true
+systemctl start bcm-bluetooth 2>/dev/null || true
 
-# Auto-power BT adapter on boot (survives reboot)
+# Auto-power BT adapter on boot
 if [ -f /etc/bluetooth/main.conf ]; then
     sed -i 's/^#*AutoEnable.*/AutoEnable=true/' /etc/bluetooth/main.conf
     if ! grep -q "^AutoEnable" /etc/bluetooth/main.conf; then
@@ -600,13 +622,6 @@ else
 [Policy]
 AutoEnable=true
 EOF
-fi
-
-# Power on now and set discoverable
-if command -v bluetoothctl >/dev/null 2>&1; then
-    bluetoothctl power on 2>/dev/null || true
-    bluetoothctl discoverable on 2>/dev/null || true
-    bluetoothctl pairable on 2>/dev/null || true
 fi
 ok
 

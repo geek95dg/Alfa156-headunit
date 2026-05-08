@@ -1,0 +1,18 @@
+[Unit]
+Description=BCM — Bluetooth adapter setup (discoverable + pairable)
+After=bluetooth.service
+Requires=bluetooth.service
+
+[Service]
+Type=oneshot
+ExecStart=/bin/bash -c '\
+    sleep 2; \
+    bluetoothctl power on; \
+    bluetoothctl system-alias "Alfa156 Headunit"; \
+    bluetoothctl discoverable on; \
+    bluetoothctl pairable on; \
+    bluetoothctl discoverable-timeout 0'
+RemainAfterExit=yes
+
+[Install]
+WantedBy=bluetooth.target
