@@ -1,7 +1,7 @@
 [Unit]
 Description=BCM — Ignition Watcher (GPIO monitor, starts headunit on ignition)
 Documentation=https://github.com/geek95dg/Alfa156-headunit
-After=multi-user.target
+After=multi-user.target bluetooth.target bcm-bluetooth.service
 
 [Service]
 Type=simple

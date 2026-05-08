@@ -4,7 +4,14 @@ After=suspend.target
 
 [Service]
 Type=oneshot
-ExecStart=/bin/bash -c 'sleep 2 && systemctl start bcm-headunit.service'
+ExecStart=/bin/bash -c '\
+    sleep 2; \
+    for dev in /sys/bus/usb/devices/*/idVendor; do \
+        dir=$(dirname "$dev"); \
+        [ "$(cat "$dir/idVendor" 2>/dev/null)" = "12d1" ] && \
+            echo "$(basename "$dir")" > /sys/bus/usb/drivers/usb/bind 2>/dev/null; \
+    done; \
+    systemctl start bcm-headunit.service'
 
 [Install]
 WantedBy=suspend.target
