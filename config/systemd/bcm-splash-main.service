@@ -23,7 +23,9 @@ ExecStart=/bin/bash -c '\
     if [ -z "$MPV" ]; then exit 0; fi; \
     DRM_ARG=""; \
     [ -n "$BCM_SPLASH_DRM_MAIN" ] && DRM_ARG="--drm-connector=$BCM_SPLASH_DRM_MAIN"; \
-    echo "Splash starting: vo=drm drm_arg=$DRM_ARG file=/opt/bcm/assets/splash/main.mp4"; \
+    for w in $(seq 1 50); do [ -e /dev/dri/card0 ] && break; sleep 0.2; done; \
+    if [ ! -e /dev/dri/card0 ]; then echo "DRM device not found after 10s"; exit 0; fi; \
+    echo "Splash: DRM ready, connector=$BCM_SPLASH_DRM_MAIN"; \
     "$MPV" --fs --loop-file=inf \
         --vo=drm \
         --hwdec=auto \
@@ -35,9 +37,10 @@ ExecStart=/bin/bash -c '\
     MPV_PID=$!; \
     sleep 1; \
     if ! kill -0 $MPV_PID 2>/dev/null; then \
-        echo "WARN: mpv exited immediately — DRM may not be available"; \
+        echo "WARN: mpv exited — DRM output failed"; \
         exit 0; \
     fi; \
+    echo "Splash playing (pid=$MPV_PID)"; \
     for i in $(seq 1 120); do \
         if curl -sf http://localhost:5002 >/dev/null 2>&1; then \
             sleep 5; \
