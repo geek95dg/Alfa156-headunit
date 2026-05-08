@@ -545,33 +545,33 @@ class BluetoothManager:
         self._event_bus.subscribe("bt.call_ended", self._on_call_ended)
 
     def _check_availability(self) -> None:
-        """Check if Bluetooth is available."""
+        """Check if Bluetooth is available (retries up to 5 times)."""
         log.info("Checking Bluetooth availability...")
-        rc, out, err = _run_btctl(["show"])
-        if rc == 0 and "Controller" in out:
-            self._available = True
-            # Parse controller address for logging
-            for line in out.splitlines():
-                if line.strip().startswith("Controller"):
-                    log.info("Bluetooth controller found: %s", line.strip())
-                    break
-            rc_pwr, out_pwr, _ = _run_btctl(["power", "on"])
-            if rc_pwr == 0:
-                log.info("Bluetooth power ON")
-            else:
-                log.warning("Bluetooth power on failed: %s", out_pwr)
-            # Register D-Bus pairing agent (handles phone-initiated pairing)
-            if not _start_pairing_agent():
-                log.warning("D-Bus pairing agent failed — falling back to bluetoothctl agent")
-                # Fallback to bluetoothctl agent (limited — phone-initiated may fail)
-                _run_btctl(["agent", "DisplayYesNo"])
-                _run_btctl(["default-agent"])
-            else:
-                log.info("D-Bus pairing agent registered successfully")
-        else:
-            self._available = False
-            log.warning("Bluetooth not available (rc=%d, err=%s) — will be simulated",
-                        rc, err.strip() if err else "none")
+        for attempt in range(5):
+            rc, out, err = _run_btctl(["show"])
+            if rc == 0 and "Controller" in out:
+                self._available = True
+                for line in out.splitlines():
+                    if line.strip().startswith("Controller"):
+                        log.info("Bluetooth controller found: %s", line.strip())
+                        break
+                rc_pwr, out_pwr, _ = _run_btctl(["power", "on"])
+                if rc_pwr == 0:
+                    log.info("Bluetooth power ON")
+                else:
+                    log.warning("Bluetooth power on failed: %s", out_pwr)
+                if not _start_pairing_agent():
+                    log.warning("D-Bus pairing agent failed — falling back to bluetoothctl agent")
+                    _run_btctl(["agent", "DisplayYesNo"])
+                    _run_btctl(["default-agent"])
+                else:
+                    log.info("D-Bus pairing agent registered successfully")
+                return
+            if attempt < 4:
+                log.info("Bluetooth not ready (attempt %d/5) — retrying in 2s...", attempt + 1)
+                time.sleep(2)
+        self._available = False
+        log.warning("Bluetooth not available after 5 attempts (last rc=%d)", rc)
 
     @property
     def available(self) -> bool:
