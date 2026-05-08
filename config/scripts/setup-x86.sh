@@ -119,7 +119,8 @@ apt-get update -qq
 apt-get install -y -qq \
     python3 python3-venv python3-full python3-dev python3-serial \
     git curl wget \
-    xserver-xorg xinit x11-xserver-utils xinput \
+    xserver-xorg xinit x11-xserver-utils xinput xdotool \
+    xvfb matchbox-window-manager \
     unclutter chromium \
     intel-media-va-driver vainfo libva-drm2 \
     pipewire pipewire-pulse wireplumber alsa-utils mpv \
@@ -575,7 +576,19 @@ step 11 "Setting permissions..."
 usermod -aG dialout "$BCM_USER" 2>/dev/null || true
 usermod -aG video "$BCM_USER" 2>/dev/null || true
 usermod -aG audio "$BCM_USER" 2>/dev/null || true
+usermod -aG bluetooth "$BCM_USER" 2>/dev/null || true
 chown -R "$BCM_USER:$BCM_USER" "$BCM_DIR"
+
+# Enable Bluetooth (needed for AA wireless pairing)
+systemctl enable bluetooth 2>/dev/null || true
+systemctl start bluetooth 2>/dev/null || true
+
+# Make BT adapter discoverable and pairable
+if command -v bluetoothctl >/dev/null 2>&1; then
+    bluetoothctl power on 2>/dev/null || true
+    bluetoothctl discoverable on 2>/dev/null || true
+    bluetoothctl pairable on 2>/dev/null || true
+fi
 ok
 
 # ─── Phase 11: Quick test ────────────────────────────────────────
