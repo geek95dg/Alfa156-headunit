@@ -101,7 +101,12 @@ ip addr flush dev "$WIFI_IFACE" 2>/dev/null || true
 
 rm -f /etc/acpi/events/power-button
 rm -f /usr/local/bin/bcm-power-toggle.sh
+rm -f /usr/local/bin/bcm-bluetooth-setup.sh
+rm -f /usr/local/bin/bcm-lte-up.sh
+rm -f /lib/systemd/system-sleep/bcm-sleep
 rm -f /etc/systemd/logind.conf.d/bcm-power.conf
+rm -f /etc/systemd/system/bcm-lte.service
+# leave /etc/bcm/lte.conf — user may have edited APN for non-Orange SIM
 
 rm -f /etc/chromium/policies/managed/bcm.json
 rm -f /etc/X11/Xwrapper.config
@@ -124,7 +129,7 @@ apt-get install -y -qq \
     unclutter chromium \
     intel-media-va-driver vainfo libva-drm2 \
     pipewire pipewire-pulse wireplumber alsa-utils mpv \
-    firmware-iwlwifi bluez bluez-tools network-manager hostapd dnsmasq iw wireless-tools \
+    firmware-iwlwifi bluez bluez-tools network-manager modemmanager hostapd dnsmasq iw wireless-tools \
     ffmpeg v4l-utils \
     acpid \
     zram-tools \
@@ -447,6 +452,14 @@ EOF
 cp "$BCM_DIR/config/scripts/bcm-power-toggle.sh" /usr/local/bin/
 chmod +x /usr/local/bin/bcm-power-toggle.sh
 
+# system-sleep hook — runs on every suspend regardless of trigger.
+# Disables wake sources (USB, serio, HDA) and unbinds LTE before S3,
+# rebinds + restarts headunit on resume. Replaces the old bcm-resume
+# logic which only fired on systemd suspend.target activation.
+mkdir -p /lib/systemd/system-sleep
+cp "$BCM_DIR/config/scripts/bcm-sleep-hook.sh" /lib/systemd/system-sleep/bcm-sleep
+chmod +x /lib/systemd/system-sleep/bcm-sleep
+
 # Tell logind to ignore power button (let acpid handle it)
 mkdir -p /etc/systemd/logind.conf.d
 cat > /etc/systemd/logind.conf.d/bcm-power.conf <<EOF
@@ -598,60 +611,60 @@ fi
 
 step 10 "Configuring LTE modem..."
 
+# Install APN profile, dialer script, and systemd unit unconditionally
+# — the modem may enumerate after setup and bcm-lte.service will pick
+# it up on boot.
+mkdir -p /etc/bcm
+if [ ! -f /etc/bcm/lte.conf ]; then
+    install -m 0644 "$BCM_DIR/config/lte.conf.example" /etc/bcm/lte.conf
+    echo "  Installed Orange Polska APN profile → /etc/bcm/lte.conf"
+fi
+install -m 0755 "$BCM_DIR/config/scripts/bcm-lte-up.sh" /usr/local/bin/
+install -m 0644 "$BCM_DIR/config/systemd/bcm-lte.service" /etc/systemd/system/
+
+# LTE goes through NetworkManager + ModemManager — both must be active
+# and NM must be allowed to manage the wwan ethernet (wwx*) that MM
+# brings up after dialing. Earlier revisions handed wwx to systemd-networkd
+# with plain DHCP, which never worked because nothing dialed AT^NDISDUP.
+# (modemmanager and network-manager are installed in Phase 2.)
+systemctl enable --now ModemManager 2>/dev/null || true
+systemctl enable --now NetworkManager 2>/dev/null || true
+
+# Strip any stale unmanage rule for the wwan iface (older setups added one).
+if [ -f /etc/NetworkManager/conf.d/bcm-unmanage-wifi.conf ]; then
+    sed -i '/^unmanaged-devices=interface-name:ww/d' /etc/NetworkManager/conf.d/bcm-unmanage-wifi.conf
+fi
+# And drop the legacy systemd-networkd LTE drop-in.
+rm -f /etc/systemd/network/50-lte.network
+
+# Avoid wait-online stalling boot if LTE is the only uplink.
+systemctl disable systemd-networkd-wait-online.service 2>/dev/null || true
+systemctl mask systemd-networkd-wait-online.service 2>/dev/null || true
+
+systemctl daemon-reload
+systemctl enable bcm-lte.service 2>/dev/null || true
+
 LTE_IFACE=""
 for iface in /sys/class/net/ww*; do
     [ -e "$iface" ] && LTE_IFACE=$(basename "$iface") && break
 done
 
-if [ -n "$LTE_IFACE" ]; then
-    echo "  Found LTE interface: $LTE_IFACE"
-
-    # Don't let NetworkManager manage the LTE interface
-    # (we use simple DHCP so it doesn't conflict with WiFi AP)
-    cat >> /etc/NetworkManager/conf.d/bcm-unmanage-wifi.conf <<EOF
-
-[keyfile]
-unmanaged-devices=interface-name:$LTE_IFACE
-EOF
-
-    # Bring up with DHCP via systemd-networkd
-    mkdir -p /etc/systemd/network
-    cat > /etc/systemd/network/50-lte.network <<EOF
-[Match]
-Name=$LTE_IFACE
-
-[Network]
-DHCP=yes
-
-[DHCPv4]
-RouteMetric=700
-UseDNS=yes
-
-[Link]
-RequiredForOnline=no
-EOF
-
-    # Disable wait-online (was blocking boot for 2min waiting for LTE DHCP)
-    systemctl disable systemd-networkd-wait-online.service 2>/dev/null || true
-    systemctl mask systemd-networkd-wait-online.service 2>/dev/null || true
-
-    systemctl enable systemd-networkd 2>/dev/null || true
-    systemctl restart systemd-networkd 2>/dev/null || true
-
-    # Bring up now
-    ip link set "$LTE_IFACE" up 2>/dev/null || true
-    dhclient -nw "$LTE_IFACE" 2>/dev/null || true
+if [ -n "$LTE_IFACE" ] || mmcli -L 2>/dev/null | grep -q Modem; then
+    echo "  LTE modem detected; dialing via nmcli + ModemManager..."
+    /usr/local/bin/bcm-lte-up.sh 2>&1 | sed 's/^/  /' || true
 
     sleep 3
-    if ip addr show "$LTE_IFACE" 2>/dev/null | grep -q "inet "; then
+    LTE_IFACE=$(ls /sys/class/net/ | grep -m1 '^ww' || true)
+    if [ -n "$LTE_IFACE" ] && ip addr show "$LTE_IFACE" 2>/dev/null | grep -q "inet "; then
         LTE_IP=$(ip -4 addr show "$LTE_IFACE" | grep -oP 'inet \K[\d.]+')
-        echo -e "  ${GREEN}LTE online: $LTE_IP${NC}"
+        echo -e "  ${GREEN}LTE online: $LTE_IFACE = $LTE_IP${NC}"
     else
-        warn "LTE interface up but no IP yet — may need SIM PIN or APN config"
+        warn "LTE not online yet — check 'journalctl -u bcm-lte' and 'nmcli con show bcm-lte'"
+        warn "APN defaults are Orange PL; edit /etc/bcm/lte.conf for other carriers"
     fi
     ok
 else
-    echo "  No LTE modem found — skipping."
+    echo "  No LTE modem found — APN profile installed for next boot."
     ok
 fi
 
@@ -689,15 +702,20 @@ usermod -aG audio "$BCM_USER" 2>/dev/null || true
 usermod -aG bluetooth "$BCM_USER" 2>/dev/null || true
 chown -R "$BCM_USER:$BCM_USER" "$BCM_DIR"
 
-# Enable Bluetooth (needed for AA wireless pairing)
-cp "$BCM_DIR/config/systemd/bcm-bluetooth.service" /etc/systemd/system/
-systemctl daemon-reload
-systemctl enable bluetooth bcm-bluetooth 2>/dev/null || true
-systemctl start bluetooth 2>/dev/null || true
-systemctl start bcm-bluetooth 2>/dev/null || true
-
-# Auto-power BT adapter on boot
+# Auto-power BT adapter on boot AND keep it persistently pairable.
+# Without AlwaysPairable=true, BlueZ drops Pairable to false shortly
+# after every set, so phones can't initiate pairing reliably.
 if [ -f /etc/bluetooth/main.conf ]; then
+    # Ensure [General] keys: DiscoverableTimeout=0, PairableTimeout=0, AlwaysPairable=true
+    for kv in "DiscoverableTimeout=0" "PairableTimeout=0" "AlwaysPairable=true"; do
+        key=${kv%%=*}
+        if grep -qE "^[#[:space:]]*${key}[[:space:]]*=" /etc/bluetooth/main.conf; then
+            sed -i "s|^[#[:space:]]*${key}[[:space:]]*=.*|${kv}|" /etc/bluetooth/main.conf
+        else
+            sed -i "/^\[General\]/a ${kv}" /etc/bluetooth/main.conf
+        fi
+    done
+    # AutoEnable in [Policy]
     sed -i 's/^#*AutoEnable.*/AutoEnable=true/' /etc/bluetooth/main.conf
     if ! grep -q "^AutoEnable" /etc/bluetooth/main.conf; then
         sed -i '/^\[Policy\]/a AutoEnable=true' /etc/bluetooth/main.conf
@@ -705,10 +723,26 @@ if [ -f /etc/bluetooth/main.conf ]; then
 else
     mkdir -p /etc/bluetooth
     cat > /etc/bluetooth/main.conf <<EOF
+[General]
+DiscoverableTimeout=0
+PairableTimeout=0
+AlwaysPairable=true
+
 [Policy]
 AutoEnable=true
 EOF
 fi
+
+# Enable Bluetooth (needed for AA wireless pairing)
+cp "$BCM_DIR/config/scripts/bcm-bluetooth-setup.sh" /usr/local/bin/
+chmod +x /usr/local/bin/bcm-bluetooth-setup.sh
+cp "$BCM_DIR/config/systemd/bcm-bluetooth.service" /etc/systemd/system/
+systemctl daemon-reload
+systemctl enable bluetooth bcm-bluetooth 2>/dev/null || true
+# Restart bluetooth so the new main.conf defaults (AlwaysPairable etc.)
+# take effect before bcm-bluetooth applies adapter-level settings.
+systemctl restart bluetooth 2>/dev/null || true
+systemctl restart bcm-bluetooth 2>/dev/null || true
 ok
 
 # ─── Phase 11: Quick test ────────────────────────────────────────

@@ -5,16 +5,7 @@ Requires=bluetooth.service
 
 [Service]
 Type=oneshot
-ExecStart=/bin/bash -c '\
-    sleep 2; \
-    bluetoothctl power on; \
-    sleep 1; \
-    bluetoothctl system-alias "Alfa156 Headunit"; \
-    bluetoothctl discoverable-timeout 0; \
-    bluetoothctl pairable on; \
-    bluetoothctl discoverable on; \
-    bluetoothctl agent on; \
-    bluetoothctl default-agent'
+ExecStart=/usr/local/bin/bcm-bluetooth-setup.sh
 RemainAfterExit=yes
 
 [Install]
