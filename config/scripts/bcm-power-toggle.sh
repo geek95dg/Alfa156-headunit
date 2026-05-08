@@ -8,7 +8,11 @@
 if systemctl is-active --quiet bcm-headunit.service; then
     systemctl stop bcm-headunit.service
     sleep 1
-    systemctl suspend
-else
-    systemctl suspend
 fi
+
+# Disable USB wake sources (touchscreens, hubs send spurious wake events)
+for f in /sys/bus/usb/devices/*/power/wakeup; do
+    echo disabled > "$f" 2>/dev/null
+done
+
+systemctl suspend

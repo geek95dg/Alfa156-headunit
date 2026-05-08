@@ -23,14 +23,21 @@ ExecStart=/bin/bash -c '\
     if [ -z "$MPV" ]; then exit 0; fi; \
     DRM_ARG=""; \
     [ -n "$BCM_SPLASH_DRM_MAIN" ] && DRM_ARG="--drm-connector=$BCM_SPLASH_DRM_MAIN"; \
-    "$MPV" --fs --loop-file=inf --really-quiet \
-        --vo=drm,gpu,sdl \
+    echo "Splash starting: vo=drm drm_arg=$DRM_ARG file=/opt/bcm/assets/splash/main.mp4"; \
+    "$MPV" --fs --loop-file=inf \
+        --vo=drm \
         --hwdec=auto \
         $DRM_ARG \
         --no-audio \
         --input-conf=/dev/null \
+        --msg-level=all=warn \
         /opt/bcm/assets/splash/main.mp4 & \
     MPV_PID=$!; \
+    sleep 1; \
+    if ! kill -0 $MPV_PID 2>/dev/null; then \
+        echo "WARN: mpv exited immediately — DRM may not be available"; \
+        exit 0; \
+    fi; \
     for i in $(seq 1 120); do \
         if curl -sf http://localhost:5002 >/dev/null 2>&1; then \
             sleep 5; \
