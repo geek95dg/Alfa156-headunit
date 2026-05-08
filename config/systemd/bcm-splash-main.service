@@ -17,6 +17,7 @@ Type=simple
 #   OPi 5 Pro (2× HDMI): HDMI-A-1
 #   Override: systemctl edit bcm-splash-main → [Service] Environment=BCM_SPLASH_DRM_MAIN=HDMI-A-1
 Environment=BCM_SPLASH_DRM_MAIN=
+Environment=BCM_SPLASH_MIN_SECONDS=20
 
 ExecStart=/bin/bash -c '\
     MPV=$(command -v mpv 2>/dev/null); \
@@ -40,10 +41,13 @@ ExecStart=/bin/bash -c '\
         echo "WARN: mpv exited — DRM output failed"; \
         exit 0; \
     fi; \
-    echo "Splash playing (pid=$MPV_PID)"; \
+    echo "Splash playing (pid=$MPV_PID), min ${BCM_SPLASH_MIN_SECONDS}s"; \
     for i in $(seq 1 120); do \
         if curl -sf http://localhost:5002 >/dev/null 2>&1; then \
-            sleep 5; \
+            if [ "$i" -lt "$BCM_SPLASH_MIN_SECONDS" ]; then \
+                sleep $((BCM_SPLASH_MIN_SECONDS - i)); \
+            fi; \
+            sleep 3; \
             kill $MPV_PID 2>/dev/null; \
             exit 0; \
         fi; \

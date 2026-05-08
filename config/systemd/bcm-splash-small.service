@@ -18,6 +18,7 @@ Type=simple
 # To find your connector names: ls /sys/class/drm/
 # Override: systemctl edit bcm-splash-small → [Service] Environment=BCM_SPLASH_DRM_SMALL=HDMI-A-2
 Environment=BCM_SPLASH_DRM_SMALL=DP-2
+Environment=BCM_SPLASH_MIN_SECONDS=20
 
 # Play splash on secondary display (silent, no audio).
 # Polls Flask :5002 — keeps playing until dashboard is ready.
@@ -41,7 +42,10 @@ ExecStart=/bin/bash -c '\
     fi; \
     for i in $(seq 1 120); do \
         if curl -sf http://localhost:5002 >/dev/null 2>&1; then \
-            sleep 5; \
+            if [ "$i" -lt "$BCM_SPLASH_MIN_SECONDS" ]; then \
+                sleep $((BCM_SPLASH_MIN_SECONDS - i)); \
+            fi; \
+            sleep 3; \
             kill $MPV_PID 2>/dev/null; \
             exit 0; \
         fi; \
