@@ -15,4 +15,9 @@ for f in /sys/bus/usb/devices/*/power/wakeup; do
     echo disabled > "$f" 2>/dev/null
 done
 
+# Unbind LTE modem — it blocks suspend with "Failed to suspend device"
+for dev in /sys/bus/usb/drivers/cdc_ether/*/; do
+    [ -e "$dev" ] && echo "$(basename "$dev")" > /sys/bus/usb/drivers/cdc_ether/unbind 2>/dev/null
+done
+
 systemctl suspend
