@@ -3,8 +3,8 @@ Description=BCM Boot Splash — plays until dashboard is ready
 Documentation=https://github.com/geek95dg/Alfa156-headunit
 DefaultDependencies=no
 
-# Start early, before BCM stack. sound.target ensures ALSA cards are ready.
-After=systemd-vconsole-setup.service sound.target
+# Start early, before BCM stack
+After=systemd-vconsole-setup.service
 Before=multi-user.target bcm-ignition-watcher.service
 
 ConditionPathExists=/opt/bcm/assets/splash/main.mp4
