@@ -540,7 +540,7 @@ EOF
             "$BCM_DIR/config/bcm_config.yaml"
         # Add simulation: false under system: section
         if ! grep -q "simulation:" "$BCM_DIR/config/bcm_config.yaml"; then
-            sed -i '/^system:/,/^[^ ]/{/log_file:/a\  simulation: false}' \
+            sed -i '/^  log_file:/a\  simulation: false' \
                 "$BCM_DIR/config/bcm_config.yaml"
         else
             sed -i 's/^\(  simulation:\).*/\1 false/' \
