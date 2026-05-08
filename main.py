@@ -281,10 +281,9 @@ def main() -> None:
     # In --frontend mode: start web server + demo data, block main thread.
     # In Pygame mode: start Pygame renderer which blocks main thread.
     if dashboard_enabled:
-        # Always start demo data generators on x86
         demo = None
         demo_media = None
-        if config.platform == "x86":
+        if config.platform == "x86" and config.get("system.simulation", True):
             from src.dashboard.renderer import DemoDataGenerator
             from src.multimedia.bluetooth import DemoMediaGenerator
             demo = DemoDataGenerator(event_bus)

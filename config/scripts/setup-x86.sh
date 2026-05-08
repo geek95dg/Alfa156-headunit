@@ -33,7 +33,7 @@ SMALL_H=480
 WIFI_IFACE="wlp2s0"
 WIFI_SSID="ALFA_AA"
 WIFI_PASS="AlfaRomeo156"
-WIFI_CHANNEL="36"
+WIFI_CHANNEL="6"
 WIFI_COUNTRY="PL"
 # ─────────────────────────────────────────────────────────────────
 
@@ -469,16 +469,16 @@ EOF
 interface=$WIFI_IFACE
 driver=nl80211
 ssid=$WIFI_SSID
-hw_mode=a
+hw_mode=g
 channel=$WIFI_CHANNEL
 ieee80211n=1
-ieee80211ac=1
 wpa=2
 wpa_passphrase=$WIFI_PASS
 wpa_key_mgmt=WPA-PSK
 rsn_pairwise=CCMP
 wpa_pairwise=CCMP
 country_code=$WIFI_COUNTRY
+wmm_enabled=1
 EOF
 
     mkdir -p /etc/default
@@ -534,9 +534,18 @@ RestartSec=3
 EOF
 
     # Disable BCM's internal WiFi AP manager (conflicts with system hostapd)
+    # Disable simulation mode (no fake OBD/BT/GPS data on real hardware)
     if [ -f "$BCM_DIR/config/bcm_config.yaml" ]; then
         sed -i '/^wifi:/,/^[^ ]/{s/^\(  enabled:\) true/\1 false/}' \
             "$BCM_DIR/config/bcm_config.yaml"
+        # Add simulation: false under system: section
+        if ! grep -q "simulation:" "$BCM_DIR/config/bcm_config.yaml"; then
+            sed -i '/^system:/,/^[^ ]/{/log_file:/a\  simulation: false}' \
+                "$BCM_DIR/config/bcm_config.yaml"
+        else
+            sed -i 's/^\(  simulation:\).*/\1 false/' \
+                "$BCM_DIR/config/bcm_config.yaml"
+        fi
         if grep -A1 "^wifi:" "$BCM_DIR/config/bcm_config.yaml" | grep -q "enabled: true"; then
             warn "Could not patch wifi.enabled — edit bcm_config.yaml manually: set wifi.enabled to false"
         else
@@ -557,8 +566,8 @@ EOF
     if systemctl is-active --quiet hostapd; then
         echo -e "  ${GREEN}hostapd running${NC}"
     else
-        warn "hostapd failed — trying channel 36 fallback..."
-        sed -i 's/^channel=.*/channel=36/' /etc/hostapd/hostapd.conf
+        warn "hostapd failed — trying channel 1 fallback..."
+        sed -i 's/^channel=.*/channel=1/' /etc/hostapd/hostapd.conf
         systemctl restart hostapd 2>/dev/null || true
         sleep 2
         if systemctl is-active --quiet hostapd; then
