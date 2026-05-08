@@ -270,17 +270,28 @@ cp "$BCM_DIR/config/systemd/bcm-resume.service" /etc/systemd/system/
 
 systemctl mask bcm-kiosk.service 2>/dev/null || true
 
-# Override DRM connectors to match user's actual hardware
+# Override DRM connectors — translate xrandr names to DRM names
+# xrandr: HDMI-1 → DRM: HDMI-A-1, xrandr: DP-1 → DRM: DP-1 (same)
+drm_name() {
+    local name="$1"
+    case "$name" in
+        HDMI-[0-9]*) echo "HDMI-A-${name#HDMI-}" ;;
+        *) echo "$name" ;;
+    esac
+}
+DRM_MAIN=$(drm_name "$MAIN_OUTPUT")
+DRM_SMALL=$(drm_name "$SMALL_OUTPUT")
+
 mkdir -p /etc/systemd/system/bcm-splash-main.service.d
 cat > /etc/systemd/system/bcm-splash-main.service.d/connector.conf <<EOF
 [Service]
-Environment=BCM_SPLASH_DRM_MAIN=$MAIN_OUTPUT
+Environment=BCM_SPLASH_DRM_MAIN=$DRM_MAIN
 EOF
 
 mkdir -p /etc/systemd/system/bcm-splash-small.service.d
 cat > /etc/systemd/system/bcm-splash-small.service.d/connector.conf <<EOF
 [Service]
-Environment=BCM_SPLASH_DRM_SMALL=$SMALL_OUTPUT
+Environment=BCM_SPLASH_DRM_SMALL=$DRM_SMALL
 EOF
 
 systemctl daemon-reload
@@ -599,7 +610,7 @@ if [ -n "$LTE_IFACE" ]; then
 unmanaged-devices=interface-name:$LTE_IFACE
 EOF
 
-    # Bring up with DHCP via systemd-networkd or dhclient
+    # Bring up with DHCP via systemd-networkd
     mkdir -p /etc/systemd/network
     cat > /etc/systemd/network/50-lte.network <<EOF
 [Match]
@@ -611,7 +622,14 @@ DHCP=yes
 [DHCPv4]
 RouteMetric=700
 UseDNS=yes
+
+[Link]
+RequiredForOnline=no
 EOF
+
+    # Disable wait-online (was blocking boot for 2min waiting for LTE DHCP)
+    systemctl disable systemd-networkd-wait-online.service 2>/dev/null || true
+    systemctl mask systemd-networkd-wait-online.service 2>/dev/null || true
 
     systemctl enable systemd-networkd 2>/dev/null || true
     systemctl restart systemd-networkd 2>/dev/null || true
