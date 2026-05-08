@@ -301,6 +301,20 @@ const App = (() => {
         }
     }
 
+    // --- Global BT Pairing Monitor ---
+    function _startGlobalPairingPoll() {
+        setInterval(async () => {
+            try {
+                const res = await fetch("/bt/pairing");
+                const data = await res.json();
+                if (data.pending && data.request) {
+                    Settings._showPairingPopup(data.request);
+                    Settings._startPairingPoll();
+                }
+            } catch (e) {}
+        }, 2000);
+    }
+
     // --- Touch Swipe Navigation ---
     function _initTouchSwipe() {
         let startX = 0;
@@ -457,6 +471,9 @@ const App = (() => {
 
             // Init WebSocket
             DataStore.init();
+
+            // Global BT pairing monitor — checks for phone-initiated pairing
+            _startGlobalPairingPoll();
 
             // Listen for data updates
             DataStore.subscribe("*", onDataUpdate);
