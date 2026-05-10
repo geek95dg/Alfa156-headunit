@@ -312,6 +312,7 @@ def main() -> None:
                     bt_manager=bt_manager,
                     trip_computer=_tc,
                     route_planner=_rp,
+                    wifi_ap=wifi_ap,
                 )
                 web_viewer.start()
                 log.info("Main display started at http://localhost:5002")

@@ -53,7 +53,16 @@ const NavBar = (() => {
             </div>`;
         }).join("");
 
-        return `<nav class="w-full z-50 flex justify-around items-center h-12 ${barCls} border-t shrink-0">
+        // Autohiding floating navbar — anchored to the bottom of the
+        // viewport, hidden by translateY(100%) until the user swipes up
+        // from the bottom edge. App.showNavBar()/hideNavBar() toggle the
+        // .bcm-navbar-shown class. Floating so it doesn't steal vertical
+        // space from content-area on any screen.
+        return `<nav id="bcm-navbar"
+            class="bcm-navbar absolute bottom-0 left-0 right-0 z-50 flex justify-around items-center h-12 ${barCls} border-t"
+            ontouchstart="App.kickNavBar(true)"
+            onmouseenter="App.kickNavBar(true)"
+            onmouseleave="App.kickNavBar(false)">
             ${items}
             <div class="flex items-center justify-center text-zinc-600 w-12 h-12 cursor-pointer hover:text-zinc-400 transition-all"
                  title="Settings" onclick="App.navigateTo('settings')">

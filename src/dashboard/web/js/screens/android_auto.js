@@ -17,12 +17,13 @@ App.registerScreen("a2", (() => {
         const isUnavailable = aaStatus === "unavailable";
         const isRestarting = aaStatus === "restarting";
 
-        // Status badge for header
+        // Status badge — anchored to top edge directly (no AppBar above
+        // the canvas in fullscreen mode).
         let statusBadge = "";
         if (isFailed) {
-            statusBadge = `<div class="absolute top-16 left-1/2 -translate-x-1/2 z-20 bg-red-600/90 text-white text-xs font-bold px-4 py-1.5 rounded-full">AA Service Failed</div>`;
+            statusBadge = `<div class="absolute top-2 left-1/2 -translate-x-1/2 z-20 bg-red-600/90 text-white text-xs font-bold px-4 py-1.5 rounded-full">AA Service Failed</div>`;
         } else if (isRestarting) {
-            statusBadge = `<div class="absolute top-16 left-1/2 -translate-x-1/2 z-20 bg-amber-600/90 text-white text-xs font-bold px-4 py-1.5 rounded-full animate-pulse">Restarting...</div>`;
+            statusBadge = `<div class="absolute top-2 left-1/2 -translate-x-1/2 z-20 bg-amber-600/90 text-white text-xs font-bold px-4 py-1.5 rounded-full animate-pulse">Restarting...</div>`;
         }
 
         // Placeholder message varies by status
@@ -39,27 +40,36 @@ App.registerScreen("a2", (() => {
             placeholderIcon = "sync";
         }
 
+        // Fullscreen — no AppBar. The autohiding NavBar floats over the
+        // canvas, revealed by a swipe up from the bottom edge.
         container.innerHTML = `<div class="screen-container ${bgCls}">
-            ${AppBar.render(theme, data)}
             <main class="content-area relative overflow-hidden bg-black">
                 ${statusBadge}
-                <!-- AA Stream — Xvfb renders at exactly the content-area
-                     size (dashboard height − AppBar − NavBar) so
-                     object-fill maps it 1:1 without cropping or letterbox. -->
-                <img id="aa-stream" src="/aa/stream" alt=""
-                     class="absolute inset-0 w-full h-full object-fill z-0"
-                     style="display:none;"
-                     onload="this.style.display='block';document.getElementById('aa-placeholder').style.display='none';document.getElementById('aa-touch-overlay').style.display='block';"
-                     onerror="this.style.display='none';document.getElementById('aa-placeholder').style.display='flex';document.getElementById('aa-touch-overlay').style.display='none';">
+                <!-- AA Canvas fills the full BCM content area between
+                     AppBar and NavBar. AA can change resolution at
+                     runtime — _aa_canvas_size() gives autoapp the same
+                     dimensions we render into here, so 1 px on screen
+                     == 1 px in the Xvfb capture and touch coordinates
+                     map 1:1 with no letterboxing. -->
+                <div id="aa-canvas" class="absolute inset-0">
+                    <img id="aa-stream" src="/aa/stream" alt=""
+                         class="absolute inset-0 w-full h-full object-fill z-0"
+                         style="display:none;"
+                         onload="this.style.display='block';document.getElementById('aa-placeholder').style.display='none';document.getElementById('aa-touch-overlay').style.display='block';"
+                         onerror="this.style.display='none';document.getElementById('aa-placeholder').style.display='flex';document.getElementById('aa-touch-overlay').style.display='none';">
 
-                <!-- Touch overlay — captures clicks and forwards to OpenAuto -->
-                <div id="aa-touch-overlay" class="absolute inset-0 z-10"
-                     onclick="AATouch.click(event)"
-                     ontouchstart="AATouch.touch(event)"
-                     style="display:none;"></div>
+                    <!-- Touch overlay — same size as the canvas, no
+                         gutters to swallow taps. -->
+                    <div id="aa-touch-overlay" class="absolute inset-0 z-10"
+                         onclick="AATouch.click(event)"
+                         ontouchstart="AATouch.touch(event)"
+                         style="display:none;"></div>
+                </div>
 
-                <!-- Placeholder when AA not connected -->
-                <div id="aa-placeholder" class="flex flex-col items-center justify-center h-full gap-6">
+                <!-- Placeholder fills the full content-area when AA is not
+                     connected — intentional, so the offline state owns
+                     the whole panel and isn't letterboxed. -->
+                <div id="aa-placeholder" class="absolute inset-0 flex flex-col items-center justify-center gap-6">
                     <div class="relative">
                         <span class="material-symbols-outlined text-8xl opacity-20">android</span>
                         <div class="absolute -bottom-1 -right-1 w-6 h-6 rounded-full ${theme==='modern'?'bg-slate-300':'bg-zinc-700'} flex items-center justify-center">

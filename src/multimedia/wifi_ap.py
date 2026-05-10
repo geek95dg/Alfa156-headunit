@@ -221,15 +221,21 @@ class WiFiAPManager:
                 capture_output=True, timeout=5,
             )
 
-            # Create the hotspot
+            # Default to 2.4 GHz channel 6. The Intel 8265 firmware
+            # rejects every 5 GHz frequency under country=PL with
+            # "Frequency NNNN not allowed for AP mode, flags: NO-IR"
+            # — both UNII-3 ch149 and UNII-1 ch36/40/44/48 fail. 2.4 GHz
+            # ch1/6/11 always works and AA Wireless H.264 video runs
+            # fine over 802.11n 40 MHz on 2.4 GHz.
             channel = self._config.get("wifi.channel", 6)
+            band = self._config.get("wifi.band", "bg")
             result = subprocess.run(
                 [
                     "nmcli", "device", "wifi", "hotspot",
                     "ifname", self._interface,
                     "con-name", self._nm_conn_name,
                     "ssid", self._ssid,
-                    "band", "bg",
+                    "band", band,
                     "channel", str(channel),
                     "password", self._password,
                 ],
@@ -261,6 +267,8 @@ class WiFiAPManager:
             # Verify the AP is actually up
             time.sleep(1)
             if self._verify_ap_up():
+                if self._config.get("wifi.share_internet", True):
+                    self._enable_internet_sharing()
                 return True
 
             log.error("nmcli hotspot created but AP not broadcasting")
@@ -324,7 +332,85 @@ class WiFiAPManager:
             self._cleanup()
             return False
 
+        if self._config.get("wifi.share_internet", True):
+            self._enable_internet_sharing()
         return True
+
+    def _enable_internet_sharing(self) -> None:
+        """Turn the AP into an internet gateway by NAT'ing through any
+        non-AP uplink (LTE wwx*, eth*, usb0, etc.).
+
+        Without this the phone gets an IP from dnsmasq but every
+        outbound packet is dropped at the headunit because the kernel
+        doesn't forward by default and there's no MASQUERADE rule.
+        Best-effort: failures here don't tear down the AP — the user
+        still gets the AA data link, just no public internet.
+        """
+        # 1. Enable IPv4 forwarding (transient — stays until reboot)
+        try:
+            with open("/proc/sys/net/ipv4/ip_forward", "w") as f:
+                f.write("1\n")
+        except OSError as e:
+            log.warning("Could not enable IP forwarding: %s", e)
+            return
+
+        # 2. Find an uplink interface — anything that isn't us.
+        uplinks = []
+        try:
+            for iface in os.listdir("/sys/class/net"):
+                if iface in ("lo", self._interface):
+                    continue
+                # Prefer modem-style (ww*, wwan*) and ethernet up first
+                operstate_path = f"/sys/class/net/{iface}/operstate"
+                try:
+                    with open(operstate_path) as f:
+                        state = f.read().strip()
+                except OSError:
+                    state = ""
+                if state == "up":
+                    uplinks.append(iface)
+        except OSError:
+            pass
+
+        if not uplinks:
+            log.warning("WiFi AP: no uplink interface up — phone will get "
+                        "an IP but no internet")
+            return
+
+        log.info("WiFi AP: enabling NAT via uplinks: %s", ", ".join(uplinks))
+
+        # 3. Wire up iptables. -C check first so re-runs don't stack
+        # duplicate rules, and -I FORWARD goes at the top because the
+        # default Debian/NM FORWARD chain has a DROP near the end.
+        rules = []
+        for up in uplinks:
+            rules.append(["-t", "nat", "-A", "POSTROUTING",
+                          "-o", up, "-j", "MASQUERADE"])
+            rules.append(["-A", "FORWARD",
+                          "-i", up, "-o", self._interface,
+                          "-m", "state",
+                          "--state", "RELATED,ESTABLISHED",
+                          "-j", "ACCEPT"])
+            rules.append(["-A", "FORWARD",
+                          "-i", self._interface, "-o", up,
+                          "-j", "ACCEPT"])
+        for rule in rules:
+            try:
+                # Replace -A/-I with -C to test for the rule first
+                check = ["iptables"] + ["-C" if a == "-A" else a
+                                         for a in rule]
+                r = subprocess.run(check, capture_output=True, timeout=3)
+                if r.returncode == 0:
+                    continue   # already present
+                subprocess.run(["iptables"] + rule,
+                               capture_output=True, timeout=3, check=True)
+            except FileNotFoundError:
+                log.warning("iptables not installed — internet sharing "
+                            "disabled")
+                return
+            except subprocess.CalledProcessError as e:
+                log.warning("iptables rule failed: %s — %s",
+                            rule, (e.stderr or b"").decode(errors="replace"))
 
     def _stop_hostapd_mode(self) -> None:
         """Stop hostapd + dnsmasq and clean up."""
@@ -369,29 +455,53 @@ class WiFiAPManager:
             return False
 
     def _start_hostapd(self) -> bool:
-        """Generate hostapd config and start the daemon."""
-        channel = self._config.get("wifi.channel", 6)
+        """Generate hostapd config and start the daemon.
 
+        Verbatim from the user's tested known-good config for the M910q
+        Intel 7265 — extras like ieee80211d/wmm_enabled/macaddr_acl have
+        repeatedly broken broadcast on this card, while this exact set
+        comes up first try.
+        """
         config_path = os.path.join(RUNTIME_DIR, "hostapd.conf")
+        # Channel/band/country are sourced from wifi.* in the YAML so the
+        # BCM-internal AP path stays in sync with what setup-x86.sh wrote
+        # to /etc/hostapd/hostapd.conf — defaults are 2.4 GHz ch6,
+        # hw_mode=g, country=PL. The Intel 8265 firmware rejects every
+        # 5 GHz frequency under PL regdom (NO-IR), so 5 GHz isn't usable
+        # on this hardware regardless of how non-DFS the channel is.
+        channel = self._config.get("wifi.channel", 6)
+        hw_mode = self._config.get("wifi.band", "g")
+        country = self._config.get("wifi.country", "PL")
+        is_5ghz = hw_mode == "a"
         config_content = (
             f"interface={self._interface}\n"
             f"driver=nl80211\n"
             f"ssid={self._ssid}\n"
-            f"hw_mode=g\n"
+            f"hw_mode={hw_mode}\n"
             f"channel={channel}\n"
-            f"wmm_enabled=0\n"
-            f"macaddr_acl=0\n"
-            f"auth_algs=1\n"
-            f"ignore_broadcast_ssid=0\n"
+            f"ieee80211n=1\n"
+            f"{'ieee80211ac=1' if is_5ghz else '#ieee80211ac=1 (2.4 GHz)'}\n"
             f"wpa=2\n"
             f"wpa_passphrase={self._password}\n"
             f"wpa_key_mgmt=WPA-PSK\n"
-            f"wpa_pairwise=TKIP\n"
             f"rsn_pairwise=CCMP\n"
+            f"wpa_pairwise=CCMP\n"
+            f"country_code={country}\n"
         )
 
         with open(config_path, "w") as f:
             f.write(config_content)
+
+        # Unblock rfkill before hostapd — the radio comes up soft-blocked
+        # on the M910q at cold boot and hostapd reports rc=0 on a blocked
+        # interface, just never broadcasts.
+        try:
+            subprocess.run(["rfkill", "unblock", "wifi"],
+                           capture_output=True, timeout=3)
+            subprocess.run(["rfkill", "unblock", "all"],
+                           capture_output=True, timeout=3)
+        except Exception:
+            pass
 
         try:
             self._hostapd_proc = subprocess.Popen(

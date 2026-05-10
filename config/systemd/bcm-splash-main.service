@@ -1,62 +1,43 @@
 [Unit]
-Description=BCM Boot Splash — plays until dashboard is ready
+Description=BCM Boot Splash — drives both displays from one process
 Documentation=https://github.com/geek95dg/Alfa156-headunit
 DefaultDependencies=no
 
-# Start early, before BCM stack
-After=systemd-vconsole-setup.service
-Before=multi-user.target bcm-ignition-watcher.service
+# Run after udev settles (so /dev/dri/card0 exists) but before the BCM
+# headunit so the splash owns DRM master before mpv/X try to take it.
+# Earlier attempt put this Before=sysinit.target with DefaultDependencies=no —
+# that scheduled the unit so early that DRM wasn't yet attached and the
+# script silently exited, leaving a long black screen between grub and
+# xinit. Stay in the normal multi-user ordering and we get an mpv frame
+# within ≈1 s of card0 appearing on Lenovo M910q + OPi 5 Pro both.
+After=systemd-vconsole-setup.service systemd-udev-settle.service
+Before=multi-user.target bcm-ignition-watcher.service bcm-headunit.service
 
 ConditionPathExists=/opt/bcm/assets/splash/main.mp4
 
 [Service]
 Type=simple
 
-# DRM connector for the main display. Override per platform:
-#   M910q (DP-to-HDMI): HDMI-1 or HDMI-2
-#   OPi 5 Pro (2× HDMI): HDMI-A-1
-#   Override: systemctl edit bcm-splash-main → [Service] Environment=BCM_SPLASH_DRM_MAIN=HDMI-A-1
-Environment=BCM_SPLASH_DRM_MAIN=
-Environment=BCM_SPLASH_MIN_SECONDS=20
+# Connector names — override per platform via:
+#   systemctl edit bcm-splash-main → [Service] Environment=BCM_SPLASH_DRM_MAIN=HDMI-A-1
+# To find your connectors: ls /sys/class/drm/
+Environment=BCM_SPLASH_DRM_MAIN=HDMI-A-1
+Environment=BCM_SPLASH_DRM_SMALL=HDMI-A-2
+Environment=BCM_SPLASH_VIDEO=/opt/bcm/assets/splash/main.mp4
+# Splash now exits exactly when the kiosk is ready (App.init posts to
+# /api/ready). Keep the visible floor at 0 so users see BCM the moment
+# Chromium paints — no padding. Override to a positive number only if
+# you want the splash to linger for branding reasons.
+Environment=BCM_SPLASH_MIN_SECONDS=0
+Environment=BCM_SPLASH_READY_URL=http://localhost:5002/api/ready
+Environment=BCM_SPLASH_FALLBACK_URL=http://localhost:5002
 
-ExecStart=/bin/bash -c '\
-    MPV=$(command -v mpv 2>/dev/null); \
-    if [ -z "$MPV" ]; then exit 0; fi; \
-    DRM_ARG=""; \
-    [ -n "$BCM_SPLASH_DRM_MAIN" ] && DRM_ARG="--drm-connector=$BCM_SPLASH_DRM_MAIN"; \
-    for w in $(seq 1 50); do [ -e /dev/dri/card0 ] && break; sleep 0.2; done; \
-    if [ ! -e /dev/dri/card0 ]; then echo "DRM device not found after 10s"; exit 0; fi; \
-    echo "Splash: DRM ready, connector=$BCM_SPLASH_DRM_MAIN"; \
-    "$MPV" --fs --loop-file=inf \
-        --vo=drm \
-        --hwdec=auto \
-        $DRM_ARG \
-        --no-audio \
-        --input-conf=/dev/null \
-        --msg-level=all=warn \
-        /opt/bcm/assets/splash/main.mp4 & \
-    MPV_PID=$!; \
-    sleep 1; \
-    if ! kill -0 $MPV_PID 2>/dev/null; then \
-        echo "WARN: mpv exited — DRM output failed"; \
-        exit 0; \
-    fi; \
-    echo "Splash playing (pid=$MPV_PID), min ${BCM_SPLASH_MIN_SECONDS}s"; \
-    for i in $(seq 1 120); do \
-        if curl -sf http://localhost:5002 >/dev/null 2>&1; then \
-            if [ "$i" -lt "$BCM_SPLASH_MIN_SECONDS" ]; then \
-                sleep $((BCM_SPLASH_MIN_SECONDS - i)); \
-            fi; \
-            sleep 3; \
-            kill $MPV_PID 2>/dev/null; \
-            exit 0; \
-        fi; \
-        sleep 1; \
-    done; \
-    kill $MPV_PID 2>/dev/null; \
-    exit 0'
-
-ExecStop=/bin/bash -c 'pkill -f "mpv.*splash" 2>/dev/null; true'
+# Single helper process: mpv on the main connector via DRM. The small
+# connector is left to the kernel framebuffer / xinit handoff — the
+# previous dual-kmssink gst-launch path failed to publish frames on
+# baremetal and the user saw a black main screen for the whole boot.
+ExecStart=/usr/local/bin/bcm-splash-play.sh
+ExecStop=/bin/bash -c 'pkill -f bcm-splash-play.sh 2>/dev/null; pkill -f "mpv.*splash" 2>/dev/null; true'
 
 SuccessExitStatus=0 1
 Restart=no

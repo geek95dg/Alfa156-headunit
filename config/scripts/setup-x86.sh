@@ -29,12 +29,23 @@ MAIN_H=600
 SMALL_W=800
 SMALL_H=480
 
-# WiFi AP
+# WiFi AP — 2.4 GHz channel 6, country US.
+# 5 GHz is HARDWARE-blocked on the M910q's Intel 8265: `iw phy` lists
+# every 5 GHz channel as "(no IR)" regardless of regdom (`iw reg set US`,
+# kernel regdb, hostapd country_code= — none of them open it). Intel's
+# iwlwifi firmware self-manages regulatory data and refuses to *transmit*
+# in 5 GHz, so AP mode is firmware-locked off there. STA mode (joining
+# 5 GHz APs) still works fine — but we're the AP here.
+# 5 GHz AP would need different hardware (USB Realtek RTL88x2BU,
+# MediaTek MT7612U, or non-Intel mPCIe like Atheros AR9462).
+# 2.4 GHz ch6 with country=US works first try and is what the unit ships
+# with. AA Wireless H.264 video runs fine over 802.11n 40 MHz on 2.4 GHz.
 WIFI_IFACE="wlp2s0"
 WIFI_SSID="ALFA_AA"
 WIFI_PASS="AlfaRomeo156"
 WIFI_CHANNEL="6"
-WIFI_COUNTRY="PL"
+WIFI_HW_MODE="g"
+WIFI_COUNTRY="US"
 # ─────────────────────────────────────────────────────────────────
 
 RED='\033[0;31m'
@@ -129,7 +140,9 @@ apt-get install -y -qq \
     unclutter chromium \
     intel-media-va-driver vainfo libva-drm2 \
     pipewire pipewire-pulse wireplumber alsa-utils mpv \
-    firmware-iwlwifi bluez bluez-tools network-manager modemmanager hostapd dnsmasq iw wireless-tools \
+    gstreamer1.0-tools gstreamer1.0-plugins-base gstreamer1.0-plugins-good \
+    gstreamer1.0-plugins-bad gstreamer1.0-libav \
+    firmware-iwlwifi bluez bluez-tools rfkill network-manager modemmanager hostapd dnsmasq iw wireless-tools \
     ffmpeg v4l-utils \
     acpid \
     zram-tools \
@@ -273,6 +286,10 @@ cp "$BCM_DIR/config/systemd/bcm-splash-main.service" /etc/systemd/system/
 cp "$BCM_DIR/config/systemd/bcm-splash-small.service" /etc/systemd/system/
 cp "$BCM_DIR/config/systemd/bcm-resume.service" /etc/systemd/system/
 
+# Splash player helper — single process drives both connectors via
+# gst-launch + two kmssinks (one DRM master, no race).
+install -m 0755 "$BCM_DIR/config/scripts/bcm-splash-play.sh" /usr/local/bin/bcm-splash-play.sh
+
 systemctl mask bcm-kiosk.service 2>/dev/null || true
 
 # Override DRM connectors — translate xrandr names to DRM names
@@ -287,20 +304,23 @@ drm_name() {
 DRM_MAIN=$(drm_name "$MAIN_OUTPUT")
 DRM_SMALL=$(drm_name "$SMALL_OUTPUT")
 
+# bcm-splash-main now owns both displays (gst tee → two kmssinks), so
+# we feed it both connector names. bcm-splash-small is left disabled
+# to avoid a second process fighting for DRM master.
 mkdir -p /etc/systemd/system/bcm-splash-main.service.d
 cat > /etc/systemd/system/bcm-splash-main.service.d/connector.conf <<EOF
 [Service]
 Environment=BCM_SPLASH_DRM_MAIN=$DRM_MAIN
-EOF
-
-mkdir -p /etc/systemd/system/bcm-splash-small.service.d
-cat > /etc/systemd/system/bcm-splash-small.service.d/connector.conf <<EOF
-[Service]
 Environment=BCM_SPLASH_DRM_SMALL=$DRM_SMALL
 EOF
 
+# Keep the unit file installed for reference but make sure it doesn't
+# auto-start (legacy enable from previous setups must be cleared).
+systemctl disable bcm-splash-small 2>/dev/null || true
+rm -f /etc/systemd/system/multi-user.target.wants/bcm-splash-small.service
+
 systemctl daemon-reload
-systemctl enable bcm-ignition-watcher bcm-splash-main bcm-splash-small bcm-resume
+systemctl enable bcm-ignition-watcher bcm-splash-main bcm-resume
 ok
 
 # ─── Phase 6: Kiosk (autologin + X + xinitrc) ────────────────────
@@ -491,22 +511,27 @@ else
 unmanaged-devices=interface-name:$WIFI_IFACE
 EOF
 
-    # hostapd
+    # hostapd — 2.4 GHz ch6, country=US. ieee80211ac is omitted because
+    # we're not on 5 GHz (Intel 8265 firmware blocks 5 GHz AP entirely;
+    # see the WIFI_* comment block at the top of this script). The
+    # remaining ieee80211n + ht_capab gives us 802.11n 40 MHz on 2.4 GHz
+    # which is what AA Wireless H.264 video needs.
     mkdir -p /etc/hostapd
     cat > /etc/hostapd/hostapd.conf <<EOF
 interface=$WIFI_IFACE
 driver=nl80211
 ssid=$WIFI_SSID
-hw_mode=g
+hw_mode=$WIFI_HW_MODE
 channel=$WIFI_CHANNEL
+country_code=$WIFI_COUNTRY
+ieee80211d=1
 ieee80211n=1
+ht_capab=[HT40+][SHORT-GI-20][SHORT-GI-40][DSSS_CCK-40]
+wmm_enabled=1
 wpa=2
 wpa_passphrase=$WIFI_PASS
 wpa_key_mgmt=WPA-PSK
 rsn_pairwise=CCMP
-wpa_pairwise=CCMP
-country_code=$WIFI_COUNTRY
-wmm_enabled=1
 EOF
 
     mkdir -p /etc/default
@@ -531,15 +556,11 @@ iface $WIFI_IFACE inet static
     netmask 255.255.255.0
 EOF
 
-    # Set regulatory domain (required for 5GHz channels like 149)
-    iw reg set "$WIFI_COUNTRY" 2>/dev/null || true
-    mkdir -p /etc/modprobe.d
-    echo "options cfg80211 ieee80211_regdom=$WIFI_COUNTRY" > /etc/modprobe.d/bcm-wifi-regdom.conf
-    if [ -f /etc/default/crda ]; then
-        sed -i "s/^REGDOMAIN=.*/REGDOMAIN=$WIFI_COUNTRY/" /etc/default/crda
-    else
-        echo "REGDOMAIN=$WIFI_COUNTRY" > /etc/default/crda
-    fi
+    # rfkill unblock — the WiFi card ships soft-blocked on first boot
+    # of the M910q (same as BT). hostapd start succeeds rc=0 on a
+    # blocked radio but the AP never actually broadcasts.
+    rfkill unblock all 2>/dev/null || true
+    rfkill unblock wifi 2>/dev/null || true
 
     # Apply now
     ip addr flush dev "$WIFI_IFACE" 2>/dev/null || true
@@ -594,16 +615,104 @@ EOF
     if systemctl is-active --quiet hostapd; then
         echo -e "  ${GREEN}hostapd running${NC}"
     else
-        warn "hostapd failed — trying channel 1 fallback..."
-        sed -i 's/^channel=.*/channel=1/' /etc/hostapd/hostapd.conf
-        systemctl restart hostapd 2>/dev/null || true
-        sleep 2
-        if systemctl is-active --quiet hostapd; then
-            echo -e "  ${GREEN}hostapd running (ch36 fallback)${NC}"
-        else
-            warn "hostapd still failing — check: sudo journalctl -u hostapd -n 20"
-        fi
+        # Don't try to "fix" the config by rewriting it — this exact
+        # config is the user's tested known-good. If it didn't come up,
+        # it's almost always rfkill or a busy interface. Tell the
+        # operator and move on; systemd will retry on next boot.
+        warn "hostapd not yet active — check: rfkill list, ip link show $WIFI_IFACE"
+        warn "and: sudo journalctl -u hostapd -n 20"
     fi
+
+    # ─── Internet sharing — NAT outbound traffic from AP via uplink ──
+    # IPv4 forwarding + MASQUERADE so phones connected to the AP can
+    # reach the internet through whatever uplink is up (LTE wwx*,
+    # ethernet, etc.). Persists across reboots via sysctl + a small
+    # bcm-nat oneshot.
+    sed -i 's/^[#[:space:]]*net\.ipv4\.ip_forward.*/net.ipv4.ip_forward=1/' \
+        /etc/sysctl.conf 2>/dev/null || true
+    grep -q '^net.ipv4.ip_forward=1' /etc/sysctl.conf 2>/dev/null \
+        || echo 'net.ipv4.ip_forward=1' >> /etc/sysctl.conf
+    sysctl -w net.ipv4.ip_forward=1 >/dev/null 2>&1 || true
+
+    # Persistent NAT helper. iptables rules don't survive reboot on
+    # Debian by default; this oneshot reapplies them after the AP iface
+    # comes up.
+    cat > /usr/local/bin/bcm-nat.sh <<'NATEOF'
+#!/bin/bash
+# Apply MASQUERADE + FORWARD rules between the BCM AP iface and any
+# uplink that's up. Idempotent — checks before adding.
+set -u
+AP_IFACE="${AP_IFACE:-wlp2s0}"
+log() { logger -t bcm-nat "$*"; echo "[bcm-nat] $*"; }
+[ -d "/sys/class/net/$AP_IFACE" ] || { log "AP iface $AP_IFACE missing"; exit 0; }
+sysctl -w net.ipv4.ip_forward=1 >/dev/null 2>&1 || true
+for up in $(ls /sys/class/net); do
+    [ "$up" = "lo" ] && continue
+    [ "$up" = "$AP_IFACE" ] && continue
+    state=$(cat "/sys/class/net/$up/operstate" 2>/dev/null || echo down)
+    [ "$state" = "up" ] || continue
+    iptables -t nat -C POSTROUTING -o "$up" -j MASQUERADE 2>/dev/null \
+        || iptables -t nat -A POSTROUTING -o "$up" -j MASQUERADE
+    iptables -C FORWARD -i "$up" -o "$AP_IFACE" -m state \
+        --state RELATED,ESTABLISHED -j ACCEPT 2>/dev/null \
+        || iptables -A FORWARD -i "$up" -o "$AP_IFACE" -m state \
+                  --state RELATED,ESTABLISHED -j ACCEPT
+    iptables -C FORWARD -i "$AP_IFACE" -o "$up" -j ACCEPT 2>/dev/null \
+        || iptables -A FORWARD -i "$AP_IFACE" -o "$up" -j ACCEPT
+    log "NAT enabled: $AP_IFACE -> $up"
+done
+exit 0
+NATEOF
+    chmod +x /usr/local/bin/bcm-nat.sh
+
+    cat > /etc/systemd/system/bcm-nat.service <<EOF
+[Unit]
+Description=BCM — NAT internet sharing from AP via uplink
+After=hostapd.service network-online.target bcm-lte.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+Environment=AP_IFACE=$WIFI_IFACE
+ExecStart=/usr/local/bin/bcm-nat.sh
+TimeoutStartSec=20
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+    # Late retry — if an uplink (LTE wwx*) appears AFTER bcm-nat.service
+    # has finished, a tiny timer re-runs the script once. Done as a timer
+    # so it doesn't block boot the way ExecStartPost+sleep30 did
+    # (systemd-analyze blame had bcm-nat.service at 30s on every boot).
+    cat > /etc/systemd/system/bcm-nat-late.service <<EOF
+[Unit]
+Description=BCM — re-apply NAT once uplink has settled
+After=bcm-nat.service
+
+[Service]
+Type=oneshot
+Environment=AP_IFACE=$WIFI_IFACE
+ExecStart=/usr/local/bin/bcm-nat.sh
+EOF
+    cat > /etc/systemd/system/bcm-nat-late.timer <<EOF
+[Unit]
+Description=BCM — fire bcm-nat once 30 s after boot
+
+[Timer]
+OnBootSec=30s
+Unit=bcm-nat-late.service
+
+[Install]
+WantedBy=timers.target
+EOF
+    systemctl daemon-reload
+    systemctl enable bcm-nat.service 2>/dev/null || true
+    systemctl enable bcm-nat-late.timer 2>/dev/null || true
+    systemctl restart bcm-nat.service 2>/dev/null || true
+    systemctl start bcm-nat-late.timer 2>/dev/null || true
+
     ok
 fi
 
@@ -706,8 +815,10 @@ chown -R "$BCM_USER:$BCM_USER" "$BCM_DIR"
 # Without AlwaysPairable=true, BlueZ drops Pairable to false shortly
 # after every set, so phones can't initiate pairing reliably.
 if [ -f /etc/bluetooth/main.conf ]; then
-    # Ensure [General] keys: DiscoverableTimeout=0, PairableTimeout=0, AlwaysPairable=true
-    for kv in "DiscoverableTimeout=0" "PairableTimeout=0" "AlwaysPairable=true"; do
+    # Ensure [General] keys: Class=0x620420 (AV/Carkit + Audio/Telephony/
+    # Networking — phones use this to pick the carkit pairing flow),
+    # DiscoverableTimeout=0, PairableTimeout=0, AlwaysPairable=true.
+    for kv in "Class=0x620420" "DiscoverableTimeout=0" "PairableTimeout=0" "AlwaysPairable=true"; do
         key=${kv%%=*}
         if grep -qE "^[#[:space:]]*${key}[[:space:]]*=" /etc/bluetooth/main.conf; then
             sed -i "s|^[#[:space:]]*${key}[[:space:]]*=.*|${kv}|" /etc/bluetooth/main.conf
@@ -724,6 +835,7 @@ else
     mkdir -p /etc/bluetooth
     cat > /etc/bluetooth/main.conf <<EOF
 [General]
+Class=0x620420
 DiscoverableTimeout=0
 PairableTimeout=0
 AlwaysPairable=true
@@ -733,12 +845,30 @@ AutoEnable=true
 EOF
 fi
 
+# A2DP / HFP profile registration needs PipeWire's bluez5 SPA plugin —
+# without it bluetoothd answers `Protocol not available` to every A2DP
+# connect attempt and pairing handshakes get dropped before the audio
+# profile completes. pipewire-audio pulls in the right defaults for
+# headset routing.
+apt-get install -y libspa-0.2-bluetooth pipewire-audio rfkill iw 2>/dev/null || true
+
 # Enable Bluetooth (needed for AA wireless pairing)
 cp "$BCM_DIR/config/scripts/bcm-bluetooth-setup.sh" /usr/local/bin/
 chmod +x /usr/local/bin/bcm-bluetooth-setup.sh
 cp "$BCM_DIR/config/systemd/bcm-bluetooth.service" /etc/systemd/system/
+
+# Persist BT rfkill unblock across boots — without this many baremetal
+# boards (M910q, OPi 5 Pro) come up with bluetooth soft-blocked even
+# though bluetooth.service is enabled, and the BCM "BT" toggle has
+# nothing to talk to. systemd-rfkill restores the saved state on
+# subsequent boots once we set it once now.
+if command -v rfkill >/dev/null 2>&1; then
+    rfkill unblock bluetooth 2>/dev/null || true
+fi
+
 systemctl daemon-reload
 systemctl enable bluetooth bcm-bluetooth 2>/dev/null || true
+systemctl enable systemd-rfkill 2>/dev/null || true
 # Restart bluetooth so the new main.conf defaults (AlwaysPairable etc.)
 # take effect before bcm-bluetooth applies adapter-level settings.
 systemctl restart bluetooth 2>/dev/null || true

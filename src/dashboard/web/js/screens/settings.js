@@ -13,6 +13,142 @@ const Settings = {
     _swcActions: [],
     _swcLearning: null,
     _swcLearnTimer: null,
+    _radio: { bt: { available: false, powered: false },
+              wifi: { available: false, running: false, ssid: "" } },
+    _radioBusy: false,
+    // Editable Android Auto wireless / Wi-Fi AP credentials. Loaded
+    // from /api/wifi/config on first render of the AA Wireless card.
+    _wifi: { ssid: "", password: "", channel: 6,
+             loaded: false, saving: false, showPwd: false,
+             restartRequired: false, status: "" },
+
+    async radioRefresh() {
+        try {
+            const res = await fetch("/api/radio/status");
+            Settings._radio = await res.json();
+        } catch (e) { /* keep last known state */ }
+    },
+
+    async toggleBT() {
+        if (Settings._radioBusy) return;
+        Settings._radioBusy = true;
+        const next = !Settings._radio.bt.powered;
+        // Optimistic UI flip so the toggle visibly responds while the
+        // backend works (rfkill + bluetoothctl can take ~1s).
+        Settings._radio.bt.powered = next;
+        App.navigateTo("settings");
+        try {
+            const res = await fetch("/api/radio/bt", {
+                method: "POST",
+                headers: {"Content-Type": "application/json"},
+                body: JSON.stringify({enabled: next}),
+            });
+            const d = await res.json();
+            Settings._radio.bt.powered = !!d.powered;
+        } catch (e) {
+            Settings._radio.bt.powered = !next;
+        }
+        Settings._radioBusy = false;
+        await Settings.radioRefresh();
+        App.navigateTo("settings");
+    },
+
+    async toggleWiFi() {
+        if (Settings._radioBusy) return;
+        Settings._radioBusy = true;
+        const next = !Settings._radio.wifi.running;
+        Settings._radio.wifi.running = next;
+        App.navigateTo("settings");
+        try {
+            const res = await fetch("/api/radio/wifi", {
+                method: "POST",
+                headers: {"Content-Type": "application/json"},
+                body: JSON.stringify({enabled: next}),
+            });
+            const d = await res.json();
+            Settings._radio.wifi.running = !!d.running;
+        } catch (e) {
+            Settings._radio.wifi.running = !next;
+        }
+        Settings._radioBusy = false;
+        // Toggling resolves any pending "restart needed" state.
+        Settings._wifi.restartRequired = false;
+        await Settings.radioRefresh();
+        App.navigateTo("settings");
+    },
+
+    async wifiLoad() {
+        if (Settings._wifi.loaded) return;
+        try {
+            const res = await fetch("/api/wifi/config");
+            if (!res.ok) return;
+            const d = await res.json();
+            Settings._wifi.ssid = d.ssid || "";
+            Settings._wifi.password = d.password || "";
+            Settings._wifi.channel = d.channel || 6;
+            Settings._wifi.loaded = true;
+            App.navigateTo("settings");
+        } catch (e) {}
+    },
+
+    wifiUpdate(field, value) {
+        if (field === "channel") {
+            const n = parseInt(value, 10);
+            Settings._wifi.channel = Number.isFinite(n) ? n : value;
+        } else {
+            Settings._wifi[field] = value;
+        }
+    },
+
+    wifiTogglePwd() {
+        Settings._wifi.showPwd = !Settings._wifi.showPwd;
+        App.navigateTo("settings");
+    },
+
+    async wifiSave() {
+        const ssid = (Settings._wifi.ssid || "").trim();
+        const pwd = Settings._wifi.password || "";
+        const ch = parseInt(Settings._wifi.channel, 10);
+        if (!ssid || ssid.length > 32) {
+            Settings._wifi.status = "SSID required (1-32 chars)";
+            App.navigateTo("settings");
+            return;
+        }
+        if (pwd.length < 8 || pwd.length > 63) {
+            Settings._wifi.status = "Password must be 8-63 chars";
+            App.navigateTo("settings");
+            return;
+        }
+        if (!Number.isFinite(ch) || ch < 1 || ch > 13) {
+            Settings._wifi.status = "Channel must be 1-13";
+            App.navigateTo("settings");
+            return;
+        }
+        Settings._wifi.saving = true;
+        Settings._wifi.status = "";
+        App.navigateTo("settings");
+        try {
+            const res = await fetch("/api/wifi/config", {
+                method: "POST",
+                headers: {"Content-Type": "application/json"},
+                body: JSON.stringify({ssid, password: pwd, channel: ch}),
+            });
+            const d = await res.json();
+            if (d.ok === false || d.error) {
+                Settings._wifi.status = d.error || "Save failed";
+            } else {
+                Settings._wifi.restartRequired = !!d.restart_required;
+                Settings._wifi.status = d.restart_required
+                    ? "Saved — toggle Wi-Fi AP to apply"
+                    : "Saved";
+            }
+        } catch (e) {
+            Settings._wifi.status = "Save failed (network)";
+        }
+        Settings._wifi.saving = false;
+        await Settings.radioRefresh();
+        App.navigateTo("settings");
+    },
 
     async setUnit(type, value) {
         const body = {};
@@ -25,35 +161,48 @@ const Settings = {
     },
 
     async btMakeDiscoverable() {
-        try { await fetch("/bt/discoverable", { method: "POST" }); } catch (e) {}
+        try {
+            await fetch("/bt/discoverable", { method: "POST" });
+        } catch (e) {}
+        await Settings.btRefresh();
     },
 
     async btScan() {
         Settings._btScanning = true;
         App.navigateTo("settings");
-        try { await fetch("/bt/scan", { method: "POST" }); } catch (e) {}
+        try {
+            await fetch("/bt/scan", { method: "POST" });
+        } catch (e) {}
+        // Server-side scan runs ~15 s; refresh once at 10 s for early
+        // discovered devices and again at 16 s to clear the spinner.
         setTimeout(() => Settings.btRefresh(), 10000);
         setTimeout(() => Settings.btRefresh(), 16000);
     },
 
     async btConnect(addr) {
-        Settings._startPairingPoll();
-        fetch(`/bt/connect/${addr}`, { method: "POST" })
-            .then(() => Settings.btRefresh())
-            .catch(() => {});
+        try {
+            await fetch(`/bt/connect/${addr}`, { method: "POST" });
+        } catch (e) {}
+        await Settings.btRefresh();
     },
 
     async btDisconnect() {
-        try { await fetch("/bt/disconnect", { method: "POST" }); } catch (e) {}
-        setTimeout(() => Settings.btRefresh(), 1000);
+        try {
+            await fetch("/bt/disconnect", { method: "POST" });
+        } catch (e) {}
+        await Settings.btRefresh();
     },
 
     async btPair(addr) {
         console.log("[BT] Pairing:", addr);
         Settings._startPairingPoll();
-        fetch(`/bt/pair/${addr}`, { method: "POST" })
-            .then(() => { console.log("[BT] Pair request completed"); Settings.btRefresh(); })
-            .catch((e) => { console.error("[BT] Pair request failed:", e); });
+        try {
+            await fetch(`/bt/pair/${addr}`, { method: "POST" });
+            console.log("[BT] Pair request completed");
+        } catch (e) {
+            console.error("[BT] Pair request failed:", e);
+        }
+        await Settings.btRefresh();
     },
 
     _pairingPopupVisible: false,
@@ -213,12 +362,24 @@ const Settings = {
 };
 
 App.registerScreen("settings", (() => {
+    let _radioFetchedAt = 0;
     function render(container, theme, data) {
         const config = App.getConfig();
         const t = App.t.bind(App);
         const paired = Settings._btPaired;
         const discovered = Settings._btDiscovered;
         const scanning = Settings._btScanning;
+
+        // Refresh radio status (BT power + WiFi AP) at most once every
+        // 3s while the user is poking at settings — guarantees the
+        // toggles reflect reality after rfkill/systemctl side-effects
+        // settle without spamming the API on every keystroke re-render.
+        const now = Date.now();
+        if (now - _radioFetchedAt > 3000) {
+            _radioFetchedAt = now;
+            Settings.radioRefresh().then(() => App.navigateTo("settings"));
+        }
+        Settings.wifiLoad();
 
         container.innerHTML = `<div class="screen-container" style="background:var(--color-surface);color:var(--color-on-surface)">
             ${AppBar.render(theme, data)}
@@ -259,16 +420,50 @@ App.registerScreen("settings", (() => {
                                 </div>
                             </div>
                         </div>
-                        <!-- WiFi AP -->
+                        <!-- Android Auto Wireless / Wi-Fi AP credentials -->
                         <div class="rounded-xl p-3" style="background:var(--card-bg);border:1px solid var(--card-border)">
-                            <p class="text-[10px] font-bold uppercase tracking-wider mb-2" style="color:var(--text-dim)">WiFi AP</p>
-                            <div class="flex items-center justify-between">
-                                <div>
-                                    <p class="text-sm font-bold">SSID: <span style="color:var(--text-mid)">ALFA</span></p>
-                                    <p class="text-[10px]" style="color:var(--text-dim)">Android Auto wireless link</p>
+                            <p class="text-[10px] font-bold uppercase tracking-wider mb-2" style="color:var(--text-dim)">${t("aa_wireless","Android Auto Wireless")}</p>
+                            <div class="space-y-2">
+                                <div class="flex items-center gap-2">
+                                    <label class="text-[9px] uppercase w-16" style="color:var(--text-dim)">SSID</label>
+                                    <input type="text" maxlength="32" value="${_attrEsc(Settings._wifi.ssid)}"
+                                        onfocus="OnScreenKeyboard.attach(this)"
+                                        oninput="Settings.wifiUpdate('ssid', this.value)"
+                                        class="flex-1 px-2 py-1 rounded text-xs"
+                                        style="background:var(--color-surface);color:var(--text-primary);border:1px solid var(--card-border)">
                                 </div>
-                                <div class="w-10 h-6 bg-green-600 rounded-full flex items-center justify-end px-0.5 cursor-pointer">
-                                    <div class="w-5 h-5 bg-white rounded-full"></div>
+                                <div class="flex items-center gap-2">
+                                    <label class="text-[9px] uppercase w-16" style="color:var(--text-dim)">${t("password","Password")}</label>
+                                    <input type="${Settings._wifi.showPwd ? 'text' : 'password'}" maxlength="63" value="${_attrEsc(Settings._wifi.password)}"
+                                        onfocus="OnScreenKeyboard.attach(this)"
+                                        oninput="Settings.wifiUpdate('password', this.value)"
+                                        class="flex-1 px-2 py-1 rounded text-xs"
+                                        style="background:var(--color-surface);color:var(--text-primary);border:1px solid var(--card-border)">
+                                    <button onclick="Settings.wifiTogglePwd()"
+                                        class="px-2 py-1 text-[9px] font-bold rounded"
+                                        style="background:var(--card-border);color:var(--text-mid)">${Settings._wifi.showPwd ? t("hide","Hide") : t("show","Show")}</button>
+                                </div>
+                                <div class="flex items-center gap-2">
+                                    <label class="text-[9px] uppercase w-16" style="color:var(--text-dim)">${t("channel","Channel")}</label>
+                                    <input type="number" min="1" max="13" value="${Settings._wifi.channel}"
+                                        oninput="Settings.wifiUpdate('channel', this.value)"
+                                        class="w-16 px-2 py-1 rounded text-xs"
+                                        style="background:var(--color-surface);color:var(--text-primary);border:1px solid var(--card-border)">
+                                    <span class="text-[9px]" style="color:var(--text-dim)">2.4 GHz</span>
+                                    <button onclick="Settings.wifiSave()"
+                                        ${Settings._wifi.saving ? 'disabled' : ''}
+                                        class="ml-auto px-3 py-1 bg-green-600 text-white text-[10px] font-bold rounded hover:bg-green-500 ${Settings._wifi.saving ? 'opacity-50 cursor-not-allowed' : ''}">${Settings._wifi.saving ? t("saving","Saving...") : t("save","Save")}</button>
+                                </div>
+                                ${Settings._wifi.status ? `<p class="text-[10px]" style="color:var(--text-mid)">${Settings._wifi.status}</p>` : ""}
+                                <div class="flex items-center justify-between pt-2" style="border-top:1px solid var(--card-border)">
+                                    <p class="text-[10px]" style="color:var(--text-dim)">${
+                                        Settings._wifi.restartRequired
+                                            ? t("wifi_restart_needed","Toggle Wi-Fi AP to apply new credentials")
+                                            : (Settings._radio.wifi && Settings._radio.wifi.running
+                                                ? t("wifi_ap_on","On — phones can connect")
+                                                : t("wifi_ap_off","Off — phones can't connect"))
+                                    }</p>
+                                    ${_toggle(Settings._radio.wifi && Settings._radio.wifi.running, "Settings.toggleWiFi()")}
                                 </div>
                             </div>
                         </div>
@@ -276,16 +471,19 @@ App.registerScreen("settings", (() => {
                     <!-- Right column: Bluetooth -->
                     <div class="rounded-xl p-3 flex flex-col" style="background:var(--card-bg);border:1px solid var(--card-border)">
                         <div class="flex justify-between items-center mb-2">
-                            <p class="text-[10px] font-bold uppercase tracking-wider" style="color:var(--text-dim)">Bluetooth</p>
+                            <div class="flex items-center gap-2">
+                                <p class="text-[10px] font-bold uppercase tracking-wider" style="color:var(--text-dim)">Bluetooth</p>
+                                ${_toggle(Settings._radio.bt && Settings._radio.bt.powered, "Settings.toggleBT()")}
+                            </div>
                             <div class="flex gap-1">
-                                <button class="text-[9px] font-bold px-2 py-1 rounded hover:opacity-80"
+                                <button class="text-[9px] font-bold px-2 py-1 rounded hover:opacity-80 ${(Settings._radio.bt && Settings._radio.bt.powered) ? '' : 'opacity-50 cursor-not-allowed'}"
                                         style="background:var(--card-border);color:var(--text-mid)"
-                                        onclick="Settings.btMakeDiscoverable()">
+                                        ${(Settings._radio.bt && Settings._radio.bt.powered) ? 'onclick="Settings.btMakeDiscoverable()"' : 'disabled'}>
                                     ${t("bt_discoverable","Discoverable")}
                                 </button>
-                                <button class="text-[9px] font-bold px-2 py-1 rounded hover:opacity-80"
+                                <button class="text-[9px] font-bold px-2 py-1 rounded hover:opacity-80 ${(Settings._radio.bt && Settings._radio.bt.powered) ? '' : 'opacity-50 cursor-not-allowed'}"
                                         style="background:var(--card-border);color:var(--text-mid)"
-                                        onclick="Settings.btScan()">
+                                        ${(Settings._radio.bt && Settings._radio.bt.powered) ? 'onclick="Settings.btScan()"' : 'disabled'}>
                                     ${scanning ? `<span class="animate-pulse">${t("bt_scanning","Scanning...")}</span>` : t("bt_scan", "Scan")}
                                 </button>
                             </div>
@@ -426,6 +624,35 @@ App.registerScreen("settings", (() => {
         }
         html += '</tbody></table>';
         return html;
+    }
+
+    function _attrEsc(s) {
+        // Minimal HTML attribute escape — SSID/password come from the
+        // user but are re-emitted as `value="..."` attributes via a
+        // template literal, so unescaped quotes/ampersands would break
+        // out of the attribute.
+        return String(s == null ? "" : s)
+            .replace(/&/g, "&amp;")
+            .replace(/"/g, "&quot;")
+            .replace(/</g, "&lt;")
+            .replace(/>/g, "&gt;");
+    }
+
+    function _toggle(on, onclick) {
+        // Tailwind-styled iOS-like switch. The `data-on` attribute is
+        // just a hook for tests / accessibility — the visual state is
+        // driven by class swaps and the click handler is wired so the
+        // toggle actually does something on baremetal.
+        const wrap = on
+            ? "background:#16a34a"   // green-600
+            : "background:var(--card-border)";
+        const knob = on ? "translate-x-4" : "translate-x-0";
+        return `<button type="button" data-on="${on ? '1' : '0'}"
+            class="relative inline-flex w-10 h-6 rounded-full p-0.5 transition-colors"
+            style="${wrap}"
+            onclick="${onclick}">
+            <span class="block w-5 h-5 bg-white rounded-full transform transition-transform ${knob}"></span>
+        </button>`;
     }
 
     function _themeBtn(v, label, current) {

@@ -10,7 +10,10 @@ Type=oneshot
 EnvironmentFile=-/etc/bcm/lte.conf
 ExecStart=/usr/local/bin/bcm-lte-up.sh
 RemainAfterExit=yes
-TimeoutStartSec=90
+# Script forks the actual `nmcli con up` into the background and returns
+# in seconds — keep a small timeout so a stuck `nmcli con modify` can't
+# stall multi-user.target. Previous 90s timeout was the boot bottleneck.
+TimeoutStartSec=20
 
 [Install]
 WantedBy=multi-user.target
