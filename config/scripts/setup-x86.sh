@@ -134,6 +134,7 @@ apt-get update -qq
 
 apt-get install -y -qq \
     python3 python3-venv python3-full python3-dev python3-serial \
+    python3-dbus python3-gi \
     git curl wget \
     xserver-xorg xinit x11-xserver-utils xinput xdotool \
     xvfb matchbox-window-manager \
@@ -142,7 +143,7 @@ apt-get install -y -qq \
     pipewire pipewire-pulse wireplumber alsa-utils mpv \
     gstreamer1.0-tools gstreamer1.0-plugins-base gstreamer1.0-plugins-good \
     gstreamer1.0-plugins-bad gstreamer1.0-libav \
-    firmware-iwlwifi bluez bluez-tools rfkill network-manager modemmanager hostapd dnsmasq iw wireless-tools \
+    firmware-iwlwifi bluez bluez-tools rfkill network-manager modemmanager hostapd dnsmasq iw wireless-tools iptables \
     ffmpeg v4l-utils \
     acpid \
     zram-tools \
@@ -176,11 +177,17 @@ fi
 
 echo "  Using: $PYTHON_BIN ($(${PYTHON_BIN} --version 2>&1))"
 
-# Create venv as the BCM user, not as root
-su - "$BCM_USER" -c "cd $BCM_DIR && $PYTHON_BIN -m venv .venv" || {
+# Create venv as the BCM user, not as root.
+# --system-site-packages is required for python3-dbus + python3-gi:
+# the BlueZ pairing agent registers via dbus-python on the system bus,
+# and dbus-python is impractical to install via pip (it builds C extensions
+# against libdbus-1-dev + glib). Without this flag, src/multimedia/bluetooth.py
+# logs "dbus-python not available — pairing agent disabled" and the BCM
+# popup for phone-initiated pair confirmation never appears.
+su - "$BCM_USER" -c "cd $BCM_DIR && $PYTHON_BIN -m venv --system-site-packages .venv" || {
     warn "venv creation failed with $PYTHON_BIN, trying virtualenv fallback..."
     apt-get install -y -qq python3-virtualenv
-    su - "$BCM_USER" -c "cd $BCM_DIR && virtualenv --python=$PYTHON_BIN .venv"
+    su - "$BCM_USER" -c "cd $BCM_DIR && virtualenv --system-site-packages --python=$PYTHON_BIN .venv"
 }
 
 if [ ! -x "$BCM_DIR/.venv/bin/python" ]; then
@@ -511,6 +518,16 @@ else
 unmanaged-devices=interface-name:$WIFI_IFACE
 EOF
 
+    # Best-effort regdom hint at module load: iwlwifi 8265 has a
+    # self-managed PHY pinned to country 00, which makes ch149/153
+    # (U-NII-3, normally OK in US) read NO-IR for AP mode. This is
+    # not a guaranteed fix — the firmware sometimes still ignores it
+    # — but it costs nothing and is the right starting point if/when
+    # someone moves the AP to 5 GHz. See memory:
+    # project_wifi_intel_7265_ch149.md for the full story.
+    mkdir -p /etc/modprobe.d
+    echo "options cfg80211 ieee80211_regdom=US" > /etc/modprobe.d/cfg80211.conf
+
     # hostapd — 2.4 GHz ch6, country=US. ieee80211ac is omitted because
     # we're not on 5 GHz (Intel 8265 firmware blocks 5 GHz AP entirely;
     # see the WIFI_* comment block at the top of this script). The
@@ -640,17 +657,34 @@ EOF
     cat > /usr/local/bin/bcm-nat.sh <<'NATEOF'
 #!/bin/bash
 # Apply MASQUERADE + FORWARD rules between the BCM AP iface and any
-# uplink that's up. Idempotent — checks before adding.
+# uplink that has a default route. Idempotent — checks before adding.
+#
+# Why "default route" rather than operstate: the LTE wwan driver (cdc_ether
+# on Huawei E3372) reports operstate=unknown even when fully up, so the
+# previous "operstate==up" check silently skipped LTE and AP clients
+# only reached the internet via ethernet (if attached).
 set -u
 AP_IFACE="${AP_IFACE:-wlp2s0}"
 log() { logger -t bcm-nat "$*"; echo "[bcm-nat] $*"; }
 [ -d "/sys/class/net/$AP_IFACE" ] || { log "AP iface $AP_IFACE missing"; exit 0; }
 sysctl -w net.ipv4.ip_forward=1 >/dev/null 2>&1 || true
+
+# Enumerate uplinks: any iface with a default route, plus any iface
+# whose operstate is up/unknown (covers static-IP ethernet without a
+# default route in the table at the moment we run).
+declare -A UPLINKS=()
+while read -r dev; do
+    [ -n "$dev" ] && UPLINKS["$dev"]=1
+done < <(ip -4 route show default 2>/dev/null | awk '{for(i=1;i<=NF;i++)if($i=="dev")print $(i+1)}')
 for up in $(ls /sys/class/net); do
     [ "$up" = "lo" ] && continue
     [ "$up" = "$AP_IFACE" ] && continue
     state=$(cat "/sys/class/net/$up/operstate" 2>/dev/null || echo down)
-    [ "$state" = "up" ] || continue
+    case "$state" in up|unknown) UPLINKS["$up"]=1 ;; esac
+done
+
+for up in "${!UPLINKS[@]}"; do
+    [ "$up" = "$AP_IFACE" ] && continue
     iptables -t nat -C POSTROUTING -o "$up" -j MASQUERADE 2>/dev/null \
         || iptables -t nat -A POSTROUTING -o "$up" -j MASQUERADE
     iptables -C FORWARD -i "$up" -o "$AP_IFACE" -m state \

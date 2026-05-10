@@ -13,7 +13,7 @@ DefaultDependencies=no
 After=systemd-vconsole-setup.service systemd-udev-settle.service
 Before=multi-user.target bcm-ignition-watcher.service bcm-headunit.service
 
-ConditionPathExists=/opt/bcm/assets/splash/main.mp4
+ConditionPathExists=/opt/bcm/assets/splash/small.mp4
 
 [Service]
 Type=simple
@@ -23,7 +23,7 @@ Type=simple
 # To find your connectors: ls /sys/class/drm/
 Environment=BCM_SPLASH_DRM_MAIN=HDMI-A-1
 Environment=BCM_SPLASH_DRM_SMALL=HDMI-A-2
-Environment=BCM_SPLASH_VIDEO=/opt/bcm/assets/splash/main.mp4
+Environment=BCM_SPLASH_VIDEO=/opt/bcm/assets/splash/small.mp4
 # Splash now exits exactly when the kiosk is ready (App.init posts to
 # /api/ready). Keep the visible floor at 0 so users see BCM the moment
 # Chromium paints — no padding. Override to a positive number only if
