@@ -8,6 +8,11 @@
 # interface — all the things that AT-by-hand misses on this firmware.
 #
 # Reads APN from /etc/bcm/lte.conf (Orange Polska defaults).
+#
+# IMPORTANT: this script must NOT block multi-user.target. The actual
+# `nmcli con up` is forked into the background so the systemd oneshot
+# returns within seconds even when the modem is slow to register or
+# the carrier session takes a long time to establish.
 
 set -u
 
@@ -20,25 +25,30 @@ LTE_PASS=${LTE_PASS:-internet}
 # 0=none, 1=PAP, 2=CHAP — Orange PL uses PAP (gsm.password-flags 0).
 AUTH=${AUTH:-1}
 CON_NAME=${CON_NAME:-bcm-lte}
+# Quick probe so a missing/slow modem doesn't keep boot blocked. The
+# service used to wait 30s here, then run a `nmcli con up` that itself
+# could take another 60s, blocking multi-user.target for ~90s.
+MODEM_WAIT=${MODEM_WAIT:-8}
 
 log() { echo "[bcm-lte] $*"; logger -t bcm-lte "$*"; }
 
 if ! command -v nmcli >/dev/null 2>&1; then
     log "nmcli not installed — cannot manage LTE; install network-manager"
-    exit 1
+    exit 0
 fi
 
-# Wait for ModemManager to enumerate the modem (slow on cold boot).
+# Wait briefly for ModemManager to enumerate the modem; if absent, exit
+# 0 and skip dialing. Boot must not stall on a missing SIM/modem.
 GSM_DEV=""
-for i in $(seq 1 30); do
+for i in $(seq 1 "$MODEM_WAIT"); do
     GSM_DEV=$(nmcli -t -f DEVICE,TYPE device 2>/dev/null \
               | awk -F: '$2=="gsm"{print $1; exit}')
     [ -n "$GSM_DEV" ] && break
     sleep 1
 done
 if [ -z "$GSM_DEV" ]; then
-    log "no gsm device after 30s — is the modem plugged in and ModemManager up?"
-    exit 2
+    log "no gsm device after ${MODEM_WAIT}s — skipping (no modem fitted)"
+    exit 0
 fi
 log "gsm device: $GSM_DEV (APN=$APN auth=$AUTH)"
 
@@ -77,24 +87,28 @@ case "$AUTH" in
        ;;
 esac
 
-# Tear down any half-up instance, then dial.
-nmcli con down "$CON_NAME" >/dev/null 2>&1 || true
-sleep 1
-if nmcli con up "$CON_NAME" 2>&1 | tee /tmp/bcm-lte-up.log >/dev/null; then
-    log "$CON_NAME up: $(grep -oE 'successfully activated.*' /tmp/bcm-lte-up.log || echo activated)"
-else
-    log "nmcli con up failed: $(tail -1 /tmp/bcm-lte-up.log)"
-fi
+# Fire the actual dial in the background so the unit returns quickly
+# and multi-user.target isn't held up by carrier/RAN attach time.
+log "starting nmcli con up $CON_NAME in background"
+(
+    nmcli con down "$CON_NAME" >/dev/null 2>&1 || true
+    sleep 1
+    if nmcli con up "$CON_NAME" >/tmp/bcm-lte-up.log 2>&1; then
+        logger -t bcm-lte "$CON_NAME up: $(grep -oE 'successfully activated.*' /tmp/bcm-lte-up.log || echo activated)"
+    else
+        logger -t bcm-lte "nmcli con up failed: $(tail -1 /tmp/bcm-lte-up.log 2>/dev/null)"
+    fi
 
-sleep 3
-LTE_IFACE=$(nmcli -t -f GENERAL.DEVICES con show "$CON_NAME" 2>/dev/null \
-            | awk -F: '{print $2}')
-[ -z "$LTE_IFACE" ] && LTE_IFACE=$(ls /sys/class/net/ | grep -m1 '^ww' || true)
-
-if [ -n "$LTE_IFACE" ] && ip -4 addr show "$LTE_IFACE" 2>/dev/null | grep -q "inet "; then
-    IP=$(ip -4 addr show "$LTE_IFACE" | awk '/inet /{print $2; exit}')
-    log "online: $LTE_IFACE = $IP"
-    exit 0
-fi
-log "no IP yet — NM will keep retrying autoconnect"
+    sleep 3
+    LTE_IFACE=$(nmcli -t -f GENERAL.DEVICES con show "$CON_NAME" 2>/dev/null \
+                | awk -F: '{print $2}')
+    [ -z "$LTE_IFACE" ] && LTE_IFACE=$(ls /sys/class/net/ | grep -m1 '^ww' || true)
+    if [ -n "$LTE_IFACE" ] && ip -4 addr show "$LTE_IFACE" 2>/dev/null | grep -q "inet "; then
+        IP=$(ip -4 addr show "$LTE_IFACE" | awk '/inet /{print $2; exit}')
+        logger -t bcm-lte "online: $LTE_IFACE = $IP"
+    else
+        logger -t bcm-lte "no IP yet — NM will keep retrying autoconnect"
+    fi
+) </dev/null >/dev/null 2>&1 &
+disown
 exit 0

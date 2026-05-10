@@ -1,7 +1,13 @@
 [Unit]
 Description=BCM — Bluetooth adapter setup (discoverable + pairable)
 After=bluetooth.service
-Requires=bluetooth.service
+# Wants=, NOT Requires=. The setup helper does
+# `systemctl restart bluetooth.service` to pick up main.conf changes
+# (Class=, AlwaysPairable=, etc.). With Requires=, that restart
+# cascades back through this unit and SIGTERMs the helper mid-run —
+# systemd loops it 5x in <1s and the unit ends in start-limit failure.
+# Wants= preserves the start-ordering intent without the cascade.
+Wants=bluetooth.service
 
 [Service]
 Type=oneshot

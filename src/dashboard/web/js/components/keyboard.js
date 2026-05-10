@@ -47,6 +47,10 @@ const OnScreenKeyboard = (() => {
         if (_activeInput) {
             _activeInput.value = _value;
             _activeInput.dispatchEvent(new Event("input", { bubbles: true }));
+            // Tapping a key on a touchscreen typically moves focus to
+            // the button; restore focus on the input so the user keeps
+            // typing without re-tapping the field.
+            try { _activeInput.focus({ preventScroll: true }); } catch (_) {}
         }
         _updateDisplay();
     }
@@ -54,15 +58,30 @@ const OnScreenKeyboard = (() => {
     function _show() {
         _visible = true;
         let overlay = document.getElementById("osk-overlay");
-        if (!overlay) {
+        const fresh = !overlay;
+        if (fresh) {
             overlay = document.createElement("div");
             overlay.id = "osk-overlay";
             document.body.appendChild(overlay);
         }
         _render(overlay);
-        // Prevent the input from losing focus on keyboard click
+        if (!fresh) return;
+
+        // Prevent the input from losing focus when the user taps a key.
+        // mousedown.preventDefault keeps focus on the input on desktop;
+        // we MUST NOT preventDefault on touchstart here because that
+        // also cancels the synthetic click event that drives the OSK
+        // button onclick handlers — exactly what broke typing on the
+        // OPi5 touchscreen while the desktop VM still worked. Use
+        // pointerdown.preventDefault to cover both pointer and touch
+        // without killing the click.
         overlay.addEventListener("mousedown", (e) => e.preventDefault());
-        overlay.addEventListener("touchstart", (e) => e.preventDefault());
+        overlay.addEventListener("pointerdown", (e) => {
+            // Only prevent default for non-touch pointers; for touch we
+            // need the click to still fire. Touch pointers are handled
+            // via the focus restore in `key()` below.
+            if (e.pointerType !== "touch") e.preventDefault();
+        });
     }
 
     function _close() {
