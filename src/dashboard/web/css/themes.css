@@ -219,6 +219,33 @@ body[data-theme="autodelta"] {
     overflow: hidden;
 }
 
+/* ---- AUTOHIDING NAVBAR ----
+ * NavBar is absolute-positioned over the content; hidden by default
+ * so screens get the full viewport. App._initNavBarAutohide() reveals
+ * it on a swipe up from the bottom edge and auto-hides after 4s.
+ */
+.bcm-navbar {
+    transform: translateY(100%);
+    transition: transform 240ms ease-out;
+    pointer-events: none;
+    will-change: transform;
+}
+.bcm-navbar.bcm-navbar-shown {
+    transform: translateY(0);
+    pointer-events: auto;
+}
+/* Thin invisible hot-zone at the bottom of the viewport that catches
+ * swipe-up gestures even when the navbar isn't yet shown. */
+.bcm-navbar-hotzone {
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    height: 28px;
+    z-index: 49;
+    background: transparent;
+}
+
 /* ---- ENCODER/SWITCH NAVIGATION ---- */
 /* Focus ring for encoder-navigable elements */
 [data-nav]:focus, [data-nav].focused {

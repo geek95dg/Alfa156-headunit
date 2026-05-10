@@ -274,7 +274,10 @@ wifi:
   enabled: false       # No built-in WiFi — use USB dongle if needed
   ssid: ALFA
   password: "87654321"
-  channel: 6
+  band: a              # 'a' = 5 GHz, 'bg' = 2.4 GHz
+  channel: 149         # 5 GHz UNII-3
+  country: PL
+  share_internet: true # NAT outbound traffic via LTE uplink
   interface: "wlan0"   # USB WiFi dongle
   ip: 10.0.0.1
   netmask: 255.255.255.0
