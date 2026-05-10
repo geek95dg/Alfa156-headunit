@@ -39,21 +39,18 @@ def _find_openauto() -> Optional[str]:
 def _aa_canvas_size(app_config: Any) -> tuple[int, int]:
     """Return the (width, height) that AA / Xvfb should use.
 
-    BCM renders a 48 px AppBar at the top and a 48 px NavBar at the
-    bottom of every A-screen, so the actual content area available to
-    the Android Auto iframe is ``(dashboard.width, dashboard.height -
-    48 - 48)``.  If ``display.multimedia.{width,height}`` is explicitly
-    set in the config we honour it verbatim; otherwise we compute the
-    inner-frame size so the AA canvas never gets clipped behind the
-    header or the nav bar.
+    The AA screen is now fullscreen — no AppBar at the top, NavBar
+    floats over the canvas only when summoned by a swipe-up gesture
+    (autohides). The canvas should therefore span the entire dashboard
+    viewport so 1 px on screen == 1 px in the Xvfb capture.
+
+    Explicit ``display.multimedia.{width,height}`` overrides win, so
+    deployments that want a 16:9 inset can still pin them in YAML.
     """
     dash_w = int(app_config.get("display.dashboard.width", 1024))
     dash_h = int(app_config.get("display.dashboard.height", 600))
-    appbar = int(app_config.get("display.appbar_px", 48))
-    navbar = int(app_config.get("display.navbar_px", 48))
-    inner_h = max(240, dash_h - appbar - navbar)
     w = int(app_config.get("display.multimedia.width", dash_w))
-    h = int(app_config.get("display.multimedia.height", inner_h))
+    h = int(app_config.get("display.multimedia.height", dash_h))
     return w, h
 
 
@@ -64,22 +61,21 @@ def _create_openauto_config(project_dir: str, app_config: Any = None) -> None:
     config at runtime (stores last BT device, settings, etc.).
     """
     config_path = os.path.join(project_dir, "openauto.ini")
-    # Regenerate if missing or outdated (version marker check).
-    # V4 bumped so older config files with the hardcoded 800x480
-    # touchscreen dimensions get regenerated with the correct values.
-    VERSION_MARKER = "; BCM_CONFIG_V4"
-    if os.path.exists(config_path):
-        try:
-            with open(config_path) as f:
-                if VERSION_MARKER in f.read():
-                    return  # Already up to date
-        except Exception:
-            pass
+    # Regenerate unconditionally — credentials change in Settings need
+    # to propagate without user intervention, and the file is tiny so
+    # the overhead is negligible. V5 marker stays in the header for
+    # debug visibility ("which BCM wrote this?") but is no longer the
+    # gate.
+    VERSION_MARKER = "; BCM_CONFIG_V5"
 
     ssid = ""
     password = ""
+    # 1024 × 504 = full BCM content area (dash 1024×600 minus AppBar 48
+    # + NavBar 48). _aa_canvas_size returns this same value when no
+    # explicit override is set, so autoapp renders into the exact box
+    # the JS panel exposes — no letterboxing, no touch-coordinate skew.
     width = 1024
-    height = 504  # 600 - AppBar 48 - NavBar 48
+    height = 504
     if app_config:
         ssid = app_config.get("wifi.ssid", "")
         password = app_config.get("wifi.password", "")
@@ -87,15 +83,16 @@ def _create_openauto_config(project_dir: str, app_config: Any = None) -> None:
 
     # OpenAuto Resolution codes (per autoapp source):
     #   0 = 480p, 1 = 720p, 2 = 1080p, 3 = auto/stretch
-    # Pick the closest match so the AA canvas actually fills the panel.
+    # 720p is the sweet spot for in-vehicle screens — sharper than
+    # 480p once scaled to the canvas, and the encode bandwidth fits
+    # well inside Wi-Fi/USB even on older phones. Reserve 1080p for
+    # canvases that genuinely have ≥1080 px of vertical room.
     if height >= 1080:
         resolution_code = 2
-    elif height >= 720:
-        resolution_code = 1
     else:
-        resolution_code = 0
+        resolution_code = 1
 
-    config_content = f"""; BCM_CONFIG_V4 — OpenAuto configuration for Alfa156 Headunit
+    config_content = f"""{VERSION_MARKER} — OpenAuto configuration for Alfa156 Headunit
 [General]
 HandednessOfTrafficType=0
 
@@ -198,6 +195,17 @@ class OpenAutoController:
 
         log.info("Starting OpenAuto: binary=%s, platform=%s",
                  self._binary, self._platform)
+
+        # Refresh openauto.ini on every start so credential changes
+        # made via Settings → AA Wireless propagate without a BCM
+        # restart. The file is tiny (≈700 bytes) so the rewrite is
+        # essentially free.
+        try:
+            project_dir = os.path.dirname(os.path.dirname(
+                os.path.dirname(os.path.abspath(__file__))))
+            _create_openauto_config(project_dir, app_config=self._config)
+        except Exception:
+            log.exception("Could not refresh openauto.ini")
 
         # Kill any stale autoapp processes from previous runs
         self._kill_stale()

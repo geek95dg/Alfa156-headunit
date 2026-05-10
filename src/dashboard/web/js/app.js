@@ -123,6 +123,16 @@ const App = (() => {
 
     /** Handle keyboard navigation */
     function handleKeyDown(e) {
+        // Don't hijack keys when the user is typing in a text field —
+        // weather/trip search inputs need every printable key (including
+        // 'h', 'H' and arrows for cursor navigation), and Escape should
+        // dismiss the OSK rather than navigate.
+        const ae = document.activeElement;
+        if (ae && (ae.tagName === "INPUT" || ae.tagName === "TEXTAREA"
+                   || ae.isContentEditable)) {
+            return;
+        }
+
         const key = e.key;
 
         // Forward to backend
@@ -319,19 +329,91 @@ const App = (() => {
     function _initTouchSwipe() {
         let startX = 0;
         let startY = 0;
+        let suppress = false;
+        let bottomEdgeStart = false;
+        const BOTTOM_EDGE_PX = 40;
+        const isInteractive = (el) => {
+            if (!el) return false;
+            const tag = el.tagName;
+            if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT"
+                || tag === "BUTTON") return true;
+            if (el.isContentEditable) return true;
+            if (el.closest && el.closest("#osk-overlay")) return true;
+            return false;
+        };
         document.addEventListener("touchstart", (e) => {
             startX = e.touches[0].clientX;
             startY = e.touches[0].clientY;
+            // Bottom-edge swipe-up reveals the navbar regardless of
+            // what's underneath the finger (AA stream, map, etc.) — so
+            // don't suppress just because the touch landed on, e.g.,
+            // the AA touch overlay. Only ignore it for inputs/OSK.
+            suppress = isInteractive(e.target);
+            bottomEdgeStart = (window.innerHeight - startY) <= BOTTOM_EDGE_PX;
         }, { passive: true });
         document.addEventListener("touchend", (e) => {
             const dx = e.changedTouches[0].clientX - startX;
             const dy = e.changedTouches[0].clientY - startY;
+            // Swipe up from the bottom edge → reveal NavBar (works on
+            // every screen, including the AA fullscreen view).
+            if (bottomEdgeStart && dy < -40 && Math.abs(dy) > Math.abs(dx)) {
+                showNavBar();
+                bottomEdgeStart = false;
+                suppress = false;
+                return;
+            }
+            bottomEdgeStart = false;
+            if (suppress) { suppress = false; return; }
             // Require horizontal swipe > 60px and more horizontal than vertical
             if (Math.abs(dx) > 60 && Math.abs(dx) > Math.abs(dy) * 1.5) {
                 if (dx < 0) navNext();  // Swipe left → next screen
                 else navPrev();          // Swipe right → prev screen
             }
         }, { passive: true });
+    }
+
+    // --- Autohiding NavBar ---
+    let _navHideTimer = null;
+    const NAV_AUTOHIDE_MS = 4000;
+    function showNavBar() {
+        const nav = document.getElementById("bcm-navbar");
+        if (!nav) return;
+        nav.classList.add("bcm-navbar-shown");
+        _scheduleNavHide();
+    }
+    function hideNavBar() {
+        const nav = document.getElementById("bcm-navbar");
+        if (!nav) return;
+        nav.classList.remove("bcm-navbar-shown");
+        if (_navHideTimer) { clearTimeout(_navHideTimer); _navHideTimer = null; }
+    }
+    function _scheduleNavHide() {
+        if (_navHideTimer) clearTimeout(_navHideTimer);
+        _navHideTimer = setTimeout(() => {
+            hideNavBar();
+        }, NAV_AUTOHIDE_MS);
+    }
+    /** Called from NavBar inline handlers — keeps the nav visible
+     *  while the user is interacting, hides shortly after they leave. */
+    function kickNavBar(active) {
+        if (active) {
+            showNavBar();
+        } else {
+            _scheduleNavHide();
+        }
+    }
+    /** Inject a thin invisible hot-zone at the bottom of <body> so the
+     *  edge-swipe detector still fires when the touch lands on a
+     *  child element with stopPropagation behavior. */
+    function _ensureNavHotzone() {
+        if (document.getElementById("bcm-nav-hotzone")) return;
+        const hot = document.createElement("div");
+        hot.id = "bcm-nav-hotzone";
+        hot.className = "bcm-navbar-hotzone";
+        hot.addEventListener("touchstart", () => { showNavBar(); },
+                             { passive: true });
+        hot.addEventListener("click", () => { showNavBar(); });
+        document.body.appendChild(hot);
     }
 
     function navPrev() {
@@ -396,6 +478,11 @@ const App = (() => {
         navPrev,
         navNext,
         getNavIndex,
+
+        /** NavBar autohide controls (called from NavBar markup + global) */
+        showNavBar,
+        hideNavBar,
+        kickNavBar,
 
         /** Get current screen name */
         getCurrentScreen() { return _currentScreen; },
@@ -486,8 +573,10 @@ const App = (() => {
             // Keyboard input
             document.addEventListener("keydown", handleKeyDown);
 
-            // Touch swipe navigation (for touchscreen)
+            // Touch swipe navigation (for touchscreen) + bottom-edge
+            // hot-zone that reveals the autohiding navbar.
             _initTouchSwipe();
+            _ensureNavHotzone();
 
             const restoreTarget = _loadLastScreen() || "a1";
             let bootMode = "warm";
@@ -507,6 +596,17 @@ const App = (() => {
                     }
                 }, 4000);
             }
+
+            // Tell the splash player that the dashboard has actually
+            // rendered. /api/ready is the gate bcm-splash-play.sh polls,
+            // so this flips the splash off the moment the user can see
+            // BCM. Wrapped in requestAnimationFrame to make sure paint
+            // happened before we claim ready.
+            requestAnimationFrame(() => {
+                requestAnimationFrame(() => {
+                    fetch("/api/ready", {method: "POST"}).catch(() => {});
+                });
+            });
         },
     };
 })();
