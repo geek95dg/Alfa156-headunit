@@ -98,6 +98,19 @@ AA_PROFILE_PATH = "/org/bluez/bcm_aa_profile"
 A2DP_PROFILE_PATH = "/org/bluez/bcm_a2dp_profile"
 HFP_PROFILE_PATH = "/org/bluez/bcm_hfp_profile"
 
+# Phone Book Access Profile (PBAP) — Client (PCE) UUID. Phones surface
+# the "Share contacts & call history with car" prompt during pairing
+# only when the headunit advertises this UUID in its SDP record. The
+# Carkit Class-of-Device alone is not enough — Android checks for the
+# PCE service before offering the toggle.
+PBAP_PCE_UUID = "0000112e-0000-1000-8000-00805f9b34fb"
+PBAP_PROFILE_PATH = "/org/bluez/bcm_pbap_pce"
+# Message Access Profile — Client (MCE) UUID. Same story for SMS/MMS
+# sharing; we advertise it so the phone offers the toggle, but the
+# actual message-pull is optional and disabled by default.
+MAP_MCE_UUID = "00001134-0000-1000-8000-00805f9b34fb"
+MAP_PROFILE_PATH = "/org/bluez/bcm_map_mce"
+
 
 class _PairingRequest:
     """Holds a pending pairing confirmation request."""
@@ -288,7 +301,7 @@ def _register_bt_profile(bus, path: str, uuid: str, name: str,
 def _register_all_profiles(bus) -> None:
     """Register Bluetooth profiles with BlueZ.
 
-    NOTE: A2DP Sink and HFP profiles are NOT registered here — they are
+    A2DP Sink and HFP profiles are NOT registered here — they are
     managed by PipeWire/WirePlumber via libspa-0.2-bluetooth. Registering
     them here would block PipeWire (BlueZ: NotPermitted) and break audio.
 
@@ -297,10 +310,20 @@ def _register_all_profiles(bus) -> None:
     properly implements the AA wireless protocol handshake. Registering
     the AA UUID here would conflict with autoapp's btservice and cause
     "Server start failed" errors.
+
+    PBAP-PCE and MAP-MCE ARE registered here — these are client-side
+    "we want to consume your phonebook/messages" advertisements that
+    flip on the Android-side "Share contacts & call history with car"
+    pairing prompt. They don't conflict with autoapp because autoapp
+    doesn't touch PBAP/MAP. The actual data pull happens through obexd
+    in src/multimedia/phonebook.py.
     """
-    # No custom profiles to register:
-    # A2DP/HFP → PipeWire, AA → autoapp btservice
-    log.debug("BT profile registration: A2DP/HFP=PipeWire, AA=autoapp")
+    _register_bt_profile(bus, PBAP_PROFILE_PATH, PBAP_PCE_UUID,
+                         "BCM Phonebook Client", role="client")
+    _register_bt_profile(bus, MAP_PROFILE_PATH, MAP_MCE_UUID,
+                         "BCM Message Client", role="client")
+    log.info("BT profile registration: PBAP-PCE + MAP-MCE; "
+             "A2DP/HFP=PipeWire, AA=autoapp")
 
 
 def _find_adapter_dbus_path() -> str:
@@ -437,18 +460,37 @@ def _start_pairing_agent() -> bool:
         return False
 
 
+_PREFER_INTERNAL = False
+
+
+def set_prefer_internal(flag: bool) -> None:
+    """Flip vendor-8087 preference. False (default) prefers the USB dongle
+    (working-around the documented M910q tx-timeout); True forces the
+    integrated Intel adapter even when a dongle is present."""
+    global _PREFER_INTERNAL, _PREFERRED_ADAPTER
+    _PREFER_INTERNAL = bool(flag)
+    _PREFERRED_ADAPTER = ""   # force re-resolve
+
+
 def _find_preferred_adapter() -> str:
     """Find the best BT adapter address for headunit use.
 
-    On the M910q the integrated Intel 8087:0a2b (BT 4.2 on paper) is
-    documented-broken: dmesg captures `command 0xNNNN tx timeout` →
-    `Resetting usb device.` after ~15 minutes uptime, after which the
-    controller disappears from sysfs entirely. So when both the Intel
-    and a USB dongle (CSR/Realtek/Broadcom) are present, prefer the
-    dongle even though it's BT 4.0 — it survives.
+    Default policy (M910q workaround): the integrated Intel 8087:0a2b
+    (BT 4.2 on paper) is documented-broken — dmesg captures
+    ``command 0xNNNN tx timeout`` → ``Resetting usb device.`` after
+    ~15 minutes uptime, after which the controller disappears from
+    sysfs entirely. So when both the Intel and a USB dongle
+    (CSR/Realtek/Broadcom) are present, prefer the dongle even though
+    it's BT 4.0 — it survives.
+
+    Override policy (``bluetooth.prefer_internal: true`` in YAML):
+    flips the bias so the Intel 8087 is picked even with a dongle
+    present. Pairs with the hci watchdog in BluetoothManager which
+    auto-bounces the Intel adapter on tx-timeout so the user-facing
+    impact of the reset is minimised.
 
     An explicit ``bluetooth.preferred_adapter`` MAC in config still wins
-    over auto-detect (lets the user pin a specific controller).
+    over both policies (lets the user pin a specific controller).
     """
     try:
         result = subprocess.run(
@@ -499,6 +541,7 @@ def _find_preferred_adapter() -> str:
             except ValueError:
                 return 999
 
+        intel: list[str] = []
         non_intel: list[str] = []
         for addr in controllers:
             hci = addr_to_hci.get(addr)
@@ -518,10 +561,19 @@ def _find_preferred_adapter() -> str:
                     if parent == cur:
                         break
                     cur = parent
-                if vendor and vendor != "8087":
+                if vendor == "8087":
+                    intel.append(addr)
+                elif vendor:
                     non_intel.append(addr)
             except Exception:
                 pass
+
+        if _PREFER_INTERNAL and intel:
+            intel.sort(key=_hci_index)
+            log.info("BT: preferring INTERNAL Intel 8087 adapter %s "
+                     "(prefer_internal=true) — %d controllers seen",
+                     intel[0], len(controllers))
+            return intel[0]
 
         if non_intel:
             non_intel.sort(key=_hci_index)
@@ -631,6 +683,17 @@ class BluetoothManager:
         # Disconnect tap doesn't immediately bring the device back.
         # Cleared on connect() and on remove().
         self._user_disconnect_addr: Optional[str] = None
+
+        # Force internal Intel 8087 (overrides default "prefer USB dongle"
+        # bias) — paired with the hci watchdog that bounces the adapter
+        # on tx-timeout.
+        try:
+            prefer_internal = bool(config.get("bluetooth.prefer_internal", False))
+        except Exception:
+            prefer_internal = False
+        if prefer_internal:
+            set_prefer_internal(True)
+            log.info("BT: prefer_internal=true — using integrated Intel adapter")
 
         # Optional explicit adapter override from config — pin a specific
         # USB BT dongle MAC if auto-detect picks the wrong one.
@@ -1301,6 +1364,63 @@ class BluetoothManager:
         self._start_media_monitor()
         # Register HFP call command handlers
         self._init_hfp_commands()
+        # Watchdog for the documented Intel 8087 tx-timeout — only
+        # engaged when the user has asked for the internal adapter.
+        if _PREFER_INTERNAL:
+            threading.Thread(
+                target=self._hci_watchdog, daemon=True, name="bt-hci-watchdog",
+            ).start()
+
+    def _hci_watchdog(self) -> None:
+        """Recover from Intel 8087 tx-timeout by bouncing the hci device.
+
+        Only runs when ``bluetooth.prefer_internal`` is set. dmesg shows
+        ``command 0x… tx timeout`` followed by ``Resetting usb device.``
+        after which BlueZ stops reporting the controller. ``hciconfig
+        hciX down/up`` restores it without a kernel-level USB reset.
+        """
+        miss = 0
+        while self._running:
+            time.sleep(15)
+            if not self._available:
+                continue
+            rc, out, _ = _run_btctl(["show"])
+            if rc == 0 and "Controller" in out:
+                miss = 0
+                continue
+            miss += 1
+            if miss < 2:
+                continue
+            # Two consecutive misses → controller gone. Find the hci by
+            # the adapter address we resolved and bounce it.
+            addr = _get_adapter_addr()
+            hci = None
+            try:
+                hc = subprocess.run(
+                    ["hciconfig"], capture_output=True, text=True, timeout=3,
+                )
+                current = None
+                for line in hc.stdout.splitlines():
+                    if line and not line[0].isspace() and ":" in line:
+                        current = line.split(":")[0].strip()
+                    if current and addr and addr in line:
+                        hci = current
+                        break
+            except Exception:
+                pass
+            if not hci:
+                hci = "hci0"
+            log.warning("BT hci watchdog: controller missing — bouncing %s", hci)
+            for cmd in (["rfkill", "unblock", "bluetooth"],
+                        ["hciconfig", hci, "down"],
+                        ["hciconfig", hci, "up"]):
+                try:
+                    subprocess.run(cmd, capture_output=True, timeout=4)
+                except Exception:
+                    pass
+            time.sleep(2)
+            self._check_availability()
+            miss = 0
 
     def stop_monitor(self) -> None:
         """Stop the connection monitor."""
@@ -1528,12 +1648,74 @@ class BluetoothManager:
         """Start monitoring AVRCP media metadata via D-Bus.
 
         Watches org.bluez.MediaPlayer1 properties for track info and
-        playback status changes. Publishes bt.media.track, bt.media.status,
-        bt.media.position to the event bus.
+        playback status changes. Publishes:
+
+          * ``bt.media.track`` (full dict for renderer.py)
+          * ``bt.media_title`` / ``bt.media_artist`` / ``bt.media_album``
+            / ``bt.media_duration`` / ``bt.media_playing`` / ``bt.media_position``
+            (flat keys read by web_viewer.py — without these the A1
+            now-playing card never receives anything)
+
+        Also seeds the topics from any MediaPlayer1 that already exists
+        when the monitor starts. ``PropertiesChanged`` only fires on
+        deltas, so a phone that's already streaming when BCM connects
+        would otherwise leave the card empty until the next track.
         """
         if not HAS_DBUS:
             log.debug("D-Bus not available — AVRCP media monitor disabled")
             return
+
+        def _publish_track(track_info: dict) -> None:
+            self._media_track = track_info
+            self._event_bus.publish("bt.media.track", track_info)
+            self._event_bus.publish("bt.media_title", track_info.get("title", ""))
+            self._event_bus.publish("bt.media_artist", track_info.get("artist", ""))
+            self._event_bus.publish("bt.media_album", track_info.get("album", ""))
+            self._event_bus.publish("bt.media_duration",
+                                    track_info.get("duration", 0))
+
+        def _publish_status(status: str) -> None:
+            self._media_status = status
+            self._event_bus.publish("bt.media.status", status)
+            self._event_bus.publish("bt.media_playing", status == "playing")
+
+        def _publish_position(position: int) -> None:
+            self._media_position = position
+            self._event_bus.publish("bt.media.position", position)
+            self._event_bus.publish("bt.media_position", position)
+
+        def _track_dict_from_props(track) -> dict:
+            return {
+                "title": str(track.get("Title", "")),
+                "artist": str(track.get("Artist", "")),
+                "album": str(track.get("Album", "")),
+                "duration": int(track.get("Duration", 0)),
+                "track_number": int(track.get("TrackNumber", 0)),
+            }
+
+        def _seed_from_existing(bus) -> None:
+            """Read existing MediaPlayer1 objects so the card fills on connect."""
+            try:
+                om = dbus.Interface(
+                    bus.get_object("org.bluez", "/"),
+                    "org.freedesktop.DBus.ObjectManager",
+                )
+                objects = om.GetManagedObjects()
+            except Exception:
+                return
+            for _path, ifaces in objects.items():
+                mp = ifaces.get("org.bluez.MediaPlayer1")
+                if not mp:
+                    continue
+                if "Track" in mp:
+                    info = _track_dict_from_props(mp["Track"])
+                    _publish_track(info)
+                    log.info("BT AVRCP seeded: %s - %s",
+                             info["artist"], info["title"])
+                if "Status" in mp:
+                    _publish_status(str(mp["Status"]).lower())
+                if "Position" in mp:
+                    _publish_position(int(mp["Position"]))
 
         def _media_monitor():
             try:
@@ -1550,29 +1732,18 @@ class BluetoothManager:
                         return
 
                     if "Track" in changed:
-                        track = changed["Track"]
-                        track_info = {
-                            "title": str(track.get("Title", "")),
-                            "artist": str(track.get("Artist", "")),
-                            "album": str(track.get("Album", "")),
-                            "duration": int(track.get("Duration", 0)),
-                            "track_number": int(track.get("TrackNumber", 0)),
-                        }
-                        self._media_track = track_info
-                        self._event_bus.publish("bt.media.track", track_info)
+                        info = _track_dict_from_props(changed["Track"])
+                        _publish_track(info)
                         log.info("BT AVRCP track: %s - %s",
-                                 track_info["artist"], track_info["title"])
+                                 info["artist"], info["title"])
 
                     if "Status" in changed:
                         status = str(changed["Status"]).lower()
-                        self._media_status = status
-                        self._event_bus.publish("bt.media.status", status)
+                        _publish_status(status)
                         log.debug("BT AVRCP status: %s", status)
 
                     if "Position" in changed:
-                        position = int(changed["Position"])
-                        self._media_position = position
-                        self._event_bus.publish("bt.media.position", position)
+                        _publish_position(int(changed["Position"]))
 
                 bus.add_signal_receiver(
                     _on_properties_changed,
@@ -1580,6 +1751,23 @@ class BluetoothManager:
                     signal_name="PropertiesChanged",
                     path_keyword="path",
                 )
+                # New MediaPlayer1 objects appear via InterfacesAdded after
+                # a phone connects; re-seed when that fires so we don't
+                # have to wait for the next Track delta.
+                def _on_interfaces_added(_path, ifaces):
+                    if "org.bluez.MediaPlayer1" in ifaces:
+                        try:
+                            _seed_from_existing(bus)
+                        except Exception:
+                            pass
+
+                bus.add_signal_receiver(
+                    _on_interfaces_added,
+                    dbus_interface="org.freedesktop.DBus.ObjectManager",
+                    signal_name="InterfacesAdded",
+                )
+
+                _seed_from_existing(bus)
                 log.info("BT AVRCP media monitor started (D-Bus)")
 
                 loop = GLib.MainLoop()
@@ -1656,8 +1844,9 @@ class DemoMediaGenerator:
             self._thread.join(timeout=2)
 
     def _loop(self) -> None:
-        # Publish initial "playing" status
+        # Publish initial "playing" status — flat key is what web_viewer reads
         self._bus.publish("bt.media.status", "playing")
+        self._bus.publish("bt.media_playing", True)
         position = 0
 
         while self._running:
@@ -1670,12 +1859,17 @@ class DemoMediaGenerator:
                 "track_number": self._track_index + 1,
             }
             self._bus.publish("bt.media.track", track_info)
+            self._bus.publish("bt.media_title", track_info["title"])
+            self._bus.publish("bt.media_artist", track_info["artist"])
+            self._bus.publish("bt.media_album", track_info["album"])
+            self._bus.publish("bt.media_duration", track_info["duration"])
 
             # Simulate playback — advance position every second
             duration_s = track["duration"] // 1000
             position = 0
             while self._running and position < duration_s:
                 self._bus.publish("bt.media.position", position * 1000)
+                self._bus.publish("bt.media_position", position * 1000)
                 time.sleep(1)
                 position += 1
 

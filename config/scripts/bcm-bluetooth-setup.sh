@@ -63,6 +63,7 @@ done
 # controller MAC anyway, set BCM_BT_ADAPTER in /etc/default/bcm-bluetooth.
 PREFERRED_ADDR=""
 NON_INTEL_ADDR=""
+INTEL_ADDR=""
 FIRST_ADDR=""
 # shellcheck source=/dev/null
 [ -f /etc/default/bcm-bluetooth ] && . /etc/default/bcm-bluetooth
@@ -84,19 +85,24 @@ for hci_dir in $(ls -d /sys/class/bluetooth/hci* 2>/dev/null | sort); do
     addr=$(hciconfig "$hci" 2>/dev/null | awk '/BD Address/{print $3; exit}')
     [ -n "$addr" ] || continue
     [ -z "$FIRST_ADDR" ] && FIRST_ADDR="$addr"
-    if [ -n "$vendor" ] && [ "$vendor" != "8087" ] && [ -z "$NON_INTEL_ADDR" ]; then
+    if [ "$vendor" = "8087" ]; then
+        [ -z "$INTEL_ADDR" ] && INTEL_ADDR="$addr"
+    elif [ -n "$vendor" ] && [ -z "$NON_INTEL_ADDR" ]; then
         NON_INTEL_ADDR="$addr"
-        echo "BT setup: preferring non-Intel $hci ($addr, vendor $vendor)"
+        echo "BT setup: non-Intel candidate $hci ($addr, vendor $vendor)"
     fi
 done
 if [ -n "${BCM_BT_ADAPTER:-}" ]; then
     PREFERRED_ADDR="$BCM_BT_ADAPTER"
     echo "BT setup: explicit override BCM_BT_ADAPTER=$PREFERRED_ADDR"
+elif [ "${BCM_BT_PREFER_INTERNAL:-0}" = "1" ] && [ -n "$INTEL_ADDR" ]; then
+    PREFERRED_ADDR="$INTEL_ADDR"
+    echo "BT setup: BCM_BT_PREFER_INTERNAL=1 — using Intel $PREFERRED_ADDR"
 elif [ -n "$NON_INTEL_ADDR" ]; then
     PREFERRED_ADDR="$NON_INTEL_ADDR"
 elif [ -n "$FIRST_ADDR" ]; then
     PREFERRED_ADDR="$FIRST_ADDR"
-    echo "BT setup: no non-Intel adapter, falling back to $PREFERRED_ADDR"
+    echo "BT setup: no preferred adapter, falling back to $PREFERRED_ADDR"
 fi
 
 # Find the hciX index for the chosen address — used for hciconfig fallback
