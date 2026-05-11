@@ -41,7 +41,10 @@ App.registerScreen("a2", (() => {
         }
 
         // Fullscreen — no AppBar. The autohiding NavBar floats over the
-        // canvas, revealed by a swipe up from the bottom edge.
+        // canvas, revealed by a swipe up from the bottom edge. The
+        // captured autoapp stream below is an <img> with absolute
+        // inset-0, so the global 7" rem bump doesn't touch its 1:1
+        // pixel mapping. Only the shared NavBar gets larger.
         container.innerHTML = `<div class="screen-container ${bgCls}">
             <main class="content-area relative overflow-hidden bg-black">
                 ${statusBadge}

@@ -107,36 +107,52 @@ const OnScreenKeyboard = (() => {
                      : theme === "modern" ? "bg-blue-600 text-white"
                      : "bg-amber-600 text-white";
 
-        overlay.className = "fixed bottom-0 left-0 right-0 z-[200] p-2 border-t shadow-2xl " + bg;
+        // 7" touchscreen OSK — explicitly NOT max-width-clamped. We
+        // want every key to stretch to fill the full viewport so the
+        // hit-targets match the user's actual finger size; the old
+        // `max-w-[800px]` left the keyboard hugging the centre with
+        // ~1/3 of the screen wasted on either side.
+        overlay.className = "fixed bottom-0 left-0 right-0 z-[200] p-3 border-t shadow-2xl " + bg;
         overlay.style.cssText = "backdrop-filter:blur(12px);";
 
-        let html = `<div class="flex flex-col gap-1.5 max-w-[800px] mx-auto">`;
+        // flex-1 on every key + stretch on the row means each key
+        // claims an equal share of the viewport width. Letter rows
+        // give the same pixel allocation per slot regardless of how
+        // many keys are in the row, so a 9-letter row gets fatter
+        // keys than a 10-digit row, which matches typing ergonomics
+        // (the home row needs bigger keys, the number row gets fewer
+        // taps).
+        let html = `<div class="flex flex-col gap-2 w-full">`;
 
         html += `<div class="flex items-center gap-2 px-2 mb-1">
-            <span id="osk-display" class="text-sm font-mono opacity-60 truncate flex-1">${_escHtml(_value)}</span>
-            <button class="${keyBg} rounded-lg px-2 py-1 text-xs transition-colors" onclick="OnScreenKeyboard.close()" title="Hide keyboard">
-                <span class="material-symbols-outlined" style="font-size:18px;">keyboard_hide</span>
+            <span id="osk-display" class="text-base font-mono opacity-60 truncate flex-1">${_escHtml(_value)}</span>
+            <button class="${keyBg} rounded-lg px-3 py-2 text-sm transition-colors" onclick="OnScreenKeyboard.close()" title="Hide keyboard">
+                <span class="material-symbols-outlined" style="font-size:22px;">keyboard_hide</span>
             </button>
         </div>`;
 
+        // py-3.5 = 14 logical px top/bottom → ~16 actual px with the
+        // root rem bump → ~52 px tall keys. Comfortable target for
+        // thumbs and any finger size; the 7" screen is 600 px tall
+        // and the keyboard now uses ~310 px of that across 5 rows.
         for (const row of ROWS) {
-            html += `<div class="flex gap-1 justify-center">`;
+            html += `<div class="flex gap-1.5 w-full items-stretch">`;
             for (const k of row) {
                 if (k === "space") {
-                    html += `<button class="${keyBg} rounded-lg py-2.5 flex-[4] text-xs font-bold transition-colors" onclick="OnScreenKeyboard.key('space')">SPACE</button>`;
+                    html += `<button class="${keyBg} rounded-lg py-3.5 flex-[6] text-base font-bold transition-colors" onclick="OnScreenKeyboard.key('space')">SPACE</button>`;
                 } else if (k === "done") {
-                    html += `<button class="${accent} rounded-lg py-2.5 flex-[2] text-xs font-bold transition-colors" onclick="OnScreenKeyboard.key('done')">OK</button>`;
+                    html += `<button class="${accent} rounded-lg py-3.5 flex-[2] text-base font-bold transition-colors" onclick="OnScreenKeyboard.key('done')">OK</button>`;
                 } else if (k === "shift") {
-                    html += `<button class="${_shift ? accent : keyBg} rounded-lg py-2.5 px-3 text-xs font-bold transition-colors" onclick="OnScreenKeyboard.key('shift')">
-                        <span class="material-symbols-outlined" style="font-size:16px;">shift</span>
+                    html += `<button class="${_shift ? accent : keyBg} rounded-lg py-3.5 flex-[1.4] text-base font-bold transition-colors" onclick="OnScreenKeyboard.key('shift')">
+                        <span class="material-symbols-outlined" style="font-size:22px;">shift</span>
                     </button>`;
                 } else if (k === "backspace") {
-                    html += `<button class="${keyBg} rounded-lg py-2.5 px-3 text-xs font-bold transition-colors" onclick="OnScreenKeyboard.key('backspace')">
-                        <span class="material-symbols-outlined" style="font-size:16px;">backspace</span>
+                    html += `<button class="${keyBg} rounded-lg py-3.5 flex-[1.4] text-base font-bold transition-colors" onclick="OnScreenKeyboard.key('backspace')">
+                        <span class="material-symbols-outlined" style="font-size:22px;">backspace</span>
                     </button>`;
                 } else {
                     const display = _shift ? k.toUpperCase() : k;
-                    html += `<button class="${keyBg} rounded-lg py-2.5 min-w-[36px] text-sm font-bold transition-colors" onclick="OnScreenKeyboard.key('${k}')">${display}</button>`;
+                    html += `<button class="${keyBg} rounded-lg py-3.5 flex-1 text-lg font-bold transition-colors" onclick="OnScreenKeyboard.key('${k}')">${display}</button>`;
                 }
             }
             html += `</div>`;

@@ -21,7 +21,7 @@ const AppBar = (() => {
             // Invert to white, orange tint
             filterStyle = "filter: invert(1) sepia(1) saturate(5) hue-rotate(-10deg) brightness(1.2);";
         }
-        return `<img src="/assets/alfa_logo.png" alt="Alfa Romeo" class="h-11 w-auto object-contain" style="${filterStyle}" onerror="this.parentElement.innerHTML='<span class=\\'text-sm font-bold\\'>AR</span>';">`;
+        return `<img src="/assets/alfa_logo.png" alt="Alfa Romeo" class="h-12 w-auto object-contain" style="${filterStyle}" onerror="this.parentElement.innerHTML='<span class=\\'text-base font-bold\\'>AR</span>';">`;
     }
 
     function render(theme, data) {
@@ -29,7 +29,9 @@ const AppBar = (() => {
         const date = _formatDate();
         const temp = _formatTemp(data);
         const btClass = data.bt_connected ? "text-green-500" : "text-zinc-600";
-        const btIcon = `<span class="material-symbols-outlined ${btClass}" style="font-size:16px;font-variation-settings:'FILL' ${data.bt_connected ? 1 : 0};">bluetooth</span>`;
+        // Pixel bumps for 7" touchscreen (matches navbar): icons go
+        // 16/24 → 19/28 px, fonts text-sm → text-base, height h-12 → h-14.
+        const btIcon = `<span class="material-symbols-outlined ${btClass}" style="font-size:19px;font-variation-settings:'FILL' ${data.bt_connected ? 1 : 0};">bluetooth</span>`;
 
         const bgColor = theme === "autodelta" ? "bg-[#111111] border-[#222222]"
             : "bg-black border-zinc-800";
@@ -37,19 +39,19 @@ const AppBar = (() => {
         const timeColor = theme === "autodelta" ? "text-white" : theme === "modern" ? "text-white" : "text-zinc-400";
         const tempColor = theme === "autodelta" ? "text-[#FF5F00]" : theme === "modern" ? "text-white" : "text-zinc-500";
 
-        return `<header class="w-full h-12 ${bgColor} border-b flex items-center px-4 shrink-0 z-50">
-            <div class="flex items-center gap-2 w-[200px]">
-                <span class="text-sm font-bold ${timeColor}" data-bind="time">${time}</span>
-                <span class="text-[10px] font-bold text-zinc-600 uppercase" data-bind="date">${date}</span>
+        return `<header class="w-full h-14 ${bgColor} border-b flex items-center px-4 shrink-0 z-50">
+            <div class="flex items-center gap-2 w-[220px]">
+                <span class="text-base font-bold ${timeColor}" data-bind="time">${time}</span>
+                <span class="text-xs font-bold text-zinc-600 uppercase" data-bind="date">${date}</span>
             </div>
             <div class="flex-1 flex justify-center">
                 ${_logoImg(theme)}
             </div>
-            <div class="flex items-center gap-4 w-[200px] justify-end">
-                <span class="${tempColor} text-sm font-bold" data-bind="ext_temp">${temp}</span>
+            <div class="flex items-center gap-4 w-[220px] justify-end">
+                <span class="${tempColor} text-base font-bold" data-bind="ext_temp">${temp}</span>
                 ${btIcon}
-                <span class="material-symbols-outlined text-zinc-600 text-[24px] cursor-pointer hover:text-zinc-400 p-1" onclick="App.navigateTo('audio')">equalizer</span>
-                <span class="material-symbols-outlined text-zinc-600 text-[24px] cursor-pointer hover:text-zinc-400 p-1" onclick="App.navigateTo('settings')">settings</span>
+                <span class="material-symbols-outlined text-zinc-600 cursor-pointer hover:text-zinc-400 p-1" style="font-size:28px;" onclick="App.navigateTo('audio')">equalizer</span>
+                <span class="material-symbols-outlined text-zinc-600 cursor-pointer hover:text-zinc-400 p-1" style="font-size:28px;" onclick="App.navigateTo('settings')">settings</span>
             </div>
         </header>`;
     }
