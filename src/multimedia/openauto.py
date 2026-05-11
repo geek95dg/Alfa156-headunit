@@ -54,6 +54,64 @@ def _aa_canvas_size(app_config: Any) -> tuple[int, int]:
     return w, h
 
 
+def _resolve_wifi_mac(app_config: Any) -> str:
+    """Best-effort: return MAC of the WiFi AP interface (BSSID).
+
+    autoapp's BT-bootstrap protocol embeds this BSSID in the
+    WifiInfoResponse it sends the phone over RFCOMM; without it the
+    phone can SEE the SSID but won't auto-join because it can't match
+    the network identity announced over BT.
+
+    Order of preference:
+      1. ``wifi.bssid_runtime`` — set by wifi_ap.py after a P2P-GO
+         comes up; the GO MAC differs from the parent iface MAC.
+      2. The configured / autodetected WiFi iface's MAC.
+    """
+    if app_config:
+        runtime = (app_config.get("wifi.bssid_runtime", "") or "").strip()
+        if runtime:
+            return runtime.upper()
+    iface = ""
+    if app_config:
+        iface = (app_config.get("wifi.interface", "") or "").strip()
+    if not iface:
+        try:
+            from src.multimedia.wifi_ap import _find_wifi_interface
+            iface = _find_wifi_interface() or ""
+        except Exception:
+            iface = ""
+    if not iface:
+        return ""
+    addr_path = f"/sys/class/net/{iface}/address"
+    try:
+        with open(addr_path) as f:
+            mac = f.read().strip().upper()
+            return mac if mac and mac != "00:00:00:00:00:00" else ""
+    except OSError:
+        return ""
+
+
+def _resolve_bt_adapter_addr(app_config: Any) -> str:
+    """Best-effort: return MAC of the preferred BT adapter.
+
+    Mirrors BluetoothManager's adapter selection so openauto.ini's
+    [Bluetooth] RemoteAdapterAddress points at the same controller
+    BCM's own pairing agent claims. Without this, autoapp picks an
+    arbitrary adapter (typically hci0) which may not be the carkit
+    controller we configured the CoD on.
+    """
+    addr = ""
+    if app_config:
+        addr = (app_config.get("bluetooth.preferred_adapter", "") or "").strip()
+    if not addr:
+        try:
+            from src.multimedia.bluetooth import _find_preferred_adapter
+            addr = _find_preferred_adapter() or ""
+        except Exception:
+            addr = ""
+    return addr.upper() if addr else ""
+
+
 def _create_openauto_config(project_dir: str, app_config: Any = None) -> None:
     """Create openauto.ini in the project directory (autoapp's working dir).
 
@@ -70,6 +128,8 @@ def _create_openauto_config(project_dir: str, app_config: Any = None) -> None:
 
     ssid = ""
     password = ""
+    wifi_mac = ""
+    bt_adapter = ""
     # 1024 × 504 = full BCM content area (dash 1024×600 minus AppBar 48
     # + NavBar 48). _aa_canvas_size returns this same value when no
     # explicit override is set, so autoapp renders into the exact box
@@ -77,9 +137,16 @@ def _create_openauto_config(project_dir: str, app_config: Any = None) -> None:
     width = 1024
     height = 504
     if app_config:
-        ssid = app_config.get("wifi.ssid", "")
-        password = app_config.get("wifi.password", "")
+        # Prefer runtime credentials when set by wifi_ap.py — Wi-Fi
+        # Direct GOs broadcast a spec-mandated `DIRECT-XX` SSID and a
+        # generated WPA2 passphrase that differ from the YAML values.
+        ssid = (app_config.get("wifi.ssid_runtime", "")
+                or app_config.get("wifi.ssid", ""))
+        password = (app_config.get("wifi.password_runtime", "")
+                    or app_config.get("wifi.password", ""))
         width, height = _aa_canvas_size(app_config)
+        wifi_mac = _resolve_wifi_mac(app_config)
+        bt_adapter = _resolve_bt_adapter_addr(app_config)
 
     # OpenAuto Resolution codes (per autoapp source):
     #   0 = 480p, 1 = 720p, 2 = 1080p, 3 = auto/stretch
@@ -110,7 +177,7 @@ MediaAudioDelay=0
 
 [Bluetooth]
 AdapterType=0
-RemoteAdapterAddress=
+RemoteAdapterAddress={bt_adapter}
 
 [Input]
 ButtonCodes.Enter=23
@@ -127,13 +194,14 @@ TouchscreenHeight={height}
 [WiFi]
 SSID={ssid}
 Password={password}
-MAC=
+MAC={wifi_mac}
 """
     with open(config_path, "w") as f:
         f.write(config_content)
 
-    log.info("Created openauto config at %s (SSID=%s)", config_path,
-             ssid or "(empty)")
+    log.info("Created openauto config at %s (SSID=%s, WiFi MAC=%s, BT=%s)",
+             config_path, ssid or "(empty)",
+             wifi_mac or "(unresolved)", bt_adapter or "(default)")
 
 
 class OpenAutoController:
@@ -664,6 +732,15 @@ def start_multimedia(config: Any, event_bus: EventBus, hal: Any = None,
         bt_mgr = BluetoothManager(config, event_bus)
         bt_mgr.start_monitor()
         log.info("BluetoothManager created (available=%s)", bt_mgr.available)
+
+    # PBAP phonebook sync — pulls contacts + call history on connect and
+    # publishes them so A3 phone screen can render via /api/phone/*.
+    # Held by the closure here so the subscriber stays alive.
+    try:
+        from src.multimedia.phonebook import start_phonebook_sync
+        _phonebook = start_phonebook_sync(event_bus)  # noqa: F841
+    except Exception:
+        log.exception("PBAP phonebook sync failed to start (non-critical)")
 
     # OpenAuto controller
     openauto = OpenAutoController(config, event_bus)

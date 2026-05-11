@@ -910,10 +910,33 @@ class WebViewer:
             cfg = viewer._config
             if cfg is None:
                 return jsonify({})
+            # wifi.*_runtime are set by wifi_ap.py when a P2P-GO group
+            # comes up — wpa_supplicant assigns a random DIRECT-XX SSID
+            # and WPA2 passphrase that override the YAML defaults. Show
+            # those as the LIVE values; expose the YAML values too so
+            # the user knows what gets used in hostapd mode.
+            mode = cfg.get("wifi.mode", "p2p_go")
+            live_ssid = cfg.get("wifi.ssid_runtime", "") or cfg.get("wifi.ssid", "")
+            live_pwd = cfg.get("wifi.password_runtime", "") or cfg.get("wifi.password", "")
+            live_bssid = cfg.get("wifi.bssid_runtime", "")
             return jsonify({
+                # legacy fields — still the YAML values so the Save
+                # button can write them back without overwriting the
+                # auto-generated P2P-GO credentials.
                 "ssid": cfg.get("wifi.ssid", ""),
                 "password": cfg.get("wifi.password", ""),
                 "channel": cfg.get("wifi.channel", 6),
+                # live values (what the phone actually connects to)
+                "mode": mode,
+                "live_ssid": live_ssid,
+                "live_password": live_pwd,
+                "live_bssid": live_bssid,
+                # ALFA-NET (still a regular hostapd AP, user-editable)
+                "alfa_net_enabled": bool(
+                    cfg.get("wifi.alfa_net.enabled", True)),
+                "alfa_net_ssid": cfg.get("wifi.alfa_net.ssid", "ALFA-NET"),
+                "alfa_net_password": cfg.get(
+                    "wifi.alfa_net.password", "AlfaRomeo156"),
             })
 
         @app.route("/api/wifi/config", methods=["POST"])
@@ -936,13 +959,36 @@ class WebViewer:
             except (TypeError, ValueError):
                 return jsonify({"ok": False,
                                 "error": "channel must be a number"}), 400
-            if not (1 <= channel <= 13):
+            # Channel range — accept 2.4 GHz (1-13) and 5 GHz UNII bands.
+            valid_5ghz = {36, 40, 44, 48, 149, 153, 157, 161, 165}
+            if not (1 <= channel <= 13 or channel in valid_5ghz):
                 return jsonify({"ok": False,
-                                "error": "channel must be 1-13 (2.4 GHz)"}), 400
+                                "error": "channel must be 1-13 or "
+                                         "36/40/44/48/149/153/157/161/165"
+                                }), 400
 
             cfg.set("wifi.ssid", ssid)
             cfg.set("wifi.password", password)
             cfg.set("wifi.channel", channel)
+
+            # Optional ALFA-NET fields — only update if explicitly provided
+            # so calls from older clients don't blank the secondary AP.
+            an_ssid = data.get("alfa_net_ssid")
+            an_pwd = data.get("alfa_net_password")
+            an_enabled = data.get("alfa_net_enabled")
+            if an_ssid is not None:
+                an_ssid = (an_ssid or "").strip()
+                if an_ssid and len(an_ssid) <= 32:
+                    cfg.set("wifi.alfa_net.ssid", an_ssid)
+            if an_pwd is not None:
+                if isinstance(an_pwd, str) and 8 <= len(an_pwd) <= 63:
+                    cfg.set("wifi.alfa_net.password", an_pwd)
+                elif an_pwd != "":
+                    return jsonify({"ok": False,
+                                    "error": "ALFA-NET password 8-63 chars"
+                                    }), 400
+            if an_enabled is not None:
+                cfg.set("wifi.alfa_net.enabled", bool(an_enabled))
             try:
                 cfg.save()
             except Exception as e:

@@ -43,9 +43,13 @@ SMALL_H=480
 WIFI_IFACE="wlp2s0"
 WIFI_SSID="ALFA_AA"
 WIFI_PASS="AlfaRomeo156"
-WIFI_CHANNEL="6"
-WIFI_HW_MODE="g"
-WIFI_COUNTRY="US"
+# Default mode is wpa_supplicant P2P-GO (Wi-Fi Direct), driven by
+# src/multimedia/wifi_ap.py — system hostapd is left disabled so the
+# Python process owns the radio. The hostapd fallback below is kept
+# for older deployments that flip wifi.mode back to "hostapd" in YAML.
+WIFI_CHANNEL="149"
+WIFI_HW_MODE="a"
+WIFI_COUNTRY="BO"
 # ─────────────────────────────────────────────────────────────────
 
 RED='\033[0;31m'
@@ -107,6 +111,8 @@ rm -f /etc/dnsmasq.d/bcm-ap.conf
 rm -f /etc/network/interfaces.d/bcm-ap
 rm -f /etc/network/interfaces.d/static
 rm -f /etc/NetworkManager/conf.d/bcm-unmanage-wifi.conf
+rm -f /etc/NetworkManager/conf.d/bcm-unmanage-p2p.conf
+rm -f /etc/systemd/network/00-bcm-p2p.network
 nmcli device set "$WIFI_IFACE" managed yes 2>/dev/null || true
 ip addr flush dev "$WIFI_IFACE" 2>/dev/null || true
 
@@ -143,7 +149,7 @@ apt-get install -y -qq \
     pipewire pipewire-pulse wireplumber alsa-utils mpv \
     gstreamer1.0-tools gstreamer1.0-plugins-base gstreamer1.0-plugins-good \
     gstreamer1.0-plugins-bad gstreamer1.0-libav \
-    firmware-iwlwifi bluez bluez-tools rfkill network-manager modemmanager hostapd dnsmasq iw wireless-tools iptables \
+    firmware-iwlwifi bluez bluez-tools rfkill network-manager modemmanager hostapd dnsmasq iw wireless-tools wpasupplicant iptables \
     ffmpeg v4l-utils \
     acpid \
     zram-tools \
@@ -518,6 +524,24 @@ else
 unmanaged-devices=interface-name:$WIFI_IFACE
 EOF
 
+    # Wi-Fi Direct P2P group interfaces (p2p-*) need to be unmanaged
+    # too — without this NetworkManager + systemd-networkd toggle the
+    # link UP/DOWN, which wpa_supplicant interprets as the group going
+    # away and tears the P2P-GO down. Only relevant if you flip
+    # wifi.mode to p2p_go in YAML; harmless otherwise.
+    cat > /etc/NetworkManager/conf.d/bcm-unmanage-p2p.conf <<'EOF'
+[keyfile]
+unmanaged-devices=interface-name:p2p-*
+EOF
+    mkdir -p /etc/systemd/network
+    cat > /etc/systemd/network/00-bcm-p2p.network <<'EOF'
+[Match]
+Name=p2p-*
+
+[Link]
+Unmanaged=yes
+EOF
+
     # Best-effort regdom hint at module load: iwlwifi 8265 has a
     # self-managed PHY pinned to country 00, which makes ch149/153
     # (U-NII-3, normally OK in US) read NO-IR for AP mode. This is
@@ -584,26 +608,18 @@ EOF
     ip addr add 192.168.44.1/24 dev "$WIFI_IFACE" 2>/dev/null || true
     ip link set "$WIFI_IFACE" up 2>/dev/null || true
 
-    systemctl unmask hostapd 2>/dev/null || true
-    systemctl enable hostapd dnsmasq
+    # System hostapd is left DISABLED — the BCM-internal wifi_ap.py
+    # owns the radio via wpa_supplicant P2P-GO. Concurrent hostapd
+    # would race for the same iface and trigger nl80211 EBUSY. To
+    # re-enable the legacy hostapd path, flip wifi.mode back to
+    # "hostapd" in bcm_config.yaml and run `systemctl enable
+    # hostapd dnsmasq`.
+    systemctl disable hostapd 2>/dev/null || true
+    systemctl stop hostapd 2>/dev/null || true
+    systemctl mask hostapd 2>/dev/null || true
 
-    # Ensure hostapd starts after network is ready and restarts on failure
-    mkdir -p /etc/systemd/system/hostapd.service.d
-    cat > /etc/systemd/system/hostapd.service.d/bcm-ordering.conf <<EOF
-[Unit]
-After=network-online.target
-Wants=network-online.target
-
-[Service]
-Restart=on-failure
-RestartSec=3
-EOF
-
-    # Disable BCM's internal WiFi AP manager (conflicts with system hostapd)
     # Disable simulation mode (no fake OBD/BT/GPS data on real hardware)
     if [ -f "$BCM_DIR/config/bcm_config.yaml" ]; then
-        sed -i '/^wifi:/,/^[^ ]/{s/^\(  enabled:\) true/\1 false/}' \
-            "$BCM_DIR/config/bcm_config.yaml"
         # Add simulation: false under system: section
         if ! grep -q "simulation:" "$BCM_DIR/config/bcm_config.yaml"; then
             sed -i '/^  log_file:/a\  simulation: false' \
@@ -611,11 +627,6 @@ EOF
         else
             sed -i 's/^\(  simulation:\).*/\1 false/' \
                 "$BCM_DIR/config/bcm_config.yaml"
-        fi
-        if grep -A1 "^wifi:" "$BCM_DIR/config/bcm_config.yaml" | grep -q "enabled: true"; then
-            warn "Could not patch wifi.enabled — edit bcm_config.yaml manually: set wifi.enabled to false"
-        else
-            echo "  Set wifi.enabled=false in bcm_config.yaml (systemd manages the AP)"
         fi
     fi
 
@@ -884,12 +895,22 @@ fi
 # connect attempt and pairing handshakes get dropped before the audio
 # profile completes. pipewire-audio pulls in the right defaults for
 # headset routing.
-apt-get install -y libspa-0.2-bluetooth pipewire-audio rfkill iw 2>/dev/null || true
+apt-get install -y libspa-0.2-bluetooth pipewire-audio rfkill iw bluez-obexd 2>/dev/null || true
 
 # Enable Bluetooth (needed for AA wireless pairing)
 cp "$BCM_DIR/config/scripts/bcm-bluetooth-setup.sh" /usr/local/bin/
 chmod +x /usr/local/bin/bcm-bluetooth-setup.sh
 cp "$BCM_DIR/config/systemd/bcm-bluetooth.service" /etc/systemd/system/
+
+# Tell the BT setup oneshot to prefer the integrated Intel 8087 adapter
+# on the M910q (matches bluetooth.prefer_internal=true in the YAML).
+# Remove or set to 0 to fall back to "prefer USB dongle" which is the
+# safer default on unknown hardware. The hci watchdog inside
+# BluetoothManager recovers from the documented Intel tx-timeouts.
+mkdir -p /etc/default
+if ! grep -q "^BCM_BT_PREFER_INTERNAL=" /etc/default/bcm-bluetooth 2>/dev/null; then
+    echo "BCM_BT_PREFER_INTERNAL=1" >> /etc/default/bcm-bluetooth
+fi
 
 # Persist BT rfkill unblock across boots — without this many baremetal
 # boards (M910q, OPi 5 Pro) come up with bluetooth soft-blocked even

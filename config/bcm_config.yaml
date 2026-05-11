@@ -144,18 +144,36 @@ brightness:
 music_panel:
   enabled: true
 wifi:
-  enabled: false
+  enabled: true
   ssid: ALFA
   password: 87654321
+  mode: hostapd
   band: g
   channel: 6
-  country: PL
+  country: BO
+  regdom: BO
   share_internet: true
   interface: ''
   ip: 10.0.0.1
   netmask: 255.255.255.0
   dhcp_start: 10.0.0.10
   dhcp_end: 10.0.0.50
+  alfa_net:
+    enabled: true
+    ssid: ALFA-NET
+    password: AlfaRomeo156
+    channel: 6
+    country: BO
+    ip: 10.0.1.1
+    netmask: 255.255.255.0
+    dhcp_start: 10.0.1.10
+    dhcp_end: 10.0.1.50
+    share_internet: true
+  # ssid_runtime / password_runtime / bssid_runtime are populated at
+  # runtime by wifi_ap.py when in p2p_go mode (wpa_supplicant
+  # auto-generates a DIRECT-XX SSID and PSK each boot). Leave empty
+  # in the committed config so a fresh deploy starts from the YAML
+  # defaults; wifi_ap.py writes them back on the fly.
 weather:
   api_key: 631c2365675e193584b0f986798554c1
   poll_interval_min: 15
@@ -221,4 +239,7 @@ tracking:
   geofence_radius_km: 0
   sms_number: ''
 multimedia:
-  last_bt_device: 0C:36:8A:2E:F5:D2
+  last_bt_device: C0:7A:D6:90:E9:CC
+bluetooth:
+  prefer_internal: false
+  preferred_adapter: ''

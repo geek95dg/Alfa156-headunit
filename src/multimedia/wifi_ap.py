@@ -108,16 +108,25 @@ class WiFiAPManager:
         self._event_bus = event_bus
         self._interface: Optional[str] = None
         self._running = False
-        self._method: Optional[str] = None  # "nmcli" or "hostapd"
+        self._method: Optional[str] = None  # "p2p_go" | "nmcli" | "hostapd"
         self._ap_ip = config.get("wifi.ip", "10.0.0.1")
         self._netmask = config.get("wifi.netmask", "255.255.255.0")
         self._ssid = config.get("wifi.ssid", "Alfa156_AA")
         self._password = config.get("wifi.password", "alfa156headunit")
         self._nm_conn_name = "bcm-aa-hotspot"
 
-        # hostapd/dnsmasq processes (only used in hostapd mode)
+        # hostapd/dnsmasq/wpa_supplicant processes
         self._hostapd_proc: Optional[subprocess.Popen] = None
         self._dnsmasq_proc: Optional[subprocess.Popen] = None
+        self._wpa_proc: Optional[subprocess.Popen] = None
+        # Secondary AP ("ALFA-NET" internet share) — only spun up when
+        # the radio admits two concurrent VIFs (Intel 8265 typically
+        # supports one P2P-GO + one AP at the same time on the same
+        # channel). On phys that reject the combo we fall back to
+        # time-multiplexing.
+        self._net_iface: Optional[str] = None
+        self._net_hostapd_proc: Optional[subprocess.Popen] = None
+        self._net_dnsmasq_proc: Optional[subprocess.Popen] = None
 
         # Subscribe to shutdown
         self._event_bus.subscribe("power.shutting_down", self._on_shutdown)
@@ -163,16 +172,35 @@ class WiFiAPManager:
 
         log.info("Using WiFi interface: %s", self._interface)
 
-        # Try NetworkManager first (most compatible on desktop/VM Linux)
-        if _has_networkmanager():
-            if self._start_nmcli():
+        mode = self._config.get("wifi.mode", "hostapd")
+        log.info("WiFi AP mode: %s", mode)
+
+        # Honor the configured mode strictly. Multi-BSS (ALFA-NET on a
+        # second BSSID) is only supported by the hostapd path — it's
+        # inlined inside _start_hostapd so we don't call
+        # _maybe_start_alfa_net here for hostapd.
+        if mode == "p2p_go":
+            if self._start_p2p_go():
+                self._method = "p2p_go"
+                self._running = True
+                self._publish_started()
+                self._maybe_start_alfa_net()
+                return True
+            log.warning("P2P-GO failed — falling back to hostapd")
+            mode = "hostapd"
+
+        if mode == "nmcli":
+            if _has_networkmanager() and self._start_nmcli():
                 self._method = "nmcli"
                 self._running = True
                 self._publish_started()
+                self._maybe_start_alfa_net()
                 return True
-            log.warning("nmcli hotspot failed — trying hostapd fallback")
+            log.warning("nmcli hotspot failed — falling back to hostapd")
+            mode = "hostapd"
 
-        # Fall back to hostapd + dnsmasq
+        # hostapd path — supports multi-BSS for ALFA + ALFA-NET
+        # broadcasting from the same radio.
         if self._start_hostapd_mode():
             self._method = "hostapd"
             self._running = True
@@ -189,7 +217,13 @@ class WiFiAPManager:
 
         self._running = False
 
-        if self._method == "nmcli":
+        # Secondary ALFA-NET AP first so dnsmasq releases the VIF before
+        # we kill wpa_supplicant on the main interface.
+        self._stop_alfa_net()
+
+        if self._method == "p2p_go":
+            self._stop_p2p_go()
+        elif self._method == "nmcli":
             self._stop_nmcli()
         elif self._method == "hostapd":
             self._stop_hostapd_mode()
@@ -332,9 +366,54 @@ class WiFiAPManager:
             self._cleanup()
             return False
 
+        # Multi-BSS secondary VIF — bring up IP + a second dnsmasq for
+        # ALFA-NET clients. hostapd creates the iface but doesn't
+        # assign an IP; if we skip this, clients associate but can't
+        # get DHCP. Best-effort: failures here don't tear down the
+        # primary AA path.
+        if self._net_iface:
+            self._setup_alfa_net_secondary_bss()
+
         if self._config.get("wifi.share_internet", True):
             self._enable_internet_sharing()
         return True
+
+    def _setup_alfa_net_secondary_bss(self) -> None:
+        """Assign IP + start a second dnsmasq on the multi-BSS ALFA-NET VIF.
+
+        hostapd's `bss=` directive creates the virtual interface but
+        leaves IP/DHCP up to us. We give it a separate subnet from the
+        primary AP (default 10.0.1.0/24) and a small dedicated dnsmasq
+        process so its DHCP doesn't fight the primary AP's leases.
+        """
+        iface = self._net_iface
+        net_ip = self._config.get("wifi.alfa_net.ip", "10.0.1.1")
+        netmask = self._config.get("wifi.alfa_net.netmask", "255.255.255.0")
+        prefix = _netmask_to_prefix(netmask)
+        # hostapd brings up the bss= iface but it starts in some
+        # drivers as DOWN — explicitly bring it up.
+        for cmd in (["ip", "link", "set", iface, "up"],
+                    ["ip", "addr", "flush", "dev", iface],
+                    ["ip", "addr", "add", f"{net_ip}/{prefix}", "dev", iface]):
+            subprocess.run(cmd, capture_output=True, timeout=4)
+        dhcp_start = self._config.get("wifi.alfa_net.dhcp_start", "10.0.1.10")
+        dhcp_end = self._config.get("wifi.alfa_net.dhcp_end", "10.0.1.50")
+        try:
+            self._net_dnsmasq_proc = subprocess.Popen(
+                ["dnsmasq",
+                 f"--interface={iface}",
+                 "--bind-interfaces",
+                 f"--dhcp-range={dhcp_start},{dhcp_end},{netmask},24h",
+                 "--no-daemon", "--no-resolv", "--no-hosts"],
+                stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+            )
+        except FileNotFoundError:
+            log.warning("dnsmasq missing — ALFA-NET clients won't get DHCP")
+            return
+        log.info("ALFA-NET multi-BSS: %s up on %s/%d, DHCP %s-%s",
+                 iface, net_ip, prefix, dhcp_start, dhcp_end)
+        if self._config.get("wifi.alfa_net.share_internet", True):
+            self._add_nat_for(iface)
 
     def _enable_internet_sharing(self) -> None:
         """Turn the AP into an internet gateway by NAT'ing through any
@@ -426,11 +505,22 @@ class WiFiAPManager:
             )
 
     def _setup_interface(self) -> bool:
-        """Configure the WiFi interface with a static IP."""
+        """Configure the WiFi interface with a static IP.
+
+        For a Wi-Fi Direct GO child interface (``p2p-*``), we MUST NOT
+        bring the link down — wpa_supplicant interprets that as the
+        group going away and tears the P2P-GO down, after which the
+        ``p2p-*`` iface vanishes entirely. Just flush the IP table and
+        add ours. For regular hostapd-managed wlan ifaces the link
+        cycle stays — those need an explicit down/up to clear leftover
+        STA-mode state.
+        """
         iface = self._interface
+        is_p2p = iface.startswith("p2p-")
         try:
-            subprocess.run(["ip", "link", "set", iface, "down"],
-                           capture_output=True, timeout=5)
+            if not is_p2p:
+                subprocess.run(["ip", "link", "set", iface, "down"],
+                               capture_output=True, timeout=5)
             subprocess.run(["ip", "addr", "flush", "dev", iface],
                            capture_output=True, timeout=5)
 
@@ -461,6 +551,12 @@ class WiFiAPManager:
         Intel 7265 — extras like ieee80211d/wmm_enabled/macaddr_acl have
         repeatedly broken broadcast on this card, while this exact set
         comes up first try.
+
+        When ``wifi.alfa_net.enabled`` is true, appends a second BSS
+        section so hostapd broadcasts BOTH ``ALFA`` and ``ALFA-NET`` on
+        the same channel from the same radio — Intel 8265's
+        interface_combinations rejects AP+P2P-GO concurrent but allows
+        multi-BSS within a single AP role.
         """
         config_path = os.path.join(RUNTIME_DIR, "hostapd.conf")
         # Channel/band/country are sourced from wifi.* in the YAML so the
@@ -489,6 +585,48 @@ class WiFiAPManager:
             f"country_code={country}\n"
         )
 
+        # Multi-BSS: append a second virtual AP for ALFA-NET if enabled.
+        # The `bss=` directive creates an additional BSSID on the same
+        # radio/channel. Hostapd's auto-derivation increments the
+        # primary MAC's last octet by 1 — which collides with the
+        # kernel's reserved P2P-device handle MAC (primary+1 is the
+        # canonical Wi-Fi Direct device address). Set `bssid=` to
+        # primary+2 to dodge the collision; the locally-administered
+        # bit is also flipped so the MAC is unambiguously synthetic.
+        if self._config.get("wifi.alfa_net.enabled", True):
+            net_ssid = self._config.get("wifi.alfa_net.ssid", "ALFA-NET")
+            net_pwd = self._config.get("wifi.alfa_net.password",
+                                       "AlfaRomeo156")
+            bss_iface = f"{self._interface}_net"
+            # Read primary MAC + derive secondary BSSID.
+            try:
+                with open(f"/sys/class/net/{self._interface}/address") as f:
+                    primary_mac = f.read().strip().lower()
+                octets = [int(o, 16) for o in primary_mac.split(":")]
+                # +2 in last octet (avoid +1 = P2P-device handle), and
+                # set the locally-administered bit on the first octet
+                # so the address can't be confused with the OUI.
+                octets[0] |= 0x02
+                octets[5] = (octets[5] + 2) & 0xff
+                secondary_bssid = ":".join(f"{o:02x}" for o in octets)
+            except Exception:
+                secondary_bssid = ""
+            config_content += (
+                f"\n# Secondary BSS — ALFA-NET internet share\n"
+                f"bss={bss_iface}\n"
+                f"ssid={net_ssid}\n"
+                + (f"bssid={secondary_bssid}\n" if secondary_bssid else "") +
+                f"wpa=2\n"
+                f"wpa_passphrase={net_pwd}\n"
+                f"wpa_key_mgmt=WPA-PSK\n"
+                f"rsn_pairwise=CCMP\n"
+            )
+            self._net_iface = bss_iface
+            log.info("hostapd multi-BSS: primary=%s secondary=%s "
+                     "(BSSID=%s, SSID=%s)",
+                     self._ssid, net_ssid,
+                     secondary_bssid or "auto", net_ssid)
+
         with open(config_path, "w") as f:
             f.write(config_content)
 
@@ -503,31 +641,53 @@ class WiFiAPManager:
         except Exception:
             pass
 
-        try:
-            self._hostapd_proc = subprocess.Popen(
-                ["hostapd", config_path],
-                stdout=subprocess.PIPE,
-                stderr=subprocess.STDOUT,
-            )
-            # Wait and check if it started
-            time.sleep(2)
-            if self._hostapd_proc.poll() is not None:
-                out = self._hostapd_proc.stdout.read().decode(
-                    "utf-8", errors="replace") if self._hostapd_proc.stdout else ""
-                log.error("hostapd failed to start: %s", out.strip())
+        def _launch(path: str) -> bool:
+            try:
+                self._hostapd_proc = subprocess.Popen(
+                    ["hostapd", path],
+                    stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                )
+            except Exception:
+                log.exception("Failed to launch hostapd")
                 return False
-
-            threading.Thread(
-                target=self._read_proc_logs,
-                args=(self._hostapd_proc, "hostapd"),
-                daemon=True,
-            ).start()
-
-            log.info("hostapd started (PID %d)", self._hostapd_proc.pid)
-            return True
-        except Exception:
-            log.exception("Failed to start hostapd")
+            time.sleep(2)
+            if self._hostapd_proc.poll() is None:
+                threading.Thread(
+                    target=self._read_proc_logs,
+                    args=(self._hostapd_proc, "hostapd"),
+                    daemon=True,
+                ).start()
+                log.info("hostapd started (PID %d)", self._hostapd_proc.pid)
+                return True
+            out = self._hostapd_proc.stdout.read().decode(
+                "utf-8", errors="replace") if self._hostapd_proc.stdout else ""
+            log.error("hostapd failed to start: %s", out.strip())
+            self._hostapd_proc = None
             return False
+
+        if _launch(config_path):
+            return True
+
+        # Multi-BSS failure recovery: iwlwifi 8265's interface_combinations
+        # admits exactly ONE AP role on this radio (`#{AP, P2P-client,
+        # P2P-GO} <= 1`), so the `bss=` secondary trips
+        # "Could not set interface wlp2s0_net flags (UP): Device or
+        # resource busy". If we asked for ALFA-NET and the dual-BSS
+        # launch failed, retry single-BSS so the primary ALFA still
+        # comes up; ALFA-NET is unavailable on this hardware without
+        # a second radio (USB dongle).
+        if self._net_iface and self._config.get("wifi.alfa_net.enabled", True):
+            log.warning("Multi-BSS rejected by iwlwifi (8265 admits 1 AP "
+                        "only) — retrying ALFA single-BSS without "
+                        "ALFA-NET. Plug a USB WiFi dongle to get the "
+                        "second SSID concurrently.")
+            single_bss = config_content.split("\n# Secondary BSS")[0]
+            with open(config_path, "w") as f:
+                f.write(single_bss)
+            self._net_iface = None
+            if _launch(config_path):
+                return True
+        return False
 
     def _start_dnsmasq(self) -> bool:
         """Start dnsmasq for DHCP on the AP interface."""
@@ -643,6 +803,496 @@ class WiFiAPManager:
         except Exception:
             pass
         return False
+
+    # ------------------------------------------------------------------
+    # wpa_supplicant P2P-GO method (Wi-Fi Direct Group Owner)
+    # ------------------------------------------------------------------
+
+    def _start_p2p_go(self) -> bool:
+        """Bring up the AA WiFi as a Wi-Fi Direct Group Owner on ch149.
+
+        Why this path: the AA Wireless protocol the phone speaks is
+        Wi-Fi Direct internally, and P2P-GO is the only AP-equivalent
+        role iwlwifi 8265 lets us start on 5 GHz under a self-managed
+        regdom (the regular AP role gets ``Frequency NNNN not allowed,
+        flags: NO-IR``). We also rfkill-unblock + force regdom first
+        because the Intel firmware still honors a country hint when
+        choosing which channels it'll *accept* a P2P GO on.
+        """
+        # Make sure NetworkManager isn't holding the interface — wpa_s
+        # P2P refuses to bind otherwise.
+        if _has_networkmanager():
+            subprocess.run(
+                ["nmcli", "device", "set", self._interface, "managed", "no"],
+                capture_output=True, timeout=5,
+            )
+            time.sleep(0.3)
+
+        # Best-effort regdom kick. User waived country compliance so we
+        # try a country that the iwlwifi 8265 firmware admits is OK on
+        # ch149 (BO/JP/IN have historically worked). `iw reg set` is a
+        # no-op on self-managed PHYs but costs nothing to attempt.
+        regdom = self._config.get("wifi.regdom", "BO")
+        for cmd in (["rfkill", "unblock", "wifi"],
+                    ["rfkill", "unblock", "all"],
+                    ["iw", "reg", "set", regdom]):
+            try:
+                subprocess.run(cmd, capture_output=True, timeout=3)
+            except Exception:
+                pass
+
+        os.makedirs(RUNTIME_DIR, exist_ok=True)
+        ctrl_dir = os.path.join(RUNTIME_DIR, "wpa-ctrl")
+        os.makedirs(ctrl_dir, exist_ok=True)
+        conf_path = os.path.join(RUNTIME_DIR, "wpa-p2p.conf")
+        # device_name carries through to the phone's Wi-Fi Direct picker.
+        wpa_conf = (
+            f"ctrl_interface=DIR={ctrl_dir} GROUP=netdev\n"
+            f"update_config=1\n"
+            f"country={regdom}\n"
+            f"device_name=Alfa156 Headunit\n"
+            f"device_type=8-0050F204-2\n"  # AudioVideo / Carkit
+            f"p2p_go_intent=15\n"
+            f"p2p_go_ht40=1\n"
+            f"p2p_go_vht=1\n"
+            f"persistent_reconnect=1\n"
+        )
+        with open(conf_path, "w") as f:
+            f.write(wpa_conf)
+
+        # Kill stale wpa_supplicant on this interface so we don't race.
+        try:
+            subprocess.run(["pkill", "-f",
+                            f"wpa_supplicant.*{self._interface}"],
+                           capture_output=True, timeout=3)
+        except Exception:
+            pass
+        time.sleep(0.5)
+
+        try:
+            self._wpa_proc = subprocess.Popen(
+                ["wpa_supplicant",
+                 "-i", self._interface,
+                 "-D", "nl80211",
+                 "-c", conf_path],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+            )
+        except FileNotFoundError:
+            log.warning("wpa_supplicant not installed — install via apt")
+            return False
+
+        # Wait for ctrl socket to appear.
+        ctrl_path = os.path.join(ctrl_dir, self._interface)
+        deadline = time.time() + 5.0
+        while time.time() < deadline and not os.path.exists(ctrl_path):
+            if self._wpa_proc.poll() is not None:
+                log.error("wpa_supplicant exited before ctrl socket ready")
+                return False
+            time.sleep(0.2)
+        if not os.path.exists(ctrl_path):
+            log.error("wpa_supplicant ctrl socket never appeared at %s",
+                      ctrl_path)
+            self._stop_p2p_go()
+            return False
+
+        # Start a persistent P2P group. Channel→freq mapping differs
+        # between bands: 2.4 GHz ch1-13 uses 2407+5*N (and ch14 is the
+        # special-case 2484 MHz for JP), while 5 GHz uses 5000+5*N.
+        # Picking the wrong formula sends ch6 to 5030 MHz which is
+        # NO-IR on the Intel 8265 firmware — silent `p2p_group_add: FAIL`.
+        channel = int(self._config.get("wifi.channel", 6))
+        if channel <= 14:
+            freq = 2484 if channel == 14 else 2407 + 5 * channel
+        else:
+            freq = 5000 + 5 * channel
+        cli_cmd = [
+            "wpa_cli", "-p", ctrl_dir, "-i", self._interface,
+            "p2p_group_add", f"freq={freq}", "persistent",
+        ]
+        r = subprocess.run(cli_cmd, capture_output=True, text=True, timeout=10)
+        if r.returncode != 0 or "FAIL" in (r.stdout + r.stderr).upper():
+            log.error("p2p_group_add failed: %s%s",
+                      r.stdout.strip(), r.stderr.strip())
+            self._stop_p2p_go()
+            return False
+        log.info("wpa_cli p2p_group_add OK: %s", r.stdout.strip())
+
+        # Find the p2p-wlan*-N interface wpa_s just created.
+        time.sleep(1.5)
+        p2p_iface = self._find_p2p_iface(self._interface)
+        if not p2p_iface:
+            log.warning("Could not locate p2p group interface — using "
+                        "primary %s for IP", self._interface)
+            p2p_iface = self._interface
+
+        # Wi-Fi Direct GOs broadcast a spec-mandated `DIRECT-XX` SSID
+        # with a random WPA2 passphrase. Read what wpa_supplicant
+        # generated and overwrite self._ssid / self._password so the
+        # downstream openauto.ini regen sends the *real* SSID + PSK
+        # to the phone over BT. Without this, the phone is told to
+        # join "ALFA" while the actual GO is "DIRECT-Qi" → AA-Wireless
+        # connect fails silently.
+        if p2p_iface != self._interface:
+            real_ssid = self._wpa_query(ctrl_dir, p2p_iface, "status",
+                                        prop="ssid")
+            real_psk = self._wpa_query(ctrl_dir, p2p_iface,
+                                       "p2p_get_passphrase")
+            real_bssid = self._wpa_query(ctrl_dir, p2p_iface, "status",
+                                         prop="bssid")
+            if real_ssid:
+                self._ssid = real_ssid
+            if real_psk:
+                self._password = real_psk
+            # The GO has its own MAC (parent±2 typically) — publish so
+            # openauto.ini gets the right BSSID for WifiInfoResponse.
+            log.info("P2P-GO advertising SSID=%s psk=%s… on BSSID=%s",
+                     self._ssid, (self._password or "")[:3],
+                     real_bssid or "?")
+            try:
+                self._config.set("wifi.ssid_runtime", self._ssid)
+                self._config.set("wifi.password_runtime", self._password)
+                if real_bssid:
+                    self._config.set("wifi.bssid_runtime", real_bssid)
+            except Exception:
+                log.debug("Could not persist runtime SSID/PSK")
+            self._event_bus.publish("wifi.ap_credentials", {
+                "ssid": self._ssid,
+                "password": self._password,
+                "bssid": real_bssid,
+            })
+
+        # Assign IP + start dnsmasq on the GO interface.
+        prev_iface = self._interface
+        self._interface = p2p_iface
+        if not self._setup_interface():
+            self._interface = prev_iface
+            self._stop_p2p_go()
+            return False
+        if not self._start_dnsmasq():
+            self._stop_p2p_go()
+            return False
+
+        if self._config.get("wifi.share_internet", True):
+            self._enable_internet_sharing()
+        return True
+
+    @staticmethod
+    def _wpa_query(ctrl_dir: str, iface: str, cmd: str,
+                   prop: Optional[str] = None) -> str:
+        """Run wpa_cli and return either a single property from `status`
+        output (when `prop` is set) or the trimmed raw response.
+        """
+        try:
+            r = subprocess.run(
+                ["wpa_cli", "-p", ctrl_dir, "-i", iface, cmd],
+                capture_output=True, text=True, timeout=4,
+            )
+        except Exception:
+            return ""
+        out = (r.stdout or "").strip()
+        if not prop:
+            # Single-line responses like p2p_get_passphrase come back
+            # as `9aAuzYNy` with no key=value framing.
+            return out.splitlines()[-1].strip() if out else ""
+        for line in out.splitlines():
+            if line.startswith(prop + "="):
+                return line.split("=", 1)[1].strip().strip('"')
+        return ""
+
+    @staticmethod
+    def _find_p2p_iface(primary: str) -> Optional[str]:
+        """Locate the p2p-wlan*-N child interface for `primary`."""
+        try:
+            for iface in os.listdir("/sys/class/net"):
+                if iface.startswith("p2p-") and primary.split("-")[0] in iface:
+                    return iface
+            # Fallback — any p2p-* iface
+            for iface in os.listdir("/sys/class/net"):
+                if iface.startswith("p2p-"):
+                    return iface
+        except OSError:
+            pass
+        return None
+
+    def _stop_p2p_go(self) -> None:
+        """Tear down wpa_supplicant P2P-GO group + dnsmasq."""
+        self._stop_dnsmasq()
+        ctrl_dir = os.path.join(RUNTIME_DIR, "wpa-ctrl")
+        if self._interface and self._interface.startswith("p2p-"):
+            try:
+                subprocess.run(
+                    ["wpa_cli", "-p", ctrl_dir, "-i", self._interface,
+                     "p2p_group_remove", self._interface],
+                    capture_output=True, timeout=5,
+                )
+            except Exception:
+                pass
+        if self._wpa_proc and self._wpa_proc.poll() is None:
+            self._wpa_proc.send_signal(signal.SIGTERM)
+            try:
+                self._wpa_proc.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                self._wpa_proc.kill()
+        self._wpa_proc = None
+
+        if _has_networkmanager():
+            primary = self._config.get("wifi.interface", "") or "wlan0"
+            subprocess.run(
+                ["nmcli", "device", "set", primary, "managed", "yes"],
+                capture_output=True, timeout=5,
+            )
+
+    # ------------------------------------------------------------------
+    # Secondary "ALFA-NET" internet-sharing AP
+    # ------------------------------------------------------------------
+
+    def _maybe_start_alfa_net(self) -> None:
+        """Bring up the editable ALFA-NET hotspot on a second VIF.
+
+        Strategy (in order — first that works wins):
+          1. **Different physical radio** — if a second wireless iface
+             exists (USB dongle), park ALFA-NET there.
+          2. **Concurrent VIF on same phy** — iw add interface __ap;
+             only succeeds when the driver advertises an AP/GO + AP
+             combination. iwlwifi 8265 advertises ``#{AP, P2P-GO} <= 1``
+             which means it does NOT — adding an AP VIF on the same
+             PHY as an active P2P-GO group collapses the GO. The
+             concurrent-VIF check below catches that and skips.
+          3. **Skip** — log a warning and require a USB dongle for
+             ALFA-NET. Time-multiplexing is intentionally NOT done
+             here because the AA P2P-GO group is the primary mission
+             and must stay up.
+        """
+        if not self._config.get("wifi.alfa_net.enabled", True):
+            return
+        ssid = self._config.get("wifi.alfa_net.ssid", "ALFA-NET")
+        password = self._config.get("wifi.alfa_net.password", "AlfaRomeo156")
+        net_ip = self._config.get("wifi.alfa_net.ip", "10.0.1.1")
+        net_mask = self._config.get("wifi.alfa_net.netmask", "255.255.255.0")
+        # When the primary AP is P2P-GO, self._interface is the child
+        # `p2p-<parent>-N` iface but the radio actually being used is
+        # the parent — derive it from the iface name so the same-PHY
+        # check below treats the parent as already-claimed.
+        primary = self._interface or ""
+        parent = primary
+        if primary.startswith("p2p-"):
+            # p2p-wlp2s0-0 → wlp2s0
+            try:
+                parent = primary.split("-", 2)[1]
+            except IndexError:
+                parent = primary
+        primary_phy = (self._phy_for_iface(parent)
+                       or self._phy_for_iface(primary))
+        if not primary_phy:
+            log.warning("ALFA-NET: couldn't resolve primary PHY — "
+                        "skipping to avoid clobbering the AA group")
+            return
+        candidate = None
+        try:
+            for iface in sorted(os.listdir("/sys/class/net")):
+                if iface in (primary, parent):
+                    continue
+                if not (iface.startswith(("wlan", "wlp", "wlx"))
+                        or os.path.isdir(f"/sys/class/net/{iface}/wireless")):
+                    continue
+                phy = self._phy_for_iface(iface)
+                if phy and phy != primary_phy:
+                    candidate = iface
+                    break
+        except OSError:
+            pass
+
+        if candidate:
+            log.info("ALFA-NET: using separate radio %s", candidate)
+            if self._start_alfa_net_on(candidate, ssid, password,
+                                       net_ip, net_mask):
+                self._net_iface = candidate
+                return
+
+        # Path 2: concurrent VIF on same PHY. Intel 8265's
+        # interface_combinations advertises `#{AP, P2P-GO} <= 1`, so
+        # adding an AP VIF while a P2P-GO group is active will
+        # silently collapse the GO. The `iw phy ... interface add`
+        # command often returns rc=0 anyway, then hostapd starts and
+        # knocks AA off the air. Skip this path entirely when the
+        # primary is p2p_go to keep AA up.
+        if self._method == "p2p_go":
+            log.warning(
+                "ALFA-NET disabled — primary AP is P2P-GO and the "
+                "Intel 8265 PHY can't host AA + ALFA-NET concurrently. "
+                "Plug a USB WiFi dongle for ALFA-NET."
+            )
+            return
+
+        if primary_phy:
+            vif = f"{primary}_net"
+            try:
+                r = subprocess.run(
+                    ["iw", "phy", primary_phy, "interface", "add",
+                     vif, "type", "__ap"],
+                    capture_output=True, text=True, timeout=4,
+                )
+                if r.returncode == 0:
+                    log.info("ALFA-NET: created concurrent VIF %s on %s",
+                             vif, primary_phy)
+                    if self._start_alfa_net_on(vif, ssid, password,
+                                               net_ip, net_mask):
+                        self._net_iface = vif
+                        return
+                    subprocess.run(["iw", "dev", vif, "del"],
+                                   capture_output=True, timeout=3)
+                else:
+                    log.warning("ALFA-NET: PHY rejects concurrent AP VIF "
+                                "(driver combo): %s",
+                                (r.stderr or r.stdout).strip())
+            except Exception as e:
+                log.warning("ALFA-NET concurrent VIF setup raised: %s", e)
+
+        log.warning("ALFA-NET disabled — no spare radio and PHY won't "
+                    "host a second AP VIF. Plug a USB WiFi dongle to "
+                    "enable internet sharing without losing AA Wireless.")
+
+    @staticmethod
+    def _phy_for_iface(iface: str) -> Optional[str]:
+        try:
+            r = subprocess.run(
+                ["iw", "dev", iface, "info"],
+                capture_output=True, text=True, timeout=3,
+            )
+            for line in r.stdout.splitlines():
+                line = line.strip()
+                if line.startswith("wiphy "):
+                    return f"phy{line.split()[1]}"
+        except Exception:
+            pass
+        return None
+
+    def _start_alfa_net_on(self, iface: str, ssid: str, password: str,
+                           net_ip: str, netmask: str) -> bool:
+        """Bring up hostapd + dnsmasq for the secondary ALFA-NET SSID."""
+        os.makedirs(RUNTIME_DIR, exist_ok=True)
+        conf_path = os.path.join(RUNTIME_DIR, "hostapd-alfanet.conf")
+        # 2.4 GHz ch6 — works everywhere, doesn't share the main 5 GHz
+        # frequency unless the radio forces it.
+        channel = int(self._config.get("wifi.alfa_net.channel", 6))
+        country = self._config.get("wifi.alfa_net.country", "BO")
+        conf = (
+            f"interface={iface}\n"
+            f"driver=nl80211\n"
+            f"ssid={ssid}\n"
+            f"hw_mode=g\n"
+            f"channel={channel}\n"
+            f"ieee80211n=1\n"
+            f"wpa=2\n"
+            f"wpa_passphrase={password}\n"
+            f"wpa_key_mgmt=WPA-PSK\n"
+            f"rsn_pairwise=CCMP\n"
+            f"country_code={country}\n"
+        )
+        with open(conf_path, "w") as f:
+            f.write(conf)
+
+        # IP + bring iface up before hostapd binds.
+        prefix = _netmask_to_prefix(netmask)
+        for cmd in (["ip", "link", "set", iface, "up"],
+                    ["ip", "addr", "flush", "dev", iface],
+                    ["ip", "addr", "add", f"{net_ip}/{prefix}", "dev", iface]):
+            subprocess.run(cmd, capture_output=True, timeout=4)
+
+        try:
+            self._net_hostapd_proc = subprocess.Popen(
+                ["hostapd", conf_path],
+                stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+            )
+            time.sleep(1.5)
+            if self._net_hostapd_proc.poll() is not None:
+                out = (self._net_hostapd_proc.stdout.read().decode(
+                    errors="replace") if self._net_hostapd_proc.stdout else "")
+                log.error("ALFA-NET hostapd failed: %s", out.strip())
+                self._net_hostapd_proc = None
+                return False
+        except FileNotFoundError:
+            log.warning("hostapd not installed — ALFA-NET disabled")
+            return False
+
+        # dnsmasq on a different range than the primary AA AP.
+        dhcp_start = self._config.get("wifi.alfa_net.dhcp_start", "10.0.1.10")
+        dhcp_end = self._config.get("wifi.alfa_net.dhcp_end", "10.0.1.50")
+        try:
+            self._net_dnsmasq_proc = subprocess.Popen(
+                ["dnsmasq",
+                 f"--interface={iface}",
+                 "--bind-interfaces",
+                 f"--dhcp-range={dhcp_start},{dhcp_end},{netmask},24h",
+                 "--no-daemon", "--no-resolv", "--no-hosts"],
+                stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+            )
+        except FileNotFoundError:
+            log.warning("dnsmasq missing — ALFA-NET clients won't get IPs")
+            self._stop_alfa_net()
+            return False
+
+        log.info("ALFA-NET up: SSID=%s on %s IP=%s/%d ch%d",
+                 ssid, iface, net_ip, prefix, channel)
+        # Best-effort NAT for ALFA-NET clients too.
+        if self._config.get("wifi.alfa_net.share_internet", True):
+            self._add_nat_for(iface)
+        return True
+
+    def _stop_alfa_net(self) -> None:
+        for proc in (self._net_dnsmasq_proc, self._net_hostapd_proc):
+            if proc and proc.poll() is None:
+                proc.send_signal(signal.SIGTERM)
+                try:
+                    proc.wait(timeout=3)
+                except subprocess.TimeoutExpired:
+                    proc.kill()
+        self._net_dnsmasq_proc = None
+        self._net_hostapd_proc = None
+        if self._net_iface:
+            # Delete the VIF we created (only if it ends in _net — the
+            # USB-dongle path uses a real interface that should survive).
+            if self._net_iface.endswith("_net"):
+                subprocess.run(["iw", "dev", self._net_iface, "del"],
+                               capture_output=True, timeout=3)
+            self._net_iface = None
+
+    def _add_nat_for(self, iface: str) -> None:
+        """Add MASQUERADE for ALFA-NET clients via any non-WiFi uplink."""
+        try:
+            with open("/proc/sys/net/ipv4/ip_forward", "w") as f:
+                f.write("1\n")
+        except OSError:
+            return
+        uplinks = []
+        try:
+            for u in os.listdir("/sys/class/net"):
+                if u in ("lo", iface, self._interface):
+                    continue
+                if u.startswith(("wlan", "wlp", "wlx", "p2p-")):
+                    continue
+                try:
+                    with open(f"/sys/class/net/{u}/operstate") as f:
+                        if f.read().strip() == "up":
+                            uplinks.append(u)
+                except OSError:
+                    pass
+        except OSError:
+            return
+        for up in uplinks:
+            for rule in (["-t", "nat", "-A", "POSTROUTING",
+                          "-o", up, "-j", "MASQUERADE"],
+                         ["-A", "FORWARD", "-i", up, "-o", iface,
+                          "-m", "state", "--state",
+                          "RELATED,ESTABLISHED", "-j", "ACCEPT"],
+                         ["-A", "FORWARD", "-i", iface, "-o", up,
+                          "-j", "ACCEPT"]):
+                try:
+                    subprocess.run(["iptables"] + rule,
+                                   capture_output=True, timeout=3)
+                except FileNotFoundError:
+                    return
 
     def _read_proc_logs(self, proc: subprocess.Popen, name: str) -> None:
         """Forward subprocess output to logger."""
