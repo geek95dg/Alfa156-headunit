@@ -29,6 +29,12 @@ const NavBar = (() => {
         const aaAvailable = data.aa_available || data.aa_status === "running" || data.aa_status === "connected";
         const btAvailable = data.bt_available || data.bt_connected;
 
+        // Pixel bumps for the 7" touchscreen brief: nav tap targets and
+        // icons grow ~15-20% over the original (w-12/h-12 + 26px icons).
+        // w-14 / h-14 = 56 logical px (rem-scaled to ~64 actual px once
+        // the root font-size bump from themes.css applies), and the
+        // icon size goes 26 → 30 px so the SVG visual matches the
+        // larger hit-box without overcrowding.
         const items = NAV_ITEMS.map((item, i) => {
             const isActive = i === activeIdx;
             // Dim items that require unavailable features
@@ -36,20 +42,20 @@ const NavBar = (() => {
             const iconStyle = isActive ? "font-variation-settings:'FILL' 1;" : "";
 
             if (isDisabled && !isActive) {
-                return `<div class="flex items-center justify-center text-zinc-500 w-12 h-12 cursor-pointer opacity-50 transition-all"
+                return `<div class="flex items-center justify-center text-zinc-500 w-14 h-14 cursor-pointer opacity-50 transition-all"
                          title="${item.tip} (unavailable)" onclick="App.navigateTo('${item.screen}')">
-                    <span class="material-symbols-outlined" style="font-size:26px;">${item.icon}</span>
+                    <span class="material-symbols-outlined" style="font-size:30px;">${item.icon}</span>
                 </div>`;
             }
             if (isActive) {
-                return `<div class="flex items-center justify-center ${activeBg} ${activeColor} rounded-xl w-12 h-12 cursor-pointer transition-all"
+                return `<div class="flex items-center justify-center ${activeBg} ${activeColor} rounded-xl w-14 h-14 cursor-pointer transition-all"
                          title="${item.tip}" onclick="App.navigateTo('${item.screen}')">
-                    <span class="material-symbols-outlined" style="font-size:26px;${iconStyle}">${item.icon}</span>
+                    <span class="material-symbols-outlined" style="font-size:30px;${iconStyle}">${item.icon}</span>
                 </div>`;
             }
-            return `<div class="flex items-center justify-center ${inactiveColor} w-12 h-12 cursor-pointer hover:text-zinc-300 transition-all"
+            return `<div class="flex items-center justify-center ${inactiveColor} w-14 h-14 cursor-pointer hover:text-zinc-300 transition-all"
                      title="${item.tip}" onclick="App.navigateTo('${item.screen}')">
-                <span class="material-symbols-outlined" style="font-size:26px;">${item.icon}</span>
+                <span class="material-symbols-outlined" style="font-size:30px;">${item.icon}</span>
             </div>`;
         }).join("");
 
@@ -59,14 +65,14 @@ const NavBar = (() => {
         // .bcm-navbar-shown class. Floating so it doesn't steal vertical
         // space from content-area on any screen.
         return `<nav id="bcm-navbar"
-            class="bcm-navbar absolute bottom-0 left-0 right-0 z-50 flex justify-around items-center h-12 ${barCls} border-t"
+            class="bcm-navbar absolute bottom-0 left-0 right-0 z-50 flex justify-around items-center h-14 ${barCls} border-t"
             ontouchstart="App.kickNavBar(true)"
             onmouseenter="App.kickNavBar(true)"
             onmouseleave="App.kickNavBar(false)">
             ${items}
-            <div class="flex items-center justify-center text-zinc-600 w-12 h-12 cursor-pointer hover:text-zinc-400 transition-all"
+            <div class="flex items-center justify-center text-zinc-600 w-14 h-14 cursor-pointer hover:text-zinc-400 transition-all"
                  title="Settings" onclick="App.navigateTo('settings')">
-                <span class="material-symbols-outlined" style="font-size:24px;">settings</span>
+                <span class="material-symbols-outlined" style="font-size:28px;">settings</span>
             </div>
         </nav>`;
     }
