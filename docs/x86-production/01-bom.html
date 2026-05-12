@@ -1,0 +1,842 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>01 — Bill of Materials | BCM x86 Production</title>
+  <link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+
+  <!-- Hamburger toggle (mobile) -->
+  <button class="hamburger" aria-label="Toggle navigation" onclick="document.querySelector('.sidebar').classList.toggle('open');document.querySelector('.sidebar-overlay').classList.toggle('active');">&#9776;</button>
+  <div class="sidebar-overlay" onclick="document.querySelector('.sidebar').classList.remove('open');this.classList.remove('active');"></div>
+
+  <!-- Sidebar Navigation -->
+  <aside class="sidebar">
+    <div class="sidebar-header">
+      <div class="logo-text">BCM v8.5</div>
+      <div class="logo-sub">x86 Production Docs</div>
+    </div>
+    <nav>
+      <ul>
+        <li><a class="active" href="01-bom.html"><span class="nav-num">01</span> Bill of Materials</a></li>
+        <li><a href="02-assembly.html"><span class="nav-num">02</span> Physical Assembly</a></li>
+      </ul>
+    </nav>
+  </aside>
+
+  <!-- Main Content -->
+  <main class="content">
+    <div class="content-inner">
+
+      <h1>
+        Bill of Materials
+        <span class="subtitle">Lenovo M910q Tiny — Alfa Romeo 156 Production Build</span>
+      </h1>
+
+      <p>
+        Complete parts list for the BCM v8.5 headunit based on a <strong>used Lenovo ThinkCentre M910q Tiny</strong>
+        (i5-6400T, 8 GB DDR4, 256 GB NVMe). Prices in <strong>PLN</strong>, Q1 2026 estimates from Polish retailers
+        and Allegro/AliExpress.
+      </p>
+
+      <div class="box box-info">
+        <div class="box-title">Why M910q?</div>
+        <p>
+          A used M910q costs 200-400 PLN — cheaper than a new Orange Pi 5 Pro while offering a quad-core
+          Intel i5 with VAAPI hardware decode, 2 DisplayPort outputs, 6 USB 3.0 ports, and NVMe storage.
+          The trade-off: no GPIO (requires Arduino peripherals) and higher power draw (20V / 65W).
+        </p>
+      </div>
+
+      <hr>
+
+      <!-- ============================================================
+           STAGE 1
+           ============================================================ -->
+
+      <h2><span class="badge badge-stage1">Stage 1</span> Core System — Dashboard + Audio + OBD</h2>
+      <p>Estimated cost: <strong>~650 — 1 100 PLN</strong></p>
+
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>#</th>
+              <th>Component</th>
+              <th>Model / Spec</th>
+              <th>Qty</th>
+              <th>Price (PLN)</th>
+              <th>Notes</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>1</td>
+              <td>Mini PC</td>
+              <td><strong>Lenovo M910q Tiny</strong> (i5-6400T, 8 GB DDR4, 256 GB NVMe) — used</td>
+              <td>1</td>
+              <td>200-400</td>
+              <td>2&times; DisplayPort, 6&times; USB 3.0</td>
+            </tr>
+            <tr>
+              <td>2</td>
+              <td>WiFi + BT dongle</td>
+              <td><strong>Fenvi FU-AX1800</strong> (MT7921, WiFi 6 + BT 5.2)</td>
+              <td>1</td>
+              <td>120-180</td>
+              <td>Replaces Intel 8265 for 5 GHz AP + BT</td>
+            </tr>
+            <tr>
+              <td>3</td>
+              <td>Power converter</td>
+              <td><strong>XL6019</strong> 12 V &rarr; 20 V DC-DC boost, 65 W</td>
+              <td>1</td>
+              <td>15-30</td>
+              <td>M910q uses 20 V barrel jack</td>
+            </tr>
+            <tr>
+              <td>4</td>
+              <td>AGM battery</td>
+              <td>12 V 7.2 Ah sealed lead-acid</td>
+              <td>1</td>
+              <td>50-80</td>
+              <td>Cranking protection + 36 h S3 standby</td>
+            </tr>
+            <tr>
+              <td>5</td>
+              <td>LVD cutoff</td>
+              <td>10.5 V low-voltage disconnect module</td>
+              <td>1</td>
+              <td>15-25</td>
+              <td>Protects AGM from deep discharge</td>
+            </tr>
+            <tr>
+              <td>6</td>
+              <td>Schottky diode</td>
+              <td><strong>MBR2045</strong> (20 A, 45 V)</td>
+              <td>1</td>
+              <td>5-10</td>
+              <td>Prevents AGM backfeed to car battery</td>
+            </tr>
+            <tr>
+              <td>7</td>
+              <td>Fuses</td>
+              <td>5 A blade (M910q) + 25 A blade (amps)</td>
+              <td>2</td>
+              <td>10</td>
+              <td></td>
+            </tr>
+            <tr>
+              <td>8</td>
+              <td>Main display</td>
+              <td>7" IPS 1024&times;600 HDMI + USB touch</td>
+              <td>1</td>
+              <td>200-350</td>
+              <td>QDtech MPI5001 or similar</td>
+            </tr>
+            <tr>
+              <td>9</td>
+              <td>Small display</td>
+              <td>4.3" TFT 800&times;480 HDMI (no touch)</td>
+              <td>1</td>
+              <td>150-250</td>
+              <td>Status dashboard</td>
+            </tr>
+            <tr>
+              <td>10</td>
+              <td>DP-to-HDMI adapters</td>
+              <td>Passive DisplayPort to HDMI cables</td>
+              <td>2</td>
+              <td>20-30</td>
+              <td>M910q has 2&times; DP, displays need HDMI</td>
+            </tr>
+            <tr>
+              <td>11</td>
+              <td>USB DAC</td>
+              <td><strong>ES9038Q2M</strong> module</td>
+              <td>1</td>
+              <td>45-75</td>
+              <td>32-bit audio, RCA out</td>
+            </tr>
+            <tr>
+              <td>12</td>
+              <td>Amplifier (main)</td>
+              <td><strong>TDA7388</strong> (4&times;45 W Class AB)</td>
+              <td>1</td>
+              <td>45-70</td>
+              <td>4 car speakers</td>
+            </tr>
+            <tr>
+              <td>13</td>
+              <td>Heatsink</td>
+              <td>Aluminium for TDA7388</td>
+              <td>1</td>
+              <td>10-15</td>
+              <td></td>
+            </tr>
+            <tr>
+              <td>14</td>
+              <td>K-Line adapter</td>
+              <td>CP2102 USB-UART + L9637D + 510 &Omega; resistor</td>
+              <td>1</td>
+              <td>25-40</td>
+              <td>ECU communication (Bosch EDC15C7)</td>
+            </tr>
+            <tr>
+              <td>15</td>
+              <td>USB powered hub</td>
+              <td>7-port USB 3.0 powered</td>
+              <td>1</td>
+              <td>40-60</td>
+              <td>All peripherals connect through this</td>
+            </tr>
+            <tr>
+              <td>16</td>
+              <td>Cables</td>
+              <td>2&times; DP-HDMI, USB-A, power, RCA audio</td>
+              <td>&mdash;</td>
+              <td>50-80</td>
+              <td></td>
+            </tr>
+          </tbody>
+          <tfoot>
+            <tr>
+              <td colspan="4"><strong>Stage 1 subtotal</strong></td>
+              <td colspan="2"><strong>~650 — 1 100 PLN</strong></td>
+            </tr>
+          </tfoot>
+        </table>
+      </div>
+
+      <hr>
+
+      <!-- ============================================================
+           STAGE 2
+           ============================================================ -->
+
+      <h2><span class="badge badge-stage2">Stage 2</span> Cameras (4-way) + Sensors + Dashcam</h2>
+      <p>Estimated cost: <strong>~450 — 800 PLN</strong></p>
+      <p>
+        Same components as the OPi 5 Pro BOM items 14-24. Four AHD cameras with a 4-channel
+        USB grabber, ultrasonic parking sensors, and a USB SSD for dashcam loop recording.
+      </p>
+
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>#</th>
+              <th>Component</th>
+              <th>Model / Spec</th>
+              <th>Qty</th>
+              <th>Price (PLN)</th>
+              <th>Notes</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>17</td>
+              <td>4-camera set</td>
+              <td>Front / rear / left / right AHD 720p + cables</td>
+              <td>1</td>
+              <td>110-230</td>
+              <td>AliExpress set (promo ~125 PLN)</td>
+            </tr>
+            <tr>
+              <td>18</td>
+              <td>4-ch USB video grabber</td>
+              <td>USB 2.0/3.0 4-channel AHD capture</td>
+              <td>1</td>
+              <td>150-250</td>
+              <td>Presents as 4&times; <code>/dev/videoN</code></td>
+            </tr>
+            <tr>
+              <td>19</td>
+              <td>Parking sensors</td>
+              <td>HC-SR04 ultrasonic</td>
+              <td>4</td>
+              <td>40-60</td>
+              <td>Rear bumper</td>
+            </tr>
+            <tr>
+              <td>20</td>
+              <td>Buzzer</td>
+              <td>Piezo 5 V</td>
+              <td>1</td>
+              <td>5-10</td>
+              <td>Parking warning</td>
+            </tr>
+            <tr>
+              <td>21</td>
+              <td>Temperature sensor</td>
+              <td>DS18B20 waterproof</td>
+              <td>1</td>
+              <td>20-30</td>
+              <td>Under front bumper</td>
+            </tr>
+            <tr>
+              <td>22</td>
+              <td>Optoisolators</td>
+              <td>PC817</td>
+              <td>6</td>
+              <td>12-18</td>
+              <td>Ignition, door, rain, lock, left/right blinker</td>
+            </tr>
+            <tr>
+              <td>23</td>
+              <td>Transistors</td>
+              <td>BC547 kit</td>
+              <td>1</td>
+              <td>5-10</td>
+              <td>Buzzer + backlight drivers</td>
+            </tr>
+            <tr>
+              <td>24</td>
+              <td>MOSFETs</td>
+              <td>IRLZ44N for backlight PWM</td>
+              <td>2</td>
+              <td>5-10</td>
+              <td></td>
+            </tr>
+            <tr>
+              <td>25</td>
+              <td>Resistor kit</td>
+              <td>1 k&Omega;, 2 k&Omega;, 4.7 k&Omega;, 10 k&Omega;</td>
+              <td>1</td>
+              <td>10-15</td>
+              <td>Voltage dividers, pull-ups</td>
+            </tr>
+            <tr>
+              <td>26</td>
+              <td>Perfboard + headers</td>
+              <td>For sensor wiring</td>
+              <td>1</td>
+              <td>10-15</td>
+              <td></td>
+            </tr>
+            <tr>
+              <td>27</td>
+              <td>USB SSD (dashcam)</td>
+              <td>128 GB USB 3.0</td>
+              <td>1</td>
+              <td>80-150</td>
+              <td>~47 h of loop recording</td>
+            </tr>
+          </tbody>
+          <tfoot>
+            <tr>
+              <td colspan="4"><strong>Stage 2 subtotal</strong></td>
+              <td colspan="2"><strong>~450 — 800 PLN</strong></td>
+            </tr>
+          </tfoot>
+        </table>
+      </div>
+
+      <hr>
+
+      <!-- ============================================================
+           STAGE 3
+           ============================================================ -->
+
+      <h2><span class="badge badge-stage3">Stage 3</span> Input + Connectivity</h2>
+      <p>Estimated cost: <strong>~260 — 420 PLN</strong></p>
+      <p>Same as OPi 5 Pro BOM items 25-29.</p>
+
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>#</th>
+              <th>Component</th>
+              <th>Model / Spec</th>
+              <th>Qty</th>
+              <th>Price (PLN)</th>
+              <th>Notes</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>28</td>
+              <td>USB microphone</td>
+              <td>Condenser, ceiling-mount</td>
+              <td>1</td>
+              <td>30-60</td>
+              <td>HFP phone calls</td>
+            </tr>
+            <tr>
+              <td>29</td>
+              <td>Input Arduino</td>
+              <td><strong>Pro Micro</strong> (ATmega32U4)</td>
+              <td>1</td>
+              <td>40-60</td>
+              <td>SWC + rotary encoder</td>
+            </tr>
+            <tr>
+              <td>29a</td>
+              <td>SWC button kits</td>
+              <td>AliExpress round pods (2&times; pods + decoder box)</td>
+              <td>2</td>
+              <td>~80</td>
+              <td>Dual-pod, 24 buttons total, resistor-ladder &rarr; Arduino A0</td>
+            </tr>
+            <tr>
+              <td>30</td>
+              <td>Rotary encoder</td>
+              <td>Panel-mount with push button</td>
+              <td>1</td>
+              <td>10-20</td>
+              <td></td>
+            </tr>
+            <tr>
+              <td>31</td>
+              <td>GPS module</td>
+              <td>u-blox NEO-M8N USB</td>
+              <td>1</td>
+              <td>40-80</td>
+              <td></td>
+            </tr>
+            <tr>
+              <td>32</td>
+              <td>LTE modem</td>
+              <td>Huawei E3372 HiLink</td>
+              <td>1</td>
+              <td>60-120</td>
+              <td>Optional (for travel planner)</td>
+            </tr>
+          </tbody>
+          <tfoot>
+            <tr>
+              <td colspan="4"><strong>Stage 3 subtotal</strong></td>
+              <td colspan="2"><strong>~260 — 420 PLN</strong></td>
+            </tr>
+          </tfoot>
+        </table>
+      </div>
+
+      <hr>
+
+      <!-- ============================================================
+           STAGE 4
+           ============================================================ -->
+
+      <h2><span class="badge badge-stage4">Stage 4</span> Subwoofer + Rain Sensor</h2>
+      <p>Estimated cost: <strong>~63 — 102 PLN</strong></p>
+      <p>Same as OPi 5 Pro BOM items 30-33.</p>
+
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>#</th>
+              <th>Component</th>
+              <th>Model / Spec</th>
+              <th>Qty</th>
+              <th>Price (PLN)</th>
+              <th>Notes</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>33</td>
+              <td>Subwoofer amp</td>
+              <td><strong>TDA2050</strong> (40 W mono Class AB)</td>
+              <td>1</td>
+              <td>20-30</td>
+              <td></td>
+            </tr>
+            <tr>
+              <td>34</td>
+              <td>Heatsink (sub)</td>
+              <td>Aluminium</td>
+              <td>1</td>
+              <td>5-10</td>
+              <td></td>
+            </tr>
+            <tr>
+              <td>35</td>
+              <td>Rain sensor</td>
+              <td>Digital rain sensor module</td>
+              <td>1</td>
+              <td>30-50</td>
+              <td>Optoisolated input</td>
+            </tr>
+            <tr>
+              <td>36</td>
+              <td>Wiper relay</td>
+              <td>5 V relay module</td>
+              <td>1</td>
+              <td>8-12</td>
+              <td></td>
+            </tr>
+          </tbody>
+          <tfoot>
+            <tr>
+              <td colspan="4"><strong>Stage 4 subtotal</strong></td>
+              <td colspan="2"><strong>~63 — 102 PLN</strong></td>
+            </tr>
+          </tfoot>
+        </table>
+      </div>
+
+      <hr>
+
+      <!-- ============================================================
+           STAGE 5
+           ============================================================ -->
+
+      <h2><span class="badge badge-stage5">Stage 5</span> Security + Tracking</h2>
+      <p>Estimated cost: <strong>~180 — 285 PLN</strong></p>
+      <p>Same as OPi 5 Pro BOM items 34-43.</p>
+
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>#</th>
+              <th>Component</th>
+              <th>Model / Spec</th>
+              <th>Qty</th>
+              <th>Price (PLN)</th>
+              <th>Notes</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>37</td>
+              <td>Central lock Arduino</td>
+              <td>Nano / Pro Mini</td>
+              <td>1</td>
+              <td>20-30</td>
+              <td>433 MHz RF + lock relays</td>
+            </tr>
+            <tr>
+              <td>38</td>
+              <td>Relay module</td>
+              <td>10-ch 5 V</td>
+              <td>1</td>
+              <td>40-60</td>
+              <td></td>
+            </tr>
+            <tr>
+              <td>39</td>
+              <td>RF receiver</td>
+              <td>RXB6 433 MHz</td>
+              <td>1</td>
+              <td>15-25</td>
+              <td>Key fob</td>
+            </tr>
+            <tr>
+              <td>40</td>
+              <td>Siren</td>
+              <td>12 V piezo 120 dB</td>
+              <td>1</td>
+              <td>25-40</td>
+              <td></td>
+            </tr>
+            <tr>
+              <td>41</td>
+              <td>PIR</td>
+              <td>HC-SR501 mini</td>
+              <td>1</td>
+              <td>10-15</td>
+              <td>Cabin motion</td>
+            </tr>
+            <tr>
+              <td>42</td>
+              <td>Shock sensor</td>
+              <td>Piezo vibration</td>
+              <td>1</td>
+              <td>8-12</td>
+              <td></td>
+            </tr>
+            <tr>
+              <td>43</td>
+              <td>Accelerometer</td>
+              <td>MPU6050</td>
+              <td>1</td>
+              <td>15-30</td>
+              <td>Crash / tilt detection</td>
+            </tr>
+            <tr>
+              <td>44</td>
+              <td>Backup battery</td>
+              <td>18650 Li-ion 5000 mAh</td>
+              <td>1</td>
+              <td>20-30</td>
+              <td>GPS tracking when off</td>
+            </tr>
+            <tr>
+              <td>45</td>
+              <td>Charger + boost</td>
+              <td>TP4056 + MT3608</td>
+              <td>1</td>
+              <td>18-30</td>
+              <td></td>
+            </tr>
+            <tr>
+              <td>46</td>
+              <td>Power relay</td>
+              <td>Switching</td>
+              <td>1</td>
+              <td>8-12</td>
+              <td></td>
+            </tr>
+          </tbody>
+          <tfoot>
+            <tr>
+              <td colspan="4"><strong>Stage 5 subtotal</strong></td>
+              <td colspan="2"><strong>~180 — 285 PLN</strong></td>
+            </tr>
+          </tfoot>
+        </table>
+      </div>
+
+      <hr>
+
+      <!-- ============================================================
+           COST SUMMARY
+           ============================================================ -->
+
+      <h2>Cost Summary</h2>
+
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Stage</th>
+              <th>What You Get</th>
+              <th>Min (PLN)</th>
+              <th>Max (PLN)</th>
+              <th>Cumulative (PLN)</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><span class="badge badge-stage1">1</span></td>
+              <td>Dashboard + Audio + OBD + dual DP + WiFi/BT</td>
+              <td>650</td>
+              <td>1 100</td>
+              <td>650 &ndash; 1 100</td>
+            </tr>
+            <tr>
+              <td><span class="badge badge-stage2">2</span></td>
+              <td>4-way cameras, parking sensors, DS18B20, dashcam</td>
+              <td>450</td>
+              <td>800</td>
+              <td>1 100 &ndash; 1 900</td>
+            </tr>
+            <tr>
+              <td><span class="badge badge-stage3">3</span></td>
+              <td>SWC dual-pod, GPS, LTE modem</td>
+              <td>260</td>
+              <td>420</td>
+              <td>1 360 &ndash; 2 320</td>
+            </tr>
+            <tr>
+              <td><span class="badge badge-stage4">4</span></td>
+              <td>Subwoofer amp + rain sensor</td>
+              <td>63</td>
+              <td>102</td>
+              <td>1 423 &ndash; 2 422</td>
+            </tr>
+            <tr>
+              <td><span class="badge badge-stage5">5</span></td>
+              <td>Alarm, central lock, battery backup</td>
+              <td>180</td>
+              <td>285</td>
+              <td>1 603 &ndash; 2 707</td>
+            </tr>
+          </tbody>
+          <tfoot>
+            <tr class="total-row">
+              <td colspan="2"><strong>Total (all stages)</strong></td>
+              <td><strong>1 603</strong></td>
+              <td><strong>2 707</strong></td>
+              <td><strong>~1 600 &ndash; 2 700 PLN</strong></td>
+            </tr>
+          </tfoot>
+        </table>
+      </div>
+
+      <hr>
+
+      <!-- ============================================================
+           M910q vs OPi COMPARISON
+           ============================================================ -->
+
+      <h2>M910q vs OPi 5 Pro — Platform Comparison</h2>
+
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Aspect</th>
+              <th>Lenovo M910q (x86)</th>
+              <th>Orange Pi 5 Pro (ARM)</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>Cost (board only)</td>
+              <td class="winner">200-400 PLN (used)</td>
+              <td class="neutral">350-450 PLN (new)</td>
+            </tr>
+            <tr>
+              <td>CPU</td>
+              <td class="winner">Intel i5-6400T (4C/4T, 2.8 GHz boost)</td>
+              <td class="neutral">RK3588S (8-core ARM, big.LITTLE)</td>
+            </tr>
+            <tr>
+              <td>RAM / Storage</td>
+              <td class="winner">8 GB DDR4 / 256 GB NVMe</td>
+              <td class="neutral">4 GB LPDDR4x / microSD or NVMe</td>
+            </tr>
+            <tr>
+              <td>GPU decode</td>
+              <td class="winner">Intel HD 530 (VAAPI H.264/H.265)</td>
+              <td class="neutral">Mali G610 (V4L2 decode)</td>
+            </tr>
+            <tr>
+              <td>H.264 encode (dashcam)</td>
+              <td class="downside">Software only (x264, CPU-bound)</td>
+              <td class="winner">Hardware H.264 encode (MPP)</td>
+            </tr>
+            <tr>
+              <td>Display outputs</td>
+              <td class="neutral">2&times; DisplayPort (need DP-to-HDMI adapters)</td>
+              <td class="winner">2&times; HDMI native (2.1 + 2.0)</td>
+            </tr>
+            <tr>
+              <td>GPIO</td>
+              <td class="downside">None — requires Arduino peripherals</td>
+              <td class="winner">40-pin header, SPI, I2C, UART</td>
+            </tr>
+            <tr>
+              <td>USB ports</td>
+              <td class="winner">6&times; USB 3.0 + 1&times; USB-C</td>
+              <td class="neutral">2&times; USB 3.0 + 1&times; USB 2.0</td>
+            </tr>
+            <tr>
+              <td>Power</td>
+              <td class="downside">20 V / 65 W (needs 12 V &rarr; 20 V boost)</td>
+              <td class="winner">5 V / 15 W (simple buck from 12 V)</td>
+            </tr>
+            <tr>
+              <td>WiFi / BT</td>
+              <td class="neutral">M.2 slot — swap Intel 8265 for Fenvi FU-AX1800</td>
+              <td class="winner">Built-in WiFi 6 + BT 5.0</td>
+            </tr>
+            <tr>
+              <td>Form factor</td>
+              <td class="neutral">179&times;36.5&times;183 mm (1 litre)</td>
+              <td class="winner">100&times;75&times;20 mm (tiny)</td>
+            </tr>
+            <tr>
+              <td>Software compatibility</td>
+              <td class="winner">Full x86 Debian, all packages</td>
+              <td class="neutral">ARM Debian, some packages need building</td>
+            </tr>
+            <tr>
+              <td>Total BOM (all stages)</td>
+              <td class="winner">~1 600 &ndash; 2 700 PLN</td>
+              <td class="downside">~1 950 &ndash; 3 165 PLN</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="box box-warning">
+        <div class="box-title">Key trade-offs</div>
+        <p>
+          The M910q is <strong>cheaper</strong> and <strong>more powerful</strong> for general compute, but
+          lacks GPIO and requires a 12 V &rarr; 20 V boost converter. It also cannot do hardware H.264 encoding
+          for the dashcam — the CPU handles encoding in software (x264), which works fine on an i5 but uses
+          more power.
+        </p>
+        <p>
+          The OPi 5 Pro is <strong>smaller</strong>, runs on <strong>5 V</strong>, has <strong>native GPIO</strong>,
+          and has <strong>hardware H.264 encode</strong>, but costs more and has fewer USB ports.
+        </p>
+      </div>
+
+      <hr>
+
+      <!-- ============================================================
+           WHERE TO BUY
+           ============================================================ -->
+
+      <h2>Where to Buy (Poland)</h2>
+
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Retailer</th>
+              <th>Best For</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>Allegro</td>
+              <td>Used M910q, Arduino boards, displays, used parts</td>
+            </tr>
+            <tr>
+              <td>Botland</td>
+              <td>Arduino, sensors, breakout boards</td>
+            </tr>
+            <tr>
+              <td>Kamami</td>
+              <td>ICs, resistors, transistors, PCBs</td>
+            </tr>
+            <tr>
+              <td>Nettigo</td>
+              <td>Custom kits, breakout modules</td>
+            </tr>
+            <tr>
+              <td>AliExpress</td>
+              <td>4-camera set, USB grabber, bulk sensors, Fenvi WiFi</td>
+            </tr>
+            <tr>
+              <td>Amazon.pl</td>
+              <td>Displays, USB DAC, USB hubs</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <hr>
+
+      <!-- ============================================================
+           NOT INCLUDED
+           ============================================================ -->
+
+      <h2>Not Included in Prices</h2>
+
+      <ul>
+        <li>4&times; car speakers — reuse existing or ~200-400 PLN</li>
+        <li>1&times; subwoofer driver — ~100-200 PLN</li>
+        <li>12 V automotive wiring + connectors — ~50-100 PLN</li>
+        <li>DIN bracket / 3D-printed mount — ~20-50 PLN</li>
+        <li>SIM card with data plan (for LTE)</li>
+        <li>Labour / installation time</li>
+      </ul>
+
+      <!-- Page Navigation -->
+      <div class="page-nav">
+        <span></span>
+        <a href="02-assembly.html">Physical Assembly &rarr;</a>
+      </div>
+
+      <!-- Footer -->
+      <footer class="page-footer">
+        <span>BCM v8.5 &mdash; x86 Production Documentation</span>
+        <span>Alfa Romeo 156 Headunit Project</span>
+      </footer>
+
+    </div>
+  </main>
+
+</body>
+</html>

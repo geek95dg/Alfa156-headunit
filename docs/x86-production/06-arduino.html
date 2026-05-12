@@ -1,0 +1,695 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>06 — Arduino Firmware &amp; Protocol | BCM x86 Production</title>
+  <link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+
+  <!-- Hamburger toggle (mobile) -->
+  <button class="hamburger" aria-label="Toggle navigation" onclick="toggleSidebar()">&#9776;</button>
+  <div class="sidebar-overlay" onclick="toggleSidebar()"></div>
+
+  <!-- Sidebar Navigation -->
+  <aside class="sidebar">
+    <div class="sidebar-header">
+      <div class="logo-text">BCM v8.5</div>
+      <div class="logo-sub">Lenovo M910q &middot; Alfa 156</div>
+    </div>
+    <nav aria-label="Documentation pages">
+      <ul>
+        <li><a href="index.html"><span class="nav-num"></span>Overview</a></li>
+        <li><a href="01-bom.html"><span class="nav-num">01</span>Bill of Materials</a></li>
+        <li><a href="02-power.html"><span class="nav-num">02</span>Power Supply</a></li>
+        <li><a href="03-os-install.html"><span class="nav-num">03</span>OS Installation</a></li>
+        <li><a href="04-packages.html"><span class="nav-num">04</span>System Packages</a></li>
+        <li><a href="05-bcm-install.html"><span class="nav-num">05</span>BCM Installation</a></li>
+        <li><a href="06-systemd.html"><span class="nav-num">06</span>Systemd Services</a></li>
+        <li><a href="07-boot.html"><span class="nav-num">07</span>Boot &amp; Splash</a></li>
+        <li><a href="08-kiosk.html"><span class="nav-num">08</span>Kiosk Display</a></li>
+        <li><a href="09-suspend.html"><span class="nav-num">09</span>Suspend / Wake</a></li>
+        <li><a href="10-wifi.html"><span class="nav-num">10</span>WiFi &amp; Android Auto</a></li>
+        <li><a href="11-arduino.html"><span class="nav-num">11</span>Arduino Wiring</a></li>
+        <li><a href="12-verification.html"><span class="nav-num">12</span>Verification</a></li>
+      </ul>
+    </nav>
+  </aside>
+
+  <!-- Main Content -->
+  <div class="content">
+    <div class="content-inner">
+
+      <header>
+        <h1>
+          Arduino Firmware &amp; Serial Protocol
+          <span class="subtitle">Input controller (Pro Micro) and output controller (Nano) for vehicle I/O</span>
+        </h1>
+      </header>
+
+      <article>
+
+        <!-- ============================================================
+             OVERVIEW
+             ============================================================ -->
+        <section>
+          <h2 id="overview">Overview</h2>
+
+          <p>
+            The x86 M910q has no GPIO header, so all vehicle I/O passes through
+            two USB Arduinos connected via the powered USB hub:
+          </p>
+
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Arduino</th>
+                  <th>MCU</th>
+                  <th>Role</th>
+                  <th>Baud Rate</th>
+                  <th>USB Mode</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><strong>#1 &mdash; Pro Micro</strong></td>
+                  <td>ATmega32U4</td>
+                  <td>Input &mdash; buttons, sensors, vehicle signals</td>
+                  <td>115200</td>
+                  <td>HID + Serial (native USB)</td>
+                </tr>
+                <tr>
+                  <td><strong>#2 &mdash; Nano</strong></td>
+                  <td>ATmega328P</td>
+                  <td>Output &mdash; relays, locks, lights, horn</td>
+                  <td>9600</td>
+                  <td>Serial only (CH340 USB-UART)</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <div class="box box-info">
+            <div class="box-title">Dual USB</div>
+            <p>
+              The Pro Micro (ATmega32U4) exposes <strong>both</strong> a HID keyboard
+              device and a CDC serial port over a single USB connection. Button presses
+              are sent as USB HID keycodes (handled by <code>evdev</code> /
+              <code>arduino_hid.py</code>), while sensor data and vehicle signals
+              are sent as plain-text serial messages (handled by
+              <code>arduino_serial.py</code>). Both streams arrive on the same
+              <code>/dev/ttyACM0</code> port.
+            </p>
+          </div>
+        </section>
+
+        <!-- ============================================================
+             ARDUINO #1 — PRO MICRO INPUT CONTROLLER
+             ============================================================ -->
+        <section>
+          <h2 id="pro-micro">Arduino #1 &mdash; Pro Micro Input Controller</h2>
+
+          <h3>Hardware</h3>
+          <ul>
+            <li><strong>MCU:</strong> ATmega32U4 (native USB, no separate UART chip)</li>
+            <li><strong>USB:</strong> HID keyboard + CDC serial at <strong>115200 baud</strong></li>
+            <li><strong>Port:</strong> <code>/dev/ttyACM0</code> (or <code>ttyACM1</code>)</li>
+            <li><strong>Firmware:</strong> <code>arduino/rotary_encoder/rotary_encoder.ino</code></li>
+            <li><strong>Libraries:</strong> <code>Keyboard.h</code>, <code>HID-Project.h</code>, <code>EEPROM.h</code></li>
+          </ul>
+
+          <h3>Pin Assignments</h3>
+
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Function</th>
+                  <th>Pin(s)</th>
+                  <th>Notes</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>Rotary encoder CLK</td>
+                  <td>D2</td>
+                  <td>External 10k&Omega; pull-up to VCC; interrupt-driven</td>
+                </tr>
+                <tr>
+                  <td>Rotary encoder DT</td>
+                  <td>D3</td>
+                  <td>External 10k&Omega; pull-up to VCC</td>
+                </tr>
+                <tr>
+                  <td>Encoder button (SW)</td>
+                  <td>D4</td>
+                  <td>Internal pull-up; press &rarr; KEY_RETURN</td>
+                </tr>
+                <tr>
+                  <td>HOME button</td>
+                  <td>D5</td>
+                  <td>Internal pull-up; press &rarr; KEY_HOME</td>
+                </tr>
+                <tr>
+                  <td>BACK button</td>
+                  <td>D6</td>
+                  <td>Internal pull-up; press &rarr; KEY_BACKSPACE</td>
+                </tr>
+                <tr>
+                  <td>MEDIA button</td>
+                  <td>D7</td>
+                  <td>Internal pull-up; press &rarr; MEDIA_PLAY_PAUSE</td>
+                </tr>
+                <tr>
+                  <td>VOL+ button</td>
+                  <td>D8</td>
+                  <td>Internal pull-up; press &rarr; MEDIA_VOLUME_UP</td>
+                </tr>
+                <tr>
+                  <td>VOL&minus; button</td>
+                  <td>D9</td>
+                  <td>Internal pull-up; press &rarr; MEDIA_VOLUME_DOWN</td>
+                </tr>
+                <tr>
+                  <td>Music PREV</td>
+                  <td>D10</td>
+                  <td>Internal pull-up; press &rarr; MEDIA_PREVIOUS</td>
+                </tr>
+                <tr>
+                  <td>Music NEXT</td>
+                  <td>D14</td>
+                  <td>Internal pull-up; press &rarr; MEDIA_NEXT</td>
+                </tr>
+                <tr>
+                  <td>Music VOL+</td>
+                  <td>D15</td>
+                  <td>Internal pull-up; press &rarr; MEDIA_VOLUME_UP</td>
+                </tr>
+                <tr>
+                  <td>Music VOL&minus;</td>
+                  <td>D16</td>
+                  <td>Internal pull-up; press &rarr; MEDIA_VOLUME_DOWN</td>
+                </tr>
+                <tr>
+                  <td>Music MUTE</td>
+                  <td>A3</td>
+                  <td>Internal pull-up; press &rarr; MEDIA_VOLUME_MUTE</td>
+                </tr>
+                <tr>
+                  <td>LDR light sensor</td>
+                  <td>A1</td>
+                  <td>Voltage divider: LDR + 10k&Omega; to GND &rarr; A1</td>
+                </tr>
+                <tr>
+                  <td>Brightness stalk button</td>
+                  <td>A2</td>
+                  <td>Internal pull-up; press &rarr; KEY_F9 (brightness cycle)</td>
+                </tr>
+                <tr>
+                  <td>SWC pod 1</td>
+                  <td>A0</td>
+                  <td>Resistor ladder, 12 buttons (analog 0&ndash;5 V)</td>
+                </tr>
+                <tr>
+                  <td>SWC pod 2</td>
+                  <td>A6</td>
+                  <td>Resistor ladder, 12 buttons (analog 0&ndash;5 V)</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <h3>SWC Button Mapping (24 Buttons)</h3>
+
+          <p>
+            Each SWC pod provides 12 buttons via a resistor-ladder circuit. The
+            white wire from each SWC decoder box connects to an analog pin;
+            black to GND and red to 12 V ACC. The firmware reads the ADC value,
+            matches it against calibrated thresholds (tolerance &plusmn;40), and
+            sends the corresponding HID keycode.
+          </p>
+
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Index</th>
+                  <th>Button</th>
+                  <th>Default ADC</th>
+                  <th>HID Keycode</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr><td>0</td><td>VOL+</td><td>75</td><td>MEDIA_VOLUME_UP</td></tr>
+                <tr><td>1</td><td>VOL&minus;</td><td>150</td><td>MEDIA_VOLUME_DOWN</td></tr>
+                <tr><td>2</td><td>UP</td><td>230</td><td>KEY_UP_ARROW</td></tr>
+                <tr><td>3</td><td>DOWN</td><td>310</td><td>KEY_DOWN_ARROW</td></tr>
+                <tr><td>4</td><td>MUTE</td><td>390</td><td>MEDIA_VOLUME_MUTE</td></tr>
+                <tr><td>5</td><td>MODE</td><td>470</td><td>KEY_F10 (power toggle)</td></tr>
+                <tr><td>6</td><td>NEXT</td><td>540</td><td>MEDIA_NEXT</td></tr>
+                <tr><td>7</td><td>PREV</td><td>610</td><td>MEDIA_PREVIOUS</td></tr>
+                <tr><td>8</td><td>PICKUP</td><td>690</td><td>KEY_F5</td></tr>
+                <tr><td>9</td><td>HANGUP</td><td>760</td><td>KEY_F6</td></tr>
+                <tr><td>10</td><td>VOICE</td><td>830</td><td>KEY_F7 (AA voice)</td></tr>
+                <tr><td>11</td><td>SRC</td><td>900</td><td>KEY_F8 (AA navigate)</td></tr>
+              </tbody>
+            </table>
+          </div>
+
+          <p>
+            Pod 2 (indices 12&ndash;23) sends identical keycodes to Pod 1.
+            ADC values above <code>1000</code> are treated as idle (no button pressed).
+          </p>
+
+          <h3>SWC Calibration</h3>
+
+          <p>
+            Default ADC thresholds may not match your specific SWC decoder boxes.
+            The firmware includes an EEPROM-backed calibration routine:
+          </p>
+
+          <ol>
+            <li>Hold <strong>HOME + BACK</strong> while powering on the Arduino</li>
+            <li>Open serial monitor at 115200 baud</li>
+            <li>Press each button when prompted &mdash; Pod 1 first (12 buttons), then Pod 2 (12 buttons)</li>
+            <li>Calibrated ADC values are saved to EEPROM (magic byte <code>0xBD</code> at address 0)</li>
+            <li>Values persist across power cycles; re-calibrate by repeating the process</li>
+          </ol>
+
+          <div class="box box-warning">
+            <div class="box-title">Collision warning</div>
+            <p>
+              After calibration, the firmware checks for buttons with ADC values
+              closer than &plusmn;40 counts and prints a warning. If two buttons
+              collide, adjust the resistor values in the SWC decoder pod.
+            </p>
+          </div>
+
+          <h3>Flashing the Pro Micro</h3>
+
+          <ol>
+            <li>Open <code>arduino/rotary_encoder/rotary_encoder.ino</code> in Arduino IDE</li>
+            <li>Install the <strong>HID-Project</strong> library via Library Manager</li>
+            <li>Select board: <strong>Arduino Leonardo</strong> (ATmega32U4 boards share this profile)</li>
+            <li>Select port: <code>/dev/ttyACM0</code></li>
+            <li>Upload &mdash; the Pro Micro resets automatically via USB</li>
+          </ol>
+
+          <div class="box box-info">
+            <div class="box-title">Why Arduino Leonardo?</div>
+            <p>
+              The Pro Micro uses the same ATmega32U4 as the Leonardo. Arduino IDE
+              does not list "Pro Micro" by default &mdash; select
+              <strong>Arduino Leonardo</strong> and it will flash correctly.
+              If using SparkFun boards, install the SparkFun AVR boards package
+              and select <strong>SparkFun Pro Micro (5V, 16MHz)</strong>.
+            </p>
+          </div>
+        </section>
+
+        <!-- ============================================================
+             ARDUINO #2 — NANO OUTPUT CONTROLLER
+             ============================================================ -->
+        <section>
+          <h2 id="nano">Arduino #2 &mdash; Nano Output Controller</h2>
+
+          <h3>Hardware</h3>
+          <ul>
+            <li><strong>MCU:</strong> ATmega328P (CH340 USB-UART bridge)</li>
+            <li><strong>USB:</strong> Serial only at <strong>9600 baud</strong></li>
+            <li><strong>Port:</strong> <code>/dev/ttyUSB0</code> (or <code>ttyUSB1</code>)</li>
+            <li><strong>Relay module:</strong> 10-channel, active-low, opto-isolated</li>
+          </ul>
+
+          <h3>Pin Assignments</h3>
+
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Function</th>
+                  <th>Pin</th>
+                  <th>Notes</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>Lock relay</td>
+                  <td>D2</td>
+                  <td>200 ms pulse</td>
+                </tr>
+                <tr>
+                  <td>Unlock relay</td>
+                  <td>D3</td>
+                  <td>200 ms pulse</td>
+                </tr>
+                <tr>
+                  <td>Trunk relay</td>
+                  <td>D4</td>
+                  <td>200 ms pulse</td>
+                </tr>
+                <tr>
+                  <td>Window up</td>
+                  <td>D5</td>
+                  <td>Hold while active</td>
+                </tr>
+                <tr>
+                  <td>Window down</td>
+                  <td>D6</td>
+                  <td>Hold while active</td>
+                </tr>
+                <tr>
+                  <td>Headlights</td>
+                  <td>D7</td>
+                  <td>On/off + configurable timeout</td>
+                </tr>
+                <tr>
+                  <td>Left blinker</td>
+                  <td>D8</td>
+                  <td>On/off toggle</td>
+                </tr>
+                <tr>
+                  <td>Right blinker</td>
+                  <td>D9</td>
+                  <td>On/off toggle</td>
+                </tr>
+                <tr>
+                  <td>Wipers</td>
+                  <td>D10</td>
+                  <td>Pulse (duration-controlled)</td>
+                </tr>
+                <tr>
+                  <td>Horn</td>
+                  <td>D11</td>
+                  <td>Hold while active</td>
+                </tr>
+                <tr>
+                  <td>RF receiver</td>
+                  <td>D12</td>
+                  <td>RXB6 433 MHz receiver (data input)</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <h3>JSON Command Protocol</h3>
+
+          <p>
+            The BCM sends JSON commands over serial to the Nano at 9600 baud.
+            Each command is a single JSON object terminated by a newline character.
+          </p>
+
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Command</th>
+                  <th>JSON Example</th>
+                  <th>Behaviour</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>Lock doors</td>
+                  <td><code>{"cmd":"lock"}</code></td>
+                  <td>D2 pulse 200 ms</td>
+                </tr>
+                <tr>
+                  <td>Unlock doors</td>
+                  <td><code>{"cmd":"unlock"}</code></td>
+                  <td>D3 pulse 200 ms</td>
+                </tr>
+                <tr>
+                  <td>Trunk release</td>
+                  <td><code>{"cmd":"trunk"}</code></td>
+                  <td>D4 pulse 200 ms</td>
+                </tr>
+                <tr>
+                  <td>Headlights</td>
+                  <td><code>{"cmd":"lights","state":1,"timeout":60}</code></td>
+                  <td>D7 on; auto-off after 60 s</td>
+                </tr>
+                <tr>
+                  <td>Wipers</td>
+                  <td><code>{"cmd":"wipers","duration":5}</code></td>
+                  <td>D10 active for 5 s</td>
+                </tr>
+                <tr>
+                  <td>Horn</td>
+                  <td><code>{"cmd":"horn","state":1}</code></td>
+                  <td>D11 hold while state=1</td>
+                </tr>
+                <tr>
+                  <td>Blinkers</td>
+                  <td><code>{"cmd":"blinker","side":"left","state":1}</code></td>
+                  <td>D8 or D9 on/off</td>
+                </tr>
+                <tr>
+                  <td>Window</td>
+                  <td><code>{"cmd":"window","dir":"up","state":1}</code></td>
+                  <td>D5 or D6 hold while state=1</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <div class="box box-warning">
+            <div class="box-title">Nano firmware not in repo yet</div>
+            <p>
+              The output Arduino Nano firmware is not yet committed to the repository.
+              The protocol documented above is the <strong>expected interface</strong>
+              that the BCM Python code will send. When implementing the Nano firmware,
+              use <code>ArduinoJson</code> to parse incoming serial data and drive
+              the relay module pins accordingly. The RF receiver (D12) should use
+              the <code>RCSwitch</code> library to decode 433 MHz keyfob signals.
+            </p>
+          </div>
+        </section>
+
+        <!-- ============================================================
+             SERIAL PROTOCOL (INPUT MESSAGES → BCM)
+             ============================================================ -->
+        <section>
+          <h2 id="serial-protocol">Serial Protocol &mdash; Input Messages</h2>
+
+          <p>
+            The Pro Micro sends plain-text serial messages to the BCM over
+            <code>/dev/ttyACM0</code> at 115200 baud. The Python module
+            <code>src/input/arduino_serial.py</code> (<code>ArduinoSerialListener</code>
+            class) parses each line and publishes it to the event bus. Auto-detection
+            tries <code>/dev/ttyACM0..1</code>, <code>/dev/ttyUSB0..2</code>, and
+            falls back to stub mode if no port is found.
+          </p>
+
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Message</th>
+                  <th>Example</th>
+                  <th>Event Bus Topic</th>
+                  <th>Value Type</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><code>DOOR:keys</code></td>
+                  <td><code>DOOR:FL=1,FR=0,RL=0,RR=0,BONNET=0,TRUNK=0</code></td>
+                  <td><code>vehicle.doors</code></td>
+                  <td>dict {fl, fr, rl, rr, bonnet, trunk} &rarr; bool</td>
+                </tr>
+                <tr>
+                  <td><code>HBRAKE:X</code></td>
+                  <td><code>HBRAKE:1</code></td>
+                  <td><code>vehicle.handbrake</code></td>
+                  <td>bool</td>
+                </tr>
+                <tr>
+                  <td><code>IGN:X</code></td>
+                  <td><code>IGN:1</code></td>
+                  <td><code>vehicle.ignition_raw</code></td>
+                  <td>bool</td>
+                </tr>
+                <tr>
+                  <td><code>RAIN:X</code></td>
+                  <td><code>RAIN:1</code></td>
+                  <td><code>vehicle.rain</code></td>
+                  <td>bool</td>
+                </tr>
+                <tr>
+                  <td><code>TEMP:XX.X</code></td>
+                  <td><code>TEMP:23.5</code></td>
+                  <td><code>vehicle.ext_temp_raw</code></td>
+                  <td>float (&deg;C)</td>
+                </tr>
+                <tr>
+                  <td><code>PARK:keys</code></td>
+                  <td><code>PARK:FL=45,FR=123,RL=200,RR=180</code></td>
+                  <td><code>vehicle.parking_raw</code></td>
+                  <td>dict {fl, fr, rl, rr} &rarr; int (cm)</td>
+                </tr>
+                <tr>
+                  <td><code>LIGHT:XXX</code></td>
+                  <td><code>LIGHT:512</code></td>
+                  <td><code>arduino.light_level</code></td>
+                  <td>int (ADC 0&ndash;1023)</td>
+                </tr>
+                <tr>
+                  <td><code>CRUISE:X</code></td>
+                  <td><code>CRUISE:1</code></td>
+                  <td><code>vehicle.cruise</code></td>
+                  <td>bool</td>
+                </tr>
+                <tr>
+                  <td><code>IMMO:X</code></td>
+                  <td><code>IMMO:1</code></td>
+                  <td><code>vehicle.immo_ok</code></td>
+                  <td>bool</td>
+                </tr>
+                <tr>
+                  <td><code>AIRBAG:X</code></td>
+                  <td><code>AIRBAG:1</code></td>
+                  <td><code>vehicle.airbag_ok</code></td>
+                  <td>bool</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <p>
+            Debug messages (<code>SWC:...</code>, <code>MUSIC:...</code>,
+            <code>STALK:...</code>) are logged but not published to the event bus.
+            Unrecognised lines are logged at debug level.
+          </p>
+
+          <h3>Timing</h3>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Message</th>
+                  <th>Frequency</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><code>LIGHT:XXX</code></td>
+                  <td>Every 2 seconds (<code>LIGHT_REPORT_MS = 2000</code>)</td>
+                </tr>
+                <tr>
+                  <td><code>TEMP:XX.X</code></td>
+                  <td>Every 10 seconds (<code>DEFAULT_READ_INTERVAL = 10.0</code>)</td>
+                </tr>
+                <tr>
+                  <td><code>PARK:keys</code></td>
+                  <td>Continuous when reverse engaged (~4 scans/s, 240 ms cycle)</td>
+                </tr>
+                <tr>
+                  <td>All others</td>
+                  <td>On change (interrupt-driven via optoisolators)</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+
+        <!-- ============================================================
+             VERIFICATION
+             ============================================================ -->
+        <section>
+          <h2 id="verification">Verification</h2>
+
+          <h3>Check serial connection</h3>
+
+          <pre><code># Verify Arduino is detected
+ls -la /dev/ttyACM*
+# Should show: /dev/ttyACM0 (Pro Micro)
+
+ls -la /dev/ttyUSB*
+# Should show: /dev/ttyUSB0 (Nano, if connected)
+
+# Check dmesg for USB enumeration
+dmesg | grep -i "ttyACM\|ttyUSB\|arduino\|ch341\|cdc_acm"</code></pre>
+
+          <h3>Test Pro Micro serial output</h3>
+
+          <pre><code># Install minicom if not present
+sudo apt install minicom
+
+# Open serial monitor for Pro Micro
+minicom -D /dev/ttyACM0 -b 115200
+
+# Expected output on startup:
+#   BCM v7 Input Controller ready (encoder + buttons + SWC + music + brightness)
+# Then every 2 seconds:
+#   LIGHT:512
+# Press buttons to see SWC/MUSIC debug lines</code></pre>
+
+          <h3>Test Nano serial output</h3>
+
+          <pre><code># Open serial monitor for Nano
+minicom -D /dev/ttyUSB0 -b 9600
+
+# Send a JSON command (type in minicom):
+#   {"cmd":"lock"}
+# The lock relay should pulse for 200ms</code></pre>
+
+          <h3>Test BCM integration</h3>
+
+          <pre><code># Check BCM log for Arduino serial detection
+sudo journalctl -u bcm-headunit --no-pager | grep -i "arduino"
+# Should show: "Arduino serial listener started: /dev/ttyACM0"
+
+# Monitor event bus for live sensor data
+# (in BCM debug console or log)
+# Look for: arduino.light_level, vehicle.doors, vehicle.ignition_raw</code></pre>
+
+          <div class="box box-info">
+            <div class="box-title">Permissions</div>
+            <p>
+              If <code>/dev/ttyACM0</code> or <code>/dev/ttyUSB0</code> returns
+              "permission denied", add the BCM user to the <code>dialout</code>
+              group: <code>sudo usermod -aG dialout $USER</code> then log out
+              and back in.
+            </p>
+          </div>
+        </section>
+
+      </article>
+
+      <!-- Page Navigation -->
+      <div class="page-nav">
+        <a href="05-kline-obd.html">&larr; 05 &mdash; K-Line / OBD</a>
+        <a href="07-sensors.html">07 &mdash; Sensors &rarr;</a>
+      </div>
+
+      <!-- Footer -->
+      <footer class="page-footer">
+        <span>BCM v8.5 &mdash; Alfa Romeo 156 Headunit</span>
+        <span>Lenovo M910q x86 Production Build</span>
+      </footer>
+
+    </div>
+  </div>
+
+  <!-- Sidebar Toggle Script -->
+  <script>
+    function toggleSidebar() {
+      document.querySelector('.sidebar').classList.toggle('open');
+      document.querySelector('.sidebar-overlay').classList.toggle('active');
+    }
+
+    document.querySelectorAll('.sidebar nav a').forEach(function(link) {
+      link.addEventListener('click', function() {
+        if (window.innerWidth < 768) {
+          document.querySelector('.sidebar').classList.remove('open');
+          document.querySelector('.sidebar-overlay').classList.remove('active');
+        }
+      });
+    });
+  </script>
+
+</body>
+</html>

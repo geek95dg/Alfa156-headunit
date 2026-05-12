@@ -1,0 +1,763 @@
+/* ============================================================
+   BCM v8.5 x86 Production Documentation — Dark Theme
+   Alfa Romeo 156 Headunit Project
+   ============================================================ */
+
+/* --- Reset & Base ------------------------------------------ */
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html {
+  font-size: 16px;
+  scroll-behavior: smooth;
+  -webkit-text-size-adjust: 100%;
+}
+
+body {
+  font-family: system-ui, -apple-system, "Segoe UI", Roboto,
+    "Helvetica Neue", Arial, "Noto Sans", sans-serif;
+  background: #0f0f0f;
+  color: #e0e0e0;
+  line-height: 1.65;
+  min-height: 100vh;
+  display: flex;
+}
+
+/* --- Links ------------------------------------------------- */
+
+a {
+  color: #d4a017;
+  text-decoration: none;
+  transition: color 0.15s ease;
+}
+
+a:hover,
+a:focus {
+  color: #f0c040;
+  text-decoration: underline;
+}
+
+a:visited {
+  color: #b8891a;
+}
+
+/* ============================================================
+   Sidebar Navigation
+   ============================================================ */
+
+.sidebar {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 220px;
+  height: 100vh;
+  background: #141414;
+  border-right: 1px solid #2a2a2a;
+  overflow-y: auto;
+  z-index: 100;
+  display: flex;
+  flex-direction: column;
+  transition: transform 0.25s ease;
+}
+
+.sidebar-header {
+  padding: 1.25rem 1rem 0.75rem;
+  border-bottom: 1px solid #2a2a2a;
+}
+
+.sidebar-header .logo-text {
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: #d4a017;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.sidebar-header .logo-sub {
+  font-size: 0.7rem;
+  color: #888;
+  margin-top: 0.15rem;
+}
+
+.sidebar nav {
+  flex: 1;
+  padding: 0.5rem 0;
+}
+
+.sidebar nav ul {
+  list-style: none;
+}
+
+.sidebar nav ul li a {
+  display: block;
+  padding: 0.45rem 1rem;
+  font-size: 0.82rem;
+  color: #ccc;
+  border-left: 3px solid transparent;
+  transition: background 0.15s ease, border-color 0.15s ease,
+    color 0.15s ease;
+}
+
+.sidebar nav ul li a:hover {
+  background: #1e1e1e;
+  color: #f0c040;
+  text-decoration: none;
+}
+
+.sidebar nav ul li a.active {
+  background: #1a1a1a;
+  color: #d4a017;
+  border-left-color: #d4a017;
+  font-weight: 600;
+}
+
+.sidebar nav ul li a .nav-num {
+  display: inline-block;
+  width: 1.6em;
+  color: #666;
+  font-size: 0.75rem;
+  font-weight: 400;
+}
+
+/* --- Hamburger toggle (mobile) ----------------------------- */
+
+.hamburger {
+  display: none;
+  position: fixed;
+  top: 0.75rem;
+  left: 0.75rem;
+  z-index: 200;
+  background: #1a1a1a;
+  border: 1px solid #333;
+  border-radius: 4px;
+  color: #d4a017;
+  font-size: 1.4rem;
+  width: 2.5rem;
+  height: 2.5rem;
+  cursor: pointer;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
+}
+
+/* ============================================================
+   Main Content
+   ============================================================ */
+
+.content {
+  margin-left: 220px;
+  flex: 1;
+  min-width: 0;
+}
+
+.content-inner {
+  max-width: 900px;
+  margin: 0 auto;
+  padding: 2.5rem 2rem 4rem;
+}
+
+/* --- Typography -------------------------------------------- */
+
+h1, h2, h3, h4, h5, h6 {
+  color: #f0f0f0;
+  line-height: 1.3;
+  margin-top: 2rem;
+  margin-bottom: 0.75rem;
+}
+
+h1 {
+  font-size: 1.85rem;
+  border-bottom: 2px solid #d4a017;
+  padding-bottom: 0.5rem;
+  margin-top: 0;
+}
+
+h1 .subtitle {
+  display: block;
+  font-size: 0.95rem;
+  font-weight: 400;
+  color: #aaa;
+  margin-top: 0.35rem;
+}
+
+h2 {
+  font-size: 1.4rem;
+  border-bottom: 1px solid #2a2a2a;
+  padding-bottom: 0.35rem;
+}
+
+h3 {
+  font-size: 1.15rem;
+  color: #d4a017;
+}
+
+h4 {
+  font-size: 1rem;
+  color: #ccc;
+}
+
+p {
+  margin-bottom: 1rem;
+}
+
+ul, ol {
+  margin-bottom: 1rem;
+  padding-left: 1.5rem;
+}
+
+li {
+  margin-bottom: 0.3rem;
+}
+
+hr {
+  border: none;
+  border-top: 1px solid #2a2a2a;
+  margin: 2rem 0;
+}
+
+strong {
+  color: #f0f0f0;
+}
+
+/* ============================================================
+   Tables
+   ============================================================ */
+
+.table-wrap {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  margin-bottom: 1.5rem;
+  border: 1px solid #2a2a2a;
+  border-radius: 4px;
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.88rem;
+  min-width: 500px;
+}
+
+thead th {
+  background: #222;
+  color: #d4a017;
+  font-weight: 600;
+  text-align: left;
+  padding: 0.6rem 0.75rem;
+  border-bottom: 2px solid #d4a017;
+  white-space: nowrap;
+}
+
+tbody td {
+  padding: 0.55rem 0.75rem;
+  border-bottom: 1px solid #222;
+  vertical-align: top;
+}
+
+tbody tr:nth-child(even) {
+  background: #161616;
+}
+
+tbody tr:nth-child(odd) {
+  background: #1a1a1a;
+}
+
+tbody tr:hover {
+  background: #252520;
+}
+
+/* Cost / total rows */
+tfoot td,
+tr.total-row td {
+  background: #1e1e10;
+  font-weight: 700;
+  border-top: 2px solid #d4a017;
+}
+
+/* ============================================================
+   Code Blocks
+   ============================================================ */
+
+code {
+  font-family: "JetBrains Mono", "Fira Code", "Cascadia Code",
+    "Consolas", "Liberation Mono", monospace;
+  font-size: 0.85em;
+  background: #1a1a1a;
+  color: #e8c66a;
+  padding: 0.15em 0.4em;
+  border-radius: 3px;
+}
+
+pre {
+  background: #111;
+  border: 1px solid #2a2a2a;
+  border-radius: 4px;
+  padding: 1rem 1.25rem;
+  overflow-x: auto;
+  margin-bottom: 1.5rem;
+  line-height: 1.5;
+}
+
+pre code {
+  background: none;
+  padding: 0;
+  color: #c8c8c8;
+  font-size: 0.82rem;
+}
+
+/* --- ASCII diagram blocks ---------------------------------- */
+
+pre.diagram,
+pre.ascii-art {
+  background: #0c0c0c;
+  border-color: #333;
+  color: #a0d0a0;
+  font-size: 0.78rem;
+  line-height: 1.45;
+  letter-spacing: 0.01em;
+}
+
+pre.diagram code,
+pre.ascii-art code {
+  color: #a0d0a0;
+}
+
+/* ============================================================
+   Cards
+   ============================================================ */
+
+.card {
+  background: #1a1a1a;
+  border: 1px solid #2a2a2a;
+  border-radius: 6px;
+  padding: 1.25rem 1.5rem;
+  margin-bottom: 1.5rem;
+}
+
+.card h3 {
+  margin-top: 0;
+}
+
+/* ============================================================
+   Phase / Stage Badges (colored pills)
+   ============================================================ */
+
+.badge {
+  display: inline-block;
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  padding: 0.2em 0.65em;
+  border-radius: 999px;
+  vertical-align: middle;
+}
+
+.badge-stage1 {
+  background: #2b4a1e;
+  color: #8fce6a;
+  border: 1px solid #3d6e2a;
+}
+
+.badge-stage2 {
+  background: #1e3a4a;
+  color: #6ab8ce;
+  border: 1px solid #2a5a6e;
+}
+
+.badge-stage3 {
+  background: #4a3a1e;
+  color: #cead6a;
+  border: 1px solid #6e5a2a;
+}
+
+.badge-stage4 {
+  background: #3a1e4a;
+  color: #ad6ace;
+  border: 1px solid #5a2a6e;
+}
+
+.badge-stage5 {
+  background: #4a1e1e;
+  color: #ce6a6a;
+  border: 1px solid #6e2a2a;
+}
+
+.badge-done {
+  background: #1e4a2b;
+  color: #6ace8f;
+  border: 1px solid #2a6e3d;
+}
+
+.badge-wip {
+  background: #4a421e;
+  color: #ced06a;
+  border: 1px solid #6e682a;
+}
+
+.badge-planned {
+  background: #333;
+  color: #aaa;
+  border: 1px solid #555;
+}
+
+/* ============================================================
+   Warning / Info Boxes
+   ============================================================ */
+
+.box {
+  border-radius: 4px;
+  padding: 1rem 1.25rem;
+  margin-bottom: 1.5rem;
+  font-size: 0.9rem;
+}
+
+.box p:last-child {
+  margin-bottom: 0;
+}
+
+.box-title {
+  font-weight: 700;
+  margin-bottom: 0.4rem;
+}
+
+.box-warning {
+  background: #2a2510;
+  border-left: 4px solid #d4a017;
+  color: #e8d8a0;
+}
+
+.box-warning .box-title {
+  color: #d4a017;
+}
+
+.box-info {
+  background: #101a2a;
+  border-left: 4px solid #4a90d0;
+  color: #a8c8e8;
+}
+
+.box-info .box-title {
+  color: #6aadde;
+}
+
+.box-danger {
+  background: #2a1010;
+  border-left: 4px solid #d04a4a;
+  color: #e8a8a8;
+}
+
+.box-danger .box-title {
+  color: #e06060;
+}
+
+.box-success {
+  background: #102a15;
+  border-left: 4px solid #4ad060;
+  color: #a8e8b8;
+}
+
+.box-success .box-title {
+  color: #60e080;
+}
+
+/* ============================================================
+   Phase Overview Grid (index page)
+   ============================================================ */
+
+.phase-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+  gap: 1rem;
+  margin-bottom: 2rem;
+}
+
+.phase-card {
+  background: #1a1a1a;
+  border: 1px solid #2a2a2a;
+  border-radius: 6px;
+  padding: 1rem 1.25rem;
+  border-top: 3px solid #333;
+}
+
+.phase-card.stage1 { border-top-color: #6ace6a; }
+.phase-card.stage2 { border-top-color: #6ab8ce; }
+.phase-card.stage3 { border-top-color: #cead6a; }
+.phase-card.stage4 { border-top-color: #ad6ace; }
+.phase-card.stage5 { border-top-color: #ce6a6a; }
+
+.phase-card h4 {
+  margin-top: 0;
+  margin-bottom: 0.4rem;
+}
+
+.phase-card .phase-cost {
+  font-size: 1.1rem;
+  font-weight: 700;
+  color: #d4a017;
+}
+
+/* ============================================================
+   Comparison Table Highlights
+   ============================================================ */
+
+.winner {
+  color: #6ace6a;
+  font-weight: 600;
+}
+
+.neutral {
+  color: #ccc;
+}
+
+.downside {
+  color: #ce6a6a;
+}
+
+/* ============================================================
+   Footer
+   ============================================================ */
+
+.page-footer {
+  margin-top: 3rem;
+  padding-top: 1.5rem;
+  border-top: 1px solid #2a2a2a;
+  font-size: 0.8rem;
+  color: #666;
+  display: flex;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.page-footer a {
+  color: #888;
+}
+
+.page-footer a:hover {
+  color: #d4a017;
+}
+
+/* Page nav (prev / next) */
+.page-nav {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 2.5rem;
+  padding-top: 1rem;
+  border-top: 1px solid #2a2a2a;
+}
+
+.page-nav a {
+  display: inline-block;
+  padding: 0.5rem 1rem;
+  border: 1px solid #333;
+  border-radius: 4px;
+  font-size: 0.85rem;
+}
+
+.page-nav a:hover {
+  background: #1e1e1e;
+  border-color: #d4a017;
+  text-decoration: none;
+}
+
+/* ============================================================
+   Responsive (< 768px) — Sidebar collapses to hamburger
+   ============================================================ */
+
+@media (max-width: 768px) {
+  .hamburger {
+    display: flex;
+  }
+
+  .sidebar {
+    transform: translateX(-100%);
+  }
+
+  .sidebar.open {
+    transform: translateX(0);
+  }
+
+  /* Overlay behind open sidebar */
+  .sidebar-overlay {
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.6);
+    z-index: 90;
+  }
+
+  .sidebar-overlay.active {
+    display: block;
+  }
+
+  .content {
+    margin-left: 0;
+  }
+
+  .content-inner {
+    padding: 3.5rem 1rem 2rem;
+  }
+
+  h1 {
+    font-size: 1.4rem;
+  }
+
+  h2 {
+    font-size: 1.2rem;
+  }
+
+  table {
+    font-size: 0.8rem;
+  }
+
+  thead th,
+  tbody td {
+    padding: 0.4rem 0.5rem;
+  }
+
+  .phase-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .page-footer {
+    flex-direction: column;
+    text-align: center;
+  }
+}
+
+/* ============================================================
+   Print-friendly styles
+   ============================================================ */
+
+@media print {
+  body {
+    background: #fff;
+    color: #111;
+    display: block;
+  }
+
+  .sidebar,
+  .hamburger,
+  .sidebar-overlay {
+    display: none !important;
+  }
+
+  .content {
+    margin-left: 0;
+  }
+
+  .content-inner {
+    max-width: 100%;
+    padding: 0;
+  }
+
+  a {
+    color: #333;
+    text-decoration: underline;
+  }
+
+  a[href]::after {
+    content: " (" attr(href) ")";
+    font-size: 0.8em;
+    color: #666;
+  }
+
+  nav a[href]::after {
+    content: none;
+  }
+
+  h1 {
+    border-bottom-color: #333;
+    color: #000;
+  }
+
+  h2 {
+    border-bottom-color: #ccc;
+    color: #111;
+  }
+
+  h3 {
+    color: #333;
+  }
+
+  table {
+    min-width: 0;
+  }
+
+  thead th {
+    background: #eee;
+    color: #111;
+    border-bottom-color: #333;
+  }
+
+  tbody tr:nth-child(even) {
+    background: #f5f5f5;
+  }
+
+  tbody tr:nth-child(odd) {
+    background: #fff;
+  }
+
+  tbody td {
+    border-bottom-color: #ddd;
+  }
+
+  pre,
+  code {
+    background: #f0f0f0;
+    border-color: #ccc;
+    color: #111;
+  }
+
+  pre.diagram code,
+  pre.ascii-art code {
+    color: #333;
+  }
+
+  .box-warning {
+    background: #fffbe6;
+    border-left-color: #b8860b;
+    color: #333;
+  }
+
+  .box-info {
+    background: #e6f0ff;
+    border-left-color: #336699;
+    color: #333;
+  }
+
+  .box-danger {
+    background: #fff0f0;
+    border-left-color: #cc3333;
+    color: #333;
+  }
+
+  .card,
+  .phase-card {
+    background: #f8f8f8;
+    border-color: #ccc;
+    page-break-inside: avoid;
+  }
+
+  .badge {
+    border-color: #999;
+    color: #333;
+    background: #eee;
+  }
+
+  .page-nav {
+    display: none;
+  }
+
+  .page-footer {
+    border-top-color: #ccc;
+    color: #999;
+  }
+}

@@ -1,0 +1,510 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>03 — OS Installation | BCM x86 Production</title>
+  <link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+
+  <!-- Hamburger toggle (mobile only) -->
+  <button class="hamburger" aria-label="Toggle navigation" onclick="toggleSidebar()">&#9776;</button>
+
+  <!-- Overlay behind sidebar on mobile -->
+  <div class="sidebar-overlay" onclick="toggleSidebar()"></div>
+
+  <!-- ======== Sidebar Navigation ======== -->
+  <aside class="sidebar">
+    <div class="sidebar-header">
+      <div class="logo-text">BCM v8.5</div>
+      <div class="logo-sub">Lenovo M910q &middot; Alfa 156</div>
+    </div>
+    <nav aria-label="Documentation pages">
+      <ul>
+        <li><a href="index.html"><span class="nav-num"></span>Overview</a></li>
+        <li><a href="01-bom.html"><span class="nav-num">01</span>Bill of Materials</a></li>
+        <li><a href="02-power.html"><span class="nav-num">02</span>Power Supply</a></li>
+        <li><a href="03-os-install.html" class="active"><span class="nav-num">03</span>OS Installation</a></li>
+        <li><a href="04-packages.html"><span class="nav-num">04</span>System Packages</a></li>
+        <li><a href="05-bcm-install.html"><span class="nav-num">05</span>BCM Installation</a></li>
+        <li><a href="06-systemd.html"><span class="nav-num">06</span>Systemd Services</a></li>
+        <li><a href="07-boot.html"><span class="nav-num">07</span>Boot &amp; Splash</a></li>
+        <li><a href="08-kiosk.html"><span class="nav-num">08</span>Kiosk Display</a></li>
+        <li><a href="09-suspend.html"><span class="nav-num">09</span>Suspend / Wake</a></li>
+        <li><a href="10-wifi.html"><span class="nav-num">10</span>WiFi &amp; Android Auto</a></li>
+        <li><a href="11-arduino.html"><span class="nav-num">11</span>Arduino Wiring</a></li>
+        <li><a href="12-verification.html"><span class="nav-num">12</span>Verification</a></li>
+      </ul>
+    </nav>
+  </aside>
+
+  <!-- ======== Main Content ======== -->
+  <div class="content">
+    <div class="content-inner">
+
+      <header>
+        <h1>
+          OS Installation
+          <span class="subtitle">Debian 13 (Trixie) on Lenovo M910q &mdash; minimal server install with driver setup</span>
+        </h1>
+      </header>
+
+      <article>
+
+        <!-- ---- BIOS Settings ---- -->
+        <section>
+          <h2>BIOS Settings</h2>
+
+          <p>
+            Before installing, configure the M910q BIOS for headless automotive operation.
+            Press <strong>F1</strong> at the Lenovo splash screen to enter BIOS Setup.
+          </p>
+
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Menu Path</th>
+                  <th>Setting</th>
+                  <th>Value</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>Startup &rarr; Boot Priority</td>
+                  <td>Primary Boot Sequence</td>
+                  <td><strong>USB HDD</strong> first (for installation)</td>
+                </tr>
+                <tr>
+                  <td>Security &rarr; Secure Boot</td>
+                  <td>Secure Boot</td>
+                  <td><strong>Disabled</strong></td>
+                </tr>
+                <tr>
+                  <td>Power &rarr; After Power Loss</td>
+                  <td>After Power Loss</td>
+                  <td><strong>Power On</strong></td>
+                </tr>
+                <tr>
+                  <td>Devices &rarr; USB Setup</td>
+                  <td>USB Legacy Support</td>
+                  <td><strong>Disabled</strong></td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <div class="box box-info">
+            <div class="box-title">After Power Loss = Power On</div>
+            <p>
+              This setting is critical for automotive use. When the 12 V &rarr; 20 V converter
+              supplies power (ignition on), the M910q will boot automatically without pressing
+              the power button. Combined with ACPI suspend, this gives seamless ignition-based
+              start/stop behaviour.
+            </p>
+          </div>
+
+          <div class="box box-warning">
+            <div class="box-title">Disable Secure Boot</div>
+            <p>
+              Secure Boot must be disabled to allow unsigned kernel modules (e.g. out-of-tree
+              WiFi drivers) and to avoid boot issues with the minimal Debian installation.
+              The M910q will be running in a closed automotive environment, so Secure Boot
+              provides no practical benefit.
+            </p>
+          </div>
+        </section>
+
+        <!-- ---- Install Debian 13 ---- -->
+        <section>
+          <h2>Install Debian 13 (Trixie)</h2>
+
+          <h3>Prepare Installation Media</h3>
+          <p>
+            Download the <strong>netinst amd64</strong> ISO from
+            <code>https://www.debian.org/devel/debian-installer/</code> (Trixie).
+            Write it to a USB drive:
+          </p>
+
+          <pre><code># From a Linux workstation:
+sudo dd if=debian-13-amd64-netinst.iso of=/dev/sdX bs=4M status=progress conv=fsync
+
+# Or use Rufus / Etcher on Windows/macOS</code></pre>
+
+          <p>
+            Plug the USB drive into the M910q and boot. The installer should launch
+            automatically if USB boot priority was set in BIOS.
+          </p>
+
+          <h3>Partitioning</h3>
+          <p>
+            Use <strong>manual partitioning</strong> with the following layout on the NVMe SSD:
+          </p>
+
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Partition</th>
+                  <th>Size</th>
+                  <th>Type / Mount</th>
+                  <th>Purpose</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>ESP</td>
+                  <td>512 MB &ndash; 1 GB</td>
+                  <td>EFI System Partition (<code>/boot/efi</code>)</td>
+                  <td>UEFI bootloader, GRUB</td>
+                </tr>
+                <tr>
+                  <td>Root</td>
+                  <td>Remaining space</td>
+                  <td>ext4 (<code>/</code>)</td>
+                  <td>OS, BCM application, dashcam recordings</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <div class="box box-info">
+            <div class="box-title">No swap partition</div>
+            <p>
+              Do not create a swap partition. The M910q has 8 GB RAM which is more than
+              sufficient. We will configure <strong>zram</strong> (compressed RAM swap)
+              post-install, which is faster than disk swap and avoids unnecessary SSD writes
+              that reduce NVMe lifespan.
+            </p>
+          </div>
+
+          <h3>Software Selection</h3>
+          <p>
+            At the <em>Software selection</em> screen (tasksel), <strong>uncheck everything</strong>
+            except:
+          </p>
+          <ul>
+            <li><strong>SSH server</strong> &mdash; for remote access during setup</li>
+            <li><strong>standard system utilities</strong> &mdash; basic CLI tools</li>
+          </ul>
+
+          <div class="box box-warning">
+            <div class="box-title">No desktop environment</div>
+            <p>
+              Do <strong>not</strong> install GNOME, KDE, Xfce, or any desktop environment.
+              BCM uses a minimal X11 session with <code>matchbox-window-manager</code> and
+              Chromium in kiosk mode. A full desktop environment wastes RAM, slows boot,
+              and interferes with the kiosk setup described in
+              <a href="08-kiosk.html">08 &mdash; Kiosk Display</a>.
+            </p>
+          </div>
+        </section>
+
+        <!-- ---- Post-install ---- -->
+        <section>
+          <h2>Post-install Setup</h2>
+
+          <p>
+            After the first boot, log in as the regular user and configure <code>sudo</code>
+            access and non-free firmware repositories.
+          </p>
+
+          <h3>Enable sudo</h3>
+          <pre><code># Switch to root
+su -
+
+# Install sudo and add user to sudo group
+apt install -y sudo
+usermod -aG sudo abner
+
+# Exit root shell
+exit
+
+# Log out and back in for group membership to take effect</code></pre>
+
+          <h3>Enable Non-free Firmware</h3>
+          <pre><code># Add contrib, non-free, and non-free-firmware to apt sources
+grep non-free /etc/apt/sources.list || \
+    sudo sed -i 's/main$/main contrib non-free non-free-firmware/' /etc/apt/sources.list
+
+sudo apt update</code></pre>
+
+          <div class="box box-info">
+            <div class="box-title">Why non-free-firmware?</div>
+            <p>
+              The Intel GPU (i915), WiFi (iwlwifi or mt7921), and Bluetooth adapters all
+              require binary firmware blobs from the <code>non-free-firmware</code> repository.
+              Without this, VAAPI hardware decode, WiFi AP mode, and Bluetooth will not function.
+            </p>
+          </div>
+        </section>
+
+        <!-- ---- Static IP ---- -->
+        <section>
+          <h2>Static IP (Optional)</h2>
+
+          <p>
+            If connecting the M910q to a workshop network for remote setup via SSH, a static
+            IP avoids DHCP lookup delays and makes the machine easier to find.
+          </p>
+
+          <pre><code>sudo tee /etc/network/interfaces.d/static >/dev/null &lt;&lt;EOF
+auto enp0s31f6
+iface enp0s31f6 inet static
+    address 192.168.1.100
+    netmask 255.255.255.0
+    gateway 192.168.1.1
+    dns-nameservers 8.8.8.8 1.1.1.1
+EOF
+
+sudo systemctl restart networking</code></pre>
+
+          <div class="box box-info">
+            <div class="box-title">Interface name</div>
+            <p>
+              The M910q's built-in Intel I219-LM Ethernet typically appears as
+              <code>enp0s31f6</code>. Verify with <code>ip link show</code> and adjust the
+              config if your interface name differs.
+            </p>
+          </div>
+        </section>
+
+        <!-- ---- System Packages ---- -->
+        <section>
+          <h2>System Packages</h2>
+
+          <p>
+            Install all required packages in a single <code>apt install</code> command.
+            This covers the display server, kiosk browser, GPU drivers, audio stack, WiFi/BT
+            firmware, camera tools, and system utilities.
+          </p>
+
+          <pre><code>sudo apt install -y \
+    python3 python3-venv python3-full python3-dev python3-serial \
+    git curl wget \
+    xserver-xorg xinit x11-xserver-utils xinput xdotool xvfb \
+    matchbox-window-manager unclutter chromium \
+    intel-media-va-driver vainfo libva-drm2 \
+    pipewire pipewire-pulse wireplumber alsa-utils mpv \
+    firmware-mediatek bluez bluez-tools network-manager \
+    hostapd dnsmasq iw wireless-tools \
+    ffmpeg v4l-utils \
+    acpid \
+    zram-tools fonts-dejavu-core</code></pre>
+
+          <h3>Package Groups Explained</h3>
+
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Category</th>
+                  <th>Packages</th>
+                  <th>Purpose</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>Core / Python</td>
+                  <td><code>python3 python3-venv python3-full python3-dev python3-serial git curl wget</code></td>
+                  <td>BCM application runtime, serial Arduino communication, file downloads</td>
+                </tr>
+                <tr>
+                  <td>Display / Kiosk</td>
+                  <td><code>xserver-xorg xinit x11-xserver-utils xinput xdotool xvfb matchbox-window-manager unclutter chromium</code></td>
+                  <td>Minimal X11 session, kiosk browser, cursor hiding, touch input</td>
+                </tr>
+                <tr>
+                  <td>Intel GPU</td>
+                  <td><code>intel-media-va-driver vainfo libva-drm2</code></td>
+                  <td>VAAPI hardware video decode (H.264/H.265) on Intel HD 530</td>
+                </tr>
+                <tr>
+                  <td>Audio</td>
+                  <td><code>pipewire pipewire-pulse wireplumber alsa-utils mpv</code></td>
+                  <td>PipeWire audio stack, ALSA utilities, media playback</td>
+                </tr>
+                <tr>
+                  <td>WiFi / Bluetooth</td>
+                  <td><code>firmware-mediatek bluez bluez-tools network-manager hostapd dnsmasq iw wireless-tools</code></td>
+                  <td>MT7921 firmware, BT stack, WiFi AP for Android Auto</td>
+                </tr>
+                <tr>
+                  <td>Camera / Video</td>
+                  <td><code>ffmpeg v4l-utils</code></td>
+                  <td>Camera capture, video transcoding, V4L2 device management</td>
+                </tr>
+                <tr>
+                  <td>Power</td>
+                  <td><code>acpid</code></td>
+                  <td>ACPI event handling for power button and lid/suspend events</td>
+                </tr>
+                <tr>
+                  <td>Misc</td>
+                  <td><code>zram-tools fonts-dejavu-core</code></td>
+                  <td>Compressed RAM swap, fallback font for Chromium rendering</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+
+        <!-- ---- Fenvi WiFi Driver ---- -->
+        <section>
+          <h2>Fenvi FU-AX1800 Driver Setup</h2>
+
+          <p>
+            If you upgraded the M910q's WiFi card to the <strong>Fenvi FU-AX1800</strong>
+            (MediaTek MT7921 chipset), the <code>firmware-mediatek</code> package installed
+            above provides the required firmware. No out-of-tree driver compilation is needed
+            &mdash; the <code>mt7921e</code> kernel module is included in the Debian 13 kernel.
+          </p>
+
+          <h3>Verify MT7921 Detection</h3>
+          <pre><code># Check that the card is detected on the PCI bus
+lspci | grep -i mediatek
+# Expected output:
+#   Network controller: MEDIATEK Corp. MT7921 802.11ax PCI Express Wireless Network Adapter</code></pre>
+
+          <h3>Blacklist Intel WiFi (if present)</h3>
+          <p>
+            If the original Intel 8265 card is still installed in the M.2 slot alongside the
+            Fenvi (e.g. via an adapter), blacklist its driver to avoid interface conflicts:
+          </p>
+
+          <pre><code># Prevent iwlwifi from loading
+echo "blacklist iwlwifi" | sudo tee /etc/modprobe.d/blacklist-intel-wifi.conf</code></pre>
+
+          <h3>Verify WiFi Interface</h3>
+          <pre><code># Confirm the wireless interface is up
+ip link show | grep wl
+# Should show a wlp* interface (e.g. wlp1s0 or wlp2s0)</code></pre>
+
+          <div class="box box-warning">
+            <div class="box-title">Only one M.2 E-key slot</div>
+            <p>
+              The M910q has a single M.2 E-key slot for WiFi. If you install the Fenvi
+              FU-AX1800, it <strong>replaces</strong> the Intel 8265 &mdash; you cannot have
+              both installed simultaneously without an external USB adapter. Remove the Intel
+              card before inserting the Fenvi.
+            </p>
+          </div>
+        </section>
+
+        <!-- ---- zram Setup ---- -->
+        <section>
+          <h2>zram Setup</h2>
+
+          <p>
+            Configure zram to provide compressed in-memory swap. This is faster than SSD
+            swap and eliminates unnecessary NVMe write wear. With 8 GB RAM and lz4
+            compression at 50%, this provides approximately 4 GB of effective swap space.
+          </p>
+
+          <pre><code># Configure zram: lz4 compression, 50% of RAM
+echo -e 'ALGO=lz4\nPERCENT=50' | sudo tee /etc/default/zramswap
+
+# Enable zramswap service
+sudo systemctl enable zramswap</code></pre>
+
+          <div class="box box-info">
+            <div class="box-title">Why lz4?</div>
+            <p>
+              The lz4 algorithm offers the best decompression speed of any available option.
+              For swap, decompression speed matters more than compression ratio since reads
+              (page-ins) are latency-critical. With an i5-6400T, lz4 swap access is nearly
+              as fast as uncompressed RAM.
+            </p>
+          </div>
+        </section>
+
+        <!-- ---- Verify VAAPI ---- -->
+        <section>
+          <h2>Verify VAAPI</h2>
+
+          <p>
+            After installing all packages and rebooting, verify that hardware video
+            acceleration is working correctly on the Intel HD 530 GPU.
+          </p>
+
+          <pre><code># Reboot to load all drivers and firmware
+sudo reboot</code></pre>
+
+          <p>After reboot, run:</p>
+
+          <pre><code># Check VAAPI driver and supported profiles
+vainfo</code></pre>
+
+          <p>Expected output should include lines like:</p>
+
+          <pre><code>vainfo: VA-API version: 1.xx
+vainfo: Driver version: Intel iHD driver - x.x.x
+vainfo: Supported profile and entrypoints
+      VAProfileH264Main               : VAEntrypointVLD
+      VAProfileH264High               : VAEntrypointVLD
+      VAProfileH264ConstrainedBaseline: VAEntrypointVLD
+      VAProfileHEVCMain               : VAEntrypointVLD
+      ...</code></pre>
+
+          <div class="box box-info">
+            <div class="box-title">VAProfileH264 is the key entry</div>
+            <p>
+              BCM's camera feeds and dashcam recordings use H.264. As long as
+              <code>VAProfileH264Main</code> and <code>VAProfileH264High</code> appear
+              with <code>VAEntrypointVLD</code> (decode), hardware-accelerated video
+              playback will work. HEVC (H.265) support is a bonus for future use.
+            </p>
+          </div>
+
+          <div class="box box-warning">
+            <div class="box-title">vainfo fails or shows no profiles?</div>
+            <p>
+              If <code>vainfo</code> returns an error or shows no profiles, check that:
+              (1) <code>intel-media-va-driver</code> is installed,
+              (2) <code>non-free-firmware</code> is in your apt sources (the i915 firmware
+              is needed), and
+              (3) you rebooted after installation. Run
+              <code>sudo apt install --reinstall intel-media-va-driver</code> and reboot
+              if issues persist.
+            </p>
+          </div>
+        </section>
+
+      </article>
+
+      <!-- ---- Page Navigation ---- -->
+      <div class="page-nav">
+        <a href="02-power.html">&larr; 02 &mdash; Power Supply</a>
+        <a href="04-packages.html">04 &mdash; System Packages &rarr;</a>
+      </div>
+
+      <!-- ---- Footer ---- -->
+      <footer class="page-footer">
+        <span>BCM v8.5 &mdash; Alfa Romeo 156 Headunit</span>
+        <span>Lenovo M910q x86 Production Build</span>
+      </footer>
+
+    </div>
+  </div>
+
+  <!-- ======== Sidebar Toggle Script ======== -->
+  <script>
+    function toggleSidebar() {
+      document.querySelector('.sidebar').classList.toggle('open');
+      document.querySelector('.sidebar-overlay').classList.toggle('active');
+    }
+
+    // Close sidebar when a nav link is clicked (mobile)
+    document.querySelectorAll('.sidebar nav a').forEach(function(link) {
+      link.addEventListener('click', function() {
+        if (window.innerWidth < 768) {
+          document.querySelector('.sidebar').classList.remove('open');
+          document.querySelector('.sidebar-overlay').classList.remove('active');
+        }
+      });
+    });
+  </script>
+
+</body>
+</html>

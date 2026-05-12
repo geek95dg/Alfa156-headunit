@@ -1,0 +1,513 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>04 — BCM Software | BCM x86 Production</title>
+  <link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+
+  <!-- Hamburger toggle (mobile) -->
+  <button class="hamburger" aria-label="Toggle navigation" onclick="document.querySelector('.sidebar').classList.toggle('open');document.querySelector('.sidebar-overlay').classList.toggle('active');">&#9776;</button>
+  <div class="sidebar-overlay" onclick="document.querySelector('.sidebar').classList.remove('open');this.classList.remove('active');"></div>
+
+  <!-- Sidebar Navigation -->
+  <aside class="sidebar">
+    <div class="sidebar-header">
+      <div class="logo-text">BCM v8.5</div>
+      <div class="logo-sub">x86 Production Docs</div>
+    </div>
+    <nav aria-label="Documentation pages">
+      <ul>
+        <li><a href="index.html"><span class="nav-num"></span>Overview</a></li>
+        <li><a href="01-bom.html"><span class="nav-num">01</span>Bill of Materials</a></li>
+        <li><a href="02-power.html"><span class="nav-num">02</span>Power Supply</a></li>
+        <li><a href="03-os-install.html"><span class="nav-num">03</span>OS Installation</a></li>
+        <li><a href="04-packages.html"><span class="nav-num">04</span>System Packages</a></li>
+        <li><a href="05-bcm-install.html"><span class="nav-num">05</span>BCM Installation</a></li>
+        <li><a href="06-systemd.html"><span class="nav-num">06</span>Systemd Services</a></li>
+        <li><a href="07-boot.html"><span class="nav-num">07</span>Boot &amp; Splash</a></li>
+        <li><a href="08-kiosk.html"><span class="nav-num">08</span>Kiosk Display</a></li>
+        <li><a href="09-suspend.html"><span class="nav-num">09</span>Suspend / Wake</a></li>
+        <li><a href="10-wifi.html"><span class="nav-num">10</span>WiFi &amp; Android Auto</a></li>
+        <li><a href="11-arduino.html"><span class="nav-num">11</span>Arduino Wiring</a></li>
+        <li><a href="12-verification.html"><span class="nav-num">12</span>Verification</a></li>
+      </ul>
+    </nav>
+  </aside>
+
+  <!-- Main Content -->
+  <main class="content">
+    <div class="content-inner">
+
+      <h1>
+        BCM Software Installation
+        <span class="subtitle">Clone, configure, and deploy BCM on the Lenovo M910q</span>
+      </h1>
+
+      <p>
+        This page covers the complete software installation and configuration for
+        a production BCM deployment. The automated setup script handles 14 phases
+        of system configuration &mdash; from dependency installation through
+        systemd services to a final smoke test.
+      </p>
+
+      <div class="box box-info">
+        <div class="box-title">Prerequisites</div>
+        <p>
+          Complete the OS installation (<a href="03-os-install.html">page 03</a>)
+          and system packages (<a href="04-packages.html">page 04</a>) before
+          proceeding. You should have a working Debian 13 (Trixie) system with
+          network access and a non-root user with <code>sudo</code> privileges.
+        </p>
+      </div>
+
+      <hr>
+
+      <!-- ============================================================
+           CLONE & INSTALL
+           ============================================================ -->
+
+      <h2 id="clone-install">Clone &amp; Install</h2>
+
+      <p>
+        Clone the BCM repository into <code>/opt/bcm</code> and take ownership
+        so you can run the application without root:
+      </p>
+
+      <pre><code>cd /opt
+sudo git clone https://github.com/geek95dg/Alfa156-headunit.git bcm
+sudo chown -R $USER:$USER /opt/bcm
+cd /opt/bcm</code></pre>
+
+      <hr>
+
+      <!-- ============================================================
+           THE SETUP SCRIPT
+           ============================================================ -->
+
+      <h2 id="setup-script">The Setup Script</h2>
+
+      <p>
+        The primary install method is <code>setup-x86.sh</code>. It handles
+        everything &mdash; from installing system packages to configuring
+        systemd services, kiosk mode, WiFi AP, and more:
+      </p>
+
+      <pre><code>sudo bash config/scripts/setup-x86.sh</code></pre>
+
+      <div class="box box-warning">
+        <div class="box-title">Run as root</div>
+        <p>
+          The script must be run with <code>sudo</code>. It modifies systemd
+          units, GRUB configuration, udev rules, and other system-level
+          settings. Review the USER CONFIG section before running.
+        </p>
+      </div>
+
+      <h3>14 Setup Phases</h3>
+
+      <p>
+        The script executes the following phases in order. Each phase is
+        idempotent &mdash; you can re-run the script safely after making
+        configuration changes.
+      </p>
+
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>#</th>
+              <th>Phase</th>
+              <th>What it does</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>1</td>
+              <td><strong>Cleanup</strong></td>
+              <td>Removes old BCM services and configuration files from any previous installation</td>
+            </tr>
+            <tr>
+              <td>2</td>
+              <td><strong>System packages</strong></td>
+              <td>Installs all apt dependencies (X11, Chromium, PipeWire, ffmpeg, Python, build tools, etc.)</td>
+            </tr>
+            <tr>
+              <td>3</td>
+              <td><strong>Python venv</strong></td>
+              <td>Creates <code>.venv</code> virtual environment with versioned Python binary fallback (tries <code>python3.12</code>, <code>python3.11</code>, then <code>python3</code>)</td>
+            </tr>
+            <tr>
+              <td>4</td>
+              <td><strong>Vendor assets</strong></td>
+              <td>Downloads Tailwind CSS and Leaflet for offline operation &mdash; no CDN dependency in the car</td>
+            </tr>
+            <tr>
+              <td>5</td>
+              <td><strong>Splash videos</strong></td>
+              <td>Generates placeholder splash videos via <code>ffmpeg</code> if none exist in the splash directory</td>
+            </tr>
+            <tr>
+              <td>6</td>
+              <td><strong>Systemd services</strong></td>
+              <td>Installs and enables <code>bcm-headunit</code>, <code>ignition-watcher</code>, <code>splash</code>, and <code>resume</code> service units</td>
+            </tr>
+            <tr>
+              <td>7</td>
+              <td><strong>Kiosk</strong></td>
+              <td>Configures autologin + X11 + <code>xinitrc</code> with touch-screen input mapping for dual displays</td>
+            </tr>
+            <tr>
+              <td>8</td>
+              <td><strong>Power button</strong></td>
+              <td>Configures <code>acpid</code> for suspend on power button press + sets <code>HandlePowerKey=ignore</code> in logind</td>
+            </tr>
+            <tr>
+              <td>9</td>
+              <td><strong>WiFi AP</strong></td>
+              <td>Sets up <code>hostapd</code> + <code>dnsmasq</code> access point &mdash; 2.4 GHz channel 6 with Intel 8265, 5 GHz channel 149 with Fenvi AX200</td>
+            </tr>
+            <tr>
+              <td>10</td>
+              <td><strong>LTE modem</strong></td>
+              <td>Auto-detects Huawei E3372 HiLink USB modem and configures DHCP on its network interface</td>
+            </tr>
+            <tr>
+              <td>11</td>
+              <td><strong>GRUB</strong></td>
+              <td>Silences boot output &mdash; sets <code>quiet splash</code>, disables Plymouth, hides GRUB menu</td>
+            </tr>
+            <tr>
+              <td>12</td>
+              <td><strong>Permissions</strong></td>
+              <td>Adds user to <code>dialout</code>, <code>video</code>, <code>audio</code>, <code>bluetooth</code> groups + enables Bluetooth auto-power on boot</td>
+            </tr>
+            <tr>
+              <td>13</td>
+              <td><strong>Test</strong></td>
+              <td>Runs a quick Flask smoke test &mdash; starts the application briefly to verify it launches without errors</td>
+            </tr>
+            <tr>
+              <td>14</td>
+              <td><strong>Summary</strong></td>
+              <td>Prints a summary of all installed services, configuration paths, and next steps</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <hr>
+
+      <!-- ============================================================
+           USER CONFIGURATION
+           ============================================================ -->
+
+      <h2 id="user-config">User Configuration</h2>
+
+      <p>
+        Before running the setup script, edit the <strong>USER CONFIG</strong>
+        section at the top of the file to match your hardware:
+      </p>
+
+      <pre><code>nano config/scripts/setup-x86.sh</code></pre>
+
+      <h3>Configuration Variables</h3>
+
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Variable</th>
+              <th>Default</th>
+              <th>Description</th>
+              <th>How to find</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><code>MAIN_OUTPUT</code></td>
+              <td><code>"HDMI-1"</code></td>
+              <td>7" touchscreen display output</td>
+              <td><code>xrandr</code></td>
+            </tr>
+            <tr>
+              <td><code>SMALL_OUTPUT</code></td>
+              <td><code>"HDMI-2"</code></td>
+              <td>4.3" status display output</td>
+              <td><code>xrandr</code></td>
+            </tr>
+            <tr>
+              <td><code>TOUCH_DEVICE</code></td>
+              <td><code>"QDtech MPI5001"</code></td>
+              <td>Touchscreen input device name</td>
+              <td><code>xinput list</code></td>
+            </tr>
+            <tr>
+              <td><code>WIFI_IFACE</code></td>
+              <td><code>"wlp2s0"</code></td>
+              <td>WiFi interface for AP mode</td>
+              <td><code>ip link</code></td>
+            </tr>
+            <tr>
+              <td><code>WIFI_SSID</code></td>
+              <td><code>"ALFA_AA"</code></td>
+              <td>Access point name (for Android Auto)</td>
+              <td>&mdash;</td>
+            </tr>
+            <tr>
+              <td><code>WIFI_PASS</code></td>
+              <td><code>"AlfaRomeo156"</code></td>
+              <td>AP password (WPA2)</td>
+              <td>&mdash;</td>
+            </tr>
+            <tr>
+              <td><code>WIFI_CHANNEL</code></td>
+              <td><code>"6"</code></td>
+              <td>2.4 GHz channel (use <code>149</code> for 5 GHz with Fenvi)</td>
+              <td>&mdash;</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="box box-info">
+        <div class="box-title">Display output names</div>
+        <p>
+          On the M910q with DP-to-HDMI adapters, output names are typically
+          <code>DP-1</code> and <code>DP-2</code> rather than <code>HDMI-1</code>
+          / <code>HDMI-2</code>. Always verify with <code>xrandr</code> before
+          running the script. Incorrect output names will result in a blank
+          kiosk display.
+        </p>
+      </div>
+
+      <hr>
+
+      <!-- ============================================================
+           PRODUCTION CONFIG
+           ============================================================ -->
+
+      <h2 id="production-config">Production Config (bcm_config.yaml)</h2>
+
+      <p>
+        The main application configuration lives in
+        <code>config/bcm_config.yaml</code>. Key settings for a production
+        deployment:
+      </p>
+
+      <pre><code>system:
+  platform: x86
+  simulation: false    # CRITICAL: disables demo/fake data
+  log_level: INFO      # reduce from DEBUG for production
+
+serial:
+  kline:
+    port_x86: /dev/ttyUSB_kline    # udev rule for stable naming
+    baudrate: 10400
+    ecu_address: 1
+
+wifi:
+  enabled: false       # systemd manages the AP, not BCM
+
+modules:
+  dashboard: true
+  obd: true            # real ECU data via K-Line
+  parking: true        # HC-SR04 via Arduino
+  environment: true    # DS18B20 via Arduino
+  audio: true
+  input: true          # Arduino Pro Micro SWC + buttons
+  camera: true         # 4-ch USB grabber
+  power: true
+  multimedia: true     # Android Auto + Bluetooth
+  location: true       # USB GPS
+  network: true        # LTE modem
+  weather: true        # OpenWeatherMap API</code></pre>
+
+      <div class="box box-warning">
+        <div class="box-title">simulation: false is critical</div>
+        <p>
+          When <code>simulation</code> is set to <code>true</code>, BCM
+          generates fake sensor data for development and testing. In a
+          production car build, this <strong>must</strong> be set to
+          <code>false</code> so the system reads real data from the K-Line
+          ECU, Arduino sensors, and GPS. Leaving simulation enabled in
+          production will mask real vehicle data and hide hardware faults.
+        </p>
+      </div>
+
+      <hr>
+
+      <!-- ============================================================
+           USB DEVICE NAMING
+           ============================================================ -->
+
+      <h2 id="udev-rules">USB Device Naming (udev Rules)</h2>
+
+      <p>
+        USB device paths like <code>/dev/ttyUSB0</code> can change between
+        reboots depending on enumeration order. Create stable
+        <code>/dev/</code> symlinks using udev rules so BCM always finds
+        the correct device:
+      </p>
+
+      <pre><code>sudo tee /etc/udev/rules.d/99-bcm-usb.rules &gt;/dev/null &lt;&lt;'EOF'
+# K-Line adapter (CP2102)
+SUBSYSTEM=="tty", ATTRS{idVendor}=="10c4", ATTRS{idProduct}=="ea60", SYMLINK+="ttyUSB_kline"
+# GPS (u-blox)
+SUBSYSTEM=="tty", ATTRS{idVendor}=="1546", ATTRS{idProduct}=="01a7", SYMLINK+="ttyUSB_gps"
+# Arduino Pro Micro (input)
+SUBSYSTEM=="tty", ATTRS{idVendor}=="2341", ATTRS{idProduct}=="8037", SYMLINK+="ttyACM_input"
+# Arduino Nano (output)
+SUBSYSTEM=="tty", ATTRS{idVendor}=="1a86", ATTRS{idProduct}=="7523", SYMLINK+="ttyUSB_output"
+EOF
+sudo udevadm control --reload-rules
+sudo udevadm trigger</code></pre>
+
+      <div class="box box-info">
+        <div class="box-title">Finding vendor and product IDs</div>
+        <p>
+          Plug in each USB device one at a time and run
+          <code>lsusb</code> to find its <code>idVendor</code> and
+          <code>idProduct</code>. If you have two devices with the same
+          chipset (e.g., two CP2102 adapters), add
+          <code>ATTRS{serial}=="..."</code> to distinguish them. Find
+          the serial with <code>udevadm info -a /dev/ttyUSB0 | grep serial</code>.
+        </p>
+      </div>
+
+      <h3>Resulting Device Map</h3>
+
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Symlink</th>
+              <th>Hardware</th>
+              <th>USB Chip</th>
+              <th>Used by</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><code>/dev/ttyUSB_kline</code></td>
+              <td>K-Line OBD-II adapter</td>
+              <td>CP2102 (10c4:ea60)</td>
+              <td>OBD module &mdash; ECU diagnostics</td>
+            </tr>
+            <tr>
+              <td><code>/dev/ttyUSB_gps</code></td>
+              <td>u-blox NEO-M8N</td>
+              <td>u-blox (1546:01a7)</td>
+              <td>Location module &mdash; GPS/GNSS</td>
+            </tr>
+            <tr>
+              <td><code>/dev/ttyACM_input</code></td>
+              <td>Arduino Pro Micro</td>
+              <td>ATmega32U4 (2341:8037)</td>
+              <td>Input module &mdash; SWC, buttons, sensors</td>
+            </tr>
+            <tr>
+              <td><code>/dev/ttyUSB_output</code></td>
+              <td>Arduino Nano</td>
+              <td>CH340 (1a86:7523)</td>
+              <td>Output module &mdash; relays, locks, lights</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <hr>
+
+      <!-- ============================================================
+           MANUAL TEST
+           ============================================================ -->
+
+      <h2 id="manual-test">Manual Test</h2>
+
+      <p>
+        Before relying on systemd auto-start, verify the application runs
+        correctly from the command line:
+      </p>
+
+      <pre><code>source /opt/bcm/.venv/bin/activate
+python3 main.py --platform x86 --config config/bcm_config.yaml --frontend
+# Open browser: http://localhost:5002
+# Ctrl+C to stop</code></pre>
+
+      <div class="box box-info">
+        <div class="box-title">What to verify</div>
+        <p>
+          Check that the Flask server starts on port 5002, the dashboard
+          loads in a browser, and there are no import errors or missing
+          dependencies in the terminal output. If serial devices are not
+          connected, those modules will log warnings but the application
+          should still start.
+        </p>
+      </div>
+
+      <hr>
+
+      <!-- ============================================================
+           VENDOR ASSETS
+           ============================================================ -->
+
+      <h2 id="vendor-assets">Vendor Assets (Offline Operation)</h2>
+
+      <p>
+        The car has no guaranteed internet connection. All frontend
+        dependencies must be available locally. The vendor asset script
+        downloads Tailwind CSS and Leaflet (for map tiles) into the
+        project&rsquo;s static assets directory:
+      </p>
+
+      <pre><code>bash config/scripts/download-vendor-assets.sh</code></pre>
+
+      <div class="box box-warning">
+        <div class="box-title">Run this while you have internet</div>
+        <p>
+          This script requires an active internet connection to download
+          assets. Run it during initial setup &mdash; not in the car.
+          The setup script (phase 4) calls this automatically, but you
+          can re-run it manually if assets are missing or need updating.
+        </p>
+      </div>
+
+      <hr>
+
+      <!-- Page Navigation -->
+      <div class="page-nav">
+        <a href="03-os-install.html">&larr; 03 &mdash; OS Installation</a>
+        <a href="05-bcm-install.html">05 &mdash; BCM Installation &rarr;</a>
+      </div>
+
+      <!-- Footer -->
+      <footer class="page-footer">
+        <span>BCM v8.5 &mdash; x86 Production Documentation</span>
+        <span>Alfa Romeo 156 Headunit Project</span>
+      </footer>
+
+    </div>
+  </main>
+
+  <!-- Sidebar Toggle Script -->
+  <script>
+    function toggleSidebar() {
+      document.querySelector('.sidebar').classList.toggle('open');
+      document.querySelector('.sidebar-overlay').classList.toggle('active');
+    }
+
+    // Close sidebar when a nav link is clicked (mobile)
+    document.querySelectorAll('.sidebar nav a').forEach(function(link) {
+      link.addEventListener('click', function() {
+        if (window.innerWidth < 768) {
+          document.querySelector('.sidebar').classList.remove('open');
+          document.querySelector('.sidebar-overlay').classList.remove('active');
+        }
+      });
+    });
+  </script>
+
+</body>
+</html>

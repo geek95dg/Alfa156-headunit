@@ -1,0 +1,689 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>09 — Display &amp; Touch | BCM x86 Production</title>
+  <link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+
+  <!-- Hamburger toggle (mobile) -->
+  <button class="hamburger" aria-label="Toggle navigation" onclick="toggleSidebar()">&#9776;</button>
+  <div class="sidebar-overlay" onclick="toggleSidebar()"></div>
+
+  <!-- Sidebar Navigation -->
+  <aside class="sidebar">
+    <div class="sidebar-header">
+      <div class="logo-text">BCM v8.5</div>
+      <div class="logo-sub">Lenovo M910q &middot; Alfa 156</div>
+    </div>
+    <nav aria-label="Documentation pages">
+      <ul>
+        <li><a href="index.html"><span class="nav-num"></span>Overview</a></li>
+        <li><a href="01-bom.html"><span class="nav-num">01</span>Bill of Materials</a></li>
+        <li><a href="02-power.html"><span class="nav-num">02</span>Power Supply</a></li>
+        <li><a href="03-os-install.html"><span class="nav-num">03</span>OS Installation</a></li>
+        <li><a href="04-packages.html"><span class="nav-num">04</span>System Packages</a></li>
+        <li><a href="05-bcm-install.html"><span class="nav-num">05</span>BCM Installation</a></li>
+        <li><a href="06-systemd.html"><span class="nav-num">06</span>Systemd Services</a></li>
+        <li><a href="07-boot.html"><span class="nav-num">07</span>Boot &amp; Splash</a></li>
+        <li><a href="08-kiosk.html"><span class="nav-num">08</span>Kiosk Display</a></li>
+        <li><a href="09-display-touch.html" class="active"><span class="nav-num">09</span>Display &amp; Touch</a></li>
+        <li><a href="10-wifi.html"><span class="nav-num">10</span>WiFi &amp; Android Auto</a></li>
+        <li><a href="11-arduino.html"><span class="nav-num">11</span>Arduino Wiring</a></li>
+        <li><a href="12-verification.html"><span class="nav-num">12</span>Verification</a></li>
+      </ul>
+    </nav>
+  </aside>
+
+  <!-- Main Content -->
+  <div class="content">
+    <div class="content-inner">
+
+      <header>
+        <h1>
+          Display &amp; Touch
+          <span class="subtitle">Dual display setup, touchscreen calibration, and boot splash configuration for M910q</span>
+        </h1>
+      </header>
+
+      <article>
+
+        <!-- ============================================================
+             OVERVIEW
+             ============================================================ -->
+        <section>
+          <h2 id="overview">Overview</h2>
+
+          <p>
+            The Lenovo M910q has <strong>2&times; mini-DisplayPort</strong> outputs,
+            providing native dual-display support without any USB display adapters.
+            Both outputs connect to car displays using passive DP-to-HDMI adapters.
+            The primary display is a <strong>7" IPS touchscreen</strong> (1024&times;600)
+            for the main BCM dashboard, and the secondary is a
+            <strong>4.3" TFT</strong> (800&times;480) for the status dashboard.
+          </p>
+
+          <p>
+            This page covers the complete display pipeline: hardware connections,
+            X11 kiosk setup (autologin, xrandr layout, Chromium instances),
+            USB touchscreen calibration, DRM boot splash on both screens, and
+            troubleshooting common issues.
+          </p>
+
+          <div class="box box-info">
+            <div class="box-title">Adapters matter</div>
+            <p>
+              Use <strong>passive</strong> DP-to-HDMI adapters (not active converters).
+              The M910q's Intel HD 530 supports HDMI output natively through
+              passive adapters. Active adapters add latency and are unnecessary.
+              Typical cost: 10&ndash;20 PLN each.
+            </p>
+          </div>
+        </section>
+
+        <!-- ============================================================
+             DISPLAY HARDWARE
+             ============================================================ -->
+        <section>
+          <h2 id="display-hardware">Display Hardware</h2>
+
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Output</th>
+                  <th>Display</th>
+                  <th>Resolution</th>
+                  <th>Content</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>DP-1 &rarr; HDMI-1</td>
+                  <td>7" IPS touchscreen</td>
+                  <td>1024&times;600</td>
+                  <td>BCM dashboard (port 5002)</td>
+                </tr>
+                <tr>
+                  <td>DP-2 &rarr; HDMI-2</td>
+                  <td>4.3" TFT</td>
+                  <td>800&times;480</td>
+                  <td>Status dashboard (port 5003)</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <h3>Connector Naming</h3>
+
+          <p>
+            Two different subsystems use different names for the same physical outputs:
+          </p>
+
+          <ul>
+            <li><strong>xrandr (X11):</strong> <code>HDMI-1</code> and <code>HDMI-2</code></li>
+            <li><strong>DRM (kernel/framebuffer):</strong> <code>HDMI-A-1</code> and <code>HDMI-A-2</code></li>
+          </ul>
+
+          <p>
+            The <code>setup-x86.sh</code> script translates between these naming
+            conventions automatically. You only need to be aware of the difference
+            when debugging splash (DRM) vs kiosk (X11) issues.
+          </p>
+
+          <h3>Discover Connected Outputs</h3>
+
+          <p>
+            To see which DRM connectors are active:
+          </p>
+
+          <pre><code>for f in /sys/class/drm/card*-*/status; do echo "$f: $(cat $f)"; done</code></pre>
+
+          <p>Expected output with both displays connected:</p>
+
+          <pre><code>/sys/class/drm/card0-HDMI-A-1/status: connected
+/sys/class/drm/card0-HDMI-A-2/status: connected</code></pre>
+        </section>
+
+        <!-- ============================================================
+             KIOSK SETUP
+             ============================================================ -->
+        <section>
+          <h2 id="kiosk-setup">Kiosk Setup</h2>
+
+          <p>
+            The <code>setup-x86.sh</code> script configures a complete kiosk
+            environment that boots directly into dual Chromium windows without
+            any desktop environment. Here is what the script sets up:
+          </p>
+
+          <h3>X11 Xwrapper</h3>
+
+          <p>
+            Allows non-root users to start the X server:
+          </p>
+
+          <pre><code># /etc/X11/Xwrapper.config
+allowed_users=anybody</code></pre>
+
+          <h3>Autologin on tty1</h3>
+
+          <p>
+            A systemd getty override enables automatic login on the first virtual
+            terminal:
+          </p>
+
+          <pre><code># /etc/systemd/system/getty@tty1.service.d/autologin.conf
+[Service]
+ExecStart=
+ExecStart=-/sbin/agetty --autologin bcm --noclear %I $TERM</code></pre>
+
+          <h3>Login Shell &rarr; X Server</h3>
+
+          <p>
+            The <code>.bash_profile</code> for the <code>bcm</code> user starts
+            X automatically on tty1, but waits for the boot splash to finish first
+            (see <a href="#boot-splash">Boot Splash</a> below).
+          </p>
+
+          <h3>.xinitrc Pipeline</h3>
+
+          <p>
+            When X starts, <code>.xinitrc</code> performs these steps in order:
+          </p>
+
+          <ol>
+            <li>Configure xrandr layout (side-by-side, main display on the left)</li>
+            <li>Map the USB touchscreen to the correct display output</li>
+            <li>Launch the main Chromium instance on the 7" display (port 5002)</li>
+            <li>Launch the small Chromium instance on the 4.3" display (port 5003)</li>
+          </ol>
+
+          <h3>Chromium Policy</h3>
+
+          <p>
+            A managed policy file disables all browser prompts that would interfere
+            with kiosk operation:
+          </p>
+
+          <ul>
+            <li>No first-run dialog or welcome page</li>
+            <li>No popup windows or new tabs</li>
+            <li>No translate bar</li>
+            <li>No password manager prompts</li>
+            <li>No crash recovery bubble</li>
+          </ul>
+        </section>
+
+        <!-- ============================================================
+             TOUCH CALIBRATION
+             ============================================================ -->
+        <section>
+          <h2 id="touch-calibration">Touch Calibration</h2>
+
+          <p>
+            USB touchscreens appear as separate input devices in X11. By default,
+            touch events map to the entire X screen (which spans both displays).
+            The setup script uses <code>xinput map-to-output</code> to constrain
+            touch events to the correct display.
+          </p>
+
+          <h3>How It Works</h3>
+
+          <p>
+            The setup script sets a <code>TOUCH_DEVICE</code> variable with the
+            name of the detected touchscreen, then maps it:
+          </p>
+
+          <pre><code># In .xinitrc (generated by setup-x86.sh)
+xinput map-to-output "$TOUCH_DEVICE" "$MAIN_OUTPUT"</code></pre>
+
+          <h3>Find Your Touch Device</h3>
+
+          <pre><code>DISPLAY=:0 xinput list</code></pre>
+
+          <p>
+            Look for entries containing "touch", "HID", or your display's brand
+            name. Common touchscreen device names:
+          </p>
+
+          <ul>
+            <li><strong>QDtech MPI5001:</strong> <code>QDtech MPI5001</code> or <code>HID 222a:0001</code></li>
+            <li><strong>Waveshare:</strong> <code>WaveShare WaveShare</code> or <code>wch.cn USBtiny</code></li>
+            <li><strong>Generic USB HID:</strong> <code>HID xxxx:xxxx</code> (vendor:product format)</li>
+          </ul>
+
+          <h3>Diagnostics</h3>
+
+          <p>
+            The setup script logs all touch mapping actions to
+            <code>/tmp/bcm-xinput.log</code>. Check this file to see what
+            happened during the last X startup:
+          </p>
+
+          <pre><code>cat /tmp/bcm-xinput.log</code></pre>
+
+          <h3>Touch Offset Fix</h3>
+
+          <div class="box box-warning">
+            <div class="box-title">Touch is offset or maps to the wrong screen</div>
+            <p>
+              If touch events land on the wrong screen or are offset, verify that
+              <code>MAIN_OUTPUT</code> in <code>.xinitrc</code> matches the actual
+              xrandr output name for your 7" display. Run
+              <code>DISPLAY=:0 xrandr</code> and check which output shows
+              1024x600. The name must match exactly (e.g., <code>HDMI-1</code>
+              not <code>HDMI1</code>).
+            </p>
+          </div>
+        </section>
+
+        <!-- ============================================================
+             BOOT SPLASH
+             ============================================================ -->
+        <section>
+          <h2 id="boot-splash">Boot Splash</h2>
+
+          <p>
+            Two systemd services provide boot splash video on both displays
+            before X11 starts. They use <strong>mpv</strong> with
+            <code>--vo=drm</code> for direct framebuffer rendering &mdash; no X
+            server is needed.
+          </p>
+
+          <h3>Splash Services</h3>
+
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Service</th>
+                  <th>DRM Connector</th>
+                  <th>Video File</th>
+                  <th>Resolution</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><code>bcm-splash-main</code></td>
+                  <td>HDMI-A-1</td>
+                  <td><code>/opt/bcm/assets/splash/main.mp4</code></td>
+                  <td>1024&times;600</td>
+                </tr>
+                <tr>
+                  <td><code>bcm-splash-small</code></td>
+                  <td>HDMI-A-2</td>
+                  <td><code>/opt/bcm/assets/splash/small.mp4</code></td>
+                  <td>800&times;480</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <h3>DRM Connector Configuration</h3>
+
+          <p>
+            The DRM connector names are set via systemd drop-in overrides so
+            they can be changed per-machine without editing the main service files:
+          </p>
+
+          <pre><code># /etc/systemd/system/bcm-splash-main.service.d/drm.conf
+[Service]
+Environment="DRM_CONNECTOR=HDMI-A-1"
+
+# /etc/systemd/system/bcm-splash-small.service.d/drm.conf
+[Service]
+Environment="DRM_CONNECTOR=HDMI-A-2"</code></pre>
+
+          <h3>DRM Wait Loop</h3>
+
+          <p>
+            The i915 GPU driver may take a few seconds to initialize after boot.
+            The splash service includes a wait loop that checks for
+            <code>/dev/dri/card0</code> up to <strong>10 seconds</strong> before
+            giving up:
+          </p>
+
+          <pre><code># Wait for GPU (i915 driver load)
+for i in $(seq 1 10); do
+    [ -e /dev/dri/card0 ] && break
+    sleep 1
+done</code></pre>
+
+          <h3>Splash Lifecycle</h3>
+
+          <ol>
+            <li>System boots, systemd starts <code>bcm-splash-main</code> and <code>bcm-splash-small</code></li>
+            <li>Each service waits for <code>/dev/dri/card0</code> (up to 10 s)</li>
+            <li>mpv plays the splash video on the DRM framebuffer</li>
+            <li>Splash loops until the Flask backend responds on <code>:5002</code>, then exits</li>
+            <li><code>.bash_profile</code> waits for splash to finish before starting X</li>
+            <li>X starts, xrandr takes over the displays, Chromium launches</li>
+          </ol>
+
+          <h3>Placeholder Videos</h3>
+
+          <p>
+            If no custom splash videos are provided, the setup script generates
+            placeholder videos using <code>ffmpeg</code>:
+          </p>
+
+          <pre><code># Generated automatically by setup-x86.sh
+ffmpeg -f lavfi -i color=c=black:s=1024x600:d=5 \
+       -vf "drawtext=text='BCM v8.5':fontsize=48:fontcolor=white:x=(w-tw)/2:y=(h-th)/2" \
+       -c:v libx264 -pix_fmt yuv420p /opt/bcm/assets/splash/main.mp4
+
+ffmpeg -f lavfi -i color=c=black:s=800x480:d=3 \
+       -vf "drawtext=text='BCM':fontsize=36:fontcolor=white:x=(w-tw)/2:y=(h-th)/2" \
+       -c:v libx264 -pix_fmt yuv420p /opt/bcm/assets/splash/small.mp4</code></pre>
+
+          <h3>Custom Splash</h3>
+
+          <p>
+            To use your own splash videos, copy them to:
+          </p>
+
+          <ul>
+            <li><code>/opt/bcm/assets/splash/main.mp4</code> &mdash; 1024&times;600, H.264, ~8 s recommended (audio optional)</li>
+            <li><code>/opt/bcm/assets/splash/small.mp4</code> &mdash; 800&times;480, H.264, ~5 s recommended (silent)</li>
+          </ul>
+
+          <div class="box box-info">
+            <div class="box-title">Splash encoding tips</div>
+            <p>
+              Use H.264 Baseline profile for fastest decode on the Intel HD 530.
+              Keep file size under 5 MB for instant playback from NVMe. If the
+              main splash includes audio, the mpv DRM output will route it through
+              the default PipeWire/ALSA sink (typically the USB DAC if configured).
+            </p>
+          </div>
+        </section>
+
+        <!-- ============================================================
+             CHROMIUM KIOSK
+             ============================================================ -->
+        <section>
+          <h2 id="chromium-kiosk">Chromium Kiosk</h2>
+
+          <p>
+            Two separate Chromium instances run in <code>--app=</code> mode
+            (no address bar, no tabs, no browser UI). Each instance targets a
+            different Flask dashboard on a different display.
+          </p>
+
+          <h3>Instance Configuration</h3>
+
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Instance</th>
+                  <th>URL</th>
+                  <th>Window Position</th>
+                  <th>User Data Dir</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>Main (7")</td>
+                  <td><code>http://localhost:5002</code></td>
+                  <td><code>--window-position=0,0</code></td>
+                  <td><code>/tmp/bcm-chromium-main</code></td>
+                </tr>
+                <tr>
+                  <td>Small (4.3")</td>
+                  <td><code>http://localhost:5003</code></td>
+                  <td><code>--window-position=1024,0</code> (offset by main width)</td>
+                  <td><code>/tmp/bcm-chromium-small</code></td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <h3>Key Chromium Flags</h3>
+
+          <pre><code>chromium --app=http://localhost:5002 \
+         --window-position=0,0 \
+         --window-size=1024,600 \
+         --user-data-dir=/tmp/bcm-chromium-main \
+         --no-first-run \
+         --disable-infobars \
+         --disable-session-crashed-bubble \
+         --noerrdialogs \
+         --kiosk</code></pre>
+
+          <h3>Clean on Boot</h3>
+
+          <p>
+            User data directories are located in <code>/tmp/bcm-chromium-*</code>,
+            which is a tmpfs mount. This means Chromium starts with a clean profile
+            on every boot &mdash; no stale cache, no session restore prompts, and
+            no disk wear on the NVMe SSD.
+          </p>
+
+          <h3>Policy File</h3>
+
+          <p>
+            A managed policy file is installed to suppress all browser prompts:
+          </p>
+
+          <pre><code># /etc/chromium/policies/managed/bcm-kiosk.json
+{
+  "AutofillAddressEnabled": false,
+  "AutofillCreditCardEnabled": false,
+  "BrowserSignin": 0,
+  "DefaultPopupsSetting": 2,
+  "PasswordManagerEnabled": false,
+  "TranslateEnabled": false,
+  "BookmarkBarEnabled": false
+}</code></pre>
+        </section>
+
+        <!-- ============================================================
+             VERIFICATION
+             ============================================================ -->
+        <section>
+          <h2 id="verification">Verification</h2>
+
+          <h3>Display Layout</h3>
+
+          <pre><code># Check xrandr sees both displays with correct resolutions
+DISPLAY=:0 xrandr</code></pre>
+
+          <p>Expected: HDMI-1 at 1024x600 and HDMI-2 at 800x480, side by side.</p>
+
+          <h3>Touch Mapping</h3>
+
+          <pre><code># List input devices
+DISPLAY=:0 xinput list
+
+# Check what the setup script configured
+cat /tmp/bcm-xinput.log</code></pre>
+
+          <h3>Splash Logs</h3>
+
+          <pre><code># Main display splash
+sudo journalctl -u bcm-splash-main --no-pager -n 10
+
+# Small display splash
+sudo journalctl -u bcm-splash-small --no-pager -n 10</code></pre>
+
+          <h3>Checklist</h3>
+
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Test</th>
+                  <th>Expected Result</th>
+                  <th>Pass</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>Both displays detected</td>
+                  <td><code>xrandr</code> shows HDMI-1 and HDMI-2 connected</td>
+                  <td>[ ]</td>
+                </tr>
+                <tr>
+                  <td>Main display resolution</td>
+                  <td>1024x600 on HDMI-1</td>
+                  <td>[ ]</td>
+                </tr>
+                <tr>
+                  <td>Small display resolution</td>
+                  <td>800x480 on HDMI-2</td>
+                  <td>[ ]</td>
+                </tr>
+                <tr>
+                  <td>Touch maps to main display</td>
+                  <td>Tapping the 7" screen interacts with port 5002 dashboard only</td>
+                  <td>[ ]</td>
+                </tr>
+                <tr>
+                  <td>Touch does not affect small display</td>
+                  <td>No touch events registered on the 4.3" status screen</td>
+                  <td>[ ]</td>
+                </tr>
+                <tr>
+                  <td>Boot splash (main)</td>
+                  <td>Splash video plays on 7" during boot, exits when Flask is ready</td>
+                  <td>[ ]</td>
+                </tr>
+                <tr>
+                  <td>Boot splash (small)</td>
+                  <td>Splash video plays on 4.3" during boot</td>
+                  <td>[ ]</td>
+                </tr>
+                <tr>
+                  <td>Chromium main</td>
+                  <td>Dashboard on port 5002 fills the 7" display, no browser UI</td>
+                  <td>[ ]</td>
+                </tr>
+                <tr>
+                  <td>Chromium small</td>
+                  <td>Status dashboard on port 5003 fills the 4.3" display</td>
+                  <td>[ ]</td>
+                </tr>
+                <tr>
+                  <td>No browser prompts</td>
+                  <td>No translate bar, password prompt, or crash bubble on either screen</td>
+                  <td>[ ]</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+
+        <!-- ============================================================
+             TROUBLESHOOTING
+             ============================================================ -->
+        <section>
+          <h2 id="troubleshooting">Troubleshooting</h2>
+
+          <h3>Displays Are Merged (Mirrored)</h3>
+
+          <p>
+            If both displays show the same content instead of side-by-side layout:
+          </p>
+
+          <ul>
+            <li>Check <code>.xinitrc</code> for the <code>xrandr --output HDMI-2 --right-of HDMI-1</code> command</li>
+            <li>Run <code>DISPLAY=:0 xrandr</code> and verify both outputs are listed separately</li>
+            <li>If xrandr shows only one output, check the DP-to-HDMI adapters &mdash; one may be faulty or not fully seated</li>
+            <li>Some cheap adapters do not support EDID passthrough; try a different adapter</li>
+          </ul>
+
+          <h3>Touch Events on Wrong Screen</h3>
+
+          <ul>
+            <li>Check <code>/tmp/bcm-xinput.log</code> for the <code>map-to-output</code> command</li>
+            <li>Verify <code>TOUCH_DEVICE</code> matches the actual device name in <code>xinput list</code></li>
+            <li>Verify <code>MAIN_OUTPUT</code> matches the xrandr name for the 7" display</li>
+            <li>If displays were swapped physically, swap the DP adapter cables or update <code>MAIN_OUTPUT</code></li>
+          </ul>
+
+          <h3>Splash Not Playing</h3>
+
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Symptom</th>
+                  <th>Cause</th>
+                  <th>Fix</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>Black screen, no splash</td>
+                  <td>DRM device not ready &mdash; <code>/dev/dri/card0</code> missing</td>
+                  <td>Check <code>lsmod | grep i915</code>; if missing, the GPU driver did not load. Verify BIOS has integrated graphics enabled.</td>
+                </tr>
+                <tr>
+                  <td>Splash on wrong screen</td>
+                  <td>DRM connector name mismatch</td>
+                  <td>Check <code>for f in /sys/class/drm/card*-*/status; do echo "$f: $(cat $f)"; done</code> and update the systemd drop-in override to match</td>
+                </tr>
+                <tr>
+                  <td>Splash plays but never stops</td>
+                  <td>Flask not starting on port 5002</td>
+                  <td>Check <code>sudo journalctl -u bcm-headunit</code> for Flask errors; splash waits for <code>curl localhost:5002</code> to succeed</td>
+                </tr>
+                <tr>
+                  <td>mpv error: "no DRM connector"</td>
+                  <td>Connector name uses X11 format instead of DRM format</td>
+                  <td>Use <code>HDMI-A-1</code> (DRM) not <code>HDMI-1</code> (X11) in the splash service</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <h3>X Starts Before Splash Finishes</h3>
+
+          <ul>
+            <li>The <code>.bash_profile</code> should contain a wait loop that checks if the splash service is still active</li>
+            <li>Verify with: <code>systemctl is-active bcm-splash-main</code></li>
+            <li>If the splash service exits immediately (failed), X will start right away &mdash; check splash logs for errors</li>
+            <li>Ensure the splash service is <code>Type=simple</code> (not <code>oneshot</code>) so <code>is-active</code> reports correctly while mpv is running</li>
+          </ul>
+        </section>
+
+      </article>
+
+      <!-- Page Navigation -->
+      <div class="page-nav">
+        <a href="08-wifi-bt.html">&larr; 08 &mdash; WiFi &amp; Bluetooth</a>
+        <a href="10-power-suspend.html">10 &mdash; Power &amp; Suspend &rarr;</a>
+      </div>
+
+      <!-- Footer -->
+      <footer class="page-footer">
+        <span>BCM v8.5 &mdash; Alfa Romeo 156 Headunit</span>
+        <span>Lenovo M910q x86 Production Build</span>
+      </footer>
+
+    </div>
+  </div>
+
+  <!-- Sidebar Toggle Script -->
+  <script>
+    function toggleSidebar() {
+      document.querySelector('.sidebar').classList.toggle('open');
+      document.querySelector('.sidebar-overlay').classList.toggle('active');
+    }
+
+    document.querySelectorAll('.sidebar nav a').forEach(function(link) {
+      link.addEventListener('click', function() {
+        if (window.innerWidth < 768) {
+          document.querySelector('.sidebar').classList.remove('open');
+          document.querySelector('.sidebar-overlay').classList.remove('active');
+        }
+      });
+    });
+  </script>
+
+</body>
+</html>
