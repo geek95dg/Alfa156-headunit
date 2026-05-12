@@ -902,15 +902,27 @@ cp "$BCM_DIR/config/scripts/bcm-bluetooth-setup.sh" /usr/local/bin/
 chmod +x /usr/local/bin/bcm-bluetooth-setup.sh
 cp "$BCM_DIR/config/systemd/bcm-bluetooth.service" /etc/systemd/system/
 
-# Tell the BT setup oneshot to prefer the integrated Intel 8087 adapter
-# on the M910q (matches bluetooth.prefer_internal=true in the YAML).
-# Remove or set to 0 to fall back to "prefer USB dongle" which is the
-# safer default on unknown hardware. The hci watchdog inside
-# BluetoothManager recovers from the documented Intel tx-timeouts.
+# Drop the integrated Intel 8087 BT entirely — its tx-timeout pattern
+# under load drops calls/AA mid-session, and when both internal and USB
+# dongle are present BlueZ advertises both with the same alias which
+# confuses phones during pairing. The udev rule below deauthorizes the
+# Intel USB device on attach so btusb never binds; the bluetooth setup
+# oneshot also unbinds it at service start as a safety net for systems
+# where udev rules aren't reloaded.
 mkdir -p /etc/default
-if ! grep -q "^BCM_BT_PREFER_INTERNAL=" /etc/default/bcm-bluetooth 2>/dev/null; then
-    echo "BCM_BT_PREFER_INTERNAL=1" >> /etc/default/bcm-bluetooth
+if ! grep -q "^BCM_BT_KEEP_INTERNAL=" /etc/default/bcm-bluetooth 2>/dev/null; then
+    echo "BCM_BT_KEEP_INTERNAL=0" >> /etc/default/bcm-bluetooth
 fi
+# Make sure any prior BCM_BT_PREFER_INTERNAL=1 from older installs is off.
+if grep -q "^BCM_BT_PREFER_INTERNAL=1" /etc/default/bcm-bluetooth 2>/dev/null; then
+    sed -i 's/^BCM_BT_PREFER_INTERNAL=1/BCM_BT_PREFER_INTERNAL=0/' /etc/default/bcm-bluetooth
+fi
+cat > /etc/udev/rules.d/81-bcm-disable-intel-bt.rules <<'UDEV'
+# Disable the integrated Intel 8087:0a2b Bluetooth controller (M910q etc).
+SUBSYSTEM=="usb", ATTR{idVendor}=="8087", ATTR{idProduct}=="0a2b", ATTR{authorized}="0"
+UDEV
+udevadm control --reload-rules 2>/dev/null || true
+udevadm trigger --action=add --attr-match=idVendor=8087 2>/dev/null || true
 
 # Persist BT rfkill unblock across boots — without this many baremetal
 # boards (M910q, OPi 5 Pro) come up with bluetooth soft-blocked even

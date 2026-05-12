@@ -24,6 +24,55 @@ if command -v rfkill >/dev/null 2>&1; then
     fi
 fi
 
+# Hard-disable the integrated Intel 8087 controller.
+# Why: on the M910q (and other NUC-class boards) both the internal Intel
+# 8087:0a2b and an external CSR/Realtek dongle land on hciX simultaneously,
+# and BlueZ happily advertises both — phones then see two carkits with the
+# same alias and pairing latches onto the Intel one which mid-session
+# `tx timeout`s and drops. Preferring the dongle in userspace isn't
+# enough: the Intel still publishes the advertising RA, A2DP-Sink endpoint
+# on the wrong BD_ADDR, and HFP profile that the phone may pick first.
+#
+# Unbind it from its USB driver so the kernel removes /sys/class/bluetooth/hciN
+# entirely. BlueZ then only sees the dongle.  Can be re-enabled by setting
+# BCM_BT_KEEP_INTERNAL=1 in /etc/default/bcm-bluetooth.
+[ -f /etc/default/bcm-bluetooth ] && . /etc/default/bcm-bluetooth
+if [ "${BCM_BT_KEEP_INTERNAL:-0}" != "1" ]; then
+    for hci_dir in /sys/class/bluetooth/hci*; do
+        [ -e "$hci_dir" ] || continue
+        hci=$(basename "$hci_dir")
+        dev_real=$(readlink -f "$hci_dir/device" 2>/dev/null || true)
+        [ -n "$dev_real" ] || continue
+        # Walk up to the USB interface node (has idVendor/bInterfaceNumber).
+        cur="$dev_real"
+        vendor=""
+        usb_iface=""
+        for _ in 1 2 3 4 5; do
+            if [ -f "$cur/idVendor" ]; then
+                vendor=$(cat "$cur/idVendor" 2>/dev/null | tr A-Z a-z)
+                usb_iface="$cur"
+                break
+            fi
+            parent=$(dirname "$cur")
+            [ "$parent" = "$cur" ] && break
+            cur="$parent"
+        done
+        if [ "$vendor" = "8087" ] && [ -n "$usb_iface" ]; then
+            # The USB *device* node (one level up from interface) is what
+            # we unbind from the usb driver. dev_real for hciX usually
+            # points to interface .0 of the device, e.g.
+            #   /sys/bus/usb/devices/1-7:1.0  →  parent device 1-7
+            usb_dev=$(dirname "$usb_iface")
+            usb_name=$(basename "$usb_dev")
+            echo "BT setup: unbinding internal Intel 8087 at $usb_name ($hci)"
+            hciconfig "$hci" down 2>/dev/null || true
+            if [ -e /sys/bus/usb/drivers/usb/unbind ]; then
+                echo "$usb_name" > /sys/bus/usb/drivers/usb/unbind 2>/dev/null || true
+            fi
+        fi
+    done
+fi
+
 # NOTE: do NOT touch /etc/bluetooth/main.conf here, and do NOT restart
 # bluetooth.service from within this script. The unit has
 # Requires=bluetooth.service, so bouncing the daemon makes systemd

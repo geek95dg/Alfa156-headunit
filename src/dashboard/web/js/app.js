@@ -404,15 +404,34 @@ const App = (() => {
     }
     /** Inject a thin invisible hot-zone at the bottom of <body> so the
      *  edge-swipe detector still fires when the touch lands on a
-     *  child element with stopPropagation behavior. */
+     *  child element with stopPropagation behavior.
+     *
+     *  The hotzone tracks its OWN touch start/end and only fires the
+     *  reveal on a real swipe-up gesture; a plain tap passes through
+     *  to the underlying UI button. Earlier versions called showNavBar
+     *  on any touchstart in the bottom 36 px which stole taps from
+     *  fixed-bottom controls (the "after scaling, touch is off" bug
+     *  the user kept hitting — buttons grew into the hotzone strip). */
     function _ensureNavHotzone() {
         if (document.getElementById("bcm-nav-hotzone")) return;
         const hot = document.createElement("div");
         hot.id = "bcm-nav-hotzone";
         hot.className = "bcm-navbar-hotzone";
-        hot.addEventListener("touchstart", () => { showNavBar(); },
-                             { passive: true });
-        hot.addEventListener("click", () => { showNavBar(); });
+        let hotStartY = 0;
+        let hotStartT = 0;
+        hot.addEventListener("touchstart", (e) => {
+            hotStartY = e.touches[0].clientY;
+            hotStartT = Date.now();
+        }, { passive: true });
+        hot.addEventListener("touchend", (e) => {
+            const endY = e.changedTouches[0].clientY;
+            const dy = endY - hotStartY;
+            const dt = Date.now() - hotStartT;
+            // Real swipe-up: at least 24 px upward within 500 ms.
+            // Anything else (a tap, a long press, a horizontal drag)
+            // is left to bubble through to the element below.
+            if (dy < -24 && dt < 500) showNavBar();
+        }, { passive: true });
         document.body.appendChild(hot);
     }
 
