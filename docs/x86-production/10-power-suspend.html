@@ -1,0 +1,884 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>10 — Power &amp; Suspend | BCM x86 Production</title>
+  <link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+
+  <!-- Hamburger toggle (mobile) -->
+  <button class="hamburger" aria-label="Toggle navigation" onclick="toggleSidebar()">&#9776;</button>
+  <div class="sidebar-overlay" onclick="toggleSidebar()"></div>
+
+  <!-- Sidebar Navigation -->
+  <aside class="sidebar">
+    <div class="sidebar-header">
+      <div class="logo-text">BCM v8.5</div>
+      <div class="logo-sub">Lenovo M910q &middot; Alfa 156</div>
+    </div>
+    <nav aria-label="Documentation pages">
+      <ul>
+        <li><a href="index.html"><span class="nav-num"></span>Overview</a></li>
+        <li><a href="01-bom.html"><span class="nav-num">01</span>Bill of Materials</a></li>
+        <li><a href="02-power.html"><span class="nav-num">02</span>Power Supply</a></li>
+        <li><a href="03-os-install.html"><span class="nav-num">03</span>OS Installation</a></li>
+        <li><a href="04-packages.html"><span class="nav-num">04</span>System Packages</a></li>
+        <li><a href="05-bcm-install.html"><span class="nav-num">05</span>BCM Installation</a></li>
+        <li><a href="06-systemd.html"><span class="nav-num">06</span>Systemd Services</a></li>
+        <li><a href="07-boot.html"><span class="nav-num">07</span>Boot &amp; Splash</a></li>
+        <li><a href="08-kiosk.html"><span class="nav-num">08</span>Kiosk Display</a></li>
+        <li><a href="09-display-touch.html"><span class="nav-num">09</span>Display &amp; Touch</a></li>
+        <li><a href="10-power-suspend.html" class="active"><span class="nav-num">10</span>Power &amp; Suspend</a></li>
+        <li><a href="11-android-auto.html"><span class="nav-num">11</span>Android Auto</a></li>
+        <li><a href="12-verification.html"><span class="nav-num">12</span>Verification</a></li>
+      </ul>
+    </nav>
+  </aside>
+
+  <!-- Main Content -->
+  <div class="content">
+    <div class="content-inner">
+
+      <header>
+        <h1>
+          Power &amp; Suspend
+          <span class="subtitle">Power supply, battery buffer, S3 suspend/resume, and ignition watcher for M910q in-car deployment</span>
+        </h1>
+      </header>
+
+      <article>
+
+        <!-- ============================================================
+             OVERVIEW
+             ============================================================ -->
+        <section>
+          <h2 id="overview">Overview</h2>
+
+          <p>
+            The Lenovo M910q uses a <strong>65 W, 20 V barrel jack</strong>
+            power supply &mdash; not a standard ATX connector. In the car, this
+            means you need a <strong>12 V &rarr; 20 V boost converter</strong>
+            to step up the vehicle's 12 V supply to the required 20 V input.
+          </p>
+
+          <p>
+            Because the car's 12 V rail drops to 6&ndash;8 V during engine
+            cranking, a <strong>12 V AGM battery buffer</strong> (7.2 Ah) is
+            placed between the car battery and the boost converter. A Schottky
+            diode isolates the AGM from the car battery so it never backfeeds.
+            A low-voltage disconnect (LVD) at 10.5 V protects the AGM from deep
+            discharge when the car is parked for extended periods.
+          </p>
+
+          <p>
+            For power management, the M910q supports native <strong>ACPI S3
+            suspend</strong> with a typical draw of only ~0.2 A at 12 V. This
+            gives approximately 36 hours of standby on the 7.2 Ah AGM buffer.
+            An Arduino-based ignition watcher automates the suspend/resume cycle
+            based on the car's ignition state.
+          </p>
+
+          <div class="box box-info">
+            <div class="box-title">Why not just shut down?</div>
+            <p>
+              A full shutdown requires a cold boot (~12 s). S3 suspend resumes
+              in <strong>3&ndash;5 seconds</strong> from power button press to
+              a visible dashboard &mdash; fast enough that the driver sees the
+              BCM interface before they finish adjusting their seatbelt. The
+              AGM battery buffer provides 36 hours of standby, more than enough
+              for any typical parking duration.
+            </p>
+          </div>
+        </section>
+
+        <!-- ============================================================
+             POWER SUPPLY CHAIN
+             ============================================================ -->
+        <section>
+          <h2 id="power-supply-chain">Power Supply Chain</h2>
+
+          <p>
+            The complete power path from the car battery to the M910q and
+            amplifier:
+          </p>
+
+          <pre><code>Car 12V ─[25A fuse]─┬─[Schottky diode MBR2045]─ AGM 12V 7.2Ah
+                    │                              │
+                    └───────────┬──────────────────┘
+                                │
+                   ┌────────────┴────────────┐
+                   │ LVD cutoff (10.5V)      │
+                   └────────────┬────────────┘
+                                │
+                  ┌─────────────┴────────────┐
+                  │                           │
+            [12V→20V boost]             [20A fuse]
+                  │                           │
+            M910q barrel jack           TDA7388 amp</code></pre>
+
+          <h3>Key Design Points</h3>
+
+          <ul>
+            <li>
+              <strong>Schottky diode (MBR2045):</strong> Prevents the AGM
+              battery from backfeeding into the car battery. The diode's low
+              forward voltage drop (~0.45 V) minimizes power loss. Current
+              flows from the car battery into the AGM for charging, but not
+              in reverse.
+            </li>
+            <li>
+              <strong>LVD cutoff (10.5 V):</strong> Protects the AGM from
+              deep discharge. If the battery voltage drops below 10.5 V
+              (indicating the car has been parked for an extended period and
+              the AGM is draining), the LVD disconnects all loads. This
+              prevents permanent damage to the AGM and ensures it retains
+              enough charge to power the next S3 resume cycle.
+            </li>
+            <li>
+              <strong>Standby calculation:</strong> 7.2 Ah &divide; 0.2 A
+              (S3 draw) = <strong>36 hours</strong> of standby time. In
+              practice, the AGM will hit the 10.5 V LVD cutoff after
+              approximately 30&ndash;34 hours, providing a safety margin.
+            </li>
+          </ul>
+
+          <h3>Component Specifications</h3>
+
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Component</th>
+                  <th>Specification</th>
+                  <th>Notes</th>
+                  <th>Price (PLN)</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>AGM battery</td>
+                  <td>12 V 7.2 Ah (e.g., CSB GP1272F2)</td>
+                  <td>Sealed, maintenance-free, fits behind dash</td>
+                  <td>50&ndash;80</td>
+                </tr>
+                <tr>
+                  <td>12 V &rarr; 20 V boost converter</td>
+                  <td>150 W, 12 V in &rarr; 20 V / 7.5 A out</td>
+                  <td>Must handle 65 W sustained for M910q</td>
+                  <td>40&ndash;70</td>
+                </tr>
+                <tr>
+                  <td>Schottky diode</td>
+                  <td>MBR2045CT (20 A, 45 V, dual)</td>
+                  <td>TO-220 package, ~0.45 V drop</td>
+                  <td>5&ndash;10</td>
+                </tr>
+                <tr>
+                  <td>LVD module</td>
+                  <td>12 V low-voltage disconnect, 10.5 V cutoff</td>
+                  <td>Adjustable cutoff preferred; 30 A rated</td>
+                  <td>20&ndash;40</td>
+                </tr>
+                <tr>
+                  <td>Fuse (main)</td>
+                  <td>25 A blade fuse</td>
+                  <td>Inline fuse holder on car battery positive</td>
+                  <td>5&ndash;10</td>
+                </tr>
+                <tr>
+                  <td>Fuse (amp)</td>
+                  <td>20 A blade fuse</td>
+                  <td>Separate fuse for TDA7388 amplifier branch</td>
+                  <td>5&ndash;10</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+
+        <!-- ============================================================
+             BIOS POWER SETTINGS
+             ============================================================ -->
+        <section>
+          <h2 id="bios-power-settings">BIOS Power Settings</h2>
+
+          <p>
+            Two BIOS settings are critical for in-car operation. Access the
+            M910q BIOS by pressing <kbd>F1</kbd> during boot.
+          </p>
+
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Setting</th>
+                  <th>Location</th>
+                  <th>Value</th>
+                  <th>Purpose</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>After Power Loss</td>
+                  <td>Power &rarr; After Power Loss</td>
+                  <td><strong>Power On</strong></td>
+                  <td>Auto-start when 12 V returns (e.g., after cranking dip or LVD reconnect)</td>
+                </tr>
+                <tr>
+                  <td>Wake on USB</td>
+                  <td>Power &rarr; Wake on USB</td>
+                  <td><strong>Enabled</strong></td>
+                  <td>Allows the Arduino to wake the M910q from S3 suspend via USB activity</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <div class="box box-warning">
+            <div class="box-title">After Power Loss must be "Power On"</div>
+            <p>
+              If this is set to "Last State" or "Power Off", the M910q will not
+              restart automatically after a cranking voltage dip causes the boost
+              converter to briefly lose output. "Power On" ensures the PC always
+              boots when power is available.
+            </p>
+          </div>
+        </section>
+
+        <!-- ============================================================
+             S3 SUSPEND CONFIGURATION
+             ============================================================ -->
+        <section>
+          <h2 id="s3-suspend-config">S3 Suspend Configuration</h2>
+
+          <h3>Verify S3 Support</h3>
+
+          <p>
+            Check that the kernel supports deep (S3) sleep:
+          </p>
+
+          <pre><code>cat /sys/power/mem_sleep</code></pre>
+
+          <p>
+            Expected output with S3 active (note the brackets indicating the
+            current selection):
+          </p>
+
+          <pre><code>s2idle [deep]</code></pre>
+
+          <h3>Enable S3 if Only s2idle is Available</h3>
+
+          <p>
+            If the output shows <code>[s2idle] deep</code> (s2idle selected by
+            default) or just <code>[s2idle]</code>, add the following kernel
+            parameter to force deep sleep:
+          </p>
+
+          <pre><code># Edit GRUB defaults
+sudo nano /etc/default/grub
+
+# Add to GRUB_CMDLINE_LINUX_DEFAULT:
+GRUB_CMDLINE_LINUX_DEFAULT="quiet mem_sleep_default=deep"
+
+# Rebuild GRUB config
+sudo update-grub
+sudo reboot</code></pre>
+
+          <h3>logind Configuration</h3>
+
+          <p>
+            Disable systemd-logind's built-in power button handling so that
+            <code>acpid</code> can manage it instead:
+          </p>
+
+          <pre><code># /etc/systemd/logind.conf
+[Login]
+HandlePowerKey=ignore</code></pre>
+
+          <p>
+            This prevents logind from intercepting the power button press before
+            acpid can run the custom suspend script.
+          </p>
+
+          <h3>acpid Power Button Handler</h3>
+
+          <p>
+            The <code>acpid</code> daemon listens for ACPI power button events
+            and runs <code>bcm-power-toggle.sh</code> to perform a clean
+            suspend:
+          </p>
+
+          <pre><code># /etc/acpi/events/power-button
+event=button/power
+action=/opt/bcm/scripts/bcm-power-toggle.sh</code></pre>
+        </section>
+
+        <!-- ============================================================
+             POWER BUTTON FLOW
+             ============================================================ -->
+        <section>
+          <h2 id="power-button-flow">Power Button Flow (bcm-power-toggle.sh)</h2>
+
+          <p>
+            When the power button is pressed (or the ignition watcher triggers
+            a suspend), the <code>bcm-power-toggle.sh</code> script performs a
+            clean shutdown sequence before entering S3:
+          </p>
+
+          <ol>
+            <li>
+              <strong>Stop bcm-headunit service</strong> &mdash; Gracefully
+              shuts down the Flask backend, closes camera streams, and releases
+              audio devices.
+            </li>
+            <li>
+              <strong>Disable all USB wake sources</strong> &mdash; Prevents
+              spurious wake events from USB devices moving during driving.
+            </li>
+            <li>
+              <strong>Unbind Huawei LTE modem</strong> &mdash; The Huawei E3372
+              HiLink modem is known to prevent successful S3 suspend on many
+              systems. Unbinding it from the USB driver before suspend avoids
+              this failure.
+            </li>
+            <li>
+              <strong>Disable XHCI and PS2K ACPI wake sources</strong> &mdash;
+              Disables the USB controller (XHCI) and PS/2 keyboard controller
+              wake sources to prevent unintended wakeups.
+            </li>
+            <li>
+              <strong>systemctl suspend</strong> &mdash; Enters ACPI S3 deep
+              sleep. Power draw drops to ~0.2 A at 12 V.
+            </li>
+          </ol>
+
+          <pre><code>#!/bin/bash
+# /opt/bcm/scripts/bcm-power-toggle.sh
+
+# Step 1: Stop BCM
+systemctl stop bcm-headunit
+
+# Step 2: Disable USB wake sources
+for f in /sys/bus/usb/devices/*/power/wakeup; do
+    echo disabled > "$f" 2>/dev/null
+done
+
+# Step 3: Unbind Huawei LTE modem (prevents suspend failure)
+MODEM_ID=$(lsusb | grep -i huawei | grep -oP '\d+:\d+' | head -1)
+if [ -n "$MODEM_ID" ]; then
+    for dev in /sys/bus/usb/devices/*; do
+        if [ -f "$dev/idVendor" ]; then
+            vendor=$(cat "$dev/idVendor")
+            product=$(cat "$dev/idProduct")
+            if lsusb -d "${vendor}:${product}" 2>/dev/null | grep -qi huawei; then
+                echo "$(basename $dev)" > /sys/bus/usb/drivers/usb/unbind 2>/dev/null
+            fi
+        fi
+    done
+fi
+
+# Step 4: Disable XHCI and PS2K wake sources
+for src in XHCI PS2K; do
+    grep -q "enabled" /proc/acpi/wakeup | grep "$src" && \
+        echo "$src" > /proc/acpi/wakeup
+done
+
+# Step 5: Suspend
+systemctl suspend</code></pre>
+        </section>
+
+        <!-- ============================================================
+             RESUME FLOW
+             ============================================================ -->
+        <section>
+          <h2 id="resume-flow">Resume Flow (bcm-resume.service)</h2>
+
+          <p>
+            A systemd service runs after every S3 resume to restore USB devices
+            and restart the BCM application:
+          </p>
+
+          <pre><code># /etc/systemd/system/bcm-resume.service
+[Unit]
+Description=BCM resume handler
+After=suspend.target
+
+[Service]
+Type=oneshot
+ExecStart=/opt/bcm/scripts/bcm-resume.sh
+
+[Install]
+WantedBy=suspend.target</code></pre>
+
+          <h3>Resume Script Steps</h3>
+
+          <ol>
+            <li>
+              <strong>Wait 2 seconds for hardware</strong> &mdash; Gives USB
+              controllers and attached devices time to re-enumerate after
+              waking from S3.
+            </li>
+            <li>
+              <strong>Rebind USB root hubs</strong> &mdash; Re-attaches the
+              USB root hub devices to the kernel driver. This forces
+              re-enumeration of all USB devices, including the Huawei LTE
+              modem that was unbound before suspend.
+            </li>
+            <li>
+              <strong>Start bcm-headunit service</strong> &mdash; Restarts
+              the Flask backend, camera streams, and audio pipeline.
+            </li>
+          </ol>
+
+          <pre><code>#!/bin/bash
+# /opt/bcm/scripts/bcm-resume.sh
+
+# Step 1: Wait for hardware to settle
+sleep 2
+
+# Step 2: Rebind USB root hubs (LTE modem reconnects)
+for rhub in /sys/bus/usb/devices/usb*/; do
+    devname=$(basename "$rhub")
+    echo "$devname" > /sys/bus/usb/drivers/usb/unbind 2>/dev/null
+    sleep 0.5
+    echo "$devname" > /sys/bus/usb/drivers/usb/bind 2>/dev/null
+done
+
+# Step 3: Start BCM
+systemctl start bcm-headunit</code></pre>
+        </section>
+
+        <!-- ============================================================
+             IGNITION WATCHER
+             ============================================================ -->
+        <section>
+          <h2 id="ignition-watcher">Ignition Watcher</h2>
+
+          <p>
+            On the x86 platform, the ignition watcher uses the
+            <strong>Arduino input board</strong> to detect the car's ignition
+            state. The car's 12 V ignition signal is connected to the Arduino
+            via a <strong>PC817 optoisolator</strong>, which provides
+            electrical isolation between the car's ignition circuit and the
+            Arduino's digital input.
+          </p>
+
+          <h3>Hardware Signal Path</h3>
+
+          <pre><code>Ignition 12V ─[1K resistor]─ PC817 LED side
+                                    │
+                              PC817 transistor side ─ Arduino D2 (INPUT_PULLUP)
+                                    │
+                                   GND</code></pre>
+
+          <p>
+            When the ignition is <strong>ON</strong>, the PC817's internal LED
+            illuminates, the transistor conducts, and Arduino pin D2 reads LOW.
+            When the ignition is <strong>OFF</strong>, D2 reads HIGH (pulled up
+            internally). The Arduino sends an <code>IGN:ON</code> or
+            <code>IGN:OFF</code> message over USB serial to the M910q.
+          </p>
+
+          <h3>bcm-ignition-watcher.service</h3>
+
+          <p>
+            A systemd service monitors the ignition state reported by the
+            Arduino and triggers suspend/resume accordingly:
+          </p>
+
+          <pre><code># /etc/systemd/system/bcm-ignition-watcher.service
+[Unit]
+Description=BCM ignition watcher
+After=bcm-headunit.service
+Requires=bcm-headunit.service
+
+[Service]
+Type=simple
+ExecStart=/opt/bcm/scripts/bcm-ignition-watcher.sh
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target</code></pre>
+
+          <h3>Ignition State Transitions</h3>
+
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Event</th>
+                  <th>Action</th>
+                  <th>Details</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>Ignition OFF</td>
+                  <td>Stop BCM &rarr; suspend after 5 s delay</td>
+                  <td>The 5-second delay prevents false triggers from momentary ignition switch bouncing during engine cranking</td>
+                </tr>
+                <tr>
+                  <td>Ignition ON</td>
+                  <td>Resume &rarr; restart BCM</td>
+                  <td>The Arduino USB activity wakes the M910q from S3 (Wake on USB enabled in BIOS); the resume service restarts BCM</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <h3>Configuration</h3>
+
+          <p>
+            The ignition watcher is enabled in the BCM configuration file:
+          </p>
+
+          <pre><code># /opt/bcm/config.yaml (relevant section)
+power:
+  ignition_watcher:
+    autostart: true</code></pre>
+
+          <div class="box box-info">
+            <div class="box-title">Manual override</div>
+            <p>
+              The physical power button on the M910q always works as a manual
+              suspend/resume toggle, regardless of the ignition watcher state.
+              If <code>autostart</code> is set to <code>false</code>, the
+              ignition watcher service will not start automatically, and
+              suspend/resume must be triggered manually via the power button.
+            </p>
+          </div>
+        </section>
+
+        <!-- ============================================================
+             BOOT TIMELINE
+             ============================================================ -->
+        <section>
+          <h2 id="boot-timeline">Boot Timeline</h2>
+
+          <p>
+            Cold boot and S3 resume timings for the M910q with NVMe SSD and
+            optimized BIOS settings (fast boot enabled, boot device list
+            minimized):
+          </p>
+
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Time</th>
+                  <th>Event</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>0&ndash;2 s</td>
+                  <td>Lenovo BIOS POST (fast boot enabled, no splash logo)</td>
+                </tr>
+                <tr>
+                  <td>2&ndash;4 s</td>
+                  <td>Kernel loads (silent boot, GRUB menu hidden with 0 s timeout)</td>
+                </tr>
+                <tr>
+                  <td>4&ndash;5 s</td>
+                  <td>DRM device ready &rarr; splash video starts playing on both displays</td>
+                </tr>
+                <tr>
+                  <td>5&ndash;10 s</td>
+                  <td>Flask backend starts behind splash (loading config, initializing serial, cameras)</td>
+                </tr>
+                <tr>
+                  <td>10&ndash;12 s</td>
+                  <td>Splash ends &rarr; X11 starts &rarr; Chromium launches in kiosk mode</td>
+                </tr>
+                <tr>
+                  <td>~12 s</td>
+                  <td><strong>Dashboard visible</strong> &mdash; full BCM interface on both screens</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Mode</th>
+                  <th>Time to Dashboard</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>Cold boot (power on)</td>
+                  <td>~12 s</td>
+                </tr>
+                <tr>
+                  <td>S3 resume (suspend &rarr; wake)</td>
+                  <td>~3&ndash;5 s from power button to dashboard</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <div class="box box-info">
+            <div class="box-title">S3 resume is 3&times; faster</div>
+            <p>
+              With S3 suspend, the driver sees the BCM dashboard in 3&ndash;5
+              seconds after turning the ignition key. This is fast enough that
+              the interface is ready before the driver finishes adjusting their
+              mirrors. This is the primary reason for using S3 suspend instead
+              of a full shutdown.
+            </p>
+          </div>
+        </section>
+
+        <!-- ============================================================
+             VERIFICATION
+             ============================================================ -->
+        <section>
+          <h2 id="verification">Verification</h2>
+
+          <h3>S3 Suspend State</h3>
+
+          <pre><code># Verify deep sleep is selected
+cat /sys/power/mem_sleep
+# Expected: s2idle [deep]</code></pre>
+
+          <h3>Suspend and Resume Test</h3>
+
+          <pre><code># Trigger a manual suspend
+sudo systemctl suspend
+
+# After wake, check suspend/resume logs
+sudo journalctl -b -k | grep -i "suspend\|resume\|PM:"</code></pre>
+
+          <h3>Resume Service Status</h3>
+
+          <pre><code>systemctl status bcm-resume.service
+sudo journalctl -u bcm-resume.service --no-pager -n 20</code></pre>
+
+          <h3>Ignition Watcher Status</h3>
+
+          <pre><code>systemctl status bcm-ignition-watcher.service
+sudo journalctl -u bcm-ignition-watcher.service --no-pager -n 20</code></pre>
+
+          <h3>ACPI Wake Sources</h3>
+
+          <pre><code># Check which wake sources are enabled
+cat /proc/acpi/wakeup</code></pre>
+
+          <h3>Checklist</h3>
+
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Test</th>
+                  <th>Expected Result</th>
+                  <th>Pass</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>S3 deep sleep available</td>
+                  <td><code>/sys/power/mem_sleep</code> shows <code>[deep]</code></td>
+                  <td>[ ]</td>
+                </tr>
+                <tr>
+                  <td>Manual suspend works</td>
+                  <td><code>systemctl suspend</code> enters S3; power LED blinks</td>
+                  <td>[ ]</td>
+                </tr>
+                <tr>
+                  <td>Power button resumes</td>
+                  <td>Pressing power button wakes from S3 within 3&ndash;5 s</td>
+                  <td>[ ]</td>
+                </tr>
+                <tr>
+                  <td>BCM restarts on resume</td>
+                  <td><code>bcm-headunit</code> service is active after wake</td>
+                  <td>[ ]</td>
+                </tr>
+                <tr>
+                  <td>LTE modem reconnects</td>
+                  <td><code>lsusb</code> shows Huawei device after resume</td>
+                  <td>[ ]</td>
+                </tr>
+                <tr>
+                  <td>Ignition watcher triggers suspend</td>
+                  <td>Turning ignition OFF suspends after 5 s delay</td>
+                  <td>[ ]</td>
+                </tr>
+                <tr>
+                  <td>Ignition watcher triggers resume</td>
+                  <td>Turning ignition ON wakes from S3 and restarts BCM</td>
+                  <td>[ ]</td>
+                </tr>
+                <tr>
+                  <td>Cold boot time</td>
+                  <td>Dashboard visible in ~12 s from power on</td>
+                  <td>[ ]</td>
+                </tr>
+                <tr>
+                  <td>BIOS: After Power Loss</td>
+                  <td>Set to "Power On"</td>
+                  <td>[ ]</td>
+                </tr>
+                <tr>
+                  <td>BIOS: Wake on USB</td>
+                  <td>Set to "Enabled"</td>
+                  <td>[ ]</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+
+        <!-- ============================================================
+             TROUBLESHOOTING
+             ============================================================ -->
+        <section>
+          <h2 id="troubleshooting">Troubleshooting</h2>
+
+          <h3>Instant Wake After Suspend</h3>
+
+          <p>
+            The M910q enters S3 but immediately wakes up:
+          </p>
+
+          <ul>
+            <li>
+              A USB device is triggering a wake event. Check which device
+              caused the last wake:
+              <pre><code>cat /proc/acpi/wakeup
+dmesg | grep -i "wake"</code></pre>
+            </li>
+            <li>
+              Ensure the power-toggle script disables all USB wake sources
+              before suspending. The Huawei LTE modem is the most common
+              culprit &mdash; verify it is unbound.
+            </li>
+            <li>
+              Check if XHCI or PS2K wake sources are still enabled in
+              <code>/proc/acpi/wakeup</code> and disable them in the script.
+            </li>
+          </ul>
+
+          <h3>Full 40-Second Boot Instead of S3 Resume</h3>
+
+          <p>
+            If the system takes ~40 seconds to reach the dashboard instead of
+            3&ndash;5 seconds, it is performing a full cold boot rather than
+            an S3 resume:
+          </p>
+
+          <ul>
+            <li>
+              The AGM battery may have hit the LVD cutoff (10.5 V), causing
+              a full power loss. Check AGM voltage with a multimeter.
+            </li>
+            <li>
+              The boost converter may have shut down during engine cranking.
+              Verify the AGM buffer is properly wired with the Schottky diode
+              isolating it from the car battery.
+            </li>
+            <li>
+              BIOS "After Power Loss" may be set to "Last State" instead of
+              "Power On". A power loss during S3 requires auto-restart.
+            </li>
+          </ul>
+
+          <h3>No S3 Available (Only s2idle)</h3>
+
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Symptom</th>
+                  <th>Cause</th>
+                  <th>Fix</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><code>[s2idle]</code> only in <code>mem_sleep</code></td>
+                  <td>Kernel defaulting to s2idle (modern standby)</td>
+                  <td>Add <code>mem_sleep_default=deep</code> to <code>GRUB_CMDLINE_LINUX_DEFAULT</code> and run <code>update-grub</code></td>
+                </tr>
+                <tr>
+                  <td><code>s2idle</code> only, no <code>deep</code> option listed</td>
+                  <td>BIOS does not advertise S3 support (some BIOS updates remove it)</td>
+                  <td>Check for a BIOS setting "Sleep State" or "Suspend Mode" and set it to "Linux" or "S3". Downgrade BIOS if the option was removed in a newer version.</td>
+                </tr>
+                <tr>
+                  <td>Suspend hangs (screen goes black but fans keep running)</td>
+                  <td>A device driver is blocking suspend</td>
+                  <td>Check <code>dmesg | grep -i "suspend"</code> for the failing driver. The Huawei LTE modem is the most common cause &mdash; ensure it is unbound before suspend.</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <h3>Ignition Watcher Not Triggering</h3>
+
+          <ul>
+            <li>
+              Verify the Arduino is sending <code>IGN:ON</code> /
+              <code>IGN:OFF</code> messages:
+              <pre><code>cat /dev/ttyACM0</code></pre>
+            </li>
+            <li>
+              Check that the PC817 optoisolator is wired correctly &mdash;
+              the LED side connects to the car's ignition 12 V through a
+              1 K&ohm; resistor, and the transistor side pulls Arduino D2
+              low when ignition is on.
+            </li>
+            <li>
+              Ensure <code>power.ignition_watcher.autostart</code> is set
+              to <code>true</code> in <code>/opt/bcm/config.yaml</code>.
+            </li>
+            <li>
+              Check the service logs:
+              <pre><code>sudo journalctl -u bcm-ignition-watcher.service -f</code></pre>
+            </li>
+          </ul>
+        </section>
+
+      </article>
+
+      <!-- Page Navigation -->
+      <div class="page-nav">
+        <a href="09-display-touch.html">&larr; 09 &mdash; Display &amp; Touch</a>
+        <a href="11-android-auto.html">11 &mdash; Android Auto &rarr;</a>
+      </div>
+
+      <!-- Footer -->
+      <footer class="page-footer">
+        <span>BCM v8.5 &mdash; Alfa Romeo 156 Headunit</span>
+        <span>Lenovo M910q x86 Production Build</span>
+      </footer>
+
+    </div>
+  </div>
+
+  <!-- Sidebar Toggle Script -->
+  <script>
+    function toggleSidebar() {
+      document.querySelector('.sidebar').classList.toggle('open');
+      document.querySelector('.sidebar-overlay').classList.toggle('active');
+    }
+
+    document.querySelectorAll('.sidebar nav a').forEach(function(link) {
+      link.addEventListener('click', function() {
+        if (window.innerWidth < 768) {
+          document.querySelector('.sidebar').classList.remove('open');
+          document.querySelector('.sidebar-overlay').classList.remove('active');
+        }
+      });
+    });
+  </script>
+
+</body>
+</html>
