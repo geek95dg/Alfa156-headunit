@@ -55,12 +55,14 @@ class WebViewer:
 
     def __init__(self, host: str = "0.0.0.0", port: int = 5002,
                  event_bus=None, config=None, bt_manager=None,
-                 trip_computer=None, route_planner=None) -> None:
+                 trip_computer=None, route_planner=None,
+                 wifi_ap=None) -> None:
         self.host = host
         self.port = port
         self._event_bus = event_bus
         self._config = config
         self._bt_manager = bt_manager
+        self._wifi_ap = wifi_ap
         self._trip_computer = trip_computer
         self._route_planner = route_planner
         self._thread: Optional[threading.Thread] = None
@@ -498,6 +500,23 @@ class WebViewer:
 
         # --- Boot mode API ---
 
+        # --- Kiosk readiness gate ---
+        # Splash polls /api/ready and dismisses itself the moment the
+        # browser-side App.init() has finished — that's the only way to
+        # know Chromium has actually painted the dashboard, not just
+        # that Flask is answering. POST flips the flag, GET returns
+        # 200/204 depending on the state.
+        @app.route("/api/ready", methods=["POST"])
+        def api_ready_set():
+            viewer._kiosk_ready = True
+            return ("", 204)
+
+        @app.route("/api/ready", methods=["GET"])
+        def api_ready_get():
+            if getattr(viewer, "_kiosk_ready", False):
+                return jsonify({"ready": True})
+            return jsonify({"ready": False}), 503
+
         @app.route("/api/boot_mode")
         def api_boot_mode():
             state_file = Path("/tmp/bcm_power_state")
@@ -816,6 +835,235 @@ class WebViewer:
                 return jsonify({"success": ok})
             except Exception:
                 return jsonify({"success": False})
+
+        # --- Radio (BT + WiFi AP) toggles —--------------------------
+        # Backs the two on/off switches in the settings page. The
+        # cosmetic-only toggle that used to live in settings.js never
+        # touched the radios (works in the simulator VM, didn't on
+        # baremetal), which the user reported as "settings page for
+        # WLAN, and BT are not influence on those modems".
+
+        def _wifi_ap_status():
+            wa = viewer._wifi_ap
+            if wa is None:
+                # WiFi AP module not loaded in this run, but the system
+                # may still have hostapd running (setup-x86.sh installs
+                # it as a system service) — surface that so the toggle
+                # reflects reality.
+                hostapd_active = False
+                try:
+                    rc = subprocess.run(
+                        ["systemctl", "is-active", "hostapd"],
+                        capture_output=True, text=True, timeout=3,
+                    ).stdout.strip()
+                    hostapd_active = (rc == "active")
+                except Exception:
+                    pass
+                return {
+                    "available": hostapd_active,
+                    "running": hostapd_active,
+                    "ssid": (viewer._config.get("wifi.ssid", "")
+                             if viewer._config else ""),
+                    "managed_by": "hostapd" if hostapd_active else None,
+                }
+            return {
+                "available": True,
+                "running": wa.running,
+                "ssid": (viewer._config.get("wifi.ssid", "")
+                         if viewer._config else ""),
+                "interface": wa.interface,
+                "managed_by": "bcm",
+            }
+
+        @app.route("/api/radio/status")
+        def api_radio_status():
+            bt = viewer._bt_manager
+            bt_info = {"available": False, "powered": False,
+                       "discoverable": False}
+            if bt:
+                ctrl = bt.get_controller_info()
+                bt_info = {
+                    "available": bool(ctrl.get("available")),
+                    "powered": bool(ctrl.get("powered", False)),
+                    "discoverable": bool(ctrl.get("discoverable", False)),
+                    "name": ctrl.get("name", ""),
+                    "address": ctrl.get("address", ""),
+                }
+            return jsonify({"bt": bt_info, "wifi": _wifi_ap_status()})
+
+        @app.route("/api/radio/bt", methods=["POST"])
+        def api_radio_bt():
+            bt = viewer._bt_manager
+            if not bt:
+                return jsonify({"error": "BT not available"}), 503
+            data = request.get_json(silent=True) or {}
+            enabled = bool(data.get("enabled", True))
+            ok = bt.set_powered(enabled)
+            ctrl = bt.get_controller_info()
+            return jsonify({
+                "success": ok,
+                "powered": bool(ctrl.get("powered", False)),
+            })
+
+        @app.route("/api/wifi/config", methods=["GET"])
+        def api_wifi_config_get():
+            cfg = viewer._config
+            if cfg is None:
+                return jsonify({})
+            # wifi.*_runtime are set by wifi_ap.py when a P2P-GO group
+            # comes up — wpa_supplicant assigns a random DIRECT-XX SSID
+            # and WPA2 passphrase that override the YAML defaults. Show
+            # those as the LIVE values; expose the YAML values too so
+            # the user knows what gets used in hostapd mode.
+            mode = cfg.get("wifi.mode", "p2p_go")
+            live_ssid = cfg.get("wifi.ssid_runtime", "") or cfg.get("wifi.ssid", "")
+            live_pwd = cfg.get("wifi.password_runtime", "") or cfg.get("wifi.password", "")
+            live_bssid = cfg.get("wifi.bssid_runtime", "")
+            return jsonify({
+                # legacy fields — still the YAML values so the Save
+                # button can write them back without overwriting the
+                # auto-generated P2P-GO credentials.
+                "ssid": cfg.get("wifi.ssid", ""),
+                "password": cfg.get("wifi.password", ""),
+                "channel": cfg.get("wifi.channel", 6),
+                # live values (what the phone actually connects to)
+                "mode": mode,
+                "live_ssid": live_ssid,
+                "live_password": live_pwd,
+                "live_bssid": live_bssid,
+                # ALFA-NET (still a regular hostapd AP, user-editable)
+                "alfa_net_enabled": bool(
+                    cfg.get("wifi.alfa_net.enabled", True)),
+                "alfa_net_ssid": cfg.get("wifi.alfa_net.ssid", "ALFA-NET"),
+                "alfa_net_password": cfg.get(
+                    "wifi.alfa_net.password", "AlfaRomeo156"),
+            })
+
+        @app.route("/api/wifi/config", methods=["POST"])
+        def api_wifi_config_set():
+            cfg = viewer._config
+            if cfg is None:
+                return jsonify({"ok": False, "error": "no config"}), 500
+            data = request.get_json(silent=True) or {}
+            ssid = (data.get("ssid") or "").strip()
+            password = data.get("password") or ""
+            channel = data.get("channel")
+            if not ssid or len(ssid) > 32:
+                return jsonify({"ok": False,
+                                "error": "ssid must be 1-32 chars"}), 400
+            if not isinstance(password, str) or not (8 <= len(password) <= 63):
+                return jsonify({"ok": False,
+                                "error": "password must be 8-63 chars"}), 400
+            try:
+                channel = int(channel)
+            except (TypeError, ValueError):
+                return jsonify({"ok": False,
+                                "error": "channel must be a number"}), 400
+            # Channel range — accept 2.4 GHz (1-13) and 5 GHz UNII bands.
+            valid_5ghz = {36, 40, 44, 48, 149, 153, 157, 161, 165}
+            if not (1 <= channel <= 13 or channel in valid_5ghz):
+                return jsonify({"ok": False,
+                                "error": "channel must be 1-13 or "
+                                         "36/40/44/48/149/153/157/161/165"
+                                }), 400
+
+            cfg.set("wifi.ssid", ssid)
+            cfg.set("wifi.password", password)
+            cfg.set("wifi.channel", channel)
+
+            # Optional ALFA-NET fields — only update if explicitly provided
+            # so calls from older clients don't blank the secondary AP.
+            an_ssid = data.get("alfa_net_ssid")
+            an_pwd = data.get("alfa_net_password")
+            an_enabled = data.get("alfa_net_enabled")
+            if an_ssid is not None:
+                an_ssid = (an_ssid or "").strip()
+                if an_ssid and len(an_ssid) <= 32:
+                    cfg.set("wifi.alfa_net.ssid", an_ssid)
+            if an_pwd is not None:
+                if isinstance(an_pwd, str) and 8 <= len(an_pwd) <= 63:
+                    cfg.set("wifi.alfa_net.password", an_pwd)
+                elif an_pwd != "":
+                    return jsonify({"ok": False,
+                                    "error": "ALFA-NET password 8-63 chars"
+                                    }), 400
+            if an_enabled is not None:
+                cfg.set("wifi.alfa_net.enabled", bool(an_enabled))
+            try:
+                cfg.save()
+            except Exception as e:
+                log.exception("Saving wifi config failed")
+                return jsonify({"ok": False, "error": str(e)}), 500
+
+            # Regenerate openauto.ini so the autoapp picks up new
+            # credentials on next AA start. The file is tiny; we drop
+            # it here and let openauto.start() recreate it.
+            try:
+                ini_path = os.path.join(os.getcwd(), "openauto.ini")
+                if os.path.exists(ini_path):
+                    os.remove(ini_path)
+            except Exception:
+                log.debug("Could not refresh openauto.ini", exc_info=True)
+
+            if viewer._event_bus:
+                viewer._event_bus.publish("config.wifi_changed", {
+                    "ssid": ssid, "channel": channel,
+                })
+
+            # System hostapd needs a restart to pick up the new
+            # /etc/hostapd/hostapd.conf. We don't auto-restart here —
+            # the user toggles Wi-Fi AP off/on in the UI to apply,
+            # which keeps the action visible (avoids surprising
+            # connectivity drops).
+            return jsonify({"ok": True, "restart_required": True})
+
+        @app.route("/api/radio/wifi", methods=["POST"])
+        def api_radio_wifi():
+            data = request.get_json(silent=True) or {}
+            enabled = bool(data.get("enabled", True))
+            wa = viewer._wifi_ap
+            # Path 1: WiFi AP managed by the BCM module (start/stop).
+            if wa is not None:
+                ok = wa.start() if enabled else (wa.stop() or True)
+                return jsonify({
+                    "success": bool(ok),
+                    "running": wa.running,
+                    "managed_by": "bcm",
+                })
+            # Path 2: hostapd-managed AP (the setup-x86.sh path). The
+            # BCM process can't import hostapd state, but it can ask
+            # systemd to flip it.
+            try:
+                action = "start" if enabled else "stop"
+                if enabled:
+                    # Unblock rfkill before hostapd start — without this
+                    # the toggle "permanent disables" the WLAN: hostapd
+                    # systemd unit reports active but the radio never
+                    # transmits because the card is soft-blocked.
+                    subprocess.run(["rfkill", "unblock", "wifi"],
+                                   capture_output=True, timeout=3)
+                    subprocess.run(["rfkill", "unblock", "all"],
+                                   capture_output=True, timeout=3)
+                subprocess.run(["systemctl", action, "hostapd"],
+                               capture_output=True, timeout=10)
+                if enabled:
+                    subprocess.run(["systemctl", "start", "dnsmasq"],
+                                   capture_output=True, timeout=5)
+                else:
+                    subprocess.run(["rfkill", "block", "wifi"],
+                                   capture_output=True, timeout=3)
+                rc = subprocess.run(
+                    ["systemctl", "is-active", "hostapd"],
+                    capture_output=True, text=True, timeout=3,
+                ).stdout.strip()
+                return jsonify({
+                    "success": True,
+                    "running": rc == "active",
+                    "managed_by": "hostapd",
+                })
+            except Exception as e:
+                log.exception("WiFi AP toggle via systemd failed")
+                return jsonify({"success": False, "error": str(e)}), 500
 
         # --- Phone API ---
 
@@ -1186,4 +1434,10 @@ class WebViewer:
                 except Exception:
                     break
 
-        app.run(host=self.host, port=self.port, debug=False, use_reloader=False)
+        # threaded=True: the dashboard renders fire many concurrent
+        # GETs (radio status, wifi config, BT lists, music, weather…)
+        # plus the touch input WS. A single-threaded werkzeug serializes
+        # everything, so a slow handler (e.g. bluetoothctl scan, nmcli)
+        # stalls every other endpoint and the UI feels frozen on touch.
+        app.run(host=self.host, port=self.port, debug=False,
+                use_reloader=False, threaded=True)

@@ -271,11 +271,19 @@ music_panel:
   enabled: true
 
 wifi:
-  enabled: false       # No built-in WiFi — use USB dongle if needed
+  enabled: true        # Required for AA Wireless — uses internal Intel
+                       # 8265 in P2P-GO mode (Wi-Fi Direct group owner).
   ssid: ALFA
   password: "87654321"
-  channel: 6
-  interface: "wlan0"   # USB WiFi dongle
+  mode: p2p_go         # Wi-Fi Direct Group Owner — sidesteps the Intel
+                       # 8265 self-managed regdom that blocks AP role.
+  band: g              # 2.4 GHz — 5 GHz P2P-GO FAILs under country=00
+                       # (NO-IR/IR-CONCURRENT). 2.4 GHz pairs reliably.
+  channel: 6           # ch6 = 2437 MHz, always-passive-free on iwlwifi
+  country: BO          # User-waived country compliance for AA Wireless
+  regdom: BO
+  share_internet: true # NAT outbound traffic via LTE uplink
+  interface: ""        # Auto-detect — internal Intel 8265 on M910q
   ip: 10.0.0.1
   netmask: 255.255.255.0
   dhcp_start: 10.0.0.10
@@ -357,6 +365,13 @@ tracking:
   geofence_lon: 0
   geofence_radius_km: 0
   sms_number: ""
+
+bluetooth:
+  # Orange Pi PC test rig has no Intel 8087 — leave at default so a
+  # USB dongle is used. Flip to true if the target OPi 5 Plus board
+  # ships with an internal radio you want to force.
+  prefer_internal: false
+  preferred_adapter: ""
 
 # OPi PC test rig specific
 test_rig:

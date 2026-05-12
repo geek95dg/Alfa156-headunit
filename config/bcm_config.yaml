@@ -4,6 +4,7 @@ system:
   platform: x86
   log_level: DEBUG
   log_file: logs/bcm.log
+  simulation: false
 modules:
   dashboard: true
   obd: true
@@ -17,26 +18,17 @@ modules:
   location: true
   network: true
   weather: true
-  blinker_monitor: true      # GPIO watcher that publishes vehicle.left_blinker/right_blinker
+  blinker_monitor: true
 display:
   dashboard:
-    width: 1024       # 7" display; for 10" use 1280
-    height: 600       # 7" display; for 10" use 800
+    width: 1024
+    height: 600
     fps: 15
     theme: heritage
     brightness: 70
   multimedia:
-    # Target resolution of the Android Auto canvas. When omitted, BCM
-    # derives it from (dashboard.width, dashboard.height − appbar_px
-    # − navbar_px) so the AA stream fits the content area without
-    # overlapping the BCM header / nav bar. See
-    # src/multimedia/openauto.py::_aa_canvas_size().
     width: 1024
-    height: 504
-  # BCM's web UI reserves 48 px at the top (AppBar) and 48 px at the
-  # bottom (NavBar) of every A-screen. These values drive the AA
-  # canvas sizing and the A3 Travel Plan overlay offsets — override
-  # only if you customised the frontend theme heights.
+    height: 600
   appbar_px: 48
   navbar_px: 48
 units:
@@ -59,21 +51,11 @@ gpio:
   rain_sensor: 87
   sprayer: 88
   central_lock: 89
-  # Turn signal inputs (via PC817 optoisolator from 12V blinker wires)
   blinker_left: 90
   blinker_right: 91
-
-# Vehicle input signal behaviour — tuning knobs for src/vehicle/.
 vehicle:
-  # Turn signals come in via PC817 optoisolators (LOW when 12 V is
-  # present on the blinker wire). Set to false if you wired the
-  # inputs without an optoisolator and they are active-HIGH.
   blinker_active_low: true
-  # How long after the last HIGH edge we still treat the blinker as
-  # "active". Blinker wires flash every ~400 ms; a hold of 0.8 s
-  # prevents the camera overlay from flickering between flashes.
   blinker_hold_sec: 0.8
-
 serial:
   kline:
     port_opi: /dev/ttyS3
@@ -86,50 +68,70 @@ hardware:
     baudrate: 9600
   lte:
     enabled: true
-    device: ""
-    apn: ""
+    device: ''
+    apn: ''
 audio:
   eq_preset: jazz
   master_volume: 70
   bass: 0
   treble: 0
-  fader: 0              # -10 (rear) to +10 (front), requires multi-channel DAC
-  balance: 0            # -10 (left) to +10 (right)
+  fader: 0
+  balance: 0
   spectrum_enabled: true
   dac: ES9038Q2M
   amp_main: TDA7388
   amp_sub: TDA2050
-  mic_phone: ""         # PipeWire node name for phone calls / Android Auto mic (USB/BT headset)
-  voice_duck_pct: 40    # duck to 40% of normal volume during AA voice activation
-  voice_listen_sec: 8   # auto-unduck after 8s of no activity
+  mic_phone: ''
+  voice_duck_pct: 40
+  voice_listen_sec: 8
 camera:
   segment_minutes: 5
   max_storage_gb: 128
   recording_path: /media/dashcam
-  # 4-camera set via USB 4-channel AHD grabber
-  # Default mapping — override per deployment if v4l2 enumerates differently
   front_device: /dev/video0
   rear_device: /dev/video1
   left_device: /dev/video2
   right_device: /dev/video3
-  # Enable the multi-camera controller with priority logic
-  # (reverse_gear > left_blinker > right_blinker)
   controller: true
 swc:
   enabled: true
   mapping:
-    volume_up:        [SWC_VOLUP,   SWC2_VOLUP]
-    volume_down:      [SWC_VOLDN,   SWC2_VOLDN]
-    next_track:       [SWC_NEXT,    SWC2_NEXT]
-    prev_track:       [SWC_PREV,    SWC2_PREV]
-    mute:             [SWC_MUTE,    SWC2_MUTE]
-    phone_pickup:     [SWC_PICKUP,  SWC2_PICKUP]
-    phone_hangup:     [SWC_HANGUP,  SWC2_HANGUP]
-    bcm_power_toggle: [SWC_MODE,    SWC2_MODE]
-    voice_aa_trigger: [SWC_VOICE,   SWC2_VOICE]
-    navigate_aa:      [SWC_SRC,     SWC2_SRC]
-    menu_up:          [SWC_UP,      SWC2_UP]
-    menu_down:        [SWC_DOWN,    SWC2_DOWN]
+    volume_up:
+    - SWC_VOLUP
+    - SWC2_VOLUP
+    volume_down:
+    - SWC_VOLDN
+    - SWC2_VOLDN
+    next_track:
+    - SWC_NEXT
+    - SWC2_NEXT
+    prev_track:
+    - SWC_PREV
+    - SWC2_PREV
+    mute:
+    - SWC_MUTE
+    - SWC2_MUTE
+    phone_pickup:
+    - SWC_PICKUP
+    - SWC2_PICKUP
+    phone_hangup:
+    - SWC_HANGUP
+    - SWC2_HANGUP
+    bcm_power_toggle:
+    - SWC_MODE
+    - SWC2_MODE
+    voice_aa_trigger:
+    - SWC_VOICE
+    - SWC2_VOICE
+    navigate_aa:
+    - SWC_SRC
+    - SWC2_SRC
+    menu_up:
+    - SWC_UP
+    - SWC2_UP
+    menu_down:
+    - SWC_DOWN
+    - SWC2_DOWN
 brightness:
   mode: auto
   steps:
@@ -158,66 +160,55 @@ wifi:
   enabled: true
   ssid: ALFA
   password: 87654321
+  mode: p2p_go
+  band: g
   channel: 6
+  country: BO
+  regdom: BO
+  share_internet: true
   interface: ''
   ip: 10.0.0.1
   netmask: 255.255.255.0
   dhcp_start: 10.0.0.10
   dhcp_end: 10.0.0.50
+  alfa_net:
+    enabled: true
+    ssid: ALFA-NET
+    password: AlfaRomeo156
+    channel: 6
+    country: BO
+    ip: 10.0.1.1
+    netmask: 255.255.255.0
+    dhcp_start: 10.0.1.10
+    dhcp_end: 10.0.1.50
+    share_internet: true
+  # ssid_runtime / password_runtime / bssid_runtime are populated at
+  # runtime by wifi_ap.py when in p2p_go mode (wpa_supplicant
+  # auto-generates a DIRECT-XX SSID and PSK each boot). Leave empty
+  # in the committed config so a fresh deploy starts from the YAML
+  # defaults; wifi_ap.py writes them back on the fly.
 weather:
-  api_key: "631c2365675e193584b0f986798554c1"
+  api_key: 631c2365675e193584b0f986798554c1
   poll_interval_min: 15
-  default_lat: 50.06    # Fallback when no GPS fix (Krakow)
+  default_lat: 50.06
   default_lon: 19.94
 travel:
-  # A3 Travel Plan requires two optional external keys:
-  #   openrouteservice_key: free tier, needed for real driving directions.
-  #     Without it, RoutePlanner falls back to a straight-line estimate.
-  #   tomtom_key: paid API, enables road works + incident detection along
-  #     the planned route. Without it, the incidents panel is hidden.
-  openrouteservice_key: ""
-  tomtom_key: ""
+  openrouteservice_key: ''
+  tomtom_key: ''
 power:
   shutdown_delay_seconds: 30
   backlight_fade_ms: 1000
   standby_max_hours: 24
   splash_duration_seconds: 15
-  # Ignition watcher — the systemd-level daemon that decides when
-  # bcm-headunit.service runs. Two independent inputs are polled:
-  #
-  #   ignition_line    - a level-triggered input, normally driven
-  #                      by the car's 12 V switched accessory line
-  #                      through a PC817 optoisolator (active-low).
-  #                      HOLDING the line low = ignition ON.
-  #
-  #   bench_button_line - an edge-triggered input, intended for a
-  #                      momentary push button (the same kind used
-  #                      as a PC case power button — two pins shorted
-  #                      when pressed, active-low via internal pull-up).
-  #                      PRESSING once toggles ignition ON; pressing
-  #                      again toggles it OFF. Works even without the
-  #                      12 V optoisolator wired.
-  #
-  # Either input can start/stop BCM. Wire whichever you prefer.
-  #
-  # ⚠ The line numbers below are EXAMPLES. OPi 5 Pro / 5 Plus use a
-  # different SoC (RK3588S) with a totally different pinctrl, so
-  # libgpiod line numbers here have no relationship to the ones in
-  # config/bcm_config_opi_pc.yaml. Before wiring anything in the
-  # car, verify every line you pick with:
-  #     gpioinfo gpiochip0 | grep -v "\[used\]"
-  # and pick two free lines exposed on the header you actually
-  # soldered the buttons and optoisolators to.
   ignition_watcher:
     gpio_chip: gpiochip0
-    ignition_line: 7         # adjust per `gpioinfo gpiochip0`
-    bench_button_line: 21    # adjust per `gpioinfo gpiochip0`
+    ignition_line: 7
+    bench_button_line: 21
     debounce_ms: 200
     active_low: true
-    autostart: true            # start BCM immediately on boot (no ignition needed)
-    suspend_on_stop: true      # suspend to S3 when BCM stops (x86 car PC)
-    suspend_delay_seconds: 5   # wait before suspend (driver might restart engine)
-# v8.5 new modules
+    autostart: true
+    suspend_on_stop: true
+    suspend_delay_seconds: 5
 rain_sensor:
   sensitivity: medium
 central_lock:
@@ -228,11 +219,11 @@ lighting:
   greeting_blinks: 2
   leaving_home: true
 traffic:
-  api_key: ""
+  api_key: ''
   provider: tomtom
   poll_interval_min: 5
 remote_status:
-  api_key: ""
+  api_key: ''
 modules_v85:
   rain_sensor: true
   central_lock: true
@@ -259,4 +250,9 @@ tracking:
   geofence_lat: 0
   geofence_lon: 0
   geofence_radius_km: 0
-  sms_number: ""
+  sms_number: ''
+multimedia:
+  last_bt_device: C0:7A:D6:90:E9:CC
+bluetooth:
+  prefer_internal: false
+  preferred_adapter: ''

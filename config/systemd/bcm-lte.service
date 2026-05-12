@@ -1,0 +1,19 @@
+[Unit]
+Description=BCM — Activate Huawei LTE data session via nmcli/ModemManager
+After=NetworkManager.service ModemManager.service
+Wants=NetworkManager.service ModemManager.service
+# Don't fail at boot if no SIM/modem is fitted; the script handles that.
+ConditionPathExists=/etc/bcm/lte.conf
+
+[Service]
+Type=oneshot
+EnvironmentFile=-/etc/bcm/lte.conf
+ExecStart=/usr/local/bin/bcm-lte-up.sh
+RemainAfterExit=yes
+# Script forks the actual `nmcli con up` into the background and returns
+# in seconds — keep a small timeout so a stuck `nmcli con modify` can't
+# stall multi-user.target. Previous 90s timeout was the boot bottleneck.
+TimeoutStartSec=20
+
+[Install]
+WantedBy=multi-user.target

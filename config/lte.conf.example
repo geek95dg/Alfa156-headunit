@@ -1,0 +1,19 @@
+# BCM LTE APN profile — installed to /etc/bcm/lte.conf by setup-x86.sh.
+# Sourced by both bcm-lte-up.sh and bcm-lte.service (EnvironmentFile=).
+# Defaults below target Orange Polska (no SIM PIN).
+#
+# Common Polish carriers:
+#   Orange   — APN=internet  LTE_USER=internet  LTE_PASS=internet  AUTH=1 (PAP)
+#   Play     — APN=internet  LTE_USER=          LTE_PASS=          AUTH=0
+#   T-Mobile — APN=internet  LTE_USER=          LTE_PASS=          AUTH=0
+#   Plus     — APN=internet  LTE_USER=          LTE_PASS=          AUTH=0
+#
+# AUTH: 0=none, 1=PAP, 2=CHAP
+# CID:  PDP context id; leave 1 unless your carrier requires another.
+# PIN:  unset = no PIN; set only if the SIM is locked.
+
+APN=internet
+LTE_USER=internet
+LTE_PASS=internet
+AUTH=1
+CID=1
