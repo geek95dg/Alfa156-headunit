@@ -230,6 +230,15 @@ def main() -> None:
             log.info("FuelSender initialized")
         except Exception:
             log.exception("FuelSender failed to init (non-critical)")
+    # PBAP phonebook + call-history puller. Subscribes to bt.connected and
+    # publishes bt.contacts / bt.call_history that the A8 phone screen
+    # consumes via /api/phone/{contacts,history}. Without this the phone
+    # screen renders empty even when pairing advertises PCE/MCE correctly.
+    try:
+        from src.multimedia.phonebook import start_phonebook_sync
+        start_phonebook_sync(event_bus)
+    except Exception:
+        log.exception("PBAP phonebook sync failed to init (non-critical)")
 
     # Start WiFi AP for Android Auto wireless data link
     wifi_ap = None
@@ -322,6 +331,7 @@ def main() -> None:
                     bt_manager=bt_manager,
                     trip_computer=_tc,
                     route_planner=_rp,
+                    wifi_ap=wifi_ap,
                 )
                 web_viewer.start()
                 log.info("Main display started at http://localhost:5002")

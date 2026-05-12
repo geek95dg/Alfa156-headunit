@@ -39,22 +39,77 @@ def _find_openauto() -> Optional[str]:
 def _aa_canvas_size(app_config: Any) -> tuple[int, int]:
     """Return the (width, height) that AA / Xvfb should use.
 
-    BCM renders a 48 px AppBar at the top and a 48 px NavBar at the
-    bottom of every A-screen, so the actual content area available to
-    the Android Auto iframe is ``(dashboard.width, dashboard.height -
-    48 - 48)``.  If ``display.multimedia.{width,height}`` is explicitly
-    set in the config we honour it verbatim; otherwise we compute the
-    inner-frame size so the AA canvas never gets clipped behind the
-    header or the nav bar.
+    The AA screen is now fullscreen — no AppBar at the top, NavBar
+    floats over the canvas only when summoned by a swipe-up gesture
+    (autohides). The canvas should therefore span the entire dashboard
+    viewport so 1 px on screen == 1 px in the Xvfb capture.
+
+    Explicit ``display.multimedia.{width,height}`` overrides win, so
+    deployments that want a 16:9 inset can still pin them in YAML.
     """
     dash_w = int(app_config.get("display.dashboard.width", 1024))
     dash_h = int(app_config.get("display.dashboard.height", 600))
-    appbar = int(app_config.get("display.appbar_px", 48))
-    navbar = int(app_config.get("display.navbar_px", 48))
-    inner_h = max(240, dash_h - appbar - navbar)
     w = int(app_config.get("display.multimedia.width", dash_w))
-    h = int(app_config.get("display.multimedia.height", inner_h))
+    h = int(app_config.get("display.multimedia.height", dash_h))
     return w, h
+
+
+def _resolve_wifi_mac(app_config: Any) -> str:
+    """Best-effort: return MAC of the WiFi AP interface (BSSID).
+
+    autoapp's BT-bootstrap protocol embeds this BSSID in the
+    WifiInfoResponse it sends the phone over RFCOMM; without it the
+    phone can SEE the SSID but won't auto-join because it can't match
+    the network identity announced over BT.
+
+    Order of preference:
+      1. ``wifi.bssid_runtime`` — set by wifi_ap.py after a P2P-GO
+         comes up; the GO MAC differs from the parent iface MAC.
+      2. The configured / autodetected WiFi iface's MAC.
+    """
+    if app_config:
+        runtime = (app_config.get("wifi.bssid_runtime", "") or "").strip()
+        if runtime:
+            return runtime.upper()
+    iface = ""
+    if app_config:
+        iface = (app_config.get("wifi.interface", "") or "").strip()
+    if not iface:
+        try:
+            from src.multimedia.wifi_ap import _find_wifi_interface
+            iface = _find_wifi_interface() or ""
+        except Exception:
+            iface = ""
+    if not iface:
+        return ""
+    addr_path = f"/sys/class/net/{iface}/address"
+    try:
+        with open(addr_path) as f:
+            mac = f.read().strip().upper()
+            return mac if mac and mac != "00:00:00:00:00:00" else ""
+    except OSError:
+        return ""
+
+
+def _resolve_bt_adapter_addr(app_config: Any) -> str:
+    """Best-effort: return MAC of the preferred BT adapter.
+
+    Mirrors BluetoothManager's adapter selection so openauto.ini's
+    [Bluetooth] RemoteAdapterAddress points at the same controller
+    BCM's own pairing agent claims. Without this, autoapp picks an
+    arbitrary adapter (typically hci0) which may not be the carkit
+    controller we configured the CoD on.
+    """
+    addr = ""
+    if app_config:
+        addr = (app_config.get("bluetooth.preferred_adapter", "") or "").strip()
+    if not addr:
+        try:
+            from src.multimedia.bluetooth import _find_preferred_adapter
+            addr = _find_preferred_adapter() or ""
+        except Exception:
+            addr = ""
+    return addr.upper() if addr else ""
 
 
 def _create_openauto_config(project_dir: str, app_config: Any = None) -> None:
@@ -64,38 +119,47 @@ def _create_openauto_config(project_dir: str, app_config: Any = None) -> None:
     config at runtime (stores last BT device, settings, etc.).
     """
     config_path = os.path.join(project_dir, "openauto.ini")
-    # Regenerate if missing or outdated (version marker check).
-    # V4 bumped so older config files with the hardcoded 800x480
-    # touchscreen dimensions get regenerated with the correct values.
-    VERSION_MARKER = "; BCM_CONFIG_V4"
-    if os.path.exists(config_path):
-        try:
-            with open(config_path) as f:
-                if VERSION_MARKER in f.read():
-                    return  # Already up to date
-        except Exception:
-            pass
+    # Regenerate unconditionally — credentials change in Settings need
+    # to propagate without user intervention, and the file is tiny so
+    # the overhead is negligible. V5 marker stays in the header for
+    # debug visibility ("which BCM wrote this?") but is no longer the
+    # gate.
+    VERSION_MARKER = "; BCM_CONFIG_V5"
 
     ssid = ""
     password = ""
+    wifi_mac = ""
+    bt_adapter = ""
+    # 1024 × 504 = full BCM content area (dash 1024×600 minus AppBar 48
+    # + NavBar 48). _aa_canvas_size returns this same value when no
+    # explicit override is set, so autoapp renders into the exact box
+    # the JS panel exposes — no letterboxing, no touch-coordinate skew.
     width = 1024
-    height = 504  # 600 - AppBar 48 - NavBar 48
+    height = 504
     if app_config:
-        ssid = app_config.get("wifi.ssid", "")
-        password = app_config.get("wifi.password", "")
+        # Prefer runtime credentials when set by wifi_ap.py — Wi-Fi
+        # Direct GOs broadcast a spec-mandated `DIRECT-XX` SSID and a
+        # generated WPA2 passphrase that differ from the YAML values.
+        ssid = (app_config.get("wifi.ssid_runtime", "")
+                or app_config.get("wifi.ssid", ""))
+        password = (app_config.get("wifi.password_runtime", "")
+                    or app_config.get("wifi.password", ""))
         width, height = _aa_canvas_size(app_config)
+        wifi_mac = _resolve_wifi_mac(app_config)
+        bt_adapter = _resolve_bt_adapter_addr(app_config)
 
     # OpenAuto Resolution codes (per autoapp source):
     #   0 = 480p, 1 = 720p, 2 = 1080p, 3 = auto/stretch
-    # Pick the closest match so the AA canvas actually fills the panel.
+    # 720p is the sweet spot for in-vehicle screens — sharper than
+    # 480p once scaled to the canvas, and the encode bandwidth fits
+    # well inside Wi-Fi/USB even on older phones. Reserve 1080p for
+    # canvases that genuinely have ≥1080 px of vertical room.
     if height >= 1080:
         resolution_code = 2
-    elif height >= 720:
-        resolution_code = 1
     else:
-        resolution_code = 0
+        resolution_code = 1
 
-    config_content = f"""; BCM_CONFIG_V4 — OpenAuto configuration for Alfa156 Headunit
+    config_content = f"""{VERSION_MARKER} — OpenAuto configuration for Alfa156 Headunit
 [General]
 HandednessOfTrafficType=0
 
@@ -113,7 +177,7 @@ MediaAudioDelay=0
 
 [Bluetooth]
 AdapterType=0
-RemoteAdapterAddress=
+RemoteAdapterAddress={bt_adapter}
 
 [Input]
 ButtonCodes.Enter=23
@@ -130,13 +194,14 @@ TouchscreenHeight={height}
 [WiFi]
 SSID={ssid}
 Password={password}
-MAC=
+MAC={wifi_mac}
 """
     with open(config_path, "w") as f:
         f.write(config_content)
 
-    log.info("Created openauto config at %s (SSID=%s)", config_path,
-             ssid or "(empty)")
+    log.info("Created openauto config at %s (SSID=%s, WiFi MAC=%s, BT=%s)",
+             config_path, ssid or "(empty)",
+             wifi_mac or "(unresolved)", bt_adapter or "(default)")
 
 
 class OpenAutoController:
@@ -198,6 +263,17 @@ class OpenAutoController:
 
         log.info("Starting OpenAuto: binary=%s, platform=%s",
                  self._binary, self._platform)
+
+        # Refresh openauto.ini on every start so credential changes
+        # made via Settings → AA Wireless propagate without a BCM
+        # restart. The file is tiny (≈700 bytes) so the rewrite is
+        # essentially free.
+        try:
+            project_dir = os.path.dirname(os.path.dirname(
+                os.path.dirname(os.path.abspath(__file__))))
+            _create_openauto_config(project_dir, app_config=self._config)
+        except Exception:
+            log.exception("Could not refresh openauto.ini")
 
         # Kill any stale autoapp processes from previous runs
         self._kill_stale()
@@ -656,6 +732,15 @@ def start_multimedia(config: Any, event_bus: EventBus, hal: Any = None,
         bt_mgr = BluetoothManager(config, event_bus)
         bt_mgr.start_monitor()
         log.info("BluetoothManager created (available=%s)", bt_mgr.available)
+
+    # PBAP phonebook sync — pulls contacts + call history on connect and
+    # publishes them so A3 phone screen can render via /api/phone/*.
+    # Held by the closure here so the subscriber stays alive.
+    try:
+        from src.multimedia.phonebook import start_phonebook_sync
+        _phonebook = start_phonebook_sync(event_bus)  # noqa: F841
+    except Exception:
+        log.exception("PBAP phonebook sync failed to start (non-critical)")
 
     # OpenAuto controller
     openauto = OpenAutoController(config, event_bus)

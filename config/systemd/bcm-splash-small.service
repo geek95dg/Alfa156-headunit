@@ -1,67 +1,19 @@
 [Unit]
-Description=BCM Boot Splash — small display (DP-2 / secondary HDMI)
+Description=BCM Boot Splash — small display (DEPRECATED, kept for migration)
 Documentation=https://github.com/geek95dg/Alfa156-headunit
 DefaultDependencies=no
 
-After=systemd-vconsole-setup.service
-Before=multi-user.target bcm-ignition-watcher.service
-
-ConditionPathExists=/opt/bcm/assets/splash/small.mp4
+# DEPRECATED: bcm-splash-main now drives BOTH connectors from one
+# gst-launch — a video pipeline on the main and a black videotestsrc on
+# the small one. This unit used to fight for drmSetMaster on card0; it
+# is intentionally left in the repo as a no-op so an old `systemctl
+# enable bcm-splash-small` from a previous install still boots cleanly.
+# bcm-splash-main is the single source of truth.
 
 [Service]
-Type=simple
-
-# DRM connector for the small display. Override per platform:
-#   M910q (2× DP):     DP-2
-#   OPi 5 Pro (2× HDMI): HDMI-A-2
-#   GA-N3050N-D2P (VGA): DP-2
-# To find your connector names: ls /sys/class/drm/
-# Override: systemctl edit bcm-splash-small → [Service] Environment=BCM_SPLASH_DRM_SMALL=HDMI-A-2
-Environment=BCM_SPLASH_DRM_SMALL=DP-2
-
-# Play splash on secondary display (silent, no audio).
-# Polls Flask :5002 — keeps playing until dashboard is ready.
-ExecStart=/bin/bash -c '\
-    MPV=$(command -v mpv 2>/dev/null); \
-    if [ -z "$MPV" ]; then exit 0; fi; \
-    for w in $(seq 1 50); do [ -e /dev/dri/card0 ] && break; sleep 0.2; done; \
-    if [ ! -e /dev/dri/card0 ]; then echo "DRM device not found"; exit 0; fi; \
-    "$MPV" --fs --loop-file=inf --no-audio \
-        --vo=drm \
-        --hwdec=auto \
-        --drm-connector=${BCM_SPLASH_DRM_SMALL} \
-        --input-conf=/dev/null \
-        --msg-level=all=warn \
-        /opt/bcm/assets/splash/small.mp4 & \
-    MPV_PID=$!; \
-    sleep 1; \
-    if ! kill -0 $MPV_PID 2>/dev/null; then \
-        echo "WARN: mpv exited — small DRM connector ${BCM_SPLASH_DRM_SMALL} may be wrong"; \
-        exit 0; \
-    fi; \
-    for i in $(seq 1 120); do \
-        if curl -sf http://localhost:5002 >/dev/null 2>&1; then \
-            sleep 5; \
-            kill $MPV_PID 2>/dev/null; \
-            exit 0; \
-        fi; \
-        sleep 1; \
-    done; \
-    kill $MPV_PID 2>/dev/null; \
-    exit 0'
-
-ExecStop=/bin/bash -c 'pkill -f "mpv.*small" 2>/dev/null; true'
-
-SuccessExitStatus=0 1
-Restart=no
-
-User=root
-Environment=XDG_RUNTIME_DIR=/run/user/0
-SupplementaryGroups=video
-
-StandardOutput=journal
-StandardError=journal
-SyslogIdentifier=bcm-splash-small
+Type=oneshot
+ExecStart=/bin/true
+RemainAfterExit=no
 
 [Install]
-WantedBy=multi-user.target
+# Not in any WantedBy — must not auto-start.

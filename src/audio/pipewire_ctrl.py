@@ -32,11 +32,36 @@ EQ_PRESETS = {
 EQ_FREQUENCIES = [31, 62, 125, 250, 500, 1000, 2000, 4000, 8000, 16000]
 
 
+def _pipewire_env() -> dict:
+    """Build env vars so wpctl/pw-cli reach the user's PipeWire socket.
+
+    bcm-headunit runs as root via systemd, but PipeWire/wireplumber
+    live in user session 1000. Without XDG_RUNTIME_DIR pointing at
+    the user's runtime dir, `wpctl status` fails with rc=1 and BCM
+    falls back to simulated audio — volume/mute/sink-switch are no-ops
+    until this is fixed. PIPEWIRE_RUNTIME_DIR is also honored by some
+    pipewire versions; setting both is safe.
+    """
+    import os
+    env = os.environ.copy()
+    for uid in (1000, os.getuid()):
+        runtime = f"/run/user/{uid}"
+        if os.path.isdir(f"{runtime}/pipewire-0") or os.path.exists(
+                f"{runtime}/pipewire-0"):
+            env["XDG_RUNTIME_DIR"] = runtime
+            env["PIPEWIRE_RUNTIME_DIR"] = runtime
+            return env
+    # Fallback — XDG_RUNTIME_DIR set but socket may not exist
+    env.setdefault("XDG_RUNTIME_DIR", f"/run/user/{os.getuid()}")
+    return env
+
+
 def _run_cmd(cmd: list[str], timeout: float = 5.0) -> tuple[int, str, str]:
     """Run a shell command and return (returncode, stdout, stderr)."""
     try:
         result = subprocess.run(
-            cmd, capture_output=True, text=True, timeout=timeout
+            cmd, capture_output=True, text=True, timeout=timeout,
+            env=_pipewire_env(),
         )
         return result.returncode, result.stdout, result.stderr
     except FileNotFoundError:

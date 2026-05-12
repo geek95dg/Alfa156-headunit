@@ -2,6 +2,96 @@
    BCM v8 — Theme System (CSS Custom Properties)
    ======================================== */
 
+/* ---- 7" touchscreen sizing bump ----
+ * Tailwind utility classes (text-xs, p-2, h-12, gap-1, etc.) are all
+ * defined in rem, so bumping the root font-size scales the entire
+ * dashboard chrome 15% without any per-class edits. This is the
+ * pixel-accurate path the user asked for — NOT a transform:scale,
+ * which would blur fonts and break touch coordinate mapping.
+ *
+ * Literal pixel values (text-[10px], style="font-size:18px") do NOT
+ * scale via rem; those are handled by the resize helper class
+ * `.bcm-touch-icon` below and by per-component pixel bumps in the
+ * JS templates (navbar/appbar/keyboard).
+ */
+html {
+    font-size: 18.4px;   /* 16 × 1.15 */
+}
+
+/* Android Auto note: the captured autoapp stream is an <img> filling
+ * absolute inset-0, so the rem bump above doesn't change its
+ * pixel-for-pixel mapping — touch coordinates inside autoapp stay
+ * 1:1 with the Xvfb canvas. Only the shared NavBar gets larger,
+ * which is exactly what the 7" brief asked for.
+ */
+
+/* Tailwind arbitrary pixel sizes are NOT rem-based so the html bump
+ * above leaves them alone. The Settings/Trip/Weather/Service panels
+ * are full of text-[9px]/text-[10px] tag labels that the user wanted
+ * +15% along with everything else — these escape-bracket selectors
+ * bump them in-place without rewriting 150+ inline class strings.
+ */
+.text-\[8px\]   { font-size: 10px !important; }
+.text-\[9px\]   { font-size: 11px !important; }
+.text-\[10px\]  { font-size: 12px !important; }
+.text-\[11px\]  { font-size: 13px !important; }
+.text-\[12px\]  { font-size: 14px !important; }
+.text-\[13px\]  { font-size: 15px !important; }
+.text-\[14px\]  { font-size: 16px !important; }
+.text-\[24px\]  { font-size: 28px !important; }
+.text-\[26px\]  { font-size: 30px !important; }
+.text-\[28px\]  { font-size: 32px !important; }
+.text-\[32px\]  { font-size: 37px !important; }
+.text-\[36px\]  { font-size: 42px !important; }
+
+/* Material icons set their size via inline `style="font-size:NNpx"`.
+ * Attribute selectors with !important do beat inline declarations,
+ * so we can bump the common sizes without touching the JS templates.
+ * Format is no-space (`font-size:14px`) — verified across all the
+ * components/screens. If you author a new icon, match that format.
+ */
+.material-symbols-outlined[style*="font-size:14px"] { font-size: 16px !important; }
+.material-symbols-outlined[style*="font-size:16px"] { font-size: 19px !important; }
+.material-symbols-outlined[style*="font-size:18px"] { font-size: 21px !important; }
+.material-symbols-outlined[style*="font-size:20px"] { font-size: 23px !important; }
+.material-symbols-outlined[style*="font-size:22px"] { font-size: 25px !important; }
+.material-symbols-outlined[style*="font-size:24px"] { font-size: 28px !important; }
+.material-symbols-outlined[style*="font-size:26px"] { font-size: 30px !important; }
+.material-symbols-outlined[style*="font-size:28px"] { font-size: 32px !important; }
+.material-symbols-outlined[style*="font-size:30px"] { font-size: 34px !important; }
+.material-symbols-outlined[style*="font-size:32px"] { font-size: 37px !important; }
+.material-symbols-outlined[style*="font-size:36px"] { font-size: 42px !important; }
+.material-symbols-outlined[style*="font-size:40px"] { font-size: 46px !important; }
+.material-symbols-outlined[style*="font-size:48px"] { font-size: 55px !important; }
+
+/* Tailwind arbitrary width/height tokens — these are pixel-literal
+ * containers (data panels, charts, modal widths). Keep the 1-2px
+ * separators alone (they should stay hairlines) and only bump the
+ * containers that would otherwise leave too much whitespace around
+ * scaled-up text inside them.
+ */
+.w-\[80px\]    { width: 92px !important; }
+.w-\[140px\]   { width: 160px !important; }
+.w-\[180px\]   { width: 207px !important; }
+.w-\[200px\]   { width: 220px !important; }     /* matches new appbar */
+.w-\[220px\]   { width: 220px !important; }     /* unchanged (appbar) */
+.w-\[240px\]   { width: 276px !important; }
+.w-\[260px\]   { width: 299px !important; }
+.w-\[280px\]   { width: 322px !important; }
+.w-\[300px\]   { width: 345px !important; }
+.w-\[320px\]   { width: 368px !important; }
+.w-\[340px\]   { width: 391px !important; }
+.w-\[360px\]   { width: 414px !important; }
+.w-\[420px\]   { width: 483px !important; }
+.w-\[480px\]   { width: 552px !important; }
+.w-\[540px\]   { width: 621px !important; }
+.h-\[110px\]   { height: 126px !important; }
+.h-\[280px\]   { height: 322px !important; }
+.h-\[300px\]   { height: 345px !important; }
+.max-h-\[300px\] { max-height: 345px !important; }
+/* max-w-[800px] left alone — the keyboard component now drops it
+ * entirely, and other consumers want the natural ceiling. */
+
 /* Material Symbols baseline */
 .material-symbols-outlined {
     font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
@@ -81,11 +171,17 @@ body[data-theme="heritage"] {
     text-shadow: 0 0 10px rgba(245, 158, 11, 0.4);
 }
 
-/* ---- MODERN THEME ---- */
+/* ---- MODERN THEME ----
+ * Palette tuned for the 7" touchscreen at indoor/dim cabin lighting.
+ * Cards used to be `#ffffff` on `#f1f5f9` — eye-piercing in the dark,
+ * and `--card-border: #e2e8f0` was a hairline at the same tone so the
+ * frames disappeared. Switched to warmer off-whites for the surfaces
+ * and a clearly visible slate-400 border so panels read as panels.
+ */
 [data-theme="modern"] {
     --color-primary: #005596;
     --color-accent: #ef4444;
-    --color-surface: #f8fafc;
+    --color-surface: #eef2f7;
     --color-on-surface: #0f172a;
     --color-on-surface-variant: #64748b;
 
@@ -97,19 +193,45 @@ body[data-theme="heritage"] {
     --nav-active-color: #ef4444;
     --nav-inactive-color: #71717a;
 
-    --card-bg: #ffffff;
-    --card-border: #e2e8f0;
+    --card-bg: #f6f8fb;
+    --card-border: #94a3b8;
     --text-primary: #0f172a;
-    --text-dim: #94a3b8;
-    --text-mid: #64748b;
-    --progress-bg: #e2e8f0;
+    --text-dim: #64748b;
+    --text-mid: #475569;
+    --progress-bg: #cbd5e1;
     --progress-fill: #3b82f6;
 }
 
 [data-theme="modern"] body,
 body[data-theme="modern"] {
-    background-color: #f1f5f9;
+    background-color: #dde3eb;
     color: #0f172a;
+}
+
+/* Modern uses Tailwind utility classes (bg-white, border-slate-200) in
+ * screen templates directly. Overriding here recolors every card/panel
+ * without touching the screen JS. The borders go from invisible
+ * hairlines (slate-200) to clearly readable slate-400, and pure white
+ * is downshifted to a warmer #f6f8fb to stop the dim-cabin glare.
+ */
+[data-theme="modern"] .bg-white {
+    background-color: #f6f8fb !important;
+}
+[data-theme="modern"] .border-slate-200,
+[data-theme="modern"] .border-slate-300 {
+    border-color: #94a3b8 !important;
+}
+[data-theme="modern"] .text-white {
+    /* Pure white text on bright/coloured backgrounds is brutal under
+     * cabin light. The blue tile (bg-[#005596]) keeps enough contrast
+     * with #f1f5f9-tinted white. */
+    color: #f1f5f9 !important;
+}
+/* Widen card outlines a touch so the new frame colour reads as a frame,
+ * not just a stroke. 1.5px reads as "deliberate" without going cartoon.
+ */
+[data-theme="modern"] .border {
+    border-width: 1.5px !important;
 }
 
 .glass-card {
@@ -204,7 +326,14 @@ body[data-theme="autodelta"] {
     -webkit-mask-image: linear-gradient(to bottom, black 70%, transparent 100%);
 }
 
-/* ---- SHARED LAYOUT ---- */
+/* ---- SHARED LAYOUT ----
+ * Screens are flex columns under a fixed AppBar; after the 7" sizing
+ * bump some panels (Settings, Service, Audio) exceed the visible area.
+ * Allow vertical scroll on the inner content-area so users can reach
+ * everything via touch flick instead of clipping the bottom rows.
+ * The screen-container itself stays clipped so the page chrome
+ * (AppBar + NavBar overlay) never moves with the scroll.
+ */
 .screen-container {
     width: 100%;
     height: 100%;
@@ -216,7 +345,70 @@ body[data-theme="autodelta"] {
 
 .content-area {
     flex: 1;
-    overflow: hidden;
+    /* Default: clip horizontal, allow vertical scroll when content
+     * overflows. Tailwind utilities applied per-screen (overflow-hidden
+     * on the AA stream / main gauges) win on source order and clip both
+     * axes where the screen really must fit-to-viewport. */
+    overflow-x: hidden;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior: contain;
+}
+/* Helper for inner scrollers that aren't the .content-area itself
+ * (e.g. a settings card containing a long list of paired devices). */
+.bcm-scroll-y {
+    overflow-y: auto !important;
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior: contain;
+}
+/* Re-show the scrollbar (slim) inside scrollable settings/audio panes.
+ * The global `::-webkit-scrollbar { display: none }` rule hides every
+ * scrollbar, which means the user has no visual hint the page can
+ * scroll. Bring it back as a thin overlay-style bar so long pages are
+ * discoverable; the hide rule still applies to everything else. */
+main.content-area::-webkit-scrollbar {
+    display: block;
+    width: 6px;
+}
+main.content-area::-webkit-scrollbar-thumb {
+    background: rgba(127, 127, 127, 0.45);
+    border-radius: 3px;
+}
+main.content-area::-webkit-scrollbar-track { background: transparent; }
+main.content-area { scrollbar-width: thin; }
+
+/* ---- AUTOHIDING NAVBAR ----
+ * NavBar is absolute-positioned over the content; hidden by default
+ * so screens get the full viewport. App._initNavBarAutohide() reveals
+ * it on a swipe up from the bottom edge and auto-hides after 4s.
+ */
+.bcm-navbar {
+    transform: translateY(100%);
+    transition: transform 240ms ease-out;
+    pointer-events: none;
+    will-change: transform;
+}
+.bcm-navbar.bcm-navbar-shown {
+    transform: translateY(0);
+    pointer-events: auto;
+}
+/* Thin invisible hot-zone at the bottom of the viewport. Used to be a
+ * tap-catcher; that stole touches from any fixed-bottom button after
+ * the +15% rem bump grew controls into the strip. Now `pointer-events:
+ * none` so the document-level swipe-up handler in `_initTouchSwipe()`
+ * detects bottom-edge gestures via bubbling and taps fall through to
+ * the underlying button. The element is still injected so the
+ * existing JS bindings keep their handle.
+ */
+.bcm-navbar-hotzone {
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    height: 36px;
+    z-index: 49;
+    background: transparent;
+    pointer-events: none;
 }
 
 /* ---- ENCODER/SWITCH NAVIGATION ---- */

@@ -98,6 +98,78 @@ AA_PROFILE_PATH = "/org/bluez/bcm_aa_profile"
 A2DP_PROFILE_PATH = "/org/bluez/bcm_a2dp_profile"
 HFP_PROFILE_PATH = "/org/bluez/bcm_hfp_profile"
 
+# Phone Book Access Profile (PBAP) — Client (PCE) UUID. Phones surface
+# the "Share contacts & call history with car" prompt during pairing
+# only when the headunit advertises this UUID in its SDP record. The
+# Carkit Class-of-Device alone is not enough — Android checks for the
+# PCE service before offering the toggle.
+PBAP_PCE_UUID = "0000112e-0000-1000-8000-00805f9b34fb"
+PBAP_PROFILE_PATH = "/org/bluez/bcm_pbap_pce"
+# Message Access Profile — Client (MCE) UUID. Same story for SMS/MMS
+# sharing; we advertise it so the phone offers the toggle, but the
+# actual message-pull is optional and disabled by default.
+MAP_MCE_UUID = "00001134-0000-1000-8000-00805f9b34fb"
+MAP_PROFILE_PATH = "/org/bluez/bcm_map_mce"
+
+# Explicit SDP service records for PBAP-PCE / MAP-MCE.
+# BlueZ's ProfileManager auto-generates a minimal record from just the
+# UUID, but the auto-generated record is missing the
+# BluetoothProfileDescriptorList — Android only flips on the
+# "share contacts/call history" pairing prompt when it sees a full
+# descriptor list with a recognised version, so we pass an explicit XML
+# blob. PCE/MCE are client-side so no protocol-channel attribute is
+# needed (we don't accept inbound connections), only the UUID list +
+# profile version that Android's SDP scan keys on.
+_PBAP_PCE_SDP = """<?xml version="1.0" encoding="UTF-8"?>
+<record>
+  <attribute id="0x0001">
+    <sequence>
+      <uuid value="0x112e"/>
+    </sequence>
+  </attribute>
+  <attribute id="0x0005">
+    <sequence>
+      <uuid value="0x1002"/>
+    </sequence>
+  </attribute>
+  <attribute id="0x0009">
+    <sequence>
+      <sequence>
+        <uuid value="0x1130"/>
+        <uint16 value="0x0102"/>
+      </sequence>
+    </sequence>
+  </attribute>
+  <attribute id="0x0100">
+    <text value="Phonebook Access PCE"/>
+  </attribute>
+</record>"""
+
+_MAP_MCE_SDP = """<?xml version="1.0" encoding="UTF-8"?>
+<record>
+  <attribute id="0x0001">
+    <sequence>
+      <uuid value="0x1133"/>
+    </sequence>
+  </attribute>
+  <attribute id="0x0005">
+    <sequence>
+      <uuid value="0x1002"/>
+    </sequence>
+  </attribute>
+  <attribute id="0x0009">
+    <sequence>
+      <sequence>
+        <uuid value="0x1134"/>
+        <uint16 value="0x0104"/>
+      </sequence>
+    </sequence>
+  </attribute>
+  <attribute id="0x0100">
+    <text value="Message Access MCE"/>
+  </attribute>
+</record>"""
+
 
 class _PairingRequest:
     """Holds a pending pairing confirmation request."""
@@ -251,8 +323,15 @@ class _PairingAgent(dbus.service.Object):
 
 
 def _register_bt_profile(bus, path: str, uuid: str, name: str,
-                         role: str = "server") -> bool:
-    """Register a Bluetooth profile with BlueZ ProfileManager1."""
+                         role: str = "server",
+                         service_record: Optional[str] = None) -> bool:
+    """Register a Bluetooth profile with BlueZ ProfileManager1.
+
+    Passing ``service_record`` overrides BlueZ's auto-generated SDP entry.
+    PBAP-PCE / MAP-MCE need this — the auto-generated record is missing
+    the BluetoothProfileDescriptorList that Android's SDP scan keys on
+    to flip the "share contacts/call history" pairing prompt.
+    """
     try:
         profile_mgr = dbus.Interface(
             bus.get_object("org.bluez", "/org/bluez"),
@@ -266,6 +345,8 @@ def _register_bt_profile(bus, path: str, uuid: str, name: str,
             "RequireAuthorization": dbus.Boolean(False),
             "AutoConnect": dbus.Boolean(True),
         }
+        if service_record:
+            opts["ServiceRecord"] = dbus.String(service_record)
 
         profile_mgr.RegisterProfile(
             dbus.ObjectPath(path),
@@ -288,7 +369,7 @@ def _register_bt_profile(bus, path: str, uuid: str, name: str,
 def _register_all_profiles(bus) -> None:
     """Register Bluetooth profiles with BlueZ.
 
-    NOTE: A2DP Sink and HFP profiles are NOT registered here — they are
+    A2DP Sink and HFP profiles are NOT registered here — they are
     managed by PipeWire/WirePlumber via libspa-0.2-bluetooth. Registering
     them here would block PipeWire (BlueZ: NotPermitted) and break audio.
 
@@ -297,10 +378,22 @@ def _register_all_profiles(bus) -> None:
     properly implements the AA wireless protocol handshake. Registering
     the AA UUID here would conflict with autoapp's btservice and cause
     "Server start failed" errors.
+
+    PBAP-PCE and MAP-MCE ARE registered here — these are client-side
+    "we want to consume your phonebook/messages" advertisements that
+    flip on the Android-side "Share contacts & call history with car"
+    pairing prompt. They don't conflict with autoapp because autoapp
+    doesn't touch PBAP/MAP. The actual data pull happens through obexd
+    in src/multimedia/phonebook.py.
     """
-    # No custom profiles to register:
-    # A2DP/HFP → PipeWire, AA → autoapp btservice
-    log.debug("BT profile registration: A2DP/HFP=PipeWire, AA=autoapp")
+    _register_bt_profile(bus, PBAP_PROFILE_PATH, PBAP_PCE_UUID,
+                         "BCM Phonebook Client", role="client",
+                         service_record=_PBAP_PCE_SDP)
+    _register_bt_profile(bus, MAP_PROFILE_PATH, MAP_MCE_UUID,
+                         "BCM Message Client", role="client",
+                         service_record=_MAP_MCE_SDP)
+    log.info("BT profile registration: PBAP-PCE + MAP-MCE; "
+             "A2DP/HFP=PipeWire, AA=autoapp")
 
 
 def _find_adapter_dbus_path() -> str:
@@ -327,21 +420,65 @@ def _find_adapter_dbus_path() -> str:
     return "/org/bluez/hci0"
 
 
+def _force_carkit_cod(adapter_path: str) -> None:
+    """Re-stamp Class-of-Device 0x620420 (AV + Carkit + Audio/Tel/Net).
+
+    bluetoothd auto-synthesises CoD from registered Media/Profile
+    plugins, which means PipeWire registering A2DP/HFP endpoints
+    overwrites the carkit class with ``0x006c0104`` ("Computer with
+    Audio/Rendering") — even when ``main.conf`` has ``Class=0x620420``.
+    Phones use the CoD bits to gate the Android Auto carkit detection
+    path; with "Computer" set, AA never offers wireless even though
+    the dongle is pairable. Re-apply via hciconfig after every
+    profile/plugin registration storm.
+    """
+    hci = adapter_path.rsplit("/", 1)[-1] if adapter_path else ""
+    if not hci.startswith("hci"):
+        return
+    try:
+        subprocess.run(
+            ["hciconfig", hci, "class", "0x620420"],
+            capture_output=True, timeout=5,
+        )
+        log.info("BT CoD pinned to carkit (0x620420) on %s", hci)
+    except Exception:
+        log.debug("hciconfig class set failed on %s (non-critical)", hci)
+
+
 def _configure_adapter(bus) -> None:
-    """Configure BT adapter name and class for headunit discovery."""
+    """Configure BT adapter name + persistent pairable/discoverable.
+
+    Class-of-Device is also re-pinned to 0x620420 here because
+    bluetoothd resynthesises it whenever a media/profile plugin
+    registers (PipeWire's A2DP/HFP endpoints land ~10s after our
+    setup script's hciconfig set, clobbering it).
+    """
     adapter_path = _find_adapter_dbus_path()
     try:
         adapter = dbus.Interface(
             bus.get_object("org.bluez", adapter_path),
             "org.freedesktop.DBus.Properties",
         )
-        # Set friendly name so phones see "Alfa156 Headunit"
+        # Friendly name so phones see "Alfa156 Headunit"
         adapter.Set("org.bluez.Adapter1", "Alias",
                      dbus.String("Alfa156 Headunit"))
-        log.info("BT adapter alias set to 'Alfa156 Headunit' on %s", adapter_path)
+        # Persistent pairable + discoverable so the head unit always
+        # accepts the phone's first connect attempt after a cold boot.
+        # Combined with main.conf AlwaysPairable=true this survives the
+        # post-boot DiscoverableTimeout that otherwise drops the radio
+        # into "no, you can't see me" mode after 3 minutes.
+        try:
+            adapter.Set("org.bluez.Adapter1", "Pairable", dbus.Boolean(True))
+            adapter.Set("org.bluez.Adapter1", "Discoverable",
+                        dbus.Boolean(True))
+        except Exception:
+            pass
+        log.info("BT adapter alias set + pairable/discoverable on %s",
+                 adapter_path)
     except Exception:
-        # Non-critical — fall back to system hostname
-        log.debug("Could not set BT adapter alias on %s (non-critical)", adapter_path)
+        log.debug("Could not configure adapter on %s (non-critical)",
+                  adapter_path)
+    _force_carkit_cod(adapter_path)
 
 
 def _is_autoapp_available() -> bool:
@@ -357,11 +494,10 @@ def _is_autoapp_available() -> bool:
 def _start_pairing_agent() -> bool:
     """Register the D-Bus pairing agent and BT profiles with BlueZ.
 
-    When autoapp (OpenAuto) is available, we register our agent but do NOT
-    request to be the default agent. This avoids conflicting with autoapp's
-    btservice which needs to be the default agent for AA wireless RFCOMM
-    handshake. Our agent still handles non-AA pairing requests that BlueZ
-    routes to us.
+    Always claims default-agent — the BCM popup is the user-visible PIN
+    confirmation, so pairing requests must land here. autoapp's btservice
+    handles AA-specific RFCOMM via its own profile registration, which is
+    independent of the agent that confirms pairing PINs.
 
     Safe to call multiple times — only registers once.
     """
@@ -375,8 +511,6 @@ def _start_pairing_agent() -> bool:
         log.warning("dbus-python not available — pairing agent disabled")
         return False
 
-    autoapp_present = _is_autoapp_available()
-
     try:
         dbus.mainloop.glib.DBusGMainLoop(set_as_default=True)
         bus = dbus.SystemBus()
@@ -387,22 +521,40 @@ def _start_pairing_agent() -> bool:
             bus.get_object("org.bluez", "/org/bluez"),
             "org.bluez.AgentManager1",
         )
+        # Unregister any stale agent at our path before registering anew —
+        # avoids "AlreadyExists" after a service restart.
+        try:
+            manager.UnregisterAgent(AGENT_PATH)
+        except dbus.exceptions.DBusException:
+            pass
         manager.RegisterAgent(AGENT_PATH, AGENT_CAPABILITY)
-
-        if autoapp_present:
-            # Do NOT claim default agent — let autoapp's btservice own it.
-            # Our agent is still registered and can handle explicit pairing
-            # requests routed to it, but won't intercept AA BT bootstrapping.
-            log.info("BT pairing agent registered (non-default, autoapp present)")
-        else:
+        try:
             manager.RequestDefaultAgent(AGENT_PATH)
-            log.info("BT pairing agent active as default (no autoapp)")
+            log.info("BT pairing agent active as default")
+        except dbus.exceptions.DBusException as e:
+            # Another agent (e.g. autoapp's) already holds default — log
+            # but continue. Pairing requests routed to autoapp will not
+            # surface in our UI; user can stop autoapp and retry.
+            log.warning("Could not claim default BT agent (%s) — popup may not "
+                        "appear until other agents release it", e)
 
         # Configure adapter name for discovery
         _configure_adapter(bus)
 
         # Register profiles (AA only if OpenAuto installed)
         _register_all_profiles(bus)
+
+        # PBAP/MAP registration above triggers a bluetoothd CoD
+        # resynthesis that clobbers the carkit class we just stamped;
+        # pin it again now, and schedule one more pin 20s out to cover
+        # the late PipeWire endpoint registrations.
+        adapter_path = _find_adapter_dbus_path()
+        _force_carkit_cod(adapter_path)
+        def _late_cod_pin() -> None:
+            time.sleep(20)
+            _force_carkit_cod(adapter_path)
+        threading.Thread(target=_late_cod_pin, daemon=True,
+                         name="bt-cod-pin").start()
 
         # Run GLib main loop in background thread for D-Bus signal handling
         from gi.repository import GLib
@@ -417,95 +569,204 @@ def _start_pairing_agent() -> bool:
         return False
 
 
+_PREFER_INTERNAL = False
+
+
+def set_prefer_internal(flag: bool) -> None:
+    """Flip vendor-8087 preference. False (default) prefers the USB dongle
+    (working-around the documented M910q tx-timeout); True forces the
+    integrated Intel adapter even when a dongle is present."""
+    global _PREFER_INTERNAL, _PREFERRED_ADAPTER
+    _PREFER_INTERNAL = bool(flag)
+    _PREFERRED_ADAPTER = ""   # force re-resolve
+
+
 def _find_preferred_adapter() -> str:
     """Find the best BT adapter address for headunit use.
 
-    Prefers BT 5.x (Intel) over BT 4.x (CSR dongle).
-    Falls back to whatever is available.
+    Default policy (M910q workaround): the integrated Intel 8087:0a2b
+    (BT 4.2 on paper) is documented-broken — dmesg captures
+    ``command 0xNNNN tx timeout`` → ``Resetting usb device.`` after
+    ~15 minutes uptime, after which the controller disappears from
+    sysfs entirely. So when both the Intel and a USB dongle
+    (CSR/Realtek/Broadcom) are present, prefer the dongle even though
+    it's BT 4.0 — it survives.
+
+    Override policy (``bluetooth.prefer_internal: true`` in YAML):
+    flips the bias so the Intel 8087 is picked even with a dongle
+    present. Pairs with the hci watchdog in BluetoothManager which
+    auto-bounces the Intel adapter on tx-timeout so the user-facing
+    impact of the reset is minimised.
+
+    An explicit ``bluetooth.preferred_adapter`` MAC in config still wins
+    over both policies (lets the user pin a specific controller).
     """
     try:
         result = subprocess.run(
             ["bluetoothctl", "list"],
             capture_output=True, text=True, timeout=5.0,
         )
-        if result.returncode == 0:
-            controllers = []
-            for line in result.stdout.strip().splitlines():
-                parts = line.strip().split()
-                if len(parts) >= 2 and parts[0] == "Controller":
-                    controllers.append(parts[1])
-            if len(controllers) == 1:
-                return controllers[0]
-            if len(controllers) > 1:
-                # Check hciconfig for BT version — prefer higher
-                for addr in controllers:
-                    ver_result = subprocess.run(
-                        ["hciconfig", "-a"],
-                        capture_output=True, text=True, timeout=5.0,
-                    )
-                    if ver_result.returncode == 0 and "5.1" in ver_result.stdout:
-                        # Find which controller has BT 5.x
-                        for a in controllers:
-                            # Match address in hciconfig output
-                            chunks = ver_result.stdout.split("hci")
-                            for chunk in chunks:
-                                if a in chunk and "5.1" in chunk:
-                                    return a
-                # Fallback: first controller
-                return controllers[0]
+        if result.returncode != 0:
+            return ""
+        controllers: list[str] = []
+        for line in result.stdout.strip().splitlines():
+            parts = line.strip().split()
+            if len(parts) >= 2 and parts[0] == "Controller":
+                controllers.append(parts[1])
+        if not controllers:
+            return ""
+        if len(controllers) == 1:
+            return controllers[0]
+
+        # Map controller MAC -> hciX via hciconfig output.
+        addr_to_hci: dict[str, str] = {}
+        try:
+            hc = subprocess.run(
+                ["hciconfig"],
+                capture_output=True, text=True, timeout=5.0,
+            )
+            if hc.returncode == 0:
+                current_hci = None
+                for line in hc.stdout.splitlines():
+                    if line and not line[0].isspace() and ":" in line:
+                        current_hci = line.split(":")[0].strip()
+                    if current_hci and "BD Address" in line:
+                        bd = line.split("BD Address:")[1].strip().split()[0]
+                        addr_to_hci[bd] = current_hci
+        except Exception:
+            pass
+
+        # For each hciX, read USB vendor id from sysfs. Intel = 8087 is
+        # the documented-broken radio on this hardware; prefer anything
+        # else. The walk-up loop is needed because hciX/device on USB
+        # combo chips points at the USB *interface*, and idVendor lives
+        # one or two parents up at the USB device node.
+        import os as _os
+
+        def _hci_index(addr: str) -> int:
+            hci = addr_to_hci.get(addr, "hci999")
+            try:
+                return int(hci[3:])
+            except ValueError:
+                return 999
+
+        intel: list[str] = []
+        non_intel: list[str] = []
+        for addr in controllers:
+            hci = addr_to_hci.get(addr)
+            if not hci:
+                continue
+            try:
+                base = _os.path.realpath(f"/sys/class/bluetooth/{hci}/device")
+                vendor = ""
+                cur = base
+                for _ in range(4):
+                    vpath = _os.path.join(cur, "idVendor")
+                    if _os.path.isfile(vpath):
+                        with open(vpath) as f:
+                            vendor = f.read().strip().lower()
+                        break
+                    parent = _os.path.dirname(cur)
+                    if parent == cur:
+                        break
+                    cur = parent
+                if vendor == "8087":
+                    intel.append(addr)
+                elif vendor:
+                    non_intel.append(addr)
+            except Exception:
+                pass
+
+        if _PREFER_INTERNAL and intel:
+            intel.sort(key=_hci_index)
+            log.info("BT: preferring INTERNAL Intel 8087 adapter %s "
+                     "(prefer_internal=true) — %d controllers seen",
+                     intel[0], len(controllers))
+            return intel[0]
+
+        if non_intel:
+            non_intel.sort(key=_hci_index)
+            log.info("BT: preferring non-Intel adapter %s (USB dongle) over "
+                     "internal Intel — %d controllers seen",
+                     non_intel[0], len(controllers))
+            return non_intel[0]
+        # Only Intel(s) available — use the lowest-index one.
+        controllers.sort(key=_hci_index)
+        return controllers[0]
     except Exception:
         pass
     return ""
 
 
 _PREFERRED_ADAPTER = ""
+_ADAPTER_OVERRIDE = ""
+
+
+def set_adapter_override(addr: str) -> None:
+    """Pin a specific BT controller MAC. Empty string clears the override."""
+    global _ADAPTER_OVERRIDE, _PREFERRED_ADAPTER
+    _ADAPTER_OVERRIDE = (addr or "").strip().upper()
+    _PREFERRED_ADAPTER = ""  # force re-resolve on next call
 
 
 def _get_adapter_addr() -> str:
     """Get cached preferred adapter address."""
     global _PREFERRED_ADAPTER
+    if _ADAPTER_OVERRIDE:
+        return _ADAPTER_OVERRIDE
     if not _PREFERRED_ADAPTER:
         _PREFERRED_ADAPTER = _find_preferred_adapter()
     return _PREFERRED_ADAPTER
 
 
+_btctl_lock = threading.Lock()
+
+
 def _run_btctl(args: list[str], timeout: float = 10.0) -> tuple[int, str, str]:
     """Run a bluetoothctl command, selecting the preferred adapter first.
 
-    When multiple BT adapters are present, pipes 'select <addr>' before the
-    actual command via stdin to ensure we always target the right adapter.
+    Serialised process-wide via ``_btctl_lock`` because bluetoothd
+    serialises D-Bus calls anyway, and overlapping bluetoothctl
+    subprocesses produce the documented ``Waiting to connect to
+    bluetoothd...`` race — the second subprocess fires its stdin
+    commands before the daemon connection lands, so the command never
+    runs but rc=0 looks fine. Under high contention this then drives
+    the auto-reconnect verify loop into a spin that pegs the BCM
+    process at hundreds of forks/minute and starves Flask handlers,
+    which the user sees as "GUI doesn't respond / can't scroll".
     """
     adapter = _get_adapter_addr()
     cmd_str = "bluetoothctl " + " ".join(args)
     if adapter:
         cmd_str = f"bluetoothctl (adapter={adapter}) " + " ".join(args)
     log.debug("btctl >>> %s", cmd_str)
-    try:
-        # Use stdin to select adapter then run command in interactive mode
-        if adapter and args and args[0] != "list":
-            stdin_cmds = f"select {adapter}\n" + " ".join(args) + "\nexit\n"
-            result = subprocess.run(
-                ["bluetoothctl"],
-                capture_output=True, text=True, timeout=timeout,
-                input=stdin_cmds,
-            )
-        else:
-            result = subprocess.run(
-                ["bluetoothctl"] + args,
-                capture_output=True, text=True, timeout=timeout,
-            )
-        if result.stdout.strip():
-            log.debug("btctl <<< rc=%d stdout=%s", result.returncode,
-                      result.stdout.strip()[:200])
-        if result.stderr.strip():
-            log.debug("btctl <<< stderr=%s", result.stderr.strip()[:200])
-        return result.returncode, result.stdout, result.stderr
-    except FileNotFoundError:
-        log.error("btctl: bluetoothctl not found on system")
-        return -1, "", "bluetoothctl not found"
-    except subprocess.TimeoutExpired:
-        log.warning("btctl: command timed out after %.1fs: %s", timeout, cmd_str)
-        return -2, "", "bluetoothctl timed out"
+    with _btctl_lock:
+        try:
+            if adapter and args and args[0] != "list":
+                stdin_cmds = f"select {adapter}\n" + " ".join(args) + "\nexit\n"
+                result = subprocess.run(
+                    ["bluetoothctl"],
+                    capture_output=True, text=True, timeout=timeout,
+                    input=stdin_cmds,
+                )
+            else:
+                result = subprocess.run(
+                    ["bluetoothctl"] + args,
+                    capture_output=True, text=True, timeout=timeout,
+                )
+            if result.stdout.strip():
+                log.debug("btctl <<< rc=%d stdout=%s", result.returncode,
+                          result.stdout.strip()[:200])
+            if result.stderr.strip():
+                log.debug("btctl <<< stderr=%s", result.stderr.strip()[:200])
+            return result.returncode, result.stdout, result.stderr
+        except FileNotFoundError:
+            log.error("btctl: bluetoothctl not found on system")
+            return -1, "", "bluetoothctl not found"
+        except subprocess.TimeoutExpired:
+            log.warning("btctl: command timed out after %.1fs: %s",
+                        timeout, cmd_str)
+            return -2, "", "bluetoothctl timed out"
 
 
 class BluetoothManager:
@@ -537,6 +798,32 @@ class BluetoothManager:
         self._scanning = False
         self._scan_thread: Optional[threading.Thread] = None
         self._discovered_devices: list[dict[str, str]] = []
+        # Address the user explicitly disconnected from. The monitor
+        # checks this before triggering auto-reconnect so a manual
+        # Disconnect tap doesn't immediately bring the device back.
+        # Cleared on connect() and on remove().
+        self._user_disconnect_addr: Optional[str] = None
+
+        # Force internal Intel 8087 (overrides default "prefer USB dongle"
+        # bias) — paired with the hci watchdog that bounces the adapter
+        # on tx-timeout.
+        try:
+            prefer_internal = bool(config.get("bluetooth.prefer_internal", False))
+        except Exception:
+            prefer_internal = False
+        if prefer_internal:
+            set_prefer_internal(True)
+            log.info("BT: prefer_internal=true — using integrated Intel adapter")
+
+        # Optional explicit adapter override from config — pin a specific
+        # USB BT dongle MAC if auto-detect picks the wrong one.
+        try:
+            override = (config.get("bluetooth.preferred_adapter", "") or "").strip()
+        except Exception:
+            override = ""
+        if override:
+            set_adapter_override(override)
+            log.info("BT: preferred adapter override = %s", override)
 
         self._check_availability()
 
@@ -560,18 +847,85 @@ class BluetoothManager:
                     log.info("Bluetooth power ON")
                 else:
                     log.warning("Bluetooth power on failed: %s", out_pwr)
+                # Always re-assert pairable + discoverable on every start.
+                # Phones look for the Pairable flag at the moment they
+                # initiate the AA bootstrap and many BlueZ builds drop it
+                # back to false after PairableTimeout regardless of the
+                # main.conf setting.
+                _run_btctl(["pairable", "on"])
+                _run_btctl(["discoverable", "on"])
+                _run_btctl(["discoverable-timeout", "0"])
                 if not _start_pairing_agent():
                     log.warning("D-Bus pairing agent failed — falling back to bluetoothctl agent")
                     _run_btctl(["agent", "DisplayYesNo"])
                     _run_btctl(["default-agent"])
                 else:
                     log.info("D-Bus pairing agent registered successfully")
+                # Kick off background auto-connect to all paired+trusted
+                # devices — the phone may already be in range when BCM
+                # starts, and waiting for the user to tap Connect every
+                # time defeats the purpose of "trusted".
+                threading.Thread(
+                    target=self._auto_connect_paired_on_boot,
+                    daemon=True, name="bt-boot-autoconnect",
+                ).start()
                 return
             if attempt < 4:
                 log.info("Bluetooth not ready (attempt %d/5) — retrying in 2s...", attempt + 1)
                 time.sleep(2)
         self._available = False
         log.warning("Bluetooth not available after 5 attempts (last rc=%d)", rc)
+
+    def _auto_connect_paired_on_boot(self) -> None:
+        """Try to (re)connect to every paired+trusted device after boot.
+
+        Phones that were paired before reboot expect the head unit to be
+        the one that initiates the link, the same way a car carkit does.
+        Rather than depend on a single ``multimedia.last_bt_device``
+        config key, walk the actual paired set and connect to whichever
+        one answers first. Stops as soon as one device is connected.
+        """
+        # Give the adapter a moment to settle after power on.
+        time.sleep(2)
+        if not self._available:
+            return
+        try:
+            paired = self.get_paired_devices()
+        except Exception:
+            paired = []
+        if not paired:
+            log.info("BT auto-connect: no paired devices")
+            return
+
+        # Bias toward the configured "last" device first, then everyone
+        # else. The last-known device is the most likely match.
+        try:
+            last_addr = self._config.get("multimedia.last_bt_device", None)
+        except Exception:
+            last_addr = None
+        ordered = sorted(
+            paired,
+            key=lambda d: 0 if last_addr and d.get("address") == last_addr else 1,
+        )
+        log.info("BT auto-connect: trying %d paired device(s)", len(ordered))
+        for dev in ordered:
+            addr = dev.get("address")
+            if not addr or self._connected_device:
+                break
+            info = self.get_device_info(addr)
+            if info.get("connected"):
+                log.info("BT auto-connect: %s already connected", addr)
+                self._publish_connected(addr, info.get("name", addr))
+                return
+            # Make sure it's trusted so BlueZ accepts our outbound link.
+            _run_btctl(["trust", addr])
+            try:
+                if self.connect(addr):
+                    log.info("BT auto-connect: linked to %s on boot", addr)
+                    return
+            except Exception:
+                log.exception("BT auto-connect to %s raised", addr)
+        log.info("BT auto-connect: nothing answered on boot")
 
     @property
     def available(self) -> bool:
@@ -642,13 +996,66 @@ class BluetoothManager:
         log.info("BT discoverable for %ds (AA profile active)", timeout)
         return True
 
+    def set_powered(self, on: bool) -> bool:
+        """Power the BT adapter on or off.
+
+        Wraps `bluetoothctl power on/off` and `rfkill`. On baremetal
+        ARM boards (and many laptops) the adapter is rfkill-soft-blocked
+        until something explicitly unblocks it — `bluetoothctl power on`
+        alone returns success but the radio stays dark, which is why
+        the toggle "doesn't influence the modem". Always rfkill-unblock
+        before powering on, and rfkill-block after powering off so the
+        toggle actually mutes the radio.
+        """
+        if not self._available and on:
+            # If we previously failed to find an adapter, give it another
+            # try now that the user explicitly asked to power on — rfkill
+            # may have been blocking the controller from showing up.
+            try:
+                subprocess.run(["rfkill", "unblock", "bluetooth"],
+                               capture_output=True, timeout=3)
+            except Exception:
+                pass
+            self._check_availability()
+
+        action = "on" if on else "off"
+        try:
+            if on:
+                subprocess.run(["rfkill", "unblock", "bluetooth"],
+                               capture_output=True, timeout=3)
+            rc, out, err = _run_btctl(["power", action])
+            if rc != 0:
+                log.warning("BT power %s failed: %s", action,
+                            (err or out).strip())
+                return False
+            if not on:
+                # Soft-block so the radio is actually dark — without
+                # this BlueZ keeps the adapter usable internally even
+                # though `Powered: no` is reported.
+                subprocess.run(["rfkill", "block", "bluetooth"],
+                               capture_output=True, timeout=3)
+            log.info("BT power %s", action)
+            return True
+        except FileNotFoundError:
+            log.warning("rfkill/bluetoothctl not installed — cannot toggle BT")
+            return False
+        except Exception:
+            log.exception("BT power toggle failed")
+            return False
+
     def disable_discoverable(self) -> None:
         """Disable discoverable mode."""
         if self._available:
             _run_btctl(["discoverable", "off"])
 
     def start_scan(self, duration: int = 15) -> bool:
-        """Start scanning for nearby BT devices."""
+        """Start scanning for nearby BT devices.
+
+        Uses a long-running bluetoothctl subprocess so the discovery
+        session stays alive for the full duration — `_run_btctl(["scan",
+        "on"])` exits immediately and BlueZ stops the discovery as soon
+        as the bluetoothctl client disconnects.
+        """
         if self._scanning:
             return False
 
@@ -666,13 +1073,50 @@ class BluetoothManager:
             log.info("BT scan (simulated): %d devices", len(self._discovered_devices))
             return True
 
-        def _scan_worker():
-            try:
-                _run_btctl(["scan", "on"])
-                time.sleep(duration)
-                _run_btctl(["scan", "off"])
+        adapter = _get_adapter_addr()
 
-                # Get discovered devices
+        def _scan_worker():
+            proc = None
+            try:
+                # Keep bluetoothctl alive for the whole scan window so
+                # BlueZ's StartDiscovery (per-client) does not get torn
+                # down. We feed `select <adapter>` + `scan on`, then
+                # close stdin via `exit` only AFTER `duration` seconds.
+                stdin_input = ""
+                if adapter:
+                    stdin_input += f"select {adapter}\n"
+                stdin_input += "scan on\n"
+                log.debug("btctl: starting long scan (%ds)", duration)
+                proc = subprocess.Popen(
+                    ["bluetoothctl"],
+                    stdin=subprocess.PIPE,
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                    text=True,
+                )
+                proc.stdin.write(stdin_input)
+                proc.stdin.flush()
+
+                # Sleep in 1s chunks so stop_scan() can interrupt.
+                for _ in range(duration):
+                    if not self._scanning:
+                        break
+                    time.sleep(1)
+
+                # Stop discovery cleanly.
+                try:
+                    proc.stdin.write("scan off\nexit\n")
+                    proc.stdin.flush()
+                    proc.stdin.close()
+                except (BrokenPipeError, OSError):
+                    pass
+                try:
+                    proc.wait(timeout=5)
+                except subprocess.TimeoutExpired:
+                    proc.kill()
+                    proc.wait(timeout=2)
+
+                # Now query the device list (separate short-lived call).
                 rc, out, _ = _run_btctl(["devices"])
                 if rc == 0:
                     paired = {d["address"] for d in self.get_paired_devices()}
@@ -690,6 +1134,11 @@ class BluetoothManager:
                          len(self._discovered_devices))
             except Exception as e:
                 log.error("BT scan error: %s", e)
+                if proc and proc.poll() is None:
+                    try:
+                        proc.kill()
+                    except Exception:
+                        pass
             finally:
                 self._scanning = False
 
@@ -700,8 +1149,8 @@ class BluetoothManager:
 
     def stop_scan(self) -> None:
         """Stop an ongoing scan."""
-        if self._available:
-            _run_btctl(["scan", "off"])
+        # Setting _scanning False lets the worker break out of its sleep
+        # loop; the worker itself sends `scan off` to bluetoothctl.
         self._scanning = False
 
     @property
@@ -758,7 +1207,14 @@ class BluetoothManager:
         return info
 
     def pair(self, address: str) -> bool:
-        """Pair with a device."""
+        """Pair with a device.
+
+        On success, trust + automatically connect — phones expect the
+        head unit to come up immediately after the passkey is accepted,
+        and asking the user to tap Connect again is friction we don't
+        need. Falls through to the verify-then-trust connect path so
+        a flaky link still surfaces honestly.
+        """
         log.info("BT pair requested: %s", address)
         if not self._available:
             log.info("BT pair (simulated): %s", address)
@@ -768,9 +1224,34 @@ class BluetoothManager:
         rc, out, err = _run_btctl(["pair", address], timeout=30.0)
         combined = (out + err).lower()
         if rc == 0 or "already" in combined:
-            # Trust AFTER successful pairing (enables auto-reconnect)
             _run_btctl(["trust", address])
             log.info("BT paired + trusted: %s", address)
+            # Clear any stale user-disconnect so the auto-connect (and
+            # the monitor's auto-reconnect) can actually run for this
+            # address.
+            if self._user_disconnect_addr == address:
+                self._user_disconnect_addr = None
+            # Run the verify-then-trust connect in a background thread
+            # so the HTTP /bt/pair request returns as soon as pairing
+            # itself succeeds. Without this, the request blocks for the
+            # full pair (≤30s) + connect verify (≤10s) and risks browser
+            # timeouts. The settings UI polls /bt/devices afterwards
+            # and will surface the connected state when it lands.
+            def _post_pair_connect():
+                try:
+                    if self.connect(address):
+                        log.info("BT auto-connect after pair succeeded: %s",
+                                 address)
+                    else:
+                        log.warning("BT paired but auto-connect did not "
+                                    "verify: %s", address)
+                except Exception:
+                    log.exception("BT auto-connect after pair raised")
+
+            threading.Thread(
+                target=_post_pair_connect, daemon=True,
+                name=f"bt-postpair-{address[-5:]}",
+            ).start()
             return True
         if "org.bluez.error" in combined:
             log.error("BT pair failed (BlueZ error): %s — %s", address,
@@ -857,7 +1338,15 @@ class BluetoothManager:
         return connected
 
     def connect(self, address: str) -> bool:
-        """Connect to a paired device."""
+        """Connect to a paired device.
+
+        ``bluetoothctl connect`` exits rc=0 the moment it printed
+        "Attempting to connect …" — long before the BlueZ link layer
+        has actually finished. The previous "rc==0 → success" check
+        produced a tight flap loop: optimistic success → monitor reads
+        Connected:no 5 s later → disconnect → auto-reconnect → repeat.
+        Verify the link with ``info`` polling before declaring success.
+        """
         log.info("BT connect requested: %s", address)
 
         if not self._available:
@@ -880,62 +1369,90 @@ class BluetoothManager:
         if info.get("connected"):
             log.info("BT connect: device %s already connected", address)
             name = info.get("name", address)
-            self._connected_device = {"address": address, "name": name}
-            self._a2dp_active = True
-            self._event_bus.publish("bt.connected", self._connected_device)
-            self._event_bus.publish("bt.a2dp_active", True)
-            self._event_bus.publish("audio.source_available", {
-                "source": "bluetooth", "available": True,
-            })
+            self._publish_connected(address, name)
             return True
 
         # Ensure device is trusted before connecting (needed for reconnection)
         log.debug("BT connect: trusting %s before connect", address)
         _run_btctl(["trust", address])
 
-        # Try to connect with retries
         max_attempts = 2
+        verify_budget_seconds = 10.0
+        verify_step = 0.5
+
         for attempt in range(1, max_attempts + 1):
-            log.info("BT connect attempt %d/%d to %s", attempt, max_attempts, address)
+            log.info("BT connect attempt %d/%d to %s",
+                     attempt, max_attempts, address)
             rc, out, err = _run_btctl(["connect", address], timeout=15.0)
             combined = (out + err).lower()
 
-            if rc == 0 or "successful" in combined or "connection successful" in combined:
-                # Resolve name
-                info = self.get_device_info(address)
-                name = info.get("name", address)
-                self._connected_device = {"address": address, "name": name}
-                self._a2dp_active = True
-                self._event_bus.publish("bt.connected", self._connected_device)
-                self._event_bus.publish("bt.a2dp_active", True)
-                self._event_bus.publish("audio.source_available", {
-                    "source": "bluetooth", "available": True,
-                })
-                log.info("BT connected: %s (%s) on attempt %d", address, name, attempt)
-                return True
-
-            # Check for specific error conditions
+            # Hard-fail conditions surface in bluetoothctl's stdout/stderr
+            # even when rc=0; bail early so we don't burn the verify budget.
             if "not available" in combined:
-                log.error("BT connect: device %s not available (out of range?)", address)
+                log.error("BT connect: device %s not available (out of range?)",
+                          address)
                 return False
             if "does not exist" in combined:
-                log.error("BT connect: device %s does not exist — needs pairing", address)
+                log.error("BT connect: device %s does not exist — needs pairing",
+                          address)
                 return False
 
-            log.warning("BT connect attempt %d failed: rc=%d out=%s err=%s",
-                        attempt, rc, out.strip()[:100], err.strip()[:100])
+            # Verify the connection actually came up. ``info`` is the
+            # source of truth because BlueZ updates the Connected
+            # property when the link layer settles.
+            deadline = time.time() + verify_budget_seconds
+            while time.time() < deadline:
+                v = self.get_device_info(address)
+                if v.get("connected"):
+                    name = v.get("name", address)
+                    self._publish_connected(address, name)
+                    log.info("BT connected: %s (%s) on attempt %d",
+                             address, name, attempt)
+                    return True
+                time.sleep(verify_step)
+
+            log.warning("BT connect attempt %d not verified within %.1fs "
+                        "(rc=%d out=%s err=%s)", attempt, verify_budget_seconds,
+                        rc, out.strip()[:100], err.strip()[:100])
             if attempt < max_attempts:
                 time.sleep(2)
 
-        log.error("BT connect failed after %d attempts: %s", max_attempts, address)
+        log.error("BT connect failed after %d attempts: %s",
+                  max_attempts, address)
         return False
 
+    def _publish_connected(self, address: str, name: str) -> None:
+        """Common state-update path when a verified connect lands."""
+        self._connected_device = {"address": address, "name": name}
+        self._a2dp_active = True
+        self._user_disconnect_addr = None
+        self._event_bus.publish("bt.connected", self._connected_device)
+        self._event_bus.publish("bt.a2dp_active", True)
+        self._event_bus.publish("audio.source_available", {
+            "source": "bluetooth", "available": True,
+        })
+        # Remember this address so the next cold boot can bias auto-
+        # connect toward the phone that was actually being used. Best-
+        # effort — failure here is harmless because we already iterate
+        # the full paired set on boot.
+        try:
+            self._config.set("multimedia.last_bt_device", address)
+            self._config.save()
+        except Exception:
+            log.debug("Could not persist last_bt_device (non-critical)")
+
     def disconnect(self) -> None:
-        """Disconnect current device."""
+        """Disconnect current device (user-initiated).
+
+        Marks the address so the monitor's auto-reconnect logic skips
+        it — the user just hit Disconnect, they don't want it to come
+        back 5 s later.
+        """
         if self._connected_device:
             addr = self._connected_device["address"]
             name = self._connected_device.get("name", "?")
             log.info("BT disconnect requested: %s (%s)", addr, name)
+            self._user_disconnect_addr = addr
             if self._available:
                 rc, out, err = _run_btctl(["disconnect", addr])
                 if rc != 0:
@@ -967,6 +1484,63 @@ class BluetoothManager:
         self._start_media_monitor()
         # Register HFP call command handlers
         self._init_hfp_commands()
+        # Watchdog for the documented Intel 8087 tx-timeout — only
+        # engaged when the user has asked for the internal adapter.
+        if _PREFER_INTERNAL:
+            threading.Thread(
+                target=self._hci_watchdog, daemon=True, name="bt-hci-watchdog",
+            ).start()
+
+    def _hci_watchdog(self) -> None:
+        """Recover from Intel 8087 tx-timeout by bouncing the hci device.
+
+        Only runs when ``bluetooth.prefer_internal`` is set. dmesg shows
+        ``command 0x… tx timeout`` followed by ``Resetting usb device.``
+        after which BlueZ stops reporting the controller. ``hciconfig
+        hciX down/up`` restores it without a kernel-level USB reset.
+        """
+        miss = 0
+        while self._running:
+            time.sleep(15)
+            if not self._available:
+                continue
+            rc, out, _ = _run_btctl(["show"])
+            if rc == 0 and "Controller" in out:
+                miss = 0
+                continue
+            miss += 1
+            if miss < 2:
+                continue
+            # Two consecutive misses → controller gone. Find the hci by
+            # the adapter address we resolved and bounce it.
+            addr = _get_adapter_addr()
+            hci = None
+            try:
+                hc = subprocess.run(
+                    ["hciconfig"], capture_output=True, text=True, timeout=3,
+                )
+                current = None
+                for line in hc.stdout.splitlines():
+                    if line and not line[0].isspace() and ":" in line:
+                        current = line.split(":")[0].strip()
+                    if current and addr and addr in line:
+                        hci = current
+                        break
+            except Exception:
+                pass
+            if not hci:
+                hci = "hci0"
+            log.warning("BT hci watchdog: controller missing — bouncing %s", hci)
+            for cmd in (["rfkill", "unblock", "bluetooth"],
+                        ["hciconfig", hci, "down"],
+                        ["hciconfig", hci, "up"]):
+                try:
+                    subprocess.run(cmd, capture_output=True, timeout=4)
+                except Exception:
+                    pass
+            time.sleep(2)
+            self._check_availability()
+            miss = 0
 
     def stop_monitor(self) -> None:
         """Stop the connection monitor."""
@@ -975,44 +1549,100 @@ class BluetoothManager:
             self._monitor_thread.join(timeout=2.0)
 
     def _monitor_loop(self) -> None:
-        """Periodically check BT connection status and handle reconnection."""
+        """Periodically check BT connection status and handle reconnection.
+
+        A single ``Connected: no`` read is treated as a transient — BlueZ
+        will momentarily report a stale state during AVRCP renegotiation,
+        codec switches, or while the daemon is busy. We require two
+        consecutive negative reads (with a short gap) before declaring
+        an unexpected disconnect. This mirrors the verify-then-trust
+        connect path so a single timing blip can't tear down a working
+        link and trigger the auto-reconnect cascade.
+        """
         _reconnect_attempts = 0
         _max_reconnect = 3
         _last_device_addr: Optional[str] = None
+        _disconnect_strikes = 0
+        _strike_threshold = 2
+        # When fully idle (no connected device, no pending reconnect)
+        # poll the paired-but-disconnected set every N ticks so a phone
+        # that comes into range mid-drive gets picked up automatically.
+        _idle_sweep_every = 12   # × 2.5s sleep below = ~30s
+        _idle_ticks = 0
 
         while self._running:
             if self._available and self._connected_device:
                 addr = self._connected_device["address"]
                 rc, out, _ = _run_btctl(["info", addr])
-                if rc == 0 and "Connected: no" in out:
-                    log.warning("BT device %s disconnected unexpectedly", addr)
-                    _last_device_addr = addr
-                    _reconnect_attempts = 0
-                    self.disconnect()
+                disconnected = (rc == 0 and "Connected: no" in out)
+                if disconnected:
+                    _disconnect_strikes += 1
+                    if _disconnect_strikes >= _strike_threshold:
+                        log.warning("BT device %s disconnected unexpectedly "
+                                    "(%d strikes)", addr, _disconnect_strikes)
+                        _last_device_addr = addr
+                        _reconnect_attempts = 0
+                        _disconnect_strikes = 0
+                        # Drop internal state without calling disconnect()
+                        # — the link is already gone, an extra
+                        # bluetoothctl disconnect just generates noise.
+                        self._a2dp_active = False
+                        self._hfp_active = False
+                        self._connected_device = None
+                        self._event_bus.publish(
+                            "bt.disconnected", {"address": addr},
+                        )
+                        self._event_bus.publish("bt.a2dp_active", False)
+                        self._event_bus.publish("audio.source_available", {
+                            "source": "bluetooth", "available": False,
+                        })
+                    else:
+                        log.debug("BT %s transient Connected:no (strike %d)",
+                                  addr, _disconnect_strikes)
                 else:
-                    # Still connected — reset reconnect state
+                    if _disconnect_strikes:
+                        log.debug("BT %s transient cleared", addr)
                     _reconnect_attempts = 0
                     _last_device_addr = None
+                    _disconnect_strikes = 0
 
             elif (self._available and not self._connected_device
-                  and _last_device_addr and _reconnect_attempts < _max_reconnect):
-                # Try to reconnect to the last device
+                  and _last_device_addr and _reconnect_attempts < _max_reconnect
+                  and not self._user_disconnect_addr):
+                # Try to reconnect to the last device. Skipped if the
+                # user explicitly hit Disconnect for this address —
+                # auto-reconnecting after a manual disconnect feels
+                # like a bug to users.
                 _reconnect_attempts += 1
                 log.info("BT auto-reconnect attempt %d/%d to %s",
                          _reconnect_attempts, _max_reconnect, _last_device_addr)
                 if self.connect(_last_device_addr):
-                    log.info("BT auto-reconnect succeeded to %s", _last_device_addr)
+                    log.info("BT auto-reconnect succeeded to %s",
+                             _last_device_addr)
                     _last_device_addr = None
                     _reconnect_attempts = 0
                 else:
                     log.warning("BT auto-reconnect failed (%d/%d)",
                                 _reconnect_attempts, _max_reconnect)
                     if _reconnect_attempts >= _max_reconnect:
-                        log.info("BT auto-reconnect exhausted — giving up for %s",
-                                 _last_device_addr)
+                        log.info("BT auto-reconnect exhausted — giving up "
+                                 "for %s", _last_device_addr)
                         _last_device_addr = None
 
-            time.sleep(5)
+            elif (self._available and not self._connected_device
+                  and not _last_device_addr):
+                # Idle — periodically sweep the paired set so a phone
+                # that powers on (or wakes from doze) inside range
+                # auto-links without the user touching anything.
+                _idle_ticks += 1
+                if _idle_ticks >= _idle_sweep_every:
+                    _idle_ticks = 0
+                    try:
+                        self._auto_connect_paired_on_boot()
+                    except Exception:
+                        log.exception("BT idle sweep raised")
+
+            time.sleep(2.5)
 
     # --- HFP call handling via D-Bus / ofono / BlueZ ---
 
@@ -1138,12 +1768,74 @@ class BluetoothManager:
         """Start monitoring AVRCP media metadata via D-Bus.
 
         Watches org.bluez.MediaPlayer1 properties for track info and
-        playback status changes. Publishes bt.media.track, bt.media.status,
-        bt.media.position to the event bus.
+        playback status changes. Publishes:
+
+          * ``bt.media.track`` (full dict for renderer.py)
+          * ``bt.media_title`` / ``bt.media_artist`` / ``bt.media_album``
+            / ``bt.media_duration`` / ``bt.media_playing`` / ``bt.media_position``
+            (flat keys read by web_viewer.py — without these the A1
+            now-playing card never receives anything)
+
+        Also seeds the topics from any MediaPlayer1 that already exists
+        when the monitor starts. ``PropertiesChanged`` only fires on
+        deltas, so a phone that's already streaming when BCM connects
+        would otherwise leave the card empty until the next track.
         """
         if not HAS_DBUS:
             log.debug("D-Bus not available — AVRCP media monitor disabled")
             return
+
+        def _publish_track(track_info: dict) -> None:
+            self._media_track = track_info
+            self._event_bus.publish("bt.media.track", track_info)
+            self._event_bus.publish("bt.media_title", track_info.get("title", ""))
+            self._event_bus.publish("bt.media_artist", track_info.get("artist", ""))
+            self._event_bus.publish("bt.media_album", track_info.get("album", ""))
+            self._event_bus.publish("bt.media_duration",
+                                    track_info.get("duration", 0))
+
+        def _publish_status(status: str) -> None:
+            self._media_status = status
+            self._event_bus.publish("bt.media.status", status)
+            self._event_bus.publish("bt.media_playing", status == "playing")
+
+        def _publish_position(position: int) -> None:
+            self._media_position = position
+            self._event_bus.publish("bt.media.position", position)
+            self._event_bus.publish("bt.media_position", position)
+
+        def _track_dict_from_props(track) -> dict:
+            return {
+                "title": str(track.get("Title", "")),
+                "artist": str(track.get("Artist", "")),
+                "album": str(track.get("Album", "")),
+                "duration": int(track.get("Duration", 0)),
+                "track_number": int(track.get("TrackNumber", 0)),
+            }
+
+        def _seed_from_existing(bus) -> None:
+            """Read existing MediaPlayer1 objects so the card fills on connect."""
+            try:
+                om = dbus.Interface(
+                    bus.get_object("org.bluez", "/"),
+                    "org.freedesktop.DBus.ObjectManager",
+                )
+                objects = om.GetManagedObjects()
+            except Exception:
+                return
+            for _path, ifaces in objects.items():
+                mp = ifaces.get("org.bluez.MediaPlayer1")
+                if not mp:
+                    continue
+                if "Track" in mp:
+                    info = _track_dict_from_props(mp["Track"])
+                    _publish_track(info)
+                    log.info("BT AVRCP seeded: %s - %s",
+                             info["artist"], info["title"])
+                if "Status" in mp:
+                    _publish_status(str(mp["Status"]).lower())
+                if "Position" in mp:
+                    _publish_position(int(mp["Position"]))
 
         def _media_monitor():
             try:
@@ -1160,29 +1852,18 @@ class BluetoothManager:
                         return
 
                     if "Track" in changed:
-                        track = changed["Track"]
-                        track_info = {
-                            "title": str(track.get("Title", "")),
-                            "artist": str(track.get("Artist", "")),
-                            "album": str(track.get("Album", "")),
-                            "duration": int(track.get("Duration", 0)),
-                            "track_number": int(track.get("TrackNumber", 0)),
-                        }
-                        self._media_track = track_info
-                        self._event_bus.publish("bt.media.track", track_info)
+                        info = _track_dict_from_props(changed["Track"])
+                        _publish_track(info)
                         log.info("BT AVRCP track: %s - %s",
-                                 track_info["artist"], track_info["title"])
+                                 info["artist"], info["title"])
 
                     if "Status" in changed:
                         status = str(changed["Status"]).lower()
-                        self._media_status = status
-                        self._event_bus.publish("bt.media.status", status)
+                        _publish_status(status)
                         log.debug("BT AVRCP status: %s", status)
 
                     if "Position" in changed:
-                        position = int(changed["Position"])
-                        self._media_position = position
-                        self._event_bus.publish("bt.media.position", position)
+                        _publish_position(int(changed["Position"]))
 
                 bus.add_signal_receiver(
                     _on_properties_changed,
@@ -1190,6 +1871,23 @@ class BluetoothManager:
                     signal_name="PropertiesChanged",
                     path_keyword="path",
                 )
+                # New MediaPlayer1 objects appear via InterfacesAdded after
+                # a phone connects; re-seed when that fires so we don't
+                # have to wait for the next Track delta.
+                def _on_interfaces_added(_path, ifaces):
+                    if "org.bluez.MediaPlayer1" in ifaces:
+                        try:
+                            _seed_from_existing(bus)
+                        except Exception:
+                            pass
+
+                bus.add_signal_receiver(
+                    _on_interfaces_added,
+                    dbus_interface="org.freedesktop.DBus.ObjectManager",
+                    signal_name="InterfacesAdded",
+                )
+
+                _seed_from_existing(bus)
                 log.info("BT AVRCP media monitor started (D-Bus)")
 
                 loop = GLib.MainLoop()
@@ -1266,8 +1964,9 @@ class DemoMediaGenerator:
             self._thread.join(timeout=2)
 
     def _loop(self) -> None:
-        # Publish initial "playing" status
+        # Publish initial "playing" status — flat key is what web_viewer reads
         self._bus.publish("bt.media.status", "playing")
+        self._bus.publish("bt.media_playing", True)
         position = 0
 
         while self._running:
@@ -1280,12 +1979,17 @@ class DemoMediaGenerator:
                 "track_number": self._track_index + 1,
             }
             self._bus.publish("bt.media.track", track_info)
+            self._bus.publish("bt.media_title", track_info["title"])
+            self._bus.publish("bt.media_artist", track_info["artist"])
+            self._bus.publish("bt.media_album", track_info["album"])
+            self._bus.publish("bt.media_duration", track_info["duration"])
 
             # Simulate playback — advance position every second
             duration_s = track["duration"] // 1000
             position = 0
             while self._running and position < duration_s:
                 self._bus.publish("bt.media.position", position * 1000)
+                self._bus.publish("bt.media_position", position * 1000)
                 time.sleep(1)
                 position += 1
 

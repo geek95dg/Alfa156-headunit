@@ -19,8 +19,8 @@ BCM_HOME=$(eval echo "~$BCM_USER")
 BCM_DIR="/opt/bcm"
 
 # Display outputs (find with: for f in /sys/class/drm/card*-*/status; do echo "$f: $(cat $f)"; done)
-MAIN_OUTPUT="HDMI-2"
-SMALL_OUTPUT="HDMI-1"
+MAIN_OUTPUT="HDMI-1"
+SMALL_OUTPUT="HDMI-2"
 TOUCH_DEVICE="QDtech MPI5001"
 
 # Main display resolution (used for splash generation + touch calibration)
@@ -29,12 +29,27 @@ MAIN_H=600
 SMALL_W=800
 SMALL_H=480
 
-# WiFi AP
+# WiFi AP — 2.4 GHz channel 6, country US.
+# 5 GHz is HARDWARE-blocked on the M910q's Intel 8265: `iw phy` lists
+# every 5 GHz channel as "(no IR)" regardless of regdom (`iw reg set US`,
+# kernel regdb, hostapd country_code= — none of them open it). Intel's
+# iwlwifi firmware self-manages regulatory data and refuses to *transmit*
+# in 5 GHz, so AP mode is firmware-locked off there. STA mode (joining
+# 5 GHz APs) still works fine — but we're the AP here.
+# 5 GHz AP would need different hardware (USB Realtek RTL88x2BU,
+# MediaTek MT7612U, or non-Intel mPCIe like Atheros AR9462).
+# 2.4 GHz ch6 with country=US works first try and is what the unit ships
+# with. AA Wireless H.264 video runs fine over 802.11n 40 MHz on 2.4 GHz.
 WIFI_IFACE="wlp2s0"
 WIFI_SSID="ALFA_AA"
 WIFI_PASS="AlfaRomeo156"
-WIFI_CHANNEL="6"
-WIFI_COUNTRY="PL"
+# Default mode is wpa_supplicant P2P-GO (Wi-Fi Direct), driven by
+# src/multimedia/wifi_ap.py — system hostapd is left disabled so the
+# Python process owns the radio. The hostapd fallback below is kept
+# for older deployments that flip wifi.mode back to "hostapd" in YAML.
+WIFI_CHANNEL="149"
+WIFI_HW_MODE="a"
+WIFI_COUNTRY="BO"
 # ─────────────────────────────────────────────────────────────────
 
 RED='\033[0;31m'
@@ -96,12 +111,19 @@ rm -f /etc/dnsmasq.d/bcm-ap.conf
 rm -f /etc/network/interfaces.d/bcm-ap
 rm -f /etc/network/interfaces.d/static
 rm -f /etc/NetworkManager/conf.d/bcm-unmanage-wifi.conf
+rm -f /etc/NetworkManager/conf.d/bcm-unmanage-p2p.conf
+rm -f /etc/systemd/network/00-bcm-p2p.network
 nmcli device set "$WIFI_IFACE" managed yes 2>/dev/null || true
 ip addr flush dev "$WIFI_IFACE" 2>/dev/null || true
 
 rm -f /etc/acpi/events/power-button
 rm -f /usr/local/bin/bcm-power-toggle.sh
+rm -f /usr/local/bin/bcm-bluetooth-setup.sh
+rm -f /usr/local/bin/bcm-lte-up.sh
+rm -f /lib/systemd/system-sleep/bcm-sleep
 rm -f /etc/systemd/logind.conf.d/bcm-power.conf
+rm -f /etc/systemd/system/bcm-lte.service
+# leave /etc/bcm/lte.conf — user may have edited APN for non-Orange SIM
 
 rm -f /etc/chromium/policies/managed/bcm.json
 rm -f /etc/X11/Xwrapper.config
@@ -118,13 +140,16 @@ apt-get update -qq
 
 apt-get install -y -qq \
     python3 python3-venv python3-full python3-dev python3-serial \
+    python3-dbus python3-gi \
     git curl wget \
     xserver-xorg xinit x11-xserver-utils xinput xdotool \
     xvfb matchbox-window-manager \
     unclutter chromium \
     intel-media-va-driver vainfo libva-drm2 \
     pipewire pipewire-pulse wireplumber alsa-utils mpv \
-    firmware-iwlwifi bluez bluez-tools network-manager hostapd dnsmasq iw wireless-tools \
+    gstreamer1.0-tools gstreamer1.0-plugins-base gstreamer1.0-plugins-good \
+    gstreamer1.0-plugins-bad gstreamer1.0-libav \
+    firmware-iwlwifi bluez bluez-tools rfkill network-manager modemmanager hostapd dnsmasq iw wireless-tools wpasupplicant iptables \
     ffmpeg v4l-utils \
     acpid \
     zram-tools \
@@ -158,11 +183,17 @@ fi
 
 echo "  Using: $PYTHON_BIN ($(${PYTHON_BIN} --version 2>&1))"
 
-# Create venv as the BCM user, not as root
-su - "$BCM_USER" -c "cd $BCM_DIR && $PYTHON_BIN -m venv .venv" || {
+# Create venv as the BCM user, not as root.
+# --system-site-packages is required for python3-dbus + python3-gi:
+# the BlueZ pairing agent registers via dbus-python on the system bus,
+# and dbus-python is impractical to install via pip (it builds C extensions
+# against libdbus-1-dev + glib). Without this flag, src/multimedia/bluetooth.py
+# logs "dbus-python not available — pairing agent disabled" and the BCM
+# popup for phone-initiated pair confirmation never appears.
+su - "$BCM_USER" -c "cd $BCM_DIR && $PYTHON_BIN -m venv --system-site-packages .venv" || {
     warn "venv creation failed with $PYTHON_BIN, trying virtualenv fallback..."
     apt-get install -y -qq python3-virtualenv
-    su - "$BCM_USER" -c "cd $BCM_DIR && virtualenv --python=$PYTHON_BIN .venv"
+    su - "$BCM_USER" -c "cd $BCM_DIR && virtualenv --system-site-packages --python=$PYTHON_BIN .venv"
 }
 
 if [ ! -x "$BCM_DIR/.venv/bin/python" ]; then
@@ -268,6 +299,10 @@ cp "$BCM_DIR/config/systemd/bcm-splash-main.service" /etc/systemd/system/
 cp "$BCM_DIR/config/systemd/bcm-splash-small.service" /etc/systemd/system/
 cp "$BCM_DIR/config/systemd/bcm-resume.service" /etc/systemd/system/
 
+# Splash player helper — single process drives both connectors via
+# gst-launch + two kmssinks (one DRM master, no race).
+install -m 0755 "$BCM_DIR/config/scripts/bcm-splash-play.sh" /usr/local/bin/bcm-splash-play.sh
+
 systemctl mask bcm-kiosk.service 2>/dev/null || true
 
 # Override DRM connectors — translate xrandr names to DRM names
@@ -282,20 +317,23 @@ drm_name() {
 DRM_MAIN=$(drm_name "$MAIN_OUTPUT")
 DRM_SMALL=$(drm_name "$SMALL_OUTPUT")
 
+# bcm-splash-main now owns both displays (gst tee → two kmssinks), so
+# we feed it both connector names. bcm-splash-small is left disabled
+# to avoid a second process fighting for DRM master.
 mkdir -p /etc/systemd/system/bcm-splash-main.service.d
 cat > /etc/systemd/system/bcm-splash-main.service.d/connector.conf <<EOF
 [Service]
 Environment=BCM_SPLASH_DRM_MAIN=$DRM_MAIN
-EOF
-
-mkdir -p /etc/systemd/system/bcm-splash-small.service.d
-cat > /etc/systemd/system/bcm-splash-small.service.d/connector.conf <<EOF
-[Service]
 Environment=BCM_SPLASH_DRM_SMALL=$DRM_SMALL
 EOF
 
+# Keep the unit file installed for reference but make sure it doesn't
+# auto-start (legacy enable from previous setups must be cleared).
+systemctl disable bcm-splash-small 2>/dev/null || true
+rm -f /etc/systemd/system/multi-user.target.wants/bcm-splash-small.service
+
 systemctl daemon-reload
-systemctl enable bcm-ignition-watcher bcm-splash-main bcm-splash-small bcm-resume
+systemctl enable bcm-ignition-watcher bcm-splash-main bcm-resume
 ok
 
 # ─── Phase 6: Kiosk (autologin + X + xinitrc) ────────────────────
@@ -447,6 +485,14 @@ EOF
 cp "$BCM_DIR/config/scripts/bcm-power-toggle.sh" /usr/local/bin/
 chmod +x /usr/local/bin/bcm-power-toggle.sh
 
+# system-sleep hook — runs on every suspend regardless of trigger.
+# Disables wake sources (USB, serio, HDA) and unbinds LTE before S3,
+# rebinds + restarts headunit on resume. Replaces the old bcm-resume
+# logic which only fired on systemd suspend.target activation.
+mkdir -p /lib/systemd/system-sleep
+cp "$BCM_DIR/config/scripts/bcm-sleep-hook.sh" /lib/systemd/system-sleep/bcm-sleep
+chmod +x /lib/systemd/system-sleep/bcm-sleep
+
 # Tell logind to ignore power button (let acpid handle it)
 mkdir -p /etc/systemd/logind.conf.d
 cat > /etc/systemd/logind.conf.d/bcm-power.conf <<EOF
@@ -478,22 +524,55 @@ else
 unmanaged-devices=interface-name:$WIFI_IFACE
 EOF
 
-    # hostapd
+    # Wi-Fi Direct P2P group interfaces (p2p-*) need to be unmanaged
+    # too — without this NetworkManager + systemd-networkd toggle the
+    # link UP/DOWN, which wpa_supplicant interprets as the group going
+    # away and tears the P2P-GO down. Only relevant if you flip
+    # wifi.mode to p2p_go in YAML; harmless otherwise.
+    cat > /etc/NetworkManager/conf.d/bcm-unmanage-p2p.conf <<'EOF'
+[keyfile]
+unmanaged-devices=interface-name:p2p-*
+EOF
+    mkdir -p /etc/systemd/network
+    cat > /etc/systemd/network/00-bcm-p2p.network <<'EOF'
+[Match]
+Name=p2p-*
+
+[Link]
+Unmanaged=yes
+EOF
+
+    # Best-effort regdom hint at module load: iwlwifi 8265 has a
+    # self-managed PHY pinned to country 00, which makes ch149/153
+    # (U-NII-3, normally OK in US) read NO-IR for AP mode. This is
+    # not a guaranteed fix — the firmware sometimes still ignores it
+    # — but it costs nothing and is the right starting point if/when
+    # someone moves the AP to 5 GHz. See memory:
+    # project_wifi_intel_7265_ch149.md for the full story.
+    mkdir -p /etc/modprobe.d
+    echo "options cfg80211 ieee80211_regdom=US" > /etc/modprobe.d/cfg80211.conf
+
+    # hostapd — 2.4 GHz ch6, country=US. ieee80211ac is omitted because
+    # we're not on 5 GHz (Intel 8265 firmware blocks 5 GHz AP entirely;
+    # see the WIFI_* comment block at the top of this script). The
+    # remaining ieee80211n + ht_capab gives us 802.11n 40 MHz on 2.4 GHz
+    # which is what AA Wireless H.264 video needs.
     mkdir -p /etc/hostapd
     cat > /etc/hostapd/hostapd.conf <<EOF
 interface=$WIFI_IFACE
 driver=nl80211
 ssid=$WIFI_SSID
-hw_mode=g
+hw_mode=$WIFI_HW_MODE
 channel=$WIFI_CHANNEL
+country_code=$WIFI_COUNTRY
+ieee80211d=1
 ieee80211n=1
+ht_capab=[HT40+][SHORT-GI-20][SHORT-GI-40][DSSS_CCK-40]
+wmm_enabled=1
 wpa=2
 wpa_passphrase=$WIFI_PASS
 wpa_key_mgmt=WPA-PSK
 rsn_pairwise=CCMP
-wpa_pairwise=CCMP
-country_code=$WIFI_COUNTRY
-wmm_enabled=1
 EOF
 
     mkdir -p /etc/default
@@ -518,41 +597,29 @@ iface $WIFI_IFACE inet static
     netmask 255.255.255.0
 EOF
 
-    # Set regulatory domain (required for 5GHz channels like 149)
-    iw reg set "$WIFI_COUNTRY" 2>/dev/null || true
-    mkdir -p /etc/modprobe.d
-    echo "options cfg80211 ieee80211_regdom=$WIFI_COUNTRY" > /etc/modprobe.d/bcm-wifi-regdom.conf
-    if [ -f /etc/default/crda ]; then
-        sed -i "s/^REGDOMAIN=.*/REGDOMAIN=$WIFI_COUNTRY/" /etc/default/crda
-    else
-        echo "REGDOMAIN=$WIFI_COUNTRY" > /etc/default/crda
-    fi
+    # rfkill unblock — the WiFi card ships soft-blocked on first boot
+    # of the M910q (same as BT). hostapd start succeeds rc=0 on a
+    # blocked radio but the AP never actually broadcasts.
+    rfkill unblock all 2>/dev/null || true
+    rfkill unblock wifi 2>/dev/null || true
 
     # Apply now
     ip addr flush dev "$WIFI_IFACE" 2>/dev/null || true
     ip addr add 192.168.44.1/24 dev "$WIFI_IFACE" 2>/dev/null || true
     ip link set "$WIFI_IFACE" up 2>/dev/null || true
 
-    systemctl unmask hostapd 2>/dev/null || true
-    systemctl enable hostapd dnsmasq
+    # System hostapd is left DISABLED — the BCM-internal wifi_ap.py
+    # owns the radio via wpa_supplicant P2P-GO. Concurrent hostapd
+    # would race for the same iface and trigger nl80211 EBUSY. To
+    # re-enable the legacy hostapd path, flip wifi.mode back to
+    # "hostapd" in bcm_config.yaml and run `systemctl enable
+    # hostapd dnsmasq`.
+    systemctl disable hostapd 2>/dev/null || true
+    systemctl stop hostapd 2>/dev/null || true
+    systemctl mask hostapd 2>/dev/null || true
 
-    # Ensure hostapd starts after network is ready and restarts on failure
-    mkdir -p /etc/systemd/system/hostapd.service.d
-    cat > /etc/systemd/system/hostapd.service.d/bcm-ordering.conf <<EOF
-[Unit]
-After=network-online.target
-Wants=network-online.target
-
-[Service]
-Restart=on-failure
-RestartSec=3
-EOF
-
-    # Disable BCM's internal WiFi AP manager (conflicts with system hostapd)
     # Disable simulation mode (no fake OBD/BT/GPS data on real hardware)
     if [ -f "$BCM_DIR/config/bcm_config.yaml" ]; then
-        sed -i '/^wifi:/,/^[^ ]/{s/^\(  enabled:\) true/\1 false/}' \
-            "$BCM_DIR/config/bcm_config.yaml"
         # Add simulation: false under system: section
         if ! grep -q "simulation:" "$BCM_DIR/config/bcm_config.yaml"; then
             sed -i '/^  log_file:/a\  simulation: false' \
@@ -560,11 +627,6 @@ EOF
         else
             sed -i 's/^\(  simulation:\).*/\1 false/' \
                 "$BCM_DIR/config/bcm_config.yaml"
-        fi
-        if grep -A1 "^wifi:" "$BCM_DIR/config/bcm_config.yaml" | grep -q "enabled: true"; then
-            warn "Could not patch wifi.enabled — edit bcm_config.yaml manually: set wifi.enabled to false"
-        else
-            echo "  Set wifi.enabled=false in bcm_config.yaml (systemd manages the AP)"
         fi
     fi
 
@@ -581,16 +643,121 @@ EOF
     if systemctl is-active --quiet hostapd; then
         echo -e "  ${GREEN}hostapd running${NC}"
     else
-        warn "hostapd failed — trying channel 1 fallback..."
-        sed -i 's/^channel=.*/channel=1/' /etc/hostapd/hostapd.conf
-        systemctl restart hostapd 2>/dev/null || true
-        sleep 2
-        if systemctl is-active --quiet hostapd; then
-            echo -e "  ${GREEN}hostapd running (ch36 fallback)${NC}"
-        else
-            warn "hostapd still failing — check: sudo journalctl -u hostapd -n 20"
-        fi
+        # Don't try to "fix" the config by rewriting it — this exact
+        # config is the user's tested known-good. If it didn't come up,
+        # it's almost always rfkill or a busy interface. Tell the
+        # operator and move on; systemd will retry on next boot.
+        warn "hostapd not yet active — check: rfkill list, ip link show $WIFI_IFACE"
+        warn "and: sudo journalctl -u hostapd -n 20"
     fi
+
+    # ─── Internet sharing — NAT outbound traffic from AP via uplink ──
+    # IPv4 forwarding + MASQUERADE so phones connected to the AP can
+    # reach the internet through whatever uplink is up (LTE wwx*,
+    # ethernet, etc.). Persists across reboots via sysctl + a small
+    # bcm-nat oneshot.
+    sed -i 's/^[#[:space:]]*net\.ipv4\.ip_forward.*/net.ipv4.ip_forward=1/' \
+        /etc/sysctl.conf 2>/dev/null || true
+    grep -q '^net.ipv4.ip_forward=1' /etc/sysctl.conf 2>/dev/null \
+        || echo 'net.ipv4.ip_forward=1' >> /etc/sysctl.conf
+    sysctl -w net.ipv4.ip_forward=1 >/dev/null 2>&1 || true
+
+    # Persistent NAT helper. iptables rules don't survive reboot on
+    # Debian by default; this oneshot reapplies them after the AP iface
+    # comes up.
+    cat > /usr/local/bin/bcm-nat.sh <<'NATEOF'
+#!/bin/bash
+# Apply MASQUERADE + FORWARD rules between the BCM AP iface and any
+# uplink that has a default route. Idempotent — checks before adding.
+#
+# Why "default route" rather than operstate: the LTE wwan driver (cdc_ether
+# on Huawei E3372) reports operstate=unknown even when fully up, so the
+# previous "operstate==up" check silently skipped LTE and AP clients
+# only reached the internet via ethernet (if attached).
+set -u
+AP_IFACE="${AP_IFACE:-wlp2s0}"
+log() { logger -t bcm-nat "$*"; echo "[bcm-nat] $*"; }
+[ -d "/sys/class/net/$AP_IFACE" ] || { log "AP iface $AP_IFACE missing"; exit 0; }
+sysctl -w net.ipv4.ip_forward=1 >/dev/null 2>&1 || true
+
+# Enumerate uplinks: any iface with a default route, plus any iface
+# whose operstate is up/unknown (covers static-IP ethernet without a
+# default route in the table at the moment we run).
+declare -A UPLINKS=()
+while read -r dev; do
+    [ -n "$dev" ] && UPLINKS["$dev"]=1
+done < <(ip -4 route show default 2>/dev/null | awk '{for(i=1;i<=NF;i++)if($i=="dev")print $(i+1)}')
+for up in $(ls /sys/class/net); do
+    [ "$up" = "lo" ] && continue
+    [ "$up" = "$AP_IFACE" ] && continue
+    state=$(cat "/sys/class/net/$up/operstate" 2>/dev/null || echo down)
+    case "$state" in up|unknown) UPLINKS["$up"]=1 ;; esac
+done
+
+for up in "${!UPLINKS[@]}"; do
+    [ "$up" = "$AP_IFACE" ] && continue
+    iptables -t nat -C POSTROUTING -o "$up" -j MASQUERADE 2>/dev/null \
+        || iptables -t nat -A POSTROUTING -o "$up" -j MASQUERADE
+    iptables -C FORWARD -i "$up" -o "$AP_IFACE" -m state \
+        --state RELATED,ESTABLISHED -j ACCEPT 2>/dev/null \
+        || iptables -A FORWARD -i "$up" -o "$AP_IFACE" -m state \
+                  --state RELATED,ESTABLISHED -j ACCEPT
+    iptables -C FORWARD -i "$AP_IFACE" -o "$up" -j ACCEPT 2>/dev/null \
+        || iptables -A FORWARD -i "$AP_IFACE" -o "$up" -j ACCEPT
+    log "NAT enabled: $AP_IFACE -> $up"
+done
+exit 0
+NATEOF
+    chmod +x /usr/local/bin/bcm-nat.sh
+
+    cat > /etc/systemd/system/bcm-nat.service <<EOF
+[Unit]
+Description=BCM — NAT internet sharing from AP via uplink
+After=hostapd.service network-online.target bcm-lte.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+Environment=AP_IFACE=$WIFI_IFACE
+ExecStart=/usr/local/bin/bcm-nat.sh
+TimeoutStartSec=20
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+    # Late retry — if an uplink (LTE wwx*) appears AFTER bcm-nat.service
+    # has finished, a tiny timer re-runs the script once. Done as a timer
+    # so it doesn't block boot the way ExecStartPost+sleep30 did
+    # (systemd-analyze blame had bcm-nat.service at 30s on every boot).
+    cat > /etc/systemd/system/bcm-nat-late.service <<EOF
+[Unit]
+Description=BCM — re-apply NAT once uplink has settled
+After=bcm-nat.service
+
+[Service]
+Type=oneshot
+Environment=AP_IFACE=$WIFI_IFACE
+ExecStart=/usr/local/bin/bcm-nat.sh
+EOF
+    cat > /etc/systemd/system/bcm-nat-late.timer <<EOF
+[Unit]
+Description=BCM — fire bcm-nat once 30 s after boot
+
+[Timer]
+OnBootSec=30s
+Unit=bcm-nat-late.service
+
+[Install]
+WantedBy=timers.target
+EOF
+    systemctl daemon-reload
+    systemctl enable bcm-nat.service 2>/dev/null || true
+    systemctl enable bcm-nat-late.timer 2>/dev/null || true
+    systemctl restart bcm-nat.service 2>/dev/null || true
+    systemctl start bcm-nat-late.timer 2>/dev/null || true
+
     ok
 fi
 
@@ -598,60 +765,60 @@ fi
 
 step 10 "Configuring LTE modem..."
 
+# Install APN profile, dialer script, and systemd unit unconditionally
+# — the modem may enumerate after setup and bcm-lte.service will pick
+# it up on boot.
+mkdir -p /etc/bcm
+if [ ! -f /etc/bcm/lte.conf ]; then
+    install -m 0644 "$BCM_DIR/config/lte.conf.example" /etc/bcm/lte.conf
+    echo "  Installed Orange Polska APN profile → /etc/bcm/lte.conf"
+fi
+install -m 0755 "$BCM_DIR/config/scripts/bcm-lte-up.sh" /usr/local/bin/
+install -m 0644 "$BCM_DIR/config/systemd/bcm-lte.service" /etc/systemd/system/
+
+# LTE goes through NetworkManager + ModemManager — both must be active
+# and NM must be allowed to manage the wwan ethernet (wwx*) that MM
+# brings up after dialing. Earlier revisions handed wwx to systemd-networkd
+# with plain DHCP, which never worked because nothing dialed AT^NDISDUP.
+# (modemmanager and network-manager are installed in Phase 2.)
+systemctl enable --now ModemManager 2>/dev/null || true
+systemctl enable --now NetworkManager 2>/dev/null || true
+
+# Strip any stale unmanage rule for the wwan iface (older setups added one).
+if [ -f /etc/NetworkManager/conf.d/bcm-unmanage-wifi.conf ]; then
+    sed -i '/^unmanaged-devices=interface-name:ww/d' /etc/NetworkManager/conf.d/bcm-unmanage-wifi.conf
+fi
+# And drop the legacy systemd-networkd LTE drop-in.
+rm -f /etc/systemd/network/50-lte.network
+
+# Avoid wait-online stalling boot if LTE is the only uplink.
+systemctl disable systemd-networkd-wait-online.service 2>/dev/null || true
+systemctl mask systemd-networkd-wait-online.service 2>/dev/null || true
+
+systemctl daemon-reload
+systemctl enable bcm-lte.service 2>/dev/null || true
+
 LTE_IFACE=""
 for iface in /sys/class/net/ww*; do
     [ -e "$iface" ] && LTE_IFACE=$(basename "$iface") && break
 done
 
-if [ -n "$LTE_IFACE" ]; then
-    echo "  Found LTE interface: $LTE_IFACE"
-
-    # Don't let NetworkManager manage the LTE interface
-    # (we use simple DHCP so it doesn't conflict with WiFi AP)
-    cat >> /etc/NetworkManager/conf.d/bcm-unmanage-wifi.conf <<EOF
-
-[keyfile]
-unmanaged-devices=interface-name:$LTE_IFACE
-EOF
-
-    # Bring up with DHCP via systemd-networkd
-    mkdir -p /etc/systemd/network
-    cat > /etc/systemd/network/50-lte.network <<EOF
-[Match]
-Name=$LTE_IFACE
-
-[Network]
-DHCP=yes
-
-[DHCPv4]
-RouteMetric=700
-UseDNS=yes
-
-[Link]
-RequiredForOnline=no
-EOF
-
-    # Disable wait-online (was blocking boot for 2min waiting for LTE DHCP)
-    systemctl disable systemd-networkd-wait-online.service 2>/dev/null || true
-    systemctl mask systemd-networkd-wait-online.service 2>/dev/null || true
-
-    systemctl enable systemd-networkd 2>/dev/null || true
-    systemctl restart systemd-networkd 2>/dev/null || true
-
-    # Bring up now
-    ip link set "$LTE_IFACE" up 2>/dev/null || true
-    dhclient -nw "$LTE_IFACE" 2>/dev/null || true
+if [ -n "$LTE_IFACE" ] || mmcli -L 2>/dev/null | grep -q Modem; then
+    echo "  LTE modem detected; dialing via nmcli + ModemManager..."
+    /usr/local/bin/bcm-lte-up.sh 2>&1 | sed 's/^/  /' || true
 
     sleep 3
-    if ip addr show "$LTE_IFACE" 2>/dev/null | grep -q "inet "; then
+    LTE_IFACE=$(ls /sys/class/net/ | grep -m1 '^ww' || true)
+    if [ -n "$LTE_IFACE" ] && ip addr show "$LTE_IFACE" 2>/dev/null | grep -q "inet "; then
         LTE_IP=$(ip -4 addr show "$LTE_IFACE" | grep -oP 'inet \K[\d.]+')
-        echo -e "  ${GREEN}LTE online: $LTE_IP${NC}"
+        echo -e "  ${GREEN}LTE online: $LTE_IFACE = $LTE_IP${NC}"
     else
-        warn "LTE interface up but no IP yet — may need SIM PIN or APN config"
+        warn "LTE not online yet — check 'journalctl -u bcm-lte' and 'nmcli con show bcm-lte'"
+        warn "APN defaults are Orange PL; edit /etc/bcm/lte.conf for other carriers"
     fi
     ok
 else
-    echo "  No LTE modem found — skipping."
+    echo "  No LTE modem found — APN profile installed for next boot."
     ok
 fi
 
@@ -689,15 +856,22 @@ usermod -aG audio "$BCM_USER" 2>/dev/null || true
 usermod -aG bluetooth "$BCM_USER" 2>/dev/null || true
 chown -R "$BCM_USER:$BCM_USER" "$BCM_DIR"
 
-# Enable Bluetooth (needed for AA wireless pairing)
-cp "$BCM_DIR/config/systemd/bcm-bluetooth.service" /etc/systemd/system/
-systemctl daemon-reload
-systemctl enable bluetooth bcm-bluetooth 2>/dev/null || true
-systemctl start bluetooth 2>/dev/null || true
-systemctl start bcm-bluetooth 2>/dev/null || true
-
-# Auto-power BT adapter on boot
+# Auto-power BT adapter on boot AND keep it persistently pairable.
+# Without AlwaysPairable=true, BlueZ drops Pairable to false shortly
+# after every set, so phones can't initiate pairing reliably.
 if [ -f /etc/bluetooth/main.conf ]; then
+    # Ensure [General] keys: Class=0x620420 (AV/Carkit + Audio/Telephony/
+    # Networking — phones use this to pick the carkit pairing flow),
+    # DiscoverableTimeout=0, PairableTimeout=0, AlwaysPairable=true.
+    for kv in "Class=0x620420" "DiscoverableTimeout=0" "PairableTimeout=0" "AlwaysPairable=true"; do
+        key=${kv%%=*}
+        if grep -qE "^[#[:space:]]*${key}[[:space:]]*=" /etc/bluetooth/main.conf; then
+            sed -i "s|^[#[:space:]]*${key}[[:space:]]*=.*|${kv}|" /etc/bluetooth/main.conf
+        else
+            sed -i "/^\[General\]/a ${kv}" /etc/bluetooth/main.conf
+        fi
+    done
+    # AutoEnable in [Policy]
     sed -i 's/^#*AutoEnable.*/AutoEnable=true/' /etc/bluetooth/main.conf
     if ! grep -q "^AutoEnable" /etc/bluetooth/main.conf; then
         sed -i '/^\[Policy\]/a AutoEnable=true' /etc/bluetooth/main.conf
@@ -705,10 +879,67 @@ if [ -f /etc/bluetooth/main.conf ]; then
 else
     mkdir -p /etc/bluetooth
     cat > /etc/bluetooth/main.conf <<EOF
+[General]
+Class=0x620420
+DiscoverableTimeout=0
+PairableTimeout=0
+AlwaysPairable=true
+
 [Policy]
 AutoEnable=true
 EOF
 fi
+
+# A2DP / HFP profile registration needs PipeWire's bluez5 SPA plugin —
+# without it bluetoothd answers `Protocol not available` to every A2DP
+# connect attempt and pairing handshakes get dropped before the audio
+# profile completes. pipewire-audio pulls in the right defaults for
+# headset routing.
+apt-get install -y libspa-0.2-bluetooth pipewire-audio rfkill iw bluez-obexd 2>/dev/null || true
+
+# Enable Bluetooth (needed for AA wireless pairing)
+cp "$BCM_DIR/config/scripts/bcm-bluetooth-setup.sh" /usr/local/bin/
+chmod +x /usr/local/bin/bcm-bluetooth-setup.sh
+cp "$BCM_DIR/config/systemd/bcm-bluetooth.service" /etc/systemd/system/
+
+# Drop the integrated Intel 8087 BT entirely — its tx-timeout pattern
+# under load drops calls/AA mid-session, and when both internal and USB
+# dongle are present BlueZ advertises both with the same alias which
+# confuses phones during pairing. The udev rule below deauthorizes the
+# Intel USB device on attach so btusb never binds; the bluetooth setup
+# oneshot also unbinds it at service start as a safety net for systems
+# where udev rules aren't reloaded.
+mkdir -p /etc/default
+if ! grep -q "^BCM_BT_KEEP_INTERNAL=" /etc/default/bcm-bluetooth 2>/dev/null; then
+    echo "BCM_BT_KEEP_INTERNAL=0" >> /etc/default/bcm-bluetooth
+fi
+# Make sure any prior BCM_BT_PREFER_INTERNAL=1 from older installs is off.
+if grep -q "^BCM_BT_PREFER_INTERNAL=1" /etc/default/bcm-bluetooth 2>/dev/null; then
+    sed -i 's/^BCM_BT_PREFER_INTERNAL=1/BCM_BT_PREFER_INTERNAL=0/' /etc/default/bcm-bluetooth
+fi
+cat > /etc/udev/rules.d/81-bcm-disable-intel-bt.rules <<'UDEV'
+# Disable the integrated Intel 8087:0a2b Bluetooth controller (M910q etc).
+SUBSYSTEM=="usb", ATTR{idVendor}=="8087", ATTR{idProduct}=="0a2b", ATTR{authorized}="0"
+UDEV
+udevadm control --reload-rules 2>/dev/null || true
+udevadm trigger --action=add --attr-match=idVendor=8087 2>/dev/null || true
+
+# Persist BT rfkill unblock across boots — without this many baremetal
+# boards (M910q, OPi 5 Pro) come up with bluetooth soft-blocked even
+# though bluetooth.service is enabled, and the BCM "BT" toggle has
+# nothing to talk to. systemd-rfkill restores the saved state on
+# subsequent boots once we set it once now.
+if command -v rfkill >/dev/null 2>&1; then
+    rfkill unblock bluetooth 2>/dev/null || true
+fi
+
+systemctl daemon-reload
+systemctl enable bluetooth bcm-bluetooth 2>/dev/null || true
+systemctl enable systemd-rfkill 2>/dev/null || true
+# Restart bluetooth so the new main.conf defaults (AlwaysPairable etc.)
+# take effect before bcm-bluetooth applies adapter-level settings.
+systemctl restart bluetooth 2>/dev/null || true
+systemctl restart bcm-bluetooth 2>/dev/null || true
 ok
 
 # ─── Phase 11: Quick test ────────────────────────────────────────
