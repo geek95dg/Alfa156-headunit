@@ -141,6 +141,19 @@ brightness:
   - 100
 music_panel:
   enabled: true
+fuel_sender:
+  enabled: true
+  # Calibration: [ADC_value, fuel_percentage] pairs.
+  # Measure at known fill levels and update. Lower ADC = more fuel.
+  # Circuit: 5V ─[330Ω]─┬─ Sender ─ GND → Arduino A4
+  calibration:
+    - [20, 100]    # Full tank (~7Ω sender)
+    - [50, 75]
+    - [120, 50]
+    - [220, 25]
+    - [360, 5]     # Reserve
+    - [400, 0]     # Empty / disconnected
+  tank_capacity_litres: 58
 wifi:
   enabled: true
   ssid: ALFA

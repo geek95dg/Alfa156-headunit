@@ -154,6 +154,9 @@ class ArduinoSerialListener:
             elif line.startswith("AIRBAG:"):
                 self._bus.publish("vehicle.airbag_ok", line[7:] == "1")
 
+            elif line.startswith("FUEL:"):
+                self._bus.publish("vehicle.fuel_raw", int(line[5:]))
+
             elif line.startswith(("SWC:", "MUSIC:", "STALK:")):
                 log.debug("Arduino: %s", line)
 

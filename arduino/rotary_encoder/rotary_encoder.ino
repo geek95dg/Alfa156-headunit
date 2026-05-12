@@ -68,6 +68,10 @@
 #define LDR_PIN       A1   // Light sensor analog input
 #define STALK_BTN_PIN A2   // Spare stalk button (brightness cycle)
 
+// Fuel sender (resistive float in tank, via voltage divider)
+#define FUEL_PIN      A4   // Fuel sender analog input
+#define FUEL_REPORT_MS 5000 // Report fuel level every 5 seconds
+
 // --- Debounce ---
 #define DEBOUNCE_MS 50
 #define ENCODER_DEBOUNCE_MS 5
@@ -158,6 +162,7 @@ bool calibrationMode = false;
 
 // --- State: light sensor ---
 unsigned long lastLightReport = 0;
+unsigned long lastFuelReport = 0;
 
 // --- Forward declarations ---
 void handleButtonPress(int buttonIndex);
@@ -323,6 +328,12 @@ void loop() {
     lastLightReport = now;
   }
 
+  // --- Report fuel sender ADC periodically via serial ---
+  if ((now - lastFuelReport) > FUEL_REPORT_MS) {
+    reportFuelLevel();
+    lastFuelReport = now;
+  }
+
   delay(1);
 }
 
@@ -468,18 +479,23 @@ int readSWCButton(int pin, int offset) {
 }
 
 void reportLightLevel() {
-  // Read light sensor (LDR), average 4 samples
   long sum = 0;
   for (int i = 0; i < 4; i++) {
     sum += analogRead(LDR_PIN);
     delayMicroseconds(200);
   }
-  int lightLevel = sum / 4;
-
-  // Report via serial protocol: "LIGHT:XXX"
-  // BCM Python code parses this from Arduino serial port
   Serial.print("LIGHT:");
-  Serial.println(lightLevel);
+  Serial.println((int)(sum / 4));
+}
+
+void reportFuelLevel() {
+  long sum = 0;
+  for (int i = 0; i < 8; i++) {
+    sum += analogRead(FUEL_PIN);
+    delay(2);
+  }
+  Serial.print("FUEL:");
+  Serial.println((int)(sum / 8));
 }
 
 // --- SWC calibration ---
