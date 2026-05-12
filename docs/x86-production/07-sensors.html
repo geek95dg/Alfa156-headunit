@@ -1,0 +1,683 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>07 — Sensors | BCM x86 Production</title>
+  <link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+
+  <!-- Hamburger toggle (mobile) -->
+  <button class="hamburger" aria-label="Toggle navigation" onclick="toggleSidebar()">&#9776;</button>
+  <div class="sidebar-overlay" onclick="toggleSidebar()"></div>
+
+  <!-- Sidebar Navigation -->
+  <aside class="sidebar">
+    <div class="sidebar-header">
+      <div class="logo-text">BCM v8.5</div>
+      <div class="logo-sub">Lenovo M910q &middot; Alfa 156</div>
+    </div>
+    <nav aria-label="Documentation pages">
+      <ul>
+        <li><a href="index.html"><span class="nav-num"></span>Overview</a></li>
+        <li><a href="01-bom.html"><span class="nav-num">01</span>Bill of Materials</a></li>
+        <li><a href="02-power.html"><span class="nav-num">02</span>Power Supply</a></li>
+        <li><a href="03-os-install.html"><span class="nav-num">03</span>OS Installation</a></li>
+        <li><a href="04-packages.html"><span class="nav-num">04</span>System Packages</a></li>
+        <li><a href="05-bcm-install.html"><span class="nav-num">05</span>BCM Installation</a></li>
+        <li><a href="06-systemd.html"><span class="nav-num">06</span>Systemd Services</a></li>
+        <li><a href="07-boot.html"><span class="nav-num">07</span>Boot &amp; Splash</a></li>
+        <li><a href="08-kiosk.html"><span class="nav-num">08</span>Kiosk Display</a></li>
+        <li><a href="09-suspend.html"><span class="nav-num">09</span>Suspend / Wake</a></li>
+        <li><a href="10-wifi.html"><span class="nav-num">10</span>WiFi &amp; Android Auto</a></li>
+        <li><a href="11-arduino.html"><span class="nav-num">11</span>Arduino Wiring</a></li>
+        <li><a href="12-verification.html"><span class="nav-num">12</span>Verification</a></li>
+      </ul>
+    </nav>
+  </aside>
+
+  <!-- Main Content -->
+  <div class="content">
+    <div class="content-inner">
+
+      <header>
+        <h1>
+          Environmental Sensors
+          <span class="subtitle">Temperature, parking, rain, light, and optoisolator wiring for vehicle signals</span>
+        </h1>
+      </header>
+
+      <article>
+
+        <!-- ============================================================
+             OVERVIEW
+             ============================================================ -->
+        <section>
+          <h2 id="overview">Overview</h2>
+
+          <p>
+            On the x86 platform (Lenovo M910q), there is no GPIO header.
+            All sensors connect through the <strong>Arduino Pro Micro</strong>
+            via USB. The Arduino reads sensor data, formats it as serial
+            messages, and sends it to the BCM over <code>/dev/ttyACM0</code>
+            at 115200 baud. The Python module
+            <code>src/input/arduino_serial.py</code> parses each message
+            and publishes it to the event bus.
+          </p>
+
+          <div class="box box-info">
+            <div class="box-title">OPi vs x86</div>
+            <p>
+              On the Orange Pi, sensors like the DS18B20 connect directly to
+              the GPIO header via the kernel 1-Wire driver. On x86, the same
+              sensor connects to the Arduino, which reads it and sends
+              <code>TEMP:23.5</code> over serial. The BCM software handles
+              both paths transparently via the config option
+              <code>environment.temperature.source: arduino</code> (default on x86).
+            </p>
+          </div>
+        </section>
+
+        <!-- ============================================================
+             DS18B20 TEMPERATURE SENSOR
+             ============================================================ -->
+        <section>
+          <h2 id="ds18b20">DS18B20 Temperature Sensor</h2>
+
+          <h3>Specifications</h3>
+          <ul>
+            <li><strong>Type:</strong> Dallas DS18B20 digital 1-Wire temperature sensor</li>
+            <li><strong>Range:</strong> &minus;55 &deg;C to +125 &deg;C (&plusmn;0.5 &deg;C accuracy)</li>
+            <li><strong>Probe:</strong> Waterproof stainless steel, cable length ~1 m</li>
+            <li><strong>Mounting:</strong> Under the front bumper (external air temperature)</li>
+            <li><strong>Arduino pin:</strong> D14 (1-Wire data)</li>
+          </ul>
+
+          <h3>Wiring</h3>
+
+          <pre><code>                    4.7k&Omega;
+  Arduino 5V ────┬──[####]──┐
+                 │           │
+                 │    DS18B20 (waterproof probe)
+                 │    ┌─────────────┐
+  Arduino D14 ───┼────┤ DQ (data)   │
+                 │    │ VDD (power)  ├─── Arduino 5V
+                 │    │ GND (ground) ├─── Arduino GND
+                 │    └─────────────┘
+                 │
+  Arduino GND ───┘</code></pre>
+
+          <div class="box box-info">
+            <div class="box-title">Pull-up resistor</div>
+            <p>
+              The 4.7 k&Omega; pull-up between DQ and 5 V is required for
+              reliable 1-Wire communication. Without it, readings will be
+              intermittent or stuck at 85.0 &deg;C (the DS18B20 power-on default).
+              Use powered mode (VDD connected), not parasitic mode.
+            </p>
+          </div>
+
+          <h3>Serial Output</h3>
+
+          <p>
+            The Arduino reads the DS18B20 every <strong>10 seconds</strong>
+            (<code>DEFAULT_READ_INTERVAL = 10.0</code> in
+            <code>src/environment/ds18b20.py</code>) and sends:
+          </p>
+
+          <pre><code>TEMP:23.5</code></pre>
+
+          <p>
+            The BCM parses this and publishes <code>vehicle.ext_temp_raw</code>
+            (float, degrees Celsius) to the event bus.
+          </p>
+
+          <h3>Configuration</h3>
+
+          <pre><code># config/bcm.yml
+environment:
+  temperature:
+    source: arduino        # "arduino" (x86 default) or "onewire" (OPi)
+    read_interval: 10      # seconds between readings
+    offset: 0.0            # calibration offset in °C</code></pre>
+        </section>
+
+        <!-- ============================================================
+             HC-SR04 ULTRASONIC PARKING SENSORS
+             ============================================================ -->
+        <section>
+          <h2 id="hcsr04">HC-SR04 Ultrasonic Parking Sensors (4&times;)</h2>
+
+          <h3>Specifications</h3>
+          <ul>
+            <li><strong>Type:</strong> HC-SR04 ultrasonic distance sensor</li>
+            <li><strong>Range:</strong> 2 cm to 250 cm (max distance capped at 2.5 m in firmware)</li>
+            <li><strong>Measurement cycle:</strong> ~60 ms per sensor, ~240 ms for all four (sequential to avoid cross-talk)</li>
+            <li><strong>Speed of sound:</strong> 343 m/s at ~20 &deg;C</li>
+          </ul>
+
+          <h3>Pin Assignments</h3>
+
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Sensor</th>
+                  <th>TRIG Pin</th>
+                  <th>ECHO Pin</th>
+                  <th>Position</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>Front Left (FL)</td>
+                  <td>D15 (shared)</td>
+                  <td>D16</td>
+                  <td>Rear bumper, left</td>
+                </tr>
+                <tr>
+                  <td>Front Right (FR)</td>
+                  <td>D15 (shared)</td>
+                  <td>A2</td>
+                  <td>Rear bumper, centre-left</td>
+                </tr>
+                <tr>
+                  <td>Rear Left (RL)</td>
+                  <td>D15 (shared)</td>
+                  <td>A3</td>
+                  <td>Rear bumper, centre-right</td>
+                </tr>
+                <tr>
+                  <td>Rear Right (RR)</td>
+                  <td>D15 (shared)</td>
+                  <td>A7</td>
+                  <td>Rear bumper, right</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <h3>Wiring (per sensor)</h3>
+
+          <pre><code>  Arduino D15 (TRIG) ─────────── HC-SR04 TRIG
+  HC-SR04 ECHO ──────────────── Arduino D16 (or A2/A3/A7)
+  HC-SR04 VCC ───────────────── Arduino 5V
+  HC-SR04 GND ───────────────── Arduino GND</code></pre>
+
+          <div class="box box-info">
+            <div class="box-title">Voltage divider (optional)</div>
+            <p>
+              The HC-SR04 ECHO output is 5 V, which is safe for the Arduino
+              (also 5 V logic). If connecting to a 3.3 V board (such as an
+              OPi), add a voltage divider: ECHO &rarr; 1 k&Omega; &rarr;
+              GPIO &rarr; 2 k&Omega; &rarr; GND. This drops 5 V to ~3.3 V.
+            </p>
+          </div>
+
+          <h3>Mounting</h3>
+          <ul>
+            <li>Drill four 18 mm holes in the rear bumper, spaced ~30 cm apart</li>
+            <li>Angle sensors 15&deg; outward from centre for wider coverage</li>
+            <li>Route cables through the bumper to the trunk area, then to the Arduino</li>
+            <li>Use silicone sealant around the sensor housings for waterproofing</li>
+          </ul>
+
+          <h3>Serial Output</h3>
+
+          <pre><code>PARK:FL=45,FR=123,RL=200,RR=180</code></pre>
+
+          <p>
+            Distances are in centimetres. Values near <code>250</code> indicate
+            no obstacle detected (max range). The BCM parses this and publishes
+            <code>vehicle.parking_raw</code> (dict with keys fl, fr, rl, rr
+            mapping to integers) to the event bus.
+          </p>
+
+          <h3>Buzzer</h3>
+          <p>
+            A piezo buzzer connected to a spare Arduino digital pin provides
+            audible feedback. Beep frequency increases as the closest sensor
+            distance decreases: continuous tone below 30 cm, fast beep at
+            30&ndash;60 cm, slow beep at 60&ndash;120 cm, silent above 120 cm.
+          </p>
+        </section>
+
+        <!-- ============================================================
+             RAIN SENSOR
+             ============================================================ -->
+        <section>
+          <h2 id="rain-sensor">Rain Sensor</h2>
+
+          <h3>Specifications</h3>
+          <ul>
+            <li><strong>Type:</strong> Capacitive digital rain sensor module (active-low output)</li>
+            <li><strong>Arduino pin:</strong> D10 (via PC817 optoisolator)</li>
+            <li><strong>12 V car side &rarr; 5 V Arduino side</strong> (galvanic isolation)</li>
+          </ul>
+
+          <h3>Wiring through PC817 Optoisolator</h3>
+
+          <p>
+            The rain sensor operates on the car's 12 V circuit. A PC817
+            optocoupler provides galvanic isolation between the car electrical
+            system and the Arduino:
+          </p>
+
+          <pre><code>  CAR SIDE (12V)                         ARDUINO SIDE (5V)
+  ══════════════                         ═════════════════
+
+  12V rain signal ──[1k&Omega;]──┐              ┌─── Arduino 5V
+                              │    PC817    │
+                         LED+ ●────────● collector ── Arduino D10
+                              │  opto   │        (10k&Omega; pull-up)
+                         LED- ●────────● emitter ─── Arduino GND
+                              │              │
+  GND (car) ──────────────────┘              └─── (pull-up to 5V)</code></pre>
+
+          <div class="box box-info">
+            <div class="box-title">How it works</div>
+            <p>
+              When rain is detected, the sensor pulls its output LOW (12 V side),
+              current flows through the 1 k&Omega; resistor and the PC817 LED.
+              The phototransistor conducts, pulling Arduino D10 LOW. The
+              10 k&Omega; pull-up holds D10 HIGH when no rain is detected.
+            </p>
+          </div>
+
+          <h3>Serial Output</h3>
+
+          <pre><code>RAIN:1    (rain detected)
+RAIN:0    (dry)</code></pre>
+
+          <p>
+            The BCM publishes <code>vehicle.rain</code> (bool) to the event bus.
+          </p>
+
+          <h3>Auto-Wiper</h3>
+          <p>
+            When rain is detected, the BCM can automatically activate the wipers
+            by sending a JSON command to the output Arduino (Nano):
+          </p>
+
+          <pre><code>{"cmd":"wipers","duration":5}</code></pre>
+
+          <h3>Configuration</h3>
+
+          <pre><code># config/bcm.yml
+rain_sensor:
+  enabled: true
+  sensitivity: medium    # light=2s, medium=5s, heavy=10s wiper duration
+  auto_wiper: true       # automatically trigger wipers on rain detection</code></pre>
+        </section>
+
+        <!-- ============================================================
+             LIGHT SENSOR (LDR)
+             ============================================================ -->
+        <section>
+          <h2 id="ldr">Light Sensor (LDR)</h2>
+
+          <h3>Specifications</h3>
+          <ul>
+            <li><strong>Type:</strong> Photoresistor (LDR) with 10 k&Omega; voltage divider</li>
+            <li><strong>Arduino pin:</strong> A1 (analog input, ADC 0&ndash;1023)</li>
+            <li><strong>Report interval:</strong> Every 2 seconds (<code>LIGHT_REPORT_MS = 2000</code>)</li>
+          </ul>
+
+          <h3>Wiring</h3>
+
+          <pre><code>  Arduino 5V ─── LDR ──┬── Arduino A1
+                       │
+                     [10k&Omega;]
+                       │
+  Arduino GND ─────────┘</code></pre>
+
+          <p>
+            The LDR and fixed 10 k&Omega; resistor form a voltage divider.
+            In bright light, the LDR resistance drops, pulling A1 higher.
+            In darkness, LDR resistance increases, pulling A1 lower. The
+            firmware averages 4 ADC samples to reduce noise.
+          </p>
+
+          <h3>Serial Output</h3>
+
+          <pre><code>LIGHT:512</code></pre>
+
+          <p>
+            Value range: <strong>0</strong> (complete darkness) to
+            <strong>1023</strong> (bright sunlight). Published as
+            <code>arduino.light_level</code> (int) on the event bus.
+          </p>
+
+          <h3>Auto-Brightness</h3>
+
+          <p>
+            The BCM maps the ADC value to six display brightness levels:
+          </p>
+
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>ADC Range</th>
+                  <th>Ambient</th>
+                  <th>Brightness</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr><td>0 &ndash; 100</td><td>Night / tunnel</td><td>15%</td></tr>
+                <tr><td>101 &ndash; 250</td><td>Dusk / dawn</td><td>30%</td></tr>
+                <tr><td>251 &ndash; 400</td><td>Overcast</td><td>45%</td></tr>
+                <tr><td>401 &ndash; 600</td><td>Cloudy</td><td>60%</td></tr>
+                <tr><td>601 &ndash; 800</td><td>Partly sunny</td><td>80%</td></tr>
+                <tr><td>801 &ndash; 1023</td><td>Direct sunlight</td><td>100%</td></tr>
+              </tbody>
+            </table>
+          </div>
+
+          <h3>Stalk Brightness Button</h3>
+          <p>
+            The spare column stalk button (Arduino A2, internal pull-up)
+            allows manual brightness cycling. Each press sends
+            <code>KEY_F9</code> as a HID keycode, which the BCM intercepts
+            to step through brightness levels, overriding auto-brightness
+            until the next ignition cycle.
+          </p>
+        </section>
+
+        <!-- ============================================================
+             OPTOISOLATOR CIRCUITS (PC817)
+             ============================================================ -->
+        <section>
+          <h2 id="optoisolators">Optoisolator Circuits (PC817)</h2>
+
+          <p>
+            All 12 V car signals must be isolated from the 5 V Arduino using
+            PC817 optocouplers. This protects the Arduino from voltage spikes,
+            ground loops, and alternator noise on the car's electrical system.
+          </p>
+
+          <h3>Standard Circuit (same for all signals)</h3>
+
+          <pre><code>  CAR SIDE (12V)                         ARDUINO SIDE (5V)
+  ══════════════                         ═════════════════
+
+  12V signal ──────[1k&Omega;]──┐              ┌─── Arduino 5V
+                              │    PC817    │       │
+                         LED+ ●────────● collector ─┤
+                              │  opto   │        [10k&Omega;] pull-up
+                         LED- ●────────● emitter    │
+                              │              │   Arduino Dx (input)
+  GND (car) ──────────────────┘              │
+                                       Arduino GND</code></pre>
+
+          <p>
+            When the 12 V signal is active, current flows through the 1 k&Omega;
+            limiting resistor and the PC817 internal LED, causing the
+            phototransistor to conduct and pulling the Arduino input pin LOW.
+            The 10 k&Omega; pull-up holds the pin HIGH when no signal is present.
+            All signals are therefore <strong>active-low</strong> on the Arduino side.
+          </p>
+
+          <h3>Pin Assignments</h3>
+
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>12 V Car Signal</th>
+                  <th>Arduino Pin</th>
+                  <th>Event Bus Topic</th>
+                  <th>Notes</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>Ignition (ACC 12 V)</td>
+                  <td>D2</td>
+                  <td><code>vehicle.ignition_raw</code></td>
+                  <td>Main power-on signal; triggers suspend/wake</td>
+                </tr>
+                <tr>
+                  <td>Handbrake</td>
+                  <td>D3</td>
+                  <td><code>vehicle.handbrake</code></td>
+                  <td>Handbrake warning lamp wire</td>
+                </tr>
+                <tr>
+                  <td>Door FL (front left)</td>
+                  <td>D4</td>
+                  <td rowspan="4"><code>vehicle.doors</code></td>
+                  <td>Door courtesy light switch</td>
+                </tr>
+                <tr>
+                  <td>Door FR (front right)</td>
+                  <td>D5</td>
+                  <td>Door courtesy light switch</td>
+                </tr>
+                <tr>
+                  <td>Door RL (rear left)</td>
+                  <td>D6</td>
+                  <td>Door courtesy light switch</td>
+                </tr>
+                <tr>
+                  <td>Door RR (rear right)</td>
+                  <td>D7</td>
+                  <td>Door courtesy light switch</td>
+                </tr>
+                <tr>
+                  <td>Bonnet</td>
+                  <td>D8</td>
+                  <td><code>vehicle.doors</code> (bonnet key)</td>
+                  <td>Bonnet switch or mercury tilt sensor</td>
+                </tr>
+                <tr>
+                  <td>Trunk</td>
+                  <td>D9</td>
+                  <td><code>vehicle.doors</code> (trunk key)</td>
+                  <td>Trunk courtesy light switch</td>
+                </tr>
+                <tr>
+                  <td>Rain sensor</td>
+                  <td>D10</td>
+                  <td><code>vehicle.rain</code></td>
+                  <td>Capacitive rain module output</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <h3>Parts Required</h3>
+          <ul>
+            <li><strong>6&times; PC817</strong> optocouplers (or equivalent: EL817, LTV-817)</li>
+            <li><strong>6&times; 1 k&Omega;</strong> resistors (1/4 W, LED current limiting)</li>
+            <li><strong>6&times; 10 k&Omega;</strong> resistors (1/4 W, pull-up)</li>
+          </ul>
+
+          <p>
+            Multiple signals can share a single PC817 if they are active at
+            different times, but for reliability each signal should have its own
+            optocoupler. Use a small perfboard or purpose-built PCB to mount
+            all six circuits compactly.
+          </p>
+
+          <div class="box box-warning">
+            <div class="box-title">Ground isolation</div>
+            <p>
+              The PC817 provides galvanic isolation &mdash; the car GND and
+              Arduino GND must <strong>not</strong> be connected together.
+              If they share a ground, the optoisolator is bypassed and
+              voltage spikes from the alternator or starter motor can
+              damage the Arduino or the M910q USB port.
+            </p>
+          </div>
+        </section>
+
+        <!-- ============================================================
+             VERIFICATION
+             ============================================================ -->
+        <section>
+          <h2 id="verification">Verification</h2>
+
+          <h3>Test each sensor individually</h3>
+
+          <pre><code># Open serial monitor
+minicom -D /dev/ttyACM0 -b 115200
+
+# ── Temperature ──
+# Wait 10 seconds, should see:
+#   TEMP:23.5
+# Hold the probe in your hand — value should rise
+
+# ── Light sensor ──
+# Every 2 seconds:
+#   LIGHT:512
+# Cover the LDR — value should drop toward 0
+# Shine a light — value should rise toward 1023
+
+# ── Parking sensors ──
+# Place hand in front of a sensor:
+#   PARK:FL=15,FR=250,RL=250,RR=250
+# Move hand closer — FL value decreases
+
+# ── Rain sensor ──
+# Wet the sensor surface:
+#   RAIN:1
+# Dry it:
+#   RAIN:0
+
+# ── Doors / ignition ──
+# Open a door (or bridge the optoisolator input):
+#   DOOR:FL=1,FR=0,RL=0,RR=0,BONNET=0,TRUNK=0
+# Turn ignition key:
+#   IGN:1</code></pre>
+
+          <h3>Verify BCM event bus</h3>
+
+          <pre><code># Check BCM logs for parsed sensor data
+sudo journalctl -u bcm-headunit --no-pager -n 50 | grep -E "temp|light|parking|rain|door|ignition"
+
+# Expected log entries:
+#   Arduino serial listener started: /dev/ttyACM0
+#   Temperature: 23.5°C
+#   Light level: 512
+#   Parking: FL=45 FR=123 RL=200 RR=180</code></pre>
+
+          <h3>Checklist</h3>
+
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Test</th>
+                  <th>Expected Result</th>
+                  <th>Pass</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>DS18B20 connected</td>
+                  <td><code>TEMP:XX.X</code> every 10 s, value changes with heat</td>
+                  <td>[ ]</td>
+                </tr>
+                <tr>
+                  <td>LDR connected</td>
+                  <td><code>LIGHT:XXX</code> every 2 s, responds to light changes</td>
+                  <td>[ ]</td>
+                </tr>
+                <tr>
+                  <td>Parking sensor FL</td>
+                  <td><code>PARK:FL=XX,...</code> changes with hand distance</td>
+                  <td>[ ]</td>
+                </tr>
+                <tr>
+                  <td>Parking sensor FR</td>
+                  <td>FR value changes independently</td>
+                  <td>[ ]</td>
+                </tr>
+                <tr>
+                  <td>Parking sensor RL</td>
+                  <td>RL value changes independently</td>
+                  <td>[ ]</td>
+                </tr>
+                <tr>
+                  <td>Parking sensor RR</td>
+                  <td>RR value changes independently</td>
+                  <td>[ ]</td>
+                </tr>
+                <tr>
+                  <td>Rain sensor</td>
+                  <td><code>RAIN:1</code> when wet, <code>RAIN:0</code> when dry</td>
+                  <td>[ ]</td>
+                </tr>
+                <tr>
+                  <td>Ignition optoisolator</td>
+                  <td><code>IGN:1</code> with 12 V applied</td>
+                  <td>[ ]</td>
+                </tr>
+                <tr>
+                  <td>Door optoisolators (4&times;)</td>
+                  <td><code>DOOR:FL=1,...</code> for each door</td>
+                  <td>[ ]</td>
+                </tr>
+                <tr>
+                  <td>Bonnet optoisolator</td>
+                  <td>BONNET=1 in DOOR message</td>
+                  <td>[ ]</td>
+                </tr>
+                <tr>
+                  <td>Trunk optoisolator</td>
+                  <td>TRUNK=1 in DOOR message</td>
+                  <td>[ ]</td>
+                </tr>
+                <tr>
+                  <td>Stalk brightness button</td>
+                  <td>Serial shows <code>STALK: Brightness cycle</code></td>
+                  <td>[ ]</td>
+                </tr>
+                <tr>
+                  <td>Auto-brightness</td>
+                  <td>Display brightness changes with light level</td>
+                  <td>[ ]</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+
+      </article>
+
+      <!-- Page Navigation -->
+      <div class="page-nav">
+        <a href="06-arduino.html">&larr; 06 &mdash; Arduino Firmware</a>
+        <a href="08-wifi-bt.html">08 &mdash; WiFi &amp; Bluetooth &rarr;</a>
+      </div>
+
+      <!-- Footer -->
+      <footer class="page-footer">
+        <span>BCM v8.5 &mdash; Alfa Romeo 156 Headunit</span>
+        <span>Lenovo M910q x86 Production Build</span>
+      </footer>
+
+    </div>
+  </div>
+
+  <!-- Sidebar Toggle Script -->
+  <script>
+    function toggleSidebar() {
+      document.querySelector('.sidebar').classList.toggle('open');
+      document.querySelector('.sidebar-overlay').classList.toggle('active');
+    }
+
+    document.querySelectorAll('.sidebar nav a').forEach(function(link) {
+      link.addEventListener('click', function() {
+        if (window.innerWidth < 768) {
+          document.querySelector('.sidebar').classList.remove('open');
+          document.querySelector('.sidebar-overlay').classList.remove('active');
+        }
+      });
+    });
+  </script>
+
+</body>
+</html>
