@@ -22,9 +22,34 @@ install -m 0644 "$BCM_DIR/config/systemd/bcm-splash-small.service" /etc/systemd/
 systemctl disable bcm-splash-small.service 2>/dev/null || true
 rm -f /etc/systemd/system/multi-user.target.wants/bcm-splash-small.service
 
-echo "==> 2/6  Installing Bluetooth setup (Class=carkit + AlwaysPairable)"
+echo "==> 2/6  Installing Bluetooth setup (Class=carkit + AlwaysPairable + drop internal Intel BT)"
 install -m 0755 "$BCM_DIR/config/scripts/bcm-bluetooth-setup.sh" /usr/local/bin/bcm-bluetooth-setup.sh
 install -m 0644 "$BCM_DIR/config/systemd/bcm-bluetooth.service" /etc/systemd/system/bcm-bluetooth.service
+
+# Drop the integrated Intel 8087 controller so only the USB dongle is
+# visible to BlueZ. The script-level unbind catches it at service start;
+# the udev rule below kills it earlier, before bluetoothd ever sees it,
+# which avoids the race where bluetoothd grabs the Intel as default
+# adapter and the phone latches onto its (broken) BD_ADDR.
+mkdir -p /etc/default
+if [ ! -f /etc/default/bcm-bluetooth ] || ! grep -q "^BCM_BT_KEEP_INTERNAL=" /etc/default/bcm-bluetooth; then
+    echo "BCM_BT_KEEP_INTERNAL=0" >> /etc/default/bcm-bluetooth
+fi
+# Also flip the legacy "prefer Intel" flag off — even with the unbind
+# we don't want userspace fallback to look for the Intel first.
+if grep -q "^BCM_BT_PREFER_INTERNAL=1" /etc/default/bcm-bluetooth 2>/dev/null; then
+    sed -i 's/^BCM_BT_PREFER_INTERNAL=1/BCM_BT_PREFER_INTERNAL=0/' /etc/default/bcm-bluetooth
+fi
+cat > /etc/udev/rules.d/81-bcm-disable-intel-bt.rules <<'UDEV'
+# Disable the integrated Intel 8087:0a2b Bluetooth controller (M910q etc).
+# The kernel writes "0" to /sys/bus/usb/devices/X/authorized on attach,
+# which prevents the btusb driver from binding. Re-enable by removing
+# this rule or echoing 1 to the device's authorized sysfs entry.
+SUBSYSTEM=="usb", ATTR{idVendor}=="8087", ATTR{idProduct}=="0a2b", ATTR{authorized}="0"
+UDEV
+udevadm control --reload-rules 2>/dev/null || true
+# Trigger now so any currently-bound Intel BT goes away without a reboot.
+udevadm trigger --action=add --attr-match=idVendor=8087 2>/dev/null || true
 
 # Apply BT main.conf changes now (the setup script also does this, but
 # running it here makes the result observable before reboot).

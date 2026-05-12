@@ -171,11 +171,17 @@ body[data-theme="heritage"] {
     text-shadow: 0 0 10px rgba(245, 158, 11, 0.4);
 }
 
-/* ---- MODERN THEME ---- */
+/* ---- MODERN THEME ----
+ * Palette tuned for the 7" touchscreen at indoor/dim cabin lighting.
+ * Cards used to be `#ffffff` on `#f1f5f9` — eye-piercing in the dark,
+ * and `--card-border: #e2e8f0` was a hairline at the same tone so the
+ * frames disappeared. Switched to warmer off-whites for the surfaces
+ * and a clearly visible slate-400 border so panels read as panels.
+ */
 [data-theme="modern"] {
     --color-primary: #005596;
     --color-accent: #ef4444;
-    --color-surface: #f8fafc;
+    --color-surface: #eef2f7;
     --color-on-surface: #0f172a;
     --color-on-surface-variant: #64748b;
 
@@ -187,19 +193,45 @@ body[data-theme="heritage"] {
     --nav-active-color: #ef4444;
     --nav-inactive-color: #71717a;
 
-    --card-bg: #ffffff;
-    --card-border: #e2e8f0;
+    --card-bg: #f6f8fb;
+    --card-border: #94a3b8;
     --text-primary: #0f172a;
-    --text-dim: #94a3b8;
-    --text-mid: #64748b;
-    --progress-bg: #e2e8f0;
+    --text-dim: #64748b;
+    --text-mid: #475569;
+    --progress-bg: #cbd5e1;
     --progress-fill: #3b82f6;
 }
 
 [data-theme="modern"] body,
 body[data-theme="modern"] {
-    background-color: #f1f5f9;
+    background-color: #dde3eb;
     color: #0f172a;
+}
+
+/* Modern uses Tailwind utility classes (bg-white, border-slate-200) in
+ * screen templates directly. Overriding here recolors every card/panel
+ * without touching the screen JS. The borders go from invisible
+ * hairlines (slate-200) to clearly readable slate-400, and pure white
+ * is downshifted to a warmer #f6f8fb to stop the dim-cabin glare.
+ */
+[data-theme="modern"] .bg-white {
+    background-color: #f6f8fb !important;
+}
+[data-theme="modern"] .border-slate-200,
+[data-theme="modern"] .border-slate-300 {
+    border-color: #94a3b8 !important;
+}
+[data-theme="modern"] .text-white {
+    /* Pure white text on bright/coloured backgrounds is brutal under
+     * cabin light. The blue tile (bg-[#005596]) keeps enough contrast
+     * with #f1f5f9-tinted white. */
+    color: #f1f5f9 !important;
+}
+/* Widen card outlines a touch so the new frame colour reads as a frame,
+ * not just a stroke. 1.5px reads as "deliberate" without going cartoon.
+ */
+[data-theme="modern"] .border {
+    border-width: 1.5px !important;
 }
 
 .glass-card {
@@ -294,7 +326,14 @@ body[data-theme="autodelta"] {
     -webkit-mask-image: linear-gradient(to bottom, black 70%, transparent 100%);
 }
 
-/* ---- SHARED LAYOUT ---- */
+/* ---- SHARED LAYOUT ----
+ * Screens are flex columns under a fixed AppBar; after the 7" sizing
+ * bump some panels (Settings, Service, Audio) exceed the visible area.
+ * Allow vertical scroll on the inner content-area so users can reach
+ * everything via touch flick instead of clipping the bottom rows.
+ * The screen-container itself stays clipped so the page chrome
+ * (AppBar + NavBar overlay) never moves with the scroll.
+ */
 .screen-container {
     width: 100%;
     height: 100%;
@@ -306,8 +345,37 @@ body[data-theme="autodelta"] {
 
 .content-area {
     flex: 1;
-    overflow: hidden;
+    /* Default: clip horizontal, allow vertical scroll when content
+     * overflows. Tailwind utilities applied per-screen (overflow-hidden
+     * on the AA stream / main gauges) win on source order and clip both
+     * axes where the screen really must fit-to-viewport. */
+    overflow-x: hidden;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior: contain;
 }
+/* Helper for inner scrollers that aren't the .content-area itself
+ * (e.g. a settings card containing a long list of paired devices). */
+.bcm-scroll-y {
+    overflow-y: auto !important;
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior: contain;
+}
+/* Re-show the scrollbar (slim) inside scrollable settings/audio panes.
+ * The global `::-webkit-scrollbar { display: none }` rule hides every
+ * scrollbar, which means the user has no visual hint the page can
+ * scroll. Bring it back as a thin overlay-style bar so long pages are
+ * discoverable; the hide rule still applies to everything else. */
+main.content-area::-webkit-scrollbar {
+    display: block;
+    width: 6px;
+}
+main.content-area::-webkit-scrollbar-thumb {
+    background: rgba(127, 127, 127, 0.45);
+    border-radius: 3px;
+}
+main.content-area::-webkit-scrollbar-track { background: transparent; }
+main.content-area { scrollbar-width: thin; }
 
 /* ---- AUTOHIDING NAVBAR ----
  * NavBar is absolute-positioned over the content; hidden by default
@@ -324,16 +392,23 @@ body[data-theme="autodelta"] {
     transform: translateY(0);
     pointer-events: auto;
 }
-/* Thin invisible hot-zone at the bottom of the viewport that catches
- * swipe-up gestures even when the navbar isn't yet shown. */
+/* Thin invisible hot-zone at the bottom of the viewport. Used to be a
+ * tap-catcher; that stole touches from any fixed-bottom button after
+ * the +15% rem bump grew controls into the strip. Now `pointer-events:
+ * none` so the document-level swipe-up handler in `_initTouchSwipe()`
+ * detects bottom-edge gestures via bubbling and taps fall through to
+ * the underlying button. The element is still injected so the
+ * existing JS bindings keep their handle.
+ */
 .bcm-navbar-hotzone {
     position: absolute;
     bottom: 0;
     left: 0;
     right: 0;
-    height: 36px;   /* +30% — easier to catch swipe-up with fat fingers */
+    height: 36px;
     z-index: 49;
     background: transparent;
+    pointer-events: none;
 }
 
 /* ---- ENCODER/SWITCH NAVIGATION ---- */
