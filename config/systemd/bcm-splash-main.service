@@ -39,7 +39,7 @@ Environment=BCM_SPLASH_FALLBACK_URL=http://localhost:5002
 ExecStart=/usr/local/bin/bcm-splash-play.sh
 ExecStop=/bin/bash -c 'pkill -f bcm-splash-play.sh 2>/dev/null; pkill -f "mpv.*splash" 2>/dev/null; true'
 
-SuccessExitStatus=0 1
+SuccessExitStatus=0 1 SIGTERM
 Restart=no
 
 User=root
