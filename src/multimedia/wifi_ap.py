@@ -403,6 +403,9 @@ class WiFiAPManager:
                 ["dnsmasq",
                  f"--interface={iface}",
                  "--bind-interfaces",
+                 "--except-interface=lo",
+                 f"--listen-address={net_ip}",
+                 "--port=0",
                  f"--dhcp-range={dhcp_start},{dhcp_end},{netmask},24h",
                  "--no-daemon", "--no-resolv", "--no-hosts"],
                 stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
@@ -702,13 +705,19 @@ class WiFiAPManager:
                     "dnsmasq",
                     f"--interface={self._interface}",
                     "--bind-interfaces",
+                    "--except-interface=lo",
+                    f"--listen-address={self._ap_ip}",
+                    "--port=0",  # disable DNS server (DHCP only); we
+                                 # don't need to serve names for AA and
+                                 # the systemd-resolved / stub dnsmasq
+                                 # on 127.0.0.1:53 is what was blocking
+                                 # us from starting at all.
                     f"--dhcp-range={dhcp_start},{dhcp_end},{self._netmask},24h",
                     "--no-daemon",
                     "--no-resolv",
                     "--no-hosts",
                     f"--dhcp-leasefile={lease_file}",
                     f"--pid-file={pid_file}",
-                    "--log-queries",
                     "--log-dhcp",
                 ],
                 stdout=subprocess.PIPE,
@@ -809,15 +818,15 @@ class WiFiAPManager:
     # ------------------------------------------------------------------
 
     def _start_p2p_go(self) -> bool:
-        """Bring up the AA WiFi as a Wi-Fi Direct Group Owner on ch149.
+        """Bring up the AA WiFi as a Wi-Fi Direct Group Owner.
 
-        Why this path: the AA Wireless protocol the phone speaks is
-        Wi-Fi Direct internally, and P2P-GO is the only AP-equivalent
-        role iwlwifi 8265 lets us start on 5 GHz under a self-managed
-        regdom (the regular AP role gets ``Frequency NNNN not allowed,
-        flags: NO-IR``). We also rfkill-unblock + force regdom first
-        because the Intel firmware still honors a country hint when
-        choosing which channels it'll *accept* a P2P GO on.
+        Channel is config-driven (``wifi.channel``). The AA Wireless
+        protocol the phone speaks is Wi-Fi Direct internally, so P2P-GO
+        is the natural mode. The Intel 8265 self-managed regdom blocks
+        regular AP role on 5 GHz with NO-IR; P2P-GO sidesteps that on
+        2.4 GHz where the firmware accepts active TX. 5 GHz P2P-GO
+        also FAILs under self-managed country 00 — patch regdb if you
+        need it.
         """
         # Make sure NetworkManager isn't holding the interface — wpa_s
         # P2P refuses to bind otherwise.
@@ -860,14 +869,30 @@ class WiFiAPManager:
         with open(conf_path, "w") as f:
             f.write(wpa_conf)
 
-        # Kill stale wpa_supplicant on this interface so we don't race.
+        # Free the interface. The system wpa_supplicant.service is a
+        # D-Bus daemon with no `-i` flag, so a name-pattern pkill misses
+        # it — but it's the one actually holding wlp2s0 in `type managed`,
+        # which makes p2p_group_add return FAIL. Stop the unit + a broad
+        # pkill, then we restart the unit in _stop_p2p_go so STA mode
+        # works after the AP comes down.
+        self._stopped_system_wpa = False
         try:
-            subprocess.run(["pkill", "-f",
-                            f"wpa_supplicant.*{self._interface}"],
+            r = subprocess.run(
+                ["systemctl", "is-active", "wpa_supplicant.service"],
+                capture_output=True, text=True, timeout=3)
+            if r.stdout.strip() == "active":
+                subprocess.run(
+                    ["systemctl", "stop", "wpa_supplicant.service"],
+                    capture_output=True, timeout=5)
+                self._stopped_system_wpa = True
+        except Exception:
+            pass
+        try:
+            subprocess.run(["pkill", "-f", "wpa_supplicant"],
                            capture_output=True, timeout=3)
         except Exception:
             pass
-        time.sleep(0.5)
+        time.sleep(0.7)
 
         try:
             self._wpa_proc = subprocess.Popen(
@@ -1042,6 +1067,18 @@ class WiFiAPManager:
                 ["nmcli", "device", "set", primary, "managed", "yes"],
                 capture_output=True, timeout=5,
             )
+
+        # If we stopped the system wpa_supplicant.service in _start_p2p_go
+        # to free the iface, bring it back now so the user keeps normal
+        # STA / NM behavior when the AP is off.
+        if getattr(self, "_stopped_system_wpa", False):
+            try:
+                subprocess.run(
+                    ["systemctl", "start", "wpa_supplicant.service"],
+                    capture_output=True, timeout=5)
+            except Exception:
+                pass
+            self._stopped_system_wpa = False
 
     # ------------------------------------------------------------------
     # Secondary "ALFA-NET" internet-sharing AP
@@ -1224,6 +1261,9 @@ class WiFiAPManager:
                 ["dnsmasq",
                  f"--interface={iface}",
                  "--bind-interfaces",
+                 "--except-interface=lo",
+                 f"--listen-address={net_ip}",
+                 "--port=0",
                  f"--dhcp-range={dhcp_start},{dhcp_end},{netmask},24h",
                  "--no-daemon", "--no-resolv", "--no-hosts"],
                 stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
