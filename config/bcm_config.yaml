@@ -147,7 +147,7 @@ wifi:
   enabled: true
   ssid: ALFA
   password: 87654321
-  mode: hostapd
+  mode: p2p_go
   band: g
   channel: 6
   country: BO

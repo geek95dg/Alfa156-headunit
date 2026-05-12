@@ -77,10 +77,16 @@ const Settings = {
         App.navigateTo("settings");
     },
 
-    async wifiLoad() {
-        // Always refresh — the P2P-GO credentials change on every
-        // boot, so a cached "loaded=true" would show stale values
-        // from a previous wpa_supplicant session.
+    _wifiFetchedAt: 0,
+    async wifiLoad(force) {
+        // Throttle: this is invoked from render() and would otherwise
+        // re-fire every time the JSON response triggers another
+        // navigateTo("settings") → render() → wifiLoad() cycle. Cap
+        // it at one refresh per 3 s (same gate as radioRefresh), or
+        // pass force=true on user actions that need fresh values.
+        const now = Date.now();
+        if (!force && now - Settings._wifiFetchedAt < 3000) return;
+        Settings._wifiFetchedAt = now;
         try {
             const res = await fetch("/api/wifi/config");
             if (!res.ok) return;
