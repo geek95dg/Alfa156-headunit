@@ -1,0 +1,919 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>05 — K-Line OBD-II | BCM x86 Production</title>
+  <link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+
+  <!-- Hamburger toggle (mobile) -->
+  <button class="hamburger" aria-label="Toggle navigation" onclick="document.querySelector('.sidebar').classList.toggle('open');document.querySelector('.sidebar-overlay').classList.toggle('active');">&#9776;</button>
+  <div class="sidebar-overlay" onclick="document.querySelector('.sidebar').classList.remove('open');this.classList.remove('active');"></div>
+
+  <!-- Sidebar Navigation -->
+  <aside class="sidebar">
+    <div class="sidebar-header">
+      <div class="logo-text">BCM v8.5</div>
+      <div class="logo-sub">x86 Production Docs</div>
+    </div>
+    <nav aria-label="Documentation pages">
+      <ul>
+        <li><a href="index.html"><span class="nav-num"></span>Overview</a></li>
+        <li><a href="01-bom.html"><span class="nav-num">01</span>Bill of Materials</a></li>
+        <li><a href="02-power.html"><span class="nav-num">02</span>Power Supply</a></li>
+        <li><a href="03-os-install.html"><span class="nav-num">03</span>OS Installation</a></li>
+        <li><a href="04-packages.html"><span class="nav-num">04</span>System Packages</a></li>
+        <li><a href="05-kline-obd.html" class="active"><span class="nav-num">05</span>K-Line OBD-II</a></li>
+        <li><a href="06-arduino.html"><span class="nav-num">06</span>Arduino Wiring</a></li>
+        <li><a href="07-boot.html"><span class="nav-num">07</span>Boot &amp; Splash</a></li>
+        <li><a href="08-kiosk.html"><span class="nav-num">08</span>Kiosk Display</a></li>
+        <li><a href="09-suspend.html"><span class="nav-num">09</span>Suspend / Wake</a></li>
+        <li><a href="10-wifi.html"><span class="nav-num">10</span>WiFi &amp; Android Auto</a></li>
+        <li><a href="11-arduino.html"><span class="nav-num">11</span>Arduino Wiring</a></li>
+        <li><a href="12-verification.html"><span class="nav-num">12</span>Verification</a></li>
+      </ul>
+    </nav>
+  </aside>
+
+  <!-- Main Content -->
+  <main class="content">
+    <div class="content-inner">
+
+      <h1>
+        K-Line OBD-II &mdash; ECU Communication
+        <span class="subtitle">K-Line adapter build and Bosch EDC15C7 diagnostics for Alfa Romeo 156 1.9 JTD</span>
+      </h1>
+
+      <!-- ============================================================
+           SECTION 1: OVERVIEW
+           ============================================================ -->
+
+      <h2 id="overview">Overview</h2>
+
+      <p>
+        The Alfa Romeo 156 1.9 JTD (8V, 2000&ndash;2005) does <strong>not</strong>
+        have a CAN-bus OBD-II interface. Instead, the Bosch EDC15C7 engine ECU
+        communicates over a single-wire <strong>K-Line</strong> bus using the
+        <strong>ISO 14230 (KWP2000)</strong> protocol. This is a serial
+        communication line operating at 10400 baud, where a single wire carries
+        bidirectional data between the diagnostic tester and the ECU.
+      </p>
+
+      <p>
+        BCM uses K-Line to read live engine data &mdash; RPM, vehicle speed,
+        coolant temperature, fuel consumption, turbo boost pressure, and more
+        &mdash; and displays it on the dashboard gauges in real time. The
+        connection is <strong>read-only</strong>; BCM never writes to the ECU
+        or modifies any engine parameters.
+      </p>
+
+      <div class="box box-warning">
+        <div class="box-title">Read-only access &mdash; safety first</div>
+        <p>
+          BCM operates in <strong>read-only diagnostic mode</strong>. It uses
+          KWP2000 service <code>0x21</code> (readDataByLocalIdentifier) to
+          request sensor data. No write, programming, or reset commands are
+          ever sent to the ECU. Do not modify the software to send write
+          commands unless you fully understand the consequences &mdash;
+          incorrect ECU writes can cause engine damage or unsafe driving
+          conditions.
+        </p>
+      </div>
+
+      <hr>
+
+      <!-- ============================================================
+           SECTION 2: HARDWARE — K-LINE ADAPTER BUILD
+           ============================================================ -->
+
+      <h2 id="hardware">Hardware &mdash; K-Line Adapter Build</h2>
+
+      <p>
+        The K-Line adapter converts USB serial (3.3V/5V TTL) to the
+        12V single-wire K-Line bus. It consists of three components:
+      </p>
+
+      <h3>Components</h3>
+
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Component</th>
+              <th>Description</th>
+              <th>Approx. Cost (PLN)</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><strong>CP2102</strong> USB-UART module</td>
+              <td>USB to 3.3V/5V TTL serial converter. Provides TX, RX, GND, and 5V output.</td>
+              <td>8&ndash;15</td>
+            </tr>
+            <tr>
+              <td><strong>L9637D</strong> transceiver IC</td>
+              <td>ISO 9141 / ISO 14230 K-Line transceiver. Converts TTL logic to 12V K-Line signalling. 8-pin DIP package.</td>
+              <td>8&ndash;15</td>
+            </tr>
+            <tr>
+              <td><strong>510&Omega; resistor</strong></td>
+              <td>Pull-up resistor between 12V battery supply and the K-Line. Keeps the line HIGH when idle.</td>
+              <td>0.50&ndash;1</td>
+            </tr>
+            <tr>
+              <td><strong>100nF ceramic capacitor</strong></td>
+              <td>Decoupling capacitor between VCC and GND on the L9637D for noise filtering.</td>
+              <td>0.50&ndash;1</td>
+            </tr>
+            <tr>
+              <td><strong>12V supply</strong></td>
+              <td>Taken from OBD-II pin 16 (permanent battery 12V).</td>
+              <td>&mdash;</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <p><strong>Total cost: ~25&ndash;40 PLN</strong></p>
+
+      <h3>Wiring Diagram</h3>
+
+      <p>
+        Full schematic available at
+        <code>schematics/kline_circuit.svg</code>.
+        The essential connections:
+      </p>
+
+      <pre><code>                   ┌──────────────┐        ┌──────────────┐
+                   │   CP2102     │        │   L9637D     │
+                   │  USB-UART    │        │  Transceiver │
+                   │              │        │              │
+  M910q USB ──────►│ USB          │        │ 1  K ────────┼──── OBD-II Pin 7 (K-Line)
+  hub              │              │        │              │
+                   │ TX (out) ────┼────────┼─ 5  RX (in)  │
+                   │              │        │              │
+                   │ RX (in) ─────┼────────┼─ 6  TX (out) │
+                   │              │        │              │
+                   │ GND ─────────┼────┬───┼─ 4  GND ─────┼──── OBD-II Pin 4 (GND)
+                   │              │    │   │              │
+                   │ 5V (or VCC) ─┼────┼───┼─ 3  VCC (5V) │
+                   │              │    │   │              │        510Ω
+                   └──────────────┘    │   │ 2  VS ───────┼────┤/\/\/├──── OBD-II Pin 16 (12V)
+                                       │   │              │
+                                       │   │ 7  NC        │
+                                       │   │ 8  EN ───────┼──── VCC (tie to pin 3)
+                                       │   └──────────────┘
+                                       │
+                                     ──┴──  GND
+                                      ───
+
+  Note: 100nF ceramic capacitor between L9637D pin 3 (VCC) and pin 4 (GND)</code></pre>
+
+      <div class="box box-info">
+        <div class="box-title">TX/RX cross-over</div>
+        <p>
+          The CP2102 TX pin connects to the L9637D RX (pin 5), and CP2102 RX
+          connects to L9637D TX (pin 6). This is the standard UART cross-over
+          &mdash; transmit on one side goes to receive on the other.
+        </p>
+      </div>
+
+      <h3>L9637D Pinout (8-pin DIP)</h3>
+
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Pin</th>
+              <th>Name</th>
+              <th>Direction</th>
+              <th>Description</th>
+              <th>Connect to</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>1</td>
+              <td>K</td>
+              <td>I/O</td>
+              <td>K-Line bus (bidirectional, 12V levels)</td>
+              <td>OBD-II Pin 7</td>
+            </tr>
+            <tr>
+              <td>2</td>
+              <td>VS</td>
+              <td>Power</td>
+              <td>Battery voltage sense / pull-up supply</td>
+              <td>12V via 510&Omega; resistor</td>
+            </tr>
+            <tr>
+              <td>3</td>
+              <td>VCC</td>
+              <td>Power</td>
+              <td>Logic supply voltage (4.5&ndash;5.5V)</td>
+              <td>CP2102 5V output</td>
+            </tr>
+            <tr>
+              <td>4</td>
+              <td>GND</td>
+              <td>Power</td>
+              <td>Ground reference</td>
+              <td>Common GND (CP2102 + OBD-II pin 4)</td>
+            </tr>
+            <tr>
+              <td>5</td>
+              <td>RX</td>
+              <td>Input</td>
+              <td>Serial data input from tester (TTL)</td>
+              <td>CP2102 TX</td>
+            </tr>
+            <tr>
+              <td>6</td>
+              <td>TX</td>
+              <td>Output</td>
+              <td>Serial data output to tester (TTL)</td>
+              <td>CP2102 RX</td>
+            </tr>
+            <tr>
+              <td>7</td>
+              <td>NC</td>
+              <td>&mdash;</td>
+              <td>Not connected</td>
+              <td>&mdash;</td>
+            </tr>
+            <tr>
+              <td>8</td>
+              <td>EN</td>
+              <td>Input</td>
+              <td>Enable (active high, tie to VCC)</td>
+              <td>VCC (pin 3)</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h3>Where to Buy</h3>
+
+      <p>
+        Both the CP2102 module and L9637D IC are widely available:
+      </p>
+
+      <ul>
+        <li><strong>AliExpress</strong> &mdash; cheapest source for both components (5&ndash;15 PLN each, 2&ndash;4 week delivery)</li>
+        <li><strong>Botland.com.pl</strong> &mdash; Polish electronics shop, CP2102 modules in stock</li>
+        <li><strong>Kamami.pl</strong> &mdash; L9637D IC available, fast domestic shipping</li>
+        <li><strong>TME.eu</strong> &mdash; professional distributor, L9637D in DIP-8 package</li>
+        <li><strong>Allegro.pl</strong> &mdash; search "CP2102" or "L9637D", many Polish sellers</li>
+      </ul>
+
+      <hr>
+
+      <!-- ============================================================
+           SECTION 3: CONNECTION TO CAR
+           ============================================================ -->
+
+      <h2 id="connection">Connection to Car</h2>
+
+      <h3>OBD-II Port Location</h3>
+
+      <p>
+        In the Alfa Romeo 156, the OBD-II diagnostic port is located
+        <strong>under the steering column, on the left side</strong>, near
+        the fuse box. It faces downward and may be covered by a small plastic
+        cap. The connector is a standard 16-pin Type A (passenger car) OBD-II
+        socket.
+      </p>
+
+      <h3>OBD-II Pinout (Used Pins)</h3>
+
+      <p>
+        Only 4 of the 16 OBD-II pins are used for K-Line communication:
+      </p>
+
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>OBD-II Pin</th>
+              <th>Signal</th>
+              <th>Description</th>
+              <th>Wire Colour (typical)</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><strong>4</strong></td>
+              <td>Chassis GND</td>
+              <td>Ground reference &mdash; connect to L9637D GND and CP2102 GND</td>
+              <td>Black / Brown</td>
+            </tr>
+            <tr>
+              <td><strong>5</strong></td>
+              <td>Signal GND</td>
+              <td>Signal ground &mdash; connect together with pin 4</td>
+              <td>Black / Brown</td>
+            </tr>
+            <tr>
+              <td><strong>7</strong></td>
+              <td>K-Line</td>
+              <td>ISO 14230 data line &mdash; connect to L9637D pin 1 (K)</td>
+              <td>White / Grey</td>
+            </tr>
+            <tr>
+              <td><strong>16</strong></td>
+              <td>Battery +12V</td>
+              <td>Permanent battery voltage &mdash; connect to L9637D pin 2 (VS) via 510&Omega;</td>
+              <td>Red</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="box box-info">
+        <div class="box-title">No L-Line needed</div>
+        <p>
+          Some older ISO 9141 implementations use both K-Line (pin 7) and
+          L-Line (pin 15). The Bosch EDC15C7 in the Alfa 156 1.9 JTD uses
+          K-Line only. Pin 15 is not connected.
+        </p>
+      </div>
+
+      <hr>
+
+      <!-- ============================================================
+           SECTION 4: SOFTWARE CONFIGURATION
+           ============================================================ -->
+
+      <h2 id="software-config">Software Configuration</h2>
+
+      <p>
+        The K-Line serial port is configured in <code>config/bcm_config.yaml</code>:
+      </p>
+
+      <pre><code>serial:
+  kline:
+    port_x86: /dev/ttyUSB_kline    # stable symlink via udev rule
+    baudrate: 10400                # ISO 14230 standard baud rate
+    ecu_address: 1                 # 0x01 = EDC15C7 engine ECU</code></pre>
+
+      <h3>udev Rule for Stable Device Naming</h3>
+
+      <p>
+        The CP2102 USB-UART module must have a stable <code>/dev/</code>
+        symlink so BCM can find it regardless of USB enumeration order. Create
+        or verify the udev rule (as described in
+        <a href="04-software.html#udev-rules">04 &mdash; Software &sect; USB Device Naming</a>):
+      </p>
+
+      <pre><code># /etc/udev/rules.d/99-bcm-usb.rules
+# K-Line adapter (CP2102)
+SUBSYSTEM=="tty", ATTRS{idVendor}=="10c4", ATTRS{idProduct}=="ea60", SYMLINK+="ttyUSB_kline"</code></pre>
+
+      <p>
+        Reload and trigger after creating or editing the rule:
+      </p>
+
+      <pre><code>sudo udevadm control --reload-rules
+sudo udevadm trigger</code></pre>
+
+      <h3>Verify the Symlink</h3>
+
+      <pre><code>ls -la /dev/ttyUSB_kline
+# Expected output:
+# lrwxrwxrwx 1 root root 7 ... /dev/ttyUSB_kline -> ttyUSB0</code></pre>
+
+      <div class="box box-info">
+        <div class="box-title">User permissions</div>
+        <p>
+          The BCM user must be in the <code>dialout</code> group to access
+          serial ports without root. The setup script (phase 12) adds this
+          automatically, or do it manually:
+          <code>sudo usermod -aG dialout $USER</code> (log out and back in
+          to apply).
+        </p>
+      </div>
+
+      <hr>
+
+      <!-- ============================================================
+           SECTION 5: COMMUNICATION PROTOCOL
+           ============================================================ -->
+
+      <h2 id="protocol">Communication Protocol</h2>
+
+      <p>
+        The K-Line communication follows the ISO 14230 (KWP2000) protocol.
+        BCM implements this in two layers: <code>src/obd/kline.py</code>
+        handles the physical layer, and <code>src/obd/kwp2000.py</code>
+        handles the application-layer diagnostic services.
+      </p>
+
+      <h3>5-Baud Initialization Sequence</h3>
+
+      <p>
+        Before normal communication can begin, the tester must perform a
+        slow-init handshake at 5 baud to wake up the ECU. The full sequence:
+      </p>
+
+      <ol>
+        <li>
+          <strong>Send ECU address at 5 baud</strong> &mdash;
+          Pull the K-Line low for 200ms per bit to transmit the target ECU
+          address (<code>0x01</code> for EDC15C7). The 10-bit frame is:
+          start bit (0), 8 data bits LSB-first (<code>00000001</code> = 0x01),
+          stop bit (1). Total time: 10 &times; 200ms = 2 seconds.
+        </li>
+        <li>
+          <strong>Switch to 10400 baud</strong> &mdash;
+          After the address is sent, reconfigure the UART to 10400 baud,
+          8N1 (8 data bits, no parity, 1 stop bit).
+        </li>
+        <li>
+          <strong>Receive sync byte</strong> &mdash;
+          The ECU responds with <code>0x55</code> (01010101 binary), which
+          the tester can use to verify baud rate synchronization.
+        </li>
+        <li>
+          <strong>Receive two key bytes (KB1, KB2)</strong> &mdash;
+          The ECU sends two key bytes that identify its supported protocol
+          variant. For EDC15C7, these are typically <code>0x08 0x08</code>
+          (KWP2000 with physical addressing).
+        </li>
+        <li>
+          <strong>Send inverted KB2</strong> &mdash;
+          The tester acknowledges by sending the bitwise inverse of KB2:
+          <code>(~KB2) &amp; 0xFF</code>.
+        </li>
+        <li>
+          <strong>Receive inverted address echo</strong> &mdash;
+          The ECU confirms the handshake by sending the bitwise inverse of
+          the ECU address: <code>(~0x01) &amp; 0xFF = 0xFE</code>.
+          Communication is now established.
+        </li>
+      </ol>
+
+      <h3>KWP2000 Timing Constants</h3>
+
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Parameter</th>
+              <th>Value</th>
+              <th>Description</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>P1 max</td>
+              <td>20 ms</td>
+              <td>Maximum inter-byte time in ECU response</td>
+            </tr>
+            <tr>
+              <td>P2 min / max</td>
+              <td>25&ndash;50 ms</td>
+              <td>Time between tester request and ECU response</td>
+            </tr>
+            <tr>
+              <td>P3 min</td>
+              <td>55 ms</td>
+              <td>Minimum time between ECU response and next tester request</td>
+            </tr>
+            <tr>
+              <td>P4 min</td>
+              <td>5 ms</td>
+              <td>Minimum inter-byte time in tester request</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h3>KWP2000 Diagnostic Session</h3>
+
+      <p>
+        After the 5-baud init handshake, BCM starts a diagnostic session and
+        begins polling data:
+      </p>
+
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Step</th>
+              <th>Service</th>
+              <th>SID</th>
+              <th>Parameters</th>
+              <th>Description</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>1</td>
+              <td>startDiagnosticSession</td>
+              <td><code>0x10</code></td>
+              <td>Mode <code>0x81</code> (default session)</td>
+              <td>Opens a diagnostic session with the ECU</td>
+            </tr>
+            <tr>
+              <td>2</td>
+              <td>testerPresent</td>
+              <td><code>0x3E</code></td>
+              <td>No parameters</td>
+              <td>Keepalive sent every 2 seconds to prevent session timeout</td>
+            </tr>
+            <tr>
+              <td>3</td>
+              <td>readDataByLocalIdentifier</td>
+              <td><code>0x21</code></td>
+              <td>Local ID (e.g., <code>0x01</code> for RPM)</td>
+              <td>Reads a single parameter from the ECU</td>
+            </tr>
+            <tr>
+              <td>4</td>
+              <td>stopDiagnosticSession</td>
+              <td><code>0x20</code></td>
+              <td>No parameters</td>
+              <td>Closes the session on shutdown</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h3>KWP2000 Message Format</h3>
+
+      <p>
+        Each message uses physical addressing with the following structure:
+      </p>
+
+      <pre><code>[Format] [Target] [Source] [Data...] [Checksum]
+
+Format byte: 0x80 | data_length   (physical addressing, length in format byte)
+Target:      0x01                  (ECU address)
+Source:      0xF1                  (tester address)
+Checksum:    sum of all preceding bytes, masked to 8 bits
+
+Example — read RPM (local ID 0x01):
+  Request:  [0x82] [0x01] [0xF1] [0x21] [0x01] [0x96]
+  Response: [0x83] [0xF1] [0x01] [0x61] [0x01] [RPM_HI] [RPM_LO] [CS]</code></pre>
+
+      <hr>
+
+      <!-- ============================================================
+           SECTION 6: ECU DATA — PIDS
+           ============================================================ -->
+
+      <h2 id="pids">ECU Data &mdash; PID Definitions</h2>
+
+      <p>
+        The Bosch EDC15C7 exposes 9 parameters via KWP2000 local identifiers.
+        These are defined in <code>src/obd/edc15c7.py</code>:
+      </p>
+
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Local ID</th>
+              <th>Parameter</th>
+              <th>Unit</th>
+              <th>Scale</th>
+              <th>Bytes</th>
+              <th>Dashboard Gauge</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><code>0x01</code></td>
+              <td>Engine RPM</td>
+              <td>rpm</td>
+              <td>&times;0.25</td>
+              <td>2</td>
+              <td>Primary (tachometer)</td>
+            </tr>
+            <tr>
+              <td><code>0x02</code></td>
+              <td>Vehicle Speed</td>
+              <td>km/h</td>
+              <td>direct</td>
+              <td>1</td>
+              <td>Primary (speedometer)</td>
+            </tr>
+            <tr>
+              <td><code>0x03</code></td>
+              <td>Coolant Temperature</td>
+              <td>&deg;C</td>
+              <td>&minus;40 offset</td>
+              <td>1</td>
+              <td>Primary (temp gauge)</td>
+            </tr>
+            <tr>
+              <td><code>0x04</code></td>
+              <td>Fuel Consumption Rate</td>
+              <td>L/h</td>
+              <td>&times;0.01</td>
+              <td>2</td>
+              <td>Secondary</td>
+            </tr>
+            <tr>
+              <td><code>0x05</code></td>
+              <td>Injector Quantity</td>
+              <td>mg/stroke</td>
+              <td>&times;0.01</td>
+              <td>2</td>
+              <td>Secondary</td>
+            </tr>
+            <tr>
+              <td><code>0x06</code></td>
+              <td>Battery Voltage</td>
+              <td>V</td>
+              <td>&times;0.1</td>
+              <td>1</td>
+              <td>Status bar</td>
+            </tr>
+            <tr>
+              <td><code>0x07</code></td>
+              <td>Turbo Boost Pressure</td>
+              <td>mbar</td>
+              <td>direct</td>
+              <td>2</td>
+              <td>Secondary (boost gauge)</td>
+            </tr>
+            <tr>
+              <td><code>0x08</code></td>
+              <td>Intake Air Temperature</td>
+              <td>&deg;C</td>
+              <td>&minus;40 offset</td>
+              <td>1</td>
+              <td>Secondary</td>
+            </tr>
+            <tr>
+              <td><code>0x09</code></td>
+              <td>Throttle Position</td>
+              <td>%</td>
+              <td>&times;0.4</td>
+              <td>1</td>
+              <td>Secondary</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h3>Decoding Examples</h3>
+
+      <pre><code># Engine RPM: 2 bytes big-endian, multiply by 0.25
+raw = [0x0F, 0xA0]    # 4000 decimal
+rpm = ((0x0F &lt;&lt; 8) | 0xA0) * 0.25  # = 1000.0 rpm
+
+# Coolant Temperature: 1 byte, subtract 40
+raw = [0x69]           # 105 decimal
+temp = 105 - 40        # = 65.0 &deg;C
+
+# Battery Voltage: 1 byte, multiply by 0.1
+raw = [0x8C]           # 140 decimal
+voltage = 140 * 0.1    # = 14.0 V
+
+# Turbo Boost Pressure: 2 bytes big-endian, direct (mbar)
+raw = [0x04, 0x4C]     # 1100 decimal
+boost = (0x04 &lt;&lt; 8) | 0x4C  # = 1100 mbar</code></pre>
+
+      <h3>Default Polling Group</h3>
+
+      <p>
+        BCM polls a subset of PIDs in a 100ms round-robin cycle by default.
+        The <code>DEFAULT_ACTIVE_PIDS</code> from <code>edc15c7.py</code> are:
+      </p>
+
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Local ID</th>
+              <th>Parameter</th>
+              <th>Event Topic</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><code>0x01</code></td>
+              <td>Engine RPM</td>
+              <td><code>obd.rpm</code></td>
+            </tr>
+            <tr>
+              <td><code>0x02</code></td>
+              <td>Vehicle Speed</td>
+              <td><code>obd.speed</code></td>
+            </tr>
+            <tr>
+              <td><code>0x03</code></td>
+              <td>Coolant Temperature</td>
+              <td><code>obd.coolant_temp</code></td>
+            </tr>
+            <tr>
+              <td><code>0x04</code></td>
+              <td>Fuel Consumption Rate</td>
+              <td><code>obd.fuel_rate</code></td>
+            </tr>
+            <tr>
+              <td><code>0x06</code></td>
+              <td>Battery Voltage</td>
+              <td><code>obd.battery_voltage</code></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <p>
+        With 5 PIDs at ~100ms each (plus P3 inter-request timing), the full
+        polling cycle takes approximately 500&ndash;600ms, giving roughly 2
+        updates per second for each parameter. The remaining PIDs (injector
+        quantity, turbo pressure, intake air temperature, throttle position)
+        can be added to the active set in the configuration if needed.
+      </p>
+
+      <div class="box box-info">
+        <div class="box-title">Tester present keepalive</div>
+        <p>
+          The <code>EDC15C7Reader</code> automatically sends a
+          <code>testerPresent</code> (SID <code>0x3E</code>) keepalive
+          every 2 seconds to prevent the ECU from closing the diagnostic
+          session due to inactivity. This runs in the same polling loop as
+          the PID reads.
+        </p>
+      </div>
+
+      <hr>
+
+      <!-- ============================================================
+           SECTION 7: VERIFICATION
+           ============================================================ -->
+
+      <h2 id="verification">Verification</h2>
+
+      <p>
+        After building the adapter and connecting it, verify the entire chain
+        from USB device to live ECU data:
+      </p>
+
+      <h3>Step 1: Check Adapter Detection</h3>
+
+      <pre><code># Verify the CP2102 is detected by the kernel
+lsusb | grep -i "cp2102\|10c4"
+# Expected: Bus 00x Device 00x: ID 10c4:ea60 Silicon Labs CP210x UART Bridge
+
+# Verify the udev symlink exists
+ls -la /dev/ttyUSB_kline
+# Expected: lrwxrwxrwx 1 root root 7 ... /dev/ttyUSB_kline -> ttyUSB0</code></pre>
+
+      <h3>Step 2: Check BCM Logs (Engine Running)</h3>
+
+      <pre><code># Start the engine (key position II = ignition ON, or engine running)
+# Then check BCM logs for ECU communication:
+grep "edc15c7\|kline\|RPM\|coolant" /opt/bcm/logs/bcm.log | tail -10
+
+# Expected output (example):
+# obd.kline  - K-Line opened: /dev/ttyUSB_kline @ 10400 baud
+# obd.kline  - 5-baud init response: sync=0x55 KB1=0x08 KB2=0x08
+# obd.kline  - 5-baud init successful! ECU acknowledged.
+# obd.edc15c7 - EDC15C7 reader started (polling 5 PIDs)</code></pre>
+
+      <h3>Step 3: Live Data via Web API</h3>
+
+      <pre><code># Query the BCM REST API for live ECU data
+curl -s http://localhost:5002/api/status | python3 -m json.tool | grep -E "rpm|speed|coolant"
+
+# Expected output (with engine running):
+#   "rpm": 850.0,
+#   "speed": 0.0,
+#   "coolant_temp": 72.0</code></pre>
+
+      <hr>
+
+      <!-- ============================================================
+           SECTION 8: TROUBLESHOOTING
+           ============================================================ -->
+
+      <h2 id="troubleshooting">Troubleshooting</h2>
+
+      <h3>No ECU Response</h3>
+
+      <div class="box box-warning">
+        <div class="box-title">No ECU response during initialization</div>
+        <p>
+          <strong>Symptom:</strong> BCM logs show
+          <code>5-baud init: incomplete response (0 bytes)</code>
+          or <code>No ECU acknowledgement received</code>.
+        </p>
+        <p><strong>Check:</strong></p>
+        <ul>
+          <li>Verify 12V is present at OBD-II pin 16 with a multimeter</li>
+          <li>Confirm K-Line wire is connected to OBD-II pin 7 (not pin 6 or 14)</li>
+          <li>Check L9637D orientation &mdash; pin 1 dot/notch must face the correct direction</li>
+          <li>Verify the 510&Omega; pull-up resistor is between pin 16 (12V) and the K-Line</li>
+          <li>Measure L9637D VCC (pin 3): should be 4.5&ndash;5.5V</li>
+          <li>Make sure EN (pin 8) is tied to VCC</li>
+        </ul>
+      </div>
+
+      <h3>Timeout During Initialization</h3>
+
+      <div class="box box-warning">
+        <div class="box-title">Timeout or partial response</div>
+        <p>
+          <strong>Symptom:</strong> Sync byte <code>0x55</code> is received but
+          key bytes are missing, or the ECU sends no response at all.
+        </p>
+        <p><strong>Check:</strong></p>
+        <ul>
+          <li>The ignition must be ON (key position II, dashboard lights on).
+              The ECU does not respond when the ignition is OFF.</li>
+          <li>Try with the engine running &mdash; some ECUs only respond after cranking</li>
+          <li>Verify baud rate is 10400 in the configuration</li>
+          <li>Check for loose connections on the OBD-II plug</li>
+        </ul>
+      </div>
+
+      <h3>Wrong or Nonsensical Data</h3>
+
+      <div class="box box-warning">
+        <div class="box-title">Data values are incorrect</div>
+        <p>
+          <strong>Symptom:</strong> RPM shows 16000, coolant shows &minus;40&deg;C,
+          or values jump randomly.
+        </p>
+        <p><strong>Check:</strong></p>
+        <ul>
+          <li>Verify <code>ecu_address</code> is set to <code>1</code> (0x01)
+              in <code>bcm_config.yaml</code> &mdash; this must match the EDC15C7</li>
+          <li>Check for electrical noise &mdash; route K-Line wire away from ignition coils and alternator</li>
+          <li>Verify the 100nF decoupling capacitor is present on the L9637D</li>
+          <li>Check that TX/RX are not swapped between CP2102 and L9637D</li>
+        </ul>
+      </div>
+
+      <h3>Permission Denied</h3>
+
+      <div class="box box-warning">
+        <div class="box-title">Cannot open serial port</div>
+        <p>
+          <strong>Symptom:</strong> <code>PermissionError: [Errno 13] Permission denied: '/dev/ttyUSB_kline'</code>
+        </p>
+        <p><strong>Fix:</strong></p>
+        <ul>
+          <li>Add user to the <code>dialout</code> group:
+              <code>sudo usermod -aG dialout $USER</code></li>
+          <li>Log out and log back in (or reboot) for group changes to take effect</li>
+          <li>Verify with: <code>groups $USER</code> &mdash; should include <code>dialout</code></li>
+        </ul>
+      </div>
+
+      <h3>Keepalive Failures</h3>
+
+      <div class="box box-info">
+        <div class="box-title">Frequent keepalive warnings</div>
+        <p>
+          If the log shows <code>Keepalive failed</code> warnings, the ECU
+          session may be timing out. This can happen if the polling loop is
+          blocked or if there is excessive electrical noise. BCM will
+          automatically attempt to re-initialize the connection after 10
+          consecutive errors. Check for other USB devices causing CPU load
+          spikes or interrupt conflicts.
+        </p>
+      </div>
+
+      <!-- ---- Page Navigation ---- -->
+      <div class="page-nav">
+        <a href="04-software.html">&larr; 04 &mdash; BCM Software</a>
+        <a href="06-arduino.html">06 &mdash; Arduino Wiring &rarr;</a>
+      </div>
+
+      <!-- ---- Footer ---- -->
+      <footer class="page-footer">
+        <span>BCM v8.5 &mdash; x86 Production Documentation</span>
+        <span>Alfa Romeo 156 Headunit Project</span>
+      </footer>
+
+    </div>
+  </main>
+
+  <!-- Sidebar Toggle Script -->
+  <script>
+    function toggleSidebar() {
+      document.querySelector('.sidebar').classList.toggle('open');
+      document.querySelector('.sidebar-overlay').classList.toggle('active');
+    }
+
+    // Close sidebar when a nav link is clicked (mobile)
+    document.querySelectorAll('.sidebar nav a').forEach(function(link) {
+      link.addEventListener('click', function() {
+        if (window.innerWidth < 768) {
+          document.querySelector('.sidebar').classList.remove('open');
+          document.querySelector('.sidebar-overlay').classList.remove('active');
+        }
+      });
+    });
+  </script>
+
+</body>
+</html>
