@@ -1,0 +1,613 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>11 — Android Auto | BCM x86 Production</title>
+  <link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+
+  <!-- Hamburger toggle (mobile) -->
+  <button class="hamburger" aria-label="Toggle navigation" onclick="toggleSidebar()">&#9776;</button>
+  <div class="sidebar-overlay" onclick="toggleSidebar()"></div>
+
+  <!-- Sidebar Navigation -->
+  <aside class="sidebar">
+    <div class="sidebar-header">
+      <div class="logo-text">BCM v8.5</div>
+      <div class="logo-sub">Lenovo M910q &middot; Alfa 156</div>
+    </div>
+    <nav aria-label="Documentation pages">
+      <ul>
+        <li><a href="index.html"><span class="nav-num"></span>Overview</a></li>
+        <li><a href="01-bom.html"><span class="nav-num">01</span>Bill of Materials</a></li>
+        <li><a href="02-power.html"><span class="nav-num">02</span>Power Supply</a></li>
+        <li><a href="03-os-install.html"><span class="nav-num">03</span>OS Installation</a></li>
+        <li><a href="04-packages.html"><span class="nav-num">04</span>System Packages</a></li>
+        <li><a href="05-bcm-install.html"><span class="nav-num">05</span>BCM Installation</a></li>
+        <li><a href="06-systemd.html"><span class="nav-num">06</span>Systemd Services</a></li>
+        <li><a href="07-boot.html"><span class="nav-num">07</span>Boot &amp; Splash</a></li>
+        <li><a href="08-kiosk.html"><span class="nav-num">08</span>Kiosk Display</a></li>
+        <li><a href="09-suspend.html"><span class="nav-num">09</span>Suspend / Wake</a></li>
+        <li><a href="10-wifi.html"><span class="nav-num">10</span>WiFi &amp; Android Auto</a></li>
+        <li><a href="11-android-auto.html" class="active"><span class="nav-num">11</span>Android Auto</a></li>
+        <li><a href="12-verification.html"><span class="nav-num">12</span>Verification</a></li>
+      </ul>
+    </nav>
+  </aside>
+
+  <!-- Main Content -->
+  <div class="content">
+    <div class="content-inner">
+
+      <header>
+        <h1>
+          Android Auto
+          <span class="subtitle">OpenAuto compilation, wired &amp; wireless AA setup, and x86 display pipeline</span>
+        </h1>
+      </header>
+
+      <article>
+
+        <!-- ============================================================
+             OVERVIEW
+             ============================================================ -->
+        <section>
+          <h2 id="overview">Overview</h2>
+
+          <p>
+            <strong>OpenAuto</strong> (built on <code>openauto</code> + <code>aasdk</code>
+            from the openDsh project) provides both wired and wireless Android Auto
+            for BCM. On the x86 platform, AA renders to an <strong>Xvfb virtual
+            display</strong> and streams to the browser-based dashboard via MJPEG.
+            Touch input is forwarded from the browser back to the virtual display
+            using <code>xdotool</code>.
+          </p>
+
+          <p>
+            This page covers compiling OpenAuto from source, setting up wired and
+            wireless Android Auto, and the internal display pipeline that connects
+            the Qt-based OpenAuto renderer to the BCM web dashboard.
+          </p>
+
+          <div class="box box-info">
+            <div class="box-title">AA is optional</div>
+            <p>
+              Android Auto is an optional feature. All other BCM functions (dashboard,
+              OBD-II, cameras, audio, sensors) work without it. Complete all other
+              build stages (<a href="index.html">sections 1&ndash;10</a>) before
+              attempting this step.
+            </p>
+          </div>
+        </section>
+
+        <!-- ============================================================
+             BUILD DEPENDENCIES
+             ============================================================ -->
+        <section>
+          <h2 id="build-dependencies">Build Dependencies</h2>
+
+          <p>
+            Install all required build tools, Qt5 libraries, GStreamer plugins,
+            and the Xvfb virtual framebuffer. This is a one-time operation &mdash;
+            these packages remain installed for future rebuilds.
+          </p>
+
+          <pre><code>sudo apt install -y \
+    cmake build-essential \
+    libboost-all-dev libusb-1.0-0-dev libssl-dev \
+    libprotobuf-dev protobuf-compiler \
+    qtbase5-dev qtchooser qt5-qmake qtbase5-dev-tools \
+    qtmultimedia5-dev libqt5multimedia5-plugins \
+    qtconnectivity5-dev qtdeclarative5-dev \
+    qml-module-qtquick2 qml-module-qtquick-controls2 \
+    libqt5websockets5-dev libqt5bluetooth5 \
+    libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev \
+    gstreamer1.0-plugins-base gstreamer1.0-plugins-good \
+    gstreamer1.0-plugins-bad gstreamer1.0-plugins-ugly \
+    gstreamer1.0-libav \
+    libtag1-dev librtaudio-dev \
+    xvfb matchbox-window-manager</code></pre>
+
+          <div class="box box-warning">
+            <div class="box-title">Qt5 vs Qt6</div>
+            <p>
+              OpenAuto requires <strong>Qt5</strong>. Debian 13 ships both Qt5 and Qt6;
+              make sure the <code>qt5-qmake</code> and <code>qtbase5-dev</code> packages
+              are installed, not their Qt6 equivalents. The <code>qtchooser</code>
+              package handles version selection.
+            </p>
+          </div>
+        </section>
+
+        <!-- ============================================================
+             BUILD AASDK
+             ============================================================ -->
+        <section>
+          <h2 id="build-aasdk">Build aasdk</h2>
+
+          <p>
+            The <code>aasdk</code> library implements the Android Auto protocol
+            (USB and TCP transport, protobuf messaging, SSL handshake). It must
+            be built first since <code>openauto</code> depends on it.
+          </p>
+
+          <pre><code>cd /tmp
+git clone --recurse-submodules https://github.com/openDsh/aasdk.git
+cd aasdk
+
+# Fix: OpenSSL 3.0 removed FIPS_mode_set
+sed -i 's/FIPS_mode_set(0);/\/\/ FIPS_mode_set(0); \/\/ removed in OpenSSL 3.0/' \
+    src/Transport/SSLWrapper.cpp
+
+mkdir build &amp;&amp; cd build
+cmake .. -DCMAKE_BUILD_TYPE=Release
+make -j$(nproc)
+sudo make install
+sudo ldconfig</code></pre>
+
+          <div class="box box-info">
+            <div class="box-title">OpenSSL 3.0 FIPS fix</div>
+            <p>
+              The upstream <code>aasdk</code> calls <code>FIPS_mode_set(0)</code> which
+              was removed in OpenSSL 3.0 (shipped with Debian 12+). The <code>sed</code>
+              command comments out this call. Without this fix, the build will fail with
+              <code>undefined reference to FIPS_mode_set</code>.
+            </p>
+          </div>
+        </section>
+
+        <!-- ============================================================
+             BUILD H264BITSTREAM
+             ============================================================ -->
+        <section>
+          <h2 id="build-h264bitstream">Build h264bitstream</h2>
+
+          <p>
+            The <code>h264bitstream</code> library parses H.264 NAL units. The
+            upstream repository has no Makefile, so we compile and install it manually.
+          </p>
+
+          <pre><code>cd /tmp
+git clone https://github.com/aizvorski/h264bitstream.git
+cd h264bitstream
+
+gcc -c -fPIC h264_stream.c h264_sei.c -I.
+ar rcs libh264bitstream.a h264_stream.o h264_sei.o
+
+sudo cp libh264bitstream.a /usr/local/lib/
+sudo cp h264_stream.h h264_sei.h h264_avcc.h h264_slice_data.h bs.h \
+    /usr/local/include/
+sudo ldconfig</code></pre>
+
+          <p>
+            This creates a static library (<code>libh264bitstream.a</code>) and
+            installs the headers to <code>/usr/local/include/</code>. The
+            <code>openauto</code> build will find them via the default search paths.
+          </p>
+        </section>
+
+        <!-- ============================================================
+             BUILD OPENAUTO
+             ============================================================ -->
+        <section>
+          <h2 id="build-openauto">Build openauto</h2>
+
+          <p>
+            The <code>openauto</code> project contains the main <code>autoapp</code>
+            binary that renders the Android Auto projection.
+          </p>
+
+          <pre><code>cd /tmp
+git clone --recurse-submodules https://github.com/openDsh/openauto.git
+cd openauto
+
+# Fix: Debian 13 librtaudio 6.x renamed RtAudioError
+sed -i 's/catch(const RtAudioError&amp; e)/catch(const std::exception\&amp; e)/g' \
+    openauto/Projection/RtAudioOutput.cpp
+
+mkdir build &amp;&amp; cd build
+cmake .. -DCMAKE_BUILD_TYPE=Release
+make -j$(nproc)
+sudo make install</code></pre>
+
+          <div class="box box-warning">
+            <div class="box-title">RtAudio fix for Debian 13</div>
+            <p>
+              Debian 13 (Trixie) ships <code>librtaudio 6.x</code> which renamed the
+              <code>RtAudioError</code> exception class. The <code>sed</code> command
+              replaces it with the standard <code>std::exception</code> catch. Without
+              this fix, the build fails with <code>RtAudioError was not declared</code>.
+            </p>
+          </div>
+        </section>
+
+        <!-- ============================================================
+             VERIFY
+             ============================================================ -->
+        <section>
+          <h2 id="verify">Verify Installation</h2>
+
+          <p>
+            After a successful build, the <code>autoapp</code> binary should be
+            installed at <code>/usr/local/bin/autoapp</code>.
+          </p>
+
+          <pre><code>ls -la /usr/local/bin/autoapp
+# Should show the binary (~5MB)</code></pre>
+
+          <p>Restart BCM so it detects the newly installed OpenAuto binary:</p>
+
+          <pre><code>sudo systemctl restart bcm-ignition-watcher
+sudo journalctl -u bcm-headunit --no-pager | grep -i openauto
+# Should show: "OpenAuto found: /usr/local/bin/autoapp"</code></pre>
+
+          <p>
+            BCM searches for the <code>autoapp</code> binary in three locations
+            at startup: <code>/usr/local/bin/autoapp</code>,
+            <code>/opt/openauto/bin/autoapp</code>, and <code>/usr/bin/autoapp</code>.
+            The first one found is used.
+          </p>
+        </section>
+
+        <!-- ============================================================
+             WIRED ANDROID AUTO
+             ============================================================ -->
+        <section>
+          <h2 id="wired-aa">Wired Android Auto</h2>
+
+          <p>
+            Wired Android Auto uses a direct USB connection between the phone and
+            the M910q. This is the simplest setup and provides the lowest latency.
+          </p>
+
+          <h3>Setup Steps</h3>
+
+          <ol>
+            <li>Install <strong>Android Auto</strong> from the Google Play Store on your phone</li>
+            <li>Enable <strong>Developer options</strong> on the phone (Settings &rarr; About phone &rarr; tap Build number 7 times)</li>
+            <li>Enable <strong>USB debugging</strong> in Developer options</li>
+            <li>Connect the phone to the M910q via a USB cable (use one of the USB 3.0 ports)</li>
+            <li>Accept the <strong>"Allow USB debugging"</strong> prompt on the phone</li>
+            <li>Select <strong>"Android Auto"</strong> mode when prompted</li>
+            <li>AA appears on BCM screen A2 (the multimedia page in the dashboard)</li>
+          </ol>
+
+          <div class="box box-info">
+            <div class="box-title">USB cable quality matters</div>
+            <p>
+              Use a high-quality USB cable that supports data transfer (not a charge-only
+              cable). USB 3.0 cables provide better throughput for the H.264 video stream.
+              If the phone is not detected, try a different cable first.
+            </p>
+          </div>
+        </section>
+
+        <!-- ============================================================
+             WIRELESS ANDROID AUTO
+             ============================================================ -->
+        <section>
+          <h2 id="wireless-aa">Wireless Android Auto</h2>
+
+          <p>
+            Wireless Android Auto uses Bluetooth for initial pairing and the
+            5 GHz WiFi access point for the actual data stream. This requires
+            the Fenvi FU-AX1800 (or compatible WiFi 6 card) and a working
+            <code>hostapd</code> setup from <a href="10-wifi.html">section 10</a>.
+          </p>
+
+          <h3>Prerequisites</h3>
+
+          <ul>
+            <li>WiFi AP running: <code>ALFA_AA</code> on 5 GHz band (configured via hostapd)</li>
+            <li>Bluetooth pairing completed and phone trusted</li>
+            <li><code>autoapp</code> binary installed (see sections above)</li>
+          </ul>
+
+          <h3>Connection Flow</h3>
+
+          <ol>
+            <li>Phone pairs with BCM via <strong>Bluetooth</strong></li>
+            <li>Phone discovers the <code>ALFA_AA</code> WiFi access point through the BT connection</li>
+            <li>Phone connects to the AP and receives a DHCP address (192.168.44.x range)</li>
+            <li>AA video/audio stream flows over the WiFi connection</li>
+          </ol>
+
+          <h3>BCM Configuration</h3>
+
+          <p>
+            The WiFi credentials must be set in <code>bcm_config.yaml</code> so that
+            BCM knows which AP to advertise during the BT pairing handshake:
+          </p>
+
+          <pre><code># config/bcm_config.yaml:
+wifi:
+  enabled: true
+  ssid: ALFA_AA
+  password: AlfaRomeo156</code></pre>
+
+          <div class="box box-warning">
+            <div class="box-title">5 GHz is required for wireless AA</div>
+            <p>
+              Android Auto requires a 5 GHz WiFi connection for wireless mode. The
+              2.4 GHz band does not have enough bandwidth for the H.264 video stream.
+              If using the stock Intel 8265 card, verify it can create a 5 GHz AP &mdash;
+              some firmware versions restrict AP mode to 2.4 GHz. The Fenvi FU-AX1800
+              (Intel AX200) is the recommended upgrade if 5 GHz AP is unstable.
+            </p>
+          </div>
+        </section>
+
+        <!-- ============================================================
+             HOW AA DISPLAY WORKS ON X86
+             ============================================================ -->
+        <section>
+          <h2 id="aa-display-pipeline">How AA Display Works on x86</h2>
+
+          <p>
+            On the x86 platform, BCM runs a browser-based dashboard (Flask + Chromium).
+            OpenAuto is a Qt application that renders to a native X11 window. To bridge
+            these two worlds, BCM uses a virtual framebuffer pipeline:
+          </p>
+
+          <h3>Display Pipeline</h3>
+
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Stage</th>
+                  <th>Component</th>
+                  <th>Description</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>1</td>
+                  <td><strong>Xvfb</strong></td>
+                  <td>Virtual framebuffer running at display <code>:99</code> &mdash; no physical monitor needed</td>
+                </tr>
+                <tr>
+                  <td>2</td>
+                  <td><strong>OpenAuto (autoapp)</strong></td>
+                  <td>Renders AA projection via Qt <code>xcb</code> platform plugin to display <code>:99</code></td>
+                </tr>
+                <tr>
+                  <td>3</td>
+                  <td><strong>ffmpeg</strong></td>
+                  <td>Captures display <code>:99</code> and encodes as MJPEG stream</td>
+                </tr>
+                <tr>
+                  <td>4</td>
+                  <td><strong>BCM Flask</strong></td>
+                  <td>Serves the MJPEG stream at <code>/aa/stream</code> endpoint</td>
+                </tr>
+                <tr>
+                  <td>5</td>
+                  <td><strong>Browser</strong></td>
+                  <td>Displays the MJPEG stream in an <code>&lt;img&gt;</code> tag inside the AA page</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <h3>Touch Input Pipeline</h3>
+
+          <p>
+            Touch input flows in the reverse direction &mdash; from the browser back
+            to the virtual display:
+          </p>
+
+          <ol>
+            <li>User taps on the AA area in the browser (Chromium on the physical touchscreen)</li>
+            <li>Browser sends a <code>POST /aa/touch</code> request with <code>{x, y}</code> coordinates</li>
+            <li>BCM translates the coordinates to the Xvfb virtual display space</li>
+            <li><code>xdotool mousemove --screen 0 &lt;x&gt; &lt;y&gt; click 1</code> is executed on display <code>:99</code></li>
+            <li>OpenAuto receives the click event and forwards it to the phone via the AA protocol</li>
+          </ol>
+
+          <h3>Canvas Sizing</h3>
+
+          <p>
+            The AA canvas size is calculated dynamically based on the dashboard
+            dimensions. BCM reserves a 48 px AppBar at the top and a 48 px NavBar
+            at the bottom:
+          </p>
+
+          <pre><code># From src/multimedia/openauto.py:
+# Canvas = (dashboard_width, dashboard_height - appbar - navbar)
+# Default: (1024, 600 - 48 - 48) = 1024 x 504
+
+dash_w = config.get("display.dashboard.width", 1024)
+dash_h = config.get("display.dashboard.height", 600)
+appbar = config.get("display.appbar_px", 48)
+navbar = config.get("display.navbar_px", 48)
+canvas = (dash_w, max(240, dash_h - appbar - navbar))</code></pre>
+
+          <p>
+            If <code>display.multimedia.width</code> and <code>display.multimedia.height</code>
+            are explicitly set in <code>bcm_config.yaml</code>, those values override
+            the automatic calculation.
+          </p>
+
+          <div class="box box-info">
+            <div class="box-title">Why Xvfb?</div>
+            <p>
+              On ARM (OPi 5 Pro), OpenAuto renders directly to a physical HDMI output
+              using EGL/SDL2. On x86, the physical displays are already used by Chromium
+              kiosk instances. Xvfb provides a virtual display that OpenAuto can render
+              to without conflicting with the existing X11 session. The MJPEG streaming
+              approach adds ~30 ms latency but keeps the architecture clean and avoids
+              compositing issues.
+            </p>
+          </div>
+        </section>
+
+        <!-- ============================================================
+             TROUBLESHOOTING
+             ============================================================ -->
+        <section>
+          <h2 id="troubleshooting">Troubleshooting</h2>
+
+          <h3>autoapp not found</h3>
+
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Symptom</th>
+                  <th>Cause</th>
+                  <th>Fix</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>BCM log: "OpenAuto not found"</td>
+                  <td>Binary not in expected path</td>
+                  <td>Check <code>ls /usr/local/bin/autoapp</code> &mdash; if missing, re-run <code>sudo make install</code> in the openauto build directory</td>
+                </tr>
+                <tr>
+                  <td><code>autoapp: error while loading shared libraries</code></td>
+                  <td>aasdk libraries not in linker cache</td>
+                  <td>Run <code>sudo ldconfig</code> and verify <code>ls /usr/local/lib/libaasdk*</code></td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <h3>Phone Not Detected (Wired)</h3>
+
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Symptom</th>
+                  <th>Cause</th>
+                  <th>Fix</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>Phone charges but no AA prompt</td>
+                  <td>USB debugging not enabled or charge-only cable</td>
+                  <td>Enable USB debugging in Developer options; try a data-capable USB cable</td>
+                </tr>
+                <tr>
+                  <td><code>lsusb</code> does not show phone</td>
+                  <td>Bad USB port or cable</td>
+                  <td>Try a different USB 3.0 port on the M910q; test the cable with another device</td>
+                </tr>
+                <tr>
+                  <td>Phone shows "Allow USB debugging" but AA never starts</td>
+                  <td>Android Auto app not installed or outdated</td>
+                  <td>Install/update Android Auto from Play Store; reboot phone</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <h3>Wireless AA Timeout</h3>
+
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Symptom</th>
+                  <th>Cause</th>
+                  <th>Fix</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>Phone pairs via BT but never connects to WiFi</td>
+                  <td>5 GHz AP not running or phone cannot see it</td>
+                  <td>Verify <code>systemctl status hostapd</code>; check <code>iw dev</code> for AP on 5 GHz channel</td>
+                </tr>
+                <tr>
+                  <td>Phone connects to WiFi but AA does not start</td>
+                  <td>DHCP not assigning address</td>
+                  <td>Check <code>journalctl -u dnsmasq</code> for lease assignment; verify <code>192.168.44.0/24</code> subnet</td>
+                </tr>
+                <tr>
+                  <td>AA connects then disconnects after a few seconds</td>
+                  <td>WiFi signal too weak (2.4 GHz fallback)</td>
+                  <td>Confirm AP is on 5 GHz: <code>iw dev | grep channel</code>; consider upgrading to Fenvi AX200</td>
+                </tr>
+                <tr>
+                  <td>Wireless AA lag or stutter</td>
+                  <td>WiFi interference or low signal</td>
+                  <td>Move antenna position; switch to a less congested 5 GHz channel in <code>/etc/hostapd/hostapd.conf</code></td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <h3>Touch Not Reaching AA</h3>
+
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Symptom</th>
+                  <th>Cause</th>
+                  <th>Fix</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>AA video shows but taps do nothing</td>
+                  <td><code>xdotool</code> not installed or DISPLAY not set</td>
+                  <td>Install: <code>sudo apt install xdotool</code>; verify <code>DISPLAY=:99</code> is set in the touch handler</td>
+                </tr>
+                <tr>
+                  <td>Taps land in wrong position</td>
+                  <td>Canvas size mismatch between browser and Xvfb</td>
+                  <td>Check <code>display.multimedia.width/height</code> in config matches Xvfb resolution</td>
+                </tr>
+                <tr>
+                  <td>Touch works but with noticeable delay</td>
+                  <td>Normal for MJPEG pipeline (~30&ndash;50 ms)</td>
+                  <td>This is expected; reduce MJPEG quality or increase frame rate if needed</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+
+      </article>
+
+      <!-- Page Navigation -->
+      <div class="page-nav">
+        <a href="10-power-suspend.html">&larr; 10 &mdash; Power &amp; Suspend</a>
+        <a href="12-verification.html">12 &mdash; Verification &rarr;</a>
+      </div>
+
+      <!-- Footer -->
+      <footer class="page-footer">
+        <span>BCM v8.5 &mdash; Alfa Romeo 156 Headunit</span>
+        <span>Lenovo M910q x86 Production Build</span>
+      </footer>
+
+    </div>
+  </div>
+
+  <!-- Sidebar Toggle Script -->
+  <script>
+    function toggleSidebar() {
+      document.querySelector('.sidebar').classList.toggle('open');
+      document.querySelector('.sidebar-overlay').classList.toggle('active');
+    }
+
+    document.querySelectorAll('.sidebar nav a').forEach(function(link) {
+      link.addEventListener('click', function() {
+        if (window.innerWidth < 768) {
+          document.querySelector('.sidebar').classList.remove('open');
+          document.querySelector('.sidebar-overlay').classList.remove('active');
+        }
+      });
+    });
+  </script>
+
+</body>
+</html>
