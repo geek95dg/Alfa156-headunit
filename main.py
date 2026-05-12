@@ -221,6 +221,16 @@ def main() -> None:
     except Exception:
         log.exception("BluetoothManager failed to init (non-critical)")
 
+    # Fuel sender calibration (ADC from Arduino → fuel level percentage)
+    fuel_sender = None
+    if config.get("fuel_sender.enabled", True):
+        try:
+            from src.vehicle.fuel_sender import FuelSender
+            fuel_sender = FuelSender(config, event_bus)
+            log.info("FuelSender initialized")
+        except Exception:
+            log.exception("FuelSender failed to init (non-critical)")
+
     # Start WiFi AP for Android Auto wireless data link
     wifi_ap = None
     wifi_enabled = config.get("wifi.enabled", False)
