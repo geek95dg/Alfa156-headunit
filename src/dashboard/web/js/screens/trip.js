@@ -204,33 +204,33 @@ App.registerScreen("a3", (() => {
 
     function _injectToggleButton(host) {
         if (host.querySelector(".tp-toggle-btn")) return;
-        // Attach to .screen-container directly (which is position:relative)
-        // rather than to <main>, which in the modern theme is a flex
-        // container that would absorb the button into its layout.
-        // z-index:50 keeps the button ABOVE the overlay (z-40) so the
-        // user can always toggle back to live trip stats.
+        // The button is placed inline, immediately to the left of the
+        // fuel-consumption section header. Each theme template renders a
+        // `.tp-toggle-anchor` slot at that location; we just fill it.
+        // z-index keeps the button visible above the travel-plan overlay
+        // so the user can always toggle back to live trip stats.
+        const anchor = host.querySelector(".tp-toggle-anchor");
+        if (!anchor) return;
         const btn = document.createElement("button");
         btn.className = "tp-toggle-btn";
         btn.type = "button";
         btn.style.cssText = [
-            "position:absolute",
-            "top:56px",         // below AppBar (48px)
-            "right:12px",
+            "position:relative",
             "z-index:50",
-            "display:flex",
+            "display:inline-flex",
             "align-items:center",
             "gap:6px",
-            "padding:6px 12px",
+            "padding:4px 10px",
             "border-radius:8px",
             "background:rgba(24,24,27,0.92)",
             "border:1px solid rgba(245,158,11,0.5)",
             "color:#f59e0b",
-            "font-size:11px",
+            "font-size:10px",
             "font-weight:800",
             "text-transform:uppercase",
             "letter-spacing:1px",
             "cursor:pointer",
-            "box-shadow:0 2px 8px rgba(0,0,0,0.5)",
+            "box-shadow:0 1px 4px rgba(0,0,0,0.4)",
         ].join(";");
         btn.addEventListener("click", (e) => {
             e.preventDefault();
@@ -242,7 +242,8 @@ App.registerScreen("a3", (() => {
             e.stopPropagation();
             _toggleTravelPlan();
         });
-        host.appendChild(btn);
+        anchor.innerHTML = "";
+        anchor.appendChild(btn);
     }
 
     function _updateToggleButton() {
@@ -448,8 +449,11 @@ App.registerScreen("a3", (() => {
                 </div>
                 <!-- Right: Chart with scale -->
                 <div class="flex-1 p-4 flex flex-col bg-[#1a0f0a]">
-                    <div class="flex justify-between items-center mb-2">
-                        <span class="text-[10px] text-zinc-500 font-bold uppercase tracking-wider">${t("fuel_consumption")} (L/100km)</span>
+                    <div class="flex justify-between items-center mb-2 gap-2">
+                        <div class="flex items-center gap-2 min-w-0">
+                            <span class="tp-toggle-anchor"></span>
+                            <span class="text-[10px] text-zinc-500 font-bold uppercase tracking-wider truncate">${t("fuel_consumption")} (L/100km)</span>
+                        </div>
                         <div class="flex items-center gap-2">
                             <span class="text-[9px] text-zinc-600">Now:</span>
                             <span id="trip-instant" class="text-sm font-bold text-amber-500">${instantCons}</span>
@@ -512,11 +516,14 @@ App.registerScreen("a3", (() => {
                 </div>
                 <!-- Right: Graph with scale -->
                 <div class="flex-1 bg-white rounded-xl shadow-sm border border-slate-200 p-3 flex flex-col">
-                    <div class="flex justify-between items-center mb-2">
-                        <span class="text-[10px] font-bold text-slate-800 flex items-center gap-1">
-                            <span class="material-symbols-outlined text-[#005596]" style="font-size:16px;">monitoring</span>
-                            ${t("fuel_consumption")} (L/100km)
-                        </span>
+                    <div class="flex justify-between items-center mb-2 gap-2">
+                        <div class="flex items-center gap-2 min-w-0">
+                            <span class="tp-toggle-anchor"></span>
+                            <span class="text-[10px] font-bold text-slate-800 flex items-center gap-1 truncate">
+                                <span class="material-symbols-outlined text-[#005596]" style="font-size:16px;">monitoring</span>
+                                ${t("fuel_consumption")} (L/100km)
+                            </span>
+                        </div>
                         <span class="text-[9px] text-slate-500">Now: <span id="trip-instant" class="font-bold text-slate-700">${instantCons}</span></span>
                     </div>
                     <div class="flex-1">
@@ -563,7 +570,10 @@ App.registerScreen("a3", (() => {
                 <div class="flex-1 flex gap-3 min-h-0">
                     <!-- Chart -->
                     <div class="flex-1 bg-zinc-900/50 rounded-xl border border-zinc-800 p-3 flex flex-col">
-                        <span class="text-[9px] text-zinc-500 font-bold uppercase tracking-wider mb-1">${t("fuel_consumption")} L/100km</span>
+                        <div class="flex items-center gap-2 mb-1 min-w-0">
+                            <span class="tp-toggle-anchor"></span>
+                            <span class="text-[9px] text-zinc-500 font-bold uppercase tracking-wider truncate">${t("fuel_consumption")} L/100km</span>
+                        </div>
                         <div class="flex-1">
                             ${_chartWithScale(chartValues, chartLabels, "autodelta", 15)}
                         </div>

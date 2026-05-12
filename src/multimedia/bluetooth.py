@@ -111,6 +111,65 @@ PBAP_PROFILE_PATH = "/org/bluez/bcm_pbap_pce"
 MAP_MCE_UUID = "00001134-0000-1000-8000-00805f9b34fb"
 MAP_PROFILE_PATH = "/org/bluez/bcm_map_mce"
 
+# Explicit SDP service records for PBAP-PCE / MAP-MCE.
+# BlueZ's ProfileManager auto-generates a minimal record from just the
+# UUID, but the auto-generated record is missing the
+# BluetoothProfileDescriptorList — Android only flips on the
+# "share contacts/call history" pairing prompt when it sees a full
+# descriptor list with a recognised version, so we pass an explicit XML
+# blob. PCE/MCE are client-side so no protocol-channel attribute is
+# needed (we don't accept inbound connections), only the UUID list +
+# profile version that Android's SDP scan keys on.
+_PBAP_PCE_SDP = """<?xml version="1.0" encoding="UTF-8"?>
+<record>
+  <attribute id="0x0001">
+    <sequence>
+      <uuid value="0x112e"/>
+    </sequence>
+  </attribute>
+  <attribute id="0x0005">
+    <sequence>
+      <uuid value="0x1002"/>
+    </sequence>
+  </attribute>
+  <attribute id="0x0009">
+    <sequence>
+      <sequence>
+        <uuid value="0x1130"/>
+        <uint16 value="0x0102"/>
+      </sequence>
+    </sequence>
+  </attribute>
+  <attribute id="0x0100">
+    <text value="Phonebook Access PCE"/>
+  </attribute>
+</record>"""
+
+_MAP_MCE_SDP = """<?xml version="1.0" encoding="UTF-8"?>
+<record>
+  <attribute id="0x0001">
+    <sequence>
+      <uuid value="0x1133"/>
+    </sequence>
+  </attribute>
+  <attribute id="0x0005">
+    <sequence>
+      <uuid value="0x1002"/>
+    </sequence>
+  </attribute>
+  <attribute id="0x0009">
+    <sequence>
+      <sequence>
+        <uuid value="0x1134"/>
+        <uint16 value="0x0104"/>
+      </sequence>
+    </sequence>
+  </attribute>
+  <attribute id="0x0100">
+    <text value="Message Access MCE"/>
+  </attribute>
+</record>"""
+
 
 class _PairingRequest:
     """Holds a pending pairing confirmation request."""
@@ -264,8 +323,15 @@ class _PairingAgent(dbus.service.Object):
 
 
 def _register_bt_profile(bus, path: str, uuid: str, name: str,
-                         role: str = "server") -> bool:
-    """Register a Bluetooth profile with BlueZ ProfileManager1."""
+                         role: str = "server",
+                         service_record: Optional[str] = None) -> bool:
+    """Register a Bluetooth profile with BlueZ ProfileManager1.
+
+    Passing ``service_record`` overrides BlueZ's auto-generated SDP entry.
+    PBAP-PCE / MAP-MCE need this — the auto-generated record is missing
+    the BluetoothProfileDescriptorList that Android's SDP scan keys on
+    to flip the "share contacts/call history" pairing prompt.
+    """
     try:
         profile_mgr = dbus.Interface(
             bus.get_object("org.bluez", "/org/bluez"),
@@ -279,6 +345,8 @@ def _register_bt_profile(bus, path: str, uuid: str, name: str,
             "RequireAuthorization": dbus.Boolean(False),
             "AutoConnect": dbus.Boolean(True),
         }
+        if service_record:
+            opts["ServiceRecord"] = dbus.String(service_record)
 
         profile_mgr.RegisterProfile(
             dbus.ObjectPath(path),
@@ -319,9 +387,11 @@ def _register_all_profiles(bus) -> None:
     in src/multimedia/phonebook.py.
     """
     _register_bt_profile(bus, PBAP_PROFILE_PATH, PBAP_PCE_UUID,
-                         "BCM Phonebook Client", role="client")
+                         "BCM Phonebook Client", role="client",
+                         service_record=_PBAP_PCE_SDP)
     _register_bt_profile(bus, MAP_PROFILE_PATH, MAP_MCE_UUID,
-                         "BCM Message Client", role="client")
+                         "BCM Message Client", role="client",
+                         service_record=_MAP_MCE_SDP)
     log.info("BT profile registration: PBAP-PCE + MAP-MCE; "
              "A2DP/HFP=PipeWire, AA=autoapp")
 
