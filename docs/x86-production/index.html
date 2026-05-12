@@ -1,0 +1,586 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>BCM v8.5 — Lenovo M910q Production Build</title>
+  <link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+
+  <!-- Hamburger toggle (mobile only) -->
+  <button class="hamburger" aria-label="Toggle navigation" onclick="toggleSidebar()">&#9776;</button>
+
+  <!-- Overlay behind sidebar on mobile -->
+  <div class="sidebar-overlay" onclick="toggleSidebar()"></div>
+
+  <!-- ======== Sidebar Navigation ======== -->
+  <aside class="sidebar">
+    <div class="sidebar-header">
+      <div class="logo-text">BCM v8.5</div>
+      <div class="logo-sub">Lenovo M910q &middot; Alfa 156</div>
+    </div>
+    <nav aria-label="Documentation pages">
+      <ul>
+        <li><a href="index.html" class="active"><span class="nav-num"></span>Overview</a></li>
+        <li><a href="01-bom.html"><span class="nav-num">01</span>Bill of Materials</a></li>
+        <li><a href="02-power.html"><span class="nav-num">02</span>Power Supply</a></li>
+        <li><a href="03-os-install.html"><span class="nav-num">03</span>OS Installation</a></li>
+        <li><a href="04-packages.html"><span class="nav-num">04</span>System Packages</a></li>
+        <li><a href="05-bcm-install.html"><span class="nav-num">05</span>BCM Installation</a></li>
+        <li><a href="06-systemd.html"><span class="nav-num">06</span>Systemd Services</a></li>
+        <li><a href="07-boot.html"><span class="nav-num">07</span>Boot &amp; Splash</a></li>
+        <li><a href="08-kiosk.html"><span class="nav-num">08</span>Kiosk Display</a></li>
+        <li><a href="09-suspend.html"><span class="nav-num">09</span>Suspend / Wake</a></li>
+        <li><a href="10-wifi.html"><span class="nav-num">10</span>WiFi &amp; Android Auto</a></li>
+        <li><a href="11-arduino.html"><span class="nav-num">11</span>Arduino Wiring</a></li>
+        <li><a href="12-verification.html"><span class="nav-num">12</span>Verification</a></li>
+      </ul>
+    </nav>
+  </aside>
+
+  <!-- ======== Main Content ======== -->
+  <div class="content">
+    <div class="content-inner">
+
+      <header>
+        <h1>
+          BCM v8.5 &mdash; Lenovo M910q Production Build
+          <span class="subtitle">Complete guide for deploying BCM headunit in Alfa Romeo 156</span>
+        </h1>
+      </header>
+
+      <!-- ---- Project Overview ---- -->
+      <article>
+        <section>
+          <h2>Project Overview</h2>
+
+          <p>
+            <strong>BCM</strong> (Body Computer Module) is a custom head unit that replaces the
+            original Alfa Romeo 156 stereo and instrument cluster with a modern, Linux-based
+            infotainment and vehicle management system. It provides a dual-screen dashboard
+            (7" or 10" touchscreen + 4.3" status display), full body-computer functions
+            (fuel, temperatures, doors, OBD-II diagnostics), a 4.1 audio system with
+            10-band EQ, quad-camera DVR with auto-switching, Android Auto, GPS tracking,
+            and an integrated alarm/central-lock system.
+          </p>
+
+          <p>
+            The <strong>Lenovo ThinkCentre M910q Tiny</strong> is the recommended x86
+            production platform. It replaces the original Orange Pi 5 Pro SBC with a
+            full x86_64 mini-PC that fits inside the car dashboard (1-litre form factor).
+            The M910q offers dramatically more processing power, native VAAPI hardware
+            decode, NVMe storage, dual DisplayPort outputs, and runs standard Debian
+            without ARM kernel patching. Used units are widely available at competitive
+            prices, making this the most practical production build.
+          </p>
+
+          <div class="box box-info">
+            <div class="box-title">Why x86?</div>
+            <p>
+              An x86 mini-PC like the M910q removes every ARM-specific pain point:
+              no custom kernel builds, no display driver patches, no WiFi firmware
+              issues. Debian runs unmodified, VAAPI hardware decode works out of the
+              box, and suspend/resume (S3) is rock-solid. The only trade-off is
+              higher power draw (~15W idle vs ~5W for OPi), addressed by the 12V
+              AGM battery buffer described in the power supply section.
+            </p>
+          </div>
+        </section>
+
+        <!-- ---- Hardware Summary ---- -->
+        <section>
+          <h2>Hardware Summary</h2>
+
+          <h3>Lenovo M910q Tiny Specifications</h3>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Component</th>
+                  <th>Specification</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>CPU</td>
+                  <td>Intel Core i5-6400T (4C/4T, 2.2&ndash;2.8 GHz, Skylake)</td>
+                </tr>
+                <tr>
+                  <td>GPU</td>
+                  <td>Intel HD 530 &mdash; VAAPI hardware decode (H.264, H.265)</td>
+                </tr>
+                <tr>
+                  <td>RAM</td>
+                  <td>8 GB DDR4-2400 SO-DIMM</td>
+                </tr>
+                <tr>
+                  <td>Storage</td>
+                  <td>256 GB NVMe SSD (M.2 2242/2280)</td>
+                </tr>
+                <tr>
+                  <td>WiFi / BT</td>
+                  <td>Intel 8265 &mdash; 802.11ac 2&times;2 + BT 4.2 (built-in M.2)</td>
+                </tr>
+                <tr>
+                  <td>Display Outputs</td>
+                  <td>2&times; mini-DisplayPort (DP &rarr; HDMI adapters for car displays)</td>
+                </tr>
+                <tr>
+                  <td>USB</td>
+                  <td>6&times; USB 3.0 + 1&times; USB-C</td>
+                </tr>
+                <tr>
+                  <td>Power</td>
+                  <td>65 W external, 20 V barrel jack (12 V &rarr; 20 V step-up in car)</td>
+                </tr>
+                <tr>
+                  <td>Form Factor</td>
+                  <td>1-litre Tiny &mdash; 179 &times; 183 &times; 36 mm, fits behind dash</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <h3>Key Peripherals</h3>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Device</th>
+                  <th>Model / Spec</th>
+                  <th>Role</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>WiFi upgrade (optional)</td>
+                  <td>Fenvi FU-AX1800 (Intel AX200, M.2 E-key)</td>
+                  <td>WiFi 6 + BT 5.0 for faster Android Auto wireless; replaces Intel 8265 if 5 GHz AP is unstable</td>
+                </tr>
+                <tr>
+                  <td>Main display</td>
+                  <td>7" IPS 1024&times;600 HDMI + USB touch (or 10" 1280&times;800)</td>
+                  <td>Primary BCM dashboard (port 5002)</td>
+                </tr>
+                <tr>
+                  <td>Small display</td>
+                  <td>4.3" TFT 800&times;480 HDMI (no touch)</td>
+                  <td>Status dashboard (port 5003), camera feeds</td>
+                </tr>
+                <tr>
+                  <td>USB DAC</td>
+                  <td>ES9038Q2M 32-bit module</td>
+                  <td>Hi-fi audio output &rarr; RCA &rarr; amplifiers</td>
+                </tr>
+                <tr>
+                  <td>Amplifiers</td>
+                  <td>TDA7388 (4&times;45 W) + TDA2050 (1&times;40 W sub)</td>
+                  <td>4.1 speaker system</td>
+                </tr>
+                <tr>
+                  <td>Camera set</td>
+                  <td>4&times; AHD 720p + 4-ch USB grabber</td>
+                  <td>Front / rear / left / right with auto-switching</td>
+                </tr>
+                <tr>
+                  <td>Input Arduino</td>
+                  <td>Pro Micro (ATmega32U4), 115200 baud</td>
+                  <td>SWC buttons, sensors, doors, ignition, parking</td>
+                </tr>
+                <tr>
+                  <td>Output Arduino</td>
+                  <td>Nano (ATmega328P), 9600 baud JSON</td>
+                  <td>Relays, central lock, lights, wipers, horn</td>
+                </tr>
+                <tr>
+                  <td>GPS</td>
+                  <td>u-blox NEO-M8N USB</td>
+                  <td>Position, speed, heading</td>
+                </tr>
+                <tr>
+                  <td>LTE modem</td>
+                  <td>Huawei E3372 HiLink</td>
+                  <td>Mobile data for weather, travel planner</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+
+        <!-- ---- Build Phases ---- -->
+        <section>
+          <h2>Build Phases Overview</h2>
+
+          <p>
+            The build is divided into five stages. Each stage is independently
+            functional &mdash; you can drive with Stage 1 alone and add the rest
+            over time. Prices are in <strong>PLN</strong> (Q1 2026 estimates,
+            Polish retailers). The M910q is typically 200&ndash;400 PLN used,
+            making Stage 1 significantly cheaper than the OPi 5 Pro build.
+          </p>
+
+          <div class="phase-grid">
+
+            <div class="phase-card stage1">
+              <h4><span class="badge badge-stage1">Stage 1</span> Core System</h4>
+              <p>M910q + dual displays + audio (DAC + TDA7388) + K-Line OBD-II + power supply + battery buffer</p>
+              <div class="phase-cost">~650 &ndash; 1 100 PLN</div>
+            </div>
+
+            <div class="phase-card stage2">
+              <h4><span class="badge badge-stage2">Stage 2</span> Cameras + Sensors</h4>
+              <p>4-way AHD camera set + USB grabber + parking sensors + DS18B20 + dashcam SSD</p>
+              <div class="phase-cost">~450 &ndash; 800 PLN</div>
+            </div>
+
+            <div class="phase-card stage3">
+              <h4><span class="badge badge-stage3">Stage 3</span> Input + Connectivity</h4>
+              <p>SWC dual-pod (24 buttons) + rotary encoder + USB mic + GPS + LTE modem</p>
+              <div class="phase-cost">~260 &ndash; 420 PLN</div>
+            </div>
+
+            <div class="phase-card stage4">
+              <h4><span class="badge badge-stage4">Stage 4</span> Audio Upgrades</h4>
+              <p>TDA2050 subwoofer amp + rain sensor + wiper relay</p>
+              <div class="phase-cost">~63 &ndash; 102 PLN</div>
+            </div>
+
+            <div class="phase-card stage5">
+              <h4><span class="badge badge-stage5">Stage 5</span> Security</h4>
+              <p>Central lock + 433 MHz RF + alarm (siren, PIR, shock, accelerometer) + backup battery</p>
+              <div class="phase-cost">~180 &ndash; 285 PLN</div>
+            </div>
+
+          </div>
+
+          <h3>Cost Summary</h3>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Stage</th>
+                  <th>What you get</th>
+                  <th>Min (PLN)</th>
+                  <th>Max (PLN)</th>
+                  <th>Cumulative</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><span class="badge badge-stage1">1</span></td>
+                  <td>Dashboard + Audio + OBD + dual displays + power</td>
+                  <td>650</td>
+                  <td>1 100</td>
+                  <td>650 &ndash; 1 100</td>
+                </tr>
+                <tr>
+                  <td><span class="badge badge-stage2">2</span></td>
+                  <td>4-way cameras, parking sensors, temperature, dashcam</td>
+                  <td>450</td>
+                  <td>800</td>
+                  <td>1 100 &ndash; 1 900</td>
+                </tr>
+                <tr>
+                  <td><span class="badge badge-stage3">3</span></td>
+                  <td>SWC dual-pod, GPS, LTE modem, microphone</td>
+                  <td>260</td>
+                  <td>420</td>
+                  <td>1 360 &ndash; 2 320</td>
+                </tr>
+                <tr>
+                  <td><span class="badge badge-stage4">4</span></td>
+                  <td>Subwoofer amp, rain sensor, wiper relay</td>
+                  <td>63</td>
+                  <td>102</td>
+                  <td>1 423 &ndash; 2 422</td>
+                </tr>
+                <tr>
+                  <td><span class="badge badge-stage5">5</span></td>
+                  <td>Alarm, central lock, battery backup, RF remote</td>
+                  <td>180</td>
+                  <td>285</td>
+                  <td>1 603 &ndash; 2 707</td>
+                </tr>
+              </tbody>
+              <tfoot>
+                <tr>
+                  <td colspan="2"><strong>Total (all stages)</strong></td>
+                  <td><strong>1 603</strong></td>
+                  <td><strong>2 707</strong></td>
+                  <td><strong>~1 600 &ndash; 2 700 PLN</strong></td>
+                </tr>
+              </tfoot>
+            </table>
+          </div>
+
+          <div class="box box-warning">
+            <div class="box-title">Not included in estimates</div>
+            <p>
+              Car speakers (reuse existing or ~200&ndash;400 PLN), subwoofer driver
+              (~100&ndash;200 PLN), 12 V automotive wiring and connectors (~50&ndash;100 PLN),
+              DIN bracket or 3D-printed mount (~20&ndash;50 PLN), SIM card with data plan
+              (for LTE), and labour / installation time.
+            </p>
+          </div>
+        </section>
+
+        <!-- ---- Platform Comparison ---- -->
+        <section>
+          <h2>Platform Comparison</h2>
+
+          <p>
+            Three platforms have been tested for the BCM build. The M910q is the
+            recommended production platform for its reliability, performance, and
+            ease of setup. The OPi 5 Pro remains the primary ARM option. The OPi PC
+            is a bench-test rig only.
+          </p>
+
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Feature</th>
+                  <th>Lenovo M910q (x86)</th>
+                  <th>OPi 5 Pro 4GB (ARM)</th>
+                  <th>OPi PC 1.2 (ARM)</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>SoC / CPU</td>
+                  <td class="winner">i5-6400T (4C/4T, 2.8 GHz)</td>
+                  <td>RK3588S (4+4 big.LITTLE)</td>
+                  <td class="downside">Allwinner H3 (4C, 1.3 GHz)</td>
+                </tr>
+                <tr>
+                  <td>RAM</td>
+                  <td class="winner">8 GB DDR4</td>
+                  <td>4 GB LPDDR4X</td>
+                  <td class="downside">1 GB DDR3</td>
+                </tr>
+                <tr>
+                  <td>Storage</td>
+                  <td class="winner">256 GB NVMe SSD</td>
+                  <td>64 GB microSD / NVMe</td>
+                  <td class="downside">16 GB microSD</td>
+                </tr>
+                <tr>
+                  <td>Display outputs</td>
+                  <td>2&times; DisplayPort (adapters needed)</td>
+                  <td class="winner">HDMI 2.1 + HDMI 2.0 (native)</td>
+                  <td class="downside">1&times; HDMI</td>
+                </tr>
+                <tr>
+                  <td>HW video decode</td>
+                  <td class="winner">VAAPI (Intel HD 530)</td>
+                  <td>rkmpp (RK3588 VPU)</td>
+                  <td class="downside">cedrus (limited)</td>
+                </tr>
+                <tr>
+                  <td>WiFi / BT</td>
+                  <td>Intel 8265 ac + BT 4.2 (upgradeable to AX200)</td>
+                  <td class="winner">WiFi 6 + BT 5.0 built-in</td>
+                  <td class="downside">None (USB dongles)</td>
+                </tr>
+                <tr>
+                  <td>USB ports</td>
+                  <td class="winner">6&times; USB 3.0 + 1&times; USB-C</td>
+                  <td>2&times; USB 3.0 + 1&times; USB 2.0</td>
+                  <td class="downside">3&times; USB 2.0</td>
+                </tr>
+                <tr>
+                  <td>GPIO</td>
+                  <td class="downside">None (USB Arduinos required)</td>
+                  <td>40-pin header (26 GPIO)</td>
+                  <td>40-pin header (28 GPIO)</td>
+                </tr>
+                <tr>
+                  <td>Suspend (S3)</td>
+                  <td class="winner">Native ACPI S3 (~0.2 A draw)</td>
+                  <td class="neutral">Software suspend (variable)</td>
+                  <td class="downside">Not reliable</td>
+                </tr>
+                <tr>
+                  <td>Power draw (idle)</td>
+                  <td class="downside">~15 W</td>
+                  <td class="winner">~5 W</td>
+                  <td class="winner">~3 W</td>
+                </tr>
+                <tr>
+                  <td>Power supply</td>
+                  <td>12 V &rarr; 20 V step-up + AGM buffer</td>
+                  <td>12 V &rarr; 5.1 V step-down</td>
+                  <td>12 V &rarr; 5 V step-down</td>
+                </tr>
+                <tr>
+                  <td>OS</td>
+                  <td class="winner">Debian 13 (standard amd64)</td>
+                  <td>Debian 13 / Armbian (arm64)</td>
+                  <td class="downside">Armbian (armhf, custom kernel)</td>
+                </tr>
+                <tr>
+                  <td>Cold boot time</td>
+                  <td class="winner">~12 s (splash at 4 s)</td>
+                  <td>~18 s</td>
+                  <td class="downside">~35 s</td>
+                </tr>
+                <tr>
+                  <td>SBC cost (used/new)</td>
+                  <td class="winner">200&ndash;400 PLN (used)</td>
+                  <td>350&ndash;450 PLN (new)</td>
+                  <td class="winner">80&ndash;120 PLN (used)</td>
+                </tr>
+                <tr>
+                  <td>Total build cost</td>
+                  <td class="winner">~1 600 &ndash; 2 700 PLN</td>
+                  <td>~1 950 &ndash; 3 165 PLN</td>
+                  <td>~942 &ndash; 1 592 PLN (bench only)</td>
+                </tr>
+                <tr>
+                  <td>Form factor</td>
+                  <td>179 &times; 183 &times; 36 mm (1 L)</td>
+                  <td class="winner">100 &times; 62 &times; 18 mm</td>
+                  <td>85 &times; 55 &times; 20 mm</td>
+                </tr>
+                <tr>
+                  <td>Production status</td>
+                  <td class="winner">Recommended</td>
+                  <td>Alternative (ARM)</td>
+                  <td class="downside">Bench test only</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <div class="box box-info">
+            <div class="box-title">M910q advantages over OPi 5 Pro</div>
+            <p>
+              Standard Debian with no kernel patching. Native ACPI suspend/resume
+              (3-second wake). VAAPI hardware decode with no driver issues.
+              256 GB NVMe eliminates microSD reliability concerns. Six USB 3.0
+              ports remove the need for a hub in most configurations. Used units
+              at 200&ndash;400 PLN make it price-competitive with the OPi 5 Pro
+              at 350&ndash;450 PLN new.
+            </p>
+          </div>
+        </section>
+
+        <!-- ---- Documentation Map ---- -->
+        <section>
+          <h2>Documentation Map</h2>
+
+          <p>Follow the pages in order. Each section builds on the previous one.</p>
+
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>#</th>
+                  <th>Page</th>
+                  <th>Description</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>01</td>
+                  <td><a href="01-bom.html">Bill of Materials</a></td>
+                  <td>Complete parts list with prices, sourcing, and stage breakdown</td>
+                </tr>
+                <tr>
+                  <td>02</td>
+                  <td><a href="02-power.html">Power Supply</a></td>
+                  <td>12 V &rarr; 20 V converter, AGM battery buffer, LVD cutoff wiring</td>
+                </tr>
+                <tr>
+                  <td>03</td>
+                  <td><a href="03-os-install.html">OS Installation</a></td>
+                  <td>Debian 13 (Trixie) minimal install, partitioning, firmware</td>
+                </tr>
+                <tr>
+                  <td>04</td>
+                  <td><a href="04-packages.html">System Packages</a></td>
+                  <td>apt packages: X11, Chromium, VAAPI, PipeWire, ffmpeg, etc.</td>
+                </tr>
+                <tr>
+                  <td>05</td>
+                  <td><a href="05-bcm-install.html">BCM Installation</a></td>
+                  <td>Clone repo, Python venv, pip dependencies, first test</td>
+                </tr>
+                <tr>
+                  <td>06</td>
+                  <td><a href="06-systemd.html">Systemd Services</a></td>
+                  <td>Auto-start services, ignition watcher, power button handler</td>
+                </tr>
+                <tr>
+                  <td>07</td>
+                  <td><a href="07-boot.html">Boot &amp; Splash</a></td>
+                  <td>BIOS tuning, GRUB silencing, splash video on dual DRM outputs</td>
+                </tr>
+                <tr>
+                  <td>08</td>
+                  <td><a href="08-kiosk.html">Kiosk Display</a></td>
+                  <td>Dual-display xinitrc, autologin, Chromium kiosk, touch mapping</td>
+                </tr>
+                <tr>
+                  <td>09</td>
+                  <td><a href="09-suspend.html">Suspend / Wake</a></td>
+                  <td>ACPI S3 lifecycle, ignition-based suspend, 3-second resume</td>
+                </tr>
+                <tr>
+                  <td>10</td>
+                  <td><a href="10-wifi.html">WiFi &amp; Android Auto</a></td>
+                  <td>5 GHz AP with hostapd, wireless AA, optional openauto build</td>
+                </tr>
+                <tr>
+                  <td>11</td>
+                  <td><a href="11-arduino.html">Arduino Wiring</a></td>
+                  <td>Input/output Arduino pin maps, serial protocol, optoisolators</td>
+                </tr>
+                <tr>
+                  <td>12</td>
+                  <td><a href="12-verification.html">Verification</a></td>
+                  <td>Full checklist: displays, audio, cameras, suspend, boot time</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+
+      </article>
+
+      <!-- ---- Page Navigation ---- -->
+      <div class="page-nav">
+        <span></span>
+        <a href="01-bom.html">01 &mdash; Bill of Materials &rarr;</a>
+      </div>
+
+      <!-- ---- Footer ---- -->
+      <footer class="page-footer">
+        <span>BCM v8.5 &mdash; Alfa Romeo 156 Headunit</span>
+        <span>Lenovo M910q x86 Production Build</span>
+      </footer>
+
+    </div>
+  </div>
+
+  <!-- ======== Sidebar Toggle Script ======== -->
+  <script>
+    function toggleSidebar() {
+      document.querySelector('.sidebar').classList.toggle('open');
+      document.querySelector('.sidebar-overlay').classList.toggle('active');
+    }
+
+    // Close sidebar when a nav link is clicked (mobile)
+    document.querySelectorAll('.sidebar nav a').forEach(function(link) {
+      link.addEventListener('click', function() {
+        if (window.innerWidth < 768) {
+          document.querySelector('.sidebar').classList.remove('open');
+          document.querySelector('.sidebar-overlay').classList.remove('active');
+        }
+      });
+    });
+  </script>
+
+</body>
+</html>

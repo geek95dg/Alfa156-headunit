@@ -1,0 +1,859 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>12 — Verification | BCM x86 Production</title>
+  <link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+
+  <!-- Hamburger toggle (mobile) -->
+  <button class="hamburger" aria-label="Toggle navigation" onclick="toggleSidebar()">&#9776;</button>
+  <div class="sidebar-overlay" onclick="toggleSidebar()"></div>
+
+  <!-- Sidebar Navigation -->
+  <aside class="sidebar">
+    <div class="sidebar-header">
+      <div class="logo-text">BCM v8.5</div>
+      <div class="logo-sub">Lenovo M910q &middot; Alfa 156</div>
+    </div>
+    <nav aria-label="Documentation pages">
+      <ul>
+        <li><a href="index.html"><span class="nav-num"></span>Overview</a></li>
+        <li><a href="01-bom.html"><span class="nav-num">01</span>Bill of Materials</a></li>
+        <li><a href="02-power.html"><span class="nav-num">02</span>Power Supply</a></li>
+        <li><a href="03-os-install.html"><span class="nav-num">03</span>OS Installation</a></li>
+        <li><a href="04-packages.html"><span class="nav-num">04</span>System Packages</a></li>
+        <li><a href="05-bcm-install.html"><span class="nav-num">05</span>BCM Installation</a></li>
+        <li><a href="06-systemd.html"><span class="nav-num">06</span>Systemd Services</a></li>
+        <li><a href="07-boot.html"><span class="nav-num">07</span>Boot &amp; Splash</a></li>
+        <li><a href="08-kiosk.html"><span class="nav-num">08</span>Kiosk Display</a></li>
+        <li><a href="09-suspend.html"><span class="nav-num">09</span>Suspend / Wake</a></li>
+        <li><a href="10-wifi.html"><span class="nav-num">10</span>WiFi &amp; Android Auto</a></li>
+        <li><a href="11-android-auto.html"><span class="nav-num">11</span>Android Auto</a></li>
+        <li><a href="12-verification.html" class="active"><span class="nav-num">12</span>Verification</a></li>
+      </ul>
+    </nav>
+  </aside>
+
+  <!-- Main Content -->
+  <div class="content">
+    <div class="content-inner">
+
+      <header>
+        <h1>
+          Verification
+          <span class="subtitle">Complete checklist, diagnostic commands, and troubleshooting for the final production build</span>
+        </h1>
+      </header>
+
+      <article>
+
+        <!-- ============================================================
+             OVERVIEW
+             ============================================================ -->
+        <section>
+          <h2 id="overview">Overview</h2>
+
+          <p>
+            This is the final verification checklist after completing all installation
+            steps (sections 01&ndash;11). Work through each category systematically,
+            marking items as Pass or Fail. Any failures should be resolved using the
+            troubleshooting table at the bottom of this page before considering the
+            build production-ready.
+          </p>
+
+          <div class="box box-info">
+            <div class="box-title">When to run this checklist</div>
+            <p>
+              Run the full checklist after completing the initial build, after any
+              hardware changes (new display, new WiFi card, etc.), and after major
+              software updates. For day-to-day operation, the quick diagnostic script
+              in <a href="#quick-diagnostics">section 3</a> covers the essentials.
+            </p>
+          </div>
+        </section>
+
+        <!-- ============================================================
+             PRE-FLIGHT CHECKLIST
+             ============================================================ -->
+        <section>
+          <h2 id="preflight-checklist">Pre-flight Checklist</h2>
+
+          <!-- ---- Core System ---- -->
+          <h3>Core System</h3>
+
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Check</th>
+                  <th>Command / Action</th>
+                  <th>Pass</th>
+                  <th>Fail</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>BCM Flask running</td>
+                  <td><code>curl http://localhost:5002</code> returns HTML</td>
+                  <td></td>
+                  <td></td>
+                </tr>
+                <tr>
+                  <td>Main display shows dashboard</td>
+                  <td>Dashboard visible on HDMI-1 (primary display)</td>
+                  <td></td>
+                  <td></td>
+                </tr>
+                <tr>
+                  <td>Small display shows status</td>
+                  <td>Status dashboard visible on HDMI-2 (secondary display)</td>
+                  <td></td>
+                  <td></td>
+                </tr>
+                <tr>
+                  <td>Displays are separate</td>
+                  <td>Not merged/spanning &mdash; each display has its own Chromium instance</td>
+                  <td></td>
+                  <td></td>
+                </tr>
+                <tr>
+                  <td>Touch accurate on main display</td>
+                  <td>Tap targets on the 7" touchscreen respond correctly</td>
+                  <td></td>
+                  <td></td>
+                </tr>
+                <tr>
+                  <td>No simulation data</td>
+                  <td>Verify <code>system.simulation: false</code> in <code>bcm_config.yaml</code></td>
+                  <td></td>
+                  <td></td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <!-- ---- ECU / OBD ---- -->
+          <h3>ECU / OBD</h3>
+
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Check</th>
+                  <th>Command / Action</th>
+                  <th>Pass</th>
+                  <th>Fail</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>K-Line adapter detected</td>
+                  <td><code>ls /dev/ttyUSB_kline</code></td>
+                  <td></td>
+                  <td></td>
+                </tr>
+                <tr>
+                  <td>ECU communication</td>
+                  <td><code>grep "controller found\|RPM" /opt/bcm/logs/bcm.log</code></td>
+                  <td></td>
+                  <td></td>
+                </tr>
+                <tr>
+                  <td>Live data flowing</td>
+                  <td>RPM, speed, coolant temp updating on dashboard in real-time</td>
+                  <td></td>
+                  <td></td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <!-- ---- Sensors ---- -->
+          <h3>Sensors</h3>
+
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Check</th>
+                  <th>Command / Action</th>
+                  <th>Pass</th>
+                  <th>Fail</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>External temperature updating</td>
+                  <td>DS18B20 via Arduino &mdash; temperature value changes on dashboard</td>
+                  <td></td>
+                  <td></td>
+                </tr>
+                <tr>
+                  <td>Parking sensors responding</td>
+                  <td>HC-SR04 sensors report distance when objects are near</td>
+                  <td></td>
+                  <td></td>
+                </tr>
+                <tr>
+                  <td>Light sensor auto-brightness</td>
+                  <td>Dashboard brightness adjusts with ambient light changes</td>
+                  <td></td>
+                  <td></td>
+                </tr>
+                <tr>
+                  <td>Rain sensor triggers wipers</td>
+                  <td>If wired &mdash; rain detection triggers wiper relay</td>
+                  <td></td>
+                  <td></td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <!-- ---- Input ---- -->
+          <h3>Input</h3>
+
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Check</th>
+                  <th>Command / Action</th>
+                  <th>Pass</th>
+                  <th>Fail</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>SWC buttons mapped and working</td>
+                  <td>Both steering wheel pods respond (all 24 buttons)</td>
+                  <td></td>
+                  <td></td>
+                </tr>
+                <tr>
+                  <td>Rotary encoder navigates menus</td>
+                  <td>Rotate and press &mdash; menu navigation works</td>
+                  <td></td>
+                  <td></td>
+                </tr>
+                <tr>
+                  <td>Main buttons respond</td>
+                  <td>HOME, BACK, MEDIA, VOL buttons trigger correct actions</td>
+                  <td></td>
+                  <td></td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <!-- ---- Connectivity ---- -->
+          <h3>Connectivity</h3>
+
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Check</th>
+                  <th>Command / Action</th>
+                  <th>Pass</th>
+                  <th>Fail</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>WiFi AP broadcasting</td>
+                  <td><code>ALFA_AA</code> visible on 5 GHz (Fenvi)</td>
+                  <td></td>
+                  <td></td>
+                </tr>
+                <tr>
+                  <td>Phone connects to AP</td>
+                  <td>Phone gets DHCP IP in 192.168.44.x range</td>
+                  <td></td>
+                  <td></td>
+                </tr>
+                <tr>
+                  <td>Bluetooth powered and discoverable</td>
+                  <td><code>bluetoothctl show</code> &mdash; Powered: yes, Discoverable: yes</td>
+                  <td></td>
+                  <td></td>
+                </tr>
+                <tr>
+                  <td>BT pairing popup appears</td>
+                  <td>When phone initiates pairing, confirmation popup shows on dashboard</td>
+                  <td></td>
+                  <td></td>
+                </tr>
+                <tr>
+                  <td>LTE modem online</td>
+                  <td><code>ip addr show wwx*</code> &mdash; interface has IP address</td>
+                  <td></td>
+                  <td></td>
+                </tr>
+                <tr>
+                  <td>GPS fix</td>
+                  <td><code>grep "gps\|fix" /opt/bcm/logs/bcm.log</code> &mdash; shows position data</td>
+                  <td></td>
+                  <td></td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <!-- ---- Audio / Media ---- -->
+          <h3>Audio / Media</h3>
+
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Check</th>
+                  <th>Command / Action</th>
+                  <th>Pass</th>
+                  <th>Fail</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>Audio plays through USB DAC</td>
+                  <td>Test audio file plays through speakers via ES9038Q2M DAC</td>
+                  <td></td>
+                  <td></td>
+                </tr>
+                <tr>
+                  <td>BT A2DP music streaming</td>
+                  <td>Play music from phone &mdash; audio streams to car speakers via BT</td>
+                  <td></td>
+                  <td></td>
+                </tr>
+                <tr>
+                  <td>HFP phone calls</td>
+                  <td>Make/receive phone call &mdash; audio through car speakers, mic working</td>
+                  <td></td>
+                  <td></td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <!-- ---- Android Auto ---- -->
+          <h3>Android Auto</h3>
+
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Check</th>
+                  <th>Command / Action</th>
+                  <th>Pass</th>
+                  <th>Fail</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>Wired AA connects</td>
+                  <td>Phone connected via USB &mdash; AA screen appears on dashboard</td>
+                  <td></td>
+                  <td></td>
+                </tr>
+                <tr>
+                  <td>Touch forwarding works</td>
+                  <td>Tap on AA area in browser &mdash; phone responds to touch input</td>
+                  <td></td>
+                  <td></td>
+                </tr>
+                <tr>
+                  <td>Wireless AA connects</td>
+                  <td>Phone connects via BT &rarr; WiFi &mdash; AA screen appears wirelessly</td>
+                  <td></td>
+                  <td></td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <!-- ---- Power ---- -->
+          <h3>Power</h3>
+
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Check</th>
+                  <th>Command / Action</th>
+                  <th>Pass</th>
+                  <th>Fail</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>Splash video plays on both displays</td>
+                  <td>Boot &mdash; splash video visible on main and small display simultaneously</td>
+                  <td></td>
+                  <td></td>
+                </tr>
+                <tr>
+                  <td>Boot time &lt; 15s</td>
+                  <td>Cold boot to dashboard in under 15 seconds</td>
+                  <td></td>
+                  <td></td>
+                </tr>
+                <tr>
+                  <td>Power button &rarr; S3 suspend</td>
+                  <td>Press power button &mdash; system enters S3 suspend and stays sleeping</td>
+                  <td></td>
+                  <td></td>
+                </tr>
+                <tr>
+                  <td>Power button &rarr; resume</td>
+                  <td>Press power button again &mdash; system resumes in ~3&ndash;5 seconds</td>
+                  <td></td>
+                  <td></td>
+                </tr>
+                <tr>
+                  <td>Ignition OFF &rarr; suspend</td>
+                  <td>Turn ignition off &mdash; system suspends after 5-second delay</td>
+                  <td></td>
+                  <td></td>
+                </tr>
+                <tr>
+                  <td>Ignition ON &rarr; resume</td>
+                  <td>Turn ignition on &mdash; system resumes and shows dashboard</td>
+                  <td></td>
+                  <td></td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <!-- ---- Boot ---- -->
+          <h3>Boot</h3>
+
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Check</th>
+                  <th>Command / Action</th>
+                  <th>Pass</th>
+                  <th>Fail</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>No kernel messages visible</td>
+                  <td>Boot shows splash only &mdash; no scrolling text (quiet boot)</td>
+                  <td></td>
+                  <td></td>
+                </tr>
+                <tr>
+                  <td>No GRUB menu visible</td>
+                  <td>GRUB timeout is 0 &mdash; boots directly without menu</td>
+                  <td></td>
+                  <td></td>
+                </tr>
+                <tr>
+                  <td>Splash &rarr; dashboard transition smooth</td>
+                  <td>No black screen gap between splash video ending and dashboard appearing</td>
+                  <td></td>
+                  <td></td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+
+        <!-- ============================================================
+             QUICK DIAGNOSTIC COMMANDS
+             ============================================================ -->
+        <section>
+          <h2 id="quick-diagnostics">Quick Diagnostic Commands</h2>
+
+          <p>
+            Run this all-in-one diagnostic script to check the most critical subsystems
+            at a glance. Copy and paste the entire block into a terminal:
+          </p>
+
+          <pre><code>#!/bin/bash
+# BCM Quick Diagnostics — run as root or with sudo
+echo "============================================"
+echo "  BCM v8.5 — Quick Diagnostic Report"
+echo "============================================"
+echo ""
+
+# Core system
+echo "--- Core System ---"
+echo -n "BCM Flask (port 5002): "
+curl -s -o /dev/null -w "%{http_code}" http://localhost:5002 2>/dev/null || echo "FAIL"
+echo ""
+echo -n "BCM service: "
+systemctl is-active bcm-headunit 2>/dev/null || echo "inactive"
+echo -n "Ignition watcher: "
+systemctl is-active bcm-ignition-watcher 2>/dev/null || echo "inactive"
+echo ""
+
+# Displays
+echo "--- Displays ---"
+xrandr --listmonitors 2>/dev/null || echo "xrandr not available"
+echo ""
+
+# ECU / OBD
+echo "--- ECU / OBD ---"
+echo -n "K-Line adapter: "
+ls /dev/ttyUSB_kline 2>/dev/null &amp;&amp; echo "OK" || echo "NOT FOUND"
+echo -n "ECU comms: "
+grep -c "controller found\|RPM" /opt/bcm/logs/bcm.log 2>/dev/null || echo "0"
+echo " matches in bcm.log"
+echo ""
+
+# Connectivity
+echo "--- Connectivity ---"
+echo -n "WiFi AP (hostapd): "
+systemctl is-active hostapd 2>/dev/null || echo "inactive"
+echo -n "Bluetooth: "
+systemctl is-active bluetooth 2>/dev/null || echo "inactive"
+echo -n "LTE modem: "
+ip addr show wwx* 2>/dev/null | grep -q "inet " &amp;&amp; echo "ONLINE" || echo "OFFLINE"
+echo -n "GPS fix: "
+grep -c "fix" /opt/bcm/logs/bcm.log 2>/dev/null || echo "0"
+echo " fix entries in log"
+echo ""
+
+# Audio
+echo "--- Audio ---"
+echo -n "USB DAC: "
+aplay -l 2>/dev/null | grep -qi "usb\|dac" &amp;&amp; echo "DETECTED" || echo "NOT FOUND"
+echo -n "PipeWire: "
+systemctl --user is-active pipewire 2>/dev/null || echo "inactive"
+echo ""
+
+# Android Auto
+echo "--- Android Auto ---"
+echo -n "autoapp binary: "
+ls /usr/local/bin/autoapp 2>/dev/null &amp;&amp; echo "OK" || echo "NOT FOUND"
+echo -n "Xvfb (:99): "
+ps aux | grep -v grep | grep -q "Xvfb.*:99" &amp;&amp; echo "RUNNING" || echo "NOT RUNNING"
+echo ""
+
+# Power / Boot
+echo "--- Power / Boot ---"
+echo -n "Suspend support: "
+cat /sys/power/state 2>/dev/null || echo "unknown"
+echo -n "Boot time: "
+systemd-analyze 2>/dev/null | head -1 || echo "unknown"
+echo ""
+
+# Arduino
+echo "--- Arduino ---"
+echo -n "Input Arduino: "
+ls /dev/ttyACM0 2>/dev/null &amp;&amp; echo "OK" || echo "NOT FOUND"
+echo -n "Output Arduino: "
+ls /dev/ttyUSB_arduino_out 2>/dev/null &amp;&amp; echo "OK" || echo "NOT FOUND"
+echo ""
+
+echo "============================================"
+echo "  Diagnostic complete"
+echo "============================================"</code></pre>
+
+          <div class="box box-info">
+            <div class="box-title">Save as a script</div>
+            <p>
+              Save this as <code>/opt/bcm/scripts/diagnostics.sh</code> and make it
+              executable with <code>chmod +x</code>. Run with <code>sudo bash /opt/bcm/scripts/diagnostics.sh</code>
+              for a quick health check at any time.
+            </p>
+          </div>
+        </section>
+
+        <!-- ============================================================
+             COMMON ISSUES & FIXES
+             ============================================================ -->
+        <section>
+          <h2 id="common-issues">Common Issues &amp; Fixes</h2>
+
+          <p>
+            This table compiles the most common issues encountered across all build
+            stages, along with their symptoms, root causes, and fixes.
+          </p>
+
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Issue</th>
+                  <th>Symptom</th>
+                  <th>Cause</th>
+                  <th>Fix</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>BCM won't start</td>
+                  <td><code>systemctl status bcm-headunit</code> shows failed</td>
+                  <td>Python venv broken or missing dependency</td>
+                  <td>Re-run <code>cd /opt/bcm &amp;&amp; source venv/bin/activate &amp;&amp; pip install -r requirements.txt</code></td>
+                </tr>
+                <tr>
+                  <td>No display output</td>
+                  <td>Both screens black after boot</td>
+                  <td>DP-to-HDMI adapters not connected or X11 not starting</td>
+                  <td>Check adapter connections; verify <code>xinit</code> runs in <code>.bash_profile</code>; check <code>/tmp/bcm-xinput.log</code></td>
+                </tr>
+                <tr>
+                  <td>Displays mirrored</td>
+                  <td>Both screens show same content</td>
+                  <td><code>xrandr</code> not configured for separate outputs</td>
+                  <td>Verify <code>.xinitrc</code> has <code>xrandr --output DP-1 --auto --output DP-2 --auto --right-of DP-1</code></td>
+                </tr>
+                <tr>
+                  <td>Touch offset</td>
+                  <td>Taps land in wrong position</td>
+                  <td>Touch device mapped to wrong display or not calibrated</td>
+                  <td>Run <code>xinput map-to-output &lt;touch-id&gt; DP-1</code>; check coordinate transform matrix</td>
+                </tr>
+                <tr>
+                  <td>No audio</td>
+                  <td>Dashboard loads but no sound from speakers</td>
+                  <td>USB DAC not default sink or PipeWire not running</td>
+                  <td><code>wpctl set-default &lt;dac-sink-id&gt;</code>; verify <code>systemctl --user status pipewire</code></td>
+                </tr>
+                <tr>
+                  <td>K-Line not detected</td>
+                  <td><code>/dev/ttyUSB_kline</code> missing</td>
+                  <td>udev rule not installed or adapter unplugged</td>
+                  <td>Check <code>/etc/udev/rules.d/99-bcm.rules</code>; run <code>udevadm trigger</code>; reconnect adapter</td>
+                </tr>
+                <tr>
+                  <td>No ECU data</td>
+                  <td>Dashboard shows 0 RPM, 0 km/h</td>
+                  <td>K-Line wiring issue or wrong baud rate</td>
+                  <td>Verify K-Line wiring (Tx/Rx/GND); check baud rate is 10400 in config</td>
+                </tr>
+                <tr>
+                  <td>WiFi AP not starting</td>
+                  <td><code>hostapd</code> fails immediately</td>
+                  <td>WiFi card does not support AP mode on 5 GHz</td>
+                  <td>Check <code>iw list | grep AP</code>; consider Fenvi AX200 upgrade; try 2.4 GHz as fallback</td>
+                </tr>
+                <tr>
+                  <td>BT not discoverable</td>
+                  <td>Phone cannot find BCM in BT scan</td>
+                  <td>Bluetooth service not running or adapter powered off</td>
+                  <td><code>sudo systemctl restart bluetooth</code>; <code>bluetoothctl power on</code>; <code>bluetoothctl discoverable on</code></td>
+                </tr>
+                <tr>
+                  <td>LTE no internet</td>
+                  <td>Huawei E3372 plugged in but no connectivity</td>
+                  <td>Modem not switching to HiLink mode or no SIM</td>
+                  <td>Check <code>lsusb</code> for Huawei device; verify SIM has data; check <code>ip route</code> for default gateway</td>
+                </tr>
+                <tr>
+                  <td>GPS no fix</td>
+                  <td>Position shows 0,0 or "No fix"</td>
+                  <td>GPS antenna obstructed or <code>gpsd</code> not running</td>
+                  <td>Ensure GPS puck has sky view; check <code>systemctl status gpsd</code>; verify <code>/dev/ttyACM*</code> or <code>/dev/ttyUSB*</code></td>
+                </tr>
+                <tr>
+                  <td>Suspend not working</td>
+                  <td>System does not enter S3 on power button</td>
+                  <td>BIOS S3 disabled or systemd sleep target masked</td>
+                  <td>Enable S3 in BIOS (Advanced &rarr; Power); <code>sudo systemctl unmask sleep.target suspend.target</code></td>
+                </tr>
+                <tr>
+                  <td>Resume fails</td>
+                  <td>System does not wake from S3 or hangs on resume</td>
+                  <td>USB wake not enabled or GPU driver issue</td>
+                  <td>Enable USB wake in BIOS; check <code>cat /proc/acpi/wakeup</code>; update Intel GPU firmware</td>
+                </tr>
+                <tr>
+                  <td>Splash not showing</td>
+                  <td>Black screen during boot, then dashboard appears</td>
+                  <td>Splash service failed or video file missing</td>
+                  <td>Check <code>journalctl -u bcm-splash-main</code>; verify splash video exists at configured path</td>
+                </tr>
+                <tr>
+                  <td>GRUB menu appears</td>
+                  <td>GRUB menu visible for a few seconds before boot</td>
+                  <td>GRUB timeout not set to 0</td>
+                  <td>Set <code>GRUB_TIMEOUT=0</code> in <code>/etc/default/grub</code>; run <code>sudo update-grub</code></td>
+                </tr>
+                <tr>
+                  <td>Kernel messages on screen</td>
+                  <td>Scrolling text visible during boot</td>
+                  <td>Quiet boot not configured</td>
+                  <td>Add <code>quiet loglevel=0 vt.global_cursor_default=0</code> to <code>GRUB_CMDLINE_LINUX_DEFAULT</code>; run <code>sudo update-grub</code></td>
+                </tr>
+                <tr>
+                  <td>Arduino not responding</td>
+                  <td>No sensor data or relay control</td>
+                  <td>Serial port name changed or Arduino disconnected</td>
+                  <td>Check <code>ls /dev/ttyACM* /dev/ttyUSB*</code>; verify udev rules; re-flash Arduino firmware if needed</td>
+                </tr>
+                <tr>
+                  <td>AA touch offset</td>
+                  <td>Taps on AA screen land in wrong position</td>
+                  <td>Canvas size mismatch between browser and Xvfb</td>
+                  <td>Check <code>display.multimedia.width/height</code> matches Xvfb resolution; verify xdotool coordinate mapping</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+
+        <!-- ============================================================
+             LOG LOCATIONS
+             ============================================================ -->
+        <section>
+          <h2 id="log-locations">Log Locations</h2>
+
+          <p>
+            All BCM-related logs and their access commands, collected in one place
+            for quick reference during troubleshooting.
+          </p>
+
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Log</th>
+                  <th>Command</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>BCM application</td>
+                  <td><code>/opt/bcm/logs/bcm.log</code></td>
+                </tr>
+                <tr>
+                  <td>Splash (main display)</td>
+                  <td><code>journalctl -u bcm-splash-main</code></td>
+                </tr>
+                <tr>
+                  <td>Splash (small display)</td>
+                  <td><code>journalctl -u bcm-splash-small</code></td>
+                </tr>
+                <tr>
+                  <td>Hostapd (WiFi AP)</td>
+                  <td><code>journalctl -u hostapd</code></td>
+                </tr>
+                <tr>
+                  <td>Bluetooth</td>
+                  <td><code>journalctl -u bluetooth</code></td>
+                </tr>
+                <tr>
+                  <td>Touch input</td>
+                  <td><code>/tmp/bcm-xinput.log</code></td>
+                </tr>
+                <tr>
+                  <td>Boot time analysis</td>
+                  <td><code>systemd-analyze blame</code></td>
+                </tr>
+                <tr>
+                  <td>Kernel messages</td>
+                  <td><code>dmesg</code></td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <div class="box box-info">
+            <div class="box-title">Live log monitoring</div>
+            <p>
+              For real-time log monitoring during debugging, use
+              <code>tail -f /opt/bcm/logs/bcm.log</code> or
+              <code>journalctl -u bcm-headunit -f</code> to stream log entries
+              as they are written.
+            </p>
+          </div>
+        </section>
+
+        <!-- ============================================================
+             NEXT STEPS
+             ============================================================ -->
+        <section>
+          <h2 id="next-steps">Next Steps</h2>
+
+          <p>
+            Once all checklist items pass, the BCM build is production-ready.
+            Here are the recommended next steps:
+          </p>
+
+          <ul>
+            <li>
+              <strong>Return to the <a href="index.html">Overview</a></strong> for a
+              summary of the complete build and links to all documentation sections.
+            </li>
+            <li>
+              <strong>OTA updates:</strong> The BCM software can be updated in-place
+              by pulling the latest changes from the git repository and re-running
+              the setup script:
+              <pre><code>cd /opt/bcm
+git pull
+sudo bash setup-x86.sh</code></pre>
+              This preserves your <code>bcm_config.yaml</code> and only updates
+              the application code, templates, and systemd services.
+            </li>
+            <li>
+              <strong>Backup your configuration:</strong> Copy <code>/opt/bcm/config/bcm_config.yaml</code>
+              and <code>/etc/udev/rules.d/99-bcm.rules</code> to a USB drive or
+              cloud storage. These are the only files that contain your specific
+              hardware mappings.
+            </li>
+            <li>
+              <strong>Create a disk image:</strong> Once everything is verified, create
+              a full disk image with <code>dd</code> or <code>clonezilla</code> for
+              disaster recovery. A 256 GB NVMe image compresses to ~8&ndash;15 GB.
+            </li>
+          </ul>
+
+          <div class="box box-info">
+            <div class="box-title">Build complete</div>
+            <p>
+              Congratulations &mdash; your BCM v8.5 headunit on the Lenovo M910q is
+              now fully operational. The system provides a modern infotainment platform
+              with dual displays, full OBD-II diagnostics, Android Auto, 4.1 audio,
+              quad cameras, and intelligent power management &mdash; all running on
+              standard Debian with no custom kernel patches.
+            </p>
+          </div>
+        </section>
+
+      </article>
+
+      <!-- Page Navigation -->
+      <div class="page-nav">
+        <a href="11-android-auto.html">&larr; 11 &mdash; Android Auto</a>
+        <a href="index.html">Overview &rarr;</a>
+      </div>
+
+      <!-- Footer -->
+      <footer class="page-footer">
+        <span>BCM v8.5 &mdash; Alfa Romeo 156 Headunit</span>
+        <span>Lenovo M910q x86 Production Build</span>
+      </footer>
+
+    </div>
+  </div>
+
+  <!-- Sidebar Toggle Script -->
+  <script>
+    function toggleSidebar() {
+      document.querySelector('.sidebar').classList.toggle('open');
+      document.querySelector('.sidebar-overlay').classList.toggle('active');
+    }
+
+    document.querySelectorAll('.sidebar nav a').forEach(function(link) {
+      link.addEventListener('click', function() {
+        if (window.innerWidth < 768) {
+          document.querySelector('.sidebar').classList.remove('open');
+          document.querySelector('.sidebar-overlay').classList.remove('active');
+        }
+      });
+    });
+  </script>
+
+</body>
+</html>

@@ -1,0 +1,465 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>08 WiFi &amp; Bluetooth &mdash; BCM v8.5 x86 Production</title>
+  <link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+
+  <!-- Hamburger toggle (mobile only) -->
+  <button class="hamburger" aria-label="Toggle navigation" onclick="toggleSidebar()">&#9776;</button>
+
+  <!-- Overlay behind sidebar on mobile -->
+  <div class="sidebar-overlay" onclick="toggleSidebar()"></div>
+
+  <!-- ======== Sidebar Navigation ======== -->
+  <aside class="sidebar">
+    <div class="sidebar-header">
+      <div class="logo-text">BCM v8.5</div>
+      <div class="logo-sub">Lenovo M910q &middot; Alfa 156</div>
+    </div>
+    <nav aria-label="Documentation pages">
+      <ul>
+        <li><a href="index.html"><span class="nav-num"></span>Overview</a></li>
+        <li><a href="01-bom.html"><span class="nav-num">01</span>Bill of Materials</a></li>
+        <li><a href="02-power.html"><span class="nav-num">02</span>Power Supply</a></li>
+        <li><a href="03-os-install.html"><span class="nav-num">03</span>OS Installation</a></li>
+        <li><a href="04-packages.html"><span class="nav-num">04</span>System Packages</a></li>
+        <li><a href="05-bcm-install.html"><span class="nav-num">05</span>BCM Installation</a></li>
+        <li><a href="06-systemd.html"><span class="nav-num">06</span>Systemd Services</a></li>
+        <li><a href="07-sensors.html"><span class="nav-num">07</span>Sensors</a></li>
+        <li><a href="08-wifi-bt.html" class="active"><span class="nav-num">08</span>WiFi &amp; Bluetooth</a></li>
+        <li><a href="09-display-touch.html"><span class="nav-num">09</span>Display &amp; Touch</a></li>
+        <li><a href="10-wifi.html"><span class="nav-num">10</span>WiFi &amp; Android Auto</a></li>
+        <li><a href="11-arduino.html"><span class="nav-num">11</span>Arduino Wiring</a></li>
+        <li><a href="12-verification.html"><span class="nav-num">12</span>Verification</a></li>
+      </ul>
+    </nav>
+  </aside>
+
+  <!-- ======== Main Content ======== -->
+  <div class="content">
+    <div class="content-inner">
+
+      <header>
+        <h1>
+          08 &mdash; WiFi &amp; Bluetooth
+          <span class="subtitle">Fenvi FU-AX1800 (MediaTek MT7921) &mdash; Dual-SSID AP &amp; BT Pairing</span>
+        </h1>
+      </header>
+
+      <article>
+
+        <!-- ---- 1. Overview ---- -->
+        <section>
+          <h2>Overview</h2>
+
+          <p>
+            The <strong>Fenvi FU-AX1800</strong> (MediaTek MT7921 chipset) replaces the
+            stock Intel 8265 wireless card in the Lenovo M910q. While the Intel 8265
+            provides basic WiFi and Bluetooth, it cannot reliably operate as a 5&nbsp;GHz
+            access point &mdash; a requirement for wireless Android Auto. The Fenvi
+            FU-AX1800 resolves this with full WiFi&nbsp;6 (802.11ax) support on both
+            2.4&nbsp;GHz and 5&nbsp;GHz bands, plus Bluetooth&nbsp;5.2.
+          </p>
+
+          <div class="box box-info">
+            <div class="box-title">Why replace the Intel 8265?</div>
+            <p>
+              The Intel 8265 uses the <code>iwlwifi</code> driver, which does not
+              support 5&nbsp;GHz AP mode. Android Auto wireless requires a 5&nbsp;GHz
+              access point for acceptable latency and bandwidth. The MT7921 driver
+              (<code>mt7921e</code>) is mainline since kernel 5.18 and supports both
+              AP mode on 5&nbsp;GHz and dual-SSID virtual interfaces, making it the
+              ideal upgrade.
+            </p>
+          </div>
+
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Feature</th>
+                  <th>Intel 8265</th>
+                  <th>Fenvi FU-AX1800 (MT7921)</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>WiFi Standard</td>
+                  <td>802.11ac (WiFi 5)</td>
+                  <td class="winner">802.11ax (WiFi 6)</td>
+                </tr>
+                <tr>
+                  <td>5 GHz AP Mode</td>
+                  <td class="downside">Not supported</td>
+                  <td class="winner">Supported</td>
+                </tr>
+                <tr>
+                  <td>Dual-SSID (virtual interfaces)</td>
+                  <td class="downside">Not supported</td>
+                  <td class="winner">Supported</td>
+                </tr>
+                <tr>
+                  <td>Bluetooth</td>
+                  <td>BT 4.2</td>
+                  <td class="winner">BT 5.2</td>
+                </tr>
+                <tr>
+                  <td>Linux Driver</td>
+                  <td>iwlwifi</td>
+                  <td>mt7921e (mainline &ge; 5.18)</td>
+                </tr>
+                <tr>
+                  <td>Form Factor</td>
+                  <td>M.2 Key E (2230)</td>
+                  <td>M.2 Key E (2230)</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+
+        <!-- ---- 2. Hardware Installation ---- -->
+        <section>
+          <h2>Hardware Installation</h2>
+
+          <h3>M.2 Key E Slot Swap</h3>
+          <ol>
+            <li>Power off the M910q and unplug all cables.</li>
+            <li>Remove the top cover (single thumbscrew on the back).</li>
+            <li>Locate the M.2 Key E slot &mdash; the Intel 8265 card is held by a single screw.</li>
+            <li>Disconnect the two IPEX/U.FL antenna pigtails from the Intel card.</li>
+            <li>Remove the mounting screw, slide out the Intel 8265.</li>
+            <li>Insert the Fenvi FU-AX1800 into the same M.2 Key E slot at a 30&deg; angle, press down, and secure with the screw.</li>
+            <li>Reconnect both IPEX/U.FL antenna pigtails to the Fenvi card.</li>
+          </ol>
+
+          <h3>Antenna Pigtails</h3>
+          <p>
+            The Fenvi FU-AX1800 uses <strong>2&times; IPEX/U.FL</strong> connectors, same
+            as the Intel 8265. Reuse the existing antenna pigtails if they are in good
+            condition. For best WiFi and Bluetooth range, route the antenna cables toward
+            the windshield &mdash; metal bodywork behind the dashboard attenuates the signal
+            significantly.
+          </p>
+
+          <div class="box box-warning">
+            <div class="box-title">Antenna placement matters</div>
+            <p>
+              Place antennas as close to the windshield as possible. Glass has much lower
+              RF attenuation than steel. Tuck the pigtails behind the A-pillar trim or
+              above the headliner near the windshield edge for optimal coverage to the
+              phone in a dash mount or cupholder.
+            </p>
+          </div>
+        </section>
+
+        <!-- ---- 3. Driver Setup ---- -->
+        <section>
+          <h2>Driver Setup</h2>
+
+          <p>
+            The MT7921 driver (<code>mt7921e</code>) is included in the mainline Linux
+            kernel since version 5.18. Debian 13 (Trixie) ships with kernel 6.x, so the
+            driver is available out of the box. Only the firmware package needs to be
+            installed.
+          </p>
+
+          <pre><code># MT7921 driver is mainline (kernel 5.18+, Debian 13 has it)
+apt install firmware-mediatek
+
+# Blacklist Intel WiFi (prevent conflicts if Intel 8265 is still detected)
+echo "blacklist iwlwifi" &gt; /etc/modprobe.d/blacklist-intel-wifi.conf
+
+# Verify the card is detected
+lspci | grep -i mediatek
+ip link show | grep wl
+iw dev</code></pre>
+
+          <p>
+            After installing the firmware and rebooting, <code>lspci</code> should show the
+            MediaTek MT7921 device, and <code>ip link</code> should list a <code>wlan0</code>
+            interface. The <code>iw dev</code> command confirms the wireless interface is
+            operational.
+          </p>
+        </section>
+
+        <!-- ---- 4. WiFi AP — Dual SSID Configuration ---- -->
+        <section>
+          <h2>WiFi AP &mdash; Dual SSID Configuration</h2>
+
+          <p>
+            The BCM build uses <strong>two SSIDs</strong> on a single physical interface
+            via hostapd BSS (Basic Service Set) support. This allows dedicated networks for
+            Android Auto and general connectivity without a second wireless adapter.
+          </p>
+
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>SSID</th>
+                  <th>Band</th>
+                  <th>Purpose</th>
+                  <th>Subnet</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><code>ALFA_AA</code></td>
+                  <td>5 GHz (channel 36 or 149)</td>
+                  <td>Android Auto wireless &mdash; low latency, high throughput</td>
+                  <td>192.168.44.0/24</td>
+                </tr>
+                <tr>
+                  <td><code>ALFA_NET</code></td>
+                  <td>2.4 GHz</td>
+                  <td>General connectivity &mdash; phone hotspot relay, SSH access</td>
+                  <td>192.168.45.0/24</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <h3>hostapd Configuration</h3>
+          <p>
+            Create or edit <code>/etc/hostapd/hostapd.conf</code>:
+          </p>
+
+          <pre><code>interface=wlan0
+driver=nl80211
+
+# Primary BSS — 5GHz for Android Auto
+ssid=ALFA_AA
+hw_mode=a
+channel=36
+ieee80211n=1
+ieee80211ac=1
+ieee80211ax=1
+wpa=2
+wpa_passphrase=AlfaRomeo156
+wpa_key_mgmt=WPA-PSK
+rsn_pairwise=CCMP
+country_code=PL
+
+# Secondary BSS — 2.4GHz general
+bss=wlan0_1
+ssid=ALFA_NET
+wpa=2
+wpa_passphrase=AlfaNet2026
+wpa_key_mgmt=WPA-PSK
+rsn_pairwise=CCMP</code></pre>
+
+          <div class="box box-warning">
+            <div class="box-title">Dual-SSID requires virtual interface support</div>
+            <p>
+              Dual-SSID depends on the MT7921 supporting virtual interfaces. Verify
+              with <code>iw list | grep -A5 "valid interface combinations"</code>.
+              The output should list support for multiple APs. If not supported by
+              your firmware version, fall back to a single SSID
+              (<code>ALFA_AA</code> on 5&nbsp;GHz) and use the phone's mobile hotspot
+              for general internet connectivity.
+            </p>
+          </div>
+
+          <h3>dnsmasq Configuration</h3>
+          <p>
+            Configure DHCP for both interfaces in <code>/etc/dnsmasq.d/bcm-wifi.conf</code>:
+          </p>
+
+          <pre><code>interface=wlan0
+interface=wlan0_1
+bind-interfaces
+dhcp-range=interface:wlan0,192.168.44.10,192.168.44.50,255.255.255.0,24h
+dhcp-range=interface:wlan0_1,192.168.45.10,192.168.45.50,255.255.255.0,24h</code></pre>
+
+          <p>
+            This assigns IPs in the <code>192.168.44.x</code> range for the Android Auto
+            network and <code>192.168.45.x</code> for the general network. The
+            <code>bind-interfaces</code> directive ensures dnsmasq only listens on the
+            specified interfaces, avoiding conflicts with other network services.
+          </p>
+        </section>
+
+        <!-- ---- 5. Bluetooth Setup ---- -->
+        <section>
+          <h2>Bluetooth Setup</h2>
+
+          <p>
+            Bluetooth is managed by two components: the system-level
+            <code>bcm-bluetooth.service</code> and the application-level
+            <code>BluetoothManager</code> in BCM.
+          </p>
+
+          <h3>bcm-bluetooth.service</h3>
+          <p>
+            This systemd service runs at boot and configures the Bluetooth adapter:
+          </p>
+          <ul>
+            <li><strong>Power on</strong> &mdash; enables the BT adapter</li>
+            <li><strong>Alias</strong> &mdash; sets the device name to <code>Alfa156 Headunit</code></li>
+            <li><strong>Discoverable</strong> &mdash; makes the adapter visible to nearby devices</li>
+            <li><strong>Pairable</strong> &mdash; allows incoming pairing requests</li>
+            <li><strong>Agent</strong> &mdash; registers a pairing agent for passkey confirmation</li>
+          </ul>
+
+          <h3>BluetoothManager (BCM Application)</h3>
+          <p>
+            The <code>BluetoothManager</code> class in the BCM Python application provides:
+          </p>
+          <ul>
+            <li><strong>D-Bus pairing agent</strong> &mdash; handles pairing requests programmatically</li>
+            <li><strong>A2DP sink</strong> &mdash; receives audio streams from the phone for music playback</li>
+            <li><strong>HFP</strong> &mdash; hands-free profile for phone calls through the car speakers</li>
+          </ul>
+
+          <h3>Pairing Flow</h3>
+          <ol>
+            <li>Phone discovers <strong>"Alfa156 Headunit"</strong> in its Bluetooth settings.</li>
+            <li>Phone initiates a pairing request.</li>
+            <li>BCM global polling detects the pairing request (polls every 2 seconds).</li>
+            <li>A passkey confirmation popup appears on the BCM dashboard (works from any screen).</li>
+            <li>User confirms on the BCM touchscreen &mdash; pairing completes.</li>
+          </ol>
+
+          <h3>Supported BT Profiles</h3>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Profile</th>
+                  <th>Function</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><strong>A2DP</strong></td>
+                  <td>Advanced Audio Distribution &mdash; high-quality music streaming from phone to car</td>
+                </tr>
+                <tr>
+                  <td><strong>HFP</strong></td>
+                  <td>Hands-Free Profile &mdash; phone calls through car speakers and microphone</td>
+                </tr>
+                <tr>
+                  <td><strong>AVRCP</strong></td>
+                  <td>Audio/Video Remote Control &mdash; play, pause, skip, volume from SWC buttons</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+
+        <!-- ---- 6. Verification ---- -->
+        <section>
+          <h2>Verification</h2>
+
+          <h3>WiFi AP</h3>
+          <pre><code># Check hostapd is running
+sudo systemctl status hostapd
+
+# Verify AP mode on wlan0
+iw dev wlan0 info  # should show type AP
+
+# List connected clients
+iw dev wlan0 station dump</code></pre>
+
+          <h3>Bluetooth</h3>
+          <pre><code># Check BT adapter state
+bluetoothctl show | grep -E "Powered|Discoverable|Pairable"
+
+# Verify BluetoothManager initialized in BCM
+grep "BluetoothManager initialized" /opt/bcm/logs/bcm.log | tail -3
+
+# List paired devices
+bluetoothctl devices Paired</code></pre>
+        </section>
+
+        <!-- ---- 7. Troubleshooting ---- -->
+        <section>
+          <h2>Troubleshooting</h2>
+
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Problem</th>
+                  <th>Cause</th>
+                  <th>Solution</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>hostapd fails: <code>Channel 36 not allowed</code></td>
+                  <td>Regulatory domain blocks the channel</td>
+                  <td>Set <code>country_code=PL</code> in hostapd.conf and run <code>iw reg set PL</code>. Try channel 149 as an alternative. Verify with <code>iw list | grep -A20 "Frequencies"</code>.</td>
+                </tr>
+                <tr>
+                  <td>Dual-SSID not working</td>
+                  <td>MT7921 firmware does not support multiple virtual APs</td>
+                  <td>Run <code>iw list | grep -A5 "valid interface combinations"</code>. If only 1 AP is listed, remove the <code>bss=wlan0_1</code> block from hostapd.conf and use a single SSID. Update firmware: <code>apt update &amp;&amp; apt upgrade firmware-mediatek</code>.</td>
+                </tr>
+                <tr>
+                  <td>Bluetooth not discoverable</td>
+                  <td><code>bcm-bluetooth.service</code> failed or adapter not powered</td>
+                  <td>Check <code>systemctl status bcm-bluetooth</code>. Manually run <code>bluetoothctl power on</code> and <code>bluetoothctl discoverable on</code>. Verify adapter exists with <code>hciconfig -a</code>.</td>
+                </tr>
+                <tr>
+                  <td>Pairing request times out</td>
+                  <td>BCM polling missed the D-Bus signal or agent not registered</td>
+                  <td>Check BCM logs: <code>grep -i "pairing\|agent" /opt/bcm/logs/bcm.log | tail -20</code>. Restart BCM: <code>systemctl restart bcm</code>. Ensure <code>BluetoothManager</code> is enabled in BCM config.</td>
+                </tr>
+                <tr>
+                  <td>No audio over A2DP</td>
+                  <td>PipeWire not routing BT audio to the DAC</td>
+                  <td>Check PipeWire status: <code>wpctl status</code>. Ensure the BT source is connected: <code>pactl list sources short</code>. Restart PipeWire: <code>systemctl --user restart pipewire wireplumber</code>.</td>
+                </tr>
+                <tr>
+                  <td>WiFi interface not appearing after reboot</td>
+                  <td>Missing firmware or driver not loaded</td>
+                  <td>Verify firmware installed: <code>dpkg -l firmware-mediatek</code>. Check kernel module: <code>lsmod | grep mt7921</code>. Load manually: <code>modprobe mt7921e</code>. Check dmesg: <code>dmesg | grep mt7921</code>.</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+
+      </article>
+
+      <!-- ---- Page Navigation ---- -->
+      <div class="page-nav">
+        <a href="07-sensors.html">&larr; 07 &mdash; Sensors</a>
+        <a href="09-display-touch.html">09 &mdash; Display &amp; Touch &rarr;</a>
+      </div>
+
+      <!-- ---- Footer ---- -->
+      <footer class="page-footer">
+        <span>BCM v8.5 &mdash; Alfa Romeo 156 Headunit</span>
+        <span>Lenovo M910q x86 Production Build</span>
+      </footer>
+
+    </div>
+  </div>
+
+  <!-- ======== Sidebar Toggle Script ======== -->
+  <script>
+    function toggleSidebar() {
+      document.querySelector('.sidebar').classList.toggle('open');
+      document.querySelector('.sidebar-overlay').classList.toggle('active');
+    }
+
+    // Close sidebar when a nav link is clicked (mobile)
+    document.querySelectorAll('.sidebar nav a').forEach(function(link) {
+      link.addEventListener('click', function() {
+        if (window.innerWidth < 768) {
+          document.querySelector('.sidebar').classList.remove('open');
+          document.querySelector('.sidebar-overlay').classList.remove('active');
+        }
+      });
+    });
+  </script>
+
+</body>
+</html>
