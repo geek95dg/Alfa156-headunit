@@ -221,6 +221,15 @@ def main() -> None:
     except Exception:
         log.exception("BluetoothManager failed to init (non-critical)")
 
+    # Fuel sender calibration (ADC from Arduino → fuel level percentage)
+    fuel_sender = None
+    if config.get("fuel_sender.enabled", True):
+        try:
+            from src.vehicle.fuel_sender import FuelSender
+            fuel_sender = FuelSender(config, event_bus)
+            log.info("FuelSender initialized")
+        except Exception:
+            log.exception("FuelSender failed to init (non-critical)")
     # PBAP phonebook + call-history puller. Subscribes to bt.connected and
     # publishes bt.contacts / bt.call_history that the A8 phone screen
     # consumes via /api/phone/{contacts,history}. Without this the phone
