@@ -1434,4 +1434,10 @@ class WebViewer:
                 except Exception:
                     break
 
-        app.run(host=self.host, port=self.port, debug=False, use_reloader=False)
+        # threaded=True: the dashboard renders fire many concurrent
+        # GETs (radio status, wifi config, BT lists, music, weather…)
+        # plus the touch input WS. A single-threaded werkzeug serializes
+        # everything, so a slow handler (e.g. bluetoothctl scan, nmcli)
+        # stalls every other endpoint and the UI feels frozen on touch.
+        app.run(host=self.host, port=self.port, debug=False,
+                use_reloader=False, threaded=True)

@@ -350,12 +350,38 @@ def _find_adapter_dbus_path() -> str:
     return "/org/bluez/hci0"
 
 
+def _force_carkit_cod(adapter_path: str) -> None:
+    """Re-stamp Class-of-Device 0x620420 (AV + Carkit + Audio/Tel/Net).
+
+    bluetoothd auto-synthesises CoD from registered Media/Profile
+    plugins, which means PipeWire registering A2DP/HFP endpoints
+    overwrites the carkit class with ``0x006c0104`` ("Computer with
+    Audio/Rendering") — even when ``main.conf`` has ``Class=0x620420``.
+    Phones use the CoD bits to gate the Android Auto carkit detection
+    path; with "Computer" set, AA never offers wireless even though
+    the dongle is pairable. Re-apply via hciconfig after every
+    profile/plugin registration storm.
+    """
+    hci = adapter_path.rsplit("/", 1)[-1] if adapter_path else ""
+    if not hci.startswith("hci"):
+        return
+    try:
+        subprocess.run(
+            ["hciconfig", hci, "class", "0x620420"],
+            capture_output=True, timeout=5,
+        )
+        log.info("BT CoD pinned to carkit (0x620420) on %s", hci)
+    except Exception:
+        log.debug("hciconfig class set failed on %s (non-critical)", hci)
+
+
 def _configure_adapter(bus) -> None:
     """Configure BT adapter name + persistent pairable/discoverable.
 
-    Class-of-Device cannot be set via D-Bus on BlueZ — it must come from
-    /etc/bluetooth/main.conf (Class=0x42020c for an automotive carkit).
-    bcm-bluetooth-setup.sh writes it; here we only handle runtime props.
+    Class-of-Device is also re-pinned to 0x620420 here because
+    bluetoothd resynthesises it whenever a media/profile plugin
+    registers (PipeWire's A2DP/HFP endpoints land ~10s after our
+    setup script's hciconfig set, clobbering it).
     """
     adapter_path = _find_adapter_dbus_path()
     try:
@@ -382,6 +408,7 @@ def _configure_adapter(bus) -> None:
     except Exception:
         log.debug("Could not configure adapter on %s (non-critical)",
                   adapter_path)
+    _force_carkit_cod(adapter_path)
 
 
 def _is_autoapp_available() -> bool:
@@ -446,6 +473,18 @@ def _start_pairing_agent() -> bool:
 
         # Register profiles (AA only if OpenAuto installed)
         _register_all_profiles(bus)
+
+        # PBAP/MAP registration above triggers a bluetoothd CoD
+        # resynthesis that clobbers the carkit class we just stamped;
+        # pin it again now, and schedule one more pin 20s out to cover
+        # the late PipeWire endpoint registrations.
+        adapter_path = _find_adapter_dbus_path()
+        _force_carkit_cod(adapter_path)
+        def _late_cod_pin() -> None:
+            time.sleep(20)
+            _force_carkit_cod(adapter_path)
+        threading.Thread(target=_late_cod_pin, daemon=True,
+                         name="bt-cod-pin").start()
 
         # Run GLib main loop in background thread for D-Bus signal handling
         from gi.repository import GLib
@@ -610,43 +649,54 @@ def _get_adapter_addr() -> str:
     return _PREFERRED_ADAPTER
 
 
+_btctl_lock = threading.Lock()
+
+
 def _run_btctl(args: list[str], timeout: float = 10.0) -> tuple[int, str, str]:
     """Run a bluetoothctl command, selecting the preferred adapter first.
 
-    When multiple BT adapters are present, pipes 'select <addr>' before the
-    actual command via stdin to ensure we always target the right adapter.
+    Serialised process-wide via ``_btctl_lock`` because bluetoothd
+    serialises D-Bus calls anyway, and overlapping bluetoothctl
+    subprocesses produce the documented ``Waiting to connect to
+    bluetoothd...`` race — the second subprocess fires its stdin
+    commands before the daemon connection lands, so the command never
+    runs but rc=0 looks fine. Under high contention this then drives
+    the auto-reconnect verify loop into a spin that pegs the BCM
+    process at hundreds of forks/minute and starves Flask handlers,
+    which the user sees as "GUI doesn't respond / can't scroll".
     """
     adapter = _get_adapter_addr()
     cmd_str = "bluetoothctl " + " ".join(args)
     if adapter:
         cmd_str = f"bluetoothctl (adapter={adapter}) " + " ".join(args)
     log.debug("btctl >>> %s", cmd_str)
-    try:
-        # Use stdin to select adapter then run command in interactive mode
-        if adapter and args and args[0] != "list":
-            stdin_cmds = f"select {adapter}\n" + " ".join(args) + "\nexit\n"
-            result = subprocess.run(
-                ["bluetoothctl"],
-                capture_output=True, text=True, timeout=timeout,
-                input=stdin_cmds,
-            )
-        else:
-            result = subprocess.run(
-                ["bluetoothctl"] + args,
-                capture_output=True, text=True, timeout=timeout,
-            )
-        if result.stdout.strip():
-            log.debug("btctl <<< rc=%d stdout=%s", result.returncode,
-                      result.stdout.strip()[:200])
-        if result.stderr.strip():
-            log.debug("btctl <<< stderr=%s", result.stderr.strip()[:200])
-        return result.returncode, result.stdout, result.stderr
-    except FileNotFoundError:
-        log.error("btctl: bluetoothctl not found on system")
-        return -1, "", "bluetoothctl not found"
-    except subprocess.TimeoutExpired:
-        log.warning("btctl: command timed out after %.1fs: %s", timeout, cmd_str)
-        return -2, "", "bluetoothctl timed out"
+    with _btctl_lock:
+        try:
+            if adapter and args and args[0] != "list":
+                stdin_cmds = f"select {adapter}\n" + " ".join(args) + "\nexit\n"
+                result = subprocess.run(
+                    ["bluetoothctl"],
+                    capture_output=True, text=True, timeout=timeout,
+                    input=stdin_cmds,
+                )
+            else:
+                result = subprocess.run(
+                    ["bluetoothctl"] + args,
+                    capture_output=True, text=True, timeout=timeout,
+                )
+            if result.stdout.strip():
+                log.debug("btctl <<< rc=%d stdout=%s", result.returncode,
+                          result.stdout.strip()[:200])
+            if result.stderr.strip():
+                log.debug("btctl <<< stderr=%s", result.stderr.strip()[:200])
+            return result.returncode, result.stdout, result.stderr
+        except FileNotFoundError:
+            log.error("btctl: bluetoothctl not found on system")
+            return -1, "", "bluetoothctl not found"
+        except subprocess.TimeoutExpired:
+            log.warning("btctl: command timed out after %.1fs: %s",
+                        timeout, cmd_str)
+            return -2, "", "bluetoothctl timed out"
 
 
 class BluetoothManager:
