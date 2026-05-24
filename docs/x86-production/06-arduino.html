@@ -371,14 +371,14 @@
                   <td>On/off toggle</td>
                 </tr>
                 <tr>
-                  <td>Right blinker</td>
+                  <td>Backlight LARGE (7" main)</td>
                   <td>D9</td>
-                  <td>On/off toggle</td>
+                  <td>PWM ~490 Hz, drives display M_PWM gate (0&ndash;100&nbsp;%)</td>
                 </tr>
                 <tr>
-                  <td>Wipers</td>
+                  <td>Backlight SMALL (4.3" dashboard)</td>
                   <td>D10</td>
-                  <td>Pulse (duration-controlled)</td>
+                  <td>PWM ~490 Hz, drives display M_PWM gate (0&ndash;100&nbsp;%)</td>
                 </tr>
                 <tr>
                   <td>Horn</td>
@@ -386,12 +386,34 @@
                   <td>Hold while active</td>
                 </tr>
                 <tr>
-                  <td>RF receiver</td>
+                  <td>RF receiver (optional)</td>
                   <td>D12</td>
-                  <td>RXB6 433 MHz receiver (data input)</td>
+                  <td>RXB6 433 MHz receiver (data input). Disabled by default &mdash; set <code>ENABLE_RF&nbsp;=&nbsp;1</code> in the sketch.</td>
+                </tr>
+                <tr>
+                  <td>Right blinker</td>
+                  <td>A0</td>
+                  <td>On/off toggle (relocated from D9 to free hardware PWM)</td>
+                </tr>
+                <tr>
+                  <td>Wipers</td>
+                  <td>A1</td>
+                  <td>Pulse, duration-controlled (relocated from D10 to free hardware PWM)</td>
                 </tr>
               </tbody>
             </table>
+          </div>
+
+          <div class="box box-info">
+            <div class="box-title">Why D9/D10 are now backlight outputs</div>
+            <p>
+              On x86 the M910q has no GPIO header, so the display backlight
+              PWM must come from one of the USB Arduinos. The Nano's hardware
+              PWM channels are on D3/D5/D6/D9/D10/D11 &mdash; D9 and D10 sit
+              on Timer1 which doesn't conflict with <code>millis()</code>,
+              making them the cleanest choice. The right blinker and wipers
+              (which don't need PWM) move to A0/A1.
+            </p>
           </div>
 
           <h3>JSON Command Protocol</h3>
@@ -434,7 +456,7 @@
                 <tr>
                   <td>Wipers</td>
                   <td><code>{"cmd":"wipers","duration":5}</code></td>
-                  <td>D10 active for 5 s</td>
+                  <td>A1 active for 5 s</td>
                 </tr>
                 <tr>
                   <td>Horn</td>
@@ -444,26 +466,47 @@
                 <tr>
                   <td>Blinkers</td>
                   <td><code>{"cmd":"blinker","side":"left","state":1}</code></td>
-                  <td>D8 or D9 on/off</td>
+                  <td>D8 (left) or A0 (right) on/off, software-blinked at ~1.25 Hz</td>
                 </tr>
                 <tr>
                   <td>Window</td>
                   <td><code>{"cmd":"window","dir":"up","state":1}</code></td>
                   <td>D5 or D6 hold while state=1</td>
                 </tr>
+                <tr>
+                  <td>Backlight</td>
+                  <td><code>{"cmd":"backlight","display":"large","brightness":80}</code></td>
+                  <td>PWM duty on D9 (large/7") or D10 (small/4.3"); accepts <code>"both"</code> too</td>
+                </tr>
+                <tr>
+                  <td>Blink ack</td>
+                  <td><code>{"cmd":"blink","count":2}</code></td>
+                  <td>Brief alternating flash on both blinker outputs (e.g. after lock)</td>
+                </tr>
+                <tr>
+                  <td>RF learn</td>
+                  <td><code>{"cmd":"learn"}</code></td>
+                  <td>10 s 433 MHz capture window (requires <code>ENABLE_RF=1</code>)</td>
+                </tr>
+                <tr>
+                  <td>Health-check</td>
+                  <td><code>{"cmd":"ping"}</code></td>
+                  <td>Reply: <code>{"event":"pong"}</code></td>
+                </tr>
               </tbody>
             </table>
           </div>
 
-          <div class="box box-warning">
-            <div class="box-title">Nano firmware not in repo yet</div>
+          <div class="box box-info">
+            <div class="box-title">Nano firmware location</div>
             <p>
-              The output Arduino Nano firmware is not yet committed to the repository.
-              The protocol documented above is the <strong>expected interface</strong>
-              that the BCM Python code will send. When implementing the Nano firmware,
-              use <code>ArduinoJson</code> to parse incoming serial data and drive
-              the relay module pins accordingly. The RF receiver (D12) should use
-              the <code>RCSwitch</code> library to decode 433 MHz keyfob signals.
+              The output controller sketch is
+              <code>arduino/output_controller/output_controller.ino</code>.
+              See <a href="../ARDUINO_SETUP_GUIDE.md">ARDUINO_SETUP_GUIDE.md</a>
+              for a step-by-step beginner walkthrough covering IDE install,
+              required libraries (<code>ArduinoJson</code> v7,
+              <code>RCSwitch</code>), board selection, port permissions, and
+              first-run verification.
             </p>
           </div>
         </section>
