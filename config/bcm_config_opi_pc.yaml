@@ -367,10 +367,6 @@ tracking:
   sms_number: ""
 
 bluetooth:
-  # Orange Pi PC test rig has no Intel 8087 — leave at default so a
-  # USB dongle is used. Flip to true if the target OPi 5 Plus board
-  # ships with an internal radio you want to force.
-  prefer_internal: false
   preferred_adapter: ""
 
 # OPi PC test rig specific

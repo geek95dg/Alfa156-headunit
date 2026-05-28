@@ -24,55 +24,6 @@ if command -v rfkill >/dev/null 2>&1; then
     fi
 fi
 
-# Hard-disable the integrated Intel 8087 controller.
-# Why: on the M910q (and other NUC-class boards) both the internal Intel
-# 8087:0a2b and an external CSR/Realtek dongle land on hciX simultaneously,
-# and BlueZ happily advertises both — phones then see two carkits with the
-# same alias and pairing latches onto the Intel one which mid-session
-# `tx timeout`s and drops. Preferring the dongle in userspace isn't
-# enough: the Intel still publishes the advertising RA, A2DP-Sink endpoint
-# on the wrong BD_ADDR, and HFP profile that the phone may pick first.
-#
-# Unbind it from its USB driver so the kernel removes /sys/class/bluetooth/hciN
-# entirely. BlueZ then only sees the dongle.  Can be re-enabled by setting
-# BCM_BT_KEEP_INTERNAL=1 in /etc/default/bcm-bluetooth.
-[ -f /etc/default/bcm-bluetooth ] && . /etc/default/bcm-bluetooth
-if [ "${BCM_BT_KEEP_INTERNAL:-0}" != "1" ]; then
-    for hci_dir in /sys/class/bluetooth/hci*; do
-        [ -e "$hci_dir" ] || continue
-        hci=$(basename "$hci_dir")
-        dev_real=$(readlink -f "$hci_dir/device" 2>/dev/null || true)
-        [ -n "$dev_real" ] || continue
-        # Walk up to the USB interface node (has idVendor/bInterfaceNumber).
-        cur="$dev_real"
-        vendor=""
-        usb_iface=""
-        for _ in 1 2 3 4 5; do
-            if [ -f "$cur/idVendor" ]; then
-                vendor=$(cat "$cur/idVendor" 2>/dev/null | tr A-Z a-z)
-                usb_iface="$cur"
-                break
-            fi
-            parent=$(dirname "$cur")
-            [ "$parent" = "$cur" ] && break
-            cur="$parent"
-        done
-        if [ "$vendor" = "8087" ] && [ -n "$usb_iface" ]; then
-            # The USB *device* node (one level up from interface) is what
-            # we unbind from the usb driver. dev_real for hciX usually
-            # points to interface .0 of the device, e.g.
-            #   /sys/bus/usb/devices/1-7:1.0  →  parent device 1-7
-            usb_dev=$(dirname "$usb_iface")
-            usb_name=$(basename "$usb_dev")
-            echo "BT setup: unbinding internal Intel 8087 at $usb_name ($hci)"
-            hciconfig "$hci" down 2>/dev/null || true
-            if [ -e /sys/bus/usb/drivers/usb/unbind ]; then
-                echo "$usb_name" > /sys/bus/usb/drivers/usb/unbind 2>/dev/null || true
-            fi
-        fi
-    done
-fi
-
 # NOTE: do NOT touch /etc/bluetooth/main.conf here, and do NOT restart
 # bluetooth.service from within this script. The unit has
 # Requires=bluetooth.service, so bouncing the daemon makes systemd
@@ -102,62 +53,29 @@ for i in $(seq 1 30); do
     sleep 1
 done
 
-# Pick the preferred adapter. On the M910q the integrated Intel 8087:0a2b
-# (BT 4.2 on paper, vs the typical CSR dongle's 4.0) is the *spec-better*
-# choice but the hardware is documented-broken: dmesg shows repeated
-# `Bluetooth: hciX: command 0xNNNN tx timeout` followed by
-# `Resetting usb device.` after ~15 min, after which the controller
-# vanishes from sysfs entirely. So default to a non-8087 (CSR/Realtek/
-# Broadcom) USB dongle when one is plugged in. To force a specific
-# controller MAC anyway, set BCM_BT_ADAPTER in /etc/default/bcm-bluetooth.
+# Pick the adapter to advertise as the carkit. With the MT7921 combo card
+# there's a single hci0 in normal operation; BCM_BT_ADAPTER can still
+# pin a specific BD_ADDR if a USB dongle is added later.
 PREFERRED_ADDR=""
-NON_INTEL_ADDR=""
-INTEL_ADDR=""
 FIRST_ADDR=""
 # shellcheck source=/dev/null
 [ -f /etc/default/bcm-bluetooth ] && . /etc/default/bcm-bluetooth
 for hci_dir in $(ls -d /sys/class/bluetooth/hci* 2>/dev/null | sort); do
     [ -e "$hci_dir" ] || continue
     hci=$(basename "$hci_dir")
-    dev_real=$(readlink -f "$hci_dir/device" 2>/dev/null || true)
-    vendor=""
-    cur="$dev_real"
-    for _ in 1 2 3 4; do
-        if [ -f "$cur/idVendor" ]; then
-            vendor=$(cat "$cur/idVendor" 2>/dev/null | tr A-Z a-z)
-            break
-        fi
-        parent=$(dirname "$cur")
-        [ "$parent" = "$cur" ] && break
-        cur="$parent"
-    done
     addr=$(hciconfig "$hci" 2>/dev/null | awk '/BD Address/{print $3; exit}')
     [ -n "$addr" ] || continue
     [ -z "$FIRST_ADDR" ] && FIRST_ADDR="$addr"
-    if [ "$vendor" = "8087" ]; then
-        [ -z "$INTEL_ADDR" ] && INTEL_ADDR="$addr"
-    elif [ -n "$vendor" ] && [ -z "$NON_INTEL_ADDR" ]; then
-        NON_INTEL_ADDR="$addr"
-        echo "BT setup: non-Intel candidate $hci ($addr, vendor $vendor)"
-    fi
 done
 if [ -n "${BCM_BT_ADAPTER:-}" ]; then
     PREFERRED_ADDR="$BCM_BT_ADAPTER"
     echo "BT setup: explicit override BCM_BT_ADAPTER=$PREFERRED_ADDR"
-elif [ "${BCM_BT_PREFER_INTERNAL:-0}" = "1" ] && [ -n "$INTEL_ADDR" ]; then
-    PREFERRED_ADDR="$INTEL_ADDR"
-    echo "BT setup: BCM_BT_PREFER_INTERNAL=1 — using Intel $PREFERRED_ADDR"
-elif [ -n "$NON_INTEL_ADDR" ]; then
-    PREFERRED_ADDR="$NON_INTEL_ADDR"
 elif [ -n "$FIRST_ADDR" ]; then
     PREFERRED_ADDR="$FIRST_ADDR"
-    echo "BT setup: no preferred adapter, falling back to $PREFERRED_ADDR"
 fi
 
 # Find the hciX index for the chosen address — used for hciconfig fallback
-# when bluetoothctl property writes get racy (Intel adapters often need a
-# power cycle before discoverable-timeout commits, which interactive
-# bluetoothctl doesn't sequence reliably).
+# when bluetoothctl property writes get racy.
 PREFERRED_HCI=""
 if [ -n "$PREFERRED_ADDR" ]; then
     for hci_dir in /sys/class/bluetooth/hci*; do

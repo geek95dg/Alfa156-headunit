@@ -29,17 +29,9 @@ MAIN_H=600
 SMALL_W=800
 SMALL_H=480
 
-# WiFi AP — 2.4 GHz channel 6, country US.
-# 5 GHz is HARDWARE-blocked on the M910q's Intel 8265: `iw phy` lists
-# every 5 GHz channel as "(no IR)" regardless of regdom (`iw reg set US`,
-# kernel regdb, hostapd country_code= — none of them open it). Intel's
-# iwlwifi firmware self-manages regulatory data and refuses to *transmit*
-# in 5 GHz, so AP mode is firmware-locked off there. STA mode (joining
-# 5 GHz APs) still works fine — but we're the AP here.
-# 5 GHz AP would need different hardware (USB Realtek RTL88x2BU,
-# MediaTek MT7612U, or non-Intel mPCIe like Atheros AR9462).
-# 2.4 GHz ch6 with country=US works first try and is what the unit ships
-# with. AA Wireless H.264 video runs fine over 802.11n 40 MHz on 2.4 GHz.
+# WiFi AP — 5 GHz channel 149, country US. MT7921 (mt7921e) exposes
+# UNII-3 (ch149-165) at 30 dBm with the worldwide regdom in
+# firmware-mediatek, so AP/P2P-GO on 5 GHz works first try.
 WIFI_IFACE="wlp2s0"
 WIFI_SSID="ALFA_AA"
 WIFI_PASS="AlfaRomeo156"
@@ -49,7 +41,7 @@ WIFI_PASS="AlfaRomeo156"
 # for older deployments that flip wifi.mode back to "hostapd" in YAML.
 WIFI_CHANNEL="149"
 WIFI_HW_MODE="a"
-WIFI_COUNTRY="BO"
+WIFI_COUNTRY="US"
 # ─────────────────────────────────────────────────────────────────
 
 RED='\033[0;31m'
@@ -149,7 +141,7 @@ apt-get install -y -qq \
     pipewire pipewire-pulse wireplumber alsa-utils mpv \
     gstreamer1.0-tools gstreamer1.0-plugins-base gstreamer1.0-plugins-good \
     gstreamer1.0-plugins-bad gstreamer1.0-libav \
-    firmware-iwlwifi bluez bluez-tools rfkill network-manager modemmanager hostapd dnsmasq iw wireless-tools wpasupplicant iptables \
+    firmware-mediatek bluez bluez-tools rfkill network-manager modemmanager hostapd dnsmasq iw wireless-tools wpasupplicant iptables \
     ffmpeg v4l-utils \
     acpid \
     zram-tools \
@@ -542,21 +534,16 @@ Name=p2p-*
 Unmanaged=yes
 EOF
 
-    # Best-effort regdom hint at module load: iwlwifi 8265 has a
-    # self-managed PHY pinned to country 00, which makes ch149/153
-    # (U-NII-3, normally OK in US) read NO-IR for AP mode. This is
-    # not a guaranteed fix — the firmware sometimes still ignores it
-    # — but it costs nothing and is the right starting point if/when
-    # someone moves the AP to 5 GHz. See memory:
-    # project_wifi_intel_7265_ch149.md for the full story.
+    # Default regdom hint at module load. MT7921 doesn't need it (the
+    # firmware-mediatek worldwide regdom already opens UNII-3 at 30 dBm),
+    # but cfg80211 reads this on first attach so older deployments stay
+    # consistent.
     mkdir -p /etc/modprobe.d
     echo "options cfg80211 ieee80211_regdom=US" > /etc/modprobe.d/cfg80211.conf
 
-    # hostapd — 2.4 GHz ch6, country=US. ieee80211ac is omitted because
-    # we're not on 5 GHz (Intel 8265 firmware blocks 5 GHz AP entirely;
-    # see the WIFI_* comment block at the top of this script). The
-    # remaining ieee80211n + ht_capab gives us 802.11n 40 MHz on 2.4 GHz
-    # which is what AA Wireless H.264 video needs.
+    # hostapd — 5 GHz ch149 (UNII-3), 80 MHz VHT. MT7921 supports up to
+    # 802.11ac on this PHY, which is what AA Wireless wants for clean
+    # H.264 throughput.
     mkdir -p /etc/hostapd
     cat > /etc/hostapd/hostapd.conf <<EOF
 interface=$WIFI_IFACE
@@ -566,8 +553,13 @@ hw_mode=$WIFI_HW_MODE
 channel=$WIFI_CHANNEL
 country_code=$WIFI_COUNTRY
 ieee80211d=1
+ieee80211h=1
 ieee80211n=1
-ht_capab=[HT40+][SHORT-GI-20][SHORT-GI-40][DSSS_CCK-40]
+ieee80211ac=1
+ht_capab=[HT40+][SHORT-GI-20][SHORT-GI-40]
+vht_capab=[SHORT-GI-80][MAX-MPDU-11454]
+vht_oper_chwidth=1
+vht_oper_centr_freq_seg0_idx=155
 wmm_enabled=1
 wpa=2
 wpa_passphrase=$WIFI_PASS
@@ -902,27 +894,14 @@ cp "$BCM_DIR/config/scripts/bcm-bluetooth-setup.sh" /usr/local/bin/
 chmod +x /usr/local/bin/bcm-bluetooth-setup.sh
 cp "$BCM_DIR/config/systemd/bcm-bluetooth.service" /etc/systemd/system/
 
-# Drop the integrated Intel 8087 BT entirely — its tx-timeout pattern
-# under load drops calls/AA mid-session, and when both internal and USB
-# dongle are present BlueZ advertises both with the same alias which
-# confuses phones during pairing. The udev rule below deauthorizes the
-# Intel USB device on attach so btusb never binds; the bluetooth setup
-# oneshot also unbinds it at service start as a safety net for systems
-# where udev rules aren't reloaded.
-mkdir -p /etc/default
-if ! grep -q "^BCM_BT_KEEP_INTERNAL=" /etc/default/bcm-bluetooth 2>/dev/null; then
-    echo "BCM_BT_KEEP_INTERNAL=0" >> /etc/default/bcm-bluetooth
+# Clean up Intel-8087 disable artifacts from prior installs (the MT7921
+# combo card replaces the old internal Intel BT so the udev rule and
+# BCM_BT_KEEP_INTERNAL/PREFER_INTERNAL flags are no longer needed).
+rm -f /etc/udev/rules.d/81-bcm-disable-intel-bt.rules
+if [ -f /etc/default/bcm-bluetooth ]; then
+    sed -i '/^BCM_BT_KEEP_INTERNAL=/d;/^BCM_BT_PREFER_INTERNAL=/d' /etc/default/bcm-bluetooth
 fi
-# Make sure any prior BCM_BT_PREFER_INTERNAL=1 from older installs is off.
-if grep -q "^BCM_BT_PREFER_INTERNAL=1" /etc/default/bcm-bluetooth 2>/dev/null; then
-    sed -i 's/^BCM_BT_PREFER_INTERNAL=1/BCM_BT_PREFER_INTERNAL=0/' /etc/default/bcm-bluetooth
-fi
-cat > /etc/udev/rules.d/81-bcm-disable-intel-bt.rules <<'UDEV'
-# Disable the integrated Intel 8087:0a2b Bluetooth controller (M910q etc).
-SUBSYSTEM=="usb", ATTR{idVendor}=="8087", ATTR{idProduct}=="0a2b", ATTR{authorized}="0"
-UDEV
 udevadm control --reload-rules 2>/dev/null || true
-udevadm trigger --action=add --attr-match=idVendor=8087 2>/dev/null || true
 
 # Persist BT rfkill unblock across boots — without this many baremetal
 # boards (M910q, OPi 5 Pro) come up with bluetooth soft-blocked even

@@ -161,10 +161,10 @@ wifi:
   ssid: ALFA
   password: 87654321
   mode: p2p_go
-  band: g
-  channel: 6
-  country: BO
-  regdom: BO
+  band: a
+  channel: 149
+  country: US
+  regdom: US
   share_internet: true
   interface: ''
   ip: 10.0.0.1
@@ -176,7 +176,7 @@ wifi:
     ssid: ALFA-NET
     password: AlfaRomeo156
     channel: 6
-    country: BO
+    country: US
     ip: 10.0.1.1
     netmask: 255.255.255.0
     dhcp_start: 10.0.1.10
@@ -254,5 +254,4 @@ tracking:
 multimedia:
   last_bt_device: C0:7A:D6:90:E9:CC
 bluetooth:
-  prefer_internal: false
   preferred_adapter: ''
