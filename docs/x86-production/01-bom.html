@@ -98,19 +98,19 @@
             </tr>
             <tr>
               <td>4</td>
-              <td>AGM battery</td>
-              <td>12 V 7.2 Ah sealed lead-acid</td>
-              <td>1</td>
-              <td>50-80</td>
-              <td>Cranking protection + 36 h S3 standby</td>
+              <td>SLA battery buffer (Domain A bus)</td>
+              <td>12 V 5 Ah sealed lead-acid, parallel pack</td>
+              <td>4-6</td>
+              <td>40-60 each</td>
+              <td>Always-on subsystem. 5 packs = 25 Ah = ~17 days parked standby at 60 mA Domain A draw. See <code>X86_PLATFORM_SETUP.md</code> &sect; 2.</td>
             </tr>
             <tr>
               <td>5</td>
               <td>LVD cutoff</td>
-              <td>10.5 V low-voltage disconnect module</td>
+              <td>11.0 V low-voltage disconnect module</td>
               <td>1</td>
               <td>15-25</td>
-              <td>Protects AGM from deep discharge</td>
+              <td>Protects the SLA bank from deep discharge</td>
             </tr>
             <tr>
               <td>6</td>
@@ -118,11 +118,43 @@
               <td><strong>MBR2045</strong> (20 A, 45 V)</td>
               <td>1</td>
               <td>5-10</td>
-              <td>Prevents AGM backfeed to car battery</td>
+              <td>Prevents Domain A bus from backfeeding car battery (one-way isolator only)</td>
             </tr>
             <tr>
               <td>7</td>
-              <td>Fuses</td>
+              <td>CC-CV charge controller</td>
+              <td>XL4016 DC-DC buck, 15&ndash;20 A, 14.4 V absorb / 13.8 V float</td>
+              <td>1</td>
+              <td>30-50</td>
+              <td><strong>Mandatory.</strong> Limits charge current from the 120 A alternator so the SLA bank isn't slammed and the Schottky doesn't melt. Higher-budget option: B2B charger (Redarc / Sterling / Victron Orion-Tr Smart, 600&ndash;1500 PLN).</td>
+            </tr>
+            <tr>
+              <td>8</td>
+              <td>Per-battery fuses</td>
+              <td>10 A inline fuse holders</td>
+              <td>4-6</td>
+              <td>3 each</td>
+              <td>One per SLA pack; isolates a shorted cell from the bus</td>
+            </tr>
+            <tr>
+              <td>9</td>
+              <td>Buck converter (Domain A 5 V rail)</td>
+              <td>LM2596 12 V &rarr; 5 V (1 A min)</td>
+              <td>1</td>
+              <td>5-10</td>
+              <td>Feeds Nano Vin + HM-10 + RXB6 from the SLA bus</td>
+            </tr>
+            <tr>
+              <td>10</td>
+              <td>Ignition relay</td>
+              <td>Bosch 12 V 30 A automotive SPDT</td>
+              <td>1</td>
+              <td>10-15</td>
+              <td>Closes Domain B power on ACC, opens on park</td>
+            </tr>
+            <tr>
+              <td>11</td>
+              <td>Fuses (Domain B)</td>
               <td>5 A blade (M910q) + 25 A blade (amps)</td>
               <td>2</td>
               <td>10</td>
@@ -204,7 +236,7 @@
           <tfoot>
             <tr>
               <td colspan="4"><strong>Stage 1 subtotal</strong></td>
-              <td colspan="2"><strong>~650 — 1 100 PLN</strong></td>
+              <td colspan="2"><strong>~820 &mdash; 1 470 PLN</strong> (up from ~650&ndash;1 100 due to the SLA bank + CC-CV stage replacing the single AGM)</td>
             </tr>
           </tfoot>
         </table>
@@ -486,9 +518,16 @@
            STAGE 5
            ============================================================ -->
 
-      <h2><span class="badge badge-stage5">Stage 5</span> Security + Tracking</h2>
-      <p>Estimated cost: <strong>~180 — 285 PLN</strong></p>
-      <p>Same as OPi 5 Pro BOM items 34-43.</p>
+      <h2><span class="badge badge-stage5">Stage 5</span> Always-On Subsystem (window remote + BLE trunk)</h2>
+      <p>Estimated cost: <strong>~100 &mdash; 160 PLN</strong></p>
+      <p>
+        Replaces the previous &quot;central lock + alarm&quot; stage. The
+        original Alfa 156 central lock and alarm are left untouched; this
+        stage adds an <strong>always-on Arduino Nano (Domain A)</strong>
+        powered from the SLA battery buffer that handles the secondary
+        window keyfob and the BLE-gated trunk-release button. Both work
+        while the car is parked and the M910q (BCM) is asleep.
+      </p>
 
       <div class="table-wrap">
         <table>
@@ -505,83 +544,59 @@
           <tbody>
             <tr>
               <td>37</td>
-              <td>Central lock Arduino</td>
-              <td>Nano / Pro Mini</td>
+              <td>Always-on Arduino (Domain A)</td>
+              <td>Arduino Nano ATmega328P (CH340)</td>
               <td>1</td>
               <td>20-30</td>
-              <td>433 MHz RF + lock relays</td>
+              <td>Runs <code>arduino/output_controller/output_controller.ino</code>. See <code>docs/ARDUINO_SETUP_GUIDE.md</code>.</td>
             </tr>
             <tr>
               <td>38</td>
               <td>Relay module</td>
-              <td>10-ch 5 V</td>
+              <td>10-ch 5 V opto-isolated, active-LOW</td>
               <td>1</td>
               <td>40-60</td>
-              <td></td>
+              <td>Uses 9 channels: 4 windows &times; 2 directions + trunk</td>
             </tr>
             <tr>
               <td>39</td>
-              <td>RF receiver</td>
-              <td>RXB6 433 MHz</td>
+              <td>433 MHz RF receiver</td>
+              <td>RXB6 superheterodyne</td>
               <td>1</td>
               <td>15-25</td>
-              <td>Key fob</td>
+              <td>Decodes secondary window keyfob (D2 on Nano). Avoid the cheap MX-RM-5V receivers &mdash; phantom triggers from neighbour gates.</td>
             </tr>
             <tr>
               <td>40</td>
-              <td>Siren</td>
-              <td>12 V piezo 120 dB</td>
+              <td>Secondary 433 MHz keyfob</td>
+              <td>4-button EV1527 / PT2262 fixed-code remote</td>
               <td>1</td>
-              <td>25-40</td>
-              <td></td>
+              <td>10-20</td>
+              <td>Front-pair / rear-pair, up / down. Codes learned to Nano EEPROM.</td>
             </tr>
             <tr>
               <td>41</td>
-              <td>PIR</td>
-              <td>HC-SR501 mini</td>
+              <td>BLE module</td>
+              <td>HM-10 (CC2540/CC2541), green PCB with chip antenna</td>
               <td>1</td>
-              <td>10-15</td>
-              <td>Cabin motion</td>
+              <td>15-25</td>
+              <td>Central/scanner mode. <strong>Not</strong> HC-05 &mdash; that is Bluetooth Classic.</td>
             </tr>
             <tr>
               <td>42</td>
-              <td>Shock sensor</td>
-              <td>Piezo vibration</td>
+              <td>BLE tag</td>
+              <td>iTag / Tile / Anker BLE beacon (or phone in advertise mode)</td>
               <td>1</td>
-              <td>8-12</td>
-              <td></td>
+              <td>10-25</td>
+              <td>Proximity gate for trunk button</td>
             </tr>
             <tr>
               <td>43</td>
-              <td>Accelerometer</td>
-              <td>MPU6050</td>
+              <td>Trunk-release button</td>
+              <td>12 mm chrome momentary, IP67 NO</td>
               <td>1</td>
-              <td>15-30</td>
-              <td>Crash / tilt detection</td>
-            </tr>
-            <tr>
-              <td>44</td>
-              <td>Backup battery</td>
-              <td>18650 Li-ion 5000 mAh</td>
-              <td>1</td>
-              <td>20-30</td>
-              <td>GPS tracking when off</td>
-            </tr>
-            <tr>
-              <td>45</td>
-              <td>Charger + boost</td>
-              <td>TP4056 + MT3608</td>
-              <td>1</td>
-              <td>18-30</td>
-              <td></td>
-            </tr>
-            <tr>
-              <td>46</td>
-              <td>Power relay</td>
-              <td>Switching</td>
-              <td>1</td>
-              <td>8-12</td>
-              <td></td>
+              <td>5-10</td>
+              <td>New dash-mounted switch &mdash; independent of OEM trunk wiring</td>
             </tr>
           </tbody>
           <tfoot>
@@ -615,46 +630,46 @@
           <tbody>
             <tr>
               <td><span class="badge badge-stage1">1</span></td>
-              <td>Dashboard + Audio + OBD + dual DP + WiFi/BT</td>
-              <td>650</td>
-              <td>1 100</td>
-              <td>650 &ndash; 1 100</td>
+              <td>Dashboard + Audio + OBD + dual DP + WiFi/BT + SLA buffer w/ CC-CV charge</td>
+              <td>820</td>
+              <td>1 470</td>
+              <td>820 &ndash; 1 470</td>
             </tr>
             <tr>
               <td><span class="badge badge-stage2">2</span></td>
               <td>4-way cameras, parking sensors, DS18B20, dashcam</td>
               <td>450</td>
               <td>800</td>
-              <td>1 100 &ndash; 1 900</td>
+              <td>1 270 &ndash; 2 270</td>
             </tr>
             <tr>
               <td><span class="badge badge-stage3">3</span></td>
               <td>SWC dual-pod, GPS, LTE modem</td>
               <td>260</td>
               <td>420</td>
-              <td>1 360 &ndash; 2 320</td>
+              <td>1 530 &ndash; 2 690</td>
             </tr>
             <tr>
               <td><span class="badge badge-stage4">4</span></td>
               <td>Subwoofer amp + rain sensor</td>
               <td>63</td>
               <td>102</td>
-              <td>1 423 &ndash; 2 422</td>
+              <td>1 593 &ndash; 2 792</td>
             </tr>
             <tr>
               <td><span class="badge badge-stage5">5</span></td>
-              <td>Alarm, central lock, battery backup</td>
-              <td>180</td>
-              <td>285</td>
-              <td>1 603 &ndash; 2 707</td>
+              <td>Always-on subsystem (window remote + BLE trunk)</td>
+              <td>100</td>
+              <td>160</td>
+              <td>1 693 &ndash; 2 952</td>
             </tr>
           </tbody>
           <tfoot>
             <tr class="total-row">
               <td colspan="2"><strong>Total (all stages)</strong></td>
-              <td><strong>1 603</strong></td>
-              <td><strong>2 707</strong></td>
-              <td><strong>~1 600 &ndash; 2 700 PLN</strong></td>
+              <td><strong>1 693</strong></td>
+              <td><strong>2 952</strong></td>
+              <td><strong>~1 700 &ndash; 3 000 PLN</strong></td>
             </tr>
           </tfoot>
         </table>
