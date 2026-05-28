@@ -179,13 +179,19 @@
       <pre class="ascii-art"><code>Car 12V ─[30A fuse]─┬─[Schottky MBR2045]─┐
                     │                     │
                     │                     ▼
-                    │   ┌─────────────────────────────┐
-                    │   │ Battery buffer bus 12V      │
-                    │   │ 4-6 × SLA 5 Ah parallel     │
-                    │   │ (per-battery 10A fuses)     │
-                    │   └────────────┬────────────────┘
-                    │                │
-                    │      ┌─────────┴──────────┐
+                    │  ┌─────────────────────────────────┐
+                    │  │ CC-CV charge controller         │
+                    │  │ DC-DC buck, 15-20A bulk limit   │
+                    │  │ 14.4V absorb / 13.8V float      │
+                    │  └────────────┬────────────────────┘
+                    │               │
+                    │  ┌────────────▼────────────────────┐
+                    │  │ Battery buffer bus 12V          │
+                    │  │ 4-6 × SLA 5 Ah parallel         │
+                    │  │ (per-battery 10A fuses)         │
+                    │  └────────────┬────────────────────┘
+                    │               │
+                    │      ┌────────┴───────────┐
                     │      │ LVD 11.0V cutoff   │
                     │      └────────┬───────────┘
                     │               │
@@ -219,8 +225,13 @@
             </tr>
             <tr>
               <td><strong>Schottky diode MBR2045</strong></td>
-              <td>Prevents the buffer bus from backfeeding into car battery</td>
+              <td>Prevents the buffer bus from backfeeding into car battery (one-way isolator only)</td>
               <td>20 A / 45 V, 0.5 V drop</td>
+            </tr>
+            <tr>
+              <td><strong>CC-CV charge controller</strong></td>
+              <td><strong>Mandatory.</strong> Limits bulk-charge current from the 120 A alternator and applies a 3-stage SLA charge profile (14.4 V absorb &rarr; 13.8 V float). Without this, the Schottky melts and the SLA bank dies within months.</td>
+              <td>XL4016 DC-DC buck, 15&ndash;20 A, adjustable V/I</td>
             </tr>
             <tr>
               <td><strong>SLA 12 V 5 Ah × 4&ndash;6 (parallel pack)</strong></td>
