@@ -65,30 +65,55 @@
 
           <p>
             Because the car's 12 V rail drops to 6&ndash;8 V during engine
-            cranking, a <strong>12 V AGM battery buffer</strong> (7.2 Ah) is
-            placed between the car battery and the boost converter. A Schottky
-            diode isolates the AGM from the car battery so it never backfeeds.
-            A low-voltage disconnect (LVD) at 10.5 V protects the AGM from deep
-            discharge when the car is parked for extended periods.
+            cranking, a <strong>12 V SLA battery buffer</strong> sits between
+            the car battery and the rest of the system. The buffer is built
+            from <strong>4&ndash;6 sealed lead-acid 12 V 5 Ah batteries
+            wired in parallel</strong> (total 20&ndash;30 Ah; 5 packs = 25 Ah
+            is the sweet spot). A Schottky diode isolates the bus from the
+            car battery so it never backfeeds. A low-voltage disconnect
+            (LVD) at <strong>11.0 V</strong> protects the SLA bank from
+            deep discharge when the car is parked for extended periods.
           </p>
 
           <p>
-            For power management, the M910q supports native <strong>ACPI S3
-            suspend</strong> with a typical draw of only ~0.2 A at 12 V. This
-            gives approximately 36 hours of standby on the 7.2 Ah AGM buffer.
-            An Arduino-based ignition watcher automates the suspend/resume cycle
-            based on the car's ignition state.
+            The bus splits into <strong>two power domains</strong>:
+          </p>
+          <ul>
+            <li>
+              <strong>Domain A &mdash; always on.</strong> The Arduino Nano,
+              HM-10 BLE module, RXB6 433 MHz receiver, 9 relays
+              (4 windows &times; 2 directions + trunk), and the trunk-button
+              input. Idle draw ~60 mA. This subsystem continues running
+              while the BCM is asleep so the secondary window keyfob and
+              BLE-gated trunk button keep working.
+            </li>
+            <li>
+              <strong>Domain B &mdash; ignition/RTC-controlled.</strong>
+              The M910q, Pro Micro, USB hub, displays, amplifier. Comes
+              up on ACC (via the ignition relay) or on M910q RTC wake.
+              Draws ~10 W when up, 0 W when off.
+            </li>
+          </ul>
+
+          <p>
+            The M910q supports native <strong>ACPI S3 suspend</strong>
+            with a typical draw of only ~0.2 A at 12 V, but in this build
+            we don't rely on it for parked-car standby &mdash; instead the
+            ignition relay fully de-energises Domain B on park, and the
+            BCM cold-boots on ACC or RTC wake. Domain A keeps the
+            always-on features alive without involving the M910q at all.
           </p>
 
           <div class="box box-info">
-            <div class="box-title">Why not just shut down?</div>
+            <div class="box-title">Parked-car standby budget</div>
             <p>
-              A full shutdown requires a cold boot (~12 s). S3 suspend resumes
-              in <strong>3&ndash;5 seconds</strong> from power button press to
-              a visible dashboard &mdash; fast enough that the driver sees the
-              BCM interface before they finish adjusting their seatbelt. The
-              AGM battery buffer provides 36 hours of standby, more than enough
-              for any typical parking duration.
+              At 60 mA Domain A draw, a 25 Ah pack (5 batteries) lasts
+              ~17 days before reaching 50 % depth-of-discharge. Discharge
+              past 50 % shortens SLA cycle life sharply, so the 11.0 V
+              LVD trips well before the bus is empty. 4 batteries
+              (20 Ah) gives ~14 days; 6 batteries (30 Ah) gives ~21 days.
+              If you also let the M910q RTC-wake every 15 minutes for
+              cloud tracking, halve those figures.
             </p>
           </div>
         </section>
@@ -104,43 +129,72 @@
             amplifier:
           </p>
 
-          <pre><code>Car 12V ─[25A fuse]─┬─[Schottky diode MBR2045]─ AGM 12V 7.2Ah
-                    │                              │
-                    └───────────┬──────────────────┘
-                                │
-                   ┌────────────┴────────────┐
-                   │ LVD cutoff (10.5V)      │
-                   └────────────┬────────────┘
-                                │
-                  ┌─────────────┴────────────┐
-                  │                           │
-            [12V→20V boost]             [20A fuse]
-                  │                           │
-            M910q barrel jack           TDA7388 amp</code></pre>
+          <pre><code>Car 12V ─[30A fuse]─┬─[Schottky MBR2045]──┐
+                    │                       │
+                    │                       ▼
+                    │       ┌────────────────────────────┐
+                    │       │  Battery buffer bus 12V    │
+                    │       │  4-6 × SLA 5 Ah parallel   │
+                    │       │  (per-battery 10A fuses)   │
+                    │       └─────────┬──────────────────┘
+                    │                 │
+                    │       ┌─────────┴──────────┐
+                    │       │  LVD 11.0V cutoff  │
+                    │       └─────────┬──────────┘
+                    │                 │
+                    │   ┌─────────────┼─────────────┬──────────────┐
+                    │   │             │             │              │
+                    ▼   ▼             ▼             ▼              ▼
+              ┌─────────────┐   ┌──────────┐  ┌─────────────┐  ┌──────────────┐
+              │ Ign relay   │   │ Buck     │  │ Buck 12→5V  │  │ Relay coils  │
+              │ (ACC sense) │   │ 12→5V    │  │ (Nano Vin   │  │ (12V, driven │
+              └──────┬──────┘   │ display  │  │  + HM-10    │  │  by Nano via │
+                     │          │ panels   │  │  + RXB6)    │  │  opto board) │
+              ┌──────┴──────┐   └──────────┘  └─────────────┘  └──────────────┘
+              │ 12→20V boost│       │              │
+              │ (XL6019)    │       ▼              ▼
+              └──────┬──────┘    Display 5V    Domain A 5V
+                     │           (Domain B)   (always on)
+                     ▼
+              M910q barrel jack
+              + powered USB hub
+              (Domain B)</code></pre>
 
           <h3>Key Design Points</h3>
 
           <ul>
             <li>
-              <strong>Schottky diode (MBR2045):</strong> Prevents the AGM
-              battery from backfeeding into the car battery. The diode's low
-              forward voltage drop (~0.45 V) minimizes power loss. Current
-              flows from the car battery into the AGM for charging, but not
-              in reverse.
+              <strong>Schottky diode (MBR2045):</strong> Prevents the buffer
+              bus from backfeeding into the car battery. The diode's low
+              forward voltage drop (~0.45 V) minimises power loss. Charging
+              current flows car&rarr;buffer when the alternator is running;
+              no reverse flow when parked.
             </li>
             <li>
-              <strong>LVD cutoff (10.5 V):</strong> Protects the AGM from
-              deep discharge. If the battery voltage drops below 10.5 V
-              (indicating the car has been parked for an extended period and
-              the AGM is draining), the LVD disconnects all loads. This
-              prevents permanent damage to the AGM and ensures it retains
-              enough charge to power the next S3 resume cycle.
+              <strong>LVD cutoff (11.0 V):</strong> Protects the SLA bank
+              from deep discharge. SLA cycle life collapses past 50 % DoD;
+              11.0 V trips well before that point. The cutoff isolates all
+              loads (both domains) so the bank stays parked at ~50 % SoC
+              until the alternator can recharge.
             </li>
             <li>
-              <strong>Standby calculation:</strong> 7.2 Ah &divide; 0.2 A
-              (S3 draw) = <strong>36 hours</strong> of standby time. In
-              practice, the AGM will hit the 10.5 V LVD cutoff after
-              approximately 30&ndash;34 hours, providing a safety margin.
+              <strong>Per-battery fusing:</strong> each 5 Ah pack has its own
+              10 A in-line fuse before joining the bus. If one cell shorts
+              you only lose that pack &mdash; the bus and the rest of the
+              system keep running.
+            </li>
+            <li>
+              <strong>Ignition relay:</strong> a standard automotive
+              30 A SPDT closes when the ACC line goes hot, energising the
+              12&rarr;20 V boost and the powered USB hub (Domain B). When
+              parked, the relay opens and Domain B is fully off &mdash;
+              no S3 ghost draw, no UBS hub leakage.
+            </li>
+            <li>
+              <strong>Standby calculation:</strong> 25 Ah &divide; 60 mA
+              (Domain A draw) limited to 50 % DoD = <strong>~17 days</strong>
+              standby on a 5-battery pack before the LVD trips. 4 packs
+              (20 Ah) gives ~14 days; 6 packs (30 Ah) gives ~21 days.
             </li>
           </ul>
 
@@ -158,16 +212,16 @@
               </thead>
               <tbody>
                 <tr>
-                  <td>AGM battery</td>
-                  <td>12 V 7.2 Ah (e.g., CSB GP1272F2)</td>
-                  <td>Sealed, maintenance-free, fits behind dash</td>
-                  <td>50&ndash;80</td>
+                  <td>SLA batteries (buffer bus)</td>
+                  <td>12 V 5 Ah sealed lead-acid, 4&ndash;6 in parallel</td>
+                  <td>5 packs = 25 Ah is the sweet spot. User owns 8; using 4&ndash;6 leaves a spare pool.</td>
+                  <td>40&ndash;60 each</td>
                 </tr>
                 <tr>
-                  <td>12 V &rarr; 20 V boost converter</td>
-                  <td>150 W, 12 V in &rarr; 20 V / 7.5 A out</td>
-                  <td>Must handle 65 W sustained for M910q</td>
-                  <td>40&ndash;70</td>
+                  <td>Per-battery fuses</td>
+                  <td>10 A inline blade-fuse holders</td>
+                  <td>One per pack on the positive terminal</td>
+                  <td>3 each</td>
                 </tr>
                 <tr>
                   <td>Schottky diode</td>
@@ -177,18 +231,42 @@
                 </tr>
                 <tr>
                   <td>LVD module</td>
-                  <td>12 V low-voltage disconnect, 10.5 V cutoff</td>
+                  <td>12 V low-voltage disconnect, 11.0 V cutoff</td>
                   <td>Adjustable cutoff preferred; 30 A rated</td>
                   <td>20&ndash;40</td>
                 </tr>
                 <tr>
-                  <td>Fuse (main)</td>
-                  <td>25 A blade fuse</td>
-                  <td>Inline fuse holder on car battery positive</td>
+                  <td>Ignition relay</td>
+                  <td>Bosch 12 V 30 A SPDT (automotive)</td>
+                  <td>Coil driven by ACC line; switches Domain B power</td>
+                  <td>10&ndash;15</td>
+                </tr>
+                <tr>
+                  <td>12 V &rarr; 20 V boost</td>
+                  <td>XL6019, 150 W, 12 V in &rarr; 20 V / 7.5 A out</td>
+                  <td>Must handle 65 W sustained for M910q. Wired downstream of the ignition relay.</td>
+                  <td>40&ndash;70</td>
+                </tr>
+                <tr>
+                  <td>Buck 12 V &rarr; 5 V (Domain A)</td>
+                  <td>LM2596, 12 V in &rarr; 5 V / 1 A</td>
+                  <td>Feeds Nano Vin + HM-10 + RXB6 (always on)</td>
                   <td>5&ndash;10</td>
                 </tr>
                 <tr>
-                  <td>Fuse (amp)</td>
+                  <td>Buck 12 V &rarr; 5 V (displays)</td>
+                  <td>MP1584 or MP2307, 3 A output</td>
+                  <td>Feeds both display panels' 5 V rails (Domain B)</td>
+                  <td>5&ndash;10</td>
+                </tr>
+                <tr>
+                  <td>Main fuse</td>
+                  <td>30 A blade fuse</td>
+                  <td>Inline holder on car battery positive (was 25 A &mdash; bumped to cover the larger SLA charging surge)</td>
+                  <td>5&ndash;10</td>
+                </tr>
+                <tr>
+                  <td>Amp branch fuse</td>
                   <td>20 A blade fuse</td>
                   <td>Separate fuse for TDA7388 amplifier branch</td>
                   <td>5&ndash;10</td>
@@ -776,13 +854,16 @@ dmesg | grep -i "wake"</code></pre>
 
           <ul>
             <li>
-              The AGM battery may have hit the LVD cutoff (10.5 V), causing
-              a full power loss. Check AGM voltage with a multimeter.
+              The SLA battery buffer may have hit the LVD cutoff (11.0 V),
+              causing a full power loss. Check bus voltage with a
+              multimeter at the LVD input; under 11.0 V means at least one
+              SLA pack is below ~50&nbsp;% SoC and needs alternator charging.
             </li>
             <li>
               The boost converter may have shut down during engine cranking.
-              Verify the AGM buffer is properly wired with the Schottky diode
-              isolating it from the car battery.
+              Verify the SLA buffer bus is properly wired with the Schottky
+              diode isolating it from the car battery, and that the
+              per-battery 10 A fuses are intact.
             </li>
             <li>
               BIOS "After Power Loss" may be set to "Last State" instead of

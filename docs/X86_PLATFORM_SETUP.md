@@ -75,35 +75,100 @@ M910q USB ports
 
 ## 2. Power Supply + Battery Buffer
 
-### 2.1 12V → 20V converter
+The system uses **two power domains** with separate rails. This is the
+key design constraint that makes always-on features (window keyfob,
+BLE-gated trunk button) possible without flattening the car battery.
 
-M910q uses a 65W 20V barrel jack (not ATX). In the car, use a
-12V→20V DC-DC step-up converter (XL6019 module, ~15-30 PLN).
+### 2.1 Two power domains
 
-### 2.2 AGM battery buffer (12V 7.2Ah)
+| | **Domain A — always on** | **Domain B — ignition/RTC-only** |
+|---|---|---|
+| **Powered from** | 12 V battery buffer bus | Domain A *or* car ignition feed via relay |
+| **Devices** | Arduino Nano, HM-10 BLE, RXB6 433 MHz RX, 9-channel relay module, all window/trunk relays | M910q PC, Pro Micro, powered USB hub, USB peripherals, displays, amplifier |
+| **Idle draw** | ~30 mA (~0.36 W) | ~0 mA when off, ~10 W when M910q is up |
+| **When parked, BCM asleep** | Continues running — listens for window remote, trunk button + BLE | Off; M910q can be RTC-woken every 15 min for location ping if desired |
 
-Provides cranking protection, 24h standby, and UPS for graceful shutdown.
+### 2.2 Battery buffer — 4-6 × 12 V 5 Ah SLA in parallel
+
+Four to six sealed lead-acid 12 V 5 Ah batteries wired in parallel form
+the always-on bus. Using five is the sweet spot (25 Ah pack, ~17 days
+parked-car standby at 60 mA Domain A draw). Six (30 Ah) gives ~21 days;
+four (20 Ah) is still comfortably ~14 days.
 
 ```
-Car 12V ─[25A fuse]─┬─[Schottky diode MBR2045]─ AGM 12V 7.2Ah
-                     │                              │
-                     └───────────┬──────────────────┘
-                                 │
-                    ┌────────────┴────────────┐
-                    │ LVD cutoff (10.5V)      │
-                    └────────────┬────────────┘
-                                 │
-                   ┌─────────────┴────────────┐
-                   │                           │
-             [12V→20V boost]             [20A fuse]
-                   │                           │
-             M910q barrel jack           TDA7388 amp
+Car 12V (ACC)  ──[30 A fuse]──┬──[Schottky diode MBR2045]──┐
+                              │                            │
+                              │                            ▼
+                              │            ┌───────────────────────────────┐
+                              │            │  Battery buffer bus (12 V)    │
+                              │            │  4-6 × SLA 5 Ah in parallel   │
+                              │            │  (20-30 Ah total, fused per   │
+                              │            │   battery at 10 A)            │
+                              │            └────────────────┬──────────────┘
+                              │                             │
+                              │                  ┌──────────┴───────┐
+                              │                  │  LVD 11.0 V      │
+                              │                  │  cutoff module   │
+                              │                  └──────────┬───────┘
+                              │                             │
+                              │           ┌─────────────────┼─────────────────┐
+                              │           │                 │                 │
+                              ▼           ▼                 ▼                 ▼
+                       ┌─────────────┐ ┌──────────┐ ┌──────────────┐ ┌────────────────┐
+                       │ Ignition    │ │ 12→5 V   │ │ 12→5 V buck  │ │ 9-ch relay     │
+                       │ relay       │ │ buck     │ │ for Nano Vin │ │ module (12 V   │
+                       │ (closes on  │ │ for      │ │ + HM-10 +    │ │ coil, switches │
+                       │ ACC, opens  │ │ display  │ │ RXB6         │ │ via Nano)      │
+                       │ on park)    │ │ panels   │ │              │ │                │
+                       └──────┬──────┘ └──────────┘ └──────────────┘ └────────────────┘
+                              │
+                       ┌──────┴──────┐
+                       │ 12→20 V     │
+                       │ boost       │
+                       │ (XL6019)    │
+                       └──────┬──────┘
+                              │
+                              ▼
+                       M910q barrel jack
+                       + powered USB hub (Domain B)
 ```
 
-- **Schottky diode:** prevents AGM from backfeeding car battery
-- **LVD cutoff (10.5V):** protects AGM from deep discharge (~15 PLN)
-- **Standby:** 7.2Ah ÷ 0.2A (S3 draw) = **36 hours**
-- **AGM battery:** ~50-80 PLN, maintenance-free
+**Component selection notes:**
+
+- **Schottky diode (MBR2045):** prevents the buffer bus from
+  backfeeding the car battery when the engine is off. 20 A / 45 V is
+  oversize but cheap; do not substitute a regular silicon diode (the
+  0.6 V drop bleeds energy).
+- **LVD (low-voltage disconnect) module:** set to 11.0 V cutoff for
+  SLA. AGM has gentler discharge curves than flooded; 10.5 V works
+  too but 11.0 V leaves more headroom for the Domain A bus to keep
+  driving the Nano cleanly. ~10-15 PLN.
+- **Per-battery fusing:** each 5 Ah battery gets its own 10 A
+  in-line fuse on the positive terminal before joining the bus. If
+  one cell shorts you only lose that pack, not the bus.
+- **Buck converters:** LM2596 modules are fine for the Nano feed
+  (~100 mA peak). For the displays' 5 V rail, use a DC-DC with at
+  least 3 A capacity (mini-MP1584 or similar).
+- **12 V → 20 V boost (XL6019, ~15-30 PLN):** unchanged — still
+  feeds the M910q's 65 W barrel jack. On Domain B only — when
+  ignition relay opens, the boost goes dark and the M910q sees a
+  clean power-loss event.
+
+### 2.3 Standby budget
+
+| Pack size | Total capacity | Domain A draw | Safe parked time before LVD |
+|-----------|---------------|---------------|-----------------------------|
+| 4 batteries | 20 Ah | 60 mA | ~14 days |
+| 5 batteries | 25 Ah | 60 mA | ~17 days |
+| 6 batteries | 30 Ah | 60 mA | ~21 days |
+
+(60 mA = Nano ~25 mA + HM-10 idle ~15 mA + RXB6 idle ~5 mA + relay
+quiescent ~10 mA + buck losses ~5 mA. Discharge limited to 50 % DoD
+to preserve cycle life on SLA.)
+
+If you also want the M910q to RTC-wake every 15 min for cloud tracking
+(see § 9 Suspend/Wake), budget another ~5 Ah/week → halves the standby
+figures above. For long parking, disable RTC wakes from the BCM UI.
 
 ---
 
@@ -785,8 +850,11 @@ RF input:  D12 ← RXB6 433MHz receiver
 | `TEMP:XX.X` | `TEMP:23.5` | `vehicle.ext_temp_raw` |
 | `PARK:keys` | `PARK:FL=45,...` | `vehicle.parking_raw` |
 | `LIGHT:XXX` | `LIGHT:512` | `arduino.light_level` |
-| JSON ← | `{"cmd":"lock"}` | relay pulse |
-| JSON ← | `{"cmd":"lights","state":1,"timeout":60}` | relay on |
+| JSON ← | `{"cmd":"backlight","display":"large","brightness":80}` | display PWM duty 80% |
+| JSON ← | `{"cmd":"learn_window","slot":"FL_DOWN"}` | arm next-RF-code capture |
+| JSON ← | `{"cmd":"learn_ble"}` | scan for BLE tag, store strongest RSSI |
+| JSON → | `{"event":"window","slot":"FL_DOWN"}` | window remote pressed |
+| JSON → | `{"event":"trunk","rssi":-52}` | BLE-confirmed trunk press |
 
 ---
 

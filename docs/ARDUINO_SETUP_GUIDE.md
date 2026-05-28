@@ -8,16 +8,31 @@ You will end up with:
 
 | Board | Role | Sketch | USB device |
 |-------|------|--------|------------|
-| **Arduino Pro Micro** (ATmega32U4) | Inputs — buttons, rotary encoder, SWC, light sensor, fuel sender | `arduino/rotary_encoder/rotary_encoder.ino` | `/dev/ttyACM0` (also USB HID keyboard) |
-| **Arduino Nano** (ATmega328P, CH340) | Outputs — relays, lights, horn, wipers, **display backlight PWM** | `arduino/output_controller/output_controller.ino` | `/dev/ttyUSB0` |
+| **Arduino Pro Micro** (ATmega32U4) — *Domain B* | Inputs — buttons, rotary encoder, SWC, light sensor, fuel sender | `arduino/rotary_encoder/rotary_encoder.ino` | `/dev/ttyACM0` (also USB HID keyboard) |
+| **Arduino Nano** (ATmega328P, CH340) — *Domain A (always-on)* | 4-window remote, BLE-gated trunk button, **display backlight PWM** | `arduino/output_controller/output_controller.ino` | `/dev/ttyUSB0` |
 
-Both plug into the powered USB hub described in `docs/X86_PLATFORM_SETUP.md`.
+The Pro Micro plugs into the powered USB hub on **Domain B** (powered with
+the M910q; off when the BCM sleeps). The Nano runs on **Domain A** — its
+5 V supply comes from the 12 V battery buffer (4-6 × SLA 5 Ah in parallel)
+via a small buck converter, so it stays alive while the car is parked
+and the BCM is asleep. See `docs/X86_PLATFORM_SETUP.md` § Power
+Architecture for the wiring diagram.
+
+> **What the always-on Nano does even while the BCM sleeps:**
+> - Watches the 2nd 433 MHz keyfob → drives 4 window relays hold-to-move
+> - Watches the trunk button → if the HM-10 BLE module sees a known tag
+>   within range, pulses the trunk relay
+>
+> **What it does only while the BCM is up:**
+> - Receives `backlight` PWM commands over USB serial to dim the screens
 
 ---
 
 ## 1. What you need
 
 ### Hardware
+
+**Microcontrollers and cables:**
 - 1 × Arduino Pro Micro (ATmega32U4, 5 V / 16 MHz). Genuine SparkFun or
   any of the very common clones. Avoid 3.3 V variants.
 - 1 × Arduino Nano (ATmega328P) with a **CH340** USB-UART chip — the
@@ -26,6 +41,36 @@ Both plug into the powered USB hub described in `docs/X86_PLATFORM_SETUP.md`.
   use mini-USB; some clones use micro). Both must be **data cables**
   — charge-only cables look identical and will not enumerate.
 - Your computer for flashing (the same M910q is fine, or any laptop).
+
+**For the always-on Nano subsystem (Domain A):**
+- 1 × **HM-10 BLE module** (CC2540/CC2541 based, the green PCB with a
+  small chip antenna). ~5 EUR. *Not* an HC-05 — that's Bluetooth Classic
+  and won't work as a scanner.
+- 1 × **RXB6 (or equivalent) 433 MHz superheterodyne receiver**. ~3 EUR.
+  Avoid the cheap blue-board "MX-RM-5V" receivers — they have poor
+  selectivity and you'll get phantom triggers from neighbour's gates.
+- 1 × **Secondary 4-button 433 MHz keyfob remote** (EV1527 or PT2262
+  fixed-code type). The repository's RCSwitch library decodes both.
+  Get one with 4 distinct buttons — you'll assign them: front pair
+  down, front pair up, rear pair down, rear pair up. ~3 EUR.
+- 1 × **BLE tag** for proximity detection. Options:
+  - An **iTag** / **Tile** / similar BLE beacon (~3 EUR). Advertises
+    its MAC continuously; HM-10 picks it up at ~5-10 m.
+  - Your **smartphone** running a BLE-advertise app (e.g. nRF
+    Connect on Android, "Advertise" mode). Zero extra cost but you
+    need to keep the app running.
+- 1 × **Momentary push-button** for the new trunk-release button
+  (panel-mount, NO contacts). 12 mm IP67-rated chrome ones look factory
+  on a dash trim panel. ~3 EUR.
+- 1 × **10-channel 5 V opto-isolated relay module** (active-LOW). The
+  always-on Nano uses 9 channels: 4 windows × 2 directions + 1 trunk.
+- 4-6 × **12 V 5 Ah SLA (sealed lead-acid) batteries** for the buffer
+  (you own 8; using 4-6 puts the always-on bus at 20-30 Ah, good for
+  ~14-21 days parked-car standby).
+- 1 × **Buck converter 12 V → 5 V** (LM2596 or similar, 1 A minimum)
+  to feed the Nano's Vin from the battery bus.
+- 1 × **LVD (low-voltage disconnect)** module set to 11.0 V to protect
+  the SLA bank from deep discharge.
 
 ### Software
 - **Arduino IDE 2.x** — the modern editor with built-in board/library
@@ -105,7 +150,8 @@ box, install each of these one at a time — click the entry, then
 |---------|---------|-------|
 | **HID-Project** by NicoHood | Pro Micro | Provides `Consumer.write(MEDIA_*)` — media-key HID support |
 | **ArduinoJson** by Benoit Blanchon | Nano | **Version 7.x** (the sketch uses the v7 `JsonDocument` API) |
-| **RCSwitch** by sui77 | Nano *(optional)* | Only needed if you set `ENABLE_RF = 1` for 433 MHz keyfobs |
+| **RCSwitch** by sui77 | Nano | Required for the 433 MHz window-remote decoder |
+| **SoftwareSerial** | Nano | Bundled with the IDE — no install needed. Used for the HM-10 BLE module on D3/D4. |
 
 The IDE downloads and installs them into `~/Arduino/libraries/`.
 
@@ -242,19 +288,6 @@ Reply:
 {"event":"pong"}
 ```
 
-Try the lock relay (it will pulse for 200 ms — even with no relay
-wired you'll see the D13 LED flash and the receive activity):
-
-```
-{"cmd":"lock"}
-```
-
-Reply:
-
-```
-{"event":"locked"}
-```
-
 Try the 7" display backlight (PWM 50 %). With nothing wired you can't
 see anything change, but no error means the firmware accepted it:
 
@@ -262,32 +295,150 @@ see anything change, but no error means the firmware accepted it:
 {"cmd":"backlight","display":"large","brightness":50}
 ```
 
+Ask the Nano for its current state:
+
+```
+{"cmd":"status"}
+```
+
+Reply (something like):
+
+```
+{"event":"status","active_slot":"none","ble_mac_set":false,"ble_rssi_threshold":-80,"codes":[0,0,0,0,0,0,0,0]}
+```
+
+A fresh sketch has no learned RF codes (all zeros) and no BLE MAC set
+yet. The next two sub-sections walk you through learning both.
+
+### 6.5 Learn the window remote (one-time)
+
+The Nano stores 8 RF codes in EEPROM, one per window direction. Pair
+each button of your 4-button 433 MHz keyfob to a (window, direction)
+slot. The natural mapping for a 4-button remote is:
+
+| Remote button | Slot you assign it to | Effect |
+|---------------|----------------------|--------|
+| Button 1 | `FL_DOWN` (then loop into `FR_DOWN` via JSON) | Lower front windows |
+| Button 2 | `FL_UP`   (then `FR_UP`)   | Raise front windows |
+| Button 3 | `RL_DOWN` (then `RR_DOWN`) | Lower rear windows |
+| Button 4 | `RL_UP`   (then `RR_UP`)   | Raise rear windows |
+
+If your remote sends the same code on press-and-hold (most do), the
+Nano keeps the relay engaged for as long as the code keeps arriving
+and releases ~250 ms after you let go. A hard safety cutoff at 8 s
+prevents the relay sticking on and burning out the window motor.
+
+Procedure (run in Serial Monitor with Newline line-ending):
+
+1. Send `{"cmd":"learn_window","slot":"FL_DOWN"}` → expect
+   `{"event":"learn_window_armed","slot":"FL_DOWN"}`.
+2. Press Button 1 on the remote briefly. The Nano captures the code
+   and replies `{"event":"learned","slot":"FL_DOWN","code":1234567}`.
+3. Repeat for the other 7 slots. To pair Button 1 to both `FL_DOWN`
+   and `FR_DOWN` (so it drops both front windows together), arm
+   `FR_DOWN` and press the *same* Button 1 — the code is recorded
+   into the second slot too.
+4. Verify with `{"cmd":"status"}` — all 8 entries in the `codes` array
+   should be non-zero.
+
+After learning, just press buttons on the remote (no Serial Monitor
+needed) and the Nano emits `{"event":"window","slot":"…"}` while you
+hold, and `{"event":"window_release",…}` when you let go.
+
+### 6.6 Pair the BLE tag (one-time)
+
+The HM-10 must be wired up first — see § 7 for the wiring table.
+
+The simplest path is **learn-by-scan**: with the BLE tag close to the
+HM-10 antenna (within 30 cm), send:
+
+```
+{"cmd":"learn_ble"}
+```
+
+The Nano triggers a 5 s discovery scan and picks the device with the
+strongest RSSI. Reply (example):
+
+```
+{"event":"ble_learned","mac":"AA1122334455","rssi":-42}
+```
+
+If you have multiple BLE devices nearby, the strongest-RSSI heuristic
+might pick the wrong one. Set the MAC explicitly instead:
+
+```
+{"cmd":"set_ble_mac","mac":"AA1122334455"}
+```
+
+Tune the proximity threshold (lower number = farther away):
+
+```
+{"cmd":"set_ble_rssi","threshold":-75}
+```
+
+Defaults to -80 dBm (≈ 5 m line-of-sight with an iTag).
+
+Test: press the trunk button.
+
+- Tag in pocket nearby → `{"event":"trunk","rssi":-52}` + 200 ms relay pulse.
+- Tag in another room → `{"event":"trunk_denied","reason":"weak","rssi":-95}`.
+- Tag not advertising / out of range → `{"event":"trunk_denied","reason":"no_key"}`.
+
+### 6.7 Optional — wipe EEPROM and start over
+
+```
+{"cmd":"clear"}
+```
+
+Replies `{"event":"cleared"}` — all 8 window codes and the BLE MAC are
+forgotten and you can re-learn from scratch.
+
 ---
 
-## 7. Wiring quick-reference — Arduino Nano
+## 7. Wiring quick-reference — Arduino Nano (always-on Domain A)
 
-When you're ready to connect actual hardware, here are the pins. Wire
-relay/input pins only as you build out each subsystem; you don't need
-them all at once.
+Wire as you build out each subsystem; you don't need everything at once.
+Starting from a bare Nano, the minimum to drive the displays is just
+GND + D9/D10 to the panels' PWM pads. The window remote and trunk-BLE
+features layer on top.
 
 | Pin | Function | Wire to |
 |-----|----------|---------|
-| D2  | Lock relay (pulse 200 ms)              | Relay module IN1 |
-| D3  | Unlock relay (pulse 200 ms)            | Relay module IN2 |
-| D4  | Trunk release relay                    | Relay module IN3 |
-| D5  | Window UP relay (hold)                 | Relay module IN4 |
-| D6  | Window DOWN relay (hold)               | Relay module IN5 |
-| D7  | Headlights relay                       | Relay module IN6 |
-| D8  | Left blinker relay (toggle)            | Relay module IN7 |
-| **D9**  | **7" display backlight PWM**       | **Display "PWM" pad** |
-| **D10** | **4.3" display backlight PWM**     | **Display PWM pin (M_PWM)** |
-| D11 | Horn relay (hold)                      | Relay module IN8 |
-| D12 | RF receiver data (optional)            | RXB6 DATA pin |
+| **D2**  | **433 MHz RXB6 data input**          | **RXB6 DATA pin** |
+| **D3**  | **HM-10 RXD** (Nano TX → HM-10)       | **HM-10 RXD** |
+| **D4**  | **HM-10 TXD** (HM-10 → Nano RX)       | **HM-10 TXD** |
+| D5  | Trunk relay (200 ms pulse)             | Relay module IN1 |
+| D6  | Trunk button input (pull-up)           | **NO momentary switch → GND** |
+| D7  | Front-Left  UP   relay (hold)          | Relay module IN2 |
+| D8  | Front-Left  DOWN relay (hold)          | Relay module IN3 |
+| **D9**  | **7" display backlight PWM**          | **Display "PWM" pad** |
+| **D10** | **4.3" display backlight PWM**        | **Display PWM pad (M_PWM)** |
+| D11 | Front-Right UP   relay (hold)          | Relay module IN4 |
+| D12 | Front-Right DOWN relay (hold)          | Relay module IN5 |
 | D13 | Status LED (on-board, no wiring)       | — |
-| A0  | Right blinker relay (toggle)           | Relay module IN9 |
-| A1  | Wipers relay (pulse, duration)         | Relay module IN10 |
-| 5V  | Logic supply                           | Relay module VCC, RXB6 VCC |
-| GND | Ground (common!)                       | Relay module GND, **display GND pad**, RXB6 GND |
+| A0  | Rear-Left   UP   relay (hold)          | Relay module IN6 |
+| A1  | Rear-Left   DOWN relay (hold)          | Relay module IN7 |
+| A2  | Rear-Right  UP   relay (hold)          | Relay module IN8 |
+| A3  | Rear-Right  DOWN relay (hold)          | Relay module IN9 |
+| A4  | reserved (I2C SDA, future expansion)   | — |
+| A5  | reserved (I2C SCL, future expansion)   | — |
+| 5V  | Logic supply                           | Relay module VCC, RXB6 VCC, HM-10 VCC |
+| GND | Ground (common!)                       | Relay module GND, **display GND pads**, RXB6 GND, HM-10 GND, trunk button COM |
+| Vin (7-12V) | Battery-bus input via buck      | 5 V from LM2596 (set output to 5.0 V; do NOT feed >5 V here unless you remove the buck and use the raw Vin regulator) |
+
+> **Common ground is mandatory:** every module — the displays, the
+> relay board, RXB6, HM-10, the trunk button — shares a single ground
+> with the Nano. Without it the M_PWM gate has no reference and the
+> RXB6/HM-10 see noise.
+
+> **HM-10 wiring gotcha:** the HM-10's RXD pin is *the input you
+> drive*. So Nano D3 (`PIN_BLE_TO`) goes to HM-10 **RXD**, and HM-10
+> **TXD** comes back to Nano D4 (`PIN_BLE_FROM`). The labels look
+> reversed at first glance — they are correct.
+
+> **Display PWM input** on the 7" Waveshare "Display-D" board: the on-
+> board N-MOSFET on M_PWM accepts 0-5 V logic-level PWM directly, no
+> level shifter needed.
 
 > **Important — common ground:** the display's `GND` pad **must** be
 > tied to the Nano's GND, otherwise the M_PWM gate has no reference
@@ -301,30 +452,55 @@ them all at once.
 
 ---
 
-## 8. Plugging both Arduinos into the M910q
+## 8. Powering the boards in the car
 
-Once both sketches are flashed and verified:
+Once both sketches are flashed and verified, the in-car wiring splits
+into two power domains. See `docs/X86_PLATFORM_SETUP.md` § Power
+Architecture for the full picture; in short:
 
-1. Plug both Arduinos into the **powered USB hub** (not directly into
-   the M910q if you can avoid it — the hub provides clean 5 V and
-   makes the wiring tidier under the dash).
-2. Confirm they enumerate:
+**Domain B — Pro Micro + M910q (ignition-controlled)**
 
-   ```bash
-   ls -l /dev/ttyACM* /dev/ttyUSB*
-   # /dev/ttyACM0 → Pro Micro
-   # /dev/ttyUSB0 → Nano
-   ```
+The Pro Micro plugs into the **powered USB hub** that sits on the
+M910q. Domain B comes up when the M910q powers on (either ignition
+ON, or the RTC alarm wakes it for a tracking ping). When the M910q
+sleeps, the hub usually drops too — the Pro Micro is off, which is
+fine because none of its features are needed while parked.
 
-3. Confirm permissions (you should be in `dialout`):
+**Domain A — Nano + HM-10 + RXB6 + relays (always-on, battery-backed)**
 
-   ```bash
-   groups | grep dialout
-   ```
+The Nano runs continuously from the 12 V battery buffer (4-6 × 5 Ah
+SLA in parallel), via a 12 V → 5 V buck converter feeding the Nano's
+Vin pin. Its USB cable still goes to the M910q's hub so the BCM can
+send `backlight` commands when it's awake — but the Nano keeps
+running even with USB disconnected, because Vin is supplied
+independently.
 
-4. The BCM Python code auto-detects both ports on startup
-   (`src/input/arduino_serial.py` and `src/vehicle/central_lock.py`).
-   Check `journalctl -u bcm-headunit | grep -i arduino` after boot.
+> **Important — don't power the Nano from two sources at once.**
+> The Nano has a diode-OR between USB-5V and the Vin regulator's 5V,
+> but the diode drop is fine only if Vin is > 7 V. If you wire Vin
+> directly to 5 V from the buck (bypassing the on-board regulator),
+> you must remove or de-solder the buck output when the Nano is on
+> USB-power on the bench. The cleanest setup is: buck output = 5 V,
+> wired to the Nano's **5V** pin (not Vin), and let USB-5V coexist
+> via the on-board protection diode.
+
+Confirm both boards enumerate when the M910q is on:
+
+```bash
+ls -l /dev/ttyACM* /dev/ttyUSB*
+# /dev/ttyACM0 → Pro Micro
+# /dev/ttyUSB0 → Nano
+```
+
+Confirm permissions (you should be in `dialout`):
+
+```bash
+groups | grep dialout
+```
+
+The BCM Python code auto-detects both ports on startup
+(`src/input/arduino_serial.py` and `src/vehicle/central_lock.py`).
+Check `journalctl -u bcm-headunit | grep -i arduino` after boot.
 
 ---
 
@@ -353,14 +529,32 @@ Once both Arduinos are flashed and verified:
   plus a common GND, then verify in Serial Monitor with
   `{"cmd":"backlight","display":"large","brightness":20}` and watch the
   screen dim.
+- Wire the RXB6 receiver to D2 + 5V + GND and learn the four window
+  keyfob buttons (§ 6.5). With nothing else wired you'll see
+  `{"event":"window","slot":…}` lines in Serial Monitor — confirms
+  the RF decode works before you wire any motor relays.
+- Wire the HM-10 to D3/D4 + 5V + GND and pair your BLE tag (§ 6.6).
+  Once paired, the trunk button + tag combination will fire the
+  trunk relay.
+- Build out the 9 relay outputs (4 window pairs + trunk) on the
+  10-channel relay module. Test each relay channel with the keyfob
+  before connecting it to the car wiring.
 - Add a Python-side consumer in the BCM (forwarding
   `power.backlight_brightness` events to the Nano serial port). This
   is the last piece needed to wire the existing
   `src/power/brightness.py` controller — the auto-brightness, stalk
   button cycle, and Settings screen will all then drive the real
   hardware. *(Ask Claude to write this — it's a ~40-line module.)*
-- Build out the relay outputs (lock, lights, etc.) one at a time as
-  you have hardware on the bench.
+
+> **Note — features not on this Nano.** The earlier project docs
+> mentioned the same Arduino driving headlights, horn, wipers, and
+> blinkers as part of a "replace the OEM body computer" concept. That
+> idea has been dropped — the original Alfa 156 systems stay
+> untouched. If you ever want those outputs back, run a *second*
+> Nano on Domain B with a slimmer sketch; the pin budget on this
+> always-on Nano is fully committed to the new windows + trunk + BLE
+> scope.
 
 You now have a working, debuggable two-Arduino bridge between the
-M910q and the car. Have fun.
+M910q and the car, with always-on window + trunk remote control.
+Have fun.

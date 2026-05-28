@@ -165,24 +165,40 @@
       <h3>2.1 Power Supply Chain</h3>
 
       <p>
-        The M910q requires <strong>20 V DC</strong> via a barrel jack (not the standard 12 V car supply).
-        An XL6019 boost converter steps up the 12 V rail. An AGM battery buffer provides cranking
-        protection and S3 standby power.
+        The M910q requires <strong>20 V DC</strong> via a barrel jack
+        (not the standard 12 V car supply). An XL6019 boost converter
+        steps up the 12 V rail. A <strong>battery buffer of 4&ndash;6
+        parallel SLA 12 V 5 Ah batteries</strong> (20&ndash;30 Ah total)
+        provides cranking protection and powers the always-on Domain A
+        subsystem (Arduino Nano + HM-10 + RXB6 + relays) while the
+        M910q is asleep. See
+        <a href="10-power-suspend.html">10 &mdash; Power / Suspend</a>
+        for the full architecture and standby budget.
       </p>
 
-      <pre class="ascii-art"><code>Car 12V ─[25A fuse]─┬─[Schottky diode MBR2045]─ AGM 12V 7.2Ah
-                     │                              │
-                     └───────────┬──────────────────┘
-                                 │
-                    ┌────────────┴────────────┐
-                    │ LVD cutoff (10.5V)      │
-                    └────────────┬────────────┘
-                                 │
-                   ┌─────────────┴────────────┐
-                   │                           │
-             [12V→20V boost]             [20A fuse]
-                   │                           │
-             M910q barrel jack           TDA7388 amp</code></pre>
+      <pre class="ascii-art"><code>Car 12V ─[30A fuse]─┬─[Schottky MBR2045]─┐
+                    │                     │
+                    │                     ▼
+                    │   ┌─────────────────────────────┐
+                    │   │ Battery buffer bus 12V      │
+                    │   │ 4-6 × SLA 5 Ah parallel     │
+                    │   │ (per-battery 10A fuses)     │
+                    │   └────────────┬────────────────┘
+                    │                │
+                    │      ┌─────────┴──────────┐
+                    │      │ LVD 11.0V cutoff   │
+                    │      └────────┬───────────┘
+                    │               │
+                    │      ┌────────┼──────────┐
+                    │      │        │          │
+                    ▼      ▼        ▼          ▼
+                  Ign-relay   Buck 12→5V  9-ch relay
+                    │         (Nano +     (12V coils,
+                    ▼          HM-10 +    Nano-driven)
+              [12V→20V boost]   RXB6)
+                    │
+                    ▼
+              M910q barrel jack + USB hub (Domain B)</code></pre>
 
       <h3>2.2 Component Details</h3>
 
@@ -197,24 +213,34 @@
           </thead>
           <tbody>
             <tr>
-              <td><strong>25 A blade fuse</strong></td>
-              <td>Main feed protection from car battery</td>
-              <td>25 A / 32 V</td>
+              <td><strong>30 A blade fuse (main)</strong></td>
+              <td>Main feed protection from car battery (bumped from 25 A to cover SLA bank charging surge)</td>
+              <td>30 A / 32 V</td>
             </tr>
             <tr>
               <td><strong>Schottky diode MBR2045</strong></td>
-              <td>Prevents AGM backfeed to car battery during cranking</td>
+              <td>Prevents the buffer bus from backfeeding into car battery</td>
               <td>20 A / 45 V, 0.5 V drop</td>
             </tr>
             <tr>
-              <td><strong>AGM 12 V 7.2 Ah</strong></td>
-              <td>Cranking buffer + S3 standby (~36 h)</td>
-              <td>12 V sealed lead-acid</td>
+              <td><strong>SLA 12 V 5 Ah × 4&ndash;6 (parallel pack)</strong></td>
+              <td>Cranking buffer + Domain A standby. 5 packs (25 Ah) = ~17 days parked at 60 mA Domain A draw</td>
+              <td>12 V sealed lead-acid, 50&nbsp;% DoD cycled</td>
             </tr>
             <tr>
-              <td><strong>LVD cutoff (10.5 V)</strong></td>
-              <td>Disconnects load when AGM drops below 10.5 V to prevent deep discharge</td>
-              <td>10.5 V threshold, 20 A</td>
+              <td><strong>Per-battery fuses</strong></td>
+              <td>Isolates a shorted pack from the bus</td>
+              <td>10 A inline blade, one per SLA pack</td>
+            </tr>
+            <tr>
+              <td><strong>LVD cutoff (11.0 V)</strong></td>
+              <td>Disconnects load when bus drops below 11.0 V to keep SLA cycle life intact</td>
+              <td>11.0 V threshold, 30 A</td>
+            </tr>
+            <tr>
+              <td><strong>Ignition relay (Domain B switch)</strong></td>
+              <td>Bosch 30 A SPDT, coil on ACC line. Closes for Domain B power on ACC, opens on park.</td>
+              <td>12 V coil, 30 A contacts</td>
             </tr>
             <tr>
               <td><strong>XL6019 boost converter</strong></td>
