@@ -132,11 +132,17 @@
           <pre><code>Car 12V ─[30A fuse]─┬─[Schottky MBR2045]──┐
                     │                       │
                     │                       ▼
-                    │       ┌────────────────────────────┐
-                    │       │  Battery buffer bus 12V    │
-                    │       │  4-6 × SLA 5 Ah parallel   │
-                    │       │  (per-battery 10A fuses)   │
-                    │       └─────────┬──────────────────┘
+                    │       ┌──────────────────────────────┐
+                    │       │ CC-CV charge controller      │
+                    │       │ DC-DC buck, 15-20A bulk      │
+                    │       │ 14.4V absorb / 13.8V float   │
+                    │       └─────────────┬────────────────┘
+                    │                     │
+                    │       ┌─────────────▼────────────────┐
+                    │       │  Battery buffer bus 12V      │
+                    │       │  4-6 × SLA 5 Ah parallel     │
+                    │       │  (per-battery 10A fuses)     │
+                    │       └─────────┬────────────────────┘
                     │                 │
                     │       ┌─────────┴──────────┐
                     │       │  LVD 11.0V cutoff  │
@@ -166,9 +172,25 @@
             <li>
               <strong>Schottky diode (MBR2045):</strong> Prevents the buffer
               bus from backfeeding into the car battery. The diode's low
-              forward voltage drop (~0.45 V) minimises power loss. Charging
-              current flows car&rarr;buffer when the alternator is running;
-              no reverse flow when parked.
+              forward voltage drop (~0.45 V) minimises power loss. One-way
+              isolator only &mdash; it does <em>not</em> limit charge
+              current, so the CC-CV stage below is mandatory.
+            </li>
+            <li>
+              <strong>CC-CV charge controller (mandatory):</strong> the
+              Alfa 156 alternator is rated for 120 A. With the SLA bus
+              depleted and the engine started, the Schottky alone would
+              let the alternator dump tens of amps per pack until bus
+              voltage rises &mdash; instant Schottky failure and cooked
+              SLAs (cycle life collapses past 1 C charge). A DC-DC CC-CV
+              buck module sits between the diode and the bus, limiting
+              bulk-charge to ~15-20 A and stepping through 14.4 V absorb
+              &rarr; 13.8 V float per SLA datasheet. Without this stage
+              expect ~6-12 month SLA life instead of multi-year. An
+              XL4016-based module (~30-50 PLN) is the DIY option; a
+              proper B2B charger (Redarc BCDC, Sterling, Victron
+              Orion-Tr Smart, ~600-1500 PLN) is bullet-proof and
+              temperature-compensated.
             </li>
             <li>
               <strong>LVD cutoff (11.0 V):</strong> Protects the SLA bank
@@ -188,7 +210,7 @@
               30 A SPDT closes when the ACC line goes hot, energising the
               12&rarr;20 V boost and the powered USB hub (Domain B). When
               parked, the relay opens and Domain B is fully off &mdash;
-              no S3 ghost draw, no UBS hub leakage.
+              no S3 ghost draw, no USB hub leakage.
             </li>
             <li>
               <strong>Standby calculation:</strong> 25 Ah &divide; 60 mA
@@ -226,8 +248,14 @@
                 <tr>
                   <td>Schottky diode</td>
                   <td>MBR2045CT (20 A, 45 V, dual)</td>
-                  <td>TO-220 package, ~0.45 V drop</td>
+                  <td>TO-220 package, ~0.45 V drop. One-way isolator only.</td>
                   <td>5&ndash;10</td>
+                </tr>
+                <tr>
+                  <td>CC-CV charge controller</td>
+                  <td>XL4016 DC-DC buck, 15&ndash;20 A, 14.4 V absorb / 13.8 V float</td>
+                  <td><strong>Mandatory.</strong> Limits charge current from the 120 A alternator so the SLA bank isn't slammed and the Schottky doesn't melt. For a higher-budget build, use a proper B2B charger (Redarc BCDC1225D, Sterling B2B, Victron Orion-Tr Smart).</td>
+                  <td>30&ndash;50 (DIY) / 600&ndash;1500 (B2B)</td>
                 </tr>
                 <tr>
                   <td>LVD module</td>

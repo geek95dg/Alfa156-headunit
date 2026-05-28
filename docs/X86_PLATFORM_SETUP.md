@@ -99,21 +99,27 @@ four (20 Ah) is still comfortably ~14 days.
 Car 12V (ACC)  ──[30 A fuse]──┬──[Schottky diode MBR2045]──┐
                               │                            │
                               │                            ▼
-                              │            ┌───────────────────────────────┐
-                              │            │  Battery buffer bus (12 V)    │
-                              │            │  4-6 × SLA 5 Ah in parallel   │
-                              │            │  (20-30 Ah total, fused per   │
-                              │            │   battery at 10 A)            │
-                              │            └────────────────┬──────────────┘
-                              │                             │
-                              │                  ┌──────────┴───────┐
-                              │                  │  LVD 11.0 V      │
-                              │                  │  cutoff module   │
-                              │                  └──────────┬───────┘
-                              │                             │
-                              │           ┌─────────────────┼─────────────────┐
-                              │           │                 │                 │
-                              ▼           ▼                 ▼                 ▼
+                              │             ┌────────────────────────────┐
+                              │             │  CC-CV charge controller   │
+                              │             │  DC-DC buck, ~15-20 A max  │
+                              │             │  14.4 V absorb / 13.8 V    │
+                              │             │  float (3-stage SLA)       │
+                              │             └────────────┬───────────────┘
+                              │                          │
+                              │            ┌─────────────▼──────────────┐
+                              │            │  Battery buffer bus (12 V) │
+                              │            │  4-6 × SLA 5 Ah parallel   │
+                              │            │  (per-battery 10 A fuses)  │
+                              │            └────────────┬───────────────┘
+                              │                         │
+                              │                  ┌──────┴───────┐
+                              │                  │  LVD 11.0 V  │
+                              │                  │  cutoff      │
+                              │                  └──────┬───────┘
+                              │                         │
+                              │           ┌─────────────┼─────────────────┐
+                              │           │             │                 │
+                              ▼           ▼             ▼                 ▼
                        ┌─────────────┐ ┌──────────┐ ┌──────────────┐ ┌────────────────┐
                        │ Ignition    │ │ 12→5 V   │ │ 12→5 V buck  │ │ 9-ch relay     │
                        │ relay       │ │ buck     │ │ for Nano Vin │ │ module (12 V   │
@@ -139,6 +145,18 @@ Car 12V (ACC)  ──[30 A fuse]──┬──[Schottky diode MBR2045]──┐
   backfeeding the car battery when the engine is off. 20 A / 45 V is
   oversize but cheap; do not substitute a regular silicon diode (the
   0.6 V drop bleeds energy).
+- **CC-CV charge controller (XL4016 / DPS3020 / similar, 15-20 A):**
+  the alternator can push 120 A into a depleted bus through the
+  Schottky diode in a fraction of a second, well past what 5 Ah SLA
+  packs tolerate (~1 C = 5 A per pack, or 25 A across 5 packs *as
+  bulk-charge ceiling*). A CC-CV DC-DC module sits between the diode
+  and the bus, limiting bulk-charge current to ~15-20 A and switching
+  to constant-voltage at 14.4 V (absorb) then dropping to 13.8 V
+  (float). Without this, expect Schottky failure, cell venting, and
+  ~6-12 month SLA life instead of years. ~30-50 PLN for an XL4016
+  module; a proper automotive B2B charger (Redarc BCDC, Sterling
+  B2B, Victron Orion-Tr Smart) is ~600-1500 PLN if you want it
+  bullet-proof.
 - **LVD (low-voltage disconnect) module:** set to 11.0 V cutoff for
   SLA. AGM has gentler discharge curves than flooded; 10.5 V works
   too but 11.0 V leaves more headroom for the Domain A bus to keep
