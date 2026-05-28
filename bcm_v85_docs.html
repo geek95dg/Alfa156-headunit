@@ -69,7 +69,7 @@ tr:hover td{background:var(--bg-card)}
 <div class="hero">
   <div class="hero-badge">BCM v8.5 — Dokumentacja Techniczna</div>
   <h1>Alfa Romeo <span>156</span><br>Body Computer Module</h1>
-  <p class="sub">Dual-display: 4.3" statyczna siatka 2×2 z automatyczną kamerą (cofanie / lewy / prawy kierunkowskaz) + 7/8" ekran dotykowy z Android Auto kiosk. 8 ekranów BCM (A1-A8) + ustawienia. 3 motywy graficzne. DVR z GPS overlay + eksport USB. Performance: boost gauge + timer 0-100. Telefon BT (dialer, kontakty PBAP, historia). Centralny zamek z pilotem RF 433MHz. Follow-me-home. Czujnik deszczu. SWC remote z konfigurowalnym mapowaniem przycisków (dual-pod, 24 przyciski). <strong>Orange Pi 5 Pro 4GB</strong> z 2× HDMI (2.1 + 2.0), WiFi 6 i BT 5.0. Moduł Travel Plan na ekranie A3 z prognozą pogody, incydentami drogowymi i estymacją paliwa.</p>
+  <p class="sub">Dual-display: 4.3" statyczna siatka 2×2 z automatyczną kamerą (cofanie / lewy / prawy kierunkowskaz) + 7/8" ekran dotykowy z Android Auto kiosk. 8 ekranów BCM (A1-A8) + ustawienia. 3 motywy graficzne. DVR z GPS overlay + eksport USB. Performance: boost gauge + timer 0-100. Telefon BT (dialer, kontakty PBAP, historia). Zdalne sterowanie 4 szybami z drugiego pilota 433 MHz (oryginalny centralny zamek Alfy nietknięty). Przycisk bagażnika z bramą BLE proximity (HM-10). Czujnik deszczu. SWC remote z konfigurowalnym mapowaniem przycisków (dual-pod, 24 przyciski). <strong>Orange Pi 5 Pro 4GB</strong> z 2× HDMI (2.1 + 2.0), WiFi 6 i BT 5.0. Moduł Travel Plan na ekranie A3 z prognozą pogody, incydentami drogowymi i estymacją paliwa.</p>
   <div class="tags">
     <span class="tag">1.9 JTD 8V przedlift</span>
     <span class="tag">Bosch EDC15C7</span>
@@ -110,7 +110,7 @@ tr:hover td{background:var(--bg-card)}
     <li><a href="#s13">System wejścia (dotyk, SWC, przyciski)</a></li>
     <li><a href="#s14">Zarządzanie energią</a></li>
     <li><a href="#s15">Czujnik deszczu i wycieraczki</a></li>
-    <li><a href="#s16">Centralny zamek i oświetlenie</a></li>
+    <li><a href="#s16">Zdalne sterowanie szybami + przycisk bagażnika BLE</a></li>
     <li><a href="#s17">Schemat blokowy systemu</a></li>
     <li><a href="#s18">Alokacja GPIO (40-pin header)</a></li>
     <li><a href="#s19">BOM — lista komponentów</a></li>
@@ -138,7 +138,7 @@ tr:hover td{background:var(--bg-card)}
       <tr><td>SWC Remote</td><td>Brak</td><td><strong>Dual-pod AliExpress SWC (24 przyciski), konfigurowalne mapowanie w ustawieniach</strong></td><td><span class="dt dt-new">NOWE</span></td></tr>
       <tr><td>Diagnostyka DTC</td><td>Brak</td><td><strong>A5: odczyt i kasowanie kodów błędów ECU (KWP2000)</strong></td><td><span class="dt dt-new">NOWE</span></td></tr>
       <tr><td>Czujnik deszczu</td><td>GPIO 87 skonfigurowany, brak implementacji</td><td><strong>Moduł auto-wycieraczki: czujnik → przekaźnik wycieraczek</strong></td><td><span class="dt dt-new">NOWE</span></td></tr>
-      <tr><td>Centralny zamek</td><td>Tylko sygnał wejścia (GPIO 89)</td><td><strong>Arduino + 433MHz RF: zamek/odblokowanie, okna, bagażnik, pilot RF</strong></td><td><span class="dt dt-new">NOWE</span></td></tr>
+      <tr><td>Sterowanie szybami / bagażnik</td><td>Tylko sygnał wejścia OEM zamka (GPIO 89)</td><td><strong>Always-on Arduino Nano (Domain A): 4 szyby × góra/dół z drugiego pilota 433 MHz + bagażnik z bramą BLE proximity (HM-10). Oryginalny centralny zamek Alfy zachowany.</strong></td><td><span class="dt dt-new">v8.5</span></td></tr>
       <tr><td>Oświetlenie</td><td>Brak</td><td><strong>Follow-me-home (30/60/90s), powitanie (mrugnięcia kierunkowskazów), leaving-home</strong></td><td><span class="dt dt-new">NOWE</span></td></tr>
       <tr><td>GPS Tracking</td><td>Tylko pozycja bieżąca</td><td><strong>Ciągłe logowanie trasy do SQLite, statystyki podróży, eksport GPX</strong></td><td><span class="dt dt-chg">ZMIANA</span></td></tr>
       <tr><td>Ruch drogowy</td><td>Brak</td><td><strong>Nakładka ruchu na żywo na mapie (TomTom/HERE API)</strong></td><td><span class="dt dt-new">NOWE</span></td></tr>
@@ -395,39 +395,30 @@ tr:hover td{background:var(--bg-card)}
   <h3>Czujnik deszczu + wycieraczki</h3>
   <p>Optoisolowany sygnał cyfrowy z czujnika deszczu na zderzaku (GPIO 87 wejście). Przekaźnik aktywujący wycieraczki (GPIO 88 wyjście). Logika: wykrycie deszczu → aktywacja wycieraczek na konfigurowalny czas. Czułość: lekki / umiarkowany / intensywny → różne prędkości wycieraczek.</p>
 
-  <h3>Centralny zamek — Arduino + 433MHz RF</h3>
+  <h3>Always-on Nano — pilot szyb 433 MHz + bagażnik BLE</h3>
   <div class="card-grid">
     <div class="card">
-      <div class="ic">🔒</div>
-      <h4>Zamek / odblokowanie</h4>
-      <p>2 przekaźniki sterujące elektrozamkami drzwi. Sygnał zwrotny na event bus.</p>
-    </div>
-    <div class="card">
-      <div class="ic">📡</div>
-      <h4>Pilot RF 433MHz</h4>
-      <p>Odbiornik RXB6. Tryb uczenia: nauka kodów nowych pilotów. Zastępuje oryginalny pilot Alfy.</p>
-    </div>
-    <div class="card">
       <div class="ic">🪟</div>
-      <h4>Sterowanie oknami</h4>
-      <p>2 przekaźniki: góra/dół. Relay module podłączony równolegle do przełączników okien.</p>
+      <h4>Sterowanie 4 szybami</h4>
+      <p>Drugi pilot 433 MHz (4 przyciski) → 8 przekaźników (FL/FR/RL/RR × góra/dół). Logika hold-to-move: szyba jedzie tak długo jak przycisk jest trzymany. Bezpiecznik 8 s.</p>
     </div>
     <div class="card">
       <div class="ic">🚗</div>
-      <h4>Bagażnik</h4>
-      <p>Przekaźnik elektrozamka bagażnika. Aktywacja z BCM lub pilota RF.</p>
+      <h4>Bagażnik z BLE-gate</h4>
+      <p>Nowy fizyczny przycisk + moduł HM-10 (BLE central). Bagażnik otwiera się tylko gdy znany tag BLE jest w zasięgu (RSSI ≥ próg). Niezależne od OEM.</p>
+    </div>
+    <div class="card">
+      <div class="ic">💡</div>
+      <h4>PWM podświetlenia</h4>
+      <p>D9 (7&quot; main) + D10 (4.3&quot; small) — sterowanie M_PWM gate na płytach wyświetlaczy. Komendy z BCM przez USB Serial.</p>
+    </div>
+    <div class="card">
+      <div class="ic">🔋</div>
+      <h4>Domain A — zawsze zasilany</h4>
+      <p>Vin z bufora SLA (4-6 × 12 V 5 Ah). Działa gdy BCM jest uśpiony. Pobór ~60 mA → ~14-21 dni standby.</p>
     </div>
   </div>
-  <div class="note"><strong>MCU:</strong> Arduino Nano/Pro Mini. Komunikacja: Serial JSON do OPi BCM. 8-kanałowy moduł przekaźników (zamek×2, okna×2, bagażnik, kierunkowskaz L, kierunkowskaz P, światła).</div>
-
-  <h3>Oświetlenie inteligentne</h3>
-  <table>
-    <tr><th>Funkcja</th><th>Opis</th><th>Konfiguracja</th></tr>
-    <tr><td><strong>Follow-me-home</strong></td><td>Światła mijania pozostają włączone po zamknięciu auta</td><td>30 / 60 / 90 sekund</td></tr>
-    <tr><td><strong>Powitanie (Greeting)</strong></td><td>Podwójne mrugnięcie kierunkowskazami przy odblokowaniu, pojedyncze przy zamknięciu</td><td>Liczba mrugnięć: 1-3</td></tr>
-    <tr><td><strong>Leaving-home</strong></td><td>Krótkie włączenie świateł przy odblokowaniu w nocy (czujnik LDR)</td><td>Wł./Wył.</td></tr>
-  </table>
-  <p>Sterowanie przez te same przekaźniki co centralny zamek Arduino (kanały: kierunkowskaz L, kierunkowskaz P, światła). Logika czasowa w module <code>src/vehicle/lighting.py</code>.</p>
+  <div class="note"><strong>MCU:</strong> Arduino Nano (ATmega328P, CH340). Komunikacja z BCM: USB Serial JSON. Moduł 10-kanałowych przekaźników (9 używanych: 8 szyb + bagażnik). <strong>Oryginalny centralny zamek Alfy 156 pozostaje aktywny i niezmieniony.</strong></div>
 
   <h3>Przyciski fizyczne</h3>
   <p>3 przyciski montowane przy ekranie 7/8": <strong>Power on/off</strong>, <strong>Previous track</strong>, <strong>Next track</strong>. Podłączone do Arduino USB HID → keycody → action_dispatch → event bus.</p>
@@ -594,8 +585,9 @@ tr:hover td{background:var(--bg-card)}
   <p>Uruchamiany <strong>przyciskiem SWC MODE</strong> (lub fizycznym Power). Ekran główny 7/8" ON, audio ON, mały ekran 4.3" OFF. Moduły OBD/parking/DVR wyłączone. Pobór: ~2A 5V + wzmacniacze audio. Wyjście: przycisk SWC MODE ponownie LUB uruchomienie silnika (zapłon → ACTIVE). Auto-timeout po konfigurowalnym czasie (30/60/120 min) aby nie rozładować akumulatora.</p>
 
   <h3>Bateria backup <span class="dt dt-new">NOWE</span></h3>
-  <p>Dodatkowa mała bateria (oddzielna od akumulatora samochodu) zasila OPi podczas 12h okna standby (deep idle). Arduino jest zawsze zasilane (bateria backup) i wysyła USB HID keycody.</p>
-  <p>Li-ion 18650 3.7V 5000mAh z ładowarką TP4056 i boost MT3608 (3.7V→5V). Przekaźnik przełącza między akumulatorem samochodowym a baterią backup. W trybie <strong>deep idle</strong> bateria zasila: OPi (OS idle) + Arduino + modem LTE + GPS. Pobór: ~0.15A, wytrzymałość: ~30 godzin.</p>
+  <p>Dodatkowa bateria buforowa (oddzielna od akumulatora samochodu) zasila Arduino always-on (Domain A) ciągle, oraz BCM podczas 12h okna standby (deep idle).</p>
+  <p><strong>Wariant OPi 5 Pro (legacy):</strong> Li-ion 18650 3.7V 5000mAh z ładowarką TP4056 i boost MT3608 (3.7V→5V). Pobór ~0.15A, wytrzymałość ~30h.</p>
+  <p><strong>Wariant x86 (M910q, aktualna produkcja):</strong> <span class="dt dt-new">v8.5</span> 4-6 × SLA 12 V 5 Ah połączonych równolegle (20-30 Ah razem), z diodą Schottky (MBR2045) izolującą od akumulatora samochodowego oraz LVD 11.0 V chroniącym SLA przed głębokim rozładowaniem. Domain A pobiera ~60 mA → ~14-21 dni standby zaparkowanego auta przy 5 SLA = 25 Ah. Szczegóły: <code>docs/X86_PLATFORM_SETUP.md</code> &sect; 2 oraz <code>docs/x86-production/10-power-suspend.html</code>.</p>
   <p>Implementacja: <code>src/power/battery.py</code> — monitorowanie napięcia baterii (Arduino ADC), progi: full 4.2V, nominal 3.7V, low 3.3V, krytyczny 3.0V.</p>
 
   <h3>Detekcja wypadku <span class="dt dt-new">NOWE</span></h3>
@@ -619,37 +611,52 @@ tr:hover td{background:var(--bg-card)}
 
 <!-- ═══ S16 — CENTRAL LOCK + LIGHTING ═══ -->
 <section id="s16">
-  <h2><span class="n">16</span>Centralny zamek i oświetlenie</h2>
-  <h3>Moduł Arduino — centralny zamek</h3>
-  <p>Oddzielny Arduino Nano/Pro Mini z modułem 8-kanałowych przekaźników i odbiornikiem RF 433MHz (RXB6). Komunikacja z OPi BCM przez Serial (JSON). Moduł montowany w bagażniku (blisko oryginalnego centralnego zamka Alfy 156).</p>
+  <h2><span class="n">16</span>Zdalne sterowanie szybami + przycisk bagażnika BLE</h2>
 
-  <h4>Kanały przekaźników (8×)</h4>
+  <div class="note"><strong>Zmiana zakresu (v8.5):</strong> Pierwotny pomysł zastąpienia całego modułu centralnego zamka Alfy 156 został porzucony. Oryginalny system centralnego zamka pozostaje nietknięty. Dodatkowy Arduino Nano (Domain A, zawsze zasilany) dodaje tylko funkcje, których fabryka nie zapewnia: zdalne sterowanie 4 szybami z drugiego pilota 433 MHz oraz przycisk otwarcia bagażnika z weryfikacją obecności kluczyka przez BLE.</p></div>
+
+  <h3>Always-on Arduino Nano (Domain A)</h3>
+  <p>Oddzielny Arduino Nano (ATmega328P, CH340) zasilany z bufora akumulatorowego (4-6 × SLA 12 V 5 Ah równolegle). Działa nieprzerwanie nawet gdy BCM jest uśpiony. Komunikacja z BCM przez USB Serial (JSON, 9600 baud) — używana tylko do komend <code>backlight</code> gdy BCM jest aktywny; pozostałe funkcje (okna, bagażnik) działają autonomicznie.</p>
+
+  <h4>Kanały przekaźników (9×)</h4>
   <table>
-    <tr><th>#</th><th>Funkcja</th><th>Podłączenie</th></tr>
-    <tr><td>1</td><td>Zamknięcie drzwi (LOCK)</td><td>Solenoid centralnego zamka — sygnał zamknięcia</td></tr>
-    <tr><td>2</td><td>Otwarcie drzwi (UNLOCK)</td><td>Solenoid centralnego zamka — sygnał otwarcia</td></tr>
-    <tr><td>3</td><td>Okna — góra (UP)</td><td>Przekaźnik równoległy do przełącznika okien</td></tr>
-    <tr><td>4</td><td>Okna — dół (DOWN)</td><td>Przekaźnik równoległy do przełącznika okien</td></tr>
-    <tr><td>5</td><td>Bagażnik (TRUNK)</td><td>Elektrozamek bagażnika</td></tr>
-    <tr><td>6</td><td>Kierunkowskaz lewy (L_BLINK)</td><td>Przekaźnik równoległy do kierunkowskazu</td></tr>
-    <tr><td>7</td><td>Kierunkowskaz prawy (R_BLINK)</td><td>Przekaźnik równoległy do kierunkowskazu</td></tr>
-    <tr><td>8</td><td>Światła mijania (HEADLIGHTS)</td><td>Przekaźnik równoległy do świateł</td></tr>
+    <tr><th>Kanał</th><th>Funkcja</th><th>Sterowanie</th></tr>
+    <tr><td>1</td><td>FL góra — szyba przód-lewa</td><td>Pilot 433 MHz, hold-to-move</td></tr>
+    <tr><td>2</td><td>FL dół — szyba przód-lewa</td><td>Pilot 433 MHz, hold-to-move</td></tr>
+    <tr><td>3</td><td>FR góra — szyba przód-prawa</td><td>Pilot 433 MHz, hold-to-move</td></tr>
+    <tr><td>4</td><td>FR dół — szyba przód-prawa</td><td>Pilot 433 MHz, hold-to-move</td></tr>
+    <tr><td>5</td><td>RL góra — szyba tył-lewa</td><td>Pilot 433 MHz, hold-to-move</td></tr>
+    <tr><td>6</td><td>RL dół — szyba tył-lewa</td><td>Pilot 433 MHz, hold-to-move</td></tr>
+    <tr><td>7</td><td>RR góra — szyba tył-prawa</td><td>Pilot 433 MHz, hold-to-move</td></tr>
+    <tr><td>8</td><td>RR dół — szyba tył-prawa</td><td>Pilot 433 MHz, hold-to-move</td></tr>
+    <tr><td>9</td><td>Bagażnik — elektrozamek</td><td>Nowy przycisk na desce + BLE proximity</td></tr>
   </table>
 
-  <h4>Protokół RF 433MHz</h4>
-  <p>Odbiornik RXB6 na pin Arduino. Tryb uczenia: BCM wysyła komendę <code>{"cmd":"learn"}</code> → Arduino czeka 10s na sygnał z nowego pilota → zapisuje kod w EEPROM. Obsługa wielu pilotów (do 4 zakodowanych).</p>
+  <p><strong>Logika &quot;hold-to-move&quot;:</strong> przekaźnik szyby jest aktywny tak długo, jak pilot wysyła swój kod (typowo co ~100 ms podczas trzymania przycisku). 250 ms po ostatnim odebranym kodzie przekaźnik się rozłącza. Bezpiecznik czasowy: maksymalnie 8 s ciągłej pracy.</p>
 
-  <h4>Funkcje oświetlenia</h4>
+  <h4>Pilot szyb 433 MHz (drugi pilot)</h4>
+  <p>Drugi 4-przyciskowy pilot 433 MHz (EV1527 / PT2262, kod stały). Odbiornik RXB6 podłączony do D2 (RCSwitch interrupt). 8 kodów (po jednym na slot szyba/kierunek) zapisywanych w EEPROM Arduino.</p>
+  <p><strong>Uczenie:</strong> BCM wysyła <code>{"cmd":"learn_window","slot":"FL_DOWN"}</code> → użytkownik naciska odpowiedni przycisk pilota → Arduino zapisuje kod i odpowiada <code>{"event":"learned","slot":"FL_DOWN","code":1234567}</code>. Powtórzyć dla 8 slotów. Slot na pilocie można zmapować dowolnie (np. jeden przycisk = oba przody w dół).</p>
+
+  <h4>Przycisk bagażnika z BLE-gate</h4>
+  <p>Nowy fizyczny przycisk montowany na desce (niezależny od oryginalnej instalacji bagażnika). Naciśnięcie wyzwala skanowanie BLE przez moduł HM-10 (CC2540/CC2541) podłączony do D3/D4 przez SoftwareSerial.</p>
+  <p>Arduino wysyła <code>AT+DISC?</code>, czeka 2,5 s, szuka skonfigurowanego MAC-a w odpowiedziach. Jeśli RSSI ≥ próg (domyślnie −80 dBm, ~5 m), wystawia impuls 200 ms na przekaźnik bagażnika. W przeciwnym razie emituje <code>{"event":"trunk_denied",...}</code> i nic się nie dzieje.</p>
+  <p><strong>Parowanie taga BLE:</strong> z tagiem w odległości &lt;30 cm od anteny HM-10, BCM wysyła <code>{"cmd":"learn_ble"}</code> → Arduino skanuje 5 s, wybiera urządzenie o najsilniejszym RSSI, zapisuje MAC w EEPROM.</p>
+
+  <p><strong>Serial JSON (BCM → Nano):</strong> <code>{"cmd":"backlight",...}</code>, <code>{"cmd":"ping"}</code>, <code>{"cmd":"status"}</code>, <code>{"cmd":"learn_window","slot":...}</code>, <code>{"cmd":"learn_ble"}</code>, <code>{"cmd":"set_ble_mac","mac":...}</code>, <code>{"cmd":"set_ble_rssi","threshold":...}</code>, <code>{"cmd":"clear"}</code></p>
+  <p><strong>Events (Nano → BCM):</strong> <code>{"event":"window","slot":...}</code>, <code>{"event":"window_release","slot":...}</code>, <code>{"event":"trunk","rssi":...}</code>, <code>{"event":"trunk_denied","reason":...}</code>, <code>{"event":"learned",...}</code>, <code>{"event":"ble_learned",...}</code>, <code>{"event":"rf_unknown","code":...}</code></p>
+  <p><strong>Implementacja:</strong> Arduino: <code>arduino/output_controller/output_controller.ino</code>, Python: <code>src/vehicle/central_lock.py</code> (nazwa historyczna — moduł obsługuje teraz bridge do always-on Nano). Pełny przewodnik konfiguracji: <code>docs/ARDUINO_SETUP_GUIDE.md</code>.</p>
+
+  <h4>Funkcje porzucone vs. funkcje zachowane</h4>
   <table>
-    <tr><th>Funkcja</th><th>Wyzwolenie</th><th>Działanie</th></tr>
-    <tr><td>Follow-me-home</td><td>Zamknięcie + zapłon OFF</td><td>Światła mijania ON przez 30/60/90s, timer w Python</td></tr>
-    <tr><td>Greeting (powitanie)</td><td>Odblokowanie drzwi</td><td>2× mrugnięcie kierunkowskazami L+P (konfigurowalnie 1-3)</td></tr>
-    <tr><td>Greeting (zamknięcie)</td><td>Zamknięcie drzwi</td><td>1× mrugnięcie kierunkowskazami L+P</td></tr>
-    <tr><td>Leaving-home</td><td>Odblokowanie w nocy (LDR)</td><td>Światła ON na 5s</td></tr>
+    <tr><th>Funkcja</th><th>Status</th><th>Powód</th></tr>
+    <tr><td>Lock/Unlock przekaźniki</td><td><span class="dt" style="background:var(--red)">USUNIĘTE</span></td><td>Oryginalny centralny zamek Alfy 156 pozostaje aktywny — nie ma potrzeby duplikacji</td></tr>
+    <tr><td>Uczenie pilota RF do OEM zamka</td><td><span class="dt" style="background:var(--red)">USUNIĘTE</span></td><td>j.w.</td></tr>
+    <tr><td>Sterowanie szybami z BCM (przez UI)</td><td><span class="dt" style="background:var(--red)">USUNIĘTE</span></td><td>Drugi pilot 433 MHz jest jedynym interfejsem; UI nie sterują szybami</td></tr>
+    <tr><td>Kierunkowskazy / klakson / wycieraczki / światła mijania</td><td><span class="dt" style="background:var(--yellow)">OPCJONALNE</span></td><td>Pin-budget zajęty przez 8 szyb + bagażnik + BLE; jeśli ktoś chce te wyjścia, potrzebuje drugiego Nano na Domain B</td></tr>
+    <tr><td>Bagażnik (przycisk + BLE)</td><td><span class="dt dt-new">ZACHOWANE I POSZERZONE</span></td><td>Dodano bramę BLE proximity</td></tr>
+    <tr><td>Szyby (4 × góra/dół)</td><td><span class="dt dt-new">NOWE</span></td><td>Funkcja, której Alfa 156 nie ma fabrycznie</td></tr>
   </table>
-
-  <p><strong>Serial JSON:</strong> <code>{"cmd":"lock"}</code>, <code>{"cmd":"unlock"}</code>, <code>{"cmd":"window_up"}</code>, <code>{"cmd":"window_down"}</code>, <code>{"cmd":"trunk"}</code>, <code>{"cmd":"blink","count":2}</code>, <code>{"cmd":"headlights","duration":60}</code>, <code>{"cmd":"learn"}</code></p>
-  <p><strong>Implementacja:</strong> Arduino: <code>arduino/central_lock/central_lock.ino</code>, Python: <code>src/vehicle/central_lock.py</code> + <code>src/vehicle/lighting.py</code></p>
 
   <h3>System alarmowy <span class="dt dt-new">NOWE</span></h3>
   <p>Alarm zintegrowany z centralnym zamkiem Arduino. Automat stanów: DISARMED → ARMING (30s) → ARMED → TRIGGERED. Auto-uzbrajanie przy zamknięciu, rozbrojenie przy otwarciu.</p>
