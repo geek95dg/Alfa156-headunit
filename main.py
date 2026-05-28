@@ -70,7 +70,7 @@ MODULE_REGISTRY: dict[str, dict] = {
     "weather":     {"part": 14, "description": "Weather Data (OpenWeatherMap)", "start": start_weather},
     "rain_sensor": {"part": 15, "description": "Rain Sensor + Auto Wipers", "start": start_rain_sensor},
     "blinker_monitor": {"part": 15, "description": "Turn Signal GPIO Monitor", "start": start_blinker_monitor},
-    "central_lock":{"part": 16, "description": "Central Lock + 433MHz RF", "start": start_central_lock},
+    "central_lock":{"part": 16, "description": "Always-on Nano bridge (window remote + BLE trunk + backlight PWM)", "start": start_central_lock},
     "lighting":    {"part": 17, "description": "Lighting (Follow-me-home, Greeting)", "start": start_lighting},
     "performance": {"part": 18, "description": "Performance (0-100 Timer, Boost)", "start": start_performance},
     "alarm":       {"part": 19, "description": "Car Alarm (PIR, Tilt, Shock, Siren)", "start": start_alarm},

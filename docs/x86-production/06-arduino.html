@@ -320,7 +320,10 @@
             <li><strong>MCU:</strong> ATmega328P (CH340 USB-UART bridge)</li>
             <li><strong>USB:</strong> Serial only at <strong>9600 baud</strong></li>
             <li><strong>Port:</strong> <code>/dev/ttyUSB0</code> (or <code>ttyUSB1</code>)</li>
-            <li><strong>Relay module:</strong> 10-channel, active-low, opto-isolated</li>
+            <li><strong>Power domain:</strong> <strong>Domain A &mdash; always on.</strong> Vin from the 12 V SLA battery buffer via a 12 V&rarr;5 V buck. USB to M910q is used only for the <code>backlight</code> commands when the BCM is awake.</li>
+            <li><strong>Sketch:</strong> <code>arduino/output_controller/output_controller.ino</code></li>
+            <li><strong>Libraries:</strong> <code>ArduinoJson</code> (v7), <code>RCSwitch</code>, <code>SoftwareSerial</code> (bundled)</li>
+            <li><strong>Relay module:</strong> 10-channel, active-low, opto-isolated (9 of 10 channels used)</li>
           </ul>
 
           <h3>Pin Assignments</h3>
@@ -336,39 +339,39 @@
               </thead>
               <tbody>
                 <tr>
-                  <td>Lock relay</td>
+                  <td>433 MHz RXB6 data input</td>
                   <td>D2</td>
-                  <td>200 ms pulse</td>
+                  <td>RCSwitch on INT 0. Receives codes from the secondary window keyfob.</td>
                 </tr>
                 <tr>
-                  <td>Unlock relay</td>
+                  <td>HM-10 RXD (Nano TX)</td>
                   <td>D3</td>
-                  <td>200 ms pulse</td>
+                  <td>SoftwareSerial TX &rarr; HM-10 RXD pin</td>
+                </tr>
+                <tr>
+                  <td>HM-10 TXD (Nano RX)</td>
+                  <td>D4</td>
+                  <td>SoftwareSerial RX &larr; HM-10 TXD pin</td>
                 </tr>
                 <tr>
                   <td>Trunk relay</td>
-                  <td>D4</td>
-                  <td>200 ms pulse</td>
-                </tr>
-                <tr>
-                  <td>Window up</td>
                   <td>D5</td>
-                  <td>Hold while active</td>
+                  <td>200 ms pulse, fires only when trunk button is pressed AND HM-10 reports the known BLE MAC within the RSSI threshold</td>
                 </tr>
                 <tr>
-                  <td>Window down</td>
+                  <td>Trunk button input</td>
                   <td>D6</td>
-                  <td>Hold while active</td>
+                  <td>Internal pull-up; new dash-mounted momentary switch to GND (independent of OEM trunk wiring)</td>
                 </tr>
                 <tr>
-                  <td>Headlights</td>
+                  <td>FL window UP relay</td>
                   <td>D7</td>
-                  <td>On/off + configurable timeout</td>
+                  <td>Hold while keyfob button held</td>
                 </tr>
                 <tr>
-                  <td>Left blinker</td>
+                  <td>FL window DOWN relay</td>
                   <td>D8</td>
-                  <td>On/off toggle</td>
+                  <td>Hold while keyfob button held</td>
                 </tr>
                 <tr>
                   <td>Backlight LARGE (7" main)</td>
@@ -381,31 +384,99 @@
                   <td>PWM ~490 Hz, drives display M_PWM gate (0&ndash;100&nbsp;%)</td>
                 </tr>
                 <tr>
-                  <td>Horn</td>
+                  <td>FR window UP relay</td>
                   <td>D11</td>
-                  <td>Hold while active</td>
+                  <td>Hold while keyfob button held</td>
                 </tr>
                 <tr>
-                  <td>RF receiver (optional)</td>
+                  <td>FR window DOWN relay</td>
                   <td>D12</td>
-                  <td>RXB6 433 MHz receiver (data input). Disabled by default &mdash; set <code>ENABLE_RF&nbsp;=&nbsp;1</code> in the sketch.</td>
+                  <td>Hold while keyfob button held</td>
                 </tr>
                 <tr>
-                  <td>Right blinker</td>
+                  <td>Status LED</td>
+                  <td>D13</td>
+                  <td>On-board, slow heartbeat blink (0.5 Hz, 100 ms pulse)</td>
+                </tr>
+                <tr>
+                  <td>RL window UP relay</td>
                   <td>A0</td>
-                  <td>On/off toggle (relocated from D9 to free hardware PWM)</td>
+                  <td>Hold while keyfob button held</td>
                 </tr>
                 <tr>
-                  <td>Wipers</td>
+                  <td>RL window DOWN relay</td>
                   <td>A1</td>
-                  <td>Pulse, duration-controlled (relocated from D10 to free hardware PWM)</td>
+                  <td>Hold while keyfob button held</td>
+                </tr>
+                <tr>
+                  <td>RR window UP relay</td>
+                  <td>A2</td>
+                  <td>Hold while keyfob button held</td>
+                </tr>
+                <tr>
+                  <td>RR window DOWN relay</td>
+                  <td>A3</td>
+                  <td>Hold while keyfob button held</td>
                 </tr>
               </tbody>
             </table>
           </div>
 
+          <div class="box box-warning">
+            <div class="box-title">Dropped features &mdash; OEM systems left untouched</div>
+            <p>
+              Earlier revisions of this page documented the Nano as a
+              replacement for the OEM central lock, with lock / unlock /
+              RF keyfob learning, headlights, horn, wipers, and blinkers.
+              <strong>That concept has been abandoned.</strong> The
+              original Alfa 156 systems stay in place. The Nano now
+              focuses on the small set of features the OEM does
+              <em>not</em> provide: 4-window remote control (hold-to-move
+              from a secondary keyfob), BLE-proximity-gated trunk
+              release, and the display backlight PWM.
+            </p>
+            <p>
+              If you ever want the dropped outputs back (headlights, horn,
+              wipers, blinkers), they need a separate Nano on Domain B
+              with its own sketch &mdash; the always-on Nano's pin
+              budget is fully used by the new scope.
+            </p>
+          </div>
+
+          <h3>Window-remote learning</h3>
+
+          <p>
+            8 RF codes (one per window-and-direction slot) are stored in
+            EEPROM. Walk through the learning procedure in
+            <code>docs/ARDUINO_SETUP_GUIDE.md</code> &sect; 6.5. In
+            short: send
+            <code>{"cmd":"learn_window","slot":"FL_DOWN"}</code>, press
+            the corresponding remote button, the Nano echoes
+            <code>{"event":"learned","slot":"FL_DOWN","code":1234567}</code>,
+            repeat for the other 7 slots. Slots:
+            <code>FL_UP / FL_DOWN / FR_UP / FR_DOWN / RL_UP / RL_DOWN /
+            RR_UP / RR_DOWN</code>.
+          </p>
+
+          <h3>BLE proximity gate</h3>
+
+          <p>
+            The HM-10 BLE module is in central/scanner mode. When the
+            trunk button is pressed, the Nano issues
+            <code>AT+DISC?</code>, scans for 2.5 s, looks for the
+            previously-learned BLE MAC and confirms RSSI is at or above
+            the threshold (default &minus;80&nbsp;dBm, ~5 m line-of-sight
+            with an iTag). Only then does it pulse the trunk relay.
+            Pair the tag with
+            <code>{"cmd":"learn_ble"}</code> (picks the strongest device
+            in range) or set the MAC explicitly with
+            <code>{"cmd":"set_ble_mac","mac":"AA1122334455"}</code>.
+            Tune sensitivity with
+            <code>{"cmd":"set_ble_rssi","threshold":-75}</code>.
+          </p>
+
           <div class="box box-info">
-            <div class="box-title">Why D9/D10 are now backlight outputs</div>
+            <div class="box-title">Why D9/D10 are the backlight outputs</div>
             <p>
               On x86 the M910q has no GPIO header, so the display backlight
               PWM must come from one of the USB Arduinos. The Nano's hardware
@@ -419,8 +490,12 @@
           <h3>JSON Command Protocol</h3>
 
           <p>
-            The BCM sends JSON commands over serial to the Nano at 9600 baud.
-            Each command is a single JSON object terminated by a newline character.
+            The BCM sends JSON commands over USB serial to the Nano at
+            9600 baud. Each command is a single JSON object terminated
+            by a newline character. <strong>The Nano works autonomously
+            for windows and trunk &mdash; the BCM only needs to issue
+            <code>backlight</code> and the configuration commands
+            below; everything else is event-driven from the Nano.</strong>
           </p>
 
           <div class="table-wrap">
@@ -434,64 +509,91 @@
               </thead>
               <tbody>
                 <tr>
-                  <td>Lock doors</td>
-                  <td><code>{"cmd":"lock"}</code></td>
-                  <td>D2 pulse 200 ms</td>
-                </tr>
-                <tr>
-                  <td>Unlock doors</td>
-                  <td><code>{"cmd":"unlock"}</code></td>
-                  <td>D3 pulse 200 ms</td>
-                </tr>
-                <tr>
-                  <td>Trunk release</td>
-                  <td><code>{"cmd":"trunk"}</code></td>
-                  <td>D4 pulse 200 ms</td>
-                </tr>
-                <tr>
-                  <td>Headlights</td>
-                  <td><code>{"cmd":"lights","state":1,"timeout":60}</code></td>
-                  <td>D7 on; auto-off after 60 s</td>
-                </tr>
-                <tr>
-                  <td>Wipers</td>
-                  <td><code>{"cmd":"wipers","duration":5}</code></td>
-                  <td>A1 active for 5 s</td>
-                </tr>
-                <tr>
-                  <td>Horn</td>
-                  <td><code>{"cmd":"horn","state":1}</code></td>
-                  <td>D11 hold while state=1</td>
-                </tr>
-                <tr>
-                  <td>Blinkers</td>
-                  <td><code>{"cmd":"blinker","side":"left","state":1}</code></td>
-                  <td>D8 (left) or A0 (right) on/off, software-blinked at ~1.25 Hz</td>
-                </tr>
-                <tr>
-                  <td>Window</td>
-                  <td><code>{"cmd":"window","dir":"up","state":1}</code></td>
-                  <td>D5 or D6 hold while state=1</td>
-                </tr>
-                <tr>
                   <td>Backlight</td>
                   <td><code>{"cmd":"backlight","display":"large","brightness":80}</code></td>
                   <td>PWM duty on D9 (large/7") or D10 (small/4.3"); accepts <code>"both"</code> too</td>
                 </tr>
                 <tr>
-                  <td>Blink ack</td>
-                  <td><code>{"cmd":"blink","count":2}</code></td>
-                  <td>Brief alternating flash on both blinker outputs (e.g. after lock)</td>
-                </tr>
-                <tr>
-                  <td>RF learn</td>
-                  <td><code>{"cmd":"learn"}</code></td>
-                  <td>10 s 433 MHz capture window (requires <code>ENABLE_RF=1</code>)</td>
-                </tr>
-                <tr>
                   <td>Health-check</td>
                   <td><code>{"cmd":"ping"}</code></td>
                   <td>Reply: <code>{"event":"pong"}</code></td>
+                </tr>
+                <tr>
+                  <td>Status dump</td>
+                  <td><code>{"cmd":"status"}</code></td>
+                  <td>Returns active window slot, BLE MAC presence, RSSI threshold, all 8 learned RF codes</td>
+                </tr>
+                <tr>
+                  <td>Learn window code</td>
+                  <td><code>{"cmd":"learn_window","slot":"FL_DOWN"}</code></td>
+                  <td>Arm 30 s capture for the named slot. Next received RF code is stored.</td>
+                </tr>
+                <tr>
+                  <td>Learn BLE tag</td>
+                  <td><code>{"cmd":"learn_ble"}</code></td>
+                  <td>5 s HM-10 scan; stores strongest-RSSI MAC as the known tag</td>
+                </tr>
+                <tr>
+                  <td>Set BLE MAC</td>
+                  <td><code>{"cmd":"set_ble_mac","mac":"AA1122334455"}</code></td>
+                  <td>Explicit set (12 hex chars). Persisted to EEPROM.</td>
+                </tr>
+                <tr>
+                  <td>Set BLE threshold</td>
+                  <td><code>{"cmd":"set_ble_rssi","threshold":-75}</code></td>
+                  <td>Trunk-arm RSSI threshold in dBm. Default &minus;80.</td>
+                </tr>
+                <tr>
+                  <td>Factory reset</td>
+                  <td><code>{"cmd":"clear"}</code></td>
+                  <td>Wipes EEPROM: forgets all 8 RF codes and the BLE MAC</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <h3>Events emitted by the Nano</h3>
+
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Trigger</th>
+                  <th>JSON event</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>Boot</td>
+                  <td><code>{"event":"ready","fw":"bcm-domain-a-v8.5"}</code></td>
+                </tr>
+                <tr>
+                  <td>Keyfob button pressed (matched slot)</td>
+                  <td><code>{"event":"window","slot":"FL_DOWN"}</code></td>
+                </tr>
+                <tr>
+                  <td>Keyfob button released or 8 s safety cutoff</td>
+                  <td><code>{"event":"window_release","slot":"FL_DOWN"}</code></td>
+                </tr>
+                <tr>
+                  <td>Trunk button pressed AND BLE tag in range</td>
+                  <td><code>{"event":"trunk","rssi":-52}</code></td>
+                </tr>
+                <tr>
+                  <td>Trunk button pressed, tag too far or absent</td>
+                  <td><code>{"event":"trunk_denied","reason":"weak","rssi":-95}</code></td>
+                </tr>
+                <tr>
+                  <td>Unknown RF code received</td>
+                  <td><code>{"event":"rf_unknown","code":9999999}</code></td>
+                </tr>
+                <tr>
+                  <td>learn_window result</td>
+                  <td><code>{"event":"learned","slot":"FL_DOWN","code":1234567}</code></td>
+                </tr>
+                <tr>
+                  <td>learn_ble result</td>
+                  <td><code>{"event":"ble_learned","mac":"AA1122334455","rssi":-42}</code></td>
                 </tr>
               </tbody>
             </table>
@@ -675,9 +777,19 @@ minicom -D /dev/ttyACM0 -b 115200
           <pre><code># Open serial monitor for Nano
 minicom -D /dev/ttyUSB0 -b 9600
 
-# Send a JSON command (type in minicom):
-#   {"cmd":"lock"}
-# The lock relay should pulse for 200ms</code></pre>
+# On reset you should see:
+#   {"event":"ready","fw":"bcm-domain-a-v8.5"}
+
+# Health-check (type in minicom, end with Enter):
+#   {"cmd":"ping"}
+# Expected reply:
+#   {"event":"pong"}
+
+# Dump current state (learned codes, BLE MAC, RSSI threshold):
+#   {"cmd":"status"}
+
+# Set the 7" display backlight to 50% (D9 PWM duty ~2.5V average):
+#   {"cmd":"backlight","display":"large","brightness":50}</code></pre>
 
           <h3>Test BCM integration</h3>
 
