@@ -120,10 +120,10 @@ class WiFiAPManager:
         self._dnsmasq_proc: Optional[subprocess.Popen] = None
         self._wpa_proc: Optional[subprocess.Popen] = None
         # Secondary AP ("ALFA-NET" internet share) — only spun up when
-        # the radio admits two concurrent VIFs (Intel 8265 typically
-        # supports one P2P-GO + one AP at the same time on the same
-        # channel). On phys that reject the combo we fall back to
-        # time-multiplexing.
+        # the radio admits two concurrent VIFs. On phys that reject the
+        # combo (MT7921 and most consumer chips advertise
+        # `#{AP, P2P-GO} <= 1`) we fall back to time-multiplexing or a
+        # USB dongle.
         self._net_iface: Optional[str] = None
         self._net_hostapd_proc: Optional[subprocess.Popen] = None
         self._net_dnsmasq_proc: Optional[subprocess.Popen] = None
@@ -255,14 +255,11 @@ class WiFiAPManager:
                 capture_output=True, timeout=5,
             )
 
-            # Default to 2.4 GHz channel 6. The Intel 8265 firmware
-            # rejects every 5 GHz frequency under country=PL with
-            # "Frequency NNNN not allowed for AP mode, flags: NO-IR"
-            # — both UNII-3 ch149 and UNII-1 ch36/40/44/48 fail. 2.4 GHz
-            # ch1/6/11 always works and AA Wireless H.264 video runs
-            # fine over 802.11n 40 MHz on 2.4 GHz.
-            channel = self._config.get("wifi.channel", 6)
-            band = self._config.get("wifi.band", "bg")
+            # MT7921 exposes UNII-3 at 30 dBm under the firmware-mediatek
+            # worldwide regdom, so default to 5 GHz ch149 for AA Wireless
+            # throughput. wifi.channel/band in YAML override per-deploy.
+            channel = self._config.get("wifi.channel", 149)
+            band = self._config.get("wifi.band", "a")
             result = subprocess.run(
                 [
                     "nmcli", "device", "wifi", "hotspot",
@@ -550,27 +547,19 @@ class WiFiAPManager:
     def _start_hostapd(self) -> bool:
         """Generate hostapd config and start the daemon.
 
-        Verbatim from the user's tested known-good config for the M910q
-        Intel 7265 — extras like ieee80211d/wmm_enabled/macaddr_acl have
-        repeatedly broken broadcast on this card, while this exact set
-        comes up first try.
-
         When ``wifi.alfa_net.enabled`` is true, appends a second BSS
         section so hostapd broadcasts BOTH ``ALFA`` and ``ALFA-NET`` on
-        the same channel from the same radio — Intel 8265's
+        the same channel from the same radio — MT7921's
         interface_combinations rejects AP+P2P-GO concurrent but allows
         multi-BSS within a single AP role.
         """
         config_path = os.path.join(RUNTIME_DIR, "hostapd.conf")
         # Channel/band/country are sourced from wifi.* in the YAML so the
         # BCM-internal AP path stays in sync with what setup-x86.sh wrote
-        # to /etc/hostapd/hostapd.conf — defaults are 2.4 GHz ch6,
-        # hw_mode=g, country=PL. The Intel 8265 firmware rejects every
-        # 5 GHz frequency under PL regdom (NO-IR), so 5 GHz isn't usable
-        # on this hardware regardless of how non-DFS the channel is.
-        channel = self._config.get("wifi.channel", 6)
-        hw_mode = self._config.get("wifi.band", "g")
-        country = self._config.get("wifi.country", "PL")
+        # to /etc/hostapd/hostapd.conf.
+        channel = self._config.get("wifi.channel", 149)
+        hw_mode = self._config.get("wifi.band", "a")
+        country = self._config.get("wifi.country", "US")
         is_5ghz = hw_mode == "a"
         config_content = (
             f"interface={self._interface}\n"
@@ -633,9 +622,9 @@ class WiFiAPManager:
         with open(config_path, "w") as f:
             f.write(config_content)
 
-        # Unblock rfkill before hostapd — the radio comes up soft-blocked
-        # on the M910q at cold boot and hostapd reports rc=0 on a blocked
-        # interface, just never broadcasts.
+        # Unblock rfkill before hostapd — the radio can come up soft-blocked
+        # at cold boot and hostapd reports rc=0 on a blocked interface,
+        # just never broadcasts.
         try:
             subprocess.run(["rfkill", "unblock", "wifi"],
                            capture_output=True, timeout=3)
@@ -671,19 +660,19 @@ class WiFiAPManager:
         if _launch(config_path):
             return True
 
-        # Multi-BSS failure recovery: iwlwifi 8265's interface_combinations
-        # admits exactly ONE AP role on this radio (`#{AP, P2P-client,
-        # P2P-GO} <= 1`), so the `bss=` secondary trips
-        # "Could not set interface wlp2s0_net flags (UP): Device or
+        # Multi-BSS failure recovery: the driver may admit only ONE AP
+        # role on this radio (MT7921's interface_combinations advertises
+        # `#{AP, P2P-GO} <= 1`), so the `bss=` secondary trips
+        # "Could not set interface ..._net flags (UP): Device or
         # resource busy". If we asked for ALFA-NET and the dual-BSS
         # launch failed, retry single-BSS so the primary ALFA still
         # comes up; ALFA-NET is unavailable on this hardware without
         # a second radio (USB dongle).
         if self._net_iface and self._config.get("wifi.alfa_net.enabled", True):
-            log.warning("Multi-BSS rejected by iwlwifi (8265 admits 1 AP "
-                        "only) — retrying ALFA single-BSS without "
-                        "ALFA-NET. Plug a USB WiFi dongle to get the "
-                        "second SSID concurrently.")
+            log.warning("Multi-BSS rejected by driver (single AP only) — "
+                        "retrying ALFA single-BSS without ALFA-NET. Plug "
+                        "a USB WiFi dongle to get the second SSID "
+                        "concurrently.")
             single_bss = config_content.split("\n# Secondary BSS")[0]
             with open(config_path, "w") as f:
                 f.write(single_bss)
@@ -822,11 +811,8 @@ class WiFiAPManager:
 
         Channel is config-driven (``wifi.channel``). The AA Wireless
         protocol the phone speaks is Wi-Fi Direct internally, so P2P-GO
-        is the natural mode. The Intel 8265 self-managed regdom blocks
-        regular AP role on 5 GHz with NO-IR; P2P-GO sidesteps that on
-        2.4 GHz where the firmware accepts active TX. 5 GHz P2P-GO
-        also FAILs under self-managed country 00 — patch regdb if you
-        need it.
+        is the natural mode. MT7921 accepts P2P-GO on UNII-3 (ch149+)
+        out of the box with the worldwide regdom in firmware-mediatek.
         """
         # Make sure NetworkManager isn't holding the interface — wpa_s
         # P2P refuses to bind otherwise.
@@ -837,11 +823,11 @@ class WiFiAPManager:
             )
             time.sleep(0.3)
 
-        # Best-effort regdom kick. User waived country compliance so we
-        # try a country that the iwlwifi 8265 firmware admits is OK on
-        # ch149 (BO/JP/IN have historically worked). `iw reg set` is a
-        # no-op on self-managed PHYs but costs nothing to attempt.
-        regdom = self._config.get("wifi.regdom", "BO")
+        # Set regdom so the country code propagates into the P2P-GO
+        # beacon. MT7921 honours `iw reg set`; the worldwide default
+        # already exposes ch149 at 30 dBm but explicit US/PL keeps the
+        # country IE consistent across reboots.
+        regdom = self._config.get("wifi.regdom", "US")
         for cmd in (["rfkill", "unblock", "wifi"],
                     ["rfkill", "unblock", "all"],
                     ["iw", "reg", "set", regdom]):
@@ -924,9 +910,7 @@ class WiFiAPManager:
         # Start a persistent P2P group. Channel→freq mapping differs
         # between bands: 2.4 GHz ch1-13 uses 2407+5*N (and ch14 is the
         # special-case 2484 MHz for JP), while 5 GHz uses 5000+5*N.
-        # Picking the wrong formula sends ch6 to 5030 MHz which is
-        # NO-IR on the Intel 8265 firmware — silent `p2p_group_add: FAIL`.
-        channel = int(self._config.get("wifi.channel", 6))
+        channel = int(self._config.get("wifi.channel", 149))
         if channel <= 14:
             freq = 2484 if channel == 14 else 2407 + 5 * channel
         else:
@@ -1092,10 +1076,10 @@ class WiFiAPManager:
              exists (USB dongle), park ALFA-NET there.
           2. **Concurrent VIF on same phy** — iw add interface __ap;
              only succeeds when the driver advertises an AP/GO + AP
-             combination. iwlwifi 8265 advertises ``#{AP, P2P-GO} <= 1``
-             which means it does NOT — adding an AP VIF on the same
-             PHY as an active P2P-GO group collapses the GO. The
-             concurrent-VIF check below catches that and skips.
+             combination. MT7921 advertises ``#{AP, P2P-GO} <= 1`` so
+             adding an AP VIF on the same PHY as an active P2P-GO
+             group collapses the GO. The concurrent-VIF check below
+             catches that and skips.
           3. **Skip** — log a warning and require a USB dongle for
              ALFA-NET. Time-multiplexing is intentionally NOT done
              here because the AA P2P-GO group is the primary mission
@@ -1147,18 +1131,17 @@ class WiFiAPManager:
                 self._net_iface = candidate
                 return
 
-        # Path 2: concurrent VIF on same PHY. Intel 8265's
-        # interface_combinations advertises `#{AP, P2P-GO} <= 1`, so
-        # adding an AP VIF while a P2P-GO group is active will
-        # silently collapse the GO. The `iw phy ... interface add`
-        # command often returns rc=0 anyway, then hostapd starts and
-        # knocks AA off the air. Skip this path entirely when the
-        # primary is p2p_go to keep AA up.
+        # Path 2: concurrent VIF on same PHY. MT7921 (and most consumer
+        # chips) advertise `#{AP, P2P-GO} <= 1` in interface_combinations,
+        # so adding an AP VIF while a P2P-GO group is active will silently
+        # collapse the GO. The `iw phy ... interface add` command often
+        # returns rc=0 anyway, then hostapd starts and knocks AA off the
+        # air. Skip this path entirely when the primary is p2p_go.
         if self._method == "p2p_go":
             log.warning(
-                "ALFA-NET disabled — primary AP is P2P-GO and the "
-                "Intel 8265 PHY can't host AA + ALFA-NET concurrently. "
-                "Plug a USB WiFi dongle for ALFA-NET."
+                "ALFA-NET disabled — primary AP is P2P-GO and the PHY "
+                "can't host AA + ALFA-NET concurrently. Plug a USB WiFi "
+                "dongle for ALFA-NET."
             )
             return
 
@@ -1213,7 +1196,7 @@ class WiFiAPManager:
         # 2.4 GHz ch6 — works everywhere, doesn't share the main 5 GHz
         # frequency unless the radio forces it.
         channel = int(self._config.get("wifi.alfa_net.channel", 6))
-        country = self._config.get("wifi.alfa_net.country", "BO")
+        country = self._config.get("wifi.alfa_net.country", "US")
         conf = (
             f"interface={iface}\n"
             f"driver=nl80211\n"

@@ -28,8 +28,8 @@ order — each builds on the previous one.
 | GPU | Intel HD 530 (VAAPI hardware decode) |
 | RAM | 8 GB DDR4 2400 |
 | Storage | 256 GB NVMe SSD |
-| WiFi | Intel 8265 2×2 802.11ac (built-in) |
-| Bluetooth | Intel 8265 BT 4.2 (built-in) |
+| WiFi | MediaTek MT7921 2×2 802.11ax (M.2 Key E, replaces stock Intel 8265) |
+| Bluetooth | MediaTek MT7921 BT 5.2 (USB side of the same M.2 combo card) |
 | Display | **2× DisplayPort** (mini-DP) |
 | USB | 6× USB 3.0 + 1× USB-C |
 | Power | 65W external 20V barrel jack |
@@ -52,10 +52,18 @@ for f in /sys/class/drm/card*-*/status; do echo "$f: $(cat $f)"; done
 
 ### 1.3 WiFi and Bluetooth
 
-Intel 8265 provides both. For wireless Android Auto you need 5GHz AP:
-- Intel 8265 supports AP on 5GHz non-DFS channels — test in §10
-- Fallback: USB WiFi dongle (RTL8812BU) if Intel AP fails
-- BT 4.2 built-in is sufficient for AA pairing — no dongle needed
+MT7921 combo card (PCIe `[14c3:7961]` + USB BT `[0489:e0cd]`) replaces
+the stock Intel 8265 in the M.2 Key E slot. Both radios need the
+`firmware-mediatek` package (Debian non-free-firmware) — without it,
+`mt7921e` reports `hardware init failed` and BT reports
+`Failed to load firmware file (-2)`.
+
+- MT7921 supports P2P-GO on 5GHz ch149 at 80MHz VHT, 30 dBm — first try.
+- BT 5.2 (HCI version 5.2, Manufacturer: MediaTek, Inc.) handles AA
+  pairing + A2DP + HFP cleanly. No tx-timeout reset like the old Intel 8087.
+- Fallback: USB WiFi dongle (RTL8812BU) only needed if you want
+  ALFA-NET concurrent with AA Wireless (single radio can't host both —
+  MT7921 advertises `#{AP, P2P-GO} <= 1`).
 
 ### 1.4 USB device layout
 
@@ -270,9 +278,9 @@ sudo apt install -y \
 sudo apt install -y \
     pipewire pipewire-pulse wireplumber alsa-utils mpv
 
-# Intel WiFi + Bluetooth
+# MediaTek MT7921 WiFi + Bluetooth (replaces firmware-iwlwifi)
 sudo apt install -y \
-    firmware-iwlwifi bluez bluez-tools network-manager hostapd dnsmasq
+    firmware-mediatek bluez bluez-tools network-manager hostapd dnsmasq
 
 # Camera / video
 sudo apt install -y \
@@ -602,43 +610,54 @@ journalctl -u bcm-resume --no-pager -n5
 
 ## 10. WiFi Access Point (for Wireless Android Auto)
 
-### 10.1 Test Intel 8265 AP mode
+### 10.1 Test MT7921 AP / P2P-GO mode
 
-The M910q's WiFi interface is `wlp2s0`:
+The M910q's WiFi interface (under `mt7921e`) is `wlp2s0`. The card
+exposes ch36-165 with the worldwide regdom in `firmware-mediatek`;
+ch149 (UNII-3) is available at 30 dBm with no NO-IR flag.
 
 ```bash
-# Verify AP mode is supported
-iw list | grep -A5 "Supported interface modes"
+# Verify the right card + driver loaded
+lspci -nn | grep -i mediatek                       # expect [14c3:7961]
+iw list | grep -A5 "Supported interface modes"     # expect AP, P2P-GO
+iw phy phy1 info | grep -A1 5745                   # expect (30.0 dBm)
 
-# Set country code
-sudo iw reg set PL
+# Set country code (worldwide default already works; this is belt+braces)
+sudo iw reg set US
 
-# Test AP on 5GHz channel 149
-sudo tee /tmp/test-ap.conf >/dev/null <<EOF
-interface=wlp2s0
-driver=nl80211
-ssid=ALFA_AA
-hw_mode=a
-channel=149
-ieee80211n=1
-ieee80211ac=1
-wpa=2
-wpa_passphrase=AlfaRomeo156
-wpa_key_mgmt=WPA-PSK
-rsn_pairwise=CCMP
-wpa_pairwise=CCMP
-country_code=PL
+# Quick P2P-GO sanity test on ch149 (BCM production mode)
+sudo systemctl stop wpa_supplicant.service NetworkManager
+sudo rfkill unblock wifi
+sudo mkdir -p /tmp/p2p-test/ctrl
+sudo tee /tmp/p2p-test/wpa.conf >/dev/null <<EOF
+ctrl_interface=DIR=/tmp/p2p-test/ctrl GROUP=netdev
+update_config=1
+country=US
+device_name=MT7921-Test
+device_type=8-0050F204-2
+p2p_go_intent=15
+p2p_go_ht40=1
+p2p_go_vht=1
 EOF
+sudo wpa_supplicant -B -i wlp2s0 -D nl80211 -c /tmp/p2p-test/wpa.conf
+sudo wpa_cli -p /tmp/p2p-test/ctrl -i wlp2s0 p2p_group_add freq=5745 persistent
+sleep 2
+iw dev   # expect Interface p2p-wlp2s0-0, type P2P-GO, channel 149, width: 80 MHz
 
-sudo hostapd /tmp/test-ap.conf
+# Cleanup + restart system services
+sudo wpa_cli -p /tmp/p2p-test/ctrl -i wlp2s0 p2p_group_remove p2p-wlp2s0-0
+sudo pkill -f "wpa_supplicant.*p2p-test"
+sudo rm -rf /tmp/p2p-test
+sudo systemctl start NetworkManager wpa_supplicant.service
 ```
 
-If your phone can see "ALFA_AA" — Intel works. If connection fails,
-try different channels: 36, 40, 44, 48, 149, 153, 157, 161.
+Alternative: regular hostapd ch149 80MHz VHT (the static fallback
+written by `setup-x86.sh` — see `/etc/hostapd/hostapd.conf`).
 
 ### 10.2 USB dongle fallback (RTL8812BU)
 
-If Intel 8265 can't hold connections on 5GHz:
+Only needed if you want `ALFA-NET` to broadcast concurrently with
+the AA Wireless P2P-GO group (MT7921 admits one AP role per radio):
 ```bash
 sudo apt install -y dkms bc linux-headers-$(uname -r)
 cd /tmp

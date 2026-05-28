@@ -46,7 +46,7 @@
       <header>
         <h1>
           08 &mdash; WiFi &amp; Bluetooth
-          <span class="subtitle">Fenvi FU-AX1800 (MediaTek MT7921) &mdash; Dual-SSID AP &amp; BT Pairing</span>
+          <span class="subtitle">MediaTek MT7921 combo card &mdash; P2P-GO AA Wireless &amp; BT 5.2 carkit</span>
         </h1>
       </header>
 
@@ -57,23 +57,28 @@
           <h2>Overview</h2>
 
           <p>
-            The <strong>Fenvi FU-AX1800</strong> (MediaTek MT7921 chipset) replaces the
-            stock Intel 8265 wireless card in the Lenovo M910q. While the Intel 8265
-            provides basic WiFi and Bluetooth, it cannot reliably operate as a 5&nbsp;GHz
-            access point &mdash; a requirement for wireless Android Auto. The Fenvi
-            FU-AX1800 resolves this with full WiFi&nbsp;6 (802.11ax) support on both
-            2.4&nbsp;GHz and 5&nbsp;GHz bands, plus Bluetooth&nbsp;5.2.
+            The kiosk uses a <strong>MediaTek MT7921 M.2 combo card</strong> for both
+            WiFi and Bluetooth. The PCIe side (<code>[14c3:7961]</code>) drives WiFi 6
+            via the mainline <code>mt7921e</code> driver; the USB side
+            (<code>[0489:e0cd]</code>, MediaTek/Foxconn) provides Bluetooth 5.2 through
+            the standard <code>btusb</code>+<code>btmtk</code> stack. Both come up from
+            a single M.2 Key E slot with shared antennas, and both need the
+            <code>firmware-mediatek</code> package (Debian non-free-firmware repo) to
+            load &mdash; without it, the WiFi reports <code>hardware init failed</code>
+            and BT reports <code>Failed to load firmware file (-2)</code>.
           </p>
 
           <div class="box box-info">
-            <div class="box-title">Why replace the Intel 8265?</div>
+            <div class="box-title">Why MT7921 over the original Intel combo</div>
             <p>
-              The Intel 8265 uses the <code>iwlwifi</code> driver, which does not
-              support 5&nbsp;GHz AP mode. Android Auto wireless requires a 5&nbsp;GHz
-              access point for acceptable latency and bandwidth. The MT7921 driver
-              (<code>mt7921e</code>) is mainline since kernel 5.18 and supports both
-              AP mode on 5&nbsp;GHz and dual-SSID virtual interfaces, making it the
-              ideal upgrade.
+              The M910q ships with an Intel 8265 (WiFi) + Intel 8087 (BT) combo. The
+              8265 has a self-managed regdom pinned to country 00 that flags every
+              5&nbsp;GHz channel as <code>NO-IR</code> for AP mode regardless of
+              <code>iw reg set</code>, and the 8087 has a documented tx-timeout that
+              resets the controller mid-pair after ~15 minutes uptime. MT7921 has
+              neither problem &mdash; 5&nbsp;GHz ch149 P2P-GO at 80&nbsp;MHz VHT comes
+              up first try, and BT 5.2 sessions are stable. See
+              <a href="https://wireless.wiki.kernel.org/en/users/drivers/mediatek">wireless.wiki.kernel.org</a>.
             </p>
           </div>
 
@@ -82,40 +87,40 @@
               <thead>
                 <tr>
                   <th>Feature</th>
-                  <th>Intel 8265</th>
-                  <th>Fenvi FU-AX1800 (MT7921)</th>
+                  <th>Intel 8265 + 8087 (original)</th>
+                  <th>MediaTek MT7921 (current)</th>
                 </tr>
               </thead>
               <tbody>
                 <tr>
-                  <td>WiFi Standard</td>
+                  <td>WiFi standard</td>
                   <td>802.11ac (WiFi 5)</td>
-                  <td class="winner">802.11ax (WiFi 6)</td>
+                  <td class="winner">802.11ax (WiFi 6), 80&nbsp;MHz VHT</td>
                 </tr>
                 <tr>
-                  <td>5 GHz AP Mode</td>
-                  <td class="downside">Not supported</td>
-                  <td class="winner">Supported</td>
-                </tr>
-                <tr>
-                  <td>Dual-SSID (virtual interfaces)</td>
-                  <td class="downside">Not supported</td>
-                  <td class="winner">Supported</td>
+                  <td>5&nbsp;GHz AP / P2P-GO</td>
+                  <td class="downside">Firmware-locked off (self-managed country 00, NO-IR on UNII-1/3)</td>
+                  <td class="winner">ch149 first try at 30&nbsp;dBm</td>
                 </tr>
                 <tr>
                   <td>Bluetooth</td>
-                  <td>BT 4.2</td>
-                  <td class="winner">BT 5.2</td>
+                  <td class="downside">BT 4.2 &mdash; tx-timeout after ~15&nbsp;min, controller resets</td>
+                  <td class="winner">BT 5.2 &mdash; stable</td>
                 </tr>
                 <tr>
-                  <td>Linux Driver</td>
-                  <td>iwlwifi</td>
-                  <td>mt7921e (mainline &ge; 5.18)</td>
+                  <td>WiFi driver</td>
+                  <td><code>iwlwifi</code> + <code>firmware-iwlwifi</code></td>
+                  <td><code>mt7921e</code> + <code>firmware-mediatek</code></td>
                 </tr>
                 <tr>
-                  <td>Form Factor</td>
-                  <td>M.2 Key E (2230)</td>
-                  <td>M.2 Key E (2230)</td>
+                  <td>BT driver</td>
+                  <td><code>btusb</code> + <code>btintel</code></td>
+                  <td><code>btusb</code> + <code>btmtk</code></td>
+                </tr>
+                <tr>
+                  <td>Form factor</td>
+                  <td>M.2 Key E 2230</td>
+                  <td>M.2 Key E 2230 (compatible)</td>
                 </tr>
               </tbody>
             </table>
@@ -130,20 +135,20 @@
           <ol>
             <li>Power off the M910q and unplug all cables.</li>
             <li>Remove the top cover (single thumbscrew on the back).</li>
-            <li>Locate the M.2 Key E slot &mdash; the Intel 8265 card is held by a single screw.</li>
+            <li>Locate the M.2 Key E slot &mdash; the original Intel 8265 card is held by a single screw.</li>
             <li>Disconnect the two IPEX/U.FL antenna pigtails from the Intel card.</li>
             <li>Remove the mounting screw, slide out the Intel 8265.</li>
-            <li>Insert the Fenvi FU-AX1800 into the same M.2 Key E slot at a 30&deg; angle, press down, and secure with the screw.</li>
-            <li>Reconnect both IPEX/U.FL antenna pigtails to the Fenvi card.</li>
+            <li>Insert the MT7921 M.2 Key E card at a 30&deg; angle, press down, and secure with the screw.</li>
+            <li>Reconnect both IPEX/U.FL antenna pigtails to the MT7921 card (MAIN + AUX).</li>
           </ol>
 
           <h3>Antenna Pigtails</h3>
           <p>
-            The Fenvi FU-AX1800 uses <strong>2&times; IPEX/U.FL</strong> connectors, same
-            as the Intel 8265. Reuse the existing antenna pigtails if they are in good
-            condition. For best WiFi and Bluetooth range, route the antenna cables toward
-            the windshield &mdash; metal bodywork behind the dashboard attenuates the signal
-            significantly.
+            MT7921 M.2 modules use <strong>2&times; IPEX/U.FL</strong> connectors,
+            identical to the Intel 8265 they replace. Reuse the existing antenna
+            pigtails if they are in good condition. For best WiFi and Bluetooth range,
+            route the antenna cables toward the windshield &mdash; metal bodywork behind
+            the dashboard attenuates the signal significantly.
           </p>
 
           <div class="box box-warning">
@@ -162,45 +167,61 @@
           <h2>Driver Setup</h2>
 
           <p>
-            The MT7921 driver (<code>mt7921e</code>) is included in the mainline Linux
-            kernel since version 5.18. Debian 13 (Trixie) ships with kernel 6.x, so the
-            driver is available out of the box. Only the firmware package needs to be
-            installed.
+            The MT7921 driver (<code>mt7921e</code> for WiFi, <code>btmtk</code> for BT)
+            is included in the mainline Linux kernel since version 5.18. Debian 13
+            (Trixie) ships with kernel 6.x, so the drivers load automatically.
+            <strong>Both</strong> radios need the <code>firmware-mediatek</code> package
+            &mdash; otherwise the WiFi reports <code>hardware init failed</code> and
+            BT reports <code>Failed to load firmware file (-2)</code> in dmesg.
           </p>
 
-          <pre><code># MT7921 driver is mainline (kernel 5.18+, Debian 13 has it)
+          <pre><code># Install firmware (pulls WIFI_MT7961_*.bin + BT_RAM_CODE_MT7961_*.bin
+# into /lib/firmware/mediatek/). Debian trixie non-free-firmware repo
+# is enabled by default on the NETINST-with-firmware ISO.
 apt install firmware-mediatek
 
-# Blacklist Intel WiFi (prevent conflicts if Intel 8265 is still detected)
-echo "blacklist iwlwifi" &gt; /etc/modprobe.d/blacklist-intel-wifi.conf
+# Reload drivers without a reboot (or just reboot)
+modprobe -r mt7921e mt7921_common mt792x_lib mt76_connac_lib mt76
+modprobe mt7921e
+modprobe -r btusb btmtk
+modprobe btusb
 
-# Verify the card is detected
-lspci | grep -i mediatek
-ip link show | grep wl
-iw dev</code></pre>
+# Verify the card is detected and firmware loaded
+lspci -nn | grep -i mediatek          # expect: [14c3:7961]
+lsusb | grep -iE 'mediatek|0489:e0cd' # expect: Foxconn/MediaTek BT
+dmesg | grep -E 'mt7921|btmtk' | grep -iE 'firmware|version'
+iw dev                                 # expect wlp2s0, type managed
+hciconfig -a                           # expect hci0 UP RUNNING, Manufacturer: MediaTek</code></pre>
 
           <p>
-            After installing the firmware and rebooting, <code>lspci</code> should show the
-            MediaTek MT7921 device, and <code>ip link</code> should list a <code>wlan0</code>
-            interface. The <code>iw dev</code> command confirms the wireless interface is
-            operational.
+            Successful output shows <code>mt7921e ... WM Firmware Version: ...</code>
+            in dmesg, the interface renamed from <code>wlan0</code> to
+            <code>wlp2s0</code>, and <code>hciconfig</code> reporting
+            <code>HCI Version: 5.2 ... Manufacturer: MediaTek, Inc.</code>. The WiFi
+            and BT MAC addresses are sequential (offset +1) because both radios share
+            the combo card's vendor MAC block.
           </p>
         </section>
 
-        <!-- ---- 4. WiFi AP — Dual SSID Configuration ---- -->
+        <!-- ---- 4. WiFi AP — P2P-GO for Android Auto Wireless ---- -->
         <section>
-          <h2>WiFi AP &mdash; Dual SSID Configuration</h2>
+          <h2>WiFi AP &mdash; P2P-GO for Android Auto Wireless</h2>
 
           <p>
-            The BCM build uses <strong>two SSIDs</strong> on a single physical interface
-            via hostapd BSS (Basic Service Set) support. This allows dedicated networks for
-            Android Auto and general connectivity without a second wireless adapter.
+            Production BCM brings up the AA Wireless hotspot as a <strong>Wi-Fi Direct
+            P2P-GO group</strong>, not a regular hostapd AP. The protocol Android speaks
+            for wireless AA <em>is</em> Wi-Fi Direct internally, so P2P-GO is what the
+            stock car-kits use &mdash; it's protocol-correct, not a workaround. The
+            BCM Python code (<code>src/multimedia/wifi_ap.py:_start_p2p_go</code>) runs
+            <code>wpa_supplicant</code> + <code>wpa_cli p2p_group_add freq=5745
+            persistent</code> on boot.
           </p>
 
           <div class="table-wrap">
             <table>
               <thead>
                 <tr>
+                  <th>Mode</th>
                   <th>SSID</th>
                   <th>Band</th>
                   <th>Purpose</th>
@@ -209,79 +230,100 @@ iw dev</code></pre>
               </thead>
               <tbody>
                 <tr>
-                  <td><code>ALFA_AA</code></td>
-                  <td>5 GHz (channel 36 or 149)</td>
+                  <td><code>p2p_go</code> (default)</td>
+                  <td><code>DIRECT-XX</code> (auto by wpa_supplicant)</td>
+                  <td>5&nbsp;GHz ch149, 80&nbsp;MHz VHT</td>
                   <td>Android Auto wireless &mdash; low latency, high throughput</td>
-                  <td>192.168.44.0/24</td>
+                  <td>10.0.0.0/24</td>
                 </tr>
                 <tr>
-                  <td><code>ALFA_NET</code></td>
-                  <td>2.4 GHz</td>
-                  <td>General connectivity &mdash; phone hotspot relay, SSH access</td>
-                  <td>192.168.45.0/24</td>
+                  <td><code>hostapd</code> (fallback)</td>
+                  <td><code>ALFA</code></td>
+                  <td>5&nbsp;GHz ch149</td>
+                  <td>Alternative if P2P-GO fails (e.g. STA-only firmware)</td>
+                  <td>10.0.0.0/24</td>
+                </tr>
+                <tr>
+                  <td><code>ALFA-NET</code> (optional)</td>
+                  <td><code>ALFA-NET</code></td>
+                  <td>2.4&nbsp;GHz ch6 (USB dongle only)</td>
+                  <td>General connectivity &mdash; SSH, phone hotspot relay</td>
+                  <td>10.0.1.0/24</td>
                 </tr>
               </tbody>
             </table>
           </div>
 
-          <h3>hostapd Configuration</h3>
+          <h3>YAML Configuration (<code>config/bcm_config.yaml</code>)</h3>
+          <pre><code>wifi:
+  enabled: true
+  ssid: ALFA           # used only in hostapd mode; P2P-GO advertises DIRECT-XX
+  password: 87654321
+  mode: p2p_go         # P2P-GO (Wi-Fi Direct) — correct mode for AA Wireless
+  band: a              # 5 GHz
+  channel: 149         # UNII-3, 30 dBm on MT7921 worldwide regdom
+  country: US
+  regdom: US
+  share_internet: true
+  ip: 10.0.0.1
+  netmask: 255.255.255.0
+  dhcp_start: 10.0.0.10
+  dhcp_end: 10.0.0.50
+  alfa_net:
+    enabled: true     # requires second radio (USB WiFi dongle)
+    ssid: ALFA-NET
+    password: AlfaRomeo156
+    channel: 6        # 2.4 GHz
+    country: US</code></pre>
+
           <p>
-            Create or edit <code>/etc/hostapd/hostapd.conf</code>:
+            P2P-GO auto-generates a <code>DIRECT-XX</code> SSID + random WPA2 PSK each
+            boot. <code>wifi_ap.py</code> reads them back from
+            <code>wpa_cli p2p_get_passphrase</code> and writes the real values into
+            <code>wifi.ssid_runtime</code> / <code>wifi.password_runtime</code> so the
+            BT bootstrap hands the phone the right SSID over the AA pairing handshake.
           </p>
 
-          <pre><code>interface=wlan0
-driver=nl80211
+          <div class="box box-warning">
+            <div class="box-title">MT7921 interface_combinations: <code>#{AP, P2P-GO} &le; 1</code></div>
+            <p>
+              MT7921 advertises only one AP-or-GO role per radio. The secondary
+              ALFA-NET SSID cannot share the same PHY as the active P2P-GO group
+              &mdash; <code>_maybe_start_alfa_net()</code> falls back to a USB WiFi
+              dongle, or skips ALFA-NET entirely with a log warning. Verify with
+              <code>iw phy phy1 info | grep -A2 'valid interface combinations'</code>.
+            </p>
+          </div>
 
-# Primary BSS — 5GHz for Android Auto
+          <h3>Static hostapd Fallback</h3>
+          <p>
+            <code>setup-x86.sh</code> writes a 5&nbsp;GHz ch149 hostapd.conf to
+            <code>/etc/hostapd/hostapd.conf</code> and masks the system
+            <code>hostapd.service</code> &mdash; only re-enable it if you flip
+            <code>wifi.mode</code> back to <code>hostapd</code> in YAML.
+            <code>apply-fixes.sh</code> rewrites the same file in place for
+            already-deployed boxes:
+          </p>
+
+          <pre><code>interface=wlp2s0
+driver=nl80211
 ssid=ALFA_AA
+country_code=US
+ieee80211d=1
+ieee80211h=1
 hw_mode=a
-channel=36
+channel=149
 ieee80211n=1
 ieee80211ac=1
-ieee80211ax=1
+ht_capab=[HT40+][SHORT-GI-20][SHORT-GI-40]
+vht_capab=[SHORT-GI-80][MAX-MPDU-11454]
+vht_oper_chwidth=1
+vht_oper_centr_freq_seg0_idx=155
 wpa=2
 wpa_passphrase=AlfaRomeo156
 wpa_key_mgmt=WPA-PSK
 rsn_pairwise=CCMP
-country_code=PL
-
-# Secondary BSS — 2.4GHz general
-bss=wlan0_1
-ssid=ALFA_NET
-wpa=2
-wpa_passphrase=AlfaNet2026
-wpa_key_mgmt=WPA-PSK
-rsn_pairwise=CCMP</code></pre>
-
-          <div class="box box-warning">
-            <div class="box-title">Dual-SSID requires virtual interface support</div>
-            <p>
-              Dual-SSID depends on the MT7921 supporting virtual interfaces. Verify
-              with <code>iw list | grep -A5 "valid interface combinations"</code>.
-              The output should list support for multiple APs. If not supported by
-              your firmware version, fall back to a single SSID
-              (<code>ALFA_AA</code> on 5&nbsp;GHz) and use the phone's mobile hotspot
-              for general internet connectivity.
-            </p>
-          </div>
-
-          <h3>dnsmasq Configuration</h3>
-          <p>
-            Configure DHCP for both interfaces in <code>/etc/dnsmasq.d/bcm-wifi.conf</code>:
-          </p>
-
-          <pre><code>interface=wlan0
-interface=wlan0_1
-bind-interfaces
-dhcp-range=interface:wlan0,192.168.44.10,192.168.44.50,255.255.255.0,24h
-dhcp-range=interface:wlan0_1,192.168.45.10,192.168.45.50,255.255.255.0,24h</code></pre>
-
-          <p>
-            This assigns IPs in the <code>192.168.44.x</code> range for the Android Auto
-            network and <code>192.168.45.x</code> for the general network. The
-            <code>bind-interfaces</code> directive ensures dnsmasq only listens on the
-            specified interfaces, avoiding conflicts with other network services.
-          </p>
+wmm_enabled=1</code></pre>
         </section>
 
         <!-- ---- 5. Bluetooth Setup ---- -->
@@ -356,24 +398,42 @@ dhcp-range=interface:wlan0_1,192.168.45.10,192.168.45.50,255.255.255.0,24h</code
         <section>
           <h2>Verification</h2>
 
-          <h3>WiFi AP</h3>
-          <pre><code># Check hostapd is running
-sudo systemctl status hostapd
+          <h3>Firmware + Driver</h3>
+          <pre><code># Both blobs must exist in /lib/firmware/mediatek/
+ls /lib/firmware/mediatek/ | grep -E 'MT7961|MT7922'
+# expect: BT_RAM_CODE_MT7961_*.bin, WIFI_MT7961_patch_mcu_*.bin, WIFI_RAM_CODE_MT7961_*.bin
 
-# Verify AP mode on wlan0
-iw dev wlan0 info  # should show type AP
+# Driver load sequence in dmesg
+sudo dmesg | grep -E 'mt7921|btmtk' | grep -iE 'firmware|version|hardware'
+# expect: "WM Firmware Version: ..." and "Device setup in ... usecs"</code></pre>
 
-# List connected clients
-iw dev wlan0 station dump</code></pre>
+          <h3>WiFi (P2P-GO mode)</h3>
+          <pre><code># Confirm BCM created the P2P group
+iw dev
+# expect:
+#   Interface p2p-wlp2s0-0
+#     type P2P-GO
+#     channel 149 (5745 MHz), width: 80 MHz, center1: 5775 MHz
+#     ssid DIRECT-XX
+
+# Verify worldwide regdom opened UNII-3 at full power
+iw phy phy1 info | grep -A1 '5745\|5765\|5785'
+# expect: (30.0 dBm)  not (disabled) and not (no IR)
+
+# Check BCM populated the runtime SSID + PSK for the BT bootstrap
+grep -E 'wifi.ssid_runtime|wifi.password_runtime' /opt/bcm/config/bcm_config.yaml</code></pre>
 
           <h3>Bluetooth</h3>
-          <pre><code># Check BT adapter state
-bluetoothctl show | grep -E "Powered|Discoverable|Pairable"
+          <pre><code># Adapter up, MediaTek HCI 5.2
+hciconfig -a | grep -E 'BD Address|UP RUNNING|HCI Version|Manufacturer'
+# expect: UP RUNNING, HCI Version: 5.2, Manufacturer: MediaTek, Inc.
 
-# Verify BluetoothManager initialized in BCM
-grep "BluetoothManager initialized" /opt/bcm/logs/bcm.log | tail -3
+# Carkit Class-of-Device (0x620420 = AudioVideo / Carkit)
+bluetoothctl show | grep -E 'Powered|Discoverable|Pairable|Class'
+# expect: Class: 0x620420, Powered: yes, Discoverable: yes, Pairable: yes
 
-# List paired devices
+# BCM pairing agent registered + last paired device tracked
+grep -E 'pairing agent registered|BluetoothManager initialized' /opt/bcm/logs/bcm.log | tail -5
 bluetoothctl devices Paired</code></pre>
         </section>
 
@@ -392,34 +452,44 @@ bluetoothctl devices Paired</code></pre>
               </thead>
               <tbody>
                 <tr>
-                  <td>hostapd fails: <code>Channel 36 not allowed</code></td>
-                  <td>Regulatory domain blocks the channel</td>
-                  <td>Set <code>country_code=PL</code> in hostapd.conf and run <code>iw reg set PL</code>. Try channel 149 as an alternative. Verify with <code>iw list | grep -A20 "Frequencies"</code>.</td>
+                  <td><code>mt7921e ... hardware init failed</code> in dmesg</td>
+                  <td><code>firmware-mediatek</code> not installed &mdash; driver loads but firmware blob is missing</td>
+                  <td>Install: <code>apt install firmware-mediatek</code>. Reload: <code>modprobe -r mt7921e; modprobe mt7921e</code>. Verify <code>ls /lib/firmware/mediatek/WIFI_MT7961*</code> finds the blobs.</td>
                 </tr>
                 <tr>
-                  <td>Dual-SSID not working</td>
-                  <td>MT7921 firmware does not support multiple virtual APs</td>
-                  <td>Run <code>iw list | grep -A5 "valid interface combinations"</code>. If only 1 AP is listed, remove the <code>bss=wlan0_1</code> block from hostapd.conf and use a single SSID. Update firmware: <code>apt update &amp;&amp; apt upgrade firmware-mediatek</code>.</td>
+                  <td><code>bluetooth hci0: Failed to load firmware file (-2)</code> + <code>bluetoothctl</code> segfaults</td>
+                  <td>Same root cause as above &mdash; BT side of the combo also needs <code>firmware-mediatek</code></td>
+                  <td>Install <code>firmware-mediatek</code>, then <code>modprobe -r btusb; modprobe btusb</code>. <code>hciconfig hci0 up</code> should bring the BD Address out of <code>00:00:00:00:00:00</code>.</td>
                 </tr>
                 <tr>
-                  <td>Bluetooth not discoverable</td>
-                  <td><code>bcm-bluetooth.service</code> failed or adapter not powered</td>
-                  <td>Check <code>systemctl status bcm-bluetooth</code>. Manually run <code>bluetoothctl power on</code> and <code>bluetoothctl discoverable on</code>. Verify adapter exists with <code>hciconfig -a</code>.</td>
+                  <td><code>p2p_group_add</code> returns FAIL on ch149</td>
+                  <td>System <code>wpa_supplicant.service</code> is holding <code>wlp2s0</code> in <code>type managed</code> via D-Bus &mdash; <code>pkill</code> misses it</td>
+                  <td>Stop the unit first: <code>systemctl stop wpa_supplicant.service</code>. BCM's <code>wifi_ap.py</code> does this automatically when <code>wifi.mode=p2p_go</code>; only relevant for manual testing.</td>
                 </tr>
                 <tr>
-                  <td>Pairing request times out</td>
-                  <td>BCM polling missed the D-Bus signal or agent not registered</td>
-                  <td>Check BCM logs: <code>grep -i "pairing\|agent" /opt/bcm/logs/bcm.log | tail -20</code>. Restart BCM: <code>systemctl restart bcm</code>. Ensure <code>BluetoothManager</code> is enabled in BCM config.</td>
+                  <td>P2P-GO comes up on the wrong frequency</td>
+                  <td>Channel-to-MHz mapping mismatch &mdash; <code>freq=2437</code> = ch6 (2.4&nbsp;GHz), <code>freq=5745</code> = ch149 (5&nbsp;GHz)</td>
+                  <td>Set <code>wifi.channel: 149</code> in YAML for the 80&nbsp;MHz VHT path. <code>wifi_ap.py</code> auto-derives freq: 2.4&nbsp;GHz uses <code>2407+5*ch</code>, 5&nbsp;GHz uses <code>5000+5*ch</code>.</td>
                 </tr>
                 <tr>
-                  <td>No audio over A2DP</td>
-                  <td>PipeWire not routing BT audio to the DAC</td>
-                  <td>Check PipeWire status: <code>wpctl status</code>. Ensure the BT source is connected: <code>pactl list sources short</code>. Restart PipeWire: <code>systemctl --user restart pipewire wireplumber</code>.</td>
+                  <td>ALFA-NET not broadcasting alongside AA Wireless</td>
+                  <td>MT7921's <code>interface_combinations</code> advertises <code>#{AP, P2P-GO} &le; 1</code> &mdash; one AP role per radio</td>
+                  <td>Plug a USB WiFi dongle on a free port. <code>_maybe_start_alfa_net()</code> detects the second PHY and parks ALFA-NET there. Without a dongle, ALFA-NET is unavailable while AA is active.</td>
                 </tr>
                 <tr>
-                  <td>WiFi interface not appearing after reboot</td>
-                  <td>Missing firmware or driver not loaded</td>
-                  <td>Verify firmware installed: <code>dpkg -l firmware-mediatek</code>. Check kernel module: <code>lsmod | grep mt7921</code>. Load manually: <code>modprobe mt7921e</code>. Check dmesg: <code>dmesg | grep mt7921</code>.</td>
+                  <td>Bluetooth not discoverable after boot</td>
+                  <td><code>bcm-bluetooth.service</code> failed, rfkill soft-block, or adapter not powered</td>
+                  <td>Check <code>systemctl status bcm-bluetooth</code>. Unblock: <code>rfkill unblock bluetooth</code>. Power: <code>bluetoothctl power on &amp;&amp; bluetoothctl discoverable on</code>. <code>hciconfig -a</code> should show <code>UP RUNNING</code>.</td>
+                </tr>
+                <tr>
+                  <td>Pairing PIN popup never appears on dashboard</td>
+                  <td>BCM venv missing <code>dbus-python</code> &rarr; D-Bus pairing agent never registers</td>
+                  <td>Recreate venv with system site-packages: <code>python3 -m venv --system-site-packages .venv</code>. Check: <code>grep "pairing agent" /opt/bcm/logs/bcm.log</code>.</td>
+                </tr>
+                <tr>
+                  <td>No audio over A2DP after pairing</td>
+                  <td>PipeWire not routing BT audio, or <code>libspa-0.2-bluetooth</code> missing</td>
+                  <td>Install: <code>apt install libspa-0.2-bluetooth pipewire-audio</code>. Check routing: <code>wpctl status</code>, <code>pactl list sources short</code>. Restart: <code>systemctl --user restart pipewire wireplumber</code>.</td>
                 </tr>
               </tbody>
             </table>

@@ -569,37 +569,12 @@ def _start_pairing_agent() -> bool:
         return False
 
 
-_PREFER_INTERNAL = False
-
-
-def set_prefer_internal(flag: bool) -> None:
-    """Flip vendor-8087 preference. False (default) prefers the USB dongle
-    (working-around the documented M910q tx-timeout); True forces the
-    integrated Intel adapter even when a dongle is present."""
-    global _PREFER_INTERNAL, _PREFERRED_ADAPTER
-    _PREFER_INTERNAL = bool(flag)
-    _PREFERRED_ADAPTER = ""   # force re-resolve
-
-
 def _find_preferred_adapter() -> str:
-    """Find the best BT adapter address for headunit use.
+    """Find the BT adapter address for headunit use.
 
-    Default policy (M910q workaround): the integrated Intel 8087:0a2b
-    (BT 4.2 on paper) is documented-broken — dmesg captures
-    ``command 0xNNNN tx timeout`` → ``Resetting usb device.`` after
-    ~15 minutes uptime, after which the controller disappears from
-    sysfs entirely. So when both the Intel and a USB dongle
-    (CSR/Realtek/Broadcom) are present, prefer the dongle even though
-    it's BT 4.0 — it survives.
-
-    Override policy (``bluetooth.prefer_internal: true`` in YAML):
-    flips the bias so the Intel 8087 is picked even with a dongle
-    present. Pairs with the hci watchdog in BluetoothManager which
-    auto-bounces the Intel adapter on tx-timeout so the user-facing
-    impact of the reset is minimised.
-
-    An explicit ``bluetooth.preferred_adapter`` MAC in config still wins
-    over both policies (lets the user pin a specific controller).
+    With the MT7921 combo card there is only one hci device. An explicit
+    ``bluetooth.preferred_adapter`` MAC in config still wins, in case a
+    USB dongle is added later and the user wants to pin a specific one.
     """
     try:
         result = subprocess.run(
@@ -615,83 +590,6 @@ def _find_preferred_adapter() -> str:
                 controllers.append(parts[1])
         if not controllers:
             return ""
-        if len(controllers) == 1:
-            return controllers[0]
-
-        # Map controller MAC -> hciX via hciconfig output.
-        addr_to_hci: dict[str, str] = {}
-        try:
-            hc = subprocess.run(
-                ["hciconfig"],
-                capture_output=True, text=True, timeout=5.0,
-            )
-            if hc.returncode == 0:
-                current_hci = None
-                for line in hc.stdout.splitlines():
-                    if line and not line[0].isspace() and ":" in line:
-                        current_hci = line.split(":")[0].strip()
-                    if current_hci and "BD Address" in line:
-                        bd = line.split("BD Address:")[1].strip().split()[0]
-                        addr_to_hci[bd] = current_hci
-        except Exception:
-            pass
-
-        # For each hciX, read USB vendor id from sysfs. Intel = 8087 is
-        # the documented-broken radio on this hardware; prefer anything
-        # else. The walk-up loop is needed because hciX/device on USB
-        # combo chips points at the USB *interface*, and idVendor lives
-        # one or two parents up at the USB device node.
-        import os as _os
-
-        def _hci_index(addr: str) -> int:
-            hci = addr_to_hci.get(addr, "hci999")
-            try:
-                return int(hci[3:])
-            except ValueError:
-                return 999
-
-        intel: list[str] = []
-        non_intel: list[str] = []
-        for addr in controllers:
-            hci = addr_to_hci.get(addr)
-            if not hci:
-                continue
-            try:
-                base = _os.path.realpath(f"/sys/class/bluetooth/{hci}/device")
-                vendor = ""
-                cur = base
-                for _ in range(4):
-                    vpath = _os.path.join(cur, "idVendor")
-                    if _os.path.isfile(vpath):
-                        with open(vpath) as f:
-                            vendor = f.read().strip().lower()
-                        break
-                    parent = _os.path.dirname(cur)
-                    if parent == cur:
-                        break
-                    cur = parent
-                if vendor == "8087":
-                    intel.append(addr)
-                elif vendor:
-                    non_intel.append(addr)
-            except Exception:
-                pass
-
-        if _PREFER_INTERNAL and intel:
-            intel.sort(key=_hci_index)
-            log.info("BT: preferring INTERNAL Intel 8087 adapter %s "
-                     "(prefer_internal=true) — %d controllers seen",
-                     intel[0], len(controllers))
-            return intel[0]
-
-        if non_intel:
-            non_intel.sort(key=_hci_index)
-            log.info("BT: preferring non-Intel adapter %s (USB dongle) over "
-                     "internal Intel — %d controllers seen",
-                     non_intel[0], len(controllers))
-            return non_intel[0]
-        # Only Intel(s) available — use the lowest-index one.
-        controllers.sort(key=_hci_index)
         return controllers[0]
     except Exception:
         pass
@@ -803,17 +701,6 @@ class BluetoothManager:
         # Disconnect tap doesn't immediately bring the device back.
         # Cleared on connect() and on remove().
         self._user_disconnect_addr: Optional[str] = None
-
-        # Force internal Intel 8087 (overrides default "prefer USB dongle"
-        # bias) — paired with the hci watchdog that bounces the adapter
-        # on tx-timeout.
-        try:
-            prefer_internal = bool(config.get("bluetooth.prefer_internal", False))
-        except Exception:
-            prefer_internal = False
-        if prefer_internal:
-            set_prefer_internal(True)
-            log.info("BT: prefer_internal=true — using integrated Intel adapter")
 
         # Optional explicit adapter override from config — pin a specific
         # USB BT dongle MAC if auto-detect picks the wrong one.
@@ -1484,63 +1371,6 @@ class BluetoothManager:
         self._start_media_monitor()
         # Register HFP call command handlers
         self._init_hfp_commands()
-        # Watchdog for the documented Intel 8087 tx-timeout — only
-        # engaged when the user has asked for the internal adapter.
-        if _PREFER_INTERNAL:
-            threading.Thread(
-                target=self._hci_watchdog, daemon=True, name="bt-hci-watchdog",
-            ).start()
-
-    def _hci_watchdog(self) -> None:
-        """Recover from Intel 8087 tx-timeout by bouncing the hci device.
-
-        Only runs when ``bluetooth.prefer_internal`` is set. dmesg shows
-        ``command 0x… tx timeout`` followed by ``Resetting usb device.``
-        after which BlueZ stops reporting the controller. ``hciconfig
-        hciX down/up`` restores it without a kernel-level USB reset.
-        """
-        miss = 0
-        while self._running:
-            time.sleep(15)
-            if not self._available:
-                continue
-            rc, out, _ = _run_btctl(["show"])
-            if rc == 0 and "Controller" in out:
-                miss = 0
-                continue
-            miss += 1
-            if miss < 2:
-                continue
-            # Two consecutive misses → controller gone. Find the hci by
-            # the adapter address we resolved and bounce it.
-            addr = _get_adapter_addr()
-            hci = None
-            try:
-                hc = subprocess.run(
-                    ["hciconfig"], capture_output=True, text=True, timeout=3,
-                )
-                current = None
-                for line in hc.stdout.splitlines():
-                    if line and not line[0].isspace() and ":" in line:
-                        current = line.split(":")[0].strip()
-                    if current and addr and addr in line:
-                        hci = current
-                        break
-            except Exception:
-                pass
-            if not hci:
-                hci = "hci0"
-            log.warning("BT hci watchdog: controller missing — bouncing %s", hci)
-            for cmd in (["rfkill", "unblock", "bluetooth"],
-                        ["hciconfig", hci, "down"],
-                        ["hciconfig", hci, "up"]):
-                try:
-                    subprocess.run(cmd, capture_output=True, timeout=4)
-                except Exception:
-                    pass
-            time.sleep(2)
-            self._check_availability()
-            miss = 0
 
     def stop_monitor(self) -> None:
         """Stop the connection monitor."""

@@ -22,34 +22,18 @@ install -m 0644 "$BCM_DIR/config/systemd/bcm-splash-small.service" /etc/systemd/
 systemctl disable bcm-splash-small.service 2>/dev/null || true
 rm -f /etc/systemd/system/multi-user.target.wants/bcm-splash-small.service
 
-echo "==> 2/6  Installing Bluetooth setup (Class=carkit + AlwaysPairable + drop internal Intel BT)"
+echo "==> 2/6  Installing Bluetooth setup (Class=carkit + AlwaysPairable)"
 install -m 0755 "$BCM_DIR/config/scripts/bcm-bluetooth-setup.sh" /usr/local/bin/bcm-bluetooth-setup.sh
 install -m 0644 "$BCM_DIR/config/systemd/bcm-bluetooth.service" /etc/systemd/system/bcm-bluetooth.service
 
-# Drop the integrated Intel 8087 controller so only the USB dongle is
-# visible to BlueZ. The script-level unbind catches it at service start;
-# the udev rule below kills it earlier, before bluetoothd ever sees it,
-# which avoids the race where bluetoothd grabs the Intel as default
-# adapter and the phone latches onto its (broken) BD_ADDR.
-mkdir -p /etc/default
-if [ ! -f /etc/default/bcm-bluetooth ] || ! grep -q "^BCM_BT_KEEP_INTERNAL=" /etc/default/bcm-bluetooth; then
-    echo "BCM_BT_KEEP_INTERNAL=0" >> /etc/default/bcm-bluetooth
+# Remove leftover Intel-disable artifacts from prior installs (M910q used
+# to ship with an Intel 8087 BT chip that we hard-disabled via udev; the
+# MT7921 combo card replaces it cleanly so the rule is no longer needed).
+rm -f /etc/udev/rules.d/81-bcm-disable-intel-bt.rules
+if [ -f /etc/default/bcm-bluetooth ]; then
+    sed -i '/^BCM_BT_KEEP_INTERNAL=/d;/^BCM_BT_PREFER_INTERNAL=/d' /etc/default/bcm-bluetooth
 fi
-# Also flip the legacy "prefer Intel" flag off — even with the unbind
-# we don't want userspace fallback to look for the Intel first.
-if grep -q "^BCM_BT_PREFER_INTERNAL=1" /etc/default/bcm-bluetooth 2>/dev/null; then
-    sed -i 's/^BCM_BT_PREFER_INTERNAL=1/BCM_BT_PREFER_INTERNAL=0/' /etc/default/bcm-bluetooth
-fi
-cat > /etc/udev/rules.d/81-bcm-disable-intel-bt.rules <<'UDEV'
-# Disable the integrated Intel 8087:0a2b Bluetooth controller (M910q etc).
-# The kernel writes "0" to /sys/bus/usb/devices/X/authorized on attach,
-# which prevents the btusb driver from binding. Re-enable by removing
-# this rule or echoing 1 to the device's authorized sysfs entry.
-SUBSYSTEM=="usb", ATTR{idVendor}=="8087", ATTR{idProduct}=="0a2b", ATTR{authorized}="0"
-UDEV
 udevadm control --reload-rules 2>/dev/null || true
-# Trigger now so any currently-bound Intel BT goes away without a reboot.
-udevadm trigger --action=add --attr-match=idVendor=8087 2>/dev/null || true
 
 # Apply BT main.conf changes now (the setup script also does this, but
 # running it here makes the result observable before reboot).
@@ -67,12 +51,10 @@ if [ -f /etc/bluetooth/main.conf ]; then
 fi
 systemctl restart bluetooth.service 2>/dev/null || true
 
-echo "==> 3/6  Writing hostapd config (2.4 GHz ch6, country US)"
-# Intel 8265 firmware locks every 5 GHz channel as NO-IR for AP mode
-# regardless of regdom — verified with `iw phy` after `iw reg set US`,
-# `iw reg set PL`, and hostapd country_code permutations. Don't bother
-# trying 5 GHz channels here; nothing software-side opens up the
-# transmit lockout. Stay on 2.4 GHz which works first try.
+echo "==> 3/6  Writing hostapd config (5 GHz ch149, country US)"
+# MT7921 exposes UNII-3 (ch149-165) at 30 dBm with the worldwide regdom
+# baked into firmware-mediatek, so the AP comes up on 5 GHz without any
+# regdom tricks. AA Wireless gets clean H.264 throughput over 80 MHz here.
 if [ -f /etc/hostapd/hostapd.conf ]; then
     cp /etc/hostapd/hostapd.conf /etc/hostapd/hostapd.conf.bak.$(date +%s)
     SSID=$(awk -F= '/^ssid=/{print $2; exit}' /etc/hostapd/hostapd.conf)
@@ -84,10 +66,15 @@ driver=nl80211
 ssid=${SSID:-ALFA_AA}
 country_code=US
 ieee80211d=1
-hw_mode=g
-channel=6
+ieee80211h=1
+hw_mode=a
+channel=149
 ieee80211n=1
-ht_capab=[HT40+][SHORT-GI-20][SHORT-GI-40][DSSS_CCK-40]
+ieee80211ac=1
+ht_capab=[HT40+][SHORT-GI-20][SHORT-GI-40]
+vht_capab=[SHORT-GI-80][MAX-MPDU-11454]
+vht_oper_chwidth=1
+vht_oper_centr_freq_seg0_idx=155
 wpa=2
 wpa_passphrase=${PASS:-AlfaRomeo156}
 wpa_key_mgmt=WPA-PSK
