@@ -46,8 +46,20 @@ if [ -f /etc/bluetooth/main.conf ]; then
             sed -i "/^\[General\]/a ${kv}" /etc/bluetooth/main.conf
         fi
     done
-    grep -q '^\[Policy\]' /etc/bluetooth/main.conf \
-        && sed -i 's/^#*AutoEnable.*/AutoEnable=true/' /etc/bluetooth/main.conf
+    # [Policy] — AutoEnable powers the adapter on at boot; Reconnect* makes
+    # bluetoothd re-establish the audio/HFP profiles to a trusted device the
+    # moment the link drops (phone back in range / out of doze) on its own.
+    for kv in "AutoEnable=true" "ReconnectAttempts=7" \
+              "ReconnectIntervals=1,2,4,8,16,32,64"; do
+        key=${kv%%=*}
+        if grep -qE "^[#[:space:]]*${key}[[:space:]]*=" /etc/bluetooth/main.conf; then
+            sed -i "s|^[#[:space:]]*${key}[[:space:]]*=.*|${kv}|" /etc/bluetooth/main.conf
+        elif grep -q '^\[Policy\]' /etc/bluetooth/main.conf; then
+            sed -i "/^\[Policy\]/a ${kv}" /etc/bluetooth/main.conf
+        else
+            printf '\n[Policy]\n%s\n' "$kv" >> /etc/bluetooth/main.conf
+        fi
+    done
 fi
 systemctl restart bluetooth.service 2>/dev/null || true
 

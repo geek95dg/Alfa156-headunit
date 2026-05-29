@@ -1105,6 +1105,20 @@ class WebViewer:
                 viewer._event_bus.publish("bt.cmd.hangup", True)
             return jsonify({"ok": True})
 
+        @app.route("/api/media/<action>", methods=["POST"])
+        def api_media_control(action):
+            """AVRCP transport control for the now-playing media cards.
+
+            Republishes on bt.cmd.media; BluetoothManager drives the
+            phone's MediaPlayer1 over D-Bus.
+            """
+            action = (action or "").lower()
+            if action not in ("play", "pause", "playpause", "next", "previous"):
+                return jsonify({"ok": False, "error": "bad action"}), 400
+            if viewer._event_bus:
+                viewer._event_bus.publish("bt.cmd.media", action)
+            return jsonify({"ok": True, "action": action})
+
         @app.route("/api/phone/status")
         def api_phone_status():
             state = "idle"

@@ -733,14 +733,12 @@ def start_multimedia(config: Any, event_bus: EventBus, hal: Any = None,
         bt_mgr.start_monitor()
         log.info("BluetoothManager created (available=%s)", bt_mgr.available)
 
-    # PBAP phonebook sync — pulls contacts + call history on connect and
-    # publishes them so A3 phone screen can render via /api/phone/*.
-    # Held by the closure here so the subscriber stays alive.
-    try:
-        from src.multimedia.phonebook import start_phonebook_sync
-        _phonebook = start_phonebook_sync(event_bus)  # noqa: F841
-    except Exception:
-        log.exception("PBAP phonebook sync failed to start (non-critical)")
+    # PBAP phonebook sync is started once from main.py (right after the
+    # shared BluetoothManager init). Starting it here too spun up a SECOND
+    # PhonebookSync — two bt.connected subscribers racing two parallel PBAP
+    # OBEX sessions (and, with the headless session-bus bootstrap, two
+    # obexd instances) against the phone's single PSE, which returns empty
+    # pulls. Leave it to main.py.
 
     # OpenAuto controller
     openauto = OpenAutoController(config, event_bus)

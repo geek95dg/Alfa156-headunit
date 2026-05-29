@@ -3,6 +3,16 @@
  */
 
 const MediaPlayer = (() => {
+    // AVRCP transport control. The icons were previously decorative —
+    // they now POST to /api/media/<action>, which the web viewer
+    // republishes on bt.cmd.media for BluetoothManager to drive the
+    // phone's MediaPlayer1 over D-Bus.
+    async function cmd(action, ev) {
+        if (ev) { ev.stopPropagation(); }
+        try { await fetch("/api/media/" + action, { method: "POST" }); }
+        catch (e) { /* phone may be disconnected — ignore */ }
+    }
+
     function renderHeritage(data) {
         const title = data.bt_media_title || "No Media";
         const artist = data.bt_media_artist || "---";
@@ -31,9 +41,9 @@ const MediaPlayer = (() => {
                     <div class="text-xs font-bold text-white leading-tight" data-bind="bt_media_title">${title}</div>
                     <div class="text-[10px] text-zinc-300 font-medium" data-bind="bt_media_artist">${artist}</div>
                     <div class="mt-2 flex items-center gap-2">
-                        <span class="material-symbols-outlined text-white" style="font-size:16px;">skip_previous</span>
-                        <span class="material-symbols-outlined text-white" style="font-size:24px;">${data.bt_media_playing ? 'pause' : 'play_arrow'}</span>
-                        <span class="material-symbols-outlined text-white" style="font-size:16px;">skip_next</span>
+                        <span class="material-symbols-outlined text-white active:scale-90 transition-transform" style="font-size:16px;cursor:pointer;" onclick="MediaPlayer.cmd('previous', event)">skip_previous</span>
+                        <span class="material-symbols-outlined text-white active:scale-90 transition-transform" style="font-size:24px;cursor:pointer;" onclick="MediaPlayer.cmd('playpause', event)">${data.bt_media_playing ? 'pause' : 'play_arrow'}</span>
+                        <span class="material-symbols-outlined text-white active:scale-90 transition-transform" style="font-size:16px;cursor:pointer;" onclick="MediaPlayer.cmd('next', event)">skip_next</span>
                     </div>
                 </div>
             </div>
@@ -44,7 +54,7 @@ const MediaPlayer = (() => {
         const title = data.bt_media_title || "No Media";
         const artist = data.bt_media_artist || "---";
         return `<div class="bg-[#111111] rounded-xl p-4 flex items-center gap-4 border border-[#222222]">
-            <div class="w-12 h-12 bg-[#222222] rounded-lg overflow-hidden shrink-0 relative flex items-center justify-center">
+            <div class="w-12 h-12 bg-[#222222] rounded-lg overflow-hidden shrink-0 relative flex items-center justify-center active:scale-90 transition-transform" style="cursor:pointer;" onclick="MediaPlayer.cmd('playpause', event)">
                 <span class="material-symbols-outlined text-white text-opacity-80" style="font-size:24px;">${data.bt_media_playing ? 'pause' : 'play_arrow'}</span>
             </div>
             <div class="flex flex-col flex-1 overflow-hidden">
@@ -52,11 +62,11 @@ const MediaPlayer = (() => {
                 <span class="text-[#FF5F00] text-xs font-medium truncate" data-bind="bt_media_artist">${artist}</span>
             </div>
             <div class="flex items-center gap-2 text-gray-400">
-                <span class="material-symbols-outlined">skip_previous</span>
-                <span class="material-symbols-outlined">skip_next</span>
+                <span class="material-symbols-outlined active:scale-90 transition-transform" style="cursor:pointer;" onclick="MediaPlayer.cmd('previous', event)">skip_previous</span>
+                <span class="material-symbols-outlined active:scale-90 transition-transform" style="cursor:pointer;" onclick="MediaPlayer.cmd('next', event)">skip_next</span>
             </div>
         </div>`;
     }
 
-    return { renderHeritage, renderModern, renderAutodelta };
+    return { renderHeritage, renderModern, renderAutodelta, cmd };
 })();

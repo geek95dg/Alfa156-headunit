@@ -1110,19 +1110,35 @@ class WiFiAPManager:
                         "skipping to avoid clobbering the AA group")
             return
         candidate = None
-        try:
-            for iface in sorted(os.listdir("/sys/class/net")):
-                if iface in (primary, parent):
-                    continue
-                if not (iface.startswith(("wlan", "wlp", "wlx"))
-                        or os.path.isdir(f"/sys/class/net/{iface}/wireless")):
-                    continue
-                phy = self._phy_for_iface(iface)
-                if phy and phy != primary_phy:
-                    candidate = iface
-                    break
-        except OSError:
-            pass
+        # A pinned interface (e.g. the TP-Link USB dongle) wins over
+        # auto-detect, as long as it actually exists and sits on its own
+        # PHY — parking ALFA-NET on the AA radio would collapse the GO.
+        pinned = (self._config.get("wifi.alfa_net.interface", "") or "").strip()
+        if pinned:
+            if not os.path.exists(f"/sys/class/net/{pinned}"):
+                log.warning("ALFA-NET: pinned interface %s not present — "
+                            "falling back to auto-detect", pinned)
+            elif self._phy_for_iface(pinned) in (None, primary_phy):
+                log.warning("ALFA-NET: pinned interface %s shares the AA "
+                            "PHY (or has none) — falling back to auto-detect",
+                            pinned)
+            else:
+                candidate = pinned
+                log.info("ALFA-NET: using pinned interface %s", pinned)
+        if not candidate:
+            try:
+                for iface in sorted(os.listdir("/sys/class/net")):
+                    if iface in (primary, parent):
+                        continue
+                    if not (iface.startswith(("wlan", "wlp", "wlx"))
+                            or os.path.isdir(f"/sys/class/net/{iface}/wireless")):
+                        continue
+                    phy = self._phy_for_iface(iface)
+                    if phy and phy != primary_phy:
+                        candidate = iface
+                        break
+            except OSError:
+                pass
 
         if candidate:
             log.info("ALFA-NET: using separate radio %s", candidate)

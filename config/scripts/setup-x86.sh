@@ -863,11 +863,21 @@ if [ -f /etc/bluetooth/main.conf ]; then
             sed -i "/^\[General\]/a ${kv}" /etc/bluetooth/main.conf
         fi
     done
-    # AutoEnable in [Policy]
-    sed -i 's/^#*AutoEnable.*/AutoEnable=true/' /etc/bluetooth/main.conf
-    if ! grep -q "^AutoEnable" /etc/bluetooth/main.conf; then
-        sed -i '/^\[Policy\]/a AutoEnable=true' /etc/bluetooth/main.conf
-    fi
+    # [Policy] — AutoEnable powers the adapter on at boot; the Reconnect*
+    # keys make bluetoothd itself re-establish the audio/HFP profiles to a
+    # trusted device the moment the link drops (phone walks back into
+    # range, wakes from doze), without waiting on BCM's own sweep.
+    for kv in "AutoEnable=true" "ReconnectAttempts=7" \
+              "ReconnectIntervals=1,2,4,8,16,32,64"; do
+        key=${kv%%=*}
+        if grep -qE "^[#[:space:]]*${key}[[:space:]]*=" /etc/bluetooth/main.conf; then
+            sed -i "s|^[#[:space:]]*${key}[[:space:]]*=.*|${kv}|" /etc/bluetooth/main.conf
+        elif grep -q '^\[Policy\]' /etc/bluetooth/main.conf; then
+            sed -i "/^\[Policy\]/a ${kv}" /etc/bluetooth/main.conf
+        else
+            printf '\n[Policy]\n%s\n' "$kv" >> /etc/bluetooth/main.conf
+        fi
+    done
 else
     mkdir -p /etc/bluetooth
     cat > /etc/bluetooth/main.conf <<EOF
@@ -879,6 +889,8 @@ AlwaysPairable=true
 
 [Policy]
 AutoEnable=true
+ReconnectAttempts=7
+ReconnectIntervals=1,2,4,8,16,32,64
 EOF
 fi
 

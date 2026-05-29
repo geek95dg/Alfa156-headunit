@@ -271,6 +271,7 @@ hciconfig -a                           # expect hci0 UP RUNNING, Manufacturer: M
   dhcp_end: 10.0.0.50
   alfa_net:
     enabled: true     # requires second radio (USB WiFi dongle)
+    interface: ''     # '' = auto-detect a 2nd-PHY radio; or pin e.g. 'wlx<mac>'
     ssid: ALFA-NET
     password: AlfaRomeo156
     channel: 6        # 2.4 GHz
@@ -283,6 +284,16 @@ hciconfig -a                           # expect hci0 UP RUNNING, Manufacturer: M
             <code>wifi.ssid_runtime</code> / <code>wifi.password_runtime</code> so the
             BT bootstrap hands the phone the right SSID over the AA pairing handshake.
           </p>
+          <div class="box box-warning">
+            <div class="box-title">The Android Auto SSID is not user-renameable</div>
+            <p>
+              In P2P-GO mode the SSID is the spec-mandated <code>DIRECT-XX</code> chosen by
+              wpa_supplicant, and the phone receives it (plus the PSK) over Bluetooth during the AA
+              bootstrap &mdash; the user never types it. There is no benefit to renaming it and a
+              wrong format breaks AA connect, so the settings screen no longer surfaces these live
+              credentials. The editable <code>wifi.ssid</code> only applies in the hostapd fallback.
+            </p>
+          </div>
 
           <div class="box box-warning">
             <div class="box-title">MT7921 interface_combinations: <code>#{AP, P2P-GO} &le; 1</code></div>
@@ -290,8 +301,24 @@ hciconfig -a                           # expect hci0 UP RUNNING, Manufacturer: M
               MT7921 advertises only one AP-or-GO role per radio. The secondary
               ALFA-NET SSID cannot share the same PHY as the active P2P-GO group
               &mdash; <code>_maybe_start_alfa_net()</code> falls back to a USB WiFi
-              dongle, or skips ALFA-NET entirely with a log warning. Verify with
+              dongle on a separate PHY (auto-detected, or pinned via
+              <code>wifi.alfa_net.interface</code>), or skips ALFA-NET entirely with a
+              log warning. Verify with
               <code>iw phy phy1 info | grep -A2 'valid interface combinations'</code>.
+            </p>
+          </div>
+
+          <div class="box box-warning">
+            <div class="box-title">USB dongle must present a driven interface</div>
+            <p>
+              ALFA-NET can only start once the dongle shows up in <code>/sys/class/net</code>
+              (check <code>iw dev</code>). A common gotcha: the <strong>Realtek RTL8188EUS</strong>
+              (<code>lsusb</code> <code>0bda:8179</code>) needs the <code>r8188eu</code> module &mdash;
+              if it's missing from the running kernel (no <code>linux-modules-extra</code> / matching
+              <code>linux-headers</code> for a DKMS build of the aircrack <code>8188eus</code> driver)
+              the USB device enumerates with <em>driver NONE</em> and no netdev appears, so ALFA-NET
+              correctly skips. The 8188EUS is also 2.4&nbsp;GHz-only with weak mainline AP support;
+              an <strong>MT7612U</strong> or <strong>RTL8812BU</strong> is a more reliable AP dongle.
             </p>
           </div>
 
@@ -356,7 +383,34 @@ wmm_enabled=1</code></pre>
             <li><strong>D-Bus pairing agent</strong> &mdash; handles pairing requests programmatically</li>
             <li><strong>A2DP sink</strong> &mdash; receives audio streams from the phone for music playback</li>
             <li><strong>HFP</strong> &mdash; hands-free profile for phone calls through the car speakers</li>
+            <li><strong>AVRCP transport control</strong> &mdash; play/pause/next/previous driven from
+                the dashboard now-playing card (<code>POST /api/media/&lt;action&gt;</code> &rarr;
+                <code>bt.cmd.media</code> &rarr; BlueZ <code>MediaPlayer1</code>)</li>
+            <li><strong>Auto-connect on boot &amp; wake</strong> &mdash; see below</li>
           </ul>
+
+          <h3>Auto-connect on Boot / Wake</h3>
+          <p>
+            A carkit is expected to re-establish the phone link itself, not wait for the user to tap
+            <em>Connect</em>. BCM handles this at two layers:
+          </p>
+          <ul>
+            <li><strong>BCM application</strong> &mdash; on startup (and again on the
+                <code>power.modules_start</code> wake event) <code>BluetoothManager</code> walks the
+                paired+trusted set and connects the first device that answers, retrying in several
+                rounds over ~25&nbsp;s (a phone isn't reachable in the first second or two after the
+                unit powers on / wakes). An idle sweep every ~30&nbsp;s also re-links a phone that
+                comes into range mid-drive.</li>
+            <li><strong>BlueZ daemon</strong> &mdash; <code>/etc/bluetooth/main.conf</code> sets
+                <code>[Policy] AutoEnable=true</code> plus <code>ReconnectAttempts=7</code> /
+                <code>ReconnectIntervals=1,2,4,8,16,32,64</code> so bluetoothd re-establishes the
+                audio/HFP profiles to a trusted device on its own after a link drop. Applied by
+                <code>setup-x86.sh</code> / <code>apply-fixes.sh</code>.</li>
+          </ul>
+          <p class="note">
+            No reboot is needed to pick up code changes &mdash; restart <code>bcm-headunit.service</code>.
+            On S3 resume the sleep hook already restarts the service, which re-runs the boot auto-connect.
+          </p>
 
           <h3>Pairing Flow</h3>
           <ol>
@@ -364,8 +418,29 @@ wmm_enabled=1</code></pre>
             <li>Phone initiates a pairing request.</li>
             <li>BCM global polling detects the pairing request (polls every 2 seconds).</li>
             <li>A passkey confirmation popup appears on the BCM dashboard (works from any screen).</li>
-            <li>User confirms on the BCM touchscreen &mdash; pairing completes.</li>
+            <li>User confirms on the BCM touchscreen &mdash; pairing completes; the device is trusted
+                so future boots auto-connect without interaction.</li>
           </ol>
+
+          <h3>Phonebook &amp; Dialer (PBAP)</h3>
+          <p>
+            On connect, <code>PhonebookSync</code> pulls the phone's contacts
+            (<code>telecom/pb</code>) and combined call history (<code>cch</code>) over PBAP and
+            publishes them on <code>bt.contacts</code> / <code>bt.call_history</code> for the A8
+            dialer screen (<code>/api/phone/contacts</code>, <code>/api/phone/history</code>).
+          </p>
+          <p class="note">
+            PBAP runs over <strong>obexd</strong>, which is a <em>session</em>-bus service. Because
+            <code>bcm-headunit</code> runs headless as root with no login session, <code>PhonebookSync</code>
+            starts its <strong>own private D-Bus session bus and obexd</strong> for the process &mdash;
+            without it <code>dbus.SessionBus()</code> fails with
+            <em>"Unable to autolaunch a dbus-daemon without a $DISPLAY"</em> and the dialer stays empty.
+            obexd's <code>PullAll</code> is <strong>asynchronous</strong>: it returns a
+            <code>Transfer1</code> object path, and the vCard file is only complete once the transfer
+            reaches <code>complete</code> (obexd then removes the object). The sync waits for that
+            before reading the file. The phone must also have <em>"Contacts and call-history sharing"</em>
+            enabled for the head unit.
+          </p>
 
           <h3>Supported BT Profiles</h3>
           <div class="table-wrap">
@@ -387,7 +462,17 @@ wmm_enabled=1</code></pre>
                 </tr>
                 <tr>
                   <td><strong>AVRCP</strong></td>
-                  <td>Audio/Video Remote Control &mdash; play, pause, skip, volume from SWC buttons</td>
+                  <td>Audio/Video Remote Control &mdash; play, pause, skip from SWC buttons <em>and</em>
+                      the dashboard now-playing card; also feeds the now-playing metadata</td>
+                </tr>
+                <tr>
+                  <td><strong>PBAP (PCE)</strong></td>
+                  <td>Phonebook Access &mdash; pulls contacts + call history for the A8 dialer
+                      (via a process-private obexd; see Phonebook &amp; Dialer above)</td>
+                </tr>
+                <tr>
+                  <td><strong>MAP (MCE)</strong></td>
+                  <td>Message Access &mdash; advertised in the carkit profile set for the AA bootstrap</td>
                 </tr>
               </tbody>
             </table>

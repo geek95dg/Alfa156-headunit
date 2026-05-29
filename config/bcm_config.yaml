@@ -145,16 +145,19 @@ music_panel:
   enabled: true
 fuel_sender:
   enabled: true
-  # Calibration: [ADC_value, fuel_percentage] pairs.
-  # Measure at known fill levels and update. Lower ADC = more fuel.
-  # Circuit: 5V ─[330Ω]─┬─ Sender ─ GND → Arduino A4
   calibration:
-    - [20, 100]    # Full tank (~7Ω sender)
-    - [50, 75]
-    - [120, 50]
-    - [220, 25]
-    - [360, 5]     # Reserve
-    - [400, 0]     # Empty / disconnected
+  - - 20
+    - 100
+  - - 50
+    - 75
+  - - 120
+    - 50
+  - - 220
+    - 25
+  - - 360
+    - 5
+  - - 400
+    - 0
   tank_capacity_litres: 58
 wifi:
   enabled: true
@@ -182,11 +185,9 @@ wifi:
     dhcp_start: 10.0.1.10
     dhcp_end: 10.0.1.50
     share_internet: true
-  # ssid_runtime / password_runtime / bssid_runtime are populated at
-  # runtime by wifi_ap.py when in p2p_go mode (wpa_supplicant
-  # auto-generates a DIRECT-XX SSID and PSK each boot). Leave empty
-  # in the committed config so a fresh deploy starts from the YAML
-  # defaults; wifi_ap.py writes them back on the fly.
+  ssid_runtime: DIRECT-zc
+  password_runtime: FKNM73Ax
+  bssid_runtime: 4e:82:a9:17:47:97
 weather:
   api_key: 631c2365675e193584b0f986798554c1
   poll_interval_min: 15

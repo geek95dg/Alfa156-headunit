@@ -701,6 +701,10 @@ class BluetoothManager:
         # Disconnect tap doesn't immediately bring the device back.
         # Cleared on connect() and on remove().
         self._user_disconnect_addr: Optional[str] = None
+        # Serializes the boot thread, the wake hook and the monitor idle
+        # sweep — all three can fire near-simultaneously and overlapping
+        # bluetoothctl connect storms just fight each other.
+        self._autoconnect_lock = threading.Lock()
 
         # Optional explicit adapter override from config — pin a specific
         # USB BT dongle MAC if auto-detect picks the wrong one.
@@ -717,6 +721,12 @@ class BluetoothManager:
         # Subscribe to call events for HFP routing
         self._event_bus.subscribe("bt.call_incoming", self._on_call_incoming)
         self._event_bus.subscribe("bt.call_ended", self._on_call_ended)
+        # Reconnect to the paired phone the instant the head unit wakes.
+        # A full process restart (S3 resume restarts bcm-headunit) already
+        # runs the boot auto-connect via _check_availability; this covers
+        # in-process wakes — ignition re-asserted / display back on without
+        # a service bounce — so the user never has to tap Connect manually.
+        self._event_bus.subscribe("power.modules_start", self._on_power_wake)
 
     def _check_availability(self) -> None:
         """Check if Bluetooth is available (retries up to 5 times)."""
@@ -754,6 +764,7 @@ class BluetoothManager:
                 # time defeats the purpose of "trusted".
                 threading.Thread(
                     target=self._auto_connect_paired_on_boot,
+                    kwargs={"rounds": 6, "gap": 4.0},
                     daemon=True, name="bt-boot-autoconnect",
                 ).start()
                 return
@@ -763,26 +774,58 @@ class BluetoothManager:
         self._available = False
         log.warning("Bluetooth not available after 5 attempts (last rc=%d)", rc)
 
-    def _auto_connect_paired_on_boot(self) -> None:
-        """Try to (re)connect to every paired+trusted device after boot.
+    def _on_power_wake(self, topic: str, value: Any, timestamp: float) -> None:
+        """Kick a fresh auto-connect when the head unit wakes from sleep."""
+        if not self._available:
+            return
+        threading.Thread(
+            target=self._auto_connect_paired_on_boot,
+            kwargs={"rounds": 6, "gap": 4.0},
+            daemon=True, name="bt-wake-autoconnect",
+        ).start()
+
+    def _auto_connect_paired_on_boot(self, rounds: int = 1,
+                                     gap: float = 4.0) -> None:
+        """Try to (re)connect to a paired+trusted device after boot/wake.
 
         Phones that were paired before reboot expect the head unit to be
         the one that initiates the link, the same way a car carkit does.
-        Rather than depend on a single ``multimedia.last_bt_device``
-        config key, walk the actual paired set and connect to whichever
-        one answers first. Stops as soon as one device is connected.
+        Walk the actual paired set and connect to whichever answers first.
+
+        A phone usually isn't reachable in the first second or two after
+        the head unit powers on (or wakes): the radio is still settling
+        and the phone may be in BLE doze. Rather than give up after one
+        pass — leaving the user to tap Connect — retry up to ``rounds``
+        times, ``gap`` seconds apart, until a device links.
         """
-        # Give the adapter a moment to settle after power on.
-        time.sleep(2)
-        if not self._available:
+        # Don't let the boot thread, the wake hook and the idle sweep
+        # pile connect attempts on top of each other.
+        if not self._autoconnect_lock.acquire(blocking=False):
             return
+        try:
+            # Give the adapter a moment to settle after power on.
+            time.sleep(2)
+            for attempt in range(max(1, rounds)):
+                if not self._available or self._connected_device:
+                    return
+                if self._auto_connect_pass():
+                    return
+                if attempt < rounds - 1:
+                    time.sleep(gap)
+            log.info("BT auto-connect: nothing answered after %d round(s)",
+                     max(1, rounds))
+        finally:
+            self._autoconnect_lock.release()
+
+    def _auto_connect_pass(self) -> bool:
+        """One sweep over the paired set. Returns True once a device links."""
         try:
             paired = self.get_paired_devices()
         except Exception:
             paired = []
         if not paired:
             log.info("BT auto-connect: no paired devices")
-            return
+            return False
 
         # Bias toward the configured "last" device first, then everyone
         # else. The last-known device is the most likely match.
@@ -803,16 +846,16 @@ class BluetoothManager:
             if info.get("connected"):
                 log.info("BT auto-connect: %s already connected", addr)
                 self._publish_connected(addr, info.get("name", addr))
-                return
+                return True
             # Make sure it's trusted so BlueZ accepts our outbound link.
             _run_btctl(["trust", addr])
             try:
                 if self.connect(addr):
-                    log.info("BT auto-connect: linked to %s on boot", addr)
-                    return
+                    log.info("BT auto-connect: linked to %s", addr)
+                    return True
             except Exception:
                 log.exception("BT auto-connect to %s raised", addr)
-        log.info("BT auto-connect: nothing answered on boot")
+        return False
 
     @property
     def available(self) -> bool:
@@ -1371,6 +1414,8 @@ class BluetoothManager:
         self._start_media_monitor()
         # Register HFP call command handlers
         self._init_hfp_commands()
+        # Register AVRCP media transport command handlers (play/pause/skip)
+        self._init_media_commands()
 
     def stop_monitor(self) -> None:
         """Stop the connection monitor."""
@@ -1732,6 +1777,62 @@ class BluetoothManager:
         t = threading.Thread(target=_media_monitor, daemon=True,
                              name="bt-avrcp-monitor")
         t.start()
+
+    # --- AVRCP media transport control (play/pause/next/previous) ---
+
+    def _init_media_commands(self) -> None:
+        """Subscribe to media transport commands from the dashboard.
+
+        The theme media cards (A1 now-playing) post play/pause/skip to
+        ``/api/media/<action>`` which the web viewer republishes on the
+        ``bt.cmd.media`` topic. Without this handler those buttons fire
+        an event nobody listens to — exactly why they were dead.
+        """
+        self._event_bus.subscribe("bt.cmd.media", self._on_cmd_media)
+        log.info("AVRCP media command handlers registered")
+
+    def _on_cmd_media(self, topic: str, value: Any, timestamp: float) -> None:
+        self._avrcp_control(str(value).strip().lower())
+
+    def _avrcp_control(self, action: str) -> None:
+        """Send an AVRCP transport command to the connected phone.
+
+        Drives the phone's media player over the BlueZ
+        ``org.bluez.MediaPlayer1`` interface. ``playpause`` resolves to
+        Play or Pause from the last status we saw on the AVRCP monitor.
+        """
+        if not HAS_DBUS:
+            log.debug("AVRCP control unavailable — dbus-python missing")
+            return
+        if action == "playpause":
+            action = ("pause" if getattr(self, "_media_status", "") == "playing"
+                      else "play")
+        method = {"play": "Play", "pause": "Pause",
+                  "next": "Next", "previous": "Previous"}.get(action)
+        if not method:
+            log.debug("AVRCP: ignoring unknown action %r", action)
+            return
+        try:
+            import dbus
+            bus = dbus.SystemBus()
+            om = dbus.Interface(
+                bus.get_object("org.bluez", "/"),
+                "org.freedesktop.DBus.ObjectManager",
+            )
+            for path, ifaces in om.GetManagedObjects().items():
+                if "org.bluez.MediaPlayer1" not in ifaces:
+                    continue
+                player = dbus.Interface(
+                    bus.get_object("org.bluez", path),
+                    "org.bluez.MediaPlayer1",
+                )
+                getattr(player, method)()
+                log.info("AVRCP %s → %s", method, path)
+                return
+            log.warning("AVRCP %s: no MediaPlayer1 found — is a phone "
+                        "connected and an app in the foreground?", method)
+        except Exception as e:
+            log.warning("AVRCP %s failed: %s", method, e)
 
     @property
     def media_track(self) -> dict:

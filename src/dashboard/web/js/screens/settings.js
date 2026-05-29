@@ -449,24 +449,14 @@ App.registerScreen("settings", (() => {
                                 </div>
                             </div>
                         </div>
-                        <!-- Android Auto Wireless / Wi-Fi AP credentials -->
+                        <!-- Wi-Fi Hotspot / ALFA-NET network access. The live
+                             Android Auto P2P-GO credentials used to show here,
+                             but wpa_supplicant regenerates them every boot and
+                             the phone receives them automatically over BT during
+                             AA pairing — surfacing them here just confused, so
+                             the read-only "Live AP" block was dropped. -->
                         <div class="rounded-xl p-3" style="background:var(--card-bg);border:1px solid var(--card-border)">
-                            <p class="text-[10px] font-bold uppercase tracking-wider mb-2" style="color:var(--text-dim)">${t("aa_wireless","Android Auto Wireless")}</p>
-                            ${Settings._wifi.mode === "p2p_go" && Settings._wifi.live_ssid ? `
-                            <!-- Live P2P-GO credentials — wpa_supplicant
-                                 picks a fresh DIRECT-XX SSID + passphrase
-                                 every boot, so the YAML defaults below
-                                 aren't what the phone actually joins.
-                                 Surface the live values here read-only. -->
-                            <div class="rounded-lg p-2 mb-3" style="background:rgba(255,95,0,0.08);border:1px solid rgba(255,95,0,0.3)">
-                                <p class="text-[9px] uppercase tracking-wider mb-1" style="color:#FF5F00">${t("live_ap","Live AP (read on phone)")}</p>
-                                <div class="grid grid-cols-[auto_1fr] gap-x-2 gap-y-1 text-xs font-mono" style="color:var(--text-primary)">
-                                    <span style="color:var(--text-dim)">SSID:</span><span data-bind="wifi_live_ssid">${_attrEsc(Settings._wifi.live_ssid)}</span>
-                                    <span style="color:var(--text-dim)">PSK:</span><span data-bind="wifi_live_password" style="user-select:text;-webkit-user-select:text">${_attrEsc(Settings._wifi.live_password)}</span>
-                                    ${Settings._wifi.live_bssid ? `<span style="color:var(--text-dim)">BSSID:</span><span class="text-[10px]" data-bind="wifi_live_bssid">${_attrEsc(Settings._wifi.live_bssid)}</span>` : ""}
-                                </div>
-                                <p class="text-[9px] mt-1" style="color:var(--text-dim)">${t("p2p_go_note","Wi-Fi Direct GO regenerates these on each boot. Phone gets them automatically over BT during AA pairing.")}</p>
-                            </div>` : ""}
+                            <p class="text-[10px] font-bold uppercase tracking-wider mb-2" style="color:var(--text-dim)">${t("wifi_hotspot","Wi-Fi Hotspot")}</p>
                             <p class="text-[9px] font-bold uppercase tracking-wider mb-1" style="color:var(--text-dim)">${t("defaults","Defaults (used in hostapd mode)")}</p>
                             <div class="space-y-2">
                                 <div class="flex items-center gap-2">
