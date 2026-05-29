@@ -194,7 +194,7 @@ TouchscreenHeight={height}
 [WiFi]
 SSID={ssid}
 Password={password}
-MAC={wifi_mac}
+AdapterMAC={wifi_mac}
 """
     with open(config_path, "w") as f:
         f.write(config_content)
