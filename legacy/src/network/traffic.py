@@ -1,3 +1,7 @@
+# =====================================================================
+# LEGACY — KOD NIEUŻYWANY W PRODUKCJI. Nie importowany przez main.py.
+# Powód i kontekst: legacy/README.md oraz AUDYT_I_PLAN.md.
+# =====================================================================
 """Live traffic data — TomTom/HERE Traffic API integration.
 
 Fetches traffic flow/incidents near the current GPS position.

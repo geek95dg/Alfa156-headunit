@@ -6,7 +6,7 @@ from src.core.event_bus import EventBus
 from src.core.config import BCMConfig
 from src.multimedia.bluetooth import BluetoothManager
 from src.multimedia.openauto import OpenAutoController, _find_openauto
-from src.multimedia.aa_display import AADisplaySimulator
+from legacy.src.multimedia.aa_display import AADisplaySimulator
 
 
 # ---------------------------------------------------------------------------
