@@ -9,9 +9,7 @@ Audio hardware chain:
                          └→ TDA2050 mono Class AB amp (32W) → subwoofer
 """
 
-import json
 import subprocess
-from pathlib import Path
 from typing import Any, Optional
 
 from src.core.event_bus import EventBus

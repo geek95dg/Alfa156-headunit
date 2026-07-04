@@ -7,7 +7,6 @@ when tiles are not loaded.
 
 import pygame
 from src.dashboard.themes.theme_base import ThemeBase
-from src.dashboard.i18n import t
 from .base_screen import BaseScreen, DashboardData, _font
 from .assets import draw_stylized_map
 

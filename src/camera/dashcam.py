@@ -8,8 +8,6 @@ x86: software x264 encoding
 OPi: hardware H.264 via mpph264enc (RK3588 VPU)
 """
 
-import os
-import shutil
 import subprocess
 import threading
 import time

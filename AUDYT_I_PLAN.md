@@ -11,7 +11,13 @@ Data audytu: 2026-07-04
 | Logger GPS (`tracker.py`) jako moduł `tracking` | ✅ zrobione — naprawiony, domykanie tripów, statystyki, GPX |
 | Arduino: sensor_hub (DOOR/IGN/RAIN/TEMP/PARK), watchdogi, nieblokujące BLE, `make -C arduino` | ✅ zrobione — wszystkie 3 sketche kompilują się |
 | Optymalizacja startu (M910q): lazy-importy (import 2.29 s → 0.05 s), statyczny Tailwind (419 KB JS → 37 KB CSS), `defer`, idle-skip broadcastu, `bluetooth.enabled` | ✅ zrobione — rendering zweryfikowany na 4 ekranach |
-| Etap 1 (pełny system przełączników + ekran Settings), Etap 2 (auto-restart po crashu, EventBus), Etap 4 (DTC, EQ DSP), Etap 6 (testy+CI), Etap 7 (URUCHOMIENIE.md) | ⏳ czeka na akceptację |
+| **Etap 1** — jednolite przełączniki `modules.*` (27 pozycji) + ekran Settings→Moduły + `/api/modules` + naprawa martwych kluczy configu + fix 5 modułów z NameError | ✅ zrobione |
+| **Etap 2** — liveness-restart po crashu (watcher + `Restart=on-failure`), asynchroniczny EventBus, broadcast WS poza lockiem, watchdog pipeline'ów dashcam | ✅ zrobione (waitress świadomie pominięty — flask-sock nie działa pod waitress; kiosk = 1 klient) |
+| **Etap 4** — prawdziwe DTC (KWP2000 0x18/0x14 + słownik EDC15C7 + symulator) i prawdziwy EQ (PipeWire filter-chain, 10 biquadów, `audio.eq_dsp_enabled`) | ✅ zrobione — DTC zweryfikowane end-to-end na symulatorze |
+| **Etap 6** — suita testów zielona (419 passed; naprawione stare testy + nowe: arduino_serial, tracker, central_lock; `pytest-timeout`), ruff czysty, CI (GitHub Actions: ruff + pytest + kompilacja 3 sketchy arduino-cli) | ✅ zrobione |
+| **Etap 7** — `docs/URUCHOMIENIE.md` (pełna polska instrukcja: x86 sim / M910q produkcja / OPi PC bench / Arduino / tabela 27 przełączników / troubleshooting) | ✅ zrobione |
+| Sekrety w `config/bcm_config.yaml` (klucz OpenWeatherMap, hasła WiFi) | ⚠️ do decyzji — rotacja + przeniesienie do `.env` |
+
 Zakres: cały kod (`src/`, `main.py`, `arduino/`, `config/`, `tests/`), dokumentacja (`README.md`,
 `DEVELOPMENT_PLAN.md`, `bcm_v85_docs.html`, `docs/*.md`, `docs/x86-production/*.html`), frontend web.
 

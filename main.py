@@ -12,7 +12,6 @@ Usage:
 import argparse
 import os
 import signal
-import sys
 import time
 
 from src.core.config import BCMConfig
@@ -117,8 +116,8 @@ def main() -> None:
         "multimedia.wifi_ap": "DEBUG",
         "multimedia.aa_display": "INFO",
     }
-    root_log = setup_logging(level=log_level, log_file=log_file,
-                             module_levels=module_levels)
+    setup_logging(level=log_level, log_file=log_file,
+                  module_levels=module_levels)
     log = get_logger("main")
 
     log.info("=" * 60)
@@ -205,11 +204,11 @@ def main() -> None:
             log.exception("BluetoothManager failed to init (non-critical)")
 
     # Fuel sender calibration (ADC from Arduino → fuel level percentage)
-    fuel_sender = None
     if modules_catalog.is_enabled(config, "fuel_sender"):
         try:
             from src.vehicle.fuel_sender import FuelSender
-            fuel_sender = FuelSender(config, event_bus)
+            # instance stays alive via its event-bus subscriptions
+            FuelSender(config, event_bus)
             log.info("FuelSender initialized")
         except Exception:
             log.exception("FuelSender failed to init (non-critical)")

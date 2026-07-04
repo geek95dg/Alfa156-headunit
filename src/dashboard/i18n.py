@@ -4,7 +4,6 @@ All dashboard-visible strings are defined here. The renderer reads
 config language setting and passes the lang code to t().
 """
 
-from typing import Any
 
 STRINGS: dict[str, dict[str, str]] = {
     "pl": {
@@ -155,7 +154,6 @@ STRINGS: dict[str, dict[str, str]] = {
         "dvr_front": "Przód",
         "dvr_rear": "Tył",
         "performance_title": "Performance",
-        "boost": "DOŁADOWANIE",
         "timer_0_100": "0-100 km/h",
         "best_time": "Najlepszy",
         "peak_boost": "Szczyt boost",
@@ -363,7 +361,6 @@ STRINGS: dict[str, dict[str, str]] = {
         "dvr_front": "Front",
         "dvr_rear": "Rear",
         "performance_title": "Performance",
-        "boost": "BOOST",
         "timer_0_100": "0-100 km/h",
         "best_time": "Best",
         "peak_boost": "Peak Boost",

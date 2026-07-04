@@ -11,7 +11,6 @@ import json
 import os
 import time
 import threading
-from typing import Optional, Any
 
 from src.core.logger import get_logger
 

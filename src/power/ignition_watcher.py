@@ -32,7 +32,6 @@ Usage:
 import argparse
 import signal
 import subprocess
-import sys
 import threading
 import time
 from pathlib import Path
@@ -41,7 +40,7 @@ from typing import Optional
 # Attempt to import gpiod — fall back to simulation if not available
 try:
     import gpiod  # type: ignore
-    from gpiod.line import Direction, Bias, Edge  # type: ignore
+    from gpiod.line import Direction, Bias  # type: ignore
     HAS_GPIOD = True
 except ImportError:
     HAS_GPIOD = False
@@ -313,7 +312,7 @@ class StandbyTimer:
         if not self._stop_event.is_set():
             with self._lock:
                 self._past_12h = True
-            log(f"12h standby window expired — next wake will be cold-like")
+            log("12h standby window expired — next wake will be cold-like")
 
 
 # ── SWC evdev monitor ────────────────────────────────────────────────────
@@ -460,7 +459,7 @@ def main() -> None:
     # Select SWC monitor
     if simulate:
         swc_monitor = SimulatedSwcMonitor()
-        log(f"  SWC sim: touch /tmp/bcm_swc_toggle to toggle BCM")
+        log("  SWC sim: touch /tmp/bcm_swc_toggle to toggle BCM")
     elif HAS_EVDEV:
         swc_monitor = EvdevWakeMonitor()
     else:

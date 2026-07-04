@@ -1,6 +1,5 @@
 """YAML configuration loader with platform auto-detection."""
 
-import os
 import platform
 import copy
 from pathlib import Path

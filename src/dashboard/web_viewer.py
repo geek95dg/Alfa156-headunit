@@ -1181,9 +1181,11 @@ class WebViewer:
             info = {}
             if viewer._event_bus:
                 s = viewer._event_bus.get_last("bt.call_state")
-                if s: state = s[0] or "idle"
+                if s:
+                    state = s[0] or "idle"
                 i = viewer._event_bus.get_last("bt.call_info")
-                if i: info = i[0] or {}
+                if i:
+                    info = i[0] or {}
             return jsonify({"state": state, "info": info})
 
         # --- Weather search API ---

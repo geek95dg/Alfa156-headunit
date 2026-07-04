@@ -4,8 +4,6 @@ Monitors backup battery voltage, manages power switching between
 car battery and Li-ion backup for suspend mode.
 """
 
-import threading
-import time
 from src.core.logger import get_logger
 
 log = get_logger("battery")

@@ -56,7 +56,6 @@ class StatusBar:
         border_color = getattr(theme, "appbar_border", accent)
         pygame.draw.line(surface, border_color, (0, appbar_h - 1), (w, appbar_h - 1), 1)
 
-        lang = data.lang if data else "pl"
         pad = 12
         cy = appbar_h // 2
 

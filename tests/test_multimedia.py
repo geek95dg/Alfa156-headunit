@@ -65,11 +65,15 @@ class TestBluetoothManager:
         bt.disconnect()
         assert bt.connected is False
 
-    def test_paired_devices_empty_when_unavailable(self):
+    def test_paired_devices_simulated_when_unavailable(self):
+        """Without a real controller, a simulated device list is returned."""
         bt = BluetoothManager(self.config, self.bus)
         if not bt.available:
             devices = bt.get_paired_devices()
-            assert devices == []
+            assert isinstance(devices, list)
+            assert len(devices) > 0
+            for dev in devices:
+                assert "address" in dev and "name" in dev
 
     def test_hfp_call_events(self):
         bt = BluetoothManager(self.config, self.bus)
