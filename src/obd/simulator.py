@@ -21,6 +21,8 @@ SID_START_DIAG = 0x10
 SID_STOP_DIAG = 0x20
 SID_TESTER_PRESENT = 0x3E
 SID_READ_LOCAL_ID = 0x21
+SID_READ_DTC = 0x18
+SID_CLEAR_DTC = 0x14
 SID_START_COMM = 0x81
 POSITIVE_OFFSET = 0x40
 
@@ -56,10 +58,22 @@ class ECUSimulator:
         self._session_active = False
         self._t = 0.0
 
+        # Simulated stored DTCs: (raw_16bit, status). Two realistic
+        # EDC15 faults by default so the Service screen has something
+        # to show in demo mode; cleared by SID 0x14.
+        self.stored_dtcs: list[tuple[int, int]] = [
+            (0x0380, 0xE0),  # P0380 glow plug circuit
+            (0x0235, 0x60),  # P0235 boost pressure sensor
+        ]
+
         # PTY pair
         self._master_fd: Optional[int] = None
         self._slave_fd: Optional[int] = None
         self.reader_port: str = ""
+
+    def inject_dtc(self, raw: int, status: int = 0xE0) -> None:
+        """Add a simulated stored trouble code (for tests/demo)."""
+        self.stored_dtcs.append((raw, status))
 
     def start(self) -> str:
         """Create PTY pair and start simulator thread.
@@ -177,6 +191,18 @@ class ECUSimulator:
                 value = self._generate_value(local_id)
                 return bytes([sid + POSITIVE_OFFSET, local_id]) + value
             return None
+
+        elif sid == SID_READ_DTC:
+            # readDTCByStatus: 58 <count> (<hi> <lo> <status>)*
+            out = bytes([sid + POSITIVE_OFFSET, len(self.stored_dtcs)])
+            for raw, status in self.stored_dtcs:
+                out += raw.to_bytes(2, "big") + bytes([status])
+            return out
+
+        elif sid == SID_CLEAR_DTC:
+            # clearDiagnosticInformation: echo the group back
+            self.stored_dtcs.clear()
+            return bytes([sid + POSITIVE_OFFSET]) + data[1:3]
 
         else:
             # Unknown service — negative response

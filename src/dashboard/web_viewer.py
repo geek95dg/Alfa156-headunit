@@ -1343,22 +1343,48 @@ class WebViewer:
 
         @app.route("/api/dtc/read")
         def api_dtc_read():
-            """Read DTC error codes from ECU."""
-            if viewer._event_bus:
-                viewer._event_bus.publish("obd.dtc.read_request", True)
-            codes = []
-            if viewer._event_bus:
-                result = viewer._event_bus.get_last("obd.dtc.codes")
-                if result:
-                    codes = result[0] or []
-            return jsonify({"codes": codes})
+            """Read DTC error codes from ECU.
+
+            Publishes obd.dtc.read_request; the EDC15C7Reader services
+            it inside its polling thread and answers with obd.dtc.codes.
+            Wait (up to 3 s) for an answer FRESHER than our request —
+            get_last alone would return the previous read.
+            """
+            bus = viewer._event_bus
+            if not bus:
+                return jsonify({"codes": [], "error": "no bus"})
+            requested_at = time.time()
+            bus.publish("obd.dtc.read_request", True)
+            deadline = requested_at + 3.0
+            while time.time() < deadline:
+                result = bus.get_last("obd.dtc.codes")
+                if result and result[1] >= requested_at:
+                    codes = result[0]
+                    if codes is None:
+                        return jsonify({"codes": [],
+                                        "error": "ECU communication failed"})
+                    return jsonify({"codes": codes})
+                time.sleep(0.05)
+            # Timeout — OBD module disabled or ECU not answering
+            stale = bus.get_last("obd.dtc.codes")
+            return jsonify({"codes": (stale[0] if stale and stale[0] else []),
+                            "error": "timeout"})
 
         @app.route("/api/dtc/clear", methods=["POST"])
         def api_dtc_clear():
-            """Clear DTC error codes from ECU."""
-            if viewer._event_bus:
-                viewer._event_bus.publish("obd.dtc.clear_request", True)
-            return jsonify({"ok": True})
+            """Clear DTC error codes from ECU (confirmed by re-read)."""
+            bus = viewer._event_bus
+            if not bus:
+                return jsonify({"ok": False, "error": "no bus"})
+            requested_at = time.time()
+            bus.publish("obd.dtc.clear_request", True)
+            deadline = requested_at + 3.0
+            while time.time() < deadline:
+                result = bus.get_last("obd.dtc.cleared")
+                if result and result[1] >= requested_at:
+                    return jsonify({"ok": bool(result[0])})
+                time.sleep(0.05)
+            return jsonify({"ok": False, "error": "timeout"})
 
         @app.route("/api/i18n/<lang>")
         def api_i18n(lang):
