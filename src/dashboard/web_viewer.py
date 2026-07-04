@@ -252,6 +252,14 @@ class WebViewer:
         """Periodically broadcast event bus data to all WebSocket clients."""
         while self._running:
             try:
+                # No clients — skip the ~60 event-bus reads + JSON dump
+                # instead of burning CPU at 15 FPS into the void.
+                with self._ws_lock:
+                    has_clients = bool(self._ws_clients)
+                if not has_clients:
+                    time.sleep(0.2)
+                    continue
+
                 data = self._get_dashboard_data()
                 payload = json.dumps(data, default=str)
 
@@ -680,7 +688,11 @@ class WebViewer:
                                + frame + b"\r\n")
             finally:
                 proc.terminate()
-                proc.wait(timeout=3)
+                try:
+                    proc.wait(timeout=3)
+                except subprocess.TimeoutExpired:
+                    proc.kill()  # ffmpeg ignored SIGTERM — don't leak it
+                    proc.wait(timeout=3)
 
         @app.route("/aa/stream")
         def aa_stream():
