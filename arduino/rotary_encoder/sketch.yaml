@@ -1,0 +1,11 @@
+# arduino-cli build profile — kompilacja: make -C arduino rotary_encoder
+# (albo: arduino-cli compile --profile default arduino/rotary_encoder)
+profiles:
+  default:
+    fqbn: arduino:avr:micro   # Pro Micro = ATmega32U4 (kompilacyjnie: Micro)
+    platforms:
+      - platform: arduino:avr (1.8.6)
+    libraries:
+      - HID-Project (2.8.4)   # NIE dodawać biblioteki Keyboard — konflikt
+
+default_profile: default

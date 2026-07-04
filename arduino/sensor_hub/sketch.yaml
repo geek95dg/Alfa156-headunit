@@ -1,0 +1,11 @@
+# arduino-cli build profile — kompilacja: make -C arduino sensor_hub
+profiles:
+  default:
+    fqbn: arduino:avr:nano    # nowy bootloader; stary: arduino:avr:nano:cpu=atmega328old
+    platforms:
+      - platform: arduino:avr (1.8.6)
+    libraries:
+      - OneWire (2.3.8)
+      - DallasTemperature (4.0.4)
+
+default_profile: default

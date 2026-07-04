@@ -1,0 +1,11 @@
+# arduino-cli build profile — kompilacja: make -C arduino output_controller
+profiles:
+  default:
+    fqbn: arduino:avr:nano    # nowy bootloader; stary: arduino:avr:nano:cpu=atmega328old
+    platforms:
+      - platform: arduino:avr (1.8.6)
+    libraries:
+      - rc-switch (2.6.4)
+      - ArduinoJson (7.4.2)
+
+default_profile: default
