@@ -128,8 +128,10 @@ def main() -> None:
     log.info("Config: %s", config.config_path)
     log.info("=" * 60)
 
-    # Initialize core components
-    event_bus = EventBus()
+    # Initialize core components. async_dispatch: subscriber callbacks
+    # run on a dispatcher thread, so a blocking subscriber cannot stall
+    # the sensor thread that published the event.
+    event_bus = EventBus(async_dispatch=True)
     hal = HAL(platform=config.platform)
 
     log.info("Core initialized: EventBus, HAL (%s)", config.platform)

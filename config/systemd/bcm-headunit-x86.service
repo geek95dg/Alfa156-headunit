@@ -22,8 +22,14 @@ TimeoutStopSec=45
 KillMode=mixed
 KillSignal=SIGTERM
 
-# Do NOT auto-restart — ignition watcher manages lifecycle
-Restart=no
+# Auto-restart on crash. A clean 'systemctl stop' from the ignition
+# watcher does NOT trigger this (on-failure only), so the watcher still
+# owns the normal lifecycle; the ignition watcher additionally has a
+# liveness check as a second layer.
+Restart=on-failure
+RestartSec=3
+StartLimitIntervalSec=120
+StartLimitBurst=4
 
 User=root
 SupplementaryGroups=audio video

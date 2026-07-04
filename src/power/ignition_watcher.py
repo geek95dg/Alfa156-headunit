@@ -559,6 +559,16 @@ def main() -> None:
     btn_was_pressed = False
     prev_ignition_on = False
 
+    # Liveness watchdog: the loop below is edge-triggered, so a BCM
+    # crash with ignition still ON used to leave a dead screen until
+    # the driver cycled the key. Poll the unit state every few seconds
+    # and restart it, with a cap so a crash-looping BCM doesn't flap.
+    LIVENESS_CHECK_S = 5.0
+    LIVENESS_MAX_RESTARTS = 3
+    LIVENESS_WINDOW_S = 600.0
+    last_liveness_check = time.monotonic()
+    liveness_restarts: list[float] = []
+
     try:
         while not shutdown_requested:
             # Read ignition line
@@ -616,6 +626,29 @@ def main() -> None:
                 log("=== IGNITION OFF — Stopping BCM headunit ===")
                 if stop_bcm(do_suspend=True):
                     bcm_running = False
+
+            # --- Liveness: restart BCM if it died while it should run ---
+            now_mono = time.monotonic()
+            if (bcm_running and not simulate
+                    and now_mono - last_liveness_check >= LIVENESS_CHECK_S):
+                last_liveness_check = now_mono
+                if not is_service_active(service):
+                    liveness_restarts = [
+                        t for t in liveness_restarts
+                        if now_mono - t < LIVENESS_WINDOW_S
+                    ]
+                    if len(liveness_restarts) >= LIVENESS_MAX_RESTARTS:
+                        log(f"BCM service dead but {LIVENESS_MAX_RESTARTS} "
+                            f"restarts in {int(LIVENESS_WINDOW_S)}s already — "
+                            "giving up until next ignition cycle")
+                        bcm_running = False
+                    else:
+                        log("=== BCM service DIED — restarting (liveness) ===")
+                        liveness_restarts.append(now_mono)
+                        if systemctl("start", service):
+                            log("BCM headunit restarted after crash")
+                        else:
+                            log("WARNING: liveness restart failed")
 
             time.sleep(POLL_INTERVAL_S)
 

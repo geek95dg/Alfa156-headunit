@@ -209,10 +209,49 @@ class DashcamRecorder:
         self._cleanup_thread.start()
 
     def _cleanup_loop(self) -> None:
-        """Periodically check and clean up old recordings."""
+        """Storage cleanup + pipeline health watchdog.
+
+        A GStreamer pipeline that dies mid-drive (USB hiccup, encoder
+        error) used to go unnoticed — _recording stayed True and footage
+        was silently lost. Health-check every 10 s, relaunch a dead
+        pipeline with a 30 s per-camera backoff; full storage cleanup
+        every 60 s as before.
+        """
+        RESTART_BACKOFF_S = 30.0
+        last_restart = {"front": 0.0, "rear": 0.0}
+        tick = 0
         while self._recording:
-            self._cleanup_old_segments()
-            time.sleep(60)  # Check every minute
+            if tick % 6 == 0:
+                self._cleanup_old_segments()
+            tick += 1
+
+            for name in ("front", "rear"):
+                attr = f"_{name}_process"
+                proc = getattr(self, attr)
+                if proc is None or proc.poll() is None:
+                    continue  # never started, or still healthy
+                if not self._recording:
+                    break
+                stderr = ""
+                try:
+                    stderr = proc.stderr.read().decode() if proc.stderr else ""
+                except Exception:
+                    pass
+                log.error("Dashcam %s pipeline DIED (rc=%s): %s",
+                          name, proc.returncode, stderr[-300:])
+                now = time.time()
+                if now - last_restart[name] < RESTART_BACKOFF_S:
+                    continue  # crash-looping — wait out the backoff
+                last_restart[name] = now
+                device = (self._grabber.front_device if name == "front"
+                          else self._grabber.rear_device)
+                new_proc = self._launch_pipeline(
+                    device, name, self._grabber.get_resolution(name))
+                setattr(self, attr, new_proc)
+                if new_proc:
+                    log.info("Dashcam %s pipeline relaunched", name)
+
+            time.sleep(10)
 
     def _cleanup_old_segments(self) -> None:
         """Delete oldest segments when storage exceeds threshold."""

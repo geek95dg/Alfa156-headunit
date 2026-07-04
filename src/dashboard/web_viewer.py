@@ -263,15 +263,22 @@ class WebViewer:
                 data = self._get_dashboard_data()
                 payload = json.dumps(data, default=str)
 
+                # Send OUTSIDE the lock — a half-open/slow client used to
+                # block connect/disconnect handlers (same lock) and every
+                # other client for the duration of its send().
                 with self._ws_lock:
-                    dead = []
-                    for ws in self._ws_clients:
-                        try:
-                            ws.send(payload)
-                        except Exception:
-                            dead.append(ws)
-                    for ws in dead:
-                        self._ws_clients.remove(ws)
+                    clients = list(self._ws_clients)
+                dead = []
+                for ws in clients:
+                    try:
+                        ws.send(payload)
+                    except Exception:
+                        dead.append(ws)
+                if dead:
+                    with self._ws_lock:
+                        for ws in dead:
+                            if ws in self._ws_clients:
+                                self._ws_clients.remove(ws)
             except Exception:
                 log.exception("Broadcast error")
 

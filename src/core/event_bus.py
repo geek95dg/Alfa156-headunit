@@ -18,6 +18,7 @@ The wire protocol is newline-delimited JSON:
 
 import json
 import os
+import queue
 import select
 import socket
 import threading
@@ -55,11 +56,30 @@ class EventBus:
         bus.publish("obd.rpm", 3200)  # relayed via server
     """
 
-    def __init__(self) -> None:
+    def __init__(self, async_dispatch: bool = False) -> None:
+        """Args:
+            async_dispatch: when True, subscriber callbacks run on a
+                dedicated dispatcher thread instead of the publisher's
+                thread. A blocking subscriber (serial I/O, subprocess,
+                slow socket) then cannot stall a sensor loop that
+                publishes. ``get_last`` is always updated synchronously
+                at publish time, so poll-style consumers (web viewer)
+                see fresh data either way. Default False (synchronous)
+                — unit tests rely on in-line dispatch.
+        """
         self._subscribers: dict[str, list[EventCallback]] = defaultdict(list)
         self._wildcard_subscribers: list[EventCallback] = []
         self._lock = threading.Lock()
         self._last_values: dict[str, tuple[Any, float]] = {}
+
+        # Async dispatch state
+        self._async = async_dispatch
+        self._queue: Optional[queue.Queue] = None
+        if async_dispatch:
+            self._queue = queue.Queue(maxsize=2000)
+            t = threading.Thread(target=self._dispatch_loop,
+                                 name="eventbus-dispatch", daemon=True)
+            t.start()
 
         # IPC state
         self._ipc_server_sock: Optional[socket.socket] = None
@@ -67,6 +87,25 @@ class EventBus:
         self._ipc_clients: list[socket.socket] = []
         self._ipc_clients_lock = threading.Lock()
         self._ipc_running = False
+
+    def _dispatch_loop(self) -> None:
+        """Deliver queued events to subscribers (async_dispatch mode)."""
+        while True:
+            topic, value, timestamp = self._queue.get()
+            # Resolve subscribers at dispatch time so late subscribers
+            # still receive events queued just before they subscribed.
+            with self._lock:
+                callbacks = list(self._subscribers.get(topic, []))
+                wildcards = list(self._wildcard_subscribers)
+            self._run_callbacks(callbacks + wildcards, topic, value, timestamp)
+
+    def _run_callbacks(self, cbs, topic: str, value: Any, timestamp: float) -> None:
+        for cb in cbs:
+            try:
+                cb(topic, value, timestamp)
+            except Exception:
+                log.exception("Error in subscriber %s for topic '%s'",
+                              getattr(cb, "__name__", repr(cb)), topic)
 
     def subscribe(self, topic: str, callback: EventCallback) -> None:
         """Subscribe to a specific topic.
@@ -112,11 +151,22 @@ class EventBus:
             callbacks = list(self._subscribers.get(topic, []))
             wildcards = list(self._wildcard_subscribers)
 
-        for cb in callbacks + wildcards:
+        if self._async:
             try:
-                cb(topic, value, timestamp)
-            except Exception:
-                log.exception("Error in subscriber %s for topic '%s'", cb.__name__, topic)
+                self._queue.put_nowait((topic, value, timestamp))
+            except queue.Full:
+                # Drop the oldest event instead of blocking the publisher.
+                try:
+                    dropped = self._queue.get_nowait()
+                    log.warning("Event queue full — dropped '%s'", dropped[0])
+                except queue.Empty:
+                    pass
+                try:
+                    self._queue.put_nowait((topic, value, timestamp))
+                except queue.Full:
+                    log.warning("Event queue still full — dropped '%s'", topic)
+        else:
+            self._run_callbacks(callbacks + wildcards, topic, value, timestamp)
 
         # Relay to IPC if active
         if self._ipc_server_sock is not None:
