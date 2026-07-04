@@ -1,6 +1,17 @@
-# Audyt repozytorium BCM v8.5 + plan naprawczy (do akceptacji)
+# Audyt repozytorium BCM v8.5 + plan naprawczy
 
 Data audytu: 2026-07-04
+
+## STATUS REALIZACJI (zaakceptowane 2026-07-04)
+
+| Pozycja | Status |
+|---|---|
+| Przepisanie historii gita (usunięcie `.venv` 289 MB + ZIP 22 MB) | ✅ zrobione — pack 173 MB → 57 MB |
+| Martwy kod → `legacy/` z oznaczeniem | ✅ zrobione — `legacy/README.md` |
+| Logger GPS (`tracker.py`) jako moduł `tracking` | ✅ zrobione — naprawiony, domykanie tripów, statystyki, GPX |
+| Arduino: sensor_hub (DOOR/IGN/RAIN/TEMP/PARK), watchdogi, nieblokujące BLE, `make -C arduino` | ✅ zrobione — wszystkie 3 sketche kompilują się |
+| Optymalizacja startu (M910q): lazy-importy (import 2.29 s → 0.05 s), statyczny Tailwind (419 KB JS → 37 KB CSS), `defer`, idle-skip broadcastu, `bluetooth.enabled` | ✅ zrobione — rendering zweryfikowany na 4 ekranach |
+| Etap 1 (pełny system przełączników + ekran Settings), Etap 2 (auto-restart po crashu, EventBus), Etap 4 (DTC, EQ DSP), Etap 6 (testy+CI), Etap 7 (URUCHOMIENIE.md) | ⏳ czeka na akceptację |
 Zakres: cały kod (`src/`, `main.py`, `arduino/`, `config/`, `tests/`), dokumentacja (`README.md`,
 `DEVELOPMENT_PLAN.md`, `bcm_v85_docs.html`, `docs/*.md`, `docs/x86-production/*.html`), frontend web.
 
