@@ -221,6 +221,7 @@ hardware:
     interface: usb0    # HiLink mode network interface
 
 audio:
+  eq_dsp_enabled: true
   eq_preset: jazz
   master_volume: 70
   bass: 0

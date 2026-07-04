@@ -88,6 +88,7 @@ hardware:
     device: ''
     apn: ''
 audio:
+  eq_dsp_enabled: true   # prawdziwy EQ przez PipeWire filter-chain
   eq_preset: jazz
   master_volume: 70
   bass: 0
