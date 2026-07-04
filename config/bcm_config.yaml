@@ -16,6 +16,7 @@ modules:
   power: true
   multimedia: true
   location: true
+  tracking: true
   network: true
   weather: true
   blinker_monitor: true
@@ -246,7 +247,11 @@ crash_detection:
   g_force_threshold: 3.0
   post_crash_record_sec: 60
 tracking:
+  db_path: data/gps_tracks.db
   interval_sec: 30
+  trip_start_kmh: 5
+  trip_end_kmh: 2
+  trip_end_idle_sec: 60
   lte_sync_min: 15
   geofence_lat: 0
   geofence_lon: 0
@@ -255,4 +260,5 @@ tracking:
 multimedia:
   last_bt_device: C0:7A:D6:90:E9:CC
 bluetooth:
+  enabled: true
   preferred_adapter: ''
