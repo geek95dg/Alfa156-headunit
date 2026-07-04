@@ -27,7 +27,7 @@ class BatteryBackup:
         self._voltage = 0.0
         self._on_backup = False
 
-        bus.subscribe("arduino.battery_voltage", self._on_adc)
+        self.bus.subscribe("arduino.battery_voltage", self._on_adc)
 
     def _on_adc(self, topic, voltage, ts):
         self._voltage = voltage

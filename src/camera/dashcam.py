@@ -46,12 +46,18 @@ class DashcamRecorder:
         self._rear_process: Optional[subprocess.Popen] = None
         self._cleanup_thread: Optional[threading.Thread] = None
 
-        # Storage path
+        # Storage path — YAML key is camera.recording_path; the old
+        # camera.storage_path is honoured as a fallback for older configs.
         self._storage_path = Path(
-            config.get("camera.storage_path", "/tmp/bcm_dashcam")
+            config.get("camera.recording_path",
+                       config.get("camera.storage_path", "/tmp/bcm_dashcam"))
         )
-        self._segment_duration = config.get(
-            "camera.segment_duration", SEGMENT_DURATION_SEC
+        # YAML key is camera.segment_minutes; camera.segment_duration
+        # (seconds) kept as fallback.
+        seg_min = config.get("camera.segment_minutes")
+        self._segment_duration = (
+            int(seg_min) * 60 if seg_min
+            else config.get("camera.segment_duration", SEGMENT_DURATION_SEC)
         )
 
         # Subscribe to voice/input commands
@@ -210,7 +216,13 @@ class DashcamRecorder:
 
     def _cleanup_old_segments(self) -> None:
         """Delete oldest segments when storage exceeds threshold."""
-        max_bytes = self._config.get("camera.max_storage_bytes", MAX_STORAGE_BYTES)
+        # YAML key is camera.max_storage_gb; camera.max_storage_bytes
+        # kept as fallback. Without this the 128 GB limit was never applied.
+        max_gb = self._config.get("camera.max_storage_gb")
+        max_bytes = (
+            int(float(max_gb) * 1024**3) if max_gb
+            else self._config.get("camera.max_storage_bytes", MAX_STORAGE_BYTES)
+        )
         threshold = max_bytes * STORAGE_CLEANUP_THRESHOLD
 
         total = self._get_storage_usage()

@@ -348,6 +348,43 @@ class WebViewer:
 
             return jsonify({"ok": True})
 
+        # --- Module toggles (Settings -> Moduły) ---
+
+        @app.route("/api/modules", methods=["GET"])
+        def api_modules_get():
+            cfg = viewer._config
+            if cfg is None:
+                return jsonify({"modules": []})
+            from src.core.modules_catalog import catalog_state
+            return jsonify({"modules": catalog_state(cfg)})
+
+        @app.route("/api/modules", methods=["POST"])
+        def api_modules_set():
+            """Persist a module toggle. Takes effect after BCM restart."""
+            cfg = viewer._config
+            if cfg is None:
+                return jsonify({"error": "no config"}), 500
+            data = request.get_json(silent=True) or {}
+            name = data.get("name")
+            from src.core.modules_catalog import MODULES
+            if name not in MODULES:
+                return jsonify({"error": f"unknown module: {name}"}), 400
+            enabled = bool(data.get("enabled"))
+            cfg.set(f"modules.{name}", enabled)
+            # Keep the legacy ad-hoc key in sync so code that still reads
+            # it directly (e.g. openauto's wifi.enabled warning) agrees.
+            legacy = MODULES[name].get("legacy_key")
+            if legacy:
+                cfg.set(legacy, enabled)
+            try:
+                cfg.save()
+            except Exception as e:
+                return jsonify({"error": f"save failed: {e}"}), 500
+            if viewer._event_bus:
+                viewer._event_bus.publish("config.changed",
+                                          {"module": name, "enabled": enabled})
+            return jsonify({"ok": True, "restart_required": True})
+
         # --- SWC mapping API ---
 
         @app.route("/api/config/swc", methods=["GET"])

@@ -77,7 +77,10 @@ class BCMConfig:
         config_path: Optional[str] = None,
         platform_override: Optional[str] = None,
     ):
-        path = Path(config_path) if config_path else DEFAULT_CONFIG_PATH
+        if config_path:
+            path = Path(config_path)
+        else:
+            path = self._pick_default_config(platform_override)
         if not path.exists():
             raise FileNotFoundError(f"Config file not found: {path}")
 
@@ -85,9 +88,10 @@ class BCMConfig:
             self._data: dict = yaml.safe_load(f) or {}
 
         # Resolve platform
+        self._data.setdefault("system", {})
         if platform_override:
             self._data["system"]["platform"] = platform_override
-        elif self._data.get("system", {}).get("platform") == "auto":
+        elif self._data.get("system", {}).get("platform") in ("auto", None):
             self._data["system"]["platform"] = _detect_platform()
 
         self.platform: str = self._data["system"]["platform"]
@@ -124,9 +128,36 @@ class BCMConfig:
         with open(out, "w") as f:
             yaml.dump(self._data, f, default_flow_style=False, sort_keys=False)
 
+    @staticmethod
+    def _pick_default_config(platform_override: Optional[str]) -> Path:
+        """No --config given: pick the YAML matching the platform.
+
+        A bench rig booted without --config used to silently load the
+        x86-targeted bcm_config.yaml (wrong GPIO/serial values). Now the
+        opi_pc-specific file is selected automatically when the hardware
+        (or an explicit override) says opi_pc.
+        """
+        plat = platform_override or _detect_platform()
+        if plat == "opi_pc":
+            candidate = DEFAULT_CONFIG_PATH.parent / "bcm_config_opi_pc.yaml"
+            if candidate.exists():
+                return candidate
+        return DEFAULT_CONFIG_PATH
+
     def is_module_enabled(self, module_name: str) -> bool:
-        """Check if a module is enabled in the config."""
-        return bool(self.get(f"modules.{module_name}", False))
+        """Check if a module is enabled in the config.
+
+        Reads ``modules.<name>``. Falls back to the legacy
+        ``modules_v85.<name>`` block (pre-v8.5.2 configs kept the v8.5
+        modules there, but no code ever read it — so alarm, crash_detect,
+        battery etc. were silently disabled). ``battery`` was historically
+        spelled ``battery_backup`` in that block.
+        """
+        val = self.get(f"modules.{module_name}")
+        if val is None:
+            legacy_name = {"battery": "battery_backup"}.get(module_name, module_name)
+            val = self.get(f"modules_v85.{legacy_name}")
+        return bool(val)
 
     @property
     def data(self) -> dict:

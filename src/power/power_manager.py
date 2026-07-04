@@ -156,7 +156,9 @@ class PowerManager:
     def _start_shutdown_timer(self) -> None:
         """Start countdown to shutdown."""
         self._shutdown_cancel = False
-        delay = self._config.get("power.shutdown_delay", SHUTDOWN_DELAY_SECONDS)
+        delay = self._config.get(
+            "power.shutdown_delay_seconds",
+            self._config.get("power.shutdown_delay", SHUTDOWN_DELAY_SECONDS))
         log.info("Shutdown timer started (%ds)", delay)
 
         self._shutdown_timer = threading.Thread(

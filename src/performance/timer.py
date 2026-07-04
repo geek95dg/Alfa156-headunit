@@ -24,8 +24,8 @@ class PerformanceTracker:
         self._history = []
         self._load_history()
 
-        bus.subscribe("gps.speed", self._on_speed)
-        bus.subscribe("obd.boost", self._on_boost)
+        self.bus.subscribe("gps.speed", self._on_speed)
+        self.bus.subscribe("obd.boost", self._on_boost)
 
     def _on_speed(self, topic, speed, ts):
         if not self._timer_running and 3 <= speed < 10:

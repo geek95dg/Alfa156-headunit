@@ -283,7 +283,11 @@ def start_obd(config, event_bus: EventBus, **kwargs) -> None:
         port = simulator.start()
         time.sleep(0.3)  # let PTY settle
     else:
-        port = config.get("serial.kline.port_opi", "/dev/ttyS3")
+        # Platform-specific port key first (port_opi_pc on the bench rig,
+        # which uses a USB K-Line adapter), then the generic port_opi.
+        port = config.get(
+            f"serial.kline.port_{platform}",
+            config.get("serial.kline.port_opi", "/dev/ttyS3"))
         simulator = None
 
     # Open K-Line (echo=True on real K-Line, False on PTY simulator)

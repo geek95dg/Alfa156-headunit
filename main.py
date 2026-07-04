@@ -36,30 +36,20 @@ def _lazy(module_path: str, func_name: str):
 
 start_dashboard = _lazy("src.dashboard.renderer", "start_dashboard")
 
-# Module registry — maps module names to their start functions.
+# Module registry — built from the shared catalog (src/core/modules_catalog),
+# which is also what the Settings → Modules screen lists via /api/modules.
 # NOTE: "dashboard" is handled separately because start_dashboard() blocks
 # (PyGame main-thread event loop). All other modules must start first.
+from src.core import modules_catalog
+
 MODULE_REGISTRY: dict[str, dict] = {
-    "obd":         {"part": 3, "description": "OBD-II / K-Line Communication", "start": _lazy("src.obd.simulator", "start_obd")},
-    "parking":     {"part": 4, "description": "Parking Sensors System", "start": _lazy("src.parking.simulator", "start_parking")},
-    "environment": {"part": 5, "description": "Temperature & Environment Monitoring", "start": _lazy("src.environment.simulator", "start_environment")},
-    "audio":       {"part": 6, "description": "Audio System & PipeWire", "start": _lazy("src.audio.volume", "start_audio")},
-    "input":       {"part": 8, "description": "Input Controllers", "start": _lazy("src.input.bt_remote", "start_input")},
-    "camera":      {"part": 9, "description": "Camera & Dashcam", "start": _lazy("src.camera.reverse_cam", "start_camera")},
-    "power":       {"part": 10, "description": "Power Management", "start": _lazy("src.power.shutdown", "start_power")},
-    "multimedia":  {"part": 11, "description": "Android Auto / Multimedia", "start": _lazy("src.multimedia.openauto", "start_multimedia")},
-    "location":    {"part": 12, "description": "GPS/GNSS Positioning", "start": _lazy("src.location.gps", "start_location")},
-    "tracking":    {"part": 12, "description": "GPS Route Logger (SQLite + GPX)", "start": _lazy("src.location.tracker", "start_tracker")},
-    "network":     {"part": 13, "description": "LTE/Cellular Connectivity", "start": _lazy("src.network.lte", "start_network")},
-    "weather":     {"part": 14, "description": "Weather Data (OpenWeatherMap)", "start": _lazy("src.weather.weather", "start_weather")},
-    "rain_sensor": {"part": 15, "description": "Rain Sensor + Auto Wipers", "start": _lazy("src.vehicle.rain_sensor", "start_rain_sensor")},
-    "blinker_monitor": {"part": 15, "description": "Turn Signal GPIO Monitor", "start": _lazy("src.vehicle.blinker_monitor", "start_blinker_monitor")},
-    "central_lock":{"part": 16, "description": "Always-on Nano bridge (window remote + BLE trunk + backlight PWM)", "start": _lazy("src.vehicle.central_lock", "start_central_lock")},
-    "lighting":    {"part": 17, "description": "Lighting (Follow-me-home, Greeting)", "start": _lazy("src.vehicle.lighting", "start_lighting")},
-    "performance": {"part": 18, "description": "Performance (0-100 Timer, Boost)", "start": _lazy("src.performance.timer", "start_performance")},
-    "alarm":       {"part": 19, "description": "Car Alarm (PIR, Tilt, Shock, Siren)", "start": _lazy("src.vehicle.alarm", "start_alarm")},
-    "crash_detect":{"part": 20, "description": "Crash Detection + DVR Protection", "start": _lazy("src.camera.crash_detect", "start_crash_detect")},
-    "battery":     {"part": 21, "description": "Battery Backup Monitor", "start": _lazy("src.power.battery", "start_battery")},
+    name: {
+        "part": info["part"],
+        "description": info["description"],
+        "start": _lazy(*info["entry"]),
+    }
+    for name, info in modules_catalog.MODULES.items()
+    if "entry" in info
 }
 
 # Dashboard is listed for --dry-run reporting but started separately
@@ -144,13 +134,15 @@ def main() -> None:
 
     log.info("Core initialized: EventBus, HAL (%s)", config.platform)
 
-    # Determine which modules to load
+    # Determine which modules to load (modules.* toggles via the catalog)
     if args.modules:
         requested = [m.strip() for m in args.modules.split(",")]
     else:
-        requested = ["dashboard"] + [
+        requested = (
+            ["dashboard"] if modules_catalog.is_enabled(config, "dashboard") else []
+        ) + [
             name for name in MODULE_REGISTRY
-            if config.is_module_enabled(name)
+            if modules_catalog.is_enabled(config, name)
         ]
 
     # Report module status
@@ -186,7 +178,7 @@ def main() -> None:
     # hardware without a BT adapter — the probe retries 5x with 2 s
     # sleeps before giving up).
     bt_manager = None
-    bt_enabled = config.get("bluetooth.enabled", True)
+    bt_enabled = modules_catalog.is_enabled(config, "bluetooth")
     log.info("--- Bluetooth Init (enabled=%s) ---", bt_enabled)
     if bt_enabled:
         try:
@@ -212,7 +204,7 @@ def main() -> None:
 
     # Fuel sender calibration (ADC from Arduino → fuel level percentage)
     fuel_sender = None
-    if config.get("fuel_sender.enabled", True):
+    if modules_catalog.is_enabled(config, "fuel_sender"):
         try:
             from src.vehicle.fuel_sender import FuelSender
             fuel_sender = FuelSender(config, event_bus)
@@ -223,8 +215,9 @@ def main() -> None:
     # publishes bt.contacts / bt.call_history that the A8 phone screen
     # consumes via /api/phone/{contacts,history}. Without this the phone
     # screen renders empty even when pairing advertises PCE/MCE correctly.
-    # Pointless without Bluetooth, so it follows the bluetooth.enabled toggle.
-    if bt_enabled:
+    # Pointless without Bluetooth, so by default it follows the bluetooth
+    # toggle (modules.phonebook overrides).
+    if bt_enabled and modules_catalog.is_enabled(config, "phonebook"):
         try:
             from src.multimedia.phonebook import start_phonebook_sync
             start_phonebook_sync(event_bus)
@@ -233,7 +226,7 @@ def main() -> None:
 
     # Start WiFi AP for Android Auto wireless data link
     wifi_ap = None
-    wifi_enabled = config.get("wifi.enabled", False)
+    wifi_enabled = modules_catalog.is_enabled(config, "wifi_ap")
     log.info("--- WiFi AP Init (enabled=%s) ---", wifi_enabled)
     if wifi_enabled:
         try:
@@ -309,12 +302,13 @@ def main() -> None:
             try:
                 from src.dashboard.web_viewer import WebViewer
                 from src.dashboard.trip_computer import TripComputer
-                try:
-                    from src.trip.route_planner import RoutePlanner
-                    _rp = RoutePlanner(config, event_bus)
-                except Exception as _e:
-                    log.warning("RoutePlanner unavailable: %s", _e)
-                    _rp = None
+                _rp = None
+                if modules_catalog.is_enabled(config, "route_planner"):
+                    try:
+                        from src.trip.route_planner import RoutePlanner
+                        _rp = RoutePlanner(config, event_bus)
+                    except Exception as _e:
+                        log.warning("RoutePlanner unavailable: %s", _e)
                 _tc = TripComputer(event_bus=event_bus, route_planner=_rp)
                 web_viewer = WebViewer(
                     host="0.0.0.0", port=5002,
@@ -328,13 +322,16 @@ def main() -> None:
                 log.info("Main display started at http://localhost:5002")
 
                 # Start small display server (4.3" stats carousel)
-                from src.dashboard.small_viewer import SmallDisplayServer
-                small_display = SmallDisplayServer(
-                    host="0.0.0.0", port=5003,
-                    event_bus=event_bus, config=config,
-                )
-                small_display.start()
-                log.info("Small display started at http://localhost:5003")
+                if modules_catalog.is_enabled(config, "small_display"):
+                    from src.dashboard.small_viewer import SmallDisplayServer
+                    small_display = SmallDisplayServer(
+                        host="0.0.0.0", port=5003,
+                        event_bus=event_bus, config=config,
+                    )
+                    small_display.start()
+                    log.info("Small display started at http://localhost:5003")
+                else:
+                    log.info("Small display disabled (modules.small_display)")
 
                 log.info("  Themes: Heritage / Modern / Autodelta")
                 log.info("  Main:  A1-A7 + Settings (7/8\" touch)")

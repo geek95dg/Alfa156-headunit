@@ -5,6 +5,8 @@ system:
   log_level: DEBUG
   log_file: logs/bcm.log
   simulation: false
+# Jeden przełącznik na każdy moduł/podsystem — pełna lista i stan
+# także w UI: Settings -> Moduły (GET/POST /api/modules).
 modules:
   dashboard: true
   obd: true
@@ -20,6 +22,20 @@ modules:
   network: true
   weather: true
   blinker_monitor: true
+  rain_sensor: true
+  central_lock: true
+  lighting: true
+  performance: true
+  alarm: true
+  crash_detect: true
+  battery: true
+  # podsystemy (startowane wprost w main.py):
+  bluetooth: true
+  phonebook: true
+  fuel_sender: true
+  wifi_ap: true
+  route_planner: true
+  small_display: true
 display:
   dashboard:
     width: 1024
@@ -226,14 +242,6 @@ traffic:
   poll_interval_min: 5
 remote_status:
   api_key: ''
-modules_v85:
-  rain_sensor: true
-  central_lock: true
-  lighting: true
-  performance: true
-  alarm: true
-  crash_detect: true
-  battery_backup: true
 alarm:
   siren_duration: 60
   arming_delay: 30

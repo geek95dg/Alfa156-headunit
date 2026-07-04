@@ -22,6 +22,43 @@ const Settings = {
              loaded: false, saving: false, showPwd: false,
              restartRequired: false, status: "" },
 
+    // Module on/off toggles (modules.* in bcm_config.yaml)
+    _modules: { list: [], loaded: false, status: "" },
+
+    async modulesLoad(force) {
+        if (Settings._modules.loaded && !force) return;
+        try {
+            const res = await fetch("/api/modules");
+            const data = await res.json();
+            Settings._modules.list = data.modules || [];
+            Settings._modules.loaded = true;
+            App.navigateTo("settings");
+        } catch (e) { /* keep last known state */ }
+    },
+
+    async moduleToggle(name, enabled) {
+        try {
+            const res = await fetch("/api/modules", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ name, enabled }),
+            });
+            const data = await res.json();
+            if (data.ok) {
+                const m = Settings._modules.list.find(x => x.name === name);
+                if (m) m.enabled = enabled;
+                Settings._modules.status =
+                    (App.t ? App.t.call(App, "restart_required", "Zapisano — wymagany restart BCM") :
+                     "Zapisano — wymagany restart BCM");
+            } else {
+                Settings._modules.status = data.error || "error";
+            }
+        } catch (e) {
+            Settings._modules.status = "error: " + e;
+        }
+        App.navigateTo("settings");
+    },
+
     async radioRefresh() {
         try {
             const res = await fetch("/api/radio/status");
@@ -409,6 +446,7 @@ App.registerScreen("settings", (() => {
             Settings.radioRefresh().then(() => App.navigateTo("settings"));
         }
         Settings.wifiLoad();
+        Settings.modulesLoad();
 
         container.innerHTML = `<div class="screen-container" style="background:var(--color-surface);color:var(--color-on-surface)">
             ${AppBar.render(theme, data)}
@@ -583,6 +621,23 @@ App.registerScreen("settings", (() => {
                 <div class="rounded-xl p-3 mt-3" style="background:var(--card-bg);border:1px solid var(--card-border)">
                     <p class="text-[10px] font-bold uppercase tracking-wider mb-2" style="color:var(--text-dim)">SWC Button Mapping</p>
                     ${_renderSwcTable()}
+                </div>
+                <!-- Module toggles (modules.* in bcm_config.yaml) -->
+                <div class="rounded-xl p-3 mt-3" style="background:var(--card-bg);border:1px solid var(--card-border)">
+                    <div class="flex items-center justify-between mb-2">
+                        <p class="text-[10px] font-bold uppercase tracking-wider" style="color:var(--text-dim)">${t("modules", "Moduły")}</p>
+                        <p class="text-[9px]" style="color:var(--text-dim)">${t("modules_hint", "Zmiany działają po restarcie BCM")}</p>
+                    </div>
+                    ${Settings._modules.status ? `<p class="text-[10px] mb-2" style="color:var(--color-primary)">${Settings._modules.status}</p>` : ""}
+                    <div class="grid grid-cols-2 gap-x-4 gap-y-1">
+                        ${Settings._modules.list.map(m => `
+                            <label class="flex items-center gap-2 py-1 cursor-pointer" style="border-bottom:1px solid var(--card-border)">
+                                <input type="checkbox" ${m.enabled ? "checked" : ""}
+                                    onchange="Settings.moduleToggle('${m.name}', this.checked)">
+                                <span class="text-[11px] font-bold" style="color:var(--color-on-surface)">${m.name}</span>
+                                <span class="text-[9px] truncate ml-auto text-right" style="color:var(--text-dim);max-width:60%">${m.description}</span>
+                            </label>`).join("")}
+                    </div>
                 </div>
                 <button class="mt-3 px-4 py-2 rounded-lg text-xs font-bold hover:opacity-80" style="background:var(--card-border);color:var(--text-mid)" onclick="App.navigateTo('a1')">
                     \u2190 ${t("back_to_dash")}
