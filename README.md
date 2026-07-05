@@ -34,3 +34,5 @@ pip install -r requirements.txt -r requirements-x86.txt
   runtime Tailwind engine).
 - Repo audit + improvement roadmap: `AUDYT_I_PLAN.md`. Unused legacy
   code lives in `legacy/`.
+- K-Line sniffing / reverse-engineering ECU PIDs (RPM, temps, …):
+  `docs/KLINE_SNIFFING.md` + `tools/kline_sniffer.py`.
