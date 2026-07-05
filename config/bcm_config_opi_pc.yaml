@@ -92,6 +92,7 @@ modules:
   phonebook: true
   fuel_sender: false      # No tank sender on the bench rig
   wifi_ap: true
+  wifi_hotspot: false     # dodatkowy AP ALFA-NET — wymaga dongla WiFi
   route_planner: true
   small_display: true
 

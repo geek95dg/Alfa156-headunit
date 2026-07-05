@@ -232,13 +232,43 @@ co obowiązuje, gdyby klucz usunąć z YAML-a.
 | `bluetooth` | Bluetooth (BlueZ) — parowanie, A2DP/HFP, sterowanie mediami | `true` | włączony |
 | `phonebook` | Synchronizacja książki telefonicznej PBAP + historia połączeń (ekran A8) | `true` | włączony (podąża za `bluetooth`, gdy brak własnego klucza) |
 | `fuel_sender` | Kalibracja czujnika poziomu paliwa (ADC Arduino → %) | `true` | włączony |
-| `wifi_ap` | Punkt dostępowy WiFi (bezprzewodowe Android Auto) | `true` | wyłączony |
+| `wifi_ap` | WiFi dla Android Auto wireless (Wi-Fi Direct / P2P-GO, karta wewnętrzna) | `true` | wyłączony |
+| `wifi_hotspot` | Dodatkowy Access Point ALFA-NET (współdzielenie internetu — **wymaga osobnego dongla WiFi**) | `false` | wyłączony |
 | `route_planner` | Planowanie trasy / travel plan (OpenRouteService, TomTom) | `true` | włączony |
 | `small_display` | Serwer małego wyświetlacza 4.3" (port 5003) | `true` | włączony |
 
 Uwaga: honorowane są też starsze klucze (`bluetooth.enabled`,
 `wifi.enabled`, `fuel_sender.enabled`, blok `modules_v85.*`), ale
 `modules.<nazwa>` ma zawsze pierwszeństwo.
+
+### WiFi — dwie niezależne funkcje
+
+- **`wifi_ap`** = WiFi **tylko** do Android Auto wireless (tryb Wi-Fi
+  Direct / P2P-GO na karcie wewnętrznej). To wystarcza, żeby telefon
+  połączył się bezprzewodowo do AA. Domyślnie włączony.
+- **`wifi_hotspot`** = dodatkowy Access Point **ALFA-NET** do
+  współdzielenia internetu (np. z LTE) na inne urządzenia. Karta
+  wewnętrzna **nie robi P2P-GO i AP jednocześnie**, więc ta funkcja
+  wymaga **osobnego dongla USB WiFi**. Domyślnie wyłączony — włącz go
+  (Settings → Moduły lub `modules.wifi_hotspot: true`) dopiero po
+  podpięciu dongla.
+
+### K-Line / OBD na x86 (produkcja)
+
+Domyślnie x86 używa **symulatora ECU** (`obd.use_real_hardware: false`)
+— wygodne do testów. Aby czytać z prawdziwego auta na M910q:
+
+```yaml
+obd:
+  use_real_hardware: true
+  fast_init: false
+serial:
+  kline:
+    port_x86: /dev/ttyUSB_kline    # CP2102/VIAKEN KKL + reguła udev
+```
+
+Poznanie kodów PID (obroty, temperatury…) i pełna instrukcja podsłuchu:
+**`docs/KLINE_SNIFFING.md`** + narzędzie `tools/kline_sniffer.py`.
 
 ---
 

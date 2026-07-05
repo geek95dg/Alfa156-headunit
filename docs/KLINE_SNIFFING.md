@@ -240,14 +240,21 @@ Reguła udev (`/etc/udev/rules.d/99-kline.rules`) dla CP2102:
 SUBSYSTEM=="tty", ATTRS{idVendor}=="10c4", ATTRS{idProduct}=="ea60", SYMLINK+="ttyUSB_kline"
 ```
 
-> **Ważna uwaga o kodzie:** obecnie w `src/obd/simulator.py` platforma
-> `x86` **zawsze** startuje symulator ECU (PTY), a nie realny port —
-> bo x86 był dotąd trybem developerskim. Żeby M910q gadał z prawdziwym
-> autem, trzeba dołożyć gałąź „realny serial na x86". To ~10 linii; mogę
-> to dorobić razem z przełącznikiem `obd.use_real_hardware: true`, jeśli
-> potwierdzisz, że tak chcesz. Do samego **podsłuchu i inżynierii
-> wstecznej `tools/kline_sniffer.py` niczego nie wymaga** — działa
-> niezależnie od BCM.
+> **Realny odczyt na x86 (produkcja):** ustaw w `config/bcm_config.yaml`:
+> ```yaml
+> obd:
+>   use_real_hardware: true    # x86 czyta z prawdziwego ECU zamiast symulatora
+>   fast_init: false           # true tylko jeśli adapter/ECU wspiera fast init
+> serial:
+>   kline:
+>     port_x86: /dev/ttyUSB_kline
+> ```
+> Przy `use_real_hardware: false` (domyślnie) x86 nadal używa symulatora
+> ECU — wygodne do developmentu. Przy `true` BCM otwiera realny port,
+> robi inicjalizację 5-baud i odpytuje PID-y z tabeli `edc15c7.py`. Jeśli
+> port nie istnieje/nie odpowiada, moduł OBD wyłącza się sam (bez wywalania
+> BCM). Do samego **podsłuchu `tools/kline_sniffer.py` niczego nie
+> wymaga** — działa niezależnie od BCM.
 
 ---
 

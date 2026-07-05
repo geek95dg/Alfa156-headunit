@@ -303,37 +303,57 @@ def start_obd(config, event_bus: EventBus, **kwargs) -> None:
 
     platform = config.platform
 
-    if platform == "x86":
-        # Start mock ECU simulator
+    # Real hardware vs simulated ECU. x86 is now a production target
+    # (Lenovo M910q + CP2102/L9637D or VIAKEN KKL on USB), so x86 can
+    # talk to a real ECU when obd.use_real_hardware is set. OPi always
+    # uses real hardware; the PTY simulator is x86-dev-only.
+    use_real = (platform != "x86") or config.get("obd.use_real_hardware", False)
+
+    if not use_real:
+        # x86 dev: start mock ECU simulator on a PTY pair
         simulator = ECUSimulator()
         port = simulator.start()
         time.sleep(0.3)  # let PTY settle
     else:
-        # Platform-specific port key first (port_opi_pc on the bench rig,
-        # which uses a USB K-Line adapter), then the generic port_opi.
+        # Platform-specific port key first (port_x86 for the M910q USB
+        # adapter, port_opi_pc for the bench rig), then the generic
+        # port_opi.
         port = config.get(
             f"serial.kline.port_{platform}",
             config.get("serial.kline.port_opi", "/dev/ttyS3"))
         simulator = None
+        log.info("OBD: real K-Line hardware on %s (platform=%s)", port, platform)
 
-    # Open K-Line (echo=True on real K-Line, False on PTY simulator)
-    kline = KLine(port, echo=(platform == "opi"))
-    kline.open()
+    # Open K-Line. echo=True on a real half-duplex K-Line (we see our
+    # own TX); False on the PTY simulator which has no echo.
+    kline = KLine(port, echo=use_real)
+    try:
+        kline.open()
+    except Exception:
+        log.exception("OBD: cannot open K-Line port %s — module disabled", port)
+        if simulator:
+            simulator.stop()
+        return
 
     # Initialize connection
     kwp = KWP2000(kline, ecu_address=config.get("serial.kline.ecu_address", 0x01))
 
-    if platform == "x86":
-        # On x86, use fast init (simulator supports it)
+    if not use_real:
+        # Simulator supports fast init
         if not kwp.init_fast():
             log.warning("Fast init failed on simulator")
     else:
-        # On OPi, perform 5-baud init
+        # Real ECU (EDC15C7): 5-baud slow init. Optionally try fast init
+        # first for ECUs/adapters that support it (obd.fast_init: true).
         ecu_addr = config.get("serial.kline.ecu_address", 0x01)
-        if not kline.five_baud_init(ecu_addr):
-            log.error("5-baud init failed — cannot communicate with ECU")
-            if simulator:
-                simulator.stop()
+        inited = False
+        if config.get("obd.fast_init", False):
+            inited = kwp.init_fast()
+            if inited:
+                log.info("OBD: fast init OK")
+        if not inited and not kline.five_baud_init(ecu_addr):
+            log.error("5-baud init failed — cannot communicate with ECU "
+                      "(check wiring, ignition ON, ECU address 0x%02X)", ecu_addr)
             kline.close()
             return
 

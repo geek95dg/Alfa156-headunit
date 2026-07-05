@@ -128,6 +128,18 @@ class WiFiAPManager:
         self._net_hostapd_proc: Optional[subprocess.Popen] = None
         self._net_dnsmasq_proc: Optional[subprocess.Popen] = None
 
+    def _alfa_net_enabled(self) -> bool:
+        """Whether the secondary ALFA-NET access point should run.
+
+        Gated by the modules.wifi_hotspot toggle (falls back to the
+        legacy wifi.alfa_net.enabled key). The primary WiFi (P2P-GO for
+        Android Auto) is independent — this only controls the extra
+        internet-sharing AP that needs a separate WiFi dongle.
+        """
+        from src.core import modules_catalog
+        state = modules_catalog.is_enabled(self._config, "wifi_hotspot")
+        return bool(state)
+
         # Subscribe to shutdown
         self._event_bus.subscribe("power.shutting_down", self._on_shutdown)
 
@@ -585,7 +597,7 @@ class WiFiAPManager:
         # canonical Wi-Fi Direct device address). Set `bssid=` to
         # primary+2 to dodge the collision; the locally-administered
         # bit is also flipped so the MAC is unambiguously synthetic.
-        if self._config.get("wifi.alfa_net.enabled", True):
+        if self._alfa_net_enabled():
             net_ssid = self._config.get("wifi.alfa_net.ssid", "ALFA-NET")
             net_pwd = self._config.get("wifi.alfa_net.password",
                                        "AlfaRomeo156")
@@ -668,7 +680,7 @@ class WiFiAPManager:
         # launch failed, retry single-BSS so the primary ALFA still
         # comes up; ALFA-NET is unavailable on this hardware without
         # a second radio (USB dongle).
-        if self._net_iface and self._config.get("wifi.alfa_net.enabled", True):
+        if self._net_iface and self._alfa_net_enabled():
             log.warning("Multi-BSS rejected by driver (single AP only) — "
                         "retrying ALFA single-BSS without ALFA-NET. Plug "
                         "a USB WiFi dongle to get the second SSID "
@@ -1085,7 +1097,7 @@ class WiFiAPManager:
              here because the AA P2P-GO group is the primary mission
              and must stay up.
         """
-        if not self._config.get("wifi.alfa_net.enabled", True):
+        if not self._alfa_net_enabled():
             return
         ssid = self._config.get("wifi.alfa_net.ssid", "ALFA-NET")
         password = self._config.get("wifi.alfa_net.password", "AlfaRomeo156")
