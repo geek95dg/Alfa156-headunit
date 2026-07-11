@@ -1,10 +1,12 @@
-"""Flask server for the 4.3" small display (port 5003).
+"""Flask server for the 6.86" widescreen second display (port 5003).
 
-Shows a static 2x2 grid of 4 values (fuel, coolant temp, ext temp, int temp)
-with time/date header and notification popups (weather, traffic,
-icing, low fuel, service, TPMS). Overlays the active camera feed
-(rear/left/right) when reverse gear or a turn signal is engaged —
-priority: reverse > left blinker > right blinker.
+Default view: a 1x4 row of stats (fuel, coolant temp, ext temp, int temp)
+with a time/date header, a persistent media bar (now-playing + transport),
+and notification popups (weather, traffic, icing, low fuel, service, TPMS).
+
+During reverse the cameras + parking-sensor visualization move to the MAIN
+display; this second screen switches to a full-screen media-control view
+(now-playing + prev/play-pause/next).
 """
 
 import json
@@ -156,6 +158,11 @@ class SmallDisplayServer:
             "parking_distances": v("parking.distances", []),
             "parking_active": v("parking.active", False),
             "notifications": notifications,
+            # BT now-playing for the persistent media bar / reverse media view.
+            "bt_media_title": v("bt.media_title", ""),
+            "bt_media_artist": v("bt.media_artist", ""),
+            "bt_media_playing": bool(v("bt.media_playing", False)),
+            "bt_connected": bool(v("bt.connected", False)),
         }
 
     def _broadcast_loop(self):
@@ -197,6 +204,26 @@ class SmallDisplayServer:
         def assets(f):
             main_assets = os.path.join(os.path.dirname(__file__), "web", "assets")
             return send_from_directory(main_assets, f)
+
+        @app.route("/splash/<path:f>")
+        def splash_asset(f):
+            # Boot/wake splash video, shared with the main display.
+            splash_dir = os.path.join(
+                os.path.dirname(__file__), "..", "..", "assets", "splash"
+            )
+            return send_from_directory(os.path.abspath(splash_dir), f)
+
+        @app.route("/api/media/<action>", methods=["POST"])
+        def api_media_control(action):
+            # AVRCP transport control for the second display's media bar /
+            # reverse media view. Mirrors the main viewer: republish on
+            # bt.cmd.media and let BluetoothManager drive the phone.
+            action = (action or "").lower()
+            if action not in ("play", "pause", "playpause", "next", "previous"):
+                return jsonify({"ok": False, "error": "bad action"}), 400
+            if server._event_bus:
+                server._event_bus.publish("bt.cmd.media", action)
+            return jsonify({"ok": True, "action": action})
 
         @app.route("/api/data")
         def api_data():

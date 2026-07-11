@@ -10,6 +10,30 @@
     <link rel="stylesheet" href="/assets/vendor/leaflet/leaflet.css">
     <script src="/assets/vendor/leaflet/leaflet.js"></script>
     <link rel="stylesheet" href="/css/themes.css">
+    <script id="bcm-adaptive-rem">
+        /* Resolution-adaptive rem base. Tailwind utilities are rem-based,
+         * so scaling html font-size rescales the whole dashboard chrome
+         * (padding, gaps, button heights, standard text) WITHOUT a
+         * transform:scale (which blurs text + breaks touch mapping).
+         *
+         * Designed around a 1280-wide reference at 16px and clamped so a
+         * 1024x600 panel stays legible (~14px → denser than the old fixed
+         * 17px) while a 10.1" 1280x800 panel fills out proportionally
+         * (16px). Re-applied on resize so swapping panels needs no config.
+         * Pixel-literal labels (text-[Npx], icon font-size) are handled by
+         * the escape-bracket overrides in themes.css, not here. */
+        (function () {
+            var REF_W = 1280, REF_PX = 16, MIN_PX = 14, MAX_PX = 17;
+            function applyRem() {
+                var w = window.innerWidth || REF_W;
+                var px = Math.max(MIN_PX, Math.min(MAX_PX, REF_PX * (w / REF_W)));
+                document.documentElement.style.fontSize = px.toFixed(2) + "px";
+            }
+            applyRem();
+            window.addEventListener("resize", applyRem);
+            window.addEventListener("DOMContentLoaded", applyRem);
+        })();
+    </script>
     <script id="tailwind-config">
         tailwind.config = {
             darkMode: "class",
@@ -50,6 +74,7 @@
 
     <!-- Scripts: app.js MUST load first (defines App), then components, then screens -->
     <script src="/js/websocket.js"></script>
+    <script src="/js/components/splash.js"></script>
     <script src="/js/app.js"></script>
     <script src="/js/components/appbar.js"></script>
     <script src="/js/components/navbar.js"></script>

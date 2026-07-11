@@ -70,6 +70,12 @@ class WebViewer:
         self._ws_clients: list = []
         self._ws_lock = threading.Lock()
         self._broadcast_thread: Optional[threading.Thread] = None
+        # Kiosk readiness gate for the boot/wake splash. Starts False so the
+        # splash always waits for a fresh paint; flipped True by App.init()
+        # POSTing /api/ready, and reset to False (e.g. from the resume hook
+        # via /api/ready-reset) so the splash replays on every wake instead
+        # of self-dismissing against a stale flag from the previous boot.
+        self._kiosk_ready = False
 
         # Path to the web frontend files
         self._web_dir = os.path.join(os.path.dirname(__file__), "web")
@@ -148,7 +154,12 @@ class WebViewer:
             "tpms_pressures": _val("service.tpms_pressures", [0, 0, 0, 0]),
             # State
             "gear": _val("vehicle.gear", "N"),
-            # "reverse" removed — reverse camera only on small display (port 5003)
+            # Reverse / camera routing. The reverse view now lives on the MAIN
+            # display (rear large + L/R side-cam insets + sensor bar + beep);
+            # camera_active is the CameraController's resolved feed
+            # ("rear"/"left"/"right"/None), reverse_gear the raw signal.
+            "reverse_gear": _val("power.reverse_gear", False),
+            "camera_active": _val("camera.active_feed", None),
             "defrost_active": _val("vehicle.defrost", False),
             # External
             "ext_temp": _val("env.temperature", None),
@@ -297,6 +308,17 @@ class WebViewer:
             return send_from_directory(
                 os.path.join(viewer._web_dir, "assets"), filename
             )
+
+        @app.route("/splash/<path:filename>")
+        def splash_asset(filename):
+            # The boot/wake splash videos live outside the web dir, in the
+            # repo's assets/splash/. The in-browser splash overlay
+            # (components/splash.js) plays small.mp4 from here on page load
+            # and on every WebSocket reconnect-after-sleep.
+            splash_dir = os.path.join(
+                os.path.dirname(__file__), "..", "..", "assets", "splash"
+            )
+            return send_from_directory(os.path.abspath(splash_dir), filename)
 
         # --- REST API ---
 
@@ -516,6 +538,15 @@ class WebViewer:
             if getattr(viewer, "_kiosk_ready", False):
                 return jsonify({"ready": True})
             return jsonify({"ready": False}), 503
+
+        @app.route("/api/ready-reset", methods=["POST"])
+        def api_ready_reset():
+            # Clears the readiness flag so the next splash run waits for a
+            # fresh paint. The resume hook calls this before replaying the
+            # splash on wake-from-sleep (the Flask process survives an
+            # in-process wake, so the flag would otherwise still be True).
+            viewer._kiosk_ready = False
+            return ("", 204)
 
         @app.route("/api/boot_mode")
         def api_boot_mode():
@@ -769,24 +800,41 @@ class WebViewer:
             bt = viewer._bt_manager
             if not bt:
                 return jsonify({"error": "BT not available"}), 503
-            ok = bt.pair(address)
-            return jsonify({"success": ok, "address": address})
+            # pair() runs bluetoothctl pair + a post-pair connect, which can
+            # block for tens of seconds. Never run it inline — the kiosk Flask
+            # server is effectively single-threaded, so a blocking handler
+            # freezes the whole UI. Fire-and-forget; the UI learns the result
+            # from the bt.connected/bt.disconnected events + /bt/connected poll.
+            threading.Thread(
+                target=bt.pair, args=(address,),
+                daemon=True, name=f"bt-http-pair-{address}",
+            ).start()
+            return jsonify({"started": True, "address": address}), 202
 
         @app.route("/bt/connect/<address>", methods=["POST"])
         def bt_connect(address):
             bt = viewer._bt_manager
             if not bt:
                 return jsonify({"error": "BT not available"}), 503
-            ok = bt.connect(address)
-            return jsonify({"success": ok, "address": address})
+            # connect() can block ~40s (connect + verify + back-off). Run it on
+            # a daemon thread so the request returns immediately and the UI
+            # stays responsive; the real outcome arrives via the event bus.
+            threading.Thread(
+                target=bt.connect, args=(address,),
+                daemon=True, name=f"bt-http-connect-{address}",
+            ).start()
+            return jsonify({"started": True, "address": address}), 202
 
         @app.route("/bt/disconnect", methods=["POST"])
         def bt_disconnect():
             bt = viewer._bt_manager
             if not bt:
                 return jsonify({"error": "BT not available"}), 503
-            bt.disconnect()
-            return jsonify({"success": True})
+            threading.Thread(
+                target=bt.disconnect,
+                daemon=True, name="bt-http-disconnect",
+            ).start()
+            return jsonify({"started": True}), 202
 
         @app.route("/bt/remove/<address>", methods=["POST"])
         def bt_remove(address):
@@ -937,6 +985,12 @@ class WebViewer:
                 "alfa_net_ssid": cfg.get("wifi.alfa_net.ssid", "ALFA-NET"),
                 "alfa_net_password": cfg.get(
                     "wifi.alfa_net.password", "AlfaRomeo156"),
+                # Internet Share is only viable on a second radio (USB WiFi
+                # dongle); the Settings row is greyed out when this is False
+                # because a second AP VIF on the MT7921 collapses AA P2P-GO.
+                "internet_share_available": bool(
+                    viewer._wifi_ap.second_radio_available)
+                    if viewer._wifi_ap else False,
             })
 
         @app.route("/api/wifi/config", methods=["POST"])

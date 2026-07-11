@@ -495,24 +495,18 @@ def main() -> None:
         """Determine boot mode, write state, optionally start splash, start BCM."""
         nonlocal bcm_started_once
 
-        # Determine boot mode
-        if not bcm_started_once:
-            boot_mode = "cold"
-        elif timer.past_12h:
-            boot_mode = "cold"
-            timer.reset()
-            log("12h window reset — cold-like wake")
-        else:
-            boot_mode = "warm"
-
+        # Determine boot mode. Only the very first start of this process is
+        # a true cold boot (the systemd boot splash covers it before X). Every
+        # later start is a wake — there is no longer a "standby window" /
+        # 12h-style escalation that re-classifies a long idle as cold and
+        # tries to replay the DRM splash. On x86 that replay could never
+        # display anyway (X holds DRM master for the whole uptime and the
+        # kiosk page is not reloaded on wake); the kiosk now shows an
+        # in-browser splash overlay (small.mp4) on every WebSocket
+        # reconnect-after-sleep instead. See web/js/components/splash.js.
+        boot_mode = "cold" if not bcm_started_once else "warm"
         write_state(boot_mode, timer.first_boot_ts)
         log(f"Boot mode: {boot_mode}")
-
-        # Cold-like wake from deep idle: replay splash
-        if boot_mode == "cold" and bcm_started_once:
-            log(f"Starting splash for cold-like wake ({splash_duration}s)...")
-            systemctl("start", SPLASH_SERVICE_NAME)
-            time.sleep(splash_duration)
 
         bcm_started_once = True
 

@@ -1,4 +1,4 @@
-/* BCM v8.5 — Small Display (4.3" 800x480) */
+/* BCM v8.5 — Second Display (6.86" widescreen 1280x480) */
 * { margin:0; padding:0; box-sizing:border-box; }
 body { font-family:'Public Sans',sans-serif; overflow:hidden; }
 .material-symbols-outlined { font-variation-settings:'FILL' 0,'wght' 400,'GRAD' 0,'opsz' 24; vertical-align:middle; overflow:hidden; max-width:1.2em; display:inline-block; }
@@ -34,20 +34,50 @@ body { font-family:'Public Sans',sans-serif; overflow:hidden; }
 [data-theme="autodelta"] .dots .dot.active { background:#FF5F00; }
 
 /* Layout */
-.screen { width:800px; height:480px; display:flex; flex-direction:column; position:relative; }
+.screen { width:1280px; height:480px; display:flex; flex-direction:column; position:relative; }
 .header { height:48px; display:flex; justify-content:space-between; align-items:center; padding:0 24px; flex-shrink:0; }
 .header .time { font-size:18px; font-weight:700; }
 .header .date { font-size:12px; font-weight:600; opacity:0.6; }
 
-/* 2x2 grid of stat cells — replaces the time-based carousel */
-.grid { flex:1; display:grid; grid-template-columns:1fr 1fr; grid-template-rows:1fr 1fr; gap:2px;
+/* 1x4 stat row — the wide 6.86" panel lays the four stats across one row
+   (was a 2x2 grid on the old 4.3" 800x480 square-ish panel). */
+.grid { flex:1; display:grid; grid-template-columns:repeat(4, 1fr); grid-template-rows:1fr; gap:2px;
         background:rgba(255,255,255,0.05); padding:2px; }
 .cell { background:inherit; display:flex; flex-direction:column; align-items:center; justify-content:center;
         padding:8px; position:relative; min-width:0; min-height:0; }
-.cell-icon { font-size:28px; opacity:0.5; margin-bottom:4px; }
-.cell-value { font-size:56px; font-weight:900; line-height:1; }
-.cell-unit { font-size:16px; font-weight:400; margin-left:4px; }
-.cell-label { font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:2px; margin-top:6px; opacity:0.7; }
+.cell-icon { font-size:30px; opacity:0.5; margin-bottom:6px; }
+.cell-value { font-size:64px; font-weight:900; line-height:1; }
+.cell-unit { font-size:18px; font-weight:400; margin-left:4px; }
+.cell-label { font-size:12px; font-weight:700; text-transform:uppercase; letter-spacing:2px; margin-top:8px; opacity:0.7; }
+
+/* Persistent media bar under the stat row (now-playing + transport). */
+.media-bar { height:84px; flex-shrink:0; display:flex; align-items:center; gap:18px; padding:0 24px;
+             background:#09090b; border-top:1px solid #27272a; }
+.media-bar .mb-icon { font-size:34px; opacity:0.6; }
+.media-bar .mb-meta { flex:1; min-width:0; display:flex; flex-direction:column; gap:2px; }
+.media-bar .mb-title { font-size:20px; font-weight:800; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.media-bar .mb-artist { font-size:14px; font-weight:600; opacity:0.6; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.media-bar .mb-btn { width:56px; height:56px; border-radius:50%; border:none; background:#18181b; color:inherit;
+                     display:flex; align-items:center; justify-content:center; cursor:pointer; }
+.media-bar .mb-btn:active { transform:scale(0.92); }
+.media-bar .mb-btn .material-symbols-outlined { font-size:30px; }
+.media-bar .mb-btn.mb-play { width:68px; height:68px; }
+.media-bar .mb-btn.mb-play .material-symbols-outlined { font-size:38px; }
+[data-theme="heritage"] .media-bar .mb-btn.mb-play { background:#b45309; color:#fff; }
+[data-theme="modern"]   .media-bar .mb-btn.mb-play { background:#005596; color:#fff; }
+[data-theme="autodelta"] .media-bar .mb-btn.mb-play { background:#FF5F00; color:#fff; }
+
+/* Reverse media view — fills the screen with big now-playing + controls
+   while the MAIN display shows the reverse cameras + parking sensors. */
+.media-full { position:absolute; inset:0; z-index:200; display:flex; flex-direction:column;
+              align-items:center; justify-content:center; gap:28px; background:#000; padding:0 48px; }
+.media-full .mf-art { width:120px; height:120px; border-radius:18px; background:#18181b;
+                      display:flex; align-items:center; justify-content:center; }
+.media-full .mf-art .material-symbols-outlined { font-size:64px; opacity:0.5; }
+.media-full .mf-title { font-size:32px; font-weight:900; text-align:center; max-width:100%;
+                        white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.media-full .mf-artist { font-size:20px; font-weight:600; opacity:0.6; }
+.media-full .mf-controls { display:flex; align-items:center; gap:40px; }
 
 [data-theme="heritage"] .grid { background:#000; }
 [data-theme="heritage"] .cell { background:#0a0a0a; }

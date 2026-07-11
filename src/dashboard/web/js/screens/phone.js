@@ -25,7 +25,18 @@ const Phone = {
         } else {
             Phone._input += k;
         }
-        App.navigateTo("a8");
+        // Update ONLY the number display. Re-rendering the whole screen
+        // (App.navigateTo) on every digit rebuilds AppBar/NavBar + the
+        // contacts/history lists and sets container.innerHTML, which makes
+        // the keypad feel laggy. The keypad buttons never change, so a
+        // direct textContent write is instant. Fall back to a full render
+        // only if the display node isn't present (not on the dialer view).
+        const disp = document.getElementById("dialer-display");
+        if (disp) {
+            disp.textContent = Phone._input || " ";
+        } else {
+            App.navigateTo("a8");
+        }
     },
 
     dialNumber(num) {
@@ -159,7 +170,7 @@ App.registerScreen("a8", (() => {
 
         return `<div class="flex flex-col items-center h-full">
             <!-- Number display -->
-            <div class="text-3xl font-bold tracking-wider mb-3 h-10" style="color:${accent};">${Phone._input || "\u00a0"}</div>
+            <div id="dialer-display" class="text-3xl font-bold tracking-wider mb-3 h-10" style="color:${accent};">${Phone._input || "\u00a0"}</div>
             <!-- Keypad -->
             <div class="grid grid-cols-3 gap-2 w-[280px]">
                 ${keys.map(k => `<button class="${keyBg} rounded-xl py-3 text-xl font-bold active:scale-95 transition-transform" onclick="Phone.key('${k}')">${k}</button>`).join("")}

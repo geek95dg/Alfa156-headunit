@@ -752,13 +752,19 @@ def start_multimedia(config: Any, event_bus: EventBus, hal: Any = None,
         else:
             log.warning("OpenAuto auto_start enabled but binary not found")
 
-    # Auto-connect to last BT device if configured
+    # NOTE: BT auto-connect is owned exclusively by BluetoothManager's boot
+    # sweep (_auto_connect_paired_on_boot), which already retries the whole
+    # paired+trusted set in rounds and biases multimedia.last_bt_device first.
+    # We used to ALSO fire bt_mgr.connect(last_device) here — but that second
+    # initiator raced the boot sweep: both issued BlueZ Connect() within a few
+    # seconds of each other, the second collided with org.bluez.Error.InProgress,
+    # and neither ever verified, so the phone never linked on boot until the
+    # user tapped Connect. Same duplicate-initiator trap we removed for
+    # phonebook-sync. Leave the single owner in BluetoothManager.
     last_device = config.get("multimedia.last_bt_device", None)
-    if last_device and bt_mgr.available:
-        log.info("Auto-connecting to last BT device: %s", last_device)
-        bt_mgr.connect(last_device)
-    elif last_device:
-        log.info("Last BT device configured (%s) but BT not available", last_device)
+    if last_device:
+        log.info("Last BT device configured (%s) — BluetoothManager boot sweep "
+                 "owns auto-connect", last_device)
 
     # Check WiFi AP status for wireless AA
     wifi_enabled = config.get("wifi.enabled", False)

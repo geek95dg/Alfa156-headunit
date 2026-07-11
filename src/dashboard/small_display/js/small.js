@@ -1,12 +1,10 @@
 /**
- * BCM v8.5 — Small Display (4.3" 800x480)
- * Static 2x2 stats grid + notification popups + multi-camera overlay.
+ * BCM v8.5 — Second Display (6.86" widescreen 1280x480)
+ * 1x4 stats row + persistent media bar + notification popups.
  *
- * Camera priority (computed backend-side in small_viewer.py::_get_data):
- *   1. reverse gear → rear camera
- *   2. left blinker → left camera
- *   3. right blinker → right camera
- *   otherwise → hide overlay, show grid
+ * Reverse: the cameras + parking sensors are shown on the MAIN display now,
+ * so this screen switches to a full-screen media-control view (now-playing +
+ * prev/play-pause/next). Outside reverse it shows the stats row + media bar.
  */
 
 (() => {
@@ -18,6 +16,37 @@
     let theme = "heritage";
     let lang = "pl";
 
+    // --- Boot/wake splash overlay ---
+    // Same rationale as the main display (web/js/components/splash.js): a DRM
+    // splash can't be replayed once X owns the screen and the page isn't
+    // reloaded on an S3 wake, so play /splash/small.mp4 in-browser on load and
+    // on every reconnect-after-sleep, dismissing once live data resumes.
+    let _splashEl = null, _splashShownAt = 0, _splashHideTimer = null, _splashMaxTimer = null, _wsDownSince = 0;
+    function showSplash() {
+        if (_splashEl) return;
+        _splashEl = document.createElement("div");
+        _splashEl.id = "bcm-splash-overlay";
+        _splashEl.style.cssText = "position:fixed;inset:0;z-index:9999;background:#000;opacity:1;transition:opacity 0.5s ease;";
+        _splashEl.innerHTML = '<video autoplay loop muted playsinline style="width:100%;height:100%;object-fit:cover;background:#000;" onerror="this.style.display=\'none\'"><source src="/splash/small.mp4" type="video/mp4"></video>';
+        document.body.appendChild(_splashEl);
+        _splashShownAt = Date.now();
+        clearTimeout(_splashMaxTimer);
+        _splashMaxTimer = setTimeout(hideSplash, 12000);
+    }
+    function hideSplash() {
+        clearTimeout(_splashHideTimer); _splashHideTimer = null;
+        clearTimeout(_splashMaxTimer); _splashMaxTimer = null;
+        if (!_splashEl) return;
+        const el = _splashEl; _splashEl = null;
+        el.style.opacity = "0";
+        setTimeout(() => { try { el.remove(); } catch (e) {} }, 550);
+    }
+    function scheduleSplashHide() {
+        if (!_splashEl || _splashHideTimer) return;
+        const wait = Math.max(1200 - (Date.now() - _splashShownAt), 600);
+        _splashHideTimer = setTimeout(hideSplash, wait);
+    }
+
     // --- WebSocket ---
     function connectWS() {
         const proto = location.protocol === "https:" ? "wss:" : "ws:";
@@ -26,10 +55,15 @@
             try {
                 data = JSON.parse(e.data);
                 onDataUpdate();
+                scheduleSplashHide();   // live data flowing → dismiss splash
             } catch (err) {}
         };
-        ws.onopen = () => { loadConfig().then(() => renderGrid()); };
-        ws.onclose = () => setTimeout(connectWS, 2000);
+        ws.onopen = () => {
+            if (_wsDownSince && Date.now() - _wsDownSince > 4000) showSplash();
+            _wsDownSince = 0;
+            loadConfig().then(() => renderGrid());
+        };
+        ws.onclose = () => { _wsDownSince = _wsDownSince || Date.now(); setTimeout(connectWS, 2000); };
         ws.onerror = () => ws.close();
     }
 
@@ -79,13 +113,44 @@
         return (LABELS[lang] || LABELS["pl"])[key] || key;
     }
 
-    // --- 2x2 grid cells ---
+    // --- 1x4 stat cells ---
     const cells = [
         { icon: "local_gas_station", key: "fuel_level",   labelKey: "fuel",     unit: "%",  format: v => Math.round(v || 0) },
         { icon: "device_thermostat", key: "coolant_temp", labelKey: "coolant",  unit: "°C", format: v => Math.round(v || 0) },
         { icon: "thermostat",        key: "ext_temp",     labelKey: "ext_temp", unit: "°C", format: v => v != null ? Math.round(v) : "--" },
         { icon: "thermostat_auto",   key: "int_temp",     labelKey: "int_temp", unit: "°C", format: v => v != null ? Math.round(v) : "--" },
     ];
+
+    // --- Media bar (persistent, under the stat row) ---
+    function mediaBarHtml() {
+        const title = data.bt_media_title || (data.bt_connected ? (lang === "pl" ? "Brak utworu" : "No track") : (lang === "pl" ? "Brak BT" : "No BT"));
+        const artist = data.bt_media_artist || "—";
+        const playIcon = data.bt_media_playing ? "pause" : "play_arrow";
+        return `
+            <div class="media-bar">
+                <span class="material-symbols-outlined mb-icon">music_note</span>
+                <div class="mb-meta">
+                    <span class="mb-title" id="mb-title">${title}</span>
+                    <span class="mb-artist" id="mb-artist">${artist}</span>
+                </div>
+                <button class="mb-btn" onclick="window.__mediaCmd('previous')"><span class="material-symbols-outlined">skip_previous</span></button>
+                <button class="mb-btn mb-play" onclick="window.__mediaCmd('playpause')"><span class="material-symbols-outlined" id="mb-play">${playIcon}</span></button>
+                <button class="mb-btn" onclick="window.__mediaCmd('next')"><span class="material-symbols-outlined">skip_next</span></button>
+            </div>`;
+    }
+
+    function updateMediaBar() {
+        const t = document.getElementById("mb-title");
+        const a = document.getElementById("mb-artist");
+        const p = document.getElementById("mb-play");
+        if (t) t.textContent = data.bt_media_title || (data.bt_connected ? (lang === "pl" ? "Brak utworu" : "No track") : (lang === "pl" ? "Brak BT" : "No BT"));
+        if (a) a.textContent = data.bt_media_artist || "—";
+        if (p) p.textContent = data.bt_media_playing ? "pause" : "play_arrow";
+    }
+
+    window.__mediaCmd = function (action) {
+        fetch(`/api/media/${action}`, { method: "POST" }).catch(() => {});
+    };
 
     function renderGrid() {
         const cellHtml = cells.map(c => {
@@ -105,6 +170,7 @@
                     <div style="font-size:12px;font-weight:600;opacity:0.4;">BCM v8.5</div>
                 </div>
                 <div class="grid">${cellHtml}</div>
+                ${mediaBarHtml()}
                 <div id="popup-container"></div>
             </div>`;
     }
@@ -118,19 +184,61 @@
             const val = c.format(data[c.key]);
             el.innerHTML = `${val}<span class="cell-unit">${c.unit}</span>`;
         });
+        updateMediaBar();
     }
 
-    // --- Notification popups (unchanged) ---
+    // --- Reverse media view (full screen) ---
+    // During reverse the MAIN display shows the cameras + parking sensors;
+    // this second screen switches to large now-playing + transport controls.
+    let mediaFullActive = false;
+    function showMediaFull() {
+        if (mediaFullActive) { updateMediaFull(); return; }
+        mediaFullActive = true;
+        const title = data.bt_media_title || (lang === "pl" ? "Brak utworu" : "No track");
+        const artist = data.bt_media_artist || "—";
+        const playIcon = data.bt_media_playing ? "pause" : "play_arrow";
+        const overlay = document.createElement("div");
+        overlay.className = "media-full";
+        overlay.id = "media-full";
+        overlay.innerHTML = `
+            <div class="mf-art"><span class="material-symbols-outlined">music_note</span></div>
+            <div style="text-align:center;max-width:100%;">
+                <div class="mf-title" id="mf-title">${title}</div>
+                <div class="mf-artist" id="mf-artist">${artist}</div>
+            </div>
+            <div class="mf-controls">
+                <button class="mb-btn" onclick="window.__mediaCmd('previous')"><span class="material-symbols-outlined">skip_previous</span></button>
+                <button class="mb-btn mb-play" onclick="window.__mediaCmd('playpause')"><span class="material-symbols-outlined" id="mf-play">${playIcon}</span></button>
+                <button class="mb-btn" onclick="window.__mediaCmd('next')"><span class="material-symbols-outlined">skip_next</span></button>
+            </div>`;
+        app.appendChild(overlay);
+    }
+    function updateMediaFull() {
+        const t = document.getElementById("mf-title");
+        const a = document.getElementById("mf-artist");
+        const p = document.getElementById("mf-play");
+        if (t) t.textContent = data.bt_media_title || (lang === "pl" ? "Brak utworu" : "No track");
+        if (a) a.textContent = data.bt_media_artist || "—";
+        if (p) p.textContent = data.bt_media_playing ? "pause" : "play_arrow";
+    }
+    function hideMediaFull() {
+        mediaFullActive = false;
+        const o = document.getElementById("media-full");
+        if (o) o.remove();
+    }
+
+    // --- Notification popups + reverse routing ---
     function onDataUpdate() {
-        // Camera overlay — backend decides which feed is active
-        const newCam = data.camera_active || null;
-        if (newCam !== activeCamera) {
-            activeCamera = newCam;
-            if (activeCamera) {
-                showCameraOverlay(activeCamera);
-            } else {
-                hideCameraOverlay();
-            }
+        // During reverse the cameras + parking sensors live on the MAIN
+        // display now; this second screen switches to the media-control view.
+        // (Side-camera / blinker states leave this screen on its normal
+        // stats+media layout — only reverse swaps to the big media view.)
+        const inReverse = data.camera_active === "rear" || data.reverse;
+        if (inReverse) {
+            showMediaFull();
+        } else if (mediaFullActive) {
+            hideMediaFull();
+            renderGrid();
         }
 
         // Queue notifications
@@ -147,11 +255,11 @@
             showNextPopup();
         }
 
-        // If reverse overlay is active, update the parking sensors
-        if (activeCamera === "rear") updateReverseSensors();
-
-        // Update grid values (if grid is visible)
-        if (!activeCamera) updateGridValues();
+        if (inReverse) {
+            updateMediaFull();
+        } else {
+            updateGridValues();
+        }
 
         // Update time in header
         const timeEl = app.querySelector(".time");
@@ -299,6 +407,7 @@
 
     // --- Init ---
     async function init() {
+        showSplash();   // boot splash; dismissed when first WS data arrives
         await loadConfig();
         renderGrid();
         connectWS();

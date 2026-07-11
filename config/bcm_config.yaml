@@ -21,14 +21,17 @@ modules:
   blinker_monitor: true
 display:
   dashboard:
-    width: 1024
-    height: 600
+    width: 1280
+    height: 800
     fps: 15
     theme: heritage
     brightness: 70
   multimedia:
-    width: 1024
-    height: 600
+    width: 1280
+    height: 800
+  small:
+    width: 1280
+    height: 480
   appbar_px: 48
   navbar_px: 48
 units:
@@ -185,8 +188,8 @@ wifi:
     dhcp_start: 10.0.1.10
     dhcp_end: 10.0.1.50
     share_internet: true
-  ssid_runtime: DIRECT-zc
-  password_runtime: FKNM73Ax
+  ssid_runtime: DIRECT-Ea
+  password_runtime: adVEiNlq
   bssid_runtime: 4e:82:a9:17:47:97
 weather:
   api_key: 631c2365675e193584b0f986798554c1

@@ -621,17 +621,38 @@ _btctl_lock = threading.Lock()
 
 
 def _run_btctl(args: list[str], timeout: float = 10.0) -> tuple[int, str, str]:
-    """Run a bluetoothctl command, selecting the preferred adapter first.
+    """Run a bluetoothctl command in argv (non-interactive) form.
 
     Serialised process-wide via ``_btctl_lock`` because bluetoothd
-    serialises D-Bus calls anyway, and overlapping bluetoothctl
-    subprocesses produce the documented ``Waiting to connect to
-    bluetoothd...`` race — the second subprocess fires its stdin
-    commands before the daemon connection lands, so the command never
-    runs but rc=0 looks fine. Under high contention this then drives
-    the auto-reconnect verify loop into a spin that pegs the BCM
-    process at hundreds of forks/minute and starves Flask handlers,
-    which the user sees as "GUI doesn't respond / can't scroll".
+    serialises D-Bus calls anyway and overlapping subprocesses just
+    fight each other.
+
+    History / why plain argv rather than stdin: feeding
+    ``select <addr>\\n<cmd>\\nexit\\n`` into bluetoothctl's stdin races
+    the daemon — bluetoothctl reads the piped lines and hits ``exit``/EOF
+    *before* its async D-Bus connection to bluetoothd lands, so the
+    command never runs yet rc=0 with stdout ``Waiting to connect to
+    bluetoothd...`` looks fine. Every connect/info/trust then silently
+    no-ops, the phone never links, and wireless AA never bootstraps.
+    Passing the command as argv (``bluetoothctl <cmd>``) instead waits
+    for the daemon connection and runs the command for real, returning
+    promptly (~10ms for reads). We do NOT use ``--timeout``: that flag
+    keeps bluetoothctl alive for the *whole* duration even after a read
+    completes, which would make every verify-loop poll block for the
+    full timeout. ``connect`` may resolve more slowly, but the caller's
+    verify loop (``_connect_locked``) polls ``info`` for the real
+    Connected state, so a fast-returning connect is fine.
+
+    Adapter targeting: ``connect``/``info``/``pair``/``trust``/
+    ``power``/``discoverable`` all act on the **default** controller and
+    bluetoothctl has no per-command adapter argv flag. There is a single
+    [default] controller on the MT7921 hardware, so the default is
+    correct. A pinned ``bluetooth.preferred_adapter`` (future second BT
+    dongle) still routes the D-Bus *adapter setup* path
+    (``_find_adapter_dbus_path``); but per-command routing for a true
+    multi-controller box would need D-Bus device objects
+    (``/org/bluez/hciX/dev_...``) — cross-process ``select`` does not
+    persist, so we deliberately do not emit a useless one here.
     """
     adapter = _get_adapter_addr()
     cmd_str = "bluetoothctl " + " ".join(args)
@@ -640,18 +661,10 @@ def _run_btctl(args: list[str], timeout: float = 10.0) -> tuple[int, str, str]:
     log.debug("btctl >>> %s", cmd_str)
     with _btctl_lock:
         try:
-            if adapter and args and args[0] != "list":
-                stdin_cmds = f"select {adapter}\n" + " ".join(args) + "\nexit\n"
-                result = subprocess.run(
-                    ["bluetoothctl"],
-                    capture_output=True, text=True, timeout=timeout,
-                    input=stdin_cmds,
-                )
-            else:
-                result = subprocess.run(
-                    ["bluetoothctl"] + args,
-                    capture_output=True, text=True, timeout=timeout,
-                )
+            result = subprocess.run(
+                ["bluetoothctl"] + args,
+                capture_output=True, text=True, timeout=timeout,
+            )
             if result.stdout.strip():
                 log.debug("btctl <<< rc=%d stdout=%s", result.returncode,
                           result.stdout.strip()[:200])
@@ -705,6 +718,14 @@ class BluetoothManager:
         # sweep — all three can fire near-simultaneously and overlapping
         # bluetoothctl connect storms just fight each other.
         self._autoconnect_lock = threading.Lock()
+        # Serializes connect() itself. The boot sweep, the monitor's
+        # auto-reconnect and a manual UI tap can each call connect() on the
+        # same device within seconds; without this they stack BlueZ Connect()
+        # calls, collide with org.bluez.Error.InProgress and burn each other's
+        # verify budget. Only one connect runs at a time; a second request for
+        # an address already being connected returns immediately.
+        self._connect_lock = threading.Lock()
+        self._connecting_addr: Optional[str] = None
 
         # Optional explicit adapter override from config — pin a specific
         # USB BT dongle MAC if auto-detect picks the wrong one.
@@ -764,7 +785,7 @@ class BluetoothManager:
                 # time defeats the purpose of "trusted".
                 threading.Thread(
                     target=self._auto_connect_paired_on_boot,
-                    kwargs={"rounds": 6, "gap": 4.0},
+                    kwargs={"rounds": 10, "gap": 6.0},
                     daemon=True, name="bt-boot-autoconnect",
                 ).start()
                 return
@@ -780,7 +801,7 @@ class BluetoothManager:
             return
         threading.Thread(
             target=self._auto_connect_paired_on_boot,
-            kwargs={"rounds": 6, "gap": 4.0},
+            kwargs={"rounds": 10, "gap": 6.0},
             daemon=True, name="bt-wake-autoconnect",
         ).start()
 
@@ -1290,6 +1311,27 @@ class BluetoothManager:
             log.info("BT connected (simulated): %s", address)
             return True
 
+        # Collapse duplicate in-flight requests for the same device so the
+        # boot sweep, the monitor auto-reconnect and a manual tap don't stack
+        # BlueZ Connect() calls on top of each other.
+        if self._connecting_addr == address:
+            log.info("BT connect: already connecting to %s — skipping duplicate",
+                     address)
+            return False
+        # Only one real connect at a time. A connect to a *different* device
+        # still serializes here (BlueZ handles one outbound link cleanly).
+        with self._connect_lock:
+            if (self._connected_device
+                    and self._connected_device.get("address") == address):
+                return True
+            self._connecting_addr = address
+            try:
+                return self._connect_locked(address)
+            finally:
+                self._connecting_addr = None
+
+    def _connect_locked(self, address: str) -> bool:
+        """Real connect path — runs under ``_connect_lock`` (see connect())."""
         # Check if device is paired first
         info = self.get_device_info(address)
         if info.get("error"):
@@ -1326,6 +1368,13 @@ class BluetoothManager:
                 log.error("BT connect: device %s does not exist — needs pairing",
                           address)
                 return False
+            # org.bluez.Error.InProgress means BlueZ already has a Connect()
+            # in flight for this device (another thread, the wake hook, or the
+            # [Policy] auto-reconnect). Re-issuing connect just collides again,
+            # so DON'T fire a second attempt — fall through to the verify loop
+            # and let the in-flight connect land. This is what kept the phone
+            # from linking on boot when two initiators raced.
+            in_progress = "in progress" in combined
 
             # Verify the connection actually came up. ``info`` is the
             # source of truth because BlueZ updates the Connected
@@ -1342,10 +1391,13 @@ class BluetoothManager:
                 time.sleep(verify_step)
 
             log.warning("BT connect attempt %d not verified within %.1fs "
-                        "(rc=%d out=%s err=%s)", attempt, verify_budget_seconds,
-                        rc, out.strip()[:100], err.strip()[:100])
+                        "(rc=%d in_progress=%s out=%s err=%s)", attempt,
+                        verify_budget_seconds, rc, in_progress,
+                        out.strip()[:100], err.strip()[:100])
             if attempt < max_attempts:
-                time.sleep(2)
+                # When a connect is already in flight, give it longer to settle
+                # instead of hammering a fresh attempt on top of it.
+                time.sleep(4 if in_progress else 2)
 
         log.error("BT connect failed after %d attempts: %s",
                   max_attempts, address)
@@ -1579,14 +1631,14 @@ class BluetoothManager:
         # Try ofono first (standard HFP interface)
         try:
             manager = bus.get_object("org.ofono", "/")
-            modems = dbus.Interface(manager, "org.ofono.Manager").GetModems()
+            modems = dbus.Interface(manager, "org.ofono.Manager").GetModems(timeout=5.0)
             for path, props in modems:
                 if "org.ofono.VoiceCallManager" in props.get("Interfaces", []):
                     vcm = dbus.Interface(
                         bus.get_object("org.ofono", path),
                         "org.ofono.VoiceCallManager"
                     )
-                    vcm.Dial(number, "")
+                    vcm.Dial(number, "", timeout=5.0)
                     log.info("HFP dial via ofono: %s", number)
                     return
         except dbus.DBusException:
@@ -1599,18 +1651,18 @@ class BluetoothManager:
         bus = dbus.SystemBus()
         try:
             manager = bus.get_object("org.ofono", "/")
-            modems = dbus.Interface(manager, "org.ofono.Manager").GetModems()
+            modems = dbus.Interface(manager, "org.ofono.Manager").GetModems(timeout=5.0)
             for path, props in modems:
                 if "org.ofono.VoiceCallManager" in props.get("Interfaces", []):
                     vcm_obj = bus.get_object("org.ofono", path)
-                    calls = dbus.Interface(vcm_obj, "org.ofono.VoiceCallManager").GetCalls()
+                    calls = dbus.Interface(vcm_obj, "org.ofono.VoiceCallManager").GetCalls(timeout=5.0)
                     for call_path, call_props in calls:
                         if call_props.get("State") == "incoming":
                             call_iface = dbus.Interface(
                                 bus.get_object("org.ofono", call_path),
                                 "org.ofono.VoiceCall"
                             )
-                            call_iface.Answer()
+                            call_iface.Answer(timeout=5.0)
                             log.info("HFP answered via ofono")
                             return
         except dbus.DBusException:
@@ -1623,14 +1675,14 @@ class BluetoothManager:
         bus = dbus.SystemBus()
         try:
             manager = bus.get_object("org.ofono", "/")
-            modems = dbus.Interface(manager, "org.ofono.Manager").GetModems()
+            modems = dbus.Interface(manager, "org.ofono.Manager").GetModems(timeout=5.0)
             for path, props in modems:
                 if "org.ofono.VoiceCallManager" in props.get("Interfaces", []):
                     vcm = dbus.Interface(
                         bus.get_object("org.ofono", path),
                         "org.ofono.VoiceCallManager"
                     )
-                    vcm.HangupAll()
+                    vcm.HangupAll(timeout=5.0)
                     log.info("HFP hangup via ofono")
                     return
         except dbus.DBusException:
@@ -1695,7 +1747,7 @@ class BluetoothManager:
                     bus.get_object("org.bluez", "/"),
                     "org.freedesktop.DBus.ObjectManager",
                 )
-                objects = om.GetManagedObjects()
+                objects = om.GetManagedObjects(timeout=5.0)
             except Exception:
                 return
             for _path, ifaces in objects.items():
@@ -1819,14 +1871,16 @@ class BluetoothManager:
                 bus.get_object("org.bluez", "/"),
                 "org.freedesktop.DBus.ObjectManager",
             )
-            for path, ifaces in om.GetManagedObjects().items():
+            # timeout= caps each call so a wedged BlueZ can't hang this
+            # thread (dbus-python blocks indefinitely without it).
+            for path, ifaces in om.GetManagedObjects(timeout=5.0).items():
                 if "org.bluez.MediaPlayer1" not in ifaces:
                     continue
                 player = dbus.Interface(
                     bus.get_object("org.bluez", path),
                     "org.bluez.MediaPlayer1",
                 )
-                getattr(player, method)()
+                getattr(player, method)(timeout=5.0)
                 log.info("AVRCP %s → %s", method, path)
                 return
             log.warning("AVRCP %s: no MediaPlayer1 found — is a phone "
