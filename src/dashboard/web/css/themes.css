@@ -2,21 +2,34 @@
    BCM v8 — Theme System (CSS Custom Properties)
    ======================================== */
 
-/* ---- 7" touchscreen sizing bump ----
+/* ---- 10.1" touchscreen sizing ----
  * Tailwind utility classes (text-xs, p-2, h-12, gap-1, etc.) are all
- * defined in rem, so bumping the root font-size scales the entire
- * dashboard chrome 15% without any per-class edits. This is the
- * pixel-accurate path the user asked for — NOT a transform:scale,
- * which would blur fonts and break touch coordinate mapping.
+ * defined in rem, so the root font-size scales the entire dashboard
+ * chrome without any per-class edits. This is the pixel-accurate path
+ * the user asked for — NOT a transform:scale, which would blur fonts
+ * and break touch coordinate mapping.
+ *
+ * History: the panel changed from a 7" 1024×600 (which needed a +15%
+ * bump → 18.4px) to a 10.1" 1280×800, then a fixed 17px base. The base
+ * is now set ADAPTIVELY by the #bcm-adaptive-rem script in index.html
+ * (proportional to viewport width: ~14px on a 1024×600 panel, 16px on
+ * 1280×800), so the chrome densifies on the small panel and scales up
+ * on the large one without a config change. The value below is only a
+ * fallback if that script doesn't run.
  *
  * Literal pixel values (text-[10px], style="font-size:18px") do NOT
- * scale via rem; those are handled by the resize helper class
- * `.bcm-touch-icon` below and by per-component pixel bumps in the
- * JS templates (navbar/appbar/keyboard).
+ * scale via rem; those are handled by the escape-bracket overrides and
+ * per-component pixel bumps in the JS templates (navbar/appbar/keyboard).
  */
 html {
-    font-size: 18.4px;   /* 16 × 1.15 */
+    font-size: 16px;   /* fallback — #bcm-adaptive-rem overrides per viewport */
 }
+
+/* When the on-screen keyboard (half-screen, 50vh) is open, pad the
+ * scrollable content area up by the keyboard height + a margin so the
+ * focused input is never hidden behind the keys. The OSK scrolls the
+ * active input into the top half (keyboard.js). */
+body.osk-open .content-area { padding-bottom: 54vh; }
 
 /* Android Auto note: the captured autoapp stream is an <img> filling
  * absolute inset-0, so the rem bump above doesn't change its

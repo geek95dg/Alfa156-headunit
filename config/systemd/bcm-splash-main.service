@@ -18,11 +18,13 @@ ConditionPathExists=/opt/bcm/assets/splash/small.mp4
 [Service]
 Type=simple
 
-# Connector names — override per platform via:
-#   systemctl edit bcm-splash-main → [Service] Environment=BCM_SPLASH_DRM_MAIN=HDMI-A-1
-# To find your connectors: ls /sys/class/drm/
-Environment=BCM_SPLASH_DRM_MAIN=HDMI-A-1
-Environment=BCM_SPLASH_DRM_SMALL=HDMI-A-2
+# Connectors are AUTO-DETECTED from /sys/class/drm — the splash plays on
+# every CONNECTED connector, so no per-platform connector config is needed.
+# (Old builds hardcoded HDMI-A-1, which is disconnected on the M910q — the
+# panel is HDMI-A-2 — so the splash silently vanished.) BCM_SPLASH_DRM_MAIN
+# is now only an optional "prefer this connector first" hint; leave it empty
+# for pure auto-detect. A disconnected hint is ignored, never fatal.
+Environment=BCM_SPLASH_DRM_MAIN=
 Environment=BCM_SPLASH_VIDEO=/opt/bcm/assets/splash/small.mp4
 # Splash now exits exactly when the kiosk is ready (App.init posts to
 # /api/ready). Keep the visible floor at 0 so users see BCM the moment

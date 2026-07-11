@@ -140,6 +140,43 @@ class WiFiAPManager:
         return self._interface
 
     @property
+    def second_radio_available(self) -> bool:
+        """True iff a second wireless radio (USB WiFi dongle) is present.
+
+        Internet Share (ALFA-NET) can only run without collapsing the AA
+        P2P-GO group when it sits on its own PHY — the MT7921 advertises
+        ``#{AP, P2P-GO} <= 1`` so a second VIF on the primary radio is not
+        viable (see _maybe_start_alfa_net). The Settings UI greys out the
+        Internet Share row unless this returns True. Mirrors the
+        separate-radio detection in _maybe_start_alfa_net (Path 1).
+        """
+        try:
+            primary = self._interface or ""
+            parent = primary
+            if primary.startswith("p2p-"):
+                try:
+                    parent = primary.split("-", 2)[1]
+                except IndexError:
+                    parent = primary
+            primary_phy = (self._phy_for_iface(parent)
+                           or self._phy_for_iface(primary))
+            for iface in os.listdir("/sys/class/net"):
+                if iface in (primary, parent):
+                    continue
+                if not (iface.startswith(("wlan", "wlp", "wlx"))
+                        or os.path.isdir(f"/sys/class/net/{iface}/wireless")):
+                    continue
+                phy = self._phy_for_iface(iface)
+                # A radio on a different PHY than the AA radio is a spare
+                # (USB dongle). If the AA radio's PHY is unknown, any extra
+                # wireless iface still counts as a candidate dongle.
+                if phy and (not primary_phy or phy != primary_phy):
+                    return True
+        except OSError:
+            pass
+        return False
+
+    @property
     def ip_address(self) -> str:
         return self._ap_ip
 

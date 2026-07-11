@@ -170,9 +170,10 @@ const App = (() => {
         }
     }
 
-    // --- Reverse Camera Overlay ---
+    // --- Reverse / Side Camera Overlay (MAIN display) ---
     let _reverseOverlayActive = false;
     let _reverseManual = false; // true when toggled via R key (not auto from event bus)
+    let _reverseFeed = null;    // "rear" | "left" | "right"
 
     function _toggleReverseOverlay() {
         if (_reverseOverlayActive) {
@@ -180,11 +181,14 @@ const App = (() => {
             _hideReverseOverlay();
         } else {
             _reverseManual = true;
-            _showReverseOverlay();
+            _showReverseOverlay("rear");
         }
     }
 
-    function _showReverseOverlay() {
+    function _showReverseOverlay(feed) {
+        feed = feed || "rear";
+        _reverseFeed = feed;
+        const isRear = feed === "rear";
         _reverseOverlayActive = true;
         let overlay = document.getElementById("reverse-overlay");
         if (overlay) { overlay.remove(); }
@@ -221,11 +225,24 @@ const App = (() => {
 
         const closestDist = distances.filter(d => d > 0);
         const closestVal = closestDist.length > 0 ? Math.min(...closestDist).toFixed(1) : '--';
+        const badge = { rear: "R", left: "L", right: "P" }[feed] || "R";
+        const badgeColor = { rear: "bg-red-600", left: "bg-amber-500", right: "bg-emerald-500" }[feed] || "bg-red-600";
+        // Side-camera insets (rear/reverse view only) so the driver also sees
+        // what the L/R cameras catch while backing out.
+        const sideInsets = isRear ? `
+            <div class="absolute top-3 left-3 w-[22%] aspect-video rounded-lg overflow-hidden border border-zinc-700 bg-zinc-900 z-10">
+                <img src="/api/camera/stream?cam=left" class="w-full h-full object-cover" onerror="this.style.display='none'">
+                <span class="absolute bottom-1 left-1 text-[9px] font-bold text-amber-400">L</span>
+            </div>
+            <div class="absolute top-3 right-16 w-[22%] aspect-video rounded-lg overflow-hidden border border-zinc-700 bg-zinc-900 z-10">
+                <img src="/api/camera/stream?cam=right" class="w-full h-full object-cover" onerror="this.style.display='none'">
+                <span class="absolute bottom-1 left-1 text-[9px] font-bold text-emerald-400">P</span>
+            </div>` : "";
 
         overlay.innerHTML = `
             <!-- Camera area — tries live feed, falls back to placeholder -->
             <div class="flex-1 relative bg-zinc-900 flex items-center justify-center overflow-hidden">
-                <img id="reverse-cam-feed" src="/api/camera/stream" alt=""
+                <img id="reverse-cam-feed" src="/api/camera/stream?cam=${feed}" alt=""
                      class="absolute inset-0 w-full h-full object-cover z-0"
                      style="display:none;"
                      onload="this.style.display='block';document.getElementById('reverse-cam-placeholder').style.display='none';"
@@ -234,8 +251,9 @@ const App = (() => {
                     <span class="material-symbols-outlined text-6xl">videocam_off</span>
                     <span class="text-sm font-bold mt-2 uppercase tracking-wider">${noCameraText}</span>
                 </div>
-                <!-- R badge -->
-                <div class="absolute top-3 right-3 bg-red-600 text-white font-black text-xl w-10 h-10 rounded-full flex items-center justify-center z-10">R</div>
+                <!-- camera badge + side-camera insets -->
+                <div class="absolute top-3 right-3 ${badgeColor} text-white font-black text-xl w-10 h-10 rounded-full flex items-center justify-center z-20">${badge}</div>
+                ${sideInsets}
                 <!-- Parking guidelines overlay -->
                 <div class="absolute bottom-0 left-1/2 -translate-x-1/2 w-[55%] h-[65%] border-l-2 border-r-2 border-b-2 border-green-500/40 rounded-b-xl z-[2]"></div>
                 <div class="absolute bottom-[18%] left-1/2 -translate-x-1/2 w-[45%] border-t-2 border-dashed border-yellow-500/40 z-[2]"></div>
@@ -255,8 +273,48 @@ const App = (() => {
         `;
         _appEl.appendChild(overlay);
 
-        // Start updating sensor values
+        // Start updating sensor values + proximity beep
         _reverseUpdateInterval = setInterval(_updateReverseSensors, 200);
+        if (isRear) _startReverseBeep();
+    }
+
+    // --- Proximity beep (WebAudio) for the reverse view ---
+    // The hardware parking buzzer (src/parking/buzzer.py) drives the real
+    // car; this adds an audible head-unit beep too, essential on bench/x86
+    // where there's no buzzer GPIO. Cadence follows the closest sensor
+    // distance, going near-solid under ~0.3 m.
+    let _beepCtx = null, _beepTimer = null;
+    function _startReverseBeep() {
+        _stopReverseBeep();
+        const tick = () => {
+            const dists = (DataStore.getAll().parking_distances || []).filter(d => d > 0);
+            const closest = dists.length ? Math.min(...dists) : 0;
+            let gap = 0; // 0 = silent
+            if (closest > 0) {
+                if (closest < 0.3) gap = 1;
+                else if (closest < 0.5) gap = 150;
+                else if (closest < 1.0) gap = 400;
+                else if (closest < 1.5) gap = 800;
+            }
+            if (gap > 0) _beep(closest < 0.3 ? 0.25 : 0.08);
+            _beepTimer = setTimeout(tick, gap > 0 ? Math.max(gap, 120) : 300);
+        };
+        tick();
+    }
+    function _beep(durSec) {
+        try {
+            if (!_beepCtx) _beepCtx = new (window.AudioContext || window.webkitAudioContext)();
+            const osc = _beepCtx.createOscillator();
+            const gain = _beepCtx.createGain();
+            osc.frequency.value = 880;
+            gain.gain.value = 0.12;
+            osc.connect(gain); gain.connect(_beepCtx.destination);
+            osc.start();
+            osc.stop(_beepCtx.currentTime + durSec);
+        } catch (e) { /* audio unavailable — hardware buzzer still beeps */ }
+    }
+    function _stopReverseBeep() {
+        if (_beepTimer) { clearTimeout(_beepTimer); _beepTimer = null; }
     }
 
     let _reverseUpdateInterval = null;
@@ -285,6 +343,8 @@ const App = (() => {
 
     function _hideReverseOverlay() {
         _reverseOverlayActive = false;
+        _reverseFeed = null;
+        _stopReverseBeep();
         if (_reverseUpdateInterval) {
             clearInterval(_reverseUpdateInterval);
             _reverseUpdateInterval = null;
@@ -454,9 +514,24 @@ const App = (() => {
         if (_renderers[_currentScreen] && _renderers[_currentScreen].update) {
             _renderers[_currentScreen].update(data, _currentTheme);
         }
-        // Reverse camera only on small display (port 5003) — disabled on big display
+        // Reverse / side camera now lives on the MAIN display: auto-show the
+        // overlay whenever the CameraController resolves a feed (rear on
+        // reverse gear, left/right on blinkers) and auto-hide when it clears.
+        // A manual R-key toggle (_reverseManual) is left alone.
+        _syncReverseOverlay(data);
         // Icing alert check
         _checkIcingAlert(data);
+    }
+
+    function _syncReverseOverlay(data) {
+        if (_reverseManual) return;   // R-key override owns the overlay
+        const feed = data.camera_active
+            || (data.reverse_gear ? "rear" : null);
+        if (feed && (!_reverseOverlayActive || _reverseFeed !== feed)) {
+            _showReverseOverlay(feed);
+        } else if (!feed && _reverseOverlayActive) {
+            _hideReverseOverlay();
+        }
     }
 
     /** Listen for config changes from backend */
@@ -567,6 +642,10 @@ const App = (() => {
         /** Initialize the application */
         async init() {
             _appEl = document.getElementById("app");
+
+            // Boot/wake splash overlay — shows small.mp4 until live data is
+            // flowing, and replays on every WebSocket reconnect-after-sleep.
+            if (typeof Splash !== "undefined") Splash.init();
 
             // Load config and i18n
             await loadConfig();

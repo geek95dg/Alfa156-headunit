@@ -438,19 +438,11 @@ chromium --app=http://localhost:5002 \
     --disable-session-crashed-bubble \
     --user-data-dir=/tmp/bcm-chromium-main &
 
-# Small display
-if xrandr | grep -q "^${SMALL_OUTPUT} connected"; then
-    sleep 2
-    S_W=$(xrandr | grep "^${SMALL_OUTPUT} " | grep -oP '\d+(?=x)' | head -1)
-    S_H=$(xrandr | grep "^${SMALL_OUTPUT} " | grep -oP 'x\K\d+' | head -1)
-    S_W=${S_W:-800}; S_H=${S_H:-480}
-    chromium --app=http://localhost:5003 \
-        --window-size=${S_W},${S_H} --window-position=${MAIN_W},0 \
-        --noerrdialogs --disable-infobars \
-        --disable-features=TranslateUI --no-first-run \
-        --disable-session-crashed-bubble \
-        --user-data-dir=/tmp/bcm-chromium-small &
-fi
+# Small display — hotplug-aware. The watcher brings the window up/down
+# whenever HDMI-2 is plugged/unplugged, so it no longer matters whether
+# the panel was connected at boot. It also handles the connected-at-boot
+# case, so no separate boot-time launch is needed here.
+/opt/bcm/config/scripts/small-display-watch.sh "$SMALL_OUTPUT" "$MAIN_OUTPUT" "$MAIN_W" &
 
 wait
 XINITRC
@@ -898,13 +890,35 @@ fi
 # without it bluetoothd answers `Protocol not available` to every A2DP
 # connect attempt and pairing handshakes get dropped before the audio
 # profile completes. pipewire-audio pulls in the right defaults for
-# headset routing.
-apt-get install -y libspa-0.2-bluetooth pipewire-audio rfkill iw bluez-obexd 2>/dev/null || true
+# headset routing. ofono = HFP call-control backend so the dialer can
+# place/answer/hang up calls (PipeWire's native HFP backend has no dial API).
+apt-get install -y libspa-0.2-bluetooth pipewire-audio rfkill iw bluez-obexd ofono 2>/dev/null || true
 
 # Enable Bluetooth (needed for AA wireless pairing)
 cp "$BCM_DIR/config/scripts/bcm-bluetooth-setup.sh" /usr/local/bin/
 chmod +x /usr/local/bin/bcm-bluetooth-setup.sh
 cp "$BCM_DIR/config/systemd/bcm-bluetooth.service" /etc/systemd/system/
+
+# Force BR/EDR-first for bonded phones (else dual-mode phones connect
+# over LE and classic AA/A2DP/HFP never come up — auto-connect fails).
+# ExecStartPre drop-in runs as root before bluetoothd loads bond records.
+install -m 0755 "$BCM_DIR/config/scripts/bt-prefer-bredr.sh" /usr/local/bin/bt-prefer-bredr.sh
+install -d /etc/systemd/system/bluetooth.service.d
+install -m 0644 "$BCM_DIR/config/systemd/bluetooth.service.d/10-bcm-prefer-bredr.conf" \
+    /etc/systemd/system/bluetooth.service.d/10-bcm-prefer-bredr.conf
+
+# HFP call control via ofono. The dialer (bluetooth.py _hfp_dial_dbus) talks
+# to org.ofono.VoiceCallManager. ofono runs HFP-ONLY: its udevng plugin
+# SEGV-crashes probing the Huawei LTE modem (owned by ModemManager via
+# bcm-lte) so we disable it. WirePlumber is pointed at the ofono HFP backend
+# (PipeWire's native backend exposes no dial API).
+install -d /etc/systemd/system/ofono.service.d
+install -m 0644 "$BCM_DIR/config/systemd/ofono.service.d/10-bcm-hfp-only.conf" \
+    /etc/systemd/system/ofono.service.d/10-bcm-hfp-only.conf
+install -d /etc/wireplumber/wireplumber.conf.d
+install -m 0644 "$BCM_DIR/config/wireplumber/wireplumber.conf.d/51-bcm-hfp-ofono.conf" \
+    /etc/wireplumber/wireplumber.conf.d/51-bcm-hfp-ofono.conf
+systemctl enable ofono 2>/dev/null || true
 
 # Clean up Intel-8087 disable artifacts from prior installs (the MT7921
 # combo card replaces the old internal Intel BT so the udev rule and

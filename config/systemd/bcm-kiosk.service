@@ -30,7 +30,7 @@ ExecStart=/bin/bash -c 'CHROME=$(command -v chromium 2>/dev/null || command -v c
     --overscroll-history-navigation=0 \
     --disable-gpu-compositing \
     --enable-features=OverlayScrollbar \
-    --window-size=1024,600 \
+    --window-size=1280,800 \
     --window-position=0,0 \
     --user-data-dir=/tmp/bcm-chromium \
     http://localhost:5002'

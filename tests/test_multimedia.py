@@ -268,5 +268,6 @@ class TestAADisplay:
 
     def test_display_dimensions(self):
         disp = AADisplaySimulator(self.config, self.bus)
-        assert disp.width == 1024
-        assert disp.height == 600
+        # Main display is the 10.1" 1280x800 panel (display.multimedia in config).
+        assert disp.width == 1280
+        assert disp.height == 800

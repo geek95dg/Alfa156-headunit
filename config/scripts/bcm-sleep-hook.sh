@@ -87,6 +87,14 @@ case "$1/$2" in
             systemctl start bcm-headunit.service 2>/dev/null
             logger -t bcm-sleep "post-resume: restarted bcm-headunit"
         fi
+
+        # NOTE: the wake splash is NOT replayed here. On x86 the X server
+        # (started once at cold boot) keeps DRM master for the whole uptime,
+        # and the kiosk page is never reloaded on an S3 wake — so a DRM mpv
+        # splash can't acquire the screen and App.init() doesn't re-run.
+        # Instead the kiosk shows an in-browser splash overlay (small.mp4)
+        # the moment its WebSocket reconnects after the sleep gap, dismissing
+        # itself once live data resumes. See web/js/components/splash.js.
         ;;
 esac
 

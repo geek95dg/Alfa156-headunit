@@ -91,7 +91,7 @@ App.registerScreen("a1", (() => {
         return `<div class="screen-container bg-black text-zinc-100">
             ${AppBar.render("heritage", data)}
             <main class="content-area flex items-center justify-center overflow-hidden">
-                <div class="grid grid-cols-12 gap-4 w-full max-w-5xl px-6 h-full py-4">
+                <div class="grid grid-cols-12 gap-4 w-full max-w-6xl px-6 h-full py-4">
                     <!-- Engine Temp -->
                     <div class="col-span-3 burl-texture rounded-xl border border-zinc-800 p-4 flex flex-col justify-between overflow-hidden">
                         <div class="flex items-center gap-2 text-zinc-500">
@@ -129,28 +129,30 @@ App.registerScreen("a1", (() => {
                             <p class="text-[10px] text-zinc-500 mt-1 font-bold">${t("est_range")}: <span id="range-val">${range} KM</span></p>
                         </div>
                     </div>
-                    <!-- Bottom Row -->
-                    <div class="col-span-4">
+                    <!-- Bottom Row: now-playing card is intentionally wider
+                         (col-6) than the travel-stats card (col-3) per the
+                         10.1" brief — audio is the primary glanceable card. -->
+                    <div class="col-span-6">
                         ${MediaPlayer.renderHeritage(data)}
                     </div>
-                    <div class="col-span-4 bg-zinc-950 rounded-xl border border-zinc-800 p-3 flex flex-col cursor-pointer" onclick="App.navigateTo('audio')">
+                    <div class="col-span-3 bg-zinc-950 rounded-xl border border-zinc-800 p-3 flex flex-col cursor-pointer" onclick="App.navigateTo('audio')">
                         <div class="flex items-center justify-between mb-1">
                             <span class="text-[9px] font-bold uppercase tracking-wider text-zinc-500">Spectrum</span>
                             <span class="material-symbols-outlined text-zinc-600" style="font-size:14px">equalizer</span>
                         </div>
                         <canvas id="spectrum-canvas" class="flex-1 w-full" style="min-height:50px"></canvas>
                     </div>
-                    <div class="col-span-4 bg-zinc-900/30 rounded-xl border border-zinc-800 p-4 flex items-center justify-between px-6">
+                    <div class="col-span-3 bg-zinc-900/30 rounded-xl border border-zinc-800 p-4 flex flex-col items-center justify-center gap-3">
                         <div class="flex flex-col items-center">
                             <span class="text-[10px] text-zinc-500 font-bold uppercase">${t("avg_speed")}</span>
                             <span class="text-xl font-black text-zinc-200"><span id="avg-speed-val">${avgSpd}</span> <span class="text-[10px] text-zinc-500">km/h</span></span>
                         </div>
-                        <div class="w-px h-8 bg-zinc-800"></div>
+                        <div class="h-px w-12 bg-zinc-800"></div>
                         <div class="flex flex-col items-center">
                             <span class="text-[10px] text-zinc-500 font-bold uppercase">${t("drive_time")}</span>
                             <span id="drive-time-val" class="text-xl font-black text-zinc-200">${data.trip_time || "0h 0m"}</span>
                         </div>
-                        <div class="w-px h-8 bg-zinc-800"></div>
+                        <div class="h-px w-12 bg-zinc-800"></div>
                         <div class="flex flex-col items-center">
                             <span class="text-[10px] text-zinc-500 font-bold uppercase">${t("voltage")}</span>
                             <span class="text-xl font-black text-zinc-200">${(data.battery_voltage || 12.6).toFixed(1)} <span class="text-[10px] text-zinc-500">V</span></span>
@@ -202,8 +204,9 @@ App.registerScreen("a1", (() => {
                         <div class="mt-1 text-[10px] text-slate-400 font-medium">${t("est_range")}: <span id="range-val">${range} KM</span></div>
                     </div>
                 </div>
-                <!-- Center: Notifications -->
-                <div class="col-span-6 h-full flex items-center justify-center">
+                <!-- Center: Notifications (narrowed to give the media/right
+                     column more room on the wide 1280 panel) -->
+                <div class="col-span-5 h-full flex items-center justify-center">
                     <div class="relative w-full h-[280px] bg-white rounded-2xl shadow-xl shadow-blue-900/5 border border-slate-100 overflow-hidden flex flex-col">
                         <div class="p-4 border-b border-slate-50 flex items-center justify-between">
                             <span class="text-xs font-bold text-slate-800 uppercase tracking-widest">Notification Hub</span>
@@ -212,8 +215,8 @@ App.registerScreen("a1", (() => {
                         <div class="flex-1 p-4 space-y-3 overflow-y-auto">${notifHtml}</div>
                     </div>
                 </div>
-                <!-- Right: Media + Status -->
-                <div class="col-span-3 flex flex-col gap-4">
+                <!-- Right: Media (enlarged) + Status -->
+                <div class="col-span-4 flex flex-col gap-4">
                     ${MediaPlayer.renderModern(data)}
                     <div class="bg-white p-3 rounded-xl shadow-sm border border-slate-100 cursor-pointer" onclick="App.navigateTo('audio')">
                         <div class="flex items-center justify-between mb-1">

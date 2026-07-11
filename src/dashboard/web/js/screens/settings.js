@@ -20,7 +20,8 @@ const Settings = {
     // from /api/wifi/config on first render of the AA Wireless card.
     _wifi: { ssid: "", password: "", channel: 6,
              loaded: false, saving: false, showPwd: false,
-             restartRequired: false, status: "" },
+             restartRequired: false, status: "",
+             internet_share_available: false },
 
     async radioRefresh() {
         try {
@@ -101,6 +102,8 @@ const Settings = {
             Settings._wifi.alfa_net_enabled = d.alfa_net_enabled !== false;
             Settings._wifi.alfa_net_ssid = d.alfa_net_ssid || "ALFA-NET";
             Settings._wifi.alfa_net_password = d.alfa_net_password || "";
+            Settings._wifi.internet_share_available =
+                d.internet_share_available === true;
             Settings._wifi.loaded = true;
             App.navigateTo("settings");
         } catch (e) {}
@@ -490,16 +493,21 @@ App.registerScreen("settings", (() => {
                                         class="ml-auto px-3 py-1 bg-green-600 text-white text-[10px] font-bold rounded hover:bg-green-500 ${Settings._wifi.saving ? 'opacity-50 cursor-not-allowed' : ''}">${Settings._wifi.saving ? t("saving","Saving...") : t("save","Save")}</button>
                                 </div>
                                 ${Settings._wifi.status ? `<p class="text-[10px]" style="color:var(--text-mid)">${Settings._wifi.status}</p>` : ""}
-                                <!-- ALFA-NET secondary AP — broadcast in parallel for internet sharing -->
-                                <div class="pt-2 space-y-2" style="border-top:1px solid var(--card-border)">
+                                <!-- Internet Share (ALFA-NET secondary AP). Only viable on a
+                                     second radio (USB WiFi dongle) — a second AP VIF on the
+                                     MT7921 collapses the AA P2P-GO group — so the whole row is
+                                     greyed out + disabled until BCM detects a spare radio. -->
+                                <div class="pt-2 space-y-2 ${Settings._wifi.internet_share_available ? '' : 'opacity-50 cursor-not-allowed'}" style="border-top:1px solid var(--card-border)">
                                     <div class="flex items-center justify-between">
-                                        <p class="text-[10px] font-bold uppercase tracking-wider" style="color:var(--text-dim)">${t("alfa_net","ALFA-NET (Internet share)")}</p>
+                                        <p class="text-[10px] font-bold uppercase tracking-wider" style="color:var(--text-dim)">${t("internet_share","Internet Share")}</p>
                                         <label class="inline-flex items-center gap-1 text-[9px]" style="color:var(--text-dim)">
                                             <input type="checkbox" ${Settings._wifi.alfa_net_enabled ? 'checked' : ''}
+                                                ${Settings._wifi.internet_share_available ? '' : 'disabled'}
                                                 oninput="Settings.wifiUpdate('alfa_net_enabled', this.checked)">
                                             ${t("enabled","Enabled")}
                                         </label>
                                     </div>
+                                    ${Settings._wifi.internet_share_available ? `
                                     <div class="flex items-center gap-2">
                                         <label class="text-[9px] uppercase w-16" style="color:var(--text-dim)">SSID</label>
                                         <input type="text" maxlength="32" value="${_attrEsc(Settings._wifi.alfa_net_ssid || "ALFA-NET")}"
@@ -518,7 +526,8 @@ App.registerScreen("settings", (() => {
                                         <button onclick="Settings._wifi.showAlfaPwd = !Settings._wifi.showAlfaPwd; App.navigateTo('settings')"
                                             class="px-2 py-1 text-[9px] font-bold rounded"
                                             style="background:var(--card-border);color:var(--text-mid)">${Settings._wifi.showAlfaPwd ? t("hide","Hide") : t("show","Show")}</button>
-                                    </div>
+                                    </div>` : `
+                                    <p class="text-[9px]" style="color:var(--text-dim)">${t("internet_share_needs_dongle","Plug a USB Wi-Fi dongle to enable internet sharing without dropping Android Auto.")}</p>`}
                                 </div>
                                 <div class="flex items-center justify-between pt-2" style="border-top:1px solid var(--card-border)">
                                     <p class="text-[10px]" style="color:var(--text-dim)">${

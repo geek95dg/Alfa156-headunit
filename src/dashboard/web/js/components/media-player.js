@@ -53,17 +53,21 @@ const MediaPlayer = (() => {
     function renderAutodelta(data) {
         const title = data.bt_media_title || "No Media";
         const artist = data.bt_media_artist || "---";
-        return `<div class="bg-[#111111] rounded-xl p-4 flex items-center gap-4 border border-[#222222]">
-            <div class="w-12 h-12 bg-[#222222] rounded-lg overflow-hidden shrink-0 relative flex items-center justify-center active:scale-90 transition-transform" style="cursor:pointer;" onclick="MediaPlayer.cmd('playpause', event)">
-                <span class="material-symbols-outlined text-white text-opacity-80" style="font-size:24px;">${data.bt_media_playing ? 'pause' : 'play_arrow'}</span>
+        // Enlarged now-playing card (bigger play target + title) so audio is
+        // the prominent card on the wide 1280 panel, consistent with the
+        // other themes.
+        return `<div class="bg-[#111111] rounded-xl p-5 flex items-center gap-5 border border-[#222222]">
+            <div class="w-16 h-16 bg-[#222222] rounded-lg overflow-hidden shrink-0 relative flex items-center justify-center active:scale-90 transition-transform" style="cursor:pointer;" onclick="MediaPlayer.cmd('playpause', event)">
+                <span class="material-symbols-outlined text-white text-opacity-80" style="font-size:34px;">${data.bt_media_playing ? 'pause' : 'play_arrow'}</span>
             </div>
             <div class="flex flex-col flex-1 overflow-hidden">
-                <span class="text-white font-bold truncate" data-bind="bt_media_title">${title}</span>
-                <span class="text-[#FF5F00] text-xs font-medium truncate" data-bind="bt_media_artist">${artist}</span>
+                <span class="text-[9px] font-bold uppercase tracking-widest text-gray-500">Now Playing</span>
+                <span class="text-lg text-white font-bold truncate" data-bind="bt_media_title">${title}</span>
+                <span class="text-[#FF5F00] text-sm font-medium truncate" data-bind="bt_media_artist">${artist}</span>
             </div>
-            <div class="flex items-center gap-2 text-gray-400">
-                <span class="material-symbols-outlined active:scale-90 transition-transform" style="cursor:pointer;" onclick="MediaPlayer.cmd('previous', event)">skip_previous</span>
-                <span class="material-symbols-outlined active:scale-90 transition-transform" style="cursor:pointer;" onclick="MediaPlayer.cmd('next', event)">skip_next</span>
+            <div class="flex items-center gap-3 text-gray-400">
+                <span class="material-symbols-outlined active:scale-90 transition-transform" style="font-size:30px;cursor:pointer;" onclick="MediaPlayer.cmd('previous', event)">skip_previous</span>
+                <span class="material-symbols-outlined active:scale-90 transition-transform" style="font-size:30px;cursor:pointer;" onclick="MediaPlayer.cmd('next', event)">skip_next</span>
             </div>
         </div>`;
     }
