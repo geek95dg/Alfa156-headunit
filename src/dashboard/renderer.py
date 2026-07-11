@@ -24,7 +24,6 @@ from src.dashboard.status_bar import StatusBar
 from src.dashboard.overlays import ParkingOverlay, IcingAlert
 from src.dashboard.settings_screen import SettingsScreen
 from src.dashboard.web_viewer import WebViewer
-from src.dashboard.i18n import t
 
 log = get_logger("dashboard")
 

@@ -1,3 +1,7 @@
+# =====================================================================
+# LEGACY — KOD NIEUŻYWANY W PRODUKCJI. Nie importowany przez main.py.
+# Powód i kontekst: legacy/README.md oraz AUDYT_I_PLAN.md.
+# =====================================================================
 """OSM Tile Map Renderer — downloads, caches, and renders OpenStreetMap tiles.
 
 TileManager handles tile downloading with rate limiting and disk caching.

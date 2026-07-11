@@ -5,7 +5,6 @@ Falls back to legacy vertical layout for classic themes.
 Long press = reset trip.
 """
 
-import math
 import pygame
 from src.dashboard.themes.theme_base import ThemeBase
 from src.dashboard.i18n import t

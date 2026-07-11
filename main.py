@@ -12,7 +12,6 @@ Usage:
 import argparse
 import os
 import signal
-import sys
 import time
 
 from src.core.config import BCMConfig
@@ -20,62 +19,36 @@ from src.core.logger import setup_logging, get_logger
 from src.core.event_bus import EventBus
 from src.core.hal import HAL
 
-# NOTE: ``start_dashboard`` is imported lazily so ``main.py`` can run
-# on hosts that don't have ``pygame`` installed. In --frontend mode
-# (OPi PC, OPi 5 Pro) the dashboard is rendered by the Flask
-# ``WebViewer`` and pygame never gets exercised. The legacy pygame
-# renderer lives in ``requirements-x86.txt`` and is dev/debug-only.
-def _lazy_start_dashboard(*args, **kwargs):
-    from src.dashboard.renderer import start_dashboard as _sd
-    return _sd(*args, **kwargs)
-
-start_dashboard = _lazy_start_dashboard
-
-from src.obd.simulator import start_obd
-from src.parking.simulator import start_parking
-from src.environment.simulator import start_environment
-from src.audio.volume import start_audio
-from src.input.bt_remote import start_input
-from src.camera.reverse_cam import start_camera
-from src.power.shutdown import start_power
-from src.multimedia.openauto import start_multimedia
-from src.location.gps import start_location
-from src.network.lte import start_network
-from src.weather.weather import start_weather
-from src.vehicle.rain_sensor import start_rain_sensor
-from src.vehicle.blinker_monitor import start_blinker_monitor
-from src.vehicle.central_lock import start_central_lock
-from src.vehicle.lighting import start_lighting
-from src.performance.timer import start_performance
-from src.vehicle.alarm import start_alarm
-from src.camera.crash_detect import start_crash_detect
-from src.power.battery import start_battery
+# ALL module entry points are imported lazily: importing them eagerly
+# pulled dbus/GLib/numpy/etc. into the boot path for modules that may
+# be disabled in config (measured ~2.3 s just to import main.py).
+# _lazy() defers the import to the moment the module actually starts,
+# so a disabled module costs nothing.
+def _lazy(module_path: str, func_name: str):
+    def _starter(*args, **kwargs):
+        import importlib
+        mod = importlib.import_module(module_path)
+        return getattr(mod, func_name)(*args, **kwargs)
+    _starter.__name__ = func_name
+    return _starter
 
 
-# Module registry — maps module names to their (future) start functions.
-# Each Part will register its module here when implemented.
+start_dashboard = _lazy("src.dashboard.renderer", "start_dashboard")
+
+# Module registry — built from the shared catalog (src/core/modules_catalog),
+# which is also what the Settings → Modules screen lists via /api/modules.
 # NOTE: "dashboard" is handled separately because start_dashboard() blocks
 # (PyGame main-thread event loop). All other modules must start first.
+from src.core import modules_catalog
+
 MODULE_REGISTRY: dict[str, dict] = {
-    "obd":         {"part": 3, "description": "OBD-II / K-Line Communication", "start": start_obd},
-    "parking":     {"part": 4, "description": "Parking Sensors System", "start": start_parking},
-    "environment": {"part": 5, "description": "Temperature & Environment Monitoring", "start": start_environment},
-    "audio":       {"part": 6, "description": "Audio System & PipeWire", "start": start_audio},
-    "input":       {"part": 8, "description": "Input Controllers", "start": start_input},
-    "camera":      {"part": 9, "description": "Camera & Dashcam", "start": start_camera},
-    "power":       {"part": 10, "description": "Power Management", "start": start_power},
-    "multimedia":  {"part": 11, "description": "Android Auto / Multimedia", "start": start_multimedia},
-    "location":    {"part": 12, "description": "GPS/GNSS Positioning", "start": start_location},
-    "network":     {"part": 13, "description": "LTE/Cellular Connectivity", "start": start_network},
-    "weather":     {"part": 14, "description": "Weather Data (OpenWeatherMap)", "start": start_weather},
-    "rain_sensor": {"part": 15, "description": "Rain Sensor + Auto Wipers", "start": start_rain_sensor},
-    "blinker_monitor": {"part": 15, "description": "Turn Signal GPIO Monitor", "start": start_blinker_monitor},
-    "central_lock":{"part": 16, "description": "Always-on Nano bridge (window remote + BLE trunk + backlight PWM)", "start": start_central_lock},
-    "lighting":    {"part": 17, "description": "Lighting (Follow-me-home, Greeting)", "start": start_lighting},
-    "performance": {"part": 18, "description": "Performance (0-100 Timer, Boost)", "start": start_performance},
-    "alarm":       {"part": 19, "description": "Car Alarm (PIR, Tilt, Shock, Siren)", "start": start_alarm},
-    "crash_detect":{"part": 20, "description": "Crash Detection + DVR Protection", "start": start_crash_detect},
-    "battery":     {"part": 21, "description": "Battery Backup Monitor", "start": start_battery},
+    name: {
+        "part": info["part"],
+        "description": info["description"],
+        "start": _lazy(*info["entry"]),
+    }
+    for name, info in modules_catalog.MODULES.items()
+    if "entry" in info
 }
 
 # Dashboard is listed for --dry-run reporting but started separately
@@ -143,8 +116,8 @@ def main() -> None:
         "multimedia.wifi_ap": "DEBUG",
         "multimedia.aa_display": "INFO",
     }
-    root_log = setup_logging(level=log_level, log_file=log_file,
-                             module_levels=module_levels)
+    setup_logging(level=log_level, log_file=log_file,
+                  module_levels=module_levels)
     log = get_logger("main")
 
     log.info("=" * 60)
@@ -154,19 +127,23 @@ def main() -> None:
     log.info("Config: %s", config.config_path)
     log.info("=" * 60)
 
-    # Initialize core components
-    event_bus = EventBus()
+    # Initialize core components. async_dispatch: subscriber callbacks
+    # run on a dispatcher thread, so a blocking subscriber cannot stall
+    # the sensor thread that published the event.
+    event_bus = EventBus(async_dispatch=True)
     hal = HAL(platform=config.platform)
 
     log.info("Core initialized: EventBus, HAL (%s)", config.platform)
 
-    # Determine which modules to load
+    # Determine which modules to load (modules.* toggles via the catalog)
     if args.modules:
         requested = [m.strip() for m in args.modules.split(",")]
     else:
-        requested = ["dashboard"] + [
+        requested = (
+            ["dashboard"] if modules_catalog.is_enabled(config, "dashboard") else []
+        ) + [
             name for name in MODULE_REGISTRY
-            if config.is_module_enabled(name)
+            if modules_catalog.is_enabled(config, name)
         ]
 
     # Report module status
@@ -197,36 +174,41 @@ def main() -> None:
                  len(requested), len(started_modules) + (1 if dashboard_enabled else 0))
         return
 
-    # Create BluetoothManager early so it can be shared with AA display
+    # Create BluetoothManager early so it can be shared with AA display.
+    # bluetooth.enabled=false skips the whole probe (saves ~10 s on
+    # hardware without a BT adapter — the probe retries 5x with 2 s
+    # sleeps before giving up).
     bt_manager = None
-    log.info("--- Bluetooth Init ---")
-    try:
-        from src.multimedia.bluetooth import BluetoothManager
-        bt_manager = BluetoothManager(config, event_bus)
-        bt_manager.start_monitor()
-        log.info("BluetoothManager initialized (available=%s)", bt_manager.available)
-        if bt_manager.available:
-            ctrl_info = bt_manager.get_controller_info()
-            log.info("BT Controller: %s (%s), powered=%s, discoverable=%s",
-                     ctrl_info.get("name", "?"), ctrl_info.get("address", "?"),
-                     ctrl_info.get("powered", False),
-                     ctrl_info.get("discoverable", False))
-            paired = bt_manager.get_paired_devices()
-            log.info("BT Paired devices: %d", len(paired))
-            for dev in paired:
-                info = bt_manager.get_device_info(dev["address"])
-                log.info("  %s (%s) connected=%s",
-                         dev["name"], dev["address"],
-                         info.get("connected", False))
-    except Exception:
-        log.exception("BluetoothManager failed to init (non-critical)")
+    bt_enabled = modules_catalog.is_enabled(config, "bluetooth")
+    log.info("--- Bluetooth Init (enabled=%s) ---", bt_enabled)
+    if bt_enabled:
+        try:
+            from src.multimedia.bluetooth import BluetoothManager
+            bt_manager = BluetoothManager(config, event_bus)
+            bt_manager.start_monitor()
+            log.info("BluetoothManager initialized (available=%s)", bt_manager.available)
+            if bt_manager.available:
+                ctrl_info = bt_manager.get_controller_info()
+                log.info("BT Controller: %s (%s), powered=%s, discoverable=%s",
+                         ctrl_info.get("name", "?"), ctrl_info.get("address", "?"),
+                         ctrl_info.get("powered", False),
+                         ctrl_info.get("discoverable", False))
+                paired = bt_manager.get_paired_devices()
+                log.info("BT Paired devices: %d", len(paired))
+                for dev in paired:
+                    info = bt_manager.get_device_info(dev["address"])
+                    log.info("  %s (%s) connected=%s",
+                             dev["name"], dev["address"],
+                             info.get("connected", False))
+        except Exception:
+            log.exception("BluetoothManager failed to init (non-critical)")
 
     # Fuel sender calibration (ADC from Arduino → fuel level percentage)
-    fuel_sender = None
-    if config.get("fuel_sender.enabled", True):
+    if modules_catalog.is_enabled(config, "fuel_sender"):
         try:
             from src.vehicle.fuel_sender import FuelSender
-            fuel_sender = FuelSender(config, event_bus)
+            # instance stays alive via its event-bus subscriptions
+            FuelSender(config, event_bus)
             log.info("FuelSender initialized")
         except Exception:
             log.exception("FuelSender failed to init (non-critical)")
@@ -234,15 +216,18 @@ def main() -> None:
     # publishes bt.contacts / bt.call_history that the A8 phone screen
     # consumes via /api/phone/{contacts,history}. Without this the phone
     # screen renders empty even when pairing advertises PCE/MCE correctly.
-    try:
-        from src.multimedia.phonebook import start_phonebook_sync
-        start_phonebook_sync(event_bus)
-    except Exception:
-        log.exception("PBAP phonebook sync failed to init (non-critical)")
+    # Pointless without Bluetooth, so by default it follows the bluetooth
+    # toggle (modules.phonebook overrides).
+    if bt_enabled and modules_catalog.is_enabled(config, "phonebook"):
+        try:
+            from src.multimedia.phonebook import start_phonebook_sync
+            start_phonebook_sync(event_bus)
+        except Exception:
+            log.exception("PBAP phonebook sync failed to init (non-critical)")
 
     # Start WiFi AP for Android Auto wireless data link
     wifi_ap = None
-    wifi_enabled = config.get("wifi.enabled", False)
+    wifi_enabled = modules_catalog.is_enabled(config, "wifi_ap")
     log.info("--- WiFi AP Init (enabled=%s) ---", wifi_enabled)
     if wifi_enabled:
         try:
@@ -318,12 +303,13 @@ def main() -> None:
             try:
                 from src.dashboard.web_viewer import WebViewer
                 from src.dashboard.trip_computer import TripComputer
-                try:
-                    from src.trip.route_planner import RoutePlanner
-                    _rp = RoutePlanner(config, event_bus)
-                except Exception as _e:
-                    log.warning("RoutePlanner unavailable: %s", _e)
-                    _rp = None
+                _rp = None
+                if modules_catalog.is_enabled(config, "route_planner"):
+                    try:
+                        from src.trip.route_planner import RoutePlanner
+                        _rp = RoutePlanner(config, event_bus)
+                    except Exception as _e:
+                        log.warning("RoutePlanner unavailable: %s", _e)
                 _tc = TripComputer(event_bus=event_bus, route_planner=_rp)
                 web_viewer = WebViewer(
                     host="0.0.0.0", port=5002,
@@ -337,13 +323,16 @@ def main() -> None:
                 log.info("Main display started at http://localhost:5002")
 
                 # Start small display server (4.3" stats carousel)
-                from src.dashboard.small_viewer import SmallDisplayServer
-                small_display = SmallDisplayServer(
-                    host="0.0.0.0", port=5003,
-                    event_bus=event_bus, config=config,
-                )
-                small_display.start()
-                log.info("Small display started at http://localhost:5003")
+                if modules_catalog.is_enabled(config, "small_display"):
+                    from src.dashboard.small_viewer import SmallDisplayServer
+                    small_display = SmallDisplayServer(
+                        host="0.0.0.0", port=5003,
+                        event_bus=event_bus, config=config,
+                    )
+                    small_display.start()
+                    log.info("Small display started at http://localhost:5003")
+                else:
+                    log.info("Small display disabled (modules.small_display)")
 
                 log.info("  Themes: Heritage / Modern / Autodelta")
                 log.info("  Main:  A1-A7 + Settings (7/8\" touch)")

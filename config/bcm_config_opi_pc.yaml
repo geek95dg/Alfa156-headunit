@@ -76,9 +76,25 @@ modules:
                        # does not fit the H3 CPU budget — see Part 6.5
                        # note in OPI_PC_SETUP.md. Enable only to test.
   location: true
+  tracking: true       # GPS route logger (SQLite + GPX)
   network: true        # LTE via Huawei E3372
   weather: true
   blinker_monitor: false  # Off by default on the test rig (no car wiring)
+  rain_sensor: true
+  central_lock: false     # Only if 433MHz module wired
+  lighting: false         # Only if relay board wired
+  performance: true
+  alarm: false            # Only if PIR/tilt/shock wired
+  crash_detect: false     # No accelerometer on test rig
+  battery: true
+  # subsystems (started explicitly in main.py):
+  bluetooth: true
+  phonebook: true
+  fuel_sender: false      # No tank sender on the bench rig
+  wifi_ap: true
+  wifi_hotspot: false     # dodatkowy AP ALFA-NET — wymaga dongla WiFi
+  route_planner: true
+  small_display: true
 
 display:
   # Single HDMI output = main display
@@ -206,6 +222,7 @@ hardware:
     interface: usb0    # HiLink mode network interface
 
 audio:
+  eq_dsp_enabled: true
   eq_preset: jazz
   master_volume: 70
   bass: 0
@@ -335,15 +352,6 @@ traffic:
 remote_status:
   api_key: ""
 
-modules_v85:
-  rain_sensor: true
-  central_lock: false    # Only if 433MHz module wired
-  lighting: false        # Only if relay board wired
-  performance: true
-  alarm: false           # Only if PIR/tilt/shock wired
-  crash_detect: false    # No accelerometer on test rig
-  battery_backup: true
-
 alarm:
   siren_duration: 60
   arming_delay: 30
@@ -359,7 +367,11 @@ crash_detection:
   post_crash_record_sec: 60
 
 tracking:
+  db_path: data/gps_tracks.db
   interval_sec: 30
+  trip_start_kmh: 5
+  trip_end_kmh: 2
+  trip_end_idle_sec: 60
   lte_sync_min: 15
   geofence_lat: 0
   geofence_lon: 0
@@ -367,6 +379,7 @@ tracking:
   sms_number: ""
 
 bluetooth:
+  enabled: true
   preferred_adapter: ""
 
 # OPi PC test rig specific

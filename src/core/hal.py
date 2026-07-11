@@ -4,7 +4,6 @@ On x86: returns mock objects that log calls but do nothing.
 On OPi (arm64): uses gpiod, pyserial, spidev, smbus2 for real hardware.
 """
 
-import time
 from typing import Any, Optional
 
 from .logger import get_logger

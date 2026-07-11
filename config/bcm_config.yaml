@@ -5,6 +5,8 @@ system:
   log_level: DEBUG
   log_file: logs/bcm.log
   simulation: false
+# Jeden przełącznik na każdy moduł/podsystem — pełna lista i stan
+# także w UI: Settings -> Moduły (GET/POST /api/modules).
 modules:
   dashboard: true
   obd: true
@@ -16,9 +18,25 @@ modules:
   power: true
   multimedia: true
   location: true
+  tracking: true
   network: true
   weather: true
   blinker_monitor: true
+  rain_sensor: true
+  central_lock: true
+  lighting: true
+  performance: true
+  alarm: true
+  crash_detect: true
+  battery: true
+  # podsystemy (startowane wprost w main.py):
+  bluetooth: true
+  phonebook: true
+  fuel_sender: true
+  wifi_ap: true            # WiFi dla Android Auto wireless (P2P-GO, karta wewnętrzna)
+  wifi_hotspot: false      # dodatkowy AP ALFA-NET — włącz dopiero po dokupieniu dongla WiFi
+  route_planner: true
+  small_display: true
 display:
   dashboard:
     width: 1280
@@ -62,8 +80,14 @@ vehicle:
 serial:
   kline:
     port_opi: /dev/ttyS3
+    port_x86: /dev/ttyUSB_kline   # CP2102/VIAKEN KKL — patrz reguła udev
+                                  # w docs/KLINE_SNIFFING.md §5.4
     baudrate: 10400
     ecu_address: 1
+obd:
+  use_real_hardware: false   # x86 produkcja: ustaw true, żeby czytać z
+                             # prawdziwego ECU zamiast symulatora
+  fast_init: false           # true tylko jeśli adapter/ECU wspiera fast init
 hardware:
   gps:
     enabled: true
@@ -74,6 +98,7 @@ hardware:
     device: ''
     apn: ''
 audio:
+  eq_dsp_enabled: true   # prawdziwy EQ przez PipeWire filter-chain
   eq_preset: jazz
   master_volume: 70
   bass: 0
@@ -163,6 +188,8 @@ fuel_sender:
     - 0
   tank_capacity_litres: 58
 wifi:
+  # WiFi wyłącznie do Android Auto wireless (Wi-Fi Direct / P2P-GO na
+  # karcie wewnętrznej). Sterowane przełącznikiem modules.wifi_ap.
   enabled: true
   ssid: ALFA
   password: 87654321
@@ -177,8 +204,12 @@ wifi:
   netmask: 255.255.255.0
   dhcp_start: 10.0.0.10
   dhcp_end: 10.0.0.50
+  # Dodatkowy Access Point ALFA-NET (współdzielenie internetu). Wymaga
+  # OSOBNEGO interfejsu WiFi (dongla USB) — karta wewnętrzna nie robi
+  # P2P-GO i AP naraz. Włącza się przełącznikiem modules.wifi_hotspot;
+  # ten klucz jest jego odpowiednikiem (utrzymywany w synchronizacji).
   alfa_net:
-    enabled: true
+    enabled: false
     ssid: ALFA-NET
     password: AlfaRomeo156
     channel: 6
@@ -228,14 +259,6 @@ traffic:
   poll_interval_min: 5
 remote_status:
   api_key: ''
-modules_v85:
-  rain_sensor: true
-  central_lock: true
-  lighting: true
-  performance: true
-  alarm: true
-  crash_detect: true
-  battery_backup: true
 alarm:
   siren_duration: 60
   arming_delay: 30
@@ -249,7 +272,11 @@ crash_detection:
   g_force_threshold: 3.0
   post_crash_record_sec: 60
 tracking:
+  db_path: data/gps_tracks.db
   interval_sec: 30
+  trip_start_kmh: 5
+  trip_end_kmh: 2
+  trip_end_idle_sec: 60
   lte_sync_min: 15
   geofence_lat: 0
   geofence_lon: 0
@@ -258,4 +285,5 @@ tracking:
 multimedia:
   last_bt_device: C0:7A:D6:90:E9:CC
 bluetooth:
+  enabled: true
   preferred_adapter: ''

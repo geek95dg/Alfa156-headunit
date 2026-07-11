@@ -19,6 +19,12 @@ SID_STOP_DIAG_SESSION = 0x20
 SID_TESTER_PRESENT = 0x3E
 SID_READ_DATA_BY_LOCAL_ID = 0x21
 SID_READ_DATA_BY_COMMON_ID = 0x22
+SID_READ_DTC_BY_STATUS = 0x18
+SID_CLEAR_DIAG_INFO = 0x14
+
+# readDTCByStatus request parameters (ISO 14230-3)
+DTC_STATUS_ALL = 0x02        # "all identified DTCs"
+DTC_GROUP_ALL = 0xFF00       # all DTC groups
 
 # Positive response = SID + 0x40
 POSITIVE_RESPONSE_OFFSET = 0x40
@@ -223,6 +229,52 @@ class KWP2000:
                 return payload[1:]
             return payload
         return None
+
+    def read_dtcs(self) -> Optional[list[tuple[int, int]]]:
+        """Read stored trouble codes (readDiagnosticTroubleCodesByStatus, 0x18).
+
+        Request: 18 02 FF 00  (all identified DTCs, all groups)
+        Response: 58 <count> (<dtc_hi> <dtc_lo> <status>)*count
+
+        Returns:
+            List of (raw_dtc_16bit, status_byte) tuples, or None on
+            communication failure. An empty list means "no codes stored".
+        """
+        result = self._send_request(
+            SID_READ_DTC_BY_STATUS,
+            bytes([DTC_STATUS_ALL]) + DTC_GROUP_ALL.to_bytes(2, "big"))
+        if result is None:
+            return None
+        _, payload = result
+        if not payload:
+            return []
+        count = payload[0]
+        data = payload[1:]
+        dtcs: list[tuple[int, int]] = []
+        for i in range(count):
+            chunk = data[i * 3:i * 3 + 3]
+            if len(chunk) < 3:
+                break
+            raw = (chunk[0] << 8) | chunk[1]
+            if raw:
+                dtcs.append((raw, chunk[2]))
+        log.info("readDTC: %d code(s)", len(dtcs))
+        return dtcs
+
+    def clear_dtcs(self, group: int = DTC_GROUP_ALL) -> bool:
+        """Clear stored trouble codes (clearDiagnosticInformation, 0x14).
+
+        Args:
+            group: DTC group to clear (default: all).
+
+        Returns:
+            True when the ECU confirmed the clear.
+        """
+        result = self._send_request(SID_CLEAR_DIAG_INFO,
+                                    group.to_bytes(2, "big"))
+        ok = result is not None
+        log.info("clearDTC: %s", "OK" if ok else "FAILED")
+        return ok
 
     def read_common_id(self, common_id: int) -> Optional[bytes]:
         """Read data by common identifier (readDataByCommonIdentifier).

@@ -1,8 +1,9 @@
 """Steering wheel control (SWC) remote — dual-pod analog resistor-ladder buttons.
 
 Two identical AliExpress button pods (12 buttons each, 24 total) connected via
-resistor ladders to Arduino ADC pins A0 (Pod 1) and A1 (Pod 2). The Arduino
-decodes voltage levels and sends USB HID keycodes to the host.
+resistor ladders to Arduino ADC pins A0 (Pod 1) and A6 (Pod 2). (A1 is the
+LDR light sensor — see rotary_encoder.ino.) The Arduino decodes voltage
+levels and sends USB HID keycodes to the host.
 
 Config format (action-centric, supports 2 buttons per action):
 

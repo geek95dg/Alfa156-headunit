@@ -620,12 +620,27 @@
           <h2 id="serial-protocol">Serial Protocol &mdash; Input Messages</h2>
 
           <p>
-            The Pro Micro sends plain-text serial messages to the BCM over
-            <code>/dev/ttyACM0</code> at 115200 baud. The Python module
+            Plain-text serial messages are sent to the BCM at 115200 baud.
+            The Python module
             <code>src/input/arduino_serial.py</code> (<code>ArduinoSerialListener</code>
             class) parses each line and publishes it to the event bus. Auto-detection
             tries <code>/dev/ttyACM0..1</code>, <code>/dev/ttyUSB0..2</code>, and
             falls back to stub mode if no port is found.
+          </p>
+          <p>
+            <strong>Which board sends what:</strong> the Pro Micro
+            (<code>rotary_encoder.ino</code>, <code>/dev/ttyACM0</code>) sends only
+            <code>LIGHT:</code> and <code>FUEL:</code>. All vehicle telemetry
+            (<code>DOOR:</code>, <code>HBRAKE:</code>, <code>IGN:</code>,
+            <code>RAIN:</code>, <code>TEMP:</code>, <code>PARK:</code>, and the
+            optional <code>CRUISE:/IMMO:/AIRBAG:</code>) comes from the
+            <strong>sensor hub Nano</strong>
+            (<code>arduino/sensor_hub/sensor_hub.ino</code>, typically
+            <code>/dev/ttyUSB1</code>), added in v8.5.2 — before that these
+            messages were documented but no firmware transmitted them. Each
+            input group is a <code>#define FEATURE_*</code> compile-time switch
+            at the top of the sketch. Wiring: see
+            <code>docs/ARDUINO_SETUP_GUIDE.md</code> §7b.
           </p>
 
           <div class="table-wrap">

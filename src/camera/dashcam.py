@@ -8,8 +8,6 @@ x86: software x264 encoding
 OPi: hardware H.264 via mpph264enc (RK3588 VPU)
 """
 
-import os
-import shutil
 import subprocess
 import threading
 import time
@@ -46,12 +44,18 @@ class DashcamRecorder:
         self._rear_process: Optional[subprocess.Popen] = None
         self._cleanup_thread: Optional[threading.Thread] = None
 
-        # Storage path
+        # Storage path — YAML key is camera.recording_path; the old
+        # camera.storage_path is honoured as a fallback for older configs.
         self._storage_path = Path(
-            config.get("camera.storage_path", "/tmp/bcm_dashcam")
+            config.get("camera.recording_path",
+                       config.get("camera.storage_path", "/tmp/bcm_dashcam"))
         )
-        self._segment_duration = config.get(
-            "camera.segment_duration", SEGMENT_DURATION_SEC
+        # YAML key is camera.segment_minutes; camera.segment_duration
+        # (seconds) kept as fallback.
+        seg_min = config.get("camera.segment_minutes")
+        self._segment_duration = (
+            int(seg_min) * 60 if seg_min
+            else config.get("camera.segment_duration", SEGMENT_DURATION_SEC)
         )
 
         # Subscribe to voice/input commands
@@ -78,8 +82,18 @@ class DashcamRecorder:
             log.warning("Already recording")
             return False
 
-        # Ensure storage directory exists
-        self._storage_path.mkdir(parents=True, exist_ok=True)
+        if not self._grabber.has_front and not self._grabber.has_rear:
+            log.warning("No cameras available for recording")
+            return False
+
+        # Ensure storage directory exists. The recording path may live on
+        # removable media — a missing/unwritable mount must not take the
+        # camera module down, just skip recording.
+        try:
+            self._storage_path.mkdir(parents=True, exist_ok=True)
+        except OSError as exc:
+            log.error("Recording dir %s unavailable: %s", self._storage_path, exc)
+            return False
 
         success = False
 
@@ -203,14 +217,59 @@ class DashcamRecorder:
         self._cleanup_thread.start()
 
     def _cleanup_loop(self) -> None:
-        """Periodically check and clean up old recordings."""
+        """Storage cleanup + pipeline health watchdog.
+
+        A GStreamer pipeline that dies mid-drive (USB hiccup, encoder
+        error) used to go unnoticed — _recording stayed True and footage
+        was silently lost. Health-check every 10 s, relaunch a dead
+        pipeline with a 30 s per-camera backoff; full storage cleanup
+        every 60 s as before.
+        """
+        RESTART_BACKOFF_S = 30.0
+        last_restart = {"front": 0.0, "rear": 0.0}
+        tick = 0
         while self._recording:
-            self._cleanup_old_segments()
-            time.sleep(60)  # Check every minute
+            if tick % 6 == 0:
+                self._cleanup_old_segments()
+            tick += 1
+
+            for name in ("front", "rear"):
+                attr = f"_{name}_process"
+                proc = getattr(self, attr)
+                if proc is None or proc.poll() is None:
+                    continue  # never started, or still healthy
+                if not self._recording:
+                    break
+                stderr = ""
+                try:
+                    stderr = proc.stderr.read().decode() if proc.stderr else ""
+                except Exception:
+                    pass
+                log.error("Dashcam %s pipeline DIED (rc=%s): %s",
+                          name, proc.returncode, stderr[-300:])
+                now = time.time()
+                if now - last_restart[name] < RESTART_BACKOFF_S:
+                    continue  # crash-looping — wait out the backoff
+                last_restart[name] = now
+                device = (self._grabber.front_device if name == "front"
+                          else self._grabber.rear_device)
+                new_proc = self._launch_pipeline(
+                    device, name, self._grabber.get_resolution(name))
+                setattr(self, attr, new_proc)
+                if new_proc:
+                    log.info("Dashcam %s pipeline relaunched", name)
+
+            time.sleep(10)
 
     def _cleanup_old_segments(self) -> None:
         """Delete oldest segments when storage exceeds threshold."""
-        max_bytes = self._config.get("camera.max_storage_bytes", MAX_STORAGE_BYTES)
+        # YAML key is camera.max_storage_gb; camera.max_storage_bytes
+        # kept as fallback. Without this the 128 GB limit was never applied.
+        max_gb = self._config.get("camera.max_storage_gb")
+        max_bytes = (
+            int(float(max_gb) * 1024**3) if max_gb
+            else self._config.get("camera.max_storage_bytes", MAX_STORAGE_BYTES)
+        )
         threshold = max_bytes * STORAGE_CLEANUP_THRESHOLD
 
         total = self._get_storage_usage()

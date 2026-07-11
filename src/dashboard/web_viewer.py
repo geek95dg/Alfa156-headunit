@@ -263,18 +263,33 @@ class WebViewer:
         """Periodically broadcast event bus data to all WebSocket clients."""
         while self._running:
             try:
+                # No clients — skip the ~60 event-bus reads + JSON dump
+                # instead of burning CPU at 15 FPS into the void.
+                with self._ws_lock:
+                    has_clients = bool(self._ws_clients)
+                if not has_clients:
+                    time.sleep(0.2)
+                    continue
+
                 data = self._get_dashboard_data()
                 payload = json.dumps(data, default=str)
 
+                # Send OUTSIDE the lock — a half-open/slow client used to
+                # block connect/disconnect handlers (same lock) and every
+                # other client for the duration of its send().
                 with self._ws_lock:
-                    dead = []
-                    for ws in self._ws_clients:
-                        try:
-                            ws.send(payload)
-                        except Exception:
-                            dead.append(ws)
-                    for ws in dead:
-                        self._ws_clients.remove(ws)
+                    clients = list(self._ws_clients)
+                dead = []
+                for ws in clients:
+                    try:
+                        ws.send(payload)
+                    except Exception:
+                        dead.append(ws)
+                if dead:
+                    with self._ws_lock:
+                        for ws in dead:
+                            if ws in self._ws_clients:
+                                self._ws_clients.remove(ws)
             except Exception:
                 log.exception("Broadcast error")
 
@@ -361,6 +376,43 @@ class WebViewer:
                 viewer._event_bus.publish("config.changed", data)
 
             return jsonify({"ok": True})
+
+        # --- Module toggles (Settings -> Moduły) ---
+
+        @app.route("/api/modules", methods=["GET"])
+        def api_modules_get():
+            cfg = viewer._config
+            if cfg is None:
+                return jsonify({"modules": []})
+            from src.core.modules_catalog import catalog_state
+            return jsonify({"modules": catalog_state(cfg)})
+
+        @app.route("/api/modules", methods=["POST"])
+        def api_modules_set():
+            """Persist a module toggle. Takes effect after BCM restart."""
+            cfg = viewer._config
+            if cfg is None:
+                return jsonify({"error": "no config"}), 500
+            data = request.get_json(silent=True) or {}
+            name = data.get("name")
+            from src.core.modules_catalog import MODULES
+            if name not in MODULES:
+                return jsonify({"error": f"unknown module: {name}"}), 400
+            enabled = bool(data.get("enabled"))
+            cfg.set(f"modules.{name}", enabled)
+            # Keep the legacy ad-hoc key in sync so code that still reads
+            # it directly (e.g. openauto's wifi.enabled warning) agrees.
+            legacy = MODULES[name].get("legacy_key")
+            if legacy:
+                cfg.set(legacy, enabled)
+            try:
+                cfg.save()
+            except Exception as e:
+                return jsonify({"error": f"save failed: {e}"}), 500
+            if viewer._event_bus:
+                viewer._event_bus.publish("config.changed",
+                                          {"module": name, "enabled": enabled})
+            return jsonify({"ok": True, "restart_required": True})
 
         # --- SWC mapping API ---
 
@@ -711,7 +763,11 @@ class WebViewer:
                                + frame + b"\r\n")
             finally:
                 proc.terminate()
-                proc.wait(timeout=3)
+                try:
+                    proc.wait(timeout=3)
+                except subprocess.TimeoutExpired:
+                    proc.kill()  # ffmpeg ignored SIGTERM — don't leak it
+                    proc.wait(timeout=3)
 
         @app.route("/aa/stream")
         def aa_stream():
@@ -1179,9 +1235,11 @@ class WebViewer:
             info = {}
             if viewer._event_bus:
                 s = viewer._event_bus.get_last("bt.call_state")
-                if s: state = s[0] or "idle"
+                if s:
+                    state = s[0] or "idle"
                 i = viewer._event_bus.get_last("bt.call_info")
-                if i: info = i[0] or {}
+                if i:
+                    info = i[0] or {}
             return jsonify({"state": state, "info": info})
 
         # --- Weather search API ---
@@ -1341,22 +1399,48 @@ class WebViewer:
 
         @app.route("/api/dtc/read")
         def api_dtc_read():
-            """Read DTC error codes from ECU."""
-            if viewer._event_bus:
-                viewer._event_bus.publish("obd.dtc.read_request", True)
-            codes = []
-            if viewer._event_bus:
-                result = viewer._event_bus.get_last("obd.dtc.codes")
-                if result:
-                    codes = result[0] or []
-            return jsonify({"codes": codes})
+            """Read DTC error codes from ECU.
+
+            Publishes obd.dtc.read_request; the EDC15C7Reader services
+            it inside its polling thread and answers with obd.dtc.codes.
+            Wait (up to 3 s) for an answer FRESHER than our request —
+            get_last alone would return the previous read.
+            """
+            bus = viewer._event_bus
+            if not bus:
+                return jsonify({"codes": [], "error": "no bus"})
+            requested_at = time.time()
+            bus.publish("obd.dtc.read_request", True)
+            deadline = requested_at + 3.0
+            while time.time() < deadline:
+                result = bus.get_last("obd.dtc.codes")
+                if result and result[1] >= requested_at:
+                    codes = result[0]
+                    if codes is None:
+                        return jsonify({"codes": [],
+                                        "error": "ECU communication failed"})
+                    return jsonify({"codes": codes})
+                time.sleep(0.05)
+            # Timeout — OBD module disabled or ECU not answering
+            stale = bus.get_last("obd.dtc.codes")
+            return jsonify({"codes": (stale[0] if stale and stale[0] else []),
+                            "error": "timeout"})
 
         @app.route("/api/dtc/clear", methods=["POST"])
         def api_dtc_clear():
-            """Clear DTC error codes from ECU."""
-            if viewer._event_bus:
-                viewer._event_bus.publish("obd.dtc.clear_request", True)
-            return jsonify({"ok": True})
+            """Clear DTC error codes from ECU (confirmed by re-read)."""
+            bus = viewer._event_bus
+            if not bus:
+                return jsonify({"ok": False, "error": "no bus"})
+            requested_at = time.time()
+            bus.publish("obd.dtc.clear_request", True)
+            deadline = requested_at + 3.0
+            while time.time() < deadline:
+                result = bus.get_last("obd.dtc.cleared")
+                if result and result[1] >= requested_at:
+                    return jsonify({"ok": bool(result[0])})
+                time.sleep(0.05)
+            return jsonify({"ok": False, "error": "timeout"})
 
         @app.route("/api/i18n/<lang>")
         def api_i18n(lang):

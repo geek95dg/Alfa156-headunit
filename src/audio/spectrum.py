@@ -5,11 +5,10 @@ then bins FFT output into 16 frequency bands for the dashboard visualizer.
 Falls back to simulated data if capture or numpy is unavailable.
 """
 
-import struct
 import subprocess
 import threading
 import time
-from typing import Any, Optional
+from typing import Optional
 
 from src.core.event_bus import EventBus
 from src.core.logger import get_logger

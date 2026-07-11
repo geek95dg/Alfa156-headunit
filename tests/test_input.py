@@ -11,7 +11,9 @@ from src.input.action_dispatch import (
     KEY_F5, KEY_F6, KEY_F7, KEY_F8, KEY_F9,
 )
 from src.input.swc_remote import (
-    SWC_BUTTONS, get_swc_button_names, get_swc_action,
+    ALL_BUTTONS, POD1_BUTTONS, POD2_BUTTONS, ACTIONS, DEFAULT_MAPPING,
+    KEYCODE_TO_BUTTON,
+    get_all_button_names, build_button_to_action_map,
     get_swc_action_with_override,
     KEY_F5 as SWC_KEY_F5, KEY_MUTE as SWC_KEY_MUTE,
 )
@@ -147,14 +149,14 @@ class TestActionDispatcher:
 
     def test_dispatch_swc_voice_trigger(self):
         received = []
-        self.bus.subscribe("input.voice_trigger", lambda t, v, ts: received.append(t))
+        self.bus.subscribe("input.voice_aa_trigger", lambda t, v, ts: received.append(t))
 
         assert self.disp.dispatch_keycode(KEY_F7)
         assert len(received) == 1
 
-    def test_dispatch_swc_source_cycle(self):
+    def test_dispatch_swc_navigate_aa(self):
         received = []
-        self.bus.subscribe("input.source_cycle", lambda t, v, ts: received.append(t))
+        self.bus.subscribe("input.navigate_aa", lambda t, v, ts: received.append(t))
 
         assert self.disp.dispatch_keycode(KEY_F8)
         assert len(received) == 1
@@ -240,57 +242,97 @@ class TestKeycodeMapping:
 
 class TestSWCRemote:
     def test_swc_buttons_defined(self):
-        assert len(SWC_BUTTONS) == 12
+        assert len(POD1_BUTTONS) == 12
+        assert len(POD2_BUTTONS) == 12
+        assert len(ALL_BUTTONS) == 24
+        assert set(ALL_BUTTONS) == set(POD1_BUTTONS) | set(POD2_BUTTONS)
 
-    def test_get_swc_button_names(self):
-        names = get_swc_button_names()
-        assert len(names) == 12
+    def test_get_all_button_names(self):
+        names = get_all_button_names()
+        assert len(names) == 24
         assert "SWC_VOLUP" in names
         assert "SWC_VOICE" in names
         assert "SWC_SRC" in names
+        assert "SWC2_VOLUP" in names
+        assert "SWC2_SRC" in names
 
-    def test_get_swc_action(self):
-        assert get_swc_action("SWC_VOLUP") == "volume_up"
-        assert get_swc_action("SWC_PICKUP") == "phone_pickup"
-        assert get_swc_action("SWC_VOICE") == "voice_trigger"
-        assert get_swc_action("SWC_SRC") == "source_cycle"
+    def test_default_mapping_actions_valid(self):
+        for action, buttons in DEFAULT_MAPPING.items():
+            assert action in ACTIONS
+            assert isinstance(buttons, list)
+            for btn in buttons:
+                if btn:
+                    assert btn in ALL_BUTTONS
 
-    def test_get_swc_action_unknown(self):
-        assert get_swc_action("NONEXISTENT") is None
+    def test_build_button_to_action_map_default(self):
+        btn_map = build_button_to_action_map(None)
+        assert btn_map["SWC_VOLUP"] == "volume_up"
+        assert btn_map["SWC2_VOLUP"] == "volume_up"
+        assert btn_map["SWC_PICKUP"] == "phone_pickup"
+        assert btn_map["SWC_VOICE"] == "voice_aa_trigger"
+        assert btn_map["SWC_SRC"] == "navigate_aa"
+
+    def test_build_button_to_action_map_custom_config(self):
+        class MockConfig:
+            def get(self, key, default=None):
+                if key == "swc.mapping":
+                    return {"volume_up": ["SWC_VOLUP", ""]}
+                return default
+
+        btn_map = build_button_to_action_map(MockConfig())
+        assert btn_map == {"SWC_VOLUP": "volume_up"}
+
+    def test_build_button_to_action_map_ignores_unknown(self):
+        class MockConfig:
+            def get(self, key, default=None):
+                if key == "swc.mapping":
+                    return {
+                        "not_an_action": ["SWC_VOLUP"],
+                        "volume_up": ["NOT_A_BUTTON", "SWC2_VOLUP"],
+                    }
+                return default
+
+        btn_map = build_button_to_action_map(MockConfig())
+        assert "SWC_VOLUP" not in btn_map
+        assert "NOT_A_BUTTON" not in btn_map
+        assert btn_map["SWC2_VOLUP"] == "volume_up"
 
     def test_swc_keycodes_match_dispatch(self):
         """SWC F-key keycodes should be in the action dispatch map."""
         assert SWC_KEY_F5 in KEYCODE_MAP
         assert SWC_KEY_MUTE in KEYCODE_MAP
 
-    def test_all_swc_actions_have_matching_dispatch(self):
-        """Every SWC action should have a corresponding input.* event in KEYCODE_MAP."""
-        dispatch_actions = set(KEYCODE_MAP.values())
-        for btn_name, action_suffix in SWC_BUTTONS.items():
-            event = f"input.{action_suffix}"
-            assert event in dispatch_actions, \
-                f"SWC {btn_name} → input.{action_suffix} not in KEYCODE_MAP"
+    def test_keycode_to_button_covers_both_pods(self):
+        for code, (btn1, btn2) in KEYCODE_TO_BUTTON.items():
+            assert btn1 in POD1_BUTTONS
+            assert btn2 in POD2_BUTTONS
 
     def test_get_swc_action_with_override_default(self):
         """Without config, should return default action."""
         assert get_swc_action_with_override("SWC_VOLUP", None) == "volume_up"
 
-    def test_get_swc_action_with_override_disabled(self):
-        """Config set to 'disabled' should return None."""
+    def test_get_swc_action_with_override_unknown_button(self):
+        assert get_swc_action_with_override("NONEXISTENT", None) is None
+
+    def test_get_swc_action_with_override_unmapped(self):
+        """Button removed from the config mapping should have no action."""
         class MockConfig:
-            def get(self, key):
-                if key == "swc.buttons.SWC_VOLUP":
-                    return "disabled"
-                return None
+            def get(self, key, default=None):
+                if key == "swc.mapping":
+                    return {"volume_down": ["SWC_VOLDN", "SWC2_VOLDN"]}
+                return default
+
         assert get_swc_action_with_override("SWC_VOLUP", MockConfig()) is None
+        assert get_swc_action_with_override("SWC_VOLDN", MockConfig()) == "volume_down"
 
     def test_get_swc_action_with_override_custom(self):
-        """Config override should take precedence."""
+        """Config mapping should take precedence over defaults."""
         class MockConfig:
-            def get(self, key):
-                if key == "swc.buttons.SWC_VOLUP":
-                    return "brightness_cycle"
-                return None
+            def get(self, key, default=None):
+                if key == "swc.mapping":
+                    return {"brightness_cycle": ["SWC_VOLUP", ""]}
+                return default
+
         assert get_swc_action_with_override("SWC_VOLUP", MockConfig()) == "brightness_cycle"
 
 

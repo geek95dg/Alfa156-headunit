@@ -11,12 +11,13 @@ class TestBCMConfig:
     def test_load_default_config(self):
         cfg = BCMConfig(platform_override="x86")
         assert cfg.platform == "x86"
-        assert cfg.get("system.name") == "BCM v7"
+        assert cfg.get("system.name") == "BCM v8.5"
 
     def test_dot_notation_access(self):
         cfg = BCMConfig(platform_override="x86")
-        assert cfg.get("display.dashboard.width") == 800
-        assert cfg.get("display.dashboard.height") == 480
+        # Main panel is the 10.1" 1280x800 (see display.dashboard in config).
+        assert cfg.get("display.dashboard.width") == 1280
+        assert cfg.get("display.dashboard.height") == 800
 
     def test_default_value(self):
         cfg = BCMConfig(platform_override="x86")

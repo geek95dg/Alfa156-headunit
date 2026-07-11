@@ -24,8 +24,8 @@ class LightingModule:
         self._is_dark = False
 
         # Subscribe to lock/unlock and light sensor events
-        bus.subscribe("vehicle.locked", self._on_lock_change)
-        bus.subscribe("input.light_level", self._on_light_level)
+        self.bus.subscribe("vehicle.locked", self._on_lock_change)
+        self.bus.subscribe("input.light_level", self._on_light_level)
 
     def set_lock_module(self, lock_module):
         self._lock_module = lock_module

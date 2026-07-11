@@ -9,9 +9,7 @@ Audio hardware chain:
                          └→ TDA2050 mono Class AB amp (32W) → subwoofer
 """
 
-import json
 import subprocess
-from pathlib import Path
 from typing import Any, Optional
 
 from src.core.event_bus import EventBus
@@ -30,6 +28,68 @@ EQ_PRESETS = {
 
 # Standard 10-band center frequencies (Hz)
 EQ_FREQUENCIES = [31, 62, 125, 250, 500, 1000, 2000, 4000, 8000, 16000]
+
+# Where the generated filter-chain config lives (tmpfs — regenerated
+# on every preset change and at audio module start).
+EQ_FILTER_CONF = "/tmp/bcm_eq_filter.conf"
+EQ_SINK_NAME = "bcm_eq_sink"
+
+
+def _build_filter_chain_conf(gains: list[float]) -> str:
+    """Render a PipeWire filter-chain config for a 10-band biquad EQ.
+
+    The chain is: lowshelf(31 Hz) -> 8x peaking -> highshelf(16 kHz),
+    exposed as an Audio/Sink named bcm_eq_sink. Audio played into that
+    sink comes out equalized on the (real) default sink.
+    """
+    nodes = []
+    links = []
+    for i, (freq, gain) in enumerate(zip(EQ_FREQUENCIES, gains)):
+        if i == 0:
+            label = "bq_lowshelf"
+        elif i == len(EQ_FREQUENCIES) - 1:
+            label = "bq_highshelf"
+        else:
+            label = "bq_peaking"
+        nodes.append(
+            f'          {{ type = builtin name = eq_band_{i + 1} label = {label} '
+            f'control = {{ "Freq" = {float(freq)} "Q" = 1.4 "Gain" = {float(gain)} }} }}'
+        )
+        if i > 0:
+            links.append(
+                f'          {{ output = "eq_band_{i}:Out" input = "eq_band_{i + 1}:In" }}'
+            )
+    nodes_s = "\n".join(nodes)
+    links_s = "\n".join(links)
+    return f"""# BCM v8.5 — generated 10-band EQ (do not edit; regenerated on preset change)
+context.properties = {{ log.level = 0 }}
+context.modules = [
+  {{ name = libpipewire-module-filter-chain
+    args = {{
+      node.description = "BCM 10-band EQ"
+      media.name = "BCM EQ"
+      filter.graph = {{
+        nodes = [
+{nodes_s}
+        ]
+        links = [
+{links_s}
+        ]
+      }}
+      audio.channels = 2
+      audio.position = [ FL FR ]
+      capture.props = {{
+        node.name = "{EQ_SINK_NAME}"
+        media.class = Audio/Sink
+      }}
+      playback.props = {{
+        node.name = "{EQ_SINK_NAME}_output"
+        node.passive = true
+      }}
+    }}
+  }}
+]
+"""
 
 
 def _pipewire_env() -> dict:
@@ -88,8 +148,18 @@ class PipeWireController:
         self._fader: int = config.get("audio.fader", 0)
         self._balance: int = config.get("audio.balance", 0)
 
+        # Real EQ DSP: a `pipewire -c <generated conf>` child process
+        # hosting a filter-chain sink. None while PW unavailable or
+        # audio.eq_dsp_enabled=false.
+        self._eq_proc: Optional[subprocess.Popen] = None
+        self._eq_dsp_enabled: bool = bool(config.get("audio.eq_dsp_enabled", True))
+
         # Check if PipeWire is running
         self._check_availability()
+
+        # Bring the EQ up with the configured preset at start
+        if self._available and self._eq_dsp_enabled:
+            self.apply_eq_preset(self._current_eq)
 
     def _check_availability(self) -> None:
         """Check if PipeWire is available and running."""
@@ -199,6 +269,10 @@ class PipeWireController:
         gains = EQ_PRESETS[preset_name]
         self._current_eq = preset_name
 
+        # Apply the gains to the actual audio path (filter-chain DSP).
+        # Simulated (event-only) when PipeWire is absent — x86 dev.
+        self._apply_eq_dsp(self._effective_gains(gains))
+
         log.info("EQ preset applied: %s %s", preset_name, gains)
         self._event_bus.publish("audio.eq_changed", {
             "preset": preset_name,
@@ -223,10 +297,104 @@ class PipeWireController:
         treble = max(-12, min(12, treble))
         self._bass = bass
         self._treble = treble
+        # Fold bass/treble into the running DSP chain
+        self._apply_eq_dsp(self._effective_gains(EQ_PRESETS[self._current_eq]))
         self._event_bus.publish("audio.bass", bass)
         self._event_bus.publish("audio.treble", treble)
         log.info("Bass/Treble: %+d / %+d", bass, treble)
         return True
+
+    # ------------------------------------------------------------------
+    # EQ DSP — PipeWire filter-chain child process
+    # ------------------------------------------------------------------
+
+    def _effective_gains(self, gains: list[float]) -> list[float]:
+        """Preset gains with bass (bands 0-2) / treble (bands 7-9) folded in."""
+        eff = list(gains)
+        for i in (0, 1, 2):
+            eff[i] = max(-12, min(12, eff[i] + self._bass))
+        for i in (7, 8, 9):
+            eff[i] = max(-12, min(12, eff[i] + self._treble))
+        return eff
+
+    def _apply_eq_dsp(self, gains: list[float]) -> None:
+        """(Re)start the filter-chain process with the given band gains.
+
+        Preset changes are rare, so restart-on-change is used instead of
+        live pw-cli param pokes — simpler and version-proof. The sink
+        appears as 'bcm_eq_sink'; source_manager routes audio into it.
+        """
+        if not (self._available and self._eq_dsp_enabled):
+            return
+        try:
+            with open(EQ_FILTER_CONF, "w") as f:
+                f.write(_build_filter_chain_conf(gains))
+        except OSError as e:
+            log.error("EQ: cannot write filter config: %s", e)
+            return
+
+        self._stop_eq_dsp()
+        try:
+            self._eq_proc = subprocess.Popen(
+                ["pipewire", "-c", EQ_FILTER_CONF],
+                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                env=_pipewire_env(),
+            )
+            log.info("EQ filter-chain started (pid=%d, sink=%s)",
+                     self._eq_proc.pid, EQ_SINK_NAME)
+        except FileNotFoundError:
+            log.warning("EQ: pipewire binary not found — DSP disabled")
+            self._eq_proc = None
+            return
+
+        # Route everything through the EQ: make bcm_eq_sink the default
+        # sink once it appears (the filter-chain's playback side follows
+        # the real hardware sink automatically).
+        def _route():
+            import time as _time
+            for _ in range(10):
+                _time.sleep(0.3)
+                if self._set_default_sink_by_name(EQ_SINK_NAME):
+                    log.info("Default sink -> %s (EQ in path)", EQ_SINK_NAME)
+                    return
+            log.warning("EQ sink did not appear — audio not equalized")
+
+        import threading as _threading
+        _threading.Thread(target=_route, daemon=True).start()
+
+    def _set_default_sink_by_name(self, name: str) -> bool:
+        """Find a sink id by node name in `wpctl status` and set default."""
+        rc, out, _ = _run_cmd(["wpctl", "status", "--name"])
+        if rc != 0:
+            rc, out, _ = _run_cmd(["wpctl", "status"])
+            if rc != 0:
+                return False
+        for line in out.splitlines():
+            if name in line:
+                for tok in line.replace("*", " ").split():
+                    if tok.rstrip(".").isdigit():
+                        sink_id = tok.rstrip(".")
+                        rc2, _, _ = _run_cmd(["wpctl", "set-default", sink_id])
+                        return rc2 == 0
+        return False
+
+    def _stop_eq_dsp(self) -> None:
+        if self._eq_proc is None:
+            return
+        try:
+            self._eq_proc.terminate()
+            try:
+                self._eq_proc.wait(timeout=2)
+            except subprocess.TimeoutExpired:
+                self._eq_proc.kill()
+                self._eq_proc.wait(timeout=2)
+        except Exception:
+            pass
+        self._eq_proc = None
+
+    def stop(self) -> None:
+        """Cleanup — stop the EQ DSP child process."""
+        self._stop_eq_dsp()
 
     def set_fader(self, fader: int) -> bool:
         """Set front/rear balance (-10=rear to +10=front). Requires multi-channel DAC."""
