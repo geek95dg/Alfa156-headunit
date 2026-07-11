@@ -22,14 +22,21 @@ class CrashDetector:
     def __init__(self, config, event_bus):
         self.config = config
         self.bus = event_bus
+        # Thresholds configurable via the crash_detection.* YAML block
+        self.SPEED_DROP_THRESHOLD = config.get(
+            "crash_detection.speed_drop_threshold", self.SPEED_DROP_THRESHOLD)
+        self.G_FORCE_THRESHOLD = config.get(
+            "crash_detection.g_force_threshold", self.G_FORCE_THRESHOLD)
+        self.POST_CRASH_RECORD_SEC = config.get(
+            "crash_detection.post_crash_record_sec", self.POST_CRASH_RECORD_SEC)
         self._running = False
         self._last_speed = 0
         self._last_speed_ts = 0
         self._crash_detected = False
         self._metadata_dir = "data/crash_events"
 
-        bus.subscribe("gps.speed", self._on_speed)
-        bus.subscribe("alarm.sensor.tilt", self._on_accel)  # MPU6050 G-force
+        self.bus.subscribe("gps.speed", self._on_speed)
+        self.bus.subscribe("alarm.sensor.tilt", self._on_accel)  # MPU6050 G-force
 
     def _on_speed(self, topic, speed, ts):
         now = time.time()

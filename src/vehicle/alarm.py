@@ -32,14 +32,16 @@ class AlarmSystem:
         self._arming_delay = config.get("alarm.arming_delay", 30)
         self._siren_thread = None
 
-        # Subscribe to sensor events
-        bus.subscribe("vehicle.locked", self._on_lock_change)
-        bus.subscribe("alarm.sensor.door", self._on_sensor)
-        bus.subscribe("alarm.sensor.motion", self._on_sensor)
-        bus.subscribe("alarm.sensor.tilt", self._on_sensor)
-        bus.subscribe("alarm.sensor.shock", self._on_sensor)
-        bus.subscribe("alarm.cmd.arm", lambda t, v, ts: self.arm())
-        bus.subscribe("alarm.cmd.disarm", lambda t, v, ts: self.disarm())
+        # Subscribe to sensor events — each sensor type can be disabled
+        # in config (alarm.sensors.{door,motion,tilt,shock}).
+        self.bus.subscribe("vehicle.locked", self._on_lock_change)
+        for sensor in ("door", "motion", "tilt", "shock"):
+            if config.get(f"alarm.sensors.{sensor}", True):
+                self.bus.subscribe(f"alarm.sensor.{sensor}", self._on_sensor)
+            else:
+                log.info("Alarm sensor disabled in config: %s", sensor)
+        self.bus.subscribe("alarm.cmd.arm", lambda t, v, ts: self.arm())
+        self.bus.subscribe("alarm.cmd.disarm", lambda t, v, ts: self.disarm())
 
     @property
     def state(self):

@@ -17,9 +17,9 @@ from src.dashboard.screens import (
 
 class TestThemes:
     def test_all_themes_registered(self):
-        assert "classic_alfa" in THEMES
-        assert "modern_dark" in THEMES
-        assert "oem_digital" in THEMES
+        assert "heritage" in THEMES
+        assert "modern" in THEMES
+        assert "autodelta" in THEMES
 
     def test_themes_instantiate(self):
         for name, cls in THEMES.items():
@@ -33,20 +33,26 @@ class TestThemes:
         for cls in THEMES.values():
             assert issubclass(cls, ThemeBase)
 
-    def test_classic_alfa_has_warm_accent(self):
-        theme = THEMES["classic_alfa"]()
-        # Amber/orange accent — red channel should be dominant
+    def test_heritage_has_warm_accent(self):
+        theme = THEMES["heritage"]()
+        # Amber accent — red channel should be dominant
         assert theme.accent_color[0] > theme.accent_color[2]
 
-    def test_modern_dark_has_cyan_accent(self):
-        theme = THEMES["modern_dark"]()
-        # Cyan accent — blue channel dominant
+    def test_autodelta_has_warm_accent(self):
+        theme = THEMES["autodelta"]()
+        # Orange accent — red channel dominant
+        assert theme.accent_color[0] > theme.accent_color[2]
+
+    def test_modern_has_blue_accent(self):
+        theme = THEMES["modern"]()
+        # Alfa Blue accent — blue channel dominant
         assert theme.accent_color[2] > theme.accent_color[0]
 
-    def test_oem_digital_uses_digital_for_small_gauges(self):
-        theme = THEMES["oem_digital"]()
-        assert theme.temp_gauge.style == "digital"
-        assert theme.fuel_gauge.style == "digital"
+    def test_all_themes_define_small_gauges(self):
+        for cls in THEMES.values():
+            theme = cls()
+            assert theme.temp_gauge.style
+            assert theme.fuel_gauge.style
 
     def test_theme_has_screen_properties(self):
         """All themes must have the new screen-based properties."""
@@ -68,12 +74,12 @@ class TestThemes:
 class TestI18n:
     def test_translate_polish(self):
         assert t("screen.a1", "pl") == "A1: GŁÓWNY"
-        assert t("screen.a2", "pl") == "A2: SPALANIE"
+        assert t("screen.a2", "pl") == "A2: ANDROID AUTO"
         assert t("parking", "pl") == "PARKOWANIE"
 
     def test_translate_english(self):
         assert t("screen.a1", "en") == "A1: MAIN"
-        assert t("screen.a2", "en") == "A2: CONSUMPTION"
+        assert t("screen.a2", "en") == "A2: ANDROID AUTO"
         assert t("parking", "en") == "PARKING"
 
     def test_missing_key_returns_key(self):
@@ -104,7 +110,7 @@ class TestI18n:
 
 class TestScreenSystem:
     def test_screen_order(self):
-        assert SCREEN_ORDER == ["a1", "a2", "b1", "b2", "c1", "c2"]
+        assert SCREEN_ORDER == ["a1", "a2", "a3", "a4", "settings"]
 
     def test_all_screens_registered(self):
         for sid in SCREEN_ORDER:
@@ -290,7 +296,7 @@ class TestSettingsScreen:
         settings.toggle()
         settings.cycle_value(1)
         new_theme = cfg.get("display.dashboard.theme")
-        assert new_theme in ["classic_alfa", "modern_dark", "oem_digital"]
+        assert new_theme in ["heritage", "modern", "autodelta"]
 
     def test_all_settings_have_valid_config_keys(self):
         cfg = BCMConfig(platform_override="x86")

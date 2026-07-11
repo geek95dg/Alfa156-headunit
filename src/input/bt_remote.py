@@ -20,7 +20,7 @@ log = get_logger("input.bt_remote")
 
 try:
     import evdev
-    from evdev import InputDevice, ecodes
+    from evdev import InputDevice, ecodes  # noqa: F401 — availability probe
     _EVDEV_AVAILABLE = True
 except ImportError:
     _EVDEV_AVAILABLE = False

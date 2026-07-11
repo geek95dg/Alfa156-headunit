@@ -1,3 +1,4 @@
 # BCM v7 — Development/testing dependencies
 pytest>=8.0
 pytest-cov>=4.0
+pytest-timeout>=2.3

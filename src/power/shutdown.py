@@ -11,7 +11,6 @@ Entry point: start_power() is called from main.py.
 """
 
 import subprocess
-import sys
 from typing import Any
 
 from src.core.event_bus import EventBus

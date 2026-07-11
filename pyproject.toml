@@ -1,0 +1,23 @@
+[tool.ruff]
+line-length = 110
+target-version = "py311"
+extend-exclude = ["legacy", ".venv", "mockups"]
+
+[tool.ruff.lint]
+# Correctness-focused: pyflakes (F), real errors (E7/E9), bugbear-lite.
+# Style/formatting rules are deliberately off — the codebase predates
+# the linter and mass-reformatting would bury real history.
+select = ["F", "E7", "E9", "W6"]
+ignore = [
+    "E731",  # lambda assignments — used idiomatically for tiny handlers
+    "E741",  # ambiguous variable names (l for Leaflet-ish math is fine)
+]
+
+[tool.ruff.lint.per-file-ignores]
+# Simulators/tests import modules to assert availability; some tests
+# keep named intermediates for readability
+"tests/*" = ["F401", "F841"]
+# Legacy Pygame screens (dev-only path) and one-shot mockup generators
+# are not worth cleaning up variable-by-variable
+"src/dashboard/screens/*" = ["F841"]
+"tools/*" = ["F841", "F401"]

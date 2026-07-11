@@ -1,3 +1,7 @@
+# =====================================================================
+# LEGACY — KOD NIEUŻYWANY W PRODUKCJI. Nie importowany przez main.py.
+# Powód i kontekst: legacy/README.md oraz AUDYT_I_PLAN.md.
+# =====================================================================
 """Android Auto second display + Bluetooth management web UI.
 
 Runs a Flask web server (port 5001) providing:

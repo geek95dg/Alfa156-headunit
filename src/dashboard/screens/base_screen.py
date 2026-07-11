@@ -8,12 +8,10 @@ v7.1: Added GPS, weather, BT media, LTE fields to DashboardData.
 Added card-based drawing helpers for new screen designs.
 """
 
-import math
 import pygame
 from dataclasses import dataclass, field
 from typing import Optional
 from src.dashboard.themes.theme_base import ThemeBase
-from src.dashboard.i18n import t
 
 
 def _font(name: str, size: int) -> pygame.font.Font:

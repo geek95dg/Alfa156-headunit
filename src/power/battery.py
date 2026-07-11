@@ -4,8 +4,6 @@ Monitors backup battery voltage, manages power switching between
 car battery and Li-ion backup for suspend mode.
 """
 
-import threading
-import time
 from src.core.logger import get_logger
 
 log = get_logger("battery")
@@ -27,7 +25,7 @@ class BatteryBackup:
         self._voltage = 0.0
         self._on_backup = False
 
-        bus.subscribe("arduino.battery_voltage", self._on_adc)
+        self.bus.subscribe("arduino.battery_voltage", self._on_adc)
 
     def _on_adc(self, topic, voltage, ts):
         self._voltage = voltage

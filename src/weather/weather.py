@@ -12,7 +12,6 @@ Publishes to event bus:
 
 import json
 from src.core.logger import get_logger
-import os
 import threading
 import time
 from pathlib import Path

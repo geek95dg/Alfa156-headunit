@@ -1,10 +1,9 @@
 """B2: PALIWO — Graphical fuel tank, estimated range, reserve indicator."""
 
-import math
 import pygame
 from src.dashboard.themes.theme_base import ThemeBase
 from src.dashboard.i18n import t
-from .base_screen import BaseScreen, DashboardData, _font, _lerp_color
+from .base_screen import BaseScreen, DashboardData, _font
 
 
 class FuelScreen(BaseScreen):

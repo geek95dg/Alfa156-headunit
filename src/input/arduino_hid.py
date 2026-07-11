@@ -17,7 +17,7 @@ log = get_logger("input.arduino_hid")
 
 try:
     import evdev
-    from evdev import InputDevice, categorize, ecodes
+    from evdev import InputDevice, categorize, ecodes  # noqa: F401 — availability probe
     _EVDEV_AVAILABLE = True
 except ImportError:
     _EVDEV_AVAILABLE = False

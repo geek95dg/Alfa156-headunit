@@ -21,6 +21,8 @@ SID_START_DIAG = 0x10
 SID_STOP_DIAG = 0x20
 SID_TESTER_PRESENT = 0x3E
 SID_READ_LOCAL_ID = 0x21
+SID_READ_DTC = 0x18
+SID_CLEAR_DTC = 0x14
 SID_START_COMM = 0x81
 POSITIVE_OFFSET = 0x40
 
@@ -56,10 +58,22 @@ class ECUSimulator:
         self._session_active = False
         self._t = 0.0
 
+        # Simulated stored DTCs: (raw_16bit, status). Two realistic
+        # EDC15 faults by default so the Service screen has something
+        # to show in demo mode; cleared by SID 0x14.
+        self.stored_dtcs: list[tuple[int, int]] = [
+            (0x0380, 0xE0),  # P0380 glow plug circuit
+            (0x0235, 0x60),  # P0235 boost pressure sensor
+        ]
+
         # PTY pair
         self._master_fd: Optional[int] = None
         self._slave_fd: Optional[int] = None
         self.reader_port: str = ""
+
+    def inject_dtc(self, raw: int, status: int = 0xE0) -> None:
+        """Add a simulated stored trouble code (for tests/demo)."""
+        self.stored_dtcs.append((raw, status))
 
     def start(self) -> str:
         """Create PTY pair and start simulator thread.
@@ -178,6 +192,18 @@ class ECUSimulator:
                 return bytes([sid + POSITIVE_OFFSET, local_id]) + value
             return None
 
+        elif sid == SID_READ_DTC:
+            # readDTCByStatus: 58 <count> (<hi> <lo> <status>)*
+            out = bytes([sid + POSITIVE_OFFSET, len(self.stored_dtcs)])
+            for raw, status in self.stored_dtcs:
+                out += raw.to_bytes(2, "big") + bytes([status])
+            return out
+
+        elif sid == SID_CLEAR_DTC:
+            # clearDiagnosticInformation: echo the group back
+            self.stored_dtcs.clear()
+            return bytes([sid + POSITIVE_OFFSET]) + data[1:3]
+
         else:
             # Unknown service — negative response
             return bytes([0x7F, sid, 0x11])  # serviceNotSupported
@@ -277,33 +303,57 @@ def start_obd(config, event_bus: EventBus, **kwargs) -> None:
 
     platform = config.platform
 
-    if platform == "x86":
-        # Start mock ECU simulator
+    # Real hardware vs simulated ECU. x86 is now a production target
+    # (Lenovo M910q + CP2102/L9637D or VIAKEN KKL on USB), so x86 can
+    # talk to a real ECU when obd.use_real_hardware is set. OPi always
+    # uses real hardware; the PTY simulator is x86-dev-only.
+    use_real = (platform != "x86") or config.get("obd.use_real_hardware", False)
+
+    if not use_real:
+        # x86 dev: start mock ECU simulator on a PTY pair
         simulator = ECUSimulator()
         port = simulator.start()
         time.sleep(0.3)  # let PTY settle
     else:
-        port = config.get("serial.kline.port_opi", "/dev/ttyS3")
+        # Platform-specific port key first (port_x86 for the M910q USB
+        # adapter, port_opi_pc for the bench rig), then the generic
+        # port_opi.
+        port = config.get(
+            f"serial.kline.port_{platform}",
+            config.get("serial.kline.port_opi", "/dev/ttyS3"))
         simulator = None
+        log.info("OBD: real K-Line hardware on %s (platform=%s)", port, platform)
 
-    # Open K-Line (echo=True on real K-Line, False on PTY simulator)
-    kline = KLine(port, echo=(platform == "opi"))
-    kline.open()
+    # Open K-Line. echo=True on a real half-duplex K-Line (we see our
+    # own TX); False on the PTY simulator which has no echo.
+    kline = KLine(port, echo=use_real)
+    try:
+        kline.open()
+    except Exception:
+        log.exception("OBD: cannot open K-Line port %s — module disabled", port)
+        if simulator:
+            simulator.stop()
+        return
 
     # Initialize connection
     kwp = KWP2000(kline, ecu_address=config.get("serial.kline.ecu_address", 0x01))
 
-    if platform == "x86":
-        # On x86, use fast init (simulator supports it)
+    if not use_real:
+        # Simulator supports fast init
         if not kwp.init_fast():
             log.warning("Fast init failed on simulator")
     else:
-        # On OPi, perform 5-baud init
+        # Real ECU (EDC15C7): 5-baud slow init. Optionally try fast init
+        # first for ECUs/adapters that support it (obd.fast_init: true).
         ecu_addr = config.get("serial.kline.ecu_address", 0x01)
-        if not kline.five_baud_init(ecu_addr):
-            log.error("5-baud init failed — cannot communicate with ECU")
-            if simulator:
-                simulator.stop()
+        inited = False
+        if config.get("obd.fast_init", False):
+            inited = kwp.init_fast()
+            if inited:
+                log.info("OBD: fast init OK")
+        if not inited and not kline.five_baud_init(ecu_addr):
+            log.error("5-baud init failed — cannot communicate with ECU "
+                      "(check wiring, ignition ON, ECU address 0x%02X)", ecu_addr)
             kline.close()
             return
 

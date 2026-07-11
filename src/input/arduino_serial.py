@@ -23,7 +23,7 @@ On OPi: same auto-detection.
 """
 
 import threading
-from typing import Any, Optional
+from typing import Optional
 
 from src.core.event_bus import EventBus
 from src.core.logger import get_logger

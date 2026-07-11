@@ -69,6 +69,7 @@
  * including HM-10 setup, window-remote learning, and BLE tag pairing.
  */
 
+#include <avr/wdt.h>
 #include <ArduinoJson.h>
 #include <EEPROM.h>
 #include <RCSwitch.h>
@@ -160,9 +161,19 @@ bool ledState = false;
 // Learn modes
 int  learnSlot = -1;           // -1 = not in window-learn mode
 unsigned long learnUntil = 0;
-bool learnBleActive = false;
-uint8_t bestBleMac[6] = {0};
-int8_t  bestBleRssi = -127;
+
+// BLE scan state machine — NIEBLOKUJĄCA. Poprzednia wersja czekała
+// synchronicznie do 2.5 s (gate) / 5 s (learn) w pętli, zamrażając
+// pilota 433 MHz i auto-stop szyby. Teraz skan biegnie w tle,
+// a loop() obsługuje wszystko na bieżąco.
+enum BleMode { BLE_IDLE, BLE_GATE, BLE_LEARN };
+BleMode bleMode = BLE_IDLE;
+unsigned long bleDeadline = 0;
+char    bleBuf[80];
+uint8_t blePos = 0;
+int8_t  gateBestRssi = -127;   // BLE_GATE: najlepszy RSSI znanego taga
+uint8_t learnBestMac[6] = {0}; // BLE_LEARN: najsilniejszy znaleziony tag
+int8_t  learnBestRssi = -127;
 
 // Serial input buffer
 char lineBuf[160];
@@ -181,8 +192,10 @@ int  findSlotForCode(unsigned long code);
 void enterLearnWindow(const char* slotName);
 void enterLearnBle();
 void handleTrunkButton(unsigned long now);
-bool bleScanAndGate(int8_t* outRssi);
-void hmCommand(const char* cmd);
+void bleStartScan(BleMode mode, unsigned long durationMs);
+void bleService(unsigned long now);
+void bleProcessLine();
+void bleFinishScan();
 void loadEeprom();
 void saveCode(int slot, unsigned long code);
 void saveBleMac(const uint8_t* mac);
@@ -227,10 +240,15 @@ void setup() {
 
   delay(200);
   Serial.println(F("{\"event\":\"ready\",\"fw\":\"bcm-domain-a-v8.5\"}"));
+
+  // Watchdog 2 s — płytka jest zasilana na stałe; zawieszenie bez
+  // watchdoga wymagałoby fizycznego odłączenia zasilania.
+  wdt_enable(WDTO_2S);
 }
 
 // =============================================================================
 void loop() {
+  wdt_reset();
   unsigned long now = millis();
 
   // -------- 1. USB serial — read JSON commands --------
@@ -299,8 +317,9 @@ void loop() {
     }
   }
 
-  // -------- 4. Trunk button --------
+  // -------- 4. Trunk button + BLE scan state machine --------
   handleTrunkButton(now);
+  bleService(now);
   if (trunkOffAt && now >= trunkOffAt) {
     setRelay(PIN_TRUNK_RELAY, false);
     trunkOffAt = 0;
@@ -314,13 +333,14 @@ void loop() {
     learnSlot = -1;
   }
 
-  // -------- 6. Heartbeat LED (very slow — 0.5 Hz @ 5 % duty to save power) --
+  // -------- 6. Heartbeat LED — 100 ms flash every 2 s --------
   if ((now - lastHeartbeat) >= 2000) {
     lastHeartbeat = now;
-    ledState = !ledState;
-    digitalWrite(PIN_LED, ledState ? HIGH : LOW);
+    ledState = true;
+    digitalWrite(PIN_LED, HIGH);
   } else if (ledState && (now - lastHeartbeat) >= 100) {
-    digitalWrite(PIN_LED, LOW);  // 100 ms on, then off until next 2 s mark
+    ledState = false;
+    digitalWrite(PIN_LED, LOW);
   }
 }
 
@@ -446,83 +466,136 @@ void handleTrunkButton(unsigned long now) {
     lastTrunkChange = now;
     lastTrunkButton = state;
     if (state == LOW) {
-      // Falling edge — button pressed. Scan for BLE tag.
+      // Falling edge — button pressed. Kick off a background BLE scan;
+      // the verdict (trunk / trunk_denied) falls in bleFinishScan().
       if (!bleMacValid) {
         emitEvent("trunk_denied");  // no key configured
         return;
       }
-      int8_t rssi;
-      if (bleScanAndGate(&rssi)) {
-        // Key present — pulse trunk
-        setRelay(PIN_TRUNK_RELAY, true);
-        trunkOffAt = millis() + TRUNK_PULSE_MS;
-        Serial.print(F("{\"event\":\"trunk\",\"rssi\":"));
-        Serial.print(rssi);
-        Serial.println(F("}"));
-      } else {
-        if (rssi == -127) {
-          Serial.println(F("{\"event\":\"trunk_denied\",\"reason\":\"no_key\"}"));
-        } else {
-          Serial.print(F("{\"event\":\"trunk_denied\",\"reason\":\"weak\",\"rssi\":"));
-          Serial.print(rssi);
-          Serial.println(F("}"));
-        }
+      if (bleMode == BLE_IDLE) {
+        bleStartScan(BLE_GATE, BLE_SCAN_MS);
       }
+      // Scan already running — the press is folded into the running scan.
     }
   }
 }
 
-// Issues AT+DISC? to HM-10, parses replies, looks for known MAC.
-// Returns true if key found AND RSSI >= threshold.
-// outRssi: best RSSI seen for the known MAC, or -127 if not seen.
-bool bleScanAndGate(int8_t* outRssi) {
-  *outRssi = -127;
-  // Flush any leftover bytes
-  while (ble.available()) ble.read();
+// --- BLE scan state machine (non-blocking) -----------------------------------
+// Issues AT+DISC? to HM-10 and parses replies incrementally from loop().
+// Expected line formats (HM-10 v6/v7+):
+//   OK+DISC:001122334455
+//   OK+RSSI:-67
+//   OK+DIS0:001122334455:RSSI:-67
+void bleStartScan(BleMode mode, unsigned long durationMs) {
+  while (ble.available()) ble.read();  // flush leftovers
   ble.print(F("AT+DISC?"));
+  bleMode = mode;
+  bleDeadline = millis() + durationMs;
+  blePos = 0;
+  gateBestRssi = -127;
+  learnBestRssi = -127;
+}
 
-  unsigned long deadline = millis() + BLE_SCAN_MS;
-  char buf[80];
-  uint8_t pos = 0;
+void bleService(unsigned long now) {
+  if (bleMode == BLE_IDLE) return;
 
-  while (millis() < deadline) {
-    while (ble.available()) {
-      char c = ble.read();
-      if (c == '\n' || c == '\r' || pos >= sizeof(buf) - 1) {
-        buf[pos] = '\0';
-        // Expected formats (HM-10 v6/v7+):
-        //   OK+DISC:001122334455
-        //   OK+RSSI:-67
-        // or combined:
-        //   OK+DIS0:001122334455:RSSI:-67
-        // We match MAC on any line containing our 12 hex digits.
-        if (pos > 0) {
-          char macHex[13];
-          for (int i = 0; i < 6; i++) snprintf(macHex + i*2, 3, "%02X", bleMac[i]);
-          macHex[12] = 0;
-          char* found = strstr(buf, macHex);
-          if (found) {
-            // Look for RSSI in same line or buffer
-            char* rs = strstr(buf, "RSSI");
-            int rssi = -127;
-            if (rs) {
-              rs = strchr(rs, '-');
-              if (rs) rssi = atoi(rs);
+  while (ble.available()) {
+    char c = ble.read();
+    if (c == '\n' || c == '\r' || blePos >= sizeof(bleBuf) - 1) {
+      bleBuf[blePos] = '\0';
+      if (blePos > 0) bleProcessLine();
+      blePos = 0;
+    } else {
+      bleBuf[blePos++] = c;
+    }
+  }
+
+  if (now >= bleDeadline) bleFinishScan();
+}
+
+void bleProcessLine() {
+  if (bleMode == BLE_GATE) {
+    // Match our known MAC anywhere in the line, then grab its RSSI.
+    char macHex[13];
+    for (int i = 0; i < 6; i++) snprintf(macHex + i*2, 3, "%02X", bleMac[i]);
+    macHex[12] = 0;
+    if (strstr(bleBuf, macHex)) {
+      char* rs = strstr(bleBuf, "RSSI");
+      if (rs) {
+        rs = strchr(rs, '-');
+        if (rs) {
+          int rssi = atoi(rs);
+          if (rssi != -127 && rssi > gateBestRssi) gateBestRssi = (int8_t) rssi;
+        }
+      }
+    }
+  } else if (bleMode == BLE_LEARN && blePos > 16) {
+    // Heuristic: find 12 consecutive hex chars → candidate MAC, track
+    // the strongest RSSI seen during the scan window.
+    for (int i = 0; i + 12 <= (int) blePos; i++) {
+      bool isHex = true;
+      for (int j = 0; j < 12; j++) {
+        char ch = bleBuf[i + j];
+        if (!((ch >= '0' && ch <= '9') || (ch >= 'A' && ch <= 'F') || (ch >= 'a' && ch <= 'f'))) {
+          isHex = false; break;
+        }
+      }
+      if (isHex) {
+        uint8_t mac[6];
+        for (int k = 0; k < 6; k++) {
+          char hex[3] = { bleBuf[i + k*2], bleBuf[i + k*2 + 1], 0 };
+          mac[k] = (uint8_t) strtol(hex, nullptr, 16);
+        }
+        char* rs = strstr(bleBuf, "RSSI");
+        if (rs) {
+          rs = strchr(rs, '-');
+          if (rs) {
+            int rssi = atoi(rs);
+            if (rssi > learnBestRssi) {
+              learnBestRssi = (int8_t) rssi;
+              memcpy(learnBestMac, mac, 6);
             }
-            if (rssi != -127 && rssi > *outRssi) *outRssi = (int8_t) rssi;
           }
         }
-        pos = 0;
-      } else {
-        buf[pos++] = c;
+        break;
       }
     }
   }
-  return (*outRssi != -127) && (*outRssi >= bleRssiThreshold);
 }
 
-void hmCommand(const char* cmd) {
-  ble.print(cmd);
+void bleFinishScan() {
+  BleMode finished = bleMode;
+  bleMode = BLE_IDLE;
+
+  if (finished == BLE_GATE) {
+    if (gateBestRssi != -127 && gateBestRssi >= bleRssiThreshold) {
+      setRelay(PIN_TRUNK_RELAY, true);
+      trunkOffAt = millis() + TRUNK_PULSE_MS;
+      Serial.print(F("{\"event\":\"trunk\",\"rssi\":"));
+      Serial.print(gateBestRssi);
+      Serial.println(F("}"));
+    } else if (gateBestRssi == -127) {
+      Serial.println(F("{\"event\":\"trunk_denied\",\"reason\":\"no_key\"}"));
+    } else {
+      Serial.print(F("{\"event\":\"trunk_denied\",\"reason\":\"weak\",\"rssi\":"));
+      Serial.print(gateBestRssi);
+      Serial.println(F("}"));
+    }
+  } else if (finished == BLE_LEARN) {
+    if (learnBestRssi != -127) {
+      saveBleMac(learnBestMac);
+      char macHex[13];
+      for (int i = 0; i < 6; i++) snprintf(macHex + i*2, 3, "%02X", learnBestMac[i]);
+      macHex[12] = 0;
+      Serial.print(F("{\"event\":\"ble_learned\",\"mac\":\""));
+      Serial.print(macHex);
+      Serial.print(F("\",\"rssi\":"));
+      Serial.print(learnBestRssi);
+      Serial.println(F("}"));
+    } else {
+      emitErrorMsg("no BLE device found");
+    }
+  }
 }
 
 // =============================================================================
@@ -539,72 +612,13 @@ void enterLearnWindow(const char* slotName) {
 }
 
 void enterLearnBle() {
-  // Scan briefly, pick MAC with strongest RSSI, store it.
-  while (ble.available()) ble.read();
-  ble.print(F("AT+DISC?"));
-  unsigned long deadline = millis() + BLE_SCAN_MS * 2;
-  char buf[80];
-  uint8_t pos = 0;
-  uint8_t bestMac[6] = {0};
-  int8_t  bestRssi = -127;
-
-  while (millis() < deadline) {
-    while (ble.available()) {
-      char c = ble.read();
-      if (c == '\n' || c == '\r' || pos >= sizeof(buf) - 1) {
-        buf[pos] = '\0';
-        if (pos > 16) {
-          // Try to extract a MAC and RSSI from the line
-          // Heuristic: find 12 consecutive hex chars
-          for (int i = 0; i + 12 <= (int)pos; i++) {
-            bool isHex = true;
-            for (int j = 0; j < 12; j++) {
-              char ch = buf[i + j];
-              if (!((ch >= '0' && ch <= '9') || (ch >= 'A' && ch <= 'F') || (ch >= 'a' && ch <= 'f'))) {
-                isHex = false; break;
-              }
-            }
-            if (isHex) {
-              uint8_t mac[6];
-              for (int k = 0; k < 6; k++) {
-                char hex[3] = { buf[i + k*2], buf[i + k*2 + 1], 0 };
-                mac[k] = (uint8_t) strtol(hex, nullptr, 16);
-              }
-              char* rs = strstr(buf, "RSSI");
-              if (rs) {
-                rs = strchr(rs, '-');
-                if (rs) {
-                  int rssi = atoi(rs);
-                  if (rssi > bestRssi) {
-                    bestRssi = (int8_t) rssi;
-                    memcpy(bestMac, mac, 6);
-                  }
-                }
-              }
-              break;
-            }
-          }
-        }
-        pos = 0;
-      } else {
-        buf[pos++] = c;
-      }
-    }
+  // Non-blocking: kick off a background scan; the result event
+  // (ble_learned / error) is emitted from bleFinishScan().
+  if (bleMode != BLE_IDLE) {
+    emitErrorMsg("BLE scan busy");
+    return;
   }
-
-  if (bestRssi != -127) {
-    saveBleMac(bestMac);
-    char macHex[13];
-    for (int i = 0; i < 6; i++) snprintf(macHex + i*2, 3, "%02X", bestMac[i]);
-    macHex[12] = 0;
-    Serial.print(F("{\"event\":\"ble_learned\",\"mac\":\""));
-    Serial.print(macHex);
-    Serial.print(F("\",\"rssi\":"));
-    Serial.print(bestRssi);
-    Serial.println(F("}"));
-  } else {
-    emitErrorMsg("no BLE device found");
-  }
+  bleStartScan(BLE_LEARN, BLE_SCAN_MS * 2);
 }
 
 // =============================================================================

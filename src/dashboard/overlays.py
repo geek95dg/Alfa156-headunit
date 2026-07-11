@@ -111,7 +111,7 @@ class CameraCapture:
         """Background thread: grab frames from camera."""
         try:
             import cv2
-            import numpy as np
+            import numpy  # noqa: F401 — cv2 frames need numpy present
         except ImportError:
             return
 

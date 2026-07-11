@@ -1,0 +1,44 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install ruff
+      - run: ruff check .
+
+  tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt -r requirements-x86.txt -r requirements-dev.txt
+      - name: Run pytest
+        # pytest.ini sets a 60 s per-test timeout so a hung test fails
+        # instead of stalling the job
+        run: python -m pytest tests/ -q
+
+  arduino:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install arduino-cli
+        uses: arduino/setup-arduino-cli@v2
+      - name: Compile all sketches
+        # sketch.yaml build profiles pin the core + library versions,
+        # so arduino-cli fetches exactly what each sketch needs.
+        run: make -C arduino

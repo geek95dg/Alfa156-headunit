@@ -119,6 +119,42 @@ PID_MAP = {pid.local_id: pid for pid in PIDS}
 DEFAULT_ACTIVE_PIDS = [0x01, 0x02, 0x03, 0x04, 0x06]
 
 
+def dtc_to_code(raw: int) -> str:
+    """Convert a 16-bit DTC to its display code (e.g. 0x0380 -> 'P0380')."""
+    letter = "PCBU"[(raw >> 14) & 0x03]
+    return (f"{letter}{(raw >> 12) & 0x03}"
+            f"{(raw >> 8) & 0x0F:X}{(raw >> 4) & 0x0F:X}{raw & 0x0F:X}")
+
+
+# Common trouble codes on the Bosch EDC15C7 (Alfa 156 1.9 JTD 8V).
+# Codes outside this map still display with their P-code, just without
+# a description.
+DTC_DESCRIPTIONS = {
+    "P0100": "Mass air flow (MAF) sensor circuit",
+    "P0105": "Manifold absolute pressure sensor circuit",
+    "P0110": "Intake air temperature sensor circuit",
+    "P0115": "Engine coolant temperature sensor circuit",
+    "P0120": "Accelerator pedal position sensor circuit",
+    "P0180": "Fuel temperature sensor circuit",
+    "P0190": "Fuel rail pressure sensor circuit",
+    "P0201": "Injector circuit — cylinder 1",
+    "P0202": "Injector circuit — cylinder 2",
+    "P0203": "Injector circuit — cylinder 3",
+    "P0204": "Injector circuit — cylinder 4",
+    "P0215": "Engine shutoff solenoid",
+    "P0235": "Turbocharger boost pressure sensor circuit",
+    "P0243": "Turbocharger wastegate solenoid",
+    "P0335": "Crankshaft position sensor circuit",
+    "P0380": "Glow plug circuit",
+    "P0400": "EGR flow malfunction",
+    "P0500": "Vehicle speed sensor",
+    "P0560": "System voltage malfunction",
+    "P0606": "ECU processor fault",
+    "P1600": "Immobiliser communication fault",
+    "P1610": "Immobiliser code mismatch",
+}
+
+
 class EDC15C7Reader:
     """Continuously polls the EDC15C7 ECU and publishes data to event bus.
 
@@ -143,6 +179,45 @@ class EDC15C7Reader:
         # Latest values cache
         self.values: dict[str, float] = {}
 
+        # DTC requests are serviced INSIDE the poll loop so the serial
+        # link is never used from two threads at once. The web endpoint
+        # publishes obd.dtc.read_request / obd.dtc.clear_request; the
+        # poll loop answers with obd.dtc.codes / obd.dtc.cleared.
+        self._dtc_read_pending = False
+        self._dtc_clear_pending = False
+        event_bus.subscribe("obd.dtc.read_request", self._on_dtc_read_request)
+        event_bus.subscribe("obd.dtc.clear_request", self._on_dtc_clear_request)
+
+    def _on_dtc_read_request(self, topic, value, ts=None) -> None:
+        self._dtc_read_pending = True
+
+    def _on_dtc_clear_request(self, topic, value, ts=None) -> None:
+        self._dtc_clear_pending = True
+
+    def _service_dtc_requests(self) -> None:
+        """Handle pending DTC read/clear inside the polling thread."""
+        if self._dtc_clear_pending:
+            self._dtc_clear_pending = False
+            ok = self.kwp.clear_dtcs()
+            self.bus.publish("obd.dtc.cleared", ok)
+            self._dtc_read_pending = True  # re-read to confirm
+
+        if self._dtc_read_pending:
+            self._dtc_read_pending = False
+            raw_dtcs = self.kwp.read_dtcs()
+            if raw_dtcs is None:
+                self.bus.publish("obd.dtc.codes", None)  # comms failure
+                return
+            codes = []
+            for raw, status in raw_dtcs:
+                code = dtc_to_code(raw)
+                codes.append({
+                    "code": code,
+                    "status": status,
+                    "desc": DTC_DESCRIPTIONS.get(code, ""),
+                })
+            self.bus.publish("obd.dtc.codes", codes)
+
     def start(self) -> None:
         """Start the polling thread."""
         self._running = True
@@ -163,6 +238,12 @@ class EDC15C7Reader:
         consecutive_errors = 0
 
         while self._running:
+            # Service queued DTC read/clear requests first
+            try:
+                self._service_dtc_requests()
+            except Exception:
+                log.exception("DTC request handling failed")
+
             # Send keepalive every 2 seconds
             now = time.time()
             if now - self._last_keepalive > 2.0:

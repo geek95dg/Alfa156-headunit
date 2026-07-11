@@ -4,11 +4,14 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
     <title>BCM v8.5 — Alfa Romeo 156 Head Unit</title>
-    <!-- Vendor libs — run config/scripts/download-vendor-assets.sh to download -->
-    <script src="/assets/vendor/tailwind.js"></script>
+    <!-- Tailwind is PRECOMPILED to a static stylesheet — the 419 KB
+         runtime JIT engine (tailwind.js) is gone; it recompiled CSS in
+         the browser on every page load. After adding new utility
+         classes in JS/HTML run: config/scripts/build-frontend.sh -->
+    <link rel="stylesheet" href="/assets/vendor/tailwind.css">
     <link rel="stylesheet" href="/assets/fonts/local-fonts.css">
     <link rel="stylesheet" href="/assets/vendor/leaflet/leaflet.css">
-    <script src="/assets/vendor/leaflet/leaflet.js"></script>
+    <script defer src="/assets/vendor/leaflet/leaflet.js"></script>
     <link rel="stylesheet" href="/css/themes.css">
     <script id="bcm-adaptive-rem">
         /* Resolution-adaptive rem base. Tailwind utilities are rem-based,
@@ -34,32 +37,6 @@
             window.addEventListener("DOMContentLoaded", applyRem);
         })();
     </script>
-    <script id="tailwind-config">
-        tailwind.config = {
-            darkMode: "class",
-            theme: {
-                extend: {
-                    colors: {
-                        primary: "var(--color-primary)",
-                        accent: "var(--color-accent)",
-                        surface: "var(--color-surface)",
-                        "on-surface": "var(--color-on-surface)",
-                        "on-surface-variant": "var(--color-on-surface-variant)",
-                    },
-                    fontFamily: {
-                        display: ["Public Sans", "sans-serif"],
-                        body: ["Public Sans", "sans-serif"],
-                    },
-                    borderRadius: {
-                        DEFAULT: "0.25rem",
-                        lg: "0.5rem",
-                        xl: "0.75rem",
-                        full: "9999px",
-                    },
-                },
-            },
-        };
-    </script>
     <style>
         /* Adaptive resolution: fits 1024x600 or 1280x800 or scales to window */
         body { margin: 0; overflow: hidden; }
@@ -72,26 +49,29 @@
     <!-- Screen Container — all screens render here -->
     <div id="app" class="relative w-full h-full"></div>
 
-    <!-- Scripts: app.js MUST load first (defines App), then components, then screens -->
-    <script src="/js/websocket.js"></script>
-    <script src="/js/components/splash.js"></script>
-    <script src="/js/app.js"></script>
-    <script src="/js/components/appbar.js"></script>
-    <script src="/js/components/navbar.js"></script>
-    <script src="/js/components/keyboard.js"></script>
-    <script src="/js/components/notifications.js"></script>
-    <script src="/js/components/media-player.js"></script>
-    <script src="/js/components/charts.js"></script>
-    <script src="/js/screens/init.js"></script>
-    <script src="/js/screens/main.js"></script>
-    <script src="/js/screens/android_auto.js"></script>
-    <script src="/js/screens/trip.js"></script>
-    <script src="/js/screens/weather.js"></script>
-    <script src="/js/screens/service.js"></script>
-    <script src="/js/screens/dvr.js"></script>
-    <script src="/js/screens/performance.js"></script>
-    <script src="/js/screens/phone.js"></script>
-    <script src="/js/screens/audio.js"></script>
-    <script src="/js/screens/settings.js"></script>
+    <!-- Scripts: defer = downloaded in parallel, executed in document
+         order after parse (so app.js still runs first) and never block
+         first paint. splash.js must precede app.js — App.init checks
+         typeof Splash to arm the wake overlay. -->
+    <script defer src="/js/websocket.js"></script>
+    <script defer src="/js/components/splash.js"></script>
+    <script defer src="/js/app.js"></script>
+    <script defer src="/js/components/appbar.js"></script>
+    <script defer src="/js/components/navbar.js"></script>
+    <script defer src="/js/components/keyboard.js"></script>
+    <script defer src="/js/components/notifications.js"></script>
+    <script defer src="/js/components/media-player.js"></script>
+    <script defer src="/js/components/charts.js"></script>
+    <script defer src="/js/screens/init.js"></script>
+    <script defer src="/js/screens/main.js"></script>
+    <script defer src="/js/screens/android_auto.js"></script>
+    <script defer src="/js/screens/trip.js"></script>
+    <script defer src="/js/screens/weather.js"></script>
+    <script defer src="/js/screens/service.js"></script>
+    <script defer src="/js/screens/dvr.js"></script>
+    <script defer src="/js/screens/performance.js"></script>
+    <script defer src="/js/screens/phone.js"></script>
+    <script defer src="/js/screens/audio.js"></script>
+    <script defer src="/js/screens/settings.js"></script>
 </body>
 </html>

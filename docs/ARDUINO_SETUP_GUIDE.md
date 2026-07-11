@@ -10,6 +10,28 @@ You will end up with:
 |-------|------|--------|------------|
 | **Arduino Pro Micro** (ATmega32U4) — *Domain B* | Inputs — buttons, rotary encoder, SWC, light sensor, fuel sender | `arduino/rotary_encoder/rotary_encoder.ino` | `/dev/ttyACM0` (also USB HID keyboard) |
 | **Arduino Nano** (ATmega328P, CH340) — *Domain A (always-on)* | 4-window remote, BLE-gated trunk button, **display backlight PWM** | `arduino/output_controller/output_controller.ino` | `/dev/ttyUSB0` |
+| **Arduino Nano #2** (ATmega328P, CH340) — *Domain B* | **Vehicle sensor hub** — doors/bonnet/trunk, handbrake, ignition, rain, DS18B20 temp, (opt.) parking, cruise/immo/airbag | `arduino/sensor_hub/sensor_hub.ino` | `/dev/ttyUSB1` |
+
+> **Build from the command line (recommended, repeatable):** every sketch
+> has a pinned `sketch.yaml` profile — `make -C arduino` compiles all
+> three, `make -C arduino sensor_hub-upload PORT=/dev/ttyUSB1` flashes
+> one. Requires `arduino-cli` (install: see `arduino/Makefile` header).
+>
+> **Firmware changes v8.5.2:**
+> - All three sketches run a **2 s hardware watchdog** — a hang
+>   self-resets the board instead of requiring a power pull.
+> - **Pro Micro wiring change:** encoder push button moved **D4 → D1**
+>   (on the Pro Micro D4 and A6 are the same physical pin, so the old
+>   wiring conflicted with SWC Pod 2). If you wired before v8.5.2,
+>   move that one wire.
+> - The always-on Nano's BLE scan is now **non-blocking** — the window
+>   remote and the auto-release safety cutoff keep working during the
+>   2.5 s trunk-tag scan.
+> - **New sensor hub sketch** feeds `src/input/arduino_serial.py` the
+>   `DOOR:/HBRAKE:/IGN:/RAIN:/TEMP:/PARK:` telemetry that was documented
+>   but never actually transmitted by any firmware. Each input group is
+>   a `#define FEATURE_*` toggle at the top of the sketch — comment out
+>   what you don't wire.
 
 The Pro Micro plugs into the powered USB hub on **Domain B** (powered with
 the M910q; off when the BCM sleeps). The Nano runs on **Domain A** — its
@@ -451,6 +473,46 @@ features layer on top.
 > No level shifter needed.
 
 ---
+
+## 7b. Wiring quick-reference — Arduino Nano #2 (vehicle sensor hub)
+
+All switch inputs use the internal pull-ups — wire each switch between
+the pin and **chassis GND** (active LOW). The 12 V ignition signal MUST
+go through a PC817 optocoupler, never directly to a pin.
+
+| Pin | Signal | Notes |
+|-----|--------|-------|
+| D2-D5 | Door switches FL/FR/RL/RR | OEM door plunger switches ground when open |
+| D6 | Bonnet switch | |
+| D7 | Trunk switch | |
+| D8 | Handbrake switch | LOW = engaged |
+| D9 | Ignition (via **PC817**) | 12 V ACC → 4.7 kΩ → PC817 LED; collector → D9 |
+| D10 | Rain sensor module DO | comparator digital output, LOW = rain |
+| D11 | DS18B20 data | 4.7 kΩ pull-up to 5 V |
+| D12 | HC-SR04 TRIG (shared ×4) | only with `FEATURE_PARK` |
+| A0-A3 | HC-SR04 ECHO FL/FR/RL/RR | **1 kΩ/2 kΩ divider from 5 V!** |
+| A4/A5 | Cruise / Immo (optional) | `FEATURE_CRUISE` / `FEATURE_IMMO` |
+| D13 | Airbag OK (optional) | shares the on-board LED — prefer leaving off |
+
+Every input group is compiled in/out with a `#define FEATURE_*` switch at
+the top of `sensor_hub.ino` — disable what you don't wire and the pins are
+freed. `FEATURE_PARK` is **off by default** (parking sensors are normally
+handled by the parking module; enable only if the HC-SR04s hang off this
+Nano instead).
+
+Verify it talks (115200 baud):
+
+```bash
+picocom -b 115200 /dev/ttyUSB1
+# expect lines like:
+#   DOOR:FL=0,FR=0,RL=0,RR=0,BONNET=0,TRUNK=0
+#   HBRAKE:1
+#   IGN:0
+#   TEMP:21.4
+```
+
+`src/input/arduino_serial.py` auto-detects the port and publishes these
+as `vehicle.*` events on the BCM bus (doors → alarm, rain → wipers, etc.).
 
 ## 8. Powering the boards in the car
 

@@ -6,7 +6,11 @@
  * Wiring:
  *   D2 ← Encoder CLK + 10kΩ pull-up to VCC
  *   D3 ← Encoder DT  + 10kΩ pull-up to VCC
- *   D4 ← Encoder SW   (push button, active LOW)
+ *   D1 ← Encoder SW   (push button, active LOW)
+ *        !!! ZMIANA OKABLOWANIA: przycisk enkodera przeniesiony z D4 na D1
+ *        (TXO). Na Pro Micro D4 i A6 to FIZYCZNIE TEN SAM pin (PD4/ADC8),
+ *        więc przycisk enkodera na D4 wykluczał SWC Pod 2 na A6. Jeśli
+ *        masz starsze okablowanie: przepnij jeden przewód z D4 na D1.
  *   D5 ← HOME button  (active LOW, internal pull-up)
  *   D6 ← BACK button  (active LOW, internal pull-up)
  *   D7 ← MEDIA button (active LOW, internal pull-up)
@@ -36,19 +40,26 @@
  *   MUSIC MUTE  → MEDIA_VOLUME_MUTE (consumer)
  *
  * Brightness stalk button → KEY_F9 (brightness cycle)
- * Light sensor → KEY_F10 with serial data (light level 0-1023)
+ * Light sensor → serial line "LIGHT:<0-1023>" every 2 s (no keypress)
+ * Fuel sender → serial line "FUEL:<0-1023>" every 5 s
+ *   NOTE: A4 is not broken out on a classic Pro Micro — it needs a clone
+ *   with the A4 pad (or the inner bottom pad). See docs/ARDUINO_SETUP_GUIDE.md.
  *
  * Calibration mode: hold HOME + BACK at boot → SWC calibration via serial.
+ * Watchdog: 2 s (enabled after the calibration window).
  */
 
-#include <Keyboard.h>
+#include <avr/wdt.h>
+// UWAGA: nie dołączać <Keyboard.h> — HID-Project dostarcza własny obiekt
+// Keyboard (ImprovedKeyboard) i definiuje KEY_* jako enum; makra KEY_*
+// ze stockowego Keyboard.h psują kompilację (konflikt makro vs enum).
 #include <HID-Project.h>
 #include <EEPROM.h>
 
 // --- Pin definitions ---
 #define ENC_CLK 2
 #define ENC_DT  3
-#define ENC_SW  4
+#define ENC_SW  1   // was D4 — moved: D4 == A6 (SWC Pod 2) on Pro Micro
 #define BTN_HOME  5
 #define BTN_BACK  6
 #define BTN_MEDIA 7
@@ -174,6 +185,7 @@ void saveSWCCalibration();
 void runCalibration();
 int readSWCButton(int pin, int offset);
 void reportLightLevel();
+void reportFuelLevel();
 
 void setup() {
   // Encoder pins (external pull-ups)
@@ -225,9 +237,14 @@ void setup() {
   }
 
   Serial.println("BCM v7 Input Controller ready (encoder + buttons + SWC + music + brightness)");
+
+  // Watchdog ON dopiero po (ewentualnej) kalibracji — kalibracja
+  // czeka na przyciski użytkownika dłużej niż 2 s.
+  wdt_enable(WDTO_2S);
 }
 
 void loop() {
+  wdt_reset();
   unsigned long now = millis();
 
   // --- Handle encoder rotation ---

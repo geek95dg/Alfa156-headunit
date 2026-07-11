@@ -405,18 +405,34 @@ class TestModuleIntegration:
 # ---------------------------------------------------------------------------
 
 class TestSystemdServices:
-    """Validate that all systemd service files are well-formed."""
+    """Validate that the legacy per-module systemd service files are well-formed.
 
-    SERVICE_DIR = os.path.join(os.path.dirname(__file__), "..", "config", "systemd")
+    The multi-service split (bcm-power + friends) was retired in favour of a
+    single bcm-headunit.service; the old unit files live on under
+    config/systemd/legacy/.
+    """
+
+    SERVICE_DIR = os.path.join(
+        os.path.dirname(__file__), "..", "config", "systemd", "legacy")
+    CURRENT_SERVICE_DIR = os.path.join(
+        os.path.dirname(__file__), "..", "config", "systemd")
 
     EXPECTED_SERVICES = [
         "bcm-power.service",
         "bcm-dashboard.service",
         "bcm-obd.service",
         "bcm-dashcam.service",
-        "bcm-voice.service",
         "bcm-multimedia.service",
     ]
+
+    def test_current_headunit_service_exists(self):
+        path = os.path.join(self.CURRENT_SERVICE_DIR, "bcm-headunit.service")
+        assert os.path.isfile(path)
+        with open(path) as f:
+            content = f.read()
+        assert "[Unit]" in content
+        assert "[Service]" in content
+        assert "ExecStart=" in content
 
     def test_all_service_files_exist(self):
         for name in self.EXPECTED_SERVICES:
@@ -476,11 +492,11 @@ class TestSystemdServices:
                 f"{name}: should be after bcm-power"
 
     def test_boot_sequence_order(self):
-        """Verify boot order: power → dashboard → obd → dashcam → voice → multimedia."""
+        """Verify boot order: power → dashboard → obd → dashcam → multimedia."""
         power_path = os.path.join(self.SERVICE_DIR, "bcm-power.service")
         with open(power_path) as f:
             content = f.read()
 
         # Power should start before all others
-        for svc in ["bcm-dashboard", "bcm-obd", "bcm-dashcam", "bcm-voice", "bcm-multimedia"]:
+        for svc in ["bcm-dashboard", "bcm-obd", "bcm-dashcam", "bcm-multimedia"]:
             assert svc in content, f"bcm-power should list {svc} in Before="
