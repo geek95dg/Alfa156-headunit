@@ -28,6 +28,7 @@ M910q Tiny**.
 | [`wiring_power_modules.svg`](wiring_power_modules.svg) | **Moduły zasilania zacisk po zacisku** — każdy zacisk podpisany i ponumerowany, przekroje przewodów, bezpieczniki, punkty masy, kolejność podłączania. |
 | [`wiring_vehicle_arduino.svg`](wiring_vehicle_arduino.svg) | **Sygnały pojazdu → Arduino** — punkty poboru w aucie, stopień PC817, dzielniki napięcia, podciągnięcia, rozpiska pinów trzech płytek, tor K-Line. |
 | [`wiring_usb_av.svg`](wiring_usb_av.svg) | **USB, obraz, audio, kamery** — co idzie przez hub, a co bezpośrednio w port, przejściówki DP → HDMI, tor audio i przypisanie kamer. |
+| [`vehicle_layout_m910q.svg`](vehicle_layout_m910q.svg) | **Rozmieszczenie w aucie** — rzut z góry Alfy 156 ze strefami montażu, trasami kablowymi, uzasadnieniem lokalizacji i bilansem masy. |
 
 ---
 
@@ -42,6 +43,9 @@ M910q Tiny**.
    Tabele „skąd → dokąd”: [`../docs/SCHEMATY_POLACZEN.md`](../docs/SCHEMATY_POLACZEN.md) § 2.
 5. **`wiring_vehicle_arduino.svg`** — sygnały z auta, po jednym obwodzie.
 6. **`wiring_usb_av.svg`** + **`audio_system.svg`** — peryferia i tor audio.
+
+Zanim zaczniesz cokolwiek wiercić i prowadzić: **`vehicle_layout_m910q.svg`**
+— pokazuje, co gdzie ląduje w aucie i którędy idą wiązki.
 
 ---
 

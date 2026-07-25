@@ -333,6 +333,8 @@ dyscyplina rozładowania.** Kabina bije bagażnik.
 
 ### 4.7 Montaż mechaniczny
 
+- miejsce montażu: **pod fotelem pasażera**, nie w bagażniku — patrz
+  [`../schematics/vehicle_layout_m910q.svg`](../schematics/vehicle_layout_m910q.svg),
 - pakiety w **skrzynce lub na wsporniku**, przypięte pasami — 5 × 1,8 kg
   luzem w bagażniku to pocisk przy hamowaniu,
 - pozycja: AGM toleruje dowolną orientację poza **do góry nogami**;

@@ -9,6 +9,7 @@ jaki bezpiecznik i w jakiej kolejności. Uzupełnia schematy blokowe
 | [`wiring_power_modules.svg`](../schematics/wiring_power_modules.svg) | Moduły zasilania — każdy zacisk podpisany, przekroje, bezpieczniki, masy |
 | [`wiring_vehicle_arduino.svg`](../schematics/wiring_vehicle_arduino.svg) | Sygnały pojazdu → układy dopasowujące (PC817, dzielniki) → Arduino |
 | [`wiring_usb_av.svg`](../schematics/wiring_usb_av.svg) | USB, wyświetlacze, audio, kamery |
+| [`vehicle_layout_m910q.svg`](../schematics/vehicle_layout_m910q.svg) | Rozmieszczenie w aucie — strefy montażu, trasy kablowe, bilans masy |
 
 Schematy blokowe (co i dlaczego): [`../schematics/README.md`](../schematics/README.md).
 Dobór podzespołów i nastawy: [`ZASILANIE_BUFOROWANE.md`](ZASILANIE_BUFOROWANE.md).
@@ -407,6 +408,7 @@ gałęzi wzmacniaczy — w oprawkach przy klemie akumulatora.
 ## 8. Kolejność montażu
 
 ```
+0. Rozplanuj strefy montażu wg vehicle_layout_m910q.svg — zanim cokolwiek wywiercisz
 1. Punkt gwiazdowy masy — przygotuj i sprawdź omomierzem (< 0,5 Ω do klemy „−”)
 2. Trasy przewodów — peszel, przelotki gumowe w każdej blasze
 3. Listwa dystrybucyjna — zamontowana, dostępna, BEZ bezpieczników
