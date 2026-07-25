@@ -968,5 +968,6 @@ mimo neutralnej nazwy. Został zarchiwizowany jako
 | [`ARDUINO_SETUP_GUIDE.md`](ARDUINO_SETUP_GUIDE.md) | okablowanie trzech płytek Arduino |
 | [`KLINE_SNIFFING.md`](KLINE_SNIFFING.md) | podsłuch K-Line, poznawanie PID-ów ECU |
 | [`../schematics/README.md`](../schematics/README.md) | indeks schematów elektrycznych |
+| [`PODSUMOWANIE_KONSOLIDACJI.md`](PODSUMOWANIE_KONSOLIDACJI.md) | raport z konsolidacji: co przeniesiono, jakie rozbieżności wykryto |
 | [`../AUDYT_I_PLAN.md`](../AUDYT_I_PLAN.md) | audyt repozytorium i roadmapa |
 | [`../Archive/README.md`](../Archive/README.md) | platformy zarchiwizowane |
