@@ -1,5 +1,5 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="1180" height="900" viewBox="0 0 1180 900" font-family="DejaVu Sans, Verdana, sans-serif">
-  <title>BCM v8.5 — Ładowanie banku żelowego, blokada przeładowania i LVD</title>
+<svg xmlns="http://www.w3.org/2000/svg" width="1180" height="920" viewBox="0 0 1180 920" font-family="DejaVu Sans, Verdana, sans-serif">
+  <title>BCM v8.5 — Ładowanie banku CSB HR1221W, blokada przeładowania i LVD</title>
   <style>
     .bg   { fill: #ffffff; }
     .box  { fill: #f7f9fb; stroke: #2b3a45; stroke-width: 2; rx: 6; }
@@ -20,9 +20,9 @@
     .cc   { stroke: #c0392b; stroke-width: 2.5; fill: none; }
   </style>
 
-  <rect class="bg" x="0" y="0" width="1180" height="900"/>
-  <text class="ttl" x="24" y="32">Ładowanie banku żelowego, blokada przeładowania i odcięcie LVD</text>
-  <text class="sub" x="24" y="52">Trzy niezależne warstwy ochrony: profil ładowania CC-CV · rozłącznik nadnapięciowy · rozłącznik podnapięciowy</text>
+  <rect class="bg" x="0" y="0" width="1180" height="920"/>
+  <text class="ttl" x="24" y="32">Ładowanie banku CSB HR1221W, blokada przeładowania i odcięcie LVD</text>
+  <text class="sub" x="24" y="52">Cztery niezależne warstwy: rozdział ładowania · profil CC-CV (AGM) · rozłącznik nadnapięciowy · rozłącznik podnapięciowy</text>
   <line x1="24" y1="62" x2="1156" y2="62" stroke="#c8d2da" stroke-width="1.5"/>
 
   <!-- ===== CHAIN ===== -->
@@ -44,123 +44,151 @@
 
   <rect class="box" x="508" y="90" width="216" height="92"/>
   <text class="h" x="616" y="112">WARSTWA 1 — ładowarka</text>
-  <text class="t" x="616" y="132">CC-CV buck-boost</text>
-  <text class="t" x="616" y="150">6 A / 14,20 V / 13,70 V</text>
-  <text class="t" x="616" y="168">profil GEL + komp. temp.</text>
+  <text class="t" x="616" y="132">CC-CV buck-boost, profil AGM</text>
+  <text class="t" x="616" y="150">6 A / 14,40 V / 13,65 V</text>
+  <text class="t" x="616" y="168">kompensacja temperaturowa</text>
 
   <path class="wire" d="M724 136 L774 136"/>
 
   <rect class="boxW" x="774" y="90" width="216" height="92"/>
   <text class="h" x="882" y="112">WARSTWA 2 — nadnapięcie</text>
-  <text class="t" x="882" y="132">rozłącznik 14,60 V</text>
-  <text class="t" x="882" y="150">powrót przy 13,60 V</text>
+  <text class="t" x="882" y="132">rozłącznik 15,30 V</text>
+  <text class="t" x="882" y="150">powrót przy 14,00 V</text>
   <text class="t" x="882" y="168">niezależny od ładowarki</text>
 
   <path class="wire" d="M882 182 L882 214 L616 214 L616 246"/>
 
-  <rect class="boxA" x="470" y="246" width="292" height="86"/>
-  <text class="h" x="616" y="268">Bank żelowy 5 × 12 V / 5 Ah = 25 Ah</text>
-  <text class="t" x="616" y="288">VRLA GEL, praca buforowa, 25 °C</text>
-  <text class="t" x="616" y="306">bezpiecznik 10 A na każdym pakiecie</text>
-  <text class="t" x="616" y="324">czujnik NTC przyklejony do obudowy</text>
+  <rect class="boxA" x="420" y="246" width="392" height="102"/>
+  <text class="h" x="616" y="268">Bank CSB HR1221W — 5 × 12 V / 5,1 Ah = 25,5 Ah</text>
+  <text class="t" x="616" y="288">VRLA AGM, seria High Rate (praca buforowa)</text>
+  <text class="t" x="616" y="306">limit ładowania 2,1 A na pakiet → 10,5 A na bank</text>
+  <text class="t" x="616" y="324">bezpiecznik 10 A na każdym pakiecie</text>
+  <text class="t" x="616" y="342">czujnik NTC przyklejony do środkowego pakietu</text>
 
-  <path class="wire" d="M616 332 L616 364"/>
+  <path class="wire" d="M616 348 L616 380"/>
 
-  <rect class="boxW" x="470" y="364" width="292" height="86"/>
-  <text class="h" x="616" y="386">WARSTWA 3 — LVD (podnapięcie)</text>
-  <text class="t" x="616" y="406">rozłącza przy 11,00 V</text>
-  <text class="t" x="616" y="424">powrót przy 12,60 V (histereza!)</text>
-  <text class="t" x="616" y="442">przekaźnik 30 A, pobór własny &lt; 10 mA</text>
+  <rect class="boxW" x="470" y="380" width="292" height="86"/>
+  <text class="h" x="616" y="402">WARSTWA 3 — LVD (podnapięcie)</text>
+  <text class="t" x="616" y="422">rozłącza przy 11,00 V</text>
+  <text class="t" x="616" y="440">powrót przy 12,60 V (histereza!)</text>
+  <text class="t" x="616" y="458">przekaźnik 30 A, pobór własny &lt; 10 mA</text>
 
-  <path class="wire" d="M616 450 L616 486"/>
-  <text class="tb" x="640" y="474">→ domena A + domena B</text>
+  <path class="wire" d="M616 466 L616 500"/>
+  <text class="tb" x="640" y="490">→ domena A + domena B</text>
 
   <!-- NTC control line -->
-  <path class="ctrl" d="M470 290 L436 290 L436 200 L616 200 L616 182"/>
-  <text class="note" x="300" y="286">NTC → kompensacja</text>
-  <text class="note" x="300" y="300">temperaturowa ładowarki</text>
+  <path class="ctrl" d="M420 292 L396 292 L396 200 L616 200 L616 182"/>
+  <text class="note" x="258" y="288">NTC → kompensacja</text>
+  <text class="note" x="258" y="302">temperaturowa ładowarki</text>
 
   <!-- ===== SETPOINT TABLE ===== -->
-  <rect x="30" y="500" width="540" height="342" fill="#fbfcfd" stroke="#c8d2da" stroke-width="1.5" rx="6"/>
-  <text class="h" x="300" y="524">Nastawy — akumulator ŻELOWY (GEL), bank 25 Ah</text>
+  <rect x="30" y="516" width="540" height="366" fill="#fbfcfd" stroke="#c8d2da" stroke-width="1.5" rx="6"/>
+  <text class="h" x="300" y="540">Nastawy — CSB HR1221W (AGM), bank 5 × 5,1 Ah</text>
 
-  <line x1="46" y1="536" x2="554" y2="536" stroke="#c8d2da"/>
-  <text class="tb" x="52" y="556">Parametr</text>
-  <text class="tb" x="330" y="556">Wartość</text>
-  <text class="tb" x="486" y="556">Warstwa</text>
-  <line x1="46" y1="564" x2="554" y2="564" stroke="#c8d2da"/>
+  <line x1="46" y1="552" x2="554" y2="552" stroke="#c8d2da"/>
+  <text class="tb" x="52" y="572">Parametr</text>
+  <text class="tb" x="322" y="572">Wartość</text>
+  <text class="tb" x="490" y="572">Warstwa</text>
+  <line x1="46" y1="580" x2="554" y2="580" stroke="#c8d2da"/>
 
-  <text class="tl" x="52" y="584">Prąd ładowania (CC)</text>
-  <text class="tl" x="330" y="584">6,0 A  (0,24 C)</text>
-  <text class="tl" x="486" y="584">1</text>
+  <text class="tl" x="52" y="600">Prąd ładowania (CC)</text>
+  <text class="tl" x="322" y="600">6,0 A</text>
+  <text class="tl" x="490" y="600">1</text>
 
-  <text class="tl" x="52" y="604">Napięcie absorpcji (CV)</text>
-  <text class="tl" x="330" y="604">14,20 V @ 25 °C</text>
-  <text class="tl" x="486" y="604">1</text>
+  <text class="tl" x="52" y="620">Limit katalogowy prądu</text>
+  <text class="tl" x="322" y="620">2,1 A × 5 = 10,5 A</text>
+  <text class="tl" x="490" y="620">—</text>
 
-  <text class="tl" x="52" y="624">Napięcie podtrzymania (float)</text>
-  <text class="tl" x="330" y="624">13,70 V @ 25 °C</text>
-  <text class="tl" x="486" y="624">1</text>
+  <text class="tl" x="52" y="640">Napięcie absorpcji (CV)</text>
+  <text class="tl" x="322" y="640">14,40 V @ 25 °C</text>
+  <text class="tl" x="490" y="640">1</text>
 
-  <text class="tl" x="52" y="644">Kompensacja temperaturowa</text>
-  <text class="tl" x="330" y="644">−20 mV/°C</text>
-  <text class="tl" x="486" y="644">1</text>
+  <text class="tl" x="52" y="660">Napięcie podtrzymania (float)</text>
+  <text class="tl" x="322" y="660">13,65 V @ 25 °C</text>
+  <text class="tl" x="490" y="660">1</text>
 
-  <text class="tl" x="52" y="664">Twardy próg przeładowania</text>
-  <text class="tl" x="330" y="664">14,60 V — rozwarcie</text>
-  <text class="tl" x="486" y="664">2</text>
+  <text class="tl" x="52" y="680">Kompensacja — absorpcja</text>
+  <text class="tl" x="322" y="680">−30 mV/°C</text>
+  <text class="tl" x="490" y="680">1</text>
 
-  <text class="tl" x="52" y="684">Powrót po nadnapięciu</text>
-  <text class="tl" x="330" y="684">13,60 V</text>
-  <text class="tl" x="486" y="684">2</text>
+  <text class="tl" x="52" y="700">Kompensacja — float</text>
+  <text class="tl" x="322" y="700">−18 mV/°C</text>
+  <text class="tl" x="490" y="700">1</text>
 
-  <text class="tl" x="52" y="704">Odcięcie LVD</text>
-  <text class="tl" x="330" y="704">11,00 V</text>
-  <text class="tl" x="486" y="704">3</text>
+  <text class="tl" x="52" y="720">Twardy próg przeładowania</text>
+  <text class="tl" x="322" y="720">15,30 V — rozwarcie</text>
+  <text class="tl" x="490" y="720">2</text>
 
-  <text class="tl" x="52" y="724">Powrót po LVD</text>
-  <text class="tl" x="330" y="724">12,60 V</text>
-  <text class="tl" x="486" y="724">3</text>
+  <text class="tl" x="52" y="740">Powrót po nadnapięciu</text>
+  <text class="tl" x="322" y="740">14,00 V</text>
+  <text class="tl" x="490" y="740">2</text>
 
-  <line x1="46" y1="738" x2="554" y2="738" stroke="#c8d2da"/>
-  <text class="warn" x="52" y="758">GEL ≠ AGM — 14,4 V to już za dużo dla żelu.</text>
-  <text class="note" x="52" y="776">Przekroczenie ~14,4 V trwale wytwarza pęcherze gazu w elektrolicie żelowym; ubytek</text>
-  <text class="note" x="52" y="792">pojemności jest nieodwracalny. Dla AGM 14,4–14,7 V jest normą — stąd rozbieżność</text>
-  <text class="note" x="52" y="808">wobec starszych notatek w repo, pisanych pod AGM.</text>
-  <text class="note" x="52" y="830">Ładowanie prądem &gt; 0,3 C (7,5 A dla 25 Ah) skraca żywotność żelu — stąd limit 6 A.</text>
+  <text class="tl" x="52" y="760">Odcięcie LVD</text>
+  <text class="tl" x="322" y="760">11,00 V</text>
+  <text class="tl" x="490" y="760">3</text>
+
+  <text class="tl" x="52" y="780">Powrót po LVD</text>
+  <text class="tl" x="322" y="780">12,60 V</text>
+  <text class="tl" x="490" y="780">3</text>
+
+  <line x1="46" y1="794" x2="554" y2="794" stroke="#c8d2da"/>
+  <text class="warn" x="52" y="814">HR1221W to AGM — 14,4 V jest prawidłowe, nie za dużo.</text>
+  <text class="note" x="52" y="832">Katalog CSB: cykliczne 14,4–15,0 V, buforowe 13,5–13,8 V @ 25 °C. Wartości 14,4 / 13,65 V</text>
+  <text class="note" x="52" y="848">to dolne krańce obu zakresów — najłagodniejsze dla żywotności.</text>
+  <text class="note" x="52" y="870">Bez kompensacji temperaturowej: absorpcja na stałe 14,4 V, próg warstwy 2 obniż do 14,80 V.</text>
 
   <!-- ===== TEMP COMPENSATION TABLE ===== -->
-  <rect x="596" y="500" width="270" height="212" fill="#fbfcfd" stroke="#c8d2da" stroke-width="1.5" rx="6"/>
-  <text class="h" x="731" y="524">Napięcie vs temperatura</text>
-  <line x1="612" y1="534" x2="850" y2="534" stroke="#c8d2da"/>
-  <text class="tb" x="618" y="554">Temp.</text>
-  <text class="tb" x="700" y="554">Absorpcja</text>
-  <text class="tb" x="790" y="554">Float</text>
-  <line x1="612" y1="562" x2="850" y2="562" stroke="#c8d2da"/>
-  <text class="tl" x="618" y="582">−10 °C</text><text class="tl" x="700" y="582">14,90 V</text><text class="tl" x="790" y="582">14,40 V</text>
-  <text class="tl" x="618" y="602">0 °C</text><text class="tl" x="700" y="602">14,70 V</text><text class="tl" x="790" y="602">14,20 V</text>
-  <text class="tl" x="618" y="622">+15 °C</text><text class="tl" x="700" y="622">14,40 V</text><text class="tl" x="790" y="622">13,90 V</text>
-  <text class="tl" x="618" y="642">+25 °C</text><text class="tl" x="700" y="642">14,20 V</text><text class="tl" x="790" y="642">13,70 V</text>
-  <text class="tl" x="618" y="662">+40 °C</text><text class="tl" x="700" y="662">13,90 V</text><text class="tl" x="790" y="662">13,40 V</text>
-  <text class="note" x="618" y="686">Bagażnik latem osiąga 45–55 °C — bez</text>
-  <text class="note" x="618" y="698">kompensacji bank jest stale przeładowywany.</text>
+  <rect x="596" y="516" width="290" height="228" fill="#fbfcfd" stroke="#c8d2da" stroke-width="1.5" rx="6"/>
+  <text class="h" x="741" y="540">Napięcie vs temperatura</text>
+  <line x1="612" y1="550" x2="870" y2="550" stroke="#c8d2da"/>
+  <text class="tb" x="618" y="570">Temp.</text>
+  <text class="tb" x="700" y="570">Absorpcja</text>
+  <text class="tb" x="800" y="570">Float</text>
+  <line x1="612" y1="578" x2="870" y2="578" stroke="#c8d2da"/>
+  <text class="tl" x="618" y="598">−10 °C</text><text class="tl" x="700" y="598">15,00 V *</text><text class="tl" x="800" y="598">14,28 V</text>
+  <text class="tl" x="618" y="618">0 °C</text><text class="tl" x="700" y="618">15,00 V *</text><text class="tl" x="800" y="618">14,10 V</text>
+  <text class="tl" x="618" y="638">+15 °C</text><text class="tl" x="700" y="638">14,70 V</text><text class="tl" x="800" y="638">13,83 V</text>
+  <text class="tl" x="618" y="658">+25 °C</text><text class="tl" x="700" y="658">14,40 V</text><text class="tl" x="800" y="658">13,65 V</text>
+  <text class="tl" x="618" y="678">+40 °C</text><text class="tl" x="700" y="678">13,95 V</text><text class="tl" x="800" y="678">13,38 V</text>
+  <text class="tl" x="618" y="698">+50 °C</text><text class="tl" x="700" y="698">13,65 V</text><text class="tl" x="800" y="698">13,20 V</text>
+  <line x1="612" y1="710" x2="870" y2="710" stroke="#c8d2da"/>
+  <text class="note" x="618" y="726">* obliczeniowo 15,15–15,45 V; ograniczone do</text>
+  <text class="note" x="618" y="738">15,0 V — górnej granicy katalogowej CSB.</text>
+
+  <!-- ===== LIFE / TEMPERATURE ===== -->
+  <rect x="908" y="516" width="242" height="228" fill="#fbfcfd" stroke="#c8d2da" stroke-width="1.5" rx="6"/>
+  <text class="h" x="1029" y="540">Żywotność a temperatura</text>
+  <line x1="924" y1="550" x2="1134" y2="550" stroke="#c8d2da"/>
+  <text class="tl" x="930" y="570">Katalog: 3–5 lat pracy buforowej</text>
+  <text class="tl" x="930" y="586">przy 25 °C.</text>
+  <text class="tl" x="930" y="610">Każde +10 °C mniej więcej</text>
+  <text class="tl" x="930" y="626">POŁOWI ten czas.</text>
+  <line x1="924" y1="640" x2="1134" y2="640" stroke="#c8d2da"/>
+  <text class="tl" x="930" y="660">kabina, pod fotelem</text>
+  <text class="tl" x="1120" y="660" text-anchor="end">2–4 lata</text>
+  <text class="tl" x="930" y="680">bagażnik</text>
+  <text class="tl" x="1120" y="680" text-anchor="end">1,5–3 lata</text>
+  <text class="tl" x="930" y="700">przy tunelu wydechu</text>
+  <text class="tl" x="1120" y="700" text-anchor="end">&lt; 1,5 roku</text>
+  <line x1="924" y1="712" x2="1134" y2="712" stroke="#c8d2da"/>
+  <text class="note" x="930" y="728">To temperatura, a nie cyklowanie,</text>
+  <text class="note" x="930" y="740">wyznacza życie tego banku.</text>
 
   <!-- ===== CC-CV CURVE ===== -->
-  <rect x="596" y="716" width="554" height="126" fill="#fbfcfd" stroke="#c8d2da" stroke-width="1.5" rx="6"/>
-  <text class="h" x="873" y="736">Przebieg ładowania CC → CV → float</text>
-  <path class="axis" d="M630 822 L1120 822"/>
-  <path class="axis" d="M630 822 L630 748"/>
-  <path class="cc" d="M630 800 L760 800"/>
-  <path class="cc" d="M760 800 C 800 800, 830 812, 900 818 L1110 820"/>
-  <path class="cv" d="M630 812 C 700 790, 740 768, 762 762 L900 762"/>
-  <path class="cv" d="M900 762 L920 776 L1110 776"/>
-  <text class="note" x="666" y="816">prąd 6 A (CC)</text>
-  <text class="note" x="666" y="756">napięcie rośnie</text>
-  <text class="note" x="790" y="756">14,20 V — absorpcja</text>
-  <text class="note" x="945" y="770">13,70 V — float</text>
-  <text class="note" x="930" y="812">prąd maleje</text>
-  <text class="note" x="630" y="838">czas →</text>
-  <text class="note" x="820" y="838">przejście do float po spadku prądu &lt; 0,05 C (1,25 A)</text>
+  <rect x="596" y="758" width="554" height="124" fill="#fbfcfd" stroke="#c8d2da" stroke-width="1.5" rx="6"/>
+  <text class="h" x="873" y="778">Przebieg ładowania CC → CV → float</text>
+  <path class="axis" d="M630 862 L1120 862"/>
+  <path class="axis" d="M630 862 L630 790"/>
+  <path class="cc" d="M630 842 L760 842"/>
+  <path class="cc" d="M760 842 C 800 842, 830 852, 900 858 L1110 860"/>
+  <path class="cv" d="M630 852 C 700 832, 740 810, 762 804 L900 804"/>
+  <path class="cv" d="M900 804 L920 818 L1110 818"/>
+  <text class="note" x="666" y="856">prąd 6 A (CC)</text>
+  <text class="note" x="666" y="798">napięcie rośnie</text>
+  <text class="note" x="790" y="798">14,40 V — absorpcja</text>
+  <text class="note" x="945" y="812">13,65 V — float</text>
+  <text class="note" x="630" y="878">czas →</text>
+  <text class="note" x="820" y="878">przejście do float po spadku prądu &lt; 0,05 C (1,3 A)</text>
 
-  <text class="note" x="24" y="878">Warstwy 2 i 3 muszą działać niezależnie od ładowarki — jeżeli ładowarka utknie w stanie przewodzenia, warstwa 2 jest jedyną rzeczą chroniącą bank przed rozerwaniem.</text>
+  <text class="note" x="24" y="908">Warstwy 2 i 3 muszą działać niezależnie od ładowarki — jeżeli ładowarka utknie w stanie przewodzenia, warstwa 2 jest jedyną rzeczą chroniącą bank.</text>
 </svg>

@@ -8,7 +8,7 @@ i nazwa pliku odnosi się do tego, co jest w drzewie. Miejsca, w których
 dokumentacja źródłowa jest niespójna albo kod odbiega od opisu, są
 oznaczone jako ⚠.
 
-**Zasilanie buforowane** (bufor żelowy, ładowanie, blokada przeładowania,
+**Zasilanie buforowane** (bufor CSB HR1221W, ładowanie, blokada przeładowania,
 step-up 19 V) ma osobny dokument: **[`ZASILANIE_BUFOROWANE.md`](ZASILANIE_BUFOROWANE.md)**.
 
 ---
@@ -170,9 +170,10 @@ Układ ma **dwie domeny zasilania**:
 | Pobór spoczynkowy | ~60 mA | 0 mA (przekaźnik rozwarty) |
 | Na postoju | działa — pilot szyb, bagażnik przez BLE | odcięta |
 
-Między akumulatorem auta a head unitem stoi **bank 5 × 12 V / 5 Ah żelowy**
-(25 Ah), ładowany przez ładowarkę CC-CV z profilem GEL, chroniony
-rozłącznikiem nadnapięciowym (14,6 V) i LVD (11,0 V). M910q zasila
+Między akumulatorem auta a head unitem stoi **bank 5 × CSB HR1221W F2**
+(12 V / 5,1 Ah AGM, razem 25,5 Ah), ładowany przez ładowarkę CC-CV z profilem
+**AGM** (14,40 V absorpcji / 13,65 V float, maks. 10,5 A wg karty katalogowej),
+chroniony rozłącznikiem nadnapięciowym (15,3 V) i LVD (11,0 V). M910q zasila
 **przetwornica step-up 12 → 19,5 V** za przekaźnikiem zapłonu.
 
 **Konsekwencje dla software'u:**
@@ -832,7 +833,7 @@ za zakończone.
 [ ] Domena A dalej działa — pilot 433 MHz i BLE bagażnika odpowiadają
 [ ] Prąd spoczynkowy domeny A ~60 mA
 [ ] Prąd ładowania banku ≤ 6 A przy pracującym silniku
-[ ] Napięcie banku nie przekracza 14,20 V
+[ ] Napięcie banku nie przekracza 14,40 V (wg kompensacji temperaturowej)
 [ ] Po 48 h postoju auto normalnie odpala
 [ ] BCM wstaje automatycznie po włączeniu zapłonu
 ```
@@ -922,12 +923,17 @@ ale wszystkie potrafią kosztować godzinę szukania.
 i złącza zwykle nazywają się `DP-1` / `DP-2`. **Zawsze sprawdź faktyczne
 nazwy przed uruchomieniem skryptu** (§6.5).
 
-### 19.2 Nastawy ładowania pod AGM, nie pod żel
+### 19.2 Limit prądu ładowania jest za wysoki dla CSB HR1221W
 
 `X86_PLATFORM_SETUP.md` § 2.2 i `x86-production/10-power-suspend.html` podają
-14,4 V absorpcji / 13,8 V float i limit prądu 15–20 A — to wartości **dla
-AGM**. Dla akumulatorów **żelowych** są za wysokie i skracają żywotność banku.
-Obowiązujące nastawy: [`ZASILANIE_BUFOROWANE.md`](ZASILANIE_BUFOROWANE.md) §4.3 i §5.
+14,4 V absorpcji / 13,8 V float i limit prądu **15–20 A**.
+
+**Napięcia są prawidłowe** — HR1221W to AGM, a karta katalogowa CSB dopuszcza
+14,4–15,0 V cyklicznie i 13,5–13,8 V buforowo. **Limit prądu nie jest**:
+katalog podaje 2,1 A na pakiet, czyli 10,5 A dla banku pięciu. Brakuje też
+kompensacji temperaturowej (−18 mV/°C float, −30 mV/°C cykl).
+
+Obowiązujące nastawy: [`ZASILANIE_BUFOROWANE.md`](ZASILANIE_BUFOROWANE.md) §4.4–§4.5 i §5.
 
 Tam też jest wyjaśnione, dlaczego proponowany moduł **buck** XL4016 nie może
 pełnić roli ładowarki (nie podniesie napięcia do absorpcji) — §5.1.

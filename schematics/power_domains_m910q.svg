@@ -21,13 +21,13 @@
 
   <rect class="bg" x="0" y="0" width="1180" height="880"/>
   <text class="ttl" x="24" y="32">Domeny zasilania A / B — rozdział obciążeń, bezpieczniki, przekaźniki</text>
-  <text class="sub" x="24" y="52">Domena A żyje z banku żelowego przez cały postój. Domena B jest w pełni odcinana przekaźnikiem zapłonu — zero poboru na postoju.</text>
+  <text class="sub" x="24" y="52">Domena A żyje z banku AGM przez cały postój. Domena B jest w pełni odcinana przekaźnikiem zapłonu — zero poboru na postoju.</text>
   <line x1="24" y1="62" x2="1156" y2="62" stroke="#c8d2da" stroke-width="1.5"/>
 
   <!-- BUS -->
   <rect class="box" x="410" y="86" width="360" height="58"/>
   <text class="h" x="590" y="110">Szyna buforowana 12 V (za LVD 11,0 V)</text>
-  <text class="t" x="590" y="130">bank 5 × GEL 5 Ah · 25 Ah · listwa dystrybucyjna z bezpiecznikami</text>
+  <text class="t" x="590" y="130">bank 5 × CSB HR1221W · 25,5 Ah · listwa dystrybucyjna z bezpiecznikami</text>
 
   <path class="wire" d="M590 144 L590 176"/>
   <path class="wire" d="M240 176 L940 176"/>
@@ -125,7 +125,7 @@
   <text class="tl" x="80" y="642">• bezpiecznik 20 A przy klemie „+”, przewód 4 mm²</text>
   <text class="tl" x="80" y="662">• TDA7388 4 × 45 W + TDA2050 (subwoofer)</text>
   <text class="tl" x="80" y="682">• REM/standby wyzwalany z domeny B (bez trzasków przy starcie)</text>
-  <text class="note" x="80" y="700">Szczyty 15–20 A rozładowałyby bank żelowy w kilka minut — dlatego osobna gałąź.</text>
+  <text class="note" x="80" y="700">Szczyty 15–20 A rozładowałyby bank AGM w kilka minut — dlatego osobna gałąź.</text>
 
   <!-- ============ STANDBY TABLE ============ -->
   <rect x="700" y="596" width="420" height="196" fill="#fbfcfd" stroke="#c8d2da" stroke-width="1.5" rx="6"/>
@@ -136,10 +136,10 @@
   <text class="tb" x="906" y="650">50 % DoD</text>
   <text class="tb" x="1010" y="650">do LVD</text>
   <line x1="716" y1="658" x2="1104" y2="658" stroke="#c8d2da"/>
-  <text class="tl" x="722" y="678">4 ×</text><text class="tl" x="810" y="678">20 Ah</text><text class="tl" x="906" y="678">~6,9 dnia</text><text class="tl" x="1010" y="678">~10 dni</text>
-  <text class="tl" x="722" y="698">5 ×</text><text class="tl" x="810" y="698">25 Ah</text><text class="tl" x="906" y="698">~8,7 dnia</text><text class="tl" x="1010" y="698">~13 dni</text>
-  <text class="tl" x="722" y="718">6 ×</text><text class="tl" x="810" y="718">30 Ah</text><text class="tl" x="906" y="718">~10,4 dnia</text><text class="tl" x="1010" y="718">~15 dni</text>
-  <text class="tl" x="722" y="738">8 ×</text><text class="tl" x="810" y="738">40 Ah</text><text class="tl" x="906" y="738">~13,9 dnia</text><text class="tl" x="1010" y="738">~20 dni</text>
+  <text class="tl" x="722" y="678">4 ×</text><text class="tl" x="810" y="678">20,4 Ah</text><text class="tl" x="906" y="678">~7,1 dnia</text><text class="tl" x="1010" y="678">~10,6 dnia</text>
+  <text class="tl" x="722" y="698">5 ×</text><text class="tl" x="810" y="698">25,5 Ah</text><text class="tl" x="906" y="698">~8,9 dnia</text><text class="tl" x="1010" y="698">~13,3 dnia</text>
+  <text class="tl" x="722" y="718">6 ×</text><text class="tl" x="810" y="718">30,6 Ah</text><text class="tl" x="906" y="718">~10,6 dnia</text><text class="tl" x="1010" y="718">~15,9 dnia</text>
+  <text class="tl" x="722" y="738">8 ×</text><text class="tl" x="810" y="738">40,8 Ah</text><text class="tl" x="906" y="738">~14,2 dnia</text><text class="tl" x="1010" y="738">~21,3 dnia</text>
   <line x1="716" y1="752" x2="1104" y2="752" stroke="#c8d2da"/>
   <text class="note" x="722" y="770">Kolumna „50 % DoD” to praca bez utraty żywotności. Kolumna „do LVD”</text>
   <text class="note" x="722" y="784">to zejście do 11,0 V — dopuszczalne awaryjnie, ale skraca życie banku.</text>

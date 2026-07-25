@@ -108,7 +108,7 @@ od opisu, są oznaczone ⚠ i zebrane w §19.
 ### `docs/ZASILANIE_BUFOROWANE.md`
 
 Zasilanie buforowane w szczegółach: architektura dwóch domen, weryfikacja
-posiadanej przetwornicy, dobór i łączenie banku żelowego, ładowanie w dwóch
+posiadanej przetwornicy, karta katalogowa i łączenie banku CSB HR1221W, ładowanie w dwóch
 wariantach, blokada przeładowania, LVD, bezpieczniki i przekroje, budżet
 energetyczny, **lista zakupowa rozbita na „już posiadane" i „do dokupienia"**,
 procedura pierwszego uruchomienia w siedmiu etapach, plan serwisowy.
@@ -117,8 +117,8 @@ procedura pierwszego uruchomienia w siedmiu etapach, plan serwisowy.
 
 | Plik | Zawartość |
 |------|-----------|
-| `power_buffered_m910q.svg` | tor główny: akumulator → rozdział ładowania → CC-CV → blokada przeładowania → bank żelowy → LVD → domeny → step-up → M910q, z tabelą przekrojów i bezpieczników |
-| `charging_lvd.svg` | cztery warstwy ochrony, komplet nastaw dla żelu, tabela kompensacji temperaturowej, przebieg CC → CV → float |
+| `power_buffered_m910q.svg` | tor główny: akumulator → rozdział ładowania → CC-CV → blokada przeładowania → bank CSB HR1221W → LVD → domeny → step-up → M910q, z tabelą przekrojów i bezpieczników |
+| `charging_lvd.svg` | cztery warstwy ochrony, nastawy dla CSB HR1221W (AGM), dwie tabele kompensacji temperaturowej, wpływ temperatury na żywotność, przebieg CC → CV → float |
 | `power_domains_m910q.svg` | podział domen A/B, bezpieczniki odgałęzień, budżet poboru spoczynkowego, tabela czasu postoju, osobna gałąź wzmacniaczy |
 | `README.md` | indeks, kolejność czytania przy montażu, konwencje rysunkowe |
 
@@ -126,32 +126,53 @@ procedura pierwszego uruchomienia w siedmiu etapach, plan serwisowy.
 
 ## 3. Ustalenia zmieniające projekt układu
 
-Trzy rzeczy wyszły przy weryfikacji dokumentacji względem stanu repozytorium.
-Każda jest w dokumentach opisana z uzasadnieniem, nie samą tezą.
+Wyszły przy weryfikacji dokumentacji względem stanu repozytorium i karty
+katalogowej użytych akumulatorów. Każde jest w dokumentach opisane
+z uzasadnieniem, nie samą tezą.
 
-### 3.1 Nastawy ładowania są pod AGM, nie pod żel
+### 3.1 Limit prądu ładowania jest za wysoki dla CSB HR1221W
+
+> **Historia tej pozycji.** Pierwsze wydanie raportu zakładało akumulatory
+> żelowe i twierdziło, że nastawy napięciowe w repo (14,4 V / 13,8 V) są za
+> wysokie. Po wskazaniu konkretnego modelu — **CSB HR1221W F2** — okazało się,
+> że to **AGM**, a nie żel, więc **nastawy napięciowe w repo były prawidłowe**.
+> Ustalenie zostało przeredagowane do tego, co faktycznie się nie zgadza.
 
 Istniejąca dokumentacja (`X86_PLATFORM_SETUP.md` § 2.2,
 `x86-production/10-power-suspend.html`) podaje 14,4 V absorpcji, 13,8 V float
-i limit prądu 15–20 A. To wartości **dla AGM**.
+i limit prądu **15–20 A**.
 
-| Parametr | AGM (stare notatki) | GEL (obowiązuje) |
-|----------|--------------------|------------------|
-| Absorpcja @ 25 °C | 14,4–14,7 V | **14,20 V** |
-| Float @ 25 °C | 13,6–13,8 V | **13,70 V** |
-| Maks. prąd ładowania | do 0,5 C | **0,1–0,3 C** (6 A dla 25 Ah) |
+| Parametr | Stare notatki | Karta katalogowa CSB HR1221W | Werdykt |
+|----------|--------------|------------------------------|---------|
+| Absorpcja @ 25 °C | 14,4 V | 14,4–15,0 V (cykl) | ✅ prawidłowo |
+| Float @ 25 °C | 13,8 V | 13,5–13,8 V (bufor) | ✅ prawidłowo |
+| Maks. prąd ładowania | 15–20 A | **2,1 A/pakiet → 10,5 A na 5** | ❌ za wysoko |
+| Kompensacja temperaturowa | brak | **−18 mV/°C** float, **−30 mV/°C** cykl | ❌ brak |
 
-**Dlaczego to nie jest drobiazg.** W akumulatorze żelowym elektrolit jest
-unieruchomiony w krzemionkowym żelu. Przeładowanie powyżej ~14,4 V wydziela
-gaz szybciej, niż zdąży zrekombinować, a gaz tworzy w żelu **trwałe pęcherze**
-odcinające płytę od elektrolitu. Ubytek pojemności jest nieodwracalny —
-w odróżnieniu od AGM, gdzie umiarkowane przeładowanie kończy się głównie
-utratą wody.
+**Dlaczego prąd ma znaczenie.** Ładowanie powyżej katalogowego limitu grzeje
+płyty i przyspiesza korozję siatki; przy 15–20 A na bank pięciu HR1221W to
+niemal dwukrotne przekroczenie. Przyjęta nastawa **6 A** to 57 % limitu.
 
-Doszła też **kompensacja temperaturowa −20 mV/°C**, której w starej
-dokumentacji nie było. Bagażnik latem osiąga 45–55 °C; bez kompensacji bank
-przy nastawie 14,2 V jest w takich warunkach stale przeładowywany i traci
-pojemność w jeden sezon.
+**Dlaczego kompensacja ma znaczenie.** Bagażnik latem osiąga 45–55 °C. Bez
+kompensacji bank przy stałych 14,4 V jest w takich warunkach stale
+przeładowywany. Uwaga: seria HR ma **dwa różne współczynniki** — inny dla
+pracy buforowej, inny dla cyklicznej.
+
+### 3.1a Żywotność banku wyznacza temperatura, nie cyklowanie
+
+Karta podaje **3–5 lat pracy buforowej @ 25 °C** i **> 260 cykli przy 100 %
+DoD**. Każde +10 °C mniej więcej połowi żywotność kalendarzową, podczas gdy
+cyklowanie — nawet przy zejściu do 50 % DoD co tydzień — wyczerpałoby się
+dopiero po dekadzie.
+
+| Miejsce montażu | Szacowana żywotność |
+|-----------------|--------------------|
+| kabina, pod fotelem | 2–4 lata |
+| bagażnik | 1,5–3 lata |
+| przy tunelu wydechowym | < 1,5 roku |
+
+**Wniosek: miejsce montażu wpływa na życie banku bardziej niż dyscyplina
+rozładowania.**
 
 ### 3.2 Proponowany moduł buck nie może pełnić roli ładowarki
 
@@ -166,15 +187,15 @@ alternator             14,4 V
 wejście przetwornicy   13,75 V
 ```
 
-Buck **obniża** napięcie — z 13,75 V nie zrobi 14,20 V absorpcji. Bank utknąłby
+Buck **obniża** napięcie — z 13,75 V nie zrobi 14,40 V absorpcji. Bank utknąłby
 na ~85 % pojemności i nigdy nie naładował się do końca.
 
 Podane dwie działające topologie:
 
 | Wariant | Rozwiązanie | Koszt |
 |---------|-------------|-------|
-| **A — zalecany** | ładowarka DC-DC B2B z presetem GEL (Victron Orion-Tr Smart, Redarc BCDC, Sterling) — buck-boost, limit prądu, kompensacja temperaturowa, detekcja pracy alternatora w jednym pudełku | 800–1000 PLN |
-| **B — DIY** | VSR (rozdział ładowania) + moduł **CC-CV boost** 300 W/10 A nastawiony na 14,20 V / 6,0 A | 120–220 PLN |
+| **A — zalecany** | ładowarka DC-DC B2B z presetem AGM (Victron Orion-Tr Smart, Redarc BCDC, Sterling) — buck-boost, limit prądu, kompensacja temperaturowa, detekcja pracy alternatora w jednym pudełku | 800–1000 PLN |
+| **B — DIY** | VSR (rozdział ładowania) + moduł **CC-CV boost** 300 W/10 A nastawiony na 14,40 V / 6,0 A | 120–220 PLN |
 
 W wariancie B ważny jest **VSR zamiast diody Schottky**: boost nie może dawać
 napięcia niższego niż wejściowe, więc przy zgaszonym silniku próbowałby dalej
@@ -186,14 +207,18 @@ tak małym przełożeniu bardzo brakuje.
 
 Liczba w `X86_PLATFORM_SETUP.md` § 2.3 jest opisana jako „ograniczone do 50 %
 DoD", ale 25 Ah / 0,060 A = 417 h = 17,4 dnia to **zejście do zera**.
-Przy realnym ograniczeniu do 50 % DoD wychodzi 12,5 Ah / 0,060 A = 208 h.
+Przy faktycznej pojemności 25,5 Ah i ograniczeniu do 50 % DoD wychodzi
+12,75 Ah / 0,060 A = 212 h.
 
-| Pakiety | Pojemność | Do 50 % DoD | Do progu LVD |
-|---------|-----------|-------------|--------------|
-| 4 | 20 Ah | ~6,9 dnia | ~10 dni |
-| **5** | **25 Ah** | **~8,7 dnia** | **~13 dni** |
-| 6 | 30 Ah | ~10,4 dnia | ~15 dni |
-| 8 | 40 Ah | ~13,9 dnia | ~20 dni |
+| Pakiety | Pojemność | Do 30 % DoD | Do 50 % DoD | Do progu LVD |
+|---------|-----------|-------------|-------------|--------------|
+| 4 | 20,4 Ah | ~4,3 dnia | ~7,1 dnia | ~10,6 dnia |
+| **5** | **25,5 Ah** | **~5,3 dnia** | **~8,9 dnia** | **~13,3 dnia** |
+| 6 | 30,6 Ah | ~6,4 dnia | ~10,6 dnia | ~15,9 dnia |
+| 8 | 40,8 Ah | ~8,5 dnia | ~14,2 dnia | ~21,3 dnia |
+
+Kolumna 30 % DoD doszła dlatego, że HR to seria buforowa (UPS), a nie
+trakcyjna — płytsze rozładowanie wyraźnie wydłuża jej życie.
 
 Obie liczby są teraz w tabeli osobno, z zaznaczeniem, że kolumna „do progu
 LVD" to rezerwa awaryjna kosztem żywotności, a nie tryb normalnej pracy.
@@ -252,7 +277,7 @@ w `ZASILANIE_BUFOROWANE.md` §10. Rdzeń:
 
 | Grupa | Elementy |
 |-------|----------|
-| **Ładowanie** | ładowarka DC-DC z profilem GEL (wariant A) **albo** VSR + moduł CC-CV boost (wariant B) |
+| **Ładowanie** | ładowarka DC-DC z profilem AGM (wariant A) **albo** VSR + moduł CC-CV boost (wariant B) |
 | **Ochrona** | rozłącznik nadnapięciowy 14,6 V (blokada przeładowania), moduł LVD 11,0 V, przekaźnik zapłonu 30 A, przekaźnik mocy |
 | **Zabezpieczenia** | listwa dystrybucyjna 6–8 obwodów, bezpiecznik główny 30 A, 5× inline 10 A na pakiety, wkładki 5/3/20 A |
 | **Przetwornice pomocnicze** | buck 12→5 V 1 A (domena A), buck 12→5 V 3 A (wyświetlacze) |
@@ -265,7 +290,8 @@ w `ZASILANIE_BUFOROWANE.md` §10. Rdzeń:
 
 Osobna sekcja **„czego nie kupować"** wymienia moduł buck jako ładowarkę,
 diodę krzemową zamiast Schottky, „uniwersalne" końcówki do M910q, ładowarki
-LiFePO₄/Li-ion i akumulatory rozruchowe zamiast żelowych.
+LiFePO₄/Li-ion, ładowarki z presetem GEL (profil żelowy jest o 0,2–0,3 V niższy —
+bank AGM nigdy nie doszedłby do pełna) i akumulatory rozruchowe zamiast HR1221W.
 
 ---
 
@@ -284,13 +310,13 @@ Moduł nasłuchuje zdarzenia `arduino.battery_voltage`, którego **żaden z trze
 sketchy Arduino w repozytorium nie publikuje**. `modules.battery: true`
 w `config/bcm_config.yaml` włącza więc kod, który nigdy nic nie policzy.
 
-Żeby monitoring banku żelowego faktycznie działał, potrzeba trzech rzeczy:
+Żeby monitoring banku faktycznie działał, potrzeba trzech rzeczy:
 
 1. **dzielnik napięcia** na wejściu ADC sensor huba (np. 100 kΩ / 27 kΩ,
    rezystory 1 %, kondensator 100 nF),
 2. **publikacja odczytu** z `sensor_hub.ino` jako `BATT:<napięcie>`,
 3. **progi dla banku 12 V** zamiast ogniwa Li-ion — proponowane:
-   12,80 / 12,40 / 11,80 / 11,20 V (`CRITICAL_V` powyżej progu LVD 11,0 V,
+   12,85 / 12,40 / 11,80 / 11,20 V (`CRITICAL_V` powyżej progu LVD 11,0 V,
    żeby BCM zdążył zareagować, zanim LVD odetnie zasilanie).
 
 **Nie zostało to naprawione** — to praca po stronie firmware'u Arduino,
@@ -306,7 +332,7 @@ wykonania — kontrola woltomierzem z listy zalecanych zakupów.
 |---|-------------|---------------|
 | 1 | `setup-x86.sh` ma w USER CONFIG `MAIN_OUTPUT="HDMI-1"` / `SMALL_OUTPUT="HDMI-2"`, a M910q ma **dwa wyjścia DisplayPort** (zwykle `DP-1`/`DP-2`) | `WDROZENIE_M910Q.md` §6.5, §19.1 |
 | 2 | Nazewnictwo `bcm-headunit.service` — plik był wariantem OPi PC | `WDROZENIE_M910Q.md` §7.1, §19.5 |
-| 3 | Nastawy AGM zamiast GEL | `WDROZENIE_M910Q.md` §19.2 |
+| 3 | Limit prądu ładowania 15–20 A wobec katalogowych 10,5 A | `WDROZENIE_M910Q.md` §19.2 |
 | 4 | Buck jako ładowarka | `ZASILANIE_BUFOROWANE.md` §5.1, §13.2 |
 | 5 | Czas postoju „17 dni" | `WDROZENIE_M910Q.md` §19.4 |
 
@@ -364,7 +390,7 @@ poza zakres konsolidacji dokumentacji:
 
 | # | Zadanie | Zakres |
 |---|---------|--------|
-| 1 | Dorobić monitoring banku żelowego (§6) | firmware Arduino + progi w `battery.py` |
+| 1 | Dorobić monitoring banku buforowego (§6) | firmware Arduino + progi w `battery.py` |
 | 2 | Poprawić domyślne `MAIN_OUTPUT`/`SMALL_OUTPUT` w `setup-x86.sh` na `DP-1`/`DP-2` | jedna linia, ale wymaga potwierdzenia na sprzęcie |
-| 3 | Zaktualizować nastawy ładowania w `X86_PLATFORM_SETUP.md` i `10-power-suspend.html` pod żel | dokumenty źródłowe, obecnie tylko oznaczone ⚠ |
+| 3 | Poprawić limit prądu ładowania i dopisać kompensację temperaturową w `X86_PLATFORM_SETUP.md` i `10-power-suspend.html` | dokumenty źródłowe, obecnie tylko oznaczone ⚠ |
 | 4 | Przenieść treść `x86-production/*.html` do markdown albo odwrotnie | duplikacja treści między MD a HTML |

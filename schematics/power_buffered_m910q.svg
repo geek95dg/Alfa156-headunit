@@ -22,7 +22,7 @@
 
   <rect class="bg" x="0" y="0" width="1180" height="1080"/>
   <text class="ttl" x="24" y="32">BCM v8.5 — zasilanie buforowane, Lenovo ThinkCentre M910q Tiny</text>
-  <text class="sub" x="24" y="52">Tor główny: akumulator samochodowy → ładowanie CC-CV → bank żelowy → LVD → domeny A/B → step-up 19 V</text>
+  <text class="sub" x="24" y="52">Tor główny: akumulator samochodowy → ładowanie CC-CV → bank CSB HR1221W (AGM) → LVD → domeny A/B → step-up 19 V</text>
   <line class="wthin" x1="24" y1="62" x2="1156" y2="62" stroke="#c8d2da"/>
 
   <!-- ============ 1. CAR BATTERY ============ -->
@@ -52,11 +52,11 @@
   <!-- 4. CC-CV CHARGER -->
   <rect class="box" x="40" y="404" width="270" height="112"/>
   <text class="h" x="175" y="426">Ładowarka CC-CV (buck-boost)</text>
-  <text class="t" x="175" y="446">CC: 6 A  (0,24 C dla banku 25 Ah)</text>
-  <text class="t" x="175" y="462">CV absorpcja: 14,20 V @ 25 °C</text>
-  <text class="t" x="175" y="478">float: 13,70 V</text>
-  <text class="t" x="175" y="496">kompensacja temp. −20 mV/°C</text>
-  <text class="warn" x="175" y="510" text-anchor="middle">PROFIL GEL — nie AGM</text>
+  <text class="t" x="175" y="444">CC: 6 A  (limit katalogowy 10,5 A)</text>
+  <text class="t" x="175" y="460">CV absorpcja: 14,40 V @ 25 °C</text>
+  <text class="t" x="175" y="476">float: 13,65 V @ 25 °C</text>
+  <text class="t" x="175" y="494">komp. −30 mV/°C abs. / −18 mV/°C float</text>
+  <text class="warn" x="175" y="510" text-anchor="middle">PROFIL AGM</text>
 
   <path class="wire" d="M175 516 L175 554"/>
 
@@ -64,25 +64,25 @@
   <rect class="boxW" x="40" y="554" width="270" height="86"/>
   <text class="h" x="175" y="576">Blokada przeładowania</text>
   <text class="t" x="175" y="594">rozłącznik nadnapięciowy (2. warstwa)</text>
-  <text class="t" x="175" y="610">rozwiera przy 14,60 V</text>
-  <text class="t" x="175" y="626">zwiera ponownie przy 13,60 V</text>
+  <text class="t" x="175" y="610">rozwiera przy 15,30 V</text>
+  <text class="t" x="175" y="626">zwiera ponownie przy 14,00 V</text>
 
   <path class="wire" d="M175 640 L175 678"/>
 
-  <!-- 6. BUFFER BUS + GEL BANK -->
+  <!-- 6. BUFFER BUS + AGM BANK -->
   <rect class="boxA" x="40" y="678" width="270" height="150"/>
-  <text class="h" x="175" y="700">Szyna bufora 12 V — bank żelowy</text>
-  <text class="t" x="175" y="718">5 × 12 V / 5 Ah GEL (VRLA) równolegle</text>
-  <text class="t" x="175" y="734">25 Ah, szyna 4 mm² lub mostek miedziany</text>
+  <text class="h" x="175" y="700">Szyna bufora 12 V — bank AGM</text>
+  <text class="t" x="175" y="718">5 × CSB HR1221W F2 (12 V / 5,1 Ah) równolegle</text>
+  <text class="t" x="175" y="734">25,5 Ah, szyna 4 mm² lub mostek miedziany</text>
 
   <g>
-    <rect class="batt" x="58" y="746" width="42" height="34"/><text class="t" x="79" y="767">5 Ah</text>
-    <rect class="batt" x="106" y="746" width="42" height="34"/><text class="t" x="127" y="767">5 Ah</text>
-    <rect class="batt" x="154" y="746" width="42" height="34"/><text class="t" x="175" y="767">5 Ah</text>
-    <rect class="batt" x="202" y="746" width="42" height="34"/><text class="t" x="223" y="767">5 Ah</text>
-    <rect class="batt" x="250" y="746" width="42" height="34"/><text class="t" x="271" y="767">5 Ah</text>
+    <rect class="batt" x="58" y="746" width="42" height="34"/><text class="t" x="79" y="767">5,1 Ah</text>
+    <rect class="batt" x="106" y="746" width="42" height="34"/><text class="t" x="127" y="767">5,1 Ah</text>
+    <rect class="batt" x="154" y="746" width="42" height="34"/><text class="t" x="175" y="767">5,1 Ah</text>
+    <rect class="batt" x="202" y="746" width="42" height="34"/><text class="t" x="223" y="767">5,1 Ah</text>
+    <rect class="batt" x="250" y="746" width="42" height="34"/><text class="t" x="271" y="767">5,1 Ah</text>
   </g>
-  <text class="t" x="175" y="798">każdy pakiet: własny bezpiecznik 10 A na „+”</text>
+  <text class="t" x="175" y="798">każdy pakiet: bezpiecznik 10 A, zaciski F2 6,35 mm</text>
   <text class="t" x="175" y="816">jednakowe długości przewodów do szyny</text>
 
   <path class="wire" d="M175 828 L175 866"/>

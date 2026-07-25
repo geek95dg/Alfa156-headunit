@@ -5,7 +5,7 @@ przez produkcyjną instalację w aucie (Lenovo M910q), po firmware Arduino.
 
 > **Platforma produkcyjna: Lenovo ThinkCentre M910q Tiny.** Pełna
 > dokumentacja wdrożeniowa: [`WDROZENIE_M910Q.md`](WDROZENIE_M910Q.md).
-> Zasilanie buforowane (step-up 19/20 V, akumulatory żelowe, ładowanie,
+> Zasilanie buforowane (step-up 19/20 V, bank AGM CSB HR1221W, ładowanie,
 > blokada przeładowania): [`ZASILANIE_BUFOROWANE.md`](ZASILANIE_BUFOROWANE.md).
 > Materiały dla Orange Pi 5 Pro / 5 Plus, stanowiska Orange Pi PC i testów
 > na VM-ce są zarchiwizowane w [`Archive/`](../Archive/README.md).
