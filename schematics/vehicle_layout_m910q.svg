@@ -1,0 +1,238 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1240" height="1240" viewBox="0 0 1240 1240" font-family="DejaVu Sans, Verdana, sans-serif">
+  <title>BCM v8.5 — Rozmieszczenie podzespołów w Alfa Romeo 156</title>
+  <style>
+    .bg    { fill: #ffffff; }
+    .body  { fill: #f6f8fa; stroke: #2b3a45; stroke-width: 2.5; }
+    .div   { stroke: #b8c4cc; stroke-width: 1.4; fill: none; stroke-dasharray: 6 4; }
+    .zoneA { fill: #eef7ee; stroke: #2d6a2d; stroke-width: 1.8; rx: 4; }
+    .zoneB { fill: #eef2fa; stroke: #2b4a8a; stroke-width: 1.8; rx: 4; }
+    .zoneC { fill: #fbeff1; stroke: #97324a; stroke-width: 1.8; rx: 4; }
+    .zoneS { fill: #fdf3e6; stroke: #a8621a; stroke-width: 1.8; rx: 4; }
+    .zoneV { fill: #f4eef9; stroke: #5c3a8a; stroke-width: 1.8; rx: 4; }
+    .pin   { fill: #10202b; }
+    .pinV  { fill: #5c3a8a; }
+    .pinC  { fill: #97324a; }
+    .pinT  { font-size: 10px; font-weight: bold; fill: #ffffff; text-anchor: middle; }
+    .route { stroke: #c0392b; stroke-width: 2.8; fill: none; }
+    .routeA{ stroke: #97324a; stroke-width: 2.2; fill: none; }
+    .ttl   { font-size: 19px; font-weight: bold; fill: #10202b; }
+    .sub   { font-size: 12px; fill: #5a6b78; }
+    .zt    { font-size: 10.5px; font-weight: bold; fill: #2d4150; text-anchor: middle; }
+    .ax    { font-size: 10.5px; fill: #8b98a2; }
+    .axb   { font-size: 10.5px; font-weight: bold; fill: #8b98a2; }
+    .sec   { font-size: 13px; font-weight: bold; fill: #2d4150; }
+    .tb    { font-size: 10.5px; font-weight: bold; fill: #10202b; }
+    .tl    { font-size: 10.5px; fill: #33424e; }
+    .note  { font-size: 10.5px; fill: #6a7a86; }
+    .warn  { font-size: 10.5px; font-weight: bold; fill: #a8321a; }
+    .rl    { font-size: 10px; fill: #a8321a; }
+  </style>
+
+  <rect class="bg" x="0" y="0" width="1240" height="1240"/>
+  <text class="ttl" x="24" y="32">Rozmieszczenie podzespołów w aucie — Alfa Romeo 156</text>
+  <text class="sub" x="24" y="52">Rzut z góry, przód po lewej · numery odpowiadają legendzie · czerwony = zasilanie, bordowy = audio · rysunek schematyczny, nie w skali</text>
+  <line x1="24" y1="62" x2="1216" y2="62" stroke="#c8d2da" stroke-width="1.5"/>
+
+  <!-- ================= CAR BODY ================= -->
+  <path class="body" d="M70 335
+      C 70 268, 132 208, 222 198
+      L 380 178 L 470 158 L 780 154 L 900 164
+      L 1062 184 C 1142 196, 1180 262, 1180 335
+      C 1180 408, 1142 474, 1062 486
+      L 900 506 L 780 516 L 470 512 L 380 492 L 222 472
+      C 132 462, 70 402, 70 335 Z"/>
+
+  <!-- zone dividers -->
+  <path class="div" d="M255 200 L255 470"/>
+  <path class="div" d="M640 172 L640 498"/>
+  <path class="div" d="M900 164 L900 506"/>
+  <path class="div" d="M70 335 L1180 335"/>
+
+  <!-- wheels -->
+  <rect x="248" y="188" width="56" height="22" rx="7" fill="#2b3a45"/>
+  <rect x="248" y="462" width="56" height="22" rx="7" fill="#2b3a45"/>
+  <rect x="948" y="184" width="56" height="22" rx="7" fill="#2b3a45"/>
+  <rect x="948" y="470" width="56" height="22" rx="7" fill="#2b3a45"/>
+
+  <!-- zone captions -->
+  <text class="axb" x="120" y="140">komora silnika</text>
+  <text class="axb" x="300" y="140">przód kabiny</text>
+  <text class="axb" x="700" y="140">tył kabiny</text>
+  <text class="axb" x="980" y="140">bagażnik</text>
+  <text class="ax" x="30" y="339">PRZÓD</text>
+  <text class="ax" x="1192" y="339">TYŁ</text>
+  <text class="ax" x="640" y="196">strona kierowcy (lewa)</text>
+  <text class="ax" x="640" y="486">strona pasażera (prawa)</text>
+
+  <!-- ============ ENGINE BAY ============ -->
+  <rect class="zoneS" x="112" y="248" width="130" height="42"/>
+  <text class="zt" x="177" y="266">akumulator</text>
+  <text class="zt" x="177" y="282">bezp. 30 A + 20 A</text>
+  <circle class="pin" cx="112" cy="248" r="11"/><text class="pinT" x="112" y="252">1</text>
+
+  <circle class="pin" cx="88" cy="335" r="11"/><text class="pinT" x="88" y="339">16</text>
+
+  <!-- firewall grommet -->
+  <circle class="pin" cx="255" cy="404" r="11"/><text class="pinT" x="255" y="408">2</text>
+
+  <!-- ============ FRONT CABIN — DRIVER SIDE ============ -->
+  <rect class="zoneA" x="276" y="226" width="196" height="52"/>
+  <text class="zt" x="374" y="245">Nano #1 + Nano #2</text>
+  <text class="zt" x="374" y="261">moduł przekaźników</text>
+  <text class="zt" x="374" y="273">HM-10, RXB6</text>
+  <circle class="pin" cx="276" cy="226" r="11"/><text class="pinT" x="276" y="230">9</text>
+
+  <rect class="zoneB" x="268" y="290" width="152" height="34"/>
+  <text class="zt" x="344" y="311">OBD + CP2102 + L9637D</text>
+  <circle class="pin" cx="268" cy="290" r="11"/><text class="pinT" x="268" y="294">10</text>
+
+  <!-- ============ FRONT CABIN — PASSENGER SIDE ============ -->
+  <rect class="zoneS" x="276" y="344" width="104" height="32"/>
+  <text class="zt" x="328" y="364">VSR</text>
+  <circle class="pin" cx="276" cy="344" r="11"/><text class="pinT" x="276" y="348">3</text>
+
+  <rect class="zoneB" x="276" y="392" width="190" height="56"/>
+  <text class="zt" x="371" y="411">M910q, hub USB</text>
+  <text class="zt" x="371" y="427">step-up, przekaźnik</text>
+  <text class="zt" x="371" y="441">listwa bezpiecznikowa</text>
+  <circle class="pin" cx="276" cy="392" r="11"/><text class="pinT" x="276" y="396">4</text>
+
+  <rect class="zoneA" x="490" y="392" width="190" height="56"/>
+  <text class="zt" x="585" y="411">bank 5 × HR1221W</text>
+  <text class="zt" x="585" y="427">ładowarka, LVD</text>
+  <text class="zt" x="585" y="441">rozłącznik masy</text>
+  <circle class="pin" cx="490" cy="392" r="11"/><text class="pinT" x="490" y="396">5</text>
+
+  <!-- ============ CENTER CONSOLE ============ -->
+  <rect class="zoneV" x="486" y="240" width="120" height="26"/>
+  <text class="zt" x="546" y="257">ekran 4,3"</text>
+  <circle class="pinV" cx="486" cy="240" r="11"/><text class="pinT" x="486" y="244">7</text>
+
+  <rect class="zoneV" x="486" y="274" width="120" height="30"/>
+  <text class="zt" x="546" y="293">ekran 7" / 10"</text>
+  <circle class="pinV" cx="486" cy="274" r="11"/><text class="pinT" x="486" y="278">6</text>
+
+  <rect class="zoneV" x="486" y="312" width="120" height="24"/>
+  <text class="zt" x="546" y="328">enkoder + przyciski</text>
+  <circle class="pinV" cx="486" cy="312" r="11"/><text class="pinT" x="486" y="316">8</text>
+
+  <!-- star ground -->
+  <circle class="pin" cx="446" cy="348" r="11"/><text class="pinT" x="446" y="352">11</text>
+
+  <!-- cabin point markers -->
+  <circle class="pinV" cx="400" cy="196" r="11"/><text class="pinT" x="400" y="200">15</text>
+  <circle class="pinV" cx="400" cy="490" r="11"/><text class="pinT" x="400" y="494">15</text>
+  <circle class="pin" cx="446" cy="204" r="11"/><text class="pinT" x="446" y="208">12</text>
+  <circle class="pinV" cx="500" cy="186" r="11"/><text class="pinT" x="500" y="190">14</text>
+  <circle class="pin" cx="560" cy="180" r="11"/><text class="pinT" x="560" y="184">13</text>
+  <circle class="pinC" cx="620" cy="206" r="11"/><text class="pinT" x="620" y="210">21</text>
+  <circle class="pinC" cx="620" cy="484" r="11"/><text class="pinT" x="620" y="488">21</text>
+
+  <!-- ============ REAR CABIN ============ -->
+  <circle class="pinC" cx="860" cy="238" r="11"/><text class="pinT" x="860" y="242">22</text>
+  <circle class="pinC" cx="860" cy="430" r="11"/><text class="pinT" x="860" y="434">22</text>
+
+  <!-- ============ TRUNK ============ -->
+  <rect class="zoneC" x="936" y="228" width="196" height="50"/>
+  <text class="zt" x="1034" y="247">TDA7388 + TDA2050</text>
+  <text class="zt" x="1034" y="263">radiatory, wentylacja</text>
+  <circle class="pin" cx="936" cy="228" r="11"/><text class="pinT" x="936" y="232">17</text>
+
+  <rect class="zoneC" x="936" y="404" width="196" height="42"/>
+  <text class="zt" x="1034" y="429">subwoofer</text>
+  <circle class="pin" cx="936" cy="404" r="11"/><text class="pinT" x="936" y="408">18</text>
+
+  <circle class="pinV" cx="1172" cy="298" r="11"/><text class="pinT" x="1172" y="302">19</text>
+  <circle class="pin" cx="1172" cy="372" r="11"/><text class="pinT" x="1172" y="376">20</text>
+
+  <!-- ============ ROUTES ============ -->
+  <!-- main power: battery -> firewall -> VSR -> M910q bay -> bank -->
+  <path class="route" d="M177 290 L177 404 L255 404"/>
+  <path class="route" d="M255 404 L255 360 L276 360"/>
+  <path class="route" d="M328 376 L328 392"/>
+  <path class="route" d="M466 420 L490 420"/>
+  <text class="rl" x="120" y="400">1 → 2 przelotka</text>
+
+  <!-- amp branch straight from starter battery along the sill -->
+  <path class="route" d="M212 290 L212 462 L1000 462 L1000 446"/>
+  <text class="rl" x="600" y="458">gałąź wzmacniaczy — osobno, prosto z akumulatora, bezp. 20 A</text>
+
+  <!-- audio signal M910q -> amps -->
+  <path class="routeA" d="M400 392 L400 366 L700 366 L700 300 L900 300 L900 262 L936 262"/>
+  <text class="rl" x="720" y="294">sygnał audio RCA — inną trasą niż zasilanie</text>
+
+  <!-- ============ LEGEND ============ -->
+  <text class="sec" x="60" y="566">Legenda</text>
+  <rect x="60" y="576" width="560" height="230" fill="#fbfcfd" stroke="#c8d2da" stroke-width="1.5" rx="6"/>
+  <text class="tl" x="78" y="598">1 · akumulator rozruchowy + bezpieczniki 30 A i 20 A</text>
+  <text class="tl" x="78" y="618">2 · fabryczna przelotka w przegrodzie</text>
+  <text class="tl" x="78" y="638">3 · VSR — rozdział ładowania</text>
+  <text class="tl" x="78" y="658">4 · M910q, hub USB, step-up, przekaźnik zapłonu, listwa</text>
+  <text class="tl" x="78" y="678">5 · bank 5 × HR1221W, ładowarka CC-CV, LVD, rozłącznik masy</text>
+  <text class="tl" x="78" y="698">6 · wyświetlacz główny 7" / 10" — miejsce fabrycznego radia</text>
+  <text class="tl" x="78" y="718">7 · wyświetlacz mały 4,3"</text>
+  <text class="tl" x="78" y="738">8 · enkoder, przyciski, panel muzyczny</text>
+  <text class="tl" x="78" y="758">9 · Nano #1, Nano #2, moduł przekaźników, HM-10, RXB6</text>
+  <text class="tl" x="78" y="778">10 · złącze OBD-II + CP2102 + L9637D (K-Line)</text>
+  <text class="tl" x="78" y="798">11 · punkt gwiazdowy masy</text>
+
+  <rect x="650" y="576" width="560" height="230" fill="#fbfcfd" stroke="#c8d2da" stroke-width="1.5" rx="6"/>
+  <text class="tl" x="668" y="598">12 · pody SWC na kierownicy</text>
+  <text class="tl" x="668" y="618">13 · mikrofon USB (podsufitka) + GPS (deska, pod plastikiem)</text>
+  <text class="tl" x="668" y="638">14 · kamera przednia — za lusterkiem wstecznym</text>
+  <text class="tl" x="668" y="658">15 · kamery boczne — lusterka / błotniki</text>
+  <text class="tl" x="668" y="678">16 · DS18B20 — za zderzakiem przednim</text>
+  <text class="tl" x="668" y="698">17 · TDA7388 + TDA2050 z radiatorami</text>
+  <text class="tl" x="668" y="718">18 · subwoofer w obudowie</text>
+  <text class="tl" x="668" y="738">19 · kamera cofania — ramka tablicy rejestracyjnej</text>
+  <text class="tl" x="668" y="758">20 · 4 × HC-SR04 — zderzak tylny</text>
+  <text class="tl" x="668" y="778">21 · głośniki przednie — drzwi</text>
+  <text class="tl" x="668" y="798">22 · głośniki tylne — półka</text>
+
+  <!-- ============ RATIONALE ============ -->
+  <text class="sec" x="60" y="838">Dlaczego akurat tam</text>
+  <rect x="60" y="848" width="560" height="304" fill="#fbfcfd" stroke="#c8d2da" stroke-width="1.5" rx="6"/>
+
+  <text class="tb" x="78" y="872">Bank pod fotelem pasażera, nie w bagażniku</text>
+  <text class="note" x="78" y="890">Kabina jest chłodniejsza. Karta HR1221W: 3–5 lat przy 25 °C, z połowieniem</text>
+  <text class="note" x="78" y="906">na każde +10 °C. Bagażnik latem osiąga 45–55 °C — różnica wychodzi</text>
+  <text class="note" x="78" y="922">2–4 lata (kabina) wobec 1,5–3 lat (bagażnik).</text>
+
+  <text class="tb" x="78" y="948">Wzmacniacze w bagażniku, nie przy banku</text>
+  <text class="note" x="78" y="966">Klasa AB grzeje się mocno i potrzebuje wentylacji. Idą osobną gałęzią 12 V</text>
+  <text class="note" x="78" y="982">prosto z akumulatora, więc nie ma powodu ciągnąć ich do kabiny.</text>
+
+  <text class="tb" x="78" y="1008">M910q za deską po stronie pasażera</text>
+  <text class="note" x="78" y="1026">Poziomo, logo do góry, na wsporniku VESA 100. Blisko obu wyświetlaczy</text>
+  <text class="note" x="78" y="1042">i huba, więc kable DP i USB są krótkie. Wymaga przewiewu.</text>
+
+  <text class="tb" x="78" y="1068">Step-up w tej samej strefie, ale z wentylatorem</text>
+  <text class="note" x="78" y="1086">Rozprasza ~9 W. Nie kładź jej na wykładzinie ani tapicerce — radiator na</text>
+  <text class="note" x="78" y="1102">blasze lub profilu aluminiowym, wentylator 40 mm z domeny B.</text>
+
+  <text class="warn" x="78" y="1128">Rozłącznik masy banku musi być dostępny bez demontażu fotela.</text>
+  <text class="note" x="78" y="1144">Będzie potrzebny przy każdym serwisie i przy dłuższym postoju auta.</text>
+
+  <!-- ============ ROUTING + MASS ============ -->
+  <text class="sec" x="650" y="838">Trasy kablowe</text>
+  <rect x="650" y="848" width="560" height="164" fill="#fbfcfd" stroke="#c8d2da" stroke-width="1.5" rx="6"/>
+  <text class="tb" x="668" y="872">Komora silnika → kabina</text>
+  <text class="note" x="668" y="890">Fabryczna przelotka w przegrodzie. Nie wierć nowej; jeśli musisz — przelotka</text>
+  <text class="note" x="668" y="906">gumowa i zabezpieczenie antykorozyjne krawędzi otworu.</text>
+  <text class="tb" x="668" y="932">Kabina → bagażnik</text>
+  <text class="note" x="668" y="950">Wzdłuż progu, pod listwą, lewą stroną. Zasilanie wzmacniaczy i sygnał audio</text>
+  <text class="note" x="668" y="966">prowadź osobnymi trasami — równolegle złapiesz przydźwięk.</text>
+  <text class="note" x="668" y="990">Do lusterek i zderzaków: gumowe przepusty w drzwiach, wzdłuż wiązki reflektorów.</text>
+
+  <text class="sec" x="650" y="1046">Masa i rozkład</text>
+  <rect x="650" y="1056" width="560" height="96" fill="#fbfcfd" stroke="#c8d2da" stroke-width="1.5" rx="6"/>
+  <text class="tl" x="668" y="1078">bank 5 × HR1221W</text><text class="tl" x="1000" y="1078">9,0 kg</text>
+  <text class="tl" x="668" y="1096">M910q, hub, przetwornice</text><text class="tl" x="1000" y="1096">ok. 2,5 kg</text>
+  <text class="tl" x="668" y="1114">wzmacniacze + radiatory</text><text class="tl" x="1000" y="1114">ok. 2,0 kg</text>
+  <text class="tl" x="668" y="1132">subwoofer z obudową</text><text class="tl" x="1000" y="1132">5–12 kg</text>
+  <text class="tb" x="1000" y="1150">razem 19–26 kg</text>
+
+  <text class="warn" x="24" y="1186">Każdy element powyżej 1 kg przykręcony albo przypięty pasem do elementu konstrukcyjnego. Luźny akumulator 1,8 kg przy hamowaniu awaryjnym to pocisk.</text>
+  <text class="note" x="24" y="1206">Rysunek pokazuje strefy montażu i trasy, nie wymiary nadwozia. Przed wierceniem sprawdź, co jest po drugiej stronie blachy — wiązki, przewody paliwowe, wzmocnienia.</text>
+  <text class="note" x="24" y="1226">Tabele połączeń „skąd → dokąd”: docs/SCHEMATY_POLACZEN.md · dobór podzespołów i nastawy: docs/ZASILANIE_BUFOROWANE.md</text>
+</svg>

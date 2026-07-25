@@ -51,6 +51,7 @@ sprzęt → zasilanie → BIOS → OS → BCM → usługi → kiosk → peryferi
 | Symulacja na laptopie (bez sprzętu) | [`URUCHOMIENIE.md`](URUCHOMIENIE.md) § 1 |
 | Szczegóły zasilania buforowanego | [`ZASILANIE_BUFOROWANE.md`](ZASILANIE_BUFOROWANE.md) |
 | Tabele połączeń, przekroje, kolejność montażu | [`SCHEMATY_POLACZEN.md`](SCHEMATY_POLACZEN.md) |
+| Rozmieszczenie podzespołów w aucie | [`../schematics/vehicle_layout_m910q.svg`](../schematics/vehicle_layout_m910q.svg) |
 | Okablowanie Arduino pin-po-pinie | [`ARDUINO_SETUP_GUIDE.md`](ARDUINO_SETUP_GUIDE.md) |
 | Podsłuch K-Line, poznawanie PID-ów | [`KLINE_SNIFFING.md`](KLINE_SNIFFING.md) |
 | Wersja ilustrowana (12 rozdziałów HTML) | [`x86-production/index.html`](x86-production/index.html) |
