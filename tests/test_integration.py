@@ -426,7 +426,11 @@ class TestSystemdServices:
     ]
 
     def test_current_headunit_service_exists(self):
-        path = os.path.join(self.CURRENT_SERVICE_DIR, "bcm-headunit.service")
+        # The production unit ships as bcm-headunit-x86.service and is
+        # installed under the name bcm-headunit.service (see
+        # docs/WDROZENIE_M910Q.md § 7). The plain-named file was the
+        # Orange Pi PC variant and now lives in Archive/orange-pi-pc/.
+        path = os.path.join(self.CURRENT_SERVICE_DIR, "bcm-headunit-x86.service")
         assert os.path.isfile(path)
         with open(path) as f:
             content = f.read()

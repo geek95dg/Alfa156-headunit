@@ -384,8 +384,9 @@ tr:hover td{background:var(--bg-card)}
      <code>cofanie &gt; lewy kierunkowskaz &gt; prawy kierunkowskaz &gt; brak</code>
      i publikuje stan przez <code>camera.active_feed</code>.
      Sygnały kierunkowskazów są odczytywane przez dwa dodatkowe PC817
-     na GPIO (patrz <a href="docs/OPI5PRO_BOM.md">OPI5PRO_BOM.md</a> oraz
-     <a href="docs/OPI5PRO_SETUP.md">OPI5PRO_SETUP.md</a>).</p>
+     na GPIO (patrz <a href="Archive/orange-pi-5/OPI5PRO_BOM.md">Archive/orange-pi-5/OPI5PRO_BOM.md</a> oraz
+     <a href="Archive/orange-pi-5/OPI5PRO_SETUP.md">OPI5PRO_SETUP.md</a> — wariant Orange Pi;
+     na M910q te same PC817 wchodzą na Arduino sensor hub).</p>
 </section>
 
 <!-- ═══ S6 — NOWE MODUŁY ═══ -->
@@ -895,7 +896,7 @@ curl -X POST http://localhost:5002/api/config \
     <li>Instalacja pakietów: Python 3.12, PipeWire, Bluetooth, GStreamer</li>
     <li>Clone repo: <code>git clone https://github.com/geek95dg/Alfa156-headunit.git</code></li>
     <li>Virtualenv: <code>python3.12 -m venv .venv && source .venv/bin/activate</code></li>
-    <li>Instalacja zależności: <code>pip install -r requirements.txt -r requirements-opi.txt</code></li>
+    <li>Instalacja zależności: <code>pip install -r requirements.txt -r Archive/orange-pi-5/requirements-opi.txt</code></li>
   </ol>
 
   <h3>Dual display — Chromium kiosk</h3>

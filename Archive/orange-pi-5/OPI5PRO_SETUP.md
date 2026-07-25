@@ -6,7 +6,7 @@ This is the intended final in-car platform.
 
 See also:
 - [`OPI5PRO_BOM.md`](OPI5PRO_BOM.md) — parts list and prices
-- [`OPI_PC_SETUP.md`](OPI_PC_SETUP.md) — bench test rig (pre-production)
+- [`../orange-pi-pc/OPI_PC_SETUP.md`](../orange-pi-pc/OPI_PC_SETUP.md) — bench test rig (pre-production)
 
 ---
 

@@ -1,6 +1,6 @@
 # BCM v8.5 — Orange Pi 5 Pro 4GB / 5 Plus (aarch64) dependencies
 #
-# Install (see docs/OPI5PRO_SETUP.md for the full recipe):
+# Install (see OPI5PRO_SETUP.md for the full recipe):
 #   python3 -m venv --system-site-packages .venv
 #   source .venv/bin/activate
 #   pip install -r requirements.txt -r requirements-opi.txt
@@ -35,7 +35,7 @@ simple-websocket>=1.0
 Pillow>=10.0
 opencv-python-headless>=4.8
 
-# Note: System packages required (install via apt) — see docs/OPI5PRO_SETUP.md
+# Note: System packages required (install via apt) — see OPI5PRO_SETUP.md
 #   Core:
 #     - python3-libgpiod               (Debian Python binding — pip gpiod
 #                                       cannot build against Py3.13 on Trixie)

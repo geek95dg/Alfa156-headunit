@@ -1,8 +1,14 @@
 # BCM v8.5 — Instrukcja uruchomienia (Alfa Romeo 156 Head Unit)
 
 Kompletny przewodnik uruchomienia projektu — od symulacji na laptopie,
-przez produkcyjną instalację w aucie (Lenovo M910q), po stanowisko
-testowe na Orange Pi PC i firmware Arduino.
+przez produkcyjną instalację w aucie (Lenovo M910q), po firmware Arduino.
+
+> **Platforma produkcyjna: Lenovo ThinkCentre M910q Tiny.** Pełna
+> dokumentacja wdrożeniowa: [`WDROZENIE_M910Q.md`](WDROZENIE_M910Q.md).
+> Zasilanie buforowane (step-up 19/20 V, akumulatory żelowe, ładowanie,
+> blokada przeładowania): [`ZASILANIE_BUFOROWANE.md`](ZASILANIE_BUFOROWANE.md).
+> Materiały dla Orange Pi 5 Pro / 5 Plus, stanowiska Orange Pi PC i testów
+> na VM-ce są zarchiwizowane w [`Archive/`](../Archive/README.md).
 
 ---
 
@@ -54,9 +60,18 @@ pytest            # uruchamia całość z katalogu tests/
 
 ## 2. Ścieżka B — produkcja na Lenovo M910q (x86)
 
-Pełna, krok-po-kroku instrukcja: **[docs/X86_PLATFORM_SETUP.md](X86_PLATFORM_SETUP.md)**.
-Wersja HTML z ilustracjami (BOM, montaż, K-Line, czujniki, weryfikacja):
-**[docs/x86-production/index.html](x86-production/index.html)** (rozdziały 01–12).
+Skonsolidowana instrukcja wdrożeniowa po polsku:
+**[docs/WDROZENIE_M910Q.md](WDROZENIE_M910Q.md)** — od zakupów, przez BIOS,
+OS i usługi, po odbiór techniczny.
+
+Materiały źródłowe, z których korzysta powyższa instrukcja:
+- **[docs/X86_PLATFORM_SETUP.md](X86_PLATFORM_SETUP.md)** — referencja
+  krok-po-kroku (EN), pełne komendy i pliki konfiguracyjne.
+- **[docs/x86-production/index.html](x86-production/index.html)** — wersja
+  HTML z ilustracjami (rozdziały 01–12: BOM, montaż, K-Line, czujniki,
+  weryfikacja).
+- **[docs/ZASILANIE_BUFOROWANE.md](ZASILANIE_BUFOROWANE.md)** — zasilanie
+  buforowane: schematy, dobór podzespołów, lista zakupowa.
 
 Kolejność prac w skrócie:
 
@@ -136,17 +151,21 @@ Kolejność prac w skrócie:
 
 ---
 
-## 3. Ścieżka C — stanowisko testowe Orange Pi PC
+## 3. Ścieżka C — platformy zarchiwizowane
 
-Tani bench-rig (Orange Pi PC 1.2, Armbian Trixie) do testów przed
-zabudową w aucie. Pełna instrukcja, podzielona na samodzielne Party
-(1–2 czysto software'owe, potem dongle USB, czujniki, przycisk zapłonu):
-**[docs/OPI_PC_SETUP.md](OPI_PC_SETUP.md)**.
+Wcześniejsze warianty sprzętowe nie są już utrzymywane. Dokumentacja
+została przeniesiona do [`Archive/`](../Archive/README.md):
 
-W skrócie: flash Armbiana → `/opt/bcm` + venv z
-`requirements-opi-pc.txt` → `./run_opi_pc.sh` albo usługi systemd
-(`bcm-headunit.service` — wariant opi_pc, config
-`config/bcm_config_opi_pc.yaml`).
+| Platforma | Rola | Dokumentacja |
+|-----------|------|--------------|
+| Orange Pi 5 Pro 4 GB | poprzednia platforma produkcyjna | [`Archive/orange-pi-5/OPI5PRO_SETUP.md`](../Archive/orange-pi-5/OPI5PRO_SETUP.md) |
+| Orange Pi 5 Plus | jeszcze wcześniejsza (RK3588, 16 GB) | [`Archive/orange-pi-5/OPI5PLUS_INSTALL.md`](../Archive/orange-pi-5/OPI5PLUS_INSTALL.md) |
+| Orange Pi PC 1.2 | stanowisko testowe (bench rig) | [`Archive/orange-pi-pc/OPI_PC_SETUP.md`](../Archive/orange-pi-pc/OPI_PC_SETUP.md) |
+| VMware Workstation | testy dymne bez sprzętu | [`Archive/vm-smoke-tests/VMWARE_SETUP.md`](../Archive/vm-smoke-tests/VMWARE_SETUP.md) |
+
+Rolę testów bez sprzętu przejęła w całości **Ścieżka A** (`./run_x86.sh`
+na dowolnym Linuksie) — ta sama ścieżka symulacji, bez narzutu VM-ki
+i bez osobnego riga.
 
 ---
 
