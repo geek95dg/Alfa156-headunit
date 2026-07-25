@@ -4,9 +4,11 @@ Kompletny opis układu zasilania head unitu BCM v8.5: bufor z akumulatorów
 CSB HR1221W (AGM), ładowanie, blokada przeładowania, ochrona przed głębokim
 rozładowaniem, podział na domeny i przetwornica step-up do 19 V.
 
-**Schematy:** [`../schematics/power_buffered_m910q.svg`](../schematics/power_buffered_m910q.svg) ·
+**Schematy blokowe:** [`../schematics/power_buffered_m910q.svg`](../schematics/power_buffered_m910q.svg) ·
 [`../schematics/charging_lvd.svg`](../schematics/charging_lvd.svg) ·
 [`../schematics/power_domains_m910q.svg`](../schematics/power_domains_m910q.svg)
+
+**Jak to pospiąć — zacisk po zacisku:** [`SCHEMATY_POLACZEN.md`](SCHEMATY_POLACZEN.md)
 
 **Wdrożenie całości:** [`WDROZENIE_M910Q.md`](WDROZENIE_M910Q.md)
 
@@ -894,4 +896,5 @@ z listy zalecanych zakupów (poz. 26).
 | [`x86-production/10-power-suspend.html`](x86-production/10-power-suspend.html) | zasilanie + S3 w wersji ilustrowanej |
 | [`x86-production/02-assembly.html`](x86-production/02-assembly.html) | montaż mechaniczny, layout USB |
 | [`ARDUINO_SETUP_GUIDE.md`](ARDUINO_SETUP_GUIDE.md) | okablowanie trzech płytek Arduino, domeny A/B po stronie sygnałów |
+| [`SCHEMATY_POLACZEN.md`](SCHEMATY_POLACZEN.md) | tabele połączeń, przekroje, bezpieczniki, kolejność montażu |
 | [`../schematics/README.md`](../schematics/README.md) | indeks schematów |

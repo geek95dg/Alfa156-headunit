@@ -1,0 +1,276 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1240" height="1290" viewBox="0 0 1240 1290" font-family="DejaVu Sans, Verdana, sans-serif">
+  <title>BCM v8.5 — Sygnały pojazdu, układy dopasowujące i płytki Arduino</title>
+  <style>
+    .bg    { fill: #ffffff; }
+    .mod   { fill: #f7f9fb; stroke: #2b3a45; stroke-width: 2; rx: 6; }
+    .modC  { fill: #fdf3e6; stroke: #a8621a; stroke-width: 2; rx: 6; }
+    .modA  { fill: #eef7ee; stroke: #2d6a2d; stroke-width: 2; rx: 6; }
+    .modB  { fill: #eef2fa; stroke: #2b4a8a; stroke-width: 2; rx: 6; }
+    .car   { fill: #fbeff1; stroke: #97324a; stroke-width: 2; rx: 6; }
+    .term  { fill: #ffffff; stroke: #2b3a45; stroke-width: 1.5; rx: 2; }
+    .w12   { stroke: #c0392b; stroke-width: 2.6; fill: none; }
+    .w5    { stroke: #a8621a; stroke-width: 2.2; fill: none; }
+    .wsig  { stroke: #2b4a8a; stroke-width: 2; fill: none; }
+    .wusb  { stroke: #2d6a2d; stroke-width: 2.6; fill: none; }
+    .minus { stroke: #222831; stroke-width: 2.2; fill: none; }
+    .comp  { stroke: #2b3a45; stroke-width: 1.8; fill: #ffffff; }
+    .ttl   { font-size: 19px; font-weight: bold; fill: #10202b; }
+    .sub   { font-size: 12px; fill: #5a6b78; }
+    .mt    { font-size: 13px; font-weight: bold; fill: #10202b; text-anchor: middle; }
+    .ms    { font-size: 10.5px; fill: #5a6b78; text-anchor: middle; }
+    .tp    { font-size: 10px; font-weight: bold; fill: #10202b; text-anchor: middle; }
+    .tl    { font-size: 10.5px; fill: #33424e; }
+    .tb    { font-size: 10.5px; font-weight: bold; fill: #10202b; }
+    .note  { font-size: 10.5px; fill: #6a7a86; }
+    .warn  { font-size: 10.5px; font-weight: bold; fill: #a8321a; }
+    .sec   { font-size: 13px; font-weight: bold; fill: #2d4150; }
+  </style>
+
+  <defs>
+    <g id="gnd2">
+      <path stroke="#222831" stroke-width="2.2" fill="none" d="M-10 0 L10 0"/>
+      <path stroke="#222831" stroke-width="2.2" fill="none" d="M-6 4 L6 4"/>
+      <path stroke="#222831" stroke-width="2.2" fill="none" d="M-2 8 L2 8"/>
+    </g>
+  </defs>
+
+  <rect class="bg" x="0" y="0" width="1240" height="1290"/>
+  <text class="ttl" x="24" y="32">Sygnały pojazdu → układy dopasowujące → Arduino</text>
+  <text class="sub" x="24" y="52">Na M910q nie ma GPIO. Każdy sygnał 12 V musi przejść przez optoizolator albo dzielnik, zanim dotknie pinu Arduino.</text>
+  <line x1="24" y1="62" x2="1216" y2="62" stroke="#c8d2da" stroke-width="1.5"/>
+
+  <!-- ============ COLUMN 1 — VEHICLE TAPS ============ -->
+  <text class="sec" x="40" y="92">1. Punkty poboru w aucie</text>
+  <rect class="car" x="40" y="102" width="290" height="404"/>
+
+  <text class="tb" x="58" y="126">Zasilanie</text>
+  <text class="tl" x="58" y="146">+12 V stałe — klema „+” akumulatora</text>
+  <text class="tl" x="58" y="164">ACC / +15 — zamek kluczyka, poz. I/II</text>
+  <text class="tl" x="58" y="182">masa — punkt gwiazdowy na nadwoziu</text>
+
+  <text class="tb" x="58" y="212">Sygnały 12 V (przez PC817)</text>
+  <text class="tl" x="58" y="232">zapłon — ta sama linia ACC</text>
+  <text class="tl" x="58" y="250">kierunkowskaz L / P — wiązka tylnej lampy</text>
+  <text class="tl" x="58" y="268">bieg wsteczny — wyłącznik na skrzyni</text>
+  <text class="tl" x="58" y="286">podświetlenie — włącznik świateł</text>
+
+  <text class="tb" x="58" y="316">Styki zwierane do masy</text>
+  <text class="tl" x="58" y="336">drzwi ×4 — wyłączniki oświetlenia wnętrza</text>
+  <text class="tl" x="58" y="354">maska, klapa bagażnika</text>
+  <text class="tl" x="58" y="372">hamulec ręczny — wyłącznik dźwigni</text>
+
+  <text class="tb" x="58" y="402">Diagnostyka</text>
+  <text class="tl" x="58" y="422">OBD-II pin 7 — K-Line</text>
+  <text class="tl" x="58" y="440">OBD-II pin 4/5 — masa</text>
+
+  <text class="warn" x="58" y="470">Każdy punkt zweryfikuj multimetrem w aucie</text>
+  <text class="note" x="58" y="488">przed podłączeniem — kolory wiązki różnią się</text>
+  <text class="note" x="58" y="502">między rocznikami i wersjami wyposażenia.</text>
+
+  <!-- ============ COLUMN 2 — CONDITIONING ============ -->
+  <text class="sec" x="370" y="92">2. Układy dopasowujące</text>
+
+  <!-- PC817 -->
+  <rect class="modC" x="370" y="102" width="420" height="230"/>
+  <text class="mt" x="580" y="124">Optoizolator PC817 — sygnał 12 V → wejście Arduino</text>
+
+  <text class="tl" x="386" y="156">12 V</text>
+  <path class="w12" d="M418 152 L452 152"/>
+  <rect class="comp" x="452" y="143" width="42" height="18"/>
+  <text class="tp" x="473" y="156">4,7k</text>
+  <path class="w12" d="M494 152 L536 152"/>
+
+  <rect class="comp" x="536" y="128" width="96" height="88"/>
+  <text class="tp" x="584" y="148">PC817</text>
+  <text class="ms" x="584" y="166">1  anoda</text>
+  <text class="ms" x="584" y="182">2  katoda</text>
+  <text class="ms" x="584" y="198">4  kolektor</text>
+  <text class="ms" x="584" y="212">3  emiter</text>
+
+  <path class="minus" d="M536 196 L512 196 L512 232"/>
+  <use href="#gnd2" x="512" y="232"/>
+  <text class="ms" x="470" y="228">masa pojazdu</text>
+
+  <path class="wsig" d="M632 168 L700 168"/>
+  <text class="tl" x="640" y="162">→ pin Arduino</text>
+  <path class="minus" d="M632 200 L700 200 L700 232"/>
+  <use href="#gnd2" x="700" y="232"/>
+  <text class="ms" x="742" y="204">masa Arduino</text>
+
+  <text class="note" x="386" y="258">Wejście Arduino w trybie INPUT_PULLUP — rezystor podciągający jest</text>
+  <text class="note" x="386" y="274">wewnątrz mikrokontrolera, zewnętrznego 10 kΩ nie trzeba.</text>
+  <text class="warn" x="386" y="296">Stan aktywny to LOW: 12 V obecne → dioda świeci →</text>
+  <text class="warn" x="386" y="312">tranzystor zwiera pin do masy.</text>
+  <text class="note" x="386" y="328">Masa pojazdu i masa Arduino są rozdzielone — na tym polega izolacja.</text>
+
+  <!-- Divider -->
+  <rect class="modC" x="370" y="348" width="420" height="150"/>
+  <text class="mt" x="580" y="370">Dzielnik napięcia — ECHO z HC-SR04 (5 V → 3,3 V)</text>
+  <text class="tl" x="386" y="400">ECHO 5 V</text>
+  <path class="w5" d="M448 396 L484 396"/>
+  <rect class="comp" x="484" y="387" width="38" height="18"/>
+  <text class="tp" x="503" y="400">1k</text>
+  <path class="w5" d="M522 396 L566 396"/>
+  <circle cx="566" cy="396" r="3.5" fill="#a8621a"/>
+  <path class="wsig" d="M566 396 L640 396"/>
+  <text class="tl" x="648" y="400">→ A0–A3</text>
+  <path class="w5" d="M566 396 L566 424"/>
+  <rect class="comp" x="547" y="424" width="38" height="18"/>
+  <text class="tp" x="566" y="437">2k</text>
+  <path class="minus" d="M566 442 L566 464"/>
+  <use href="#gnd2" x="566" y="464"/>
+  <text class="note" x="386" y="482">Bez dzielnika 5 V z ECHO trafia wprost na pin — działa,</text>
+  <text class="note" x="386" y="496">ale skraca życie wejścia.</text>
+
+  <!-- DS18B20 -->
+  <rect class="modC" x="370" y="514" width="420" height="120"/>
+  <text class="mt" x="580" y="536">DS18B20 — podciągnięcie magistrali 1-Wire</text>
+  <text class="tl" x="386" y="566">5 V</text>
+  <path class="w5" d="M412 562 L446 562"/>
+  <rect class="comp" x="446" y="553" width="42" height="18"/>
+  <text class="tp" x="467" y="566">4,7k</text>
+  <path class="w5" d="M488 562 L540 562"/>
+  <circle cx="540" cy="562" r="3.5" fill="#a8621a"/>
+  <path class="wsig" d="M540 562 L620 562"/>
+  <text class="tl" x="628" y="566">→ D11</text>
+  <path class="w5" d="M540 562 L540 590"/>
+  <text class="tl" x="500" y="606">DATA (żółty) czujnika</text>
+  <text class="note" x="386" y="624">VCC czerwony → 5 V · GND czarny → masa Arduino.</text>
+  <text class="note" x="500" y="624">Rezystor montuj przy płytce.</text>
+
+  <!-- SWC ladder -->
+  <rect class="modC" x="370" y="650" width="420" height="112"/>
+  <text class="mt" x="580" y="672">SWC — drabinka rezystorowa z kierownicy</text>
+  <text class="tl" x="386" y="698">Dekoder SWC: czerwony → ACC · czarny → masa</text>
+  <text class="tl" x="386" y="716">biały (Pod 1) → Pro Micro A0 · biały (Pod 2) → A6</text>
+  <text class="note" x="386" y="738">Kalibracja: przytrzymaj HOME + BACK przy starcie Pro Micro, potem naciskaj</text>
+  <text class="note" x="386" y="754">kolejne przyciski wg podpowiedzi. Progi zapisują się w EEPROM.</text>
+
+  <!-- LDR -->
+  <rect class="modC" x="370" y="778" width="420" height="96"/>
+  <text class="mt" x="580" y="800">LDR — czujnik światła (auto-jasność)</text>
+  <text class="tl" x="386" y="826">5 V → LDR → węzeł → A1 · węzeł → 10 kΩ → masa</text>
+  <text class="note" x="386" y="846">Montaż na desce rozdzielczej, „patrzy” w szybę. Przycisk na manetce → A2</text>
+  <text class="note" x="386" y="862">przełącza 6 poziomów jasności ręcznie, do wyłączenia zapłonu.</text>
+
+  <!-- ============ COLUMN 3 — ARDUINO BOARDS ============ -->
+  <text class="sec" x="830" y="92">3. Płytki Arduino</text>
+
+  <!-- Pro Micro -->
+  <rect class="modB" x="830" y="102" width="380" height="228"/>
+  <text class="mt" x="1020" y="124">Pro Micro (ATmega32U4) — wejścia</text>
+  <text class="ms" x="1020" y="142">domena B · USB HID + szeregowy 115200 · /dev/ttyACM0</text>
+  <text class="tl" x="846" y="166">D2, D3 ← enkoder CLK, DT (+10 kΩ do VCC)</text>
+  <text class="tl" x="846" y="184">D1 ← przycisk enkodera</text>
+  <text class="tl" x="846" y="202">D5–D9 ← HOME, BACK, MEDIA, VOL+, VOL−</text>
+  <text class="tl" x="846" y="220">D10, D14, D15, D16, A3 ← panel muzyczny</text>
+  <text class="tl" x="846" y="238">A0 ← SWC Pod 1 · A6 ← SWC Pod 2</text>
+  <text class="tl" x="846" y="256">A1 ← LDR · A2 ← przycisk manetki</text>
+  <text class="warn" x="846" y="280">v8.5.2: przycisk enkodera przeniesiony z D4 na D1</text>
+  <text class="note" x="846" y="298">(na Pro Micro D4 i A6 to ten sam pin — kolidowało z SWC Pod 2)</text>
+  <text class="note" x="846" y="316">Wszystkie przyciski: jedna nóżka do pinu, druga do masy.</text>
+
+  <!-- Nano 1 -->
+  <rect class="modA" x="830" y="346" width="380" height="248"/>
+  <text class="mt" x="1020" y="368">Nano #1 — wyjścia (output controller)</text>
+  <text class="ms" x="1020" y="386">domena A — zasilany zawsze · 9600 baud · /dev/ttyUSB0</text>
+  <text class="tl" x="846" y="410">D2 ← RXB6 433 MHz DATA</text>
+  <text class="tl" x="846" y="428">D3 → HM-10 RXD · D4 ← HM-10 TXD</text>
+  <text class="tl" x="846" y="446">D5 → przekaźnik bagażnika (impuls 200 ms)</text>
+  <text class="tl" x="846" y="464">D6 ← przycisk bagażnika (do masy)</text>
+  <text class="tl" x="846" y="482">D7, D8, D11, D12, A0–A3 → przekaźniki szyb</text>
+  <text class="tl" x="846" y="500">D9 → PWM podświetlenia 7" · D10 → PWM 4,3"</text>
+  <text class="tl" x="846" y="518">5V, GND ← buck LM2596 (domena A)</text>
+  <text class="warn" x="846" y="542">HM-10: Nano D3 idzie do RXD, TXD wraca do D4</text>
+  <text class="note" x="846" y="560">Opisy wyglądają na odwrotne — są poprawne.</text>
+  <text class="note" x="846" y="578">Wspólna masa z panelami wyświetlaczy jest obowiązkowa.</text>
+
+  <!-- Nano 2 -->
+  <rect class="modA" x="830" y="610" width="380" height="264"/>
+  <text class="mt" x="1020" y="632">Nano #2 — sensor hub</text>
+  <text class="ms" x="1020" y="650">domena A · 115200 baud · /dev/ttyUSB1</text>
+  <text class="tl" x="846" y="674">D2–D5 ← drzwi FL, FR, RL, RR</text>
+  <text class="tl" x="846" y="692">D6 ← maska · D7 ← klapa bagażnika</text>
+  <text class="tl" x="846" y="710">D8 ← hamulec ręczny (LOW = zaciągnięty)</text>
+  <text class="tl" x="846" y="728">D9 ← zapłon przez PC817</text>
+  <text class="tl" x="846" y="746">D10 ← czujnik deszczu (wyjście DO)</text>
+  <text class="tl" x="846" y="764">D11 ← DS18B20 (+4,7 kΩ do 5 V)</text>
+  <text class="tl" x="846" y="782">D12 → HC-SR04 TRIG · A0–A3 ← ECHO</text>
+  <text class="tl" x="846" y="800">A4, A5 ← tempomat, immobilizer (opcjonalnie)</text>
+  <text class="warn" x="846" y="824">Funkcje włącza się #define FEATURE_* w sensor_hub.ino</text>
+  <text class="note" x="846" y="842">Wyłączony FEATURE = zwolniony pin. FEATURE_PARK domyślnie OFF.</text>
+  <text class="note" x="846" y="860">Test: picocom -b 115200 /dev/ttyUSB1 → linie DOOR:, IGN:, TEMP:</text>
+
+  <!-- USB back to PC -->
+  <rect class="mod" x="830" y="890" width="380" height="96"/>
+  <text class="mt" x="1020" y="912">Połączenie z M910q</text>
+  <text class="tl" x="846" y="936">Wszystkie trzy płytki → hub USB → M910q</text>
+  <text class="tl" x="846" y="954">Reguły udev nadają stałe nazwy portów</text>
+  <text class="note" x="846" y="974">Bez reguł udev numeracja /dev/ttyUSBn zmienia się między restartami.</text>
+
+  <path class="wusb" d="M1020 330 L1020 346"/>
+  <path class="wusb" d="M1020 594 L1020 610"/>
+  <path class="wusb" d="M1020 874 L1020 890"/>
+
+  <!-- signal arrows from conditioning to boards -->
+  <path class="wsig" d="M790 168 L812 168 L812 210 L830 210"/>
+  <path class="wsig" d="M790 396 L806 396 L806 740 L830 740"/>
+  <path class="wsig" d="M790 562 L800 562 L800 762 L830 762"/>
+  <path class="wsig" d="M790 704 L818 704 L818 240 L830 240"/>
+  <path class="wsig" d="M790 826 L822 826 L822 258 L830 258"/>
+
+  <!-- ============ RULE BOX (column 1, free space) ============ -->
+  <rect x="40" y="530" width="290" height="330" fill="#fbfcfd" stroke="#c8d2da" stroke-width="1.5" rx="6"/>
+  <text class="mt" x="185" y="552">Zasada nadrzędna</text>
+  <text class="tb" x="56" y="578">Nic z instalacji 12 V nie dotyka</text>
+  <text class="tb" x="56" y="594">bezpośrednio pinu Arduino.</text>
+  <text class="tl" x="56" y="620">• sygnał 12 V → PC817</text>
+  <text class="note" x="66" y="636">izolacja galwaniczna, masy rozdzielone</text>
+  <text class="tl" x="56" y="658">• styk do masy → wprost na pin</text>
+  <text class="note" x="66" y="674">tryb INPUT_PULLUP, stan aktywny LOW</text>
+  <text class="tl" x="56" y="696">• wyjście 5 V → dzielnik 1k/2k</text>
+  <text class="note" x="66" y="712">gdy pin pracuje na 3,3 V</text>
+
+  <line x1="56" y1="732" x2="314" y2="732" stroke="#c8d2da"/>
+  <text class="tb" x="56" y="754">Kolory na schemacie</text>
+  <path class="w12" d="M58 770 L96 770"/><text class="tl" x="104" y="774">12 V</text>
+  <path class="w5" d="M58 792 L96 792"/><text class="tl" x="104" y="796">5 V</text>
+  <path class="wsig" d="M58 814 L96 814"/><text class="tl" x="104" y="818">sygnał logiczny</text>
+  <path class="wusb" d="M58 836 L96 836"/><text class="tl" x="104" y="840">USB</text>
+  <path class="minus" d="M58 856 L96 856"/><text class="tl" x="104" y="860">masa</text>
+
+  <!-- ============ K-LINE ============ -->
+  <text class="sec" x="40" y="1022">4. K-Line / OBD-II — osobny tor, bez Arduino</text>
+  <rect class="mod" x="40" y="1032" width="770" height="164"/>
+
+  <rect class="term" x="70" y="1064" width="120" height="44"/>
+  <text class="tp" x="130" y="1082">M910q</text><text class="ms" x="130" y="1098">port USB</text>
+  <path class="wusb" d="M190 1086 L250 1086"/>
+  <rect class="term" x="250" y="1064" width="130" height="44"/>
+  <text class="tp" x="315" y="1082">CP2102</text><text class="ms" x="315" y="1098">USB ↔ UART</text>
+  <path class="wsig" d="M380 1086 L448 1086"/>
+  <text class="ms" x="414" y="1078">TX / RX</text>
+  <rect class="term" x="448" y="1064" width="130" height="44"/>
+  <text class="tp" x="513" y="1082">L9637D</text><text class="ms" x="513" y="1098">transceiver</text>
+  <path class="w12" d="M578 1086 L648 1086"/>
+  <rect class="term" x="648" y="1064" width="140" height="44"/>
+  <text class="tp" x="718" y="1082">OBD-II</text><text class="ms" x="718" y="1098">pin 7 (K-Line)</text>
+
+  <text class="tl" x="70" y="1134">L9637D: pin 1 TXD ← CP2102 TX · pin 2 RXD → CP2102 RX · pin 3 GND · pin 4 VCC 5 V</text>
+  <text class="tl" x="70" y="1152">pin 6 EN → VCC · pin 8 K-Line → OBD pin 7 · rezystor 510 Ω z linii K do +12 V</text>
+  <text class="note" x="70" y="1172">Kondensator 100 nF między VCC a GND, przy samej kostce.</text>
+  <text class="note" x="70" y="1188">Reguła udev nadaje stałą nazwę /dev/ttyUSB_kline — bez niej K-Line trafia na port Arduino.</text>
+
+  <!-- ============ ASSEMBLY ORDER ============ -->
+  <rect x="830" y="1032" width="380" height="164" fill="#fbfcfd" stroke="#c8d2da" stroke-width="1.5" rx="6"/>
+  <text class="mt" x="1020" y="1054">Kolejność uruchamiania</text>
+  <text class="tl" x="848" y="1080">1. Wgraj firmware na wszystkie trzy płytki</text>
+  <text class="tl" x="848" y="1100">2. Sprawdź każdą przez picocom, na stole</text>
+  <text class="tl" x="848" y="1120">3. Dopiero potem podłączaj sygnały z auta</text>
+  <text class="tl" x="848" y="1140">4. Po jednym obwodzie, sprawdzając odczyt</text>
+  <text class="note" x="848" y="1164">Podłączanie wszystkiego naraz i szukanie potem,</text>
+  <text class="note" x="848" y="1180">co nie działa, kosztuje wielokrotnie więcej czasu.</text>
+
+  <text class="note" x="24" y="1240">Pełne tabele pinów: docs/ARDUINO_SETUP_GUIDE.md § 7 (Nano #1) i § 7b (Nano #2). Przypisania w kodzie: arduino/*/*.ino — komentarz nagłówkowy każdego sketcha.</text>
+  <text class="note" x="24" y="1260">Kolory przewodów w wiązce Alfy 156 różnią się między rocznikami — każdy punkt poboru sprawdź multimetrem, zanim wepniesz cokolwiek na stałe.</text>
+</svg>

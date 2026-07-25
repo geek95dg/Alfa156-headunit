@@ -50,6 +50,7 @@ sprzęt → zasilanie → BIOS → OS → BCM → usługi → kiosk → peryferi
 |-------|--------------|
 | Symulacja na laptopie (bez sprzętu) | [`URUCHOMIENIE.md`](URUCHOMIENIE.md) § 1 |
 | Szczegóły zasilania buforowanego | [`ZASILANIE_BUFOROWANE.md`](ZASILANIE_BUFOROWANE.md) |
+| Tabele połączeń, przekroje, kolejność montażu | [`SCHEMATY_POLACZEN.md`](SCHEMATY_POLACZEN.md) |
 | Okablowanie Arduino pin-po-pinie | [`ARDUINO_SETUP_GUIDE.md`](ARDUINO_SETUP_GUIDE.md) |
 | Podsłuch K-Line, poznawanie PID-ów | [`KLINE_SNIFFING.md`](KLINE_SNIFFING.md) |
 | Wersja ilustrowana (12 rozdziałów HTML) | [`x86-production/index.html`](x86-production/index.html) |
@@ -968,6 +969,7 @@ mimo neutralnej nazwy. Został zarchiwizowany jako
 | Dokument | Zakres |
 |----------|--------|
 | [`ZASILANIE_BUFOROWANE.md`](ZASILANIE_BUFOROWANE.md) | zasilanie buforowane: schematy, dobór, lista zakupowa, procedura rozruchu |
+| [`SCHEMATY_POLACZEN.md`](SCHEMATY_POLACZEN.md) | schematy połączeniowe: tabele „skąd → dokąd”, przekroje, bezpieczniki, masy |
 | [`URUCHOMIENIE.md`](URUCHOMIENIE.md) | symulacja na laptopie, przełączniki modułów, Arduino w skrócie |
 | [`X86_PLATFORM_SETUP.md`](X86_PLATFORM_SETUP.md) | referencja krok-po-kroku (EN) — pamiętaj o §19 |
 | [`x86-production/index.html`](x86-production/index.html) | 12 rozdziałów z ilustracjami |

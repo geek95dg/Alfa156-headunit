@@ -1,0 +1,464 @@
+# Schematy połączeniowe — jak to pospiąć w całość
+
+Praktyczny przewodnik montażowy: co z czym połączyć, jakim przewodem, przez
+jaki bezpiecznik i w jakiej kolejności. Uzupełnia schematy blokowe
+(architektura) o poziom **zacisk po zacisku**.
+
+| Rysunek | Co pokazuje |
+|---------|-------------|
+| [`wiring_power_modules.svg`](../schematics/wiring_power_modules.svg) | Moduły zasilania — każdy zacisk podpisany, przekroje, bezpieczniki, masy |
+| [`wiring_vehicle_arduino.svg`](../schematics/wiring_vehicle_arduino.svg) | Sygnały pojazdu → układy dopasowujące (PC817, dzielniki) → Arduino |
+| [`wiring_usb_av.svg`](../schematics/wiring_usb_av.svg) | USB, wyświetlacze, audio, kamery |
+
+Schematy blokowe (co i dlaczego): [`../schematics/README.md`](../schematics/README.md).
+Dobór podzespołów i nastawy: [`ZASILANIE_BUFOROWANE.md`](ZASILANIE_BUFOROWANE.md).
+
+---
+
+## Spis treści
+
+1. [Konwencje](#1-konwencje)
+2. [Tabela połączeń — zasilanie](#2-tabela-połączeń--zasilanie)
+3. [Tabela połączeń — sygnały pojazdu](#3-tabela-połączeń--sygnały-pojazdu)
+4. [Tabela połączeń — Arduino](#4-tabela-połączeń--arduino)
+5. [Tabela połączeń — USB, obraz, audio](#5-tabela-połączeń--usb-obraz-audio)
+6. [Bezpieczniki — zestawienie](#6-bezpieczniki--zestawienie)
+7. [Masy](#7-masy)
+8. [Kolejność montażu](#8-kolejność-montażu)
+9. [Lista kontrolna przed pierwszym załączeniem](#9-lista-kontrolna-przed-pierwszym-załączeniem)
+
+---
+
+## 1. Konwencje
+
+### Kolory na schematach
+
+| Kolor | Znaczenie |
+|-------|-----------|
+| Czerwony gruby | zasilanie 12 V (moc) |
+| Pomarańczowy | zasilanie 5 V |
+| Czarny | masa |
+| Niebieski | sygnał logiczny |
+| Niebieski przerywany | sygnał sterujący (ACC, NTC, REM) |
+| Zielony | USB |
+| Fioletowy | obraz (DisplayPort / HDMI / AHD) |
+| Bordowy | audio analogowe |
+
+### Kolory przewodów w aucie — propozycja
+
+Repozytorium nie narzuca kolorystyki, ale warto się jednej trzymać — przy
+diagnostyce po roku od montażu to oszczędza godziny:
+
+| Obwód | Kolor |
+|-------|-------|
+| +12 V stałe (przed LVD) | czerwony |
+| +12 V buforowane (za LVD) | czerwono-biały |
+| +12 V domeny B (za przekaźnikiem) | pomarańczowy |
+| +5 V | żółty |
+| +19 V do M910q | brązowy |
+| Masa | czarny |
+| Sygnały do Arduino | szary / niebieski |
+| ACC (sterowanie) | zielony |
+
+### Zaciski na rysunkach
+
+Zaciski są narysowane **na krawędziach obudów** i ponumerowane. Numery
+w tabelach poniżej odpowiadają numerom na
+[`wiring_power_modules.svg`](../schematics/wiring_power_modules.svg).
+
+---
+
+## 2. Tabela połączeń — zasilanie
+
+### 2.1 Tor główny (od auta do banku)
+
+| # | Skąd | Dokąd | Przewód | Zabezpieczenie |
+|---|------|-------|---------|----------------|
+| 1 | Akumulator „+” | Bezpiecznik główny (wejście) | 6 mm² | — |
+| 2 | Bezpiecznik główny (wyjście) | VSR **BAT 1** | 6 mm² | 30 A, ≤ 30 cm od klemy |
+| 3 | VSR **BAT 2** | Ładowarka **IN +** (zacisk 1) | 6 mm² | — |
+| 4 | VSR **GND** | punkt gwiazdowy masy | 2,5 mm² | — |
+| 5 | Ładowarka **IN −** (2) | punkt gwiazdowy masy | 6 mm² | — |
+| 6 | Ładowarka **OUT +** (3) | Blokada przeładowania **COM** (7) | 2,5 mm² | — |
+| 7 | Ładowarka **OUT −** (4) | punkt gwiazdowy masy | 2,5 mm² | — |
+| 8 | Blokada **NC** (8) | szyna „+” banku | 2,5 mm² | — |
+| 9 | Blokada **VCC** (5) | szyna „+” banku (pomiar) | 0,75 mm² | 2 A |
+| 10 | Blokada **GND** (6) | punkt gwiazdowy masy | 0,75 mm² | — |
+
+**Ochrona wejścia ładowarki** — montowana bezpośrednio na zaciskach IN+/IN−:
+dioda TVS 1.5KE33CA równolegle oraz kondensator 470 µF / 35 V równolegle.
+
+### 2.2 Bank akumulatorów
+
+| # | Skąd | Dokąd | Przewód | Zabezpieczenie |
+|---|------|-------|---------|----------------|
+| 11 | HR1221W #1 **„+” F2** | szyna „+” banku | 1,5 mm² | 10 A inline |
+| 12 | HR1221W #2 **„+” F2** | szyna „+” banku | 1,5 mm² | 10 A inline |
+| 13 | HR1221W #3 **„+” F2** | szyna „+” banku | 1,5 mm² | 10 A inline |
+| 14 | HR1221W #4 **„+” F2** | szyna „+” banku | 1,5 mm² | 10 A inline |
+| 15 | HR1221W #5 **„+” F2** | szyna „+” banku | 1,5 mm² | 10 A inline |
+| 16 | HR1221W #1–#5 **„−” F2** | mostek masowy banku | 1,5 mm² | — |
+| 17 | mostek masowy banku | punkt gwiazdowy masy | 6 mm² | rozłącznik masy 100 A |
+| 18 | NTC 10 kΩ | wejście czujnika ładowarki | 0,5 mm² | — |
+
+> **Jednakowe długości.** Przewód od każdego pakietu do szyny musi mieć tę
+> samą długość i przekrój, nawet jeśli pakiety leżą w różnych miejscach.
+> Nierówność rezystancji = nierówny rozdział prądu = jeden pakiet umiera
+> pierwszy.
+
+> **Zaciski F2.** Nasuwki 6,35 mm w pełni izolowane, zaciskane zaciskarką
+> zapadkową, koszulka termokurczliwa z klejem, wiązka przypięta opaską do
+> skrzynki (odciążenie mechaniczne).
+
+### 2.3 LVD i dystrybucja
+
+| # | Skąd | Dokąd | Przewód | Zabezpieczenie |
+|---|------|-------|---------|----------------|
+| 19 | szyna „+” banku | LVD **BAT +** (9) | 2,5 mm² | — |
+| 20 | LVD **BAT −** (10) | punkt gwiazdowy masy | 2,5 mm² | — |
+| 21 | LVD **LOAD +** (11) | listwa dystrybucyjna, wejście | 2,5 mm² | — |
+| 22 | LVD **LOAD −** (12) | punkt gwiazdowy masy | 2,5 mm² | — |
+| 23 | listwa, szyna masowa | punkt gwiazdowy masy | 6 mm² | — |
+
+### 2.4 Domena A (zawsze zasilana)
+
+| # | Skąd | Dokąd | Przewód | Zabezpieczenie |
+|---|------|-------|---------|----------------|
+| 24 | listwa, obwód 1 | Buck LM2596 **IN +** | 0,75 mm² | 3 A |
+| 25 | Buck LM2596 **IN −** | masa | 0,75 mm² | — |
+| 26 | Buck **OUT +** (5,0 V) | Nano #1 pin **5V** | 0,75 mm² | — |
+| 27 | Buck **OUT +** (5,0 V) | Nano #2 pin **5V** | 0,75 mm² | — |
+| 28 | Buck **OUT +** (5,0 V) | HM-10 **VCC**, RXB6 **VCC** | 0,5 mm² | — |
+| 29 | Buck **OUT −** | Nano #1/#2 **GND**, HM-10, RXB6 | 0,75 mm² | — |
+| 30 | listwa, obwód 1 | Moduł 9 przekaźników **VCC** (12 V) | 0,75 mm² | wspólny z poz. 24 |
+| 31 | Moduł przekaźników **GND** | masa | 0,75 mm² | — |
+
+> **Nie podawaj napięcia na pin Vin Nano.** Buck jest ustawiony na 5,0 V
+> i idzie wprost na pin **5V**, z pominięciem wewnętrznego stabilizatora.
+
+### 2.5 Domena B (za zapłonem)
+
+| # | Skąd | Dokąd | Przewód | Zabezpieczenie |
+|---|------|-------|---------|----------------|
+| 32 | listwa, obwód 2 | Przekaźnik **30** | 2,5 mm² | 30 A |
+| 33 | Przekaźnik **87** | Step-up **IN +** (13) | 2,5 mm² | — |
+| 34 | Przekaźnik **87** | Buck MP1584 **IN +** | 1,0 mm² | 3 A |
+| 35 | Przekaźnik **87** | Hub USB, zasilanie | 1,0 mm² | 3 A |
+| 36 | Przekaźnik **86** | linia ACC z zamka kluczyka | 0,75 mm² | 5 A |
+| 37 | Przekaźnik **85** | masa | 0,75 mm² | — |
+| 38 | Step-up **IN −** (14) | masa | 2,5 mm² | — |
+| 39 | Step-up **OUT +** (15) | wtyk M910q, **środek** | 1,5 mm² | 5 A |
+| 40 | Step-up **OUT −** (16) | wtyk M910q, **ekran** | 1,5 mm² | — |
+| 41 | Buck MP1584 **OUT +** | panel 7" / 10", 5 V | 1,0 mm² | — |
+| 42 | Buck MP1584 **OUT +** | panel 4,3", 5 V | 1,0 mm² | — |
+| 43 | Buck MP1584 **OUT −** | masa paneli (wspólna z Nano #1) | 1,0 mm² | — |
+
+> **Dioda gaszeniowa 1N4007** równolegle do cewki przekaźnika: **katoda do
+> zacisku 86**, anoda do 85. Bez niej przepięcie przy rozwarciu cewki wraca
+> do instalacji.
+
+### 2.6 Gałąź wzmacniaczy (niezależna)
+
+| # | Skąd | Dokąd | Przewód | Zabezpieczenie |
+|---|------|-------|---------|----------------|
+| 44 | Akumulator „+” | TDA7388 **+12V** | 4 mm² | 20 A przy klemie |
+| 45 | TDA7388 **GND** | masa lokalna, przy wzmacniaczu | 4 mm² | — |
+| 46 | Przekaźnik **87** | TDA7388 **REM/standby** | 0,5 mm² | przez 1 kΩ |
+| 47 | TDA7388 **+12V** | TDA2050 **+12V** | 2,5 mm² | wspólny z poz. 44 |
+
+> **Masa wzmacniaczy osobno.** To jedyny obwód, który **nie** idzie do
+> punktu gwiazdowego — wspólna masa z komputerem daje pętlę i przydźwięk
+> alternatora.
+
+---
+
+## 3. Tabela połączeń — sygnały pojazdu
+
+Wszystkie sygnały 12 V idą przez **PC817**. Stan aktywny to **LOW**.
+
+### 3.1 Stopień PC817 (powtarzany dla każdego sygnału 12 V)
+
+| Element | Połączenie |
+|---------|------------|
+| Sygnał 12 V z auta | → rezystor 4,7 kΩ → PC817 **pin 1** (anoda) |
+| PC817 **pin 2** (katoda) | → masa pojazdu |
+| PC817 **pin 4** (kolektor) | → pin Arduino (tryb `INPUT_PULLUP`) |
+| PC817 **pin 3** (emiter) | → masa Arduino |
+
+Rezystor podciągający jest wewnątrz mikrokontrolera — zewnętrznego 10 kΩ
+nie trzeba. **Masa pojazdu i masa Arduino są tu rozdzielone** — na tym
+polega izolacja.
+
+### 3.2 Sygnały 12 V
+
+| Sygnał | Skąd w aucie | Przez | Dokąd |
+|--------|--------------|-------|-------|
+| Zapłon / ACC | zamek kluczyka, poz. I/II | PC817 | Nano #2 **D9** |
+| Kierunkowskaz lewy | wiązka tylnej lampy | PC817 | Nano #2 (wolny pin) |
+| Kierunkowskaz prawy | wiązka tylnej lampy | PC817 | Nano #2 (wolny pin) |
+| Bieg wsteczny | wyłącznik na skrzyni | PC817 | Nano #2 (wolny pin) |
+| Podświetlenie | włącznik świateł | PC817 | Nano #2 (wolny pin) |
+
+### 3.3 Styki zwierane do masy (bez PC817)
+
+| Sygnał | Skąd | Dokąd |
+|--------|------|-------|
+| Drzwi przód lewe | wyłącznik oświetlenia wnętrza | Nano #2 **D2** |
+| Drzwi przód prawe | j.w. | Nano #2 **D3** |
+| Drzwi tył lewe | j.w. | Nano #2 **D4** |
+| Drzwi tył prawe | j.w. | Nano #2 **D5** |
+| Maska | wyłącznik maski | Nano #2 **D6** |
+| Klapa bagażnika | wyłącznik klapy | Nano #2 **D7** |
+| Hamulec ręczny | wyłącznik dźwigni | Nano #2 **D8** |
+
+Wyłączniki OEM zwierają do masy — wpinaj je **wprost na pin**, bez
+optoizolatora. Tryb `INPUT_PULLUP`, stan aktywny LOW.
+
+### 3.4 Czujniki
+
+| Czujnik | Dopasowanie | Dokąd |
+|---------|-------------|-------|
+| DS18B20 (temperatura) | 4,7 kΩ z DATA do 5 V | Nano #2 **D11** |
+| Czujnik deszczu | wyjście cyfrowe DO modułu | Nano #2 **D10** |
+| HC-SR04 TRIG (wspólny ×4) | wprost | Nano #2 **D12** |
+| HC-SR04 ECHO ×4 | dzielnik 1 kΩ / 2 kΩ | Nano #2 **A0–A3** |
+| LDR (jasność) | 5 V → LDR → węzeł → A1; węzeł → 10 kΩ → masa | Pro Micro **A1** |
+| SWC Pod 1 | biały przewód dekodera | Pro Micro **A0** |
+| SWC Pod 2 | biały przewód dekodera | Pro Micro **A6** |
+
+Dekoder SWC: **czerwony → ACC**, **czarny → masa**, **biały → wejście
+analogowe**.
+
+### 3.5 K-Line (osobny tor, bez Arduino)
+
+| Skąd | Dokąd | Uwagi |
+|------|-------|-------|
+| M910q, port USB | CP2102 | reguła udev → `/dev/ttyUSB_kline` |
+| CP2102 **TX** | L9637D **pin 1** (TXD) | |
+| CP2102 **RX** | L9637D **pin 2** (RXD) | |
+| L9637D **pin 3** | masa | |
+| L9637D **pin 4** | +5 V | kondensator 100 nF do masy, przy kostce |
+| L9637D **pin 6** (EN) | +5 V | |
+| L9637D **pin 8** (K-Line) | OBD-II **pin 7** | rezystor 510 Ω z linii K do +12 V |
+| OBD-II **pin 4/5** | masa | |
+
+---
+
+## 4. Tabela połączeń — Arduino
+
+Pełne tabele pinów: [`ARDUINO_SETUP_GUIDE.md`](ARDUINO_SETUP_GUIDE.md) § 7
+i § 7b. Poniżej to, co dotyczy okablowania międzymodułowego.
+
+### 4.1 Nano #1 (domena A, wyjścia)
+
+| Pin | Dokąd |
+|-----|-------|
+| D2 | RXB6 433 MHz **DATA** |
+| D3 | HM-10 **RXD** |
+| D4 | HM-10 **TXD** |
+| D5 | Moduł przekaźników **IN1** (bagażnik) |
+| D6 | przycisk bagażnika → masa |
+| D7, D8 | **IN2, IN3** — szyba przód lewa góra/dół |
+| D9 | panel 7" — **M_PWM** |
+| D10 | panel 4,3" — **M_PWM** |
+| D11, D12 | **IN4, IN5** — szyba przód prawa |
+| A0, A1 | **IN6, IN7** — szyba tył lewa |
+| A2, A3 | **IN8, IN9** — szyba tył prawa |
+| 5V, GND | buck LM2596 **OUT+/OUT−** |
+
+> **HM-10 wygląda na odwrotnie opisany, ale jest poprawnie:** Nano **D3**
+> idzie do HM-10 **RXD**, a HM-10 **TXD** wraca do Nano **D4**.
+
+> **Wspólna masa z panelami wyświetlaczy jest obowiązkowa** — bez niej
+> bramka MOSFET-a na `M_PWM` nie ma odniesienia i podświetlenie nie
+> reaguje.
+
+### 4.2 Pro Micro (domena B, wejścia)
+
+| Pin | Dokąd |
+|-----|-------|
+| D2, D3 | enkoder **CLK**, **DT** (+10 kΩ do VCC) |
+| D1 | przycisk enkodera → masa |
+| D5–D9 | HOME, BACK, MEDIA, VOL+, VOL− → masa |
+| D10, D14, D15, D16, A3 | panel muzyczny (PREV, NEXT, VOL+, VOL−, MUTE) |
+| A0, A6 | SWC Pod 1, Pod 2 |
+| A1 | LDR |
+| A2 | przycisk na manetce |
+
+> **v8.5.2:** przycisk enkodera przeniesiony z **D4 na D1** — na Pro Micro
+> D4 i A6 to ten sam fizyczny pin i kolidowało z SWC Pod 2. Przy starszym
+> okablowaniu przepnij jeden przewód.
+
+### 4.3 Nano #2 (domena A, sensor hub)
+
+Patrz §3.3 i §3.4. Funkcje włącza się `#define FEATURE_*` na górze
+`sensor_hub.ino` — wyłączony `FEATURE` zwalnia pin.
+
+---
+
+## 5. Tabela połączeń — USB, obraz, audio
+
+### 5.1 Obraz
+
+| Skąd | Dokąd | Uwagi |
+|------|-------|-------|
+| M910q **DP-1** | przejściówka pasywna DP → HDMI → wyświetlacz główny | dashboard, port 5002 |
+| M910q **DP-2** | przejściówka pasywna DP → HDMI → wyświetlacz mały | statystyki, port 5003 |
+
+Nazwy złączy sprawdź: `for f in /sys/class/drm/card*-*/status; do echo "$f: $(cat $f)"; done`
+
+**Aktywne przejściówki nie są potrzebne** i bywają źródłem problemów
+z wykryciem ekranu.
+
+### 5.2 USB — bezpośrednio w port M910q
+
+| Urządzenie | Dlaczego bezpośrednio |
+|------------|----------------------|
+| DAC ES9038Q2M | USB Audio Class 2 — hub dokłada opóźnienie i rywalizację o pasmo |
+| Graber AHD 4-kanałowy | cztery strumienie 720p naraz potrzebują stałego pasma |
+
+### 5.3 USB — przez hub (zasilany, 7 portów)
+
+| Urządzenie | Port |
+|------------|------|
+| Arduino Pro Micro | `/dev/ttyACM0` |
+| Arduino Nano #1 | `/dev/ttyUSB0` |
+| Arduino Nano #2 | `/dev/ttyUSB1` |
+| CP2102 (K-Line) | `/dev/ttyUSB_kline` |
+| GPS u-blox NEO-M8N | — |
+| Modem LTE Huawei E3372 | — |
+| Mikrofon USB | — |
+| Dotyk wyświetlacza głównego | — |
+
+> **Hub musi mieć własne zasilanie** (z domeny B). Osiem urządzeń nie
+> wyrobi się na prądzie z portu M910q.
+
+> **Reguły udev są konieczne.** Bez nich numeracja `/dev/ttyUSBn` zmienia
+> się między restartami i K-Line trafia na port Arduino.
+
+### 5.4 Audio
+
+| Skąd | Dokąd | Kabel |
+|------|-------|-------|
+| DAC **RCA L/R** | TDA7388 **IN1–IN4** | RCA ekranowany |
+| DAC **RCA L/R** | TDA2050 **IN** (suma L+R) | RCA ekranowany |
+| TDA7388 **CH1** | głośnik przód lewy (4 Ω) | 1,5 mm² |
+| TDA7388 **CH2** | głośnik przód prawy | 1,5 mm² |
+| TDA7388 **CH3** | głośnik tył lewy | 1,5 mm² |
+| TDA7388 **CH4** | głośnik tył prawy | 1,5 mm² |
+| TDA2050 **OUT** | subwoofer (4 Ω, bagażnik) | 2,5 mm² |
+
+Zasilanie i REM wzmacniaczy — §2.6.
+
+### 5.5 Kamery
+
+| Kanał | Miejsce | Wyzwalanie |
+|-------|---------|-----------|
+| CH0 | przód, za lusterkiem wstecznym | ręcznie / DVR |
+| CH1 | tył, ramka tablicy rejestracyjnej | bieg wsteczny |
+| CH2 | lewe lusterko / błotnik | lewy kierunkowskaz |
+| CH3 | prawe lusterko / błotnik | prawy kierunkowskaz |
+
+Priorytet: **bieg wsteczny > lewy kierunkowskaz > prawy kierunkowskaz >
+brak**. Sygnały wyzwalające wchodzą przez PC817 na Nano #2.
+
+---
+
+## 6. Bezpieczniki — zestawienie
+
+| Wartość | Gdzie | Chroni |
+|---------|-------|--------|
+| 30 A | przy klemie „+”, ≤ 30 cm | cały tor główny |
+| 20 A | przy klemie „+”, osobno | gałąź wzmacniaczy |
+| 10 A × 5 | na „+” każdego pakietu banku | zwarcie pojedynczego pakietu |
+| 30 A | listwa, obwód 2 | domena B |
+| 5 A | wyjście step-up, przed wtykiem | M910q |
+| 5 A | linia ACC do cewki przekaźnika | obwód sterowania |
+| 3 A | listwa, obwód 1 | domena A |
+| 3 A | odgałęzienie buck MP1584 | panele wyświetlaczy |
+| 3 A | odgałęzienie hub USB | hub i peryferia |
+| 2 A | zasilanie/pomiar modułu nadnapięciowego | obwód pomiarowy |
+
+Wszystkie w listwie dystrybucyjnej ATO/ATC z pokrywą, w miejscu dostępnym
+bez demontażu deski rozdzielczej. Wyjątek: bezpiecznik główny 30 A i 20 A
+gałęzi wzmacniaczy — w oprawkach przy klemie akumulatora.
+
+---
+
+## 7. Masy
+
+**Jeden punkt gwiazdowy** dla całego head unitu:
+
+- śruba do gołego metalu nadwozia, powierzchnia oczyszczona ze szpachli
+  i lakieru, po dokręceniu zabezpieczona wazeliną techniczną,
+- schodzą się w nim: masa banku (przez rozłącznik 100 A), masa listwy
+  dystrybucyjnej, masa M910q, masa Arduino, masa audio od DAC-a,
+- przekrój do nadwozia: **6 mm²**.
+
+**Dwa wyjątki:**
+
+1. **Masa wzmacniaczy** — osobno, blisko wzmacniaczy. Wspólna z komputerem
+   daje pętlę masy i przydźwięk alternatora.
+2. **Masa pojazdu po stronie PC817** — celowo odizolowana od masy Arduino.
+   To sens optoizolacji.
+
+---
+
+## 8. Kolejność montażu
+
+```
+1. Punkt gwiazdowy masy — przygotuj i sprawdź omomierzem (< 0,5 Ω do klemy „−”)
+2. Trasy przewodów — peszel, przelotki gumowe w każdej blasze
+3. Listwa dystrybucyjna — zamontowana, dostępna, BEZ bezpieczników
+4. Moduły zasilania — wszystkie zaciski dokręcone, BEZ zasilania
+5. Bank — pakiety zmierzone osobno, wyrównane, bezpieczniki 10 A założone
+6. Rozłącznik masy banku w pozycji ROZWARTY
+7. Nastawy modułów na stole (patrz ZASILANIE_BUFOROWANE.md § 11 etap 1)
+8. Bezpiecznik główny 30 A — wkładany JAKO OSTATNI
+```
+
+**Zasada:** każdy etap kończy się pomiarem. Podłączenie wszystkiego naraz
+i szukanie potem, co nie działa, kosztuje wielokrotnie więcej czasu niż
+sprawdzanie po jednym obwodzie.
+
+To samo dotyczy Arduino: wgraj firmware i sprawdź każdą płytkę przez
+`picocom` **na stole**, zanim podłączysz cokolwiek z auta.
+
+---
+
+## 9. Lista kontrolna przed pierwszym załączeniem
+
+```
+[ ] Bezpiecznik główny 30 A WYJĘTY
+[ ] Rozłącznik masy banku ROZWARTY
+[ ] Polaryzacja na wtyku M910q sprawdzona multimetrem (środek „+”)
+[ ] Step-up ustawiony na 19,5 V i przetestowany pod obciążeniem
+[ ] Ładowarka: CV 14,40 V, CC 6,0 A
+[ ] Rozłącznik nadnapięciowy: 15,30 V / 14,00 V, sprawdzony zasilaczem lab.
+[ ] LVD: 11,00 V / 12,60 V, sprawdzony zasilaczem laboratoryjnym
+[ ] Buck domeny A: 5,0 V na wyjściu (zmierzone, nie „powinno być”)
+[ ] Buck paneli: 5,0 V na wyjściu
+[ ] Dioda 1N4007 na cewce przekaźnika — katoda do 86
+[ ] TVS i kondensator na wejściu ładowarki zamontowane
+[ ] Wszystkie pakiety banku zmierzone osobno, rozrzut < 0,2 V
+[ ] Bezpieczniki 10 A na każdym pakiecie
+[ ] Wszystkie zaciski dokręcone i pociągnięte ręką
+[ ] Masa: < 0,5 Ω między punktem gwiazdowym a klemą „−” akumulatora
+[ ] Żaden przewód nie ociera o krawędź blachy
+[ ] Nic z instalacji 12 V nie idzie bezpośrednio na pin Arduino
+```
+
+Po odhaczeniu całości przejdź do procedury pomiarowej:
+[`ZASILANIE_BUFOROWANE.md`](ZASILANIE_BUFOROWANE.md) § 11, etap 4.
+
+---
+
+## Powiązane dokumenty
+
+| Dokument | Zakres |
+|----------|--------|
+| [`ZASILANIE_BUFOROWANE.md`](ZASILANIE_BUFOROWANE.md) | dobór podzespołów, nastawy, lista zakupowa, procedura rozruchu |
+| [`WDROZENIE_M910Q.md`](WDROZENIE_M910Q.md) | pełne wdrożenie: sprzęt, BIOS, OS, usługi, odbiór |
+| [`ARDUINO_SETUP_GUIDE.md`](ARDUINO_SETUP_GUIDE.md) | wgrywanie firmware, kalibracja SWC, pełne tabele pinów |
+| [`KLINE_SNIFFING.md`](KLINE_SNIFFING.md) | podsłuch K-Line, poznawanie PID-ów ECU |
+| [`../schematics/README.md`](../schematics/README.md) | indeks wszystkich schematów |

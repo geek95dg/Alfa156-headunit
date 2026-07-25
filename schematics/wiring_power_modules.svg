@@ -1,0 +1,324 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1240" height="1580" viewBox="0 0 1240 1580" font-family="DejaVu Sans, Verdana, sans-serif">
+  <title>BCM v8.5 — Schemat połączeniowy modułów zasilania (zacisk po zacisku)</title>
+  <style>
+    .bg    { fill: #ffffff; }
+    .mod   { fill: #f7f9fb; stroke: #2b3a45; stroke-width: 2; rx: 6; }
+    .modP  { fill: #fdf3e6; stroke: #a8621a; stroke-width: 2; rx: 6; }
+    .modA  { fill: #eef7ee; stroke: #2d6a2d; stroke-width: 2; rx: 6; }
+    .modB  { fill: #eef2fa; stroke: #2b4a8a; stroke-width: 2; rx: 6; }
+    .term  { fill: #ffffff; stroke: #2b3a45; stroke-width: 1.5; rx: 2; }
+    .plus  { stroke: #c0392b; stroke-width: 3; fill: none; }
+    .minus { stroke: #222831; stroke-width: 2.6; fill: none; }
+    .sig   { stroke: #2b4a8a; stroke-width: 1.8; fill: none; stroke-dasharray: 5 3; }
+    .ttl   { font-size: 19px; font-weight: bold; fill: #10202b; }
+    .sub   { font-size: 12px; fill: #5a6b78; }
+    .mt    { font-size: 13px; font-weight: bold; fill: #10202b; text-anchor: middle; }
+    .ms    { font-size: 10.5px; fill: #5a6b78; text-anchor: middle; }
+    .tp    { font-size: 10px; font-weight: bold; fill: #10202b; text-anchor: middle; }
+    .wl    { font-size: 10px; fill: #a8321a; }
+    .wn    { font-size: 10.5px; fill: #33424e; }
+    .note  { font-size: 10.5px; fill: #6a7a86; }
+    .warn  { font-size: 10.5px; font-weight: bold; fill: #a8321a; text-anchor: middle; }
+    .sec   { font-size: 13px; font-weight: bold; fill: #2d4150; }
+  </style>
+
+  <defs>
+    <g id="gnd">
+      <path stroke="#222831" stroke-width="2.4" fill="none" d="M-11 0 L11 0"/>
+      <path stroke="#222831" stroke-width="2.4" fill="none" d="M-7 5 L7 5"/>
+      <path stroke="#222831" stroke-width="2.4" fill="none" d="M-3 10 L3 10"/>
+    </g>
+  </defs>
+
+  <rect class="bg" x="0" y="0" width="1240" height="1580"/>
+  <text class="ttl" x="24" y="32">Schemat połączeniowy modułów zasilania — zacisk po zacisku</text>
+  <text class="sub" x="24" y="52">Czerwony = „+” · czarny = masa · niebieski przerywany = sygnał sterujący · przy przewodach podany przekrój · zaciski narysowane na krawędziach obudów</text>
+  <line x1="24" y1="62" x2="1216" y2="62" stroke="#c8d2da" stroke-width="1.5"/>
+
+  <!-- ================= 1. CAR BATTERY ================= -->
+  <rect class="mod" x="60" y="86" width="250" height="66"/>
+  <text class="mt" x="185" y="110">Akumulator rozruchowy</text>
+  <text class="ms" x="185" y="128">Alfa 156 — komora silnika</text>
+  <rect class="term" x="84" y="143" width="34" height="18"/><text class="tp" x="101" y="156">+</text>
+  <rect class="term" x="252" y="143" width="34" height="18"/><text class="tp" x="269" y="156">−</text>
+
+  <path class="plus" d="M101 161 L101 186"/>
+  <text class="wl" x="108" y="178">6 mm²</text>
+  <path class="minus" d="M269 161 L269 196"/>
+  <use href="#gnd" x="269" y="196"/>
+  <text class="wn" x="286" y="200">masa 6 mm²</text>
+
+  <!-- ================= 2. MAIN FUSE ================= -->
+  <rect class="modP" x="60" y="186" width="216" height="56"/>
+  <text class="mt" x="168" y="208">Bezpiecznik główny 30 A</text>
+  <text class="ms" x="168" y="226">oprawka ≤ 30 cm od klemy „+”</text>
+  <path class="plus" d="M101 242 L101 278"/>
+  <text class="wl" x="108" y="264">6 mm²</text>
+
+  <!-- ================= 3. VSR ================= -->
+  <rect class="mod" x="60" y="278" width="300" height="72"/>
+  <text class="mt" x="210" y="300">VSR — rozdział ładowania</text>
+  <text class="ms" x="210" y="318">12 V / 140 A · zał. 13,3 V · wył. 12,8 V</text>
+  <text class="ms" x="110" y="336">od auta</text>
+  <text class="ms" x="222" y="336">do bufora</text>
+  <text class="ms" x="320" y="336">masa</text>
+  <rect class="term" x="84" y="341" width="52" height="18"/><text class="tp" x="110" y="354">BAT 1</text>
+  <rect class="term" x="196" y="341" width="52" height="18"/><text class="tp" x="222" y="354">BAT 2</text>
+  <rect class="term" x="300" y="341" width="40" height="18"/><text class="tp" x="320" y="354">GND</text>
+
+  <path class="minus" d="M320 359 L320 386"/>
+  <use href="#gnd" x="320" y="386"/>
+
+  <path class="plus" d="M222 359 L222 400 L420 400 L420 260 L484 260 L484 208"/>
+  <text class="wl" x="232" y="418">6 mm² → wejście ładowarki</text>
+
+  <!-- ================= 4. CHARGER ================= -->
+  <rect class="mod" x="440" y="86" width="330" height="122"/>
+  <text class="mt" x="605" y="110">Ładowarka CC-CV</text>
+  <text class="ms" x="605" y="128">A: Victron Orion-Tr Smart (preset AGM)</text>
+  <text class="ms" x="605" y="144">B: moduł CC-CV boost 300 W / 10 A</text>
+  <text class="ms" x="605" y="162">nastawy: CV 14,40 V · CC 6,0 A</text>
+  <text class="ms" x="484" y="182">IN +</text>
+  <text class="ms" x="542" y="182">IN −</text>
+  <text class="ms" x="670" y="182">OUT +</text>
+  <text class="ms" x="728" y="182">OUT −</text>
+  <rect class="term" x="462" y="190" width="44" height="18"/><text class="tp" x="484" y="203">1</text>
+  <rect class="term" x="520" y="190" width="44" height="18"/><text class="tp" x="542" y="203">2</text>
+  <rect class="term" x="648" y="190" width="44" height="18"/><text class="tp" x="670" y="203">3</text>
+  <rect class="term" x="706" y="190" width="44" height="18"/><text class="tp" x="728" y="203">4</text>
+
+  <path class="minus" d="M542 208 L542 240"/>
+  <use href="#gnd" x="542" y="240"/>
+
+  <!-- input protection -->
+  <rect class="modP" x="60" y="430" width="300" height="82"/>
+  <text class="mt" x="210" y="452">Ochrona wejścia ładowarki</text>
+  <text class="ms" x="210" y="470">TVS 1.5KE33CA — równolegle IN+ ↔ IN−</text>
+  <text class="ms" x="210" y="486">kondensator 470 µF / 35 V — równolegle</text>
+  <text class="ms" x="210" y="502">montaż tuż przy zaciskach ładowarki</text>
+  <path class="sig" d="M360 460 L400 460 L400 250 L462 250 L462 208"/>
+
+  <!-- charger OUT+ to OVP COM -->
+  <path class="plus" d="M670 208 L670 258 L1006 258 L1006 210"/>
+  <text class="wl" x="800" y="252">2,5 mm² — tor ładowania</text>
+
+  <!-- ================= 5. OVP ================= -->
+  <rect class="modP" x="800" y="86" width="380" height="122"/>
+  <text class="mt" x="990" y="110">Blokada przeładowania</text>
+  <text class="ms" x="990" y="128">przekaźnik napięciowy + przekaźnik mocy 30 A</text>
+  <text class="ms" x="990" y="144">rozwiera przy 15,30 V · zwiera przy 14,00 V</text>
+  <text class="warn" x="990" y="162">styk NC — rozwiera się po przekroczeniu progu</text>
+  <text class="ms" x="846" y="182">VCC</text>
+  <text class="ms" x="908" y="182">GND</text>
+  <text class="ms" x="1006" y="182">COM</text>
+  <text class="ms" x="1064" y="182">NC</text>
+  <rect class="term" x="824" y="190" width="44" height="18"/><text class="tp" x="846" y="203">5</text>
+  <rect class="term" x="886" y="190" width="44" height="18"/><text class="tp" x="908" y="203">6</text>
+  <rect class="term" x="984" y="190" width="44" height="18"/><text class="tp" x="1006" y="203">7</text>
+  <rect class="term" x="1042" y="190" width="44" height="18"/><text class="tp" x="1064" y="203">8</text>
+
+  <path class="minus" d="M908 208 L908 240"/>
+  <use href="#gnd" x="908" y="240"/>
+
+  <!-- OVP sense from bank bus -->
+  <path class="sig" d="M500 470 L500 420 L846 420 L846 208"/>
+  <text class="note" x="560" y="414">VCC + pomiar ← szyna bufora</text>
+
+  <!-- OVP NC to bank -->
+  <path class="plus" d="M1064 208 L1064 320 L900 320 L900 470"/>
+  <text class="wl" x="906" y="360">2,5 mm² → bank</text>
+
+  <!-- ================= 6. BANK ================= -->
+  <rect class="modA" x="440" y="470" width="470" height="172"/>
+  <text class="mt" x="675" y="494">Bank buforowy — 5 × CSB HR1221W F2</text>
+  <text class="ms" x="675" y="512">12 V / 5,1 Ah AGM · razem 25,5 Ah · zaciski faston 6,35 mm</text>
+  <g>
+    <rect class="term" x="466" y="526" width="70" height="42"/>
+    <text class="tp" x="501" y="543">HR1221W</text><text class="ms" x="501" y="559">+F2  −F2</text>
+    <rect class="term" x="552" y="526" width="70" height="42"/>
+    <text class="tp" x="587" y="543">HR1221W</text><text class="ms" x="587" y="559">+F2  −F2</text>
+    <rect class="term" x="638" y="526" width="70" height="42"/>
+    <text class="tp" x="673" y="543">HR1221W</text><text class="ms" x="673" y="559">+F2  −F2</text>
+    <rect class="term" x="724" y="526" width="70" height="42"/>
+    <text class="tp" x="759" y="543">HR1221W</text><text class="ms" x="759" y="559">+F2  −F2</text>
+    <rect class="term" x="810" y="526" width="70" height="42"/>
+    <text class="tp" x="845" y="543">HR1221W</text><text class="ms" x="845" y="559">+F2  −F2</text>
+  </g>
+  <text class="ms" x="675" y="588">każdy „+” przez własny bezpiecznik 10 A do szyny · 1,5 mm²</text>
+  <text class="ms" x="675" y="604">wszystkie „−” na wspólny mostek masowy · 1,5 mm²</text>
+  <text class="ms" x="675" y="620">jednakowe długości przewodów od pakietu do szyny</text>
+  <text class="ms" x="675" y="636">NTC 10 kΩ przyklejony do boku środkowego pakietu</text>
+
+  <path class="plus" d="M600 642 L600 690"/>
+  <text class="wl" x="606" y="670">2,5 mm²</text>
+  <path class="minus" d="M845 642 L845 668"/>
+  <use href="#gnd" x="845" y="668"/>
+
+  <!-- ================= 7. LVD ================= -->
+  <rect class="modP" x="440" y="690" width="470" height="106"/>
+  <text class="mt" x="675" y="714">LVD — rozłącznik podnapięciowy</text>
+  <text class="ms" x="675" y="732">odcięcie 11,00 V · powrót 12,60 V · ≥ 30 A</text>
+  <text class="ms" x="675" y="750">BAT — do banku · LOAD — do listwy dystrybucyjnej</text>
+  <text class="ms" x="516" y="770">BAT +</text>
+  <text class="ms" x="590" y="770">BAT −</text>
+  <text class="ms" x="749" y="770">LOAD +</text>
+  <text class="ms" x="829" y="770">LOAD −</text>
+  <rect class="term" x="486" y="778" width="60" height="18"/><text class="tp" x="516" y="791">9</text>
+  <rect class="term" x="560" y="778" width="60" height="18"/><text class="tp" x="590" y="791">10</text>
+  <rect class="term" x="719" y="778" width="60" height="18"/><text class="tp" x="749" y="791">11</text>
+  <rect class="term" x="799" y="778" width="60" height="18"/><text class="tp" x="829" y="791">12</text>
+
+  <path class="plus" d="M600 690 L516 690 L516 778"/>
+  <path class="minus" d="M590 796 L590 820"/>
+  <use href="#gnd" x="590" y="820"/>
+  <path class="minus" d="M829 796 L829 820"/>
+  <use href="#gnd" x="829" y="820"/>
+  <path class="plus" d="M749 796 L749 848"/>
+  <text class="wl" x="756" y="828">2,5 mm²</text>
+
+  <!-- ================= 8. FUSE BLOCK ================= -->
+  <rect class="mod" x="380" y="848" width="600" height="98"/>
+  <text class="mt" x="680" y="872">Listwa dystrybucyjna (szyna buforowana 12 V)</text>
+  <text class="ms" x="680" y="890">6–8 obwodów ATO/ATC z pokrywą, dostępna bez demontażu deski</text>
+  <rect class="term" x="420" y="902" width="94" height="20"/><text class="tp" x="467" y="916">3 A → dom. A</text>
+  <rect class="term" x="528" y="902" width="104" height="20"/><text class="tp" x="580" y="916">30 A → dom. B</text>
+  <rect class="term" x="646" y="902" width="80" height="20"/><text class="tp" x="686" y="916">rezerwa</text>
+  <rect class="term" x="740" y="902" width="80" height="20"/><text class="tp" x="780" y="916">rezerwa</text>
+  <text class="ms" x="680" y="938">szyna masowa listwy → punkt gwiazdowy masy nadwozia, 6 mm²</text>
+
+  <!-- ================= 9. DOMAIN A ================= -->
+  <text class="sec" x="60" y="994">DOMENA A — zawsze zasilana</text>
+  <rect class="modA" x="60" y="1004" width="420" height="216"/>
+
+  <path class="plus" d="M467 922 L467 970 L115 970 L115 1019"/>
+  <text class="wl" x="150" y="964">0,75 mm² — za bezpiecznikiem 3 A</text>
+  <path class="plus" d="M318 970 L318 1019"/>
+  <circle cx="318" cy="970" r="4" fill="#c0392b"/>
+
+  <rect class="mod" x="86" y="1028" width="180" height="80"/>
+  <rect class="term" x="98" y="1019" width="34" height="18"/><text class="tp" x="115" y="1032">IN+</text>
+  <rect class="term" x="138" y="1019" width="34" height="18"/><text class="tp" x="155" y="1032">IN−</text>
+  <rect class="term" x="188" y="1019" width="40" height="18"/><text class="tp" x="208" y="1032">OUT+</text>
+  <rect class="term" x="234" y="1019" width="40" height="18"/><text class="tp" x="254" y="1032">OUT−</text>
+  <text class="mt" x="176" y="1060">Buck LM2596</text>
+  <text class="ms" x="176" y="1078">wyjście ustaw na 5,0 V</text>
+  <text class="ms" x="176" y="1096">OUT → Nano 5V / GND</text>
+
+  <rect class="mod" x="288" y="1028" width="176" height="80"/>
+  <rect class="term" x="300" y="1019" width="36" height="18"/><text class="tp" x="318" y="1032">VCC</text>
+  <rect class="term" x="342" y="1019" width="36" height="18"/><text class="tp" x="360" y="1032">GND</text>
+  <rect class="term" x="386" y="1019" width="66" height="18"/><text class="tp" x="419" y="1032">IN1–IN9</text>
+  <text class="mt" x="376" y="1060">Moduł 9 przekaźników</text>
+  <text class="ms" x="376" y="1078">cewki 12 V wprost z szyny</text>
+  <text class="ms" x="376" y="1096">IN1–IN9 ← Nano #1</text>
+
+  <path class="minus" d="M155 1037 L155 1120"/>
+  <use href="#gnd" x="155" y="1120"/>
+  <path class="minus" d="M360 1037 L360 1120"/>
+  <use href="#gnd" x="360" y="1120"/>
+
+  <text class="note" x="80" y="1152">Nano #1 i Nano #2 zasilane z OUT+/OUT− bucka na piny 5V i GND — nie na Vin.</text>
+  <text class="note" x="80" y="1170">HM-10 i RXB6 z tej samej szyny 5 V. Wspólna masa jest obowiązkowa.</text>
+  <text class="note" x="80" y="1188">Sterowanie przekaźników: Nano #1 D5, D7, D8, D11, D12, A0, A1, A2, A3.</text>
+  <text class="note" x="80" y="1206">Cewki przekaźników biorą 12 V z szyny buforowanej, nie z bucka.</text>
+
+  <!-- ================= 10. DOMAIN B ================= -->
+  <text class="sec" x="600" y="994">DOMENA B — załączana zapłonem</text>
+  <rect class="modB" x="560" y="1004" width="620" height="330"/>
+
+  <!-- feed to relay terminal 30 -->
+  <path class="plus" d="M580 922 L580 1176 L626 1176 L626 1158"/>
+  <text class="wl" x="496" y="1010">2,5 mm²</text>
+
+  <!-- ignition relay -->
+  <rect class="mod" x="586" y="1032" width="300" height="126"/>
+  <text class="mt" x="736" y="1054">Przekaźnik zapłonu — Bosch 30 A SPDT</text>
+  <text class="ms" x="736" y="1072">numeracja zacisków wg ISO 280</text>
+  <text class="warn" x="736" y="1092">dioda 1N4007: katoda → 86, anoda → 85</text>
+  <text class="ms" x="626" y="1116">szyna 30 A</text>
+  <text class="ms" x="700" y="1116">→ step-up</text>
+  <text class="ms" x="774" y="1116">← ACC</text>
+  <text class="ms" x="848" y="1116">→ masa</text>
+  <rect class="term" x="606" y="1140" width="40" height="18"/><text class="tp" x="626" y="1153">30</text>
+  <rect class="term" x="680" y="1140" width="40" height="18"/><text class="tp" x="700" y="1153">87</text>
+  <rect class="term" x="754" y="1140" width="40" height="18"/><text class="tp" x="774" y="1153">86</text>
+  <rect class="term" x="828" y="1140" width="40" height="18"/><text class="tp" x="848" y="1153">85</text>
+
+  <!-- step-up -->
+  <rect class="mod" x="900" y="1032" width="260" height="126"/>
+  <text class="mt" x="1030" y="1054">Step-up 12 → 19,5 V</text>
+  <text class="ms" x="1030" y="1072">ustaw pod obciążeniem</text>
+  <text class="ms" x="1030" y="1088">wejście do 7 A · wyjście 3,5 A</text>
+  <text class="ms" x="1030" y="1104">radiator + wentylator 40 mm</text>
+  <text class="ms" x="940" y="1128">IN +</text>
+  <text class="ms" x="990" y="1128">IN −</text>
+  <text class="ms" x="1070" y="1128">OUT +</text>
+  <text class="ms" x="1125" y="1128">OUT −</text>
+  <rect class="term" x="918" y="1140" width="44" height="18"/><text class="tp" x="940" y="1153">13</text>
+  <rect class="term" x="968" y="1140" width="44" height="18"/><text class="tp" x="990" y="1153">14</text>
+  <rect class="term" x="1048" y="1140" width="44" height="18"/><text class="tp" x="1070" y="1153">15</text>
+  <rect class="term" x="1103" y="1140" width="44" height="18"/><text class="tp" x="1125" y="1153">16</text>
+
+  <!-- relay 87 -> step-up IN+  and branch to display buck -->
+  <path class="plus" d="M700 1158 L700 1172 L940 1172 L940 1158"/>
+  <circle cx="700" cy="1172" r="4" fill="#c0392b"/>
+  <path class="plus" d="M700 1172 L648 1172 L648 1195"/>
+  <text class="wl" x="752" y="1190">2,5 mm²</text>
+
+  <!-- relay 85 -> gnd ; step-up IN- -> gnd -->
+  <path class="minus" d="M848 1158 L848 1186"/>
+  <use href="#gnd" x="848" y="1186"/>
+  <path class="minus" d="M990 1158 L990 1186"/>
+  <use href="#gnd" x="990" y="1186"/>
+
+  <!-- ACC signal into 86 -->
+  <path class="sig" d="M774 1158 L774 1200 L1172 1200 L1172 1022"/>
+  <text class="note" x="962" y="1018">← ACC z zamka kluczyka</text>
+
+  <!-- step-up OUT to M910q -->
+  <path class="plus" d="M1070 1158 L1070 1178 L992 1178 L992 1195"/>
+  <text class="wl" x="996" y="1174">bezp. 5 A</text>
+  <path class="minus" d="M1125 1158 L1125 1214 L1078 1214 L1078 1195"/>
+
+  <!-- display buck -->
+  <rect class="mod" x="586" y="1204" width="300" height="106"/>
+  <rect class="term" x="628" y="1195" width="40" height="18"/><text class="tp" x="648" y="1208">IN+</text>
+  <rect class="term" x="686" y="1195" width="40" height="18"/><text class="tp" x="706" y="1208">IN−</text>
+  <rect class="term" x="774" y="1195" width="46" height="18"/><text class="tp" x="797" y="1208">OUT+</text>
+  <rect class="term" x="832" y="1195" width="46" height="18"/><text class="tp" x="855" y="1208">OUT−</text>
+  <text class="mt" x="736" y="1240">Buck MP1584 — panele 5 V</text>
+  <text class="ms" x="736" y="1258">wyjście 5,0 V, min. 3 A, za bezp. 3 A</text>
+  <text class="ms" x="736" y="1276">OUT → zasilanie obu paneli</text>
+  <text class="ms" x="736" y="1294">podświetlenie: PWM z Nano #1 (D9, D10)</text>
+  <path class="minus" d="M706 1195 L706 1178 L678 1178"/>
+  <use href="#gnd" x="678" y="1178" transform="rotate(-90 678 1178)"/>
+
+  <!-- M910q -->
+  <rect class="modB" x="900" y="1204" width="260" height="106"/>
+  <rect class="term" x="964" y="1195" width="56" height="18"/><text class="tp" x="992" y="1208">środek +</text>
+  <rect class="term" x="1050" y="1195" width="56" height="18"/><text class="tp" x="1078" y="1208">ekran −</text>
+  <text class="mt" x="1030" y="1240">Lenovo M910q</text>
+  <text class="ms" x="1030" y="1258">oryginalny wtyk Lenovo</text>
+  <text class="ms" x="1030" y="1276">bezpiecznik 5 A na „+” przed wtykiem</text>
+  <text class="warn" x="1030" y="1296">sprawdź polaryzację multimetrem</text>
+
+  <!-- ================= AMP BRANCH ================= -->
+  <text class="sec" x="60" y="1380">GAŁĄŹ NIEZALEŻNA — wzmacniacze (z pominięciem bufora)</text>
+  <rect class="mod" x="60" y="1390" width="560" height="118"/>
+  <text class="ms" x="340" y="1414">Prosto z klemy „+” akumulatora rozruchowego — NIE z szyny buforowanej</text>
+  <text class="wn" x="80" y="1438">• bezpiecznik 20 A przy klemie, przewód 4 mm²</text>
+  <text class="wn" x="80" y="1458">• TDA7388: „+12V” i „GND” — masa osobno, blisko wzmacniacza</text>
+  <text class="wn" x="80" y="1478">• REM/standby ← zacisk 87 przekaźnika zapłonu, przez 1 kΩ</text>
+  <text class="note" x="80" y="1498">Wspólna masa z komputerem daje pętlę masy i przydźwięk alternatora.</text>
+
+  <!-- ================= LEGEND ================= -->
+  <rect x="650" y="1390" width="530" height="118" fill="#fbfcfd" stroke="#c8d2da" stroke-width="1.5" rx="6"/>
+  <text class="mt" x="915" y="1412">Kolejność podłączania</text>
+  <text class="wn" x="668" y="1436">1. Punkt gwiazdowy masy nadwozia</text>
+  <text class="wn" x="668" y="1456">2. Wszystkie moduły i zaciski — bez zasilania</text>
+  <text class="wn" x="668" y="1476">3. Bank z bezpiecznikami, rozłącznik masy ROZWARTY</text>
+  <text class="wn" x="668" y="1496">4. Bezpiecznik główny 30 A wkładany JAKO OSTATNI</text>
+
+  <text class="note" x="24" y="1542">Symbol masy oznacza połączenie z JEDNYM punktem gwiazdowym na nadwoziu (6 mm², goły metal, wazelina techniczna). Wyjątkiem jest masa wzmacniaczy — osobno, przy wzmacniaczach.</text>
+  <text class="note" x="24" y="1562">Numeracja zacisków przekaźnika wg ISO 280: 30 = wspólny, 87 = zwierny (NO), 87a = rozwierny (NC), 85/86 = cewka. Na tanich modułach opisy bywają inne — sprawdź omomierzem.</text>
+</svg>
