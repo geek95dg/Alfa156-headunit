@@ -4,7 +4,7 @@ Bench test rig for the Alfa 156 BCM head unit, built around the
 **Orange Pi PC 1.2** (Allwinner H3, 1 GB RAM, armv7l) running
 **Armbian Trixie** (Debian 13, kernel ≥ 6.18). The rig is meant as
 a cheap pre-production sanity check before committing to the
-production board — see [`OPI5PRO_SETUP.md`](OPI5PRO_SETUP.md) for
+production board — see [`../orange-pi-5/OPI5PRO_SETUP.md`](../orange-pi-5/OPI5PRO_SETUP.md) for
 the Orange Pi 5 Pro 4 GB build intended for the in-car install.
 
 The manual is organised so each **Part** is self-contained and can
@@ -1345,12 +1345,12 @@ differences on the 5 Pro are:
 - Built-in WiFi 6 + BT 5.0 — no USB dongles.
 
 The full install sequence for the 5 Pro is in
-[`OPI5PRO_SETUP.md`](OPI5PRO_SETUP.md). Wiring reuses the Part 4
+[`../orange-pi-5/OPI5PRO_SETUP.md`](../orange-pi-5/OPI5PRO_SETUP.md). Wiring reuses the Part 4
 sensor topology verbatim — same PC817 optoisolators, same HC-SR04
 voltage dividers, same DS18B20, same buzzer.
 
 Bill of materials (with Q1 2026 PLN prices) for the production
-build: [`OPI5PRO_BOM.md`](OPI5PRO_BOM.md).
+build: [`../orange-pi-5/OPI5PRO_BOM.md`](../orange-pi-5/OPI5PRO_BOM.md).
 
 ---
 
@@ -1544,7 +1544,7 @@ different, `ls /sys/class/drm/` lists the actual name — pick
 whatever comes after `card0-` and edit the `--drm-connector=`
 flag in `/etc/systemd/system/bcm-splash-main.service`.
 
-See [`OPI5PRO_SETUP.md`](OPI5PRO_SETUP.md) §10 for the full
+See [`../orange-pi-5/OPI5PRO_SETUP.md`](../orange-pi-5/OPI5PRO_SETUP.md) §10 for the full
 dual-display version of this recipe, the deeper audio
 troubleshooting section, and a transcoding one-liner for
 creating a properly-sized, loop-friendly `main.mp4` with an
@@ -1677,7 +1677,7 @@ or `ninja` error during pip install
   grep Touchscreen /opt/bcm/openauto.ini
   # Expect TouchscreenWidth=1024 / TouchscreenHeight=504
   ```
-  Cross-reference: `docs/OPI5PRO_SETUP.md` §10 has the full
+  Cross-reference: `../orange-pi-5/OPI5PRO_SETUP.md` §10 has the full
   explanation of the AA canvas-sizing mechanism.
 
 ### Audio (sun4i-codec)

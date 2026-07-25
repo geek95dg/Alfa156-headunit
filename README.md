@@ -1,6 +1,7 @@
 # Alfa156-headunit
 
-BCM v8.5 — custom head unit for Alfa Romeo 156 1.9 JTD 8V, built on Orange Pi 5 Pro 4GB.
+BCM v8.5 — custom head unit for Alfa Romeo 156 1.9 JTD 8V, built on a
+**Lenovo ThinkCentre M910q Tiny** (x86) with a buffered 12 V SLA supply.
 
 - Body computer functions (fuel consumption, fuel level, temperatures, weather, service notifications)
 - 4.1 audio system with 10-band EQ, spectrum visualizer (ES9038Q2M DAC + TDA7388 amp)
@@ -32,7 +33,12 @@ pip install -r requirements.txt -r requirements-x86.txt
 - After changing Tailwind classes in the web UI run
   `config/scripts/build-frontend.sh` (CSS is precompiled — there is no
   runtime Tailwind engine).
+- **Deployment (production, M910q):** `docs/WDROZENIE_M910Q.md` —
+  hardware, BIOS, OS, services, verification. Power system in detail:
+  `docs/ZASILANIE_BUFOROWANE.md` + `schematics/`.
 - Repo audit + improvement roadmap: `AUDYT_I_PLAN.md`. Unused legacy
-  code lives in `legacy/`.
+  code lives in `legacy/`; docs for retired platforms (Orange Pi 5 Pro /
+  5 Plus, Orange Pi PC bench rig, VMware smoke tests) live in
+  `Archive/`.
 - K-Line sniffing / reverse-engineering ECU PIDs (RPM, temps, …):
   `docs/KLINE_SNIFFING.md` + `tools/kline_sniffer.py`.

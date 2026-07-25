@@ -1,7 +1,7 @@
 # Orange Pi PC 1.2 — Shopping List & Prices
 
 > **Primary production build moved to OPi 5 Pro 4GB.**
-> See [`OPI5PRO_BOM.md`](OPI5PRO_BOM.md) for the full production parts
+> See [`../orange-pi-5/OPI5PRO_BOM.md`](../orange-pi-5/OPI5PRO_BOM.md) for the full production parts
 > list. This document now describes only the **Orange Pi PC 1.2 bench
 > test rig** used to validate BCM before committing to the 5 Pro.
 

@@ -1,0 +1,149 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1180" height="880" viewBox="0 0 1180 880" font-family="DejaVu Sans, Verdana, sans-serif">
+  <title>BCM v8.5 — Domeny zasilania A/B, rozdział obciążeń i bezpieczniki (M910q)</title>
+  <style>
+    .bg   { fill: #ffffff; }
+    .box  { fill: #f7f9fb; stroke: #2b3a45; stroke-width: 2; rx: 6; }
+    .boxA { fill: #eef7ee; stroke: #2d6a2d; stroke-width: 2; rx: 6; }
+    .boxB { fill: #eef2fa; stroke: #2b4a8a; stroke-width: 2; rx: 6; }
+    .boxC { fill: #fbeff1; stroke: #97324a; stroke-width: 2; rx: 6; }
+    .wire { stroke: #c0392b; stroke-width: 3; fill: none; }
+    .wA   { stroke: #2d6a2d; stroke-width: 2.5; fill: none; }
+    .wB   { stroke: #2b4a8a; stroke-width: 2.5; fill: none; }
+    .ttl  { font-size: 19px; font-weight: bold; fill: #10202b; }
+    .sub  { font-size: 12px; fill: #5a6b78; }
+    .h    { font-size: 13px; font-weight: bold; fill: #10202b; text-anchor: middle; }
+    .t    { font-size: 11px; fill: #33424e; text-anchor: middle; }
+    .tl   { font-size: 11px; fill: #33424e; }
+    .tb   { font-size: 11px; font-weight: bold; fill: #10202b; }
+    .note { font-size: 10.5px; fill: #6a7a86; }
+    .fuse { font-size: 10.5px; font-weight: bold; fill: #a8321a; text-anchor: middle; }
+  </style>
+
+  <rect class="bg" x="0" y="0" width="1180" height="880"/>
+  <text class="ttl" x="24" y="32">Domeny zasilania A / B — rozdział obciążeń, bezpieczniki, przekaźniki</text>
+  <text class="sub" x="24" y="52">Domena A żyje z banku AGM przez cały postój. Domena B jest w pełni odcinana przekaźnikiem zapłonu — zero poboru na postoju.</text>
+  <line x1="24" y1="62" x2="1156" y2="62" stroke="#c8d2da" stroke-width="1.5"/>
+
+  <!-- BUS -->
+  <rect class="box" x="410" y="86" width="360" height="58"/>
+  <text class="h" x="590" y="110">Szyna buforowana 12 V (za LVD 11,0 V)</text>
+  <text class="t" x="590" y="130">bank 5 × CSB HR1221W · 25,5 Ah · listwa dystrybucyjna z bezpiecznikami</text>
+
+  <path class="wire" d="M590 144 L590 176"/>
+  <path class="wire" d="M240 176 L940 176"/>
+  <path class="wA" d="M240 176 L240 214"/>
+  <path class="wB" d="M940 176 L940 214"/>
+  <circle cx="590" cy="176" r="4" fill="#c0392b"/>
+
+  <!-- ============ DOMAIN A ============ -->
+  <text class="tb" x="70" y="204" fill="#2d6a2d" font-size="14">DOMENA A — zawsze zasilana</text>
+  <rect class="boxA" x="60" y="214" width="420" height="330"/>
+
+  <text class="fuse" x="240" y="236">bezpiecznik odgałęzienia 3 A</text>
+
+  <rect class="box" x="86" y="248" width="170" height="60"/>
+  <text class="h" x="171" y="270">Buck 12 → 5 V</text>
+  <text class="t" x="171" y="288">LM2596, min. 1 A</text>
+  <text class="t" x="171" y="302">zasilanie logiki</text>
+
+  <rect class="box" x="288" y="248" width="170" height="60"/>
+  <text class="h" x="373" y="270">Zasilanie 12 V</text>
+  <text class="t" x="373" y="288">wprost z szyny</text>
+  <text class="t" x="373" y="302">cewki przekaźników</text>
+
+  <path class="wA" d="M240 236 L240 248"/>
+  <path class="wA" d="M171 308 L171 336"/>
+  <path class="wA" d="M373 308 L373 336"/>
+
+  <rect class="box" x="86" y="336" width="170" height="128"/>
+  <text class="h" x="171" y="358">Odbiorniki 5 V</text>
+  <text class="tl" x="98" y="380">Arduino Nano #1</text>
+  <text class="tl" x="98" y="398">Arduino Nano #2</text>
+  <text class="tl" x="98" y="416">HM-10 BLE</text>
+  <text class="tl" x="98" y="434">RXB6 433 MHz</text>
+  <text class="t" x="171" y="456">razem ~50 mA</text>
+
+  <rect class="box" x="288" y="336" width="170" height="128"/>
+  <text class="h" x="373" y="358">Odbiorniki 12 V</text>
+  <text class="tl" x="300" y="380">moduł 9 przekaźników</text>
+  <text class="tl" x="300" y="398">— 4 szyby × 2 kierunki</text>
+  <text class="tl" x="300" y="416">— zamek bagażnika</text>
+  <text class="t" x="373" y="440">spoczynkowo ~10 mA</text>
+  <text class="t" x="373" y="456">(cewki tylko chwilowo)</text>
+
+  <text class="tb" x="270" y="488" text-anchor="middle">Pobór spoczynkowy domeny A: ~60 mA (0,7 W)</text>
+  <text class="note" x="270" y="506" text-anchor="middle">Nano 25 mA + HM-10 15 mA + RXB6 5 mA</text>
+  <text class="note" x="270" y="520" text-anchor="middle">+ przekaźniki 10 mA + straty przetwornic 5 mA</text>
+  <text class="note" x="270" y="534" text-anchor="middle">Ten pobór wyznacza czas postoju — patrz tabela poniżej.</text>
+
+  <!-- ============ DOMAIN B ============ -->
+  <text class="tb" x="700" y="204" fill="#2b4a8a" font-size="14">DOMENA B — załączana zapłonem</text>
+  <rect class="boxB" x="700" y="214" width="420" height="330"/>
+
+  <rect class="box" x="726" y="234" width="368" height="62"/>
+  <text class="h" x="910" y="256">Przekaźnik zapłonu Bosch 30 A SPDT</text>
+  <text class="t" x="910" y="274">cewka: ACC · dioda 1N4007 równolegle</text>
+  <text class="t" x="910" y="290">rozwarty = 0 mA poboru z banku</text>
+
+  <path class="wB" d="M940 214 L940 234"/>
+  <path class="wB" d="M910 296 L910 318"/>
+  <path class="wB" d="M820 318 L1020 318"/>
+  <path class="wB" d="M820 318 L820 344"/>
+  <path class="wB" d="M1020 318 L1020 344"/>
+
+  <rect class="box" x="726" y="344" width="188" height="88"/>
+  <text class="fuse" x="786" y="336">5 A</text>
+  <text class="h" x="820" y="366">Step-up 12 → 19 V</text>
+  <text class="t" x="820" y="384">≥ 80 W ciągle</text>
+  <text class="t" x="820" y="402">→ M910q (do 65 W)</text>
+  <text class="t" x="820" y="420">→ hub USB zasilany</text>
+
+  <rect class="box" x="932" y="344" width="162" height="88"/>
+  <text class="fuse" x="1054" y="336">3 A</text>
+  <text class="h" x="1013" y="366">Buck 12 → 5 V</text>
+  <text class="t" x="1013" y="384">MP1584, min. 3 A</text>
+  <text class="t" x="1013" y="402">→ panele wyświetlaczy</text>
+  <text class="t" x="1013" y="420">→ podświetlenie PWM</text>
+
+  <path class="wB" d="M820 432 L820 458"/>
+  <path class="wB" d="M1013 432 L1013 458"/>
+
+  <rect class="box" x="726" y="458" width="188" height="70"/>
+  <text class="tl" x="738" y="478">M910q · 19 V · 10–55 W</text>
+  <text class="tl" x="738" y="496">hub USB 7-portowy</text>
+  <text class="tl" x="738" y="514">Pro Micro, GPS, LTE, mikrofon</text>
+
+  <rect class="box" x="932" y="458" width="162" height="70"/>
+  <text class="tl" x="944" y="478">wyświetlacz 7"/10"</text>
+  <text class="tl" x="944" y="496">wyświetlacz 4,3"</text>
+  <text class="tl" x="944" y="514">DAC USB, graber AHD</text>
+
+  <!-- ============ SEPARATE AMP BRANCH ============ -->
+  <text class="tb" x="70" y="586" fill="#97324a" font-size="14">GAŁĄŹ NIEZALEŻNA — wzmacniacze</text>
+  <rect class="boxC" x="60" y="596" width="420" height="112"/>
+  <text class="t" x="270" y="620">Prosto z akumulatora rozruchowego, z pominięciem banku buforowego</text>
+  <text class="tl" x="80" y="642">• bezpiecznik 20 A przy klemie „+”, przewód 4 mm²</text>
+  <text class="tl" x="80" y="662">• TDA7388 4 × 45 W + TDA2050 (subwoofer)</text>
+  <text class="tl" x="80" y="682">• REM/standby wyzwalany z domeny B (bez trzasków przy starcie)</text>
+  <text class="note" x="80" y="700">Szczyty 15–20 A rozładowałyby bank AGM w kilka minut — dlatego osobna gałąź.</text>
+
+  <!-- ============ STANDBY TABLE ============ -->
+  <rect x="700" y="596" width="420" height="196" fill="#fbfcfd" stroke="#c8d2da" stroke-width="1.5" rx="6"/>
+  <text class="h" x="910" y="620">Czas postoju przy poborze 60 mA</text>
+  <line x1="716" y1="630" x2="1104" y2="630" stroke="#c8d2da"/>
+  <text class="tb" x="722" y="650">Pakiety</text>
+  <text class="tb" x="810" y="650">Pojemność</text>
+  <text class="tb" x="906" y="650">50 % DoD</text>
+  <text class="tb" x="1010" y="650">do LVD</text>
+  <line x1="716" y1="658" x2="1104" y2="658" stroke="#c8d2da"/>
+  <text class="tl" x="722" y="678">4 ×</text><text class="tl" x="810" y="678">20,4 Ah</text><text class="tl" x="906" y="678">~7,1 dnia</text><text class="tl" x="1010" y="678">~10,6 dnia</text>
+  <text class="tl" x="722" y="698">5 ×</text><text class="tl" x="810" y="698">25,5 Ah</text><text class="tl" x="906" y="698">~8,9 dnia</text><text class="tl" x="1010" y="698">~13,3 dnia</text>
+  <text class="tl" x="722" y="718">6 ×</text><text class="tl" x="810" y="718">30,6 Ah</text><text class="tl" x="906" y="718">~10,6 dnia</text><text class="tl" x="1010" y="718">~15,9 dnia</text>
+  <text class="tl" x="722" y="738">8 ×</text><text class="tl" x="810" y="738">40,8 Ah</text><text class="tl" x="906" y="738">~14,2 dnia</text><text class="tl" x="1010" y="738">~21,3 dnia</text>
+  <line x1="716" y1="752" x2="1104" y2="752" stroke="#c8d2da"/>
+  <text class="note" x="722" y="770">Kolumna „50 % DoD” to praca bez utraty żywotności. Kolumna „do LVD”</text>
+  <text class="note" x="722" y="784">to zejście do 11,0 V — dopuszczalne awaryjnie, ale skraca życie banku.</text>
+
+  <text class="note" x="24" y="826">Budzenie M910q z RTC (np. co 15 min na ping pozycji) dokłada ok. 5 Ah tygodniowo i mniej więcej połowi powyższe czasy. Przy dłuższym postoju wyłącz je w UI.</text>
+  <text class="note" x="24" y="848">Wszystkie bezpieczniki: wkładki nożowe ATO/ATC w listwie dystrybucyjnej z pokrywą, w miejscu dostępnym bez demontażu deski rozdzielczej.</text>
+</svg>

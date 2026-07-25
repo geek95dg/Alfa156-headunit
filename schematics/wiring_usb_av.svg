@@ -1,0 +1,189 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1240" height="1100" viewBox="0 0 1240 1100" font-family="DejaVu Sans, Verdana, sans-serif">
+  <title>BCM v8.5 — Połączenia USB, wyświetlaczy, audio i kamer</title>
+  <style>
+    .bg    { fill: #ffffff; }
+    .mod   { fill: #f7f9fb; stroke: #2b3a45; stroke-width: 2; rx: 6; }
+    .modB  { fill: #eef2fa; stroke: #2b4a8a; stroke-width: 2; rx: 6; }
+    .modA  { fill: #eef7ee; stroke: #2d6a2d; stroke-width: 2; rx: 6; }
+    .modV  { fill: #f4eef9; stroke: #5c3a8a; stroke-width: 2; rx: 6; }
+    .modS  { fill: #fdf3e6; stroke: #a8621a; stroke-width: 2; rx: 6; }
+    .term  { fill: #ffffff; stroke: #2b3a45; stroke-width: 1.5; rx: 2; }
+    .wusb  { stroke: #2d6a2d; stroke-width: 2.6; fill: none; }
+    .wdp   { stroke: #5c3a8a; stroke-width: 2.6; fill: none; }
+    .waud  { stroke: #97324a; stroke-width: 2.4; fill: none; }
+    .wpwr  { stroke: #c0392b; stroke-width: 2.6; fill: none; }
+    .wsig  { stroke: #2b4a8a; stroke-width: 1.8; fill: none; stroke-dasharray: 5 3; }
+    .ttl   { font-size: 19px; font-weight: bold; fill: #10202b; }
+    .sub   { font-size: 12px; fill: #5a6b78; }
+    .mt    { font-size: 13px; font-weight: bold; fill: #10202b; text-anchor: middle; }
+    .ms    { font-size: 10.5px; fill: #5a6b78; text-anchor: middle; }
+    .tl    { font-size: 10.5px; fill: #33424e; }
+    .tb    { font-size: 10.5px; font-weight: bold; fill: #10202b; }
+    .note  { font-size: 10.5px; fill: #6a7a86; }
+    .warn  { font-size: 10.5px; font-weight: bold; fill: #a8321a; }
+    .sec   { font-size: 13px; font-weight: bold; fill: #2d4150; }
+    .wl    { font-size: 10px; fill: #4a5a66; }
+  </style>
+
+  <rect class="bg" x="0" y="0" width="1240" height="1100"/>
+  <text class="ttl" x="24" y="32">Połączenia USB, wyświetlaczy, audio i kamer</text>
+  <text class="sub" x="24" y="52">Zielony = USB · fioletowy = obraz · bordowy = audio analogowe · czerwony = zasilanie · niebieski przerywany = sygnał sterujący</text>
+  <line x1="24" y1="62" x2="1216" y2="62" stroke="#c8d2da" stroke-width="1.5"/>
+
+  <!-- ============ M910q ============ -->
+  <rect class="modB" x="470" y="86" width="300" height="132"/>
+  <text class="mt" x="620" y="110">Lenovo M910q</text>
+  <text class="ms" x="620" y="128">6 × USB 3.0 · 1 × USB-C · 2 × DisplayPort</text>
+  <rect class="term" x="492" y="146" width="72" height="20"/><text class="ms" x="528" y="160">DP-1</text>
+  <rect class="term" x="676" y="146" width="72" height="20"/><text class="ms" x="712" y="160">DP-2</text>
+  <rect class="term" x="492" y="182" width="60" height="20"/><text class="ms" x="522" y="196">USB-A</text>
+  <rect class="term" x="562" y="182" width="60" height="20"/><text class="ms" x="592" y="196">USB-B</text>
+  <rect class="term" x="632" y="182" width="60" height="20"/><text class="ms" x="662" y="196">USB-C</text>
+  <text class="ms" x="620" y="214">nazwy złączy sprawdź: /sys/class/drm/card*-*/status</text>
+
+  <!-- ============ DISPLAYS ============ -->
+  <text class="sec" x="60" y="92">Obraz</text>
+
+  <rect class="modV" x="60" y="102" width="330" height="140"/>
+  <text class="mt" x="225" y="126">Wyświetlacz główny 7" / 10"</text>
+  <text class="ms" x="225" y="144">1024×600 lub 1280×800 · dotyk USB</text>
+  <text class="tl" x="78" y="168">HDMI ← przejściówka pasywna DP-1 → HDMI</text>
+  <text class="tl" x="78" y="186">USB (dotyk) → hub USB</text>
+  <text class="tl" x="78" y="204">zasilanie 5 V ← buck MP1584 (domena B)</text>
+  <text class="tl" x="78" y="222">M_PWM ← Nano #1 D9 · GND wspólna z Nano</text>
+  <text class="ms" x="225" y="238">dashboard BCM, port 5002</text>
+
+  <rect class="modV" x="60" y="262" width="330" height="122"/>
+  <text class="mt" x="225" y="286">Wyświetlacz mały 4,3"</text>
+  <text class="ms" x="225" y="304">800×480 · bez dotyku</text>
+  <text class="tl" x="78" y="328">HDMI ← przejściówka pasywna DP-2 → HDMI</text>
+  <text class="tl" x="78" y="346">zasilanie 5 V ← buck MP1584 (domena B)</text>
+  <text class="tl" x="78" y="364">M_PWM ← Nano #1 D10 · GND wspólna z Nano</text>
+  <text class="ms" x="225" y="380">karuzela statystyk + kamera cofania, port 5003</text>
+
+  <path class="wdp" d="M492 156 L440 156 L440 172 L390 172"/>
+  <text class="wl" x="398" y="150">DP-1</text>
+  <path class="wdp" d="M712 166 L712 240 L420 240 L420 320 L390 320"/>
+  <text class="wl" x="428" y="316">DP-2</text>
+
+  <text class="warn" x="60" y="404">Oba wyjścia M910q to DisplayPort — potrzebne dwie</text>
+  <text class="warn" x="60" y="420">pasywne przejściówki DP → HDMI.</text>
+  <text class="note" x="60" y="440">Aktywne przejściówki nie są potrzebne i bywają</text>
+  <text class="note" x="60" y="456">źródłem problemów z wykryciem ekranu.</text>
+
+  <!-- ============ USB HUB ============ -->
+  <text class="sec" x="470" y="268">Hub USB (zasilany, 7 portów)</text>
+  <rect class="modA" x="470" y="278" width="300" height="252"/>
+  <text class="ms" x="620" y="300">zasilany z domeny B — własny zasilacz 5 V</text>
+  <text class="tl" x="488" y="324">• Arduino Pro Micro — /dev/ttyACM0</text>
+  <text class="tl" x="488" y="344">• Arduino Nano #1 — /dev/ttyUSB0</text>
+  <text class="tl" x="488" y="364">• Arduino Nano #2 — /dev/ttyUSB1</text>
+  <text class="tl" x="488" y="384">• CP2102 (K-Line) — /dev/ttyUSB_kline</text>
+  <text class="tl" x="488" y="404">• GPS u-blox NEO-M8N</text>
+  <text class="tl" x="488" y="424">• Modem LTE Huawei E3372</text>
+  <text class="tl" x="488" y="444">• Mikrofon USB (sufit)</text>
+  <text class="tl" x="488" y="464">• Dotyk wyświetlacza głównego</text>
+  <text class="warn" x="488" y="492">Hub musi mieć własne zasilanie</text>
+  <text class="note" x="488" y="510">Osiem urządzeń nie wyrobi się na zasilaniu z portu M910q.</text>
+
+  <path class="wusb" d="M592 202 L592 278"/>
+  <text class="wl" x="600" y="248">USB 3.0</text>
+
+  <!-- ============ DIRECT USB ============ -->
+  <text class="sec" x="850" y="268">Bezpośrednio w port M910q</text>
+  <rect class="modA" x="850" y="278" width="330" height="252"/>
+
+  <rect class="mod" x="872" y="300" width="286" height="94"/>
+  <text class="mt" x="1015" y="322">DAC USB ES9038Q2M</text>
+  <text class="ms" x="1015" y="340">USB Audio Class 2 · wyjście RCA L/R</text>
+  <text class="note" x="886" y="362">Przez hub dochodzi opóźnienie i rywalizacja</text>
+  <text class="note" x="886" y="378">o pasmo — stąd port bezpośredni.</text>
+
+  <rect class="mod" x="872" y="410" width="286" height="98"/>
+  <text class="mt" x="1015" y="432">Graber AHD 4-kanałowy</text>
+  <text class="ms" x="1015" y="450">4 × /dev/videoN · USB 3.0</text>
+  <text class="note" x="886" y="472">Cztery strumienie 720p naraz potrzebują</text>
+  <text class="note" x="886" y="488">stałego pasma — na hubie gubi klatki.</text>
+
+  <path class="wusb" d="M662 202 L662 232 L820 232 L820 348 L872 348"/>
+  <text class="wl" x="700" y="226">USB 3.0 — bezpośrednio</text>
+  <path class="wusb" d="M820 348 L820 458 L872 458"/>
+  <circle cx="820" cy="348" r="4" fill="#2d6a2d"/>
+
+  <!-- ============ CAMERAS ============ -->
+  <text class="sec" x="850" y="566">Kamery AHD 720p</text>
+  <rect class="modV" x="850" y="576" width="330" height="152"/>
+  <text class="tl" x="868" y="600">CH0 — przód, za lusterkiem wstecznym</text>
+  <text class="tl" x="868" y="620">CH1 — tył, w ramce tablicy rejestracyjnej</text>
+  <text class="tl" x="868" y="640">CH2 — lewe lusterko / błotnik</text>
+  <text class="tl" x="868" y="660">CH3 — prawe lusterko / błotnik</text>
+  <text class="note" x="868" y="686">Priorytet przełączania: bieg wsteczny &gt; lewy</text>
+  <text class="note" x="868" y="702">kierunkowskaz &gt; prawy kierunkowskaz &gt; brak.</text>
+  <text class="note" x="868" y="718">Sygnały wchodzą przez PC817 na Nano #2.</text>
+
+  <path class="wdp" d="M1015 576 L1015 508"/>
+  <text class="wl" x="1022" y="546">4 × kabel AHD</text>
+
+  <!-- ============ AUDIO ============ -->
+  <text class="sec" x="60" y="566">Tor audio</text>
+  <rect class="modS" x="60" y="576" width="710" height="240"/>
+
+  <rect class="mod" x="84" y="600" width="150" height="70"/>
+  <text class="mt" x="159" y="622">DAC ES9038Q2M</text>
+  <text class="ms" x="159" y="640">wyjście RCA</text>
+  <text class="ms" x="159" y="658">L / R, poziom linii</text>
+
+  <path class="waud" d="M234 626 L286 626"/>
+  <text class="wl" x="240" y="620">RCA L/R</text>
+
+  <rect class="mod" x="286" y="592" width="170" height="86"/>
+  <text class="mt" x="371" y="614">TDA7388</text>
+  <text class="ms" x="371" y="632">4 × 45 W, klasa AB</text>
+  <text class="ms" x="371" y="650">radiator aluminiowy</text>
+  <text class="ms" x="371" y="668">wejścia IN1–IN4</text>
+
+  <path class="waud" d="M234 626 L260 626 L260 712 L286 712"/>
+  <circle cx="260" cy="626" r="3.5" fill="#97324a"/>
+  <rect class="mod" x="286" y="690" width="170" height="70"/>
+  <text class="mt" x="371" y="712">TDA2050</text>
+  <text class="ms" x="371" y="730">subwoofer, mono</text>
+  <text class="ms" x="371" y="748">suma L+R na wejściu</text>
+
+  <path class="waud" d="M456 626 L508 626"/>
+  <rect class="mod" x="508" y="592" width="240" height="86"/>
+  <text class="mt" x="628" y="614">Głośniki 4 Ω</text>
+  <text class="ms" x="628" y="632">CH1 przód L · CH2 przód P</text>
+  <text class="ms" x="628" y="650">CH3 tył L · CH4 tył P</text>
+  <text class="ms" x="628" y="668">drzwi + półka tylna</text>
+
+  <path class="waud" d="M456 722 L508 722"/>
+  <rect class="mod" x="508" y="690" width="240" height="70"/>
+  <text class="mt" x="628" y="712">Subwoofer 4 Ω</text>
+  <text class="ms" x="628" y="730">bagażnik</text>
+  <text class="ms" x="628" y="748">osobny radiator na TDA2050</text>
+
+  <path class="wpwr" d="M371 760 L371 774 L84 774"/>
+  <text class="warn" x="84" y="792">Zasilanie 12 V wzmacniaczy — osobna gałąź prosto z akumulatora, bezpiecznik 20 A</text>
+  <text class="note" x="84" y="810">REM/standby ← zacisk 87 przekaźnika zapłonu, przez rezystor 1 kΩ (domena B)</text>
+
+  <!-- ============ NOTES ============ -->
+  <rect x="60" y="852" width="1120" height="164" fill="#fbfcfd" stroke="#c8d2da" stroke-width="1.5" rx="6"/>
+  <text class="mt" x="620" y="874">Rzeczy, które najczęściej idą źle</text>
+
+  <text class="tb" x="80" y="900">Ekrany złączone w jeden pulpit</text>
+  <text class="note" x="80" y="918">Brak `xrandr --pos` w ~/.xinitrc — ustaw pozycje obu wyjść osobno.</text>
+  <text class="tb" x="80" y="942">Dotyk chodzi po obu ekranach</text>
+  <text class="note" x="80" y="960">Brak przypisania: xinput map-to-output "&lt;nazwa&gt;" DP-1</text>
+  <text class="tb" x="80" y="984">Numeracja /dev/ttyUSBn skacze po restarcie</text>
+  <text class="note" x="80" y="1002">Brak reguł udev — K-Line trafia wtedy na port Arduino.</text>
+
+  <text class="tb" x="640" y="900">Przydźwięk alternatora w głośnikach</text>
+  <text class="note" x="640" y="918">Pętla masy — masa wzmacniaczy musi być osobno, przy wzmacniaczach.</text>
+  <text class="tb" x="640" y="942">Trzask w głośnikach przy załączaniu</text>
+  <text class="note" x="640" y="960">REM podpięty nie z domeny B albo bez rezystora 1 kΩ.</text>
+  <text class="tb" x="640" y="984">Graber gubi klatki</text>
+  <text class="note" x="640" y="1002">Wpięty w hub zamiast bezpośrednio w port M910q.</text>
+
+  <text class="note" x="24" y="1052">Mikrofon USB montuj w podsufitce, z dala od nawiewu — HFP jest bardzo czuły na szum powietrza.</text>
+  <text class="note" x="24" y="1072">Modem LTE Huawei E3372 blokuje wejście w S3; skrypt bcm-power-toggle.sh odpina go przed uśpieniem, a bcm-resume.sh przywraca po wybudzeniu.</text>
+</svg>

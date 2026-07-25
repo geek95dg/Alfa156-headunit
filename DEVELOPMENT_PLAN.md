@@ -1,5 +1,12 @@
 # BCM v8.5 - Alfa Romeo 156 Head Unit - Development Plan
 
+> **Dokument historyczny.** To jest pierwotny plan rozwoju, spisany gdy
+> platformą docelową był **Orange Pi 5 Pro 4 GB**. Produkcja przeszła na
+> **Lenovo ThinkCentre M910q Tiny (x86)** — obowiązujący opis wdrożenia to
+> [`docs/WDROZENIE_M910Q.md`](docs/WDROZENIE_M910Q.md). Odwołania do OPi,
+> GPIO i `requirements-opi.txt` poniżej opisują stan sprzed migracji;
+> materiały tych platform leżą w [`Archive/`](Archive/README.md).
+
 ## Context
 
 This project builds a complete Body Computer Module (BCM v8.5) for an Alfa Romeo 156 1.9 JTD 8V (pre-facelift). It replaces the factory head unit with a dual-screen system based on Orange Pi 5 Pro 4GB, providing: vehicle diagnostics (K-Line/KWP2000), multimedia (Android Auto), dashcam, parking sensors, SWC steering wheel remote, and a 4.1 audio system.
@@ -93,15 +100,12 @@ Alfa156-headunit/
 │   └── rotary_encoder/
 │       └── rotary_encoder.ino    # ATmega32U4 USB HID firmware (resistor-ladder buttons)
 ├── schematics/                   # Part 11: Electrical diagrams
-│   ├── README.md                 # Assembly instructions
-│   ├── main_wiring.svg           # Complete wiring diagram
-│   ├── kline_circuit.svg         # L9637D schematic
-│   ├── backlight_mosfet.svg      # MOSFET PWM circuit
-│   ├── parking_sensors.svg       # HC-SR04 wiring
-│   ├── audio_system.svg          # DAC → AMP → Speakers
-│   ├── power_supply.svg          # 12V → 5.1V converter
-│   ├── gpio_pinout.svg           # Complete GPIO mapping
-│   └── vehicle_layout.svg        # Cable routing in car
+│   ├── README.md                 # Index (M910q)
+│   ├── power_buffered_m910q.svg  # Buffered 12 V supply + 19/20 V step-up
+│   ├── power_domains_m910q.svg   # Domain A/B split, relays, fusing
+│   ├── charging_lvd.svg          # CC-CV charging, overcharge + LVD cutoff
+│   └── audio_system.svg          # DAC → AMP → Speakers (platform-agnostic)
+│   # v7 / Orange Pi GPIO set → Archive/orange-pi-5/schematics-v7/
 ├── tests/                        # Unit tests per module
 │   ├── test_dashboard.py
 │   ├── test_obd.py
@@ -111,7 +115,7 @@ Alfa156-headunit/
 │   └── ...
 ├── requirements.txt              # Python dependencies
 ├── requirements-x86.txt          # x86-only deps (mock libs)
-├── requirements-opi.txt          # OPi-only deps (GPIO, etc.)
+├── (requirements-opi.txt → Archive/orange-pi-5/, OPi-only deps)
 └── main.py                       # Entry point
 ```
 
@@ -128,7 +132,7 @@ Alfa156-headunit/
 - `src/core/hal.py` — Hardware Abstraction Layer: GPIO, UART, SPI, I2C, 1-Wire wrappers
 - `config/bcm_config.yaml` — Master config (display resolution, GPIO pins, serial ports, features toggle)
 - `main.py` — Entry point that initializes modules based on config
-- `requirements.txt`, `requirements-x86.txt`, `requirements-opi.txt`
+- `requirements.txt`, `requirements-x86.txt`, `requirements-opi.txt` (ten ostatni → `Archive/orange-pi-5/`)
 
 **x86 vs OPi:**
 - x86: HAL returns mock GPIO/UART objects, platform auto-detected
@@ -548,17 +552,21 @@ Optoisolators (5× PC817):
 
 **Goal:** Create clear, complete electrical diagrams and assembly instructions.
 
-**Files to create:**
-- `schematics/README.md` — Assembly guide with step-by-step instructions
-- `schematics/main_wiring.svg` — Complete system wiring overview
-- `schematics/kline_circuit.svg` — L9637D K-Line transceiver schematic
-- `schematics/backlight_mosfet.svg` — Dual MOSFET backlight PWM circuits
-- `schematics/parking_sensors.svg` — HC-SR04 wiring with voltage dividers
-- `schematics/audio_system.svg` — USB DAC → AMP → Speaker wiring
-- `schematics/power_supply.svg` — LM2596 12V→5.1V, fusing, distribution
-- `schematics/gpio_pinout.svg` — Complete 40-pin GPIO allocation map
-- `schematics/optoisolators.svg` — PC817 circuits for vehicle signal isolation
-- `schematics/vehicle_layout.svg` — Cable routing through the Alfa 156
+**Files to create** (as planned for the Orange Pi build — all of these now
+live in `Archive/orange-pi-5/schematics-v7/`):
+- `README.md` — Assembly guide with step-by-step instructions
+- `main_wiring.svg` — Complete system wiring overview
+- `kline_circuit.svg` — L9637D K-Line transceiver schematic
+- `backlight_mosfet.svg` — Dual MOSFET backlight PWM circuits
+- `parking_sensors.svg` — HC-SR04 wiring with voltage dividers
+- `power_supply.svg` — LM2596 12V→5.1V, fusing, distribution
+- `gpio_pinout.svg` — Complete 40-pin GPIO allocation map
+- `optoisolators.svg` — PC817 circuits for vehicle signal isolation
+- `vehicle_layout.svg` — Cable routing through the Alfa 156
+
+**Current (M910q) set** in `schematics/`: `power_buffered_m910q.svg`,
+`power_domains_m910q.svg`, `charging_lvd.svg`, `audio_system.svg` —
+opisane w `docs/ZASILANIE_BUFOROWANE.md`.
 
 **Key circuits documented:**
 
@@ -659,7 +667,7 @@ For each part on x86:
 
 For OPi deployment:
 1. Flash Armbian to eMMC/SD
-2. Install dependencies: `pip install -r requirements.txt -r requirements-opi.txt`
+2. Install dependencies: `pip install -r requirements.txt -r Archive/orange-pi-5/requirements-opi.txt`
 3. Configure GPIO/UART in `config/bcm_config_opi_pc.yaml` (bench)
    or `config/bcm_config.yaml` (production)
 4. Deploy systemd services:

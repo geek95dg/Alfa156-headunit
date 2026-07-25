@@ -4,7 +4,8 @@ Watches two GPIO input lines (left and right turn signal) and publishes
 `vehicle.left_blinker` / `vehicle.right_blinker` boolean events to the
 event bus whenever the state changes.
 
-Hardware wiring (see docs/OPI5PRO_SETUP.md):
+Hardware wiring (see Archive/orange-pi-5/OPI5PRO_SETUP.md; on the M910q
+the same PC817 stage feeds an Arduino input instead of an OPi GPIO):
     Car 12V turn-signal wire ─ [4.7 kΩ] ─ PC817 anode
                                          PC817 cathode ─ GND
     3.3V ─ [10 kΩ] ─ PC817 collector ──── OPi GPIO pin

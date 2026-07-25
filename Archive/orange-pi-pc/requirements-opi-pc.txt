@@ -1,6 +1,6 @@
 # BCM v8.5 — Orange Pi PC 1.2 (Allwinner H3, armv7l) dependencies
 #
-# Install (see docs/OPI_PC_SETUP.md §1.7 for the full recipe):
+# Install (see OPI_PC_SETUP.md §1.7 for the full recipe):
 #   python3 -m venv --system-site-packages .venv
 #   source .venv/bin/activate
 #   pip install -r requirements.txt -r requirements-opi-pc.txt
@@ -57,7 +57,7 @@ simple-websocket>=1.0
 #   src/location/map_renderer.py — BCM degrades gracefully (camera
 #   stream returns a placeholder, map overlay skips image
 #   composition) when they aren't available. The desk test in
-#   docs/OPI_PC_SETUP.md Parts 1-2 does not need either package.
+#   OPI_PC_SETUP.md Parts 1-2 does not need either package.
 #
 #   Both opencv and Pillow have no pre-built armv7l wheels on
 #   PyPI, so pip would otherwise fall back to a source build
@@ -81,7 +81,7 @@ simple-websocket>=1.0
 #   the device.
 # -----------------------------------------------------------------------------
 
-# Note: System packages required (install via apt) — see docs/OPI_PC_SETUP.md
+# Note: System packages required (install via apt) — see OPI_PC_SETUP.md
 #   Core:
 #     - python3-libgpiod              (Debian-built Python binding —
 #                                      the pip gpiod package cannot

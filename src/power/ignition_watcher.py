@@ -26,7 +26,7 @@ Usage:
 
     # Manual testing:
     python -m src.power.ignition_watcher --simulate
-    python -m src.power.ignition_watcher --config config/bcm_config_opi_pc.yaml
+    python -m src.power.ignition_watcher --config Archive/orange-pi-pc/bcm_config_opi_pc.yaml
 """
 
 import argparse
@@ -54,7 +54,7 @@ except ImportError:
 
 # ── Defaults ────────────────────────────────────────────────────────────────
 
-DEFAULT_CONFIG = "config/bcm_config_opi_pc.yaml"
+DEFAULT_CONFIG = "Archive/orange-pi-pc/bcm_config_opi_pc.yaml"
 DEFAULT_CHIP = "gpiochip0"
 
 # OPi PC (Allwinner H3) 40-pin header safe defaults — the old draft

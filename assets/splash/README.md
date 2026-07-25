@@ -55,7 +55,7 @@ the Flask frontend takes over ~3 s after Chromium opens.
 **Neither file is shipped in this repo** — they're user-supplied
 branding.
 
-See [`docs/OPI5PRO_SETUP.md`](../../docs/OPI5PRO_SETUP.md) §10
+See [`Archive/orange-pi-5/OPI5PRO_SETUP.md`](../../Archive/orange-pi-5/OPI5PRO_SETUP.md) §10
 for the full setup recipe including the kernel
 `quiet loglevel=3` flags that hide Linux's own boot output so
 only the MP4 (with audio) is visible from power-on.

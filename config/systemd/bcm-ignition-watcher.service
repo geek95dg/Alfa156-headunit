@@ -8,7 +8,7 @@ Type=simple
 
 # Resolve the Python venv at service-start time — honour both
 # /opt/bcm/.venv (current manual) and /opt/bcm/venv (older clones).
-# For OPi PC: --config config/bcm_config_opi_pc.yaml
+# For OPi PC (archived): --config Archive/orange-pi-pc/bcm_config_opi_pc.yaml
 # For x86:    --config config/bcm_config.yaml --autostart
 ExecStart=/bin/bash -c 'VENV=/opt/bcm/.venv; [ -x "$VENV/bin/python" ] || VENV=/opt/bcm/venv; exec "$VENV/bin/python" -m src.power.ignition_watcher --config config/bcm_config.yaml --autostart --service bcm-headunit.service'
 WorkingDirectory=/opt/bcm

@@ -1,0 +1,199 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1180" height="1080" viewBox="0 0 1180 1080" font-family="DejaVu Sans, Verdana, sans-serif">
+  <title>BCM v8.5 — Zasilanie buforowane Lenovo M910q (tor główny)</title>
+  <style>
+    .bg   { fill: #ffffff; }
+    .box  { fill: #f7f9fb; stroke: #2b3a45; stroke-width: 2; rx: 6; }
+    .boxA { fill: #eef7ee; stroke: #2d6a2d; stroke-width: 2; rx: 6; }
+    .boxB { fill: #eef2fa; stroke: #2b4a8a; stroke-width: 2; rx: 6; }
+    .boxW { fill: #fdf3e6; stroke: #a8621a; stroke-width: 2; rx: 6; }
+    .batt { fill: #fffaf0; stroke: #6b4a12; stroke-width: 2; rx: 4; }
+    .wire { stroke: #c0392b; stroke-width: 3; fill: none; }
+    .wthin{ stroke: #2b3a45; stroke-width: 1.6; fill: none; }
+    .gnd  { stroke: #444; stroke-width: 2.2; fill: none; }
+    .ttl  { font-size: 19px; font-weight: bold; fill: #10202b; }
+    .sub  { font-size: 12px; fill: #5a6b78; }
+    .h    { font-size: 13px; font-weight: bold; fill: #10202b; text-anchor: middle; }
+    .t    { font-size: 11px; fill: #33424e; text-anchor: middle; }
+    .tl   { font-size: 11px; fill: #33424e; }
+    .note { font-size: 10.5px; fill: #6a7a86; }
+    .warn { font-size: 11px; font-weight: bold; fill: #a8321a; }
+    .dom  { font-size: 12px; font-weight: bold; }
+  </style>
+
+  <rect class="bg" x="0" y="0" width="1180" height="1080"/>
+  <text class="ttl" x="24" y="32">BCM v8.5 — zasilanie buforowane, Lenovo ThinkCentre M910q Tiny</text>
+  <text class="sub" x="24" y="52">Tor główny: akumulator samochodowy → ładowanie CC-CV → bank CSB HR1221W (AGM) → LVD → domeny A/B → step-up 19 V</text>
+  <line class="wthin" x1="24" y1="62" x2="1156" y2="62" stroke="#c8d2da"/>
+
+  <!-- ============ 1. CAR BATTERY ============ -->
+  <rect class="batt" x="60" y="86" width="230" height="62"/>
+  <text class="h" x="175" y="110">Akumulator rozruchowy 12 V</text>
+  <text class="t" x="175" y="128">Alfa 156 — alternator 120 A</text>
+  <text class="t" x="175" y="142">13,8–14,5 V przy pracy silnika</text>
+
+  <path class="wire" d="M175 148 L175 186"/>
+
+  <!-- 2. MAIN FUSE -->
+  <rect class="boxW" x="60" y="186" width="230" height="56"/>
+  <text class="h" x="175" y="208">Bezpiecznik główny 30 A</text>
+  <text class="t" x="175" y="226">maks. 30 cm od klemy „+”, 6 mm²</text>
+
+  <path class="wire" d="M175 242 L175 280"/>
+
+  <!-- 3. SPLIT CHARGE -->
+  <rect class="box" x="40" y="280" width="270" height="86"/>
+  <text class="h" x="175" y="302">Rozdział ładowania</text>
+  <text class="t" x="175" y="320">VSR 12 V / 140 A (zał. 13,3 V, wył. 12,8 V)</text>
+  <text class="t" x="175" y="336">— albo dioda Schottky MBR2045 —</text>
+  <text class="t" x="175" y="352">blokuje oddawanie prądu do auta</text>
+
+  <path class="wire" d="M175 366 L175 404"/>
+
+  <!-- 4. CC-CV CHARGER -->
+  <rect class="box" x="40" y="404" width="270" height="112"/>
+  <text class="h" x="175" y="426">Ładowarka CC-CV (buck-boost)</text>
+  <text class="t" x="175" y="444">CC: 6 A  (limit katalogowy 10,5 A)</text>
+  <text class="t" x="175" y="460">CV absorpcja: 14,40 V @ 25 °C</text>
+  <text class="t" x="175" y="476">float: 13,65 V @ 25 °C</text>
+  <text class="t" x="175" y="494">komp. −30 mV/°C abs. / −18 mV/°C float</text>
+  <text class="warn" x="175" y="510" text-anchor="middle">PROFIL AGM</text>
+
+  <path class="wire" d="M175 516 L175 554"/>
+
+  <!-- 5. OVERCHARGE CUTOFF -->
+  <rect class="boxW" x="40" y="554" width="270" height="86"/>
+  <text class="h" x="175" y="576">Blokada przeładowania</text>
+  <text class="t" x="175" y="594">rozłącznik nadnapięciowy (2. warstwa)</text>
+  <text class="t" x="175" y="610">rozwiera przy 15,30 V</text>
+  <text class="t" x="175" y="626">zwiera ponownie przy 14,00 V</text>
+
+  <path class="wire" d="M175 640 L175 678"/>
+
+  <!-- 6. BUFFER BUS + AGM BANK -->
+  <rect class="boxA" x="40" y="678" width="270" height="150"/>
+  <text class="h" x="175" y="700">Szyna bufora 12 V — bank AGM</text>
+  <text class="t" x="175" y="718">5 × CSB HR1221W F2 (12 V / 5,1 Ah) równolegle</text>
+  <text class="t" x="175" y="734">25,5 Ah, szyna 4 mm² lub mostek miedziany</text>
+
+  <g>
+    <rect class="batt" x="58" y="746" width="42" height="34"/><text class="t" x="79" y="767">5,1 Ah</text>
+    <rect class="batt" x="106" y="746" width="42" height="34"/><text class="t" x="127" y="767">5,1 Ah</text>
+    <rect class="batt" x="154" y="746" width="42" height="34"/><text class="t" x="175" y="767">5,1 Ah</text>
+    <rect class="batt" x="202" y="746" width="42" height="34"/><text class="t" x="223" y="767">5,1 Ah</text>
+    <rect class="batt" x="250" y="746" width="42" height="34"/><text class="t" x="271" y="767">5,1 Ah</text>
+  </g>
+  <text class="t" x="175" y="798">każdy pakiet: bezpiecznik 10 A, zaciski F2 6,35 mm</text>
+  <text class="t" x="175" y="816">jednakowe długości przewodów do szyny</text>
+
+  <path class="wire" d="M175 828 L175 866"/>
+
+  <!-- 7. LVD -->
+  <rect class="boxW" x="40" y="866" width="270" height="80"/>
+  <text class="h" x="175" y="888">LVD — ochrona przed rozładowaniem</text>
+  <text class="t" x="175" y="906">rozłącza obciążenia przy 11,00 V</text>
+  <text class="t" x="175" y="922">załącza ponownie przy 12,60 V</text>
+  <text class="t" x="175" y="938">przekaźnik 30 A, histereza wymagana</text>
+
+  <!-- bus out to the right -->
+  <path class="wire" d="M175 946 L175 980 L700 980"/>
+  <text class="tl" x="330" y="972">szyna buforowana 12 V (za LVD)</text>
+
+  <!-- ============ RIGHT COLUMN: DOMAINS ============ -->
+  <text class="dom" x="430" y="96" fill="#2d6a2d">DOMENA A — zasilana zawsze</text>
+  <rect class="boxA" x="430" y="106" width="300" height="196"/>
+  <text class="t" x="580" y="128">pobór spoczynkowy ~60 mA</text>
+  <text class="tl" x="446" y="150">• Arduino Nano #1 (output controller)</text>
+  <text class="tl" x="446" y="170">• HM-10 BLE (bramkowanie bagażnika)</text>
+  <text class="tl" x="446" y="190">• RXB6 433 MHz (pilot szyb)</text>
+  <text class="tl" x="446" y="210">• moduł 9 przekaźników (cewki 12 V)</text>
+  <text class="tl" x="446" y="230">• Arduino Nano #2 (sensor hub)</text>
+  <text class="t" x="580" y="256">zasilanie logiki: buck 12 → 5 V, 1 A</text>
+  <text class="t" x="580" y="274">bezpiecznik odgałęzienia 3 A</text>
+  <text class="t" x="580" y="292">przewód 0,75 mm²</text>
+
+  <text class="dom" x="430" y="336" fill="#2b4a8a">DOMENA B — za zapłonem (ACC)</text>
+  <rect class="boxB" x="430" y="346" width="300" height="150"/>
+  <text class="tl" x="446" y="370">• Lenovo M910q (19 V, do 65 W)</text>
+  <text class="tl" x="446" y="390">• hub USB zasilany 7-portowy</text>
+  <text class="tl" x="446" y="410">• wyświetlacz główny 7"/10"</text>
+  <text class="tl" x="446" y="430">• wyświetlacz mały 4,3"</text>
+  <text class="tl" x="446" y="450">• Arduino Pro Micro (wejścia, SWC)</text>
+  <text class="t" x="580" y="474">pobór ~10 W (szczyt ~55 W)</text>
+  <text class="t" x="580" y="490">0 W przy rozwartym przekaźniku</text>
+
+  <!-- Domain A feed -->
+  <path class="wire" d="M700 980 L760 980 L760 264 L730 264"/>
+  <path class="wire" d="M760 264 L760 204 L730 204"/>
+  <circle cx="760" cy="264" r="4" fill="#c0392b"/>
+
+  <!-- Ignition relay -->
+  <rect class="box" x="800" y="560" width="330" height="104"/>
+  <text class="h" x="965" y="582">Przekaźnik zapłonu (domena B)</text>
+  <text class="t" x="965" y="600">Bosch 12 V / 30 A SPDT</text>
+  <text class="t" x="965" y="618">cewka: linia ACC (kluczyk poz. I/II)</text>
+  <text class="t" x="965" y="636">styk: szyna buforowana → step-up</text>
+  <text class="t" x="965" y="654">dioda gaszeniowa 1N4007 na cewce</text>
+
+  <path class="wire" d="M760 980 L965 980 L965 664"/>
+  <circle cx="760" cy="980" r="4" fill="#c0392b"/>
+  <path class="wthin" d="M965 700 L1080 700" stroke-dasharray="4 3"/>
+  <text class="note" x="985" y="694">ACC z zamka kluczyka</text>
+
+  <!-- Step-up -->
+  <rect class="boxB" x="800" y="404" width="330" height="128"/>
+  <text class="h" x="965" y="426">Przetwornica step-up 12 → 19 V</text>
+  <text class="t" x="965" y="446">POSIADANA — do zweryfikowania</text>
+  <text class="t" x="965" y="464">wyjście 19,0 V ustawione multimetrem</text>
+  <text class="t" x="965" y="482">obciążalność ≥ 4 A ciągle (≥ 80 W)</text>
+  <text class="t" x="965" y="500">prąd wejściowy do 7 A przy 11 V</text>
+  <text class="t" x="965" y="518">radiator + wymuszony przepływ powietrza</text>
+
+  <path class="wire" d="M965 560 L965 532"/>
+
+  <!-- fuse on step-up output -->
+  <rect class="boxW" x="838" y="330" width="254" height="48"/>
+  <text class="h" x="965" y="350">Bezpiecznik 5 A</text>
+  <text class="t" x="965" y="368">na wyjściu 19 V, przed wtykiem M910q</text>
+
+  <path class="wire" d="M965 404 L965 378"/>
+
+  <!-- M910q -->
+  <rect class="boxB" x="838" y="176" width="254" height="126"/>
+  <text class="h" x="965" y="200">Lenovo ThinkCentre M910q Tiny</text>
+  <text class="t" x="965" y="220">i5-6400T · 8 GB · NVMe 256 GB</text>
+  <text class="t" x="965" y="240">gniazdo zasilania: oryginalny wtyk</text>
+  <text class="t" x="965" y="258">zakres pracy 19–21 V (65 W)</text>
+  <text class="t" x="965" y="278">2× DisplayPort → oba wyświetlacze</text>
+  <text class="warn" x="965" y="296" text-anchor="middle">test na biurku przed zabudową</text>
+
+  <path class="wire" d="M965 330 L965 302"/>
+
+  <!-- GND rail -->
+  <path class="gnd" d="M60 1024 L1120 1024"/>
+  <path class="gnd" d="M175 1010 L175 1024"/>
+  <path class="gnd" d="M580 1010 L580 1024"/>
+  <path class="gnd" d="M965 1010 L965 1024"/>
+  <path class="gnd" d="M560 1024 L600 1024 M568 1032 L592 1032 M576 1040 L584 1040"/>
+  <text class="tl" x="620" y="1002">Masa wspólna — jeden punkt masy nadwozia, 6 mm², oczyszczony do metalu</text>
+
+  <!-- Legend -->
+  <rect x="430" y="740" width="330" height="200" fill="#fbfcfd" stroke="#c8d2da" stroke-width="1.5" rx="6"/>
+  <text class="h" x="595" y="762">Przekroje i zabezpieczenia</text>
+  <text class="tl" x="446" y="784">akumulator → bezpiecznik → VSR</text>
+  <text class="tl" x="700" y="784" text-anchor="end">6 mm²</text>
+  <text class="tl" x="446" y="804">ładowarka → bank (do 6 A)</text>
+  <text class="tl" x="700" y="804" text-anchor="end">2,5 mm²</text>
+  <text class="tl" x="446" y="824">pakiet gel → szyna (10 A bezp.)</text>
+  <text class="tl" x="700" y="824" text-anchor="end">1,5 mm²</text>
+  <text class="tl" x="446" y="844">szyna → LVD → step-up (7 A)</text>
+  <text class="tl" x="700" y="844" text-anchor="end">2,5 mm²</text>
+  <text class="tl" x="446" y="864">step-up → M910q (3,5 A @ 19 V)</text>
+  <text class="tl" x="700" y="864" text-anchor="end">1,5 mm²</text>
+  <text class="tl" x="446" y="884">odgałęzienie domeny A (&lt; 1 A)</text>
+  <text class="tl" x="700" y="884" text-anchor="end">0,75 mm²</text>
+  <text class="tl" x="446" y="904">masa wspólna do nadwozia</text>
+  <text class="tl" x="700" y="904" text-anchor="end">6 mm²</text>
+  <text class="note" x="446" y="928">Przekroje dla trasy ok. 3 m przy spadku napięcia &lt; 3 %.</text>
+
+  <text class="note" x="24" y="1064">Wzmacniacze TDA7388 / TDA2050 zasilane są osobną gałęzią 12 V prosto z akumulatora samochodowego (bezpiecznik 20 A) — nie obciążają banku buforowego.</text>
+</svg>

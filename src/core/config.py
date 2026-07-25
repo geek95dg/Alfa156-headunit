@@ -135,12 +135,23 @@ class BCMConfig:
         x86-targeted bcm_config.yaml (wrong GPIO/serial values). Now the
         opi_pc-specific file is selected automatically when the hardware
         (or an explicit override) says opi_pc.
+
+        The OPi PC bench rig was retired when the build moved to the
+        Lenovo M910q, so its YAML now lives in Archive/orange-pi-pc/.
+        Both locations are probed — config/ first, so restoring the file
+        to its old home keeps working — and the archived rig still boots
+        without having to un-archive anything.
         """
         plat = platform_override or _detect_platform()
         if plat == "opi_pc":
-            candidate = DEFAULT_CONFIG_PATH.parent / "bcm_config_opi_pc.yaml"
-            if candidate.exists():
-                return candidate
+            repo_root = DEFAULT_CONFIG_PATH.parent.parent
+            candidates = (
+                DEFAULT_CONFIG_PATH.parent / "bcm_config_opi_pc.yaml",
+                repo_root / "Archive" / "orange-pi-pc" / "bcm_config_opi_pc.yaml",
+            )
+            for candidate in candidates:
+                if candidate.exists():
+                    return candidate
         return DEFAULT_CONFIG_PATH
 
     def is_module_enabled(self, module_name: str) -> bool:
