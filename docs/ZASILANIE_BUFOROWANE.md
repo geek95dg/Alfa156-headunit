@@ -67,6 +67,14 @@ przetwornic, zero ryzyka, że coś obudzi maszynę na parkingu. BCM budzi się
 zimnym startem na ACC — startuje w ~15 s, co przy samochodzie jest
 akceptowalne.
 
+**Dlaczego wyświetlacze mają własny buck, a nie USB.** Same panele
+spokojnie zasiliłyby się z portów USB M910q — i tak właśnie robi wariant
+testowy ([`WDROZENIE_TESTOWE.md`](WDROZENIE_TESTOWE.md) §3.1). W wersji
+docelowej stoi temu na przeszkodzie **regulacja jasności**: podświetlenie
+jest sterowane PWM-em z Nano #1 przez stopień MOSFET, a tego nie da się
+wpiąć w zasilanie logiki panelu idące po USB. Drugi powód jest energetyczny
+— dwa panele na szynie 19,5 V wypchnęłyby XL6019 poza jego ~45 W.
+
 **Wzmacniacz idzie osobną gałęzią** prosto z akumulatora rozruchowego —
 gotowy moduł samochodowy, podłączany jak radio: własny bezpiecznik przy klemie
 (wg karty modułu, zwykle 20–30 A), przewód 6 mm², **własna masa lokalna**
@@ -926,7 +934,7 @@ dłuższym postoju; jeśli tak wygląda Twój profil użytkowania, rozważ
 | 8 | **Bezpieczniki inline** | 10 A × 5–8 (pakiety) + oprawki, oraz 15 A przed VIN+ modułu XH-M609 | 6–9 | 20–35 |
 | 9 | **Bezpieczniki nożowe** | 5 A, 3 A × 2, 20 A + zapas | kpl. | 10–15 |
 | 10 | **Buck 12 → 5 V** (domena A) | LM2596, min. 1 A | 1 | 5–10 |
-| 11 | **Buck 12 → 5 V** (wyświetlacze) | MP1584 / MP2307, min. 3 A | 1 | 5–15 |
+| 11 | **Buck 12 → 5 V** (wyświetlacze) | MP1584 / MP2307, min. 3 A — potrzebny przez **PWM podświetlenia**, patrz niżej | 1 | 5–15 |
 | 12 | **Dioda TVS** | 1.5KE33CA lub SMCJ26CA | 2 | 5–10 |
 | 13 | **Kondensator elektrolityczny** | 470 µF / 35 V, low-ESR, 105 °C | 2 | 5–10 |
 | 14 | **Dioda gaszeniowa** | 1N4007 (na cewki przekaźników) | 5 | 2–5 |

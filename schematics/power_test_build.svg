@@ -89,25 +89,14 @@
   <text class="h" x="300" y="911">Przekaźnik zapłonu 30 A SPDT — domena B</text>
   <text class="t" x="300" y="930">cewka z ACC · dioda gaszeniowa 1N4007 równolegle</text>
 
-  <path class="wire" d="M300 950 L300 972"/>
-  <path class="wire" d="M190 972 L410 972"/>
-  <path class="wire" d="M190 972 L190 1000"/>
-  <path class="wire" d="M410 972 L410 1000"/>
-  <circle cx="300" cy="972" r="4" fill="#c0392b"/>
+  <path class="wire" d="M300 950 L300 1000"/>
+  <text class="fuse" x="312" y="978">bezp. 7,5 A</text>
 
-  <rect class="box" x="90" y="1000" width="200" height="88"/>
-  <text class="fuse" x="112" y="994">bezp. 5 A</text>
-  <text class="h" x="190" y="1023">XL6019 → 19,5 V</text>
-  <text class="t" x="190" y="1042">M910q, limit CPU 28 W</text>
-  <text class="t" x="190" y="1060">C 470 µF/35 V na wyjściu</text>
-  <text class="t" x="190" y="1078">radiator + wentylator 40 mm</text>
-
-  <rect class="box" x="310" y="1000" width="200" height="88"/>
-  <text class="fuse" x="332" y="994">bezp. 3 A</text>
-  <text class="h" x="410" y="1023">Panel 7" 1024×600</text>
-  <text class="t" x="410" y="1042">wprost z 12 V, jeśli taki jest</text>
-  <text class="t" x="410" y="1060">buck 12 → 5 V tylko dla</text>
-  <text class="t" x="410" y="1078">paneli 5-woltowych</text>
+  <rect class="box" x="90" y="1000" width="420" height="88"/>
+  <text class="h" x="300" y="1023">XL6019 12 → 19,5 V → M910q</text>
+  <text class="t" x="300" y="1042">limit CPU 28 W · radiator + wentylator 40 mm · C 470 µF/35 V</text>
+  <text class="t" x="300" y="1060">USB M910q: panel 7" 1024×600 + dotyk, Pro Micro, modem LTE</text>
+  <text class="t" x="300" y="1078">razem 31–45 W na szynie 19,5 V — sufit XL6019 to ok. 45 W</text>
 
   <!-- ============== NOTES ============== -->
   <rect class="note" x="560" y="282" width="376" height="96"/>
@@ -141,8 +130,8 @@
   <text class="nt" x="576" y="746">ładowarka ← akumulator</text><text class="nt" x="800" y="746">15 A</text><text class="nt" x="866" y="746">2,5 mm²</text>
   <text class="nt" x="576" y="768">każdy pakiet banku</text><text class="nt" x="800" y="768">10 A</text><text class="nt" x="866" y="768">2,5 mm²</text>
   <text class="nt" x="576" y="790">wejście XH-M609</text><text class="nt" x="800" y="790">15 A</text><text class="nt" x="866" y="790">2,5 mm²</text>
-  <text class="nt" x="576" y="812">wyjście XL6019</text><text class="nt" x="800" y="812">5 A</text><text class="nt" x="866" y="812">1,5 mm²</text>
-  <text class="nt" x="576" y="834">panel 7"</text><text class="nt" x="800" y="834">3 A</text><text class="nt" x="866" y="834">1,5 mm²</text>
+  <text class="nt" x="576" y="812">odgałęzienie do XL6019</text><text class="nt" x="800" y="812">7,5 A</text><text class="nt" x="866" y="812">1,5 mm²</text>
+  <text class="nt" x="576" y="834">panel 7" (przez USB)</text><text class="nt" x="800" y="834">—</text><text class="nt" x="866" y="834">—</text>
   <text class="nt" x="576" y="856">cewka przekaźnika (ACC)</text><text class="nt" x="800" y="856">—</text><text class="nt" x="866" y="856">0,75 mm²</text>
   <line x1="576" y1="868" x2="920" y2="868" stroke="#c8d2da"/>
   <text class="foot" x="576" y="886">2,5 mm² zamiast 6 mm² — bo ładowarka daje 8 A, nie 25 A.</text>

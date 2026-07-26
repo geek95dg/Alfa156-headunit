@@ -83,8 +83,8 @@
 #define PIN_TRUNK_BUTTON  6
 #define PIN_FL_UP         7
 #define PIN_FL_DOWN       8
-#define PIN_BACKLIGHT_L   9   // 7" main display PWM
-#define PIN_BACKLIGHT_S   10  // 4.3" small display PWM
+#define PIN_BACKLIGHT_L   9   // "large" — 10.1" dashboard PWM
+#define PIN_BACKLIGHT_S   10  // "small" — 6.86" side panel PWM
 #define PIN_FR_UP         11
 #define PIN_FR_DOWN       12
 #define PIN_LED           13

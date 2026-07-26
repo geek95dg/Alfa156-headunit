@@ -117,13 +117,14 @@ XH-M609 (LVD)  ── bezpiecznik 15 A przed VIN+
 wyłącznik główny na „+"  (albo rozłącznik masy na „−" banku)
    │
    ├── przekaźnik zapłonu (cewka z ACC, dioda 1N4007) — DOMENA B
-   │      ├── bezp. 5 A → XL6019 12 → 19,5 V → M910q
-   │      └── bezp. 3 A → panel 7"
+   │      └── bezp. 7,5 A → XL6019 12 → 19,5 V → M910q
+   │                                              └── USB: panel 7", dotyk,
+   │                                                  Pro Micro, modem LTE
    │
    └── DOMENA A — w tym wariancie pusta (nie ma jeszcze Nano, HM-10, RXB6)
 ```
 
-Trzy rzeczy warto tu zauważyć:
+Cztery rzeczy warto tu zauważyć:
 
 - **Domena A jest pusta**, więc na postoju z banku pobiera prąd wyłącznie
   sam XH-M609. To czyni pomiar jego poboru (§7.3
@@ -131,8 +132,45 @@ Trzy rzeczy warto tu zauważyć:
   całego wariantu — patrz tabela w §3.3.
 - **Przekaźnik zapłonu nie jest opcją.** Bez niego XL6019 i M910q wiszą na
   banku na postoju i rozkładają go w kilkanaście godzin.
-- **Panel 7" zasilaj wprost z 12 V**, jeśli tego wymaga. Buck 12 → 5 V dokup
-  tylko wtedy, gdy Twój panel jest 5-woltowy.
+- **Panel 7" wisi na USB M910q** — żadnego odgałęzienia 12 V, żadnego bucka,
+  żadnego dodatkowego bezpiecznika. Cały tor kończy się na jednym wyjściu
+  XL6019. Szczegóły i haczyki poniżej.
+- **Jedna gałąź zamiast dwóch to jeden bezpiecznik — ale większy.** Wszystko
+  idzie teraz przez XL6019, więc jego prąd wejściowy rośnie. Przy 45 W wyjścia
+  i sprawności 85 % to 4,2 A przy 12,6 V, a przy napięciu banku bliskim progu
+  LVD **4,6 A**. Bezpiecznik 5 A siedziałby na krawędzi i przepalał się
+  z powodów niezwiązanych z żadną usterką — dlatego **7,5 A**.
+
+#### Zasilanie wyświetlacza z USB — co trzeba wiedzieć
+
+**Budżet portu.** Panel 7" 1024×600 ciągnie zwykle 0,5–1 A przy 5 V. Port
+USB 3.0 M910q daje 900 mA, USB 2.0 — 500 mA. Jeżeli panel przyszedł z kablem
+rozgałęzionym na dwa wtyki USB, to nie ozdobnik: podepnij oba, do **różnych**
+portów. Objaw niedoboru to migotanie albo restart panelu przy jaśniejszym
+obrazie, nie brak obrazu w ogóle.
+
+**Zapas XL6019 się kurczy.** Panel przestał być osobnym odbiornikiem 12 V
+i wszedł na szynę 19,5 V razem z komputerem:
+
+| Odbiornik | Moc |
+|-----------|-----|
+| M910q (limit CPU 28 W) | 25–35 W |
+| Panel 7" + dotyk przez USB | 3–5 W |
+| Pro Micro + modem LTE | 3–5 W |
+| **Razem** | **31–45 W** |
+
+XL6019 daje ok. **45 W**. Górny kraniec tabeli to dokładnie jego sufit,
+więc **limit poboru CPU przestaje być zaleceniem, a staje się warunkiem
+działania** — instrukcja w [`ZASILANIE_BUFOROWANE.md`](ZASILANIE_BUFOROWANE.md)
+§3.5a. Drugi panel na tej samej szynie już się nie zmieści.
+
+**PWM podświetlenia w tym wariancie nie ma.** Sterowanie jasnością realizuje
+**Arduino Nano #1** (`arduino/output_controller`, piny 9 i 10, komenda
+`{"cmd":"backlight","display":"large","brightness":80}`) — a tej płytki
+w wariancie testowym nie ma. Panel świeci na stałe, jasnością sterujesz jego
+własnym przyciskiem. Kiedy dojdzie Nano #1 i regulacja PWM, **podświetlenie
+trzeba będzie zasilić osobno** — stopień MOSFET nie da się zasilić z USB
+razem z logiką panelu.
 
 ### 3.2 Ładowanie — wariant B, i dlaczego akurat on
 
@@ -197,9 +235,11 @@ przy 13,8 V. Po odjęciu 3,5 A obciążenia zostaje 2,3 A do banku.
 ### 3.3 Prąd ładowania — policz go z obciążeniem
 
 Moduł CC-CV limituje **prąd wyjściowy**, czyli obciążenie **plus** ładowanie.
-Zestaw testowy pobiera podczas jazdy ok. **3,5 A** (M910q ~30 W przez XL6019
-o sprawności ~85 % ≈ 2,7 A, panel ~0,6 A, reszta drobiazgi). Jeżeli ustawisz
-CC na 4 A, do banku popłynie 0,5 A i **nigdy się nie doładuje**.
+Zestaw testowy pobiera podczas jazdy ok. **3,5 A** — to całe ~37 W z tabeli
+w §3.1 przepuszczone przez XL6019 (sprawność ~85 %) i przeliczone na napięcie
+banku. Przeniesienie panelu na USB niczego tu nie zmieniło: ta sama energia,
+tylko inną drogą. Jeżeli ustawisz CC na 4 A, do banku popłynie 0,5 A
+i **nigdy się nie doładuje**.
 
 Reguła:
 
@@ -307,19 +347,18 @@ Ceny orientacyjne, rynek PL, 2025/2026.
 | 9 | Bezpiecznik **15 A** + oprawka przy klemie „+" | zasilanie ładowarki | 15–25 |
 | 10 | Bezpieczniki inline **10 A × 5** + oprawki | po jednym na pakiet | 25–40 |
 | 11 | Bezpiecznik inline **15 A** + oprawka | przed VIN+ modułu XH-M609 | 8–12 |
-| 12 | Bezpiecznik **5 A** + oprawka | wyjście XL6019 | 8–12 |
-| 13 | Bezpiecznik **3 A** + oprawka | panel 7" | 8–12 |
-| 14 | Przewód **2,5 mm²** | FLRY, czerwony 5 m + czarny 3 m | 40–60 |
-| 15 | Przewód **1,5 mm²** | FLRY, czerwony + czarny po 3 m | 15–25 |
-| 16 | Przewód **0,75 mm²** | FLRY, kilka kolorów po 2 m (ACC, sterowanie) | 15–25 |
-| 17 | Nasuwki **F2 6,35 mm** izolowane | do zacisków HR1221W, komplet | 15–25 |
-| 18 | Konektory oczkowe, tulejki, koszulki | zestaw, koszulki z klejem | 30–50 |
-| 19 | **Rozłącznik masy** | 100 A — na czas montażu i dłuższego postoju | 40–70 |
-| 20 | Skrzynka / wspornik na bank + pasy | na 5 pakietów, mocowanie do nadwozia | 60–120 |
-| 21 | Peszel + przelotki gumowe | przejścia przez blachę | 25–40 |
-| | | **Podsuma** | **304–516** |
+| 12 | Bezpiecznik **7,5 A** + oprawka | odgałęzienie do XL6019 (strona 12 V) — §3.1 | 8–12 |
+| 13 | Przewód **2,5 mm²** | FLRY, czerwony 5 m + czarny 3 m | 40–60 |
+| 14 | Przewód **1,5 mm²** | FLRY, czerwony + czarny po 3 m | 15–25 |
+| 15 | Przewód **0,75 mm²** | FLRY, kilka kolorów po 2 m (ACC, sterowanie) | 15–25 |
+| 16 | Nasuwki **F2 6,35 mm** izolowane | do zacisków HR1221W, komplet | 15–25 |
+| 17 | Konektory oczkowe, tulejki, koszulki | zestaw, koszulki z klejem | 30–50 |
+| 18 | **Rozłącznik masy** | 100 A — na czas montażu i dłuższego postoju | 40–70 |
+| 19 | Skrzynka / wspornik na bank + pasy | na 5 pakietów, mocowanie do nadwozia | 60–120 |
+| 20 | Peszel + przelotki gumowe | przejścia przez blachę | 25–40 |
+| | | **Podsuma** | **296–504** |
 
-**Razem obowiązkowo: ~504–1077 PLN.** Dolny kraniec to bezmarkowy VSR
+**Razem obowiązkowo: ~496–1065 PLN.** Dolny kraniec to bezmarkowy VSR
 i moduł „600 W" na potencjometrach, górny — Victron Cyrix i boost
 z wyświetlaczem. Przy pierwszej instalacji warto dopłacić przynajmniej
 za moduł CC-CV z odczytem cyfrowym.
@@ -333,19 +372,19 @@ za moduł CC-CV z odczytem cyfrowym.
 
 | # | Element | Kiedy potrzebne | Cena (PLN) |
 |---|---------|----------------|-----------|
-| 22 | **Arduino Pro Micro** (ATmega32U4) | jeśli nie masz — pody SWC bez niego nie zadziałają | 40–60 |
-| 23 | **Wtyk zasilania do M910q** | najtaniej: odetnij kabel od oryginalnego zasilacza (koszt 0) | 0–40 |
-| 24 | **Przejściówka DP → HDMI** | tylko jeśli Twój egzemplarz M910q ma wyjścia DisplayPort — sprawdź (§5.2) | 0–25 |
-| 25 | **Buck 12 → 5 V** (MP1584, 3 A) | tylko jeśli panel 7" jest 5-woltowy | 0–15 |
-| 26 | **Zaciskarka zapadkowa** | zaciski robione kombinerkami to najczęstsza usterka instalacji | 0–150 |
-| 27 | **Ładowarka sieciowa AGM** | doładowanie w garażu przy krótkich przejazdach | 0–250 |
+| 21 | **Arduino Pro Micro** (ATmega32U4) | jeśli nie masz — pody SWC bez niego nie zadziałają | 40–60 |
+| 22 | **Wtyk zasilania do M910q** | najtaniej: odetnij kabel od oryginalnego zasilacza (koszt 0) | 0–40 |
+| 23 | **Przejściówka DP → HDMI** | tylko jeśli Twój egzemplarz M910q ma wyjścia DisplayPort — sprawdź (§5.2) | 0–25 |
+| 24 | **Drugi kabel USB do panelu** | jeśli panel przyszedł z rozgałęzieniem na dwa wtyki — §3.1 | 0–15 |
+| 25 | **Zaciskarka zapadkowa** | zaciski robione kombinerkami to najczęstsza usterka instalacji | 0–150 |
+| 26 | **Ładowarka sieciowa AGM** | doładowanie w garażu przy krótkich przejazdach | 0–250 |
 
 ### 4.4 Warto, ale nie na start
 
 | # | Element | Po co | Cena (PLN) |
 |---|---------|-------|-----------|
-| 28 | Woltomierz/amperomierz panelowy z bocznikiem | podgląd banku i prądu ładowania bez multimetru | 40–70 |
-| 29 | Multimetr z pomiarem prądu DC 10 A | pomiar poboru XH-M609 i prądu ładowania | 80–200 |
+| 27 | Woltomierz/amperomierz panelowy z bocznikiem | podgląd banku i prądu ładowania bez multimetru | 40–70 |
+| 28 | Multimetr z pomiarem prądu DC 10 A | pomiar poboru XH-M609 i prądu ładowania | 80–200 |
 
 ### 4.5 Czego **nie** kupuj na tym etapie
 
@@ -355,8 +394,9 @@ za moduł CC-CV z odczytem cyfrowym.
 | Czujnik NTC | tanie moduły CC-CV nie mają wejścia kompensacji, więc nie ma go gdzie wpiąć — §3.2 |
 | Moduł buck-boost LTC3780 | utrzyma 13,8 V, ale tylko 80 W ciągle — za mało przy pięciu pakietach, §3.2a |
 | Przewód 6 mm², bezpiecznik główny 30 A | wymiarowane pod ładowarkę B2B — §4.2 |
-| Listwa dystrybucyjna 6–8 obwodów | cztery obwody obsłużą oprawki inline |
+| Listwa dystrybucyjna 6–8 obwodów | trzy obwody obsłużą oprawki inline |
 | Buck 12 → 5 V dla domeny A | nie ma jeszcze Nano, HM-10 ani RXB6 |
+| Buck 12 → 5 V dla panelu | panel wisi na USB M910q — §3.1 |
 | Moduł 9 przekaźników, oba Nano, HM-10, RXB6 | odpowiednie moduły są wyłączone |
 | DAC USB ES9038Q2M | mini-jack M910q wystarcza do weryfikacji — §1 |
 | Karta WiFi | **masz MT7921 i P2P-GO już działa** |
@@ -538,7 +578,9 @@ Pełna procedura siedmioetapowa (z pomiarami na każdym kroku):
 **Zasilanie — postój**
 
 ```
-[ ] Napięcie na wtyku M910q ≥ 19,0 V pod obciążeniem
+[ ] Napięcie na wtyku M910q ≥ 19,0 V pod obciążeniem — z podłączonym
+    panelem, bo on też wisi na tej szynie (§3.1)
+[ ] Panel nie miga i nie restartuje się przy jasnym obrazie (budżet USB)
 [ ] Po 30 min pracy XL6019 nie parzy w dotyku
 [ ] XH-M609 odcina przy 11,00 V (test zasilaczem, nie rozładowywaniem banku)
 [ ] Kluczyk OFF → domena B zanika w całości (pomiar na wyjściu przekaźnika)
@@ -570,7 +612,8 @@ wystarczy 5 pakietów, czy trzeba dołożyć pozostałe trzy (§3.4).
 | Domeny A (Nano ×2, HM-10, RXB6, przekaźniki) | dokupieniu płytek + buck 12 → 5 V |
 | Kompensacji temperaturowej ładowania | ładowarce B2B (wariant A, §5.2 `ZASILANIE_BUFOROWANE.md`) |
 | Modułu `power` w BCM | wejściu zapłonu, którego x86 nie ma — §1 |
-| Drugiego ekranu | panelu 6,86" — jest hot-plug, wystarczy wpiąć |
+| Regulacji jasności (PWM podświetlenia) | Nano #1 + osobne zasilanie podświetlenia — §3.1 |
+| Drugiego ekranu | panelu 6,86" — hot-plug, ale **nie na USB M910q**: dwa panele nie zmieszczą się w zapasie XL6019 (§3.1) |
 | OBD / K-Line | CP2102 + L9637D |
 | Kamer, parkowania, czujników | grabera, HC-SR04, DS18B20, obu Nano |
 | Wzmacniacza i głośników | zakupie gotowego modułu (osobna gałąź) |
@@ -585,12 +628,12 @@ i weryfikowalny osobno:
 
 | Krok | Co dochodzi | Co włączyć w configu |
 |------|-------------|---------------------|
-| 1 | ekran 10,1" 1280×800 | `display.dashboard` → 1280×800 (czyli `bcm_config.yaml`) |
+| 1 | ekran 10,1" 1280×800 | `display.dashboard` → 1280×800 (czyli `bcm_config.yaml`) — sprawdź pobór, 10,1" częściej wychodzi poza budżet USB niż 7" |
 | 2 | wzmacniacz + głośniki | bez zmian w configu — osobna gałąź zasilania |
 | 3 | DAC USB ES9038Q2M | bez zmian — zmiana domyślnego sinka PipeWire |
 | 4 | CP2102 + L9637D | `obd`, `obd.use_real_hardware: true` |
 | 5 | Nano #2 (sensor hub) | `environment`, `rain_sensor`, `blinker_monitor` |
-| 6 | Nano #1 + przekaźniki + buck domeny A | `central_lock`, `lighting` |
+| 6 | Nano #1 + przekaźniki + buck domeny A | `central_lock`, `lighting` — wtedy też **PWM podświetlenia i osobne zasilanie paneli** |
 | 7 | kamery + graber | `camera`, `crash_detect` |
 | 8 | GPS | `location`, `tracking` |
 | 9 | ekran 6,86" | `small_display` (hotplug — wystarczy wpiąć) |
