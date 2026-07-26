@@ -150,19 +150,19 @@
   <text class="ms" x="675" y="636">NTC 10 kΩ przyklejony do boku środkowego pakietu</text>
 
   <path class="plus" d="M600 642 L600 690"/>
-  <text class="wl" x="606" y="670">2,5 mm²</text>
+  <text class="wl" x="606" y="670">2,5 mm² · bezp. 15 A</text>
   <path class="minus" d="M845 642 L845 668"/>
   <use href="#gnd" x="845" y="668"/>
 
   <!-- ================= 7. LVD ================= -->
   <rect class="modP" x="440" y="690" width="470" height="106"/>
-  <text class="mt" x="675" y="714">LVD — rozłącznik podnapięciowy</text>
-  <text class="ms" x="675" y="732">odcięcie 11,00 V · powrót 12,60 V · ≥ 30 A</text>
-  <text class="ms" x="675" y="750">BAT — do banku · LOAD — do listwy dystrybucyjnej</text>
-  <text class="ms" x="516" y="770">BAT +</text>
-  <text class="ms" x="590" y="770">BAT −</text>
-  <text class="ms" x="749" y="770">LOAD +</text>
-  <text class="ms" x="829" y="770">LOAD −</text>
+  <text class="mt" x="675" y="714">XH-M609 — rozłącznik podnapięciowy</text>
+  <text class="ms" x="675" y="732">odcięcie 11,00 V · powrót 12,60 V · przekaźnik 20 A</text>
+  <text class="ms" x="675" y="750">VIN — od banku (bezp. 15 A) · VOUT — do listwy</text>
+  <text class="ms" x="516" y="770">VIN +</text>
+  <text class="ms" x="590" y="770">VIN −</text>
+  <text class="ms" x="749" y="770">VOUT +</text>
+  <text class="ms" x="829" y="770">VOUT −</text>
   <rect class="term" x="486" y="778" width="60" height="18"/><text class="tp" x="516" y="791">9</text>
   <rect class="term" x="560" y="778" width="60" height="18"/><text class="tp" x="590" y="791">10</text>
   <rect class="term" x="719" y="778" width="60" height="18"/><text class="tp" x="749" y="791">11</text>
@@ -246,10 +246,10 @@
 
   <!-- step-up -->
   <rect class="mod" x="900" y="1032" width="260" height="126"/>
-  <text class="mt" x="1030" y="1054">Step-up 12 → 19,5 V</text>
-  <text class="ms" x="1030" y="1072">ustaw pod obciążeniem</text>
-  <text class="ms" x="1030" y="1088">wejście do 7 A · wyjście 3,5 A</text>
-  <text class="ms" x="1030" y="1104">radiator + wentylator 40 mm</text>
+  <text class="mt" x="1030" y="1054">XL6019 — step-up 12 → 19,5 V</text>
+  <text class="ms" x="1030" y="1072">ok. 45 W ciągle (limit klucza 5 A)</text>
+  <text class="ms" x="1030" y="1088">wejście do 4,5 A · ustaw pod obciążeniem</text>
+  <text class="ms" x="1030" y="1104">radiator, wentylator, 470 µF na OUT</text>
   <text class="ms" x="940" y="1128">IN +</text>
   <text class="ms" x="990" y="1128">IN −</text>
   <text class="ms" x="1070" y="1128">OUT +</text>

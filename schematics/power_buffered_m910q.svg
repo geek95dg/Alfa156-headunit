@@ -89,10 +89,10 @@
 
   <!-- 7. LVD -->
   <rect class="boxW" x="40" y="866" width="270" height="80"/>
-  <text class="h" x="175" y="888">LVD — ochrona przed rozładowaniem</text>
+  <text class="h" x="175" y="888">LVD — moduł XH-M609</text>
   <text class="t" x="175" y="906">rozłącza obciążenia przy 11,00 V</text>
   <text class="t" x="175" y="922">załącza ponownie przy 12,60 V</text>
-  <text class="t" x="175" y="938">przekaźnik 30 A, histereza wymagana</text>
+  <text class="t" x="175" y="938">przekaźnik 20 A · bezp. 15 A na VIN+</text>
 
   <!-- bus out to the right -->
   <path class="wire" d="M175 946 L175 980 L700 980"/>
@@ -141,11 +141,11 @@
 
   <!-- Step-up -->
   <rect class="boxB" x="800" y="404" width="330" height="128"/>
-  <text class="h" x="965" y="426">Przetwornica step-up 12 → 19 V</text>
-  <text class="t" x="965" y="446">POSIADANA — do zweryfikowania</text>
+  <text class="h" x="965" y="426">Przetwornica step-up XL6019</text>
+  <text class="t" x="965" y="446">POSIADANA · 12 → 19,5 V</text>
   <text class="t" x="965" y="464">wyjście 19,0 V ustawione multimetrem</text>
-  <text class="t" x="965" y="482">obciążalność ≥ 4 A ciągle (≥ 80 W)</text>
-  <text class="t" x="965" y="500">prąd wejściowy do 7 A przy 11 V</text>
+  <text class="t" x="965" y="482">realnie ok. 45 W (limit klucza 5 A)</text>
+  <text class="t" x="965" y="500">wymaga limitu poboru CPU na M910q</text>
   <text class="t" x="965" y="518">radiator + wymuszony przepływ powietrza</text>
 
   <path class="wire" d="M965 560 L965 532"/>

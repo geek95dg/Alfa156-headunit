@@ -18,11 +18,11 @@ rozładowaniem, podział na domeny i przetwornica step-up do 19 V.
 
 1. [Po co bufor](#1-po-co-bufor)
 2. [Architektura — dwie domeny](#2-architektura--dwie-domeny)
-3. [Posiadana przetwornica step-up — weryfikacja](#3-posiadana-przetwornica-step-up--weryfikacja)
+3. [Przetwornica step-up XL6019 — weryfikacja](#3-przetwornica-step-up-xl6019--weryfikacja)
 4. [Bank akumulatorów CSB HR1221W](#4-bank-akumulatorów-csb-hr1221w)
 5. [Ładowanie — dwa warianty](#5-ładowanie--dwa-warianty)
 6. [Blokada przeładowania](#6-blokada-przeładowania)
-7. [LVD — ochrona przed głębokim rozładowaniem](#7-lvd--ochrona-przed-głębokim-rozładowaniem)
+7. [LVD — moduł XH-M609](#7-lvd--moduł-xh-m609)
 8. [Bezpieczniki, przekroje, masa](#8-bezpieczniki-przekroje-masa)
 9. [Budżet energetyczny i czas postoju](#9-budżet-energetyczny-i-czas-postoju)
 10. [Lista zakupowa](#10-lista-zakupowa)
@@ -75,10 +75,10 @@ z domeny B, żeby nie trzaskało w głośnikach przy załączaniu.
 
 ---
 
-## 3. Posiadana przetwornica step-up — weryfikacja
+## 3. Przetwornica step-up XL6019 — weryfikacja
 
-Przetwornica jest już kupiona, więc zamiast doboru — **lista kontrolna**.
-Trzeba ją przejść przed zabudową, bo to jedyny element toru, który zasila
+Moduł jest już kupiony, więc zamiast doboru — **lista kontrolna i realne
+ograniczenia tego konkretnego układu**. To jedyny element toru, który zasila
 komputer bezpośrednio.
 
 ### 3.1 Napięcie: 19 V czy 20 V?
@@ -100,7 +100,9 @@ obciążeniem dojdzie do tego:
 > kroplą lakieru do paznokci lub kleju — wibracje w aucie potrafią
 > rozstroić potencjometr.
 
-### 3.2 Obciążalność — policz, nie ufaj naklejce
+### 3.2 Ile XL6019 naprawdę udźwignie
+
+Najpierw czego **potrzebowałby** zasilacz o pełnej mocy znamionowej M910q:
 
 | Wielkość | Wartość |
 |----------|---------|
@@ -110,25 +112,61 @@ obciążeniem dojdzie do tego:
 | Prąd wejściowy przy 12,6 V (bank w spoczynku) | 73,9 / 12,6 = **5,9 A** |
 | Prąd wejściowy przy 11,0 V (próg LVD) | 73,9 / 11,0 = **6,7 A** |
 
-**Wymaganie: ≥ 3,5 A wyjścia i ≥ 7 A wejścia w pracy ciągłej.**
+A teraz czego XL6019 **jest w stanie dostarczyć**. Układ ma **limit prądu
+klucza 5 A**, a w topologii boost prąd klucza to w przybliżeniu prąd
+wejściowy. Po odjęciu marginesu na tętnienie zostaje ok. **4,0–4,5 A
+użytecznego prądu wejściowego**:
 
-> **Uwaga na moduły „XL6019 150 W".** Sam układ XL6019 ma prąd klucza
-> ok. 5 A. Przy 65 W wyjścia prąd klucza sięga ~7 A, czyli **powyżej
-> katalogowej wartości**. Deklarowane „150 W" na modułach z AliExpress to
-> zwykle szczyt przy maksymalnym napięciu wejściowym i z chłodzeniem,
-> a nie ciągła praca. Jeżeli Twoja przetwornica stoi na XL6019, potraktuj
-> ją jako **dobrą do typowego obciążenia (~25–35 W), ale ryzykowną
-> w szczycie** — i koniecznie przejdź test z §3.4.
->
-> Moduły oparte na kontrolerach z zewnętrznym MOSFET-em (typu „400 W 15 A
-> boost") albo gotowa samochodowa ładowarka do laptopa 12 V → 19 V / 90 W
-> mają tu dużo większy zapas. Jeśli test wypadnie źle, to jest kierunek
-> wymiany.
+| Napięcie wejściowe | Moc wejściowa przy 4,5 A | Moc wyjściowa (88 %) |
+|-------------------|--------------------------|---------------------|
+| 12,6 V (bank w spoczynku) | 56,7 W | **~50 W** |
+| 12,0 V | 54,0 W | **~47 W** |
+| 11,0 V (próg LVD) | 49,5 W | **~43 W** |
 
-Realny pobór M910q jest niższy niż znamionowe 65 W: i5-6400T ma TDP 35 W,
-a system z dashboardem ciągnie zwykle 20–30 W. Szczyt 55 W pojawia się przy
-dekodowaniu wideo z pełnym obciążeniem CPU. Bezpiecznik na wyjściu 19 V ma
-mieć **5 A**.
+> **Wniosek: ten moduł da ok. 45 W ciągle, nie 65 W.** Napis „150 W" albo
+> „400 W" na płytce odnosi się do szczytu przy najwyższym dopuszczalnym
+> napięciu wejściowym i z chłodzeniem — nie do pracy ciągłej przy 12 V.
+
+Czy 45 W wystarczy? Realny pobór M910q jest znacznie niższy niż znamionowe
+65 W:
+
+| Stan | Pobór |
+|------|-------|
+| Dashboard, praca normalna | 20–30 W |
+| Android Auto + dekodowanie wideo (VAAPI) | 30–40 W |
+| Pełne obciążenie 4 wątków CPU | 50–55 W |
+
+Czyli **normalna praca mieści się z zapasem, a tylko pełne obciążenie CPU
+wychodzi poza możliwości modułu**. Rozwiązanie jest programowe — patrz §3.6.
+
+> **Nie łącz dwóch XL6019 równolegle**, żeby uzyskać więcej prądu. Te moduły
+> nie mają podziału obciążenia; ten z wyżej ustawionym napięciem weźmie
+> całość i wejdzie w ograniczenie prądowe, a drugi będzie stał bezczynnie.
+
+Bezpiecznik na wyjściu 19,5 V ma mieć **5 A**.
+
+### 3.2a Zachowanie przy braku sterowania
+
+Boost **nie potrafi dać napięcia niższego niż wejściowe**. Przy wyłączonej
+regulacji na wyjściu pojawia się napięcie wejściowe pomniejszone o spadek na
+diodzie (~11,4 V przy 12 V wejścia). M910q przy takim napięciu nie wystartuje,
+ale też się nie uszkodzi.
+
+Praktyczna konsekwencja: **wyjścia XL6019 nie da się użyć jako wyłącznika
+komputera**. Odcinać musi przekaźnik zapłonu po stronie wejścia — i dokładnie
+tak jest w tym projekcie (§2, domena B).
+
+### 3.2b Prąd rozruchowy
+
+Kondensatory wejściowe M910q przy załączeniu pobierają krótki impuls prądu,
+który potrafi wprowadzić XL6019 w ograniczenie prądowe i tryb „czkawki"
+(hiccup) — moduł próbuje startować cyklicznie zamiast wejść w normalną pracę.
+
+Jeżeli tak się zachowa:
+
+- **kondensator 470 µF / 35 V low-ESR na wyjściu** przetwornicy (i tak warto),
+- **termistor NTC ograniczający prąd rozruchowy** (np. 5 Ω / 5 A) szeregowo
+  na wyjściu — po nagrzaniu jego rezystancja spada do ułamka oma.
 
 ### 3.3 Wtyk zasilania
 
@@ -178,6 +216,53 @@ wejściowy i największe grzanie.
 Jeżeli którykolwiek pomiar wypadnie poza normę: dołóż radiator i wentylator
 40 mm, a jeśli to nie pomoże — wymień przetwornicę na mocniejszą. Nie
 próbuj tego „docisnąć" w aucie.
+
+### 3.5a Ograniczenie poboru M910q — wymagane przy XL6019
+
+Skoro moduł daje ok. 45 W, a pełne obciążenie CPU potrafi dobić do 55 W,
+trzeba ograniczyć maksymalny pobór pakietu. Najprościej przez **RAPL**:
+
+```bash
+# sprawdź, gdzie jest pakiet (zwykle intel-rapl:0)
+ls /sys/class/powercap/
+
+# odczyt bieżącego limitu (w mikrowatach)
+cat /sys/class/powercap/intel-rapl:0/constraint_0_power_limit_uw
+
+# ustaw limit pakietu na 28 W
+echo 28000000 | sudo tee /sys/class/powercap/intel-rapl:0/constraint_0_power_limit_uw
+```
+
+Utrwalenie przez systemd:
+
+```ini
+# /etc/systemd/system/bcm-power-cap.service
+[Unit]
+Description=BCM — limit poboru pakietu CPU (zasilanie z XL6019)
+After=multi-user.target
+
+[Service]
+Type=oneshot
+ExecStart=/bin/sh -c 'echo 28000000 > /sys/class/powercap/intel-rapl:0/constraint_0_power_limit_uw'
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target
+```
+
+```bash
+sudo systemctl enable --now bcm-power-cap
+```
+
+Alternatywa (jeśli RAPL nie jest dostępny) — ograniczenie przez `intel_pstate`:
+
+```bash
+echo 70 | sudo tee /sys/devices/system/cpu/intel_pstate/max_perf_pct
+```
+
+**28 W pakietu + ~10 W reszty systemu = ~38 W**, czyli komfortowo poniżej
+45 W możliwości modułu. Dla dashboardu i Android Auto to bez znaczenia —
+dekodowanie wideo i tak idzie po VAAPI, a nie po CPU.
 
 ### 3.5 Chłodzenie i montaż
 
@@ -495,30 +580,96 @@ Po zamontowaniu, przed podłączeniem banku:
 
 ---
 
-## 7. LVD — ochrona przed głębokim rozładowaniem
+## 7. LVD — moduł XH-M609
 
 Druga strona medalu: bank nie może zejść zbyt nisko, bo siarczanowanie płyt
 przy głębokim rozładowaniu jest równie nieodwracalne, co przeładowanie.
+Tę rolę pełni posiadany **XH-M609**.
+
+### 7.1 Dane modułu
+
+| Parametr | Wartość katalogowa |
+|----------|-------------------|
+| Napięcie zasilania | 12–36 V DC |
+| Przekaźnik | **20 A / 14 V DC** |
+| Dokładność nastawy | 0,1 V |
+| Pobór własny | **< 1,5 W** (wartość maksymalna dla całego zakresu) |
+| Zaciski | VIN + / VIN − (od banku), VOUT + / VOUT − (do obciążenia) |
+| Obsługa | wyświetlacz LED + dwa przyciski (próg i histereza) |
+
+### 7.2 Nastawy
 
 | Parametr | Wartość |
 |----------|---------|
 | Próg odcięcia | **11,00 V** |
 | Próg powrotu | **12,60 V** |
-| Obciążalność | ≥ 30 A (przenosi całą szynę) |
-| Pobór własny | < 10 mA (wlicza się w budżet domeny A) |
 
 **Histereza jest obowiązkowa.** Po odcięciu obciążenia napięcie banku
-„odbija" o 0,3–0,5 V. Moduł bez histerezy zacznie klapkować z częstotliwością
+„odbija" o 0,3–0,5 V. Bez histerezy moduł zacznie klapkować z częstotliwością
 kilku Hz i w krótkim czasie spali styki. Próg powrotu 12,60 V oznacza, że
 szyna wróci dopiero po realnym doładowaniu z alternatora.
 
-**Co odcina LVD.** Całą szynę — obie domeny. Domena A też przestaje działać
-(pilot szyb i BLE bagażnika nie odpowiadają), ale to celowe: bank przetrwa
-i naładuje się przy następnym uruchomieniu silnika. Alternatywa — pozwolić
-Nano dojechać bank do 9 V — kończy się wymianą kompletu pakietów.
+Procedura: krótkie naciśnięcie przycisku pokazuje bieżący próg, długie
+przytrzymanie wprowadza w tryb edycji (wartość zaczyna migać), przyciskami
+„+" i „−" ustawiasz wartość. Drugi przycisk ustawia histerezę (próg powrotu).
 
-Moduł LVD montuj **za bankiem, przed rozgałęzieniem domen** — patrz
+### 7.3 Trzy rzeczy do sprawdzenia na stole
+
+Przed zabudową, na zasilaczu laboratoryjnym:
+
+**1. Czy moduł działa przy 11 V.** Katalogowy zakres zasilania to **12–36 V**,
+a próg odcięcia ustawiamy na **11,00 V** — czyli poniżej deklarowanego
+minimum. Wersje tego modułu różnią się (część listingów podaje 6–60 V),
+więc trzeba to zwyczajnie sprawdzić: zjedź napięciem do 11,0 V i zobacz, czy
+przekaźnik rozwiera się czysto, bez drgania styku i bez resetów wyświetlacza.
+
+> Jeżeli w okolicy 11 V moduł zachowuje się niepewnie — **podnieś próg do
+> 11,5 V**. Dla AGM przy poborze rzędu 100 mA to nadal głębokie rozładowanie,
+> więc ochrona zostaje zachowana, a moduł pracuje w swoim zakresie.
+
+**2. Który biegun przełącza przekaźnik.** Musi przerywać **plus**. Gdyby
+przerywał masę, rozspójniłoby to topologię jednego punktu gwiazdowego —
+obciążenia miałyby masę tylko przez ten przekaźnik. Sprawdź omomierzem
+między VIN− a VOUT−: powinno być zwarcie niezależnie od stanu przekaźnika.
+
+**3. Ile moduł sam pobiera.** Katalogowe „< 1,5 W" to maksimum dla całego
+zakresu 12–36 V. Przy 12 V realny pobór (przekaźnik + wyświetlacz + logika)
+jest zwykle znacznie niższy, ale **to trzeba zmierzyć** — amperomierz
+szeregowo w linii VIN+, moduł w stanie załączonym. Wynik wpisz do budżetu
+z §9; ma bezpośredni wpływ na czas postoju.
+
+### 7.4 Obciążalność — czy 20 A wystarczy
+
+Tak, z dwukrotnym zapasem. Przez LVD przechodzi:
+
+| Odbiornik | Prąd szczytowy |
+|-----------|---------------|
+| Step-up (wejście przy 11 V) | do 4,5 A |
+| Hub USB z peryferiami | ~1,0 A |
+| Buck paneli wyświetlaczy | ~1,5 A |
+| Domena A (logika + cewki) | ~0,5 A |
+| **Razem** | **~7,5 A** |
+
+Kluczowe jest to, że **wzmacniacze idą osobną gałęzią** prosto z akumulatora
+rozruchowego (§2). Gdyby szły przez LVD, ich szczyty 15–20 A przekroczyłyby
+przekaźnik 20 A.
+
+Bezpiecznik między bankiem a VIN+: **15 A** (1,5 × prąd szczytowy, zgodnie
+z zaleceniem producenta modułu).
+
+### 7.5 Co odcina LVD
+
+Całą szynę — obie domeny. Domena A też przestaje działać (pilot szyb i BLE
+bagażnika nie odpowiadają), ale to celowe: bank przetrwa i naładuje się przy
+następnym uruchomieniu silnika. Alternatywa — pozwolić Nano dojechać bank
+do 9 V — kończy się wymianą kompletu pakietów.
+
+Moduł montuj **za bankiem, przed rozgałęzieniem domen** — patrz
 [`power_buffered_m910q.svg`](../schematics/power_buffered_m910q.svg).
+
+> **XH-M609 nie zastąpi blokady przeładowania z §6.** To moduł ochrony
+> **podnapięciowej** — rozłącza *poniżej* progu. Warstwa 2 potrzebuje logiki
+> odwrotnej (rozwarcie *powyżej* 15,3 V), więc pozostaje osobnym modułem.
 
 ---
 
@@ -591,21 +742,53 @@ linka, nie drut, i izolacja odporna na temperaturę i oleje.
 | HM-10 BLE (nasłuch) | ~15 mA |
 | RXB6 433 MHz (nasłuch) | ~5 mA |
 | Moduł przekaźników (spoczynek) | ~10 mA |
-| Straty przetwornic + LVD | ~5 mA |
-| **Razem** | **~60 mA (0,7 W)** |
+| Straty przetwornicy buck | ~5 mA |
+| **Podsuma — odbiorniki domeny A** | **~60 mA (0,7 W)** |
+| **XH-M609 (LVD)** | **do zmierzenia — patrz §7.3** |
+
+> **Pobór własny LVD jest częścią budżetu postoju.** XH-M609 ma wyświetlacz
+> LED i przekaźnik trzymany w stanie załączonym, więc nie jest to element
+> pomijalny — katalogowe „< 1,5 W" przy 12 V oznaczałoby aż 125 mA, czyli
+> **dwukrotnie więcej niż cała reszta domeny A**. Realny pobór przy 12 V jest
+> zwykle znacznie niższy (spec obejmuje cały zakres do 36 V), ale dopóki nie
+> zmierzysz, nie wiesz, w której kolumnie tabeli poniżej jesteś.
 
 ### 9.2 Czas postoju
 
-| Pakiety | Pojemność | Do 30 % DoD (zalecane) | Do 50 % DoD | Do progu LVD 11,0 V |
-|---------|-----------|------------------------|-------------|---------------------|
-| 4 | 20,4 Ah | ~4,3 dnia | ~7,1 dnia | ~10,6 dnia |
-| **5** | **25,5 Ah** | **~5,3 dnia** | **~8,9 dnia** | **~13,3 dnia** |
-| 6 | 30,6 Ah | ~6,4 dnia | ~10,6 dnia | ~15,9 dnia |
-| 8 | 40,8 Ah | ~8,5 dnia | ~14,2 dnia | ~21,3 dnia |
+Czas zależy od tego, ile pobiera XH-M609 — dlatego tabela jest rozpisana
+wg **sumarycznego poboru**. Odbiorniki domeny A to stałe 60 mA; reszta to
+moduł LVD.
 
-Kolumna 30 % DoD jest dodana, bo HR1221W to seria buforowa (UPS), a nie
+**Bank 5 pakietów — 25,5 Ah:**
+
+| Pobór całkowity | XH-M609 | Do 30 % DoD | Do 50 % DoD | Do progu LVD |
+|-----------------|---------|-------------|-------------|--------------|
+| 80 mA | 20 mA | ~4,0 dnia | ~6,6 dnia | ~10,0 dnia |
+| 100 mA | 40 mA | ~3,2 dnia | ~5,3 dnia | ~8,0 dnia |
+| 130 mA | 70 mA | ~2,5 dnia | ~4,1 dnia | ~6,1 dnia |
+| 185 mA | 125 mA (spec max) | ~1,7 dnia | ~2,9 dnia | ~4,3 dnia |
+
+**Bank 8 pakietów — 40,8 Ah** (masz osiem, więc to realna opcja):
+
+| Pobór całkowity | Do 30 % DoD | Do 50 % DoD | Do progu LVD |
+|-----------------|-------------|-------------|--------------|
+| 80 mA | ~6,4 dnia | ~10,6 dnia | ~15,9 dnia |
+| 100 mA | ~5,1 dnia | ~8,5 dnia | ~12,8 dnia |
+| 130 mA | ~3,9 dnia | ~6,5 dnia | ~9,8 dnia |
+| 185 mA | ~2,8 dnia | ~4,6 dnia | ~6,9 dnia |
+
+Kolumna 30 % DoD jest tu dlatego, że HR1221W to seria buforowa (UPS), a nie
 trakcyjna — płytsze rozładowanie wyraźnie wydłuża jej życie. Przy okazjonalnym
 dłuższym postoju 50 % DoD jest w porządku; jako **rutyna** lepiej trzymać 30 %.
+
+> **Jeżeli pomiar z §7.3 wypadnie powyżej ~40 mA**, najprostszą reakcją jest
+> użycie **wszystkich ośmiu pakietów zamiast pięciu**. Masz je, a 40,8 Ah
+> cofa czas postoju mniej więcej tam, gdzie był przy 25,5 Ah i niskim poborze
+> LVD. Kosztem jest 14,4 kg zamiast 9,0 kg i więcej miejsca pod fotelem.
+>
+> Drugi kierunek to wymiana LVD na moduł bez wyświetlacza (prosty komparator
+> z przekaźnikiem pobiera 5–10 mA), ale skoro XH-M609 już jest — najpierw
+> zmierz, a decyduj potem.
 
 > **Korekta wobec starszych notatek.** `docs/X86_PLATFORM_SETUP.md` § 2.3
 > i `10-power-suspend.html` podają dla banku 25 Ah „~17 dni" z adnotacją
@@ -645,11 +828,12 @@ dłuższym postoju; jeśli tak wygląda Twój profil użytkowania, rozważ
 
 ### 10.1 Już posiadane
 
-| Element | Uwaga |
-|---------|-------|
-| Przetwornica step-up 12 → 19 V | **do weryfikacji wg §3** — ustaw na 19,5 V |
-| Akumulatory **CSB HR1221W F2** (12 V / 5,1 Ah AGM) × 8 | użyj 5 (25,5 Ah), reszta jako zapas |
-| Lenovo ThinkCentre M910q Tiny | |
+| Element | Rola w torze | Uwaga |
+|---------|--------------|-------|
+| **XL6019** — moduł step-up | 12 V → 19,5 V dla M910q (domena B) | ok. **45 W ciągle**, nie 65 W — wymaga ograniczenia poboru CPU, §3.2 i §3.5a |
+| **XH-M609** — moduł ochrony | **LVD** (warstwa 3), 11,00 / 12,60 V | przekaźnik 20 A wystarcza; zmierz pobór własny, §7.3 |
+| **CSB HR1221W F2** × 8 (12 V / 5,1 Ah AGM) | bank buforowy | użyj 5 (25,5 Ah) albo 8 (40,8 Ah) — decyzja po pomiarze z §7.3 |
+| Lenovo ThinkCentre M910q Tiny | komputer | |
 
 ### 10.2 Do dokupienia — obowiązkowe
 
@@ -658,12 +842,12 @@ dłuższym postoju; jeśli tak wygląda Twój profil użytkowania, rozważ
 | 1 | **Ładowarka DC-DC** *(wariant A)* | Victron Orion-Tr Smart 12/12-18 lub odpowiednik z presetem **AGM** | 1 | 800–1000 |
 | | *albo:* VSR + moduł CC-CV boost *(wariant B)* | VSR 12 V/140 A + boost 300 W/10 A z regulacją CC i CV | 1+1 | 120–220 |
 | 2 | **Rozłącznik nadnapięciowy** | programowalny przekaźnik napięciowy, próg 15,3 V / powrót 14,0 V | 1 | 40–80 |
-| 3 | **Moduł LVD** | odcięcie 11,0 V, powrót 12,6 V, ≥ 30 A, z histerezą | 1 | 30–60 |
+| 3 | ~~Moduł LVD~~ | **posiadany — XH-M609** | — | 0 |
 | 4 | **Przekaźnik zapłonu** | Bosch 12 V / 30 A SPDT + podstawka | 1 | 15–25 |
 | 5 | **Przekaźnik mocy** (do poz. 2, jeśli styki modułu za słabe) | 12 V / 30 A + podstawka | 1 | 15–25 |
 | 6 | **Listwa dystrybucyjna bezpiecznikowa** | 6–8 obwodów ATO/ATC, z pokrywą | 1 | 40–70 |
 | 7 | **Bezpiecznik główny + oprawka** | 30 A, oprawka do montażu przy klemie | 1 | 15–25 |
-| 8 | **Bezpieczniki inline** | 10 A × 5 (pakiety) + oprawki | 5 | 15–25 |
+| 8 | **Bezpieczniki inline** | 10 A × 5–8 (pakiety) + oprawki, oraz 15 A przed VIN+ modułu XH-M609 | 6–9 | 20–35 |
 | 9 | **Bezpieczniki nożowe** | 5 A, 3 A × 2, 20 A + zapas | kpl. | 10–15 |
 | 10 | **Buck 12 → 5 V** (domena A) | LM2596, min. 1 A | 1 | 5–10 |
 | 11 | **Buck 12 → 5 V** (wyświetlacze) | MP1584 / MP2307, min. 3 A | 1 | 5–15 |
@@ -679,9 +863,14 @@ dłuższym postoju; jeśli tak wygląda Twój profil użytkowania, rozważ
 | 21 | **Peszel / oplot + przelotki gumowe** | 5 m peszla + komplet przelotek | kpl. | 25–40 |
 | 22 | **Skrzynka / wspornik na bank + pasy** | na 5 pakietów, mocowanie do nadwozia | 1 | 60–120 |
 | 23 | **Rozłącznik masy** | 100 A, kluczykowy lub pokrętło | 1 | 40–70 |
-| 24 | **Radiator + wentylator 40 mm** | do przetwornicy step-up | kpl. | 20–35 |
-| | | | **Razem wariant A** | **~1300–1900 PLN** |
-| | | | **Razem wariant B** | **~600–1100 PLN** |
+| 24 | **Radiator + wentylator 40 mm** | do XL6019 — przy 45 W obowiązkowe | kpl. | 20–35 |
+| 24a | **Kondensator wyjściowy** | 470 µF / 35 V low-ESR na wyjście XL6019 | 1 | 3–6 |
+| 24b | **Termistor NTC** | 5 Ω / 5 A, ogranicznik prądu rozruchowego (tylko jeśli §3.2b) | 1 | 3–6 |
+| | | | **Razem wariant A** | **~1280–1870 PLN** |
+| | | | **Razem wariant B** | **~580–1070 PLN** |
+
+Kwoty są niższe niż w pierwszej wersji listy, bo moduł LVD i przetwornica
+step-up są już na stanie.
 
 ### 10.3 Do dokupienia — zalecane
 
@@ -698,6 +887,7 @@ dłuższym postoju; jeśli tak wygląda Twój profil użytkowania, rozważ
 | Element | Dlaczego |
 |---------|----------|
 | Moduł buck XL4016 jako ładowarka | nie podniesie napięcia do absorpcji — patrz §5.1 |
+| Drugi XL6019 „równolegle dla mocy” | te moduły nie dzielą obciążenia — patrz §3.2 |
 | Dioda krzemowa (1N5408 itp.) zamiast Schottky | spadek 0,7–1,0 V zjada całą rezerwę napięcia |
 | „Uniwersalna" końcówka do M910q | pasowanie i pin ID to loteria — patrz §3.3 |
 | Ładowarka/BMS do LiFePO₄ lub Li-ion | zupełnie inne napięcia — zniszczy bank AGM |
@@ -714,13 +904,28 @@ dopiero, gdy wszystko przed nim jest zweryfikowane.
 ### Etap 1 — nastawy na stole (bez auta, bez banku)
 
 ```
-[ ] Przetwornica step-up: wyjście 19,5 V bez obciążenia (multimetr)
-[ ] Test obciążeniowy step-up wg §3.4 — 10 min stress-ng, napięcie ≥ 19,0 V
-[ ] Powtórka testu przy wejściu 11,0 V
+XL6019 (step-up)
+[ ] Wyjście 19,5 V bez obciążenia (multimetr)
+[ ] Limit poboru pakietu CPU ustawiony na M910q (§3.5a) PRZED testem
+[ ] Test obciążeniowy wg §3.4 — 10 min stress-ng, napięcie ≥ 19,0 V
+[ ] Powtórka testu przy wejściu 11,0 V (najgorszy przypadek)
+[ ] Prąd wejściowy nie przekracza 4,5 A
+[ ] Temperatura cewki i układu po 10 min < 85 °C
+[ ] Brak trybu „czkawki" przy załączaniu (jeśli jest — §3.2b)
+[ ] Radiator i wentylator 40 mm zamontowane
+
+XH-M609 (LVD)
+[ ] Próg odcięcia 11,00 V, próg powrotu 12,60 V
+[ ] Moduł pracuje stabilnie przy 11,0 V — bez drgania styku (§7.3 pkt 1)
+[ ] Omomierzem sprawdzone, że przełącza PLUS, nie masę (§7.3 pkt 2)
+[ ] Zmierzony pobór własny przy 12 V, wpisany do budżetu §9
+[ ] Decyzja: 5 czy 8 pakietów w banku — na podstawie powyższego pomiaru
+[ ] Bezpiecznik 15 A przed zaciskiem VIN+
+
+Pozostałe
 [ ] Ładowarka: CV 14,40 V (lub 13,80 V w wariancie B bez kompensacji)
 [ ] Ładowarka: limit prądu CC 6,0 A (sufit katalogowy 10,5 A dla 5 pakietów)
 [ ] Rozłącznik nadnapięciowy: rozwarcie 15,30 V, powrót 14,00 V (§6.4)
-[ ] LVD: odcięcie 11,00 V, powrót 12,60 V
 [ ] Buck domeny A: wyjście 5,0 V
 [ ] Buck wyświetlaczy: wyjście 5,0 V
 ```
@@ -886,6 +1091,22 @@ nic nie policzy.
 
 Do czasu wykonania tych trzech kroków stan banku kontroluj woltomierzem
 z listy zalecanych zakupów (poz. 26).
+
+---
+
+### 13.5 Ograniczenia wynikające z posiadanych modułów
+
+Dwa moduły są już kupione i projekt jest dopasowany pod nie, a nie odwrotnie.
+Wynikają z tego dwa realne ograniczenia:
+
+| Moduł | Ograniczenie | Konsekwencja |
+|-------|--------------|--------------|
+| **XL6019** | limit prądu klucza 5 A → ok. **45 W** wyjścia, nie 65 W | konieczny limit poboru pakietu CPU (§3.5a); bez niego pełne obciążenie czterech wątków wyjdzie poza możliwości modułu |
+| **XH-M609** | pobór własny do 125 mA wg spec + zakres zasilania od 12 V | wchodzi wprost w budżet postoju (§9) i wymaga sprawdzenia pracy przy progu 11 V (§7.3) |
+
+Żadne z nich nie dyskwalifikuje modułu — oba są do obejścia, odpowiednio
+konfiguracją systemu i doborem liczby pakietów. Trzeba tylko o nich wiedzieć
+przed zabudową, a nie po.
 
 ---
 

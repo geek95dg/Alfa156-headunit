@@ -26,7 +26,7 @@
 
   <!-- BUS -->
   <rect class="box" x="410" y="86" width="360" height="58"/>
-  <text class="h" x="590" y="110">Szyna buforowana 12 V (za LVD 11,0 V)</text>
+  <text class="h" x="590" y="110">Szyna buforowana 12 V (za XH-M609)</text>
   <text class="t" x="590" y="130">bank 5 × CSB HR1221W · 25,5 Ah · listwa dystrybucyjna z bezpiecznikami</text>
 
   <path class="wire" d="M590 144 L590 176"/>
@@ -93,9 +93,9 @@
 
   <rect class="box" x="726" y="344" width="188" height="88"/>
   <text class="fuse" x="786" y="336">5 A</text>
-  <text class="h" x="820" y="366">Step-up 12 → 19 V</text>
-  <text class="t" x="820" y="384">≥ 80 W ciągle</text>
-  <text class="t" x="820" y="402">→ M910q (do 65 W)</text>
+  <text class="h" x="820" y="366">XL6019 12 → 19,5 V</text>
+  <text class="t" x="820" y="384">ok. 45 W ciągle</text>
+  <text class="t" x="820" y="402">→ M910q (limit CPU 28 W)</text>
   <text class="t" x="820" y="420">→ hub USB zasilany</text>
 
   <rect class="box" x="932" y="344" width="162" height="88"/>
@@ -129,20 +129,20 @@
 
   <!-- ============ STANDBY TABLE ============ -->
   <rect x="700" y="596" width="420" height="196" fill="#fbfcfd" stroke="#c8d2da" stroke-width="1.5" rx="6"/>
-  <text class="h" x="910" y="620">Czas postoju przy poborze 60 mA</text>
+  <text class="h" x="910" y="620">Czas postoju — zależy od poboru XH-M609</text>
   <line x1="716" y1="630" x2="1104" y2="630" stroke="#c8d2da"/>
-  <text class="tb" x="722" y="650">Pakiety</text>
-  <text class="tb" x="810" y="650">Pojemność</text>
-  <text class="tb" x="906" y="650">50 % DoD</text>
-  <text class="tb" x="1010" y="650">do LVD</text>
+  <text class="tb" x="722" y="650">Pobór łączny</text>
+  <text class="tb" x="828" y="650">z tego LVD</text>
+  <text class="tb" x="930" y="650">5 pakietów</text>
+  <text class="tb" x="1030" y="650">8 pakietów</text>
   <line x1="716" y1="658" x2="1104" y2="658" stroke="#c8d2da"/>
-  <text class="tl" x="722" y="678">4 ×</text><text class="tl" x="810" y="678">20,4 Ah</text><text class="tl" x="906" y="678">~7,1 dnia</text><text class="tl" x="1010" y="678">~10,6 dnia</text>
-  <text class="tl" x="722" y="698">5 ×</text><text class="tl" x="810" y="698">25,5 Ah</text><text class="tl" x="906" y="698">~8,9 dnia</text><text class="tl" x="1010" y="698">~13,3 dnia</text>
-  <text class="tl" x="722" y="718">6 ×</text><text class="tl" x="810" y="718">30,6 Ah</text><text class="tl" x="906" y="718">~10,6 dnia</text><text class="tl" x="1010" y="718">~15,9 dnia</text>
-  <text class="tl" x="722" y="738">8 ×</text><text class="tl" x="810" y="738">40,8 Ah</text><text class="tl" x="906" y="738">~14,2 dnia</text><text class="tl" x="1010" y="738">~21,3 dnia</text>
+  <text class="tl" x="722" y="678">80 mA</text><text class="tl" x="828" y="678">20 mA</text><text class="tl" x="930" y="678">~6,6 dnia</text><text class="tl" x="1030" y="678">~10,6 dnia</text>
+  <text class="tl" x="722" y="698">100 mA</text><text class="tl" x="828" y="698">40 mA</text><text class="tl" x="930" y="698">~5,3 dnia</text><text class="tl" x="1030" y="698">~8,5 dnia</text>
+  <text class="tl" x="722" y="718">130 mA</text><text class="tl" x="828" y="718">70 mA</text><text class="tl" x="930" y="718">~4,1 dnia</text><text class="tl" x="1030" y="718">~6,5 dnia</text>
+  <text class="tl" x="722" y="738">185 mA</text><text class="tl" x="828" y="738">125 mA</text><text class="tl" x="930" y="738">~2,9 dnia</text><text class="tl" x="1030" y="738">~4,6 dnia</text>
   <line x1="716" y1="752" x2="1104" y2="752" stroke="#c8d2da"/>
-  <text class="note" x="722" y="770">Kolumna „50 % DoD” to praca bez utraty żywotności. Kolumna „do LVD”</text>
-  <text class="note" x="722" y="784">to zejście do 11,0 V — dopuszczalne awaryjnie, ale skraca życie banku.</text>
+  <text class="note" x="722" y="770">Czasy do 50 % DoD. 60 mA to odbiorniki domeny A, reszta to pobór</text>
+  <text class="note" x="722" y="784">własny XH-M609 — zmierz go, bo spec podaje tylko maksimum 1,5 W.</text>
 
   <text class="note" x="24" y="826">Budzenie M910q z RTC (np. co 15 min na ping pozycji) dokłada ok. 5 Ah tygodniowo i mniej więcej połowi powyższe czasy. Przy dłuższym postoju wyłącz je w UI.</text>
   <text class="note" x="24" y="848">Wszystkie bezpieczniki: wkładki nożowe ATO/ATC w listwie dystrybucyjnej z pokrywą, w miejscu dostępnym bez demontażu deski rozdzielczej.</text>
