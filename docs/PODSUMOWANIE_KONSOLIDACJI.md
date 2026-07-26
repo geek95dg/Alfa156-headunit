@@ -195,13 +195,13 @@ Podane dwie działające topologie:
 | Wariant | Rozwiązanie | Koszt |
 |---------|-------------|-------|
 | **A — zalecany** | ładowarka DC-DC B2B z presetem AGM (Victron Orion-Tr Smart, Redarc BCDC, Sterling) — buck-boost, limit prądu, kompensacja temperaturowa, detekcja pracy alternatora w jednym pudełku | 800–1000 PLN |
-| **B — DIY** | VSR (rozdział ładowania) + moduł **CC-CV boost** 300 W/10 A nastawiony na 14,40 V / 6,0 A | 120–220 PLN |
+| **B — DIY** | przekaźnik ładowania + dioda **MBR2545CT** + moduł **CC-CV boost** nastawiony na 14,40 V / 6,0 A | 70–180 PLN |
 
-W wariancie B ważny jest **VSR zamiast diody Schottky**: boost nie może dawać
-napięcia niższego niż wejściowe, więc przy zgaszonym silniku próbowałby dalej
-podawać 14,2 V i rozładowywał akumulator rozruchowy. VSR fizycznie rozłącza
-obwód poniżej 12,8 V. Dodatkowo odpada spadek 0,45 V na diodzie, którego przy
-tak małym przełożeniu bardzo brakuje.
+W wariancie B tor ładowania **musi być fizycznie rozłączany**: boost nie może
+dawać napięcia niższego niż wejściowe, więc przy zgaszonym silniku próbowałby
+dalej podawać 14,4 V i rozładowywał akumulator rozruchowy. Robi to przekaźnik
+sterowany zapłonem (albo D+ alternatora), a dioda MBR2545CT jest drugą
+barierą na wypadek zespawania styków.
 
 ### 3.3 Czas postoju „~17 dni" to pełne rozładowanie
 
@@ -277,8 +277,8 @@ w `ZASILANIE_BUFOROWANE.md` §10. Rdzeń:
 
 | Grupa | Elementy |
 |-------|----------|
-| **Ładowanie** | ładowarka DC-DC z profilem AGM (wariant A) **albo** VSR + moduł CC-CV boost (wariant B) |
-| **Ochrona** | rozłącznik nadnapięciowy 14,6 V (blokada przeładowania), moduł LVD 11,0 V, przekaźnik zapłonu 30 A, przekaźnik mocy |
+| **Ładowanie** | ładowarka DC-DC z profilem AGM (wariant A) **albo** przekaźnik + MBR2545CT + moduł CC-CV boost (wariant B) |
+| **Ochrona** | rozłącznik nadnapięciowy 15,3 V (blokada przeładowania), moduł LVD 11,0 V, przekaźnik zapłonu 30 A, przekaźnik mocy |
 | **Zabezpieczenia** | listwa dystrybucyjna 6–8 obwodów, bezpiecznik główny 30 A, 5× inline 10 A na pakiety, wkładki 5/3/20 A |
 | **Przetwornice pomocnicze** | buck 12→5 V 1 A (domena A), buck 12→5 V 3 A (wyświetlacze) |
 | **Ochrona wejścia** | dioda TVS 1.5KE33CA, kondensator 470 µF/35 V, diody gaszeniowe 1N4007 |

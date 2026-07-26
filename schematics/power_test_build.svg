@@ -22,7 +22,7 @@
 
   <rect class="bg" x="0" y="0" width="960" height="1164"/>
   <text class="ttl" x="24" y="32">Wariant testowo-rozwojowy — kompletny tor zasilania</text>
-  <text class="sub" x="24" y="52">Ładowanie wariantem B (VSR + CC-CV boost), bank 5 × CSB HR1221W, LVD XH-M609, domena B za przekaźnikiem zapłonu.</text>
+  <text class="sub" x="24" y="52">Ładowanie wariantem B (przekaźnik + MBR2545CT + CC-CV boost). M910q zasilany stale; zapłon tylko jako sygnał do Arduino.</text>
   <line x1="24" y1="64" x2="936" y2="64" stroke="#c8d2da" stroke-width="1.5"/>
 
   <!-- ============== SPINE ============== -->
@@ -42,8 +42,8 @@
   <path class="wire" d="M300 248 L300 282"/>
 
   <rect class="boxC" x="90" y="282" width="420" height="62"/>
-  <text class="h" x="300" y="305">VSR — przekaźnik napięciowy 12 V / 140 A</text>
-  <text class="t" x="300" y="324">załączenie 13,3 V · rozłączenie 12,8 V</text>
+  <text class="h" x="300" y="305">Przekaźnik ładowania 30 A + MBR2545CT</text>
+  <text class="t" x="300" y="324">cewka z zapłonu (albo D+) · obie anody diody zwarte, radiator</text>
 
   <path class="wire" d="M300 344 L300 378"/>
 
@@ -66,7 +66,7 @@
   <text class="h" x="300" y="607">BANK 5 × CSB HR1221W F2 — 25,5 Ah</text>
   <text class="t" x="300" y="626">bezpiecznik 10 A na „+” każdego pakietu, osobno</text>
   <text class="t" x="300" y="644">nasuwki F2 6,35 mm · łączenie równoległe wg §4.3 ZASILANIE</text>
-  <text class="t" x="300" y="661">3 pakiety wystarczą na czas testów; 8 = dłuższy postój</text>
+  <text class="t" x="300" y="661">5 to minimum, 8 wyraźnie lepsze — patrz tabela obok</text>
 
   <path class="wire" d="M300 668 L300 702"/>
   <text class="fuse" x="312" y="690">bezp. 15 A przed VIN+</text>
@@ -85,25 +85,26 @@
 
   <path class="wire" d="M300 854 L300 888"/>
 
-  <rect class="boxL" x="90" y="888" width="420" height="62"/>
-  <text class="h" x="300" y="911">Przekaźnik zapłonu 30 A SPDT — domena B</text>
-  <text class="t" x="300" y="930">cewka z ACC · dioda gaszeniowa 1N4007 równolegle</text>
+  <rect class="boxL" x="90" y="888" width="420" height="80"/>
+  <text class="h" x="300" y="909">Wyjście na odbiorniki — ZASILANE STALE</text>
+  <text class="t" x="300" y="928">zapłon nie odcina komputera — usypia go Arduino (S3)</text>
+  <text class="t" x="300" y="946">bezp. 7,5 A → XL6019 · bezp. 2 A → LM2596 (podświetlenie)</text>
 
-  <path class="wire" d="M300 950 L300 1000"/>
-  <text class="fuse" x="312" y="978">bezp. 7,5 A</text>
+  <path class="wire" d="M300 968 L300 1000"/>
+  <text class="fuse" x="312" y="990">bezp. 7,5 A</text>
 
   <rect class="box" x="90" y="1000" width="420" height="88"/>
   <text class="h" x="300" y="1023">XL6019 12 → 19,5 V → M910q</text>
   <text class="t" x="300" y="1042">limit CPU 28 W · radiator + wentylator 40 mm · C 470 µF/35 V</text>
   <text class="t" x="300" y="1060">USB M910q: panel 7" 1024×600 + dotyk, Pro Micro, modem LTE</text>
-  <text class="t" x="300" y="1078">razem 31–45 W na szynie 19,5 V — sufit XL6019 to ok. 45 W</text>
+  <text class="t" x="300" y="1078">razem 29–42 W na szynie 19,5 V — sufit XL6019 to ok. 45 W</text>
 
   <!-- ============== NOTES ============== -->
   <rect class="note" x="560" y="282" width="376" height="96"/>
-  <text class="nh" x="576" y="304">Dlaczego VSR, a nie dioda Schottky</text>
+  <text class="nh" x="576" y="304">Dlaczego tor ładowania musi się rozłączać</text>
   <text class="nt" x="576" y="325">Boost nie da napięcia niższego niż wejściowe, więc przy</text>
   <text class="nt" x="576" y="342">zgaszonym silniku podawałby 14,4 V i rozładowywał</text>
-  <text class="nt" x="576" y="359">akumulator auta. VSR rozłącza obwód fizycznie.</text>
+  <text class="nt" x="576" y="359">akumulator auta. Przekaźnik przerywa go fizycznie.</text>
 
   <rect class="note" x="560" y="394" width="376" height="130"/>
   <text class="nh" x="576" y="416">Prąd CC liczysz razem z obciążeniem</text>
@@ -114,11 +115,11 @@
   <text class="nt" x="576" y="513">Sufit katalogowy CSB: 2,1 A × liczba pakietów.</text>
 
   <rect class="note" x="560" y="540" width="376" height="112"/>
-  <text class="nh" x="576" y="562">Domena A jest w tym wariancie pusta</text>
-  <text class="nt" x="576" y="583">Nie ma jeszcze Nano, HM-10 ani RXB6, więc na postoju</text>
-  <text class="nt" x="576" y="600">z banku pobiera prąd wyłącznie sam XH-M609.</text>
-  <text class="nt" x="576" y="621">Przy 40 mA i pięciu pakietach to ~13 dni do 50 % DoD,</text>
-  <text class="nt" x="576" y="638">przy 125 mA już tylko ~4 dni. Zmierz go — §7.3.</text>
+  <text class="nh" x="576" y="562">Pobór postojowy — S3 to nie zero</text>
+  <text class="nt" x="576" y="583">M910q w S3 1,5–3 W + straty XL6019 1–1,5 W + XH-M609</text>
+  <text class="nt" x="576" y="600">0,25–1,5 W  =  razem 240–480 mA z banku.</text>
+  <text class="nt" x="576" y="621">5 pakietów → 1,1–2,2 dnia · 8 pakietów → 1,8–3,5 dnia</text>
+  <text class="nt" x="576" y="638">Na dłuższy postój: wyłącznik główny. ZMIERZ ten pobór.</text>
 
   <rect class="note" x="560" y="668" width="376" height="230"/>
   <text class="nh" x="576" y="690">Bezpieczniki i przekroje</text>
@@ -132,7 +133,7 @@
   <text class="nt" x="576" y="790">wejście XH-M609</text><text class="nt" x="800" y="790">15 A</text><text class="nt" x="866" y="790">2,5 mm²</text>
   <text class="nt" x="576" y="812">odgałęzienie do XL6019</text><text class="nt" x="800" y="812">7,5 A</text><text class="nt" x="866" y="812">1,5 mm²</text>
   <text class="nt" x="576" y="834">panel 7" (przez USB)</text><text class="nt" x="800" y="834">—</text><text class="nt" x="866" y="834">—</text>
-  <text class="nt" x="576" y="856">cewka przekaźnika (ACC)</text><text class="nt" x="800" y="856">—</text><text class="nt" x="866" y="856">0,75 mm²</text>
+  <text class="nt" x="576" y="856">podświetlenie (LM2596)</text><text class="nt" x="800" y="856">2 A</text><text class="nt" x="866" y="856">1,5 mm²</text>
   <line x1="576" y1="868" x2="920" y2="868" stroke="#c8d2da"/>
   <text class="foot" x="576" y="886">2,5 mm² zamiast 6 mm² — bo ładowarka daje 8 A, nie 25 A.</text>
 

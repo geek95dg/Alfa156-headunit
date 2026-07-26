@@ -55,9 +55,9 @@
   <path class="plus" d="M101 242 L101 278"/>
   <text class="wl" x="108" y="264">6 mm²</text>
 
-  <!-- ================= 3. VSR ================= -->
+  <!-- ============ 3. CHARGE RELAY + DIODE ============ -->
   <rect class="mod" x="60" y="278" width="300" height="72"/>
-  <text class="mt" x="210" y="300">VSR — rozdział ładowania</text>
+  <text class="mt" x="210" y="300">Przekaźnik + MBR2545CT</text>
   <text class="ms" x="210" y="318">12 V / 140 A · zał. 13,3 V · wył. 12,8 V</text>
   <text class="ms" x="110" y="336">od auta</text>
   <text class="ms" x="222" y="336">do bufora</text>

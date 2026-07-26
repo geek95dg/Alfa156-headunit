@@ -76,9 +76,9 @@ w tabelach poniżej odpowiadają numerom na
 | # | Skąd | Dokąd | Przewód | Zabezpieczenie |
 |---|------|-------|---------|----------------|
 | 1 | Akumulator „+” | Bezpiecznik główny (wejście) | 6 mm² | — |
-| 2 | Bezpiecznik główny (wyjście) | VSR **BAT 1** | 6 mm² | 30 A, ≤ 30 cm od klemy |
-| 3 | VSR **BAT 2** | Ładowarka **IN +** (zacisk 1) | 6 mm² | — |
-| 4 | VSR **GND** | punkt gwiazdowy masy | 2,5 mm² | — |
+| 2 | Bezpiecznik główny (wyjście) | Przekaźnik ładowania **30** | 6 mm² | 30 A, ≤ 30 cm od klemy |
+| 3 | Przekaźnik ładowania **87** | Dioda MBR2545CT — anody (1 + 3) | 6 mm² | — |
+| 4 | Dioda MBR2545CT — katoda (2 / blaszka) | Ładowarka **IN +** (zacisk 1) | 6 mm² | blaszka pod potencjałem katody — izoluj od masy |
 | 5 | Ładowarka **IN −** (2) | punkt gwiazdowy masy | 6 mm² | — |
 | 6 | Ładowarka **OUT +** (3) | Blokada przeładowania **COM** (7) | 2,5 mm² | — |
 | 7 | Ładowarka **OUT −** (4) | punkt gwiazdowy masy | 2,5 mm² | — |
