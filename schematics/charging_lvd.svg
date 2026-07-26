@@ -68,10 +68,10 @@
   <path class="wire" d="M616 348 L616 380"/>
 
   <rect class="boxW" x="470" y="380" width="292" height="86"/>
-  <text class="h" x="616" y="402">WARSTWA 3 — LVD (podnapięcie)</text>
+  <text class="h" x="616" y="402">WARSTWA 3 — LVD · moduł XH-M609</text>
   <text class="t" x="616" y="422">rozłącza przy 11,00 V</text>
   <text class="t" x="616" y="440">powrót przy 12,60 V (histereza!)</text>
-  <text class="t" x="616" y="458">przekaźnik 30 A, pobór własny &lt; 10 mA</text>
+  <text class="t" x="616" y="458">przekaźnik 20 A · pobór własny DO ZMIERZENIA</text>
 
   <path class="wire" d="M616 466 L616 500"/>
   <text class="tb" x="640" y="490">→ domena A + domena B</text>

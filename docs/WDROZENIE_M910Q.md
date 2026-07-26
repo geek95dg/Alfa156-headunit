@@ -116,7 +116,7 @@ wspornik. Wszystkie kable spinaj opaskami, bo na dziurach będzie grzechotać.
 |---|---------|--------------|------|-----------|
 | 1 | Mini-PC | Lenovo M910q Tiny (i5-6400T, 8 GB, 256 GB) — używany | 1 | 200–400 |
 | 2 | Karta WiFi + BT | Fenvi FU-AX1800 (MT7921, WiFi 6 + BT 5.2) | 1 | 120–180 |
-| 3 | Przetwornica step-up | 12 V → 19/20 V, ≥ 80 W — patrz `ZASILANIE_BUFOROWANE.md` §3 | 1 | 15–70 |
+| 3 | Przetwornica step-up | **XL6019** 12 V → 19,5 V — posiadana, ok. 45 W, patrz `ZASILANIE_BUFOROWANE.md` §3 | 1 | 15–30 |
 | 4 | Wyświetlacz główny | 7" IPS 1024×600 HDMI + dotyk USB (QDtech MPI5001) | 1 | 200–350 |
 | 5 | Wyświetlacz mały | 4,3" TFT 800×480 HDMI, bez dotyku | 1 | 150–250 |
 | 6 | Przejściówki DP → HDMI | pasywne, kablowe | 2 | 20–30 |
@@ -175,8 +175,9 @@ Układ ma **dwie domeny zasilania**:
 Między akumulatorem auta a head unitem stoi **bank 5 × CSB HR1221W F2**
 (12 V / 5,1 Ah AGM, razem 25,5 Ah), ładowany przez ładowarkę CC-CV z profilem
 **AGM** (14,40 V absorpcji / 13,65 V float, maks. 10,5 A wg karty katalogowej),
-chroniony rozłącznikiem nadnapięciowym (15,3 V) i LVD (11,0 V). M910q zasila
-**przetwornica step-up 12 → 19,5 V** za przekaźnikiem zapłonu.
+chroniony rozłącznikiem nadnapięciowym (15,3 V) i modułem **XH-M609** jako
+LVD (11,0 / 12,60 V). M910q zasila **przetwornica step-up XL6019**
+(12 → 19,5 V) za przekaźnikiem zapłonu.
 
 **Konsekwencje dla software'u:**
 
@@ -185,7 +186,11 @@ chroniony rozłącznikiem nadnapięciowym (15,3 V) i LVD (11,0 V). M910q zasila
 - BIOS musi mieć **After Power Loss = Power On** (§4), inaczej maszyna nie
   wstanie po zaniku zasilania,
 - przycisk zasilania jest przechwycony przez `acpid` i wykonuje czysty
-  suspend do S3 (§9), a nie shutdown.
+  suspend do S3 (§9), a nie shutdown,
+- ⚠ **XL6019 daje ok. 45 W, nie 65 W** (limit prądu klucza 5 A), więc na
+  M910q trzeba ustawić limit poboru pakietu CPU — patrz
+  [`ZASILANIE_BUFOROWANE.md`](ZASILANIE_BUFOROWANE.md) §3.5a. Bez tego pełne
+  obciążenie czterech wątków wyjdzie poza możliwości przetwornicy.
 
 ---
 
@@ -956,7 +961,15 @@ Liczba w `X86_PLATFORM_SETUP.md` § 2.3 pochodzi z pełnego rozładowania banku,
 mimo adnotacji o ograniczeniu do 50 % DoD. Poprawione wartości:
 [`ZASILANIE_BUFOROWANE.md`](ZASILANIE_BUFOROWANE.md) §9.2.
 
-### 19.5 Nazewnictwo jednostki `bcm-headunit.service`
+### 19.5 Limit poboru CPU jest wymagany, nie opcjonalny
+
+Zasilanie M910q idzie przez posiadany moduł **XL6019**, którego realna
+obciążalność to ok. **45 W** (limit prądu klucza 5 A), a nie 65 W ze znamionowej
+mocy zasilacza. Usługa `bcm-power-cap` ograniczająca pakiet CPU do 28 W jest
+częścią wdrożenia, nie optymalizacją — instrukcja w
+[`ZASILANIE_BUFOROWANE.md`](ZASILANIE_BUFOROWANE.md) §3.5a.
+
+### 19.6 Nazewnictwo jednostki `bcm-headunit.service`
 
 Plik `config/systemd/bcm-headunit.service` był **wariantem Orange Pi PC**,
 mimo neutralnej nazwy. Został zarchiwizowany jako

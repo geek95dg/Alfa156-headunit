@@ -115,11 +115,20 @@ dioda TVS 1.5KE33CA równolegle oraz kondensator 470 µF / 35 V równolegle.
 
 | # | Skąd | Dokąd | Przewód | Zabezpieczenie |
 |---|------|-------|---------|----------------|
-| 19 | szyna „+” banku | LVD **BAT +** (9) | 2,5 mm² | — |
-| 20 | LVD **BAT −** (10) | punkt gwiazdowy masy | 2,5 mm² | — |
-| 21 | LVD **LOAD +** (11) | listwa dystrybucyjna, wejście | 2,5 mm² | — |
-| 22 | LVD **LOAD −** (12) | punkt gwiazdowy masy | 2,5 mm² | — |
+| 19 | szyna „+” banku | XH-M609 **VIN +** (9) | 2,5 mm² | **15 A** |
+| 20 | XH-M609 **VIN −** (10) | punkt gwiazdowy masy | 2,5 mm² | — |
+| 21 | XH-M609 **VOUT +** (11) | listwa dystrybucyjna, wejście | 2,5 mm² | — |
+| 22 | XH-M609 **VOUT −** (12) | punkt gwiazdowy masy | 2,5 mm² | — |
 | 23 | listwa, szyna masowa | punkt gwiazdowy masy | 6 mm² | — |
+
+> **XH-M609 — sprawdź przed montażem.** Przekaźnik ma przerywać **plus**.
+> Omomierz między VIN− a VOUT− musi pokazywać zwarcie niezależnie od stanu
+> przekaźnika; jeżeli pokazuje przerwę, moduł przełącza masę i rozspójnia
+> topologię jednego punktu gwiazdowego. Szczegóły i pozostałe dwa sprawdzenia:
+> [`ZASILANIE_BUFOROWANE.md`](ZASILANIE_BUFOROWANE.md) §7.3.
+>
+> Bezpiecznik 15 A przed VIN+ wynika z zalecenia producenta modułu
+> (1,5 × prąd szczytowy obciążenia, tu ~7,5 A).
 
 ### 2.4 Domena A (zawsze zasilana)
 
@@ -142,14 +151,15 @@ dioda TVS 1.5KE33CA równolegle oraz kondensator 470 µF / 35 V równolegle.
 | # | Skąd | Dokąd | Przewód | Zabezpieczenie |
 |---|------|-------|---------|----------------|
 | 32 | listwa, obwód 2 | Przekaźnik **30** | 2,5 mm² | 30 A |
-| 33 | Przekaźnik **87** | Step-up **IN +** (13) | 2,5 mm² | — |
+| 33 | Przekaźnik **87** | XL6019 **IN +** (13) | 2,5 mm² | — |
 | 34 | Przekaźnik **87** | Buck MP1584 **IN +** | 1,0 mm² | 3 A |
 | 35 | Przekaźnik **87** | Hub USB, zasilanie | 1,0 mm² | 3 A |
 | 36 | Przekaźnik **86** | linia ACC z zamka kluczyka | 0,75 mm² | 5 A |
 | 37 | Przekaźnik **85** | masa | 0,75 mm² | — |
-| 38 | Step-up **IN −** (14) | masa | 2,5 mm² | — |
-| 39 | Step-up **OUT +** (15) | wtyk M910q, **środek** | 1,5 mm² | 5 A |
-| 40 | Step-up **OUT −** (16) | wtyk M910q, **ekran** | 1,5 mm² | — |
+| 38 | XL6019 **IN −** (14) | masa | 2,5 mm² | — |
+| 39 | XL6019 **OUT +** (15) | wtyk M910q, **środek** | 1,5 mm² | 5 A |
+| 40 | XL6019 **OUT −** (16) | wtyk M910q, **ekran** | 1,5 mm² | — |
+| 39a | XL6019 **OUT +** ↔ **OUT −** | kondensator 470 µF / 35 V low-ESR | — | — |
 | 41 | Buck MP1584 **OUT +** | panel 7" / 10", 5 V | 1,0 mm² | — |
 | 42 | Buck MP1584 **OUT +** | panel 4,3", 5 V | 1,0 mm² | — |
 | 43 | Buck MP1584 **OUT −** | masa paneli (wspólna z Nano #1) | 1,0 mm² | — |
@@ -157,6 +167,12 @@ dioda TVS 1.5KE33CA równolegle oraz kondensator 470 µF / 35 V równolegle.
 > **Dioda gaszeniowa 1N4007** równolegle do cewki przekaźnika: **katoda do
 > zacisku 86**, anoda do 85. Bez niej przepięcie przy rozwarciu cewki wraca
 > do instalacji.
+
+> **XL6019 daje ok. 45 W, nie 65 W** (limit prądu klucza 5 A). Przed
+> uruchomieniem w aucie ustaw limit poboru pakietu CPU na M910q —
+> [`ZASILANIE_BUFOROWANE.md`](ZASILANIE_BUFOROWANE.md) §3.5a. Wyjścia
+> przetwornicy **nie da się użyć jako wyłącznika** komputera: boost przepuszcza
+> napięcie wejściowe, więc odcina wyłącznie przekaźnik zapłonu (poz. 32).
 
 ### 2.6 Gałąź wzmacniaczy (niezależna)
 
@@ -378,6 +394,7 @@ brak**. Sygnały wyzwalające wchodzą przez PC817 na Nano #2.
 | 3 A | listwa, obwód 1 | domena A |
 | 3 A | odgałęzienie buck MP1584 | panele wyświetlaczy |
 | 3 A | odgałęzienie hub USB | hub i peryferia |
+| 15 A | między bankiem a XH-M609 **VIN +** | moduł LVD i cała szyna za nim |
 | 2 A | zasilanie/pomiar modułu nadnapięciowego | obwód pomiarowy |
 
 Wszystkie w listwie dystrybucyjnej ATO/ATC z pokrywą, w miejscu dostępnym
@@ -434,10 +451,12 @@ To samo dotyczy Arduino: wgraj firmware i sprawdź każdą płytkę przez
 [ ] Bezpiecznik główny 30 A WYJĘTY
 [ ] Rozłącznik masy banku ROZWARTY
 [ ] Polaryzacja na wtyku M910q sprawdzona multimetrem (środek „+”)
-[ ] Step-up ustawiony na 19,5 V i przetestowany pod obciążeniem
+[ ] XL6019 ustawiony na 19,5 V i przetestowany pod obciążeniem
+[ ] Limit poboru pakietu CPU ustawiony na M910q (wymóg przy XL6019)
 [ ] Ładowarka: CV 14,40 V, CC 6,0 A
 [ ] Rozłącznik nadnapięciowy: 15,30 V / 14,00 V, sprawdzony zasilaczem lab.
-[ ] LVD: 11,00 V / 12,60 V, sprawdzony zasilaczem laboratoryjnym
+[ ] XH-M609: 11,00 V / 12,60 V, sprawdzony zasilaczem laboratoryjnym
+[ ] XH-M609: potwierdzone, że przełącza plus, i zmierzony pobór własny
 [ ] Buck domeny A: 5,0 V na wyjściu (zmierzone, nie „powinno być”)
 [ ] Buck paneli: 5,0 V na wyjściu
 [ ] Dioda 1N4007 na cewce przekaźnika — katoda do 86
