@@ -13,6 +13,8 @@
  *   TEMP:23.5                                    DS18B20 [°C]
  *   PARK:FL=123,FR=45,RL=200,RR=180              dystanse [cm]
  *   CRUISE:1 / IMMO:1 / AIRBAG:1                 opcjonalne
+ *   PWR:RUNNING|SLEEP|OFF|UNKNOWN                stan M910q
+ *   PWRACT:SHORT|LONG                            wysłany impuls na przycisk
  *
  * ================= WŁĄCZANIE / WYŁĄCZANIE FUNKCJI =================
  * Każda funkcja ma własny przełącznik kompilacji. Zakomentuj
@@ -25,6 +27,12 @@
 #define FEATURE_RAIN       // moduł czujnika deszczu, wyjście cyfrowe (D10)
 #define FEATURE_TEMP       // DS18B20 1-Wire (D11) — wymaga bibliotek
                            // OneWire + DallasTemperature
+#define FEATURE_PWRBTN     // sterowanie przyciskiem zasilania M910q (A0)
+                           // — zapłon usypia do S3 i wybudza. Wymaga
+                           // FEATURE_IGN. Szczegóły niżej.
+#define FEATURE_PWRLED     // odczyt diody zasilania panelu przedniego (A1)
+                           // — zamyka pętlę: firmware WIE, czy maszyna
+                           // pracuje, zamiast zgadywać. Opcjonalne.
 // #define FEATURE_PARK    // 4x HC-SR04 (TRIG D12, ECHO A0-A3).
                            // DOMYŚLNIE WYŁĄCZONE — czujniki parkowania
                            // obsługuje moduł parking na GPIO (Part 4).
@@ -48,10 +56,37 @@
  *   D10 Deszcz        (wyjście DO modułu czujnika; LOW = deszcz)
  *   D11 DS18B20 DQ    (+4.7kΩ pull-up do 5V)
  *   D12 HC-SR04 TRIG  (wspólny dla 4 czujników)
- *   A0-A3 HC-SR04 ECHO FL/FR/RL/RR (przez dzielnik 1k/2k z 5V!)
+ *   A0  Przekaźnik przycisku zasilania M910q  (FEATURE_PWRBTN)
+ *   A1  Dioda zasilania panelu przedniego     (FEATURE_PWRLED)
+ *   A0-A3 HC-SR04 ECHO FL/FR/RL/RR — TYLKO z FEATURE_PARK, które
+ *         wyklucza się z FEATURE_PWRBTN (patrz #error niżej)
  *   A4  Tempomat, A5 Immo (opcje), D13 Airbag (opcja)
  *
  * Watchdog: 2 s — zawieszenie = automatyczny reset.
+ *
+ * --- Sterowanie zasilaniem M910q (FEATURE_PWRBTN) ---
+ * Styki modułu przekaźnika 1-kanałowego wpięte RÓWNOLEGLE do przycisku
+ * zasilania M910q. Nie ma tu żadnego protokołu — impuls zwiera przycisk,
+ * a całą logikę ma już system operacyjny:
+ *
+ *   praca      + krótkie wciśnięcie → S3
+ *   S3         + krótkie wciśnięcie → wybudzenie (~3 s)
+ *   wyłączony  + krótkie wciśnięcie → start
+ *   dowolny    + przytrzymanie 5 s  → twarde wyłączenie
+ *
+ * Po stronie hosta: acpid (event=button/power → bcm-power-toggle.sh)
+ * plus HandlePowerKey=ignore w logind.conf — jedno i drugie jest już
+ * skonfigurowane, patrz docs/WDROZENIE_M910Q.md §7.3.
+ *
+ * Płytka MUSI mieć własne 5 V (MP1584 z bufora), niezależne od USB —
+ * inaczej gaśnie razem z komputerem i nie ma czym nacisnąć przycisku.
+ * W kablu USB przetnij żyłę VBUS.
+ *
+ * Bez FEATURE_PWRLED firmware działa w pętli otwartej: zakłada stan
+ * maszyny po własnych impulsach i reaguje wyłącznie na ZMIANĘ zapłonu,
+ * więc reset watchdogiem nie powoduje przypadkowego wciśnięcia.
+ * Z FEATURE_PWRLED odczytuje stan z diody panelu (świeci = praca,
+ * miga = S3, zgaszona = wyłączony) i sam się synchronizuje.
  */
 
 #include <avr/wdt.h>
@@ -76,6 +111,18 @@
 #define PIN_CRUISE    A4
 #define PIN_IMMO      A5
 #define PIN_AIRBAG    13
+#define PIN_PWR_RELAY A0
+#define PIN_PWR_LED   A1
+
+#if defined(FEATURE_PWRBTN) && !defined(FEATURE_IGN)
+#error "FEATURE_PWRBTN wymaga FEATURE_IGN - to zaplon steruje maszyna"
+#endif
+#if defined(FEATURE_PWRBTN) && defined(FEATURE_PARK)
+#error "Konflikt pinow: FEATURE_PARK uzywa A0-A3 na ECHO, FEATURE_PWRBTN A0/A1"
+#endif
+#if defined(FEATURE_PWRLED) && !defined(FEATURE_PWRBTN)
+#error "FEATURE_PWRLED bez FEATURE_PWRBTN nie ma czego synchronizowac"
+#endif
 
 // --- Cadence ---
 #define DEBOUNCE_MS        50
@@ -83,6 +130,21 @@
 #define TEMP_REPORT_MS   5000
 #define PARK_CYCLE_MS     100   // jeden czujnik na cykl → pełny skan 400 ms
 #define PARK_ECHO_TIMEOUT_US 25000UL  // ~4.3 m maks. zasięg
+
+#ifdef FEATURE_PWRBTN
+// Większość tanich modułów przekaźnikowych wyzwala się stanem NISKIM.
+// Jeśli Twój jest odwrotny — zmień na 0. Dodatkowo warto dać 10 kΩ
+// pull-up na IN, żeby przekaźnik nie zadziałał w kilku ms przed setup().
+#define PWR_RELAY_ACTIVE_LOW  1
+#define PWR_LED_ACTIVE_LOW    1     // PC817 na diodzie: świeci → pin LOW
+
+#define PWR_PULSE_SHORT_MS     250UL      // krótkie wciśnięcie
+#define PWR_PULSE_LONG_MS     5000UL      // przytrzymanie → twarde wyłączenie
+#define PWR_SETTLE_MS        15000UL      // po impulsie nie ruszamy niczego
+#define PWR_IGN_CONFIRM_MS    2000UL      // zapłon musi się utrzymać (rozruch!)
+#define PWR_OFF_AFTER_MS   7200000UL      // 2 h zgaszonego zapłonu → wyłącz
+#define PWR_LED_WINDOW_MS     1600UL      // okno rozpoznania migania diody
+#endif
 
 #ifdef FEATURE_DOORS
 const uint8_t DOOR_PINS[6]  = {PIN_DOOR_FL, PIN_DOOR_FR, PIN_DOOR_RL,
@@ -137,11 +199,49 @@ uint8_t parkIdx = 0;
 unsigned long lastParkCycle = 0;
 #endif
 
+#ifdef FEATURE_PWRBTN
+enum PwrState : uint8_t { PWR_UNKNOWN = 0, PWR_RUNNING, PWR_SLEEP, PWR_OFF };
+const char* const PWR_NAMES[4] = {"UNKNOWN", "RUNNING", "SLEEP", "OFF"};
+
+PwrState pwrState   = PWR_UNKNOWN;   // co (naszym zdaniem) robi maszyna
+PwrState pwrDesired = PWR_UNKNOWN;   // czego od niej chcemy
+
+bool          pwrIgnKnown  = false;  // czy zapłon jest już potwierdzony
+bool          pwrIgnLevel  = false;  // ostatni potwierdzony poziom
+bool          pwrIgnCand   = false;  // kandydat oczekujący na potwierdzenie
+unsigned long pwrIgnCandAt = 0;
+unsigned long pwrIgnOffAt  = 0;      // kiedy zapłon zgasł (do eskalacji)
+bool          pwrOffDone   = false;  // twarde wyłączenie już wysłane
+
+unsigned long pwrPulseUntil  = 0;    // trwa impuls do tej chwili (0 = brak)
+unsigned long pwrSettleUntil = 0;    // cisza po impulsie
+#endif
+
+#ifdef FEATURE_PWRLED
+bool          pwrLedLit      = false;
+uint8_t       pwrLedEdges    = 0;
+unsigned long pwrLedWindowAt = 0;
+#endif
+
 unsigned long lastStateRefresh = 0;
 
 // -----------------------------------------------------------------------------
 void setup() {
   wdt_disable();  // czysty stan po resecie watchdogiem
+
+#ifdef FEATURE_PWRBTN
+  // NAJPIERW przekaźnik w stan nieaktywny — zanim cokolwiek innego zdąży
+  // potrwać. Pin do tej chwili był wejściem (Hi-Z), stąd zalecany pull-up.
+#if PWR_RELAY_ACTIVE_LOW
+  digitalWrite(PIN_PWR_RELAY, HIGH);
+#else
+  digitalWrite(PIN_PWR_RELAY, LOW);
+#endif
+  pinMode(PIN_PWR_RELAY, OUTPUT);
+#endif
+#ifdef FEATURE_PWRLED
+  pinMode(PIN_PWR_LED, INPUT_PULLUP);
+#endif
 
 #ifdef FEATURE_DOORS
   for (uint8_t i = 0; i < 6; i++) pinMode(DOOR_PINS[i], INPUT_PULLUP);
@@ -278,6 +378,135 @@ void handlePark(unsigned long now) {
 }
 #endif
 
+#ifdef FEATURE_PWRBTN
+void pwrRelay(bool on) {
+#if PWR_RELAY_ACTIVE_LOW
+  digitalWrite(PIN_PWR_RELAY, on ? LOW : HIGH);
+#else
+  digitalWrite(PIN_PWR_RELAY, on ? HIGH : LOW);
+#endif
+}
+
+void pwrSetState(PwrState s) {
+  if (s == pwrState) return;
+  pwrState = s;
+  Serial.print(F("PWR:"));
+  Serial.println(PWR_NAMES[s]);
+}
+
+// Impuls jest NIEBLOKUJĄCY — 5 s w delay() zabiłoby watchdoga (2 s).
+void pwrStartPulse(unsigned long ms, const __FlashStringHelper* what) {
+  pwrRelay(true);
+  pwrPulseUntil = millis() + ms;
+  Serial.print(F("PWRACT:"));
+  Serial.println(what);
+}
+
+#ifdef FEATURE_PWRLED
+// Dioda panelu: świeci ciągle = praca, miga = S3, zgaszona = wyłączony.
+// Rozpoznajemy przez zliczanie zboczy w oknie PWR_LED_WINDOW_MS.
+void pwrObserveLed(unsigned long now) {
+  bool lit = digitalRead(PIN_PWR_LED) == (PWR_LED_ACTIVE_LOW ? LOW : HIGH);
+  if (lit != pwrLedLit) {
+    pwrLedLit = lit;
+    if (pwrLedEdges < 250) pwrLedEdges++;
+  }
+  if (now - pwrLedWindowAt < PWR_LED_WINDOW_MS) return;
+  pwrLedWindowAt = now;
+
+  if (pwrLedEdges >= 2)   pwrSetState(PWR_SLEEP);
+  else if (pwrLedLit)     pwrSetState(PWR_RUNNING);
+  else                    pwrSetState(PWR_OFF);
+  pwrLedEdges = 0;
+}
+#endif
+
+void handlePwrButton(unsigned long now) {
+  // 1. Domknij trwający impuls i odczekaj, aż maszyna wykona przejście.
+  if (pwrPulseUntil) {
+    if ((long)(now - pwrPulseUntil) >= 0) {
+      pwrRelay(false);
+      pwrPulseUntil = 0;
+      pwrSettleUntil = now + PWR_SETTLE_MS;
+    }
+    return;
+  }
+
+#ifdef FEATURE_PWRLED
+  pwrObserveLed(now);
+#endif
+
+  // 2. Potwierdzenie zapłonu. DEBOUNCE_MS (50 ms) wystarcza do raportowania
+  //    IGN:, ale nie do usypiania komputera — zapad przy rozruchu potrafi
+  //    zgasić ACC na chwilę. Stąd osobne, dłuższe potwierdzenie.
+  bool ign = inIgn.state;
+
+  if (!pwrIgnKnown) {
+    if (ign != pwrIgnCand) { pwrIgnCand = ign; pwrIgnCandAt = now; }
+    if ((now - pwrIgnCandAt) >= PWR_IGN_CONFIRM_MS) {
+      pwrIgnLevel = ign;
+      pwrIgnKnown = true;
+      if (!ign) pwrIgnOffAt = now;
+    }
+    return;  // pierwsza obserwacja po starcie NIE wywołuje akcji
+  }
+
+  if (ign != pwrIgnCand) { pwrIgnCand = ign; pwrIgnCandAt = now; }
+  if (pwrIgnCand != pwrIgnLevel && (now - pwrIgnCandAt) >= PWR_IGN_CONFIRM_MS) {
+    pwrIgnLevel = pwrIgnCand;
+    if (pwrIgnLevel) {
+      pwrDesired = PWR_RUNNING;
+    } else {
+      pwrIgnOffAt = now;
+      pwrOffDone  = false;
+      pwrDesired  = PWR_SLEEP;
+    }
+  }
+
+  // 3. Eskalacja: po dwóch godzinach postoju S3 przestaje się opłacać.
+  if (!pwrIgnLevel && !pwrOffDone && (now - pwrIgnOffAt) >= PWR_OFF_AFTER_MS) {
+    pwrDesired = PWR_OFF;
+  }
+
+  // 4. Wykonanie. Zamiar jest JEDNORAZOWY — po impulsie kasujemy go, żeby
+  //    firmware nie walczył z człowiekiem, który sam nacisnął przycisk.
+  if (now < pwrSettleUntil) return;
+  if (pwrDesired == PWR_UNKNOWN) return;
+  if (pwrDesired == pwrState) { pwrDesired = PWR_UNKNOWN; return; }
+
+  switch (pwrDesired) {
+    case PWR_RUNNING:
+      pwrStartPulse(PWR_PULSE_SHORT_MS, F("SHORT"));
+#ifndef FEATURE_PWRLED
+      pwrSetState(PWR_RUNNING);
+#endif
+      break;
+
+    case PWR_SLEEP:
+      // Z wyłączonej maszyny nie robimy S3 — krótki impuls by ją WŁĄCZYŁ.
+      if (pwrState == PWR_OFF) { pwrDesired = PWR_UNKNOWN; break; }
+      pwrStartPulse(PWR_PULSE_SHORT_MS, F("SHORT"));
+#ifndef FEATURE_PWRLED
+      pwrSetState(PWR_SLEEP);
+#endif
+      break;
+
+    case PWR_OFF:
+      pwrStartPulse(PWR_PULSE_LONG_MS, F("LONG"));
+      pwrOffDone = true;
+#ifndef FEATURE_PWRLED
+      pwrSetState(PWR_OFF);
+#endif
+      break;
+
+    default:
+      break;
+  }
+
+  pwrDesired = PWR_UNKNOWN;
+}
+#endif
+
 void reportFullState() {
 #ifdef FEATURE_DOORS
   reportDoors();
@@ -299,6 +528,10 @@ void reportFullState() {
 #endif
 #ifdef FEATURE_AIRBAG
   reportBool(F("AIRBAG:"), inAirbag.state);
+#endif
+#ifdef FEATURE_PWRBTN
+  Serial.print(F("PWR:"));
+  Serial.println(PWR_NAMES[pwrState]);
 #endif
 }
 
@@ -334,6 +567,9 @@ void loop() {
 #endif
 #ifdef FEATURE_PARK
   handlePark(now);
+#endif
+#ifdef FEATURE_PWRBTN
+  handlePwrButton(now);
 #endif
 
   // Okresowe odświeżenie pełnego stanu — BCM po restarcie dostaje

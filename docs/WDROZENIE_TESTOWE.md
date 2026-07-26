@@ -482,92 +482,18 @@ przez LVD.
 
 ## 4. Lista zakupowa
 
-Ceny orientacyjne, rynek PL, 2025/2026.
+Cała lista — jedna tabela, z cenami i uzasadnieniem każdej pozycji — jest
+w osobnym dokumencie: **[`LISTA_ZAKUPOWA.md`](LISTA_ZAKUPOWA.md)**.
 
-### 4.1 Tor ładowania i ochrona — obowiązkowe
+| | |
+|---|---|
+| **Razem do kupienia** | **~479–923 PLN** |
+| Największe pozycje | moduł CC-CV boost (50–140), rozłącznik nadnapięciowy (40–80), skrzynka na bank (60–120), rozłącznik masy (40–70) |
+| Czego **nie** kupujesz | VSR, ładowarka B2B, DAC USB, karta WiFi, buck dla panelu — pełna lista z powodami tamże |
+| Warto dołożyć | multimetr z pomiarem prądu DC 10 A — bez niego nie odbierzesz instalacji |
 
-| # | Element | Specyfikacja | Cena (PLN) |
-|---|---------|--------------|-----------|
-| 1 | **Przekaźnik ładowania + dioda** | 30 A SPDT z podstawką + **MBR2545CT** — §3.2a | 20–37 |
-| 2 | **Moduł CC-CV boost** | „900 W 15 A" z wyświetlaczem albo SZBK07 — modele w §3.2a | 50–140 |
-| 3 | **Rozłącznik nadnapięciowy** | przekaźnik napięciowy programowalny (XY-WJ01 lub odpowiednik), próg 15,30 V | 40–80 |
-| 4 | **Dioda 1N4007** | gaszeniowa, równolegle do cewki przekaźnika | 2–5 |
-| 5 | **Dioda TVS + kondensator** | 1.5KE33CA lub SMCJ26CA + 470 µF/35 V low-ESR | 10–20 |
-| 6 | **LM2596 12 → 5 V** | zasilanie podświetlenia panelu — §3.1b | 5–10 |
-| 6a | **MP1584 12 → 5 V** | zasilanie Pro Micro niezależne od USB — §3.1a | 5–15 |
-| 6b | **Moduł przekaźnika 1-kanałowy 5 V** | styki równolegle do przycisku zasilania M910q — §3.1a | 5–12 |
-| 7 | **Radiator + wentylator 40 mm** | do XL6019 — w aucie obowiązkowy | 20–35 |
-| 8 | **Radiator do MBR2545CT** | ok. 4,5 W ciągłej straty + podkładka izolacyjna | 5–15 |
-| 9 | **Kondensator wyjściowy** | 470 µF/35 V low-ESR na wyjście XL6019 | 3–6 |
-| | | **Podsuma** | **165–375** |
-
-> **Przekaźnika zapłonu do odbiorników już nie ma** — M910q jest zasilany
-> stale, a zapłon jest tylko sygnałem dla Arduino (§3.1a). Jedyny przekaźnik
-> w tym wariancie siedzi w torze ładowania.
-
-### 4.2 Bezpieczniki i okablowanie — obowiązkowe
-
-| # | Element | Specyfikacja | Cena (PLN) |
-|---|---------|--------------|-----------|
-| 10 | Bezpiecznik **15 A** + oprawka przy klemie „+” | zasilanie ładowarki | 15–25 |
-| 11 | Bezpieczniki inline **10 A × 5** + oprawki | po jednym na pakiet | 25–40 |
-| 12 | Bezpiecznik inline **15 A** + oprawka | przed VIN+ modułu XH-M609 | 8–12 |
-| 13 | Bezpiecznik **7,5 A** + oprawka | odgałęzienie do XL6019 (strona 12 V) — §3.1 | 8–12 |
-| 14 | Bezpiecznik **2 A** + oprawka | odgałęzienie do LM2596 (podświetlenie) — §3.1b | 8–12 |
-| 15 | Przewód **2,5 mm²** | FLRY, czerwony 5 m + czarny 3 m | 40–60 |
-| 16 | Przewód **1,5 mm²** | FLRY, czerwony + czarny po 3 m | 15–25 |
-| 17 | Przewód **0,75 mm²** | FLRY, kilka kolorów po 2 m (sygnał zapłonu, sterowanie) | 15–25 |
-| 18 | Nasuwki **F2 6,35 mm** izolowane | do zacisków HR1221W, komplet | 15–25 |
-| 19 | Konektory oczkowe, tulejki, koszulki | zestaw, koszulki z klejem | 30–50 |
-| 20 | **Rozłącznik masy** | 100 A — obowiązkowy, jedyne realne zero poboru (§3.1a) | 40–70 |
-| 21 | Skrzynka / wspornik na bank + pasy | na 5 pakietów, mocowanie do nadwozia | 60–120 |
-| 22 | Peszel + przelotki gumowe | przejścia przez blachę | 25–40 |
-| | | **Podsuma** | **304–516** |
-
-**Razem obowiązkowo: ~469–891 PLN.** Dolny kraniec to moduł „600 W"
-na potencjometrach, górny — boost z wyświetlaczem i droższe okablowanie.
-Przy pierwszej instalacji warto dopłacić przynajmniej za moduł CC-CV
-z odczytem cyfrowym.
-
-> **Przekrój 2,5 mm² zamiast 6 mm²** jest tu policzony pod ten wariant:
-> 8 A ładowania to ok. 9 A po stronie wejścia, a bezpiecznik 15 A chroni
-> przewód z zapasem. Przy przejściu na ładowarkę B2B (18–25 A) trzeba
-> **wymienić i przewód, i bezpiecznik** na 6 mm² / 30 A.
-
-### 4.3 Zależne od tego, co już masz
-
-| # | Element | Kiedy potrzebne | Cena (PLN) |
-|---|---------|----------------|-----------|
-| 23 | **Arduino Pro Micro** (ATmega32U4) | jeśli nie masz — pody SWC bez niego nie zadziałają | 40–60 |
-| 24 | **Wtyk zasilania do M910q** | najtaniej: odetnij kabel od oryginalnego zasilacza (koszt 0) | 0–40 |
-| 25 | **Przejściówka DP → HDMI** | tylko jeśli Twój egzemplarz M910q ma wyjścia DisplayPort — sprawdź (§5.2) | 0–25 |
-| 26 | **Kabel USB bez żyły VBUS** | do Pro Micro — albo przetnij czerwoną żyłę w zwykłym, koszt 0 | 0–20 |
-| 27 | **Zaciskarka zapadkowa** | zaciski robione kombinerkami to najczęstsza usterka instalacji | 0–150 |
-| 28 | **Ładowarka sieciowa AGM** | doładowanie w garażu przy krótkich przejazdach | 0–250 |
-
-### 4.4 Warto, ale nie na start
-
-| # | Element | Po co | Cena (PLN) |
-|---|---------|-------|-----------|
-| 29 | Woltomierz/amperomierz panelowy z bocznikiem | podgląd banku i prądu ładowania bez multimetru | 40–70 |
-| 30 | Multimetr z pomiarem prądu DC 10 A | pomiar poboru XH-M609 w S3 i prądu ładowania | 80–200 |
-
-### 4.5 Czego **nie** kupuj na tym etapie
-
-| Element | Dlaczego |
-|---------|----------|
-| Ładowarka B2B (Victron / Redarc) | wariant B robi to samo za ~1/5 ceny — §3.2 |
-| Czujnik NTC | tanie moduły CC-CV nie mają wejścia kompensacji, więc nie ma go gdzie wpiąć — §3.2 |
-| Moduł buck-boost LTC3780 | utrzyma 13,8 V, ale tylko 80 W ciągle — za mało przy pięciu pakietach, §3.2a |
-| Przewód 6 mm², bezpiecznik główny 30 A | wymiarowane pod ładowarkę B2B — §4.2 |
-| Listwa dystrybucyjna 6–8 obwodów | trzy obwody obsłużą oprawki inline |
-| Buck 12 → 5 V dla domeny A | nie ma jeszcze Nano, HM-10 ani RXB6 |
-| Buck 12 → 5 V dla panelu | panel wisi na USB M910q — §3.1 |
-| Moduł 9 przekaźników, oba Nano, HM-10, RXB6 | odpowiednie moduły są wyłączone |
-| DAC USB ES9038Q2M | mini-jack M910q wystarcza do weryfikacji — §1 |
-| Karta WiFi | **masz MT7921 i P2P-GO już działa** |
-| Wzmacniacz, głośniki | osobna gałąź z akumulatora rozruchowego, po testach |
-| Drugi ekran, kamery, graber, czujniki | odpowiednie moduły są wyłączone |
+Masz już: M910q, ekran 7", MT7921, pody SWC, modem LTE, 8 × HR1221W,
+XL6019, XH-M609, Pro Micro, Nano V3, LM2596 i MP1584.
 
 ---
 
@@ -821,6 +747,7 @@ przejdź na `bcm_config.yaml`, gdy większość będzie już podłączona.
 
 | Dokument | Zakres |
 |----------|--------|
+| [`LISTA_ZAKUPOWA.md`](LISTA_ZAKUPOWA.md) | **wszystko do kupienia w jednej tabeli** |
 | [`WDROZENIE_M910Q.md`](WDROZENIE_M910Q.md) | wdrożenie docelowe, pełne |
 | [`ZASILANIE_BUFOROWANE.md`](ZASILANIE_BUFOROWANE.md) | warianty ładowania, nastawy modułów, sprawdzenia przed załączeniem |
 | [`SCHEMATY_POLACZEN.md`](SCHEMATY_POLACZEN.md) | tabele połączeń dla wersji docelowej |

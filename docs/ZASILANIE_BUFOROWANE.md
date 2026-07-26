@@ -966,6 +966,9 @@ dłuższym postoju; jeśli tak wygląda Twój profil użytkowania, rozważ
 
 ## 10. Lista zakupowa
 
+> Ta lista dotyczy **wersji docelowej**. Budujesz wariant testowy?
+> Wszystko w jednej tabeli: [`LISTA_ZAKUPOWA.md`](LISTA_ZAKUPOWA.md).
+
 ### 10.1 Już posiadane
 
 | Element | Rola w torze | Uwaga |

@@ -26,6 +26,7 @@ def listener(monkeypatch):
         "vehicle.immo_ok",
         "vehicle.airbag_ok",
         "vehicle.fuel_raw",
+        "vehicle.power_state",
     ):
         bus.subscribe(topic, lambda t, v, ts: events.append((t, v)))
     lst._events = events  # test-only attachment
@@ -78,6 +79,23 @@ class TestParseLine:
         topic, value = _only_event(listener)
         assert topic == "vehicle.ignition_raw"
         assert value is False
+
+    def test_power_state(self, listener):
+        listener._parse_line("PWR:RUNNING")
+        topic, value = _only_event(listener)
+        assert topic == "vehicle.power_state"
+        assert value == "RUNNING"
+
+    def test_power_state_sleep(self, listener):
+        listener._parse_line("PWR:SLEEP")
+        topic, value = _only_event(listener)
+        assert topic == "vehicle.power_state"
+        assert value == "SLEEP"
+
+    def test_power_action_is_informational(self, listener):
+        # PWRACT: to log diagnostyczny, nie zdarzenie na magistrali.
+        listener._parse_line("PWRACT:LONG")
+        assert listener._events == []
 
     def test_rain(self, listener):
         listener._parse_line("RAIN:1")
