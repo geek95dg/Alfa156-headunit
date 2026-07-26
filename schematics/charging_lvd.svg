@@ -135,7 +135,7 @@
   <text class="warn" x="52" y="814">HR1221W to AGM — 14,4 V jest prawidłowe, nie za dużo.</text>
   <text class="note" x="52" y="832">Katalog CSB: cykliczne 14,4–15,0 V, buforowe 13,5–13,8 V @ 25 °C. Wartości 14,4 / 13,65 V</text>
   <text class="note" x="52" y="848">to dolne krańce obu zakresów — najłagodniejsze dla żywotności.</text>
-  <text class="note" x="52" y="870">Bez kompensacji temperaturowej: absorpcja na stałe 14,4 V, próg warstwy 2 obniż do 14,80 V.</text>
+  <text class="note" x="52" y="870">Bez kompensacji temperaturowej: absorpcja 14,4 V, próg warstwy 2 zostaje 15,30 V.</text>
 
   <!-- ===== TEMP COMPENSATION TABLE ===== -->
   <rect x="596" y="516" width="290" height="228" fill="#fbfcfd" stroke="#c8d2da" stroke-width="1.5" rx="6"/>

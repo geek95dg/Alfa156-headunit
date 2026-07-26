@@ -496,8 +496,70 @@ akumulator → bezp. 30 A → VSR → moduł CC-CV boost → blokada nadnapięci
 
 | Element | Rola | Nastawa | Cena |
 |---------|------|---------|------|
-| **VSR** (voltage sensitive relay) 12 V / 140 A | zwiera obwód dopiero, gdy alternator pracuje | zał. 13,3 V, wył. 12,8 V | 60–120 PLN |
-| **Moduł CC-CV boost** 300 W / 10 A z regulacją prądu i napięcia | podnosi 13,75 V → 14,4 V i limituje prąd | CV 14,40 V, CC 6,0 A | 60–100 PLN |
+| **VSR** (voltage sensitive relay) 12 V / 140 A | zwiera obwód dopiero, gdy alternator pracuje | zał. 13,3 V, wył. 12,8 V | 60–250 PLN |
+| **Moduł CC-CV boost** z regulacją prądu i napięcia | podnosi 13,75 V → 14,4 V i limituje prąd | CV 14,40 V, CC 6,0 A | 50–140 PLN |
+
+#### 5.3a Konkretne moduły CC-CV
+
+Wszystkie trzy to **boost**, więc nastawa CV musi być wyższa od napięcia
+wejściowego — patrz §5.3b.
+
+| Model | Dane | Cena | Kiedy ten |
+|-------|------|------|-----------|
+| **„900 W 15 A" z wyświetlaczem** (typ CNC/DPS, wej. 8–60 V, wyj. 10–120 V) | CC 0–15 A, nastawa cyfrowa z odczytem, pamięć nastaw | 90–140 PLN | **domyślny wybór** — wpisujesz 14,40 V i 6,0 A i odczytujesz z powrotem, zamiast celować potencjometrem |
+| **SZBK07** (SZ-BT07CCCV-D1, „1500 W 30 A", wej. 10–60 V, wyj. 12–90 V) | CC 0,8–20 A ±0,3 A · sprawność 92–97 % · ochrona odwrotnej polaryzacji · 130 × 84 × 52 mm | 80–130 PLN | gdy chcesz duży zapas mocy i zimną pracę; nastawa potencjometrami |
+| **„600 W 10 A"** (wej. 10–60 V, wyj. 12–80 V) | CC-CV potencjometrami | 50–80 PLN | wystarczy przy trzech pakietach (CC do 6 A) |
+
+> **„Auto output on power-on".** Moduły z wyświetlaczem mają opcję
+> automatycznego załączenia wyjścia po podaniu zasilania. Jeżeli zostanie
+> wyłączona, to po każdym uruchomieniu silnika moduł stoi z wyjściem OFF
+> i **bank się nie ładuje, bez żadnego objawu**. Ustaw to przy nastawianiu
+> i sprawdź, odcinając i podając zasilanie.
+
+#### 5.3b Nastawa CV musi być wyższa od wejścia
+
+Boost ma władzę nad prądem **tylko wtedy, gdy przetwarza** — czyli gdy
+napięcie wyjściowe jest wyższe od wejściowego. Poniżej tego progu duty
+schodzi do zera i moduł przechodzi w **pass-through**: prąd płynie przez
+dławik i diodę, a pętla CC nie ma czym sterować. To ta sama fizyka, którą
+§3.2a opisuje dla XL6019.
+
+Praktycznie: przy pracującym alternatorze na wejściu modułu jest
+**13,4–14,2 V** (zależnie od spadku na przewodzie). Rozładowany bank ma
+12,0 V. W pass-through różnicę 1,5–2 V ogranicza tylko rezystancja
+okablowania i banku — przy ~50 mΩ to **ponad 30 A**, czyli przepalony
+bezpiecznik w najlepszym razie.
+
+| Nastawa CV | Co się dzieje |
+|-----------|---------------|
+| **14,40 V** | wyjście zawsze powyżej wejścia → moduł zawsze przetwarza → **CC działa** ✅ |
+| 13,80 V | wejście bywa wyższe → pass-through → **CC nie działa** ❌ |
+
+Dlatego **CV = 14,40 V**, a nie 13,80 V. Konsekwencje przyjmujesz świadomie:
+próg warstwy 2 zostaje na **15,30 V** (§6.2), a kompensacji temperaturowej
+nie ma.
+
+**Co to łagodzi:** przy VSR napięcie absorpcji jest podawane **wyłącznie
+podczas pracy silnika**. Na postoju VSR rozwiera obwód i bank stoi na własnym
+napięciu spoczynkowym — nie jest trzymany na 14,4 V na okrągło. To zupełnie
+inny reżim niż stały float 14,4 V i dla pracy buforowej całkowicie
+akceptowalny.
+
+**Jeżeli mimo wszystko chcesz 13,80 V**, potrzebujesz topologii z władzą
+w obie strony — modułu **buck-boost**:
+
+| Model | Dane | Cena | Haczyk |
+|-------|------|------|--------|
+| **LTC3780** (moduł WD2002SJ / XR-131, wej. 5–32 V, wyj. 1–30 V) | buck-boost, CC + CV + próg podnapięciowy (trzy potencjometry), 10 A szczytowo | 50–90 PLN | **7 A i 80 W ciągle** — przy 13,8 V to tylko ~5,8 A, więc po odjęciu obciążenia do banku idzie mało. Do trzech pakietów w porządku, do ośmiu bez sensu |
+
+#### 5.3c Konkretne VSR-y
+
+| Model | Progi | Cena | Uwaga |
+|-------|-------|------|-------|
+| **Durite 0-727-11** — 12 V / 140 A | zał. 13,3 V · rozł. 12,65 V | 150–250 PLN | markowy, zalany żywicą, dioda LED stanu; progi fabrycznie dokładnie takie, jakich potrzebujesz |
+| **Victron Cyrix-ct 12/24-120** | sterowany mikroprocesorem | 250–350 PLN | najbardziej odporny i bezobsługowy; przy 6–9 A mocno przewymiarowany |
+| Bezmarkowy „VSR 12 V 140 A dual battery isolator" | zwykle 13,3 / 12,8 V | 60–120 PLN | działa, ale **zweryfikuj progi zasilaczem laboratoryjnym** przed montażem — potrafią być przekłamane o 0,3 V |
+| **Zamiennik: przekaźnik 30 A sterowany z D+** | zwiera, gdy alternator ładuje | 15–25 PLN | tor ładowania niesie 6–9 A, więc 140 A to przesada. Wymaga znalezienia zacisku **D+/L** alternatora i sprawdzenia, czy lampka kontrolna dalej działa — cewka pobiera ~150 mA z jej obwodu |
 
 **Dlaczego VSR, a nie dioda Schottky.** Boost nie może dawać napięcia
 niższego niż wejściowe — przy zgaszonym silniku (12,4 V na akumulatorze
@@ -511,12 +573,19 @@ dołożyć przekaźnik sterowany z ACC, który odcina ładowarkę przy zgaszonym
 silniku.
 
 **Kompensacja temperaturowa w wariancie B** jest ręczna: tanie moduły CC-CV
-jej nie mają. Praktyczne obejście — ustaw CV na **13,8 V**, czyli górny kraniec
-katalogowego zakresu buforowego, i zrezygnuj z fazy absorpcji. Bank będzie
-ładowany do ~90 % zamiast 100 %, ale **nie zostanie przeładowany nawet przy
-50 °C w bagażniku** (13,8 V bez kompensacji odpowiada wtedy mniej więcej
-prawidłowemu float). Dla pracy buforowej to bardzo dobry kompromis, a przy
-takiej nastawie próg warstwy 2 obniż do **14,80 V**.
+jej nie mają, a — jak pokazuje §5.3b — zejście z CV do „bezpiecznych" 13,8 V
+kupuje spokój kosztem utraty ograniczenia prądowego, czyli w złą stronę.
+Zostaje **14,40 V bez kompensacji**, z trzema rzeczami, które to trzymają
+w ryzach:
+
+- VSR podaje to napięcie **tylko przy pracującym silniku**, nie na postoju,
+- rozłącznik nadnapięciowy 15,30 V łapie awarię modułu (§6),
+- bank w bagażniku rzadko przekracza 30 °C, a przy 40 °C prawidłowa absorpcja
+  to 13,95 V — czyli 14,40 V to przegrzanie o 0,45 V przez kilka godzin jazdy,
+  a nie stałe przeładowanie.
+
+Jeżeli auto stoi latem w słońcu i bagażnik dochodzi do 50 °C, obniż CV do
+**14,10 V** — nadal powyżej wejścia, więc CC pozostaje sprawne.
 
 ### 5.4 Ochrona wejścia
 
@@ -847,7 +916,7 @@ dłuższym postoju; jeśli tak wygląda Twój profil użytkowania, rozważ
 | # | Element | Specyfikacja | Szt. | Cena (PLN) |
 |---|---------|--------------|------|-----------|
 | 1 | **Ładowarka DC-DC** *(wariant A)* | Victron Orion-Tr Smart 12/12-18 lub odpowiednik z presetem **AGM** | 1 | 800–1000 |
-| | *albo:* VSR + moduł CC-CV boost *(wariant B)* | VSR 12 V/140 A + boost 300 W/10 A z regulacją CC i CV | 1+1 | 120–220 |
+| | *albo:* VSR + moduł CC-CV boost *(wariant B)* | VSR: **Durite 0-727-11** / Victron Cyrix-ct 12/24-120 / bezmarkowy 140 A · boost: **„900 W 15 A" z wyświetlaczem** albo **SZBK07** — pełne zestawienie w §5.3a i §5.3c | 1+1 | 110–390 |
 | 2 | **Rozłącznik nadnapięciowy** | programowalny przekaźnik napięciowy, próg 15,3 V / powrót 14,0 V | 1 | 40–80 |
 | 3 | ~~Moduł LVD~~ | **posiadany — XH-M609** | — | 0 |
 | 4 | **Przekaźnik zapłonu** | Bosch 12 V / 30 A SPDT + podstawka | 1 | 15–25 |
@@ -874,7 +943,7 @@ dłuższym postoju; jeśli tak wygląda Twój profil użytkowania, rozważ
 | 24a | **Kondensator wyjściowy** | 470 µF / 35 V low-ESR na wyjście XL6019 | 1 | 3–6 |
 | 24b | **Termistor NTC** | 5 Ω / 5 A, ogranicznik prądu rozruchowego (tylko jeśli §3.2b) | 1 | 3–6 |
 | | | | **Razem wariant A** | **~1280–1870 PLN** |
-| | | | **Razem wariant B** | **~580–1070 PLN** |
+| | | | **Razem wariant B** | **~570–1240 PLN** |
 
 Kwoty są niższe niż w pierwszej wersji listy, bo moduł LVD i przetwornica
 step-up są już na stanie.

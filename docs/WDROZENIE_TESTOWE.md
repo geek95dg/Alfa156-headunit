@@ -102,10 +102,10 @@ TVS + kondensator 470 µF/35 V        ← ochrona wejścia (§5.4 ZASILANIE)
 VSR  (zał. 13,3 V / wył. 12,8 V)     ← zwiera dopiero, gdy alternator pracuje
    │
    ▼
-moduł CC-CV boost  (CV 13,8 V, CC wg §3.3)
+moduł CC-CV boost  (CV 14,40 V, CC wg §3.3)
    │
    ▼
-rozłącznik nadnapięciowy (próg 14,80 V)   ← warstwa 2
+rozłącznik nadnapięciowy (próg 15,30 V)   ← warstwa 2
    │
    ▼
 BANK AGM 5 × HR1221W ── bezpiecznik 10 A na „+" każdego pakietu
@@ -141,24 +141,58 @@ gotową ładowarkę B2B (800–1000 PLN) albo VSR + moduł CC-CV boost
 (120–220 PLN). Na etapie testowym bierzemy **wariant B** — różnica to
 kilkaset złotych za funkcje, które przy jeździe testowej niewiele wnoszą.
 
-Do tego stosujemy kompromis z §5.3: **CV ustawione na 13,8 V, bez fazy
-absorpcji**. Konsekwencje są konkretne i warto je znać:
+**CV ustawiamy na 14,40 V, nie niżej.** To nie jest wybór estetyczny: boost
+ma władzę nad prądem tylko wtedy, gdy faktycznie przetwarza, czyli gdy
+wyjście jest wyżej niż wejście. Na wejściu modułu przy pracującym alternatorze
+jest 13,4–14,2 V, więc nastawa 13,8 V wepchnęłaby moduł w **pass-through**,
+gdzie pętla CC nie ma czym sterować, a rozładowany bank ciągnąłby ponad 30 A
+przez sam dławik. Pełne wyprowadzenie: §5.3b
+[`ZASILANIE_BUFOROWANE.md`](ZASILANIE_BUFOROWANE.md).
+
+Konsekwencje 14,40 V bez kompensacji temperaturowej — i co je łagodzi:
 
 | | |
 |---|---|
-| ✅ | nie potrzeba kompensacji temperaturowej ani czujnika NTC |
-| ✅ | 13,8 V bez kompensacji nie przeładuje banku nawet przy 50 °C |
-| ✅ | próg warstwy 2 schodzi z 15,30 V do **14,80 V** — łatwiej o tani przekaźnik napięciowy |
-| ⚠️ | bank ładuje się do ~90 %, nie do 100 % |
+| ✅ | CC działa zawsze, więc prąd ładowania jest naprawdę ograniczony |
+| ✅ | absorpcja podawana **tylko przy pracującym silniku** — VSR rozwiera obwód na postoju, bank nie stoi na 14,4 V |
+| ✅ | bank ładuje się do 100 %, nie do 90 % |
+| ⚠️ | brak kompensacji: przy 40 °C prawidłowa absorpcja to 13,95 V, czyli jedziesz 0,45 V za wysoko |
+| ⚠️ | próg warstwy 2 zostaje na **15,30 V** |
 
-Dla pracy buforowej to bardzo dobry kompromis. Przy przejściu na wariant A
-(ładowarka B2B) wracasz do 14,4 V absorpcji, kompensacji temperaturowej
-i progu 15,30 V.
+Jeśli bagażnik latem dochodzi do 50 °C — zejdź z CV do **14,10 V**. Nadal
+powyżej wejścia, więc CC pozostaje sprawne.
 
 **Dlaczego VSR, a nie dioda Schottky:** boost nie potrafi dać napięcia
-niższego niż wejściowe, więc przy zgaszonym silniku podawałby 13,8 V
+niższego niż wejściowe, więc przy zgaszonym silniku podawałby 14,4 V
 i **rozładowywał akumulator auta**. VSR rozłącza obwód fizycznie poniżej
 12,8 V. Szczegóły: §5.3 [`ZASILANIE_BUFOROWANE.md`](ZASILANIE_BUFOROWANE.md).
+
+### 3.2a Konkretne moduły
+
+**Moduł CC-CV** — trzy sensowne opcje, wszystkie to boost:
+
+| Model | Dane | Cena (PLN) | Kiedy ten |
+|-------|------|-----------|-----------|
+| **„900 W 15 A" z wyświetlaczem** (typ CNC/DPS, wej. 8–60 V, wyj. 10–120 V) | CC 0–15 A, nastawa cyfrowa z odczytem | 90–140 | **bierz ten** — wpisujesz 14,40 V i 8,0 A i odczytujesz z powrotem; przy pierwszej instalacji to warte tych 40 zł różnicy |
+| **SZBK07** (SZ-BT07CCCV-D1 „1500 W 30 A", wej. 10–60 V, wyj. 12–90 V) | CC 0,8–20 A ±0,3 A · sprawność 92–97 % · ochrona odwrotnej polaryzacji · 130 × 84 × 52 mm | 80–130 | duży zapas mocy, pracuje zimno; nastawa potencjometrami — mierz multimetrem |
+| **„600 W 10 A"** (wej. 10–60 V, wyj. 12–80 V) | CC-CV potencjometrami | 50–80 | tylko przy trzech pakietach (CC do 6 A) |
+
+> **Sprawdź „auto output on power-on"** w module z wyświetlaczem. Jeśli ta
+> opcja jest wyłączona, po każdym uruchomieniu silnika wyjście stoi w OFF
+> i bank się nie ładuje — bez żadnego objawu, dopóki nie zejdzie do LVD.
+
+Modułu **buck-boost LTC3780** (WD2002SJ / XR-131) *nie* bierz do pięciu
+pakietów: utrzymałby 13,8 V, ale ciągle daje tylko 7 A / 80 W, czyli ~5,8 A
+przy 13,8 V. Po odjęciu 3,5 A obciążenia zostaje 2,3 A do banku.
+
+**VSR** — cztery opcje, od markowej do najtańszej:
+
+| Model | Progi | Cena (PLN) | Uwaga |
+|-------|-------|-----------|-------|
+| **Durite 0-727-11** — 12 V / 140 A | zał. 13,3 V · rozł. 12,65 V | 150–250 | zalany żywicą, LED stanu, progi fabrycznie takie, jakich potrzebujesz |
+| **Victron Cyrix-ct 12/24-120** | mikroprocesorowy | 250–350 | bezobsługowy; przy 9 A przesada |
+| Bezmarkowy „VSR 12 V 140 A" | zwykle 13,3 / 12,8 V | 60–120 | **zweryfikuj progi zasilaczem** — bywają przekłamane o 0,3 V |
+| **Przekaźnik 30 A z D+ alternatora** | zwiera, gdy alternator ładuje | 15–25 | tor niesie 9 A, więc 140 A to przesada. Trzeba znaleźć zacisk **D+/L** i sprawdzić, czy lampka kontrolna dalej działa — cewka bierze ~150 mA z jej obwodu |
 
 ### 3.3 Prąd ładowania — policz go z obciążeniem
 
@@ -213,8 +247,8 @@ ponad trzykrotnie — **dlatego to zmierz**.
 | **XL6019** | wyjście **19,5 V** pod obciążeniem | ustaw multimetrem, zabezpiecz potencjometr |
 | **XH-M609** | odcięcie **11,00 V**, powrót **12,60 V** | sprawdź, czy pracuje stabilnie przy 11 V |
 | **VSR** | zał. **13,3 V**, wył. **12,8 V** | zwykle fabryczne, sprawdź kartę |
-| **CC-CV boost** | CV **13,8 V**, CC wg §3.3 | ustaw CV **bez obciążenia**, CC na sztucznym obciążeniu |
-| **Rozłącznik nadnapięciowy** | próg **14,80 V**, powrót **14,0 V** | test zasilaczem laboratoryjnym, nie „na aucie" |
+| **CC-CV boost** | CV **14,40 V**, CC wg §3.3 | ustaw CV **bez obciążenia**, CC na sztucznym obciążeniu; nigdy poniżej napięcia wejściowego — §3.2 |
+| **Rozłącznik nadnapięciowy** | próg **15,30 V**, powrót **14,00 V** | test zasilaczem laboratoryjnym, nie „na aucie" |
 
 Obowiązkowe sprawdzenia XL6019 i XH-M609 przed pierwszym załączeniem:
 [`ZASILANIE_BUFOROWANE.md`](ZASILANIE_BUFOROWANE.md) §3.4 i §7.3.
@@ -256,15 +290,15 @@ Ceny orientacyjne, rynek PL, 2025/2026.
 
 | # | Element | Specyfikacja | Cena (PLN) |
 |---|---------|--------------|-----------|
-| 1 | **VSR** (voltage sensitive relay) | 12 V / 140 A, zał. 13,3 V | 60–120 |
-| 2 | **Moduł CC-CV boost** | 300 W / 10 A, regulacja **prądu i napięcia** | 60–100 |
-| 3 | **Rozłącznik nadnapięciowy** | przekaźnik napięciowy programowalny, próg 14,80 V | 40–80 |
+| 1 | **VSR** | Durite 0-727-11 albo bezmarkowy 12 V / 140 A — modele w §3.2a | 60–250 |
+| 2 | **Moduł CC-CV boost** | „900 W 15 A" z wyświetlaczem albo SZBK07 — modele w §3.2a | 50–140 |
+| 3 | **Rozłącznik nadnapięciowy** | przekaźnik napięciowy programowalny (XY-WJ01 lub odpowiednik), próg 15,30 V | 40–80 |
 | 4 | **Przekaźnik zapłonu** | Bosch 12 V / 30 A SPDT + podstawka | 15–25 |
 | 5 | **Dioda 1N4007** | gaszeniowa, równolegle do cewki | 2–5 |
 | 6 | **Dioda TVS + kondensator** | 1.5KE33CA lub SMCJ26CA + 470 µF/35 V low-ESR | 10–20 |
 | 7 | **Radiator + wentylator 40 mm** | do XL6019 — w aucie obowiązkowy | 20–35 |
 | 8 | **Kondensator wyjściowy** | 470 µF/35 V low-ESR na wyjście XL6019 | 3–6 |
-| | | **Podsuma** | **210–391** |
+| | | **Podsuma** | **200–561** |
 
 ### 4.2 Bezpieczniki i okablowanie — obowiązkowe
 
@@ -285,7 +319,10 @@ Ceny orientacyjne, rynek PL, 2025/2026.
 | 21 | Peszel + przelotki gumowe | przejścia przez blachę | 25–40 |
 | | | **Podsuma** | **304–516** |
 
-**Razem obowiązkowo: ~514–907 PLN.**
+**Razem obowiązkowo: ~504–1077 PLN.** Dolny kraniec to bezmarkowy VSR
+i moduł „600 W" na potencjometrach, górny — Victron Cyrix i boost
+z wyświetlaczem. Przy pierwszej instalacji warto dopłacić przynajmniej
+za moduł CC-CV z odczytem cyfrowym.
 
 > **Przekrój 2,5 mm² zamiast 6 mm²** jest tu policzony pod ten wariant:
 > 8 A ładowania to ok. 9 A po stronie wejścia, a bezpiecznik 15 A chroni
@@ -315,7 +352,8 @@ Ceny orientacyjne, rynek PL, 2025/2026.
 | Element | Dlaczego |
 |---------|----------|
 | Ładowarka B2B (Victron / Redarc) | wariant B robi to samo za ~1/5 ceny — §3.2 |
-| Czujnik NTC, kompensacja temperaturowa | CV 13,8 V bez absorpcji jej nie potrzebuje — §3.2 |
+| Czujnik NTC | tanie moduły CC-CV nie mają wejścia kompensacji, więc nie ma go gdzie wpiąć — §3.2 |
+| Moduł buck-boost LTC3780 | utrzyma 13,8 V, ale tylko 80 W ciągle — za mało przy pięciu pakietach, §3.2a |
 | Przewód 6 mm², bezpiecznik główny 30 A | wymiarowane pod ładowarkę B2B — §4.2 |
 | Listwa dystrybucyjna 6–8 obwodów | cztery obwody obsłużą oprawki inline |
 | Buck 12 → 5 V dla domeny A | nie ma jeszcze Nano, HM-10 ani RXB6 |
@@ -513,8 +551,10 @@ Pełna procedura siedmioetapowa (z pomiarami na każdym kroku):
 [ ] Silnik zgaszony → VSR rozwarty, zerowy prąd z akumulatora rozruchowego
 [ ] Silnik pracuje → VSR zwiera się w ciągu kilku sekund
 [ ] Prąd wyjściowy boostu nie przekracza nastawy CC (§3.3)
-[ ] Napięcie na banku po godzinie jazdy ≤ 13,8 V
-[ ] Rozłącznik nadnapięciowy odcina przy 14,80 V (test zasilaczem)
+[ ] Napięcie na banku po godzinie jazdy w przedziale 14,35–14,45 V
+[ ] Prąd ładowania spada w miarę ładowania (dowód, że moduł REGULUJE,
+    a nie stoi w pass-through — §3.2)
+[ ] Rozłącznik nadnapięciowy odcina przy 15,30 V (test zasilaczem)
 [ ] Moduł boost po 30 min jazdy w granicach temperatury (radiator, przewiew)
 ```
 
@@ -528,7 +568,7 @@ wystarczy 5 pakietów, czy trzeba dołożyć pozostałe trzy (§3.4).
 | Nie ma | Wróci przy |
 |--------|-----------|
 | Domeny A (Nano ×2, HM-10, RXB6, przekaźniki) | dokupieniu płytek + buck 12 → 5 V |
-| Absorpcji 14,4 V i kompensacji temperaturowej | ładowarce B2B (wariant A, §5.2 `ZASILANIE_BUFOROWANE.md`) |
+| Kompensacji temperaturowej ładowania | ładowarce B2B (wariant A, §5.2 `ZASILANIE_BUFOROWANE.md`) |
 | Modułu `power` w BCM | wejściu zapłonu, którego x86 nie ma — §1 |
 | Drugiego ekranu | panelu 6,86" — jest hot-plug, wystarczy wpiąć |
 | OBD / K-Line | CP2102 + L9637D |

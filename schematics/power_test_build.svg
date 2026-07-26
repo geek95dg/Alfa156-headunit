@@ -48,15 +48,15 @@
   <path class="wire" d="M300 344 L300 378"/>
 
   <rect class="boxC" x="90" y="378" width="420" height="76"/>
-  <text class="h" x="300" y="401">Moduł CC-CV boost 300 W / 10 A</text>
-  <text class="t" x="300" y="420">CV 13,80 V (bez absorpcji) · CC 8,0 A dla pięciu pakietów</text>
+  <text class="h" x="300" y="401">Moduł CC-CV boost — „900 W 15 A” albo SZBK07</text>
+  <text class="t" x="300" y="420">CV 14,40 V · CC 8,0 A dla pięciu pakietów</text>
   <text class="t" x="300" y="438">radiator i przewiew — 8 A ciągłe to nie jest praca „na sucho”</text>
 
   <path class="wire" d="M300 454 L300 488"/>
 
   <rect class="boxC" x="90" y="488" width="420" height="62"/>
   <text class="h" x="300" y="511">Rozłącznik nadnapięciowy — warstwa 2</text>
-  <text class="t" x="300" y="530">próg 14,80 V · powrót 14,0 V</text>
+  <text class="t" x="300" y="530">próg 15,30 V · powrót 14,00 V</text>
 
   <path class="wire" d="M300 550 L300 584"/>
 
@@ -113,7 +113,7 @@
   <rect class="note" x="560" y="282" width="376" height="96"/>
   <text class="nh" x="576" y="304">Dlaczego VSR, a nie dioda Schottky</text>
   <text class="nt" x="576" y="325">Boost nie da napięcia niższego niż wejściowe, więc przy</text>
-  <text class="nt" x="576" y="342">zgaszonym silniku podawałby 13,8 V i rozładowywał</text>
+  <text class="nt" x="576" y="342">zgaszonym silniku podawałby 14,4 V i rozładowywał</text>
   <text class="nt" x="576" y="359">akumulator auta. VSR rozłącza obwód fizycznie.</text>
 
   <rect class="note" x="560" y="394" width="376" height="130"/>
