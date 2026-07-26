@@ -10,7 +10,7 @@ from src.power.power_manager import (
 )
 from src.power.backlight import (
     BacklightController, FADE_DURATION, FADE_STEPS,
-    PWM_CHANNEL_43, PWM_CHANNEL_7,
+    PWM_CHANNEL_SMALL, PWM_CHANNEL_LARGE,
 )
 from src.power.shutdown import ShutdownHandler
 
@@ -220,8 +220,8 @@ class TestBacklightController:
         assert bl.get_brightness("large") == 60
 
     def test_pwm_channels(self):
-        assert PWM_CHANNEL_43 == 2
-        assert PWM_CHANNEL_7 == 3
+        assert PWM_CHANNEL_SMALL == 2
+        assert PWM_CHANNEL_LARGE == 3
 
     def test_fade_constants(self):
         assert FADE_DURATION == 1.0

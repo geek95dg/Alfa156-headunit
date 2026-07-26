@@ -1,8 +1,14 @@
-"""PWM backlight control for 2× displays (4.3" and 7").
+"""PWM backlight control for 2× displays ("small" and "large").
 
-On OPi: GPIO PWM2 (pin 32) for 4.3", PWM3 (pin 33) for 7" display.
-         BC547 → IRLZ44N MOSFET driver circuit.
-On x86: Simulated — publishes brightness events for UI feedback.
+The two channels map to the panels the build actually ships with:
+"large" is the 10.1" 1280x800 dashboard, "small" the optional 6.86"
+1280x480 side panel (display.dashboard / display.small in the config).
+
+On OPi: GPIO PWM2 (pin 32) for the small panel, PWM3 (pin 33) for the
+        large one. BC547 → IRLZ44N MOSFET driver circuit.
+On x86: Simulated — publishes brightness events for UI feedback. The
+        M910q build dims through the panel's own controller, so nothing
+        here drives real hardware.
 
 Supports independent fade-in/fade-out with configurable duration.
 """
@@ -20,9 +26,10 @@ FADE_DURATION = 1.0  # 1 second fade
 FADE_STEPS = 50      # Smoothness
 PWM_FREQUENCY = 1000  # Hz
 
-# GPIO PWM channels (OPi 5 Plus)
-PWM_CHANNEL_43 = 2   # Pin 32 — 4.3" display
-PWM_CHANNEL_7 = 3    # Pin 33 — 7" display
+# GPIO PWM channels (OPi 5 Plus). Named after the "small"/"large" keys the
+# controller uses, not after panel sizes — those changed to 6.86"/10.1".
+PWM_CHANNEL_SMALL = 2   # Pin 32 — side panel
+PWM_CHANNEL_LARGE = 3   # Pin 33 — dashboard
 
 
 class BacklightController:
@@ -46,8 +53,8 @@ class BacklightController:
 
         # Brightness state (0-100%)
         self._brightness = {
-            "small": 0,  # 4.3" display
-            "large": 0,  # 7" display
+            "small": 0,  # side panel
+            "large": 0,  # dashboard
         }
         self._target_brightness = {
             "small": config.get("power.backlight_small", 80),
@@ -77,8 +84,8 @@ class BacklightController:
         """Initialize hardware PWM channels."""
         if self._hal:
             try:
-                self._hal.pwm_setup(PWM_CHANNEL_43, PWM_FREQUENCY)
-                self._hal.pwm_setup(PWM_CHANNEL_7, PWM_FREQUENCY)
+                self._hal.pwm_setup(PWM_CHANNEL_SMALL, PWM_FREQUENCY)
+                self._hal.pwm_setup(PWM_CHANNEL_LARGE, PWM_FREQUENCY)
                 log.info("PWM channels initialized")
             except Exception as e:
                 log.error("PWM init failed: %s", e)
@@ -91,7 +98,7 @@ class BacklightController:
         """Set brightness immediately (no fade).
 
         Args:
-            display: 'small' (4.3") or 'large' (7").
+            display: 'small' (side panel) or 'large' (dashboard).
             brightness: 0-100 percentage.
         """
         brightness = max(0, min(100, brightness))
@@ -160,7 +167,7 @@ class BacklightController:
         if self._platform != "opi" or not self._hal:
             return
 
-        channel = PWM_CHANNEL_43 if display == "small" else PWM_CHANNEL_7
+        channel = PWM_CHANNEL_SMALL if display == "small" else PWM_CHANNEL_LARGE
         duty = brightness / 100.0
         try:
             self._hal.pwm_write(channel, duty)

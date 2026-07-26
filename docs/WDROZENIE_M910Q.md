@@ -589,8 +589,11 @@ journalctl -b -u bcm-resume
 
 ## 10. Wyświetlacze i dotyk
 
-Oba wyjścia M910q to **DisplayPort**. Wyświetlacze samochodowe mają zwykle
-HDMI — potrzebne są **pasywne przejściówki DP → HDMI** (~10–15 PLN/szt.).
+**Sprawdź, jakie wyjścia ma Twoja sztuka** — M910q występuje w wersjach
+z DisplayPort i z HDMI, a na maszynie referencyjnej złącza enumerują się
+jako `HDMI-A-1` / `HDMI-A-2` (§19.1). Jeżeli wyjścia są DisplayPort,
+a wyświetlacz ma HDMI, potrzebne są **pasywne przejściówki DP → HDMI**
+(~10–15 PLN/szt.).
 
 | Wyjście | Wyświetlacz | Rozdzielczość | Zawartość | Port |
 |---------|-------------|---------------|-----------|------|
