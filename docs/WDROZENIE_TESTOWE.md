@@ -94,6 +94,15 @@ przechodzi do STANDBY, co oznacza wygaszenie podświetlenia i
 
 ![Tor zasilania wariantu testowego](../schematics/power_test_build.svg)
 
+| Rysunek | Co pokazuje |
+|---------|-------------|
+| [`power_test_build.svg`](../schematics/power_test_build.svg) | przegląd blokowy — ten powyżej |
+| [`schematic_test_build.svg`](../schematics/schematic_test_build.svg) | **schemat ideowy** z symbolami elektrycznymi |
+| [`wiring_test_build.svg`](../schematics/wiring_test_build.svg) | **schemat połączeniowy** — zaciski i numery przewodów |
+| [`ignition_sense.svg`](../schematics/ignition_sense.svg) | **wykrywanie zapłonu** — optoizolacja, wartości elementów |
+
+Tabele „skąd → dokąd": [`SCHEMATY_POLACZEN.md`](SCHEMATY_POLACZEN.md) §10.
+
 ```
 akumulator rozruchowy
    │  bezpiecznik 15 A przy klemie „+", przewód 2,5 mm²

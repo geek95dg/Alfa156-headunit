@@ -27,6 +27,7 @@ Dobór podzespołów i nastawy: [`ZASILANIE_BUFOROWANE.md`](ZASILANIE_BUFOROWANE
 7. [Masy](#7-masy)
 8. [Kolejność montażu](#8-kolejność-montażu)
 9. [Lista kontrolna przed pierwszym załączeniem](#9-lista-kontrolna-przed-pierwszym-załączeniem)
+10. [Tabela połączeń — wariant testowo-rozwojowy](#10-tabela-połączeń--wariant-testowo-rozwojowy)
 
 ---
 
@@ -502,6 +503,118 @@ To samo dotyczy Arduino: wgraj firmware i sprawdź każdą płytkę przez
 
 Po odhaczeniu całości przejdź do procedury pomiarowej:
 [`ZASILANIE_BUFOROWANE.md`](ZASILANIE_BUFOROWANE.md) § 11, etap 4.
+
+---
+
+## 10. Tabela połączeń — wariant testowo-rozwojowy
+
+Ten rozdział dotyczy **wyłącznie** wariantu z
+[`WDROZENIE_TESTOWE.md`](WDROZENIE_TESTOWE.md): mniej modułów, brak domeny B,
+M910q zasilany stale. Tabele §2–§5 opisują wersję docelową i tutaj **nie
+obowiązują**.
+
+**Rysunki:** [`../schematics/schematic_test_build.svg`](../schematics/schematic_test_build.svg)
+(ideowy) · [`../schematics/wiring_test_build.svg`](../schematics/wiring_test_build.svg)
+(połączeniowy, numery przewodów jak niżej) ·
+[`../schematics/ignition_sense.svg`](../schematics/ignition_sense.svg)
+(wykrywanie zapłonu)
+
+### 10.1 Tor ładowania
+
+| # | Skąd | Dokąd | Przewód | Zabezpieczenie |
+|---|------|-------|---------|----------------|
+| 1 | Akumulator rozruchowy **„+”** | Bezpiecznik **F1** (wejście) | 2,5 mm² | — |
+| 2 | **F1** (wyjście) | Płytka **TVS + C1**, biegun „+” | 2,5 mm² | 15 A, ≤ 30 cm od klemy |
+| 3 | **TVS + C1** „+” | Przekaźnik **K1**, zacisk **30** | 2,5 mm² | — |
+| 4 | Zapłon / ACC (albo **D+** alternatora) | **K1** zacisk **86** | 0,75 mm² | — |
+| 5 | **K1** zacisk **87** | **D1 MBR2545CT**, anody **1 + 3** zwarte | 2,5 mm² | — |
+| 6 | **D1** katoda **2** (blaszka) | Moduł CC-CV boost **IN+** | 2,5 mm² | — |
+| **B** | Boost **OUT+** | Rozłącznik nadnapięciowy **+ zasilanie** | 2,5 mm² | — |
+| 7 | Rozłącznik **NC** | Szyna **„+”** banku | 2,5 mm² | — |
+
+Masy tego toru (K1 zacisk 85, „−” TVS/C1, boost **IN−** i **OUT−**, „−”
+zasilania rozłącznika) idą do punktu gwiazdowego — §10.4.
+
+> **Dioda 1N4007** równolegle do cewki K1 (zaciski 85–86), katodą do „+”.
+> Bez niej impuls samoindukcji cewki wraca w instalację przy każdym
+> przekręceniu kluczyka.
+
+### 10.2 Bank, LVD, wyłącznik
+
+| # | Skąd | Dokąd | Przewód | Zabezpieczenie |
+|---|------|-------|---------|----------------|
+| — | „+” każdego pakietu HR1221W | Szyna **„+”** banku | 2,5 mm² | **F2…F6** 10 A, osobno na pakiet |
+| — | „−” każdego pakietu | Szyna **„−”** banku | 2,5 mm² | — |
+| 8 | Szyna **„+”** banku | **XH-M609 VIN+** | 2,5 mm² | **F7** 15 A |
+| 9 | Szyna **„−”** banku | **XH-M609 VIN−** | 2,5 mm² | — |
+| 10 | **XH-M609 VOUT+** | **S1** wyłącznik główny, zacisk 1 | 2,5 mm² | — |
+
+Nasuwki **F2 6,35 mm** izolowane, zaciskane zaciskarką zapadkową.
+Łączenie równoległe pakietów: [`ZASILANIE_BUFOROWANE.md`](ZASILANIE_BUFOROWANE.md) §4.3.
+
+### 10.3 Odbiorniki — zasilane stale
+
+| # | Skąd | Dokąd | Przewód | Zabezpieczenie |
+|---|------|-------|---------|----------------|
+| 11 | **S1** zacisk 2 (szyna odbiorników) | **XL6019 IN+** | 1,5 mm² | **F8** 7,5 A |
+| 12 | **XL6019 OUT+** / **OUT−** | Wtyk M910q: środek „+”, ekran „−” | 1,5 mm² | — |
+| 13 | **S1** zacisk 2 (szyna odbiorników) | **LM2596 IN+** | 1,5 mm² | **F9** 2 A |
+| 14 | **LM2596 OUT+** / **OUT−** | Panel 7", złącze **PWM+** / **GND** | 1,5 mm² | — |
+
+> **F8 to 7,5 A, nie 5 A.** Przy 45 W na wyjściu XL6019 i sprawności 85 %
+> prąd wejściowy sięga 4,2 A przy 12,6 V i **4,6 A** przy napięciu banku
+> bliskim progu LVD. Wkładka 5 A pracowałaby na krawędzi.
+
+**Logika panelu i dotyk zostają na USB M910q** — osobno idzie wyłącznie
+podświetlenie. Panel ma jeden kabel USB do komputera i jedno złącze
+zasilania podświetlenia.
+
+### 10.4 Wykrywanie zapłonu
+
+Wartości elementów i uzasadnienie: [`../schematics/ignition_sense.svg`](../schematics/ignition_sense.svg).
+
+| # | Skąd | Dokąd | Przewód |
+|---|------|-------|---------|
+| 15 | Zapłon / ACC **12 V** | **R1** 2,2 kΩ / 0,25 W → **U1 (PC817)** pin **1** | 0,5 mm² |
+| 16 | **U1** pin **2** | **Masa instalacji auta** — NIE punkt gwiazdowy | 0,5 mm² |
+| 17 | **U1** pin **4** | Pro Micro **D0 (RXI)** | 0,5 mm² |
+| 18 | **U1** pin **3** | Pro Micro **GND** | 0,5 mm² |
+| 19 | Pro Micro **D0** | **R2** 10 kΩ → Pro Micro **+5 V** (opcjonalny) | 0,5 mm² |
+| 20 | Pro Micro **D0** | **C2** 100 nF → Pro Micro **GND** | 0,5 mm² |
+
+> **Przewody 16 i 18 celowo idą do różnych mas.** Na tym polega optoizolacja:
+> po jednej stronie PC817 jest masa auta, po drugiej masa USB M910q. Zwarcie
+> ich niweczy cały sens układu i wpuszcza do komputera wszystko, co jeździ po
+> linii ACC.
+
+### 10.5 Punkt gwiazdowy masy
+
+Lądują na nim: „−” akumulatora rozruchowego, „−” TVS/C1, zacisk **85** K1,
+**IN−** i **OUT−** boostu, „−” zasilania rozłącznika nadnapięciowego, szyna
+**„−”** banku, **VIN−** i **VOUT−** modułu XH-M609, **IN−** przetwornic
+XL6019 i LM2596.
+
+**Jedyny wyjątek:** masa układu wykrywania zapłonu (**U1 pin 2**, przewód 16)
+idzie do masy instalacji auta.
+
+### 10.6 Kolejność podłączania
+
+```
+1. S1 rozwarty, bank odłączony, F1 wyjęty z oprawki.
+2. Nastawy na zasilaczu laboratoryjnym — wszystkie pięć:
+   XL6019 19,5 V · LM2596 wg panelu · boost 14,40 V / 8 A
+   rozłącznik 15,30 V · XH-M609 11,00 / 12,60 V
+3. Punkt gwiazdowy masy — komplet z §10.5.
+4. Bank z bezpiecznikami F2…F6, pomiar napięcia na szynie.
+5. Przewody 8, 9, 10 — bank przez F7 do LVD i S1.
+6. Przewody 11 i 12 — XL6019. POMIAR 19,5 V BEZ podłączonego M910q.
+7. Dopiero teraz M910q, potem 13–14 (podświetlenie).
+8. Na końcu przewody 1–7 i B — tor ładowania, przy zgaszonym silniku.
+9. Rozruch silnika, pomiar prądu ładowania cęgami lub bocznikiem.
+```
+
+Punkt 6 pomijany „bo przecież ustawiałem" to najczęstszy sposób na zabicie
+płyty głównej. Punkt 8 pomijany — na zabicie banku.
 
 ---
 

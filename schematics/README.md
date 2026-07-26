@@ -26,6 +26,9 @@ M910q Tiny**.
 
 | Plik | Co przedstawia |
 |------|----------------|
+| [`schematic_test_build.svg`](schematic_test_build.svg) | **Schemat ideowy wariantu testowego** — symbole elektryczne, nie bloczki: akumulator, bezpieczniki, TVS, przekaźnik ładowania, MBR2545CT, boost, rozłącznik nadnapięciowy, bank z bezpiecznikami pakietów, LVD, wyłącznik główny, XL6019 i LM2596. Opis: [`../docs/WDROZENIE_TESTOWE.md`](../docs/WDROZENIE_TESTOWE.md). |
+| [`ignition_sense.svg`](ignition_sense.svg) | **Wykrywanie zapłonu → S3** — układ wejściowy z optoizolacją PC817 i wartościami elementów (R1 2,2 kΩ, R2 10 kΩ, C2 100 nF), przebieg uśpienia i wybudzania, oraz spis tego, czego brakuje w kodzie i firmwarze. |
+| [`wiring_test_build.svg`](wiring_test_build.svg) | **Schemat połączeniowy wariantu testowego** — każdy zacisk podpisany, każdy przewód ponumerowany (1–20 + złącze B), punkt gwiazdowy masy, kolejność podłączania, przekroje. Tabele: [`../docs/SCHEMATY_POLACZEN.md`](../docs/SCHEMATY_POLACZEN.md) § 10. |
 | [`wiring_power_modules.svg`](wiring_power_modules.svg) | **Moduły zasilania zacisk po zacisku** — każdy zacisk podpisany i ponumerowany, przekroje przewodów, bezpieczniki, punkty masy, kolejność podłączania. |
 | [`wiring_vehicle_arduino.svg`](wiring_vehicle_arduino.svg) | **Sygnały pojazdu → Arduino** — punkty poboru w aucie, stopień PC817, dzielniki napięcia, podciągnięcia, rozpiska pinów trzech płytek, tor K-Line. |
 | [`wiring_usb_av.svg`](wiring_usb_av.svg) | **USB, obraz, audio, kamery** — co idzie przez hub, a co bezpośrednio w port, przejściówki DP → HDMI, tor audio i przypisanie kamer. |
@@ -47,6 +50,17 @@ M910q Tiny**.
 
 Zanim zaczniesz cokolwiek wiercić i prowadzić: **`vehicle_layout_m910q.svg`**
 — pokazuje, co gdzie ląduje w aucie i którędy idą wiązki.
+
+### Wariant testowo-rozwojowy — osobny komplet
+
+Budujesz wariant z [`../docs/WDROZENIE_TESTOWE.md`](../docs/WDROZENIE_TESTOWE.md)?
+Powyższa kolejność Cię **nie** dotyczy — tam nie ma domeny A ani przekaźnika
+odcinającego odbiorniki. Czytaj trzy rysunki w tej kolejności:
+
+1. **`schematic_test_build.svg`** — co z czym się łączy i dlaczego.
+2. **`ignition_sense.svg`** — układ wejściowy zapłonu, wartości elementów.
+3. **`wiring_test_build.svg`** — dopiero teraz zaciski, numery przewodów
+   i kolejność podłączania.
 
 ---
 
