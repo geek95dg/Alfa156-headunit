@@ -43,7 +43,7 @@
   <!-- 3. SPLIT CHARGE -->
   <rect class="box" x="40" y="280" width="270" height="86"/>
   <text class="h" x="175" y="302">Rozdział ładowania</text>
-  <text class="t" x="175" y="320">VSR 12 V / 140 A (zał. 13,3 V, wył. 12,8 V)</text>
+  <text class="t" x="175" y="320">Przekaźnik 30 A z zapłonu + dioda MBR2545CT</text>
   <text class="t" x="175" y="336">— albo dioda Schottky MBR2045 —</text>
   <text class="t" x="175" y="352">blokuje oddawanie prądu do auta</text>
 
@@ -128,7 +128,7 @@
 
   <!-- Ignition relay -->
   <rect class="box" x="800" y="560" width="330" height="104"/>
-  <text class="h" x="965" y="582">Przekaźnik zapłonu (domena B)</text>
+  <text class="h" x="965" y="582">Wyłącznik główny (szyna odbiorników)</text>
   <text class="t" x="965" y="600">Bosch 12 V / 30 A SPDT</text>
   <text class="t" x="965" y="618">cewka: linia ACC (kluczyk poz. I/II)</text>
   <text class="t" x="965" y="636">styk: szyna buforowana → step-up</text>
@@ -179,7 +179,7 @@
   <!-- Legend -->
   <rect x="430" y="740" width="330" height="200" fill="#fbfcfd" stroke="#c8d2da" stroke-width="1.5" rx="6"/>
   <text class="h" x="595" y="762">Przekroje i zabezpieczenia</text>
-  <text class="tl" x="446" y="784">akumulator → bezpiecznik → VSR</text>
+  <text class="tl" x="446" y="784">akumulator → bezpiecznik → przekaźnik</text>
   <text class="tl" x="700" y="784" text-anchor="end">6 mm²</text>
   <text class="tl" x="446" y="804">ładowarka → bank (do 6 A)</text>
   <text class="tl" x="700" y="804" text-anchor="end">2,5 mm²</text>

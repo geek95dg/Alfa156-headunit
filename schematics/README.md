@@ -16,16 +16,19 @@ M910q Tiny**.
 
 | Plik | Co przedstawia |
 |------|----------------|
-| [`power_buffered_m910q.svg`](power_buffered_m910q.svg) | **Tor główny zasilania** — od klemy akumulatora, przez rozdział ładowania, ładowarkę CC-CV, blokadę przeładowania, bank CSB HR1221W i LVD, po przekaźnik zapłonu, przetwornicę step-up 19 V i M910q. Zawiera tabelę przekrojów przewodów i bezpieczników. |
-| [`charging_lvd.svg`](charging_lvd.svg) | **Ładowanie i ochrona banku** — cztery warstwy (VSR → CC-CV → rozłącznik nadnapięciowy → LVD), komplet nastaw dla **CSB HR1221W (AGM)**, dwie tabele kompensacji temperaturowej, wpływ temperatury na żywotność, przebieg CC → CV → float. |
-| [`power_domains_m910q.svg`](power_domains_m910q.svg) | **Domeny A/B** — rozdział obciążeń między część zawsze zasilaną a część załączaną zapłonem, bezpieczniki odgałęzień, budżet poboru spoczynkowego, tabela czasu postoju, osobna gałąź wzmacniaczy. |
+| [`power_buffered_m910q.svg`](power_buffered_m910q.svg) | **Tor główny zasilania** — od klemy akumulatora, przez przekaźnik ładowania, ładowarkę CC-CV, blokadę przeładowania, bank CSB HR1221W i LVD, po wyłącznik główny, przetwornicę step-up 19 V i M910q. Zawiera tabelę przekrojów przewodów i bezpieczników. |
+| [`charging_lvd.svg`](charging_lvd.svg) | **Ładowanie i ochrona banku** — cztery warstwy (przekaźnik ładowania → CC-CV → rozłącznik nadnapięciowy → LVD), komplet nastaw dla **CSB HR1221W (AGM)**, dwie tabele kompensacji temperaturowej, wpływ temperatury na żywotność, przebieg CC → CV → float. |
+| [`power_domains_m910q.svg`](power_domains_m910q.svg) | **Rozdział odbiorników** — co wisi na szynie buforowanej, bezpieczniki odgałęzień, budżet poboru w trzech stanach maszyny (praca / S3 / wyłączona), tabela czasu postoju, osobna gałąź wzmacniaczy. |
 | [`audio_system.svg`](audio_system.svg) | **Tor audio** — ES9038Q2M (USB DAC) → RCA → **gotowy wzmacniacz samochodowy** → głośniki 4 Ω. Wzmacniacz zasilany wprost z akumulatora rozruchowego, z własną masą — całkowicie odseparowany od systemu buforowanego. |
-| [`power_test_build.svg`](power_test_build.svg) | **Wariant testowo-rozwojowy** — uproszczony tor dla instalacji jeżdżącej z minimalnym zestawem funkcji: ładowanie wariantem B (VSR + CC-CV boost), bank, LVD, przekaźnik zapłonu, XL6019 i panel 7". Bez domeny A i bez wzmacniacza. Opis: [`../docs/WDROZENIE_TESTOWE.md`](../docs/WDROZENIE_TESTOWE.md). |
+| [`power_test_build.svg`](power_test_build.svg) | **Wariant testowo-rozwojowy** — uproszczony tor dla instalacji jeżdżącej z minimalnym zestawem funkcji: ładowanie wariantem B (przekaźnik + MBR2545CT + CC-CV boost), bank, LVD, XL6019 i panel 7". M910q zasilany stale, zapłon tylko jako sygnał. Bez domeny A i bez wzmacniacza. Opis: [`../docs/WDROZENIE_TESTOWE.md`](../docs/WDROZENIE_TESTOWE.md). |
 
 ### Schematy połączeniowe — montaż
 
 | Plik | Co przedstawia |
 |------|----------------|
+| [`schematic_test_build.svg`](schematic_test_build.svg) | **Schemat ideowy wariantu testowego** — symbole elektryczne, nie bloczki: akumulator, bezpieczniki, TVS, przekaźnik ładowania, MBR2545CT, boost, rozłącznik nadnapięciowy, bank z bezpiecznikami pakietów, LVD, wyłącznik główny, XL6019 i LM2596. Opis: [`../docs/WDROZENIE_TESTOWE.md`](../docs/WDROZENIE_TESTOWE.md). |
+| [`ignition_sense.svg`](ignition_sense.svg) | **Wykrywanie zapłonu → S3** — układ wejściowy z optoizolacją PC817 i wartościami elementów (R1 2,2 kΩ, R2 10 kΩ, C2 100 nF), przebieg uśpienia i wybudzania, oraz spis tego, czego brakuje w kodzie i firmwarze. |
+| [`wiring_test_build.svg`](wiring_test_build.svg) | **Schemat połączeniowy wariantu testowego** — każdy zacisk podpisany, każdy przewód ponumerowany (1–20 + złącze B), punkt gwiazdowy masy, kolejność podłączania, przekroje. Tabele: [`../docs/SCHEMATY_POLACZEN.md`](../docs/SCHEMATY_POLACZEN.md) § 10. |
 | [`wiring_power_modules.svg`](wiring_power_modules.svg) | **Moduły zasilania zacisk po zacisku** — każdy zacisk podpisany i ponumerowany, przekroje przewodów, bezpieczniki, punkty masy, kolejność podłączania. |
 | [`wiring_vehicle_arduino.svg`](wiring_vehicle_arduino.svg) | **Sygnały pojazdu → Arduino** — punkty poboru w aucie, stopień PC817, dzielniki napięcia, podciągnięcia, rozpiska pinów trzech płytek, tor K-Line. |
 | [`wiring_usb_av.svg`](wiring_usb_av.svg) | **USB, obraz, audio, kamery** — co idzie przez hub, a co bezpośrednio w port, przejściówki DP → HDMI, tor audio i przypisanie kamer. |
@@ -35,8 +38,8 @@ M910q Tiny**.
 
 ## Kolejność czytania przy montażu
 
-1. **`power_domains_m910q.svg`** — najpierw ustal, co gdzie ma wisieć.
-   Podział na domeny determinuje całą resztę okablowania.
+1. **`power_domains_m910q.svg`** — najpierw ustal, co gdzie ma wisieć
+   i jaki jest budżet poboru w każdym ze stanów maszyny.
 2. **`power_buffered_m910q.svg`** — trasa zasilania, przekroje, bezpieczniki.
 3. **`charging_lvd.svg`** — nastaw ładowarkę, rozłącznik nadnapięciowy i LVD
    **przed** pierwszym podłączeniem banku.
@@ -48,6 +51,17 @@ M910q Tiny**.
 Zanim zaczniesz cokolwiek wiercić i prowadzić: **`vehicle_layout_m910q.svg`**
 — pokazuje, co gdzie ląduje w aucie i którędy idą wiązki.
 
+### Wariant testowo-rozwojowy — osobny komplet
+
+Budujesz wariant z [`../docs/WDROZENIE_TESTOWE.md`](../docs/WDROZENIE_TESTOWE.md)?
+Powyższa kolejność Cię **nie** dotyczy — tam nie ma domeny A ani przekaźnika
+odcinającego odbiorniki. Czytaj trzy rysunki w tej kolejności:
+
+1. **`schematic_test_build.svg`** — co z czym się łączy i dlaczego.
+2. **`ignition_sense.svg`** — układ wejściowy zapłonu, wartości elementów.
+3. **`wiring_test_build.svg`** — dopiero teraz zaciski, numery przewodów
+   i kolejność podłączania.
+
 ---
 
 ## Konwencje na schematach
@@ -55,12 +69,12 @@ Zanim zaczniesz cokolwiek wiercić i prowadzić: **`vehicle_layout_m910q.svg`**
 | Element | Znaczenie |
 |---------|-----------|
 | Gruba czerwona linia | Zasilanie 12 V (moc) |
-| Zielona linia | Odgałęzienie domeny A (zawsze zasilana) |
-| Niebieska linia | Odgałęzienie domeny B (za zapłonem) |
+| Zielona linia | Tor ładowania |
+| Niebieska linia | Odgałęzienie odbiorników (za LVD i wyłącznikiem) |
 | Linia przerywana | Sygnał sterujący (ACC, NTC), nie moc |
 | Ramka pomarańczowa | Element zabezpieczający (bezpiecznik, LVD, rozłącznik) |
-| Ramka zielona | Domena A / bank akumulatorów |
-| Ramka niebieska | Domena B |
+| Ramka zielona | Tor ładowania / bank akumulatorów |
+| Ramka niebieska | Odbiorniki |
 | Ramka czerwona | Gałąź niezależna (wzmacniacze) |
 
 ---

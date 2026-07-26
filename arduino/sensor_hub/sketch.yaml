@@ -1,4 +1,11 @@
 # arduino-cli build profile — kompilacja: make -C arduino sensor_hub
+# UWAGA na klony z ATmega328PB. To NIE jest 328P — ma inną sygnaturę
+# (0x1E9516 zamiast 0x1E950F) i rdzeń arduino:avr jej nie zna. Objaw:
+# avrdude przerywa z "Expected signature for ATmega328P". Wyjścia:
+#   • wgraj przez MiniCore:  fqbn: MiniCore:avr:328:variant=modelPB
+#     (arduino-cli core install MiniCore:avr, po dodaniu URL boards managera)
+#   • albo wymuś:  arduino-cli upload ... --programmer ... -F
+# Sam sketch kompiluje się na obu — używa wyłącznie peryferiów wspólnych.
 profiles:
   default:
     fqbn: arduino:avr:nano    # nowy bootloader; stary: arduino:avr:nano:cpu=atmega328old

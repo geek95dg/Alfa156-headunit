@@ -1,5 +1,5 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="1180" height="880" viewBox="0 0 1180 880" font-family="DejaVu Sans, Verdana, sans-serif">
-  <title>BCM v8.5 — Domeny zasilania A/B, rozdział obciążeń i bezpieczniki (M910q)</title>
+<svg xmlns="http://www.w3.org/2000/svg" width="1180" height="900" viewBox="0 0 1180 900" font-family="DejaVu Sans, Verdana, sans-serif">
+  <title>BCM v8.5 — rozdział odbiorników, bezpieczniki i budżet poboru w trzech stanach (M910q)</title>
   <style>
     .bg   { fill: #ffffff; }
     .box  { fill: #f7f9fb; stroke: #2b3a45; stroke-width: 2; rx: 6; }
@@ -19,131 +19,128 @@
     .fuse { font-size: 10.5px; font-weight: bold; fill: #a8321a; text-anchor: middle; }
   </style>
 
-  <rect class="bg" x="0" y="0" width="1180" height="880"/>
-  <text class="ttl" x="24" y="32">Domeny zasilania A / B — rozdział obciążeń, bezpieczniki, przekaźniki</text>
-  <text class="sub" x="24" y="52">Domena A żyje z banku AGM przez cały postój. Domena B jest w pełni odcinana przekaźnikiem zapłonu — zero poboru na postoju.</text>
+  <rect class="bg" x="0" y="0" width="1180" height="900"/>
+  <text class="ttl" x="24" y="32">Rozdział odbiorników, bezpieczniki i budżet poboru</text>
+  <text class="sub" x="24" y="52">Jedna szyna buforowana — zapłon nie odcina niczego. Stan komputera zmienia impuls z Arduino na styki przycisku zasilania.</text>
   <line x1="24" y1="62" x2="1156" y2="62" stroke="#c8d2da" stroke-width="1.5"/>
 
   <!-- BUS -->
-  <rect class="box" x="410" y="86" width="360" height="58"/>
-  <text class="h" x="590" y="110">Szyna buforowana 12 V (za XH-M609)</text>
-  <text class="t" x="590" y="130">bank 5 × CSB HR1221W · 25,5 Ah · listwa dystrybucyjna z bezpiecznikami</text>
+  <rect class="box" x="360" y="86" width="460" height="62"/>
+  <text class="h" x="590" y="110">Szyna buforowana 12 V — za XH-M609 i wyłącznikiem głównym</text>
+  <text class="t" x="590" y="132">bank 5 × CSB HR1221W · 25,5 Ah · listwa dystrybucyjna z bezpiecznikami</text>
 
-  <path class="wire" d="M590 144 L590 176"/>
-  <path class="wire" d="M240 176 L940 176"/>
-  <path class="wA" d="M240 176 L240 214"/>
-  <path class="wB" d="M940 176 L940 214"/>
-  <circle cx="590" cy="176" r="4" fill="#c0392b"/>
+  <path class="wire" d="M590 148 L590 180"/>
+  <path class="wire" d="M240 180 L940 180"/>
+  <path class="wA" d="M240 180 L240 218"/>
+  <path class="wB" d="M940 180 L940 218"/>
+  <circle cx="590" cy="180" r="4" fill="#c0392b"/>
 
-  <!-- ============ DOMAIN A ============ -->
-  <text class="tb" x="70" y="204" fill="#2d6a2d" font-size="14">DOMENA A — zawsze zasilana</text>
-  <rect class="boxA" x="60" y="214" width="420" height="330"/>
+  <!-- ============ LOGIC ============ -->
+  <text class="tb" x="70" y="208" fill="#2d6a2d" font-size="14">LOGIKA I I/O POJAZDU — pobór stały</text>
+  <rect class="boxA" x="60" y="218" width="420" height="300"/>
 
-  <text class="fuse" x="240" y="236">bezpiecznik odgałęzienia 3 A</text>
+  <text class="fuse" x="240" y="240">bezpiecznik odgałęzienia 3 A</text>
 
-  <rect class="box" x="86" y="248" width="170" height="60"/>
-  <text class="h" x="171" y="270">Buck 12 → 5 V</text>
-  <text class="t" x="171" y="288">LM2596, min. 1 A</text>
-  <text class="t" x="171" y="302">zasilanie logiki</text>
+  <rect class="box" x="86" y="252" width="170" height="58"/>
+  <text class="h" x="171" y="274">Buck 12 → 5 V</text>
+  <text class="t" x="171" y="292">LM2596, min. 1 A</text>
+  <text class="t" x="171" y="306">zasilanie logiki</text>
 
-  <rect class="box" x="288" y="248" width="170" height="60"/>
-  <text class="h" x="373" y="270">Zasilanie 12 V</text>
-  <text class="t" x="373" y="288">wprost z szyny</text>
-  <text class="t" x="373" y="302">cewki przekaźników</text>
+  <rect class="box" x="288" y="252" width="170" height="58"/>
+  <text class="h" x="373" y="274">Zasilanie 12 V</text>
+  <text class="t" x="373" y="292">wprost z szyny</text>
+  <text class="t" x="373" y="306">cewki przekaźników</text>
 
-  <path class="wA" d="M240 236 L240 248"/>
-  <path class="wA" d="M171 308 L171 336"/>
-  <path class="wA" d="M373 308 L373 336"/>
+  <path class="wA" d="M240 240 L240 252"/>
+  <path class="wA" d="M171 310 L171 338"/>
+  <path class="wA" d="M373 310 L373 338"/>
 
-  <rect class="box" x="86" y="336" width="170" height="128"/>
-  <text class="h" x="171" y="358">Odbiorniki 5 V</text>
-  <text class="tl" x="98" y="380">Arduino Nano #1</text>
-  <text class="tl" x="98" y="398">Arduino Nano #2</text>
-  <text class="tl" x="98" y="416">HM-10 BLE</text>
-  <text class="tl" x="98" y="434">RXB6 433 MHz</text>
-  <text class="t" x="171" y="456">razem ~50 mA</text>
+  <rect class="box" x="86" y="338" width="170" height="128"/>
+  <text class="h" x="171" y="360">Odbiorniki 5 V</text>
+  <text class="tl" x="98" y="382">Arduino Nano #1</text>
+  <text class="tl" x="98" y="400">Arduino Nano #2</text>
+  <text class="tl" x="98" y="418">HM-10 BLE</text>
+  <text class="tl" x="98" y="436">RXB6 433 MHz</text>
+  <text class="t" x="171" y="458">razem ~50 mA</text>
 
-  <rect class="box" x="288" y="336" width="170" height="128"/>
-  <text class="h" x="373" y="358">Odbiorniki 12 V</text>
-  <text class="tl" x="300" y="380">moduł 9 przekaźników</text>
-  <text class="tl" x="300" y="398">— 4 szyby × 2 kierunki</text>
-  <text class="tl" x="300" y="416">— zamek bagażnika</text>
-  <text class="t" x="373" y="440">spoczynkowo ~10 mA</text>
-  <text class="t" x="373" y="456">(cewki tylko chwilowo)</text>
+  <rect class="box" x="288" y="338" width="170" height="128"/>
+  <text class="h" x="373" y="360">Odbiorniki 12 V</text>
+  <text class="tl" x="300" y="382">moduł 9 przekaźników</text>
+  <text class="tl" x="300" y="400">— 4 szyby × 2 kierunki</text>
+  <text class="tl" x="300" y="418">— zamek bagażnika</text>
+  <text class="t" x="373" y="442">spoczynkowo ~10 mA</text>
+  <text class="t" x="373" y="458">(cewki tylko chwilowo)</text>
 
-  <text class="tb" x="270" y="488" text-anchor="middle">Pobór spoczynkowy domeny A: ~60 mA (0,7 W)</text>
-  <text class="note" x="270" y="506" text-anchor="middle">Nano 25 mA + HM-10 15 mA + RXB6 5 mA</text>
-  <text class="note" x="270" y="520" text-anchor="middle">+ przekaźniki 10 mA + straty przetwornic 5 mA</text>
-  <text class="note" x="270" y="534" text-anchor="middle">Ten pobór wyznacza czas postoju — patrz tabela poniżej.</text>
+  <text class="tb" x="270" y="492" text-anchor="middle">Pobór stały: ~60 mA (0,7 W)</text>
+  <text class="note" x="270" y="510" text-anchor="middle">niezależnie od tego, czy komputer pracuje, śpi czy jest wyłączony</text>
 
-  <!-- ============ DOMAIN B ============ -->
-  <text class="tb" x="700" y="204" fill="#2b4a8a" font-size="14">DOMENA B — załączana zapłonem</text>
-  <rect class="boxB" x="700" y="214" width="420" height="330"/>
+  <!-- ============ COMPUTER ============ -->
+  <text class="tb" x="700" y="208" fill="#2b4a8a" font-size="14">KOMPUTER I OBRAZ — zasilane stale</text>
+  <rect class="boxB" x="700" y="218" width="420" height="300"/>
 
-  <rect class="box" x="726" y="234" width="368" height="62"/>
-  <text class="h" x="910" y="256">Przekaźnik zapłonu Bosch 30 A SPDT</text>
-  <text class="t" x="910" y="274">cewka: ACC · dioda 1N4007 równolegle</text>
-  <text class="t" x="910" y="290">rozwarty = 0 mA poboru z banku</text>
+  <rect class="box" x="726" y="252" width="188" height="88"/>
+  <text class="fuse" x="786" y="244">7,5 A</text>
+  <text class="h" x="820" y="274">XL6019 12 → 19,5 V</text>
+  <text class="t" x="820" y="292">ok. 45 W ciągle</text>
+  <text class="t" x="820" y="310">→ M910q (limit CPU 28 W)</text>
+  <text class="t" x="820" y="328">→ hub USB zasilany</text>
 
-  <path class="wB" d="M940 214 L940 234"/>
-  <path class="wB" d="M910 296 L910 318"/>
-  <path class="wB" d="M820 318 L1020 318"/>
-  <path class="wB" d="M820 318 L820 344"/>
-  <path class="wB" d="M1020 318 L1020 344"/>
+  <rect class="box" x="932" y="252" width="162" height="88"/>
+  <text class="fuse" x="1054" y="244">3 A</text>
+  <text class="h" x="1013" y="274">Buck 12 → 5 V</text>
+  <text class="t" x="1013" y="292">MP1584, min. 3 A</text>
+  <text class="t" x="1013" y="310">→ panele wyświetlaczy</text>
+  <text class="t" x="1013" y="328">→ podświetlenie PWM</text>
 
-  <rect class="box" x="726" y="344" width="188" height="88"/>
-  <text class="fuse" x="786" y="336">5 A</text>
-  <text class="h" x="820" y="366">XL6019 12 → 19,5 V</text>
-  <text class="t" x="820" y="384">ok. 45 W ciągle</text>
-  <text class="t" x="820" y="402">→ M910q (limit CPU 28 W)</text>
-  <text class="t" x="820" y="420">→ hub USB zasilany</text>
+  <path class="wB" d="M940 218 L940 236"/>
+  <path class="wB" d="M820 236 L1013 236"/>
+  <path class="wB" d="M820 236 L820 252"/>
+  <path class="wB" d="M1013 236 L1013 252"/>
+  <path class="wB" d="M820 340 L820 366"/>
+  <path class="wB" d="M1013 340 L1013 366"/>
 
-  <rect class="box" x="932" y="344" width="162" height="88"/>
-  <text class="fuse" x="1054" y="336">3 A</text>
-  <text class="h" x="1013" y="366">Buck 12 → 5 V</text>
-  <text class="t" x="1013" y="384">MP1584, min. 3 A</text>
-  <text class="t" x="1013" y="402">→ panele wyświetlaczy</text>
-  <text class="t" x="1013" y="420">→ podświetlenie PWM</text>
+  <rect class="box" x="726" y="366" width="188" height="70"/>
+  <text class="tl" x="738" y="386">M910q · 19 V · 10–55 W</text>
+  <text class="tl" x="738" y="404">hub USB 7-portowy</text>
+  <text class="tl" x="738" y="422">Pro Micro, GPS, LTE, mikrofon</text>
 
-  <path class="wB" d="M820 432 L820 458"/>
-  <path class="wB" d="M1013 432 L1013 458"/>
+  <rect class="box" x="932" y="366" width="162" height="70"/>
+  <text class="tl" x="944" y="386">wyświetlacz 10,1"</text>
+  <text class="tl" x="944" y="404">wyświetlacz 6,86" (opc.)</text>
+  <text class="tl" x="944" y="422">DAC USB, graber AHD</text>
 
-  <rect class="box" x="726" y="458" width="188" height="70"/>
-  <text class="tl" x="738" y="478">M910q · 19 V · 10–55 W</text>
-  <text class="tl" x="738" y="496">hub USB 7-portowy</text>
-  <text class="tl" x="738" y="514">Pro Micro, GPS, LTE, mikrofon</text>
+  <text class="tb" x="910" y="464" text-anchor="middle">Zapłon niczego tu nie odcina — zmienia tylko stan maszyny</text>
+  <text class="note" x="910" y="484" text-anchor="middle">kluczyk → Arduino → impuls na przycisk → S3 / wybudzenie / wyłączenie</text>
+  <text class="note" x="910" y="502" text-anchor="middle">szczegóły: ignition_sense.svg</text>
 
-  <rect class="box" x="932" y="458" width="162" height="70"/>
-  <text class="tl" x="944" y="478">wyświetlacz 10,1"</text>
-  <text class="tl" x="944" y="496">wyświetlacz 6,86" (opc.)</text>
-  <text class="tl" x="944" y="514">DAC USB, graber AHD</text>
+  <!-- ============ AMP ============ -->
+  <text class="tb" x="70" y="562" fill="#97324a" font-size="14">GAŁĄŹ NIEZALEŻNA — wzmacniacze</text>
+  <rect class="boxC" x="60" y="572" width="420" height="112"/>
+  <text class="t" x="270" y="596">Prosto z akumulatora rozruchowego, z pominięciem banku buforowego</text>
+  <text class="tl" x="80" y="618">• bezpiecznik wg karty wzmacniacza, przy klemie „+”, przewód 6 mm²</text>
+  <text class="tl" x="80" y="638">• gotowy wzmacniacz samochodowy 4-kanałowy (nie DIY)</text>
+  <text class="tl" x="80" y="658">• REM wprost z linii zapłonu · masa lokalna, przy wzmacniaczu</text>
+  <text class="note" x="80" y="676">Szczyty 20–30 A rozłożyłyby bank AGM w kilkanaście minut.</text>
 
-  <!-- ============ SEPARATE AMP BRANCH ============ -->
-  <text class="tb" x="70" y="586" fill="#97324a" font-size="14">GAŁĄŹ NIEZALEŻNA — wzmacniacze</text>
-  <rect class="boxC" x="60" y="596" width="420" height="112"/>
-  <text class="t" x="270" y="620">Prosto z akumulatora rozruchowego, z pominięciem banku buforowego</text>
-  <text class="tl" x="80" y="642">• bezpiecznik wg karty wzmacniacza, przy klemie „+”, przewód 6 mm²</text>
-  <text class="tl" x="80" y="662">• gotowy wzmacniacz samochodowy 4-kanałowy (nie DIY)</text>
-  <text class="tl" x="80" y="682">• REM z zacisku 87 · masa lokalna, przy wzmacniaczu</text>
-  <text class="note" x="80" y="700">Szczyty 20–30 A rozłożyłyby bank AGM w kilkanaście minut i przekroczyły przekaźnik LVD.</text>
+  <!-- ============ BUDGET ============ -->
+  <rect x="700" y="536" width="420" height="216" fill="#fbfcfd" stroke="#c8d2da" stroke-width="1.5" rx="6"/>
+  <text class="h" x="910" y="560">Trzy stany maszyny — trzy poziomy poboru</text>
+  <line x1="716" y1="570" x2="1104" y2="570" stroke="#c8d2da"/>
+  <text class="tb" x="722" y="590">Stan</text>
+  <text class="tb" x="852" y="590">Pobór</text>
+  <text class="tb" x="960" y="590">5 pak.</text>
+  <text class="tb" x="1036" y="590">8 pak.</text>
+  <line x1="716" y1="598" x2="1104" y2="598" stroke="#c8d2da"/>
+  <text class="tl" x="722" y="618">Praca</text><text class="tl" x="852" y="618">10–55 W</text><text class="tl" x="960" y="618">—</text><text class="tl" x="1036" y="618">—</text>
+  <text class="tl" x="722" y="642">S3 (kluczyk OFF)</text><text class="tl" x="852" y="642">400–550 mA</text><text class="tl" x="960" y="642">~1,2 d</text><text class="tl" x="1036" y="642">~1,9 d</text>
+  <text class="tl" x="722" y="666">Wyłączony</text><text class="tl" x="852" y="666">100–200 mA</text><text class="tl" x="960" y="666">3,5–5,3 d</text><text class="tl" x="1036" y="666">5,7–8,5 d</text>
+  <line x1="716" y1="680" x2="1104" y2="680" stroke="#c8d2da"/>
+  <text class="note" x="722" y="700">Czasy do 50 % DoD. Arduino przechodzi z S3 do pełnego wyłączenia po 2 h</text>
+  <text class="note" x="722" y="716">zgaszonego zapłonu — dłuższy impuls na ten sam przycisk.</text>
+  <text class="note" x="722" y="740">Pobór własny XH-M609 (20–125 mA) jest w tych liczbach — ZMIERZ go.</text>
 
-  <!-- ============ STANDBY TABLE ============ -->
-  <rect x="700" y="596" width="420" height="196" fill="#fbfcfd" stroke="#c8d2da" stroke-width="1.5" rx="6"/>
-  <text class="h" x="910" y="620">Czas postoju — zależy od poboru XH-M609</text>
-  <line x1="716" y1="630" x2="1104" y2="630" stroke="#c8d2da"/>
-  <text class="tb" x="722" y="650">Pobór łączny</text>
-  <text class="tb" x="828" y="650">z tego LVD</text>
-  <text class="tb" x="930" y="650">5 pakietów</text>
-  <text class="tb" x="1030" y="650">8 pakietów</text>
-  <line x1="716" y1="658" x2="1104" y2="658" stroke="#c8d2da"/>
-  <text class="tl" x="722" y="678">80 mA</text><text class="tl" x="828" y="678">20 mA</text><text class="tl" x="930" y="678">~6,6 dnia</text><text class="tl" x="1030" y="678">~10,6 dnia</text>
-  <text class="tl" x="722" y="698">100 mA</text><text class="tl" x="828" y="698">40 mA</text><text class="tl" x="930" y="698">~5,3 dnia</text><text class="tl" x="1030" y="698">~8,5 dnia</text>
-  <text class="tl" x="722" y="718">130 mA</text><text class="tl" x="828" y="718">70 mA</text><text class="tl" x="930" y="718">~4,1 dnia</text><text class="tl" x="1030" y="718">~6,5 dnia</text>
-  <text class="tl" x="722" y="738">185 mA</text><text class="tl" x="828" y="738">125 mA</text><text class="tl" x="930" y="738">~2,9 dnia</text><text class="tl" x="1030" y="738">~4,6 dnia</text>
-  <line x1="716" y1="752" x2="1104" y2="752" stroke="#c8d2da"/>
-  <text class="note" x="722" y="770">Czasy do 50 % DoD. 60 mA to odbiorniki domeny A, reszta to pobór</text>
-  <text class="note" x="722" y="784">własny XH-M609 — zmierz go, bo spec podaje tylko maksimum 1,5 W.</text>
-
-  <text class="note" x="24" y="826">Budzenie M910q z RTC (np. co 15 min na ping pozycji) dokłada ok. 5 Ah tygodniowo i mniej więcej połowi powyższe czasy. Przy dłuższym postoju wyłącz je w UI.</text>
-  <text class="note" x="24" y="848">Wszystkie bezpieczniki: wkładki nożowe ATO/ATC w listwie dystrybucyjnej z pokrywą, w miejscu dostępnym bez demontażu deski rozdzielczej.</text>
+  <text class="note" x="24" y="778">Wyłącznik główny to jedyne realne zero poboru. Na postój dłuższy niż tydzień rozłączaj bank — inaczej LVD odetnie go przy 11,00 V.</text>
+  <text class="note" x="24" y="800">Wszystkie bezpieczniki: wkładki nożowe ATO/ATC w listwie dystrybucyjnej z pokrywą, w miejscu dostępnym bez demontażu deski rozdzielczej.</text>
+  <text class="note" x="24" y="830">Model z przekaźnikiem odcinającym komputer („domena B”) został porzucony — porównanie: docs/ZASILANIE_BUFOROWANE.md §2.2.</text>
+  <text class="note" x="24" y="852">Jedyny przekaźnik w torze mocy siedzi w ładowaniu (docs/ZASILANIE_BUFOROWANE.md §5.3c), nie po stronie odbiorników.</text>
 </svg>

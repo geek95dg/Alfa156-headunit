@@ -165,13 +165,19 @@ Tutaj tylko to, co trzeba wiedzieć, żeby zrozumieć resztę wdrożenia.
 
 ![Tor zasilania](../schematics/power_buffered_m910q.svg)
 
-Układ ma **dwie domeny zasilania**:
+**Wszystko wisi na jednej szynie buforowanej.** Zapłon nie odcina żadnego
+odbiornika — jest sygnałem, który Arduino zamienia na impuls na styki
+**przycisku zasilania M910q**:
 
-| | Domena A — zawsze | Domena B — za zapłonem |
-|---|---|---|
-| Odbiorniki | oba Nano, HM-10 BLE, RXB6 433 MHz, przekaźniki | M910q, hub USB, wyświetlacze, Pro Micro |
-| Pobór spoczynkowy | ~60 mA | 0 mA (przekaźnik rozwarty) |
-| Na postoju | działa — pilot szyb, bagażnik przez BLE | odcięta |
+| Stan | Pobór z banku | Postój (5 pakietów) |
+|------|---------------|---------------------|
+| Praca | 10–55 W | — |
+| **S3** (kluczyk OFF) | 400–550 mA | ~1,2 dnia |
+| **Wyłączony** (impuls 5 s po 2 h) | 100–200 mA | ~3,5–5,3 dnia |
+
+Jedyny przekaźnik w torze mocy siedzi w **ładowaniu**, nie w odbiornikach.
+Uzasadnienie i porównanie z porzuconym modelem „domena B":
+[`ZASILANIE_BUFOROWANE.md`](ZASILANIE_BUFOROWANE.md) §2.2.
 
 Między akumulatorem auta a head unitem stoi **bank 5 × CSB HR1221W F2**
 (12 V / 5,1 Ah AGM, razem 25,5 Ah), ładowany przez ładowarkę CC-CV z profilem
@@ -205,7 +211,7 @@ Wejście: **F1** przy starcie.
 | **Fast Boot** | Startup | Enabled | skraca POST |
 | **Secure Boot** | Security | Disabled | wymagane przez kernel i sterowniki |
 | **USB Legacy** | USB Setup | Disabled | skraca POST |
-| **Wake on USB** | Power | Enabled | Arduino może wybudzić maszynę z S3 |
+| **Wake on USB** | Power | Enabled *(opcjonalne)* | wygodne, ale niekonieczne — wybudza impuls Arduina na przycisk zasilania |
 
 > ⚠ **After Power Loss = Power On to ustawienie krytyczne.** Przy „Last
 > State" albo „Power Off" M910q nie wstanie po chwilowym zaniku napięcia
@@ -864,9 +870,9 @@ za zakończone.
 
 ```
 [ ] Rozruch silnika przy działającym BCM — komputer NIE resetuje się
-[ ] Wyłączenie zapłonu → domena B gaśnie, pobór 0 mA
+[ ] Wyłączenie zapłonu → impuls z Arduino, M910q schodzi do S3 (400–550 mA)
 [ ] Domena A dalej działa — pilot 433 MHz i BLE bagażnika odpowiadają
-[ ] Prąd spoczynkowy domeny A ~60 mA
+[ ] Prąd spoczynkowy logiki ~60 mA
 [ ] Prąd ładowania banku ≤ 6 A przy pracującym silniku
 [ ] Napięcie banku nie przekracza 14,40 V (wg kompensacji temperaturowej)
 [ ] Po 48 h postoju auto normalnie odpala

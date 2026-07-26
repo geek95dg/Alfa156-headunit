@@ -36,7 +36,7 @@
 
   <rect class="box" x="262" y="90" width="196" height="92"/>
   <text class="h" x="360" y="112">WARSTWA 0 — rozdział</text>
-  <text class="t" x="360" y="132">VSR: zwiera przy 13,3 V,</text>
+  <text class="t" x="360" y="132">przekaźnik z zapłonu (albo D+),</text>
   <text class="t" x="360" y="150">rozwiera przy 12,8 V</text>
   <text class="t" x="360" y="168">ładowanie tylko przy alternatorze</text>
 
@@ -74,7 +74,7 @@
   <text class="t" x="616" y="458">przekaźnik 20 A · pobór własny DO ZMIERZENIA</text>
 
   <path class="wire" d="M616 466 L616 500"/>
-  <text class="tb" x="640" y="490">→ domena A + domena B</text>
+  <text class="tb" x="640" y="490">→ cała szyna odbiorników</text>
 
   <!-- NTC control line -->
   <path class="ctrl" d="M420 292 L396 292 L396 200 L616 200 L616 182"/>

@@ -88,7 +88,7 @@
 
   <!-- ============ FRONT CABIN — PASSENGER SIDE ============ -->
   <rect class="zoneS" x="276" y="344" width="104" height="32"/>
-  <text class="zt" x="328" y="364">VSR</text>
+  <text class="zt" x="328" y="364">przekaźnik</text>
   <circle class="pin" cx="276" cy="344" r="11"/><text class="pinT" x="276" y="348">3</text>
 
   <rect class="zoneB" x="276" y="392" width="190" height="56"/>
@@ -146,7 +146,7 @@
   <circle class="pin" cx="1172" cy="372" r="11"/><text class="pinT" x="1172" y="376">20</text>
 
   <!-- ============ ROUTES ============ -->
-  <!-- main power: battery -> firewall -> VSR -> M910q bay -> bank -->
+  <!-- main power: battery -> firewall -> charge relay -> M910q bay -> bank -->
   <path class="route" d="M177 290 L177 404 L255 404"/>
   <path class="route" d="M255 404 L255 360 L276 360"/>
   <path class="route" d="M328 376 L328 392"/>
@@ -166,7 +166,7 @@
   <rect x="60" y="576" width="560" height="230" fill="#fbfcfd" stroke="#c8d2da" stroke-width="1.5" rx="6"/>
   <text class="tl" x="78" y="598">1 · akumulator rozruchowy + bezpieczniki 30 A i 20 A</text>
   <text class="tl" x="78" y="618">2 · fabryczna przelotka w przegrodzie</text>
-  <text class="tl" x="78" y="638">3 · VSR — rozdział ładowania</text>
+  <text class="tl" x="78" y="638">3 · Przekaźnik ładowania + dioda</text>
   <text class="tl" x="78" y="658">4 · M910q, hub USB, step-up, przekaźnik zapłonu, listwa</text>
   <text class="tl" x="78" y="678">5 · bank 5 × HR1221W, ładowarka CC-CV, LVD, rozłącznik masy</text>
   <text class="tl" x="78" y="698">6 · wyświetlacz główny 10,1" 1280×800 — miejsce radia</text>
@@ -208,7 +208,7 @@
 
   <text class="tb" x="78" y="1068">Step-up w tej samej strefie, ale z wentylatorem</text>
   <text class="note" x="78" y="1086">Rozprasza ~9 W. Nie kładź jej na wykładzinie ani tapicerce — radiator na</text>
-  <text class="note" x="78" y="1102">blasze lub profilu aluminiowym, wentylator 40 mm z domeny B.</text>
+  <text class="note" x="78" y="1102">blasze lub profilu aluminiowym, wentylator 40 mm z szyny buforowanej.</text>
 
   <text class="warn" x="78" y="1128">Rozłącznik masy banku musi być dostępny bez demontażu fotela.</text>
   <text class="note" x="78" y="1144">Będzie potrzebny przy każdym serwisie i przy dłuższym postoju auta.</text>

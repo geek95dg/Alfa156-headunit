@@ -41,6 +41,7 @@ pip install -r requirements.txt -r requirements-x86.txt
 - **Test / dev build** — a rolling install with the full power chain but only
   wireless Android Auto, audio and the steering-wheel buttons switched on:
   `docs/WDROZENIE_TESTOWE.md`, config `config/bcm_config_test.yaml`.
+  Everything to buy for it, in one table: `docs/LISTA_ZAKUPOWA.md`.
 - Repo audit + improvement roadmap: `AUDYT_I_PLAN.md`. Unused legacy
   code lives in `legacy/`; docs for retired platforms (Orange Pi 5 Pro /
   5 Plus, Orange Pi PC bench rig, VMware smoke tests) live in

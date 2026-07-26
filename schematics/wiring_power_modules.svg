@@ -55,9 +55,9 @@
   <path class="plus" d="M101 242 L101 278"/>
   <text class="wl" x="108" y="264">6 mm²</text>
 
-  <!-- ================= 3. VSR ================= -->
+  <!-- ============ 3. CHARGE RELAY + DIODE ============ -->
   <rect class="mod" x="60" y="278" width="300" height="72"/>
-  <text class="mt" x="210" y="300">VSR — rozdział ładowania</text>
+  <text class="mt" x="210" y="300">Przekaźnik + MBR2545CT</text>
   <text class="ms" x="210" y="318">12 V / 140 A · zał. 13,3 V · wył. 12,8 V</text>
   <text class="ms" x="110" y="336">od auta</text>
   <text class="ms" x="222" y="336">do bufora</text>
@@ -308,7 +308,7 @@
   <text class="ms" x="340" y="1414">Gotowy wzmacniacz samochodowy — prosto z klemy „+”, NIE z szyny buforowanej</text>
   <text class="wn" x="80" y="1438">• bezpiecznik wg karty wzmacniacza przy klemie, przewód 6 mm²</text>
   <text class="wn" x="80" y="1458">• zaciski „+12V” i „GND” — masa lokalna, do 1 m, ten sam przekrój</text>
-  <text class="wn" x="80" y="1478">• REM ← zacisk 87 przekaźnika zapłonu (domena B)</text>
+  <text class="wn" x="80" y="1478">• REM ← wprost z linii zapłonu (nie z komputera)</text>
   <text class="note" x="80" y="1498">Wspólna masa z komputerem daje pętlę masy i przydźwięk alternatora.</text>
 
   <!-- ================= LEGEND ================= -->

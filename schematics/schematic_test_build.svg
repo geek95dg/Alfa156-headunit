@@ -1,0 +1,319 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="1440" height="820" viewBox="0 0 1440 820" font-family="DejaVu Sans, Verdana, sans-serif">
+  <title>BCM v8.5 — schemat elektryczny wariantu testowo-rozwojowego (M910q)</title>
+  <style>
+    .bg   { fill: #ffffff; }
+    .w    { stroke: #1b2b36; stroke-width: 2; fill: none; stroke-linecap: round; }
+    .wp   { stroke: #c0392b; stroke-width: 2.4; fill: none; stroke-linecap: round; }
+    .wg   { stroke: #46586a; stroke-width: 2; fill: none; stroke-linecap: round; }
+    .wd   { stroke: #7a8b99; stroke-width: 1.6; fill: none; stroke-dasharray: 5 4; }
+    .sym  { stroke: #1b2b36; stroke-width: 2; fill: none; }
+    .symf { stroke: #1b2b36; stroke-width: 2; fill: #1b2b36; }
+    .blk  { fill: #f7f9fb; stroke: #2b3a45; stroke-width: 2; rx: 4; }
+    .blkg { fill: #eef7ee; stroke: #2d6a2d; stroke-width: 2; rx: 4; }
+    .blko { fill: #fdf3e6; stroke: #9a6b12; stroke-width: 2; rx: 4; }
+    .note { fill: #fbfcfd; stroke: #c8d2da; stroke-width: 1.5; rx: 5; }
+    .ttl  { font-size: 19px; font-weight: bold; fill: #10202b; }
+    .sub  { font-size: 12px; fill: #5a6b78; }
+    .sec  { font-size: 13px; font-weight: bold; fill: #2d6a2d; letter-spacing: 0.5px; }
+    .secb { font-size: 13px; font-weight: bold; fill: #2b4a8a; letter-spacing: 0.5px; }
+    .ref  { font-size: 11.5px; font-weight: bold; fill: #a8321a; }
+    .lbl  { font-size: 11px; fill: #33424e; }
+    .lbc  { font-size: 11px; fill: #33424e; text-anchor: middle; }
+    .lbb  { font-size: 11.5px; font-weight: bold; fill: #10202b; text-anchor: middle; }
+    .nh   { font-size: 12.5px; font-weight: bold; fill: #10202b; }
+    .nt   { font-size: 11px; fill: #4a5a66; }
+  </style>
+
+  <defs>
+    <!-- fuse: horizontal, origin at left lead -->
+    <g id="fuse">
+      <line class="sym" x1="0" y1="0" x2="8" y2="0"/>
+      <rect class="sym" x="8" y="-8" width="34" height="16" fill="#ffffff"/>
+      <line class="sym" x1="8" y1="0" x2="42" y2="0"/>
+      <line class="sym" x1="42" y1="0" x2="50" y2="0"/>
+    </g>
+    <!-- fuse: vertical, origin top -->
+    <g id="fuseV">
+      <line class="sym" x1="0" y1="0" x2="0" y2="8"/>
+      <rect class="sym" x="-8" y="8" width="16" height="34" fill="#ffffff"/>
+      <line class="sym" x1="0" y1="8" x2="0" y2="42"/>
+      <line class="sym" x1="0" y1="42" x2="0" y2="50"/>
+    </g>
+    <!-- ground -->
+    <g id="gnd">
+      <line class="wg" x1="0" y1="0" x2="0" y2="8"/>
+      <line class="wg" x1="-13" y1="8" x2="13" y2="8"/>
+      <line class="wg" x1="-8" y1="13" x2="8" y2="13"/>
+      <line class="wg" x1="-3" y1="18" x2="3" y2="18"/>
+    </g>
+    <!-- diode pointing right, origin at left lead -->
+    <g id="diode">
+      <line class="sym" x1="0" y1="0" x2="12" y2="0"/>
+      <path class="symf" d="M12 -10 L12 10 L30 0 Z"/>
+      <line class="sym" x1="30" y1="-10" x2="30" y2="10"/>
+      <path class="sym" d="M30 -10 L24 -10 M30 10 L36 10"/>
+      <line class="sym" x1="30" y1="0" x2="42" y2="0"/>
+    </g>
+    <!-- TVS bidirectional, vertical, origin top -->
+    <g id="tvs">
+      <line class="sym" x1="0" y1="0" x2="0" y2="8"/>
+      <path class="symf" d="M-10 8 L10 8 L0 24 Z"/>
+      <path class="symf" d="M-10 40 L10 40 L0 24 Z"/>
+      <line class="sym" x1="0" y1="40" x2="0" y2="48"/>
+    </g>
+    <!-- capacitor vertical, origin top -->
+    <g id="cap">
+      <line class="sym" x1="0" y1="0" x2="0" y2="14"/>
+      <line class="sym" x1="-11" y1="14" x2="11" y2="14"/>
+      <line class="sym" x1="-11" y1="21" x2="11" y2="21"/>
+      <line class="sym" x1="0" y1="21" x2="0" y2="35"/>
+    </g>
+    <!-- SPST switch, origin at left terminal -->
+    <g id="sw">
+      <circle class="symf" cx="0" cy="0" r="3"/>
+      <line class="sym" x1="0" y1="0" x2="34" y2="-16"/>
+      <circle class="symf" cx="42" cy="0" r="3"/>
+    </g>
+  </defs>
+
+  <rect class="bg" x="0" y="0" width="1440" height="820"/>
+  <text class="ttl" x="24" y="32">Schemat elektryczny — wariant testowo-rozwojowy</text>
+  <text class="sub" x="24" y="54">Ładowanie przez przekaźnik zapłonu i MBR2545CT · bank 5 × CSB HR1221W · LVD XH-M609 · M910q zasilany stale. Wykrywanie zapłonu: ignition_sense.svg</text>
+  <line x1="24" y1="66" x2="1416" y2="66" stroke="#c8d2da" stroke-width="1.5"/>
+
+  <!-- ================= A. CHARGING ================= -->
+  <text class="sec" x="24" y="94">A · TOR ŁADOWANIA</text>
+
+  <!-- car battery -->
+  <text class="lbb" x="72" y="140">Akumulator</text>
+  <text class="lbb" x="72" y="154">rozruchowy</text>
+  <line class="sym" x1="52" y1="176" x2="52" y2="212"/>
+  <line class="sym" x1="66" y1="186" x2="66" y2="202"/>
+  <line class="sym" x1="80" y1="176" x2="80" y2="212"/>
+  <line class="sym" x1="94" y1="186" x2="94" y2="202"/>
+  <text class="lbc" x="52" y="234">+</text>
+  <line class="wp" x1="52" y1="176" x2="52" y2="168"/>
+  <line class="wp" x1="52" y1="168" x2="118" y2="168"/>
+  <line class="wg" x1="94" y1="212" x2="94" y2="252"/>
+  <use xlink:href="#gnd" x="94" y="252"/>
+
+  <!-- F1 -->
+  <use xlink:href="#fuse" x="118" y="168"/>
+  <text class="ref" x="126" y="152">F1 · 15 A</text>
+  <line class="wp" x1="168" y1="168" x2="228" y2="168"/>
+
+  <!-- TVS + C -->
+  <circle class="symf" cx="228" cy="168" r="3"/>
+  <use xlink:href="#tvs" x="228" y="168"/>
+  <text class="lbl" x="212" y="200" text-anchor="end">TVS</text>
+  <text class="lbl" x="212" y="214" text-anchor="end">1.5KE33CA</text>
+  <line class="wg" x1="228" y1="216" x2="228" y2="252"/>
+  <use xlink:href="#gnd" x="228" y="252"/>
+
+  <line class="wp" x1="228" y1="168" x2="300" y2="168"/>
+  <circle class="symf" cx="300" cy="168" r="3"/>
+  <use xlink:href="#cap" x="300" y="168"/>
+  <text class="lbl" x="314" y="188">C1</text>
+  <text class="lbl" x="314" y="202">470 µF/35 V</text>
+  <line class="wg" x1="300" y1="203" x2="300" y2="252"/>
+  <use xlink:href="#gnd" x="300" y="252"/>
+
+  <!-- K1 relay -->
+  <line class="wp" x1="300" y1="168" x2="404" y2="168"/>
+  <circle class="symf" cx="404" cy="168" r="3"/>
+  <text class="lbl" x="384" y="160">30</text>
+  <line class="sym" x1="404" y1="168" x2="452" y2="146"/>
+  <circle class="symf" cx="458" cy="168" r="3"/>
+  <text class="lbl" x="452" y="160">87</text>
+  <rect class="sym" x="402" y="212" width="58" height="30" fill="#ffffff"/>
+  <text class="lbc" x="431" y="232">K1</text>
+  <line class="wg" x1="404" y1="171" x2="404" y2="212"/>
+  <line class="wg" x1="431" y1="242" x2="431" y2="266"/>
+  <use xlink:href="#gnd" x="431" y="266"/>
+  <path class="wd" d="M402 235 L380 235 L380 306 L232 306"/>
+  <text class="lbl" x="226" y="310" text-anchor="end">cewka: zapłon (albo D+ alternatora)</text>
+  <text class="lbl" x="470" y="222">K1 · przekaźnik 30 A SPDT</text>
+  <text class="lbl" x="470" y="236">dioda 1N4007 na cewce</text>
+
+  <!-- D1 MBR2545CT: two diodes in parallel -->
+  <line class="wp" x1="458" y1="168" x2="516" y2="168"/>
+  <circle class="symf" cx="516" cy="168" r="3"/>
+  <line class="wp" x1="516" y1="140" x2="516" y2="196"/>
+  <use xlink:href="#diode" x="516" y="140"/>
+  <use xlink:href="#diode" x="516" y="196"/>
+  <line class="wp" x1="558" y1="140" x2="558" y2="196"/>
+  <circle class="symf" cx="558" cy="168" r="3"/>
+  <text class="lbb" x="537" y="118">D1 · MBR2545CT</text>
+  <text class="lbc" x="566" y="258">obie połówki równolegle</text>
+  <text class="lbc" x="566" y="272">katoda = blaszka — izoluj</text>
+
+  <!-- boost -->
+  <line class="wp" x1="558" y1="168" x2="620" y2="168"/>
+  <rect class="blkg" x="620" y="132" width="176" height="72"/>
+  <text class="lbb" x="708" y="154">Moduł CC-CV boost</text>
+  <text class="lbc" x="708" y="172">CV 14,40 V</text>
+  <text class="lbc" x="708" y="190">CC 8,0 A (5 pakietów)</text>
+  <line class="wg" x1="708" y1="204" x2="708" y2="252"/>
+  <use xlink:href="#gnd" x="708" y="252"/>
+
+  <!-- overvoltage cutoff -->
+  <line class="wp" x1="796" y1="168" x2="852" y2="168"/>
+  <rect class="blko" x="852" y="132" width="172" height="72"/>
+  <text class="lbb" x="938" y="154">Rozłącznik nadnap.</text>
+  <text class="lbc" x="938" y="172">rozwiera przy 15,30 V</text>
+  <text class="lbc" x="938" y="190">powrót 14,00 V</text>
+  <line class="wg" x1="938" y1="204" x2="938" y2="252"/>
+  <use xlink:href="#gnd" x="938" y="252"/>
+
+  <!-- bank -->
+  <line class="wp" x1="1024" y1="168" x2="1084" y2="168"/>
+  <line class="wp" x1="1084" y1="168" x2="1372" y2="168"/>
+  <text class="lbb" x="1228" y="118">BANK · 5 × CSB HR1221W F2 (25,5 Ah)</text>
+  <text class="ref" x="1150" y="136">F2…F6 · 10 A na każdy pakiet</text>
+
+  <g>
+    <circle class="symf" cx="1104" cy="168" r="3"/>
+    <use xlink:href="#fuseV" x="1104" y="168"/>
+    <line class="sym" x1="1092" y1="222" x2="1116" y2="222"/>
+    <line class="sym" x1="1098" y1="230" x2="1110" y2="230"/>
+    <line class="sym" x1="1092" y1="238" x2="1116" y2="238"/>
+    <line class="sym" x1="1098" y1="246" x2="1110" y2="246"/>
+    <line class="sym" x1="1104" y1="218" x2="1104" y2="222"/>
+    <line class="wg" x1="1104" y1="246" x2="1104" y2="284"/>
+  </g>
+  <g>
+    <circle class="symf" cx="1194" cy="168" r="3"/>
+    <use xlink:href="#fuseV" x="1194" y="168"/>
+    <line class="sym" x1="1182" y1="222" x2="1206" y2="222"/>
+    <line class="sym" x1="1188" y1="230" x2="1200" y2="230"/>
+    <line class="sym" x1="1182" y1="238" x2="1206" y2="238"/>
+    <line class="sym" x1="1188" y1="246" x2="1200" y2="246"/>
+    <line class="sym" x1="1194" y1="218" x2="1194" y2="222"/>
+    <line class="wg" x1="1194" y1="246" x2="1194" y2="284"/>
+  </g>
+  <text class="lbc" x="1284" y="236">· · ·</text>
+  <g>
+    <circle class="symf" cx="1372" cy="168" r="3"/>
+    <use xlink:href="#fuseV" x="1372" y="168"/>
+    <line class="sym" x1="1360" y1="222" x2="1384" y2="222"/>
+    <line class="sym" x1="1366" y1="230" x2="1378" y2="230"/>
+    <line class="sym" x1="1360" y1="238" x2="1384" y2="238"/>
+    <line class="sym" x1="1366" y1="246" x2="1378" y2="246"/>
+    <line class="sym" x1="1372" y1="218" x2="1372" y2="222"/>
+    <line class="wg" x1="1372" y1="246" x2="1372" y2="284"/>
+  </g>
+
+  <!-- ground bus -->
+  <line class="wg" x1="1084" y1="284" x2="1392" y2="284"/>
+  <use xlink:href="#gnd" x="1238" y="284"/>
+  <text class="lbl" x="1258" y="300">masa: punkt gwiazdowy</text>
+
+  <!-- node A -->
+  <circle cx="1408" cy="168" r="11" fill="#ffffff" stroke="#c0392b" stroke-width="2"/>
+  <text class="lbc" x="1408" y="172" font-size="11" font-weight="bold" fill="#c0392b">A</text>
+  <line class="wp" x1="1372" y1="168" x2="1397" y2="168"/>
+
+  <line x1="24" y1="326" x2="1416" y2="326" stroke="#e2e8ed" stroke-width="1.5"/>
+
+  <!-- ================= B. LOADS ================= -->
+  <text class="secb" x="24" y="356">B · TOR ODBIORNIKÓW — ZASILANY STALE</text>
+
+  <circle cx="60" cy="424" r="11" fill="#ffffff" stroke="#c0392b" stroke-width="2"/>
+  <text class="lbc" x="60" y="428" font-size="11" font-weight="bold" fill="#c0392b">A</text>
+  <text class="lbl" x="42" y="452">szyna „+” banku</text>
+  <line class="wp" x1="71" y1="424" x2="124" y2="424"/>
+
+  <use xlink:href="#fuse" x="124" y="424"/>
+  <text class="ref" x="126" y="408">F7 · 15 A</text>
+  <line class="wp" x1="174" y1="424" x2="222" y2="424"/>
+
+  <rect class="blko" x="222" y="388" width="180" height="72"/>
+  <text class="lbb" x="312" y="410">XH-M609 · LVD</text>
+  <text class="lbc" x="312" y="428">odcięcie 11,00 V</text>
+  <text class="lbc" x="312" y="446">powrót 12,60 V</text>
+  <line class="wg" x1="312" y1="460" x2="312" y2="504"/>
+  <use xlink:href="#gnd" x="312" y="504"/>
+
+  <line class="wp" x1="402" y1="424" x2="440" y2="424"/>
+  <use xlink:href="#sw" x="440" y="424"/>
+  <text class="lbc" x="461" y="392">S1 · wyłącznik główny</text>
+  <line class="wp" x1="482" y1="424" x2="540" y2="424"/>
+  <circle class="symf" cx="540" cy="424" r="3"/>
+  <line class="wp" x1="540" y1="380" x2="540" y2="480"/>
+
+  <!-- branch 1: XL6019 -->
+  <line class="wp" x1="540" y1="380" x2="586" y2="380"/>
+  <use xlink:href="#fuse" x="586" y="380"/>
+  <text class="ref" x="580" y="364">F8 · 7,5 A</text>
+  <line class="wp" x1="636" y1="380" x2="684" y2="380"/>
+  <rect class="blk" x="684" y="350" width="164" height="60"/>
+  <text class="lbb" x="766" y="372">XL6019</text>
+  <text class="lbc" x="766" y="390">12 → 19,5 V · ok. 45 W</text>
+  <line class="wp" x1="848" y1="380" x2="900" y2="380"/>
+  <rect class="blk" x="900" y="342" width="230" height="76"/>
+  <text class="lbb" x="1015" y="364">M910q · 19,5 V</text>
+  <text class="lbc" x="1015" y="382">limit CPU 28 W (RAPL)</text>
+  <text class="lbc" x="1015" y="400">USB: panel + dotyk, Pro Micro, LTE</text>
+
+  <!-- branch 2: LM2596 -->
+  <line class="wp" x1="540" y1="480" x2="586" y2="480"/>
+  <use xlink:href="#fuse" x="586" y="480"/>
+  <text class="ref" x="586" y="464">F9 · 2 A</text>
+  <line class="wp" x1="636" y1="480" x2="684" y2="480"/>
+  <rect class="blk" x="684" y="450" width="164" height="60"/>
+  <text class="lbb" x="766" y="472">LM2596</text>
+  <text class="lbc" x="766" y="490">12 → 5 V</text>
+  <line class="wp" x1="848" y1="480" x2="900" y2="480"/>
+  <rect class="blk" x="900" y="450" width="230" height="60"/>
+  <text class="lbb" x="1015" y="472">Podświetlenie panelu 7"</text>
+  <text class="lbc" x="1015" y="490">złącze PWM + GND</text>
+
+  <line class="wg" x1="766" y1="410" x2="766" y2="434"/>
+  <line class="wg" x1="766" y1="434" x2="766" y2="450"/>
+  <line class="wg" x1="1015" y1="418" x2="1015" y2="434"/>
+  <line class="wg" x1="1015" y1="510" x2="1015" y2="540"/>
+  <line class="wg" x1="766" y1="510" x2="766" y2="540"/>
+  <line class="wg" x1="312" y1="540" x2="1015" y2="540"/>
+  <line class="wg" x1="312" y1="522" x2="312" y2="540"/>
+  <use xlink:href="#gnd" x="664" y="540"/>
+  <line class="wg" x1="664" y1="540" x2="664" y2="540"/>
+
+  <!-- ignition signal pointer -->
+  <line class="wd" x1="1015" y1="342" x2="1015" y2="320"/>
+  <line class="wd" x1="1015" y1="320" x2="1230" y2="320"/>
+  <text class="lbl" x="1240" y="324">sygnał zapłonu → S3 / wybudzenie</text>
+  <text class="lbl" x="1240" y="340">patrz ignition_sense.svg</text>
+
+  <!-- ================= LEGEND / NOTES ================= -->
+  <rect class="note" x="1160" y="376" width="256" height="180"/>
+  <text class="nh" x="1176" y="398">Oznaczenia bezpieczników</text>
+  <text class="nt" x="1176" y="420">F1  15 A — zasilanie ładowarki</text>
+  <text class="nt" x="1176" y="440">F2…F6  10 A — po jednym na pakiet</text>
+  <text class="nt" x="1176" y="460">F7  15 A — wejście XH-M609</text>
+  <text class="nt" x="1176" y="480">F8  7,5 A — odgałęzienie XL6019</text>
+  <text class="nt" x="1176" y="500">F9  2 A — odgałęzienie LM2596</text>
+  <text class="nt" x="1176" y="524">Przekroje: F1–F7 2,5 mm²,</text>
+  <text class="nt" x="1176" y="542">F8–F9 1,5 mm², cewka K1 0,75 mm²</text>
+
+  <rect class="note" x="24" y="580" width="676" height="212"/>
+  <text class="nh" x="40" y="602">Czego na tym schemacie celowo nie ma</text>
+  <text class="nt" x="40" y="624">• Przekaźnika odcinającego odbiorniki. M910q jest zasilany stale — zapłon</text>
+  <text class="nt" x="40" y="642">   jedynie usypia go do S3 i wybudza (ignition_sense.svg).</text>
+  <text class="nt" x="40" y="664">• Domeny A: Nano #1, Nano #2, HM-10, RXB6 i modułu przekaźników.</text>
+  <text class="nt" x="40" y="686">• Wzmacniacza — idzie osobną gałęzią wprost z akumulatora rozruchowego,</text>
+  <text class="nt" x="40" y="704">   z własnym bezpiecznikiem i własną masą; przez bank nie płynie prąd mocy.</text>
+  <text class="nt" x="40" y="726">• Kompensacji temperaturowej ładowania — CV 14,40 V jest stałe. Powód</text>
+  <text class="nt" x="40" y="744">   i konsekwencje: docs/ZASILANIE_BUFOROWANE.md §5.3b.</text>
+  <text class="nt" x="40" y="770">Wersja docelowa (z domeną A i przekaźnikiem zapłonu): power_domains_m910q.svg</text>
+
+  <rect class="note" x="724" y="580" width="692" height="212"/>
+  <text class="nh" x="740" y="602">Trzy rzeczy, które trzeba zrobić dobrze przy montażu</text>
+  <text class="nt" x="740" y="624">1.  D1 na radiatorze. Przy 9 A rozprasza ok. 4,5 W. Blaszka TO-220 jest</text>
+  <text class="nt" x="740" y="642">     połączona z katodą — izoluj ją podkładką mikową albo daj radiator,</text>
+  <text class="nt" x="740" y="660">     który nie dotyka nadwozia.</text>
+  <text class="nt" x="740" y="682">2.  Masa w jednym punkcie. Wszystkie „−” z tego rysunku schodzą do punktu</text>
+  <text class="nt" x="740" y="700">     gwiazdowego, nie do przypadkowych śrub karoserii.</text>
+  <text class="nt" x="740" y="722">3.  Nastawy przed podłączeniem banku. XL6019 19,5 V, boost 14,40 V / 8 A,</text>
+  <text class="nt" x="740" y="740">     rozłącznik 15,30 V, LVD 11,00 / 12,60 V — wszystko na zasilaczu lab.</text>
+  <text class="nt" x="740" y="770">Zaciski po kolei i kolejność montażu: wiring_test_build.svg</text>
+</svg>

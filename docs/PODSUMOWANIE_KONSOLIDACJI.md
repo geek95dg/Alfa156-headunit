@@ -107,7 +107,7 @@ od opisu, są oznaczone ⚠ i zebrane w §19.
 
 ### `docs/ZASILANIE_BUFOROWANE.md`
 
-Zasilanie buforowane w szczegółach: architektura dwóch domen, weryfikacja
+Zasilanie buforowane w szczegółach: architektura jednej szyny, weryfikacja
 posiadanej przetwornicy, karta katalogowa i łączenie banku CSB HR1221W, ładowanie w dwóch
 wariantach, blokada przeładowania, LVD, bezpieczniki i przekroje, budżet
 energetyczny, **lista zakupowa rozbita na „już posiadane" i „do dokupienia"**,
@@ -117,9 +117,9 @@ procedura pierwszego uruchomienia w siedmiu etapach, plan serwisowy.
 
 | Plik | Zawartość |
 |------|-----------|
-| `power_buffered_m910q.svg` | tor główny: akumulator → rozdział ładowania → CC-CV → blokada przeładowania → bank CSB HR1221W → LVD → domeny → step-up → M910q, z tabelą przekrojów i bezpieczników |
+| `power_buffered_m910q.svg` | tor główny: akumulator → rozdział ładowania → CC-CV → blokada przeładowania → bank CSB HR1221W → LVD → wyłącznik główny → step-up → M910q, z tabelą przekrojów i bezpieczników |
 | `charging_lvd.svg` | cztery warstwy ochrony, nastawy dla CSB HR1221W (AGM), dwie tabele kompensacji temperaturowej, wpływ temperatury na żywotność, przebieg CC → CV → float |
-| `power_domains_m910q.svg` | podział domen A/B, bezpieczniki odgałęzień, budżet poboru spoczynkowego, tabela czasu postoju, osobna gałąź wzmacniaczy |
+| `power_domains_m910q.svg` | rozdział odbiorników, bezpieczniki odgałęzień, budżet poboru w trzech stanach maszyny, tabela czasu postoju, osobna gałąź wzmacniaczy |
 | `README.md` | indeks, kolejność czytania przy montażu, konwencje rysunkowe |
 
 ---
@@ -195,13 +195,13 @@ Podane dwie działające topologie:
 | Wariant | Rozwiązanie | Koszt |
 |---------|-------------|-------|
 | **A — zalecany** | ładowarka DC-DC B2B z presetem AGM (Victron Orion-Tr Smart, Redarc BCDC, Sterling) — buck-boost, limit prądu, kompensacja temperaturowa, detekcja pracy alternatora w jednym pudełku | 800–1000 PLN |
-| **B — DIY** | VSR (rozdział ładowania) + moduł **CC-CV boost** 300 W/10 A nastawiony na 14,40 V / 6,0 A | 120–220 PLN |
+| **B — DIY** | przekaźnik ładowania + dioda **MBR2545CT** + moduł **CC-CV boost** nastawiony na 14,40 V / 6,0 A | 70–180 PLN |
 
-W wariancie B ważny jest **VSR zamiast diody Schottky**: boost nie może dawać
-napięcia niższego niż wejściowe, więc przy zgaszonym silniku próbowałby dalej
-podawać 14,2 V i rozładowywał akumulator rozruchowy. VSR fizycznie rozłącza
-obwód poniżej 12,8 V. Dodatkowo odpada spadek 0,45 V na diodzie, którego przy
-tak małym przełożeniu bardzo brakuje.
+W wariancie B tor ładowania **musi być fizycznie rozłączany**: boost nie może
+dawać napięcia niższego niż wejściowe, więc przy zgaszonym silniku próbowałby
+dalej podawać 14,4 V i rozładowywał akumulator rozruchowy. Robi to przekaźnik
+sterowany zapłonem (albo D+ alternatora), a dioda MBR2545CT jest drugą
+barierą na wypadek zespawania styków.
 
 ### 3.3 Czas postoju „~17 dni" to pełne rozładowanie
 
@@ -277,10 +277,10 @@ w `ZASILANIE_BUFOROWANE.md` §10. Rdzeń:
 
 | Grupa | Elementy |
 |-------|----------|
-| **Ładowanie** | ładowarka DC-DC z profilem AGM (wariant A) **albo** VSR + moduł CC-CV boost (wariant B) |
-| **Ochrona** | rozłącznik nadnapięciowy 14,6 V (blokada przeładowania), moduł LVD 11,0 V, przekaźnik zapłonu 30 A, przekaźnik mocy |
+| **Ładowanie** | ładowarka DC-DC z profilem AGM (wariant A) **albo** przekaźnik + MBR2545CT + moduł CC-CV boost (wariant B) |
+| **Ochrona** | rozłącznik nadnapięciowy 15,3 V (blokada przeładowania), moduł LVD 11,0 V, przekaźnik ładowania 30 A, przekaźnik mocy |
 | **Zabezpieczenia** | listwa dystrybucyjna 6–8 obwodów, bezpiecznik główny 30 A, 5× inline 10 A na pakiety, wkładki 5/3/20 A |
-| **Przetwornice pomocnicze** | buck 12→5 V 1 A (domena A), buck 12→5 V 3 A (wyświetlacze) |
+| **Przetwornice pomocnicze** | buck 12→5 V 1 A (logika), buck 12→5 V 3 A (wyświetlacze) |
 | **Ochrona wejścia** | dioda TVS 1.5KE33CA, kondensator 470 µF/35 V, diody gaszeniowe 1N4007 |
 | **Okablowanie** | 6 mm² (główne + masa), 2,5 mm², 1,5 mm², 0,75 mm², konektory, peszel, przelotki |
 | **Mechanika** | skrzynka/wspornik na bank z pasami, rozłącznik masy 100 A, radiator + wentylator 40 mm do przetwornicy |
@@ -371,7 +371,7 @@ schematics/
 ├── README.md                   ← indeks (NOWY)
 ├── power_buffered_m910q.svg    ← tor główny (NOWY)
 ├── charging_lvd.svg            ← ładowanie i ochrona (NOWY)
-├── power_domains_m910q.svg     ← domeny A/B (NOWY)
+├── power_domains_m910q.svg     ← rozdział odbiorników (NOWY)
 └── audio_system.svg            ← tor audio (bez zmian)
 
 Archive/

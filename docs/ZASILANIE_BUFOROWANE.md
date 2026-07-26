@@ -2,7 +2,7 @@
 
 Kompletny opis układu zasilania head unitu BCM v8.5: bufor z akumulatorów
 CSB HR1221W (AGM), ładowanie, blokada przeładowania, ochrona przed głębokim
-rozładowaniem, podział na domeny i przetwornica step-up do 19 V.
+rozładowaniem, sterowanie stanem komputera i przetwornica step-up do 19 V.
 
 **Schematy blokowe:** [`../schematics/power_buffered_m910q.svg`](../schematics/power_buffered_m910q.svg) ·
 [`../schematics/charging_lvd.svg`](../schematics/charging_lvd.svg) ·
@@ -17,7 +17,7 @@ rozładowaniem, podział na domeny i przetwornica step-up do 19 V.
 ## Spis treści
 
 1. [Po co bufor](#1-po-co-bufor)
-2. [Architektura — dwie domeny](#2-architektura--dwie-domeny)
+2. [Architektura — jedna szyna, trzy stany maszyny](#2-architektura--jedna-szyna-trzy-stany-maszyny)
 3. [Przetwornica step-up XL6019 — weryfikacja](#3-przetwornica-step-up-xl6019--weryfikacja)
 4. [Bank akumulatorów CSB HR1221W](#4-bank-akumulatorów-csb-hr1221w)
 5. [Ładowanie — dwa warianty](#5-ładowanie--dwa-warianty)
@@ -43,29 +43,58 @@ Trzy niezależne powody — każdy sam w sobie wystarczyłby:
 | **Jakość napięcia** | Instalacja auta to śmietnik EMI: przepięcia od cewek, load dump z alternatora, tętnienia. | Bank o pojemności 25,5 Ah to gigantyczny kondensator — wygładza wszystko, co jest za nim. |
 
 Kluczowa konsekwencja architektury: **akumulator rozruchowy nigdy nie zasila
-head unitu na postoju**. Rozdziela je dioda albo przekaźnik VSR, więc auto
+head unitu na postoju**. Rozdziela je przekaźnik ładowania z diodą, więc auto
 zawsze odpali, choćby bank był pusty.
 
 ---
 
-## 2. Architektura — dwie domeny
+## 2. Architektura — jedna szyna, trzy stany maszyny
 
-![Domeny A/B](../schematics/power_domains_m910q.svg)
+![Rozdział zasilania](../schematics/power_domains_m910q.svg)
 
-| | **Domena A — zawsze zasilana** | **Domena B — za zapłonem** |
+Wszystko wisi na **jednej szynie buforowanej** za LVD i wyłącznikiem
+głównym. Zapłon nie odcina już żadnego odbiornika — jest wyłącznie
+**sygnałem**, który Arduino zamienia na „naciśnięcie" przycisku zasilania
+M910q.
+
+| | |
+|---|---|
+| **Odbiorniki stale zasilane** | M910q, hub USB, oba wyświetlacze, Arduino Pro Micro, Nano #1, Nano #2, HM-10 BLE, RXB6 433 MHz, moduł 9 przekaźników, DAC USB, graber AHD |
+| **Jedyny przekaźnik w torze mocy** | w **ładowaniu**, nie w odbiornikach — rozłącza bank od instalacji auta przy zgaszonym silniku (§5.3c) |
+| **Rola zapłonu** | sygnał do Arduino → impuls na styki przycisku zasilania → S3 albo wybudzenie |
+
+### 2.1 Trzy stany i trzy poziomy poboru
+
+| Stan | Co pobiera | Pobór z banku | 5 pakietów | 8 pakietów |
+|------|-----------|---------------|-----------|-----------|
+| **Praca** | wszystko | 10–55 W | — | — |
+| **S3** | logika + M910q w S3 + straty przetwornic | **400–550 mA** | ~1,2 dnia | ~1,9 dnia |
+| **Wyłączony** (impuls 5 s) | logika + straty przetwornic | **100–200 mA** | ~3,5–5,3 dnia | ~5,7–8,5 dnia |
+
+Wszystko do 50 % DoD. Wniosek jest praktyczny: **S3 do krótkich postojów,
+twarde wyłączenie do długich**. Arduino przełącza między nimi samo — po
+2 godzinach zgaszonego zapłonu daje dłuższy impuls i maszyna gaśnie
+całkowicie. Powrót to znowu krótki impuls.
+
+### 2.2 Dlaczego nie przekaźnik odcinający komputer
+
+Wcześniejsze wydanie tej dokumentacji odcinało M910q i wyświetlacze
+przekaźnikiem zapłonu („domena B"). Model został **porzucony** — oto
+dlaczego:
+
+| | Przekaźnik odcinający | Stałe zasilanie + S3 |
 |---|---|---|
-| **Źródło** | szyna buforowana (bank AGM) | szyna buforowana przez przekaźnik ACC |
-| **Odbiorniki** | Arduino Nano #1 (output controller), Arduino Nano #2 (sensor hub), HM-10 BLE, RXB6 433 MHz, moduł 9 przekaźników | M910q, hub USB, oba wyświetlacze, Arduino Pro Micro, DAC USB, graber AHD |
-| **Pobór spoczynkowy** | ~60 mA (0,7 W) | 0 mA — przekaźnik rozwarty |
-| **Pobór w pracy** | ~60 mA + chwilowe załączenia cewek | ~10 W typowo, do ~55 W w szczycie |
-| **Na postoju** | działa — nasłuchuje pilota i BLE | całkowicie odcięta |
+| Postój (5 pakietów) | ~6,6 dnia | ~1,2 dnia w S3, ~3,5–5,3 po wyłączeniu |
+| Wybudzenie | zimny start ~40 s | **~3 s** z S3 |
+| Ryzyko ucięcia zapisu na dysk | **przy każdym przekręceniu kluczyka** | brak — maszyna schodzi do S3 sama |
+| Elementy w torze mocy | przekaźnik 30 A + okablowanie | **brak** |
+| Kod / firmware | brak | impuls z Arduino, po stronie hosta zero zmian |
 
-**Dlaczego przekaźnik, a nie S3.** M910q obsługuje natywne S3 (~0,2 A przy
-12 V ≈ 2,4 W), ale to i tak **czterdzieści razy więcej** niż cała domena A.
-Przekaźnik rozwiera obwód fizycznie: zero poboru huba USB, zero upływów
-przetwornic, zero ryzyka, że coś obudzi maszynę na parkingu. BCM budzi się
-zimnym startem na ACC — startuje w ~15 s, co przy samochodzie jest
-akceptowalne.
+Twarde odcięcie zasilania pracującemu Linuksowi kilka razy dziennie to
+proszenie się o uszkodzenie systemu plików, a różnica w czasie postoju
+znika, gdy tylko dołożymy eskalację do pełnego wyłączenia. Realizacja
+i pomiary: [`../schematics/ignition_sense.svg`](../schematics/ignition_sense.svg)
+oraz [`WDROZENIE_TESTOWE.md`](WDROZENIE_TESTOWE.md) §3.1a.
 
 **Dlaczego wyświetlacze mają własny buck, a nie USB.** Same panele
 spokojnie zasiliłyby się z portów USB M910q — i tak właśnie robi wariant
@@ -78,7 +107,8 @@ wpiąć w zasilanie logiki panelu idące po USB. Drugi powód jest energetyczny
 **Wzmacniacz idzie osobną gałęzią** prosto z akumulatora rozruchowego —
 gotowy moduł samochodowy, podłączany jak radio: własny bezpiecznik przy klemie
 (wg karty modułu, zwykle 20–30 A), przewód 6 mm², **własna masa lokalna**
-i wyzwalanie sygnałem REM z domeny B.
+i wyzwalanie sygnałem **REM wprost z linii zapłonu** — wzmacniacz ma grać,
+gdy jedziesz, a nie gdy komputer jest w S3.
 
 Powód: 4 × 50 W RMS to w szczytach 20–30 A. Taki prąd rozłożyłby bank AGM
 w kilkanaście minut i przekroczyłby przekaźnik LVD (20 A). Z systemem
@@ -169,7 +199,9 @@ ale też się nie uszkodzi.
 
 Praktyczna konsekwencja: **wyjścia XL6019 nie da się użyć jako wyłącznika
 komputera**. Odcinać musi przekaźnik zapłonu po stronie wejścia — i dokładnie
-tak jest w tym projekcie (§2, domena B).
+tak było w poprzednim modelu. Dziś M910q jest zasilany stale, a wyłącza go
+impuls na przycisk zasilania (§2.1) — wyjście XL6019 i tak nie służy do
+odcinania.
 
 ### 3.2b Prąd rozruchowy
 
@@ -285,7 +317,7 @@ Przetwornica przy 65 W i sprawności 88 % rozprasza ~9 W. W zamkniętej
 zabudowie za deską rozdzielczą, latem, to wystarczy do przegrzania.
 
 - radiator na układzie scalonym i na cewce, klej termoprzewodzący,
-- wentylator 40 mm zasilany z domeny B (5 V albo 12 V),
+- wentylator 40 mm zasilany z szyny buforowanej (5 V albo 12 V),
 - montaż na blasze albo profilu aluminiowym pełniącym rolę radiatora,
 - **nie** montuj płytki bezpośrednio na tapicerce ani wykładzinie.
 
@@ -490,22 +522,24 @@ Prąd nastaw i tak na **6 A** (katalogowy sufit dla pięciu HR1221W to 10,5 A)
 — większy model to tylko zapas i mniejsze grzanie. Dla banku 25,5 Ah
 **najmniejsza dostępna wersja w zupełności wystarcza**.
 
-**Co odpada przy wariancie A:** VSR (ładowarka sama wykrywa pracę silnika),
-dioda Schottky (izolacja jest w środku), osobny czujnik NTC (jest wbudowany
-albo w komplecie).
+**Co odpada przy wariancie A:** przekaźnik ładowania (ładowarka sama wykrywa
+pracę silnika), dioda Schottky (izolacja jest w środku), osobny czujnik NTC
+(jest wbudowany albo w komplecie).
 
 ### 5.3 Wariant B — DIY
 
 Tańszy, ale wymaga uwagi przy nastawianiu i regularnej kontroli.
 
 ```
-akumulator → bezp. 30 A → VSR → moduł CC-CV boost → blokada nadnapięcia → bank
+akumulator → bezp. 15 A → TVS + C → przekaźnik ładowania → dioda MBR2545CT
+           → moduł CC-CV boost → blokada nadnapięcia → bank
 ```
 
 | Element | Rola | Nastawa | Cena |
 |---------|------|---------|------|
-| **VSR** (voltage sensitive relay) 12 V / 140 A | zwiera obwód dopiero, gdy alternator pracuje | zał. 13,3 V, wył. 12,8 V | 60–250 PLN |
-| **Moduł CC-CV boost** z regulacją prądu i napięcia | podnosi 13,75 V → 14,4 V i limituje prąd | CV 14,40 V, CC 6,0 A | 50–140 PLN |
+| **Przekaźnik ładowania** 30 A SPDT | rozłącza tor ładowania, gdy silnik nie pracuje | cewka z zapłonu (patrz §5.3c) | 15–25 PLN |
+| **Dioda Schottky MBR2545CT** | blokuje wsteczny przepływ do instalacji auta | obie połówki równolegle, na radiatorze | 5–12 PLN |
+| **Moduł CC-CV boost** z regulacją prądu i napięcia | podnosi 13,7 V → 14,4 V i limituje prąd | CV 14,40 V, CC 6,0 A | 50–140 PLN |
 
 #### 5.3a Konkretne moduły CC-CV
 
@@ -547,11 +581,15 @@ Dlatego **CV = 14,40 V**, a nie 13,80 V. Konsekwencje przyjmujesz świadomie:
 próg warstwy 2 zostaje na **15,30 V** (§6.2), a kompensacji temperaturowej
 nie ma.
 
-**Co to łagodzi:** przy VSR napięcie absorpcji jest podawane **wyłącznie
-podczas pracy silnika**. Na postoju VSR rozwiera obwód i bank stoi na własnym
-napięciu spoczynkowym — nie jest trzymany na 14,4 V na okrągło. To zupełnie
-inny reżim niż stały float 14,4 V i dla pracy buforowej całkowicie
-akceptowalny.
+**Co to łagodzi:** napięcie absorpcji jest podawane **wyłącznie przy
+załączonym przekaźniku ładowania**, czyli podczas jazdy. Na postoju przekaźnik
+jest rozwarty i bank stoi na własnym napięciu spoczynkowym — nie jest trzymany
+na 14,4 V na okrągło. To zupełnie inny reżim niż stały float 14,4 V i dla
+pracy buforowej całkowicie akceptowalny.
+
+Dioda MBR2545CT dodatkowo obniża wejście boostu o ~0,5 V, czyli **powiększa
+zapas nad nastawą CV** — pass-through z §5.3b staje się jeszcze mniej
+prawdopodobny.
 
 **Jeżeli mimo wszystko chcesz 13,80 V**, potrzebujesz topologii z władzą
 w obie strony — modułu **buck-boost**:
@@ -560,25 +598,43 @@ w obie strony — modułu **buck-boost**:
 |-------|------|------|--------|
 | **LTC3780** (moduł WD2002SJ / XR-131, wej. 5–32 V, wyj. 1–30 V) | buck-boost, CC + CV + próg podnapięciowy (trzy potencjometry), 10 A szczytowo | 50–90 PLN | **7 A i 80 W ciągle** — przy 13,8 V to tylko ~5,8 A, więc po odjęciu obciążenia do banku idzie mało. Do trzech pakietów w porządku, do ośmiu bez sensu |
 
-#### 5.3c Konkretne VSR-y
+#### 5.3c Przekaźnik ładowania i dioda MBR2545CT
 
-| Model | Progi | Cena | Uwaga |
-|-------|-------|------|-------|
-| **Durite 0-727-11** — 12 V / 140 A | zał. 13,3 V · rozł. 12,65 V | 150–250 PLN | markowy, zalany żywicą, dioda LED stanu; progi fabrycznie dokładnie takie, jakich potrzebujesz |
-| **Victron Cyrix-ct 12/24-120** | sterowany mikroprocesorem | 250–350 PLN | najbardziej odporny i bezobsługowy; przy 6–9 A mocno przewymiarowany |
-| Bezmarkowy „VSR 12 V 140 A dual battery isolator" | zwykle 13,3 / 12,8 V | 60–120 PLN | działa, ale **zweryfikuj progi zasilaczem laboratoryjnym** przed montażem — potrafią być przekłamane o 0,3 V |
-| **Zamiennik: przekaźnik 30 A sterowany z D+** | zwiera, gdy alternator ładuje | 15–25 PLN | tor ładowania niesie 6–9 A, więc 140 A to przesada. Wymaga znalezienia zacisku **D+/L** alternatora i sprawdzenia, czy lampka kontrolna dalej działa — cewka pobiera ~150 mA z jej obwodu |
+Rozdział ładowania robią tu dwa tanie elementy zamiast modułu napięciowego.
 
-**Dlaczego VSR, a nie dioda Schottky.** Boost nie może dawać napięcia
-niższego niż wejściowe — przy zgaszonym silniku (12,4 V na akumulatorze
-rozruchowym) próbowałby dalej podawać 14,2 V i **rozładowywałby akumulator
-auta**. VSR fizycznie rozłącza obwód poniżej 12,8 V, więc problem znika.
-Dodatkowo odpada spadek 0,45 V na diodzie, którego przy tak małym przełożeniu
-bardzo brakuje.
+**Dlaczego w ogóle coś tu musi być.** Boost nie potrafi dać napięcia niższego
+niż wejściowe. Gdyby jego wejście wisiało na stałe na akumulatorze
+rozruchowym, to przy zgaszonym silniku (12,4 V) dalej próbowałby podawać
+14,4 V i **rozładowywałby akumulator auta**. Tor ładowania musi więc być
+fizycznie rozłączany, gdy silnik nie pracuje.
 
-Jeżeli mimo wszystko zostajesz przy diodzie Schottky (MBR2045), to **musisz**
-dołożyć przekaźnik sterowany z ACC, który odcina ładowarkę przy zgaszonym
-silniku.
+| Element | Rola | Uwaga |
+|---------|------|-------|
+| **Przekaźnik 30 A SPDT** + podstawka | rozłącza tor, gdy silnik nie pracuje | dioda 1N4007 równolegle do cewki |
+| **MBR2545CT** — 25 A / 45 V, TO-220AB | druga bariera: blokuje przepływ wsteczny, gdyby styki przekaźnika się zespawały | dwie połówki po 12,5 A ze **wspólną katodą** |
+
+**Czym sterować cewkę.** Najprościej **zapłonem** i tak jest w tej
+dokumentacji założone. Ma to jeden koszt, który warto znać: przy kluczyku
+w pozycji ON bez pracującego silnika przekaźnik jest zwarty, więc boost
+ładuje bank **z akumulatora rozruchowego**. Przy normalnym uruchamianiu
+to kilka sekund i nie ma znaczenia; przy dłuższym staniu z kluczykiem
+(radio na postoju, diagnostyka) — ma.
+
+Jeżeli chcesz to wyeliminować, podepnij cewkę pod **D+/L alternatora**
+zamiast pod zapłon. To dosłownie jeden przewód inaczej, a sygnał znaczy
+wtedy „alternator ładuje", a nie „kluczyk przekręcony". Sprawdź potem, czy
+lampka kontrolna ładowania dalej działa poprawnie — cewka pobiera ~150 mA
+z jej obwodu.
+
+**Montaż diody.** MBR2545CT to dwie diody ze wspólną katodą, a **katoda jest
+połączona z blaszką montażową**:
+
+- **zewrzyj obie anody** (piny 1 i 3) i podaj na nie plus z przekaźnika,
+  katodę (pin 2 / blaszka) na wejście boostu — dostajesz pełne 25 A i niższy
+  spadek: przy 9 A łącznie każda połówka wiezie 4,5 A, czyli Vf ≈ 0,45–0,50 V,
+- **radiator obowiązkowy** — 9 A × 0,5 V to ok. **4,5 W** ciągłej straty,
+- blaszka jest pod potencjałem katody, więc albo **izoluj ją podkładką
+  mikową**, albo przykręcaj do radiatora, który nie dotyka masy nadwozia.
 
 **Kompensacja temperaturowa w wariancie B** jest ręczna: tanie moduły CC-CV
 jej nie mają, a — jak pokazuje §5.3b — zejście z CV do „bezpiecznych" 13,8 V
@@ -586,7 +642,7 @@ kupuje spokój kosztem utraty ograniczenia prądowego, czyli w złą stronę.
 Zostaje **14,40 V bez kompensacji**, z trzema rzeczami, które to trzymają
 w ryzach:
 
-- VSR podaje to napięcie **tylko przy pracującym silniku**, nie na postoju,
+- przekaźnik ładowania podaje to napięcie **tylko podczas jazdy**, nie na postoju,
 - rozłącznik nadnapięciowy 15,30 V łapie awarię modułu (§6),
 - bank w bagażniku rzadko przekracza 30 °C, a przy 40 °C prawidłowa absorpcja
   to 13,95 V — czyli 14,40 V to przegrzanie o 0,45 V przez kilka godzin jazdy,
@@ -743,12 +799,12 @@ z zaleceniem producenta modułu).
 
 ### 7.5 Co odcina LVD
 
-Całą szynę — obie domeny. Domena A też przestaje działać (pilot szyb i BLE
+Całą szynę buforowaną. Logika też przestaje działać (pilot szyb i BLE
 bagażnika nie odpowiadają), ale to celowe: bank przetrwa i naładuje się przy
 następnym uruchomieniu silnika. Alternatywa — pozwolić Nano dojechać bank
 do 9 V — kończy się wymianą kompletu pakietów.
 
-Moduł montuj **za bankiem, przed rozgałęzieniem domen** — patrz
+Moduł montuj **za bankiem, przed rozgałęzieniem odbiorników** — patrz
 [`power_buffered_m910q.svg`](../schematics/power_buffered_m910q.svg).
 
 > **XH-M609 nie zastąpi blokady przeładowania z §6.** To moduł ochrony
@@ -766,8 +822,8 @@ Moduł montuj **za bankiem, przed rozgałęzieniem domen** — patrz
 | Główny | 30 A | **maks. 30 cm od klemy „+"** akumulatora rozruchowego |
 | Na pakiet banku | 10 A × 5 | na zacisku F2 „+" każdego pakietu |
 | Wyjście step-up | 5 A | między przetwornicą a wtykiem M910q |
-| Odgałęzienie domeny A | 3 A | przed buckiem 12 → 5 V |
-| Odgałęzienie wyświetlaczy | 3 A | przed buckiem 12 → 5 V domeny B |
+| Odgałęzienie logiki (Nano, HM-10, RXB6) | 3 A | przed buckiem 12 → 5 V |
+| Odgałęzienie wyświetlaczy | 3 A | przed buckiem 12 → 5 V wyświetlaczy |
 | Gałąź wzmacniacza | wg karty modułu (20–30 A) | osobno, przy klemie akumulatora rozruchowego |
 
 Bezpiecznik główny **przy klemie**, nie przy urządzeniu — zwarcie przewodu
@@ -781,12 +837,12 @@ Dla trasy ok. 3 m (komora silnika → deska rozdzielcza) przy spadku < 3 %:
 
 | Odcinek | Prąd | Przekrój |
 |---------|------|----------|
-| Akumulator → bezpiecznik → VSR/ładowarka | do 30 A | **6 mm²** |
+| Akumulator → bezpiecznik → przekaźnik/ładowarka | do 30 A | **6 mm²** |
 | Ładowarka → bank | do 6 A | 2,5 mm² |
 | Pakiet HR1221W → szyna | do 10 A | 1,5 mm² |
 | Szyna → LVD → przekaźnik → step-up | do 7 A | 2,5 mm² |
 | Step-up → M910q | 3,5 A @ 19 V | 1,5 mm² |
-| Odgałęzienie domeny A | < 1 A | 0,75 mm² |
+| Odgałęzienie logiki (Nano, HM-10, RXB6) | < 1 A | 0,75 mm² |
 | Gałąź wzmacniacza | wg karty modułu | 6 mm² (trasa ~4 m do bagażnika) |
 | Masa do nadwozia | — | **6 mm²** |
 
@@ -818,7 +874,7 @@ linka, nie drut, i izolacja odporna na temperaturę i oleje.
 
 ## 9. Budżet energetyczny i czas postoju
 
-### 9.1 Pobór domeny A
+### 9.1 Pobór odbiorników stałych (bez komputera)
 
 | Element | Pobór |
 |---------|-------|
@@ -827,20 +883,20 @@ linka, nie drut, i izolacja odporna na temperaturę i oleje.
 | RXB6 433 MHz (nasłuch) | ~5 mA |
 | Moduł przekaźników (spoczynek) | ~10 mA |
 | Straty przetwornicy buck | ~5 mA |
-| **Podsuma — odbiorniki domeny A** | **~60 mA (0,7 W)** |
+| **Podsuma — logika i przekaźniki** | **~60 mA (0,7 W)** |
 | **XH-M609 (LVD)** | **do zmierzenia — patrz §7.3** |
 
 > **Pobór własny LVD jest częścią budżetu postoju.** XH-M609 ma wyświetlacz
 > LED i przekaźnik trzymany w stanie załączonym, więc nie jest to element
 > pomijalny — katalogowe „< 1,5 W" przy 12 V oznaczałoby aż 125 mA, czyli
-> **dwukrotnie więcej niż cała reszta domeny A**. Realny pobór przy 12 V jest
+> **dwukrotnie więcej niż cała reszta logiki**. Realny pobór przy 12 V jest
 > zwykle znacznie niższy (spec obejmuje cały zakres do 36 V), ale dopóki nie
 > zmierzysz, nie wiesz, w której kolumnie tabeli poniżej jesteś.
 
 ### 9.2 Czas postoju
 
 Czas zależy od tego, ile pobiera XH-M609 — dlatego tabela jest rozpisana
-wg **sumarycznego poboru**. Odbiorniki domeny A to stałe 60 mA; reszta to
+wg **sumarycznego poboru**. Logika i przekaźniki to stałe 60 mA; reszta to
 moduł LVD.
 
 **Bank 5 pakietów — 25,5 Ah:**
@@ -884,7 +940,7 @@ dłuższym postoju 50 % DoD jest w porządku; jako **rutyna** lepiej trzymać 30
 
 Samorozładowanie HR1221W (> 75 % pojemności po 6 miesiącach @ 25 °C, czyli
 ≤ 4 %/miesiąc) odpowiada ok. **1,4 mA** przy banku 25,5 Ah — wobec 60 mA
-domeny A jest pomijalne. W upale rośnie kilkukrotnie, ale nadal nie zmienia
+logiki jest pomijalne. W upale rośnie kilkukrotnie, ale nadal nie zmienia
 obrazu.
 
 Kolumna „do progu LVD" zakłada zejście do ~75 % DoD (11,0 V pod bardzo
@@ -910,11 +966,14 @@ dłuższym postoju; jeśli tak wygląda Twój profil użytkowania, rozważ
 
 ## 10. Lista zakupowa
 
+> Ta lista dotyczy **wersji docelowej**. Budujesz wariant testowy?
+> Wszystko w jednej tabeli: [`LISTA_ZAKUPOWA.md`](LISTA_ZAKUPOWA.md).
+
 ### 10.1 Już posiadane
 
 | Element | Rola w torze | Uwaga |
 |---------|--------------|-------|
-| **XL6019** — moduł step-up | 12 V → 19,5 V dla M910q (domena B) | ok. **45 W ciągle**, nie 65 W — wymaga ograniczenia poboru CPU, §3.2 i §3.5a |
+| **XL6019** — moduł step-up | 12 V → 19,5 V dla M910q | ok. **45 W ciągle**, nie 65 W — wymaga ograniczenia poboru CPU, §3.2 i §3.5a |
 | **XH-M609** — moduł ochrony | **LVD** (warstwa 3), 11,00 / 12,60 V | przekaźnik 20 A wystarcza; zmierz pobór własny, §7.3 |
 | **CSB HR1221W F2** × 8 (12 V / 5,1 Ah AGM) | bank buforowy | użyj 5 (25,5 Ah) albo 8 (40,8 Ah) — decyzja po pomiarze z §7.3 |
 | Lenovo ThinkCentre M910q Tiny | komputer | |
@@ -924,7 +983,7 @@ dłuższym postoju; jeśli tak wygląda Twój profil użytkowania, rozważ
 | # | Element | Specyfikacja | Szt. | Cena (PLN) |
 |---|---------|--------------|------|-----------|
 | 1 | **Ładowarka DC-DC** *(wariant A)* | Victron Orion-Tr Smart 12/12-18 lub odpowiednik z presetem **AGM** | 1 | 800–1000 |
-| | *albo:* VSR + moduł CC-CV boost *(wariant B)* | VSR: **Durite 0-727-11** / Victron Cyrix-ct 12/24-120 / bezmarkowy 140 A · boost: **„900 W 15 A" z wyświetlaczem** albo **SZBK07** — pełne zestawienie w §5.3a i §5.3c | 1+1 | 110–390 |
+| | *albo:* przekaźnik + dioda + moduł CC-CV boost *(wariant B)* | przekaźnik 30 A SPDT + **MBR2545CT** na radiatorze · boost: **„900 W 15 A" z wyświetlaczem** albo **SZBK07** — pełne zestawienie w §5.3a i §5.3c | 1+1+1 | 70–180 |
 | 2 | **Rozłącznik nadnapięciowy** | programowalny przekaźnik napięciowy, próg 15,3 V / powrót 14,0 V | 1 | 40–80 |
 | 3 | ~~Moduł LVD~~ | **posiadany — XH-M609** | — | 0 |
 | 4 | **Przekaźnik zapłonu** | Bosch 12 V / 30 A SPDT + podstawka | 1 | 15–25 |
@@ -933,7 +992,7 @@ dłuższym postoju; jeśli tak wygląda Twój profil użytkowania, rozważ
 | 7 | **Bezpiecznik główny + oprawka** | 30 A, oprawka do montażu przy klemie | 1 | 15–25 |
 | 8 | **Bezpieczniki inline** | 10 A × 5–8 (pakiety) + oprawki, oraz 15 A przed VIN+ modułu XH-M609 | 6–9 | 20–35 |
 | 9 | **Bezpieczniki nożowe** | 5 A, 3 A × 2, 20 A + zapas | kpl. | 10–15 |
-| 10 | **Buck 12 → 5 V** (domena A) | LM2596, min. 1 A | 1 | 5–10 |
+| 10 | **Buck 12 → 5 V** (logika) | LM2596, min. 1 A | 1 | 5–10 |
 | 11 | **Buck 12 → 5 V** (wyświetlacze) | MP1584 / MP2307, min. 3 A — potrzebny przez **PWM podświetlenia**, patrz niżej | 1 | 5–15 |
 | 12 | **Dioda TVS** | 1.5KE33CA lub SMCJ26CA | 2 | 5–10 |
 | 13 | **Kondensator elektrolityczny** | 470 µF / 35 V, low-ESR, 105 °C | 2 | 5–10 |
@@ -951,7 +1010,7 @@ dłuższym postoju; jeśli tak wygląda Twój profil użytkowania, rozważ
 | 24a | **Kondensator wyjściowy** | 470 µF / 35 V low-ESR na wyjście XL6019 | 1 | 3–6 |
 | 24b | **Termistor NTC** | 5 Ω / 5 A, ogranicznik prądu rozruchowego (tylko jeśli §3.2b) | 1 | 3–6 |
 | | | | **Razem wariant A** | **~1280–1870 PLN** |
-| | | | **Razem wariant B** | **~570–1240 PLN** |
+| | | | **Razem wariant B** | **~530–1030 PLN** |
 
 Kwoty są niższe niż w pierwszej wersji listy, bo moduł LVD i przetwornica
 step-up są już na stanie.
@@ -1010,7 +1069,7 @@ Pozostałe
 [ ] Ładowarka: CV 14,40 V (lub 13,80 V w wariancie B bez kompensacji)
 [ ] Ładowarka: limit prądu CC 6,0 A (sufit katalogowy 10,5 A dla 5 pakietów)
 [ ] Rozłącznik nadnapięciowy: rozwarcie 15,30 V, powrót 14,00 V (§6.4)
-[ ] Buck domeny A: wyjście 5,0 V
+[ ] Buck logiki: wyjście 5,0 V
 [ ] Buck wyświetlaczy: wyjście 5,0 V
 ```
 
@@ -1047,7 +1106,7 @@ Pozostałe
 [ ] Pomiar: napięcie na szynie buforowanej (silnik zgaszony)
 [ ] Rozłącznik masy banku ZWARTY
 [ ] Pomiar: napięcie banku = napięcie szyny
-[ ] Pomiar prądu spoczynkowego domeny A → oczekiwane ~60 mA
+[ ] Pomiar prądu spoczynkowego logiki → oczekiwane ~60 mA
     (rozbieżność > 100 mA = szukaj upływu, NIE jedź dalej)
 ```
 
@@ -1056,15 +1115,15 @@ Pozostałe
 ```
 [ ] Uruchomienie silnika
 [ ] Pomiar: napięcie na akumulatorze rozruchowym (13,8–14,5 V)
-[ ] Pomiar: VSR zwarty / ładowarka aktywna
+[ ] Pomiar: przekaźnik ładowania zwarty / ładowarka aktywna
 [ ] Pomiar: prąd ładowania banku ≤ 6 A
 [ ] Pomiar: napięcie banku rośnie, nie przekracza 14,40 V (wg kompensacji temp.)
 [ ] Po 30 min: temperatura pakietów ręką — letnie, nie gorące
-[ ] Zgaszenie silnika → VSR rozwiera się w ciągu kilku sekund
+[ ] Zgaszenie silnika → przekaźnik ładowania rozwiera się, prąd spada do zera
 [ ] Pomiar: brak prądu z banku do akumulatora rozruchowego
 ```
 
-### Etap 6 — domena B i komputer
+### Etap 6 — komputer i sterowanie zapłonem
 
 ```
 [ ] Przekręcenie kluczyka na ACC → przekaźnik zapłonu zwiera
@@ -1072,7 +1131,9 @@ Pozostałe
 [ ] M910q startuje, dashboard pojawia się na wyświetlaczu głównym
 [ ] Rozruch silnika przy działającym BCM → komputer NIE resetuje się
     (to jest test, dla którego cały ten bufor powstał)
-[ ] Wyłączenie zapłonu → domena B gaśnie, pomiar poboru = 0 mA
+[ ] Wyłączenie zapłonu → Arduino daje impuls, M910q schodzi do S3
+[ ] Pomiar poboru w S3 — oczekiwane 400–550 mA (§2.1)
+[ ] Po 2 h → impuls 5 s, maszyna gaśnie, pobór spada do 100–200 mA
 [ ] Domena A dalej działa — test pilota 433 MHz i BLE bagażnika
 ```
 
@@ -1095,7 +1156,7 @@ Pozostałe
 | Co 3 miesiące | Napięcie każdego pakietu osobno | rozrzut < 0,2 V |
 | Co 3 miesiące | Dokręcenie połączeń na szynie i biegunach | bez luzu |
 | Co 6 miesięcy | Napięcie ładowania przy pracującym silniku | ≤ 14,40 V (lub wg kompensacji) |
-| Co 6 miesięcy | Prąd spoczynkowy domeny A | ~60 mA ± 20 % |
+| Co 6 miesięcy | Prąd spoczynkowy logiki | ~60 mA ± 20 % |
 | Co 12 miesięcy | Test pojemności banku (rozładowanie kontrolowane) | > 70 % pojemności znamionowej |
 | Co 12 miesięcy | Kontrola przewodów: przetarcia, korozja konektorów | bez zmian |
 
@@ -1221,6 +1282,6 @@ przed zabudową, a nie po.
 | [`X86_PLATFORM_SETUP.md`](X86_PLATFORM_SETUP.md) | referencja krok-po-kroku (EN) — pamiętaj o §13 |
 | [`x86-production/10-power-suspend.html`](x86-production/10-power-suspend.html) | zasilanie + S3 w wersji ilustrowanej |
 | [`x86-production/02-assembly.html`](x86-production/02-assembly.html) | montaż mechaniczny, layout USB |
-| [`ARDUINO_SETUP_GUIDE.md`](ARDUINO_SETUP_GUIDE.md) | okablowanie trzech płytek Arduino, domeny A/B po stronie sygnałów |
+| [`ARDUINO_SETUP_GUIDE.md`](ARDUINO_SETUP_GUIDE.md) | okablowanie trzech płytek Arduino, sygnały pojazdu |
 | [`SCHEMATY_POLACZEN.md`](SCHEMATY_POLACZEN.md) | tabele połączeń, przekroje, bezpieczniki, kolejność montażu |
 | [`../schematics/README.md`](../schematics/README.md) | indeks schematów |

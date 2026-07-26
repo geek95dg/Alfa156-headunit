@@ -8,6 +8,8 @@ but also sends plain-text serial data for sensors and vehicle status:
         DOOR:FL=1,FR=0,RL=0,RR=0,BONNET=0,TRUNK=0  — door/panel states
         HBRAKE:1           — handbrake engaged (1) or released (0)
         IGN:1              — ignition/ACC 12V detected
+        PWR:RUNNING        — M910q state as seen by sensor_hub
+        PWRACT:SHORT       — power-button pulse just sent
         RAIN:1             — rain sensor triggered
         TEMP:23.5          — DS18B20 external temperature
         PARK:FL=123,FR=45,RL=200,RR=180  — parking sensor distances (cm)
@@ -157,7 +159,12 @@ class ArduinoSerialListener:
             elif line.startswith("FUEL:"):
                 self._bus.publish("vehicle.fuel_raw", int(line[5:]))
 
-            elif line.startswith(("SWC:", "MUSIC:", "STALK:")):
+            elif line.startswith("PWR:"):
+                # Stan M910q raportowany przez sensor_hub (FEATURE_PWRBTN):
+                # RUNNING / SLEEP / OFF / UNKNOWN.
+                self._bus.publish("vehicle.power_state", line[4:])
+
+            elif line.startswith(("SWC:", "MUSIC:", "STALK:", "PWRACT:")):
                 log.debug("Arduino: %s", line)
 
             else:

@@ -7,9 +7,9 @@ Wszystko pozostałe wyłączone.
 Wdrożenie docelowe (pełne): [`WDROZENIE_M910Q.md`](WDROZENIE_M910Q.md).
 
 > **To nie jest stanowisko biurkowe.** Zestaw jedzie w aucie, więc tor
-> zasilania jest kompletny: ładowanie banku, blokada przeładowania, LVD
-> i przekaźnik zapłonu. Oszczędzamy na funkcjach BCM i na wariancie
-> ładowarki — **nie na zabezpieczeniach**.
+> zasilania jest kompletny: ładowanie banku, blokada przeładowania i LVD.
+> Oszczędzamy na funkcjach BCM i na wariancie ładowarki — **nie na
+> zabezpieczeniach**.
 
 > **Ekran 7" to konfiguracja tymczasowa.** Docelowy panel to **10,1"
 > 1280×800**, opcjonalnie drugi **6,86" 1280×480** — i tak jest ustawione
@@ -64,10 +64,12 @@ tylko **raportuje** stan łącza (`lte.connected`, `lte.signal`, `lte.ip`);
 samo połączenie robi NetworkManager. Huawei E3372 w trybie HiLink zgłasza się
 jako karta sieciowa i działa od podłączenia.
 
-**Moduł `power` zostaje wyłączony mimo przekaźnika zapłonu.** `PowerManager`
-(`src/power/power_manager.py`) reaguje na zdarzenia `hal.ignition` /
-`sim.ignition`, a na x86 nikt takich zdarzeń nie publikuje — nie ma wejścia
-GPIO. Odcięcie domeny B robi tu sprzęt (przekaźnik na ACC), nie software.
+**Moduł `power` nie usypia maszyny — nawet gdy go włączysz.**
+`PowerManager` (`src/power/power_manager.py`) na `hal.ignition = false`
+przechodzi do STANDBY, co oznacza wygaszenie podświetlenia i
+`power.active = false` — **żadnego `systemctl suspend`**. Uśpienie robi
+`bcm-power-toggle.sh` przez acpid, poza BCM. Do tego na x86 nikt
+`hal.ignition` nie publikuje. Pełne rozpisanie luki: §3.1a.
 
 ---
 
@@ -92,6 +94,15 @@ GPIO. Odcięcie domeny B robi tu sprzęt (przekaźnik na ACC), nie software.
 
 ![Tor zasilania wariantu testowego](../schematics/power_test_build.svg)
 
+| Rysunek | Co pokazuje |
+|---------|-------------|
+| [`power_test_build.svg`](../schematics/power_test_build.svg) | przegląd blokowy — ten powyżej |
+| [`schematic_test_build.svg`](../schematics/schematic_test_build.svg) | **schemat ideowy** z symbolami elektrycznymi |
+| [`wiring_test_build.svg`](../schematics/wiring_test_build.svg) | **schemat połączeniowy** — zaciski i numery przewodów |
+| [`ignition_sense.svg`](../schematics/ignition_sense.svg) | **wykrywanie zapłonu** — optoizolacja, wartości elementów |
+
+Tabele „skąd → dokąd": [`SCHEMATY_POLACZEN.md`](SCHEMATY_POLACZEN.md) §10.
+
 ```
 akumulator rozruchowy
    │  bezpiecznik 15 A przy klemie „+", przewód 2,5 mm²
@@ -99,7 +110,10 @@ akumulator rozruchowy
 TVS + kondensator 470 µF/35 V        ← ochrona wejścia (§5.4 ZASILANIE)
    │
    ▼
-VSR  (zał. 13,3 V / wył. 12,8 V)     ← zwiera dopiero, gdy alternator pracuje
+przekaźnik ładowania 30 A            ← cewka z zapłonu, dioda 1N4007
+   │
+   ▼
+dioda MBR2545CT (obie połówki równolegle, radiator)
    │
    ▼
 moduł CC-CV boost  (CV 14,40 V, CC wg §3.3)
@@ -116,68 +130,205 @@ XH-M609 (LVD)  ── bezpiecznik 15 A przed VIN+
    ▼
 wyłącznik główny na „+"  (albo rozłącznik masy na „−" banku)
    │
-   ├── przekaźnik zapłonu (cewka z ACC, dioda 1N4007) — DOMENA B
-   │      └── bezp. 7,5 A → XL6019 12 → 19,5 V → M910q
-   │                                              └── USB: panel 7", dotyk,
-   │                                                  Pro Micro, modem LTE
+   ├── bezp. 7,5 A → XL6019 12 → 19,5 V → M910q   ← ZASILANY STALE
+   │                                     └── USB: panel 7", dotyk,
+   │                                         Pro Micro, modem LTE
    │
-   └── DOMENA A — w tym wariancie pusta (nie ma jeszcze Nano, HM-10, RXB6)
+   └── bezp. 2 A → LM2596 12 → 5 V → podświetlenie panelu (§3.1b)
+
+sygnał zapłonu ──► wejście Arduino ──► USB ──► M910q: S3 / wybudzenie
 ```
 
 Cztery rzeczy warto tu zauważyć:
 
-- **Domena A jest pusta**, więc na postoju z banku pobiera prąd wyłącznie
-  sam XH-M609. To czyni pomiar jego poboru (§7.3
-  [`ZASILANIE_BUFOROWANE.md`](ZASILANIE_BUFOROWANE.md)) najważniejszą liczbą
-  całego wariantu — patrz tabela w §3.3.
-- **Przekaźnik zapłonu nie jest opcją.** Bez niego XL6019 i M910q wiszą na
-  banku na postoju i rozkładają go w kilkanaście godzin.
-- **Panel 7" wisi na USB M910q** — żadnego odgałęzienia 12 V, żadnego bucka,
-  żadnego dodatkowego bezpiecznika. Cały tor kończy się na jednym wyjściu
-  XL6019. Szczegóły i haczyki poniżej.
-- **Jedna gałąź zamiast dwóch to jeden bezpiecznik — ale większy.** Wszystko
-  idzie teraz przez XL6019, więc jego prąd wejściowy rośnie. Przy 45 W wyjścia
-  i sprawności 85 % to 4,2 A przy 12,6 V, a przy napięciu banku bliskim progu
-  LVD **4,6 A**. Bezpiecznik 5 A siedziałby na krawędzi i przepalał się
-  z powodów niezwiązanych z żadną usterką — dlatego **7,5 A**.
+- **Nie ma już domeny B.** M910q wisi na buforze na stałe, a zapłon jest
+  tylko **sygnałem** — Arduino go wykrywa i usypia albo wybudza komputer.
+  Konsekwencje w §3.1a; jedna z nich jest kosztowna.
+- **Przekaźnik przeniósł się do toru ładowania.** Rozłącza ładowanie przy
+  zgaszonym silniku — nie odcina już niczego po stronie odbiorników.
+- **Panel 7" wisi na USB M910q** — dotyk i zasilanie idą tym samym kablem,
+  więc USB musi zostać. Osobno idzie tylko **podświetlenie**, przez LM2596
+  na złącze PWM + GND panelu (§3.1b).
+- **Jeden bezpiecznik na komputer — ale większy.** Wszystko idzie przez
+  XL6019, więc przy 45 W wyjścia i sprawności 85 % to 4,2 A przy 12,6 V,
+  a przy napięciu banku bliskim progu LVD **4,6 A**. Bezpiecznik 5 A
+  siedziałby na krawędzi i przepalał się bez żadnej usterki — dlatego
+  **7,5 A**.
 
-#### Zasilanie wyświetlacza z USB — co trzeba wiedzieć
+### 3.1a Stałe zasilanie i S3 — co to kosztuje
 
-**Budżet portu.** Panel 7" 1024×600 ciągnie zwykle 0,5–1 A przy 5 V. Port
-USB 3.0 M910q daje 900 mA, USB 2.0 — 500 mA. Jeżeli panel przyszedł z kablem
-rozgałęzionym na dwa wtyki USB, to nie ozdobnik: podepnij oba, do **różnych**
-portów. Objaw niedoboru to migotanie albo restart panelu przy jaśniejszym
-obrazie, nie brak obrazu w ogóle.
+Zapłon nie odcina już komputera. Zamiast tego **Arduino wykrywa zmianę stanu
+zapłonu**, a M910q schodzi do **S3** i z niego wraca. Zysk jest realny:
+wybudzenie w ~3 s zamiast ~40 s zimnego startu, bez ryzyka ucięcia zapisu
+na dysk w połowie.
 
-**Zapas XL6019 się kurczy.** Panel przestał być osobnym odbiornikiem 12 V
-i wszedł na szynę 19,5 V razem z komputerem:
+Cena też jest realna — i to jest najważniejsza liczba w tej zmianie:
+
+| Stan na postoju | Pobór z banku |
+|-----------------|---------------|
+| M910q w S3 | 1,5–3 W |
+| straty XL6019 przy tak małym obciążeniu | 1–1,5 W |
+| XH-M609 (zmierz!) | 0,25–1,5 W |
+| **Razem** | **~3–6 W, czyli 240–480 mA** |
+
+| Pakiety | 240 mA | 350 mA | 480 mA |
+|---------|--------|--------|--------|
+| 5 (25,5 Ah) | ~2,2 dnia | ~1,5 dnia | ~1,1 dnia |
+| 8 (40,8 Ah) | ~3,5 dnia | ~2,4 dnia | ~1,8 dnia |
+
+Po **twardym wyłączeniu** (a nie S3) zostaje sam pobór przetwornic i LVD,
+czyli ~80–120 mA — wtedy 5 pakietów daje **4,4–5,3 dnia**, a 8 pakietów
+**7,1–8,5 dnia**. Dlatego eskalacja z S3 do pełnego wyłączenia po kilku
+godzinach jest tu naprawdę warta zachodu — a przy sterowaniu przyciskiem
+zasilania kosztuje tyle, co dłuższy impuls.
+
+Wszystko do 50 % DoD. Dla porównania: przy twardym odcięciu domeny B
+wychodziło **~13 dni**. Utrata jest sześciokrotna i wynika wprost z tego,
+że S3 to nie jest zero.
+
+Co z tym zrobić:
+
+- **Auto używane co dzień lub co drugi dzień** — to nie problem, bank i tak
+  doładowuje się podczas jazdy.
+- **Dłuższy postój** — użyj **wyłącznika głównego**. To jedyna rzecz, która
+  naprawdę zeruje pobór, i dlatego został na liście jako obowiązkowy.
+- **XH-M609 jest siatką bezpieczeństwa**, nie planem: odetnie przy 11,00 V,
+  więc bank przeżyje, ale wrócisz do wyłączonego zestawu.
+- **Eskalacja S3 → pełne wyłączenie** po 2 h postoju: przy sterowaniu
+  przyciskiem zasilania to jedna linijka firmware'u (impuls 5 s zamiast
+  250 ms), a powrót to znowu krótki impuls. Patrz niżej.
+
+#### Jak to zrobić najmniejszym kosztem — przez fizyczny przycisk zasilania
+
+![Wykrywanie zapłonu i sterowanie przyciskiem](../schematics/ignition_sense.svg)
+
+Przycisk zasilania M910q to zwykły **przycisk chwilowy zwierny**, a Linux ma
+na nim już zbudowaną całą potrzebną logikę:
+
+| Stan maszyny | Krótkie wciśnięcie |
+|--------------|--------------------|
+| praca | acpid → `bcm-power-toggle.sh` → **S3** |
+| S3 | **wybudzenie** w ~3 s |
+| wyłączona | **start** |
+| dowolny, przytrzymanie > 4 s | twarde wyłączenie |
+
+Czyli **jeden impuls obsługuje oba kierunki**. Wystarczy, żeby Arduino umiało
+ten przycisk „nacisnąć" — styki **modułu przekaźnika 1-kanałowego wpięte
+równolegle** do przycisku, sterowane impulsem 250 ms z pinu **A2**.
+
+Co to daje w porównaniu z wysyłaniem klawiszy HID i osobnym hakiem na hoście:
+
+| | |
+|---|---|
+| ✅ | **zero zmian po stronie hosta** — `acpid` + `bcm-power-toggle.sh` już są skonfigurowane (§7.3 [`WDROZENIE_M910Q.md`](WDROZENIE_M910Q.md), `HandlePowerKey=ignore` w `logind.conf`) |
+| ✅ | wybudzanie **nie zależy od „Wake on USB"** — przycisk zasilania działa zawsze, także po twardym wyłączeniu |
+| ✅ | eskalacja S3 → pełne wyłączenie po kilku godzinach to po prostu **dłuższy impuls** (5 s), a powrót — znowu krótki |
+| ⚠️ | układ jest **otwarty**: Arduino nie wie, czy maszyna śpi. Pulsujemy na *zmianę* stanu zapłonu, więc rozjazd wymaga zdarzenia z zewnątrz i naprawia się przy następnym cyklu kluczyka |
+
+Domknięcie pętli, jeśli kiedyś zacznie przeszkadzać: wejście z **diody
+zasilania panelu przedniego** (świeci = praca, miga = S3). Jeden przewód
+więcej, za to stan czytany zamiast zakładanego.
+
+**Zostaje jedna rzecz do dorobienia — firmware Pro Micro:**
+
+| Element | Szczegóły |
+|---------|-----------|
+| Wejście zapłonu na **D0 (RXI)** | jedyny fizycznie wolny pin. Sygnał 12 V **musi** iść przez optoizolator PC817 — nie wprost na pin 5 V |
+| Wyjście na przekaźnik na **A2** | pin jest zajęty przez przycisk dźwigni „brightness cycle”, ale ta funkcja **i tak dziś nic nie robi** (§3.1c), więc jest wolny w praktyce |
+| Debounce zapłonu 2 s + impuls 250 ms / 5 s | żeby migotanie na linii ACC nie usypiało maszyny w kółko |
+
+`modules.power` zostaje wyłączony i nie ma to znaczenia: `PowerManager`
+w stanie STANDBY gasi podświetlenie, a nie usypia maszynę — uśpienie robi
+acpid, poza BCM.
+
+> **Pro Micro musi mieć własne 5 V.** Jeżeli wisi na USB M910q, a ten odcina
+> zasilanie portów w S3 — Arduino gaśnie razem z komputerem i nie ma czym
+> nacisnąć przycisku. Zasil je z **MP1584** z bufora i **przetnij żyłę VBUS
+> w kablu USB** (albo użyj kabla data-only): dwa źródła 5 V zwarte razem to
+> proszenie się o kłopoty. Dane po USB zostają.
+
+> **Zanim cokolwiek zlutujesz — zmierz przycisk.** Miernik w tryb ciągłości,
+> maszyna odłączona od zasilania: zaciski mają być rozwarte, a przy wciśnięciu
+> zwarte. To potwierdza, że to zwykły przycisk chwilowy, i pokazuje, gdzie
+> wpiąć styki przekaźnika.
+
+### 3.1b Podświetlenie panelu — osobne zasilanie
+
+Panel ma osobne złącze **PWM + GND** do sterowania podświetleniem, niezależne
+od USB. To pozwala rozdzielić dwie rzeczy:
+
+| Co | Skąd |
+|----|------|
+| logika panelu + dotyk | **USB z M910q** — tu nic się nie zmienia |
+| podświetlenie | **LM2596 12 → 5 V** wprost z bufora, bezp. 2 A |
+
+Dzięki temu podświetlenie nie zjada budżetu portu USB (patrz niżej) ani
+zapasu XL6019.
+
+**Regulacji jasności w tym wariancie nie ustawiaj z BCM** — dlaczego,
+opisuje §3.1c. Wejście PWM podaj na stały poziom, a jasność reguluj
+**fizycznymi przyciskami panelu**.
+
+> **Zgaś podświetlenie razem z komputerem.** LM2596 wisi na buforze na stałe,
+> więc jeżeli panel świeci przy M910q w S3, dokładasz **2–4 W do poboru
+> postojowego** — a to niemal podwaja liczby z §3.1a. Większość paneli gasi
+> podświetlenie sama po zaniku sygnału HDMI; **sprawdź to pomiarem**. Jeżeli
+> Twój tego nie robi, wstaw na wyjście LM2596 mały przekaźnik albo MOSFET
+> sterowany z Arduino — ono i tak zna stan zapłonu.
+
+#### Budżet portu USB
+
+Po zdjęciu podświetlenia z USB zostaje sama logika panelu i dotyk, czyli
+0,2–0,4 A przy 5 V. Port USB 3.0 M910q daje 900 mA, USB 2.0 — 500 mA, więc
+jeden port wystarcza z zapasem. Gdyby panel jednak przyszedł z kablem
+rozgałęzionym na dwa wtyki, podepnij oba do **różnych** portów — objawem
+niedoboru jest migotanie albo restart panelu, nie brak obrazu.
+
+#### Zapas XL6019
 
 | Odbiornik | Moc |
 |-----------|-----|
 | M910q (limit CPU 28 W) | 25–35 W |
-| Panel 7" + dotyk przez USB | 3–5 W |
+| Panel — logika + dotyk przez USB | 1–2 W |
 | Pro Micro + modem LTE | 3–5 W |
-| **Razem** | **31–45 W** |
+| **Razem na szynie 19,5 V** | **29–42 W** |
 
-XL6019 daje ok. **45 W**. Górny kraniec tabeli to dokładnie jego sufit,
-więc **limit poboru CPU przestaje być zaleceniem, a staje się warunkiem
-działania** — instrukcja w [`ZASILANIE_BUFOROWANE.md`](ZASILANIE_BUFOROWANE.md)
-§3.5a. Drugi panel na tej samej szynie już się nie zmieści.
+XL6019 daje ok. **45 W**. Przeniesienie podświetlenia na LM2596 odzyskało
+kilka watów, ale zapas dalej jest cienki, więc **limit poboru CPU nie jest
+zaleceniem, tylko warunkiem działania** — instrukcja w
+[`ZASILANIE_BUFOROWANE.md`](ZASILANIE_BUFOROWANE.md) §3.5a. Drugi panel na
+tej samej szynie i tak się nie zmieści.
 
-**PWM podświetlenia w tym wariancie nie ma.** Sterowanie jasnością realizuje
-**Arduino Nano #1** (`arduino/output_controller`, piny 9 i 10, komenda
-`{"cmd":"backlight","display":"large","brightness":80}`) — a tej płytki
-w wariancie testowym nie ma. Panel świeci na stałe, jasnością sterujesz jego
-własnym przyciskiem. Kiedy dojdzie Nano #1 i regulacja PWM, **podświetlenie
-trzeba będzie zasilić osobno** — stopień MOSFET nie da się zasilić z USB
-razem z logiką panelu.
+### 3.1c Regulacja jasności — czego nie ma w kodzie
+
+Obserwacja, że w UI nie ma suwaka jasności, jest **trafna**. Stan faktyczny
+jest jednak bardziej pokręcony niż „jest tylko czujnik":
+
+| Element | Stan |
+|---------|------|
+| Suwak jasności w **web UI** | **nie istnieje** |
+| `POST /api/config` z kluczem `brightness` | przyjmuje wartość, zapisuje `display.dashboard.brightness` i publikuje `config.changed` — **nikt tego nie konsumuje** |
+| Ekran ustawień w **Pygame** (`settings_screen.py`) | ma pozycję „Brightness" 0–100 co 10 — ten sam martwy klucz |
+| LDR na **A1 Pro Micro** | sketch czyta go i wysyła po serialu `LIGHT:<0-1023>` co 2 s |
+| Przycisk dźwigni / akcja SWC „Brightness" | wysyła **F9** → `action_dispatch` mapuje na `input.brightness_cycle` |
+| `BrightnessController` (`src/power/brightness.py`) | subskrybuje jedno i drugie, ma 6 stopni ręcznych i mapę czujnika… ale **nigdy nie jest tworzony** — `start_power()` uruchamia tylko `PowerManager`, `BacklightController` i `ShutdownHandler` |
+| Wyjście PWM do sprzętu | `BacklightController` na x86 tylko symuluje; realny PWM idzie przez `central_lock.py` → **Nano #1**, którego tu nie ma |
+
+Czyli: cały łańcuch istnieje, ale **jest rozpięty w dwóch miejscach naraz** —
+brakuje instancji kontrolera i brakuje płytki, która wystawia PWM. Ani LDR,
+ani przycisk SWC nic dziś nie robią.
+
+**Zgodnie z ustaleniem zostawiamy to jak jest.** Panel ma fizyczną regulację
+switchami i to w zupełności wystarcza na czas testów. Domknięcie tego
+łańcucha to zadanie na krok 6 roadmapy (§9), razem z Nano #1.
 
 ### 3.2 Ładowanie — wariant B, i dlaczego akurat on
 
 [`ZASILANIE_BUFOROWANE.md`](ZASILANIE_BUFOROWANE.md) §5 opisuje dwa warianty:
-gotową ładowarkę B2B (800–1000 PLN) albo VSR + moduł CC-CV boost
-(120–220 PLN). Na etapie testowym bierzemy **wariant B** — różnica to
-kilkaset złotych za funkcje, które przy jeździe testowej niewiele wnoszą.
+gotową ładowarkę B2B (800–1000 PLN) albo przekaźnik ładowania z diodą
+i moduł CC-CV boost (70–180 PLN). Na etapie testowym bierzemy **wariant B**
+— różnica to kilkaset złotych za funkcje, które przy jeździe testowej
+niewiele wnoszą.
 
 **CV ustawiamy na 14,40 V, nie niżej.** To nie jest wybór estetyczny: boost
 ma władzę nad prądem tylko wtedy, gdy faktycznie przetwarza, czyli gdy
@@ -192,7 +343,7 @@ Konsekwencje 14,40 V bez kompensacji temperaturowej — i co je łagodzi:
 | | |
 |---|---|
 | ✅ | CC działa zawsze, więc prąd ładowania jest naprawdę ograniczony |
-| ✅ | absorpcja podawana **tylko przy pracującym silniku** — VSR rozwiera obwód na postoju, bank nie stoi na 14,4 V |
+| ✅ | absorpcja podawana **tylko podczas jazdy** — przekaźnik ładowania jest na postoju rozwarty, bank nie stoi na 14,4 V |
 | ✅ | bank ładuje się do 100 %, nie do 90 % |
 | ⚠️ | brak kompensacji: przy 40 °C prawidłowa absorpcja to 13,95 V, czyli jedziesz 0,45 V za wysoko |
 | ⚠️ | próg warstwy 2 zostaje na **15,30 V** |
@@ -200,10 +351,12 @@ Konsekwencje 14,40 V bez kompensacji temperaturowej — i co je łagodzi:
 Jeśli bagażnik latem dochodzi do 50 °C — zejdź z CV do **14,10 V**. Nadal
 powyżej wejścia, więc CC pozostaje sprawne.
 
-**Dlaczego VSR, a nie dioda Schottky:** boost nie potrafi dać napięcia
-niższego niż wejściowe, więc przy zgaszonym silniku podawałby 14,4 V
-i **rozładowywał akumulator auta**. VSR rozłącza obwód fizycznie poniżej
-12,8 V. Szczegóły: §5.3 [`ZASILANIE_BUFOROWANE.md`](ZASILANIE_BUFOROWANE.md).
+**Dlaczego tor ładowania musi być rozłączany:** boost nie potrafi dać
+napięcia niższego niż wejściowe, więc gdyby jego wejście wisiało na stałe na
+akumulatorze rozruchowym, to przy zgaszonym silniku dalej podawałby 14,4 V
+i **rozładowywał akumulator auta**. Przekaźnik przerywa obwód fizycznie,
+a dioda MBR2545CT jest drugą barierą, gdyby styki się zespawały. Szczegóły:
+§5.3c [`ZASILANIE_BUFOROWANE.md`](ZASILANIE_BUFOROWANE.md).
 
 ### 3.2a Konkretne moduły
 
@@ -223,14 +376,21 @@ Modułu **buck-boost LTC3780** (WD2002SJ / XR-131) *nie* bierz do pięciu
 pakietów: utrzymałby 13,8 V, ale ciągle daje tylko 7 A / 80 W, czyli ~5,8 A
 przy 13,8 V. Po odjęciu 3,5 A obciążenia zostaje 2,3 A do banku.
 
-**VSR** — cztery opcje, od markowej do najtańszej:
+**Rozdział ładowania** — przekaźnik plus dioda, obie pozycje po kilkanaście
+złotych:
 
-| Model | Progi | Cena (PLN) | Uwaga |
-|-------|-------|-----------|-------|
-| **Durite 0-727-11** — 12 V / 140 A | zał. 13,3 V · rozł. 12,65 V | 150–250 | zalany żywicą, LED stanu, progi fabrycznie takie, jakich potrzebujesz |
-| **Victron Cyrix-ct 12/24-120** | mikroprocesorowy | 250–350 | bezobsługowy; przy 9 A przesada |
-| Bezmarkowy „VSR 12 V 140 A" | zwykle 13,3 / 12,8 V | 60–120 | **zweryfikuj progi zasilaczem** — bywają przekłamane o 0,3 V |
-| **Przekaźnik 30 A z D+ alternatora** | zwiera, gdy alternator ładuje | 15–25 | tor niesie 9 A, więc 140 A to przesada. Trzeba znaleźć zacisk **D+/L** i sprawdzić, czy lampka kontrolna dalej działa — cewka bierze ~150 mA z jej obwodu |
+| Element | Dane | Cena (PLN) | Uwaga |
+|---------|------|-----------|-------|
+| **Przekaźnik 30 A SPDT** + podstawka | cewka z zapłonu, dioda 1N4007 równolegle | 15–25 | tor niesie 9 A, więc 30 A styków to spory zapas |
+| **MBR2545CT** — 25 A / 45 V, TO-220AB | dwie połówki 12,5 A ze wspólną katodą | 5–12 | **zewrzyj obie anody** — przy 9 A łącznie Vf spada do ~0,45 V. Radiator obowiązkowy (ok. 4,5 W). Blaszka jest katodą, więc izoluj ją od masy |
+
+> **Cewka z zapłonu ma jeden koszt.** Przy kluczyku w ON bez pracującego
+> silnika przekaźnik jest zwarty i boost ładuje bank **z akumulatora
+> rozruchowego**. Przy normalnym rozruchu to kilka sekund; przy dłuższym
+> staniu z kluczykiem — już nie. Jeśli chcesz to wyciąć, podepnij cewkę pod
+> **D+/L alternatora** zamiast pod zapłon: jeden przewód inaczej, a sygnał
+> znaczy wtedy „alternator ładuje". Sprawdź potem lampkę kontrolną — cewka
+> bierze ~150 mA z jej obwodu.
 
 ### 3.3 Prąd ładowania — policz go z obciążeniem
 
@@ -259,20 +419,21 @@ i przewiewu** — traktuj katalogowe 10 A jako wartość szczytową, nie robocz�
 
 ### 3.4 Ile pakietów
 
-**Pięć (25,5 Ah)** — tak jak w wersji docelowej, więc skrzynka, mocowanie
-i okablowanie nie będą do przerobienia po testach. Trzy wystarczą, jeśli
-w fazie testowej brakuje miejsca.
+**Pięć (25,5 Ah) to minimum, osiem jest wyraźnie lepsze.** Stałe zasilanie
+i S3 podniosły pobór postojowy z kilkudziesięciu miliamperów do kilkuset
+(§3.1a), więc pojemność zaczęła realnie decydować o tym, ile dni auto może
+postać. Trzy pakiety odpadają.
 
-| Pakiety | Pojemność | Praca przy zgaszonym silniku (3,5 A) | Postój przy 40 mA | Doładowanie z 50 % |
-|---------|-----------|--------------------------------------|-------------------|--------------------|
-| 3 | 15,3 Ah | ~2,2 h | ~8,0 dnia | ~3,1 h jazdy |
-| **5** | **25,5 Ah** | **~3,6 h** | **~13,3 dnia** | **~2,8 h jazdy** |
-| 8 | 40,8 Ah | ~5,8 h | ~21,3 dnia | ~3,1 h jazdy |
+| Pakiety | Pojemność | Praca przy zgaszonym silniku (3,5 A) | Postój w S3 (350 mA) | Doładowanie z 50 % |
+|---------|-----------|--------------------------------------|----------------------|--------------------|
+| 3 | 15,3 Ah | ~2,2 h | ~0,9 dnia | ~3,1 h jazdy |
+| **5** | **25,5 Ah** | **~3,6 h** | **~1,5 dnia** | **~2,8 h jazdy** |
+| 8 | 40,8 Ah | ~5,8 h | ~2,4 dnia | ~3,1 h jazdy |
 
-Wszystko liczone do 50 % DoD. Postój wypada dłużej niż w wersji docelowej,
-bo domena A jest pusta — jedynym odbiornikiem jest XH-M609. Przy jego
-poborze 20 mA czasy się podwajają, przy 125 mA (katalogowe maksimum) spadają
-ponad trzykrotnie — **dlatego to zmierz**.
+Wszystko liczone do 50 % DoD. Kolumna „postój" zakłada środek widełek
+z §3.1a — pełny rozrzut (240–480 mA) jest tam w osobnej tabeli. Skoro
+i tak masz osiem pakietów, **na czas testów wstaw wszystkie osiem**:
+kosztuje to tylko miejsce i trzy dodatkowe bezpieczniki, a podwaja zapas.
 
 > Krótkie przejazdy po mieście nie doładują banku po dłuższym postoju.
 > Kolumna „doładowanie" zakłada ciągłą jazdę z pracującym alternatorem.
@@ -286,7 +447,7 @@ ponad trzykrotnie — **dlatego to zmierz**.
 |-------|---------|-------|
 | **XL6019** | wyjście **19,5 V** pod obciążeniem | ustaw multimetrem, zabezpiecz potencjometr |
 | **XH-M609** | odcięcie **11,00 V**, powrót **12,60 V** | sprawdź, czy pracuje stabilnie przy 11 V |
-| **VSR** | zał. **13,3 V**, wył. **12,8 V** | zwykle fabryczne, sprawdź kartę |
+| **Przekaźnik ładowania** | cewka z zapłonu (albo D+) | dioda 1N4007 równolegle, katodą do „+” |
 | **CC-CV boost** | CV **14,40 V**, CC wg §3.3 | ustaw CV **bez obciążenia**, CC na sztucznym obciążeniu; nigdy poniżej napięcia wejściowego — §3.2 |
 | **Rozłącznik nadnapięciowy** | próg **15,30 V**, powrót **14,00 V** | test zasilaczem laboratoryjnym, nie „na aucie" |
 
@@ -297,111 +458,42 @@ Obowiązkowe sprawdzenia XL6019 i XH-M609 przed pierwszym załączeniem:
 > a M910q pod pełnym obciążeniem czterech wątków dobija do 55 W. Instrukcja:
 > [`ZASILANIE_BUFOROWANE.md`](ZASILANIE_BUFOROWANE.md) §3.5a.
 
-### 3.6 Wyłączanie — przekaźnik tnie twardo
+### 3.6 Wyłączanie — dopóki Arduino nie usypia, robisz to ręcznie
 
-Przekaźnik zapłonu odcina domenę B **natychmiast** po przekręceniu kluczyka.
-Jeśli w tym momencie system pisze na dysk, ryzykujesz uszkodzenie
-systemu plików — a przy budowie rozwojowej cykli zasilania są dziesiątki
-dziennie.
-
-Procedura na czas testów:
+Nic już nie tnie zasilania komputera, więc **nie ma ryzyka ucięcia zapisu
+na dysk** — to główny zysk z §3.1a. Dopóki jednak brakuje trzech elementów
+z tabeli w §3.1a, przejście do S3 wywołujesz sam:
 
 ```
 1. Zaparkuj.
 2. Przycisk zasilania M910q  →  S3  (acpid + bcm-power-toggle.sh, §7.3 WDROZENIE_M910Q)
-3. Dopiero teraz kluczyk OFF.
+3. Kluczyk OFF — zasilanie i tak zostaje, więc kolejność nie ma znaczenia.
+4. Dłuższy postój? Wyłącznik główny — inaczej S3 zjada bank (§3.1a).
 ```
 
-W S3 nic nie jest zapisywane, więc odcięcie zasilania jest wtedy nieszkodliwe
-— maszyna wystartuje zimno przy następnym ACC. Zapominalskim ext4 zwykle
-wybacza, ale nie liczyłbym na to w nieskończoność.
+Wybudzenie: przycisk zasilania albo dowolny klawisz z Pro Micro, o ile
+w BIOS-ie włączone jest **Wake on USB**. Wraca w ~3 s.
 
-Automatyczne, „grzeczne" wyłączanie na zaniku ACC wymagałoby przekaźnika
-z opóźnieniem plus sygnału ACC podanego do Pro Micro i zmian w firmware —
-poza zakresem tego wariantu.
+Zapomniany krok 2 nie jest groźny — maszyna po prostu pracuje dalej i szybciej
+zjada bank. Zapomniany krok 4 przy tygodniowym postoju kończy się odcięciem
+przez LVD.
 
 ---
 
 ## 4. Lista zakupowa
 
-Ceny orientacyjne, rynek PL, 2025/2026.
+Cała lista — jedna tabela, z cenami i uzasadnieniem każdej pozycji — jest
+w osobnym dokumencie: **[`LISTA_ZAKUPOWA.md`](LISTA_ZAKUPOWA.md)**.
 
-### 4.1 Tor ładowania i ochrona — obowiązkowe
+| | |
+|---|---|
+| **Razem do kupienia** | **~479–923 PLN** |
+| Największe pozycje | moduł CC-CV boost (50–140), rozłącznik nadnapięciowy (40–80), skrzynka na bank (60–120), rozłącznik masy (40–70) |
+| Czego **nie** kupujesz | VSR, ładowarka B2B, DAC USB, karta WiFi, buck dla panelu — pełna lista z powodami tamże |
+| Warto dołożyć | multimetr z pomiarem prądu DC 10 A — bez niego nie odbierzesz instalacji |
 
-| # | Element | Specyfikacja | Cena (PLN) |
-|---|---------|--------------|-----------|
-| 1 | **VSR** | Durite 0-727-11 albo bezmarkowy 12 V / 140 A — modele w §3.2a | 60–250 |
-| 2 | **Moduł CC-CV boost** | „900 W 15 A" z wyświetlaczem albo SZBK07 — modele w §3.2a | 50–140 |
-| 3 | **Rozłącznik nadnapięciowy** | przekaźnik napięciowy programowalny (XY-WJ01 lub odpowiednik), próg 15,30 V | 40–80 |
-| 4 | **Przekaźnik zapłonu** | Bosch 12 V / 30 A SPDT + podstawka | 15–25 |
-| 5 | **Dioda 1N4007** | gaszeniowa, równolegle do cewki | 2–5 |
-| 6 | **Dioda TVS + kondensator** | 1.5KE33CA lub SMCJ26CA + 470 µF/35 V low-ESR | 10–20 |
-| 7 | **Radiator + wentylator 40 mm** | do XL6019 — w aucie obowiązkowy | 20–35 |
-| 8 | **Kondensator wyjściowy** | 470 µF/35 V low-ESR na wyjście XL6019 | 3–6 |
-| | | **Podsuma** | **200–561** |
-
-### 4.2 Bezpieczniki i okablowanie — obowiązkowe
-
-| # | Element | Specyfikacja | Cena (PLN) |
-|---|---------|--------------|-----------|
-| 9 | Bezpiecznik **15 A** + oprawka przy klemie „+" | zasilanie ładowarki | 15–25 |
-| 10 | Bezpieczniki inline **10 A × 5** + oprawki | po jednym na pakiet | 25–40 |
-| 11 | Bezpiecznik inline **15 A** + oprawka | przed VIN+ modułu XH-M609 | 8–12 |
-| 12 | Bezpiecznik **7,5 A** + oprawka | odgałęzienie do XL6019 (strona 12 V) — §3.1 | 8–12 |
-| 13 | Przewód **2,5 mm²** | FLRY, czerwony 5 m + czarny 3 m | 40–60 |
-| 14 | Przewód **1,5 mm²** | FLRY, czerwony + czarny po 3 m | 15–25 |
-| 15 | Przewód **0,75 mm²** | FLRY, kilka kolorów po 2 m (ACC, sterowanie) | 15–25 |
-| 16 | Nasuwki **F2 6,35 mm** izolowane | do zacisków HR1221W, komplet | 15–25 |
-| 17 | Konektory oczkowe, tulejki, koszulki | zestaw, koszulki z klejem | 30–50 |
-| 18 | **Rozłącznik masy** | 100 A — na czas montażu i dłuższego postoju | 40–70 |
-| 19 | Skrzynka / wspornik na bank + pasy | na 5 pakietów, mocowanie do nadwozia | 60–120 |
-| 20 | Peszel + przelotki gumowe | przejścia przez blachę | 25–40 |
-| | | **Podsuma** | **296–504** |
-
-**Razem obowiązkowo: ~496–1065 PLN.** Dolny kraniec to bezmarkowy VSR
-i moduł „600 W" na potencjometrach, górny — Victron Cyrix i boost
-z wyświetlaczem. Przy pierwszej instalacji warto dopłacić przynajmniej
-za moduł CC-CV z odczytem cyfrowym.
-
-> **Przekrój 2,5 mm² zamiast 6 mm²** jest tu policzony pod ten wariant:
-> 8 A ładowania to ok. 9 A po stronie wejścia, a bezpiecznik 15 A chroni
-> przewód z zapasem. Przy przejściu na ładowarkę B2B (18–25 A) trzeba
-> **wymienić i przewód, i bezpiecznik** na 6 mm² / 30 A.
-
-### 4.3 Zależne od tego, co już masz
-
-| # | Element | Kiedy potrzebne | Cena (PLN) |
-|---|---------|----------------|-----------|
-| 21 | **Arduino Pro Micro** (ATmega32U4) | jeśli nie masz — pody SWC bez niego nie zadziałają | 40–60 |
-| 22 | **Wtyk zasilania do M910q** | najtaniej: odetnij kabel od oryginalnego zasilacza (koszt 0) | 0–40 |
-| 23 | **Przejściówka DP → HDMI** | tylko jeśli Twój egzemplarz M910q ma wyjścia DisplayPort — sprawdź (§5.2) | 0–25 |
-| 24 | **Drugi kabel USB do panelu** | jeśli panel przyszedł z rozgałęzieniem na dwa wtyki — §3.1 | 0–15 |
-| 25 | **Zaciskarka zapadkowa** | zaciski robione kombinerkami to najczęstsza usterka instalacji | 0–150 |
-| 26 | **Ładowarka sieciowa AGM** | doładowanie w garażu przy krótkich przejazdach | 0–250 |
-
-### 4.4 Warto, ale nie na start
-
-| # | Element | Po co | Cena (PLN) |
-|---|---------|-------|-----------|
-| 27 | Woltomierz/amperomierz panelowy z bocznikiem | podgląd banku i prądu ładowania bez multimetru | 40–70 |
-| 28 | Multimetr z pomiarem prądu DC 10 A | pomiar poboru XH-M609 i prądu ładowania | 80–200 |
-
-### 4.5 Czego **nie** kupuj na tym etapie
-
-| Element | Dlaczego |
-|---------|----------|
-| Ładowarka B2B (Victron / Redarc) | wariant B robi to samo za ~1/5 ceny — §3.2 |
-| Czujnik NTC | tanie moduły CC-CV nie mają wejścia kompensacji, więc nie ma go gdzie wpiąć — §3.2 |
-| Moduł buck-boost LTC3780 | utrzyma 13,8 V, ale tylko 80 W ciągle — za mało przy pięciu pakietach, §3.2a |
-| Przewód 6 mm², bezpiecznik główny 30 A | wymiarowane pod ładowarkę B2B — §4.2 |
-| Listwa dystrybucyjna 6–8 obwodów | trzy obwody obsłużą oprawki inline |
-| Buck 12 → 5 V dla domeny A | nie ma jeszcze Nano, HM-10 ani RXB6 |
-| Buck 12 → 5 V dla panelu | panel wisi na USB M910q — §3.1 |
-| Moduł 9 przekaźników, oba Nano, HM-10, RXB6 | odpowiednie moduły są wyłączone |
-| DAC USB ES9038Q2M | mini-jack M910q wystarcza do weryfikacji — §1 |
-| Karta WiFi | **masz MT7921 i P2P-GO już działa** |
-| Wzmacniacz, głośniki | osobna gałąź z akumulatora rozruchowego, po testach |
-| Drugi ekran, kamery, graber, czujniki | odpowiednie moduły są wyłączone |
+Masz już: M910q, ekran 7", MT7921, pody SWC, modem LTE, 8 × HR1221W,
+XL6019, XH-M609, Pro Micro, Nano V3, LM2596 i MP1584.
 
 ---
 
@@ -583,15 +675,20 @@ Pełna procedura siedmioetapowa (z pomiarami na każdym kroku):
 [ ] Panel nie miga i nie restartuje się przy jasnym obrazie (budżet USB)
 [ ] Po 30 min pracy XL6019 nie parzy w dotyku
 [ ] XH-M609 odcina przy 11,00 V (test zasilaczem, nie rozładowywaniem banku)
-[ ] Kluczyk OFF → domena B zanika w całości (pomiar na wyjściu przekaźnika)
-[ ] Pobór z banku przy kluczyku OFF = pobór własny XH-M609 — ZMIERZ i zapisz
+[ ] Pro Micro pracuje przy M910q w S3 (zasilany z MP1584, nie z USB — §3.1a)
+[ ] Impuls 250 ms z A2 usypia maszynę, kolejny ją budzi
+[ ] Impuls 5 s wyłącza twardo, krótki startuje z powrotem
+[ ] Pobór z banku przy M910q w S3 — ZMIERZ i zapisz; od tej liczby zależy,
+    ile dni auto może postać (§3.1a)
 ```
 
 **Zasilanie — ładowanie**
 
 ```
-[ ] Silnik zgaszony → VSR rozwarty, zerowy prąd z akumulatora rozruchowego
-[ ] Silnik pracuje → VSR zwiera się w ciągu kilku sekund
+[ ] Kluczyk OFF → przekaźnik ładowania rozwarty, zerowy prąd z akumulatora
+    rozruchowego
+[ ] Kluczyk ON → przekaźnik zwiera się, prąd ładowania rusza
+[ ] Dioda MBR2545CT po 30 min jazdy ciepła, ale nie parząca (radiator)
 [ ] Prąd wyjściowy boostu nie przekracza nastawy CC (§3.3)
 [ ] Napięcie na banku po godzinie jazdy w przedziale 14,35–14,45 V
 [ ] Prąd ładowania spada w miarę ładowania (dowód, że moduł REGULUJE,
@@ -600,8 +697,9 @@ Pełna procedura siedmioetapowa (z pomiarami na każdym kroku):
 [ ] Moduł boost po 30 min jazdy w granicach temperatury (radiator, przewiew)
 ```
 
-Wynik pomiaru poboru XH-M609 zapisz — od niego zależy, czy na dłuższy postój
-wystarczy 5 pakietów, czy trzeba dołożyć pozostałe trzy (§3.4).
+Pomiar poboru w S3 jest tu ważniejszy niż cokolwiek innego na tej liście —
+decyduje, czy zestaw przeżyje weekendowy postój, czy trzeba będzie za każdym
+razem pamiętać o wyłączniku głównym (§3.1a).
 
 ---
 
@@ -609,10 +707,11 @@ wystarczy 5 pakietów, czy trzeba dołożyć pozostałe trzy (§3.4).
 
 | Nie ma | Wróci przy |
 |--------|-----------|
-| Domeny A (Nano ×2, HM-10, RXB6, przekaźniki) | dokupieniu płytek + buck 12 → 5 V |
+| Domeny A (Nano ×2, HM-10, RXB6, przekaźniki) | dokupieniu płytek + MP1584 12 → 5 V |
 | Kompensacji temperaturowej ładowania | ładowarce B2B (wariant A, §5.2 `ZASILANIE_BUFOROWANE.md`) |
-| Modułu `power` w BCM | wejściu zapłonu, którego x86 nie ma — §1 |
-| Regulacji jasności (PWM podświetlenia) | Nano #1 + osobne zasilanie podświetlenia — §3.1 |
+| Automatycznego S3 na zapłon | wejściu zapłonu w Pro Micro + hakowi po stronie hosta — §3.1a |
+| Sprzężenia zwrotnego o stanie maszyny | wejściu z diody zasilania panelu przedniego — §3.1a |
+| Regulacji jasności z BCM | instancji `BrightnessController` **i** Nano #1 — §3.1c |
 | Drugiego ekranu | panelu 6,86" — hot-plug, ale **nie na USB M910q**: dwa panele nie zmieszczą się w zapasie XL6019 (§3.1) |
 | OBD / K-Line | CP2102 + L9637D |
 | Kamer, parkowania, czujników | grabera, HC-SR04, DS18B20, obu Nano |
@@ -633,11 +732,11 @@ i weryfikowalny osobno:
 | 3 | DAC USB ES9038Q2M | bez zmian — zmiana domyślnego sinka PipeWire |
 | 4 | CP2102 + L9637D | `obd`, `obd.use_real_hardware: true` |
 | 5 | Nano #2 (sensor hub) | `environment`, `rain_sensor`, `blinker_monitor` |
-| 6 | Nano #1 + przekaźniki + buck domeny A | `central_lock`, `lighting` — wtedy też **PWM podświetlenia i osobne zasilanie paneli** |
+| 6 | Nano #1 + przekaźniki + MP1584 domeny A | `central_lock`, `lighting` — wtedy dopina się też **regulacja jasności** z §3.1c |
 | 7 | kamery + graber | `camera`, `crash_detect` |
 | 8 | GPS | `location`, `tracking` |
 | 9 | ekran 6,86" | `small_display` (hotplug — wystarczy wpiąć) |
-| 10 | ładowarka B2B zamiast VSR + boost | bez zmian w configu — absorpcja 14,4 V, próg 15,30 V, przewód 6 mm² |
+| 10 | ładowarka B2B zamiast przekaźnika + boostu | bez zmian w configu — absorpcja 14,4 V z kompensacją, przewód 6 mm² |
 
 Po każdym kroku przełóż odpowiedni klucz z `bcm_config_test.yaml` albo
 przejdź na `bcm_config.yaml`, gdy większość będzie już podłączona.
@@ -648,6 +747,7 @@ przejdź na `bcm_config.yaml`, gdy większość będzie już podłączona.
 
 | Dokument | Zakres |
 |----------|--------|
+| [`LISTA_ZAKUPOWA.md`](LISTA_ZAKUPOWA.md) | **wszystko do kupienia w jednej tabeli** |
 | [`WDROZENIE_M910Q.md`](WDROZENIE_M910Q.md) | wdrożenie docelowe, pełne |
 | [`ZASILANIE_BUFOROWANE.md`](ZASILANIE_BUFOROWANE.md) | warianty ładowania, nastawy modułów, sprawdzenia przed załączeniem |
 | [`SCHEMATY_POLACZEN.md`](SCHEMATY_POLACZEN.md) | tabele połączeń dla wersji docelowej |

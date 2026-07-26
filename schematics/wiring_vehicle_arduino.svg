@@ -159,7 +159,7 @@
   <!-- Pro Micro -->
   <rect class="modB" x="830" y="102" width="380" height="228"/>
   <text class="mt" x="1020" y="124">Pro Micro (ATmega32U4) — wejścia</text>
-  <text class="ms" x="1020" y="142">domena B · USB HID + szeregowy 115200 · /dev/ttyACM0</text>
+  <text class="ms" x="1020" y="142">USB HID + szeregowy 115200 · /dev/ttyACM0 · 5 V z MP1584</text>
   <text class="tl" x="846" y="166">D2, D3 ← enkoder CLK, DT (+10 kΩ do VCC)</text>
   <text class="tl" x="846" y="184">D1 ← przycisk enkodera</text>
   <text class="tl" x="846" y="202">D5–D9 ← HOME, BACK, MEDIA, VOL+, VOL−</text>
