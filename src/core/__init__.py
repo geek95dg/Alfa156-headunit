@@ -1,4 +1,4 @@
-"""BCM v7 Core Infrastructure — config, logging, event bus, HAL."""
+"""BCM v8.5 Core Infrastructure — config, logging, event bus, HAL."""
 
 from .config import BCMConfig
 from .event_bus import EventBus

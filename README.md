@@ -9,7 +9,8 @@ BCM v8.5 — custom head unit for Alfa Romeo 156 1.9 JTD 8V, built on a
 - Dual DVR (front + rear) + 4-camera auto-switching (reverse, blinkers)
 - Ultrasonic parking sensors with buzzer
 - Android Auto (kiosk mode, integrated in dashboard)
-- Dual screen: 7/8" touchscreen (A1-A8 + Settings) + 4.3" stats display
+- Dual screen: 10.1" 1280x800 touchscreen (A1-A8 + Settings) + optional
+  6.86" 1280x480 widescreen stats display (hot-pluggable)
 - SWC steering wheel remote with configurable button mapping (dual-pod, 24 buttons, learn mode)
 - K-Line OBD-II diagnostics (KWP2000) with DTC read/clear
 - GPS tracking, weather, LTE connectivity
@@ -37,6 +38,9 @@ pip install -r requirements.txt -r requirements-x86.txt
 - **Deployment (production, M910q):** `docs/WDROZENIE_M910Q.md` —
   hardware, BIOS, OS, services, verification. Power system in detail:
   `docs/ZASILANIE_BUFOROWANE.md` + `schematics/`.
+- **Bench / dev build** (Android Auto + audio + steering-wheel buttons, the
+  rest switched off): `docs/WDROZENIE_TESTOWE.md`, config
+  `config/bcm_config_bench.yaml`.
 - Repo audit + improvement roadmap: `AUDYT_I_PLAN.md`. Unused legacy
   code lives in `legacy/`; docs for retired platforms (Orange Pi 5 Pro /
   5 Plus, Orange Pi PC bench rig, VMware smoke tests) live in

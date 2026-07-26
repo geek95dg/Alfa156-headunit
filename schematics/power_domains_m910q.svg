@@ -114,8 +114,8 @@
   <text class="tl" x="738" y="514">Pro Micro, GPS, LTE, mikrofon</text>
 
   <rect class="box" x="932" y="458" width="162" height="70"/>
-  <text class="tl" x="944" y="478">wyświetlacz 7"/10"</text>
-  <text class="tl" x="944" y="496">wyświetlacz 4,3"</text>
+  <text class="tl" x="944" y="478">wyświetlacz 10,1"</text>
+  <text class="tl" x="944" y="496">wyświetlacz 6,86" (opc.)</text>
   <text class="tl" x="944" y="514">DAC USB, graber AHD</text>
 
   <!-- ============ SEPARATE AMP BRANCH ============ -->

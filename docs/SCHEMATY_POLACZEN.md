@@ -160,8 +160,8 @@ dioda TVS 1.5KE33CA równolegle oraz kondensator 470 µF / 35 V równolegle.
 | 39 | XL6019 **OUT +** (15) | wtyk M910q, **środek** | 1,5 mm² | 5 A |
 | 40 | XL6019 **OUT −** (16) | wtyk M910q, **ekran** | 1,5 mm² | — |
 | 39a | XL6019 **OUT +** ↔ **OUT −** | kondensator 470 µF / 35 V low-ESR | — | — |
-| 41 | Buck MP1584 **OUT +** | panel 7" / 10", 5 V | 1,0 mm² | — |
-| 42 | Buck MP1584 **OUT +** | panel 4,3", 5 V | 1,0 mm² | — |
+| 41 | Buck MP1584 **OUT +** | panel główny 10,1", 5 V | 1,0 mm² | — |
+| 42 | Buck MP1584 **OUT +** | panel drugi 6,86", 5 V *(opcjonalny)* | 1,0 mm² | — |
 | 43 | Buck MP1584 **OUT −** | masa paneli (wspólna z Nano #1) | 1,0 mm² | — |
 
 > **Dioda gaszeniowa 1N4007** równolegle do cewki przekaźnika: **katoda do
@@ -289,8 +289,8 @@ i § 7b. Poniżej to, co dotyczy okablowania międzymodułowego.
 | D5 | Moduł przekaźników **IN1** (bagażnik) |
 | D6 | przycisk bagażnika → masa |
 | D7, D8 | **IN2, IN3** — szyba przód lewa góra/dół |
-| D9 | panel 7" — **M_PWM** |
-| D10 | panel 4,3" — **M_PWM** |
+| D9 | panel główny 10,1" — **M_PWM** |
+| D10 | panel drugi 6,86" — **M_PWM** |
 | D11, D12 | **IN4, IN5** — szyba przód prawa |
 | A0, A1 | **IN6, IN7** — szyba tył lewa |
 | A2, A3 | **IN8, IN9** — szyba tył prawa |
@@ -332,8 +332,14 @@ Patrz §3.3 i §3.4. Funkcje włącza się `#define FEATURE_*` na górze
 
 | Skąd | Dokąd | Uwagi |
 |------|-------|-------|
-| M910q **DP-1** | przejściówka pasywna DP → HDMI → wyświetlacz główny | dashboard, port 5002 |
-| M910q **DP-2** | przejściówka pasywna DP → HDMI → wyświetlacz mały | statystyki, port 5003 |
+| M910q, wyjście główne | wyświetlacz **10,1" 1280×800** + dotyk USB | dashboard, port 5002 |
+| M910q, wyjście drugie | wyświetlacz **6,86" 1280×480** *(opcjonalny)* | statystyki, port 5003 |
+
+> **Nazwy złączy sprawdź na swojej maszynie**, nie zakładaj z góry. Na
+> referencyjnym M910q złącza enumerują się jako `HDMI-A-1` / `HDMI-A-2`
+> (xrandr: `HDMI-1` / `HDMI-2`), a **główny panel wyszedł na złączu 2** —
+> patrz komentarz w `config/scripts/bcm-splash-play.sh`. Jeżeli Twoja sztuka
+> ma wyjścia DisplayPort, potrzebne będą pasywne przejściówki DP → HDMI.
 
 Nazwy złączy sprawdź: `for f in /sys/class/drm/card*-*/status; do echo "$f: $(cat $f)"; done`
 

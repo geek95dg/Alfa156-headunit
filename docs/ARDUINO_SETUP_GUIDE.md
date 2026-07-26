@@ -433,8 +433,8 @@ features layer on top.
 | D6  | Trunk button input (pull-up)           | **NO momentary switch → GND** |
 | D7  | Front-Left  UP   relay (hold)          | Relay module IN2 |
 | D8  | Front-Left  DOWN relay (hold)          | Relay module IN3 |
-| **D9**  | **7" display backlight PWM**          | **Display "PWM" pad** |
-| **D10** | **4.3" display backlight PWM**        | **Display PWM pad (M_PWM)** |
+| **D9**  | **main 10.1" display backlight PWM**  | **Display "PWM" pad** |
+| **D10** | **second 6.86" display backlight PWM** | **Display PWM pad (M_PWM)** |
 | D11 | Front-Right UP   relay (hold)          | Relay module IN4 |
 | D12 | Front-Right DOWN relay (hold)          | Relay module IN5 |
 | D13 | Status LED (on-board, no wiring)       | — |
@@ -587,7 +587,7 @@ Check `journalctl -u bcm-headunit | grep -i arduino` after boot.
 
 Once both Arduinos are flashed and verified:
 
-- Wire the display PWM pads to **Nano D9 (large 7") and D10 (small 4.3")**
+- Wire the display PWM pads to **Nano D9 (main 10.1") and D10 (second 6.86")**
   plus a common GND, then verify in Serial Monitor with
   `{"cmd":"backlight","display":"large","brightness":20}` and watch the
   screen dim.

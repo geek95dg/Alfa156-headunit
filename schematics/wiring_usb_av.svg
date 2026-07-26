@@ -45,18 +45,18 @@
   <text class="sec" x="60" y="92">Obraz</text>
 
   <rect class="modV" x="60" y="102" width="330" height="140"/>
-  <text class="mt" x="225" y="126">Wyświetlacz główny 7" / 10"</text>
-  <text class="ms" x="225" y="144">1024×600 lub 1280×800 · dotyk USB</text>
-  <text class="tl" x="78" y="168">HDMI ← przejściówka pasywna DP-1 → HDMI</text>
+  <text class="mt" x="225" y="126">Wyświetlacz główny 10,1"</text>
+  <text class="ms" x="225" y="144">1280×800 · dotyk USB</text>
+  <text class="tl" x="78" y="168">wyjście główne M910q (sprawdź nazwę złącza)</text>
   <text class="tl" x="78" y="186">USB (dotyk) → hub USB</text>
   <text class="tl" x="78" y="204">zasilanie 5 V ← buck MP1584 (domena B)</text>
   <text class="tl" x="78" y="222">M_PWM ← Nano #1 D9 · GND wspólna z Nano</text>
   <text class="ms" x="225" y="238">dashboard BCM, port 5002</text>
 
   <rect class="modV" x="60" y="262" width="330" height="122"/>
-  <text class="mt" x="225" y="286">Wyświetlacz mały 4,3"</text>
-  <text class="ms" x="225" y="304">800×480 · bez dotyku</text>
-  <text class="tl" x="78" y="328">HDMI ← przejściówka pasywna DP-2 → HDMI</text>
+  <text class="mt" x="225" y="286">Wyświetlacz drugi 6,86" — opcjonalny</text>
+  <text class="ms" x="225" y="304">1280×480 widescreen · bez dotyku · hotplug</text>
+  <text class="tl" x="78" y="328">wyjście drugie M910q · small-display-watch.sh</text>
   <text class="tl" x="78" y="346">zasilanie 5 V ← buck MP1584 (domena B)</text>
   <text class="tl" x="78" y="364">M_PWM ← Nano #1 D10 · GND wspólna z Nano</text>
   <text class="ms" x="225" y="380">karuzela statystyk + kamera cofania, port 5003</text>
@@ -66,10 +66,10 @@
   <path class="wdp" d="M712 166 L712 240 L420 240 L420 320 L390 320"/>
   <text class="wl" x="428" y="316">DP-2</text>
 
-  <text class="warn" x="60" y="404">Oba wyjścia M910q to DisplayPort — potrzebne dwie</text>
-  <text class="warn" x="60" y="420">pasywne przejściówki DP → HDMI.</text>
-  <text class="note" x="60" y="440">Aktywne przejściówki nie są potrzebne i bywają</text>
-  <text class="note" x="60" y="456">źródłem problemów z wykryciem ekranu.</text>
+  <text class="warn" x="60" y="404">Nazwy złączy odczytaj z maszyny, nie zakładaj:</text>
+  <text class="warn" x="60" y="420">/sys/class/drm/card*-*/status</text>
+  <text class="note" x="60" y="440">Na referencyjnym M910q: HDMI-A-1 / HDMI-A-2,</text>
+  <text class="note" x="60" y="456">panel główny wyszedł na złączu 2.</text>
 
   <!-- ============ USB HUB ============ -->
   <text class="sec" x="470" y="268">Hub USB (zasilany, 7 portów)</text>

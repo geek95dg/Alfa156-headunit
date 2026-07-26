@@ -1,0 +1,318 @@
+# BCM v8.5 — konfiguracja STANOWISKA TESTOWO-ROZWOJOWEGO
+#
+# Minimalny zestaw do weryfikacji na biurku / w aucie na etapie rozwoju:
+#   • ekran 7" 1024x600 (docelowy jest 10,1" 1280x800 — patrz bcm_config.yaml)
+#   • Android Auto PO KABLU USB (bez WiFi P2P i bez Bluetooth)
+#   • dźwięk przez wyjście analogowe M910q (mini-jack) — domyślny sink PipeWire
+#   • przyciski SWC przez Arduino Pro Micro (USB HID)
+#   • modem LTE — na x86 moduł `network` tylko raportuje stan łącza,
+#     samo połączenie robi NetworkManager
+#
+# Wszystko pozostałe wyłączone, żeby nie szukać usterek w rzeczach,
+# których jeszcze nie ma podłączonych.
+#
+# Uruchomienie:
+#   python3 main.py --platform x86 --config config/bcm_config_bench.yaml --frontend
+#
+# Ten plik NIE jest nakładką na bcm_config.yaml — --config podmienia całą
+# konfigurację, więc jest to pełna kopia z pozmienianymi kluczami.
+# Instrukcja: docs/WDROZENIE_TESTOWE.md
+#
+system:
+  name: BCM v8.5
+  version: 8.5.1
+  platform: x86
+  log_level: DEBUG
+  log_file: logs/bcm.log
+  simulation: false
+# Jeden przełącznik na każdy moduł/podsystem — pełna lista i stan
+# także w UI: Settings -> Moduły (GET/POST /api/modules).
+modules:
+  # --- WŁĄCZONE na stanowisku testowym ---
+  dashboard: true          # frontend HTML5 na porcie 5002
+  multimedia: true         # Android Auto (openauto)
+  input: true              # przyciski SWC przez Pro Micro (USB HID)
+  audio: true              # głośność i EQ na domyślnym sinku PipeWire
+  network: true            # status łącza (LTE/WiFi/ethernet) — tylko odczyt
+
+  # --- WYŁĄCZONE: brak podłączonego sprzętu ---
+  obd: false               # brak CP2102 + L9637D
+  parking: false           # brak HC-SR04
+  environment: false       # brak DS18B20
+  camera: false            # brak grabera i kamer
+  power: false             # brak przekaźnika zapłonu w torze testowym
+  location: false          # brak GPS
+  tracking: false          # zależy od GPS
+  weather: false           # wymaga klucza API
+  blinker_monitor: false   # brak sygnałów z auta
+  rain_sensor: false
+  central_lock: false      # brak Nano #1 i modułu przekaźników
+  lighting: false
+  performance: false       # zależy od OBD
+  alarm: false
+  crash_detect: false      # zależy od kamer
+  battery: false           # patrz docs/ZASILANIE_BUFOROWANE.md § 13.4
+
+  # --- podsystemy (startowane wprost w main.py) ---
+  bluetooth: false         # AA po kablu nie potrzebuje BT
+  phonebook: false         # bez BT nie ma czego synchronizować
+  fuel_sender: false       # brak ADC z Arduino
+  wifi_ap: false           # AA po kablu — bez P2P-GO
+  wifi_hotspot: false
+  route_planner: false     # wymaga kluczy API
+  small_display: false     # jeden ekran na stanowisku
+display:
+  # Stanowisko testowe: panel 7" 1024x600.
+  # Docelowo 10,1" 1280x800 — wartości produkcyjne w bcm_config.yaml.
+  dashboard:
+    width: 1024
+    height: 600
+    fps: 15
+    theme: heritage
+    brightness: 70
+  multimedia:
+    # Rozdzielczość renderowania Android Auto — trzymaj równą panelowi.
+    width: 1024
+    height: 600
+  small:
+    width: 1280
+    height: 480
+  appbar_px: 48
+  navbar_px: 48
+units:
+  speed: km/h
+  temperature: C
+language: pl
+gpio:
+  parking_trig: 79
+  parking_echo:
+  - 80
+  - 81
+  - 82
+  - 83
+  buzzer: 84
+  backlight_dashboard: 32
+  backlight_multimedia: 33
+  onewire: 7
+  ignition: 85
+  door: 86
+  rain_sensor: 87
+  sprayer: 88
+  central_lock: 89
+  blinker_left: 90
+  blinker_right: 91
+vehicle:
+  blinker_active_low: true
+  blinker_hold_sec: 0.8
+serial:
+  kline:
+    port_opi: /dev/ttyS3
+    port_x86: /dev/ttyUSB_kline   # CP2102/VIAKEN KKL — patrz reguła udev
+                                  # w docs/KLINE_SNIFFING.md §5.4
+    baudrate: 10400
+    ecu_address: 1
+obd:
+  use_real_hardware: false   # x86 produkcja: ustaw true, żeby czytać z
+                             # prawdziwego ECU zamiast symulatora
+  fast_init: false           # true tylko jeśli adapter/ECU wspiera fast init
+hardware:
+  gps:
+    enabled: true
+    port: /dev/ttyUSB0
+    baudrate: 9600
+  lte:
+    enabled: true
+    device: ''
+    apn: ''
+audio:
+  eq_dsp_enabled: true   # prawdziwy EQ przez PipeWire filter-chain
+  eq_preset: jazz
+  master_volume: 70
+  bass: 0
+  treble: 0
+  fader: 0
+  balance: 0
+  spectrum_enabled: true
+  dac: ES9038Q2M
+  # Opisowe, nieczytane przez kod. Wzmacniacz to gotowy moduł samochodowy
+  # na osobnej gałęzi 12 V — patrz docs/ZASILANIE_BUFOROWANE.md § 2.
+  amp_main: car-amp-4ch
+  amp_sub: none
+  mic_phone: ''
+  voice_duck_pct: 40
+  voice_listen_sec: 8
+camera:
+  segment_minutes: 5
+  max_storage_gb: 128
+  recording_path: /media/dashcam
+  front_device: /dev/video0
+  rear_device: /dev/video1
+  left_device: /dev/video2
+  right_device: /dev/video3
+  controller: true
+swc:
+  enabled: true
+  mapping:
+    volume_up:
+    - SWC_VOLUP
+    - SWC2_VOLUP
+    volume_down:
+    - SWC_VOLDN
+    - SWC2_VOLDN
+    next_track:
+    - SWC_NEXT
+    - SWC2_NEXT
+    prev_track:
+    - SWC_PREV
+    - SWC2_PREV
+    mute:
+    - SWC_MUTE
+    - SWC2_MUTE
+    phone_pickup:
+    - SWC_PICKUP
+    - SWC2_PICKUP
+    phone_hangup:
+    - SWC_HANGUP
+    - SWC2_HANGUP
+    bcm_power_toggle:
+    - SWC_MODE
+    - SWC2_MODE
+    voice_aa_trigger:
+    - SWC_VOICE
+    - SWC2_VOICE
+    navigate_aa:
+    - SWC_SRC
+    - SWC2_SRC
+    menu_up:
+    - SWC_UP
+    - SWC2_UP
+    menu_down:
+    - SWC_DOWN
+    - SWC2_DOWN
+brightness:
+  mode: auto
+  steps:
+  - 15
+  - 30
+  - 45
+  - 60
+  - 80
+  - 100
+music_panel:
+  enabled: true
+fuel_sender:
+  enabled: true
+  calibration:
+  - - 20
+    - 100
+  - - 50
+    - 75
+  - - 120
+    - 50
+  - - 220
+    - 25
+  - - 360
+    - 5
+  - - 400
+    - 0
+  tank_capacity_litres: 58
+wifi:
+  # WiFi wyłącznie do Android Auto wireless (Wi-Fi Direct / P2P-GO na
+  # karcie wewnętrznej). Sterowane przełącznikiem modules.wifi_ap.
+  enabled: true
+  ssid: ALFA
+  password: 87654321
+  mode: p2p_go
+  band: a
+  channel: 149
+  country: US
+  regdom: US
+  share_internet: true
+  interface: ''
+  ip: 10.0.0.1
+  netmask: 255.255.255.0
+  dhcp_start: 10.0.0.10
+  dhcp_end: 10.0.0.50
+  # Dodatkowy Access Point ALFA-NET (współdzielenie internetu). Wymaga
+  # OSOBNEGO interfejsu WiFi (dongla USB) — karta wewnętrzna nie robi
+  # P2P-GO i AP naraz. Włącza się przełącznikiem modules.wifi_hotspot;
+  # ten klucz jest jego odpowiednikiem (utrzymywany w synchronizacji).
+  alfa_net:
+    enabled: false
+    ssid: ALFA-NET
+    password: AlfaRomeo156
+    channel: 6
+    country: US
+    ip: 10.0.1.1
+    netmask: 255.255.255.0
+    dhcp_start: 10.0.1.10
+    dhcp_end: 10.0.1.50
+    share_internet: true
+  ssid_runtime: DIRECT-Ea
+  password_runtime: adVEiNlq
+  bssid_runtime: 4e:82:a9:17:47:97
+weather:
+  api_key: 631c2365675e193584b0f986798554c1
+  poll_interval_min: 15
+  default_lat: 50.06
+  default_lon: 19.94
+travel:
+  openrouteservice_key: ''
+  tomtom_key: ''
+power:
+  shutdown_delay_seconds: 30
+  backlight_fade_ms: 1000
+  standby_max_hours: 24
+  splash_duration_seconds: 15
+  ignition_watcher:
+    gpio_chip: gpiochip0
+    ignition_line: 7
+    bench_button_line: 21
+    debounce_ms: 200
+    active_low: true
+    autostart: true
+    suspend_on_stop: true
+    suspend_delay_seconds: 5
+rain_sensor:
+  sensitivity: medium
+central_lock:
+  port: /dev/ttyUSB1
+  baudrate: 9600
+lighting:
+  follow_me_home_seconds: 60
+  greeting_blinks: 2
+  leaving_home: true
+traffic:
+  api_key: ''
+  provider: tomtom
+  poll_interval_min: 5
+remote_status:
+  api_key: ''
+alarm:
+  siren_duration: 60
+  arming_delay: 30
+  sensors:
+    door: true
+    motion: true
+    tilt: true
+    shock: true
+crash_detection:
+  speed_drop_threshold: 30
+  g_force_threshold: 3.0
+  post_crash_record_sec: 60
+tracking:
+  db_path: data/gps_tracks.db
+  interval_sec: 30
+  trip_start_kmh: 5
+  trip_end_kmh: 2
+  trip_end_idle_sec: 60
+  lte_sync_min: 15
+  geofence_lat: 0
+  geofence_lon: 0
+  geofence_radius_km: 0
+  sms_number: ''
+multimedia:
+  last_bt_device: C0:7A:D6:90:E9:CC
+bluetooth:
+  enabled: true
+  preferred_adapter: ''

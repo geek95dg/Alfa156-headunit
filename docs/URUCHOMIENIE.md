@@ -5,6 +5,8 @@ przez produkcyjną instalację w aucie (Lenovo M910q), po firmware Arduino.
 
 > **Platforma produkcyjna: Lenovo ThinkCentre M910q Tiny.** Pełna
 > dokumentacja wdrożeniowa: [`WDROZENIE_M910Q.md`](WDROZENIE_M910Q.md).
+> Wariant minimalny do bieżącej weryfikacji (Android Auto + dźwięk + SWC,
+> reszta wyłączona): [`WDROZENIE_TESTOWE.md`](WDROZENIE_TESTOWE.md).
 > Zasilanie buforowane (step-up 19/20 V, bank AGM CSB HR1221W, ładowanie,
 > blokada przeładowania): [`ZASILANIE_BUFOROWANE.md`](ZASILANIE_BUFOROWANE.md).
 > Materiały dla Orange Pi 5 Pro / 5 Plus, stanowiska Orange Pi PC i testów
@@ -32,8 +34,8 @@ Po starcie otwórz w przeglądarce:
 
 | Adres | Co to jest |
 |-------|------------|
-| http://localhost:5002 | Główny ekran (7/8" dotykowy) — strony A1–A8 + Settings, 3 motywy; Android Auto i Bluetooth zintegrowane na tym porcie |
-| http://localhost:5003 | Mały wyświetlacz (4.3") — karuzela statystyk + kamera cofania |
+| http://localhost:5002 | Główny ekran (10,1" dotykowy, 1280×800) — strony A1–A8 + Settings, 3 motywy; Android Auto i Bluetooth zintegrowane na tym porcie |
+| http://localhost:5003 | Drugi wyświetlacz (6,86" widescreen 1280×480) — karuzela statystyk + kamera cofania |
 
 Zatrzymanie: `Ctrl+C`.
 
@@ -254,7 +256,7 @@ co obowiązuje, gdyby klucz usunąć z YAML-a.
 | `wifi_ap` | WiFi dla Android Auto wireless (Wi-Fi Direct / P2P-GO, karta wewnętrzna) | `true` | wyłączony |
 | `wifi_hotspot` | Dodatkowy Access Point ALFA-NET (współdzielenie internetu — **wymaga osobnego dongla WiFi**) | `false` | wyłączony |
 | `route_planner` | Planowanie trasy / travel plan (OpenRouteService, TomTom) | `true` | włączony |
-| `small_display` | Serwer małego wyświetlacza 4.3" (port 5003) | `true` | włączony |
+| `small_display` | Serwer drugiego wyświetlacza 6,86" (port 5003) | `true` | włączony |
 
 Uwaga: honorowane są też starsze klucze (`bluetooth.enabled`,
 `wifi.enabled`, `fuel_sender.enabled`, blok `modules_v85.*`), ale

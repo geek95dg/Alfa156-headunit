@@ -105,11 +105,11 @@
 
   <!-- ============ CENTER CONSOLE ============ -->
   <rect class="zoneV" x="486" y="240" width="120" height="26"/>
-  <text class="zt" x="546" y="257">ekran 4,3"</text>
+  <text class="zt" x="546" y="257">ekran 6,86"</text>
   <circle class="pinV" cx="486" cy="240" r="11"/><text class="pinT" x="486" y="244">7</text>
 
   <rect class="zoneV" x="486" y="274" width="120" height="30"/>
-  <text class="zt" x="546" y="293">ekran 7" / 10"</text>
+  <text class="zt" x="546" y="293">ekran 10,1"</text>
   <circle class="pinV" cx="486" cy="274" r="11"/><text class="pinT" x="486" y="278">6</text>
 
   <rect class="zoneV" x="486" y="312" width="120" height="24"/>
@@ -169,8 +169,8 @@
   <text class="tl" x="78" y="638">3 · VSR — rozdział ładowania</text>
   <text class="tl" x="78" y="658">4 · M910q, hub USB, step-up, przekaźnik zapłonu, listwa</text>
   <text class="tl" x="78" y="678">5 · bank 5 × HR1221W, ładowarka CC-CV, LVD, rozłącznik masy</text>
-  <text class="tl" x="78" y="698">6 · wyświetlacz główny 7" / 10" — miejsce fabrycznego radia</text>
-  <text class="tl" x="78" y="718">7 · wyświetlacz mały 4,3"</text>
+  <text class="tl" x="78" y="698">6 · wyświetlacz główny 10,1" 1280×800 — miejsce radia</text>
+  <text class="tl" x="78" y="718">7 · wyświetlacz drugi 6,86" 1280×480 (opcjonalny)</text>
   <text class="tl" x="78" y="738">8 · enkoder, przyciski, panel muzyczny</text>
   <text class="tl" x="78" y="758">9 · Nano #1, Nano #2, moduł przekaźników, HM-10, RXB6</text>
   <text class="tl" x="78" y="778">10 · złącze OBD-II + CP2102 + L9637D (K-Line)</text>
