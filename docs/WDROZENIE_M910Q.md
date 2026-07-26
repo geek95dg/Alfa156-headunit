@@ -121,8 +121,8 @@ wspornik. Wszystkie kable spinaj opaskami, bo na dziurach będzie grzechotać.
 | 5 | Wyświetlacz mały | 4,3" TFT 800×480 HDMI, bez dotyku | 1 | 150–250 |
 | 6 | Przejściówki DP → HDMI | pasywne, kablowe | 2 | 20–30 |
 | 7 | DAC USB | ES9038Q2M, wyjście RCA | 1 | 45–75 |
-| 8 | Wzmacniacz | TDA7388 (4 × 45 W klasa AB) | 1 | 45–70 |
-| 9 | Radiator | aluminiowy do TDA7388 | 1 | 10–15 |
+| 8 | Wzmacniacz | **gotowy 4-kanałowy samochodowy**, wejścia RCA, klasa D, 4 × 50–75 W RMS | 1 | 250–600 |
+| 9 | Kabel zasilający wzmacniacza | 6 mm² + oprawka bezpiecznika przy klemie | kpl. | 40–80 |
 | 10 | Interfejs K-Line | CP2102 (USB-UART) + L9637D + rezystor 510 Ω | 1 | 25–40 |
 | 11 | Hub USB | 7-portowy USB 3.0 **z własnym zasilaniem** | 1 | 40–60 |
 | 12 | Kable | 2× DP-HDMI, USB-A, zasilanie, RCA | — | 50–80 |
@@ -748,8 +748,12 @@ journalctl -u bcm-headunit | grep -i openauto
 
 ## 14. Audio
 
-Tor: **ES9038Q2M (DAC USB) → RCA → TDA7388 (4 × 45 W) + TDA2050 (subwoofer)
-→ układ 4.1**. Schemat: [`../schematics/audio_system.svg`](../schematics/audio_system.svg).
+Tor: **ES9038Q2M (DAC USB) → RCA → gotowy wzmacniacz samochodowy →
+głośniki 4 Ω**. Schemat: [`../schematics/audio_system.svg`](../schematics/audio_system.svg).
+
+Wzmacniacz to **kupiony moduł samochodowy**, nie układ DIY: 4 kanały,
+wejścia RCA, klasa D, 4 × 50–75 W RMS na 4 Ω. Podłączany jak radio —
+zasilanie wprost z akumulatora rozruchowego, własna masa, wyzwalanie REM.
 
 Software: PipeWire + WirePlumber, 10-pasmowy EQ, analizator widma, ducking
 (`src/audio/`). Profil EQ: `config/pipewire/eq-profile.json`.
@@ -759,13 +763,19 @@ Bluetooth: profil HFP przez oFono (`config/systemd/ofono.service.d/`,
 BR/EDR (`config/scripts/bt-prefer-bredr.sh`) — BLE-only powodowało problemy
 z parowaniem telefonów.
 
-> **Zasilanie wzmacniaczy idzie osobną gałęzią** prosto z akumulatora
-> rozruchowego (bezpiecznik 20 A), **nie z banku buforowego** — patrz
-> [`ZASILANIE_BUFOROWANE.md`](ZASILANIE_BUFOROWANE.md) §2. TDA7388 klasy AB
-> ciągnie 6–8 A przy średniej głośności, do 20 A w szczytach.
+> **Zasilanie wzmacniacza idzie osobną gałęzią** prosto z akumulatora
+> rozruchowego (bezpiecznik wg karty modułu, zwykle 20–30 A), **nie z banku
+> buforowego** — patrz [`ZASILANIE_BUFOROWANE.md`](ZASILANIE_BUFOROWANE.md) §2.
+> Szczyty 20–30 A rozłożyłyby bank AGM w kilkanaście minut i przekroczyły
+> przekaźnik LVD.
 
-Masę wzmacniaczy prowadź osobno, blisko wzmacniaczy — wspólna masa
+Z systemem buforowanym łączy wzmacniacz wyłącznie **sygnał REM z zacisku 87
+i ekran kabla RCA**. Masę prowadź lokalnie, przy wzmacniaczu — wspólna masa
 z komputerem daje pętlę i przydźwięk alternatora.
+
+Kabel RCA prowadź **po przeciwnej stronie auta niż kabel zasilania**.
+Kolejność diagnozy przy buczeniu i procedura ustawiania wzmocnienia:
+[`SCHEMATY_POLACZEN.md`](SCHEMATY_POLACZEN.md) §5.4.
 
 ---
 
@@ -961,7 +971,22 @@ Liczba w `X86_PLATFORM_SETUP.md` § 2.3 pochodzi z pełnego rozładowania banku,
 mimo adnotacji o ograniczeniu do 50 % DoD. Poprawione wartości:
 [`ZASILANIE_BUFOROWANE.md`](ZASILANIE_BUFOROWANE.md) §9.2.
 
-### 19.5 Limit poboru CPU jest wymagany, nie opcjonalny
+### 19.5 Tor audio: gotowy wzmacniacz zamiast układów TDA
+
+Projekt rezygnuje z budowania wzmacniacza na TDA7388 + TDA2050 na rzecz
+**gotowego 4-kanałowego wzmacniacza samochodowego** z wejściami RCA,
+zasilanego wprost z akumulatora rozruchowego i odseparowanego od systemu
+buforowanego (§14, [`../schematics/audio_system.svg`](../schematics/audio_system.svg)).
+
+Dokumenty źródłowe wciąż pokazują starą ścieżkę DIY:
+`x86-production/01-bom.html`, `02-assembly.html`, `10-power-suspend.html`,
+`index.html` oraz `bcm_v85_docs.html`. Zostają jako referencja historyczna;
+**obowiązuje opis z §14 i schemat toru audio**.
+
+Po stronie software'u nic się nie zmienia — PipeWire widzi wyłącznie DAC USB,
+a co jest za gniazdem RCA, jest dla niego niewidoczne.
+
+### 19.6 Limit poboru CPU jest wymagany, nie opcjonalny
 
 Zasilanie M910q idzie przez posiadany moduł **XL6019**, którego realna
 obciążalność to ok. **45 W** (limit prądu klucza 5 A), a nie 65 W ze znamionowej
@@ -969,7 +994,7 @@ mocy zasilacza. Usługa `bcm-power-cap` ograniczająca pakiet CPU do 28 W jest
 częścią wdrożenia, nie optymalizacją — instrukcja w
 [`ZASILANIE_BUFOROWANE.md`](ZASILANIE_BUFOROWANE.md) §3.5a.
 
-### 19.6 Nazewnictwo jednostki `bcm-headunit.service`
+### 19.7 Nazewnictwo jednostki `bcm-headunit.service`
 
 Plik `config/systemd/bcm-headunit.service` był **wariantem Orange Pi PC**,
 mimo neutralnej nazwy. Został zarchiwizowany jako

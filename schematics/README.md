@@ -19,7 +19,7 @@ M910q Tiny**.
 | [`power_buffered_m910q.svg`](power_buffered_m910q.svg) | **Tor główny zasilania** — od klemy akumulatora, przez rozdział ładowania, ładowarkę CC-CV, blokadę przeładowania, bank CSB HR1221W i LVD, po przekaźnik zapłonu, przetwornicę step-up 19 V i M910q. Zawiera tabelę przekrojów przewodów i bezpieczników. |
 | [`charging_lvd.svg`](charging_lvd.svg) | **Ładowanie i ochrona banku** — cztery warstwy (VSR → CC-CV → rozłącznik nadnapięciowy → LVD), komplet nastaw dla **CSB HR1221W (AGM)**, dwie tabele kompensacji temperaturowej, wpływ temperatury na żywotność, przebieg CC → CV → float. |
 | [`power_domains_m910q.svg`](power_domains_m910q.svg) | **Domeny A/B** — rozdział obciążeń między część zawsze zasilaną a część załączaną zapłonem, bezpieczniki odgałęzień, budżet poboru spoczynkowego, tabela czasu postoju, osobna gałąź wzmacniaczy. |
-| [`audio_system.svg`](audio_system.svg) | **Tor audio** — ES9038Q2M (USB DAC) → TDA7388 4 × 45 W + TDA2050 (subwoofer) → układ głośników 4.1. Niezależny od platformy — obowiązuje bez zmian. |
+| [`audio_system.svg`](audio_system.svg) | **Tor audio** — ES9038Q2M (USB DAC) → RCA → **gotowy wzmacniacz samochodowy** → głośniki 4 Ω. Wzmacniacz zasilany wprost z akumulatora rozruchowego, z własną masą — całkowicie odseparowany od systemu buforowanego. |
 
 ### Schematy połączeniowe — montaż
 

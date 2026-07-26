@@ -67,11 +67,18 @@ przetwornic, zero ryzyka, że coś obudzi maszynę na parkingu. BCM budzi się
 zimnym startem na ACC — startuje w ~15 s, co przy samochodzie jest
 akceptowalne.
 
-**Wzmacniacze idą osobną gałęzią** prosto z akumulatora rozruchowego
-(bezpiecznik 20 A, przewód 4 mm²). TDA7388 przy średniej głośności ciągnie
-6–8 A, w szczytach do 15–20 A — taki prąd rozłożyłby bank AGM w kilka
-minut i całkowicie zniweczył jego rolę. Sygnał REM/standby wzmacniaczy bierz
-z domeny B, żeby nie trzaskało w głośnikach przy załączaniu.
+**Wzmacniacz idzie osobną gałęzią** prosto z akumulatora rozruchowego —
+gotowy moduł samochodowy, podłączany jak radio: własny bezpiecznik przy klemie
+(wg karty modułu, zwykle 20–30 A), przewód 6 mm², **własna masa lokalna**
+i wyzwalanie sygnałem REM z domeny B.
+
+Powód: 4 × 50 W RMS to w szczytach 20–30 A. Taki prąd rozłożyłby bank AGM
+w kilkanaście minut i przekroczyłby przekaźnik LVD (20 A). Z systemem
+buforowanym łączy wzmacniacz wyłącznie **sygnał REM i ekran kabla RCA** —
+żaden prąd mocy przez bank nie przechodzi.
+
+Tor audio, pętla masy i ustawianie wzmocnienia:
+[`../schematics/audio_system.svg`](../schematics/audio_system.svg).
 
 ---
 
@@ -684,7 +691,7 @@ Moduł montuj **za bankiem, przed rozgałęzieniem domen** — patrz
 | Wyjście step-up | 5 A | między przetwornicą a wtykiem M910q |
 | Odgałęzienie domeny A | 3 A | przed buckiem 12 → 5 V |
 | Odgałęzienie wyświetlaczy | 3 A | przed buckiem 12 → 5 V domeny B |
-| Gałąź wzmacniaczy | 20 A | osobno, przy klemie akumulatora rozruchowego |
+| Gałąź wzmacniacza | wg karty modułu (20–30 A) | osobno, przy klemie akumulatora rozruchowego |
 
 Bezpiecznik główny **przy klemie**, nie przy urządzeniu — zwarcie przewodu
 o karoserię w połowie trasy ma być przerwane przy źródle, inaczej cały
@@ -703,7 +710,7 @@ Dla trasy ok. 3 m (komora silnika → deska rozdzielcza) przy spadku < 3 %:
 | Szyna → LVD → przekaźnik → step-up | do 7 A | 2,5 mm² |
 | Step-up → M910q | 3,5 A @ 19 V | 1,5 mm² |
 | Odgałęzienie domeny A | < 1 A | 0,75 mm² |
-| Gałąź wzmacniaczy | do 20 A | 4 mm² |
+| Gałąź wzmacniacza | wg karty modułu | 6 mm² (trasa ~4 m do bagażnika) |
 | Masa do nadwozia | — | **6 mm²** |
 
 Przewody samochodowe (FLRY/FLY), nie instalacyjne YDY — potrzebna jest
@@ -716,7 +723,7 @@ linka, nie drut, i izolacja odporna na temperaturę i oleje.
   i lakieru, po dokręceniu zabezpieczona wazeliną techniczną,
 - masa banku, masa M910q, masa Arduino i masa audio schodzą się **w tym
   jednym punkcie**,
-- masa wzmacniaczy osobno, blisko wzmacniaczy — inaczej dostaniesz pętlę
+- masa wzmacniacza osobno, blisko wzmacniacza — inaczej dostaniesz pętlę
   masy i przydźwięk alternatora w głośnikach.
 
 ### 8.4 Praktyka montażowa
@@ -1094,7 +1101,26 @@ z listy zalecanych zakupów (poz. 26).
 
 ---
 
-### 13.5 Ograniczenia wynikające z posiadanych modułów
+### 13.5 Gałąź audio — gotowy wzmacniacz
+
+Wcześniejsze wersje dokumentacji zakładały samodzielnie zbudowany tor
+TDA7388 + TDA2050. Projekt używa teraz **gotowego wzmacniacza samochodowego**,
+co dla zasilania buforowanego zmienia trzy rzeczy:
+
+| | Poprzednio (DIY TDA) | Teraz (gotowy moduł) |
+|---|---|---|
+| Bezpiecznik gałęzi | 20 A | **wg karty modułu**, zwykle 20–30 A |
+| Przekrój przewodu | 4 mm² | **6 mm²** (spadek na trasie ~4 m do bagażnika) |
+| Sygnał REM | przez rezystor 1 kΩ | **wprost z zacisku 87** — wejście REM jest wysokoomowe |
+
+Sama zasada nie zmienia się wcale: gałąź audio idzie prosto z akumulatora
+rozruchowego, ma własną masę lokalną i **nie dotyka banku, LVD ani listwy
+dystrybucyjnej**.
+
+Dokumenty źródłowe (`x86-production/*.html`, `bcm_v85_docs.html`) wciąż
+opisują wariant DIY — zostają jako referencja historyczna.
+
+### 13.6 Ograniczenia wynikające z posiadanych modułów
 
 Dwa moduły są już kupione i projekt jest dopasowany pod nie, a nie odwrotnie.
 Wynikają z tego dwa realne ograniczenia:

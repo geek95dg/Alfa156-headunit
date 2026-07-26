@@ -75,7 +75,7 @@ M910q USB ports
   │     ├── USB GPS (NEO-M8N)
   │     ├── USB LTE modem (Huawei E3372)
   │     └── USB microphone
-  ├── USB DAC (ES9038Q2M) → RCA → TDA7388 + TDA2050
+  ├── USB DAC (ES9038Q2M) → RCA → off-the-shelf 4-channel car amplifier
   └── USB 4-ch AHD grabber (cameras)
 ```
 

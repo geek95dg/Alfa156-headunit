@@ -134,8 +134,8 @@
 
   <!-- ============ TRUNK ============ -->
   <rect class="zoneC" x="936" y="228" width="196" height="50"/>
-  <text class="zt" x="1034" y="247">TDA7388 + TDA2050</text>
-  <text class="zt" x="1034" y="263">radiatory, wentylacja</text>
+  <text class="zt" x="1034" y="247">wzmacniacz samochodowy</text>
+  <text class="zt" x="1034" y="263">gotowy moduł, wentylacja</text>
   <circle class="pin" cx="936" cy="228" r="11"/><text class="pinT" x="936" y="232">17</text>
 
   <rect class="zoneC" x="936" y="404" width="196" height="42"/>
@@ -182,8 +182,8 @@
   <text class="tl" x="668" y="638">14 · kamera przednia — za lusterkiem wstecznym</text>
   <text class="tl" x="668" y="658">15 · kamery boczne — lusterka / błotniki</text>
   <text class="tl" x="668" y="678">16 · DS18B20 — za zderzakiem przednim</text>
-  <text class="tl" x="668" y="698">17 · TDA7388 + TDA2050 z radiatorami</text>
-  <text class="tl" x="668" y="718">18 · subwoofer w obudowie</text>
+  <text class="tl" x="668" y="698">17 · gotowy wzmacniacz samochodowy 4-kanałowy</text>
+  <text class="tl" x="668" y="718">18 · subwoofer w obudowie (opcjonalnie)</text>
   <text class="tl" x="668" y="738">19 · kamera cofania — ramka tablicy rejestracyjnej</text>
   <text class="tl" x="668" y="758">20 · 4 × HC-SR04 — zderzak tylny</text>
   <text class="tl" x="668" y="778">21 · głośniki przednie — drzwi</text>
@@ -198,9 +198,9 @@
   <text class="note" x="78" y="906">na każde +10 °C. Bagażnik latem osiąga 45–55 °C — różnica wychodzi</text>
   <text class="note" x="78" y="922">2–4 lata (kabina) wobec 1,5–3 lat (bagażnik).</text>
 
-  <text class="tb" x="78" y="948">Wzmacniacze w bagażniku, nie przy banku</text>
-  <text class="note" x="78" y="966">Klasa AB grzeje się mocno i potrzebuje wentylacji. Idą osobną gałęzią 12 V</text>
-  <text class="note" x="78" y="982">prosto z akumulatora, więc nie ma powodu ciągnąć ich do kabiny.</text>
+  <text class="tb" x="78" y="948">Wzmacniacz w bagażniku, nie przy banku</text>
+  <text class="note" x="78" y="966">Potrzebuje wentylacji i idzie osobną gałęzią 12 V prosto z akumulatora,</text>
+  <text class="note" x="78" y="982">więc nie ma powodu ciągnąć go do kabiny.</text>
 
   <text class="tb" x="78" y="1008">M910q za deską po stronie pasażera</text>
   <text class="note" x="78" y="1026">Poziomo, logo do góry, na wsporniku VESA 100. Blisko obu wyświetlaczy</text>
