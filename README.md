@@ -4,7 +4,8 @@ BCM v8.5 — custom head unit for Alfa Romeo 156 1.9 JTD 8V, built on a
 **Lenovo ThinkCentre M910q Tiny** (x86) with a buffered 12 V SLA supply.
 
 - Body computer functions (fuel consumption, fuel level, temperatures, weather, service notifications)
-- 4.1 audio system with 10-band EQ, spectrum visualizer (ES9038Q2M DAC + TDA7388 amp)
+- 4-channel audio with 10-band EQ and spectrum visualizer — ES9038Q2M USB DAC
+  into an off-the-shelf car amplifier fed straight from the starter battery
 - Dual DVR (front + rear) + 4-camera auto-switching (reverse, blinkers)
 - Ultrasonic parking sensors with buzzer
 - Android Auto (kiosk mode, integrated in dashboard)

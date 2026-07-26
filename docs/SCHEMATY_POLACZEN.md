@@ -174,18 +174,31 @@ dioda TVS 1.5KE33CA równolegle oraz kondensator 470 µF / 35 V równolegle.
 > przetwornicy **nie da się użyć jako wyłącznika** komputera: boost przepuszcza
 > napięcie wejściowe, więc odcina wyłącznie przekaźnik zapłonu (poz. 32).
 
-### 2.6 Gałąź wzmacniaczy (niezależna)
+### 2.6 Gałąź wzmacniacza (niezależna)
+
+Wzmacniacz to **gotowy moduł samochodowy** z wejściami RCA, nie układ DIY.
+Podłącza się go jak radio samochodowe: zasilanie wprost z akumulatora, własna
+masa, wyzwalanie sygnałem REM.
 
 | # | Skąd | Dokąd | Przewód | Zabezpieczenie |
 |---|------|-------|---------|----------------|
-| 44 | Akumulator „+” | TDA7388 **+12V** | 4 mm² | 20 A przy klemie |
-| 45 | TDA7388 **GND** | masa lokalna, przy wzmacniaczu | 4 mm² | — |
-| 46 | Przekaźnik **87** | TDA7388 **REM/standby** | 0,5 mm² | przez 1 kΩ |
-| 47 | TDA7388 **+12V** | TDA2050 **+12V** | 2,5 mm² | wspólny z poz. 44 |
+| 44 | Akumulator „+” | Wzmacniacz **+12V** | 6 mm² | wg karty modułu, przy klemie |
+| 45 | Wzmacniacz **GND** | masa lokalna, przy wzmacniaczu | 6 mm² | — |
+| 46 | Przekaźnik **87** | Wzmacniacz **REM** | 0,75 mm² | 2 A |
 
-> **Masa wzmacniaczy osobno.** To jedyny obwód, który **nie** idzie do
+> **Bezpiecznik dobierz wg karty wzmacniacza**, nie „na oko". Typowy moduł
+> 4 × 50 W RMS ma na płytce bezpiecznik 20–30 A i tyle samo powinien mieć
+> przy klemie. Przewód 6 mm² wynika ze spadku napięcia na trasie do bagażnika
+> (~4 m), nie z samego prądu.
+
+> **Masa wzmacniacza osobno.** To jedyny obwód mocy, który **nie** idzie do
 > punktu gwiazdowego — wspólna masa z komputerem daje pętlę i przydźwięk
-> alternatora.
+> alternatora. Masa krótka (do 1 m), do gołego metalu, tym samym przekrojem
+> co „+”.
+
+> **REM bez rezystora szeregowego.** Wejście REM gotowego wzmacniacza jest
+> wysokoomowe (10–20 kΩ) i ma własne wyciszanie startu — rezystor 1 kΩ był
+> potrzebny tylko przy płytce DIY.
 
 ---
 
@@ -357,15 +370,27 @@ z wykryciem ekranu.
 
 | Skąd | Dokąd | Kabel |
 |------|-------|-------|
-| DAC **RCA L/R** | TDA7388 **IN1–IN4** | RCA ekranowany |
-| DAC **RCA L/R** | TDA2050 **IN** (suma L+R) | RCA ekranowany |
-| TDA7388 **CH1** | głośnik przód lewy (4 Ω) | 1,5 mm² |
-| TDA7388 **CH2** | głośnik przód prawy | 1,5 mm² |
-| TDA7388 **CH3** | głośnik tył lewy | 1,5 mm² |
-| TDA7388 **CH4** | głośnik tył prawy | 1,5 mm² |
-| TDA2050 **OUT** | subwoofer (4 Ω, bagażnik) | 2,5 mm² |
+| DAC **RCA L/R** | Wzmacniacz, wejścia RCA przód | RCA ekranowany |
+| DAC **RCA L/R** | Wzmacniacz, wejścia RCA tył (rozgałęźnik Y) | RCA ekranowany |
+| Wzmacniacz **CH1** | głośnik przód lewy (4 Ω) | 1,5 mm² |
+| Wzmacniacz **CH2** | głośnik przód prawy | 1,5 mm² |
+| Wzmacniacz **CH3** | głośnik tył lewy | 1,5 mm² |
+| Wzmacniacz **CH4** | głośnik tył prawy | 1,5 mm² |
 
-Zasilanie i REM wzmacniaczy — §2.6.
+Zasilanie i REM — §2.6.
+
+> **Kabel RCA prowadź po przeciwnej stronie auta niż kabel zasilania
+> wzmacniacza.** Równoległy przebieg to najprostszy sposób na przydźwięk.
+
+> **Pętla masy.** DAC ma masę przez USB (punkt gwiazdowy pod deską),
+> wzmacniacz ma masę lokalną w bagażniku, a ekran RCA łączy oba punkty.
+> Jeżeli słychać buczenie zmieniające się z obrotami silnika: najpierw popraw
+> masę wzmacniacza, potem przetrasuj RCA, i dopiero na końcu sięgaj po
+> izolator pętli masy — pogarsza pasmo.
+
+**Ustawienie wzmocnienia:** głośność systemu ~75 %, EQ płasko, gain
+wzmacniacza na minimum; podnoś do pierwszych zniekształceń i cofnij o krok.
+Bez subwoofera włącz filtr górnoprzepustowy ok. 80 Hz na wszystkich kanałach.
 
 ### 5.5 Kamery
 
@@ -386,7 +411,7 @@ brak**. Sygnały wyzwalające wchodzą przez PC817 na Nano #2.
 | Wartość | Gdzie | Chroni |
 |---------|-------|--------|
 | 30 A | przy klemie „+”, ≤ 30 cm | cały tor główny |
-| 20 A | przy klemie „+”, osobno | gałąź wzmacniaczy |
+| wg karty modułu (20–30 A) | przy klemie „+”, osobno | gałąź wzmacniacza |
 | 10 A × 5 | na „+” każdego pakietu banku | zwarcie pojedynczego pakietu |
 | 30 A | listwa, obwód 2 | domena B |
 | 5 A | wyjście step-up, przed wtykiem | M910q |
@@ -399,7 +424,7 @@ brak**. Sygnały wyzwalające wchodzą przez PC817 na Nano #2.
 
 Wszystkie w listwie dystrybucyjnej ATO/ATC z pokrywą, w miejscu dostępnym
 bez demontażu deski rozdzielczej. Wyjątek: bezpiecznik główny 30 A i 20 A
-gałęzi wzmacniaczy — w oprawkach przy klemie akumulatora.
+gałęzi wzmacniacza — w oprawkach przy klemie akumulatora.
 
 ---
 
@@ -415,7 +440,7 @@ gałęzi wzmacniaczy — w oprawkach przy klemie akumulatora.
 
 **Dwa wyjątki:**
 
-1. **Masa wzmacniaczy** — osobno, blisko wzmacniaczy. Wspólna z komputerem
+1. **Masa wzmacniacza** — osobno, blisko wzmacniacza. Wspólna z komputerem
    daje pętlę masy i przydźwięk alternatora.
 2. **Masa pojazdu po stronie PC817** — celowo odizolowana od masy Arduino.
    To sens optoizolacji.

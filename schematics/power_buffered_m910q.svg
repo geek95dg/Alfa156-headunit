@@ -195,5 +195,5 @@
   <text class="tl" x="700" y="904" text-anchor="end">6 mm²</text>
   <text class="note" x="446" y="928">Przekroje dla trasy ok. 3 m przy spadku napięcia &lt; 3 %.</text>
 
-  <text class="note" x="24" y="1064">Wzmacniacze TDA7388 / TDA2050 zasilane są osobną gałęzią 12 V prosto z akumulatora samochodowego (bezpiecznik 20 A) — nie obciążają banku buforowego.</text>
+  <text class="note" x="24" y="1064">Wzmacniacz audio to gotowy moduł samochodowy zasilany osobną gałęzią 12 V prosto z akumulatora rozruchowego, z własną masą — nie obciąża banku buforowego.</text>
 </svg>

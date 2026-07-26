@@ -122,10 +122,10 @@
   <text class="tb" x="70" y="586" fill="#97324a" font-size="14">GAŁĄŹ NIEZALEŻNA — wzmacniacze</text>
   <rect class="boxC" x="60" y="596" width="420" height="112"/>
   <text class="t" x="270" y="620">Prosto z akumulatora rozruchowego, z pominięciem banku buforowego</text>
-  <text class="tl" x="80" y="642">• bezpiecznik 20 A przy klemie „+”, przewód 4 mm²</text>
-  <text class="tl" x="80" y="662">• TDA7388 4 × 45 W + TDA2050 (subwoofer)</text>
-  <text class="tl" x="80" y="682">• REM/standby wyzwalany z domeny B (bez trzasków przy starcie)</text>
-  <text class="note" x="80" y="700">Szczyty 15–20 A rozładowałyby bank AGM w kilka minut — dlatego osobna gałąź.</text>
+  <text class="tl" x="80" y="642">• bezpiecznik wg karty wzmacniacza, przy klemie „+”, przewód 6 mm²</text>
+  <text class="tl" x="80" y="662">• gotowy wzmacniacz samochodowy 4-kanałowy (nie DIY)</text>
+  <text class="tl" x="80" y="682">• REM z zacisku 87 · masa lokalna, przy wzmacniaczu</text>
+  <text class="note" x="80" y="700">Szczyty 20–30 A rozłożyłyby bank AGM w kilkanaście minut i przekroczyły przekaźnik LVD.</text>
 
   <!-- ============ STANDBY TABLE ============ -->
   <rect x="700" y="596" width="420" height="196" fill="#fbfcfd" stroke="#c8d2da" stroke-width="1.5" rx="6"/>

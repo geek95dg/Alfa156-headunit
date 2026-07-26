@@ -136,18 +136,15 @@
   <path class="waud" d="M234 626 L286 626"/>
   <text class="wl" x="240" y="620">RCA L/R</text>
 
-  <rect class="mod" x="286" y="592" width="170" height="86"/>
-  <text class="mt" x="371" y="614">TDA7388</text>
-  <text class="ms" x="371" y="632">4 × 45 W, klasa AB</text>
-  <text class="ms" x="371" y="650">radiator aluminiowy</text>
-  <text class="ms" x="371" y="668">wejścia IN1–IN4</text>
-
-  <path class="waud" d="M234 626 L260 626 L260 712 L286 712"/>
-  <circle cx="260" cy="626" r="3.5" fill="#97324a"/>
-  <rect class="mod" x="286" y="690" width="170" height="70"/>
-  <text class="mt" x="371" y="712">TDA2050</text>
-  <text class="ms" x="371" y="730">subwoofer, mono</text>
-  <text class="ms" x="371" y="748">suma L+R na wejściu</text>
+  <rect class="mod" x="286" y="592" width="170" height="168"/>
+  <text class="mt" x="371" y="614">Wzmacniacz</text>
+  <text class="ms" x="371" y="632">gotowy, samochodowy</text>
+  <text class="ms" x="371" y="650">4 kanały, wejścia RCA</text>
+  <text class="ms" x="371" y="668">4 × 50–75 W RMS / 4 Ω</text>
+  <text class="ms" x="371" y="690">klasa D</text>
+  <text class="ms" x="371" y="712">zaciski +12V · GND · REM</text>
+  <text class="ms" x="371" y="734">gain i filtry na module</text>
+  <text class="ms" x="371" y="752">bagażnik</text>
 
   <path class="waud" d="M456 626 L508 626"/>
   <rect class="mod" x="508" y="592" width="240" height="86"/>
@@ -156,15 +153,14 @@
   <text class="ms" x="628" y="650">CH3 tył L · CH4 tył P</text>
   <text class="ms" x="628" y="668">drzwi + półka tylna</text>
 
-  <path class="waud" d="M456 722 L508 722"/>
   <rect class="mod" x="508" y="690" width="240" height="70"/>
-  <text class="mt" x="628" y="712">Subwoofer 4 Ω</text>
-  <text class="ms" x="628" y="730">bagażnik</text>
-  <text class="ms" x="628" y="748">osobny radiator na TDA2050</text>
+  <text class="mt" x="628" y="712">Subwoofer — opcjonalnie</text>
+  <text class="ms" x="628" y="730">wzmacniacz 5-kanałowy albo</text>
+  <text class="ms" x="628" y="748">zmostkowana para tylna</text>
 
   <path class="wpwr" d="M371 760 L371 774 L84 774"/>
-  <text class="warn" x="84" y="792">Zasilanie 12 V wzmacniaczy — osobna gałąź prosto z akumulatora, bezpiecznik 20 A</text>
-  <text class="note" x="84" y="810">REM/standby ← zacisk 87 przekaźnika zapłonu, przez rezystor 1 kΩ (domena B)</text>
+  <text class="warn" x="84" y="792">Zasilanie 12 V wzmacniacza — osobna gałąź prosto z akumulatora, bezpiecznik wg karty modułu</text>
+  <text class="note" x="84" y="810">REM ← zacisk 87 przekaźnika zapłonu (domena B). Masa wzmacniacza lokalnie, nie do punktu gwiazdowego.</text>
 
   <!-- ============ NOTES ============ -->
   <rect x="60" y="852" width="1120" height="164" fill="#fbfcfd" stroke="#c8d2da" stroke-width="1.5" rx="6"/>
@@ -178,9 +174,9 @@
   <text class="note" x="80" y="1002">Brak reguł udev — K-Line trafia wtedy na port Arduino.</text>
 
   <text class="tb" x="640" y="900">Przydźwięk alternatora w głośnikach</text>
-  <text class="note" x="640" y="918">Pętla masy — masa wzmacniaczy musi być osobno, przy wzmacniaczach.</text>
+  <text class="note" x="640" y="918">Pętla masy — masa wzmacniacza musi być lokalna, a RCA po drugiej stronie auta.</text>
   <text class="tb" x="640" y="942">Trzask w głośnikach przy załączaniu</text>
-  <text class="note" x="640" y="960">REM podpięty nie z domeny B albo bez rezystora 1 kΩ.</text>
+  <text class="note" x="640" y="960">REM podpięty nie z domeny B — wzmacniacz wstaje przed komputerem.</text>
   <text class="tb" x="640" y="984">Graber gubi klatki</text>
   <text class="note" x="640" y="1002">Wpięty w hub zamiast bezpośrednio w port M910q.</text>
 

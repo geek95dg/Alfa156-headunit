@@ -5,8 +5,12 @@ On x86: uses default sound card (laptop/desktop speakers).
 On OPi: targets USB DAC (ES9038Q2M) as default sink.
 
 Audio hardware chain:
-  ES9038Q2M USB DAC → RCA → TDA7388 4ch Class AB amp (4×41W) → front/rear speakers
-                         └→ TDA2050 mono Class AB amp (32W) → subwoofer
+  ES9038Q2M USB DAC → RCA → off-the-shelf 4-channel car amplifier → 4x 4 ohm speakers
+
+The amplifier is a bought unit powered straight from the starter battery on
+its own fused branch, not from the buffered bus — see
+docs/ZASILANIE_BUFOROWANE.md and schematics/audio_system.svg. Nothing here
+depends on which amplifier it is; PipeWire only ever sees the USB DAC.
 """
 
 import subprocess

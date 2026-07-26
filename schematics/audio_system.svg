@@ -1,115 +1,176 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 480" font-family="monospace" font-size="11">
-  <title>BCM v7 — Audio System Wiring (Class AB)</title>
+<svg xmlns="http://www.w3.org/2000/svg" width="1240" height="960" viewBox="0 0 1240 960" font-family="DejaVu Sans, Verdana, sans-serif">
+  <title>BCM v8.5 — Tor audio: DAC USB → gotowy wzmacniacz samochodowy → głośniki</title>
   <style>
-    .box { fill: #f8f8f8; stroke: #333; stroke-width: 2; rx: 6; }
-    .wire { stroke: #333; stroke-width: 1.5; fill: none; }
-    .audio { stroke: #906; stroke-width: 2; fill: none; }
-    .power { stroke: #c00; stroke-width: 2; fill: none; }
-    .label { font-size: 11px; fill: #333; text-anchor: middle; }
-    .title { font-size: 14px; font-weight: bold; fill: #111; }
-    .pin { font-size: 9px; fill: #666; text-anchor: middle; }
-    .comp { font-size: 10px; fill: #06c; text-anchor: middle; }
-    .note { font-size: 9px; fill: #666; text-anchor: start; }
+    .bg    { fill: #ffffff; }
+    .mod   { fill: #f7f9fb; stroke: #2b3a45; stroke-width: 2; rx: 6; }
+    .modB  { fill: #eef2fa; stroke: #2b4a8a; stroke-width: 2; rx: 6; }
+    .modC  { fill: #fbeff1; stroke: #97324a; stroke-width: 2; rx: 6; }
+    .modS  { fill: #fdf3e6; stroke: #a8621a; stroke-width: 2; rx: 6; }
+    .waud  { stroke: #97324a; stroke-width: 2.6; fill: none; }
+    .wusb  { stroke: #2d6a2d; stroke-width: 2.6; fill: none; }
+    .wpwr  { stroke: #c0392b; stroke-width: 3; fill: none; }
+    .wspk  { stroke: #5c3a8a; stroke-width: 2.2; fill: none; }
+    .wsig  { stroke: #2b4a8a; stroke-width: 1.8; fill: none; stroke-dasharray: 5 3; }
+    .minus { stroke: #222831; stroke-width: 2.4; fill: none; }
+    .ttl   { font-size: 19px; font-weight: bold; fill: #10202b; }
+    .sub   { font-size: 12px; fill: #5a6b78; }
+    .mt    { font-size: 13px; font-weight: bold; fill: #10202b; text-anchor: middle; }
+    .ms    { font-size: 10.5px; fill: #5a6b78; text-anchor: middle; }
+    .tl    { font-size: 10.5px; fill: #33424e; }
+    .tb    { font-size: 10.5px; font-weight: bold; fill: #10202b; }
+    .note  { font-size: 10.5px; fill: #6a7a86; }
+    .warn  { font-size: 10.5px; font-weight: bold; fill: #a8321a; }
+    .sec   { font-size: 13px; font-weight: bold; fill: #2d4150; }
+    .wl    { font-size: 10px; fill: #4a5a66; }
   </style>
 
-  <text x="480" y="25" class="title" text-anchor="middle">Audio System — ES9038Q2M DAC → TDA7388 (4ch) + TDA2050 (sub) → 4.1 Speakers</text>
+  <defs>
+    <g id="gnd3">
+      <path stroke="#222831" stroke-width="2.4" fill="none" d="M-11 0 L11 0"/>
+      <path stroke="#222831" stroke-width="2.4" fill="none" d="M-7 5 L7 5"/>
+      <path stroke="#222831" stroke-width="2.4" fill="none" d="M-3 10 L3 10"/>
+    </g>
+  </defs>
 
-  <!-- PipeWire (software) -->
-  <rect x="20" y="80" width="130" height="80" class="box" fill="#f0e0ff"/>
-  <text x="85" y="100" class="label" font-weight="bold">PipeWire</text>
-  <text x="85" y="118" class="pin">Audio routing</text>
-  <text x="85" y="133" class="pin">10-band EQ</text>
-  <text x="85" y="148" class="pin">Ducking mixer</text>
+  <rect class="bg" x="0" y="0" width="1240" height="960"/>
+  <text class="ttl" x="24" y="32">Tor audio — DAC USB → gotowy wzmacniacz samochodowy</text>
+  <text class="sub" x="24" y="52">Wzmacniacz odseparowany od systemu buforowanego: zasilanie wprost z akumulatora rozruchowego, własna masa, własny bezpiecznik</text>
+  <line x1="24" y1="62" x2="1216" y2="62" stroke="#c8d2da" stroke-width="1.5"/>
 
-  <!-- Sources -->
-  <rect x="20" y="185" width="130" height="90" class="box" fill="#e0e0ff"/>
-  <text x="85" y="205" class="label" font-weight="bold">Sources</text>
-  <text x="85" y="223" class="pin">Android Auto</text>
-  <text x="85" y="238" class="pin">BT A2DP</text>
-  <text x="85" y="253" class="pin">FM Radio (RTL-SDR)</text>
-  <text x="85" y="268" class="pin">System TTS/Beeps</text>
-  <line x1="85" y1="185" x2="85" y2="160" class="wire" stroke="#906"/>
+  <!-- ================= SIGNAL CHAIN ================= -->
+  <text class="sec" x="60" y="92">Tor sygnałowy</text>
 
-  <!-- USB DAC -->
-  <rect x="195" y="85" width="140" height="70" class="box" fill="#fff0ff"/>
-  <text x="265" y="107" class="label" font-weight="bold">ES9038Q2M</text>
-  <text x="265" y="122" class="pin">USB DAC Module</text>
-  <text x="265" y="137" class="pin">32-bit / 129dB SNR</text>
-  <text x="265" y="149" class="pin">~45-75 PLN</text>
-  <line x1="150" y1="120" x2="195" y2="120" class="audio"/>
-  <text x="172" y="115" class="pin">USB</text>
+  <rect class="mod" x="60" y="102" width="176" height="132"/>
+  <text class="mt" x="148" y="124">Źródła</text>
+  <text class="tl" x="76" y="150">• Android Auto</text>
+  <text class="tl" x="76" y="170">• Bluetooth A2DP</text>
+  <text class="tl" x="76" y="190">• komunikaty głosowe</text>
+  <text class="tl" x="76" y="210">• sygnały parkowania</text>
+  <text class="ms" x="148" y="228">w systemie M910q</text>
 
-  <!-- RCA split point -->
-  <line x1="335" y1="120" x2="390" y2="120" class="audio"/>
-  <text x="362" y="112" class="pin">RCA L/R</text>
-  <circle cx="390" cy="120" r="4" fill="#906"/>
+  <path class="waud" d="M236 168 L282 168"/>
 
-  <!-- RCA to main amp -->
-  <line x1="390" y1="120" x2="430" y2="100" class="audio"/>
-  <!-- RCA to sub amp -->
-  <line x1="390" y1="120" x2="430" y2="260" class="audio"/>
-  <text x="405" y="195" class="pin" fill="#906">RCA</text>
+  <rect class="modB" x="282" y="102" width="186" height="132"/>
+  <text class="mt" x="375" y="124">PipeWire</text>
+  <text class="tl" x="298" y="150">• mikser i routing</text>
+  <text class="tl" x="298" y="170">• 10-pasmowy EQ</text>
+  <text class="tl" x="298" y="190">• ducking (−12…−18 dB)</text>
+  <text class="tl" x="298" y="210">• analizator widma</text>
+  <text class="ms" x="375" y="228">bez zmian wobec v8.5</text>
 
-  <!-- TDA7388 Main Amplifier -->
-  <rect x="430" y="50" width="190" height="120" class="box" fill="#ffe0e0"/>
-  <text x="525" y="72" class="label" font-weight="bold">TDA7388</text>
-  <text x="525" y="87" class="label">(CD7388CZ)</text>
-  <text x="525" y="105" class="pin">4-channel Class AB</text>
-  <text x="525" y="118" class="pin">4×41W @ 14.4V / 4Ω</text>
-  <text x="525" y="131" class="pin">MOSFET output, THD &lt;0.1%</text>
-  <text x="525" y="144" class="pin">Heatsink required!</text>
-  <text x="525" y="157" class="pin">~45-70 PLN</text>
+  <path class="wusb" d="M468 168 L514 168"/>
+  <text class="wl" x="472" y="162">USB</text>
 
-  <!-- 12V power to TDA7388 -->
-  <line x1="525" y1="50" x2="525" y2="35" class="power"/>
-  <text x="525" y="30" class="comp">12V / 25A fused (shared)</text>
+  <rect class="mod" x="514" y="102" width="200" height="132"/>
+  <text class="mt" x="614" y="124">DAC ES9038Q2M</text>
+  <text class="ms" x="614" y="142">USB Audio Class 2</text>
+  <text class="tl" x="530" y="168">wejście: USB bezpośrednio</text>
+  <text class="tl" x="530" y="184">w port M910q, nie przez hub</text>
+  <text class="tl" x="530" y="208">wyjście: RCA L/R,</text>
+  <text class="tl" x="530" y="224">poziom linii ~2 V RMS</text>
 
-  <!-- TDA2050 Subwoofer Amplifier -->
-  <rect x="430" y="220" width="190" height="100" class="box" fill="#ffe8d0"/>
-  <text x="525" y="242" class="label" font-weight="bold">TDA2050</text>
-  <text x="525" y="257" class="pin">Mono Class AB</text>
-  <text x="525" y="270" class="pin">32W @ 4Ω</text>
-  <text x="525" y="283" class="pin">Clean musical output</text>
-  <text x="525" y="296" class="pin">Small heatsink needed</text>
-  <text x="525" y="309" class="pin">~20-30 PLN</text>
+  <path class="waud" d="M714 168 L770 168"/>
+  <text class="wl" x="718" y="162">RCA L/R</text>
 
-  <!-- 12V power to TDA2050 -->
-  <line x1="525" y1="220" x2="525" y2="205" class="power"/>
-  <text x="525" y="200" class="comp">12V (shared fuse)</text>
+  <rect class="modC" x="770" y="102" width="248" height="132"/>
+  <text class="mt" x="894" y="124">Wzmacniacz samochodowy</text>
+  <text class="ms" x="894" y="142">gotowy moduł, nie DIY</text>
+  <text class="tl" x="786" y="168">4 kanały, wejścia RCA</text>
+  <text class="tl" x="786" y="186">klasa D — mniej ciepła i prądu</text>
+  <text class="tl" x="786" y="204">4 × 50–75 W RMS na 4 Ω</text>
+  <text class="tl" x="786" y="222">zaciski: +12V · GND · REM</text>
 
-  <!-- Speakers from TDA7388 -->
-  <rect x="680" y="35" width="130" height="35" class="box" fill="#e0ffe0"/>
-  <text x="745" y="52" class="label">Front Left</text>
-  <text x="745" y="64" class="pin">Door speaker 4Ω</text>
-  <line x1="620" y1="75" x2="680" y2="52" class="audio"/>
+  <path class="wspk" d="M1018 168 L1062 168"/>
 
-  <rect x="680" y="80" width="130" height="35" class="box" fill="#e0ffe0"/>
-  <text x="745" y="97" class="label">Front Right</text>
-  <text x="745" y="109" class="pin">Door speaker 4Ω</text>
-  <line x1="620" y1="90" x2="680" y2="97" class="audio"/>
+  <rect class="mod" x="1062" y="102" width="138" height="132"/>
+  <text class="mt" x="1131" y="124">Głośniki 4 Ω</text>
+  <text class="tl" x="1076" y="150">przód L — drzwi</text>
+  <text class="tl" x="1076" y="170">przód P — drzwi</text>
+  <text class="tl" x="1076" y="190">tył L — półka</text>
+  <text class="tl" x="1076" y="210">tył P — półka</text>
+  <text class="ms" x="1131" y="228">układ 4.0</text>
 
-  <rect x="680" y="125" width="130" height="35" class="box" fill="#e0ffe0"/>
-  <text x="745" y="142" class="label">Rear Left</text>
-  <text x="745" y="154" class="pin">Shelf speaker 4Ω</text>
-  <line x1="620" y1="110" x2="680" y2="142" class="audio"/>
+  <!-- ================= POWER — SEPARATE BRANCH ================= -->
+  <text class="sec" x="60" y="286">Zasilanie — gałąź całkowicie niezależna</text>
+  <rect class="modS" x="60" y="296" width="1140" height="212"/>
 
-  <rect x="680" y="170" width="130" height="35" class="box" fill="#e0ffe0"/>
-  <text x="745" y="187" class="label">Rear Right</text>
-  <text x="745" y="199" class="pin">Shelf speaker 4Ω</text>
-  <line x1="620" y1="130" x2="680" y2="187" class="audio"/>
+  <rect class="mod" x="86" y="322" width="200" height="72"/>
+  <text class="mt" x="186" y="344">Akumulator rozruchowy</text>
+  <text class="ms" x="186" y="362">zacisk „+”, komora silnika</text>
+  <text class="ms" x="186" y="382">NIE szyna buforowana</text>
 
-  <!-- Subwoofer from TDA2050 -->
-  <rect x="680" y="245" width="130" height="50" class="box" fill="#ffe0e0"/>
-  <text x="745" y="267" class="label" font-weight="bold">Subwoofer</text>
-  <text x="745" y="282" class="pin">Trunk mount 4Ω</text>
-  <line x1="620" y1="270" x2="680" y2="270" class="audio"/>
+  <path class="wpwr" d="M286 358 L336 358"/>
 
-  <!-- Notes box -->
-  <rect x="20" y="350" width="920" height="110" fill="#f8f8ff" stroke="#ccc" rx="4"/>
-  <text x="40" y="370" class="note" font-weight="bold">Signal chain:</text>
-  <text x="40" y="385" class="note">Audio Source → PipeWire (mix/EQ/duck) → ES9038Q2M USB DAC → RCA → TDA7388 (4ch) + TDA2050 (sub) → Speakers</text>
-  <text x="40" y="405" class="note" font-weight="bold">Audio ducking:</text>
-  <text x="40" y="420" class="note">Parking beeps -18dB | Voice announcements -12dB (+3dB boost) | Phone calls -15dB | 1s smooth fade-back</text>
-  <text x="40" y="440" class="note" font-weight="bold">Budget breakdown (~105-160 PLN):</text>
-  <text x="40" y="455" class="note">ES9038Q2M DAC ~45-75 PLN | TDA7388 board ~45-70 PLN | TDA2050 board ~20-30 PLN | Heatsink ~15-25 PLN</text>
+  <rect class="mod" x="336" y="322" width="196" height="72"/>
+  <text class="mt" x="434" y="344">Bezpiecznik</text>
+  <text class="ms" x="434" y="362">wartość wg karty wzmacniacza</text>
+  <text class="ms" x="434" y="382">oprawka ≤ 30 cm od klemy</text>
+
+  <path class="wpwr" d="M532 358 L582 358"/>
+  <text class="wl" x="536" y="352">6 mm²</text>
+
+  <rect class="modC" x="582" y="312" width="270" height="96"/>
+  <text class="mt" x="717" y="334">Wzmacniacz — bagażnik</text>
+  <text class="ms" x="717" y="356">zaciski +12V · GND · REM</text>
+  <text class="ms" x="717" y="376">masa lokalna, do 1 m,</text>
+  <text class="ms" x="717" y="394">tym samym przekrojem co „+”</text>
+
+  <path class="minus" d="M717 408 L717 436"/>
+  <use href="#gnd3" x="717" y="436"/>
+  <text class="note" x="738" y="434">masa przy wzmacniaczu — NIE punkt gwiazdowy</text>
+
+  <rect class="mod" x="906" y="312" width="264" height="96"/>
+  <text class="mt" x="1038" y="334">REM ← domena B</text>
+  <text class="ms" x="1038" y="356">z zacisku 87 przekaźnika zapłonu</text>
+  <text class="ms" x="1038" y="376">wzmacniacz wstaje i gaśnie</text>
+  <text class="ms" x="1038" y="394">razem z head unitem</text>
+
+  <path class="wsig" d="M906 358 L852 358"/>
+
+  <text class="warn" x="86" y="468">Z systemem buforowanym łączy je wyłącznie sygnał REM i ekran kabla RCA.</text>
+  <text class="note" x="86" y="490">Ani prąd zasilania, ani masa mocy wzmacniacza nie przechodzą przez bank, LVD ani listwę dystrybucyjną.</text>
+
+  <!-- ================= WHY ================= -->
+  <text class="sec" x="60" y="548">Dlaczego osobno</text>
+  <rect x="60" y="558" width="560" height="182" fill="#fbfcfd" stroke="#c8d2da" stroke-width="1.5" rx="6"/>
+  <text class="tb" x="78" y="582">Prąd</text>
+  <text class="note" x="78" y="600">Wzmacniacz 4 × 50 W RMS pobiera w szczytach 20–30 A. Bank 25,5 Ah</text>
+  <text class="note" x="78" y="616">rozłożyłby się przy takim prądzie w kilkanaście minut, a przekaźnik</text>
+  <text class="note" x="78" y="632">XH-M609 (20 A) zostałby przekroczony.</text>
+  <text class="tb" x="78" y="658">Zakłócenia</text>
+  <text class="note" x="78" y="676">Wzmacniacz to najbardziej „brudne” obciążenie w aucie — impulsy prądu</text>
+  <text class="note" x="78" y="692">w rytm muzyki. Poza szyną komputera oszczędza to sporo problemów.</text>
+  <text class="tb" x="78" y="718">Prostota</text>
+  <text class="note" x="78" y="734">Gotowy moduł ma wbudowane zabezpieczenia, wyciszanie startu i filtry.</text>
+
+  <rect x="650" y="558" width="550" height="182" fill="#fbfcfd" stroke="#c8d2da" stroke-width="1.5" rx="6"/>
+  <text class="tb" x="668" y="582">Pętla masy — najbardziej prawdopodobny problem</text>
+  <text class="note" x="668" y="602">DAC jest uziemiony przez USB do punktu gwiazdowego pod deską,</text>
+  <text class="note" x="668" y="618">a wzmacniacz do nadwozia w bagażniku. Ekran kabla RCA łączy oba</text>
+  <text class="note" x="668" y="634">punkty — różnica potencjałów daje przydźwięk alternatora.</text>
+  <text class="tb" x="668" y="660">Kolejność działań, jeśli słychać buczenie:</text>
+  <text class="note" x="668" y="678">1. masa wzmacniacza jak najkrócej, do gołego metalu, mocno dokręcona</text>
+  <text class="note" x="668" y="694">2. RCA po przeciwnej stronie auta niż kabel zasilania</text>
+  <text class="note" x="668" y="710">3. dopiero potem izolator pętli masy na RCA (transformatorowy)</text>
+  <text class="note" x="668" y="732">Izolator pogarsza pasmo — używaj go, gdy 1 i 2 nie pomogły.</text>
+
+  <!-- ================= SETUP ================= -->
+  <text class="sec" x="60" y="780">Uruchomienie</text>
+  <rect x="60" y="790" width="560" height="142" fill="#fbfcfd" stroke="#c8d2da" stroke-width="1.5" rx="6"/>
+  <text class="tb" x="78" y="814">Ustawienie wzmocnienia (gain)</text>
+  <text class="note" x="78" y="832">1. Głośność systemu ~75 %, EQ płasko, gain wzmacniacza na minimum</text>
+  <text class="note" x="78" y="848">2. Podnoś gain do pierwszych oznak zniekształceń, cofnij o krok</text>
+  <text class="note" x="78" y="864">Gain to dopasowanie poziomu, nie „pokrętło głośności”.</text>
+  <text class="tb" x="78" y="890">Filtry</text>
+  <text class="note" x="78" y="908">Bez subwoofera: górnoprzepustowy ok. 80 Hz na wszystkich kanałach</text>
+  <text class="note" x="78" y="924">chroni głośniki drzwiowe przed pompowaniem basem.</text>
+
+  <rect x="650" y="790" width="550" height="142" fill="#fbfcfd" stroke="#c8d2da" stroke-width="1.5" rx="6"/>
+  <text class="tb" x="668" y="814">Jeśli dojdzie subwoofer</text>
+  <text class="note" x="668" y="832">• wzmacniacz 5-kanałowy — jeden moduł i jedno zasilanie, najprościej</text>
+  <text class="note" x="668" y="848">• albo zmostkowanie pary tylnej, jeśli wzmacniacz to obsługuje</text>
+  <text class="note" x="668" y="864">• osobny monoblok tylko wtedy, gdy naprawdę potrzeba mocy</text>
+  <text class="note" x="668" y="886">Każdy wariant zasilaj tą samą gałęzią i dobierz bezpiecznik wg sumy</text>
+  <text class="note" x="668" y="902">kart katalogowych. Bank buforowy pozostaje nietknięty.</text>
+  <text class="warn" x="668" y="924">Po stronie software'u nic się nie zmienia — DAC i PipeWire bez zmian.</text>
 </svg>
