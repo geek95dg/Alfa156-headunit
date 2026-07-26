@@ -38,9 +38,9 @@ pip install -r requirements.txt -r requirements-x86.txt
 - **Deployment (production, M910q):** `docs/WDROZENIE_M910Q.md` —
   hardware, BIOS, OS, services, verification. Power system in detail:
   `docs/ZASILANIE_BUFOROWANE.md` + `schematics/`.
-- **Bench / dev build** (Android Auto + audio + steering-wheel buttons, the
-  rest switched off): `docs/WDROZENIE_TESTOWE.md`, config
-  `config/bcm_config_bench.yaml`.
+- **Test / dev build** — a rolling install with the full power chain but only
+  wireless Android Auto, audio and the steering-wheel buttons switched on:
+  `docs/WDROZENIE_TESTOWE.md`, config `config/bcm_config_test.yaml`.
 - Repo audit + improvement roadmap: `AUDYT_I_PLAN.md`. Unused legacy
   code lives in `legacy/`; docs for retired platforms (Orange Pi 5 Pro /
   5 Plus, Orange Pi PC bench rig, VMware smoke tests) live in

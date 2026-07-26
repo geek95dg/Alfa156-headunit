@@ -20,6 +20,7 @@ M910q Tiny**.
 | [`charging_lvd.svg`](charging_lvd.svg) | **Ładowanie i ochrona banku** — cztery warstwy (VSR → CC-CV → rozłącznik nadnapięciowy → LVD), komplet nastaw dla **CSB HR1221W (AGM)**, dwie tabele kompensacji temperaturowej, wpływ temperatury na żywotność, przebieg CC → CV → float. |
 | [`power_domains_m910q.svg`](power_domains_m910q.svg) | **Domeny A/B** — rozdział obciążeń między część zawsze zasilaną a część załączaną zapłonem, bezpieczniki odgałęzień, budżet poboru spoczynkowego, tabela czasu postoju, osobna gałąź wzmacniaczy. |
 | [`audio_system.svg`](audio_system.svg) | **Tor audio** — ES9038Q2M (USB DAC) → RCA → **gotowy wzmacniacz samochodowy** → głośniki 4 Ω. Wzmacniacz zasilany wprost z akumulatora rozruchowego, z własną masą — całkowicie odseparowany od systemu buforowanego. |
+| [`power_test_build.svg`](power_test_build.svg) | **Wariant testowo-rozwojowy** — uproszczony tor dla instalacji jeżdżącej z minimalnym zestawem funkcji: ładowanie wariantem B (VSR + CC-CV boost), bank, LVD, przekaźnik zapłonu, XL6019 i panel 7". Bez domeny A i bez wzmacniacza. Opis: [`../docs/WDROZENIE_TESTOWE.md`](../docs/WDROZENIE_TESTOWE.md). |
 
 ### Schematy połączeniowe — montaż
 

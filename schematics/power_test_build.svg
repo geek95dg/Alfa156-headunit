@@ -1,0 +1,163 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="960" height="1164" viewBox="0 0 960 1164" font-family="DejaVu Sans, Verdana, sans-serif">
+  <title>BCM v8.5 — tor zasilania wariantu testowo-rozwojowego (M910q)</title>
+  <style>
+    .bg   { fill: #ffffff; }
+    .box  { fill: #f7f9fb; stroke: #2b3a45; stroke-width: 2; rx: 6; }
+    .boxC { fill: #eef7ee; stroke: #2d6a2d; stroke-width: 2; rx: 6; }
+    .boxB { fill: #fdf6e6; stroke: #9a6b12; stroke-width: 2; rx: 6; }
+    .boxL { fill: #eef2fa; stroke: #2b4a8a; stroke-width: 2; rx: 6; }
+    .note { fill: #fbfcfd; stroke: #c8d2da; stroke-width: 1.5; rx: 6; }
+    .wire { stroke: #c0392b; stroke-width: 3; fill: none; }
+    .ttl  { font-size: 19px; font-weight: bold; fill: #10202b; }
+    .sub  { font-size: 12px; fill: #5a6b78; }
+    .h    { font-size: 13.5px; font-weight: bold; fill: #10202b; text-anchor: middle; }
+    .t    { font-size: 11.5px; fill: #33424e; text-anchor: middle; }
+    .tl   { font-size: 11.5px; fill: #33424e; }
+    .tb   { font-size: 11.5px; font-weight: bold; fill: #10202b; }
+    .nh   { font-size: 12.5px; font-weight: bold; fill: #10202b; }
+    .nt   { font-size: 11px; fill: #4a5a66; }
+    .fuse { font-size: 11px; font-weight: bold; fill: #a8321a; }
+    .foot { font-size: 10.5px; fill: #6a7a86; }
+  </style>
+
+  <rect class="bg" x="0" y="0" width="960" height="1164"/>
+  <text class="ttl" x="24" y="32">Wariant testowo-rozwojowy — kompletny tor zasilania</text>
+  <text class="sub" x="24" y="52">Ładowanie wariantem B (VSR + CC-CV boost), bank 5 × CSB HR1221W, LVD XH-M609, domena B za przekaźnikiem zapłonu.</text>
+  <line x1="24" y1="64" x2="936" y2="64" stroke="#c8d2da" stroke-width="1.5"/>
+
+  <!-- ============== SPINE ============== -->
+  <text class="tb" x="90" y="88" fill="#2d6a2d" font-size="13.5">ŁADOWANIE</text>
+
+  <rect class="boxC" x="90" y="96" width="420" height="56"/>
+  <text class="h" x="300" y="119">Akumulator rozruchowy 12 V</text>
+  <text class="t" x="300" y="138">masa na fabrycznym punkcie nadwozia, nie „gdziekolwiek”</text>
+
+  <path class="wire" d="M300 152 L300 186"/>
+  <text class="fuse" x="312" y="172">bezp. 15 A przy klemie „+” · 2,5 mm²</text>
+
+  <rect class="boxC" x="90" y="186" width="420" height="62"/>
+  <text class="h" x="300" y="209">Ochrona wejścia</text>
+  <text class="t" x="300" y="228">dioda TVS 1.5KE33CA (lub SMCJ26CA) · C 470 µF / 35 V low-ESR</text>
+
+  <path class="wire" d="M300 248 L300 282"/>
+
+  <rect class="boxC" x="90" y="282" width="420" height="62"/>
+  <text class="h" x="300" y="305">VSR — przekaźnik napięciowy 12 V / 140 A</text>
+  <text class="t" x="300" y="324">załączenie 13,3 V · rozłączenie 12,8 V</text>
+
+  <path class="wire" d="M300 344 L300 378"/>
+
+  <rect class="boxC" x="90" y="378" width="420" height="76"/>
+  <text class="h" x="300" y="401">Moduł CC-CV boost 300 W / 10 A</text>
+  <text class="t" x="300" y="420">CV 13,80 V (bez absorpcji) · CC 8,0 A dla pięciu pakietów</text>
+  <text class="t" x="300" y="438">radiator i przewiew — 8 A ciągłe to nie jest praca „na sucho”</text>
+
+  <path class="wire" d="M300 454 L300 488"/>
+
+  <rect class="boxC" x="90" y="488" width="420" height="62"/>
+  <text class="h" x="300" y="511">Rozłącznik nadnapięciowy — warstwa 2</text>
+  <text class="t" x="300" y="530">próg 14,80 V · powrót 14,0 V</text>
+
+  <path class="wire" d="M300 550 L300 584"/>
+
+  <text class="tb" x="90" y="576" fill="#9a6b12" font-size="13.5">BANK</text>
+
+  <rect class="boxB" x="90" y="584" width="420" height="84"/>
+  <text class="h" x="300" y="607">BANK 5 × CSB HR1221W F2 — 25,5 Ah</text>
+  <text class="t" x="300" y="626">bezpiecznik 10 A na „+” każdego pakietu, osobno</text>
+  <text class="t" x="300" y="644">nasuwki F2 6,35 mm · łączenie równoległe wg §4.3 ZASILANIE</text>
+  <text class="t" x="300" y="661">3 pakiety wystarczą na czas testów; 8 = dłuższy postój</text>
+
+  <path class="wire" d="M300 668 L300 702"/>
+  <text class="fuse" x="312" y="690">bezp. 15 A przed VIN+</text>
+
+  <text class="tb" x="90" y="694" fill="#2b4a8a" font-size="13.5">ODBIORNIKI</text>
+
+  <rect class="boxL" x="90" y="702" width="420" height="62"/>
+  <text class="h" x="300" y="725">XH-M609 — LVD</text>
+  <text class="t" x="300" y="744">odcięcie 11,00 V · powrót 12,60 V</text>
+
+  <path class="wire" d="M300 764 L300 798"/>
+
+  <rect class="boxL" x="90" y="798" width="420" height="56"/>
+  <text class="h" x="300" y="821">Wyłącznik główny na „+”</text>
+  <text class="t" x="300" y="840">albo rozłącznik masy 100 A na „−” banku</text>
+
+  <path class="wire" d="M300 854 L300 888"/>
+
+  <rect class="boxL" x="90" y="888" width="420" height="62"/>
+  <text class="h" x="300" y="911">Przekaźnik zapłonu 30 A SPDT — domena B</text>
+  <text class="t" x="300" y="930">cewka z ACC · dioda gaszeniowa 1N4007 równolegle</text>
+
+  <path class="wire" d="M300 950 L300 972"/>
+  <path class="wire" d="M190 972 L410 972"/>
+  <path class="wire" d="M190 972 L190 1000"/>
+  <path class="wire" d="M410 972 L410 1000"/>
+  <circle cx="300" cy="972" r="4" fill="#c0392b"/>
+
+  <rect class="box" x="90" y="1000" width="200" height="88"/>
+  <text class="fuse" x="112" y="994">bezp. 5 A</text>
+  <text class="h" x="190" y="1023">XL6019 → 19,5 V</text>
+  <text class="t" x="190" y="1042">M910q, limit CPU 28 W</text>
+  <text class="t" x="190" y="1060">C 470 µF/35 V na wyjściu</text>
+  <text class="t" x="190" y="1078">radiator + wentylator 40 mm</text>
+
+  <rect class="box" x="310" y="1000" width="200" height="88"/>
+  <text class="fuse" x="332" y="994">bezp. 3 A</text>
+  <text class="h" x="410" y="1023">Panel 7" 1024×600</text>
+  <text class="t" x="410" y="1042">wprost z 12 V, jeśli taki jest</text>
+  <text class="t" x="410" y="1060">buck 12 → 5 V tylko dla</text>
+  <text class="t" x="410" y="1078">paneli 5-woltowych</text>
+
+  <!-- ============== NOTES ============== -->
+  <rect class="note" x="560" y="282" width="376" height="96"/>
+  <text class="nh" x="576" y="304">Dlaczego VSR, a nie dioda Schottky</text>
+  <text class="nt" x="576" y="325">Boost nie da napięcia niższego niż wejściowe, więc przy</text>
+  <text class="nt" x="576" y="342">zgaszonym silniku podawałby 13,8 V i rozładowywał</text>
+  <text class="nt" x="576" y="359">akumulator auta. VSR rozłącza obwód fizycznie.</text>
+
+  <rect class="note" x="560" y="394" width="376" height="130"/>
+  <text class="nh" x="576" y="416">Prąd CC liczysz razem z obciążeniem</text>
+  <text class="nt" x="576" y="437">Moduł limituje prąd WYJŚCIOWY — obciążenie plus</text>
+  <text class="nt" x="576" y="454">ładowanie. Zestaw pobiera podczas jazdy ok. 3,5 A.</text>
+  <text class="nt" x="576" y="475">CC 4 A  →  do banku 0,5 A  →  nigdy się nie doładuje</text>
+  <text class="nt" x="576" y="492">CC 8 A  →  do banku 4,5 A  →  z 50 % w ~2,8 h jazdy</text>
+  <text class="nt" x="576" y="513">Sufit katalogowy CSB: 2,1 A × liczba pakietów.</text>
+
+  <rect class="note" x="560" y="540" width="376" height="112"/>
+  <text class="nh" x="576" y="562">Domena A jest w tym wariancie pusta</text>
+  <text class="nt" x="576" y="583">Nie ma jeszcze Nano, HM-10 ani RXB6, więc na postoju</text>
+  <text class="nt" x="576" y="600">z banku pobiera prąd wyłącznie sam XH-M609.</text>
+  <text class="nt" x="576" y="621">Przy 40 mA i pięciu pakietach to ~13 dni do 50 % DoD,</text>
+  <text class="nt" x="576" y="638">przy 125 mA już tylko ~4 dni. Zmierz go — §7.3.</text>
+
+  <rect class="note" x="560" y="668" width="376" height="230"/>
+  <text class="nh" x="576" y="690">Bezpieczniki i przekroje</text>
+  <line x1="576" y1="700" x2="920" y2="700" stroke="#c8d2da"/>
+  <text class="tb" x="576" y="719">Obwód</text>
+  <text class="tb" x="800" y="719">Bezp.</text>
+  <text class="tb" x="866" y="719">Przekrój</text>
+  <line x1="576" y1="727" x2="920" y2="727" stroke="#c8d2da"/>
+  <text class="nt" x="576" y="746">ładowarka ← akumulator</text><text class="nt" x="800" y="746">15 A</text><text class="nt" x="866" y="746">2,5 mm²</text>
+  <text class="nt" x="576" y="768">każdy pakiet banku</text><text class="nt" x="800" y="768">10 A</text><text class="nt" x="866" y="768">2,5 mm²</text>
+  <text class="nt" x="576" y="790">wejście XH-M609</text><text class="nt" x="800" y="790">15 A</text><text class="nt" x="866" y="790">2,5 mm²</text>
+  <text class="nt" x="576" y="812">wyjście XL6019</text><text class="nt" x="800" y="812">5 A</text><text class="nt" x="866" y="812">1,5 mm²</text>
+  <text class="nt" x="576" y="834">panel 7"</text><text class="nt" x="800" y="834">3 A</text><text class="nt" x="866" y="834">1,5 mm²</text>
+  <text class="nt" x="576" y="856">cewka przekaźnika (ACC)</text><text class="nt" x="800" y="856">—</text><text class="nt" x="866" y="856">0,75 mm²</text>
+  <line x1="576" y1="868" x2="920" y2="868" stroke="#c8d2da"/>
+  <text class="foot" x="576" y="886">2,5 mm² zamiast 6 mm² — bo ładowarka daje 8 A, nie 25 A.</text>
+
+  <rect class="note" x="560" y="914" width="376" height="174"/>
+  <text class="nh" x="576" y="936">Kolejność pierwszego załączenia</text>
+  <text class="nt" x="576" y="957">1. Wyłącznik główny rozwarty, ładowarka odłączona.</text>
+  <text class="nt" x="576" y="978">2. Nastawy XL6019, XH-M609, boostu i rozłącznika</text>
+  <text class="nt" x="576" y="995">    nadnapięciowego sprawdzone na zasilaczu lab.</text>
+  <text class="nt" x="576" y="1016">3. Bank złożony, bezpieczniki pakietów założone.</text>
+  <text class="nt" x="576" y="1037">4. Pomiar 19,5 V na XL6019 BEZ M910q.</text>
+  <text class="nt" x="576" y="1058">5. M910q. 6. Tor ładowania JAKO OSTATNI, na zgaszonym</text>
+  <text class="nt" x="576" y="1075">    silniku. 7. Rozruch i pomiar prądu ładowania.</text>
+
+  <text class="foot" x="24" y="1108">Wzmacniacz nie występuje w tym wariancie. Gdy dojdzie — osobna gałąź wprost z akumulatora rozruchowego, własny</text>
+  <text class="foot" x="24" y="1124">bezpiecznik i własna masa; przez bank nie przechodzi wtedy żaden prąd mocy.</text>
+  <text class="foot" x="24" y="1146">Pełny opis nastaw i pomiarów: docs/ZASILANIE_BUFOROWANE.md · wariant docelowy z domeną A: schematics/power_domains_m910q.svg</text>
+</svg>

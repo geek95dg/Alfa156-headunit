@@ -1,8 +1,10 @@
-# BCM v8.5 — konfiguracja STANOWISKA TESTOWO-ROZWOJOWEGO
+# BCM v8.5 — konfiguracja WDROŻENIA TESTOWO-ROZWOJOWEGO
 #
-# Minimalny zestaw do weryfikacji na biurku / w aucie na etapie rozwoju:
+# Minimalny zestaw funkcji, ale instalacja jeżdżąca: zabudowa w aucie
+# z pełnym torem zasilania (ładowanie banku, LVD, przekaźnik zapłonu).
 #   • ekran 7" 1024x600 (docelowy jest 10,1" 1280x800 — patrz bcm_config.yaml)
-#   • Android Auto PO KABLU USB (bez WiFi P2P i bez Bluetooth)
+#   • Android Auto WIRELESS — P2P-GO na karcie MediaTek MT7921, handshake
+#     bootstrapowany po Bluetooth (src/multimedia/openauto.py, wifi_ap.py)
 #   • dźwięk przez wyjście analogowe M910q (mini-jack) — domyślny sink PipeWire
 #   • przyciski SWC przez Arduino Pro Micro (USB HID)
 #   • modem LTE — na x86 moduł `network` tylko raportuje stan łącza,
@@ -12,7 +14,7 @@
 # których jeszcze nie ma podłączonych.
 #
 # Uruchomienie:
-#   python3 main.py --platform x86 --config config/bcm_config_bench.yaml --frontend
+#   python3 main.py --platform x86 --config config/bcm_config_test.yaml --frontend
 #
 # Ten plik NIE jest nakładką na bcm_config.yaml — --config podmienia całą
 # konfigurację, więc jest to pełna kopia z pozmienianymi kluczami.
@@ -28,9 +30,9 @@ system:
 # Jeden przełącznik na każdy moduł/podsystem — pełna lista i stan
 # także w UI: Settings -> Moduły (GET/POST /api/modules).
 modules:
-  # --- WŁĄCZONE na stanowisku testowym ---
+  # --- WŁĄCZONE w wariancie testowym ---
   dashboard: true          # frontend HTML5 na porcie 5002
-  multimedia: true         # Android Auto (openauto)
+  multimedia: true         # Android Auto (openauto) — wireless
   input: true              # przyciski SWC przez Pro Micro (USB HID)
   audio: true              # głośność i EQ na domyślnym sinku PipeWire
   network: true            # status łącza (LTE/WiFi/ethernet) — tylko odczyt
@@ -40,7 +42,10 @@ modules:
   parking: false           # brak HC-SR04
   environment: false       # brak DS18B20
   camera: false            # brak grabera i kamer
-  power: false             # brak przekaźnika zapłonu w torze testowym
+  power: false             # przekaźnik zapłonu jest, ale PowerManager na x86
+                           # reaguje tylko na zdarzenia sim.ignition /
+                           # sim.reverse_gear — brak wejścia GPIO, więc
+                           # odcięcie domeny B robi sprzęt, nie ten moduł
   location: false          # brak GPS
   tracking: false          # zależy od GPS
   weather: false           # wymaga klucza API
@@ -54,15 +59,18 @@ modules:
   battery: false           # patrz docs/ZASILANIE_BUFOROWANE.md § 13.4
 
   # --- podsystemy (startowane wprost w main.py) ---
-  bluetooth: false         # AA po kablu nie potrzebuje BT
-  phonebook: false         # bez BT nie ma czego synchronizować
+  bluetooth: true          # bootstrap handshake'u AA wireless (btservice
+                           # jest w autoapp; tu rejestrują się PBAP/MAP
+                           # i wymuszany jest CoD carkit 0x620420)
+  phonebook: false         # PBAP działałby, ale nie jest przedmiotem testu
   fuel_sender: false       # brak ADC z Arduino
-  wifi_ap: false           # AA po kablu — bez P2P-GO
-  wifi_hotspot: false
+  wifi_ap: true            # P2P-GO na MT7921 — łącze danych Android Auto
+  wifi_hotspot: false      # ALFA-NET wymaga OSOBNEGO radia (dongla USB) —
+                           # MT7921 zgłasza #{AP, P2P-GO} <= 1
   route_planner: false     # wymaga kluczy API
-  small_display: false     # jeden ekran na stanowisku
+  small_display: false     # jeden ekran w wariancie testowym
 display:
-  # Stanowisko testowe: panel 7" 1024x600.
+  # Wariant testowy: panel 7" 1024x600.
   # Docelowo 10,1" 1280x800 — wartości produkcyjne w bcm_config.yaml.
   dashboard:
     width: 1024
