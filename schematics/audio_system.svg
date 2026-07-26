@@ -120,8 +120,8 @@
   <text class="note" x="738" y="434">masa przy wzmacniaczu — NIE punkt gwiazdowy</text>
 
   <rect class="mod" x="906" y="312" width="264" height="96"/>
-  <text class="mt" x="1038" y="334">REM ← domena B</text>
-  <text class="ms" x="1038" y="356">z zacisku 87 przekaźnika zapłonu</text>
+  <text class="mt" x="1038" y="334">REM ← zapłon</text>
+  <text class="ms" x="1038" y="356">wprost z linii ACC / zapłonu</text>
   <text class="ms" x="1038" y="376">wzmacniacz wstaje i gaśnie</text>
   <text class="ms" x="1038" y="394">razem z head unitem</text>
 

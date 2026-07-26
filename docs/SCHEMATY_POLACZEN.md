@@ -55,7 +55,7 @@ diagnostyce po roku od montażu to oszczędza godziny:
 |-------|-------|
 | +12 V stałe (przed LVD) | czerwony |
 | +12 V buforowane (za LVD) | czerwono-biały |
-| +12 V domeny B (za przekaźnikiem) | pomarańczowy |
+| +12 V odbiorników (za wyłącznikiem głównym) | pomarańczowy |
 | +5 V | żółty |
 | +19 V do M910q | brązowy |
 | Masa | czarny |
@@ -173,7 +173,8 @@ dioda TVS 1.5KE33CA równolegle oraz kondensator 470 µF / 35 V równolegle.
 > uruchomieniem w aucie ustaw limit poboru pakietu CPU na M910q —
 > [`ZASILANIE_BUFOROWANE.md`](ZASILANIE_BUFOROWANE.md) §3.5a. Wyjścia
 > przetwornicy **nie da się użyć jako wyłącznika** komputera: boost przepuszcza
-> napięcie wejściowe, więc odcina wyłącznie przekaźnik zapłonu (poz. 32).
+> napięcie wejściowe. Komputera nie odcina nic — usypia go impuls z Arduino
+> na przycisk zasilania (§10.5).
 
 ### 2.6 Gałąź wzmacniacza (niezależna)
 
@@ -280,7 +281,7 @@ analogowe**.
 Pełne tabele pinów: [`ARDUINO_SETUP_GUIDE.md`](ARDUINO_SETUP_GUIDE.md) § 7
 i § 7b. Poniżej to, co dotyczy okablowania międzymodułowego.
 
-### 4.1 Nano #1 (domena A, wyjścia)
+### 4.1 Nano #1 (wyjścia — przekaźniki, PWM)
 
 | Pin | Dokąd |
 |-----|-------|
@@ -304,7 +305,7 @@ i § 7b. Poniżej to, co dotyczy okablowania międzymodułowego.
 > bramka MOSFET-a na `M_PWM` nie ma odniesienia i podświetlenie nie
 > reaguje.
 
-### 4.2 Pro Micro (domena B, wejścia)
+### 4.2 Pro Micro (wejścia — enkoder, SWC, zapłon)
 
 | Pin | Dokąd |
 |-----|-------|
@@ -320,7 +321,7 @@ i § 7b. Poniżej to, co dotyczy okablowania międzymodułowego.
 > D4 i A6 to ten sam fizyczny pin i kolidowało z SWC Pod 2. Przy starszym
 > okablowaniu przepnij jeden przewód.
 
-### 4.3 Nano #2 (domena A, sensor hub)
+### 4.3 Nano #2 (sensor hub)
 
 Patrz §3.3 i §3.4. Funkcje włącza się `#define FEATURE_*` na górze
 `sensor_hub.ino` — wyłączony `FEATURE` zwalnia pin.
@@ -367,7 +368,7 @@ z wykryciem ekranu.
 | Mikrofon USB | — |
 | Dotyk wyświetlacza głównego | — |
 
-> **Hub musi mieć własne zasilanie** (z domeny B). Osiem urządzeń nie
+> **Hub musi mieć własne zasilanie** (z szyny buforowanej). Osiem urządzeń nie
 > wyrobi się na prądzie z portu M910q.
 
 > **Reguły udev są konieczne.** Bez nich numeracja `/dev/ttyUSBn` zmienia
@@ -420,10 +421,10 @@ brak**. Sygnały wyzwalające wchodzą przez PC817 na Nano #2.
 | 30 A | przy klemie „+”, ≤ 30 cm | cały tor główny |
 | wg karty modułu (20–30 A) | przy klemie „+”, osobno | gałąź wzmacniacza |
 | 10 A × 5 | na „+” każdego pakietu banku | zwarcie pojedynczego pakietu |
-| 30 A | listwa, obwód 2 | domena B |
+| 30 A | listwa, obwód 2 | odbiorniki 12 V |
 | 5 A | wyjście step-up, przed wtykiem | M910q |
 | 5 A | linia ACC do cewki przekaźnika | obwód sterowania |
-| 3 A | listwa, obwód 1 | domena A |
+| 3 A | listwa, obwód 1 | logika 5 V |
 | 3 A | odgałęzienie buck MP1584 | panele wyświetlaczy |
 | 3 A | odgałęzienie hub USB | hub i peryferia |
 | 15 A | między bankiem a XH-M609 **VIN +** | moduł LVD i cała szyna za nim |
@@ -489,7 +490,7 @@ To samo dotyczy Arduino: wgraj firmware i sprawdź każdą płytkę przez
 [ ] Rozłącznik nadnapięciowy: 15,30 V / 14,00 V, sprawdzony zasilaczem lab.
 [ ] XH-M609: 11,00 V / 12,60 V, sprawdzony zasilaczem laboratoryjnym
 [ ] XH-M609: potwierdzone, że przełącza plus, i zmierzony pobór własny
-[ ] Buck domeny A: 5,0 V na wyjściu (zmierzone, nie „powinno być”)
+[ ] Buck logiki: 5,0 V na wyjściu (zmierzone, nie „powinno być”)
 [ ] Buck paneli: 5,0 V na wyjściu
 [ ] Dioda 1N4007 na cewce przekaźnika — katoda do 86
 [ ] TVS i kondensator na wejściu ładowarki zamontowane
@@ -509,7 +510,7 @@ Po odhaczeniu całości przejdź do procedury pomiarowej:
 ## 10. Tabela połączeń — wariant testowo-rozwojowy
 
 Ten rozdział dotyczy **wyłącznie** wariantu z
-[`WDROZENIE_TESTOWE.md`](WDROZENIE_TESTOWE.md): mniej modułów, brak domeny B,
+[`WDROZENIE_TESTOWE.md`](WDROZENIE_TESTOWE.md): mniej modułów, mniej okablowania,
 M910q zasilany stale. Tabele §2–§5 opisują wersję docelową i tutaj **nie
 obowiązują**.
 
@@ -583,11 +584,42 @@ Wartości elementów i uzasadnienie: [`../schematics/ignition_sense.svg`](../sch
 | 20 | Pro Micro **D0** | **C2** 100 nF → Pro Micro **GND** | 0,5 mm² |
 
 > **Przewody 16 i 18 celowo idą do różnych mas.** Na tym polega optoizolacja:
-> po jednej stronie PC817 jest masa auta, po drugiej masa USB M910q. Zwarcie
+> po jednej stronie PC817 jest masa auta, po drugiej masa Pro Micro. Zwarcie
 > ich niweczy cały sens układu i wpuszcza do komputera wszystko, co jeździ po
 > linii ACC.
 
-### 10.5 Punkt gwiazdowy masy
+### 10.5 Sterowanie przyciskiem zasilania M910q
+
+Arduino nie wysyła żadnego protokołu — po prostu **zwiera przycisk
+zasilania**, a resztę robi acpid, który jest już skonfigurowany
+(§7.3 [`WDROZENIE_M910Q.md`](WDROZENIE_M910Q.md)).
+
+| # | Skąd | Dokąd | Przewód |
+|---|------|-------|---------|
+| 21 | Pro Micro **A2** | Moduł przekaźnika **IN** | 0,5 mm² |
+| 22 | Pro Micro **+5 V** / **GND** | Moduł przekaźnika **VCC** / **GND** | 0,5 mm² |
+| 23 | Przekaźnik **COM** | Przycisk zasilania M910q, zacisk 1 | 0,5 mm² |
+| 24 | Przekaźnik **NO** | Przycisk zasilania M910q, zacisk 2 | 0,5 mm² |
+| 25 | **MP1584 OUT+** / **OUT−** | Pro Micro **VCC** / **GND** | 0,75 mm² |
+
+Styki przekaźnika idą **równolegle** do przycisku — przycisk dalej działa
+normalnie i zostaje ratunkiem awaryjnym.
+
+| Impuls na A2 | Efekt |
+|--------------|-------|
+| **250 ms** przy pracy | uśpienie do S3 |
+| **250 ms** w S3 | wybudzenie w ~3 s |
+| **250 ms** po wyłączeniu | start (zimny, ~40 s) |
+| **5 s** | twarde wyłączenie — pobór spada do ~80–120 mA |
+
+> **Przetnij żyłę VBUS (czerwoną) w kablu USB do Pro Micro.** Płytka jest
+> zasilana z MP1584 (przewód 25) i musi żyć, gdy M910q śpi. Dwa źródła 5 V
+> zwarte razem to niepotrzebne ryzyko; dane po USB działają bez VBUS.
+
+> **Zaciski przycisku znajdź miernikiem** w trybie ciągłości, przy maszynie
+> odłączonej od zasilania: rozwarte, zwarte przy wciśnięciu.
+
+### 10.6 Punkt gwiazdowy masy
 
 Lądują na nim: „−” akumulatora rozruchowego, „−” TVS/C1, zacisk **85** K1,
 **IN−** i **OUT−** boostu, „−” zasilania rozłącznika nadnapięciowego, szyna
@@ -597,7 +629,7 @@ XL6019 i LM2596.
 **Jedyny wyjątek:** masa układu wykrywania zapłonu (**U1 pin 2**, przewód 16)
 idzie do masy instalacji auta.
 
-### 10.6 Kolejność podłączania
+### 10.7 Kolejność podłączania
 
 ```
 1. S1 rozwarty, bank odłączony, F1 wyjęty z oprawki.

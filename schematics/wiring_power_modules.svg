@@ -308,7 +308,7 @@
   <text class="ms" x="340" y="1414">Gotowy wzmacniacz samochodowy — prosto z klemy „+”, NIE z szyny buforowanej</text>
   <text class="wn" x="80" y="1438">• bezpiecznik wg karty wzmacniacza przy klemie, przewód 6 mm²</text>
   <text class="wn" x="80" y="1458">• zaciski „+12V” i „GND” — masa lokalna, do 1 m, ten sam przekrój</text>
-  <text class="wn" x="80" y="1478">• REM ← zacisk 87 przekaźnika zapłonu (domena B)</text>
+  <text class="wn" x="80" y="1478">• REM ← wprost z linii zapłonu (nie z komputera)</text>
   <text class="note" x="80" y="1498">Wspólna masa z komputerem daje pętlę masy i przydźwięk alternatora.</text>
 
   <!-- ================= LEGEND ================= -->

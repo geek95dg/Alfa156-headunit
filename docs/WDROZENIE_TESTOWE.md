@@ -176,6 +176,12 @@ Cena też jest realna — i to jest najważniejsza liczba w tej zmianie:
 | 5 (25,5 Ah) | ~2,2 dnia | ~1,5 dnia | ~1,1 dnia |
 | 8 (40,8 Ah) | ~3,5 dnia | ~2,4 dnia | ~1,8 dnia |
 
+Po **twardym wyłączeniu** (a nie S3) zostaje sam pobór przetwornic i LVD,
+czyli ~80–120 mA — wtedy 5 pakietów daje **4,4–5,3 dnia**, a 8 pakietów
+**7,1–8,5 dnia**. Dlatego eskalacja z S3 do pełnego wyłączenia po kilku
+godzinach jest tu naprawdę warta zachodu — a przy sterowaniu przyciskiem
+zasilania kosztuje tyle, co dłuższy impuls.
+
 Wszystko do 50 % DoD. Dla porównania: przy twardym odcięciu domeny B
 wychodziło **~13 dni**. Utrata jest sześciokrotna i wynika wprost z tego,
 że S3 to nie jest zero.
@@ -188,30 +194,63 @@ Co z tym zrobić:
   naprawdę zeruje pobór, i dlatego został na liście jako obowiązkowy.
 - **XH-M609 jest siatką bezpieczeństwa**, nie planem: odetnie przy 11,00 V,
   więc bank przeżyje, ale wrócisz do wyłączonego zestawu.
-- Docelowo Arduino może po kilku godzinach eskalować z S3 do pełnego
-  wyłączenia — wymaga firmware'u i haka po stronie hosta, patrz niżej.
+- **Eskalacja S3 → pełne wyłączenie** po 2 h postoju: przy sterowaniu
+  przyciskiem zasilania to jedna linijka firmware'u (impuls 5 s zamiast
+  250 ms), a powrót to znowu krótki impuls. Patrz niżej.
 
-#### Czego brakuje w kodzie, żeby to zadziałało
+#### Jak to zrobić najmniejszym kosztem — przez fizyczny przycisk zasilania
 
-Sprzętowo ścieżka jest gotowa, software'owo **nie**. Trzy elementy do
-dorobienia — warto wiedzieć, zanim to zaplanujesz:
+![Wykrywanie zapłonu i sterowanie przyciskiem](../schematics/ignition_sense.svg)
 
-| # | Brakuje | Gdzie |
-|---|---------|-------|
-| 1 | Wejście zapłonu w Pro Micro | wolny jest tylko **D0 (RXI)** — reszta pinów zajęta (enkoder, 5 przycisków, 2 pody SWC, panel muzyczny, LDR, przycisk dźwigni). Sygnał 12 V **musi** iść przez optoizolator albo dzielnik — nie wprost na pin 5 V |
-| 2 | Reakcja hosta na sygnał | `PowerManager` na `hal.ignition = false` przechodzi tylko do STANDBY i **gasi podświetlenie — nie usypia maszyny**. Uśpienie robi `bcm-power-toggle.sh` przez acpid. Ktoś musi połączyć jedno z drugim |
-| 3 | Nic nie publikuje `hal.ignition` na x86 | na OPi robił to `bcm-ignition-watcher` po GPIO; na M910q tego wejścia nie ma |
+Przycisk zasilania M910q to zwykły **przycisk chwilowy zwierny**, a Linux ma
+na nim już zbudowaną całą potrzebną logikę:
 
-Wybudzanie **nie wymaga kodu**: dowolne naciśnięcie klawisza po USB HID budzi
-maszynę z S3, o ile w BIOS-ie włączone jest **Wake on USB** (§6.2
-[`WDROZENIE_M910Q.md`](WDROZENIE_M910Q.md)). Pro Micro jest klawiaturą HID,
-więc to działa od ręki.
+| Stan maszyny | Krótkie wciśnięcie |
+|--------------|--------------------|
+| praca | acpid → `bcm-power-toggle.sh` → **S3** |
+| S3 | **wybudzenie** w ~3 s |
+| wyłączona | **start** |
+| dowolny, przytrzymanie > 4 s | twarde wyłączenie |
 
-> **Sprawdź, czy porty USB mają zasilanie w S3.** Jeżeli M910q odcina je
-> w uśpieniu, Arduino umiera razem z komputerem i **nie ma go czym wybudzić**
-> — zestaw zostaje w S3 do rozładowania banku. To pierwsza rzecz do
-> zmierzenia, przed jakimkolwiek firmware'em. Ratunek awaryjny: przycisk
-> zasilania M910q.
+Czyli **jeden impuls obsługuje oba kierunki**. Wystarczy, żeby Arduino umiało
+ten przycisk „nacisnąć" — styki **modułu przekaźnika 1-kanałowego wpięte
+równolegle** do przycisku, sterowane impulsem 250 ms z pinu **A2**.
+
+Co to daje w porównaniu z wysyłaniem klawiszy HID i osobnym hakiem na hoście:
+
+| | |
+|---|---|
+| ✅ | **zero zmian po stronie hosta** — `acpid` + `bcm-power-toggle.sh` już są skonfigurowane (§7.3 [`WDROZENIE_M910Q.md`](WDROZENIE_M910Q.md), `HandlePowerKey=ignore` w `logind.conf`) |
+| ✅ | wybudzanie **nie zależy od „Wake on USB"** — przycisk zasilania działa zawsze, także po twardym wyłączeniu |
+| ✅ | eskalacja S3 → pełne wyłączenie po kilku godzinach to po prostu **dłuższy impuls** (5 s), a powrót — znowu krótki |
+| ⚠️ | układ jest **otwarty**: Arduino nie wie, czy maszyna śpi. Pulsujemy na *zmianę* stanu zapłonu, więc rozjazd wymaga zdarzenia z zewnątrz i naprawia się przy następnym cyklu kluczyka |
+
+Domknięcie pętli, jeśli kiedyś zacznie przeszkadzać: wejście z **diody
+zasilania panelu przedniego** (świeci = praca, miga = S3). Jeden przewód
+więcej, za to stan czytany zamiast zakładanego.
+
+**Zostaje jedna rzecz do dorobienia — firmware Pro Micro:**
+
+| Element | Szczegóły |
+|---------|-----------|
+| Wejście zapłonu na **D0 (RXI)** | jedyny fizycznie wolny pin. Sygnał 12 V **musi** iść przez optoizolator PC817 — nie wprost na pin 5 V |
+| Wyjście na przekaźnik na **A2** | pin jest zajęty przez przycisk dźwigni „brightness cycle”, ale ta funkcja **i tak dziś nic nie robi** (§3.1c), więc jest wolny w praktyce |
+| Debounce zapłonu 2 s + impuls 250 ms / 5 s | żeby migotanie na linii ACC nie usypiało maszyny w kółko |
+
+`modules.power` zostaje wyłączony i nie ma to znaczenia: `PowerManager`
+w stanie STANDBY gasi podświetlenie, a nie usypia maszynę — uśpienie robi
+acpid, poza BCM.
+
+> **Pro Micro musi mieć własne 5 V.** Jeżeli wisi na USB M910q, a ten odcina
+> zasilanie portów w S3 — Arduino gaśnie razem z komputerem i nie ma czym
+> nacisnąć przycisku. Zasil je z **MP1584** z bufora i **przetnij żyłę VBUS
+> w kablu USB** (albo użyj kabla data-only): dwa źródła 5 V zwarte razem to
+> proszenie się o kłopoty. Dane po USB zostają.
+
+> **Zanim cokolwiek zlutujesz — zmierz przycisk.** Miernik w tryb ciągłości,
+> maszyna odłączona od zasilania: zaciski mają być rozwarte, a przy wciśnięciu
+> zwarte. To potwierdza, że to zwykły przycisk chwilowy, i pokazuje, gdzie
+> wpiąć styki przekaźnika.
 
 ### 3.1b Podświetlenie panelu — osobne zasilanie
 
@@ -455,10 +494,12 @@ Ceny orientacyjne, rynek PL, 2025/2026.
 | 4 | **Dioda 1N4007** | gaszeniowa, równolegle do cewki przekaźnika | 2–5 |
 | 5 | **Dioda TVS + kondensator** | 1.5KE33CA lub SMCJ26CA + 470 µF/35 V low-ESR | 10–20 |
 | 6 | **LM2596 12 → 5 V** | zasilanie podświetlenia panelu — §3.1b | 5–10 |
+| 6a | **MP1584 12 → 5 V** | zasilanie Pro Micro niezależne od USB — §3.1a | 5–15 |
+| 6b | **Moduł przekaźnika 1-kanałowy 5 V** | styki równolegle do przycisku zasilania M910q — §3.1a | 5–12 |
 | 7 | **Radiator + wentylator 40 mm** | do XL6019 — w aucie obowiązkowy | 20–35 |
 | 8 | **Radiator do MBR2545CT** | ok. 4,5 W ciągłej straty + podkładka izolacyjna | 5–15 |
 | 9 | **Kondensator wyjściowy** | 470 µF/35 V low-ESR na wyjście XL6019 | 3–6 |
-| | | **Podsuma** | **155–348** |
+| | | **Podsuma** | **165–375** |
 
 > **Przekaźnika zapłonu do odbiorników już nie ma** — M910q jest zasilany
 > stale, a zapłon jest tylko sygnałem dla Arduino (§3.1a). Jedyny przekaźnik
@@ -483,7 +524,7 @@ Ceny orientacyjne, rynek PL, 2025/2026.
 | 22 | Peszel + przelotki gumowe | przejścia przez blachę | 25–40 |
 | | | **Podsuma** | **304–516** |
 
-**Razem obowiązkowo: ~459–864 PLN.** Dolny kraniec to moduł „600 W"
+**Razem obowiązkowo: ~469–891 PLN.** Dolny kraniec to moduł „600 W"
 na potencjometrach, górny — boost z wyświetlaczem i droższe okablowanie.
 Przy pierwszej instalacji warto dopłacić przynajmniej za moduł CC-CV
 z odczytem cyfrowym.
@@ -500,7 +541,7 @@ z odczytem cyfrowym.
 | 23 | **Arduino Pro Micro** (ATmega32U4) | jeśli nie masz — pody SWC bez niego nie zadziałają | 40–60 |
 | 24 | **Wtyk zasilania do M910q** | najtaniej: odetnij kabel od oryginalnego zasilacza (koszt 0) | 0–40 |
 | 25 | **Przejściówka DP → HDMI** | tylko jeśli Twój egzemplarz M910q ma wyjścia DisplayPort — sprawdź (§5.2) | 0–25 |
-| 26 | **MP1584 12 → 5 V** | zapas pod przyszłą domenę A (Nano, HM-10, RXB6); w tym wariancie nieużywany | 0–15 |
+| 26 | **Kabel USB bez żyły VBUS** | do Pro Micro — albo przetnij czerwoną żyłę w zwykłym, koszt 0 | 0–20 |
 | 27 | **Zaciskarka zapadkowa** | zaciski robione kombinerkami to najczęstsza usterka instalacji | 0–150 |
 | 28 | **Ładowarka sieciowa AGM** | doładowanie w garażu przy krótkich przejazdach | 0–250 |
 
@@ -708,7 +749,9 @@ Pełna procedura siedmioetapowa (z pomiarami na każdym kroku):
 [ ] Panel nie miga i nie restartuje się przy jasnym obrazie (budżet USB)
 [ ] Po 30 min pracy XL6019 nie parzy w dotyku
 [ ] XH-M609 odcina przy 11,00 V (test zasilaczem, nie rozładowywaniem banku)
-[ ] Porty USB mają zasilanie przy M910q w S3 (inaczej Arduino nie wybudzi — §3.1a)
+[ ] Pro Micro pracuje przy M910q w S3 (zasilany z MP1584, nie z USB — §3.1a)
+[ ] Impuls 250 ms z A2 usypia maszynę, kolejny ją budzi
+[ ] Impuls 5 s wyłącza twardo, krótki startuje z powrotem
 [ ] Pobór z banku przy M910q w S3 — ZMIERZ i zapisz; od tej liczby zależy,
     ile dni auto może postać (§3.1a)
 ```
@@ -741,7 +784,7 @@ razem pamiętać o wyłączniku głównym (§3.1a).
 | Domeny A (Nano ×2, HM-10, RXB6, przekaźniki) | dokupieniu płytek + MP1584 12 → 5 V |
 | Kompensacji temperaturowej ładowania | ładowarce B2B (wariant A, §5.2 `ZASILANIE_BUFOROWANE.md`) |
 | Automatycznego S3 na zapłon | wejściu zapłonu w Pro Micro + hakowi po stronie hosta — §3.1a |
-| Eskalacji S3 → pełne wyłączenie po kilku godzinach | temu samemu firmware'owi co wyżej — §3.1a |
+| Sprzężenia zwrotnego o stanie maszyny | wejściu z diody zasilania panelu przedniego — §3.1a |
 | Regulacji jasności z BCM | instancji `BrightnessController` **i** Nano #1 — §3.1c |
 | Drugiego ekranu | panelu 6,86" — hot-plug, ale **nie na USB M910q**: dwa panele nie zmieszczą się w zapasie XL6019 (§3.1) |
 | OBD / K-Line | CP2102 + L9637D |

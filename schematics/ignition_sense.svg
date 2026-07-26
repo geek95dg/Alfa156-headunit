@@ -1,5 +1,5 @@
-<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="1200" height="880" viewBox="0 0 1200 880" font-family="DejaVu Sans, Verdana, sans-serif">
-  <title>BCM v8.5 — wykrywanie zapłonu, uśpienie do S3 i wybudzanie (M910q)</title>
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="1240" height="1120" viewBox="0 0 1240 1120" font-family="DejaVu Sans, Verdana, sans-serif">
+  <title>BCM v8.5 — wykrywanie zapłonu i sterowanie przyciskiem zasilania M910q (S3)</title>
   <style>
     .bg   { fill: #ffffff; }
     .wp   { stroke: #c0392b; stroke-width: 2.4; fill: none; stroke-linecap: round; }
@@ -11,19 +11,21 @@
     .iso  { fill: none; stroke: #9a6b12; stroke-width: 2; stroke-dasharray: 7 5; rx: 6; }
     .blk  { fill: #f7f9fb; stroke: #2b3a45; stroke-width: 2; rx: 4; }
     .blkb { fill: #eef2fa; stroke: #2b4a8a; stroke-width: 2; rx: 4; }
+    .blkg { fill: #eef7ee; stroke: #2d6a2d; stroke-width: 2; rx: 4; }
     .note { fill: #fbfcfd; stroke: #c8d2da; stroke-width: 1.5; rx: 5; }
     .warn { fill: #fdf2f2; stroke: #a8321a; stroke-width: 1.8; rx: 5; }
+    .good { fill: #f1f8f1; stroke: #2d6a2d; stroke-width: 1.8; rx: 5; }
     .ttl  { font-size: 19px; font-weight: bold; fill: #10202b; }
     .sub  { font-size: 12px; fill: #5a6b78; }
     .sec  { font-size: 13px; font-weight: bold; fill: #2b4a8a; letter-spacing: 0.5px; }
     .lbl  { font-size: 11px; fill: #33424e; }
     .lbc  { font-size: 11px; fill: #33424e; text-anchor: middle; }
     .lbb  { font-size: 11.5px; font-weight: bold; fill: #10202b; text-anchor: middle; }
-    .ref  { font-size: 11.5px; font-weight: bold; fill: #a8321a; }
     .nh   { font-size: 12.5px; font-weight: bold; fill: #10202b; }
     .nt   { font-size: 11px; fill: #4a5a66; }
     .wh   { font-size: 12.5px; font-weight: bold; fill: #a8321a; }
     .wt   { font-size: 11px; fill: #7a3020; }
+    .gh   { font-size: 12.5px; font-weight: bold; fill: #2d6a2d; }
   </style>
 
   <defs>
@@ -33,13 +35,11 @@
       <line class="wg" x1="-8" y1="13" x2="8" y2="13"/>
       <line class="wg" x1="-3" y1="18" x2="3" y2="18"/>
     </g>
-    <!-- resistor, horizontal, origin left lead -->
     <g id="res">
       <line class="sym" x1="0" y1="0" x2="8" y2="0"/>
       <rect class="sym" x="8" y="-9" width="40" height="18" fill="#ffffff"/>
       <line class="sym" x1="48" y1="0" x2="56" y2="0"/>
     </g>
-    <!-- resistor, vertical, origin top lead -->
     <g id="resV">
       <line class="sym" x1="0" y1="0" x2="0" y2="8"/>
       <rect class="sym" x="-9" y="8" width="18" height="40" fill="#ffffff"/>
@@ -53,32 +53,28 @@
     </g>
   </defs>
 
-  <rect class="bg" x="0" y="0" width="1200" height="880"/>
-  <text class="ttl" x="24" y="32">Wykrywanie zapłonu · uśpienie do S3 · wybudzanie</text>
-  <text class="sub" x="24" y="54">Wariant testowo-rozwojowy. M910q jest zasilany stale — zapłon jest wyłącznie sygnałem. Tor zasilania: schematic_test_build.svg</text>
-  <line x1="24" y1="66" x2="1176" y2="66" stroke="#c8d2da" stroke-width="1.5"/>
+  <rect class="bg" x="0" y="0" width="1240" height="1120"/>
+  <text class="ttl" x="24" y="32">Zapłon → uśpienie i wybudzenie M910q</text>
+  <text class="sub" x="24" y="54">Arduino czyta zapłon i „naciska” fizyczny przycisk zasilania. Bez własnego protokołu, bez zmian po stronie hosta. Tor zasilania: schematic_test_build.svg</text>
+  <line x1="24" y1="66" x2="1216" y2="66" stroke="#c8d2da" stroke-width="1.5"/>
 
-  <!-- ============ CIRCUIT ============ -->
-  <text class="sec" x="24" y="96">UKŁAD WEJŚCIOWY — IZOLACJA OPTYCZNA</text>
+  <!-- ============ A. INPUT ============ -->
+  <text class="sec" x="24" y="96">A · WEJŚCIE — SYGNAŁ ZAPŁONU (optoizolowany)</text>
 
-  <!-- ACC source -->
   <circle class="sym" cx="64" cy="180" r="7" fill="#ffffff"/>
   <text class="lbb" x="64" y="152">ACC / zapłon</text>
   <text class="lbc" x="64" y="166">12 V</text>
   <line class="wp" x1="71" y1="180" x2="132" y2="180"/>
 
-  <!-- R1 -->
   <use xlink:href="#res" x="132" y="180"/>
   <text class="lbb" x="160" y="164">R1</text>
   <text class="lbc" x="160" y="212">2,2 kΩ</text>
   <text class="lbc" x="160" y="226">0,25 W</text>
   <line class="wp" x1="188" y1="180" x2="242" y2="180"/>
 
-  <!-- optocoupler PC817 -->
   <rect class="iso" x="242" y="128" width="180" height="180"/>
   <text class="lbb" x="332" y="120">U1 · PC817</text>
 
-  <!-- LED side -->
   <line class="ws" x1="242" y1="180" x2="272" y2="180"/>
   <path class="symf" d="M272 168 L272 192 L292 180 Z"/>
   <line class="ws" x1="292" y1="168" x2="292" y2="192"/>
@@ -92,7 +88,6 @@
   <use xlink:href="#gnd" x="200" y="286"/>
   <text class="lbl" x="120" y="292" text-anchor="end">masa instalacji auta</text>
 
-  <!-- phototransistor side -->
   <line class="ws" x1="374" y1="150" x2="374" y2="168"/>
   <text class="lbc" x="388" y="146">4</text>
   <path class="ws" d="M374 168 L374 210"/>
@@ -101,18 +96,16 @@
   <line class="ws" x1="374" y1="210" x2="374" y2="252"/>
   <text class="lbc" x="388" y="272">3</text>
   <line class="wg" x1="374" y1="252" x2="374" y2="330"/>
-
   <line class="ws" x1="374" y1="150" x2="374" y2="140"/>
   <line class="ws" x1="374" y1="140" x2="504" y2="140"/>
 
-  <!-- pull-up + node -->
   <circle class="symf" cx="504" cy="140" r="3"/>
   <use xlink:href="#resV" x="504" y="84"/>
   <text class="lbl" x="450" y="104" text-anchor="end">R2</text>
   <text class="lbl" x="450" y="118" text-anchor="end">10 kΩ (opc.)</text>
   <line class="wp" x1="504" y1="84" x2="504" y2="76"/>
   <line class="wp" x1="452" y1="76" x2="556" y2="76"/>
-  <text class="lbl" x="564" y="80">+5 V z Pro Micro</text>
+  <text class="lbl" x="564" y="80">+5 V Pro Micro</text>
 
   <line class="ws" x1="504" y1="140" x2="576" y2="140"/>
   <circle class="symf" cx="576" cy="140" r="3"/>
@@ -120,100 +113,147 @@
   <text class="lbl" x="590" y="164">C2 · 100 nF</text>
   <line class="wg" x1="576" y1="171" x2="576" y2="330"/>
 
-  <!-- Pro Micro -->
   <line class="ws" x1="576" y1="140" x2="660" y2="140"/>
-  <rect class="blkb" x="660" y="104" width="212" height="128"/>
-  <text class="lbb" x="766" y="128">Arduino Pro Micro</text>
-  <text class="lbc" x="766" y="148">wejście D0 (RXI)</text>
-  <text class="lbc" x="766" y="168">pinMode(D0, INPUT_PULLUP)</text>
-  <text class="lbc" x="766" y="192">LOW  = zapłon ON</text>
-  <text class="lbc" x="766" y="210">HIGH = zapłon OFF</text>
-  <line class="wg" x1="766" y1="232" x2="766" y2="330"/>
+  <rect class="blkb" x="660" y="104" width="240" height="188"/>
+  <text class="lbb" x="780" y="128">Arduino Pro Micro</text>
+  <text class="lbc" x="780" y="150">D0 (RXI) — wejście zapłonu</text>
+  <text class="lbc" x="780" y="168">INPUT_PULLUP · LOW = zapłon ON</text>
+  <line x1="676" y1="184" x2="884" y2="184" stroke="#c8d2da"/>
+  <text class="lbc" x="780" y="206">A2 — wyjście na przekaźnik</text>
+  <text class="lbc" x="780" y="224">impuls 250 ms = krótkie wciśnięcie</text>
+  <text class="lbc" x="780" y="242">impuls 5 s = twarde wyłączenie</text>
+  <text class="lbc" x="780" y="272">zasilanie: 5 V z MP1584, nie z USB</text>
+  <line class="wg" x1="780" y1="292" x2="780" y2="330"/>
 
-  <!-- ground bus -->
-  <line class="wg" x1="374" y1="330" x2="766" y2="330"/>
-  <use xlink:href="#gnd" x="570" y="330"/>
-  <text class="lbl" x="592" y="348">masa Pro Micro (przez USB M910q)</text>
+  <line class="wg" x1="374" y1="330" x2="780" y2="330"/>
+  <use xlink:href="#gnd" x="578" y="330"/>
+  <text class="lbl" x="600" y="348">masa Pro Micro</text>
 
-  <!-- USB to M910q -->
-  <line class="ws" x1="872" y1="168" x2="924" y2="168"/>
-  <path class="symf" d="M924 162 L924 174 L936 168 Z"/>
-  <text class="lbc" x="898" y="158">USB</text>
-  <rect class="blk" x="936" y="104" width="228" height="128"/>
-  <text class="lbb" x="1050" y="128">M910q</text>
-  <text class="lbc" x="1050" y="150">zasilany stale z bufora</text>
-  <text class="lbc" x="1050" y="172">S3 ⇄ praca</text>
-  <text class="lbc" x="1050" y="196">Wake on USB = Enabled</text>
-  <text class="lbc" x="1050" y="214">(BIOS, §6.2 WDROZENIE_M910Q)</text>
+  <text class="lbl" x="930" y="150">A2 →</text>
+  <path class="wd" d="M900 168 L1224 168 L1224 414"/>
 
-  <line x1="24" y1="376" x2="1176" y2="376" stroke="#e2e8ed" stroke-width="1.5"/>
+  <line x1="24" y1="376" x2="1216" y2="376" stroke="#e2e8ed" stroke-width="1.5"/>
 
-  <!-- ============ SEQUENCE ============ -->
-  <text class="sec" x="24" y="406">PRZEBIEG — CO SIĘ DZIEJE PO PRZEKRĘCENIU KLUCZYKA</text>
+  <!-- ============ B. OUTPUT ============ -->
+  <text class="sec" x="24" y="406">B · WYJŚCIE — RÓWNOLEGLE DO PRZYCISKU ZASILANIA M910q</text>
 
-  <rect class="blk" x="24" y="426" width="256" height="118"/>
-  <text class="lbb" x="152" y="450">Kluczyk → ON</text>
-  <text class="lbc" x="152" y="472">D0 przechodzi w LOW</text>
-  <text class="lbc" x="152" y="492">Pro Micro wysyła dowolny</text>
-  <text class="lbc" x="152" y="510">klawisz HID</text>
-  <text class="lbc" x="152" y="530">M910q wraca z S3 w ~3 s</text>
+  <rect class="blkg" x="24" y="426" width="236" height="142"/>
+  <text class="lbb" x="142" y="450">Moduł przekaźnika 1-kan.</text>
+  <text class="lbc" x="142" y="470">5 V, z optoizolacją</text>
+  <text class="lbc" x="142" y="494">IN · VCC · GND</text>
+  <text class="lbc" x="142" y="512">COM · NO</text>
+  <text class="lbc" x="142" y="538">wiele modułów wyzwala się</text>
+  <text class="lbc" x="142" y="554">stanem NISKIM — sprawdź swój</text>
+  <line class="wd" x1="1224" y1="414" x2="270" y2="414"/>
+  <path class="wd" d="M270 414 L270 458"/>
+  <line class="ws" x1="260" y1="458" x2="270" y2="458"/>
+  <text class="lbl" x="276" y="446">z A2</text>
 
-  <path class="wd" d="M280 486 L318 486"/>
-  <path class="symf" d="M318 480 L318 492 L330 486 Z"/>
+  <line class="ws" x1="260" y1="512" x2="330" y2="512"/>
+  <line class="ws" x1="330" y1="512" x2="330" y2="480"/>
+  <line class="ws" x1="330" y1="480" x2="400" y2="480"/>
+  <line class="ws" x1="260" y1="530" x2="310" y2="530"/>
+  <line class="ws" x1="310" y1="530" x2="310" y2="560"/>
+  <line class="ws" x1="310" y1="560" x2="400" y2="560"/>
+  <text class="lbl" x="336" y="472">COM</text>
+  <text class="lbl" x="316" y="578">NO</text>
 
-  <rect class="blk" x="336" y="426" width="256" height="118"/>
-  <text class="lbb" x="464" y="450">Praca</text>
-  <text class="lbc" x="464" y="472">bcm-resume.service</text>
-  <text class="lbc" x="464" y="492">przepina huby USB</text>
-  <text class="lbc" x="464" y="510">i startuje bcm-headunit</text>
-  <text class="lbc" x="464" y="530">(§9.3 WDROZENIE_M910Q)</text>
+  <!-- power button block -->
+  <rect class="blk" x="400" y="426" width="300" height="176"/>
+  <text class="lbb" x="550" y="450">M910q — przycisk zasilania</text>
+  <text class="lbc" x="550" y="468">płytka panelu przedniego</text>
+  <circle class="symf" cx="440" cy="480" r="4"/>
+  <circle class="symf" cx="440" cy="560" r="4"/>
+  <line class="ws" x1="440" y1="480" x2="490" y2="480"/>
+  <line class="ws" x1="440" y1="560" x2="490" y2="560"/>
+  <line class="ws" x1="490" y1="480" x2="490" y2="500"/>
+  <line class="ws" x1="490" y1="560" x2="490" y2="540"/>
+  <circle class="symf" cx="490" cy="500" r="3"/>
+  <circle class="symf" cx="490" cy="540" r="3"/>
+  <line class="ws" x1="490" y1="500" x2="522" y2="516"/>
+  <text class="lbc" x="604" y="548">przycisk chwilowy (NO)</text>
+  <text class="lbc" x="550" y="580">styki przekaźnika wpięte RÓWNOLEGLE</text>
 
-  <path class="wd" d="M592 486 L630 486"/>
-  <path class="symf" d="M630 480 L630 492 L642 486 Z"/>
+  <rect class="blkb" x="760" y="426" width="256" height="176"/>
+  <text class="lbb" x="888" y="450">Co robi krótkie wciśnięcie</text>
+  <text class="lbc" x="888" y="476">praca  →  S3</text>
+  <text class="lbc" x="888" y="496">S3  →  praca (~3 s)</text>
+  <text class="lbc" x="888" y="516">wyłączony  →  start</text>
+  <line x1="778" y1="534" x2="998" y2="534" stroke="#c8d2da"/>
+  <text class="lbc" x="888" y="556">przytrzymanie &gt; 4 s:</text>
+  <text class="lbc" x="888" y="576">twarde wyłączenie</text>
 
-  <rect class="blk" x="648" y="426" width="256" height="118"/>
-  <text class="lbb" x="776" y="450">Kluczyk → OFF</text>
-  <text class="lbc" x="776" y="472">D0 wraca do HIGH</text>
-  <text class="lbc" x="776" y="492">Pro Micro sygnalizuje</text>
-  <text class="lbc" x="776" y="510">hostowi „usypiaj”</text>
-  <text class="lbc" x="776" y="530">— tego jeszcze NIE MA</text>
+  <text class="lbl" x="1040" y="452">Ścieżkę „praca → S3” obsługuje</text>
+  <text class="lbl" x="1040" y="470">już acpid:</text>
+  <text class="lbl" x="1040" y="492">event=button/power</text>
+  <text class="lbl" x="1040" y="510">→ bcm-power-toggle.sh</text>
+  <text class="lbl" x="1040" y="532">plus HandlePowerKey=ignore</text>
+  <text class="lbl" x="1040" y="550">w logind.conf.</text>
+  <text class="lbl" x="1040" y="576">§7.3 WDROZENIE_M910Q</text>
 
-  <path class="wd" d="M904 486 L942 486"/>
-  <path class="symf" d="M942 480 L942 492 L954 486 Z"/>
+  <line x1="24" y1="632" x2="1216" y2="632" stroke="#e2e8ed" stroke-width="1.5"/>
 
-  <rect class="blk" x="960" y="426" width="216" height="118"/>
-  <text class="lbb" x="1068" y="450">S3</text>
-  <text class="lbc" x="1068" y="472">bcm-power-toggle.sh</text>
-  <text class="lbc" x="1068" y="492">odpina modem LTE</text>
-  <text class="lbc" x="1068" y="510">i robi systemctl suspend</text>
-  <text class="lbc" x="1068" y="530">pobór 240–480 mA</text>
+  <!-- ============ C. SEQUENCE ============ -->
+  <text class="sec" x="24" y="662">C · PRZEBIEG</text>
+
+  <rect class="blk" x="24" y="682" width="272" height="112"/>
+  <text class="lbb" x="160" y="706">Kluczyk → ON</text>
+  <text class="lbc" x="160" y="728">D0 w LOW (debounce 2 s)</text>
+  <text class="lbc" x="160" y="748">A2: impuls 250 ms</text>
+  <text class="lbc" x="160" y="770">M910q wstaje z S3 w ~3 s</text>
+
+  <path class="wd" d="M296 738 L330 738"/><path class="symf" d="M330 732 L330 744 L342 738 Z"/>
+
+  <rect class="blk" x="352" y="682" width="272" height="112"/>
+  <text class="lbb" x="488" y="706">Kluczyk → OFF</text>
+  <text class="lbc" x="488" y="728">D0 w HIGH (debounce 2 s)</text>
+  <text class="lbc" x="488" y="748">A2: impuls 250 ms</text>
+  <text class="lbc" x="488" y="770">acpid → suspend, pobór ~300 mA</text>
+
+  <path class="wd" d="M624 738 L658 738"/><path class="symf" d="M658 732 L658 744 L670 738 Z"/>
+
+  <rect class="blk" x="680" y="682" width="272" height="112"/>
+  <text class="lbb" x="816" y="706">Postój &gt; 2 h</text>
+  <text class="lbc" x="816" y="728">A2: impuls 5 s</text>
+  <text class="lbc" x="816" y="748">twarde wyłączenie</text>
+  <text class="lbc" x="816" y="770">pobór spada do ~80–120 mA</text>
+
+  <path class="wd" d="M952 738 L986 738"/><path class="symf" d="M986 732 L986 744 L998 738 Z"/>
+
+  <rect class="blk" x="1008" y="682" width="208" height="112"/>
+  <text class="lbb" x="1112" y="706">Powrót</text>
+  <text class="lbc" x="1112" y="728">impuls 250 ms</text>
+  <text class="lbc" x="1112" y="748">zimny start</text>
+  <text class="lbc" x="1112" y="770">~40 s zamiast 3 s</text>
 
   <!-- ============ NOTES ============ -->
-  <rect class="warn" x="24" y="578" width="568" height="128"/>
-  <text class="wh" x="40" y="602">Zmierz to, zanim napiszesz choćby linijkę firmware'u</text>
-  <text class="wt" x="40" y="626">Czy porty USB M910q mają zasilanie w S3? Jeśli nie, Pro Micro gaśnie razem</text>
-  <text class="wt" x="40" y="644">z komputerem i nie ma go czym wybudzić — zestaw zostaje w S3 aż do odcięcia</text>
-  <text class="wt" x="40" y="662">przez LVD. Sprawdzenie: multimetr na 5 V portu po wejściu maszyny w S3.</text>
-  <text class="wt" x="40" y="686">Ratunek awaryjny w każdym przypadku: przycisk zasilania M910q.</text>
+  <rect class="good" x="24" y="820" width="580" height="128"/>
+  <text class="gh" x="40" y="844">Dlaczego to jest prostsze niż wysyłanie klawiszy HID</text>
+  <text class="nt" x="40" y="868">• Ścieżka po stronie hosta JUŻ ISTNIEJE — acpid + bcm-power-toggle.sh.</text>
+  <text class="nt" x="40" y="886">   Nie trzeba dopisywać ani linijki w BCM.</text>
+  <text class="nt" x="40" y="906">• Jeden impuls obsługuje oba kierunki: usypia i wybudza.</text>
+  <text class="nt" x="40" y="926">• Wybudzenie nie zależy od „Wake on USB” — przycisk działa zawsze.</text>
 
-  <rect class="note" x="608" y="578" width="568" height="128"/>
-  <text class="nh" x="624" y="602">Czego brakuje w kodzie (stan na dziś)</text>
-  <text class="nt" x="624" y="626">1.  Sketch rotary_encoder nie ma wejścia zapłonu — D0 (RXI) to jedyny wolny pin.</text>
-  <text class="nt" x="624" y="646">2.  Nic nie publikuje `hal.ignition` na x86.</text>
-  <text class="nt" x="624" y="666">3.  PowerManager na `hal.ignition = false` idzie do STANDBY (gasi podświetlenie),</text>
-  <text class="nt" x="624" y="684">     ale NIE woła `systemctl suspend` — to robi bcm-power-toggle.sh przez acpid.</text>
+  <rect class="warn" x="624" y="820" width="592" height="128"/>
+  <text class="wh" x="640" y="844">Dwie rzeczy, które trzeba zrobić, żeby to zadziałało</text>
+  <text class="wt" x="640" y="868">1.  Pro Micro musi mieć WŁASNE 5 V (MP1584 z bufora), inaczej gaśnie</text>
+  <text class="wt" x="640" y="886">     razem z komputerem i nie ma czym nacisnąć. Przetnij żyłę VBUS w kablu</text>
+  <text class="wt" x="640" y="904">     USB — dwa źródła 5 V zwarte razem to proszenie się o kłopoty.</text>
+  <text class="wt" x="640" y="926">2.  Znajdź zaciski przycisku miernikiem: rozwarte, zwarte przy wciśnięciu.</text>
 
-  <rect class="note" x="24" y="726" width="568" height="128"/>
-  <text class="nh" x="40" y="750">Dlaczego optoizolacja, a nie dzielnik</text>
-  <text class="nt" x="40" y="774">Masa Pro Micro to masa USB M910q. Podanie na nią sygnału wprost z instalacji</text>
-  <text class="nt" x="40" y="792">auta wpuszcza do komputera wszystko, co jeździ po linii ACC — rozruch, cewki,</text>
-  <text class="nt" x="40" y="810">alternator. PC817 rozdziela te dwie masy całkowicie, a kosztuje kilka złotych.</text>
-  <text class="nt" x="40" y="834">Wariant bez izolacji (dzielnik 10 k / 4,7 k + zener 5,1 V) działa, ale nie warto.</text>
+  <rect class="note" x="24" y="968" width="580" height="128"/>
+  <text class="nh" x="40" y="992">Układ jest otwarty — Arduino nie wie, czy maszyna śpi</text>
+  <text class="nt" x="40" y="1016">Pulsujemy na ZMIANĘ stanu zapłonu, nie cyklicznie, więc rozjazd wymaga</text>
+  <text class="nt" x="40" y="1034">zdarzenia z zewnątrz (ręczne wciśnięcie, zawieszenie). Wtedy kolejny cykl</text>
+  <text class="nt" x="40" y="1052">kluczyka wraca do synchronizacji.</text>
+  <text class="nt" x="40" y="1076">Domknięcie pętli: wejście z diody zasilania panelu przedniego (świeci = praca,</text>
+  <text class="nt" x="40" y="1090">miga = S3). Jeden przewód więcej, za to stan czytany, a nie zakładany.</text>
 
-  <rect class="note" x="608" y="726" width="568" height="128"/>
-  <text class="nh" x="624" y="750">Dobór R1</text>
-  <text class="nt" x="624" y="774">Prąd diody U1: (12 V − 1,2 V) / 2,2 kΩ ≈ 4,9 mA, a przy pracującym alternatorze</text>
-  <text class="nt" x="624" y="792">(14,4 V) ≈ 6,0 mA. PC817 przy 5 mA ma CTR 50–600 %, więc tranzystor nasyca się</text>
-  <text class="nt" x="624" y="810">z ogromnym zapasem. Straty na R1: ok. 0,08 W — rezystor 0,25 W wystarcza.</text>
-  <text class="nt" x="624" y="834">C2 100 nF tłumi szpilki z linii ACC; R2 dubluje wewnętrzny pull-up ATmega32U4.</text>
+  <rect class="note" x="624" y="968" width="592" height="128"/>
+  <text class="nh" x="640" y="992">Piny Pro Micro — skąd wziąć A2</text>
+  <text class="nt" x="640" y="1016">A2 jest dziś zajęte przez przycisk dźwigni „brightness cycle”, który wysyła F9</text>
+  <text class="nt" x="640" y="1034">— a F9 nie ma odbiorcy, bo BrightnessController nie jest nigdzie tworzony</text>
+  <text class="nt" x="640" y="1052">(WDROZENIE_TESTOWE §3.1c). Pin jest więc wolny w praktyce, nie tylko na papierze.</text>
+  <text class="nt" x="640" y="1076">Gdy dojdzie Nano #1 i regulacja jasności, przenieś sterowanie przyciskiem</text>
+  <text class="nt" x="640" y="1090">zasilania na Nano — ma wolnych pinów pod dostatkiem.</text>
 </svg>

@@ -16,9 +16,9 @@ M910q Tiny**.
 
 | Plik | Co przedstawia |
 |------|----------------|
-| [`power_buffered_m910q.svg`](power_buffered_m910q.svg) | **Tor główny zasilania** — od klemy akumulatora, przez rozdział ładowania, ładowarkę CC-CV, blokadę przeładowania, bank CSB HR1221W i LVD, po przekaźnik zapłonu, przetwornicę step-up 19 V i M910q. Zawiera tabelę przekrojów przewodów i bezpieczników. |
+| [`power_buffered_m910q.svg`](power_buffered_m910q.svg) | **Tor główny zasilania** — od klemy akumulatora, przez przekaźnik ładowania, ładowarkę CC-CV, blokadę przeładowania, bank CSB HR1221W i LVD, po wyłącznik główny, przetwornicę step-up 19 V i M910q. Zawiera tabelę przekrojów przewodów i bezpieczników. |
 | [`charging_lvd.svg`](charging_lvd.svg) | **Ładowanie i ochrona banku** — cztery warstwy (przekaźnik ładowania → CC-CV → rozłącznik nadnapięciowy → LVD), komplet nastaw dla **CSB HR1221W (AGM)**, dwie tabele kompensacji temperaturowej, wpływ temperatury na żywotność, przebieg CC → CV → float. |
-| [`power_domains_m910q.svg`](power_domains_m910q.svg) | **Domeny A/B** — rozdział obciążeń między część zawsze zasilaną a część załączaną zapłonem, bezpieczniki odgałęzień, budżet poboru spoczynkowego, tabela czasu postoju, osobna gałąź wzmacniaczy. |
+| [`power_domains_m910q.svg`](power_domains_m910q.svg) | **Rozdział odbiorników** — co wisi na szynie buforowanej, bezpieczniki odgałęzień, budżet poboru w trzech stanach maszyny (praca / S3 / wyłączona), tabela czasu postoju, osobna gałąź wzmacniaczy. |
 | [`audio_system.svg`](audio_system.svg) | **Tor audio** — ES9038Q2M (USB DAC) → RCA → **gotowy wzmacniacz samochodowy** → głośniki 4 Ω. Wzmacniacz zasilany wprost z akumulatora rozruchowego, z własną masą — całkowicie odseparowany od systemu buforowanego. |
 | [`power_test_build.svg`](power_test_build.svg) | **Wariant testowo-rozwojowy** — uproszczony tor dla instalacji jeżdżącej z minimalnym zestawem funkcji: ładowanie wariantem B (przekaźnik + MBR2545CT + CC-CV boost), bank, LVD, XL6019 i panel 7". M910q zasilany stale, zapłon tylko jako sygnał. Bez domeny A i bez wzmacniacza. Opis: [`../docs/WDROZENIE_TESTOWE.md`](../docs/WDROZENIE_TESTOWE.md). |
 
@@ -38,8 +38,8 @@ M910q Tiny**.
 
 ## Kolejność czytania przy montażu
 
-1. **`power_domains_m910q.svg`** — najpierw ustal, co gdzie ma wisieć.
-   Podział na domeny determinuje całą resztę okablowania.
+1. **`power_domains_m910q.svg`** — najpierw ustal, co gdzie ma wisieć
+   i jaki jest budżet poboru w każdym ze stanów maszyny.
 2. **`power_buffered_m910q.svg`** — trasa zasilania, przekroje, bezpieczniki.
 3. **`charging_lvd.svg`** — nastaw ładowarkę, rozłącznik nadnapięciowy i LVD
    **przed** pierwszym podłączeniem banku.
@@ -69,12 +69,12 @@ odcinającego odbiorniki. Czytaj trzy rysunki w tej kolejności:
 | Element | Znaczenie |
 |---------|-----------|
 | Gruba czerwona linia | Zasilanie 12 V (moc) |
-| Zielona linia | Odgałęzienie domeny A (zawsze zasilana) |
-| Niebieska linia | Odgałęzienie domeny B (za zapłonem) |
+| Zielona linia | Tor ładowania |
+| Niebieska linia | Odgałęzienie odbiorników (za LVD i wyłącznikiem) |
 | Linia przerywana | Sygnał sterujący (ACC, NTC), nie moc |
 | Ramka pomarańczowa | Element zabezpieczający (bezpiecznik, LVD, rozłącznik) |
-| Ramka zielona | Domena A / bank akumulatorów |
-| Ramka niebieska | Domena B |
+| Ramka zielona | Tor ładowania / bank akumulatorów |
+| Ramka niebieska | Odbiorniki |
 | Ramka czerwona | Gałąź niezależna (wzmacniacze) |
 
 ---

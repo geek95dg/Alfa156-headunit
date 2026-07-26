@@ -49,7 +49,7 @@
   <text class="ms" x="225" y="144">1280×800 · dotyk USB</text>
   <text class="tl" x="78" y="168">wyjście główne M910q (sprawdź nazwę złącza)</text>
   <text class="tl" x="78" y="186">USB (dotyk) → hub USB</text>
-  <text class="tl" x="78" y="204">zasilanie 5 V ← buck MP1584 (domena B)</text>
+  <text class="tl" x="78" y="204">zasilanie 5 V ← buck MP1584 (szyna buforowana)</text>
   <text class="tl" x="78" y="222">M_PWM ← Nano #1 D9 · GND wspólna z Nano</text>
   <text class="ms" x="225" y="238">dashboard BCM, port 5002</text>
 
@@ -57,7 +57,7 @@
   <text class="mt" x="225" y="286">Wyświetlacz drugi 6,86" — opcjonalny</text>
   <text class="ms" x="225" y="304">1280×480 widescreen · bez dotyku · hotplug</text>
   <text class="tl" x="78" y="328">wyjście drugie M910q · small-display-watch.sh</text>
-  <text class="tl" x="78" y="346">zasilanie 5 V ← buck MP1584 (domena B)</text>
+  <text class="tl" x="78" y="346">zasilanie 5 V ← buck MP1584 (szyna buforowana)</text>
   <text class="tl" x="78" y="364">M_PWM ← Nano #1 D10 · GND wspólna z Nano</text>
   <text class="ms" x="225" y="380">karuzela statystyk + kamera cofania, port 5003</text>
 
@@ -74,7 +74,7 @@
   <!-- ============ USB HUB ============ -->
   <text class="sec" x="470" y="268">Hub USB (zasilany, 7 portów)</text>
   <rect class="modA" x="470" y="278" width="300" height="252"/>
-  <text class="ms" x="620" y="300">zasilany z domeny B — własny zasilacz 5 V</text>
+  <text class="ms" x="620" y="300">z szyny buforowanej — własny zasilacz 5 V</text>
   <text class="tl" x="488" y="324">• Arduino Pro Micro — /dev/ttyACM0</text>
   <text class="tl" x="488" y="344">• Arduino Nano #1 — /dev/ttyUSB0</text>
   <text class="tl" x="488" y="364">• Arduino Nano #2 — /dev/ttyUSB1</text>
@@ -160,7 +160,7 @@
 
   <path class="wpwr" d="M371 760 L371 774 L84 774"/>
   <text class="warn" x="84" y="792">Zasilanie 12 V wzmacniacza — osobna gałąź prosto z akumulatora, bezpiecznik wg karty modułu</text>
-  <text class="note" x="84" y="810">REM ← zacisk 87 przekaźnika zapłonu (domena B). Masa wzmacniacza lokalnie, nie do punktu gwiazdowego.</text>
+  <text class="note" x="84" y="810">REM ← wprost z linii zapłonu. Masa wzmacniacza lokalnie, nie do punktu gwiazdowego.</text>
 
   <!-- ============ NOTES ============ -->
   <rect x="60" y="852" width="1120" height="164" fill="#fbfcfd" stroke="#c8d2da" stroke-width="1.5" rx="6"/>
@@ -176,7 +176,7 @@
   <text class="tb" x="640" y="900">Przydźwięk alternatora w głośnikach</text>
   <text class="note" x="640" y="918">Pętla masy — masa wzmacniacza musi być lokalna, a RCA po drugiej stronie auta.</text>
   <text class="tb" x="640" y="942">Trzask w głośnikach przy załączaniu</text>
-  <text class="note" x="640" y="960">REM podpięty nie z domeny B — wzmacniacz wstaje przed komputerem.</text>
+  <text class="note" x="640" y="960">REM podpięty nie z zapłonu — wzmacniacz gra, gdy komputer śpi.</text>
   <text class="tb" x="640" y="984">Graber gubi klatki</text>
   <text class="note" x="640" y="1002">Wpięty w hub zamiast bezpośrednio w port M910q.</text>
 
