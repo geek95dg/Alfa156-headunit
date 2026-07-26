@@ -5,10 +5,17 @@
 # ──── USER CONFIG (set these for your hardware) ────
 # Find outputs:  xrandr | grep ' connected'
 # Find touch:    xinput list
-MAIN_OUTPUT="HDMI-2"           # 7" touchscreen
-SMALL_OUTPUT="HDMI-1"          # 4.3" status display (or FHD dev monitor)
+MAIN_OUTPUT="HDMI-2"           # 10.1" touchscreen, 1280x800
+SMALL_OUTPUT="HDMI-1"          # 6.86" widescreen, 1280x480 (or FHD dev monitor)
 TOUCH_DEVICE="QDtech MPI5001"  # touchscreen xinput name
 # ───────────────────────────────────────────────────
+#
+# NOTE: this is a standalone template. The supported path is
+# config/scripts/setup-x86.sh, which generates ~/.xinitrc with the same
+# logic PLUS small-display-watch.sh — the hotplug watcher that brings the
+# second screen up/down when it is plugged in after boot. This template
+# has no watcher: the small panel must be connected at boot or it stays
+# dark. Prefer setup-x86.sh unless you specifically want the simpler file.
 
 xset s off
 xset -dpms

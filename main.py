@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""BCM v7 — Alfa Romeo 156 Head Unit — Entry Point.
+"""BCM v8.5 — Alfa Romeo 156 Head Unit — Entry Point.
 
 Usage:
     python main.py                              # auto-detect platform, start all enabled modules
@@ -52,12 +52,12 @@ MODULE_REGISTRY: dict[str, dict] = {
 }
 
 # Dashboard is listed for --dry-run reporting but started separately
-DASHBOARD_INFO = {"part": 2, "description": "BCM Dashboard Renderer (4.3\" screen)", "start": start_dashboard}
+DASHBOARD_INFO = {"part": 2, "description": "BCM Dashboard Renderer (web frontend / Pygame)", "start": start_dashboard}
 
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="BCM v7 — Alfa Romeo 156 Head Unit",
+        description="BCM v8.5 — Alfa Romeo 156 Head Unit",
     )
     parser.add_argument(
         "--platform",
@@ -121,7 +121,7 @@ def main() -> None:
     log = get_logger("main")
 
     log.info("=" * 60)
-    log.info("BCM v7 — Alfa Romeo 156 Head Unit")
+    log.info("BCM v8.5 — Alfa Romeo 156 Head Unit")
     log.info("Version: %s", config.get("system.version", "unknown"))
     log.info("Platform: %s", config.platform)
     log.info("Config: %s", config.config_path)

@@ -115,8 +115,8 @@
   <rect class="boxB" x="430" y="346" width="300" height="150"/>
   <text class="tl" x="446" y="370">• Lenovo M910q (19 V, do 65 W)</text>
   <text class="tl" x="446" y="390">• hub USB zasilany 7-portowy</text>
-  <text class="tl" x="446" y="410">• wyświetlacz główny 7"/10"</text>
-  <text class="tl" x="446" y="430">• wyświetlacz mały 4,3"</text>
+  <text class="tl" x="446" y="410">• wyświetlacz główny 10,1"</text>
+  <text class="tl" x="446" y="430">• wyświetlacz drugi 6,86" (opc.)</text>
   <text class="tl" x="446" y="450">• Arduino Pro Micro (wejścia, SWC)</text>
   <text class="t" x="580" y="474">pobór ~10 W (szczyt ~55 W)</text>
   <text class="t" x="580" y="490">0 W przy rozwartym przekaźniku</text>

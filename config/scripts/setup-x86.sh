@@ -18,15 +18,23 @@ BCM_USER="${SUDO_USER:-abner}"
 BCM_HOME=$(eval echo "~$BCM_USER")
 BCM_DIR="/opt/bcm"
 
-# Display outputs (find with: for f in /sys/class/drm/card*-*/status; do echo "$f: $(cat $f)"; done)
-MAIN_OUTPUT="HDMI-1"
-SMALL_OUTPUT="HDMI-2"
+# Display outputs. ALWAYS check the real names on this machine first:
+#   for f in /sys/class/drm/card*-*/status; do echo "$f: $(cat $f)"; done
+# On the reference M910q the connectors enumerate as HDMI-A-1 / HDMI-A-2
+# (xrandr: HDMI-1 / HDMI-2) and the main panel came up on connector 2 —
+# see config/scripts/bcm-splash-play.sh. Swap these two if your main
+# panel is dark and the small one shows the dashboard.
+MAIN_OUTPUT="HDMI-2"
+SMALL_OUTPUT="HDMI-1"
 TOUCH_DEVICE="QDtech MPI5001"
 
-# Main display resolution (used for splash generation + touch calibration)
-MAIN_W=1024
-MAIN_H=600
-SMALL_W=800
+# Main display resolution (used for splash generation + touch calibration).
+# Must match display.dashboard / display.small in config/bcm_config.yaml.
+# Main   = 10.1" panel, 1280x800
+# Small  = 6.86" widescreen panel, 1280x480 (optional, hot-pluggable)
+MAIN_W=1280
+MAIN_H=800
+SMALL_W=1280
 SMALL_H=480
 
 # WiFi AP — 5 GHz channel 149, country US. MT7921 (mt7921e) exposes

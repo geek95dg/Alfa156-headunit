@@ -49,6 +49,7 @@ sprzęt → zasilanie → BIOS → OS → BCM → usługi → kiosk → peryferi
 | Temat | Gdzie szukać |
 |-------|--------------|
 | Symulacja na laptopie (bez sprzętu) | [`URUCHOMIENIE.md`](URUCHOMIENIE.md) § 1 |
+| **Wariant testowo-rozwojowy** (AA + dźwięk + SWC, reszta wyłączona) | [`WDROZENIE_TESTOWE.md`](WDROZENIE_TESTOWE.md) |
 | Szczegóły zasilania buforowanego | [`ZASILANIE_BUFOROWANE.md`](ZASILANIE_BUFOROWANE.md) |
 | Tabele połączeń, przekroje, kolejność montażu | [`SCHEMATY_POLACZEN.md`](SCHEMATY_POLACZEN.md) |
 | Rozmieszczenie podzespołów w aucie | [`../schematics/vehicle_layout_m910q.svg`](../schematics/vehicle_layout_m910q.svg) |
@@ -117,8 +118,8 @@ wspornik. Wszystkie kable spinaj opaskami, bo na dziurach będzie grzechotać.
 | 1 | Mini-PC | Lenovo M910q Tiny (i5-6400T, 8 GB, 256 GB) — używany | 1 | 200–400 |
 | 2 | Karta WiFi + BT | Fenvi FU-AX1800 (MT7921, WiFi 6 + BT 5.2) | 1 | 120–180 |
 | 3 | Przetwornica step-up | **XL6019** 12 V → 19,5 V — posiadana, ok. 45 W, patrz `ZASILANIE_BUFOROWANE.md` §3 | 1 | 15–30 |
-| 4 | Wyświetlacz główny | 7" IPS 1024×600 HDMI + dotyk USB (QDtech MPI5001) | 1 | 200–350 |
-| 5 | Wyświetlacz mały | 4,3" TFT 800×480 HDMI, bez dotyku | 1 | 150–250 |
+| 4 | Wyświetlacz główny | **10,1" IPS 1280×800** + dotyk USB | 1 | 300–500 |
+| 5 | Wyświetlacz drugi *(opcjonalny)* | **6,86" widescreen 1280×480**, bez dotyku | 0–1 | 150–300 |
 | 6 | Przejściówki DP → HDMI | pasywne, kablowe | 2 | 20–30 |
 | 7 | DAC USB | ES9038Q2M, wyjście RCA | 1 | 45–75 |
 | 8 | Wzmacniacz | **gotowy 4-kanałowy samochodowy**, wejścia RCA, klasa D, 4 × 50–75 W RMS | 1 | 250–600 |
@@ -484,7 +485,7 @@ mkdir -p /opt/bcm/assets/splash
 # 10":  ffmpeg -i source.mp4 -vf scale=1280:800 -c:v libx264 -crf 23 -c:a aac -y main.mp4
 cp twoj_splash.mp4 /opt/bcm/assets/splash/main.mp4
 
-# mały — bez dźwięku, 800×480
+# drugi ekran — bez dźwięku, 1280×480
 # ffmpeg -i source.mp4 -vf scale=800:480 -an -c:v libx264 -crf 23 -y small.mp4
 cp twoj_splash_maly.mp4 /opt/bcm/assets/splash/small.mp4
 ```
@@ -593,8 +594,16 @@ HDMI — potrzebne są **pasywne przejściówki DP → HDMI** (~10–15 PLN/szt.
 
 | Wyjście | Wyświetlacz | Rozdzielczość | Zawartość | Port |
 |---------|-------------|---------------|-----------|------|
-| DP-1 | 7"/10" IPS dotykowy | 1024×600 lub 1280×800 | dashboard BCM (A1–A8 + Settings) | 5002 |
-| DP-2 | 4,3" TFT | 800×480 | karuzela statystyk + kamera cofania | 5003 |
+| główne | **10,1" IPS dotykowy** | **1280×800** | dashboard BCM (A1–A8 + Settings) | 5002 |
+| drugie | **6,86" widescreen** *(opcjonalne)* | **1280×480** | karuzela statystyk + kamera cofania | 5003 |
+
+Wartości pochodzą z `display.dashboard` i `display.small` w
+`config/bcm_config.yaml` — to one są źródłem prawdy, a nie ten opis.
+
+> **Drugi ekran jest opcjonalny i obsługuje hotplug.** `small-display-watch.sh`
+> (uruchamiany z wygenerowanego `~/.xinitrc`) podnosi i zdejmuje okno
+> Chromium, gdy panel zostanie wpięty lub wypięty po starcie systemu.
+> Nie musi być podłączony przy boocie.
 
 Wykrycie nazw złączy:
 
@@ -751,6 +760,12 @@ journalctl -u bcm-headunit | grep -i openauto
 Tor: **ES9038Q2M (DAC USB) → RCA → gotowy wzmacniacz samochodowy →
 głośniki 4 Ω**. Schemat: [`../schematics/audio_system.svg`](../schematics/audio_system.svg).
 
+> **DAC USB nie jest warunkiem uruchomienia.** `src/audio/pipewire_ctrl.py`
+> na x86 używa **domyślnego sinka PipeWire**, więc wbudowane wyjście analogowe
+> M910q (mini-jack) działa bez zmian w kodzie — `wpctl set-default <ID>`
+> i tyle. DAC to podniesienie jakości, nie wymóg. Wariant na samym mini-jacku:
+> [`WDROZENIE_TESTOWE.md`](WDROZENIE_TESTOWE.md).
+
 Wzmacniacz to **kupiony moduł samochodowy**, nie układ DIY: 4 kanały,
 wejścia RCA, klasa D, 4 × 50–75 W RMS na 4 Ω. Podłączany jak radio —
 zasilanie wprost z akumulatora rozruchowego, własna masa, wyzwalanie REM.
@@ -802,7 +817,7 @@ zawsze pierwszeństwo.
 | `wifi_hotspot` | osobny dongiel USB WiFi (§13.1) |
 | `weather` | klucz API OpenWeatherMap |
 | `route_planner` | klucze OpenRouteService / TomTom |
-| `network` | `config/lte.conf` na bazie `config/lte.conf.example` |
+| `network` | na x86 **tylko raportuje** stan łącza — połączenie robi NetworkManager; `config/lte.conf` dotyczy wariantu ARM |
 | `battery` | ⚠ patrz §19.3 — nie działa bez dorobienia dzielnika i progów |
 
 ---
@@ -933,12 +948,30 @@ instalację bez pełnego resetu.
 Rzeczy wykryte przy porządkowaniu dokumentacji. Żadna nie blokuje wdrożenia,
 ale wszystkie potrafią kosztować godzinę szukania.
 
-### 19.1 `setup-x86.sh` domyślnie zakłada HDMI, nie DisplayPort
+### 19.1 Nazwy złączy — sprawdź na maszynie, nie w specyfikacji
 
-`config/scripts/setup-x86.sh` ma w USER CONFIG `MAIN_OUTPUT="HDMI-1"` /
-`SMALL_OUTPUT="HDMI-2"`, podczas gdy M910q ma **dwa wyjścia DisplayPort**
-i złącza zwykle nazywają się `DP-1` / `DP-2`. **Zawsze sprawdź faktyczne
-nazwy przed uruchomieniem skryptu** (§6.5).
+Wcześniejsze wydanie tej dokumentacji twierdziło, że skrypty błędnie używają
+nazw `HDMI-*`, bo M910q ma dwa wyjścia DisplayPort. **To było ustalenie
+z tabeli specyfikacji, nie z maszyny — i jest sprzeczne z tym, co widać
+w kodzie.**
+
+`config/scripts/bcm-splash-play.sh` oraz `config/systemd/bcm-splash-main.service`
+zawierają notatki z realnej diagnostyki na tej sztuce M910q: złącza
+enumerują się jako **`HDMI-A-1` / `HDMI-A-2`**, a główny panel wyszedł na
+**złączu 2** (stara konfiguracja przypięta na sztywno do `HDMI-A-1` powodowała
+znikanie splasha, bo tam nic nie było podłączone).
+
+Wnioski:
+
+- **nie zakładaj nazw** — odczytaj je z maszyny:
+  `for f in /sys/class/drm/card*-*/status; do echo "$f: $(cat $f)"; done`
+- `setup-x86.sh` ma teraz `MAIN_OUTPUT="HDMI-2"` / `SMALL_OUTPUT="HDMI-1"`,
+  zgodnie z powyższym; jeżeli na Twojej sztuce jest odwrotnie, zamień je
+  miejscami (główny panel ciemny, a drugi pokazuje dashboard = zamienione),
+- splash **nie wymaga** już żadnej konfiguracji złącza — wykrywa wszystkie
+  podłączone automatycznie,
+- jeżeli Twój egzemplarz faktycznie ma wyjścia DisplayPort, potrzebne będą
+  pasywne przejściówki DP → HDMI; nazwy złączy i tak odczytaj z systemu.
 
 ### 19.2 Limit prądu ładowania jest za wysoki dla CSB HR1221W
 
@@ -1007,6 +1040,7 @@ mimo neutralnej nazwy. Został zarchiwizowany jako
 
 | Dokument | Zakres |
 |----------|--------|
+| [`WDROZENIE_TESTOWE.md`](WDROZENIE_TESTOWE.md) | wariant minimalny do bieżącej weryfikacji + lista zakupowa na już |
 | [`ZASILANIE_BUFOROWANE.md`](ZASILANIE_BUFOROWANE.md) | zasilanie buforowane: schematy, dobór, lista zakupowa, procedura rozruchu |
 | [`SCHEMATY_POLACZEN.md`](SCHEMATY_POLACZEN.md) | schematy połączeniowe: tabele „skąd → dokąd”, przekroje, bezpieczniki, masy |
 | [`URUCHOMIENIE.md`](URUCHOMIENIE.md) | symulacja na laptopie, przełączniki modułów, Arduino w skrócie |

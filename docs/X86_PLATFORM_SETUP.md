@@ -42,8 +42,13 @@ use passive DP-to-HDMI adapter cables (~10-15 PLN each).
 
 | Output | Display | Resolution | Content |
 |--------|---------|-----------|---------|
-| DP-1 | 7" or 10" IPS touchscreen (main) | 1024×600 or 1280×800 | BCM dashboard (port 5002) |
-| DP-2 | 4.3" TFT (small, status) | 800×480 | Small dashboard (port 5003) |
+| main | 10.1" IPS touchscreen | 1280×800 | BCM dashboard (port 5002) |
+| second | 6.86" widescreen, optional | 1280×480 | Small dashboard (port 5003) |
+
+These are the values in `display.dashboard` / `display.small` in
+`config/bcm_config.yaml`, which is the source of truth. The second panel is
+hot-pluggable — `small-display-watch.sh` raises and drops its window when the
+connector appears or disappears.
 
 **Discover your connector names** (run after OS install):
 ```bash
@@ -335,8 +340,8 @@ Edit `config/bcm_config.yaml` for your main display:
 ```yaml
 display:
   dashboard:
-    width: 1024       # 7" display; for 10" use 1280
-    height: 600       # 7" display; for 10" use 800
+    width: 1280       # 10.1" panel (production default)
+    height: 800       # set 1024x600 if you are bench-testing on a 7" panel
 ```
 
 ### 5.4 Test BCM manually
@@ -445,7 +450,7 @@ mkdir -p /opt/bcm/assets/splash
 # 10": ffmpeg -i source.mp4 -vf scale=1280:800 -c:v libx264 -crf 23 -c:a aac -y main.mp4
 cp your_main_video.mp4 /opt/bcm/assets/splash/main.mp4
 
-# Small display splash (silent, 800x480):
+# Second display splash (silent, 1280x480):
 # ffmpeg -i source.mp4 -vf scale=800:480 -an -c:v libx264 -crf 23 -y small.mp4
 cp your_small_video.mp4 /opt/bcm/assets/splash/small.mp4
 ```
