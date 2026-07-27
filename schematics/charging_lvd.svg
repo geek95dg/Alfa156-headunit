@@ -45,7 +45,7 @@
   <rect class="box" x="508" y="90" width="216" height="92"/>
   <text class="h" x="616" y="112">WARSTWA 1 — ładowarka</text>
   <text class="t" x="616" y="132">CC-CV buck-boost, profil AGM</text>
-  <text class="t" x="616" y="150">6 A / 14,40 V / 13,65 V</text>
+  <text class="t" x="616" y="150">7,5 A / 14,40 V / 13,65 V</text>
   <text class="t" x="616" y="168">kompensacja temperaturowa</text>
 
   <path class="wire" d="M724 136 L774 136"/>
@@ -59,9 +59,9 @@
   <path class="wire" d="M882 182 L882 214 L616 214 L616 246"/>
 
   <rect class="boxA" x="420" y="246" width="392" height="102"/>
-  <text class="h" x="616" y="268">Bank CSB HR1221W — 5 × 12 V / 5,1 Ah = 25,5 Ah</text>
+  <text class="h" x="616" y="268">Bank CSB HR1221W — 4 × 12 V / 5,1 Ah = 20,4 Ah</text>
   <text class="t" x="616" y="288">VRLA AGM, seria High Rate (praca buforowa)</text>
-  <text class="t" x="616" y="306">limit ładowania 2,1 A na pakiet → 10,5 A na bank</text>
+  <text class="t" x="616" y="306">limit ładowania 2,1 A na pakiet → 8,4 A na bank</text>
   <text class="t" x="616" y="324">bezpiecznik 10 A na każdym pakiecie</text>
   <text class="t" x="616" y="342">czujnik NTC przyklejony do środkowego pakietu</text>
 
@@ -83,7 +83,7 @@
 
   <!-- ===== SETPOINT TABLE ===== -->
   <rect x="30" y="516" width="540" height="366" fill="#fbfcfd" stroke="#c8d2da" stroke-width="1.5" rx="6"/>
-  <text class="h" x="300" y="540">Nastawy — CSB HR1221W (AGM), bank 5 × 5,1 Ah</text>
+  <text class="h" x="300" y="540">Nastawy — CSB HR1221W (AGM), bank 4 × 5,1 Ah</text>
 
   <line x1="46" y1="552" x2="554" y2="552" stroke="#c8d2da"/>
   <text class="tb" x="52" y="572">Parametr</text>
@@ -96,7 +96,7 @@
   <text class="tl" x="490" y="600">1</text>
 
   <text class="tl" x="52" y="620">Limit katalogowy prądu</text>
-  <text class="tl" x="322" y="620">2,1 A × 5 = 10,5 A</text>
+  <text class="tl" x="322" y="620">2,1 A × 4 = 8,4 A</text>
   <text class="tl" x="490" y="620">—</text>
 
   <text class="tl" x="52" y="640">Napięcie absorpcji (CV)</text>

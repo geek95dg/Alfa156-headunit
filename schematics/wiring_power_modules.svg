@@ -130,8 +130,8 @@
 
   <!-- ================= 6. BANK ================= -->
   <rect class="modA" x="440" y="470" width="470" height="172"/>
-  <text class="mt" x="675" y="494">Bank buforowy — 5 × CSB HR1221W F2</text>
-  <text class="ms" x="675" y="512">12 V / 5,1 Ah AGM · razem 25,5 Ah · zaciski faston 6,35 mm</text>
+  <text class="mt" x="675" y="494">Bank buforowy — 4 × CSB HR1221W F2</text>
+  <text class="ms" x="675" y="512">12 V / 5,1 Ah AGM · razem 20,4 Ah · zaciski faston 6,35 mm</text>
   <g>
     <rect class="term" x="466" y="526" width="70" height="42"/>
     <text class="tp" x="501" y="543">HR1221W</text><text class="ms" x="501" y="559">+F2  −F2</text>

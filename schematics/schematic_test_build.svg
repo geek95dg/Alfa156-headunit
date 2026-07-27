@@ -78,7 +78,7 @@
 
   <rect class="bg" x="0" y="0" width="1440" height="820"/>
   <text class="ttl" x="24" y="32">Schemat elektryczny — wariant testowo-rozwojowy</text>
-  <text class="sub" x="24" y="54">Ładowanie przez przekaźnik zapłonu i MBR2545CT · bank 5 × CSB HR1221W · LVD XH-M609 · M910q zasilany stale. Wykrywanie zapłonu: ignition_sense.svg</text>
+  <text class="sub" x="24" y="54">Ładowanie przez przekaźnik zapłonu i MBR2545CT · bank 4 × CSB HR1221W · LVD XH-M609 · M910q zasilany stale. Wykrywanie zapłonu: ignition_sense.svg</text>
   <line x1="24" y1="66" x2="1416" y2="66" stroke="#c8d2da" stroke-width="1.5"/>
 
   <!-- ================= A. CHARGING ================= -->
@@ -152,7 +152,7 @@
   <rect class="blkg" x="620" y="132" width="176" height="72"/>
   <text class="lbb" x="708" y="154">Moduł CC-CV boost</text>
   <text class="lbc" x="708" y="172">CV 14,40 V</text>
-  <text class="lbc" x="708" y="190">CC 8,0 A (5 pakietów)</text>
+  <text class="lbc" x="708" y="190">CC 7,5 A (4 pakiety)</text>
   <line class="wg" x1="708" y1="204" x2="708" y2="252"/>
   <use xlink:href="#gnd" x="708" y="252"/>
 
@@ -168,8 +168,8 @@
   <!-- bank -->
   <line class="wp" x1="1024" y1="168" x2="1084" y2="168"/>
   <line class="wp" x1="1084" y1="168" x2="1372" y2="168"/>
-  <text class="lbb" x="1228" y="118">BANK · 5 × CSB HR1221W F2 (25,5 Ah)</text>
-  <text class="ref" x="1150" y="136">F2…F6 · 10 A na każdy pakiet</text>
+  <text class="lbb" x="1228" y="118">BANK · 4 × CSB HR1221W F2 (20,4 Ah)</text>
+  <text class="ref" x="1150" y="136">F2…F5 · 10 A na każdy pakiet</text>
 
   <g>
     <circle class="symf" cx="1104" cy="168" r="3"/>
@@ -288,7 +288,7 @@
   <rect class="note" x="1160" y="376" width="256" height="180"/>
   <text class="nh" x="1176" y="398">Oznaczenia bezpieczników</text>
   <text class="nt" x="1176" y="420">F1  15 A — zasilanie ładowarki</text>
-  <text class="nt" x="1176" y="440">F2…F6  10 A — po jednym na pakiet</text>
+  <text class="nt" x="1176" y="440">F2…F5  10 A — po jednym na pakiet</text>
   <text class="nt" x="1176" y="460">F7  15 A — wejście XH-M609</text>
   <text class="nt" x="1176" y="480">F8  7,5 A — odgałęzienie XL6019</text>
   <text class="nt" x="1176" y="500">F9  2 A — odgałęzienie LM2596</text>

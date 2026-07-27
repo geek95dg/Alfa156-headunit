@@ -27,7 +27,7 @@
   <!-- BUS -->
   <rect class="box" x="360" y="86" width="460" height="62"/>
   <text class="h" x="590" y="110">Szyna buforowana 12 V — za XH-M609 i wyłącznikiem głównym</text>
-  <text class="t" x="590" y="132">bank 5 × CSB HR1221W · 25,5 Ah · listwa dystrybucyjna z bezpiecznikami</text>
+  <text class="t" x="590" y="132">bank 4 × CSB HR1221W · 20,4 Ah · listwa dystrybucyjna z bezpiecznikami</text>
 
   <path class="wire" d="M590 148 L590 180"/>
   <path class="wire" d="M240 180 L940 180"/>
@@ -123,21 +123,22 @@
   <text class="note" x="80" y="676">Szczyty 20–30 A rozłożyłyby bank AGM w kilkanaście minut.</text>
 
   <!-- ============ BUDGET ============ -->
-  <rect x="700" y="536" width="420" height="216" fill="#fbfcfd" stroke="#c8d2da" stroke-width="1.5" rx="6"/>
+  <rect x="700" y="536" width="420" height="234" fill="#fbfcfd" stroke="#c8d2da" stroke-width="1.5" rx="6"/>
   <text class="h" x="910" y="560">Trzy stany maszyny — trzy poziomy poboru</text>
   <line x1="716" y1="570" x2="1104" y2="570" stroke="#c8d2da"/>
   <text class="tb" x="722" y="590">Stan</text>
   <text class="tb" x="852" y="590">Pobór</text>
-  <text class="tb" x="960" y="590">5 pak.</text>
-  <text class="tb" x="1036" y="590">8 pak.</text>
+  <text class="tb" x="972" y="590">4 pakiety</text>
+  
   <line x1="716" y1="598" x2="1104" y2="598" stroke="#c8d2da"/>
-  <text class="tl" x="722" y="618">Praca</text><text class="tl" x="852" y="618">10–55 W</text><text class="tl" x="960" y="618">—</text><text class="tl" x="1036" y="618">—</text>
-  <text class="tl" x="722" y="642">S3 (kluczyk OFF)</text><text class="tl" x="852" y="642">400–550 mA</text><text class="tl" x="960" y="642">~1,2 d</text><text class="tl" x="1036" y="642">~1,9 d</text>
-  <text class="tl" x="722" y="666">Wyłączony</text><text class="tl" x="852" y="666">100–200 mA</text><text class="tl" x="960" y="666">3,5–5,3 d</text><text class="tl" x="1036" y="666">5,7–8,5 d</text>
+  <text class="tl" x="722" y="618">Praca</text><text class="tl" x="852" y="618">10–55 W</text><text class="tl" x="972" y="618">~2,9 h bez silnika</text>
+  <text class="tl" x="722" y="642">S3 (kluczyk OFF)</text><text class="tl" x="852" y="642">200–460 mA</text><text class="tl" x="972" y="642">0,9–2,1 dnia</text>
+  <text class="tl" x="722" y="666">Wyłączony</text><text class="tl" x="852" y="666">50–150 mA</text><text class="tl" x="972" y="666">2,8–8,5 dnia</text>
   <line x1="716" y1="680" x2="1104" y2="680" stroke="#c8d2da"/>
   <text class="note" x="722" y="700">Czasy do 50 % DoD. Arduino przechodzi z S3 do pełnego wyłączenia po 2 h</text>
   <text class="note" x="722" y="716">zgaszonego zapłonu — dłuższy impuls na ten sam przycisk.</text>
-  <text class="note" x="722" y="740">Pobór własny XH-M609 (20–125 mA) jest w tych liczbach — ZMIERZ go.</text>
+  <text class="note" x="722" y="740">Wyświetlacz gaśnie z komputerem — USB w S3 jest martwe.</text>
+  <text class="note" x="722" y="756">Rozrzut w obu wierszach to własny pobór XH-M609 — ZMIERZ go.</text>
 
   <text class="note" x="24" y="778">Wyłącznik główny to jedyne realne zero poboru. Na postój dłuższy niż tydzień rozłączaj bank — inaczej LVD odetnie go przy 11,00 V.</text>
   <text class="note" x="24" y="800">Wszystkie bezpieczniki: wkładki nożowe ATO/ATC w listwie dystrybucyjnej z pokrywą, w miejscu dostępnym bez demontażu deski rozdzielczej.</text>

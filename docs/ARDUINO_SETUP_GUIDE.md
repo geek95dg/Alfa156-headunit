@@ -4,6 +4,13 @@ This guide walks you through flashing the two Arduino boards used by the
 BCM headunit on the x86 (Lenovo M910q) platform, from a completely fresh
 start. **No prior Arduino experience required.**
 
+> **Absolute beginner — never plugged an Arduino in at all?** Read
+> [`ARDUINO_OD_ZERA.md`](ARDUINO_OD_ZERA.md) (PL) first. It covers the
+> layer below this guide: which cable, the CH340 driver, installing the
+> IDE, finding the serial port, a Blink smoke test, and a minimal
+> first-upload config for `sensor_hub` that needs no external libraries.
+> Come back here for the full pin tables and SWC calibration.
+
 You will end up with:
 
 | Board | Role | Sketch | USB device |

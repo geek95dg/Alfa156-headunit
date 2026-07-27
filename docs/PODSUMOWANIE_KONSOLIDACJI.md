@@ -146,7 +146,7 @@ i limit prądu **15–20 A**.
 |----------|--------------|------------------------------|---------|
 | Absorpcja @ 25 °C | 14,4 V | 14,4–15,0 V (cykl) | ✅ prawidłowo |
 | Float @ 25 °C | 13,8 V | 13,5–13,8 V (bufor) | ✅ prawidłowo |
-| Maks. prąd ładowania | 15–20 A | **2,1 A/pakiet → 10,5 A na 5** | ❌ za wysoko |
+| Maks. prąd ładowania | 15–20 A | **2,1 A/pakiet → 8,4 A na 4** | ❌ za wysoko |
 | Kompensacja temperaturowa | brak | **−18 mV/°C** float, **−30 mV/°C** cykl | ❌ brak |
 
 **Dlaczego prąd ma znaczenie.** Ładowanie powyżej katalogowego limitu grzeje
@@ -212,10 +212,15 @@ Przy faktycznej pojemności 25,5 Ah i ograniczeniu do 50 % DoD wychodzi
 
 | Pakiety | Pojemność | Do 30 % DoD | Do 50 % DoD | Do progu LVD |
 |---------|-----------|-------------|-------------|--------------|
-| 4 | 20,4 Ah | ~4,3 dnia | ~7,1 dnia | ~10,6 dnia |
-| **5** | **25,5 Ah** | **~5,3 dnia** | **~8,9 dnia** | **~13,3 dnia** |
+| **4** | **20,4 Ah** | **~4,3 dnia** | **~7,1 dnia** | **~10,6 dnia** |
+| 5 | 25,5 Ah | ~5,3 dnia | ~8,9 dnia | ~13,3 dnia |
 | 6 | 30,6 Ah | ~6,4 dnia | ~10,6 dnia | ~15,9 dnia |
 | 8 | 40,8 Ah | ~8,5 dnia | ~14,2 dnia | ~21,3 dnia |
+
+> Wiersz 5 był pierwotnie przyjęty jako optimum energetyczne. Ostatecznie
+> bank ma **cztery pakiety** — ograniczenie jest fizyczne (nie ma gdzie
+> schować więcej), nie energetyczne. Aktualne liczby: §4.2
+> [`ZASILANIE_BUFOROWANE.md`](ZASILANIE_BUFOROWANE.md).
 
 Kolumna 30 % DoD doszła dlatego, że HR to seria buforowa (UPS), a nie
 trakcyjna — płytsze rozładowanie wyraźnie wydłuża jej życie.
@@ -364,6 +369,7 @@ docs/
 ├── URUCHOMIENIE.md             ← symulacja, przełączniki modułów
 ├── X86_PLATFORM_SETUP.md       ← referencja krok-po-kroku (EN)
 ├── ARDUINO_SETUP_GUIDE.md      ← okablowanie trzech płytek
+├── ARDUINO_OD_ZERA.md          ← pierwsze wgranie firmware (NOWY)
 ├── KLINE_SNIFFING.md           ← podsłuch K-Line, PID-y ECU
 └── x86-production/             ← 12 rozdziałów HTML z ilustracjami
 

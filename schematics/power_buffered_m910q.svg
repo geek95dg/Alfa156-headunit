@@ -52,7 +52,7 @@
   <!-- 4. CC-CV CHARGER -->
   <rect class="box" x="40" y="404" width="270" height="112"/>
   <text class="h" x="175" y="426">Ładowarka CC-CV (buck-boost)</text>
-  <text class="t" x="175" y="444">CC: 6 A  (limit katalogowy 10,5 A)</text>
+  <text class="t" x="175" y="444">CC: 7,5 A  (limit katalogowy 8,4 A)</text>
   <text class="t" x="175" y="460">CV absorpcja: 14,40 V @ 25 °C</text>
   <text class="t" x="175" y="476">float: 13,65 V @ 25 °C</text>
   <text class="t" x="175" y="494">komp. −30 mV/°C abs. / −18 mV/°C float</text>
@@ -72,8 +72,8 @@
   <!-- 6. BUFFER BUS + AGM BANK -->
   <rect class="boxA" x="40" y="678" width="270" height="150"/>
   <text class="h" x="175" y="700">Szyna bufora 12 V — bank AGM</text>
-  <text class="t" x="175" y="718">5 × CSB HR1221W F2 (12 V / 5,1 Ah) równolegle</text>
-  <text class="t" x="175" y="734">25,5 Ah, szyna 4 mm² lub mostek miedziany</text>
+  <text class="t" x="175" y="718">4 × CSB HR1221W F2 (12 V / 5,1 Ah) równolegle</text>
+  <text class="t" x="175" y="734">20,4 Ah, szyna 4 mm² lub mostek miedziany</text>
 
   <g>
     <rect class="batt" x="58" y="746" width="42" height="34"/><text class="t" x="79" y="767">5,1 Ah</text>

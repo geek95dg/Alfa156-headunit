@@ -558,7 +558,7 @@ zasilania rozłącznika) idą do punktu gwiazdowego — §10.4.
 
 | # | Skąd | Dokąd | Przewód | Zabezpieczenie |
 |---|------|-------|---------|----------------|
-| — | „+” każdego pakietu HR1221W | Szyna **„+”** banku | 2,5 mm² | **F2…F6** 10 A, osobno na pakiet |
+| — | „+” każdego pakietu HR1221W | Szyna **„+”** banku | 2,5 mm² | **F2…F5** 10 A, osobno na pakiet |
 | — | „−” każdego pakietu | Szyna **„−”** banku | 2,5 mm² | — |
 | 8 | Szyna **„+”** banku | **XH-M609 VIN+** | 2,5 mm² | **F7** 15 A |
 | 9 | Szyna **„−”** banku | **XH-M609 VIN−** | 2,5 mm² | — |
@@ -651,7 +651,7 @@ idzie do masy instalacji auta.
    XL6019 19,5 V · LM2596 wg panelu · boost 14,40 V / 8 A
    rozłącznik 15,30 V · XH-M609 11,00 / 12,60 V
 3. Punkt gwiazdowy masy — komplet z §10.5.
-4. Bank z bezpiecznikami F2…F6, pomiar napięcia na szynie.
+4. Bank (4 pakiety) z bezpiecznikami F2…F5, pomiar napięcia na szynie.
 5. Przewody 8, 9, 10 — bank przez F7 do LVD i S1.
 6. Przewody 11 i 12 — XL6019. POMIAR 19,5 V BEZ podłączonego M910q.
 7. Dopiero teraz M910q, potem 13–14 (podświetlenie).

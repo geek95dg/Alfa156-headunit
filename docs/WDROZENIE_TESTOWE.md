@@ -122,7 +122,7 @@ moduł CC-CV boost  (CV 14,40 V, CC wg §3.3)
 rozłącznik nadnapięciowy (próg 15,30 V)   ← warstwa 2
    │
    ▼
-BANK AGM 5 × HR1221W ── bezpiecznik 10 A na „+" każdego pakietu
+BANK AGM 4 × HR1221W ── bezpiecznik 10 A na „+" każdego pakietu
    │
    ▼
 XH-M609 (LVD)  ── bezpiecznik 15 A przed VIN+
@@ -166,25 +166,28 @@ Cena też jest realna — i to jest najważniejsza liczba w tej zmianie:
 
 | Stan na postoju | Pobór z banku |
 |-----------------|---------------|
-| M910q w S3 | 1,5–3 W |
-| straty XL6019 przy tak małym obciążeniu | 1–1,5 W |
-| XH-M609 (zmierz!) | 0,25–1,5 W |
-| **Razem** | **~3–6 W, czyli 240–480 mA** |
+| M910q w S3 (przez XL6019) | 160–320 mA |
+| Arduino Nano przez MP1584 | ~15 mA |
+| XH-M609 — **zmierz**, to jedyna niewiadoma | 20–125 mA |
+| **Razem** | **200–460 mA** |
 
-| Pakiety | 240 mA | 350 mA | 480 mA |
-|---------|--------|--------|--------|
-| 5 (25,5 Ah) | ~2,2 dnia | ~1,5 dnia | ~1,1 dnia |
-| 8 (40,8 Ah) | ~3,5 dnia | ~2,4 dnia | ~1,8 dnia |
+> **Wyświetlacz nie występuje w tej tabeli i to jest sprawdzone.** M910q
+> **odcina zasilanie portów USB w S3**, więc panel gaśnie razem
+> z komputerem i nie pobiera nic. Z tego samego powodu „Wake on USB" jest
+> tu bezużyteczne, a Arduino **musi** mieć własne 5 V z MP1584 — inaczej
+> zgaśnie razem z portem i nie będzie czym nacisnąć przycisku.
 
-Po **twardym wyłączeniu** (a nie S3) zostaje sam pobór przetwornic i LVD,
-czyli ~80–120 mA — wtedy 5 pakietów daje **4,4–5,3 dnia**, a 8 pakietów
-**7,1–8,5 dnia**. Dlatego eskalacja z S3 do pełnego wyłączenia po kilku
-godzinach jest tu naprawdę warta zachodu — a przy sterowaniu przyciskiem
-zasilania kosztuje tyle, co dłuższy impuls.
+| Stan | Pobór | 4 pakiety (20,4 Ah, do 50 % DoD) |
+|------|-------|----------------------------------|
+| **S3** | 200–460 mA | **0,9–2,1 dnia** |
+| **Wyłączony** (impuls 5 s) | 50–150 mA | **2,8–8,5 dnia** |
 
-Wszystko do 50 % DoD. Dla porównania: przy twardym odcięciu domeny B
-wychodziło **~13 dni**. Utrata jest sześciokrotna i wynika wprost z tego,
-że S3 to nie jest zero.
+Dlatego eskalacja z S3 do pełnego wyłączenia po dwóch godzinach jest tu
+naprawdę warta zachodu — a przy sterowaniu przyciskiem zasilania kosztuje
+tyle, co dłuższy impuls.
+
+Rozrzut w obu wierszach bierze się prawie w całości z XH-M609. Zmierz go
+raz, a obie liczby zrobią się konkretne.
 
 Co z tym zrobić:
 
@@ -410,30 +413,31 @@ CC = obciążenie (≈3,5 A) + docelowy prąd ładowania
 
 | Pakiety | Sufit katalogowy | Zalecane CC | Netto do banku |
 |---------|------------------|-------------|----------------|
+| **4** | **8,4 A** | **7,5 A** | **4,0 A** |
 | 3 | 6,3 A | 6,0 A | 2,5 A |
-| **5** | **10,5 A** | **8,0 A** | **4,5 A** |
-| 8 | 16,8 A | 10,0 A (limit modułu) | 6,5 A |
 
-Przy 8 A ciągłego prądu tani moduł „300 W / 10 A" **wymaga radiatora
-i przewiewu** — traktuj katalogowe 10 A jako wartość szczytową, nie roboczą.
+Bank ma cztery pakiety, więc sufit katalogowy to **8,4 A** — nastawa 7,5 A
+zostawia pod nim ~11 % zapasu i daje 4,0 A netto do banku. Przy takim
+prądzie tani moduł **wymaga radiatora i przewiewu**; katalogowe 10 A na
+puszce traktuj jako wartość szczytową, nie roboczą.
 
 ### 3.4 Ile pakietów
 
-**Pięć (25,5 Ah) to minimum, osiem jest wyraźnie lepsze.** Stałe zasilanie
-i S3 podniosły pobór postojowy z kilkudziesięciu miliamperów do kilkuset
-(§3.1a), więc pojemność zaczęła realnie decydować o tym, ile dni auto może
-postać. Trzy pakiety odpadają.
+**Cztery (20,4 Ah)** — i nie jest to wybór energetyczny, tylko fizyczny:
+więcej po prostu nie ma gdzie schować. Pozostałe cztery z ośmiu zostają
+jako zapas.
 
-| Pakiety | Pojemność | Praca przy zgaszonym silniku (3,5 A) | Postój w S3 (350 mA) | Doładowanie z 50 % |
+| Pakiety | Pojemność | Praca przy zgaszonym silniku (3,5 A) | Postój w S3 (300 mA) | Doładowanie z 50 % |
 |---------|-----------|--------------------------------------|----------------------|--------------------|
-| 3 | 15,3 Ah | ~2,2 h | ~0,9 dnia | ~3,1 h jazdy |
-| **5** | **25,5 Ah** | **~3,6 h** | **~1,5 dnia** | **~2,8 h jazdy** |
-| 8 | 40,8 Ah | ~5,8 h | ~2,4 dnia | ~3,1 h jazdy |
+| **4** | **20,4 Ah** | **~2,9 h** | **~1,4 dnia** | **~2,6 h jazdy** |
+| 5 | 25,5 Ah | ~3,6 h | ~1,8 dnia | ~2,8 h jazdy |
 
-Wszystko liczone do 50 % DoD. Kolumna „postój" zakłada środek widełek
-z §3.1a — pełny rozrzut (240–480 mA) jest tam w osobnej tabeli. Skoro
-i tak masz osiem pakietów, **na czas testów wstaw wszystkie osiem**:
-kosztuje to tylko miejsce i trzy dodatkowe bezpieczniki, a podwaja zapas.
+Wszystko do 50 % DoD; pełny rozrzut poboru w S3 (200–460 mA) jest w §3.1a.
+
+Co kosztuje zejście z pięciu na cztery: 20 % pojemności, czyli ok. pół doby
+postoju w S3 i godzinę pracy przy zgaszonym silniku. Prąd ładowania schodzi
+z 8,0 na 7,5 A, żeby zmieścić się pod katalogowym sufitem 8,4 A. Nic poza
+tym się nie zmienia — układ zasilania zostaje bez zmian.
 
 > Krótkie przejazdy po mieście nie doładują banku po dłuższym postoju.
 > Kolumna „doładowanie" zakłada ciągłą jazdę z pracującym alternatorem.
@@ -487,13 +491,14 @@ w osobnym dokumencie: **[`LISTA_ZAKUPOWA.md`](LISTA_ZAKUPOWA.md)**.
 
 | | |
 |---|---|
-| **Razem do kupienia** | **~494–948 PLN** |
+| **Razem do kupienia** | **~483–928 PLN** |
 | Największe pozycje | moduł CC-CV boost (50–140), rozłącznik nadnapięciowy (40–80), skrzynka na bank (60–120), rozłącznik masy (40–70) |
 | Czego **nie** kupujesz | VSR, ładowarka B2B, DAC USB, karta WiFi, buck dla panelu — pełna lista z powodami tamże |
 | Warto dołożyć | multimetr z pomiarem prądu DC 10 A — bez niego nie odbierzesz instalacji |
 
-Masz już: M910q, ekran 7", MT7921, pody SWC, modem LTE, 8 × HR1221W,
-XL6019, XH-M609, Pro Micro, Nano V3, LM2596 i MP1584.
+Masz już: M910q, ekran 7", MT7921, pody SWC, modem LTE, 8 × HR1221W
+(**do banku idą 4** — §3.4), XL6019, XH-M609, Pro Micro, Nano V3,
+LM2596 i MP1584.
 
 ---
 
@@ -551,6 +556,11 @@ i naciskaj kolejne przyciski wg podpowiedzi na porcie szeregowym. Progi
 zapisują się w EEPROM.
 
 Szczegóły: [`ARDUINO_SETUP_GUIDE.md`](ARDUINO_SETUP_GUIDE.md).
+
+> **Pierwszy raz z Arduino?** Zanim dojdziesz do kalibracji SWC, wgraj
+> firmware wg [`ARDUINO_OD_ZERA.md`](ARDUINO_OD_ZERA.md) — od kabla
+> i sterownika USB, przez IDE, po test na biurku. Ten dokument zakłada,
+> że nie miałeś wcześniej płytki w ręku.
 
 ### 5.6 Android Auto wireless (P2P-GO)
 
@@ -751,5 +761,6 @@ przejdź na `bcm_config.yaml`, gdy większość będzie już podłączona.
 | [`WDROZENIE_M910Q.md`](WDROZENIE_M910Q.md) | wdrożenie docelowe, pełne |
 | [`ZASILANIE_BUFOROWANE.md`](ZASILANIE_BUFOROWANE.md) | warianty ładowania, nastawy modułów, sprawdzenia przed załączeniem |
 | [`SCHEMATY_POLACZEN.md`](SCHEMATY_POLACZEN.md) | tabele połączeń dla wersji docelowej |
+| [`ARDUINO_OD_ZERA.md`](ARDUINO_OD_ZERA.md) | **pierwsze wgranie firmware — dla zupełnie początkujących** |
 | [`ARDUINO_SETUP_GUIDE.md`](ARDUINO_SETUP_GUIDE.md) | Pro Micro, kalibracja SWC |
 | [`URUCHOMIENIE.md`](URUCHOMIENIE.md) | symulacja bez sprzętu, przełączniki modułów |
