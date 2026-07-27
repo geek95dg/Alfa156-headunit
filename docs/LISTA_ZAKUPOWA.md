@@ -4,7 +4,7 @@ Jedna lista do wariantu z [`WDROZENIE_TESTOWE.md`](WDROZENIE_TESTOWE.md):
 instalacja jeżdżąca z pełnym torem zasilania, Android Auto wireless, dźwiękiem
 przez mini-jack i przyciskami SWC.
 
-Ceny orientacyjne, rynek PL, 2025/2026. **Razem: ~479–923 PLN.**
+Ceny orientacyjne, rynek PL, 2025/2026. **Razem: ~494–948 PLN.**
 
 ---
 
@@ -40,7 +40,8 @@ Ceny orientacyjne, rynek PL, 2025/2026. **Razem: ~479–923 PLN.**
 | 2 | **Dioda MBR2545CT** | 25 A / 45 V, TO-220AB | blokada wsteczna; **obie anody zwarte** | 5–12 |
 | 3 | Radiator do TO-220 + podkładka mikowa | ok. 4,5 W strat | blaszka diody to katoda — musi być izolowana | 7–15 |
 | 4 | **Moduł CC-CV boost** | „900 W 15 A" z wyświetlaczem albo **SZBK07** | ładowarka: CV 14,40 V, CC 8 A | 50–140 |
-| 5 | Rozłącznik nadnapięciowy | przekaźnik napięciowy programowalny (XY-WJ01 lub odp.) | blokada przeładowania, próg 15,30 V | 40–80 |
+| 5 | **Rozłącznik nadnapięciowy** | **XH-M603** (albo XH-M604) — ta sama rodzina co XH-M609 | blokada przeładowania: 15,30 V / powrót 14,00 V | 40–80 |
+| 5a | Przekaźnik 30 A SPDT + podstawka (drugi) | Bosch 12 V | moduł steruje cewką zamiast przenosić 8 A — §6.3 ZASILANIE | 15–25 |
 | 6 | Dioda TVS | 1.5KE33CA albo SMCJ26CA | ochrona wejścia przed load dumpem | 5–10 |
 | 7 | Kondensator 470 µF / 35 V low-ESR × 2 | 105 °C | wejście ładowarki + wyjście XL6019 | 7–14 |
 | 8 | Dioda 1N4007 × 5 | | gaszenie cewek przekaźników | 2–5 |
@@ -64,7 +65,7 @@ Ceny orientacyjne, rynek PL, 2025/2026. **Razem: ~479–923 PLN.**
 | 26 | Skrzynka / wspornik na bank + pasy | na 5–8 pakietów | mocowanie do nadwozia | 60–120 |
 | 27 | Peszel + przelotki gumowe | 5 m + komplet | przejścia przez blachę | 25–40 |
 | 28 | Kabel USB z **przeciętą żyłą VBUS** | albo przetnij czerwoną w zwykłym | Nano ma własne 5 V — dwa źródła nie mogą się bić | 0–20 |
-| | | | **Razem** | **479–923** |
+| | | | **Razem** | **494–948** |
 
 ---
 

@@ -530,8 +530,22 @@ obowiązują**.
 | 4 | Zapłon / ACC (albo **D+** alternatora) | **K1** zacisk **86** | 0,75 mm² | — |
 | 5 | **K1** zacisk **87** | **D1 MBR2545CT**, anody **1 + 3** zwarte | 2,5 mm² | — |
 | 6 | **D1** katoda **2** (blaszka) | Moduł CC-CV boost **IN+** | 2,5 mm² | — |
-| **B** | Boost **OUT+** | Rozłącznik nadnapięciowy **+ zasilanie** | 2,5 mm² | — |
-| 7 | Rozłącznik **NC** | Szyna **„+”** banku | 2,5 mm² | — |
+| **B** | Boost **OUT+** | **K2** (przekaźnik mocy) zacisk **30** | 2,5 mm² | — |
+| 7 | **K2** zacisk **87** | Szyna **„+”** banku | 2,5 mm² | — |
+| 7a | **K1** zacisk **87** | **XH-M603** zasilanie „+" | 0,75 mm² | — |
+| 7b | **XH-M603** zasilanie „−" | Punkt gwiazdowy masy | 0,75 mm² | — |
+| 7c | **K1** zacisk **87** | **XH-M603** styk **COM** | 0,75 mm² | — |
+| 7d | **XH-M603** styk **NO** | **K2** zacisk **86** (cewka) | 0,75 mm² | — |
+| 7e | **K2** zacisk **85** | Punkt gwiazdowy masy | 0,75 mm² | — |
+
+> **XH-M603 i cewka K2 wiszą na zacisku 87 przekaźnika ładowania, nie na
+> banku.** Na banku dokładałyby ~160 mA przez całą dobę — tyle, ile
+> w stanie wyłączonym pobiera cała reszta instalacji. Uzasadnienie
+> i zachowanie po zadziałaniu: §6.3 [`ZASILANIE_BUFOROWANE.md`](ZASILANIE_BUFOROWANE.md).
+
+> **Dioda 1N4007** równolegle do cewki K2 (zaciski 85–86), katodą do „+”.
+> Przy **CC ≤ 6 A** można pominąć K2 i puścić 8 A wprost przez styki
+> modułu — wtedy przewody 7c–7e odpadają, a 7 idzie z **NO** modułu.
 
 Masy tego toru (K1 zacisk 85, „−” TVS/C1, boost **IN−** i **OUT−**, „−”
 zasilania rozłącznika) idą do punktu gwiazdowego — §10.4.
