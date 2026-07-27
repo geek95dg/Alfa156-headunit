@@ -687,23 +687,105 @@ napięcie na banku i rozwiera obwód ładowania, gdy przekroczy próg.
 | Próg rozwarcia | **15,30 V** | powyżej katalogowego maksimum 15,0 V, poniżej napięcia, przy którym AGM intensywnie odgazowuje |
 | Próg powrotu | **14,00 V** | poniżej absorpcji — nie klapkuje w kółko |
 | Zwłoka zadziałania | 1–3 s | ignoruje krótkie piki, reaguje na realne przeładowanie |
-| Obciążalność styków | ≥ 10 A | musi przenieść prąd ładowania z zapasem |
+| Prąd przez styki | **≤ 8 A** | tylko prąd ładowania — patrz §6.3 |
 
 ### 6.3 Realizacja
 
-**Moduł programowalnego przekaźnika napięciowego** (na rynku jako „DC 6–30 V
-programmable voltage control relay", np. XY-WJ01 lub odpowiednik z wyświetlaczem):
-ustawiasz próg załączenia i wyłączenia, moduł steruje przekaźnikiem. Koszt
-40–80 PLN.
+#### Ile prądu tam naprawdę płynie
 
-> **Sprawdź kierunek działania.** Większość tanich modułów jest fabrycznie
-> skonfigurowana jako ochrona **podnapięciowa** (załącz powyżej progu).
-> Potrzebujesz trybu odwrotnego: **rozwarcie powyżej progu**. Część modułów
-> ma to jako tryb pracy (F-1/F-2), część wymaga użycia styku NC zamiast NO.
-> Zweryfikuj na stole zasilaczem laboratoryjnym, zanim wepniesz to w auto.
+To pytanie decyduje o doborze modułu, więc najpierw ono. Rozłącznik siedzi
+**między wyjściem boostu a bankiem**, czyli w torze ładowania — nie w torze
+odbiorników. Płynie przez niego wyłącznie **prąd ładowania, ograniczony
+nastawą CC boostu** (§3.3 [`WDROZENIE_TESTOWE.md`](WDROZENIE_TESTOWE.md)),
+czyli maksymalnie **8 A** przy pięciu pakietach.
 
-Jeżeli styki modułu nie wyrabiają prądowo — steruj nimi **przekaźnik
-mocy 30 A** (ten sam typ, co przekaźnik zapłonu).
+Nie myl tego z XH-M609: ten stoi po stronie odbiorników i przenosi prąd
+komputera z panelem (do ~4,6 A), a ma przekaźnik 20 A — tam zapas jest duży.
+
+#### Konkretne moduły
+
+Rodzina XH-M60x, ta sama co posiadany XH-M609 — identyczna obsługa,
+wyświetlacz, przyciski, nastawa co 0,1 V:
+
+| Model | Zakres | Nastawy | Uwaga |
+|-------|--------|---------|-------|
+| **XH-M603** | zasilanie 10–30 V | próg górny i dolny osobno, precyzja 0,1 V | **domyślny wybór** — fabrycznie 12,0 / 14,5 V, przestaw na 14,00 / 15,30 V |
+| **XH-M604** | zasilanie 6–60 V | j.w. | gdy chcesz zapas napięciowy albo masz go pod ręką |
+| **XH-M601** / **XH-M602** | 12 V / 24 V | prostsze, część wersji bez regulacji obu progów | tylko jeśli potwierdzisz, że da się ustawić OBA progi |
+
+Logika XH-M603 jest dokładnie tą, której potrzebujemy: **zwiera, gdy
+napięcie jest poniżej progu górnego, rozwiera po jego przekroczeniu**,
+a wraca dopiero przy progu dolnym. To jest sterownik ładowania, nie
+ochrona podnapięciowa — nie trzeba go odwracać.
+
+#### „30 A” na przekaźniku to nie 30 A na module
+
+Na tych płytkach siedzi zwykle przekaźnik z nadrukiem 30 A / 14 VDC, ale
+**ograniczeniem jest płytka, nie przekaźnik**: ścieżki i zaciski śrubowe
+wytrzymują realnie ok. 10 A. Przy naszych 8 A jesteś w spec, ale bez
+komfortowego zapasu — i to jest właśnie powód, dla którego warto zrobić
+o jeden krok więcej.
+
+#### Zalecane: moduł jako pilot, moc na osobnym przekaźniku
+
+```
+XH-M603 styk (COM/NO)  →  cewka przekaźnika Bosch 30 A  (~150 mA)
+przekaźnik Bosch 30/87 →  w torze ładowania (te 8 A)
+```
+
+Moduł przełącza wtedy 150 mA zamiast 8 A i pytanie o obciążalność znika.
+Koszt: +15–25 PLN za przekaźnik z podstawką.
+
+> **Zepnij to tak, żeby awaria oznaczała „nie ładuje".** Cewka przekaźnika
+> mocy ma być **zasilana, gdy moduł mówi OK**. Wtedy przepalona cewka,
+> uszkodzony moduł albo urwany przewód sterujący dają rozwarty tor
+> ładowania — najgorsze, co się stanie, to nienaładowany bank. Odwrotne
+> zepnięcie (przekaźnik zwarty w spoczynku) przy awarii modułu zostawia
+> ładowanie bez nadzoru.
+>
+> Zanim zalutujesz: sprawdź miernikiem, przy którym stanie modułu jego
+> styk COM–NO jest zwarty. Wersje płytek się różnią.
+
+#### Zasilaj to z przekaźnika ładowania, nie z banku
+
+Łatwo tu zepsuć cały budżet postojowy. Cewka przekaźnika mocy bierze
+~150 mA, moduł XH-M603 kilka do kilkunastu mA. Gdyby wisiały na banku,
+**dokładałyby ~160 mA przez całą dobę** — czyli mniej więcej tyle, ile
+w stanie wyłączonym pobiera wszystko pozostałe razem wzięte (§2.1).
+
+Zasilaj więc i moduł, i cewkę **z zacisku 87 przekaźnika ładowania K1**:
+
+```
+K1 (zapłon)  ──87──┬── moduł CC-CV boost
+                   ├── XH-M603 zasilanie
+                   └── styk XH-M603 → cewka K2 (przekaźnik mocy)
+```
+
+Przy zgaszonym silniku K1 jest rozwarty, więc cały ten węzeł jest martwy:
+zero poboru, K2 rozwarty, tor ładowania przerwany podwójnie.
+
+**Skutek uboczny, który akurat działa na naszą korzyść:** moduł mierzy
+wtedy napięcie po stronie boostu. Po zadziałaniu wyjście boostu bez
+obciążenia nie spadnie do progu powrotu 14,00 V, więc rozłącznik zostaje
+**zatrzaśnięty do końca jazdy** i wraca dopiero po przekręceniu kluczyka.
+Dla usterki to lepsze zachowanie niż klapkowanie w kółko.
+
+#### Kiedy można pominąć K2
+
+Przy nastawie **CC ≤ 6 A** styki XH-M603 wyrabiają bez K2. Wtedy tor
+wygląda tak: boost OUT+ → COM modułu → NO modułu → szyna „+” banku,
+a moduł zasilasz z zacisku 87 K1 jak wyżej. Oszczędzasz 20 PLN i jedno
+złącze, kosztem pracy styków na granicy komfortu.
+
+#### Czego ten rozłącznik NIE robi
+
+**Nie chroni przed load dumpem.** Moduł reaguje w dziesiątkach do setek
+milisekund, a szpilka z alternatora trwa mikrosekundy — od tego jest dioda
+TVS na wejściu (§5.4). To dwie różne warstwy, jedna nie zastępuje drugiej.
+
+**Nie musi chronić odbiorników.** Bank trzyma napięcie szyny, a XL6019
+i LM2596 przyjmują 15–16 V bez mrugnięcia. Odcięcie samego ładowania
+w zupełności wystarcza.
 
 **Wariant A i tak potrzebuje tej warstwy.** Ładowarka Victron/Redarc jest
 bardzo niezawodna, ale nie jest niezniszczalna — a komplet pięciu HR1221W
@@ -984,7 +1066,7 @@ dłuższym postoju; jeśli tak wygląda Twój profil użytkowania, rozważ
 |---|---------|--------------|------|-----------|
 | 1 | **Ładowarka DC-DC** *(wariant A)* | Victron Orion-Tr Smart 12/12-18 lub odpowiednik z presetem **AGM** | 1 | 800–1000 |
 | | *albo:* przekaźnik + dioda + moduł CC-CV boost *(wariant B)* | przekaźnik 30 A SPDT + **MBR2545CT** na radiatorze · boost: **„900 W 15 A" z wyświetlaczem** albo **SZBK07** — pełne zestawienie w §5.3a i §5.3c | 1+1+1 | 70–180 |
-| 2 | **Rozłącznik nadnapięciowy** | programowalny przekaźnik napięciowy, próg 15,3 V / powrót 14,0 V | 1 | 40–80 |
+| 2 | **Rozłącznik nadnapięciowy** | **XH-M603** (albo XH-M604), próg 15,30 V / powrót 14,00 V — §6.3 | 1 | 40–80 |
 | 3 | ~~Moduł LVD~~ | **posiadany — XH-M609** | — | 0 |
 | 4 | **Przekaźnik zapłonu** | Bosch 12 V / 30 A SPDT + podstawka | 1 | 15–25 |
 | 5 | **Przekaźnik mocy** (do poz. 2, jeśli styki modułu za słabe) | 12 V / 30 A + podstawka | 1 | 15–25 |

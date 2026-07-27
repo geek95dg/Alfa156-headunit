@@ -449,7 +449,7 @@ kosztuje to tylko miejsce i trzy dodatkowe bezpieczniki, a podwaja zapas.
 | **XH-M609** | odcięcie **11,00 V**, powrót **12,60 V** | sprawdź, czy pracuje stabilnie przy 11 V |
 | **Przekaźnik ładowania** | cewka z zapłonu (albo D+) | dioda 1N4007 równolegle, katodą do „+” |
 | **CC-CV boost** | CV **14,40 V**, CC wg §3.3 | ustaw CV **bez obciążenia**, CC na sztucznym obciążeniu; nigdy poniżej napięcia wejściowego — §3.2 |
-| **Rozłącznik nadnapięciowy** | próg **15,30 V**, powrót **14,00 V** | test zasilaczem laboratoryjnym, nie „na aucie" |
+| **Rozłącznik nadnapięciowy** (XH-M603) | próg **15,30 V**, powrót **14,00 V** | test zasilaczem laboratoryjnym, nie „na aucie"; steruje cewką przekaźnika mocy — §6.3 ZASILANIE |
 
 Obowiązkowe sprawdzenia XL6019 i XH-M609 przed pierwszym załączeniem:
 [`ZASILANIE_BUFOROWANE.md`](ZASILANIE_BUFOROWANE.md) §3.4 i §7.3.
@@ -487,7 +487,7 @@ w osobnym dokumencie: **[`LISTA_ZAKUPOWA.md`](LISTA_ZAKUPOWA.md)**.
 
 | | |
 |---|---|
-| **Razem do kupienia** | **~479–923 PLN** |
+| **Razem do kupienia** | **~494–948 PLN** |
 | Największe pozycje | moduł CC-CV boost (50–140), rozłącznik nadnapięciowy (40–80), skrzynka na bank (60–120), rozłącznik masy (40–70) |
 | Czego **nie** kupujesz | VSR, ładowarka B2B, DAC USB, karta WiFi, buck dla panelu — pełna lista z powodami tamże |
 | Warto dołożyć | multimetr z pomiarem prądu DC 10 A — bez niego nie odbierzesz instalacji |
