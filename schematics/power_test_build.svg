@@ -49,7 +49,7 @@
 
   <rect class="boxC" x="90" y="378" width="420" height="76"/>
   <text class="h" x="300" y="401">Moduł CC-CV boost — „900 W 15 A” albo SZBK07</text>
-  <text class="t" x="300" y="420">CV 14,40 V · CC 8,0 A dla pięciu pakietów</text>
+  <text class="t" x="300" y="420">CV 14,40 V · CC 7,5 A dla czterech pakietów</text>
   <text class="t" x="300" y="438">radiator i przewiew — 8 A ciągłe to nie jest praca „na sucho”</text>
 
   <path class="wire" d="M300 454 L300 488"/>
@@ -63,10 +63,10 @@
   <text class="tb" x="90" y="576" fill="#9a6b12" font-size="13.5">BANK</text>
 
   <rect class="boxB" x="90" y="584" width="420" height="84"/>
-  <text class="h" x="300" y="607">BANK 5 × CSB HR1221W F2 — 25,5 Ah</text>
+  <text class="h" x="300" y="607">BANK 4 × CSB HR1221W F2 — 20,4 Ah</text>
   <text class="t" x="300" y="626">bezpiecznik 10 A na „+” każdego pakietu, osobno</text>
   <text class="t" x="300" y="644">nasuwki F2 6,35 mm · łączenie równoległe wg §4.3 ZASILANIE</text>
-  <text class="t" x="300" y="661">5 to minimum, 8 wyraźnie lepsze — patrz tabela obok</text>
+  <text class="t" x="300" y="661">cztery pakiety — więcej fizycznie się nie mieści</text>
 
   <path class="wire" d="M300 668 L300 702"/>
   <text class="fuse" x="312" y="690">bezp. 15 A przed VIN+</text>
@@ -111,15 +111,15 @@
   <text class="nt" x="576" y="437">Moduł limituje prąd WYJŚCIOWY — obciążenie plus</text>
   <text class="nt" x="576" y="454">ładowanie. Zestaw pobiera podczas jazdy ok. 3,5 A.</text>
   <text class="nt" x="576" y="475">CC 4 A  →  do banku 0,5 A  →  nigdy się nie doładuje</text>
-  <text class="nt" x="576" y="492">CC 8 A  →  do banku 4,5 A  →  z 50 % w ~2,8 h jazdy</text>
-  <text class="nt" x="576" y="513">Sufit katalogowy CSB: 2,1 A × liczba pakietów.</text>
+  <text class="nt" x="576" y="492">CC 7,5 A →  do banku 4,0 A  →  z 50 % w ~2,6 h jazdy</text>
+  <text class="nt" x="576" y="513">Sufit katalogowy CSB: 2,1 A × 4 = 8,4 A.</text>
 
   <rect class="note" x="560" y="540" width="376" height="112"/>
   <text class="nh" x="576" y="562">Pobór postojowy — S3 to nie zero</text>
-  <text class="nt" x="576" y="583">M910q w S3 1,5–3 W + straty XL6019 1–1,5 W + XH-M609</text>
-  <text class="nt" x="576" y="600">0,25–1,5 W  =  razem 240–480 mA z banku.</text>
-  <text class="nt" x="576" y="621">5 pakietów → 1,1–2,2 dnia · 8 pakietów → 1,8–3,5 dnia</text>
-  <text class="nt" x="576" y="638">Na dłuższy postój: wyłącznik główny. ZMIERZ ten pobór.</text>
+  <text class="nt" x="576" y="583">M910q w S3 160–320 mA + Arduino 15 mA + XH-M609</text>
+  <text class="nt" x="576" y="600">20–125 mA  =  razem 200–460 mA z banku.</text>
+  <text class="nt" x="576" y="621">4 pakiety (20,4 Ah) → 0,9–2,1 dnia w S3</text>
+  <text class="nt" x="576" y="638">Po wyłączeniu (impuls 5 s): 50–150 mA → 2,8–8,5 dnia.</text>
 
   <rect class="note" x="560" y="668" width="376" height="230"/>
   <text class="nh" x="576" y="690">Bezpieczniki i przekroje</text>

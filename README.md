@@ -31,7 +31,9 @@ pip install -r requirements.txt -r requirements-x86.txt
   plus `bluetooth.enabled`, `wifi.enabled`, `fuel_sender.enabled`).
 - Arduino firmware (3 boards): `make -C arduino` compiles all sketches,
   `make -C arduino <sketch>-upload PORT=/dev/ttyXXX` flashes one —
-  see `docs/ARDUINO_SETUP_GUIDE.md`.
+  see `docs/ARDUINO_SETUP_GUIDE.md`. Never touched an Arduino before?
+  Start with `docs/ARDUINO_OD_ZERA.md` (PL) — cable, USB driver, IDE,
+  first upload and a bench test, step by step.
 - After changing Tailwind classes in the web UI run
   `config/scripts/build-frontend.sh` (CSS is precompiled — there is no
   runtime Tailwind engine).

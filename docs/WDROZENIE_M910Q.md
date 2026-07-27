@@ -53,6 +53,7 @@ sprzęt → zasilanie → BIOS → OS → BCM → usługi → kiosk → peryferi
 | Szczegóły zasilania buforowanego | [`ZASILANIE_BUFOROWANE.md`](ZASILANIE_BUFOROWANE.md) |
 | Tabele połączeń, przekroje, kolejność montażu | [`SCHEMATY_POLACZEN.md`](SCHEMATY_POLACZEN.md) |
 | Rozmieszczenie podzespołów w aucie | [`../schematics/vehicle_layout_m910q.svg`](../schematics/vehicle_layout_m910q.svg) |
+| Pierwsze wgranie firmware na Arduino (od zera) | [`ARDUINO_OD_ZERA.md`](ARDUINO_OD_ZERA.md) |
 | Okablowanie Arduino pin-po-pinie | [`ARDUINO_SETUP_GUIDE.md`](ARDUINO_SETUP_GUIDE.md) |
 | Podsłuch K-Line, poznawanie PID-ów | [`KLINE_SNIFFING.md`](KLINE_SNIFFING.md) |
 | Wersja ilustrowana (12 rozdziałów HTML) | [`x86-production/index.html`](x86-production/index.html) |
@@ -169,19 +170,20 @@ Tutaj tylko to, co trzeba wiedzieć, żeby zrozumieć resztę wdrożenia.
 odbiornika — jest sygnałem, który Arduino zamienia na impuls na styki
 **przycisku zasilania M910q**:
 
-| Stan | Pobór z banku | Postój (5 pakietów) |
-|------|---------------|---------------------|
+| Stan | Pobór z banku | Postój (4 pakiety, 20,4 Ah) |
+|------|---------------|------------------------------|
 | Praca | 10–55 W | — |
-| **S3** (kluczyk OFF) | 400–550 mA | ~1,2 dnia |
-| **Wyłączony** (impuls 5 s po 2 h) | 100–200 mA | ~3,5–5,3 dnia |
+| **S3** (kluczyk OFF) | 200–460 mA | ~0,9–2,1 dnia |
+| **Wyłączony** (impuls 5 s po 2 h) | 50–150 mA | ~2,8–8,5 dnia |
 
 Jedyny przekaźnik w torze mocy siedzi w **ładowaniu**, nie w odbiornikach.
 Uzasadnienie i porównanie z porzuconym modelem „domena B":
 [`ZASILANIE_BUFOROWANE.md`](ZASILANIE_BUFOROWANE.md) §2.2.
 
-Między akumulatorem auta a head unitem stoi **bank 5 × CSB HR1221W F2**
-(12 V / 5,1 Ah AGM, razem 25,5 Ah), ładowany przez ładowarkę CC-CV z profilem
-**AGM** (14,40 V absorpcji / 13,65 V float, maks. 10,5 A wg karty katalogowej),
+Między akumulatorem auta a head unitem stoi **bank 4 × CSB HR1221W F2**
+(12 V / 5,1 Ah AGM, razem 20,4 Ah — więcej fizycznie się nie mieści),
+ładowany przez ładowarkę CC-CV z profilem **AGM** (14,40 V absorpcji /
+13,65 V float, maks. 8,4 A wg karty katalogowej),
 chroniony rozłącznikiem nadnapięciowym (15,3 V) i modułem **XH-M609** jako
 LVD (11,0 / 12,60 V). M910q zasila **przetwornica step-up XL6019**
 (12 → 19,5 V) za przekaźnikiem zapłonu.
@@ -989,7 +991,7 @@ Wnioski:
 
 **Napięcia są prawidłowe** — HR1221W to AGM, a karta katalogowa CSB dopuszcza
 14,4–15,0 V cyklicznie i 13,5–13,8 V buforowo. **Limit prądu nie jest**:
-katalog podaje 2,1 A na pakiet, czyli 10,5 A dla banku pięciu. Brakuje też
+katalog podaje 2,1 A na pakiet, czyli 8,4 A dla banku czterech. Brakuje też
 kompensacji temperaturowej (−18 mV/°C float, −30 mV/°C cykl).
 
 Obowiązujące nastawy: [`ZASILANIE_BUFOROWANE.md`](ZASILANIE_BUFOROWANE.md) §4.4–§4.5 i §5.
@@ -1055,6 +1057,7 @@ mimo neutralnej nazwy. Został zarchiwizowany jako
 | [`URUCHOMIENIE.md`](URUCHOMIENIE.md) | symulacja na laptopie, przełączniki modułów, Arduino w skrócie |
 | [`X86_PLATFORM_SETUP.md`](X86_PLATFORM_SETUP.md) | referencja krok-po-kroku (EN) — pamiętaj o §19 |
 | [`x86-production/index.html`](x86-production/index.html) | 12 rozdziałów z ilustracjami |
+| [`ARDUINO_OD_ZERA.md`](ARDUINO_OD_ZERA.md) | pierwsze wgranie firmware — dla zupełnie początkujących |
 | [`ARDUINO_SETUP_GUIDE.md`](ARDUINO_SETUP_GUIDE.md) | okablowanie trzech płytek Arduino |
 | [`KLINE_SNIFFING.md`](KLINE_SNIFFING.md) | podsłuch K-Line, poznawanie PID-ów ECU |
 | [`../schematics/README.md`](../schematics/README.md) | indeks schematów elektrycznych |

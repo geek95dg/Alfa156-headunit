@@ -40,7 +40,7 @@ Trzy niezależne powody — każdy sam w sobie wystarczyłby:
 |---------|-----------|-----------|
 | **Rozruch silnika** | Instalacja 12 V zapada na 6–8 V przez 200–600 ms. M910q gubi zasilanie i twardo się resetuje przy każdym przekręceniu kluczyka. | Bank trzyma szynę powyżej 12 V przez cały rozruch — komputer nawet nie mrugnie. |
 | **Funkcje na postoju** | Pilot szyb 433 MHz i bramkowany BLE przycisk bagażnika muszą żyć non stop. Wpięte w akumulator rozruchowy rozładują go w kilka dni. | Domena A żyje z banku. Akumulator rozruchowy jest odizolowany i zawsze gotowy do rozruchu. |
-| **Jakość napięcia** | Instalacja auta to śmietnik EMI: przepięcia od cewek, load dump z alternatora, tętnienia. | Bank o pojemności 25,5 Ah to gigantyczny kondensator — wygładza wszystko, co jest za nim. |
+| **Jakość napięcia** | Instalacja auta to śmietnik EMI: przepięcia od cewek, load dump z alternatora, tętnienia. | Bank o pojemności 20,4 Ah to gigantyczny kondensator — wygładza wszystko, co jest za nim. |
 
 Kluczowa konsekwencja architektury: **akumulator rozruchowy nigdy nie zasila
 head unitu na postoju**. Rozdziela je przekaźnik ładowania z diodą, więc auto
@@ -65,11 +65,24 @@ M910q.
 
 ### 2.1 Trzy stany i trzy poziomy poboru
 
-| Stan | Co pobiera | Pobór z banku | 5 pakietów | 8 pakietów |
-|------|-----------|---------------|-----------|-----------|
-| **Praca** | wszystko | 10–55 W | — | — |
-| **S3** | logika + M910q w S3 + straty przetwornic | **400–550 mA** | ~1,2 dnia | ~1,9 dnia |
-| **Wyłączony** (impuls 5 s) | logika + straty przetwornic | **100–200 mA** | ~3,5–5,3 dnia | ~5,7–8,5 dnia |
+Bank ma **4 pakiety (20,4 Ah)** — tyle się fizycznie mieści. Do 50 % DoD
+zostaje 10,2 Ah użytecznych.
+
+| Stan | Co pobiera | Pobór z banku | 4 pakiety (20,4 Ah) |
+|------|-----------|---------------|---------------------|
+| **Praca** | wszystko | 10–55 W | ~2,9 h przy zgaszonym silniku |
+| **S3** | M910q w S3 + Arduino + LVD | **200–460 mA** | **0,9–2,1 dnia** |
+| **Wyłączony** (impuls 5 s) | przetwornice + Arduino + LVD | **50–150 mA** | **2,8–8,5 dnia** |
+
+> **Pobór w S3 jest zmierzony, nie oszacowany.** Wyświetlacz gaśnie razem
+> z komputerem, bo M910q **odcina zasilanie portów USB w S3** — z szyny
+> ciągną wtedy tylko sam komputer i Arduino. To także przesądza dwie rzeczy:
+> „Wake on USB" jest tu bezużyteczne (port jest martwy), a Arduino **musi**
+> mieć własne 5 V z MP1584, inaczej nie ma czym nacisnąć przycisku.
+
+Rozrzut w obu wierszach bierze się prawie w całości z **własnego poboru
+XH-M609** (20–125 mA wg wersji płytki). To jedyna liczba warta zmierzenia
+multimetrem — reszta jest przewidywalna.
 
 Wszystko do 50 % DoD. Wniosek jest praktyczny: **S3 do krótkich postojów,
 twarde wyłączenie do długich**. Arduino przełącza między nimi samo — po
@@ -84,7 +97,7 @@ dlaczego:
 
 | | Przekaźnik odcinający | Stałe zasilanie + S3 |
 |---|---|---|
-| Postój (5 pakietów) | ~6,6 dnia | ~1,2 dnia w S3, ~3,5–5,3 po wyłączeniu |
+| Postój (4 pakiety) | ~5,3 dnia | ~0,9–2,1 dnia w S3, ~2,8–8,5 po wyłączeniu |
 | Wybudzenie | zimny start ~40 s | **~3 s** z S3 |
 | Ryzyko ucięcia zapisu na dysk | **przy każdym przekręceniu kluczyka** | brak — maszyna schodzi do S3 sama |
 | Elementy w torze mocy | przekaźnik 30 A + okablowanie | **brak** |
@@ -355,14 +368,19 @@ Pakiety łączone **równolegle** — napięcie zostaje 12 V, sumuje się pojemn
 
 | Liczba pakietów | Pojemność | Masa | Maks. prąd ładowania | Uwagi |
 |-----------------|-----------|------|---------------------|-------|
-| 4 | 20,4 Ah | 7,2 kg | 8,4 A | minimum sensowne |
-| **5** | **25,5 Ah** | **9,0 kg** | **10,5 A** | **optimum — zalecane** |
-| 6 | 30,6 Ah | 10,8 kg | 12,6 A | jeśli jest miejsce |
-| 8 | 40,8 Ah | 14,4 kg | 16,8 A | przemyśl, czy 14 kg w aucie jest warte 5 dni więcej |
+| **4** | **20,4 Ah** | **7,2 kg** | **8,4 A** | **przyjęte — tyle się mieści** |
+| 5 | 25,5 Ah | 9,0 kg | 10,5 A | teoretyczne optimum, brak miejsca |
+| 6 | 30,6 Ah | 10,8 kg | 12,6 A | — |
+| 8 | 40,8 Ah | 14,4 kg | 16,8 A | — |
 
-Notatki w repozytorium mówią o **ośmiu posiadanych pakietach**. Użycie pięciu
-daje optimum, a trzy zostają jako zapas — pakiety starzeją się też leżąc, więc
-rotacja jest korzystna.
+**Bank ma cztery pakiety** — to ograniczenie fizyczne, nie wybór
+energetyczny: więcej po prostu nie ma gdzie schować. Pozostałe cztery
+z ośmiu posiadanych zostają jako zapas; pakiety starzeją się także leżąc,
+więc rotacja co rok–dwa jest korzystna.
+
+Co to kosztuje wobec pięciu: 20 % pojemności, czyli mniej więcej pół doby
+postoju w S3 i godzinę pracy przy zgaszonym silniku. Prąd ładowania trzeba
+zejść z 8,0 na **7,5 A**, żeby zmieścić się pod katalogowym sufitem 8,4 A.
 
 Pięć pakietów obok siebie zajmuje ok. **350 × 90 × 101 mm** (bokiem, szerokość
 70 mm każdy) plus miejsce na przewody i pasy.
@@ -403,14 +421,14 @@ Ponieważ HR1221W to AGM, obowiązują wartości z karty katalogowej CSB:
 |----------|------------------|---------------------|----------|
 | Absorpcja (cykl) | 14,4–15,0 V | **14,40 V** | dolny kraniec — najłagodniejszy dla żywotności |
 | Podtrzymanie (float) | 13,5–13,8 V | **13,65 V** | środek zakresu |
-| Prąd ładowania | maks. 2,1 A/pakiet | **6,0 A** dla 5 pakietów | 57 % katalogowego limitu 10,5 A |
+| Prąd ładowania | maks. 2,1 A/pakiet | **7,5 A** dla 4 pakietów | 89 % katalogowego limitu 8,4 A |
 
 > **Korekta wcześniejszej wersji tego dokumentu.** Wcześniejsze wydanie
 > zakładało akumulatory żelowe i podawało 14,20 V / 13,70 V oraz ostrzeżenie,
 > że 14,4 V jest za dużo. **Dla HR1221W jest inaczej: 14,4 V mieści się
 > w katalogowym zakresie cyklicznym**, a wartości 15–20 A z oryginalnych
 > notatek repo są za wysokie nie dlatego, że to żel, tylko dlatego, że limit
-> katalogowy wynosi 2,1 A na pakiet (10,5 A na bank pięciu).
+> katalogowy wynosi 2,1 A na pakiet (8,4 A na bank czterech).
 
 **Seria HR to akumulator buforowy, nie trakcyjny.** Konstrukcja z cienkimi
 płytami jest zoptymalizowana pod krótkie rozładowania dużym prądem (UPS) —
@@ -514,12 +532,12 @@ z presetem **AGM**, kompensację temperaturową i detekcję pracy alternatora.
 | Model | Prąd | Orientacyjna cena | Uwagi |
 |-------|------|------------------|-------|
 | Victron Orion-Tr Smart 12/12-18 | 18 A | ~800–1000 PLN | konfiguracja przez Bluetooth, preset AGM, izolowana |
-| Victron Orion XS 12/12-50 | 50 A | ~1200–1500 PLN | mocno przewymiarowana dla 25,5 Ah |
+| Victron Orion XS 12/12-50 | 50 A | ~1200–1500 PLN | mocno przewymiarowana dla 20,4 Ah |
 | Redarc BCDC1225D | 25 A | ~1300–1600 PLN | bardzo odporna, popularna w off-roadzie |
 | Sterling BB1230 | 30 A | ~900–1200 PLN | |
 
-Prąd nastaw i tak na **6 A** (katalogowy sufit dla pięciu HR1221W to 10,5 A)
-— większy model to tylko zapas i mniejsze grzanie. Dla banku 25,5 Ah
+Prąd nastaw i tak na **7,5 A** (katalogowy sufit dla czterech HR1221W to 8,4 A)
+— większy model to tylko zapas i mniejsze grzanie. Dla banku 20,4 Ah
 **najmniejsza dostępna wersja w zupełności wystarcza**.
 
 **Co odpada przy wariancie A:** przekaźnik ładowania (ładowarka sama wykrywa
@@ -697,7 +715,7 @@ To pytanie decyduje o doborze modułu, więc najpierw ono. Rozłącznik siedzi
 **między wyjściem boostu a bankiem**, czyli w torze ładowania — nie w torze
 odbiorników. Płynie przez niego wyłącznie **prąd ładowania, ograniczony
 nastawą CC boostu** (§3.3 [`WDROZENIE_TESTOWE.md`](WDROZENIE_TESTOWE.md)),
-czyli maksymalnie **8 A** przy pięciu pakietach.
+czyli maksymalnie **7,5 A** przy czterech pakietach.
 
 Nie myl tego z XH-M609: ten stoi po stronie odbiorników i przenosi prąd
 komputera z panelem (do ~4,6 A), a ma przekaźnik 20 A — tam zapas jest duży.
@@ -981,7 +999,7 @@ Czas zależy od tego, ile pobiera XH-M609 — dlatego tabela jest rozpisana
 wg **sumarycznego poboru**. Logika i przekaźniki to stałe 60 mA; reszta to
 moduł LVD.
 
-**Bank 5 pakietów — 25,5 Ah:**
+**Bank 4 pakiety — 20,4 Ah:**
 
 | Pobór całkowity | XH-M609 | Do 30 % DoD | Do 50 % DoD | Do progu LVD |
 |-----------------|---------|-------------|-------------|--------------|
@@ -990,7 +1008,8 @@ moduł LVD.
 | 130 mA | 70 mA | ~2,5 dnia | ~4,1 dnia | ~6,1 dnia |
 | 185 mA | 125 mA (spec max) | ~1,7 dnia | ~2,9 dnia | ~4,3 dnia |
 
-**Bank 8 pakietów — 40,8 Ah** (masz osiem, więc to realna opcja):
+**Bank 8 pakietów — 40,8 Ah** (odniesienie — pakiety masz, ale miejsca na
+nie nie ma; tabela pokazuje wyłącznie, ile kosztuje to ograniczenie):
 
 | Pobór całkowity | Do 30 % DoD | Do 50 % DoD | Do progu LVD |
 |-----------------|-------------|-------------|--------------|
@@ -1003,25 +1022,26 @@ Kolumna 30 % DoD jest tu dlatego, że HR1221W to seria buforowa (UPS), a nie
 trakcyjna — płytsze rozładowanie wyraźnie wydłuża jej życie. Przy okazjonalnym
 dłuższym postoju 50 % DoD jest w porządku; jako **rutyna** lepiej trzymać 30 %.
 
-> **Jeżeli pomiar z §7.3 wypadnie powyżej ~40 mA**, najprostszą reakcją jest
-> użycie **wszystkich ośmiu pakietów zamiast pięciu**. Masz je, a 40,8 Ah
-> cofa czas postoju mniej więcej tam, gdzie był przy 25,5 Ah i niskim poborze
-> LVD. Kosztem jest 14,4 kg zamiast 9,0 kg i więcej miejsca pod fotelem.
+> **Dołożenie pakietów odpada — nie ma gdzie.** Bank jest ograniczony do
+> czterech miejscem, nie budżetem, więc jeżeli pomiar z §7.3 wypadnie
+> powyżej ~40 mA, jedyne realne kierunki to:
 >
-> Drugi kierunek to wymiana LVD na moduł bez wyświetlacza (prosty komparator
-> z przekaźnikiem pobiera 5–10 mA), ale skoro XH-M609 już jest — najpierw
-> zmierz, a decyduj potem.
+> - **wymiana LVD** na moduł bez wyświetlacza (prosty komparator
+>   z przekaźnikiem pobiera 5–10 mA zamiast 20–125 mA),
+> - **skrócenie progu eskalacji** z 2 h do np. 30 min, żeby maszyna szybciej
+>   schodziła z S3 (200–460 mA) do wyłączenia (50–150 mA),
+> - **wyłącznik główny** przy dłuższym postoju — jedyne prawdziwe zero.
 
 > **Korekta wobec starszych notatek.** `docs/X86_PLATFORM_SETUP.md` § 2.3
 > i `10-power-suspend.html` podają dla banku 25 Ah „~17 dni" z adnotacją
 > „ograniczone do 50 % DoD". Te dwie rzeczy się wykluczają: 25 Ah / 0,060 A
-> = 417 h = 17,4 dnia to **pełne rozładowanie do zera**. Przy realnym
-> ograniczeniu do 50 % DoD i faktycznej pojemności 25,5 Ah wychodzi
-> 12,75 Ah / 0,060 A = 212 h = **8,9 dnia**. Tabela powyżej rozdziela
-> wszystkie trzy przypadki.
+> = 417 h = 17,4 dnia to **pełne rozładowanie do zera**. Do tego bank ma
+> dziś **cztery pakiety, nie pięć**, a komputer nie jest już odcinany — więc
+> liczba z tamtych notatek nie ma żadnego przełożenia na obecny układ.
+> Obowiązuje tabela z §2.1.
 
 Samorozładowanie HR1221W (> 75 % pojemności po 6 miesiącach @ 25 °C, czyli
-≤ 4 %/miesiąc) odpowiada ok. **1,4 mA** przy banku 25,5 Ah — wobec 60 mA
+≤ 4 %/miesiąc) odpowiada ok. **1,1 mA** przy banku 20,4 Ah — wobec 60 mA
 logiki jest pomijalne. W upale rośnie kilkukrotnie, ale nadal nie zmienia
 obrazu.
 
@@ -1037,10 +1057,11 @@ postoju wyłącz je z UI.
 
 ### 9.4 Ładowanie po postoju
 
-Bank rozładowany do 50 % (12,75 Ah do uzupełnienia) przy prądzie ładowania
-6 A potrzebuje ~2,2 h w fazie CC plus ~2 h absorpcji — czyli **około
-4–5 godzin jazdy**. Podniesienie prądu do katalogowego sufitu 10,5 A skraca
-fazę CC do ~1,3 h, ale absorpcja i tak trwa swoje. Krótkie przejazdy po mieście nie doładują banku po
+Bank rozładowany do 50 % (10,2 Ah do uzupełnienia) przy nastawie CC 7,5 A
+i obciążeniu ~3,5 A ładuje się netto prądem ~4,0 A, czyli **około 2,6 h
+w fazie CC** plus absorpcja. Realnie licz **3–4 godziny jazdy** do pełna.
+Katalogowy sufit to 8,4 A — więcej się nie da, więc tego czasu nie skrócisz
+inaczej niż zmniejszając obciążenie. Krótkie przejazdy po mieście nie doładują banku po
 dłuższym postoju; jeśli tak wygląda Twój profil użytkowania, rozważ
 ładowarkę sieciową na czas parkowania w garażu.
 
@@ -1057,7 +1078,7 @@ dłuższym postoju; jeśli tak wygląda Twój profil użytkowania, rozważ
 |---------|--------------|-------|
 | **XL6019** — moduł step-up | 12 V → 19,5 V dla M910q | ok. **45 W ciągle**, nie 65 W — wymaga ograniczenia poboru CPU, §3.2 i §3.5a |
 | **XH-M609** — moduł ochrony | **LVD** (warstwa 3), 11,00 / 12,60 V | przekaźnik 20 A wystarcza; zmierz pobór własny, §7.3 |
-| **CSB HR1221W F2** × 8 (12 V / 5,1 Ah AGM) | bank buforowy | użyj 5 (25,5 Ah) albo 8 (40,8 Ah) — decyzja po pomiarze z §7.3 |
+| **CSB HR1221W F2** × 8 (12 V / 5,1 Ah AGM) | bank buforowy | **użyj 4 (20,4 Ah)** — tyle się mieści; reszta jako zapas |
 | Lenovo ThinkCentre M910q Tiny | komputer | |
 
 ### 10.2 Do dokupienia — obowiązkowe
@@ -1086,7 +1107,7 @@ dłuższym postoju; jeśli tak wygląda Twój profil użytkowania, rozważ
 | 19 | **Konektory oczkowe M6/M8** | do 6 mm², zaciskane | 10 | 15–25 |
 | 20 | **Konektory / tulejki / koszulki** | zestaw, koszulki z klejem | kpl. | 30–50 |
 | 21 | **Peszel / oplot + przelotki gumowe** | 5 m peszla + komplet przelotek | kpl. | 25–40 |
-| 22 | **Skrzynka / wspornik na bank + pasy** | na 5 pakietów, mocowanie do nadwozia | 1 | 60–120 |
+| 22 | **Skrzynka / wspornik na bank + pasy** | na 4 pakiety, mocowanie do nadwozia | 1 | 60–120 |
 | 23 | **Rozłącznik masy** | 100 A, kluczykowy lub pokrętło | 1 | 40–70 |
 | 24 | **Radiator + wentylator 40 mm** | do XL6019 — przy 45 W obowiązkowe | kpl. | 20–35 |
 | 24a | **Kondensator wyjściowy** | 470 µF / 35 V low-ESR na wyjście XL6019 | 1 | 3–6 |
@@ -1144,12 +1165,13 @@ XH-M609 (LVD)
 [ ] Moduł pracuje stabilnie przy 11,0 V — bez drgania styku (§7.3 pkt 1)
 [ ] Omomierzem sprawdzone, że przełącza PLUS, nie masę (§7.3 pkt 2)
 [ ] Zmierzony pobór własny przy 12 V, wpisany do budżetu §9
-[ ] Decyzja: 5 czy 8 pakietów w banku — na podstawie powyższego pomiaru
+[ ] Jeśli pobór wyszedł przy górnej granicy (125 mA) — rozważ wymianę
+    modułu; dołożenie pakietów odpada, bank jest ograniczony do czterech
 [ ] Bezpiecznik 15 A przed zaciskiem VIN+
 
 Pozostałe
 [ ] Ładowarka: CV 14,40 V (lub 13,80 V w wariancie B bez kompensacji)
-[ ] Ładowarka: limit prądu CC 6,0 A (sufit katalogowy 10,5 A dla 5 pakietów)
+[ ] Ładowarka: limit prądu CC 7,5 A (sufit katalogowy 8,4 A dla 4 pakietów)
 [ ] Rozłącznik nadnapięciowy: rozwarcie 15,30 V, powrót 14,00 V (§6.4)
 [ ] Buck logiki: wyjście 5,0 V
 [ ] Buck wyświetlaczy: wyjście 5,0 V
@@ -1224,7 +1246,9 @@ Pozostałe
 ```
 [ ] Auto zaparkowane na 48 h bez uruchamiania
 [ ] Pomiar napięcia banku przed i po
-[ ] Spadek zgodny z ~60 mA (dla 25,5 Ah: ok. 2,9 Ah = ~0,2–0,3 V)
+[ ] Spadek zgodny z pomiarem z §2.1 (w S3 przy 300 mA: ok. 14 Ah przez 48 h
+    — bank zejdzie poniżej 50 % DoD, więc na tę próbę użyj wyłącznika
+    głównego albo skróć ją do 12 h)
 [ ] Akumulator rozruchowy bez zmian — auto odpala normalnie
 ```
 
@@ -1265,7 +1289,7 @@ podają 14,4 V absorpcji, 13,8 V float i limit prądu **15–20 A**.
 - **Napięcia są prawidłowe** dla CSB HR1221W (AGM): katalog dopuszcza
   14,4–15,0 V cyklicznie i 13,5–13,8 V buforowo.
 - **Limit prądu jest za wysoki.** Karta katalogowa CSB podaje **2,1 A na
-  pakiet**, czyli 10,5 A dla banku pięciu — nie 15–20 A.
+  pakiet**, czyli 8,4 A dla banku czterech — nie 15–20 A.
 
 Brakuje tam też kompensacji temperaturowej, która dla tej serii ma **dwa różne
 współczynniki** (−18 mV/°C float, −30 mV/°C cykl) — patrz §4.5.

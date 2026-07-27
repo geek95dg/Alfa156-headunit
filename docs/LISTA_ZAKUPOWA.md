@@ -4,7 +4,7 @@ Jedna lista do wariantu z [`WDROZENIE_TESTOWE.md`](WDROZENIE_TESTOWE.md):
 instalacja jeżdżąca z pełnym torem zasilania, Android Auto wireless, dźwiękiem
 przez mini-jack i przyciskami SWC.
 
-Ceny orientacyjne, rynek PL, 2025/2026. **Razem: ~494–948 PLN.**
+Ceny orientacyjne, rynek PL, 2025/2026. **Razem: ~483–928 PLN.**
 
 ---
 
@@ -17,7 +17,7 @@ Ceny orientacyjne, rynek PL, 2025/2026. **Razem: ~494–948 PLN.**
 | Karta WiFi MediaTek MT7921 | P2P-GO dla Android Auto wireless |
 | Pody SWC + dekoder rezystorowy | przyciski na kierownicy |
 | Modem LTE Huawei E3372 (HiLink) | internet |
-| CSB HR1221W F2 × 8 (12 V / 5,1 Ah AGM) | bank buforowy — użyj 5, lepiej 8 |
+| CSB HR1221W F2 × 8 (12 V / 5,1 Ah AGM) | bank buforowy — **użyj 4 (20,4 Ah)**, tyle się mieści |
 | **XL6019** | step-up 12 → 19,5 V dla M910q |
 | **XH-M609** | LVD, ochrona banku |
 | **Arduino Pro Micro** (ATmega32U4) | SWC, enkoder, przyciski — USB HID |
@@ -51,7 +51,7 @@ Ceny orientacyjne, rynek PL, 2025/2026. **Razem: ~494–948 PLN.**
 | 12 | Rezystory 1/4 W | 2,2 kΩ × 2, 10 kΩ × 2, 1 kΩ × 2 | do transoptorów i pull-upów | 5–10 |
 | 13 | Kondensator 100 nF × 2 | ceramiczny | filtr na wejściach zapłonu i diody | 2–4 |
 | 14 | Bezpiecznik **15 A** + oprawka | przy klemie „+" | zasilanie ładowarki | 15–25 |
-| 15 | Bezpieczniki inline **10 A × 5** + oprawki | | po jednym na pakiet banku | 25–40 |
+| 15 | Bezpieczniki inline **10 A × 4** + oprawki | | po jednym na pakiet banku | 20–32 |
 | 16 | Bezpiecznik inline **15 A** + oprawka | | wejście XH-M609 | 8–12 |
 | 17 | Bezpiecznik **7,5 A** + oprawka | | odgałęzienie XL6019 | 8–12 |
 | 18 | Bezpiecznik **3 A** + oprawka × 2 | | LM2596 (podświetlenie) i MP1584 (Nano) | 12–20 |
@@ -62,10 +62,10 @@ Ceny orientacyjne, rynek PL, 2025/2026. **Razem: ~494–948 PLN.**
 | 23 | Nasuwki **F2 6,35 mm** izolowane | komplet | zaciski akumulatorów HR1221W | 15–25 |
 | 24 | Konektory oczkowe, tulejki, koszulki | zestaw, koszulki z klejem | | 30–50 |
 | 25 | **Rozłącznik masy 100 A** | kluczykowy albo pokrętło | jedyne realne zero poboru na postoju | 40–70 |
-| 26 | Skrzynka / wspornik na bank + pasy | na 5–8 pakietów | mocowanie do nadwozia | 60–120 |
+| 26 | Skrzynka / wspornik na bank + pasy | na 4 pakiety (7,2 kg) | mocowanie do nadwozia | 50–100 |
 | 27 | Peszel + przelotki gumowe | 5 m + komplet | przejścia przez blachę | 25–40 |
 | 28 | Kabel USB z **przeciętą żyłą VBUS** | albo przetnij czerwoną w zwykłym | Nano ma własne 5 V — dwa źródła nie mogą się bić | 0–20 |
-| | | | **Razem** | **494–948** |
+| | | | **Razem** | **483–928** |
 
 ---
 
@@ -88,7 +88,7 @@ Ceny orientacyjne, rynek PL, 2025/2026. **Razem: ~494–948 PLN.**
 |---------|----------|
 | VSR / separator akumulatorów | zastąpiony przekaźnikiem z zapłonu i diodą — §5.3c [`ZASILANIE_BUFOROWANE.md`](ZASILANIE_BUFOROWANE.md) |
 | Ładowarka B2B (Victron / Redarc) | wariant z przekaźnikiem i boostem robi to samo za ~1/5 ceny |
-| Moduł buck-boost LTC3780 | utrzyma 13,8 V, ale tylko 80 W ciągle — za mało przy pięciu pakietach |
+| Moduł buck-boost LTC3780 | utrzyma 13,8 V, ale tylko 80 W ciągle — za mało nawet przy czterech pakietach |
 | Czujnik NTC | tanie moduły CC-CV nie mają wejścia kompensacji |
 | Przewód 6 mm², bezpiecznik główny 30 A | wymiarowane pod ładowarkę B2B, nie pod 8 A |
 | Buck 12 → 5 V dla panelu | logika i dotyk idą po USB z M910q |
@@ -105,6 +105,7 @@ Ceny orientacyjne, rynek PL, 2025/2026. **Razem: ~494–948 PLN.**
 | Dokument | Zakres |
 |----------|--------|
 | [`WDROZENIE_TESTOWE.md`](WDROZENIE_TESTOWE.md) | co z tym zrobić — krok po kroku |
+| [`ARDUINO_OD_ZERA.md`](ARDUINO_OD_ZERA.md) | wgranie firmware na Nano — od kabla po test na biurku |
 | [`ZASILANIE_BUFOROWANE.md`](ZASILANIE_BUFOROWANE.md) | nastawy, uzasadnienia, lista dla wersji docelowej (§10) |
 | [`SCHEMATY_POLACZEN.md`](SCHEMATY_POLACZEN.md) | tabele „skąd → dokąd" (§10 — wariant testowy) |
 | [`../schematics/schematic_test_build.svg`](../schematics/schematic_test_build.svg) | schemat ideowy |

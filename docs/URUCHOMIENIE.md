@@ -212,6 +212,10 @@ Okablowanie pin-po-pinie: **[docs/ARDUINO_SETUP_GUIDE.md](ARDUINO_SETUP_GUIDE.md
 — §7 (Nano always-on) i **§7b (sensor hub)**. Szybki test sensor huba:
 `picocom -b 115200 /dev/ttyUSB1` → linie `DOOR:...`, `IGN:0`, `TEMP:21.4`.
 
+Jeśli `arduino-cli` i `make` to dla Ciebie za dużo naraz — to samo przez
+klikanie w Arduino IDE, od instalacji sterownika po pierwsze wgranie:
+**[docs/ARDUINO_OD_ZERA.md](ARDUINO_OD_ZERA.md)**.
+
 ---
 
 ## 5. Przełączniki modułów (wszystkie)
