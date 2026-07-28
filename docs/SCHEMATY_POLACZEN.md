@@ -514,11 +514,24 @@ Ten rozdział dotyczy **wyłącznie** wariantu z
 M910q zasilany stale. Tabele §2–§5 opisują wersję docelową i tutaj **nie
 obowiązują**.
 
-**Rysunki:** [`../schematics/schematic_test_build.svg`](../schematics/schematic_test_build.svg)
-(ideowy) · [`../schematics/wiring_test_build.svg`](../schematics/wiring_test_build.svg)
-(połączeniowy, numery przewodów jak niżej) ·
-[`../schematics/ignition_sense.svg`](../schematics/ignition_sense.svg)
-(wykrywanie zapłonu)
+**Rysunki — zacznij od tych dwóch.** Każdy element jest na nich narysowany
+osobno: TVS i C1 to nie jeden bloczek, tylko dwa symbole z własnymi
+połączeniami; cewki i styki przekaźników są rozdzielone (K1 i K2 to po
+jednym przekaźniku, narysowanym w dwóch miejscach).
+
+| Arkusz | Zakres |
+|--------|--------|
+| [`../schematics/schematic_test_power.svg`](../schematics/schematic_test_power.svg) | **1/2 — zasilanie.** Tor ładowania, bank z bezpiecznikami pakietów, LVD, wyłącznik, trzy przetwornice. Numery przewodów jak w tabelach niżej. |
+| [`../schematics/schematic_test_signals.svg`](../schematics/schematic_test_signals.svg) | **2/2 — sygnały.** Oba transoptory, Arduino Nano, moduł przekaźnika, przycisk M910q, rozdział mas. |
+
+Generator obu: [`../schematics/gen_test_schematics.py`](../schematics/gen_test_schematics.py)
+— po zmianie tabel popraw generator i wygeneruj SVG ponownie, nie edytuj ich ręcznie.
+
+Uzupełniająco: [`schematic_test_build.svg`](../schematics/schematic_test_build.svg)
+(skrót ideowy) · [`wiring_test_build.svg`](../schematics/wiring_test_build.svg)
+(rozmieszczenie i przekroje) ·
+[`ignition_sense.svg`](../schematics/ignition_sense.svg)
+(przebiegi czasowe uśpienia i wybudzania)
 
 ### 10.1 Tor ładowania
 
@@ -584,23 +597,41 @@ Nasuwki **F2 6,35 mm** izolowane, zaciskane zaciskarką zapadkową.
 podświetlenie. Panel ma jeden kabel USB do komputera i jedno złącze
 zasilania podświetlenia.
 
-### 10.4 Wykrywanie zapłonu
+### 10.4 Wejścia optoizolowane — zapłon i bieg wsteczny
 
-Wartości elementów i uzasadnienie: [`../schematics/ignition_sense.svg`](../schematics/ignition_sense.svg).
+Rysunek: [`../schematics/schematic_test_signals.svg`](../schematics/schematic_test_signals.svg).
+Przebiegi czasowe: [`../schematics/ignition_sense.svg`](../schematics/ignition_sense.svg).
+
+**Płytką jest Arduino Nano** z `arduino/sensor_hub/sensor_hub.ino` — nie Pro
+Micro. Pro Micro obsługuje SWC, enkoder i przyciski i do tej części nie jest
+potrzebne. Piny poniżej odpowiadają `PIN_IGN 9` i `PIN_PWR_RELAY A0`
+z firmware'u.
 
 | # | Skąd | Dokąd | Przewód |
 |---|------|-------|---------|
 | 15 | Zapłon / ACC **12 V** | **R1** 2,2 kΩ / 0,25 W → **U1 (PC817)** pin **1** | 0,5 mm² |
 | 16 | **U1** pin **2** | **Masa instalacji auta** — NIE punkt gwiazdowy | 0,5 mm² |
-| 17 | **U1** pin **4** | Pro Micro **D0 (RXI)** | 0,5 mm² |
-| 18 | **U1** pin **3** | Pro Micro **GND** | 0,5 mm² |
-| 19 | Pro Micro **D0** | **R2** 10 kΩ → Pro Micro **+5 V** (opcjonalny) | 0,5 mm² |
-| 20 | Pro Micro **D0** | **C2** 100 nF → Pro Micro **GND** | 0,5 mm² |
+| 17 | **U1** pin **4** | Nano **D9** | 0,5 mm² |
+| 18 | **U1** pin **3** | Nano **GND** | 0,5 mm² |
+| 20 | Nano **D9** | **C3** 100 nF → Nano **GND** | 0,5 mm² |
+| 15a | Światło cofania **12 V** | **R3** 2,2 kΩ / 0,25 W → **U2 (PC817)** pin **1** | 0,5 mm² |
+| 16a | **U2** pin **2** | **Masa instalacji auta** — wspólnie z przewodem 16 | 0,5 mm² |
+| 17a | **U2** pin **4** | Nano **D10** | 0,5 mm² |
+| 18a | **U2** pin **3** | Nano **GND** | 0,5 mm² |
+| 20a | Nano **D10** | **C4** 100 nF → Nano **GND** | 0,5 mm² |
 
-> **Przewody 16 i 18 celowo idą do różnych mas.** Na tym polega optoizolacja:
-> po jednej stronie PC817 jest masa auta, po drugiej masa Pro Micro. Zwarcie
-> ich niweczy cały sens układu i wpuszcza do komputera wszystko, co jeździ po
-> linii ACC.
+Rezystory podciągające są zbędne — oba wejścia pracują jako `INPUT_PULLUP`.
+
+> **Wejście biegu wstecznego wymaga jeszcze zmiany w firmwarze.** Sketch ma
+> dziś `FEATURE_IGN` i `FEATURE_PWRBTN`, nie ma `FEATURE_REV`. Sam układ
+> wejściowy jest kopią zapłonu, więc okablowanie możesz zrobić od razu.
+> Sygnał bierz z obwodu świateł cofania — czujnik na skrzyni podaje 12 V,
+> a lampa jest w tej samej kloszy, obok której i tak biegnie kabel kamery.
+
+> **Przewody 16/16a i 18/18a celowo idą do różnych mas.** Na tym polega
+> optoizolacja: po jednej stronie PC817 jest masa auta, po drugiej masa
+> Arduino. Zwarcie ich niweczy cały sens układu i wpuszcza do komputera
+> wszystko, co jeździ po linii ACC.
 
 ### 10.5 Sterowanie przyciskiem zasilania M910q
 
@@ -610,25 +641,26 @@ zasilania**, a resztę robi acpid, który jest już skonfigurowany
 
 | # | Skąd | Dokąd | Przewód |
 |---|------|-------|---------|
-| 21 | Pro Micro **A2** | Moduł przekaźnika **IN** | 0,5 mm² |
-| 22 | Pro Micro **+5 V** / **GND** | Moduł przekaźnika **VCC** / **GND** | 0,5 mm² |
+| 21 | Nano **A0** | Moduł przekaźnika **IN** | 0,5 mm² |
+| 22 | Nano **5 V** / **GND** | Moduł przekaźnika **VCC** / **GND** | 0,5 mm² |
 | 23 | Przekaźnik **COM** | Przycisk zasilania M910q, zacisk 1 | 0,5 mm² |
 | 24 | Przekaźnik **NO** | Przycisk zasilania M910q, zacisk 2 | 0,5 mm² |
-| 25 | **MP1584 OUT+** / **OUT−** | Pro Micro **VCC** / **GND** | 0,75 mm² |
+| 25 | **MP1584 OUT+** / **OUT−** | Nano **5 V** / **GND** | 0,75 mm² |
 
 Styki przekaźnika idą **równolegle** do przycisku — przycisk dalej działa
 normalnie i zostaje ratunkiem awaryjnym.
 
-| Impuls na A2 | Efekt |
+| Impuls na A0 | Efekt |
 |--------------|-------|
 | **250 ms** przy pracy | uśpienie do S3 |
 | **250 ms** w S3 | wybudzenie w ~3 s |
 | **250 ms** po wyłączeniu | start (zimny, ~40 s) |
 | **5 s** | twarde wyłączenie — pobór spada do ~80–120 mA |
 
-> **Przetnij żyłę VBUS (czerwoną) w kablu USB do Pro Micro.** Płytka jest
-> zasilana z MP1584 (przewód 25) i musi żyć, gdy M910q śpi. Dwa źródła 5 V
-> zwarte razem to niepotrzebne ryzyko; dane po USB działają bez VBUS.
+> **Przetnij żyłę VBUS (czerwoną) w kablu USB do Nano.** Płytka jest
+> zasilana z MP1584 (przewód 25) i musi żyć, gdy M910q śpi — a wtedy port USB
+> jest martwy. Dwa źródła 5 V zwarte razem to niepotrzebne ryzyko; dane po USB
+> działają bez VBUS.
 
 > **Zaciski przycisku znajdź miernikiem** w trybie ciągłości, przy maszynie
 > odłączonej od zasilania: rozwarte, zwarte przy wciśnięciu.
@@ -638,10 +670,10 @@ normalnie i zostaje ratunkiem awaryjnym.
 Lądują na nim: „−” akumulatora rozruchowego, „−” TVS/C1, zacisk **85** K1,
 **IN−** i **OUT−** boostu, „−” zasilania rozłącznika nadnapięciowego, szyna
 **„−”** banku, **VIN−** i **VOUT−** modułu XH-M609, **IN−** przetwornic
-XL6019 i LM2596.
+XL6019, LM2596 i MP1584.
 
-**Jedyny wyjątek:** masa układu wykrywania zapłonu (**U1 pin 2**, przewód 16)
-idzie do masy instalacji auta.
+**Jedyny wyjątek:** masa wejść optoizolowanych (**U1 pin 2** i **U2 pin 2**,
+przewody 16 i 16a) idzie do masy instalacji auta.
 
 ### 10.7 Kolejność podłączania
 
