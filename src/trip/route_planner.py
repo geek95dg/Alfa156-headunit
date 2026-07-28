@@ -156,11 +156,22 @@ class RoutePlanner:
         self._ors_key = str(config.get("travel.openrouteservice_key", "") or "")
         self._tomtom_key = str(config.get("travel.tomtom_key", "") or "")
 
-        log.info(
-            "RoutePlanner initialised (ors=%s, tomtom=%s)",
-            "on" if self._ors_key else "off",
-            "on" if self._tomtom_key else "off",
-        )
+        if self._ors_key:
+            log.info(
+                "RoutePlanner initialised (ors=on, tomtom=%s)",
+                "on" if self._tomtom_key else "off",
+            )
+        else:
+            # Bez klucza planer nie liczy trasy — zwraca odległość w linii
+            # prostej. Wygląda to jak działająca funkcja i dlatego jest gorsze
+            # niż jawny błąd: dostajesz liczbę, która po prostu kłamie
+            # (w mieście potrafi zaniżyć czas przejazdu dwukrotnie).
+            log.error(
+                "RoutePlanner: brak travel.openrouteservice_key — trasy będą "
+                "liczone W LINII PROSTEJ, bez dróg i bez realnego czasu "
+                "przejazdu. Załóż darmowe konto na openrouteservice.org i "
+                "wpisz klucz w config/bcm_config.yaml -> travel."
+            )
 
     # ------------------------------------------------------------------ #
     # Public API                                                         #
@@ -180,6 +191,8 @@ class RoutePlanner:
             incidents          list[dict]              (TomTom or [])
             predicted_fuel_l   float                   (distance * avg/100)
             computed_at        float                   (unix ts)
+            approximate        bool                    (True = brak klucza ORS,
+                                                        odległość w linii prostej)
         """
         route = self._fetch_route(start, dest)
         if not route:
@@ -209,6 +222,7 @@ class RoutePlanner:
         predicted_fuel = estimate_fuel(dist_km, avg_consumption)
 
         return {
+            "approximate": bool(route.get("approximate")),
             "distance_km": round(dist_km, 1),
             "duration_min": round(duration_min, 1),
             "geometry": geometry,
@@ -226,8 +240,7 @@ class RoutePlanner:
     def _fetch_route(self, start: tuple[float, float],
                      dest: tuple[float, float]) -> Optional[dict]:
         if not self._ors_key:
-            log.info("No OpenRouteService key — skipping real routing, "
-                     "using straight-line estimate")
+            log.warning("No OpenRouteService key — straight-line estimate only")
             return self._straight_line_fallback(start, dest)
 
         body = {
@@ -269,6 +282,9 @@ class RoutePlanner:
             "distance_km": dist,
             "duration_min": dist / 80.0 * 60.0,
             "geometry": [start, dest],
+            # Oznaczone, żeby UI mogło to nazwać po imieniu. Bez tej flagi
+            # ekran pokazuje liczbę nieodróżnialną od prawdziwej trasy.
+            "approximate": True,
         }
 
     # ------------------------------------------------------------------ #

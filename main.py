@@ -271,6 +271,14 @@ def main() -> None:
         nonlocal shutdown
         log.info("Received signal %d, shutting down...", signum)
         shutdown = True
+        # Tell every module we are going down.
+        #
+        # Several of them already subscribe to this (openauto stops autoapp,
+        # audio kills the EQ filter-chain and hands the sink back), but until
+        # now the only publisher was PowerManager — so with modules.power off
+        # the topic never fired and those cleanups never ran. Orphaned autoapp
+        # and `pipewire -c` processes came from exactly this.
+        event_bus.publish("power.shutting_down", True)
         # Stop WiFi AP
         if wifi_ap is not None:
             wifi_ap.stop()

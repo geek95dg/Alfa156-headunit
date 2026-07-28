@@ -226,17 +226,51 @@ class OpenAutoController:
         self._monitor_thread: Optional[threading.Thread] = None
         self._log_thread: Optional[threading.Thread] = None
 
+        self._project_dir = os.path.dirname(os.path.dirname(
+            os.path.dirname(os.path.abspath(__file__))))
+
         if self._binary:
             log.info("OpenAuto found: %s", self._binary)
             # Create config in project root (autoapp reads from cwd)
-            project_dir = os.path.dirname(os.path.dirname(
-                os.path.dirname(os.path.abspath(__file__))))
-            _create_openauto_config(project_dir, app_config=config)
+            _create_openauto_config(self._project_dir, app_config=config)
         else:
-            log.info("OpenAuto not installed — AA will be unavailable")
+            # This is THE reason Android Auto does not come up on a fresh
+            # install: autoapp is not part of setup-x86.sh, it has to be built
+            # from source. It used to be logged at info level next to a dozen
+            # other lines and the module still reported itself as started, so
+            # it read like everything was fine.
+            log.error(
+                "Android Auto WILL NOT WORK: autoapp binary not found in %s. "
+                "It is not installed by setup-x86.sh — build it with "
+                "`sudo bash config/scripts/install-openauto.sh` (see "
+                "docs/X86_PLATFORM_SETUP.md §11).",
+                ", ".join(OPENAUTO_PATHS),
+            )
 
         # Subscribe to lifecycle events
         self._event_bus.subscribe("power.shutting_down", self._on_shutdown)
+
+        # Wi-Fi Direct GOs invent their own SSID and passphrase at group
+        # creation time, so the values that matter are only known once the AP
+        # is actually up. Nothing listened for them before, which meant
+        # openauto.ini kept whatever was in the YAML — and the YAML held a
+        # stale DIRECT-xx/password pair from some earlier run. The phone was
+        # handed credentials for a network that no longer existed.
+        self._event_bus.subscribe("wifi.ap_credentials", self._on_ap_credentials)
+
+    def _on_ap_credentials(self, topic: str, value: Any, timestamp: float) -> None:
+        """Regenerate openauto.ini when the AP publishes its real credentials."""
+        if not self._binary:
+            return
+        try:
+            _create_openauto_config(self._project_dir, app_config=self._config)
+            ssid = ""
+            if isinstance(value, dict):
+                ssid = value.get("ssid", "")
+            log.info("openauto.ini refreshed with live AP credentials (ssid=%s)",
+                     ssid or "?")
+        except OSError as e:
+            log.error("Could not refresh openauto.ini: %s", e)
 
     @property
     def available(self) -> bool:

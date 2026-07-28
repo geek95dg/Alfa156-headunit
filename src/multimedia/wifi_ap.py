@@ -128,6 +128,11 @@ class WiFiAPManager:
         self._net_hostapd_proc: Optional[subprocess.Popen] = None
         self._net_dnsmasq_proc: Optional[subprocess.Popen] = None
 
+        # This used to sit after a `return` inside _alfa_net_enabled(), so it
+        # was dead code and _on_shutdown never ran — hostapd, dnsmasq and our
+        # own wpa_supplicant were left behind on every shutdown.
+        self._event_bus.subscribe("power.shutting_down", self._on_shutdown)
+
     def _alfa_net_enabled(self) -> bool:
         """Whether the secondary ALFA-NET access point should run.
 
@@ -139,9 +144,6 @@ class WiFiAPManager:
         from src.core import modules_catalog
         state = modules_catalog.is_enabled(self._config, "wifi_hotspot")
         return bool(state)
-
-        # Subscribe to shutdown
-        self._event_bus.subscribe("power.shutting_down", self._on_shutdown)
 
     @property
     def running(self) -> bool:

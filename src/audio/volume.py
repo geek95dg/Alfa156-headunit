@@ -89,8 +89,19 @@ def start_audio(config: Any, event_bus: EventBus, hal: Any = None,
 
     Initializes PipeWire controller, source manager, ducking, and volume.
     """
-    # PipeWire controller
+    # PipeWire controller.
+    #
+    # Order below is deliberate. start_output() waits for PipeWire, picks the
+    # hardware sink, unmutes it and only then brings the EQ chain up pinned to
+    # it. It has to run BEFORE VolumeController, which sets the initial level
+    # on whatever is default at that moment — previously the EQ routing thread
+    # was still racing and the level often landed on the wrong node.
+    #
+    # The constructor no longer applies the preset by itself; before v8.5.3 it
+    # did, and start_audio() applied it a second time, so two routing threads
+    # fought over the default sink.
     pw = PipeWireController(config, event_bus)
+    pw.start_output()
 
     # Source manager
     source_mgr = SourceManager(event_bus)
@@ -102,9 +113,9 @@ def start_audio(config: Any, event_bus: EventBus, hal: Any = None,
     initial_vol = config.get("audio.master_volume", 70)
     volume = VolumeController(pw, event_bus, initial_volume=initial_vol)
 
-    # Apply initial EQ preset
-    eq_preset = config.get("audio.eq_preset", "flat")
-    pw.apply_eq_preset(eq_preset)
+    # Nothing in the startup path used to unmute, so a card that came up muted
+    # (a fresh Realtek usually does) stayed muted forever.
+    volume.unmute()
 
     # Spectrum analyzer
     spectrum_enabled = config.get("audio.spectrum_enabled", True)
@@ -113,8 +124,17 @@ def start_audio(config: Any, event_bus: EventBus, hal: Any = None,
         spectrum = SpectrumAnalyzer(event_bus)
         spectrum.start()
 
-    log.info("Audio module running (PipeWire %s)",
-             "active" if pw.available else "simulated")
+    # Hand the output back and kill the filter-chain child on the way out.
+    def _on_shutdown(topic: str, value: Any, timestamp: float) -> None:
+        pw.stop()
+        if spectrum is not None:
+            spectrum.stop()
+
+    event_bus.subscribe("power.shutting_down", _on_shutdown)
+
+    log.info("Audio module running (PipeWire %s, output=%s)",
+             "active" if pw.available else "simulated",
+             pw.hardware_sink or "unknown")
 
     # Store references for cleanup
     event_bus.publish("audio._internals", {

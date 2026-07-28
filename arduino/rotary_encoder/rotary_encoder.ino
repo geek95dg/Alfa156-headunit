@@ -45,8 +45,40 @@
  *   NOTE: A4 is not broken out on a classic Pro Micro — it needs a clone
  *   with the A4 pad (or the inner bottom pad). See docs/ARDUINO_SETUP_GUIDE.md.
  *
- * Calibration mode: hold HOME + BACK at boot → SWC calibration via serial.
- * Watchdog: 2 s (enabled after the calibration window).
+ * Calibration mode: hold HOME + BACK at boot (gdy FEATURE_BUTTONS jest
+ *   włączone) ALBO wyślij "CAL" na port szeregowy w dowolnym momencie.
+ * Watchdog: 2 s (wyłączany na czas kalibracji).
+ *
+ * ---------------------------------------------------------------------------
+ * v8.5.3 — naprawa fałszywych przycisków SWC
+ *
+ * Objaw: przy niepodłączonych podach płytka sypała zdarzeniami, przy czym
+ * OBA pody raportowały ten sam przycisk przy niemal tej samej wartości ADC.
+ * Trzy niezależne przyczyny, wszystkie usunięte:
+ *
+ *   1. Wejścia analogowe były ustawione jako gołe INPUT. Kod uznaje spoczynek
+ *      za "ADC > SWC_IDLE_THRESHOLD" (≈ VCC), więc WYMAGA, żeby coś trzymało
+ *      linię wysoko. Teraz INPUT_PULLUP. W aucie i tak lepszy jest zewnętrzny
+ *      10 kΩ do VCC — wewnętrzny ma 20–50 kΩ i szeroką tolerancję.
+ *
+ *   2. Multiplekser ADC ma JEDEN kondensator sample-and-hold na wszystkie
+ *      kanały. Pierwsza konwersja po przełączeniu kanału niesie ładunek
+ *      z kanału poprzedniego — przy pływającym wejściu praktycznie w całości.
+ *      Stąd Pod 2 był kopią Pod 1. Teraz: adcStable() odrzuca dwie pierwsze
+ *      konwersje i zwraca MEDIANĘ (mediana ignoruje pik, średnia go rozmazuje).
+ *
+ *   3. Nie było realnego debounce'u: licznik czasu odświeżał się tylko przy
+ *      ZMIANIE odczytu, więc pierwsza odbiegająca próbka natychmiast wysyłała
+ *      klawisz. Teraz kandydat musi być stabilny przez SWC_CONFIRM_MS, a między
+ *      dwoma różnymi przyciskami wymagany jest powrót do spoczynku.
+ *
+ * To nie była wyłącznie uciążliwość: SWC MODE wysyła F10, które BCM mapuje na
+ * input.bcm_power_toggle — szum potrafił wyłączyć komputer.
+ *
+ * Przy okazji: piny enkodera dostały INPUT_PULLUP (bez podłączonego enkodera
+ * pływały i przerwanie CHANGE sypało strzałkami), a wejścia, których nie masz
+ * podłączonych, można teraz wyłączyć przełącznikami FEATURE_* poniżej.
+ * ---------------------------------------------------------------------------
  */
 
 #include <avr/wdt.h>
@@ -55,6 +87,30 @@
 // ze stockowego Keyboard.h psują kompilację (konflikt makro vs enum).
 #include <HID-Project.h>
 #include <EEPROM.h>
+
+// --- Przełączniki funkcji -------------------------------------------------
+// Zakomentuj to, czego nie masz podłączonego. Niepodłączone wejścia cyfrowe
+// z pull-upem są nieszkodliwe, ale wyłączenie ich skraca pętlę i usuwa szum
+// z portu szeregowego. Wejścia ANALOGOWE wyłączaj zawsze, gdy nic na nich
+// nie wisi — pływający pin to śmieci w multiplekserze ADC.
+//
+// Domyślnie: tylko pody SWC. To jedyna rzecz, która ma teraz działać.
+#define FEATURE_SWC        // pody SWC na kierownicy (A0 + A6)
+// #define FEATURE_ENCODER // enkoder obrotowy + przycisk (D2, D3, D1)
+// #define FEATURE_BUTTONS // HOME / BACK / MEDIA / VOL+ / VOL− (D5–D9)
+// #define FEATURE_MUSIC   // panel muzyczny (D10, D14, D15, D16, A3)
+// #define FEATURE_STALK   // przycisk manetki → F9 (A2)
+// #define FEATURE_LIGHT   // fotorezystor LDR (A1)
+// #define FEATURE_FUEL    // czujnik paliwa (A4) — patrz #error niżej
+
+#if defined(FEATURE_FUEL)
+#error "A4 nie jest wyprowadzone na klasycznym Pro Micro (PF1). Potrzebny klon z padem A4 albo inna plytka — patrz docs/ARDUINO_SETUP_GUIDE.md."
+#endif
+
+#if !defined(FEATURE_SWC) && !defined(FEATURE_ENCODER) && !defined(FEATURE_BUTTONS) \
+    && !defined(FEATURE_MUSIC) && !defined(FEATURE_STALK) && !defined(FEATURE_LIGHT)
+#error "Wszystkie FEATURE_* sa zakomentowane — plytka nie robilaby nic. Odkomentuj przynajmniej FEATURE_SWC."
+#endif
 
 // --- Pin definitions ---
 #define ENC_CLK 2
@@ -86,9 +142,20 @@
 // --- Debounce ---
 #define DEBOUNCE_MS 50
 #define ENCODER_DEBOUNCE_MS 5
-#define SWC_DEBOUNCE_MS 150
 #define ADC_TOLERANCE 40
 #define LIGHT_REPORT_MS 2000  // Send light level every 2 seconds
+
+// --- Odczyt ADC (patrz nota v8.5.3 w nagłówku) ---
+// Dwie konwersje na rozruch multipleksera, potem 5 próbek i mediana.
+// Koszt: ~2,4 ms na kanał. Przy dwóch podach pętla trwa ~5 ms — bez znaczenia
+// wobec 50 ms debounce'u przycisków i 2 s watchdoga.
+#define ADC_SETTLE_US   200   // po przełączeniu kanału, na naładowanie S/H
+#define ADC_SAMPLES       5   // nieparzyście — mediana musi mieć środek
+#define ADC_SPACING_US  400   // rozrzut próbek, żeby nie złapać jednego piku
+
+// Kandydat musi być odczytany tak samo przez tyle czasu, zanim poleci HID.
+// 60 ms to kompromis: krócej łapie zakłócenia, dłużej daje wrażenie opóźnienia.
+#define SWC_CONFIRM_MS   60
 
 // --- SWC button count (12 per pod x 2 pods = 24 total) ---
 #define SWC_BUTTONS_PER_POD 12
@@ -143,80 +210,128 @@ uint16_t swcValues[SWC_BUTTON_COUNT] = {
   540, 610, 690, 760, 830, 900,
 };
 
+#ifdef FEATURE_ENCODER
 // --- State: encoder ---
 volatile int encoderPos = 0;
 int lastEncoderPos = 0;
 int lastCLK = HIGH;
+#endif
 
+#if defined(FEATURE_BUTTONS) || defined(FEATURE_ENCODER)
 // --- State: main buttons (6: enc_sw, home, back, media, vol+, vol-) ---
 #define MAIN_BTN_COUNT 6
 unsigned long lastButtonTime[MAIN_BTN_COUNT] = {0};
 bool lastButtonState[MAIN_BTN_COUNT] = {HIGH, HIGH, HIGH, HIGH, HIGH, HIGH};
 const int buttonPins[MAIN_BTN_COUNT] = {ENC_SW, BTN_HOME, BTN_BACK, BTN_MEDIA, BTN_VOLUP, BTN_VOLDN};
+#endif
 
+#ifdef FEATURE_MUSIC
 // --- State: music panel buttons (5) ---
 #define MUSIC_BTN_COUNT 5
 unsigned long lastMusicTime[MUSIC_BTN_COUNT] = {0};
 bool lastMusicState[MUSIC_BTN_COUNT] = {HIGH, HIGH, HIGH, HIGH, HIGH};
 const int musicPins[MUSIC_BTN_COUNT] = {MUS_PREV, MUS_NEXT, MUS_VOLUP, MUS_VOLDN, MUS_MUTE};
+#endif
 
+#ifdef FEATURE_STALK
 // --- State: stalk brightness button ---
 unsigned long lastStalkTime = 0;
 bool lastStalkState = HIGH;
+#endif
 
+#ifdef FEATURE_SWC
 // --- State: SWC (per-pod) ---
-int lastSWCButton1 = -1;
-int lastSWCButton2 = -1;
-unsigned long lastSWCTime1 = 0;
-unsigned long lastSWCTime2 = 0;
-bool calibrationMode = false;
+//
+// reported  — ostatni stan wysłany do komputera (-1 = spoczynek)
+// candidate — odczyt oczekujący na potwierdzenie
+// candAt    — od kiedy candidate jest niezmienny
+struct SwcPod {
+  uint8_t      pin;
+  uint8_t      offset;
+  int8_t       reported;
+  int8_t       candidate;
+  unsigned long candAt;
+  const char*  tag;
+};
 
+SwcPod swcPods[2] = {
+  {SWC_PIN1, 0,                   -1, -1, 0, "SWC1"},
+  {SWC_PIN2, SWC_BUTTONS_PER_POD, -1, -1, 0, "SWC2"},
+};
+#endif
+
+#ifdef FEATURE_LIGHT
 // --- State: light sensor ---
 unsigned long lastLightReport = 0;
-unsigned long lastFuelReport = 0;
+#endif
 
 // --- Forward declarations ---
+#if defined(FEATURE_BUTTONS) || defined(FEATURE_ENCODER)
 void handleButtonPress(int buttonIndex);
+#endif
+#ifdef FEATURE_MUSIC
 void handleMusicButton(int buttonIndex);
-void handleSWCButton(int buttonIndex);
+#endif
+#ifdef FEATURE_ENCODER
 void readEncoder();
+#endif
+#ifdef FEATURE_SWC
+void handleSWCButton(int buttonIndex);
 void loadSWCCalibration();
 void saveSWCCalibration();
 void runCalibration();
-int readSWCButton(int pin, int offset);
+int  readSWCButton(uint8_t pin, uint8_t offset);
+void handlePod(SwcPod &p, unsigned long now);
+#endif
+#ifdef FEATURE_LIGHT
 void reportLightLevel();
-void reportFuelLevel();
+#endif
+int adcStable(uint8_t pin);
 
 void setup() {
-  // Encoder pins (external pull-ups)
-  pinMode(ENC_CLK, INPUT);
-  pinMode(ENC_DT, INPUT);
-
-  // Main button pins (internal pull-ups)
+#ifdef FEATURE_ENCODER
+  // Enkoder — INPUT_PULLUP, nie gołe INPUT. Bez podłączonej płytki enkodera
+  // pin pływa, a przerwanie CHANGE sypie strzałkami do komputera. Zewnętrzne
+  // 10 kΩ (jeśli je masz) po prostu zadziała równolegle.
+  pinMode(ENC_CLK, INPUT_PULLUP);
+  pinMode(ENC_DT, INPUT_PULLUP);
   pinMode(ENC_SW, INPUT_PULLUP);
+  attachInterrupt(digitalPinToInterrupt(ENC_CLK), readEncoder, CHANGE);
+#endif
+
+#ifdef FEATURE_BUTTONS
   pinMode(BTN_HOME, INPUT_PULLUP);
   pinMode(BTN_BACK, INPUT_PULLUP);
   pinMode(BTN_MEDIA, INPUT_PULLUP);
   pinMode(BTN_VOLUP, INPUT_PULLUP);
   pinMode(BTN_VOLDN, INPUT_PULLUP);
+#endif
 
-  // Music panel pins (internal pull-ups)
+#ifdef FEATURE_MUSIC
   pinMode(MUS_PREV, INPUT_PULLUP);
   pinMode(MUS_NEXT, INPUT_PULLUP);
   pinMode(MUS_VOLUP, INPUT_PULLUP);
   pinMode(MUS_VOLDN, INPUT_PULLUP);
   pinMode(MUS_MUTE, INPUT_PULLUP);
+#endif
 
-  // Brightness stalk button (internal pull-up)
+#ifdef FEATURE_STALK
   pinMode(STALK_BTN_PIN, INPUT_PULLUP);
+#endif
 
-  // Analog inputs (no pull-up needed)
-  pinMode(SWC_PIN1, INPUT);
-  pinMode(SWC_PIN2, INPUT);
+#ifdef FEATURE_SWC
+  // INPUT_PULLUP, nie INPUT. Spoczynek jest tu zdefiniowany jako ADC ≈ VCC,
+  // więc linia MUSI być czymś podciągnięta. Wewnętrzny pull-up (20–50 kΩ)
+  // wystarcza na biurku; w aucie dołóż zewnętrzne 10 kΩ do VCC i skalibruj
+  // pody DOPIERO po jego zamontowaniu — przy pasywnej drabince rezystorowej
+  // podciągnięcie współtworzy dzielnik i zmienia wszystkie progi.
+  pinMode(SWC_PIN1, INPUT_PULLUP);
+  pinMode(SWC_PIN2, INPUT_PULLUP);
+#endif
+
+#ifdef FEATURE_LIGHT
   pinMode(LDR_PIN, INPUT);
-
-  // Encoder interrupt
-  attachInterrupt(digitalPinToInterrupt(ENC_CLK), readEncoder, CHANGE);
+#endif
 
   // Start USB HID
   Keyboard.begin();
@@ -224,29 +339,108 @@ void setup() {
 
   // Start serial for calibration/debug + light sensor data
   Serial.begin(115200);
+  // Domyślny timeout to 1000 ms — przy strumieniu bez znaku nowej linii
+  // readStringUntil() blokowałby pętlę na sekundę przy każdym przebiegu.
+  Serial.setTimeout(50);
 
-  // Load SWC calibration from EEPROM
+#ifdef FEATURE_SWC
   loadSWCCalibration();
 
-  // Check calibration mode: hold HOME + BACK at boot
+#ifdef FEATURE_BUTTONS
+  // Kalibracja z przycisków: HOME + BACK przy starcie. Sprawdzane tylko gdy
+  // te przyciski są w ogóle skonfigurowane — inaczej czytalibyśmy pływający
+  // pin i wchodzili w kalibrację przypadkiem.
   delay(100);
   if (digitalRead(BTN_HOME) == LOW && digitalRead(BTN_BACK) == LOW) {
-    calibrationMode = true;
     runCalibration();
-    calibrationMode = false;
   }
+#endif
+#endif
 
-  Serial.println("BCM v7 Input Controller ready (encoder + buttons + SWC + music + brightness)");
+  Serial.println(F("BCM v8.5.3 Input Controller ready"));
+#ifdef FEATURE_SWC
+  Serial.println(F("SWC: wpisz CAL i Enter, aby uruchomic kalibracje podow"));
+#endif
 
   // Watchdog ON dopiero po (ewentualnej) kalibracji — kalibracja
   // czeka na przyciski użytkownika dłużej niż 2 s.
   wdt_enable(WDTO_2S);
 }
 
+// Odczyt ADC odporny na przesłuch multipleksera i pojedyncze piki.
+//
+// ATmega32U4 ma jeden kondensator sample-and-hold na WSZYSTKIE kanały. Po
+// przełączeniu kanału pierwsza konwersja niesie w sobie ładunek z kanału
+// poprzedniego — przy wysokiej impedancji źródła praktycznie w całości.
+// To dlatego niepodłączony Pod 2 raportował dokładnie to samo co Pod 1.
+//
+// Mediana zamiast średniej: pojedynczy pik przesuwa średnią, medianę
+// zostawia w spokoju.
+int adcStable(uint8_t pin) {
+  analogRead(pin);                    // 1. przełącz multiplekser
+  delayMicroseconds(ADC_SETTLE_US);
+  analogRead(pin);                    // 2. S/H zdążył się naładować
+  delayMicroseconds(ADC_SETTLE_US);
+
+  int s[ADC_SAMPLES];
+  for (uint8_t i = 0; i < ADC_SAMPLES; i++) {
+    s[i] = analogRead(pin);
+    delayMicroseconds(ADC_SPACING_US);
+  }
+
+  // Sortowanie przez wstawianie — przy 5 elementach najtańsze co do bajtów.
+  for (uint8_t i = 1; i < ADC_SAMPLES; i++) {
+    int v = s[i];
+    int8_t j = (int8_t)i - 1;
+    while (j >= 0 && s[j] > v) {
+      s[j + 1] = s[j];
+      j--;
+    }
+    s[j + 1] = v;
+  }
+  return s[ADC_SAMPLES / 2];
+}
+
+#ifdef FEATURE_SWC
+// Jeden pod, jeden przebieg: odczyt → potwierdzenie → ewentualny HID.
+//
+// Zasada: nic nie leci do komputera, dopóki ten sam odczyt nie utrzyma się
+// przez SWC_CONFIRM_MS. Dodatkowo między dwoma RÓŻNYMI przyciskami wymagany
+// jest powrót do spoczynku — na drabince rezystorowej przeskok A→B bez
+// rozwarcia to zawsze artefakt, nie intencja kierowcy.
+void handlePod(SwcPod &p, unsigned long now) {
+  int btn = readSWCButton(p.pin, p.offset);
+
+  if (btn != p.candidate) {          // odczyt się zmienił — licz od nowa
+    p.candidate = (int8_t)btn;
+    p.candAt = now;
+    return;
+  }
+  if ((now - p.candAt) < SWC_CONFIRM_MS) return;   // jeszcze nie stabilny
+  if (btn == p.reported) return;                   // nic nowego
+
+  if (btn >= 0 && p.reported >= 0) {
+    // Przycisk → przycisk bez spoczynku pomiędzy. Czekamy na rozwarcie;
+    // p.reported celowo NIE jest aktualizowane, więc kolejne przejścia też
+    // są blokowane aż do powrotu na -1.
+    return;
+  }
+
+  p.reported = (int8_t)btn;
+  if (btn >= 0) {
+    handleSWCButton(btn);
+    Serial.print(p.tag);
+    Serial.print(F(": "));
+    Serial.println(SWC_NAMES[btn]);
+  }
+}
+#endif
+
 void loop() {
   wdt_reset();
   unsigned long now = millis();
 
+#ifdef FEATURE_ENCODER
   // --- Handle encoder rotation ---
   if (encoderPos != lastEncoderPos) {
     int diff = encoderPos - lastEncoderPos;
@@ -262,9 +456,23 @@ void loop() {
       Keyboard.release(KEY_UP_ARROW);
     }
   }
+#endif
 
+#if defined(FEATURE_BUTTONS) || defined(FEATURE_ENCODER)
   // --- Handle main buttons (debounced) ---
-  for (int i = 0; i < MAIN_BTN_COUNT; i++) {
+  // Bez FEATURE_ENCODER pomijamy indeks 0 (ENC_SW), bez FEATURE_BUTTONS
+  // pomijamy resztę — pinMode tych pinów nie był ustawiany.
+#ifdef FEATURE_ENCODER
+  const int btnFrom = 0;
+#else
+  const int btnFrom = 1;
+#endif
+#ifdef FEATURE_BUTTONS
+  const int btnTo = MAIN_BTN_COUNT;
+#else
+  const int btnTo = 1;
+#endif
+  for (int i = btnFrom; i < btnTo; i++) {
     bool currentState = digitalRead(buttonPins[i]);
 
     if (currentState != lastButtonState[i] && (now - lastButtonTime[i]) > DEBOUNCE_MS) {
@@ -276,7 +484,9 @@ void loop() {
       }
     }
   }
+#endif
 
+#ifdef FEATURE_MUSIC
   // --- Handle music panel buttons (debounced) ---
   for (int i = 0; i < MUSIC_BTN_COUNT; i++) {
     bool currentState = digitalRead(musicPins[i]);
@@ -290,7 +500,9 @@ void loop() {
       }
     }
   }
+#endif
 
+#ifdef FEATURE_STALK
   // --- Handle stalk brightness button (debounced) ---
   {
     bool stalkState = digitalRead(STALK_BTN_PIN);
@@ -302,58 +514,43 @@ void loop() {
         Keyboard.press(KEY_F9);
         delay(10);
         Keyboard.release(KEY_F9);
-        Serial.println("STALK: Brightness cycle");
+        Serial.println(F("STALK: Brightness cycle"));
       }
     }
   }
+#endif
 
+#ifdef FEATURE_SWC
   // --- Handle SWC analog buttons (Pod 1 on A0, Pod 2 on A6) ---
-  if ((now - lastSWCTime1) > SWC_DEBOUNCE_MS) {
-    int btn = readSWCButton(SWC_PIN1, 0);
-    if (btn != lastSWCButton1) {
-      if (btn >= 0) {
-        handleSWCButton(btn);
-        Serial.print("SWC1: ");
-        Serial.print(SWC_NAMES[btn]);
-        Serial.print(" (ADC=");
-        Serial.print(analogRead(SWC_PIN1));
-        Serial.println(")");
-      }
-      lastSWCButton1 = btn;
-      lastSWCTime1 = now;
-    }
-  }
-  if ((now - lastSWCTime2) > SWC_DEBOUNCE_MS) {
-    int btn = readSWCButton(SWC_PIN2, SWC_BUTTONS_PER_POD);
-    if (btn != lastSWCButton2) {
-      if (btn >= 0) {
-        handleSWCButton(btn);
-        Serial.print("SWC2: ");
-        Serial.print(SWC_NAMES[btn]);
-        Serial.print(" (ADC=");
-        Serial.print(analogRead(SWC_PIN2));
-        Serial.println(")");
-      }
-      lastSWCButton2 = btn;
-      lastSWCTime2 = now;
-    }
-  }
+  handlePod(swcPods[0], now);
+  handlePod(swcPods[1], now);
 
+  // --- Kalibracja na żądanie: wyślij "CAL" na port szeregowy ---
+  // Alternatywa dla HOME + BACK przy starcie, która działa także wtedy, gdy
+  // nie masz podłączonych przycisków (czyli w domyślnej konfiguracji).
+  if (Serial.available() > 0) {
+    String cmd = Serial.readStringUntil('\n');
+    cmd.trim();
+    if (cmd.equalsIgnoreCase("CAL")) {
+      wdt_disable();               // kalibracja czeka na człowieka > 2 s
+      runCalibration();
+      wdt_enable(WDTO_2S);
+    }
+  }
+#endif
+
+#ifdef FEATURE_LIGHT
   // --- Report light level periodically via serial ---
   if ((now - lastLightReport) > LIGHT_REPORT_MS) {
     reportLightLevel();
     lastLightReport = now;
   }
-
-  // --- Report fuel sender ADC periodically via serial ---
-  if ((now - lastFuelReport) > FUEL_REPORT_MS) {
-    reportFuelLevel();
-    lastFuelReport = now;
-  }
+#endif
 
   delay(1);
 }
 
+#if defined(FEATURE_BUTTONS) || defined(FEATURE_ENCODER)
 void handleButtonPress(int buttonIndex) {
   switch (buttonIndex) {
     case 0:  // Encoder push → Enter
@@ -382,32 +579,36 @@ void handleButtonPress(int buttonIndex) {
       break;
   }
 }
+#endif
 
+#ifdef FEATURE_MUSIC
 void handleMusicButton(int buttonIndex) {
   switch (buttonIndex) {
     case 0:  // MUSIC PREV
       Consumer.write(MEDIA_PREVIOUS);
-      Serial.println("MUSIC: PREV");
+      Serial.println(F("MUSIC: PREV"));
       break;
     case 1:  // MUSIC NEXT
       Consumer.write(MEDIA_NEXT);
-      Serial.println("MUSIC: NEXT");
+      Serial.println(F("MUSIC: NEXT"));
       break;
     case 2:  // MUSIC VOL+
       Consumer.write(MEDIA_VOLUME_UP);
-      Serial.println("MUSIC: VOL+");
+      Serial.println(F("MUSIC: VOL+"));
       break;
     case 3:  // MUSIC VOL-
       Consumer.write(MEDIA_VOLUME_DOWN);
-      Serial.println("MUSIC: VOL-");
+      Serial.println(F("MUSIC: VOL-"));
       break;
     case 4:  // MUSIC MUTE
       Consumer.write(MEDIA_VOLUME_MUTE);
-      Serial.println("MUSIC: MUTE");
+      Serial.println(F("MUSIC: MUTE"));
       break;
   }
 }
+#endif
 
+#ifdef FEATURE_SWC
 void handleSWCButton(int buttonIndex) {
   // Pod 2 buttons (12-23) send the same keycodes as their Pod 1 equivalents
   int base = buttonIndex % SWC_BUTTONS_PER_POD;
@@ -465,13 +666,8 @@ void handleSWCButton(int buttonIndex) {
   }
 }
 
-int readSWCButton(int pin, int offset) {
-  long sum = 0;
-  for (int i = 0; i < 4; i++) {
-    sum += analogRead(pin);
-    delayMicroseconds(100);
-  }
-  int adc = sum / 4;
+int readSWCButton(uint8_t pin, uint8_t offset) {
+  int adc = adcStable(pin);
 
   if (adc > SWC_IDLE_THRESHOLD) {
     return -1;
@@ -494,27 +690,16 @@ int readSWCButton(int pin, int offset) {
 
   return -1;
 }
+#endif
 
+#ifdef FEATURE_LIGHT
 void reportLightLevel() {
-  long sum = 0;
-  for (int i = 0; i < 4; i++) {
-    sum += analogRead(LDR_PIN);
-    delayMicroseconds(200);
-  }
-  Serial.print("LIGHT:");
-  Serial.println((int)(sum / 4));
+  Serial.print(F("LIGHT:"));
+  Serial.println(adcStable(LDR_PIN));
 }
+#endif
 
-void reportFuelLevel() {
-  long sum = 0;
-  for (int i = 0; i < 8; i++) {
-    sum += analogRead(FUEL_PIN);
-    delay(2);
-  }
-  Serial.print("FUEL:");
-  Serial.println((int)(sum / 8));
-}
-
+#ifdef FEATURE_SWC
 // --- SWC calibration ---
 
 void loadSWCCalibration() {
@@ -539,7 +724,7 @@ void saveSWCCalibration() {
   Serial.println("SWC: Calibration saved to EEPROM");
 }
 
-void calibratePod(int pin, int offset, const char* podName) {
+void calibratePod(uint8_t pin, uint8_t offset, const char* podName) {
   Serial.print("--- Calibrating ");
   Serial.print(podName);
   Serial.println(" ---");
@@ -549,19 +734,17 @@ void calibratePod(int pin, int offset, const char* podName) {
     Serial.print(SWC_NAMES[offset + i]);
     Serial.println(" ...");
 
-    while (analogRead(pin) < SWC_IDLE_THRESHOLD) {
+    // Czekaj na rozwarcie wszystkich przycisków tego poda.
+    while (adcStable(pin) < SWC_IDLE_THRESHOLD) {
       delay(50);
     }
     delay(300);
 
+    // Czekaj na wciśnięcie i zmierz. adcStable() już odrzuca przesłuch
+    // multipleksera i pojedyncze piki, więc jedna próbka wystarczy.
     int adc = 0;
     while (true) {
-      long s = 0;
-      for (int j = 0; j < 8; j++) {
-        s += analogRead(pin);
-        delay(5);
-      }
-      adc = s / 8;
+      adc = adcStable(pin);
       if (adc < SWC_IDLE_THRESHOLD) {
         break;
       }
@@ -597,7 +780,7 @@ void runCalibration() {
 
   calibratePod(SWC_PIN1, 0, "Pod 1 (A0)");
   Serial.println();
-  calibratePod(SWC_PIN2, SWC_BUTTONS_PER_POD, "Pod 2 (A6)");
+  calibratePod(SWC_PIN2, SWC_BUTTONS_PER_POD, "Pod 2 (A6 = pad 4)");
 
   Serial.println();
   Serial.println("Calibration results:");
@@ -612,7 +795,9 @@ void runCalibration() {
   Serial.println("=== CALIBRATION COMPLETE ===");
   Serial.println();
 }
+#endif  // FEATURE_SWC
 
+#ifdef FEATURE_ENCODER
 void readEncoder() {
   int clkState = digitalRead(ENC_CLK);
   int dtState = digitalRead(ENC_DT);
@@ -626,3 +811,4 @@ void readEncoder() {
     lastCLK = clkState;
   }
 }
+#endif  // FEATURE_ENCODER

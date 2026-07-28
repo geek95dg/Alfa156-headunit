@@ -275,3 +275,63 @@ class TestAADisplay:
         # Main display is the 10.1" 1280x800 panel (display.multimedia in config).
         assert disp.width == 1280
         assert disp.height == 800
+
+
+# ---------------------------------------------------------------------------
+# Wi-Fi Direct credentials → openauto.ini
+#
+# A P2P group invents its SSID and passphrase when it is created, so the values
+# that matter are only known at runtime. Nothing subscribed to
+# wifi.ap_credentials before v8.5.3, so openauto.ini kept whatever the YAML
+# held — and the YAML held a stale DIRECT-xx pair from an earlier session. The
+# phone was handed credentials for a network that no longer existed.
+# ---------------------------------------------------------------------------
+
+class TestAPCredentialRefresh:
+    def test_controller_subscribes_to_ap_credentials(self):
+        from src.core.config import BCMConfig
+        from src.core.event_bus import EventBus
+        from src.multimedia.openauto import OpenAutoController
+
+        bus = EventBus()
+        config = BCMConfig(platform_override="x86")
+        OpenAutoController(config, bus)
+
+        assert "wifi.ap_credentials" in bus._subscribers, (
+            "OpenAutoController must react to live AP credentials, otherwise "
+            "openauto.ini keeps stale Wi-Fi Direct details"
+        )
+
+    def test_refresh_is_a_noop_without_binary(self):
+        """No autoapp means no openauto.ini to rewrite — must not raise."""
+        from src.core.config import BCMConfig
+        from src.core.event_bus import EventBus
+        from src.multimedia.openauto import OpenAutoController
+
+        bus = EventBus()
+        ctrl = OpenAutoController(BCMConfig(platform_override="x86"), bus)
+        if ctrl.available:
+            pytest.skip("autoapp actually installed on this machine")
+        ctrl._on_ap_credentials(
+            "wifi.ap_credentials",
+            {"ssid": "DIRECT-zz", "password": "secret12", "bssid": "aa:bb"},
+            0.0,
+        )
+
+
+class TestShippedConfigCredentials:
+    """The shipped YAMLs must not carry runtime Wi-Fi Direct credentials."""
+
+    @pytest.mark.parametrize("cfg_name", ["bcm_config.yaml", "bcm_config_test.yaml"])
+    def test_runtime_credentials_are_blank(self, cfg_name):
+        import pathlib
+        import yaml
+
+        root = pathlib.Path(__file__).resolve().parent.parent
+        cfg = yaml.safe_load((root / "config" / cfg_name).read_text())
+        wifi = cfg.get("wifi", {})
+        for key in ("ssid_runtime", "password_runtime", "bssid_runtime"):
+            assert not wifi.get(key), (
+                f"{cfg_name}: {key} must ship empty — a stale P2P credential "
+                f"sends the phone to a network that no longer exists"
+            )

@@ -118,6 +118,20 @@ App.registerScreen("a3", (() => {
                </span>`
             : "";
 
+        // Bez klucza OpenRouteService planer zwraca odległość w linii prostej.
+        // Liczba wygląda identycznie jak realna trasa, więc bez tego paska
+        // wyglądałoby to na działającą funkcję, która po prostu kłamie.
+        const approxNotice = (!planning && plan.approximate)
+            ? `<div style="display:flex;align-items:center;gap:6px;background:rgba(120,53,15,0.35);
+                        border:1px solid #b45309;border-radius:6px;padding:6px 8px;">
+                   <span class="material-symbols-outlined text-amber-400" style="font-size:14px;">warning</span>
+                   <span style="font-size:10px;color:#fcd34d;line-height:1.3;">
+                       Trasa przybliżona — odległość w linii prostej.
+                       Wpisz travel.openrouteservice_key w config/bcm_config.yaml.
+                   </span>
+               </div>`
+            : "";
+
         const overlay = document.createElement("div");
         overlay.className = "travel-plan-overlay";
         overlay.style.cssText = [
@@ -142,6 +156,7 @@ App.registerScreen("a3", (() => {
                     Travel Plan
                 </h2>
             </div>
+            ${approxNotice}
             <div class="tp-search-wrap" style="position:relative;">
                 <input class="tp-search" type="text" placeholder="Destination (e.g. Gdynia)"
                        value="${name.replace(/"/g, '&quot;')}"

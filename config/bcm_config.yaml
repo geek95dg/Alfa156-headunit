@@ -7,36 +7,50 @@ system:
   simulation: false
 # Jeden przełącznik na każdy moduł/podsystem — pełna lista i stan
 # także w UI: Settings -> Moduły (GET/POST /api/modules).
+#
+# ZAKRES BIEŻĄCEGO WDROŻENIA (v8.5.3): pogoda, planowanie trasy, Android Auto
+# i pody SWC na kierownicy. Reszta jest wyłączona, bo nie ma podłączonego
+# sprzętu — moduł bez czujnika nie „nic nie robi", tylko zaśmieca logi
+# i publikuje wartości udawane albo zerowe.
+#
+# Powrót do pełnej konfiguracji to zmiana false → true przy danej linii.
 modules:
-  dashboard: true
-  obd: true
-  parking: true
-  environment: true
-  audio: true
-  input: true
-  camera: true
-  power: true
-  multimedia: true
-  location: true
-  tracking: true
-  network: true
-  weather: true
-  blinker_monitor: true
-  rain_sensor: true
-  central_lock: true
-  lighting: true
-  performance: true
-  alarm: true
-  crash_detect: true
-  battery: true
+  # --- WŁĄCZONE ---
+  dashboard: true          # UI na :5002 — wszystkie cztery funkcje renderują się tutaj
+  weather: true            # pogoda (wymaga weather.api_key i internetu)
+  route_planner: true      # planowanie trasy (wymaga travel.openrouteservice_key)
+  multimedia: true         # Android Auto — potrzebuje binarki autoapp, patrz
+                           # config/scripts/install-openauto.sh
+  bluetooth: true          # bootstrap AA + CoD carkit; sam handshake AA robi
+                           # btservice wbudowany w autoapp
+  wifi_ap: true            # P2P-GO na MT7921 — łącze danych Android Auto
+  input: true              # pody SWC przez Pro Micro (USB HID)
+  audio: true              # dźwięk przez gniazdo słuchawkowe — patrz blok audio:
+
+  # --- WYŁĄCZONE: brak sprzętu albo poza zakresem ---
+  obd: false               # brak CP2102 + L9637D
+  parking: false           # brak HC-SR04
+  environment: false       # brak DS18B20
+  camera: false            # brak kamer i grabera
+  power: false             # zasilanie idzie wprost spod zapłonu, bez bufora;
+                           # PowerManager i tak nie usypia maszyny na x86
+  location: false          # brak GPS
+  tracking: false          # zależy od GPS
+  network: false           # tylko raportuje stan modemu LTE
+  blinker_monitor: false
+  rain_sensor: false
+  central_lock: false
+  lighting: false
+  performance: false
+  alarm: false
+  crash_detect: false
+  battery: false
   # podsystemy (startowane wprost w main.py):
-  bluetooth: true
-  phonebook: true
-  fuel_sender: true
-  wifi_ap: true            # WiFi dla Android Auto wireless (P2P-GO, karta wewnętrzna)
-  wifi_hotspot: false      # dodatkowy AP ALFA-NET — włącz dopiero po dokupieniu dongla WiFi
-  route_planner: true
-  small_display: true
+  phonebook: false         # PBAP — kontakty z telefonu, poza zakresem
+  fuel_sender: false       # czujnik paliwa jest na A4, którego Pro Micro nie ma
+  wifi_hotspot: false      # ALFA-NET wymaga OSOBNEGO radia (dongla USB) —
+                           # MT7921 zgłasza #{AP, P2P-GO} <= 1
+  small_display: false     # drugi ekran 6,86" — na razie jeden panel
 display:
   dashboard:
     width: 1280
@@ -98,6 +112,17 @@ hardware:
     device: ''
     apn: ''
 audio:
+  # Wyjście dźwięku. "auto" = wybierz wbudowane wyjście analogowe i pomiń
+  # HDMI (na M910q HDMI prawie zawsze jest podłączone i prawie nigdy nie o to
+  # chodzi). Możesz też wpisać fragment node.name z `wpctl status --name`,
+  # np. alsa_output.pci-0000_00_1f.3.analog-stereo
+  sink: auto
+  # Sink sprzętowy trzymamy na maksimum, a użytkownik reguluje głośność na
+  # sinku EQ. Inaczej regulacja działa na jednym, a cichy jest drugi.
+  hw_volume: 100
+  # Świeży Realtek potrafi wstać z włączonym Auto-Mute i wyciszonym
+  # Headphone — wtedy nic nie zagra mimo poprawnego routingu.
+  force_unmute: true
   eq_dsp_enabled: true   # prawdziwy EQ przez PipeWire filter-chain
   eq_preset: jazz
   master_volume: 70
@@ -221,9 +246,15 @@ wifi:
     dhcp_start: 10.0.1.10
     dhcp_end: 10.0.1.50
     share_internet: true
-  ssid_runtime: DIRECT-Ea
-  password_runtime: adVEiNlq
-  bssid_runtime: 4e:82:a9:17:47:97
+  # ssid_runtime / password_runtime / bssid_runtime są USTAWIANE W LOCIE przez
+  # wifi_ap.py po utworzeniu grupy P2P-GO i zapisywane tutaj. Nie wpisuj ich
+  # ręcznie: Wi-Fi Direct generuje nowe SSID i hasło przy każdej grupie, a
+  # nieaktualna para trafia do openauto.ini i telefon dostaje namiary na sieć,
+  # która już nie istnieje. Puste = użyj ssid/password powyżej do czasu, aż AP
+  # zgłosi prawdziwe wartości.
+  ssid_runtime: ''
+  password_runtime: ''
+  bssid_runtime: ''
 weather:
   api_key: 631c2365675e193584b0f986798554c1
   poll_interval_min: 15
