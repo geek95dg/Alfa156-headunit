@@ -12,6 +12,8 @@ Uruchomienie (z katalogu głównego repo):
 popraw ten plik i wygeneruj SVG ponownie — nie edytuj SVG ręcznie.
 """
 
+import math
+
 STYLE = '''<style>
  .bg{fill:#ffffff}
  .w{stroke:#16242e;stroke-width:2.2;fill:none;stroke-linecap:round}
@@ -55,6 +57,8 @@ STYLE = '''<style>
  .nt{font-size:11.5px;fill:#4a5a66}
  .wn{font-size:11px;font-weight:bold;fill:#0d1c26;text-anchor:middle}
  .wnb{fill:#ffffff;stroke:#8b9aa6;stroke-width:1.2;rx:3}
+ .ldr{stroke:#7d8c99;stroke-width:1.3;fill:none}
+ .ldrf{fill:#7d8c99;stroke:none}
 </style>'''
 
 
@@ -94,6 +98,23 @@ class Sheet:
 
     def box(self, x, y, w, h, c="blk"):
         self.a(f'<rect class="{c}" x="{x}" y="{y}" width="{w}" height="{h}"/>')
+
+    def leader(self, x0, y0, x1, y1, bend=None):
+        """Cienki odnośnik od (x0,y0) do (x1,y1); grot przy (x1,y1)."""
+        pts = [(x0, y0)] + ([bend] if bend else []) + [(x1, y1)]
+        for i in range(len(pts) - 1):
+            a, b = pts[i], pts[i + 1]
+            self.a(f'<line class="ldr" x1="{a[0]}" y1="{a[1]}" '
+                   f'x2="{b[0]}" y2="{b[1]}"/>')
+        ax, ay = pts[-2]
+        dx, dy = x1 - ax, y1 - ay
+        ln = math.hypot(dx, dy) or 1.0
+        ux, uy = dx / ln, dy / ln
+        nx, ny = -uy, ux
+        p1 = (x1 - ux * 9 + nx * 3.4, y1 - uy * 9 + ny * 3.4)
+        p2 = (x1 - ux * 9 - nx * 3.4, y1 - uy * 9 - ny * 3.4)
+        self.a(f'<polygon class="ldrf" points="{x1},{y1} '
+               f'{p1[0]:.1f},{p1[1]:.1f} {p2[0]:.1f},{p2[1]:.1f}"/>')
 
     def sect(self, x, y, n, t):
         self.a(f'<rect class="sectb" x="{x}" y="{y-20}" width="26" height="26"/>')
@@ -170,9 +191,9 @@ class Sheet:
             if val:
                 self.txt(x + 20, y + 35, val, "v")
         else:
-            self.txt(x - 26, y + 20, ref, "re")
+            self.txt(x - 34, y + 20, ref, "re")
             if val:
-                self.txt(x - 26, y + 35, val, "ve")
+                self.txt(x - 34, y + 35, val, "ve")
         return y + 50
 
     def tvs_v(self, x, y, ref, val):
@@ -231,7 +252,7 @@ class Sheet:
         self.a(f'<circle class="sym" cx="{x+78}" cy="{y}" r="4.5" fill="#fff"/>')
         self.w(x + 82, y, x + 96, y)
         self.a(f'<line class="wd" x1="{x+48}" y1="{y-14}" x2="{x+48}" y2="{y+26}"/>')
-        self.txt(x + 48, y - 34, ref, "rc")
+        self.txt(x + 48, y - 34 if ny > 0 else y - 52, ref, "rc")
         self.txt(x + 14, y + 22, "30", "pin")
         self.txt(x + 82, y + 22, "87", "pine")
         if note:
@@ -294,7 +315,7 @@ class Sheet:
 # ======================================================================
 #  ARKUSZ 1 — ZASILANIE
 # ======================================================================
-s = Sheet(1620, 1800,
+s = Sheet(1620, 1870,
           "BCM v8.5 — arkusz 1/2: ZASILANIE (wariant testowo-rozwojowy, M910q)",
           "Każdy element osobno. Cewki i styki przekaźników rozdzielone — "
           "K1 i K2 to po jednym przekaźniku Bosch, narysowanym w dwóch "
@@ -330,7 +351,7 @@ s.txt(420, GA + 62, "bufor wejścia", "vc")
 # --- styk K1
 s.w(430, RAIL, 470, RAIL)
 s.wn(437, RAIL - 15, 3)
-x = s.contact(470, RAIL, "K1", "zwiera po zapłonie", ny=70)
+x = s.contact(470, RAIL, "K1", "zwiera po zapłonie", ny=-32)
 s.dot(600, RAIL)
 s.w(x, RAIL, 660, RAIL)
 s.wn(632, RAIL - 15, 5)
@@ -349,20 +370,21 @@ s.path([(444, 536), (444, 550), (518, 550)])
 s.dot(518, 550)
 
 # --- D1 MBR2545CT
-s.a('<rect class="dash" x="660" y="140" width="196" height="200"/>')
-s.txt(758, 128, "D1", "rc")
-s.txt(758, 362, "MBR2545CT — anody 1 i 3 zwarte", "vc")
-s.txt(758, 378, "blaszka = katoda (pin 2), izoluj od radiatora", "vc")
+s.a('<rect class="dash" x="660" y="130" width="196" height="224"/>')
+s.txt(758, 118, "D1", "rc")
+s.txt(758, 376, "MBR2545CT — anody 1 i 3 zwarte", "vc")
+s.txt(758, 392, "blaszka = katoda (pin 2), izoluj od radiatora", "vc")
 s.path([(660, RAIL), (686, RAIL)])
 s.dot(686, RAIL)
-s.path([(686, 180), (686, 300)])
-s.schottky_h(686, 180)
-s.schottky_h(686, 300)
-s.path([(738, 180), (830, 180), (830, 300), (738, 300)])
+s.path([(686, 190), (686, 290)])
+s.schottky_h(686, 190)
+s.schottky_h(686, 290)
+s.path([(738, 190), (830, 190), (830, 290), (738, 290)])
 s.dot(830, RAIL)
-s.txt(714, 160, "pin 1", "vc")
-s.txt(714, 336, "pin 3", "vc")
-s.txt(786, 250, "pin 2", "vc")
+s.txt(712, 176, "pin 1 — anoda", "vc")
+s.txt(712, 322, "pin 3 — anoda", "vc")
+s.txt(806, 254, "pin 2 — katoda", "ve")
+s.leader(810, 250, 828, 241)
 s.w(830, RAIL, 902, RAIL)
 s.wn(874, RAIL - 15, 6)
 
@@ -492,7 +514,10 @@ for bx, fr, fv, wnum, mr, mn, ms in conv:
 m4 = mo["M4"]
 s.w(m4["out+"][0], m4["out+"][1], 620, m4["out+"][1])
 s.dot(520, m4["out+"][1])
-yy = s.cap_v(520, m4["out+"][1], "C6", "470 µF/35 V", pol=True, side=1)
+yy = s.cap_v(520, m4["out+"][1], "", "", pol=True, side=1)
+s.txt(478, m4["out+"][1] + 136, "C6", "re")
+s.txt(478, m4["out+"][1] + 152, "470 µF / 35 V", "ve")
+s.leader(492, m4["out+"][1] + 116, 504, m4["out+"][1] + 26)
 s.w(520, yy, 520, LG)
 s.star_gnd(520, LG)
 s.path([(m4["out-"][0], m4["out-"][1]), (486, m4["out-"][1]), (486, LG)])
@@ -527,18 +552,20 @@ s.txt(1520, m6["out-"][1] + 5, "GND", "pin")
 s.txt(1490, m6["out-"][1] + 34, "→ ARKUSZ 2", "rc")
 s.txt(1490, m6["out-"][1] + 50, "Arduino Nano", "vc")
 
-s.txt(240, 1622, "45 W · dlatego F8 = 7,5 A, nie 5 A", "vc")
-s.txt(860, 1622, "logika i dotyk panelu idą po USB", "vc")
-s.txt(1250, 1622, "Nano musi żyć, gdy M910q śpi", "vc")
+for _bx, _t in ((240, "45 W · dlatego F8 = 7,5 A, nie 5 A"),
+                (860, "logika i dotyk panelu idą po USB"),
+                (1250, "Nano musi żyć, gdy M910q śpi")):
+    s.txt(_bx + 60, 1756, _t, "vc")
+    s.leader(_bx + 60, 1742, _bx + 60, 1620)
 
-s.box(60, 1728, 1000, 56, "note")
-s.txt(80, 1752, "MASA — punkt gwiazdowy", "nh")
-s.txt(80, 1772, "Wszystkie symbole masy na tym arkuszu to JEDEN punkt: "
+s.box(60, 1790, 1000, 56, "note")
+s.txt(80, 1814, "MASA — punkt gwiazdowy", "nh")
+s.txt(80, 1834, "Wszystkie symbole masy na tym arkuszu to JEDEN punkt: "
                 "„−” BT0, „−” D5 i C1, K1:85, K2:85, IN−/OUT− M1, V− M2, "
                 "szyna „−” banku, VIN−/VOUT− M3, IN− M4/M5/M6.", "nt")
-s.box(1090, 1728, 470, 56, "note")
-s.txt(1110, 1752, "Numery w ramkach", "nh")
-s.txt(1110, 1772, "= numery przewodów z tabel §10 docs/SCHEMATY_POLACZEN.md", "nt")
+s.box(1090, 1790, 470, 56, "note")
+s.txt(1110, 1814, "Numery w ramkach", "nh")
+s.txt(1110, 1834, "= numery przewodów z tabel §10 docs/SCHEMATY_POLACZEN.md", "nt")
 
 s.save("schematics/schematic_test_power.svg")
 
@@ -642,7 +669,7 @@ t.path([(u1["p3"][0], u1["p3"][1]), (530, u1["p3"][1]), (530, GNDY), (NX, GNDY)]
 t.wn(560, u1["p3"][1] - 15, 18)
 # U2 kolektor → D10  (korytarz x=680)
 t.path([(u2["p4"][0], u2["p4"][1]), (680, u2["p4"][1]), (680, D10Y), (NX, D10Y)])
-t.wn(730, D10Y - 15, "17a")
+t.wn(636, 440, "17a")
 # U2 emiter → GND    (korytarz x=740, na prawo od korytarza D10)
 t.path([(u2["p3"][0], u2["p3"][1]), (740, u2["p3"][1]), (740, GNDY)])
 t.dot(740, GNDY)
