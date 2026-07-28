@@ -42,7 +42,7 @@ Ceny orientacyjne, rynek PL, 2025/2026. **Razem: ~483–928 PLN.**
 | 4 | **Moduł CC-CV boost** | „900 W 15 A" z wyświetlaczem albo **SZBK07** | ładowarka: CV 14,40 V, CC 8 A | 50–140 |
 | 5 | **Rozłącznik nadnapięciowy** | **XH-M603** (albo XH-M604) — ta sama rodzina co XH-M609 | blokada przeładowania: 15,30 V / powrót 14,00 V | 40–80 |
 | 5a | Przekaźnik 30 A SPDT + podstawka (drugi) | Bosch 12 V | moduł steruje cewką zamiast przenosić 8 A — §6.3 ZASILANIE | 15–25 |
-| 6 | Dioda TVS | 1.5KE33CA albo SMCJ26CA | ochrona wejścia przed load dumpem | 5–10 |
+| 6 | Dioda TVS | 1.5KE33**CA** albo SMCJ26**CA** | ochrona wejścia przed load dumpem; **„CA" = dwukierunkowa**, wersja bez „C" jest inną diodą | 5–10 |
 | 7 | Kondensator 470 µF / 35 V low-ESR × 2 | 105 °C | wejście ładowarki + wyjście XL6019 | 7–14 |
 | 8 | Dioda 1N4007 × 5 | | gaszenie cewek przekaźników | 2–5 |
 | 9 | Radiator + wentylator 40 mm | do XL6019 | w aucie obowiązkowy | 20–35 |

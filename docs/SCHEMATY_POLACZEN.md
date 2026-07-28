@@ -567,6 +567,21 @@ zasilania rozłącznika) idą do punktu gwiazdowego — §10.4.
 > Bez niej impuls samoindukcji cewki wraca w instalację przy każdym
 > przekręceniu kluczyka.
 
+#### Kierunki diod — sprawdź przed lutowaniem
+
+| Element | Kierunek |
+|---------|----------|
+| **D5** — TVS 1.5KE33**CA** / SMCJ26**CA** | **bez znaczenia.** Sufiks „CA" = dwukierunkowa: nie ma anody ani katody, pasek na obudowie (jeśli w ogóle jest) nic nie znaczy |
+| **D1** — MBR2545CT | **blaszka = katoda (pin 2)** → na **IN+** ładowarki. Anody (piny 1 i 3, zwarte) od strony **K1 zacisk 87** |
+| **D6, D7** — 1N4007 | **pasek = katoda** → na zacisk **86** cewki, czyli po stronie plusa |
+
+> **Pułapka przy zakupie TVS.** **1.5KE33A** (bez „C") to inna dioda —
+> jednokierunkowa — i tam pasek musi iść na plus. Odwrotnie wlutowana jest
+> zwarciem ~1 V na zasilaniu i **F1 idzie natychmiast**. Rozpoznasz miernikiem
+> w trybie testu diody: **dwukierunkowa daje OL w obie strony**,
+> jednokierunkowa ~0,7 V w jedną. Uzasadnienie: §5.4
+> [`ZASILANIE_BUFOROWANE.md`](ZASILANIE_BUFOROWANE.md).
+
 ### 10.2 Bank, LVD, wyłącznik
 
 | # | Skąd | Dokąd | Przewód | Zabezpieczenie |
