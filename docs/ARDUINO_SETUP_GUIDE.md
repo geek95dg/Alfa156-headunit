@@ -28,9 +28,15 @@ You will end up with:
 > - All three sketches run a **2 s hardware watchdog** — a hang
 >   self-resets the board instead of requiring a power pull.
 > - **Pro Micro wiring change:** encoder push button moved **D4 → D1**
->   (on the Pro Micro D4 and A6 are the same physical pin, so the old
->   wiring conflicted with SWC Pod 2). If you wired before v8.5.2,
->   move that one wire.
+>   (on the Pro Micro D4 and A6 are the same physical pin — PD4 / ADC8 —
+>   so the old wiring conflicted with SWC Pod 2). If you wired before
+>   v8.5.2, move that one wire.
+> - **There is no pad labelled "A6" on a Pro Micro — solder to the pad
+>   marked `4`.** On the ATmega32U4 the ADC channels A6–A11 are
+>   multiplexed onto digital pins and only A0–A3 get analog silkscreen:
+>   A6=`4`, A7=`6`, A8=`8`, A9=`9`, A10=`10`. The sketch still says `A6`
+>   so `analogRead()` picks the right channel. A4 and A5 are not broken
+>   out at all.
 > - The always-on Nano's BLE scan is now **non-blocking** — the window
 >   remote and the auto-release safety cutoff keep working during the
 >   2.5 s trunk-tag scan.

@@ -551,7 +551,9 @@ make -C arduino rotary_encoder-upload PORT=/dev/ttyACM0
 ```
 
 Pody SWC podłącz do **A0** (Pod 1) i **A6** (Pod 2), dekoder: czerwony → ACC,
-czarny → masa. Kalibracja: przytrzymaj HOME + BACK przy starcie płytki
+czarny → masa. **Uwaga: na płytce nie ma pola „A6" — to pad opisany `4`**
+(na 32U4 kanały A6–A11 siedzą pod numerami cyfrowymi; opisane analogowo są
+tylko A0–A3). Kalibracja: przytrzymaj HOME + BACK przy starcie płytki
 i naciskaj kolejne przyciski wg podpowiedzi na porcie szeregowym. Progi
 zapisują się w EEPROM.
 

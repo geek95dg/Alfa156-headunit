@@ -180,7 +180,7 @@ i bez osobnego riga.
 | `arduino/sensor_hub` | **Nano** #2 — **NOWY w v8.5.2** | Telemetria pojazdu: drzwi/maska/klapa, ręczny, zapłon, deszcz, temperatura DS18B20, opcjonalnie parkowanie/tempomat/immo/airbag |
 
 **UWAGA (v8.5.2, rotary_encoder):** przycisk enkodera przeniesiony
-z **D4 na D1** (na Pro Micro D4 i A6 to ten sam fizyczny pin —
+z **D4 na D1** (na Pro Micro D4 i A6 to ten sam fizyczny pin, PD4 —
 kolidowało z SWC Pod 2). Przy starszym okablowaniu przepnij jeden
 przewód z D4 na D1. Dodatkowo wszystkie trzy sketche mają 2-sekundowy
 watchdog sprzętowy.
