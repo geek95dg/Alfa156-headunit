@@ -93,7 +93,7 @@ hardware:
     device: ''
     apn: ''
 audio:
-  sink: bcm_combine
+  sink: alsa_output.usb-
   hw_volume: 100
   force_unmute: true
   eq_dsp_enabled: true
@@ -276,6 +276,7 @@ tracking:
   sms_number: ''
 multimedia:
   last_bt_device: C0:7A:D6:90:E9:CC
+  aa_resolution: 720p
 bluetooth:
   enabled: true
   preferred_adapter: ''

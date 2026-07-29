@@ -33,6 +33,15 @@ except ImportError:
 
 
 # Key name mapping: browser KeyboardEvent.key -> action_dispatch key names
+#
+# The media entries are what makes the steering-wheel pod's NEXT/PREV/VOL/MUTE
+# buttons do anything. The Arduino sends those as HID consumer-page keys, which
+# Chromium reports as "MediaTrackNext", "AudioVolumeUp" and friends — names
+# that were in neither this table nor KEYBOARD_MAP, so they fell through to the
+# lowercased-key fallback ("mediatracknext"), matched nothing and were dropped.
+# The wheel buttons that use ordinary keys (Home, F5-F9) worked all along,
+# which is why the pod looked half-wired: phone and nav responded, tracks did
+# not.
 _BROWSER_KEY_MAP = {
     "ArrowUp": "up",
     "ArrowDown": "down",
@@ -43,6 +52,12 @@ _BROWSER_KEY_MAP = {
     "Backspace": "backspace",
     "Escape": "escape",
     " ": "space",
+    "MediaTrackNext": "n",
+    "MediaTrackPrevious": "p",
+    "MediaPlayPause": "space",
+    "AudioVolumeUp": "+",
+    "AudioVolumeDown": "-",
+    "AudioVolumeMute": "0",
 }
 
 
