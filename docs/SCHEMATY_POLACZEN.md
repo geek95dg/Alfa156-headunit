@@ -256,10 +256,27 @@ optoizolatora. Tryb `INPUT_PULLUP`, stan aktywny LOW.
 | HC-SR04 ECHO ×4 | dzielnik 1 kΩ / 2 kΩ | Nano #2 **A0–A3** |
 | LDR (jasność) | 5 V → LDR → węzeł → A1; węzeł → 10 kΩ → masa | Pro Micro **A1** |
 | SWC Pod 1 | biały przewód dekodera | Pro Micro **A0** |
-| SWC Pod 2 | biały przewód dekodera | Pro Micro **A6** |
+| SWC Pod 2 | biały przewód dekodera | Pro Micro **A6** = pad opisany **`4`** |
 
 Dekoder SWC: **czerwony → ACC**, **czarny → masa**, **biały → wejście
 analogowe**.
+
+> **Na Pro Micro nie ma pola opisanego „A6" — szukasz pada `4`.** Na
+> ATmega32U4 kanały ADC **A6–A11 są zmultipleksowane z pinami cyfrowymi**
+> i na płytce drukowane są tylko numery cyfrowe. Opisane analogowo są
+> wyłącznie A0–A3.
+>
+> | W kodzie | Pad na płytce | Port AVR |
+> |----------|---------------|----------|
+> | **A6** | **`4`** | PD4 / ADC8 |
+> | A7 | `6` | PD7 / ADC10 |
+> | A8 | `8` | PB4 / ADC11 |
+> | A9 | `9` | PB5 / ADC12 |
+> | A10 | `10` | PB6 / ADC13 |
+>
+> W sketchu zostaje `#define SWC_PIN2 A6` — nazwa `A6` służy tylko temu,
+> żeby `analogRead()` wybrał właściwy kanał ADC. **A4 i A5 nie są
+> wyprowadzone** na klasycznym Pro Micro.
 
 ### 3.5 K-Line (osobny tor, bez Arduino)
 
@@ -313,13 +330,13 @@ i § 7b. Poniżej to, co dotyczy okablowania międzymodułowego.
 | D1 | przycisk enkodera → masa |
 | D5–D9 | HOME, BACK, MEDIA, VOL+, VOL− → masa |
 | D10, D14, D15, D16, A3 | panel muzyczny (PREV, NEXT, VOL+, VOL−, MUTE) |
-| A0, A6 | SWC Pod 1, Pod 2 |
+| A0, A6 | SWC Pod 1, Pod 2 — **A6 to pad opisany `4`**, patrz §3.4 |
 | A1 | LDR |
 | A2 | przycisk na manetce |
 
 > **v8.5.2:** przycisk enkodera przeniesiony z **D4 na D1** — na Pro Micro
-> D4 i A6 to ten sam fizyczny pin i kolidowało z SWC Pod 2. Przy starszym
-> okablowaniu przepnij jeden przewód.
+> D4 i A6 to ten sam fizyczny pin (PD4 / ADC8) i kolidowało z SWC Pod 2.
+> Przy starszym okablowaniu przepnij jeden przewód.
 
 ### 4.3 Nano #2 (sensor hub)
 
@@ -566,6 +583,21 @@ zasilania rozłącznika) idą do punktu gwiazdowego — §10.4.
 > **Dioda 1N4007** równolegle do cewki K1 (zaciski 85–86), katodą do „+”.
 > Bez niej impuls samoindukcji cewki wraca w instalację przy każdym
 > przekręceniu kluczyka.
+
+#### Kierunki diod — sprawdź przed lutowaniem
+
+| Element | Kierunek |
+|---------|----------|
+| **D5** — TVS 1.5KE33**CA** / SMCJ26**CA** | **bez znaczenia.** Sufiks „CA" = dwukierunkowa: nie ma anody ani katody, pasek na obudowie (jeśli w ogóle jest) nic nie znaczy |
+| **D1** — MBR2545CT | **blaszka = katoda (pin 2)** → na **IN+** ładowarki. Anody (piny 1 i 3, zwarte) od strony **K1 zacisk 87** |
+| **D6, D7** — 1N4007 | **pasek = katoda** → na zacisk **86** cewki, czyli po stronie plusa |
+
+> **Pułapka przy zakupie TVS.** **1.5KE33A** (bez „C") to inna dioda —
+> jednokierunkowa — i tam pasek musi iść na plus. Odwrotnie wlutowana jest
+> zwarciem ~1 V na zasilaniu i **F1 idzie natychmiast**. Rozpoznasz miernikiem
+> w trybie testu diody: **dwukierunkowa daje OL w obie strony**,
+> jednokierunkowa ~0,7 V w jedną. Uzasadnienie: §5.4
+> [`ZASILANIE_BUFOROWANE.md`](ZASILANIE_BUFOROWANE.md).
 
 ### 10.2 Bank, LVD, wyłącznik
 

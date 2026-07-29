@@ -315,7 +315,7 @@ class Sheet:
 # ======================================================================
 #  ARKUSZ 1 — ZASILANIE
 # ======================================================================
-s = Sheet(1620, 1870,
+s = Sheet(1620, 1946,
           "BCM v8.5 — arkusz 1/2: ZASILANIE (wariant testowo-rozwojowy, M910q)",
           "Każdy element osobno. Cewki i styki przekaźników rozdzielone — "
           "K1 i K2 to po jednym przekaźniku Bosch, narysowanym w dwóch "
@@ -342,11 +342,12 @@ s.dot(420, RAIL)
 yy = s.tvs_v(258, RAIL + 22, "D5", "1.5KE33CA")
 s.w(258, yy, 258, GA)
 s.star_gnd(258, GA)
-s.txt(258, GA + 62, "TVS — load dump", "vc")
+s.txt(258, GA + 44, "TVS — obcina load dump", "vc")
+s.txt(258, GA + 60, "CA = dwukierunkowa, montaż dowolnie", "vc")
 yy = s.cap_v(420, RAIL + 22, "C1", "470 µF / 35 V", pol=True, side=1)
 s.w(420, yy, 420, GA)
 s.star_gnd(420, GA)
-s.txt(420, GA + 62, "bufor wejścia", "vc")
+s.txt(430, GA + 44, "bufor wejścia", "vc")
 
 # --- styk K1
 s.w(430, RAIL, 470, RAIL)
@@ -566,6 +567,16 @@ s.txt(80, 1834, "Wszystkie symbole masy na tym arkuszu to JEDEN punkt: "
 s.box(1090, 1790, 470, 56, "note")
 s.txt(1110, 1814, "Numery w ramkach", "nh")
 s.txt(1110, 1834, "= numery przewodów z tabel §10 docs/SCHEMATY_POLACZEN.md", "nt")
+
+s.box(60, 1862, 1500, 74, "note")
+s.txt(80, 1886, "KIERUNKI DIOD — sprawdź przed lutowaniem", "nh")
+s.txt(80, 1906, "D5 (1.5KE33CA lub SMCJ26CA): sufiks CA = dwukierunkowa. "
+                "Nie ma anody ani katody, wlutuj w dowolną stronę. Uwaga: "
+                "1.5KE33A (bez C) to inna dioda — jednokierunkowa,", "nt")
+s.txt(80, 1926, "tam pasek/katoda idzie na PLUS. Sprawdź miernikiem w trybie "
+                "diody: dwukierunkowa daje OL w obie strony.   ·   "
+                "D1 MBR2545CT: blaszka = katoda → IN+ ładowarki.   ·   "
+                "D6 i D7 (1N4007): pasek = katoda → zacisk 86 cewki.", "nt")
 
 s.save("schematics/schematic_test_power.svg")
 

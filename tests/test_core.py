@@ -135,3 +135,55 @@ class TestHAL:
         assert ow.read_temperature("28-abc123") == 22.5
         ow.set_mock_temperature("28-abc123", -3.0)
         assert ow.read_temperature("28-abc123") == -3.0
+
+
+# ---------------------------------------------------------------------------
+# Shipped module configuration
+# ---------------------------------------------------------------------------
+
+class TestShippedModuleConfig:
+    """Guards on config/bcm_config.yaml — the file systemd actually loads.
+
+    Deliberately does NOT pin the full on/off list: flipping a toggle is a
+    normal thing to do. It pins the invariants that quietly break a build.
+    """
+
+    @staticmethod
+    def _modules(name="bcm_config.yaml"):
+        import pathlib
+        import yaml
+        root = pathlib.Path(__file__).resolve().parent.parent
+        return yaml.safe_load((root / "config" / name).read_text())["modules"]
+
+    @pytest.mark.parametrize("cfg_name", ["bcm_config.yaml", "bcm_config_test.yaml"])
+    def test_every_toggle_is_a_known_module(self, cfg_name):
+        """A typo in a toggle name is silent — the module just never starts."""
+        from src.core import modules_catalog
+        known = set(modules_catalog.MODULES)
+        unknown = set(self._modules(cfg_name)) - known
+        assert not unknown, f"{cfg_name}: nieznane przełączniki: {sorted(unknown)}"
+
+    @pytest.mark.parametrize("cfg_name", ["bcm_config.yaml", "bcm_config_test.yaml"])
+    def test_toggles_are_booleans(self, cfg_name):
+        bad = {k: v for k, v in self._modules(cfg_name).items()
+               if not isinstance(v, bool)}
+        assert not bad, f"{cfg_name}: nie-boolowskie przełączniki: {bad}"
+
+    def test_android_auto_has_its_whole_chain(self):
+        """AA needs all three: the launcher, the BT bootstrap and the P2P link.
+        Enabling multimedia alone gets you a screen that never connects."""
+        m = self._modules()
+        if not m.get("multimedia"):
+            pytest.skip("Android Auto wyłączone w tej konfiguracji")
+        for dep in ("bluetooth", "wifi_ap"):
+            assert m.get(dep), f"multimedia=true wymaga {dep}=true"
+
+    def test_swc_pods_need_the_input_module(self):
+        """The steering-wheel pods arrive as USB HID via the Pro Micro; the
+        input module is what turns those keycodes into BCM actions."""
+        assert self._modules().get("input"), \
+            "pody SWC nie zadziałają bez modules.input"
+
+    def test_dashboard_is_on(self):
+        """Weather, route planning and AA all render on it."""
+        assert self._modules().get("dashboard")

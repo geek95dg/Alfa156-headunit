@@ -61,6 +61,7 @@ class TripComputer:
         self.route_waypoints: list = []
         self.route_weather_points: list = []
         self.route_incidents: list = []
+        self.route_approximate: bool = False
         self.plan_error: Optional[str] = None
         self.plan_computed_at: float = 0.0
 
@@ -204,6 +205,9 @@ class TripComputer:
                 self.route_waypoints = list(result.get("waypoints", []))
                 self.route_weather_points = list(result.get("weather_points", []))
                 self.route_incidents = list(result.get("incidents", []))
+                # True gdy planer nie miał klucza ORS i policzył linię prostą.
+                # UI musi to nazwać, bo sama liczba wygląda jak realna trasa.
+                self.route_approximate = bool(result.get("approximate", False))
                 self.plan_computed_at = float(result.get("computed_at", time.time()))
 
             if self._bus:
@@ -226,6 +230,7 @@ class TripComputer:
             self.route_waypoints = []
             self.route_weather_points = []
             self.route_incidents = []
+            self.route_approximate = False
             self.plan_error = None
             self.plan_computed_at = 0.0
         log.info("Travel plan cleared")
@@ -248,6 +253,7 @@ class TripComputer:
                 "waypoints": self.route_waypoints,
                 "weather_points": self.route_weather_points,
                 "incidents": self.route_incidents,
+                "approximate": self.route_approximate,
                 "error": self.plan_error,
                 "computed_at": self.plan_computed_at,
             }

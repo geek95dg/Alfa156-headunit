@@ -1057,6 +1057,7 @@ mimo neutralnej nazwy. Został zarchiwizowany jako
 | [`URUCHOMIENIE.md`](URUCHOMIENIE.md) | symulacja na laptopie, przełączniki modułów, Arduino w skrócie |
 | [`X86_PLATFORM_SETUP.md`](X86_PLATFORM_SETUP.md) | referencja krok-po-kroku (EN) — pamiętaj o §19 |
 | [`x86-production/index.html`](x86-production/index.html) | 12 rozdziałów z ilustracjami |
+| [`QA_ODBIOR.md`](QA_ODBIOR.md) | ankieta odbiorowa v8.5.3 — SWC, dźwięk, Android Auto, zestaw modułów |
 | [`ARDUINO_OD_ZERA.md`](ARDUINO_OD_ZERA.md) | pierwsze wgranie firmware — dla zupełnie początkujących |
 | [`ARDUINO_SETUP_GUIDE.md`](ARDUINO_SETUP_GUIDE.md) | okablowanie trzech płytek Arduino |
 | [`KLINE_SNIFFING.md`](KLINE_SNIFFING.md) | podsłuch K-Line, poznawanie PID-ów ECU |

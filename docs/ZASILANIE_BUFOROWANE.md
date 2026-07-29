@@ -681,6 +681,19 @@ Instalacja 12 V auta bywa brudna elektrycznie. Na **wejściu ładowarki**
 - sprawdź w karcie katalogowej modułu **maksymalne napięcie wejściowe** —
   jeśli to 30 V, to przy load dumpie bez TVS zostanie z niego dym.
 
+> **Sufiks „CA" znaczy dwukierunkowa — i to nie jest szczegół.** 1.5KE33**CA**
+> i SMCJ26**CA** nie mają anody ani katody; wlutuj je w dowolną stronę. Pasek
+> na obudowie, jeśli w ogóle jest nadrukowany, nic nie znaczy. Ale
+> **1.5KE33A** (bez „C") to inna dioda — **jednokierunkowa**, i tam pasek
+> (katoda) musi iść na **plus**. Odwrotnie wlutowana jest spolaryzowana
+> w kierunku przewodzenia, czyli jest zwarciem ~1 V na zasilaniu, i bezpiecznik
+> idzie natychmiast po podaniu napięcia.
+>
+> **Sprawdzenie miernikiem** (tryb testu diody): dwukierunkowa daje **OL
+> w obie strony**, jednokierunkowa ~0,7 V w jedną i OL w drugą. Próg 33 V
+> jest daleko poza zasięgiem miernika, więc w kierunku zaporowym zawsze
+> zobaczysz OL — to normalne, nie oznacza uszkodzenia.
+
 ---
 
 ## 6. Blokada przeładowania

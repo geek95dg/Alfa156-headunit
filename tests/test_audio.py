@@ -314,3 +314,143 @@ class TestVolumeController:
         assert VOLUME_MIN == 0
         assert VOLUME_MAX == 100
         assert VOLUME_STEP > 0
+
+
+# ---------------------------------------------------------------------------
+# Output selection — the path that decides whether anything is audible at all.
+#
+# Before v8.5.3 none of this existed: nothing chose a hardware sink, nothing
+# unmuted, and the EQ chain was left to follow whatever WirePlumber called
+# default (on a machine with HDMI attached, usually HDMI). These tests pin the
+# behaviour that fixes "no sound on the front jack".
+# ---------------------------------------------------------------------------
+
+_SINKS_TYPICAL_M910Q = [
+    {"id": "52", "name": "alsa_output.pci-0000_00_1f.3.hdmi-stereo",
+     "description": "Built-in Audio Digital Stereo (HDMI)"},
+    {"id": "47", "name": "alsa_output.pci-0000_00_1f.3.analog-stereo",
+     "description": "Built-in Audio Analog Stereo"},
+]
+
+
+class TestOutputSelection:
+    def setup_method(self):
+        self.bus = EventBus()
+        self.config = BCMConfig(platform_override="x86")
+        self.pw = PipeWireController(self.config, self.bus)
+
+    def _with_sinks(self, sinks):
+        self.pw.list_sink_nodes = lambda: list(sinks)
+
+    def test_auto_prefers_analog_over_hdmi(self):
+        """The whole point: HDMI must never win the auto pick."""
+        self._with_sinks(_SINKS_TYPICAL_M910Q)
+        self.config.set("audio.sink", "auto")
+        picked = self.pw.pick_hardware_sink()
+        assert picked is not None
+        assert "analog" in picked["name"]
+        assert "hdmi" not in picked["name"]
+
+    def test_auto_ignores_sink_order(self):
+        """HDMI listed first must still lose."""
+        self._with_sinks(list(reversed(_SINKS_TYPICAL_M910Q)))
+        self.config.set("audio.sink", "auto")
+        assert "analog" in self.pw.pick_hardware_sink()["name"]
+
+    def test_explicit_sink_by_substring(self):
+        self._with_sinks(_SINKS_TYPICAL_M910Q)
+        self.config.set("audio.sink", "hdmi-stereo")
+        assert "hdmi" in self.pw.pick_hardware_sink()["name"]
+
+    def test_explicit_sink_unknown_falls_back_to_auto(self):
+        """A typo in audio.sink must not leave the user with no output."""
+        self._with_sinks(_SINKS_TYPICAL_M910Q)
+        self.config.set("audio.sink", "nonexistent_device")
+        picked = self.pw.pick_hardware_sink()
+        assert picked is not None
+        assert "analog" in picked["name"]
+
+    def test_hdmi_only_is_still_used(self):
+        """Better to play through HDMI than to refuse to pick anything."""
+        self._with_sinks([_SINKS_TYPICAL_M910Q[0]])
+        self.config.set("audio.sink", "auto")
+        assert self.pw.pick_hardware_sink()["name"].endswith("hdmi-stereo")
+
+    def test_no_sinks_returns_none(self):
+        self._with_sinks([])
+        assert self.pw.pick_hardware_sink() is None
+
+    def test_eq_sink_is_never_picked_as_hardware(self):
+        """Otherwise the chain would be pinned to itself."""
+        from src.audio.pipewire_ctrl import EQ_SINK_NAME
+        self._with_sinks([
+            {"id": "99", "name": EQ_SINK_NAME, "description": "BCM 10-band EQ"},
+            _SINKS_TYPICAL_M910Q[1],
+        ])
+        self.config.set("audio.sink", "auto")
+        assert self.pw.pick_hardware_sink()["name"] != EQ_SINK_NAME
+
+    def test_usb_dac_preferred_over_generic(self):
+        self._with_sinks([
+            {"id": "1", "name": "alsa_output.platform-something.stereo", "description": ""},
+            {"id": "2", "name": "alsa_output.usb-ESS_ES9038Q2M-00.analog-stereo",
+             "description": "USB DAC"},
+        ])
+        self.config.set("audio.sink", "auto")
+        assert "usb" in self.pw.pick_hardware_sink()["name"]
+
+
+class TestFilterChainConfig:
+    def test_pins_playback_to_target_sink(self):
+        """Unpinned, the EQ output follows the default — which we then set to
+        the EQ itself. That is how sound ended up in HDMI."""
+        from src.audio.pipewire_ctrl import _build_filter_chain_conf
+        conf = _build_filter_chain_conf([0] * 10, "alsa_output.card.analog-stereo")
+        assert 'target.object = "alsa_output.card.analog-stereo"' in conf
+
+    def test_no_target_when_sink_unknown(self):
+        from src.audio.pipewire_ctrl import _build_filter_chain_conf
+        assert "target.object" not in _build_filter_chain_conf([0] * 10, None)
+
+    def test_declares_spa_libs(self):
+        """Without the audio.convert mapping the sink never appears at all."""
+        from src.audio.pipewire_ctrl import _build_filter_chain_conf
+        conf = _build_filter_chain_conf([0] * 10, None)
+        assert "context.spa-libs" in conf
+        assert "libspa-audioconvert" in conf
+
+    def test_all_ten_bands_present(self):
+        from src.audio.pipewire_ctrl import _build_filter_chain_conf
+        conf = _build_filter_chain_conf(EQ_PRESETS["rock"], None)
+        for freq in EQ_FREQUENCIES:
+            assert f'"Freq" = {float(freq)}' in conf
+
+
+class TestSinkEnumeration:
+    def setup_method(self):
+        self.bus = EventBus()
+        self.config = BCMConfig(platform_override="x86")
+        self.pw = PipeWireController(self.config, self.bus)
+
+    def test_parses_pw_dump_json(self, monkeypatch):
+        import json as _json
+        payload = _json.dumps([
+            {"id": 47, "info": {"props": {
+                "media.class": "Audio/Sink",
+                "node.name": "alsa_output.pci.analog-stereo",
+                "node.description": "Built-in Analog"}}},
+            {"id": 61, "info": {"props": {
+                "media.class": "Stream/Output/Audio",
+                "node.name": "chromium"}}},
+        ])
+        monkeypatch.setattr("src.audio.pipewire_ctrl._run_cmd",
+                            lambda cmd, timeout=5.0: (0, payload, ""))
+        sinks = self.pw.list_sink_nodes()
+        assert len(sinks) == 1
+        assert sinks[0]["id"] == "47"
+        assert sinks[0]["name"] == "alsa_output.pci.analog-stereo"
+
+    def test_malformed_pw_dump_does_not_raise(self, monkeypatch):
+        monkeypatch.setattr("src.audio.pipewire_ctrl._run_cmd",
+                            lambda cmd, timeout=5.0: (0, "not json at all", ""))
+        assert self.pw.list_sink_nodes() == []

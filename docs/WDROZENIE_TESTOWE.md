@@ -551,7 +551,9 @@ make -C arduino rotary_encoder-upload PORT=/dev/ttyACM0
 ```
 
 Pody SWC podłącz do **A0** (Pod 1) i **A6** (Pod 2), dekoder: czerwony → ACC,
-czarny → masa. Kalibracja: przytrzymaj HOME + BACK przy starcie płytki
+czarny → masa. **Uwaga: na płytce nie ma pola „A6" — to pad opisany `4`**
+(na 32U4 kanały A6–A11 siedzą pod numerami cyfrowymi; opisane analogowo są
+tylko A0–A3). Kalibracja: przytrzymaj HOME + BACK przy starcie płytki
 i naciskaj kolejne przyciski wg podpowiedzi na porcie szeregowym. Progi
 zapisują się w EEPROM.
 
@@ -761,6 +763,7 @@ przejdź na `bcm_config.yaml`, gdy większość będzie już podłączona.
 | [`WDROZENIE_M910Q.md`](WDROZENIE_M910Q.md) | wdrożenie docelowe, pełne |
 | [`ZASILANIE_BUFOROWANE.md`](ZASILANIE_BUFOROWANE.md) | warianty ładowania, nastawy modułów, sprawdzenia przed załączeniem |
 | [`SCHEMATY_POLACZEN.md`](SCHEMATY_POLACZEN.md) | tabele połączeń dla wersji docelowej |
+| [`QA_ODBIOR.md`](QA_ODBIOR.md) | **ankieta odbiorowa** — co sprawdzić po wgraniu zmian |
 | [`ARDUINO_OD_ZERA.md`](ARDUINO_OD_ZERA.md) | **pierwsze wgranie firmware — dla zupełnie początkujących** |
 | [`ARDUINO_SETUP_GUIDE.md`](ARDUINO_SETUP_GUIDE.md) | Pro Micro, kalibracja SWC |
 | [`URUCHOMIENIE.md`](URUCHOMIENIE.md) | symulacja bez sprzętu, przełączniki modułów |

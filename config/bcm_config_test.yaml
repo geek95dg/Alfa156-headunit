@@ -133,6 +133,17 @@ hardware:
     device: ''
     apn: ''
 audio:
+  # Wyjście dźwięku. "auto" = wybierz wbudowane wyjście analogowe i pomiń
+  # HDMI (na M910q HDMI prawie zawsze jest podłączone i prawie nigdy nie o to
+  # chodzi). Możesz też wpisać fragment node.name z `wpctl status --name`,
+  # np. alsa_output.pci-0000_00_1f.3.analog-stereo
+  sink: auto
+  # Sink sprzętowy trzymamy na maksimum, a użytkownik reguluje głośność na
+  # sinku EQ. Inaczej regulacja działa na jednym, a cichy jest drugi.
+  hw_volume: 100
+  # Świeży Realtek potrafi wstać z włączonym Auto-Mute i wyciszonym
+  # Headphone — wtedy nic nie zagra mimo poprawnego routingu.
+  force_unmute: true
   eq_dsp_enabled: true   # prawdziwy EQ przez PipeWire filter-chain
   eq_preset: jazz
   master_volume: 70
@@ -256,9 +267,15 @@ wifi:
     dhcp_start: 10.0.1.10
     dhcp_end: 10.0.1.50
     share_internet: true
-  ssid_runtime: DIRECT-Ea
-  password_runtime: adVEiNlq
-  bssid_runtime: 4e:82:a9:17:47:97
+  # ssid_runtime / password_runtime / bssid_runtime są USTAWIANE W LOCIE przez
+  # wifi_ap.py po utworzeniu grupy P2P-GO i zapisywane tutaj. Nie wpisuj ich
+  # ręcznie: Wi-Fi Direct generuje nowe SSID i hasło przy każdej grupie, a
+  # nieaktualna para trafia do openauto.ini i telefon dostaje namiary na sieć,
+  # która już nie istnieje. Puste = użyj ssid/password powyżej do czasu, aż AP
+  # zgłosi prawdziwe wartości.
+  ssid_runtime: ''
+  password_runtime: ''
+  bssid_runtime: ''
 weather:
   api_key: 631c2365675e193584b0f986798554c1
   poll_interval_min: 15
