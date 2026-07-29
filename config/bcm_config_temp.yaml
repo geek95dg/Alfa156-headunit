@@ -1,0 +1,281 @@
+system:
+  name: BCM v8.5
+  version: 8.5.1
+  platform: x86
+  log_level: DEBUG
+  log_file: logs/bcm.log
+  simulation: false
+modules:
+  dashboard: true
+  weather: true
+  route_planner: true
+  multimedia: true
+  bluetooth: true
+  wifi_ap: true
+  input: true
+  audio: true
+  obd: false
+  parking: false
+  environment: false
+  camera: false
+  power: false
+  location: false
+  tracking: false
+  network: false
+  blinker_monitor: false
+  rain_sensor: false
+  central_lock: false
+  lighting: false
+  performance: false
+  alarm: false
+  crash_detect: false
+  battery: false
+  phonebook: false
+  fuel_sender: false
+  wifi_hotspot: false
+  small_display: false
+display:
+  dashboard:
+    width: 1024
+    height: 600
+    fps: 15
+    theme: heritage
+    brightness: 70
+  multimedia:
+    width: 1024
+    height: 600
+  small:
+    width: 1280
+    height: 480
+  appbar_px: 48
+  navbar_px: 48
+units:
+  speed: km/h
+  temperature: C
+language: pl
+gpio:
+  parking_trig: 79
+  parking_echo:
+  - 80
+  - 81
+  - 82
+  - 83
+  buzzer: 84
+  backlight_dashboard: 32
+  backlight_multimedia: 33
+  onewire: 7
+  ignition: 85
+  door: 86
+  rain_sensor: 87
+  sprayer: 88
+  central_lock: 89
+  blinker_left: 90
+  blinker_right: 91
+vehicle:
+  blinker_active_low: true
+  blinker_hold_sec: 0.8
+serial:
+  kline:
+    port_opi: /dev/ttyS3
+    port_x86: /dev/ttyUSB_kline
+    baudrate: 10400
+    ecu_address: 1
+obd:
+  use_real_hardware: false
+  fast_init: false
+hardware:
+  gps:
+    enabled: true
+    port: /dev/ttyUSB0
+    baudrate: 9600
+  lte:
+    enabled: true
+    device: ''
+    apn: ''
+audio:
+  sink: bcm_combine
+  hw_volume: 100
+  force_unmute: true
+  eq_dsp_enabled: true
+  eq_preset: jazz
+  master_volume: 70
+  bass: 0
+  treble: 0
+  fader: 0
+  balance: 0
+  spectrum_enabled: true
+  dac: ES9038Q2M
+  amp_main: car-amp-4ch
+  amp_sub: none
+  mic_phone: ''
+  voice_duck_pct: 40
+  voice_listen_sec: 8
+camera:
+  segment_minutes: 5
+  max_storage_gb: 128
+  recording_path: /media/dashcam
+  front_device: /dev/video0
+  rear_device: /dev/video1
+  left_device: /dev/video2
+  right_device: /dev/video3
+  controller: true
+swc:
+  enabled: true
+  mapping:
+    volume_up:
+    - SWC_VOLUP
+    - SWC2_VOLUP
+    volume_down:
+    - SWC_VOLDN
+    - SWC2_VOLDN
+    next_track:
+    - SWC_NEXT
+    - SWC2_NEXT
+    prev_track:
+    - SWC_PREV
+    - SWC2_PREV
+    mute:
+    - SWC_MUTE
+    - SWC2_MUTE
+    phone_pickup:
+    - SWC_PICKUP
+    - SWC2_PICKUP
+    phone_hangup:
+    - SWC_HANGUP
+    - SWC2_HANGUP
+    bcm_power_toggle:
+    - SWC_MODE
+    - SWC2_MODE
+    voice_aa_trigger:
+    - SWC_VOICE
+    - SWC2_VOICE
+    navigate_aa:
+    - SWC_SRC
+    - SWC2_SRC
+    menu_up:
+    - SWC_UP
+    - SWC2_UP
+    menu_down:
+    - SWC_DOWN
+    - SWC2_DOWN
+brightness:
+  mode: auto
+  steps:
+  - 15
+  - 30
+  - 45
+  - 60
+  - 80
+  - 100
+music_panel:
+  enabled: true
+fuel_sender:
+  enabled: true
+  calibration:
+  - - 20
+    - 100
+  - - 50
+    - 75
+  - - 120
+    - 50
+  - - 220
+    - 25
+  - - 360
+    - 5
+  - - 400
+    - 0
+  tank_capacity_litres: 58
+wifi:
+  enabled: true
+  ssid: ALFA
+  password: 87654321
+  mode: p2p_go
+  band: a
+  channel: 149
+  country: US
+  regdom: US
+  share_internet: true
+  interface: ''
+  ip: 10.0.0.1
+  netmask: 255.255.255.0
+  dhcp_start: 10.0.0.10
+  dhcp_end: 10.0.0.50
+  alfa_net:
+    enabled: false
+    ssid: ALFA-NET
+    password: AlfaRomeo156
+    channel: 6
+    country: US
+    ip: 10.0.1.1
+    netmask: 255.255.255.0
+    dhcp_start: 10.0.1.10
+    dhcp_end: 10.0.1.50
+    share_internet: true
+  ssid_runtime: ''
+  password_runtime: ''
+  bssid_runtime: ''
+weather:
+  api_key: 631c2365675e193584b0f986798554c1
+  poll_interval_min: 15
+  default_lat: 50.06
+  default_lon: 19.94
+travel:
+  openrouteservice_key: PASTE_ORS_KEY_HERE
+  tomtom_key: ''
+power:
+  shutdown_delay_seconds: 30
+  backlight_fade_ms: 1000
+  standby_max_hours: 24
+  splash_duration_seconds: 15
+  ignition_watcher:
+    gpio_chip: gpiochip0
+    ignition_line: 7
+    bench_button_line: 21
+    debounce_ms: 200
+    active_low: true
+    autostart: true
+    suspend_on_stop: true
+    suspend_delay_seconds: 5
+rain_sensor:
+  sensitivity: medium
+central_lock:
+  port: /dev/ttyUSB1
+  baudrate: 9600
+lighting:
+  follow_me_home_seconds: 60
+  greeting_blinks: 2
+  leaving_home: true
+traffic:
+  api_key: ''
+  provider: tomtom
+  poll_interval_min: 5
+remote_status:
+  api_key: ''
+alarm:
+  siren_duration: 60
+  arming_delay: 30
+  sensors:
+    door: true
+    motion: true
+    tilt: true
+    shock: true
+crash_detection:
+  speed_drop_threshold: 30
+  g_force_threshold: 3.0
+  post_crash_record_sec: 60
+tracking:
+  db_path: data/gps_tracks.db
+  interval_sec: 30
+  trip_start_kmh: 5
+  trip_end_kmh: 2
+  trip_end_idle_sec: 60
+  lte_sync_min: 15
+  geofence_lat: 0
+  geofence_lon: 0
+  geofence_radius_km: 0
+  sms_number: ''
+multimedia:
+  last_bt_device: C0:7A:D6:90:E9:CC
+bluetooth:
+  enabled: true
+  preferred_adapter: ''

@@ -352,8 +352,19 @@ class OpenAutoController:
                     env["PIPEWIRE_RUNTIME_DIR"] = f"/run/user/{uid}"
                     log.info("Audio: PULSE_SERVER=%s", sock)
                     break
+
             else:
                 log.warning("No PulseAudio socket found — audio may not work")
+
+        # Optional: pin autoapp's audio to a specific PipeWire sink (node.name)
+        # instead of the default. Set audio.aa_sink in config to override; empty
+        # = use the PipeWire default (bcm_eq_sink → combine → both outputs).
+        aa_sink = ""
+        if self._config is not None:
+            aa_sink = str(self._config.get("audio.aa_sink", "") or "").strip()
+        if aa_sink:
+            env["PULSE_SINK"] = aa_sink
+            log.info("Audio: PULSE_SINK=%s (autoapp pinned sink)", aa_sink)
 
         # Ensure XDG_RUNTIME_DIR is set for the running process's own UID
         if "XDG_RUNTIME_DIR" not in env:

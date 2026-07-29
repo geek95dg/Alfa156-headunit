@@ -38,10 +38,15 @@ class VolumeController:
         self._pw = pipewire
         self._event_bus = event_bus
         self._volume = max(VOLUME_MIN, min(VOLUME_MAX, initial_volume))
+        self._muted = False
 
         # Subscribe to input events
         self._event_bus.subscribe("input.volume_up", self._on_volume_up)
         self._event_bus.subscribe("input.volume_down", self._on_volume_down)
+        # SWC MUTE button (Arduino MEDIA_VOLUME_MUTE → KEY_MUTE → input.mute).
+        # Nothing used to consume input.mute, so the wheel mute button did
+        # nothing; make it a toggle.
+        self._event_bus.subscribe("input.mute", self._on_mute)
 
         # Set initial volume
         self._pw.set_volume(self._volume)
@@ -50,12 +55,20 @@ class VolumeController:
         log.info("VolumeController initialized at %d%%", self._volume)
 
     def _on_volume_up(self, topic: str, value: Any, timestamp: float) -> None:
+        if self._muted:
+            self.unmute()
         step = value if isinstance(value, int) else VOLUME_STEP
         self.set_volume(self._volume + step)
 
     def _on_volume_down(self, topic: str, value: Any, timestamp: float) -> None:
+        if self._muted:
+            self.unmute()
         step = value if isinstance(value, int) else VOLUME_STEP
         self.set_volume(self._volume - step)
+
+    def _on_mute(self, topic: str, value: Any, timestamp: float) -> None:
+        # SWC MUTE is a toggle.
+        self.unmute() if self._muted else self.mute()
 
     def set_volume(self, volume: int) -> None:
         """Set master volume (0-100)."""
@@ -75,11 +88,15 @@ class VolumeController:
     def mute(self) -> None:
         """Mute audio output."""
         self._pw.set_mute(True)
+        self._muted = True
+        self._event_bus.publish("audio.mute_changed", True)
         log.info("Audio muted")
 
     def unmute(self) -> None:
         """Unmute audio output."""
         self._pw.set_mute(False)
+        self._muted = False
+        self._event_bus.publish("audio.mute_changed", False)
         log.info("Audio unmuted")
 
 
