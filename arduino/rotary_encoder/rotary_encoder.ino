@@ -16,8 +16,12 @@
  *   D7 ← MEDIA button (active LOW, internal pull-up)
  *   D8 ← VOL+ button  (active LOW, internal pull-up)
  *   D9 ← VOL- button  (active LOW, internal pull-up)
- *   A0 ← SWC Pod 1 (white wire, analog 0-5V)
- *   A6 ← SWC Pod 2 (white wire, analog 0-5V)
+ *   A0 ← SWC pod ("KEY", biały przewód) — analog 0-5V (drabinka rezystorów).
+ *        WYMAGA pull-up z A0 do VCC (5V). Dla TEGO modułu (rezystancje padów
+ *        1Ω..14,66kΩ) właściwa wartość to **1 kΩ** — 10 kΩ ściska sześć padów
+ *        o niskiej rezystancji w ADC 0-70 (nakładają się), a 330 kΩ pływa i
+ *        "wariuje". 1 kΩ rozkłada wszystkie 10 padów w 0-1023 (patrz swcValues).
+ *   A6 ← (NIEUŻYWANE) — drugi pod wyłączony w tej wersji (jeden pod).
  *
  *   Music panel (5 buttons near 7" AA screen, active LOW, internal pull-ups):
  *   D10 ← MUSIC PREV
@@ -30,7 +34,9 @@
  *   A1  ← LDR light sensor (voltage divider: LDR + 10kΩ to GND → A1)
  *   A2  ← Stalk button (spare button on column stalk, active LOW, internal pull-up)
  *
- * SWC decoder boxes: Pod 1 white → A0, Pod 2 white → A6, both black → GND, both red → 12V ACC
+ * Adapter SWC (uczący się, z Aliexpress): kostka red → 12V ACC, black → GND,
+ * KEY (biały) → A0. Masa kostki MUSI być wspólna z GND Pro Micro. Pro Micro
+ * zasilany z USB M910q (nie z 12V). Pull-up 1 kΩ z A0 do VCC. Jeden pod.
  *
  * Music panel buttons send same keycodes as SWC/encoder equivalents:
  *   MUSIC PREV  → MEDIA_PREVIOUS (consumer)
@@ -78,6 +84,15 @@
  * Przy okazji: piny enkodera dostały INPUT_PULLUP (bez podłączonego enkodera
  * pływały i przerwanie CHANGE sypało strzałkami), a wejścia, których nie masz
  * podłączonych, można teraz wyłączyć przełącznikami FEATURE_* poniżej.
+ * ---------------------------------------------------------------------------
+ * v8.5.4 — JEDEN pod, 10 przycisków, bez power-toggle
+ *
+ * Konfiguracja quick-start: tylko Pod 1 (A0), drugi pod (A6) wyłączony.
+ * Zestaw 10 przycisków w kolejności kalibracji: VOL+, VOL-, MUTE, NEXT, PREV,
+ * HOME, PICKUP (odbierz), HANGUP (odrzuć), VOICE (mikrofon), NAV (nawigacja).
+ * Slot "MODE" (dawniej F10 → input.bcm_power_toggle) SKASOWANY i zastąpiony
+ * przez HOME (KEY_HOME → ekran A1) — szum ADC nie wyłączy już komputera.
+ * Kalibracja pyta tylko o te 10 przycisków. Pull-up ma być 1 kΩ (patrz wyżej).
  * ---------------------------------------------------------------------------
  */
 
@@ -157,57 +172,44 @@
 // 60 ms to kompromis: krócej łapie zakłócenia, dłużej daje wrażenie opóźnienia.
 #define SWC_CONFIRM_MS   60
 
-// --- SWC button count (12 per pod x 2 pods = 24 total) ---
-#define SWC_BUTTONS_PER_POD 12
-#define SWC_BUTTON_COUNT 24
+// --- SWC button count (JEDEN pod, 10 przycisków) ---
+#define SWC_BUTTONS_PER_POD 10
+#define SWC_BUTTON_COUNT 10
 #define SWC_IDLE_THRESHOLD 1000
 
 // --- EEPROM layout ---
 #define EEPROM_MAGIC_ADDR 0
-#define EEPROM_MAGIC_VALUE 0xBD   // bumped from 0xBC to force re-calibration
-#define EEPROM_SWC_ADDR 1         // 24 x 2 bytes = 48 bytes
+#define EEPROM_MAGIC_VALUE 0xBF   // bumped: wstępne nastawy z pomiarów (pull-up 1k)
+#define EEPROM_SWC_ADDR 1         // 10 x 2 bytes = 20 bytes
 
-// SWC button indices — Pod 1 (0-11), Pod 2 (12-23)
+// SWC button indices — jeden pod (A0), 10 przycisków w kolejności kalibracji.
 enum SWCButton {
-  SWC_VOLUP   = 0,
-  SWC_VOLDN   = 1,
-  SWC_UP      = 2,
-  SWC_DOWN    = 3,
-  SWC_MUTE    = 4,
-  SWC_MODE    = 5,
-  SWC_NEXT    = 6,
-  SWC_PREV    = 7,
-  SWC_PICKUP  = 8,
-  SWC_HANGUP  = 9,
-  SWC_VOICE   = 10,
-  SWC_SRC     = 11,
-  SWC2_VOLUP  = 12,
-  SWC2_VOLDN  = 13,
-  SWC2_UP     = 14,
-  SWC2_DOWN   = 15,
-  SWC2_MUTE   = 16,
-  SWC2_MODE   = 17,
-  SWC2_NEXT   = 18,
-  SWC2_PREV   = 19,
-  SWC2_PICKUP = 20,
-  SWC2_HANGUP = 21,
-  SWC2_VOICE  = 22,
-  SWC2_SRC    = 23,
+  SWC_VOLUP  = 0,   // głośniej
+  SWC_VOLDN  = 1,   // ciszej
+  SWC_MUTE   = 2,   // wyciszenie
+  SWC_NEXT   = 3,   // następny utwór
+  SWC_PREV   = 4,   // poprzedni utwór
+  SWC_HOME   = 5,   // ekran główny (A1) — dawniej MODE/power-toggle
+  SWC_PICKUP = 6,   // odbierz połączenie
+  SWC_HANGUP = 7,   // odrzuć / zakończ połączenie
+  SWC_VOICE  = 8,   // mikrofon / asystent AA
+  SWC_SRC    = 9,   // nawigacja → ekran Android Auto (A2)
 };
 
 const char* SWC_NAMES[SWC_BUTTON_COUNT] = {
-  "VOL+", "VOL-", "UP", "DOWN", "MUTE", "MODE",
-  "NEXT", "PREV", "PICKUP", "HANGUP", "VOICE", "SRC",
-  "2:VOL+", "2:VOL-", "2:UP", "2:DOWN", "2:MUTE", "2:MODE",
-  "2:NEXT", "2:PREV", "2:PICKUP", "2:HANGUP", "2:VOICE", "2:SRC"
+  "VOL+", "VOL-", "MUTE", "NEXT", "PREV",
+  "HOME", "PICKUP", "HANGUP", "VOICE", "NAV"
 };
 
-// ADC calibration values — Pod 1 indices 0-11, Pod 2 indices 12-23
+// ADC calibration values (jeden pod). WSTĘPNE, policzone z rezystancji
+// zmierzonych na module SWC (biały↔GND) i pull-upu 1 kΩ do 5 V:
+//   ADC = 1023 * R / (R + 1000)
+//   VOL+ 734Ω→433  VOL- 181Ω→157  MUTE 1863Ω→666  NEXT 472Ω→328  PREV 1Ω→1
+//   HOME 331Ω→254  PICKUP 1237Ω→566  HANGUP 14660Ω→958  VOICE 4110Ω→823  NAV 82Ω→78
+// Rozrzut min. 74 (tolerancja 40) — pody rozróżnialne. Uruchom CAL, by
+// dostroić pod tolerancje własnego rezystora; te wartości działają od razu.
 uint16_t swcValues[SWC_BUTTON_COUNT] = {
-  75, 150, 230, 310, 390, 470,
-  540, 610, 690, 760, 830, 900,
-  75, 150, 230, 310, 390, 470,
-  540, 610, 690, 760, 830, 900,
+  433, 157, 666, 328, 1, 254, 566, 958, 823, 78,
 };
 
 #ifdef FEATURE_ENCODER
@@ -254,9 +256,8 @@ struct SwcPod {
   const char*  tag;
 };
 
-SwcPod swcPods[2] = {
-  {SWC_PIN1, 0,                   -1, -1, 0, "SWC1"},
-  {SWC_PIN2, SWC_BUTTONS_PER_POD, -1, -1, 0, "SWC2"},
+SwcPod swcPods[1] = {
+  {SWC_PIN1, 0, -1, -1, 0, "SWC"},
 };
 #endif
 
@@ -322,11 +323,11 @@ void setup() {
 #ifdef FEATURE_SWC
   // INPUT_PULLUP, nie INPUT. Spoczynek jest tu zdefiniowany jako ADC ≈ VCC,
   // więc linia MUSI być czymś podciągnięta. Wewnętrzny pull-up (20–50 kΩ)
-  // wystarcza na biurku; w aucie dołóż zewnętrzne 10 kΩ do VCC i skalibruj
+  // wystarcza na biurku; w aucie dołóż zewnętrzne 1 kΩ do VCC i skalibruj
   // pody DOPIERO po jego zamontowaniu — przy pasywnej drabince rezystorowej
   // podciągnięcie współtworzy dzielnik i zmienia wszystkie progi.
   pinMode(SWC_PIN1, INPUT_PULLUP);
-  pinMode(SWC_PIN2, INPUT_PULLUP);
+  // A6 (Pod 2) celowo nieużywane — jeden pod. Nie ustawiamy pinMode.
 #endif
 
 #ifdef FEATURE_LIGHT
@@ -521,9 +522,8 @@ void loop() {
 #endif
 
 #ifdef FEATURE_SWC
-  // --- Handle SWC analog buttons (Pod 1 on A0, Pod 2 on A6) ---
+  // --- Handle SWC analog buttons (jeden pod na A0) ---
   handlePod(swcPods[0], now);
-  handlePod(swcPods[1], now);
 
   // --- Kalibracja na żądanie: wyślij "CAL" na port szeregowy ---
   // Alternatywa dla HOME + BACK przy starcie, która działa także wtedy, gdy
@@ -610,55 +610,44 @@ void handleMusicButton(int buttonIndex) {
 
 #ifdef FEATURE_SWC
 void handleSWCButton(int buttonIndex) {
-  // Pod 2 buttons (12-23) send the same keycodes as their Pod 1 equivalents
-  int base = buttonIndex % SWC_BUTTONS_PER_POD;
-  switch (base) {
-    case 0:  // VOLUP
+  // Jeden pod — indeks 0..9 wprost (kolejność jak enum SWCButton / SWC_NAMES).
+  switch (buttonIndex) {
+    case 0:  // VOL+  → głośniej
       Consumer.write(MEDIA_VOLUME_UP);
       break;
-    case 1:  // VOLDN
+    case 1:  // VOL-  → ciszej
       Consumer.write(MEDIA_VOLUME_DOWN);
       break;
-    case 2:  // UP
-      Keyboard.press(KEY_UP_ARROW);
-      delay(10);
-      Keyboard.release(KEY_UP_ARROW);
-      break;
-    case 3:  // DOWN
-      Keyboard.press(KEY_DOWN_ARROW);
-      delay(10);
-      Keyboard.release(KEY_DOWN_ARROW);
-      break;
-    case 4:  // MUTE
+    case 2:  // MUTE  → wyciszenie
       Consumer.write(MEDIA_VOLUME_MUTE);
       break;
-    case 5:  // MODE → power toggle (F10)
-      Keyboard.press(KEY_F10);
-      delay(10);
-      Keyboard.release(KEY_F10);
-      break;
-    case 6:  // NEXT
+    case 3:  // NEXT  → następny utwór
       Consumer.write(MEDIA_NEXT);
       break;
-    case 7:  // PREV
+    case 4:  // PREV  → poprzedni utwór
       Consumer.write(MEDIA_PREVIOUS);
       break;
-    case 8:  // PICKUP
+    case 5:  // HOME  → ekran główny A1 (KEY_HOME). Dawniej MODE→F10 wyłączał BCM.
+      Keyboard.press(KEY_HOME);
+      delay(10);
+      Keyboard.release(KEY_HOME);
+      break;
+    case 6:  // PICKUP (odbierz) → F5 → input.phone_pickup
       Keyboard.press(KEY_F5);
       delay(10);
       Keyboard.release(KEY_F5);
       break;
-    case 9:  // HANGUP
+    case 7:  // HANGUP (odrzuć) → F6 → input.phone_hangup
       Keyboard.press(KEY_F6);
       delay(10);
       Keyboard.release(KEY_F6);
       break;
-    case 10: // VOICE → voice AA trigger (F7)
+    case 8:  // VOICE (mikrofon) → F7 → input.voice_aa_trigger
       Keyboard.press(KEY_F7);
       delay(10);
       Keyboard.release(KEY_F7);
       break;
-    case 11: // SRC → navigate AA (F8)
+    case 9:  // NAV (nawigacja) → F8 → input.navigate_aa → ekran A2 (Android Auto)
       Keyboard.press(KEY_F8);
       delay(10);
       Keyboard.release(KEY_F8);
@@ -773,14 +762,13 @@ void calibratePod(uint8_t pin, uint8_t offset, const char* podName) {
 
 void runCalibration() {
   Serial.println();
-  Serial.println("=== SWC CALIBRATION MODE (Dual Pod) ===");
-  Serial.println("Press each steering wheel button when prompted.");
-  Serial.println("Release all buttons between presses.");
+  Serial.println("=== SWC CALIBRATION (jeden pod, 10 przyciskow) ===");
+  Serial.println("Nacisnij kolejno: VOL+, VOL-, MUTE, NEXT, PREV,");
+  Serial.println("HOME, PICKUP(odbierz), HANGUP(odrzuc), VOICE(mik), NAV.");
+  Serial.println("Zwalniaj wszystkie przyciski miedzy wcisnieciami.");
   Serial.println();
 
-  calibratePod(SWC_PIN1, 0, "Pod 1 (A0)");
-  Serial.println();
-  calibratePod(SWC_PIN2, SWC_BUTTONS_PER_POD, "Pod 2 (A6 = pad 4)");
+  calibratePod(SWC_PIN1, 0, "Pod (A0)");
 
   Serial.println();
   Serial.println("Calibration results:");

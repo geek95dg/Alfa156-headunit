@@ -130,7 +130,7 @@ class WebViewer:
         if not isinstance(_wc, dict):
             _wc = {}
 
-        return {
+        data = {
             # Engine
             "rpm": _val("obd.rpm", 0),
             "speed": _val("obd.speed", 0),
@@ -227,9 +227,18 @@ class WebViewer:
             # Parking
             "parking_distances": _val("parking.distances", []),
             "parking_active": _val("parking.active", False),
-            # SWC navigation
+            # SWC navigation (edge-triggered — see reset below)
             "navigate_aa": _val("input.navigate_aa", False),
+            "home": _val("input.home", False),
         }
+        # The browser's DataStore only fires subscribers on value *change*, so
+        # a latched True would navigate once and never again (and would nav
+        # spuriously on reload). Emit True for exactly one broadcast frame then
+        # reset to False, so every HOME/NAV press re-fires.
+        for _nav in ("input.navigate_aa", "input.home"):
+            if _val(_nav, False):
+                bus.publish(_nav, False)
+        return data
 
     def _handle_browser_key(self, key: str) -> None:
         """Map browser key to event bus input."""

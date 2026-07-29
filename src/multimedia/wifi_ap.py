@@ -986,6 +986,15 @@ class WiFiAPManager:
                         "primary %s for IP", self._interface)
             p2p_iface = self._interface
 
+        # WiFi power-save on the GO radio is the classic "AA connects then
+        # drops after a few seconds" cause: the phone associates, the link
+        # goes idle and mac80211 parks the radio. Force it off on the parent
+        # phy (the P2P child inherits it; setting it on the child returns
+        # -95 on MT7921). Best-effort — never fatal.
+        for ps_if in (self._interface, p2p_iface):
+            subprocess.run(["iw", "dev", ps_if, "set", "power_save", "off"],
+                           capture_output=True)
+
         # Wi-Fi Direct GOs broadcast a spec-mandated `DIRECT-XX` SSID
         # with a random WPA2 passphrase. Read what wpa_supplicant
         # generated and overwrite self._ssid / self._password so the
@@ -993,17 +1002,32 @@ class WiFiAPManager:
         # to the phone over BT. Without this, the phone is told to
         # join "ALFA" while the actual GO is "DIRECT-Qi" → AA-Wireless
         # connect fails silently.
+        #
+        # The group needs a beat before wpa_cli reports ssid/bssid, and a
+        # single failed scrape used to silently leave the YAML fallback
+        # (ALFA/87654321) in place — the phone then joins a network that
+        # does not exist and AA flaps. Retry until we actually have both.
         if p2p_iface != self._interface:
-            real_ssid = self._wpa_query(ctrl_dir, p2p_iface, "status",
-                                        prop="ssid")
-            real_psk = self._wpa_query(ctrl_dir, p2p_iface,
-                                       "p2p_get_passphrase")
-            real_bssid = self._wpa_query(ctrl_dir, p2p_iface, "status",
-                                         prop="bssid")
+            real_ssid = real_psk = real_bssid = ""
+            for _attempt in range(10):
+                real_ssid = self._wpa_query(ctrl_dir, p2p_iface, "status",
+                                            prop="ssid") or real_ssid
+                real_psk = self._wpa_query(ctrl_dir, p2p_iface,
+                                           "p2p_get_passphrase") or real_psk
+                real_bssid = self._wpa_query(ctrl_dir, p2p_iface, "status",
+                                             prop="bssid") or real_bssid
+                if real_ssid and real_psk:
+                    break
+                time.sleep(0.5)
             if real_ssid:
                 self._ssid = real_ssid
             if real_psk:
                 self._password = real_psk
+            if not (real_ssid and real_psk):
+                log.warning("P2P-GO credential scrape incomplete after retries "
+                            "(ssid=%r psk=%s bssid=%r) — openauto.ini may carry "
+                            "stale/fallback creds", real_ssid,
+                            "set" if real_psk else "MISSING", real_bssid)
             # The GO has its own MAC (parent±2 typically) — publish so
             # openauto.ini gets the right BSSID for WifiInfoResponse.
             log.info("P2P-GO advertising SSID=%s psk=%s… on BSSID=%s",

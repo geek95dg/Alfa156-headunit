@@ -13,7 +13,7 @@ Type=simple
 # Platform and config are set here — edit for your target:
 #   x86:    --platform x86    --config config/bcm_config.yaml
 #   OPi PC (archived): --platform opi_pc --config Archive/orange-pi-pc/bcm_config_opi_pc.yaml
-ExecStart=/bin/bash -c 'VENV=/opt/bcm/.venv; [ -x "$VENV/bin/python" ] || VENV=/opt/bcm/venv; exec "$VENV/bin/python" main.py --platform x86 --config config/bcm_config.yaml --frontend'
+ExecStart=/bin/bash -c 'VENV=/opt/bcm/.venv; [ -x "$VENV/bin/python" ] || VENV=/opt/bcm/venv; exec "$VENV/bin/python" main.py --platform x86 --config config/bcm_config_temp.yaml --frontend'
 WorkingDirectory=/opt/bcm
 Environment=PYTHONPATH=/opt/bcm
 Environment=BCM_PLATFORM=x86

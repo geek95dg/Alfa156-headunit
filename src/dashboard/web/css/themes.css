@@ -22,8 +22,31 @@
  * per-component pixel bumps in the JS templates (navbar/appbar/keyboard).
  */
 html {
-    font-size: 16px;   /* fallback — #bcm-adaptive-rem overrides per viewport */
+    font-size: 17px;   /* fallback — #bcm-adaptive-rem overrides per viewport */
 }
+
+/* Master volume slider on the A1 media card (all themes). Big touch thumb;
+ * accent colour follows the active theme. Chromium kiosk → -webkit- is fine. */
+.bcm-vol {
+    -webkit-appearance: none; appearance: none;
+    width: 100%; height: 10px; border-radius: 9999px;
+    background: rgba(255, 255, 255, 0.15);
+    outline: none; cursor: pointer;
+}
+.bcm-vol::-webkit-slider-thumb {
+    -webkit-appearance: none; appearance: none;
+    width: 30px; height: 30px; border-radius: 9999px;
+    background: #ef4444; border: 2px solid rgba(0, 0, 0, 0.35);
+    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.4); cursor: pointer;
+}
+[data-theme="modern"] .bcm-vol { background: rgba(0, 0, 0, 0.12); }
+[data-theme="modern"] .bcm-vol::-webkit-slider-thumb { background: #2563eb; }
+[data-theme="autodelta"] .bcm-vol::-webkit-slider-thumb { background: #FF5F00; }
+
+/* Utilities used by the rebuilt A1 media card that aren't in the precompiled
+ * Tailwind sheet (node was unavailable to re-run build-frontend.sh). Standard
+ * Tailwind values — a later CSS rebuild produces the same rule. */
+.max-w-2xl { max-width: 42rem; }
 
 /* When the on-screen keyboard (half-screen, 50vh) is open, pad the
  * scrollable content area up by the keyboard height + a margin so the

@@ -19,14 +19,14 @@
          * (padding, gaps, button heights, standard text) WITHOUT a
          * transform:scale (which blurs text + breaks touch mapping).
          *
-         * Designed around a 1280-wide reference at 16px and clamped so a
-         * 1024x600 panel stays legible (~14px → denser than the old fixed
-         * 17px) while a 10.1" 1280x800 panel fills out proportionally
-         * (16px). Re-applied on resize so swapping panels needs no config.
-         * Pixel-literal labels (text-[Npx], icon font-size) are handled by
-         * the escape-bracket overrides in themes.css, not here. */
+         * Quick-start build runs on a 7" 1024x600 panel and the user asked
+         * for a BIGGER UI, so the base is bumped: floor 17px (was 14 → why
+         * everything looked tiny on 1024), reference 17px @ 1280, up to 20px
+         * on wider panels. Re-applied on resize so swapping panels needs no
+         * config. Pixel-literal labels (text-[Npx], icon font-size) are
+         * handled by the escape-bracket overrides in themes.css, not here. */
         (function () {
-            var REF_W = 1280, REF_PX = 16, MIN_PX = 14, MAX_PX = 17;
+            var REF_W = 1280, REF_PX = 17, MIN_PX = 17, MAX_PX = 20;
             function applyRem() {
                 var w = window.innerWidth || REF_W;
                 var px = Math.max(MIN_PX, Math.min(MAX_PX, REF_PX * (w / REF_W)));

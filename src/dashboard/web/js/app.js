@@ -4,7 +4,9 @@
 
 const App = (() => {
     const SCREENS = ["init", "a1", "a2", "a3", "a4", "a5", "a6", "a7", "a8", "settings"];
-    const NAV_SCREENS = ["a1", "a2", "a3", "a4", "a5", "a6", "a7", "a8"]; // screens with navbar
+    // Quick-start build: swipe/navbar cycle only the four in-scope screens.
+    // A5-A8 stay registered (reachable by direct navigateTo) but are hidden.
+    const NAV_SCREENS = ["a1", "a2", "a3", "a4"]; // screens with navbar
 
     let _currentScreen = "init";
     let _currentTheme = "heritage";
@@ -355,7 +357,11 @@ const App = (() => {
 
     // --- Icing Alert ---
     function _checkIcingAlert(data) {
-        const temp = data.ext_temp;
+        // Quick-start build: ice/frost warnings disabled (user request). The
+        // environment module is off anyway, but hard-gate it so a stray
+        // ext_temp can never pop the overlay.
+        return;
+        const temp = data.ext_temp;   // eslint-disable-line no-unreachable
         if (temp != null && temp < 3 && !document.getElementById("icing-alert")) {
             const t = App.t.bind(App);
             const alert = document.createElement("div");
@@ -666,6 +672,11 @@ const App = (() => {
             // SWC navigate_aa → switch to Android Auto screen
             DataStore.subscribe("navigate_aa", (val) => {
                 if (val && _currentScreen !== "a2") navigateTo("a2");
+            });
+
+            // SWC HOME → main screen A1
+            DataStore.subscribe("home", (val) => {
+                if (val && _currentScreen !== "a1") navigateTo("a1");
             });
 
             // Keyboard input
