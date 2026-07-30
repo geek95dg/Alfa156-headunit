@@ -1,0 +1,15 @@
+[Unit]
+Description=BCM — re-check the clock shortly after boot, then hourly
+
+[Timer]
+# Boot is when the RTC-was-wrong case shows itself, but the uplink
+# (LTE or a known WLAN) is rarely up yet at multi-user.target — hence a
+# delay rather than firing with the unit.
+OnBootSec=2min
+OnUnitActiveSec=1h
+# Ignition-off means missed ticks; take the first one after wake rather
+# than waiting out a full hour with a visibly wrong clock.
+Persistent=true
+
+[Install]
+WantedBy=timers.target

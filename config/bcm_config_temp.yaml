@@ -22,7 +22,7 @@ modules:
   location: false
   tracking: false
   network: false
-  blinker_monitor: false
+  blinker_monitor: true
   rain_sensor: false
   central_lock: false
   lighting: false
@@ -30,7 +30,7 @@ modules:
   alarm: false
   crash_detect: false
   battery: false
-  phonebook: false
+  phonebook: true
   fuel_sender: false
   wifi_hotspot: false
   small_display: false
@@ -39,7 +39,7 @@ display:
     width: 1024
     height: 600
     fps: 15
-    theme: heritage
+    theme: autodelta
     brightness: 70
   multimedia:
     width: 1024
@@ -135,7 +135,7 @@ swc:
     - SWC_PREV
     - SWC2_PREV
     mute:
-    - SWC_MUTE
+    - SWC_VOICE
     - SWC2_MUTE
     phone_pickup:
     - SWC_PICKUP
@@ -211,9 +211,9 @@ wifi:
     dhcp_start: 10.0.1.10
     dhcp_end: 10.0.1.50
     share_internet: true
-  ssid_runtime: ''
-  password_runtime: ''
-  bssid_runtime: ''
+  ssid_runtime: DIRECT-Hr
+  password_runtime: qBYK90eQ
+  bssid_runtime: 4e:82:a9:17:47:97
 weather:
   api_key: 631c2365675e193584b0f986798554c1
   poll_interval_min: 15
