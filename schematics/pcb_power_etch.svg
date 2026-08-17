@@ -1,0 +1,482 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="210mm" height="297mm" viewBox="0 0 210 297" font-family="DejaVu Sans, Verdana, sans-serif">
+<title>PCB zasilania — mozaika miedzi 1:1 do trawienia</title>
+<style>
+ .bg{fill:#ffffff}
+ .cu{fill:#111111;stroke:none}
+ .cuw{stroke:#111111;fill:none;stroke-linecap:round;stroke-linejoin:round}
+ .drl{fill:#ffffff;stroke:none}
+ .brd{fill:none;stroke:#111111;stroke-width:0.35}
+ .brdg{fill:none;stroke:#98a6b0;stroke-width:0.3}
+ .cul{fill:#d8dde2;stroke:none}
+ .culw{stroke:#d8dde2;fill:none;stroke-linecap:round;stroke-linejoin:round}
+ .drll{fill:#ffffff;stroke:#7d8c99;stroke-width:0.18}
+ .sk{fill:none;stroke:#16242e;stroke-width:0.3}
+ .ttl{font-size:5px;font-weight:bold;fill:#0d1c26}
+ .sub{font-size:2.6px;fill:#576875}
+ .h{font-size:3.4px;font-weight:bold;fill:#0d1c26}
+ .l{font-size:2.2px;fill:#33424e}
+ .lb{font-size:2.4px;font-weight:bold;fill:#0d1c26}
+ .r{font-size:2.4px;font-weight:bold;fill:#a8321a}
+ .re{font-size:2.4px;font-weight:bold;fill:#a8321a;text-anchor:end}
+ .w{font-size:2.2px;fill:#2b4a8a;font-weight:bold}
+ .we{font-size:2.2px;fill:#2b4a8a;font-weight:bold;text-anchor:end}
+ .n{font-size:2.4px;fill:#4a5a66}
+ .nb{font-size:2.6px;font-weight:bold;fill:#0d1c26}
+ .ldr{stroke:#7d8c99;stroke-width:0.2;fill:none}
+</style>
+<rect class="bg" x="0" y="0" width="210" height="297"/>
+<text class="ttl" x="12" y="12">MOZAIKA MIEDZI 1:1 — DRUK BEZ SKALOWANIA (100 %)</text>
+<text class="sub" x="12" y="17">Orientacja: widok od strony elementów. Termotransfer: drukuj tak jak jest, toner do miedzi. Fotorezyst: folia tonerem do płytki.</text>
+<text class="sub" x="12" y="21">Kontrola po wytrawieniu: napis „BCM-•” ma się czytać poprawnie patrząc NA MIEDŹ.</text>
+<text class="h" x="16" y="27.5">PŁYTKA A · 100 × 75 mm</text>
+<g transform="translate(16,30)">
+<rect class="cu" x="3" y="66" width="94" height="6"/>
+<rect class="cu" x="46" y="62" width="16" height="10"/>
+<path class="cuw" stroke-width="6" d="M 9 8 L 50 8"/>
+<path class="cuw" stroke-width="4" d="M 50 8 L 55.2 8 L 55.2 12.1"/>
+<path class="cuw" stroke-width="3" d="M 9 15.62 L 11 20.7 L 26 20.7"/>
+<path class="cuw" stroke-width="2.5" d="M 26 13 L 26 20.7"/>
+<path class="cuw" stroke-width="3" d="M 9 15.62 L 4 15.62 L 4 66.5"/>
+<path class="cuw" stroke-width="2" d="M 9 27 L 9 32"/>
+<path class="cuw" stroke-width="2.5" d="M 9 32 L 34 32 L 34 15.9 L 42.54 15.9"/>
+<path class="cuw" stroke-width="2" d="M 30 36 L 30 32"/>
+<path class="cuw" stroke-width="2" d="M 30 46.16 L 30 66.5"/>
+<path class="cuw" stroke-width="2" d="M 42.54 26.1 L 42.54 66.5"/>
+<path class="cuw" stroke-width="4" d="M 57.74 29.9 L 57.74 35 L 76.5 35 L 76.5 30"/>
+<path class="cuw" stroke-width="3" d="M 74 26 L 74 30 L 79.08 30 L 79.08 26"/>
+<path class="cuw" stroke-width="4" d="M 76.54 22 L 76.54 18 L 85 18 L 85 10 L 90 8"/>
+<path class="cuw" stroke-width="3.5" d="M 90 15.62 L 96 15.62"/>
+<path class="cuw" stroke-width="5" d="M 96 15.62 L 96 66.5"/>
+<path class="cuw" stroke-width="3" d="M 90 27 L 96 27"/>
+<path class="cuw" stroke-width="3" d="M 90 49 L 96 49"/>
+<path class="cuw" stroke-width="5" d="M 90 34.62 L 90 44"/>
+<path class="cuw" stroke-width="5" d="M 90 54 L 90 59"/>
+<circle class="cu" cx="9" cy="8.0" r="2.2"/>
+<circle class="cu" cx="9" cy="15.620000000000001" r="2.2"/>
+<circle class="cu" cx="9" cy="27.0" r="1.5"/>
+<circle class="cu" cx="9" cy="32.0" r="1.5"/>
+<circle class="cu" cx="90" cy="8.0" r="2.2"/>
+<circle class="cu" cx="90" cy="15.620000000000001" r="2.2"/>
+<circle class="cu" cx="90" cy="27.0" r="2.2"/>
+<circle class="cu" cx="90" cy="34.62" r="2.2"/>
+<circle class="cu" cx="90" cy="44.0" r="1.5"/>
+<circle class="cu" cx="90" cy="49.0" r="1.5"/>
+<circle class="cu" cx="90" cy="54.0" r="1.5"/>
+<circle class="cu" cx="90" cy="59.0" r="1.5"/>
+<circle class="cu" cx="16" cy="8" r="1.4"/>
+<circle class="cu" cx="16" cy="20.7" r="1.4"/>
+<circle class="cu" cx="26" cy="8" r="1.2"/>
+<circle class="cu" cx="26" cy="13" r="1.2"/>
+<circle class="cu" cx="40" cy="21" r="2.0"/>
+<circle class="cu" cx="42.54" cy="15.9" r="1.1"/>
+<circle class="cu" cx="42.54" cy="26.1" r="1.1"/>
+<circle class="cu" cx="55.2" cy="12.1" r="2.0"/>
+<circle class="cu" cx="57.739999999999995" cy="29.9" r="2.0"/>
+<circle class="cu" cx="65.34" cy="29.9" r="2.0"/>
+<circle class="cu" cx="74" cy="26" r="1.3"/>
+<circle class="cu" cx="76.54" cy="22" r="1.5"/>
+<circle class="cu" cx="79.08" cy="26" r="1.3"/>
+<circle class="cu" cx="30" cy="36" r="1.1"/>
+<circle class="cu" cx="30" cy="46.16" r="1.1"/>
+<circle class="cu" cx="54" cy="68.5" r="5.5"/>
+<circle class="drl" cx="4" cy="4" r="3.5"/>
+<circle class="drl" cx="96" cy="4" r="3.5"/>
+<circle class="drl" cx="4" cy="71" r="3.5"/>
+<circle class="drl" cx="96" cy="71" r="3.5"/>
+<g transform="translate(57,59.5) scale(-1,1)"><text x="-10.24" y="0" font-size="3.2" font-weight="bold" fill="#111">BCM-A</text></g>
+<circle class="drl" cx="9" cy="8.0" r="0.75"/>
+<circle class="drl" cx="9" cy="15.620000000000001" r="0.75"/>
+<circle class="drl" cx="9" cy="27.0" r="0.65"/>
+<circle class="drl" cx="9" cy="32.0" r="0.65"/>
+<circle class="drl" cx="90" cy="8.0" r="0.75"/>
+<circle class="drl" cx="90" cy="15.620000000000001" r="0.75"/>
+<circle class="drl" cx="90" cy="27.0" r="0.75"/>
+<circle class="drl" cx="90" cy="34.62" r="0.75"/>
+<circle class="drl" cx="90" cy="44.0" r="0.65"/>
+<circle class="drl" cx="90" cy="49.0" r="0.65"/>
+<circle class="drl" cx="90" cy="54.0" r="0.65"/>
+<circle class="drl" cx="90" cy="59.0" r="0.65"/>
+<circle class="drl" cx="16" cy="8" r="0.65"/>
+<circle class="drl" cx="16" cy="20.7" r="0.65"/>
+<circle class="drl" cx="26" cy="8" r="0.5"/>
+<circle class="drl" cx="26" cy="13" r="0.5"/>
+<circle class="drl" cx="40" cy="21" r="1.0"/>
+<circle class="drl" cx="42.54" cy="15.9" r="0.6"/>
+<circle class="drl" cx="42.54" cy="26.1" r="0.6"/>
+<circle class="drl" cx="55.2" cy="12.1" r="1.0"/>
+<circle class="drl" cx="57.739999999999995" cy="29.9" r="1.0"/>
+<circle class="drl" cx="65.34" cy="29.9" r="1.0"/>
+<circle class="drl" cx="74" cy="26" r="0.6"/>
+<circle class="drl" cx="76.54" cy="22" r="0.6"/>
+<circle class="drl" cx="79.08" cy="26" r="0.6"/>
+<circle class="drl" cx="30" cy="36" r="0.5"/>
+<circle class="drl" cx="30" cy="46.16" r="0.5"/>
+<circle class="drl" cx="54" cy="68.5" r="2.25"/>
+<circle class="drl" cx="4" cy="4" r="1.6"/>
+<circle class="drl" cx="96" cy="4" r="1.6"/>
+<circle class="drl" cx="4" cy="71" r="1.6"/>
+<circle class="drl" cx="96" cy="71" r="1.6"/>
+<rect class="brd" x="0" y="0" width="100" height="75"/>
+</g>
+<text class="h" x="16" y="112.5">PŁYTKA B · 100 × 60 mm</text>
+<g transform="translate(16,115)">
+<path class="cuw" stroke-width="8" d="M 9 17.62 L 86 17.62"/>
+<path class="cuw" stroke-width="6" d="M 24 17.62 L 24 27"/>
+<path class="cuw" stroke-width="6" d="M 24 36.2 L 24 52"/>
+<path class="cuw" stroke-width="6" d="M 42 17.62 L 42 27"/>
+<path class="cuw" stroke-width="6" d="M 42 36.2 L 42 52"/>
+<path class="cuw" stroke-width="6" d="M 58 17.62 L 58 27"/>
+<path class="cuw" stroke-width="6" d="M 58 36.2 L 58 52"/>
+<path class="cuw" stroke-width="6" d="M 74 17.62 L 74 27"/>
+<path class="cuw" stroke-width="6" d="M 74 36.2 L 74 52"/>
+<path class="cuw" stroke-width="6" d="M 20.2 52 L 27.8 52"/>
+<path class="cuw" stroke-width="4" d="M 39.5 52 L 44.5 52"/>
+<path class="cuw" stroke-width="4" d="M 55.5 52 L 60.5 52"/>
+<path class="cuw" stroke-width="4" d="M 71.5 52 L 76.5 52"/>
+<path class="cuw" stroke-width="1.5" d="M 86 27.78 L 86 32"/>
+<path class="cuw" stroke-width="1.5" d="M 86 30 L 93 30 L 93 32"/>
+<path class="cuw" stroke-width="1.5" d="M 86 30 L 83 30 L 83 52"/>
+<path class="cuw" stroke-width="2" d="M 93 40 L 93 42.16"/>
+<path class="cuw" stroke-width="2" d="M 86 42.16 L 97 42.16"/>
+<path class="cuw" stroke-width="2" d="M 88 42.16 L 88 52"/>
+<path class="cuw" stroke-width="2" d="M 9 10 L 14 5 L 97 5 L 97 42.16"/>
+<circle class="cu" cx="9" cy="10.0" r="2.2"/>
+<circle class="cu" cx="9" cy="17.62" r="2.2"/>
+<rect class="cu" x="21.0" y="25.0" width="6.0" height="4.0" rx="2.0"/>
+<rect class="cu" x="21.0" y="34.2" width="6.0" height="4.0" rx="2.0"/>
+<rect class="cu" x="39.0" y="25.0" width="6.0" height="4.0" rx="2.0"/>
+<rect class="cu" x="39.0" y="34.2" width="6.0" height="4.0" rx="2.0"/>
+<rect class="cu" x="55.0" y="25.0" width="6.0" height="4.0" rx="2.0"/>
+<rect class="cu" x="55.0" y="34.2" width="6.0" height="4.0" rx="2.0"/>
+<rect class="cu" x="71.0" y="25.0" width="6.0" height="4.0" rx="2.0"/>
+<rect class="cu" x="71.0" y="34.2" width="6.0" height="4.0" rx="2.0"/>
+<circle class="cu" cx="20.2" cy="52" r="2.2"/>
+<circle class="cu" cx="27.82" cy="52" r="2.2"/>
+<circle class="cu" cx="39.5" cy="52" r="1.5"/>
+<circle class="cu" cx="44.5" cy="52" r="1.5"/>
+<circle class="cu" cx="55.5" cy="52" r="1.5"/>
+<circle class="cu" cx="60.5" cy="52" r="1.5"/>
+<circle class="cu" cx="71.5" cy="52" r="1.5"/>
+<circle class="cu" cx="76.5" cy="52" r="1.5"/>
+<circle class="cu" cx="83.0" cy="52" r="1.5"/>
+<circle class="cu" cx="88.0" cy="52" r="1.5"/>
+<circle class="cu" cx="86" cy="17.62" r="1.1"/>
+<circle class="cu" cx="86" cy="27.78" r="1.1"/>
+<circle class="cu" cx="86" cy="32" r="1.1"/>
+<circle class="cu" cx="86" cy="42.16" r="1.1"/>
+<circle class="cu" cx="93" cy="32" r="1.2"/>
+<circle class="cu" cx="93" cy="40" r="1.2"/>
+<circle class="drl" cx="25.2" cy="31.6" r="1.7"/>
+<circle class="drl" cx="43.2" cy="31.6" r="1.7"/>
+<circle class="drl" cx="59.2" cy="31.6" r="1.7"/>
+<circle class="drl" cx="75.2" cy="31.6" r="1.7"/>
+<circle class="drl" cx="4" cy="4" r="3.5"/>
+<circle class="drl" cx="4" cy="56" r="3.5"/>
+<circle class="drl" cx="96" cy="49" r="3.5"/>
+<g transform="translate(29,47.5) scale(-1,1)"><text x="-9.6" y="0" font-size="3.0" font-weight="bold" fill="#111">BCM-B</text></g>
+<circle class="drl" cx="9" cy="10.0" r="0.75"/>
+<circle class="drl" cx="9" cy="17.62" r="0.75"/>
+<circle class="drl" cx="24" cy="27" r="1.0"/>
+<circle class="drl" cx="24" cy="36.2" r="1.0"/>
+<circle class="drl" cx="42" cy="27" r="1.0"/>
+<circle class="drl" cx="42" cy="36.2" r="1.0"/>
+<circle class="drl" cx="58" cy="27" r="1.0"/>
+<circle class="drl" cx="58" cy="36.2" r="1.0"/>
+<circle class="drl" cx="74" cy="27" r="1.0"/>
+<circle class="drl" cx="74" cy="36.2" r="1.0"/>
+<circle class="drl" cx="20.2" cy="52" r="0.75"/>
+<circle class="drl" cx="27.82" cy="52" r="0.75"/>
+<circle class="drl" cx="39.5" cy="52" r="0.65"/>
+<circle class="drl" cx="44.5" cy="52" r="0.65"/>
+<circle class="drl" cx="55.5" cy="52" r="0.65"/>
+<circle class="drl" cx="60.5" cy="52" r="0.65"/>
+<circle class="drl" cx="71.5" cy="52" r="0.65"/>
+<circle class="drl" cx="76.5" cy="52" r="0.65"/>
+<circle class="drl" cx="83.0" cy="52" r="0.65"/>
+<circle class="drl" cx="88.0" cy="52" r="0.65"/>
+<circle class="drl" cx="86" cy="17.62" r="0.5"/>
+<circle class="drl" cx="86" cy="27.78" r="0.5"/>
+<circle class="drl" cx="86" cy="32" r="0.5"/>
+<circle class="drl" cx="86" cy="42.16" r="0.5"/>
+<circle class="drl" cx="93" cy="32" r="0.5"/>
+<circle class="drl" cx="93" cy="40" r="0.5"/>
+<circle class="drl" cx="25.2" cy="31.6" r="1.2"/>
+<circle class="drl" cx="43.2" cy="31.6" r="1.2"/>
+<circle class="drl" cx="59.2" cy="31.6" r="1.2"/>
+<circle class="drl" cx="75.2" cy="31.6" r="1.2"/>
+<circle class="drl" cx="4" cy="4" r="1.6"/>
+<circle class="drl" cx="4" cy="56" r="1.6"/>
+<circle class="drl" cx="96" cy="49" r="1.6"/>
+<rect class="brd" x="0" y="0" width="100" height="60"/>
+</g>
+<text class="h" x="128" y="27.5">KONTROLA — od strony miedzi (55 %)</text>
+<g transform="translate(128,30) scale(0.55)">
+<g transform="translate(100,0) scale(-1,1)">
+<rect class="cul" x="3" y="66" width="94" height="6"/>
+<rect class="cul" x="46" y="62" width="16" height="10"/>
+<path class="culw" stroke-width="6" d="M 9 8 L 50 8"/>
+<path class="culw" stroke-width="4" d="M 50 8 L 55.2 8 L 55.2 12.1"/>
+<path class="culw" stroke-width="3" d="M 9 15.62 L 11 20.7 L 26 20.7"/>
+<path class="culw" stroke-width="2.5" d="M 26 13 L 26 20.7"/>
+<path class="culw" stroke-width="3" d="M 9 15.62 L 4 15.62 L 4 66.5"/>
+<path class="culw" stroke-width="2" d="M 9 27 L 9 32"/>
+<path class="culw" stroke-width="2.5" d="M 9 32 L 34 32 L 34 15.9 L 42.54 15.9"/>
+<path class="culw" stroke-width="2" d="M 30 36 L 30 32"/>
+<path class="culw" stroke-width="2" d="M 30 46.16 L 30 66.5"/>
+<path class="culw" stroke-width="2" d="M 42.54 26.1 L 42.54 66.5"/>
+<path class="culw" stroke-width="4" d="M 57.74 29.9 L 57.74 35 L 76.5 35 L 76.5 30"/>
+<path class="culw" stroke-width="3" d="M 74 26 L 74 30 L 79.08 30 L 79.08 26"/>
+<path class="culw" stroke-width="4" d="M 76.54 22 L 76.54 18 L 85 18 L 85 10 L 90 8"/>
+<path class="culw" stroke-width="3.5" d="M 90 15.62 L 96 15.62"/>
+<path class="culw" stroke-width="5" d="M 96 15.62 L 96 66.5"/>
+<path class="culw" stroke-width="3" d="M 90 27 L 96 27"/>
+<path class="culw" stroke-width="3" d="M 90 49 L 96 49"/>
+<path class="culw" stroke-width="5" d="M 90 34.62 L 90 44"/>
+<path class="culw" stroke-width="5" d="M 90 54 L 90 59"/>
+<circle class="cul" cx="9" cy="8.0" r="2.2"/>
+<circle class="cul" cx="9" cy="15.620000000000001" r="2.2"/>
+<circle class="cul" cx="9" cy="27.0" r="1.5"/>
+<circle class="cul" cx="9" cy="32.0" r="1.5"/>
+<circle class="cul" cx="90" cy="8.0" r="2.2"/>
+<circle class="cul" cx="90" cy="15.620000000000001" r="2.2"/>
+<circle class="cul" cx="90" cy="27.0" r="2.2"/>
+<circle class="cul" cx="90" cy="34.62" r="2.2"/>
+<circle class="cul" cx="90" cy="44.0" r="1.5"/>
+<circle class="cul" cx="90" cy="49.0" r="1.5"/>
+<circle class="cul" cx="90" cy="54.0" r="1.5"/>
+<circle class="cul" cx="90" cy="59.0" r="1.5"/>
+<circle class="cul" cx="16" cy="8" r="1.4"/>
+<circle class="cul" cx="16" cy="20.7" r="1.4"/>
+<circle class="cul" cx="26" cy="8" r="1.2"/>
+<circle class="cul" cx="26" cy="13" r="1.2"/>
+<circle class="cul" cx="40" cy="21" r="2.0"/>
+<circle class="cul" cx="42.54" cy="15.9" r="1.1"/>
+<circle class="cul" cx="42.54" cy="26.1" r="1.1"/>
+<circle class="cul" cx="55.2" cy="12.1" r="2.0"/>
+<circle class="cul" cx="57.739999999999995" cy="29.9" r="2.0"/>
+<circle class="cul" cx="65.34" cy="29.9" r="2.0"/>
+<circle class="cul" cx="74" cy="26" r="1.3"/>
+<circle class="cul" cx="76.54" cy="22" r="1.5"/>
+<circle class="cul" cx="79.08" cy="26" r="1.3"/>
+<circle class="cul" cx="30" cy="36" r="1.1"/>
+<circle class="cul" cx="30" cy="46.16" r="1.1"/>
+<circle class="cul" cx="54" cy="68.5" r="5.5"/>
+<circle class="drll" cx="4" cy="4" r="3.5"/>
+<circle class="drll" cx="96" cy="4" r="3.5"/>
+<circle class="drll" cx="4" cy="71" r="3.5"/>
+<circle class="drll" cx="96" cy="71" r="3.5"/>
+<g transform="translate(57,59.5) scale(-1,1)"><text x="-10.24" y="0" font-size="3.2" font-weight="bold" fill="#d8dde2">BCM-A</text></g>
+<circle class="drll" cx="9" cy="8.0" r="0.75"/>
+<circle class="drll" cx="9" cy="15.620000000000001" r="0.75"/>
+<circle class="drll" cx="9" cy="27.0" r="0.65"/>
+<circle class="drll" cx="9" cy="32.0" r="0.65"/>
+<circle class="drll" cx="90" cy="8.0" r="0.75"/>
+<circle class="drll" cx="90" cy="15.620000000000001" r="0.75"/>
+<circle class="drll" cx="90" cy="27.0" r="0.75"/>
+<circle class="drll" cx="90" cy="34.62" r="0.75"/>
+<circle class="drll" cx="90" cy="44.0" r="0.65"/>
+<circle class="drll" cx="90" cy="49.0" r="0.65"/>
+<circle class="drll" cx="90" cy="54.0" r="0.65"/>
+<circle class="drll" cx="90" cy="59.0" r="0.65"/>
+<circle class="drll" cx="16" cy="8" r="0.65"/>
+<circle class="drll" cx="16" cy="20.7" r="0.65"/>
+<circle class="drll" cx="26" cy="8" r="0.5"/>
+<circle class="drll" cx="26" cy="13" r="0.5"/>
+<circle class="drll" cx="40" cy="21" r="1.0"/>
+<circle class="drll" cx="42.54" cy="15.9" r="0.6"/>
+<circle class="drll" cx="42.54" cy="26.1" r="0.6"/>
+<circle class="drll" cx="55.2" cy="12.1" r="1.0"/>
+<circle class="drll" cx="57.739999999999995" cy="29.9" r="1.0"/>
+<circle class="drll" cx="65.34" cy="29.9" r="1.0"/>
+<circle class="drll" cx="74" cy="26" r="0.6"/>
+<circle class="drll" cx="76.54" cy="22" r="0.6"/>
+<circle class="drll" cx="79.08" cy="26" r="0.6"/>
+<circle class="drll" cx="30" cy="36" r="0.5"/>
+<circle class="drll" cx="30" cy="46.16" r="0.5"/>
+<circle class="drll" cx="54" cy="68.5" r="2.25"/>
+<circle class="drll" cx="4" cy="4" r="1.6"/>
+<circle class="drll" cx="96" cy="4" r="1.6"/>
+<circle class="drll" cx="4" cy="71" r="1.6"/>
+<circle class="drll" cx="96" cy="71" r="1.6"/>
+<rect class="brd" x="0" y="0" width="100" height="75"/>
+</g>
+<g transform="translate(100,82) scale(-1,1)">
+<path class="culw" stroke-width="8" d="M 9 17.62 L 86 17.62"/>
+<path class="culw" stroke-width="6" d="M 24 17.62 L 24 27"/>
+<path class="culw" stroke-width="6" d="M 24 36.2 L 24 52"/>
+<path class="culw" stroke-width="6" d="M 42 17.62 L 42 27"/>
+<path class="culw" stroke-width="6" d="M 42 36.2 L 42 52"/>
+<path class="culw" stroke-width="6" d="M 58 17.62 L 58 27"/>
+<path class="culw" stroke-width="6" d="M 58 36.2 L 58 52"/>
+<path class="culw" stroke-width="6" d="M 74 17.62 L 74 27"/>
+<path class="culw" stroke-width="6" d="M 74 36.2 L 74 52"/>
+<path class="culw" stroke-width="6" d="M 20.2 52 L 27.8 52"/>
+<path class="culw" stroke-width="4" d="M 39.5 52 L 44.5 52"/>
+<path class="culw" stroke-width="4" d="M 55.5 52 L 60.5 52"/>
+<path class="culw" stroke-width="4" d="M 71.5 52 L 76.5 52"/>
+<path class="culw" stroke-width="1.5" d="M 86 27.78 L 86 32"/>
+<path class="culw" stroke-width="1.5" d="M 86 30 L 93 30 L 93 32"/>
+<path class="culw" stroke-width="1.5" d="M 86 30 L 83 30 L 83 52"/>
+<path class="culw" stroke-width="2" d="M 93 40 L 93 42.16"/>
+<path class="culw" stroke-width="2" d="M 86 42.16 L 97 42.16"/>
+<path class="culw" stroke-width="2" d="M 88 42.16 L 88 52"/>
+<path class="culw" stroke-width="2" d="M 9 10 L 14 5 L 97 5 L 97 42.16"/>
+<circle class="cul" cx="9" cy="10.0" r="2.2"/>
+<circle class="cul" cx="9" cy="17.62" r="2.2"/>
+<rect class="cul" x="21.0" y="25.0" width="6.0" height="4.0" rx="2.0"/>
+<rect class="cul" x="21.0" y="34.2" width="6.0" height="4.0" rx="2.0"/>
+<rect class="cul" x="39.0" y="25.0" width="6.0" height="4.0" rx="2.0"/>
+<rect class="cul" x="39.0" y="34.2" width="6.0" height="4.0" rx="2.0"/>
+<rect class="cul" x="55.0" y="25.0" width="6.0" height="4.0" rx="2.0"/>
+<rect class="cul" x="55.0" y="34.2" width="6.0" height="4.0" rx="2.0"/>
+<rect class="cul" x="71.0" y="25.0" width="6.0" height="4.0" rx="2.0"/>
+<rect class="cul" x="71.0" y="34.2" width="6.0" height="4.0" rx="2.0"/>
+<circle class="cul" cx="20.2" cy="52" r="2.2"/>
+<circle class="cul" cx="27.82" cy="52" r="2.2"/>
+<circle class="cul" cx="39.5" cy="52" r="1.5"/>
+<circle class="cul" cx="44.5" cy="52" r="1.5"/>
+<circle class="cul" cx="55.5" cy="52" r="1.5"/>
+<circle class="cul" cx="60.5" cy="52" r="1.5"/>
+<circle class="cul" cx="71.5" cy="52" r="1.5"/>
+<circle class="cul" cx="76.5" cy="52" r="1.5"/>
+<circle class="cul" cx="83.0" cy="52" r="1.5"/>
+<circle class="cul" cx="88.0" cy="52" r="1.5"/>
+<circle class="cul" cx="86" cy="17.62" r="1.1"/>
+<circle class="cul" cx="86" cy="27.78" r="1.1"/>
+<circle class="cul" cx="86" cy="32" r="1.1"/>
+<circle class="cul" cx="86" cy="42.16" r="1.1"/>
+<circle class="cul" cx="93" cy="32" r="1.2"/>
+<circle class="cul" cx="93" cy="40" r="1.2"/>
+<circle class="drll" cx="25.2" cy="31.6" r="1.7"/>
+<circle class="drll" cx="43.2" cy="31.6" r="1.7"/>
+<circle class="drll" cx="59.2" cy="31.6" r="1.7"/>
+<circle class="drll" cx="75.2" cy="31.6" r="1.7"/>
+<circle class="drll" cx="4" cy="4" r="3.5"/>
+<circle class="drll" cx="4" cy="56" r="3.5"/>
+<circle class="drll" cx="96" cy="49" r="3.5"/>
+<g transform="translate(29,47.5) scale(-1,1)"><text x="-9.6" y="0" font-size="3.0" font-weight="bold" fill="#d8dde2">BCM-B</text></g>
+<circle class="drll" cx="9" cy="10.0" r="0.75"/>
+<circle class="drll" cx="9" cy="17.62" r="0.75"/>
+<circle class="drll" cx="24" cy="27" r="1.0"/>
+<circle class="drll" cx="24" cy="36.2" r="1.0"/>
+<circle class="drll" cx="42" cy="27" r="1.0"/>
+<circle class="drll" cx="42" cy="36.2" r="1.0"/>
+<circle class="drll" cx="58" cy="27" r="1.0"/>
+<circle class="drll" cx="58" cy="36.2" r="1.0"/>
+<circle class="drll" cx="74" cy="27" r="1.0"/>
+<circle class="drll" cx="74" cy="36.2" r="1.0"/>
+<circle class="drll" cx="20.2" cy="52" r="0.75"/>
+<circle class="drll" cx="27.82" cy="52" r="0.75"/>
+<circle class="drll" cx="39.5" cy="52" r="0.65"/>
+<circle class="drll" cx="44.5" cy="52" r="0.65"/>
+<circle class="drll" cx="55.5" cy="52" r="0.65"/>
+<circle class="drll" cx="60.5" cy="52" r="0.65"/>
+<circle class="drll" cx="71.5" cy="52" r="0.65"/>
+<circle class="drll" cx="76.5" cy="52" r="0.65"/>
+<circle class="drll" cx="83.0" cy="52" r="0.65"/>
+<circle class="drll" cx="88.0" cy="52" r="0.65"/>
+<circle class="drll" cx="86" cy="17.62" r="0.5"/>
+<circle class="drll" cx="86" cy="27.78" r="0.5"/>
+<circle class="drll" cx="86" cy="32" r="0.5"/>
+<circle class="drll" cx="86" cy="42.16" r="0.5"/>
+<circle class="drll" cx="93" cy="32" r="0.5"/>
+<circle class="drll" cx="93" cy="40" r="0.5"/>
+<circle class="drll" cx="25.2" cy="31.6" r="1.2"/>
+<circle class="drll" cx="43.2" cy="31.6" r="1.2"/>
+<circle class="drll" cx="59.2" cy="31.6" r="1.2"/>
+<circle class="drll" cx="75.2" cy="31.6" r="1.2"/>
+<circle class="drll" cx="4" cy="4" r="1.6"/>
+<circle class="drll" cx="4" cy="56" r="1.6"/>
+<circle class="drll" cx="96" cy="49" r="1.6"/>
+<rect class="brd" x="0" y="0" width="100" height="60"/>
+</g>
+</g>
+<text class="h" x="128" y="116">WIERCENIE</text>
+<text class="lb" x="128" y="121.0">Φ 1,0</text>
+<text class="n" x="140" y="121.0">R5, R6, C7, C1, D6</text>
+<text class="lb" x="128" y="124.6">Φ 1,2</text>
+<text class="n" x="140" y="124.6">cewka K1, piny D1 (MBR2545CT)</text>
+<text class="lb" x="128" y="128.2">Φ 1,3</text>
+<text class="n" x="140" y="128.2">KF301 (X5, X6, X10–X12, J1), D5</text>
+<text class="lb" x="128" y="131.8">Φ 1,5</text>
+<text class="n" x="140" y="131.8">KF7.62 (X1–X3, X8, X9)</text>
+<text class="lb" x="128" y="135.4">Φ 2,0</text>
+<text class="n" x="140" y="135.4">styki K1 (COM/NO/NC), pady bezpieczników</text>
+<text class="lb" x="128" y="139.0">Φ 2,4</text>
+<text class="n" x="140" y="139.0">czopy oprawek ATO (bez miedzi)</text>
+<text class="lb" x="128" y="142.6">Φ 3,2</text>
+<text class="n" x="140" y="142.6">otwory montażowe (odizolowane)</text>
+<text class="lb" x="128" y="146.2">Φ 4,5</text>
+<text class="n" x="140" y="146.2">śruba masy M4 (płytka A)</text>
+<line x1="16" y1="186" x2="66" y2="186" stroke="#111" stroke-width="0.3"/>
+<line x1="16" y1="186" x2="16" y2="189" stroke="#111" stroke-width="0.3"/>
+<line x1="17" y1="186" x2="17" y2="187.2" stroke="#111" stroke-width="0.15"/>
+<line x1="18" y1="186" x2="18" y2="187.2" stroke="#111" stroke-width="0.15"/>
+<line x1="19" y1="186" x2="19" y2="187.2" stroke="#111" stroke-width="0.15"/>
+<line x1="20" y1="186" x2="20" y2="187.2" stroke="#111" stroke-width="0.15"/>
+<line x1="21" y1="186" x2="21" y2="188" stroke="#111" stroke-width="0.15"/>
+<line x1="22" y1="186" x2="22" y2="187.2" stroke="#111" stroke-width="0.15"/>
+<line x1="23" y1="186" x2="23" y2="187.2" stroke="#111" stroke-width="0.15"/>
+<line x1="24" y1="186" x2="24" y2="187.2" stroke="#111" stroke-width="0.15"/>
+<line x1="25" y1="186" x2="25" y2="187.2" stroke="#111" stroke-width="0.15"/>
+<line x1="26" y1="186" x2="26" y2="189" stroke="#111" stroke-width="0.3"/>
+<line x1="27" y1="186" x2="27" y2="187.2" stroke="#111" stroke-width="0.15"/>
+<line x1="28" y1="186" x2="28" y2="187.2" stroke="#111" stroke-width="0.15"/>
+<line x1="29" y1="186" x2="29" y2="187.2" stroke="#111" stroke-width="0.15"/>
+<line x1="30" y1="186" x2="30" y2="187.2" stroke="#111" stroke-width="0.15"/>
+<line x1="31" y1="186" x2="31" y2="188" stroke="#111" stroke-width="0.15"/>
+<line x1="32" y1="186" x2="32" y2="187.2" stroke="#111" stroke-width="0.15"/>
+<line x1="33" y1="186" x2="33" y2="187.2" stroke="#111" stroke-width="0.15"/>
+<line x1="34" y1="186" x2="34" y2="187.2" stroke="#111" stroke-width="0.15"/>
+<line x1="35" y1="186" x2="35" y2="187.2" stroke="#111" stroke-width="0.15"/>
+<line x1="36" y1="186" x2="36" y2="189" stroke="#111" stroke-width="0.3"/>
+<line x1="37" y1="186" x2="37" y2="187.2" stroke="#111" stroke-width="0.15"/>
+<line x1="38" y1="186" x2="38" y2="187.2" stroke="#111" stroke-width="0.15"/>
+<line x1="39" y1="186" x2="39" y2="187.2" stroke="#111" stroke-width="0.15"/>
+<line x1="40" y1="186" x2="40" y2="187.2" stroke="#111" stroke-width="0.15"/>
+<line x1="41" y1="186" x2="41" y2="188" stroke="#111" stroke-width="0.15"/>
+<line x1="42" y1="186" x2="42" y2="187.2" stroke="#111" stroke-width="0.15"/>
+<line x1="43" y1="186" x2="43" y2="187.2" stroke="#111" stroke-width="0.15"/>
+<line x1="44" y1="186" x2="44" y2="187.2" stroke="#111" stroke-width="0.15"/>
+<line x1="45" y1="186" x2="45" y2="187.2" stroke="#111" stroke-width="0.15"/>
+<line x1="46" y1="186" x2="46" y2="189" stroke="#111" stroke-width="0.3"/>
+<line x1="47" y1="186" x2="47" y2="187.2" stroke="#111" stroke-width="0.15"/>
+<line x1="48" y1="186" x2="48" y2="187.2" stroke="#111" stroke-width="0.15"/>
+<line x1="49" y1="186" x2="49" y2="187.2" stroke="#111" stroke-width="0.15"/>
+<line x1="50" y1="186" x2="50" y2="187.2" stroke="#111" stroke-width="0.15"/>
+<line x1="51" y1="186" x2="51" y2="188" stroke="#111" stroke-width="0.15"/>
+<line x1="52" y1="186" x2="52" y2="187.2" stroke="#111" stroke-width="0.15"/>
+<line x1="53" y1="186" x2="53" y2="187.2" stroke="#111" stroke-width="0.15"/>
+<line x1="54" y1="186" x2="54" y2="187.2" stroke="#111" stroke-width="0.15"/>
+<line x1="55" y1="186" x2="55" y2="187.2" stroke="#111" stroke-width="0.15"/>
+<line x1="56" y1="186" x2="56" y2="189" stroke="#111" stroke-width="0.3"/>
+<line x1="57" y1="186" x2="57" y2="187.2" stroke="#111" stroke-width="0.15"/>
+<line x1="58" y1="186" x2="58" y2="187.2" stroke="#111" stroke-width="0.15"/>
+<line x1="59" y1="186" x2="59" y2="187.2" stroke="#111" stroke-width="0.15"/>
+<line x1="60" y1="186" x2="60" y2="187.2" stroke="#111" stroke-width="0.15"/>
+<line x1="61" y1="186" x2="61" y2="188" stroke="#111" stroke-width="0.15"/>
+<line x1="62" y1="186" x2="62" y2="187.2" stroke="#111" stroke-width="0.15"/>
+<line x1="63" y1="186" x2="63" y2="187.2" stroke="#111" stroke-width="0.15"/>
+<line x1="64" y1="186" x2="64" y2="187.2" stroke="#111" stroke-width="0.15"/>
+<line x1="65" y1="186" x2="65" y2="187.2" stroke="#111" stroke-width="0.15"/>
+<line x1="66" y1="186" x2="66" y2="189" stroke="#111" stroke-width="0.3"/>
+<text class="l" x="14.6" y="192">0</text>
+<text class="l" x="24.6" y="192">10</text>
+<text class="l" x="34.6" y="192">20</text>
+<text class="l" x="44.6" y="192">30</text>
+<text class="l" x="54.6" y="192">40</text>
+<text class="l" x="64.6" y="192">50</text>
+<text class="lb" x="69" y="189">mm — po wydruku zmierz: 50 mm ±0,5</text>
+<text class="h" x="12" y="200">PROCES (termotransfer):</text>
+<text class="n" x="12" y="205.0">1. Wydruk laserowy 1:1 na papierze kredowym, tryb najciemniejszy. Zmierz linijkę!</text>
+<text class="n" x="12" y="208.8">2. Laminat przetrzyj acetonem, papierem ściernym 400 na mokro, znów acetonem.</text>
+<text class="n" x="12" y="212.6">3. Żelazko ~180 °C przez 2–4 min przez kartkę, dociskaj równomiernie.</text>
+<text class="n" x="12" y="216.4">4. Mocz w wodzie 10 min, zroluj papier palcem. Ubytki popraw markerem permanentnym.</text>
+<text class="n" x="12" y="220.2">5. Traw w B327 (nadsiarczan sodu, ~45 °C) albo FeCl3. Poruszaj kuwetą.</text>
+<text class="n" x="12" y="224.0">6. Toner zmyj acetonem. Przewierć otwory wg tabeli (najpierw 1,0, potem rozwiercaj).</text>
+<text class="n" x="12" y="227.8">7. Ścieżki mocy pocynuj grubą warstwą albo przylutuj wzdłuż drut 1,5 mm².</text>
+<text class="n" x="12" y="231.6">8. Kontrola: omomierzem sąsiednie sieci (zwarcia) i ciągłość każdej ścieżki.</text>
+<text class="n" x="12" y="240">Sieci na płytce A: AKU (X1→K1→D1) · KL87 · CHGIN (→M1) · CHGOUT (M1→M2) · BANK (M2→bank) · ACC (cewka K1) · GND (pole dolne).</text>
+<text class="n" x="12" y="244">Sieci na płytce B: BUS (X8→bezpieczniki) · F8O–F11O (odgałęzienia) · SIG (dzielnik) · GND (obwódka górna).</text>
+<text class="sub" x="12" y="252">Wygenerowano: schematics/gen_pcb_power.py — nie edytuj SVG ręcznie.</text>
+</svg>

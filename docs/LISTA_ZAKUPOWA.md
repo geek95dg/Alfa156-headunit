@@ -34,12 +34,17 @@ Ceny orientacyjne, rynek PL, 2025/2026. **Razem: ~483–928 PLN.**
 
 ## Do kupienia
 
+> **Budujesz na płytkach drukowanych?** [`PCB_ZASILANIE.md`](PCB_ZASILANIE.md)
+> ma osobną listę elementów wlutowywanych (~80–160 zł) i wtedy **wykreśl
+> stąd** poz. 1 i 5a (oba przekaźniki Bosch — zastępuje je T90 na płytce)
+> oraz drugi kondensator z poz. 7.
+
 | # | Element | Specyfikacja | Po co | Cena (PLN) |
 |---|---------|--------------|-------|-----------|
 | 1 | Przekaźnik 30 A SPDT + podstawka | Bosch 12 V | rozłącza tor ładowania przy zgaszonym silniku | 15–25 |
 | 2 | **Dioda MBR2545CT** | 25 A / 45 V, TO-220AB | blokada wsteczna; **obie anody zwarte** | 5–12 |
 | 3 | Radiator do TO-220 + podkładka mikowa | ok. 4,5 W strat | blaszka diody to katoda — musi być izolowana | 7–15 |
-| 4 | **Moduł CC-CV boost** | „900 W 15 A" z wyświetlaczem albo **SZBK07** | ładowarka: CV 14,40 V, CC 8 A | 50–140 |
+| 4 | **Moduł CC-CV boost** | „900 W 15 A" z wyświetlaczem albo „1500 W 30 A" boost (**nie SZBK07** — to buck, patrz [`PCB_ZASILANIE.md`](PCB_ZASILANIE.md) §2) | ładowarka: CV 14,40 V, CC 6 A | 50–140 |
 | 5 | **Rozłącznik nadnapięciowy** | **XH-M603** (albo XH-M604) — ta sama rodzina co XH-M609 | blokada przeładowania: 15,30 V / powrót 14,00 V | 40–80 |
 | 5a | Przekaźnik 30 A SPDT + podstawka (drugi) | Bosch 12 V | moduł steruje cewką zamiast przenosić 8 A — §6.3 ZASILANIE | 15–25 |
 | 6 | Dioda TVS | 1.5KE33**CA** albo SMCJ26**CA** | ochrona wejścia przed load dumpem; **„CA" = dwukierunkowa**, wersja bez „C" jest inną diodą | 5–10 |
