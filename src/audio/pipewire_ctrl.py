@@ -61,10 +61,16 @@ EQ_SINK_NAME = "bcm_eq_sink"
 # Sink picking. "auto" walks these in order and takes the first match.
 # HDMI is excluded outright — on the M910q it is almost always present and
 # almost never what you want to hear the car through.
+#
+# USB comes first because that is the documented hardware chain (USB DAC ->
+# RCA -> car amp). The on-board Realtek jack is the fallback, not the target:
+# on the M910q it is a front headphone socket whose "Headphone" ALSA control
+# ships muted at 0%, so preferring it meant "auto" picked the one output that
+# needs extra coaxing to make a sound.
 _SINK_PREFER = (
+    r"alsa_output\.usb-.*",            # karta/DAC USB — docelowe wyjście
     r"alsa_output\..*analog-stereo",   # wbudowane wyjście analogowe (Realtek)
     r"alsa_output\..*\.analog",
-    r"alsa_output\.usb-.*",            # DAC USB, gdy kiedyś wróci
     r"alsa_output\..*",
 )
 _SINK_EXCLUDE = re.compile(r"hdmi|displayport|iec958", re.I)
@@ -73,6 +79,17 @@ _SINK_EXCLUDE = re.compile(r"hdmi|displayport|iec958", re.I)
 # starcie modułu. 60 × 2 s ≈ 2 minuty — z zapasem na wolny autologin.
 PW_BACKGROUND_ATTEMPTS = 60
 PW_BACKGROUND_DELAY = 2.0
+
+# Profil, w którym musi być podłączony telefon, żeby jego muzyka do nas
+# dotarła: "audio-gateway" = telefon jest źródłem A2DP i bramką HSP/HFP, a BCM
+# odbiornikiem. Obejmuje media i rozmowy naraz, więc nie wybieramy między
+# muzyką a dzwonieniem.
+BT_AUDIO_PROFILE = "audio-gateway"
+BT_SOURCE_PREFIX = "bluez_input."
+# Węzeł źródła pojawia się dopiero po przełączeniu profilu, z opóźnieniem
+# zależnym od telefonu — 10 × 1 s wystarcza z zapasem.
+BT_ATTACH_ATTEMPTS = 10
+BT_ATTACH_DELAY = 1.0
 
 
 def _build_filter_chain_conf(gains: list[float],
@@ -223,6 +240,10 @@ class PipeWireController:
         self._eq_dsp_enabled: bool = bool(config.get("audio.eq_dsp_enabled", True))
         self._stopping = False
 
+        # A phone that connects later needs its card taken out of the "off"
+        # profile and wired to our sink — see attach_bt_audio().
+        self._event_bus.subscribe("bt.connected", self._on_bt_connected)
+
         self._check_availability()
 
     # ------------------------------------------------------------------ #
@@ -302,6 +323,10 @@ class PipeWireController:
                         "id": str(obj.get("id", "")),
                         "name": name,
                         "description": props.get("node.description", ""),
+                        # ALSA card index — needed to aim amixer at the right
+                        # card. Without it the unmute pass hits card 0.
+                        "card": str(props.get("alsa.card",
+                                              props.get("api.alsa.card", ""))),
                     })
                 if sinks:
                     return sinks
@@ -362,19 +387,36 @@ class PipeWireController:
         log.warning("Only HDMI-like sinks available — using %s", sinks[0]["name"])
         return sinks[0]
 
-    def _amixer_unmute(self) -> None:
-        """Best-effort ALSA-level unmute.
+    def _amixer_unmute(self, card: Optional[str] = None) -> None:
+        """Best-effort ALSA-level unmute of the card we actually play through.
 
         PipeWire's set-mute does not reach every ALSA control. A fresh Realtek
-        typically ships with Auto-Mute Mode on and Headphone muted, which
+        typically ships with Auto-Mute Mode on and Headphone muted at 0%, which
         keeps the jack silent no matter what the PipeWire volume says.
-        Failures here are expected on non-ALSA setups and stay at debug level.
+
+        ``card`` is the ALSA card index of the chosen sink. It matters: without
+        it every amixer call defaulted to card 0, so on a machine where card 0
+        is a USB adapter and card 1 the on-board codec (the normal order once a
+        USB card is plugged in) the codec's muted Headphone control was never
+        touched — the jack stayed dead while the log claimed an unmute had run.
+
+        Controls that do not exist on a given card fail harmlessly; that is
+        expected and stays at debug level. Playback level is raised to 100%
+        alongside the unmute because a control can also be "on" at 0%, which
+        sounds exactly like a mute.
         """
+        base = ["amixer", "-q"]
+        if card:
+            base += ["-c", str(card)]
         for ctl in ("Master", "Headphone", "Speaker", "PCM", "Front"):
-            rc, _, err = _run_cmd(["amixer", "-q", "sset", ctl, "unmute"])
+            rc, _, err = _run_cmd(base + ["sset", ctl, "unmute"])
             if rc != 0:
                 log.debug("amixer sset %s unmute: %s", ctl, err.strip())
-        _run_cmd(["amixer", "-q", "sset", "Auto-Mute Mode", "Disabled"])
+                continue
+            rc, _, err = _run_cmd(base + ["sset", ctl, "100%"])
+            if rc != 0:
+                log.debug("amixer sset %s 100%%: %s", ctl, err.strip())
+        _run_cmd(base + ["sset", "Auto-Mute Mode", "Disabled"])
 
     def prepare_output(self) -> Optional[str]:
         """Pick, select, unmute and level the hardware sink. Returns its name.
@@ -403,7 +445,7 @@ class PipeWireController:
 
         if self._config.get("audio.force_unmute", True):
             _run_cmd(["wpctl", "set-mute", str(target), "0"])
-            self._amixer_unmute()
+            self._amixer_unmute(sink.get("card") or None)
 
         hw_vol = int(self._config.get("audio.hw_volume", 100))
         hw_vol = max(0, min(100, hw_vol))
@@ -455,6 +497,148 @@ class PipeWireController:
         self.prepare_output()
         if self._eq_dsp_enabled:
             self.apply_eq_preset(self._current_eq)
+        # A phone paired before BCM started is already connected by now, so do
+        # not wait for a bt.connected edge that will never come.
+        self.attach_bt_audio()
+
+    # ------------------------------------------------------------------ #
+    # Bluetooth media audio (phone -> BCM speakers)                       #
+    # ------------------------------------------------------------------ #
+
+    def _on_bt_connected(self, topic: str, value: Any, timestamp: float) -> None:
+        self.attach_bt_audio()
+
+    def attach_bt_audio(self) -> None:
+        """Put connected phones into the audio profile and route them to output.
+
+        Two separate things have to be true before music started on the phone
+        comes out of the car speakers, and neither happened by itself:
+
+          1. The phone's ``bluez_card`` has to be in the ``audio-gateway``
+             profile. WirePlumber leaves it at ``off`` when nothing has ever
+             asked for its audio, and a card in ``off`` exposes no nodes at all
+             — there is nothing to route, which reads exactly like "Bluetooth
+             is connected but silent".
+          2. The resulting ``bluez_input.*`` source is a device source, not an
+             application stream, so the session policy does not necessarily
+             link it anywhere. We link it to the EQ sink ourselves, which puts
+             phone audio under the same volume slider and EQ as everything else.
+
+        Runs on a worker thread: it polls for the source node to appear, and
+        this is called straight from an event-bus callback.
+        """
+        if not self._available:
+            return
+        threading.Thread(target=self._attach_bt_audio_worker, daemon=True,
+                         name="pipewire-bt-attach").start()
+
+    def _bluez_cards(self) -> list[dict[str, Any]]:
+        """Return connected bluez5 Audio/Device cards with their profiles."""
+        rc, out, _ = _run_cmd(["pw-dump"], timeout=8.0)
+        if rc != 0 or not out.strip():
+            return []
+        try:
+            objects = json.loads(out)
+        except (ValueError, TypeError):
+            return []
+
+        cards = []
+        for obj in objects:
+            info = obj.get("info") or {}
+            props = info.get("props") or {}
+            if props.get("device.api") != "bluez5":
+                continue
+            if props.get("media.class") != "Audio/Device":
+                continue
+            profiles = {}
+            for entry in (info.get("params") or {}).get("EnumProfile") or []:
+                name = entry.get("name")
+                if name is not None and entry.get("index") is not None:
+                    profiles[name] = entry["index"]
+            cards.append({
+                "id": obj.get("id"),
+                "alias": props.get("device.alias", ""),
+                "profile": props.get("bluez5.profile", ""),
+                "profiles": profiles,
+            })
+        return cards
+
+    def _attach_bt_audio_worker(self) -> None:
+        for card in self._bluez_cards():
+            if card["profile"] != BT_AUDIO_PROFILE:
+                index = card["profiles"].get(BT_AUDIO_PROFILE)
+                if index is None:
+                    log.info(
+                        "BT %s exposes no %r profile (has: %s) — no media "
+                        "audio from this device",
+                        card["alias"] or card["id"], BT_AUDIO_PROFILE,
+                        ", ".join(card["profiles"]) or "none",
+                    )
+                    continue
+                rc, _, err = _run_cmd(
+                    ["wpctl", "set-profile", str(card["id"]), str(index)])
+                if rc != 0:
+                    log.warning("BT %s: could not select %s profile: %s",
+                                card["alias"] or card["id"],
+                                BT_AUDIO_PROFILE, err.strip())
+                    continue
+                log.info("BT %s -> %s profile", card["alias"] or card["id"],
+                         BT_AUDIO_PROFILE)
+        self._link_bt_sources()
+
+    def _link_bt_sources(self) -> None:
+        """Link every bluez source's output to our sink, once it shows up."""
+        target = EQ_SINK_NAME if self._eq_proc is not None else self._hw_sink
+        if not target:
+            return
+
+        for _ in range(BT_ATTACH_ATTEMPTS):
+            if self._stopping:
+                return
+            sources = [s for s in self._list_source_nodes()
+                       if s["name"].startswith(BT_SOURCE_PREFIX)]
+            if sources:
+                for src in sources:
+                    self._link_stereo(src["name"], target)
+                return
+            time.sleep(BT_ATTACH_DELAY)
+        log.debug("No %s* source appeared — phone may not be streaming yet",
+                  BT_SOURCE_PREFIX)
+
+    def _list_source_nodes(self) -> list[dict[str, str]]:
+        """Enumerate Audio/Source nodes as [{id, name}]."""
+        rc, out, _ = _run_cmd(["pw-dump"], timeout=8.0)
+        if rc != 0 or not out.strip():
+            return []
+        try:
+            objects = json.loads(out)
+        except (ValueError, TypeError):
+            return []
+        sources = []
+        for obj in objects:
+            props = ((obj.get("info") or {}).get("props") or {})
+            if props.get("media.class") != "Audio/Source":
+                continue
+            name = props.get("node.name")
+            if name:
+                sources.append({"id": str(obj.get("id", "")), "name": name})
+        return sources
+
+    def _link_stereo(self, source: str, sink: str) -> None:
+        """pw-link both channels of ``source`` into ``sink``.
+
+        A link that already exists makes pw-link fail; that is the normal case
+        when the session policy got there first, so it is not an error.
+        """
+        for src_port, dst_port in (("output_FL", "playback_FL"),
+                                   ("output_FR", "playback_FR")):
+            rc, _, err = _run_cmd(
+                ["pw-link", f"{source}:{src_port}", f"{sink}:{dst_port}"])
+            if rc == 0:
+                log.info("Linked %s:%s -> %s:%s",
+                         source, src_port, sink, dst_port)
+            else:
+                log.debug("pw-link %s -> %s: %s", source, sink, err.strip())
 
     @property
     def hardware_sink(self) -> Optional[str]:
@@ -640,6 +824,7 @@ class PipeWireController:
                 if self._set_default_sink_by_name(EQ_SINK_NAME):
                     log.info("Default sink -> %s (EQ in path, out via %s)",
                              EQ_SINK_NAME, self._hw_sink or "default")
+                    self._settle_levels()
                     return
             log.error(
                 "EQ sink %s did not appear — restoring %s as default so there "
@@ -652,6 +837,27 @@ class PipeWireController:
                 _run_cmd(["wpctl", "set-default", self._hw_sink_id])
 
         threading.Thread(target=_route, daemon=True).start()
+
+    def _settle_levels(self) -> None:
+        """Re-apply hw_volume and master_volume once the EQ sink is default.
+
+        Both levels are set during startup, but the EQ sink only becomes the
+        default 0.3-3 s later, from the routing thread above. Until then
+        ``@DEFAULT_AUDIO_SINK@`` still means the hardware sink, so
+        VolumeController's initial master volume lands on the hardware stage:
+        the card ends up attenuated to the master level while the EQ sink sits
+        at 100%. Sound comes out either way, which is why this went unnoticed —
+        the cost is silent: ``audio.hw_volume`` never actually sticks and the
+        available headroom is master × hw instead of master.
+
+        Re-applying in this order — hardware first, then the new default — puts
+        each level on the node it was meant for without a volume jump.
+        """
+        if self._hw_sink_id or self._hw_sink:
+            target = self._hw_sink_id or self._hw_sink
+            hw_vol = max(0, min(100, int(self._config.get("audio.hw_volume", 100))))
+            _run_cmd(["wpctl", "set-volume", str(target), f"{hw_vol / 100.0:.2f}"])
+        self.set_volume(int(self._config.get("audio.master_volume", 70)))
 
     def _set_default_sink_by_name(self, name: str) -> bool:
         """Find a sink id by node name in `wpctl status` and set default."""

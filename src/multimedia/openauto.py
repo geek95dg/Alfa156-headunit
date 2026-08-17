@@ -154,10 +154,29 @@ def _create_openauto_config(project_dir: str, app_config: Any = None) -> None:
     # 480p once scaled to the canvas, and the encode bandwidth fits
     # well inside Wi-Fi/USB even on older phones. Reserve 1080p for
     # canvases that genuinely have ≥1080 px of vertical room.
+    #
+    # ``multimedia.aa_resolution`` overrides the choice: 480p / 720p / 1080p,
+    # or the raw code. The default stays automatic, so nothing has to be set
+    # for a 1024x600 panel to get 720p.
+    _RES_CODES = {"480p": 0, "480": 0, "720p": 1, "720": 1,
+                  "1080p": 2, "1080": 2, "auto_stretch": 3}
     if height >= 1080:
         resolution_code = 2
     else:
         resolution_code = 1
+    if app_config:
+        wanted = str(app_config.get("multimedia.aa_resolution", "")
+                     or "").strip().lower()
+        if wanted:
+            if wanted in _RES_CODES:
+                resolution_code = _RES_CODES[wanted]
+            elif wanted.isdigit() and 0 <= int(wanted) <= 3:
+                resolution_code = int(wanted)
+            else:
+                log.warning(
+                    "multimedia.aa_resolution=%r not understood — keeping "
+                    "auto choice (%d); use 480p, 720p or 1080p",
+                    wanted, resolution_code)
 
     config_content = f"""{VERSION_MARKER} — OpenAuto configuration for Alfa156 Headunit
 [General]
@@ -358,7 +377,9 @@ class OpenAutoController:
 
         # Optional: pin autoapp's audio to a specific PipeWire sink (node.name)
         # instead of the default. Set audio.aa_sink in config to override; empty
-        # = use the PipeWire default (bcm_eq_sink → combine → both outputs).
+        # = use the PipeWire default, i.e. bcm_eq_sink → the sink chosen by
+        # audio.sink. Leaving it empty is what keeps AA under the dashboard's
+        # own volume slider and EQ, so prefer changing audio.sink over this.
         aa_sink = ""
         if self._config is not None:
             aa_sink = str(self._config.get("audio.aa_sink", "") or "").strip()

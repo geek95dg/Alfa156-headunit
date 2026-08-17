@@ -86,6 +86,16 @@ KEYBOARD_MAP: dict[str, int] = {
     "f8": KEY_F8,
     # Brightness cycle simulation
     "f9": KEY_F9,
+    # Browser/X names for HID consumer-page keys, as sent by the SWC pod via
+    # the Arduino. dispatch_keyname() lowercases before lookup, hence these are
+    # lowercase. Listed here as well as in web_viewer's _BROWSER_KEY_MAP so any
+    # keyname source (main dashboard, small display) reaches the same actions.
+    "mediatracknext": KEY_NEXTSONG,
+    "mediatrackprevious": KEY_PREVIOUSSONG,
+    "mediaplaypause": KEY_PLAYPAUSE,
+    "audiovolumeup": KEY_VOLUMEUP,
+    "audiovolumedown": KEY_VOLUMEDOWN,
+    "audiovolumemute": KEY_MUTE,
 }
 
 
