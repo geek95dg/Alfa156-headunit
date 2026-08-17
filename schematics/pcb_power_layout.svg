@@ -1,0 +1,364 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="210mm" height="297mm" viewBox="0 0 210 297" font-family="DejaVu Sans, Verdana, sans-serif">
+<title>PCB zasilania — rozmieszczenie elementów 1:1</title>
+<style>
+ .bg{fill:#ffffff}
+ .cu{fill:#111111;stroke:none}
+ .cuw{stroke:#111111;fill:none;stroke-linecap:round;stroke-linejoin:round}
+ .drl{fill:#ffffff;stroke:none}
+ .brd{fill:none;stroke:#111111;stroke-width:0.35}
+ .brdg{fill:none;stroke:#98a6b0;stroke-width:0.3}
+ .cul{fill:#d8dde2;stroke:none}
+ .culw{stroke:#d8dde2;fill:none;stroke-linecap:round;stroke-linejoin:round}
+ .drll{fill:#ffffff;stroke:#7d8c99;stroke-width:0.18}
+ .sk{fill:none;stroke:#16242e;stroke-width:0.3}
+ .ttl{font-size:5px;font-weight:bold;fill:#0d1c26}
+ .sub{font-size:2.6px;fill:#576875}
+ .h{font-size:3.4px;font-weight:bold;fill:#0d1c26}
+ .l{font-size:2.2px;fill:#33424e}
+ .lb{font-size:2.4px;font-weight:bold;fill:#0d1c26}
+ .r{font-size:2.4px;font-weight:bold;fill:#a8321a}
+ .re{font-size:2.4px;font-weight:bold;fill:#a8321a;text-anchor:end}
+ .w{font-size:2.2px;fill:#2b4a8a;font-weight:bold}
+ .we{font-size:2.2px;fill:#2b4a8a;font-weight:bold;text-anchor:end}
+ .n{font-size:2.4px;fill:#4a5a66}
+ .nb{font-size:2.6px;font-weight:bold;fill:#0d1c26}
+ .ldr{stroke:#7d8c99;stroke-width:0.2;fill:none}
+</style>
+<rect class="bg" x="0" y="0" width="210" height="297"/>
+<text class="ttl" x="12" y="12">PCB ZASILANIA — ROZMIESZCZENIE 1:1 (od strony elementów)</text>
+<text class="sub" x="12" y="17">Miedź (szara) jest na spodzie. Opisy X• zgodne ze schematem pcb_power_schematic.svg i §10 SCHEMATY_POLACZEN.md.</text>
+<text class="h" x="42" y="23.5">PŁYTKA A — ŁADOWANIE · 100 × 75 mm · laminat jednostronny</text>
+<g transform="translate(42,26)">
+<rect class="cul" x="3" y="66" width="94" height="6"/>
+<rect class="cul" x="46" y="62" width="16" height="10"/>
+<path class="culw" stroke-width="6" d="M 9 8 L 50 8"/>
+<path class="culw" stroke-width="4" d="M 50 8 L 55.2 8 L 55.2 12.1"/>
+<path class="culw" stroke-width="3" d="M 9 15.62 L 11 20.7 L 26 20.7"/>
+<path class="culw" stroke-width="2.5" d="M 26 13 L 26 20.7"/>
+<path class="culw" stroke-width="3" d="M 9 15.62 L 4 15.62 L 4 66.5"/>
+<path class="culw" stroke-width="2" d="M 9 27 L 9 32"/>
+<path class="culw" stroke-width="2.5" d="M 9 32 L 34 32 L 34 15.9 L 42.54 15.9"/>
+<path class="culw" stroke-width="2" d="M 30 36 L 30 32"/>
+<path class="culw" stroke-width="2" d="M 30 46.16 L 30 66.5"/>
+<path class="culw" stroke-width="2" d="M 42.54 26.1 L 42.54 66.5"/>
+<path class="culw" stroke-width="4" d="M 57.74 29.9 L 57.74 35 L 76.5 35 L 76.5 30"/>
+<path class="culw" stroke-width="3" d="M 74 26 L 74 30 L 79.08 30 L 79.08 26"/>
+<path class="culw" stroke-width="4" d="M 76.54 22 L 76.54 18 L 85 18 L 85 10 L 90 8"/>
+<path class="culw" stroke-width="3.5" d="M 90 15.62 L 96 15.62"/>
+<path class="culw" stroke-width="5" d="M 96 15.62 L 96 66.5"/>
+<path class="culw" stroke-width="3" d="M 90 27 L 96 27"/>
+<path class="culw" stroke-width="3" d="M 90 49 L 96 49"/>
+<path class="culw" stroke-width="5" d="M 90 34.62 L 90 44"/>
+<path class="culw" stroke-width="5" d="M 90 54 L 90 59"/>
+<circle class="cul" cx="9" cy="8.0" r="2.2"/>
+<circle class="cul" cx="9" cy="15.620000000000001" r="2.2"/>
+<circle class="cul" cx="9" cy="27.0" r="1.5"/>
+<circle class="cul" cx="9" cy="32.0" r="1.5"/>
+<circle class="cul" cx="90" cy="8.0" r="2.2"/>
+<circle class="cul" cx="90" cy="15.620000000000001" r="2.2"/>
+<circle class="cul" cx="90" cy="27.0" r="2.2"/>
+<circle class="cul" cx="90" cy="34.62" r="2.2"/>
+<circle class="cul" cx="90" cy="44.0" r="1.5"/>
+<circle class="cul" cx="90" cy="49.0" r="1.5"/>
+<circle class="cul" cx="90" cy="54.0" r="1.5"/>
+<circle class="cul" cx="90" cy="59.0" r="1.5"/>
+<circle class="cul" cx="16" cy="8" r="1.4"/>
+<circle class="cul" cx="16" cy="20.7" r="1.4"/>
+<circle class="cul" cx="26" cy="8" r="1.2"/>
+<circle class="cul" cx="26" cy="13" r="1.2"/>
+<circle class="cul" cx="40" cy="21" r="2.0"/>
+<circle class="cul" cx="42.54" cy="15.9" r="1.1"/>
+<circle class="cul" cx="42.54" cy="26.1" r="1.1"/>
+<circle class="cul" cx="55.2" cy="12.1" r="2.0"/>
+<circle class="cul" cx="57.739999999999995" cy="29.9" r="2.0"/>
+<circle class="cul" cx="65.34" cy="29.9" r="2.0"/>
+<circle class="cul" cx="74" cy="26" r="1.3"/>
+<circle class="cul" cx="76.54" cy="22" r="1.5"/>
+<circle class="cul" cx="79.08" cy="26" r="1.3"/>
+<circle class="cul" cx="30" cy="36" r="1.1"/>
+<circle class="cul" cx="30" cy="46.16" r="1.1"/>
+<circle class="cul" cx="54" cy="68.5" r="5.5"/>
+<circle class="drll" cx="4" cy="4" r="3.5"/>
+<circle class="drll" cx="96" cy="4" r="3.5"/>
+<circle class="drll" cx="4" cy="71" r="3.5"/>
+<circle class="drll" cx="96" cy="71" r="3.5"/>
+<g transform="translate(57,59.5) scale(-1,1)"><text x="-10.24" y="0" font-size="3.2" font-weight="bold" fill="#d8dde2">BCM-A</text></g>
+<circle class="drll" cx="9" cy="8.0" r="0.75"/>
+<circle class="drll" cx="9" cy="15.620000000000001" r="0.75"/>
+<circle class="drll" cx="9" cy="27.0" r="0.65"/>
+<circle class="drll" cx="9" cy="32.0" r="0.65"/>
+<circle class="drll" cx="90" cy="8.0" r="0.75"/>
+<circle class="drll" cx="90" cy="15.620000000000001" r="0.75"/>
+<circle class="drll" cx="90" cy="27.0" r="0.75"/>
+<circle class="drll" cx="90" cy="34.62" r="0.75"/>
+<circle class="drll" cx="90" cy="44.0" r="0.65"/>
+<circle class="drll" cx="90" cy="49.0" r="0.65"/>
+<circle class="drll" cx="90" cy="54.0" r="0.65"/>
+<circle class="drll" cx="90" cy="59.0" r="0.65"/>
+<circle class="drll" cx="16" cy="8" r="0.65"/>
+<circle class="drll" cx="16" cy="20.7" r="0.65"/>
+<circle class="drll" cx="26" cy="8" r="0.5"/>
+<circle class="drll" cx="26" cy="13" r="0.5"/>
+<circle class="drll" cx="40" cy="21" r="1.0"/>
+<circle class="drll" cx="42.54" cy="15.9" r="0.6"/>
+<circle class="drll" cx="42.54" cy="26.1" r="0.6"/>
+<circle class="drll" cx="55.2" cy="12.1" r="1.0"/>
+<circle class="drll" cx="57.739999999999995" cy="29.9" r="1.0"/>
+<circle class="drll" cx="65.34" cy="29.9" r="1.0"/>
+<circle class="drll" cx="74" cy="26" r="0.6"/>
+<circle class="drll" cx="76.54" cy="22" r="0.6"/>
+<circle class="drll" cx="79.08" cy="26" r="0.6"/>
+<circle class="drll" cx="30" cy="36" r="0.5"/>
+<circle class="drll" cx="30" cy="46.16" r="0.5"/>
+<circle class="drll" cx="54" cy="68.5" r="2.25"/>
+<circle class="drll" cx="4" cy="4" r="1.6"/>
+<circle class="drll" cx="96" cy="4" r="1.6"/>
+<circle class="drll" cx="4" cy="71" r="1.6"/>
+<circle class="drll" cx="96" cy="71" r="1.6"/>
+<rect class="brd" x="0" y="0" width="100" height="75"/>
+</g>
+<g transform="translate(42,26)">
+<rect class="sk" x="4.2" y="4.09" width="9.6" height="15.44" rx="0.8"/>
+<rect class="sk" x="4.2" y="24.4" width="9.6" height="10.2" rx="0.8"/>
+<rect class="sk" x="85.2" y="4.09" width="9.6" height="15.44" rx="0.8"/>
+<rect class="sk" x="85.2" y="23.09" width="9.6" height="15.44" rx="0.8"/>
+<rect class="sk" x="85.2" y="41.4" width="9.6" height="20.2" rx="0.8"/>
+<rect class="sk" x="13.4" y="9.6" width="5.2" height="9.6" rx="0.8"/>
+<text class="r" x="14.200000000000001" y="8.9">D5</text>
+<circle class="sk" cx="26" cy="10.5" r="2.6"/>
+<text class="r" x="29.1" y="11.3">C1</text>
+<rect class="sk" x="36.04" y="7.800000000000001" width="31.8" height="27.4" rx="0.8"/>
+<text class="r" x="36.839999999999996" y="7.1000000000000005">K1</text>
+<rect class="sk" x="69" y="27.5" width="15" height="14.5" rx="0.8"/>
+<text class="r" x="69.8" y="26.8">D1+radiator</text>
+<rect class="sk" x="27.9" y="37.6" width="4.2" height="7.0" rx="0.8"/>
+<text class="r" x="28.7" y="36.9">D6</text>
+</g>
+<line class="ldr" x1="48.4" y1="34.0" x2="39.5" y2="34.0"/>
+<text class="we" x="39" y="34.8">X1.1 +AKU</text>
+<line class="ldr" x1="48.4" y1="41.620000000000005" x2="39.5" y2="41.620000000000005"/>
+<text class="we" x="39" y="42.42">X1.2 −</text>
+<line class="ldr" x1="49.1" y1="53.0" x2="39.5" y2="53.0"/>
+<text class="we" x="39" y="53.8">X6.1 ACC</text>
+<line class="ldr" x1="49.1" y1="58.0" x2="39.5" y2="58.0"/>
+<text class="we" x="39" y="58.8">X6.2 ACC dalej</text>
+<line class="ldr" x1="134.6" y1="34.0" x2="144.5" y2="34.0"/>
+<text class="w" x="145" y="34.8">X2.1 → M1 IN+</text>
+<line class="ldr" x1="134.6" y1="41.620000000000005" x2="144.5" y2="41.620000000000005"/>
+<text class="w" x="145" y="42.42">X2.2 → M1 IN−</text>
+<line class="ldr" x1="134.6" y1="53.0" x2="144.5" y2="53.0"/>
+<text class="w" x="145" y="53.8">X3.2 ← M1 OUT−</text>
+<line class="ldr" x1="134.6" y1="60.62" x2="144.5" y2="60.62"/>
+<text class="w" x="145" y="61.419999999999995">X3.1 ← M1 OUT+</text>
+<line class="ldr" x1="133.9" y1="70.0" x2="144.5" y2="70.0"/>
+<text class="w" x="145" y="70.8">X5.1 → M2 IN+</text>
+<line class="ldr" x1="133.9" y1="75.0" x2="144.5" y2="75.0"/>
+<text class="w" x="145" y="75.8">X5.2 → M2 IN−</text>
+<line class="ldr" x1="133.9" y1="80.0" x2="144.5" y2="80.0"/>
+<text class="w" x="145" y="80.8">X5.3 ← M2 OUT+</text>
+<line class="ldr" x1="133.9" y1="85.0" x2="144.5" y2="85.0"/>
+<text class="w" x="145" y="85.8">X5.4 → BANK+</text>
+<line class="ldr" x1="101.9" y1="94.5" x2="144.5" y2="94.5"/>
+<text class="w" x="145" y="95.3">GND M4 → gwiazda</text>
+<text class="n" x="42" y="105.5">D1: MBR2545CT na radiatorze (pole 15×14 mm za pinami), środkową nóżkę (katodę) odegnij 4 mm do przodu — ma osobny pad.</text>
+<text class="n" x="42" y="109">K1: T90/SLA-12VDC-SL-A — pady COM-A i NC wiercone, zostają wolne (warianty 4/5/6-pin). C1: 470 µF, raster 5,0 mm.</text>
+<text class="n" x="42" y="112.5">GND M4: śruba M4 z oczkiem 6 mm² do punktu gwiazdowego. Otwory montażowe Φ3,2 odizolowane — słupki nylonowe.</text>
+<text class="h" x="42" y="127.5">PŁYTKA B — DYSTRYBUCJA · 100 × 60 mm · laminat jednostronny</text>
+<g transform="translate(42,130)">
+<path class="culw" stroke-width="8" d="M 9 17.62 L 86 17.62"/>
+<path class="culw" stroke-width="6" d="M 24 17.62 L 24 27"/>
+<path class="culw" stroke-width="6" d="M 24 36.2 L 24 52"/>
+<path class="culw" stroke-width="6" d="M 42 17.62 L 42 27"/>
+<path class="culw" stroke-width="6" d="M 42 36.2 L 42 52"/>
+<path class="culw" stroke-width="6" d="M 58 17.62 L 58 27"/>
+<path class="culw" stroke-width="6" d="M 58 36.2 L 58 52"/>
+<path class="culw" stroke-width="6" d="M 74 17.62 L 74 27"/>
+<path class="culw" stroke-width="6" d="M 74 36.2 L 74 52"/>
+<path class="culw" stroke-width="6" d="M 20.2 52 L 27.8 52"/>
+<path class="culw" stroke-width="4" d="M 39.5 52 L 44.5 52"/>
+<path class="culw" stroke-width="4" d="M 55.5 52 L 60.5 52"/>
+<path class="culw" stroke-width="4" d="M 71.5 52 L 76.5 52"/>
+<path class="culw" stroke-width="1.5" d="M 86 27.78 L 86 32"/>
+<path class="culw" stroke-width="1.5" d="M 86 30 L 93 30 L 93 32"/>
+<path class="culw" stroke-width="1.5" d="M 86 30 L 83 30 L 83 52"/>
+<path class="culw" stroke-width="2" d="M 93 40 L 93 42.16"/>
+<path class="culw" stroke-width="2" d="M 86 42.16 L 97 42.16"/>
+<path class="culw" stroke-width="2" d="M 88 42.16 L 88 52"/>
+<path class="culw" stroke-width="2" d="M 9 10 L 14 5 L 97 5 L 97 42.16"/>
+<circle class="cul" cx="9" cy="10.0" r="2.2"/>
+<circle class="cul" cx="9" cy="17.62" r="2.2"/>
+<rect class="cul" x="21.0" y="25.0" width="6.0" height="4.0" rx="2.0"/>
+<rect class="cul" x="21.0" y="34.2" width="6.0" height="4.0" rx="2.0"/>
+<rect class="cul" x="39.0" y="25.0" width="6.0" height="4.0" rx="2.0"/>
+<rect class="cul" x="39.0" y="34.2" width="6.0" height="4.0" rx="2.0"/>
+<rect class="cul" x="55.0" y="25.0" width="6.0" height="4.0" rx="2.0"/>
+<rect class="cul" x="55.0" y="34.2" width="6.0" height="4.0" rx="2.0"/>
+<rect class="cul" x="71.0" y="25.0" width="6.0" height="4.0" rx="2.0"/>
+<rect class="cul" x="71.0" y="34.2" width="6.0" height="4.0" rx="2.0"/>
+<circle class="cul" cx="20.2" cy="52" r="2.2"/>
+<circle class="cul" cx="27.82" cy="52" r="2.2"/>
+<circle class="cul" cx="39.5" cy="52" r="1.5"/>
+<circle class="cul" cx="44.5" cy="52" r="1.5"/>
+<circle class="cul" cx="55.5" cy="52" r="1.5"/>
+<circle class="cul" cx="60.5" cy="52" r="1.5"/>
+<circle class="cul" cx="71.5" cy="52" r="1.5"/>
+<circle class="cul" cx="76.5" cy="52" r="1.5"/>
+<circle class="cul" cx="83.0" cy="52" r="1.5"/>
+<circle class="cul" cx="88.0" cy="52" r="1.5"/>
+<circle class="cul" cx="86" cy="17.62" r="1.1"/>
+<circle class="cul" cx="86" cy="27.78" r="1.1"/>
+<circle class="cul" cx="86" cy="32" r="1.1"/>
+<circle class="cul" cx="86" cy="42.16" r="1.1"/>
+<circle class="cul" cx="93" cy="32" r="1.2"/>
+<circle class="cul" cx="93" cy="40" r="1.2"/>
+<circle class="drll" cx="25.2" cy="31.6" r="1.7"/>
+<circle class="drll" cx="43.2" cy="31.6" r="1.7"/>
+<circle class="drll" cx="59.2" cy="31.6" r="1.7"/>
+<circle class="drll" cx="75.2" cy="31.6" r="1.7"/>
+<circle class="drll" cx="4" cy="4" r="3.5"/>
+<circle class="drll" cx="4" cy="56" r="3.5"/>
+<circle class="drll" cx="96" cy="49" r="3.5"/>
+<g transform="translate(29,47.5) scale(-1,1)"><text x="-9.6" y="0" font-size="3.0" font-weight="bold" fill="#d8dde2">BCM-B</text></g>
+<circle class="drll" cx="9" cy="10.0" r="0.75"/>
+<circle class="drll" cx="9" cy="17.62" r="0.75"/>
+<circle class="drll" cx="24" cy="27" r="1.0"/>
+<circle class="drll" cx="24" cy="36.2" r="1.0"/>
+<circle class="drll" cx="42" cy="27" r="1.0"/>
+<circle class="drll" cx="42" cy="36.2" r="1.0"/>
+<circle class="drll" cx="58" cy="27" r="1.0"/>
+<circle class="drll" cx="58" cy="36.2" r="1.0"/>
+<circle class="drll" cx="74" cy="27" r="1.0"/>
+<circle class="drll" cx="74" cy="36.2" r="1.0"/>
+<circle class="drll" cx="20.2" cy="52" r="0.75"/>
+<circle class="drll" cx="27.82" cy="52" r="0.75"/>
+<circle class="drll" cx="39.5" cy="52" r="0.65"/>
+<circle class="drll" cx="44.5" cy="52" r="0.65"/>
+<circle class="drll" cx="55.5" cy="52" r="0.65"/>
+<circle class="drll" cx="60.5" cy="52" r="0.65"/>
+<circle class="drll" cx="71.5" cy="52" r="0.65"/>
+<circle class="drll" cx="76.5" cy="52" r="0.65"/>
+<circle class="drll" cx="83.0" cy="52" r="0.65"/>
+<circle class="drll" cx="88.0" cy="52" r="0.65"/>
+<circle class="drll" cx="86" cy="17.62" r="0.5"/>
+<circle class="drll" cx="86" cy="27.78" r="0.5"/>
+<circle class="drll" cx="86" cy="32" r="0.5"/>
+<circle class="drll" cx="86" cy="42.16" r="0.5"/>
+<circle class="drll" cx="93" cy="32" r="0.5"/>
+<circle class="drll" cx="93" cy="40" r="0.5"/>
+<circle class="drll" cx="25.2" cy="31.6" r="1.2"/>
+<circle class="drll" cx="43.2" cy="31.6" r="1.2"/>
+<circle class="drll" cx="59.2" cy="31.6" r="1.2"/>
+<circle class="drll" cx="75.2" cy="31.6" r="1.2"/>
+<circle class="drll" cx="4" cy="4" r="1.6"/>
+<circle class="drll" cx="4" cy="56" r="1.6"/>
+<circle class="drll" cx="96" cy="49" r="1.6"/>
+<rect class="brd" x="0" y="0" width="100" height="60"/>
+</g>
+<g transform="translate(42,130)">
+<rect class="sk" x="4.2" y="6.09" width="9.6" height="15.44" rx="0.8"/>
+<rect class="sk" x="20.8" y="24.0" width="6.4" height="15.2" rx="0.8"/>
+<text class="r" x="21.6" y="23.3">F8</text>
+<rect class="sk" x="38.8" y="24.0" width="6.4" height="15.2" rx="0.8"/>
+<text class="r" x="39.599999999999994" y="23.3">F9</text>
+<rect class="sk" x="54.8" y="24.0" width="6.4" height="15.2" rx="0.8"/>
+<text class="r" x="55.599999999999994" y="23.3">F10</text>
+<rect class="sk" x="70.8" y="24.0" width="6.4" height="15.2" rx="0.8"/>
+<text class="r" x="71.6" y="23.3">F11</text>
+<rect class="sk" x="16.29" y="47.2" width="15.44" height="9.6" rx="0.8"/>
+<rect class="sk" x="36.9" y="47.2" width="10.2" height="9.6" rx="0.8"/>
+<rect class="sk" x="52.9" y="47.2" width="10.2" height="9.6" rx="0.8"/>
+<rect class="sk" x="68.9" y="47.2" width="10.2" height="9.6" rx="0.8"/>
+<rect class="sk" x="80.4" y="47.2" width="10.2" height="9.6" rx="0.8"/>
+<rect class="sk" x="84.4" y="19.4" width="3.2" height="6.6" rx="0.8"/>
+<text class="r" x="85.2" y="18.7">R5</text>
+<rect class="sk" x="84.4" y="33.8" width="3.2" height="6.6" rx="0.8"/>
+<text class="r" x="85.2" y="33.099999999999994">R6</text>
+<rect class="sk" x="91.4" y="33.6" width="3.2" height="4.8" rx="0.8"/>
+<text class="r" x="92.2" y="32.9">C7</text>
+</g>
+<line class="ldr" x1="48.4" y1="140.0" x2="39.5" y2="140.0"/>
+<text class="we" x="39" y="140.8">X8.2 GND → gwiazda</text>
+<line class="ldr" x1="48.4" y1="147.62" x2="39.5" y2="147.62"/>
+<text class="we" x="39" y="148.42000000000002">X8.1 SZYNA+ (za S1)</text>
+<line class="ldr" x1="62.2" y1="184.6" x2="62.2" y2="192.5"/>
+<g transform="translate(61.400000000000006,194) rotate(45)"><text class="w" x="0" y="0">X9 → M4 IN+</text></g>
+<line class="ldr" x1="69.82" y1="184.6" x2="69.82" y2="192.5"/>
+<g transform="translate(69.02,194) rotate(45)"><text class="w" x="0" y="0">X9 (drugi)</text></g>
+<line class="ldr" x1="81.5" y1="183.9" x2="81.5" y2="192.5"/>
+<g transform="translate(80.7,194) rotate(45)"><text class="w" x="0" y="0">X10 → M5 IN+</text></g>
+<line class="ldr" x1="97.5" y1="183.9" x2="97.5" y2="192.5"/>
+<g transform="translate(96.7,194) rotate(45)"><text class="w" x="0" y="0">X11 → M6 IN+</text></g>
+<line class="ldr" x1="113.5" y1="183.9" x2="113.5" y2="192.5"/>
+<g transform="translate(112.7,194) rotate(45)"><text class="w" x="0" y="0">X12 AUX 12 V</text></g>
+<line class="ldr" x1="125.0" y1="183.9" x2="125.0" y2="192.5"/>
+<g transform="translate(124.2,194) rotate(45)"><text class="w" x="0" y="0">J1.1 V_BANK</text></g>
+<line class="ldr" x1="130.0" y1="183.9" x2="130.0" y2="192.5"/>
+<g transform="translate(129.2,194) rotate(45)"><text class="w" x="0" y="0">J1.2 GND</text></g>
+<text class="n" x="42" y="212">F8: wkładka 7,5 A (XL6019) / 10 A („1500 W 30 A”). F9: 2 A · F10: 3 A · F11: 5 A. Oprawki ATO 2-pin: otwory Φ2,0 co 9,2 mm + czop Φ2,4</text>
+<text class="n" x="42" y="215.5">albo bezpiecznik wlutowany wprost (pady rozwierć w slot 6×2 mm). R5/R6: dzielnik 100/27 kΩ 1 % — V_BANK do ADC (§13.4).</text>
+<text class="h" x="12" y="232">ELEMENTY LUTOWANE W PŁYTKI (moduły M1–M6 podłączasz do zacisków — nie wlutowujesz):</text>
+<text class="n" x="12" y="237.0">PŁYTKA A:  K1 = SLA-12VDC-SL-A (T90 30 A) · D1 = MBR2545CT + radiator ≥6 K/W · D5 = 1.5KE33CA · D6 = 1N4007 · C1 = 470 µF/35 V low-ESR</text>
+<text class="n" x="12" y="240.6">           X1/X2/X3 = KF7.62-2P · X5 = KF301-4P · X6 = KF301-2P · śruba M4 + oczko</text>
+<text class="n" x="12" y="244.2">PŁYTKA B:  4 × oprawka ATO PCB (albo klipsy) · R5 = 100 kΩ 1 % · R6 = 27 kΩ 1 % · C7 = 100 nF · X8/X9 = KF7.62-2P · X10–X12, J1 = KF301-2P</text>
+<text class="n" x="12" y="247.8">Ścieżki mocy (AKU, KL87, CHGIN/OUT, BANK, BUS, F8) pocynuj grubo albo wzmocnij drutem 1,5 mm² wzdłuż ścieżki. Sieci: patrz pcb_power_etch.svg.</text>
+<line x1="12" y1="258" x2="62" y2="258" stroke="#111" stroke-width="0.3"/>
+<line x1="12" y1="258" x2="12" y2="261" stroke="#111" stroke-width="0.3"/>
+<line x1="13" y1="258" x2="13" y2="259.2" stroke="#111" stroke-width="0.15"/>
+<line x1="14" y1="258" x2="14" y2="259.2" stroke="#111" stroke-width="0.15"/>
+<line x1="15" y1="258" x2="15" y2="259.2" stroke="#111" stroke-width="0.15"/>
+<line x1="16" y1="258" x2="16" y2="259.2" stroke="#111" stroke-width="0.15"/>
+<line x1="17" y1="258" x2="17" y2="260" stroke="#111" stroke-width="0.15"/>
+<line x1="18" y1="258" x2="18" y2="259.2" stroke="#111" stroke-width="0.15"/>
+<line x1="19" y1="258" x2="19" y2="259.2" stroke="#111" stroke-width="0.15"/>
+<line x1="20" y1="258" x2="20" y2="259.2" stroke="#111" stroke-width="0.15"/>
+<line x1="21" y1="258" x2="21" y2="259.2" stroke="#111" stroke-width="0.15"/>
+<line x1="22" y1="258" x2="22" y2="261" stroke="#111" stroke-width="0.3"/>
+<line x1="23" y1="258" x2="23" y2="259.2" stroke="#111" stroke-width="0.15"/>
+<line x1="24" y1="258" x2="24" y2="259.2" stroke="#111" stroke-width="0.15"/>
+<line x1="25" y1="258" x2="25" y2="259.2" stroke="#111" stroke-width="0.15"/>
+<line x1="26" y1="258" x2="26" y2="259.2" stroke="#111" stroke-width="0.15"/>
+<line x1="27" y1="258" x2="27" y2="260" stroke="#111" stroke-width="0.15"/>
+<line x1="28" y1="258" x2="28" y2="259.2" stroke="#111" stroke-width="0.15"/>
+<line x1="29" y1="258" x2="29" y2="259.2" stroke="#111" stroke-width="0.15"/>
+<line x1="30" y1="258" x2="30" y2="259.2" stroke="#111" stroke-width="0.15"/>
+<line x1="31" y1="258" x2="31" y2="259.2" stroke="#111" stroke-width="0.15"/>
+<line x1="32" y1="258" x2="32" y2="261" stroke="#111" stroke-width="0.3"/>
+<line x1="33" y1="258" x2="33" y2="259.2" stroke="#111" stroke-width="0.15"/>
+<line x1="34" y1="258" x2="34" y2="259.2" stroke="#111" stroke-width="0.15"/>
+<line x1="35" y1="258" x2="35" y2="259.2" stroke="#111" stroke-width="0.15"/>
+<line x1="36" y1="258" x2="36" y2="259.2" stroke="#111" stroke-width="0.15"/>
+<line x1="37" y1="258" x2="37" y2="260" stroke="#111" stroke-width="0.15"/>
+<line x1="38" y1="258" x2="38" y2="259.2" stroke="#111" stroke-width="0.15"/>
+<line x1="39" y1="258" x2="39" y2="259.2" stroke="#111" stroke-width="0.15"/>
+<line x1="40" y1="258" x2="40" y2="259.2" stroke="#111" stroke-width="0.15"/>
+<line x1="41" y1="258" x2="41" y2="259.2" stroke="#111" stroke-width="0.15"/>
+<line x1="42" y1="258" x2="42" y2="261" stroke="#111" stroke-width="0.3"/>
+<line x1="43" y1="258" x2="43" y2="259.2" stroke="#111" stroke-width="0.15"/>
+<line x1="44" y1="258" x2="44" y2="259.2" stroke="#111" stroke-width="0.15"/>
+<line x1="45" y1="258" x2="45" y2="259.2" stroke="#111" stroke-width="0.15"/>
+<line x1="46" y1="258" x2="46" y2="259.2" stroke="#111" stroke-width="0.15"/>
+<line x1="47" y1="258" x2="47" y2="260" stroke="#111" stroke-width="0.15"/>
+<line x1="48" y1="258" x2="48" y2="259.2" stroke="#111" stroke-width="0.15"/>
+<line x1="49" y1="258" x2="49" y2="259.2" stroke="#111" stroke-width="0.15"/>
+<line x1="50" y1="258" x2="50" y2="259.2" stroke="#111" stroke-width="0.15"/>
+<line x1="51" y1="258" x2="51" y2="259.2" stroke="#111" stroke-width="0.15"/>
+<line x1="52" y1="258" x2="52" y2="261" stroke="#111" stroke-width="0.3"/>
+<line x1="53" y1="258" x2="53" y2="259.2" stroke="#111" stroke-width="0.15"/>
+<line x1="54" y1="258" x2="54" y2="259.2" stroke="#111" stroke-width="0.15"/>
+<line x1="55" y1="258" x2="55" y2="259.2" stroke="#111" stroke-width="0.15"/>
+<line x1="56" y1="258" x2="56" y2="259.2" stroke="#111" stroke-width="0.15"/>
+<line x1="57" y1="258" x2="57" y2="260" stroke="#111" stroke-width="0.15"/>
+<line x1="58" y1="258" x2="58" y2="259.2" stroke="#111" stroke-width="0.15"/>
+<line x1="59" y1="258" x2="59" y2="259.2" stroke="#111" stroke-width="0.15"/>
+<line x1="60" y1="258" x2="60" y2="259.2" stroke="#111" stroke-width="0.15"/>
+<line x1="61" y1="258" x2="61" y2="259.2" stroke="#111" stroke-width="0.15"/>
+<line x1="62" y1="258" x2="62" y2="261" stroke="#111" stroke-width="0.3"/>
+<text class="l" x="10.6" y="264">0</text>
+<text class="l" x="20.6" y="264">10</text>
+<text class="l" x="30.6" y="264">20</text>
+<text class="l" x="40.6" y="264">30</text>
+<text class="l" x="50.6" y="264">40</text>
+<text class="l" x="60.6" y="264">50</text>
+<text class="lb" x="65" y="261">mm — po wydruku zmierz: 50 mm ±0,5</text>
+<text class="sub" x="12" y="272">Wygenerowano: schematics/gen_pcb_power.py · opis projektu: docs/PCB_ZASILANIE.md</text>
+</svg>

@@ -567,8 +567,13 @@ wejściowego — patrz §5.3b.
 | Model | Dane | Cena | Kiedy ten |
 |-------|------|------|-----------|
 | **„900 W 15 A" z wyświetlaczem** (typ CNC/DPS, wej. 8–60 V, wyj. 10–120 V) | CC 0–15 A, nastawa cyfrowa z odczytem, pamięć nastaw | 90–140 PLN | **domyślny wybór** — wpisujesz 14,40 V i 6,0 A i odczytujesz z powrotem, zamiast celować potencjometrem |
-| **SZBK07** (SZ-BT07CCCV-D1, „1500 W 30 A", wej. 10–60 V, wyj. 12–90 V) | CC 0,8–20 A ±0,3 A · sprawność 92–97 % · ochrona odwrotnej polaryzacji · 130 × 84 × 52 mm | 80–130 PLN | gdy chcesz duży zapas mocy i zimną pracę; nastawa potencjometrami |
+| **„1500 W 30 A" boost CC-CV** (wej. 10–60 V, wyj. 12–97 V) | CC 0,8–22 A · sprawność 92–97 % · 130 × 84 × 52 mm, radiator + wentylator termiczny | 60–95 PLN | gdy chcesz duży zapas mocy i zimną pracę; nastawa potencjometrami |
 | **„600 W 10 A"** (wej. 10–60 V, wyj. 12–80 V) | CC-CV potencjometrami | 50–80 PLN | wystarczy przy trzech pakietach (CC do 6 A) |
+
+> **Korekta: SZBK07 wypada z tej tabeli.** Wcześniejsze wydanie wymieniało
+> tu SZBK07 — to przetwornica **obniżająca** (buck 300 W na LM5116), nie
+> boost; z 13,7 V nie zrobi 14,4 V. Moduł „1500 W 30 A" o podobnych
+> gabarytach szukaj po frazie „boost converter 1500W 30A 10-60V".
 
 > **„Auto output on power-on".** Moduły z wyświetlaczem mają opcję
 > automatycznego załączenia wyjścia po podaniu zasilania. Jeżeli zostanie
@@ -756,6 +761,16 @@ Na tych płytkach siedzi zwykle przekaźnik z nadrukiem 30 A / 14 VDC, ale
 wytrzymują realnie ok. 10 A. Przy naszych 8 A jesteś w spec, ale bez
 komfortowego zapasu — i to jest właśnie powód, dla którego warto zrobić
 o jeden krok więcej.
+
+> **Uwaga — XH-M603 nie nadaje się do układu „pilot" opisanego niżej.**
+> Zweryfikowane działanie tego modułu: przekaźnik siedzi wewnętrznie w torze
+> DC-IN+ → OUT+ (nie ma wolnego styku na złączce), a pomiar napięcia jest po
+> stronie OUT. Gdy OUT+ steruje cewką K2, po zadziałaniu napięcie na OUT
+> spada do zera przez cewkę → moduł widzi „pusty akumulator" → zwiera
+> z powrotem → oscylacja niszczy styki. **XH-M603 wpinaj w tor ładowania**
+> (DC-IN z boostu, OUT na bank) przy CC ≤ 6 A — dokładnie tak robi to
+> wariant PCB: [`PCB_ZASILANIE.md`](PCB_ZASILANIE.md) §3. Układ „pilot + K2"
+> pozostaje poprawny tylko dla modułów z wolnym stykiem COM/NO na złączce.
 
 #### Zalecane: moduł jako pilot, moc na osobnym przekaźniku
 
@@ -1397,6 +1412,7 @@ przed zabudową, a nie po.
 
 | Dokument | Zakres |
 |----------|--------|
+| [`PCB_ZASILANIE.md`](PCB_ZASILANIE.md) | **dwie płytki drukowane do wytrawienia** — tor ładowania i dystrybucja zamiast „pająka"; dobór przetwornicy 19,5 V ≤ 100 zł |
 | [`WDROZENIE_M910Q.md`](WDROZENIE_M910Q.md) | pełne wdrożenie: sprzęt, BIOS, OS, usługi, odbiór |
 | [`X86_PLATFORM_SETUP.md`](X86_PLATFORM_SETUP.md) | referencja krok-po-kroku (EN) — pamiętaj o §13 |
 | [`x86-production/10-power-suspend.html`](x86-production/10-power-suspend.html) | zasilanie + S3 w wersji ilustrowanej |

@@ -552,6 +552,11 @@ Uzupełniająco: [`schematic_test_build.svg`](../schematics/schematic_test_build
 
 ### 10.1 Tor ładowania
 
+> **Wariant PCB.** Przewody 3, 5, B(część), 7c–7e istnieją też jako ścieżki
+> na trawionej płytce A — wtedy łączysz tylko zaciski X1–X6 wg
+> [`PCB_ZASILANIE.md`](PCB_ZASILANIE.md) §1, a XH-M603 pracuje w torze
+> ładowania (bez K2 — uzasadnienie tamże, §3).
+
 | # | Skąd | Dokąd | Przewód | Zabezpieczenie |
 |---|------|-------|---------|----------------|
 | 1 | Akumulator rozruchowy **„+”** | Bezpiecznik **F1** (wejście) | 2,5 mm² | — |
