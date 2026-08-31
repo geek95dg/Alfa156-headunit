@@ -11,6 +11,18 @@ opisuje ich rozmieszczenie i przypięte notatki.
 | `DoorsAll.dc.html` | Ekran 2 — wszystkie sześć paneli otwarte |
 | `Telltales.dc.html` | Arkusz symboli kontrolek (referencja dla firmware) |
 
+Złożona kanwa `alfa156-esp32-display.html` (~2,5 MB) jest **poza repo**
+(`.gitignore`) — trzyma kopie wszystkich plików z tabeli w bloku
+`appifact-doc`, więc po regeneracji artboardów pokazuje starą wersję,
+dopóki ktoś nie zapisze jej z kanwy na nowo.
+
+> **Rozkład ekranu 1 jest kontraktem, nie propozycją.** Cztery lampki usterek
+> (ABS, hamulec, poduszka, immobilizer) stoją w paśmie górnym w tej samej
+> kolejności co `TELLTALES[]` w `assets.h` i `InputId` w `state.h`; lewe 40 px
+> pasma dolnego zostaje puste jako rezerwa. Artboardy mają być z tym zgodne —
+> rozstrzygnięcie jest w `docs/WYSWIETLACZ_ESP32_1V8.md`, sekcja „Ekran 1”
+> i „Do rozstrzygnięcia”.
+
 Oba ekrany rysowane są w prawdziwych pikselach ST7735 (128×160, pionowo)
 w kontenerze przeskalowanym `transform: scale(4)` — wartości `font-size`,
 `width` i `height` w środku to bezpośrednio piksele wyświetlacza.

@@ -10,6 +10,7 @@ jaki bezpiecznik i w jakiej kolejności. Uzupełnia schematy blokowe
 | [`wiring_vehicle_arduino.svg`](../schematics/wiring_vehicle_arduino.svg) | Sygnały pojazdu → układy dopasowujące (PC817, dzielniki) → Arduino |
 | [`wiring_usb_av.svg`](../schematics/wiring_usb_av.svg) | USB, wyświetlacze, audio, kamery |
 | [`vehicle_layout_m910q.svg`](../schematics/vehicle_layout_m910q.svg) | Rozmieszczenie w aucie — strefy montażu, trasy kablowe, bilans masy |
+| [`esp32_display_wiring.svg`](../schematics/esp32_display_wiring.svg) | Wyświetlacz pomocniczy 1,8" — dziesięć wejść przez PC817, panel ST7735 po SPI, zasilanie z +15 |
 
 Schematy blokowe (co i dlaczego): [`../schematics/README.md`](../schematics/README.md).
 Dobór podzespołów i nastawy: [`ZASILANIE_BUFOROWANE.md`](ZASILANIE_BUFOROWANE.md).
@@ -28,6 +29,7 @@ Dobór podzespołów i nastawy: [`ZASILANIE_BUFOROWANE.md`](ZASILANIE_BUFOROWANE
 8. [Kolejność montażu](#8-kolejność-montażu)
 9. [Lista kontrolna przed pierwszym załączeniem](#9-lista-kontrolna-przed-pierwszym-załączeniem)
 10. [Tabela połączeń — wariant testowo-rozwojowy](#10-tabela-połączeń--wariant-testowo-rozwojowy)
+11. [Wyświetlacz pomocniczy 1,8" na ESP32](#11-wyświetlacz-pomocniczy-18-na-esp32)
 
 ---
 
@@ -380,6 +382,7 @@ z wykryciem ekranu.
 | Arduino Nano #1 | `/dev/ttyUSB0` |
 | Arduino Nano #2 | `/dev/ttyUSB1` |
 | CP2102 (K-Line) | `/dev/ttyUSB_kline` |
+| ESP32-S3 (wyświetlacz 1,8", § 11) | `/dev/ttyACM_display` |
 | GPS u-blox NEO-M8N | — |
 | Modem LTE Huawei E3372 | — |
 | Mikrofon USB | — |
@@ -444,6 +447,7 @@ brak**. Sygnały wyzwalające wchodzą przez PC817 na Nano #2.
 | 3 A | listwa, obwód 1 | logika 5 V |
 | 3 A | odgałęzienie buck MP1584 | panele wyświetlaczy |
 | 3 A | odgałęzienie hub USB | hub i peryferia |
+| 2 A | odgałęzienie +15 → buck 5 V wyświetlacza ESP32 | moduł wyświetlacza 1,8" (§ 11.3) |
 | 15 A | między bankiem a XH-M609 **VIN +** | moduł LVD i cała szyna za nim |
 | 2 A | zasilanie/pomiar modułu nadnapięciowego | obwód pomiarowy |
 
@@ -733,6 +737,125 @@ płyty głównej. Punkt 8 pomijany — na zabicie banku.
 
 ---
 
+## 11. Wyświetlacz pomocniczy 1,8" na ESP32
+
+Rysunek: [`esp32_display_wiring.svg`](../schematics/esp32_display_wiring.svg)
+(generator `schematics/gen_esp32_display.py` — po zmianie tabel poniżej popraw
+generator i wygeneruj SVG ponownie, nie edytuj SVG ręcznie). Projekt ekranów,
+protokół i budżet poboru: [`WYSWIETLACZ_ESP32_1V8.md`](WYSWIETLACZ_ESP32_1V8.md).
+
+> **Oznaczenia elementów (U1–U10, D1, F12, M8, A5, DS3) należą do tego
+> podukładu.** Arkusze wariantu testowego (§ 10) mają własną numerację —
+> tamtejsze `U1`/`U2` to transoptory zapłonu i biegu wstecznego, a `D1` to
+> dioda MBR2545CT w torze ładowania.
+
+Panel **ST7735 128 × 160 px zamontowany pionowo**, sterowany z **ESP32-S3**.
+Dwa niezależne źródła danych: dziesięć sygnałów 12 V wprost z auta (przez
+PC817) oraz metadane muzyki i tempomatu z M910q po USB. Dzięki temu ekran
+otwartego nadwozia działa także wtedy, gdy komputer jeszcze wstaje albo już śpi.
+
+### 11.1 Dziesięć wejść 12 V przez PC817
+
+Stopień wejściowy jest **identyczny dla wszystkich dziesięciu sygnałów** i jest
+już opisany w § 3.1 (sygnał → 4,7 kΩ → PC817 pin 1, pin 2 → masa pojazdu,
+pin 4 → GPIO w `INPUT_PULLUP`, pin 3 → masa ESP32). Zmienia się wyłącznie pin
+docelowy:
+
+| Oznaczenie | Sygnał | Skąd w aucie | Pin ESP32-S3 | Ekran |
+|------------|--------|--------------|--------------|-------|
+| U1 | ABS | złącze fabrycznego wyświetlacza | **GPIO4** | 1 |
+| U2 | Hamulec ręczny | wyłącznik dźwigni | **GPIO5** | 1 |
+| U3 | Poduszka (SRS) | złącze fabrycznego wyświetlacza | **GPIO6** | 1 |
+| U4 | Immobilizer | złącze fabrycznego wyświetlacza | **GPIO7** | 1 |
+| U5 | Maska | wyłącznik maski | **GPIO1** | 2 |
+| U6 | Drzwi przód lewe | krańcówka oświetlenia wnętrza | **GPIO15** | 2 |
+| U7 | Drzwi przód prawe | j.w. | **GPIO16** | 2 |
+| U8 | Drzwi tył lewe | j.w. | **GPIO17** | 2 |
+| U9 | Drzwi tył prawe | j.w. | **GPIO18** | 2 |
+| U10 | Klapa bagażnika | wyłącznik klapy | **GPIO2** | 2 |
+
+Kolejność U1–U10 jest **kontraktem firmware'u** — odpowiada wyliczeniu
+`InputId` w `arduino/esp32_display/state.h` oraz tablicom `TELLTALES[]`
+i `PANELS[]` w `arduino/esp32_display/assets.h`. Stan aktywny to **LOW**,
+debounce **30 ms**.
+
+> **GPIO ESP32-S3 są 3,3 V i nie tolerują nawet 5 V**, o 12 V nie wspominając,
+> a instalacja samochodowa potrafi wypuścić impulsy grubo powyżej 40 V.
+> Optoizolacja z § 3.1 jest obowiązkowa, a każde wejście zasługuje dodatkowo
+> na **TVS (SMBJ24A) po stronie pojazdu**, przed rezystorem 4,7 kΩ.
+
+> **Polaryzacji nie zakładaj — zmierz.** Krańcówki drzwi w autach tej epoki
+> zwykle **zwierają do masy** (12 V przy zamkniętych, 0 V przy otwartych),
+> czyli działają odwrotnie niż sterowana plusem lampka. Linia zwierana do masy
+> nie potrzebuje PC817 — wchodzi wprost na pin, tak jak w § 3.3. Dla każdego
+> z dziesięciu sygnałów sprawdź miernikiem: napięcie w spoczynku, w stanie
+> aktywnym i czy linia źródłuje prąd, czy go zwiera.
+
+> **ABS i poduszka to dwie najmniej pewne pozycje** — w wielu wersjach rysują
+> je zegary z własnej magistrali i nie podają dalej na złącze. Jeśli ich tam
+> nie ma, zostaje wzięcie ich z BCM albo rezygnacja z tych dwóch lampek.
+
+### 11.2 Panel ST7735 po SPI
+
+| ESP32-S3 | Panel ST7735 | Uwagi |
+|----------|--------------|-------|
+| **GPIO12** | SCL / SCK | zegar SPI |
+| **GPIO11** | SDA / MOSI | dane |
+| **GPIO10** | CS | wybór układu |
+| **GPIO13** | DC / A0 | dane ↔ komenda |
+| **GPIO14** | RST / RES | reset panelu |
+| **GPIO21** | BLK / LED | podświetlenie, PWM przez LEDC |
+| **3V3** | VCC | moduł ze stabilizatorem AMS1117 zasilaj 5 V |
+| **GND** | GND | masa ESP32 — nie masa pojazdu |
+
+Kolejność pinów **na module bywa różna** (najczęściej LED, SCK, SDA, A0, RESET,
+CS, GND, VCC) — czytaj opisy na płytce, nie kolejność z tabeli. Część modułów
+ma BLK zwarty do VCC; wtedy ściemnianie wymaga przecięcia ścieżki albo małego
+tranzystora. Sygnały sterujące zawsze 3,3 V, także na module 5-woltowym.
+
+W `TFT_eSPI` panel opisuje `User_Setup` z `ST7735_DRIVER`, `TFT_WIDTH 128`,
+`TFT_HEIGHT 160` i powyższymi pinami; obrót do pionu robi firmware.
+
+### 11.3 Zasilanie i USB
+
+| Skąd | Dokąd | Uwagi |
+|------|-------|-------|
+| **+15** (po zapłonie), listwa ATO | bezpiecznik **2 A** | § 6 |
+| bezpiecznik 2 A | buck 12 V → 5 V, **IN+** | MP1584, jak M6 w § 10 |
+| buck **IN−** | punkt gwiazdowy masy | § 7 |
+| buck **OUT+** | ESP32-S3 **5V** | ~60 mA z 12 V przy pracy |
+| buck **OUT−** | ESP32-S3 **GND** + punkt gwiazdowy | |
+| ESP32-S3, **natywne** gniazdo USB-C | port USB M910q (przez hub, § 5.3) | `/dev/ttyACM_display` |
+
+> **Żyła VBUS w kablu USB musi być przecięta**, jeśli moduł jest zasilany
+> z +15. Dwa źródła 5 V — buck i port M910q — nie mogą pracować na jedną
+> szynę. Masa (GND) w kablu **zostaje połączona**: bez wspólnego punktu
+> odniesienia transmisja nie ma sensu.
+
+> **Na płytkach z dwoma gniazdami USB-C** jedno idzie do natywnego USB
+> ESP32-S3, a drugie do mostka UART (CH343/CP2102). Protokół chodzi po
+> **natywnym** — to ono zgłasza się jako `303a:1001` i to jego łapie reguła
+> udev `config/udev/99-bcm-esp32-display.rules`.
+
+Wariant alternatywny — zasilanie **wprost z USB**, bez bucka i bezpiecznika:
+jeden kabel, zero poboru na postoju, ale ekran wstaje dopiero razem z M910q,
+więc kontrolki bezpieczeństwa pojawiają się z opóźnieniem całego bootu.
+Porównanie obu: [`WYSWIETLACZ_ESP32_1V8.md`](WYSWIETLACZ_ESP32_1V8.md)
+§ Zasilanie i pobór.
+
+### 11.4 Piny, których nie wolno użyć
+
+| Piny | Dlaczego |
+|------|----------|
+| 0, 3, 45, 46 | strapping — stan przy resecie decyduje o trybie startu |
+| 19, 20 | natywne USB (D−/D+), czyli cały protokół z BCM |
+| 26–37 | flash i PSRAM modułu (N16R8) |
+
+Pozostałe wolne piny są do dyspozycji, ale zestaw z § 11.1 i § 11.2 jest
+kontraktem — te same numery siedzą w firmwarze i w generatorze schematu.
+
+---
+
 ## Powiązane dokumenty
 
 | Dokument | Zakres |
@@ -741,4 +864,5 @@ płyty głównej. Punkt 8 pomijany — na zabicie banku.
 | [`WDROZENIE_M910Q.md`](WDROZENIE_M910Q.md) | pełne wdrożenie: sprzęt, BIOS, OS, usługi, odbiór |
 | [`ARDUINO_SETUP_GUIDE.md`](ARDUINO_SETUP_GUIDE.md) | wgrywanie firmware, kalibracja SWC, pełne tabele pinów |
 | [`KLINE_SNIFFING.md`](KLINE_SNIFFING.md) | podsłuch K-Line, poznawanie PID-ów ECU |
+| [`WYSWIETLACZ_ESP32_1V8.md`](WYSWIETLACZ_ESP32_1V8.md) | wyświetlacz pomocniczy 1,8": ekrany, protokół, firmware, pobór |
 | [`../schematics/README.md`](../schematics/README.md) | indeks wszystkich schematów |

@@ -44,10 +44,14 @@ pip install -r requirements.txt -r requirements-x86.txt
   wireless Android Auto, audio and the steering-wheel buttons switched on:
   `docs/WDROZENIE_TESTOWE.md`, config `config/bcm_config_test.yaml`.
   Everything to buy for it, in one table: `docs/LISTA_ZAKUPOWA.md`.
-- **Wyświetlacz pomocniczy 1,8" na ESP32** (ST7735 128×160, pionowo) — projekt
-  dwóch ekranów: metadane muzyki z 5 kontrolkami oraz rzut z góry auta
-  z otwartymi drzwiami: `docs/WYSWIETLACZ_ESP32_1V8.md`, źródła kanwy
-  w `mockups/esp32_1v8/`.
+- **Wyświetlacz pomocniczy 1,8" na ESP32** (ST7735 128×160, pionowo) — dwa
+  ekrany: metadane muzyki z czterema kontrolkami i tempomatem oraz rzut z góry
+  auta z otwartymi drzwiami. Projekt i protokół: `docs/WYSWIETLACZ_ESP32_1V8.md`; firmware
+  `arduino/esp32_display/` (`make -C arduino esp32_display-test`); most po
+  stronie BCM `src/dashboard/esp32_link.py` (`modules.esp32_display`);
+  okablowanie `docs/SCHEMATY_POLACZEN.md` §11 +
+  `schematics/esp32_display_wiring.svg`; wpięcie do M910q i reguła udev
+  `docs/WDROZENIE_M910Q.md` §20.
 - Repo audit + improvement roadmap: `AUDYT_I_PLAN.md`. Unused legacy
   code lives in `legacy/`; docs for retired platforms (Orange Pi 5 Pro /
   5 Plus, Orange Pi PC bench rig, VMware smoke tests) live in

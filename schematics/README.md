@@ -40,6 +40,8 @@ M910q Tiny**.
 | [`wiring_vehicle_arduino.svg`](wiring_vehicle_arduino.svg) | **Sygnały pojazdu → Arduino** — punkty poboru w aucie, stopień PC817, dzielniki napięcia, podciągnięcia, rozpiska pinów trzech płytek, tor K-Line. |
 | [`wiring_usb_av.svg`](wiring_usb_av.svg) | **USB, obraz, audio, kamery** — co idzie przez hub, a co bezpośrednio w port, przejściówki DP → HDMI, tor audio i przypisanie kamer. |
 | [`vehicle_layout_m910q.svg`](vehicle_layout_m910q.svg) | **Rozmieszczenie w aucie** — rzut z góry Alfy 156 ze strefami montażu, trasami kablowymi, uzasadnieniem lokalizacji i bilansem masy. |
+| [`esp32_display_wiring.svg`](esp32_display_wiring.svg) | **Wyświetlacz pomocniczy 1,8" (ESP32-S3 + ST7735)** — stopień PC817 narysowany raz plus tabela dziesięciu wejść z numerami GPIO, panel po SPI, zasilanie z +15 przez buck 5 V, dane po natywnym USB. Rozdział mas i uwaga o przeciętej żyle VBUS. Tabele: [`../docs/SCHEMATY_POLACZEN.md`](../docs/SCHEMATY_POLACZEN.md) § 11. |
+| [`gen_esp32_display.py`](gen_esp32_display.py) | **Generator powyższego.** `python3 schematics/gen_esp32_display.py` — przed zapisem sam sprawdza, czy bloki na siebie nie nachodzą i czy żaden napis nie wychodzi z ramki, nie wpada pod sąsiedni prostokąt ani na inny napis (mierzy je fontem DejaVu Sans, tym samym, którym narysuje je przeglądarka). Po zmianie § 11 popraw generator, nie SVG. |
 
 ---
 
@@ -99,6 +101,7 @@ po USB**. Okablowanie pin-po-pinie jest w
 | Pro Micro | `arduino/rotary_encoder` | Enkoder, przyciski, SWC, panel muzyczny, jasność |
 | Nano #1 | `arduino/output_controller` | Domena A: pilot 433 MHz, bagażnik przez BLE, PWM podświetlenia |
 | Nano #2 | `arduino/sensor_hub` | Telemetria: drzwi, maska, ręczny, zapłon, deszcz, DS18B20 |
+| ESP32-S3 *(opcjonalna)* | `arduino/esp32_display` | Wyświetlacz pomocniczy 1,8": kontrolki i otwarcia z GPIO, metadane z BCM po USB |
 
 Interfejs K-Line (L9637D) na M910q idzie przez **CP2102 po USB**, a nie przez
 UART na złączu GPIO — patrz [`../docs/KLINE_SNIFFING.md`](../docs/KLINE_SNIFFING.md).

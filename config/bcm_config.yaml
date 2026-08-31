@@ -40,6 +40,8 @@ modules:
   blinker_monitor: false
   rain_sensor: false
   central_lock: false
+  esp32_display: false     # mały panel 1,8" na ESP32-S3 — brak płytki,
+                           # patrz docs/WYSWIETLACZ_ESP32_1V8.md
   lighting: false
   performance: false
   alarm: false
@@ -91,6 +93,20 @@ gpio:
 vehicle:
   blinker_active_low: true
   blinker_hold_sec: 0.8
+esp32_display:
+  # Most do wyświetlacza pomocniczego 1,8" (src/dashboard/esp32_link.py).
+  # Stała ścieżka z reguły udev — numeracja /dev/ttyACM* przeskakuje między
+  # restartami, a na tej samej rodzinie węzłów siedzi już Pro Micro.
+  port: /dev/ttyACM_display
+  baudrate: 115200
+  # Gdy reguły udev nie ma, skanuj /dev/ttyACM0..3. Znaleziony port musi
+  # odpowiedzieć PONG, żeby nie zapisać metadanych do Pro Micro
+  # (oba Nano są na /dev/ttyUSB* i skan ich nie widzi).
+  scan: true
+  ping_interval: 2.0   # ESP32 uznaje BCM za offline po 5 s ciszy
+  # Jednostka bt.media_position / bt.media_duration na magistrali:
+  # "ms" (BlueZ/AVRCP, tak jest dzisiaj) albo "s".
+  time_unit: ms
 serial:
   kline:
     port_opi: /dev/ttyS3

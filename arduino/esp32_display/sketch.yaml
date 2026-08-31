@@ -1,0 +1,29 @@
+# arduino-cli build profile — kompilacja: make -C arduino esp32_display
+#
+# Rdzeń esp32 NIE jest w domyślnym indeksie arduino-cli, stąd
+# platform_index_url. Pierwsza kompilacja ściąga ~1 GB toolchainu.
+#
+# USBMode=hwcdc + CDCOnBoot=cdc: `Serial` to natywny port USB-OTG S3
+# (303a:1001), wpięty wprost w M910q — bez mostka UART. Na płytkach
+# z dwoma gniazdami USB-C trzeba to pierwsze, nie mostkowe.
+#
+# PSRAM=disabled, bo assety (~84 KB) i font (~11,5 KB — tyle liczy
+# tools/esp32_font.py dla czterech krojów po 117 glifów) siedzą we flashu,
+# a bufora ramki nie trzymamy w RAM — rysujemy różnicowo wprost na panel.
+#
+# UWAGA: TFT_eSPI czyta konfigurację panelu z własnego User_Setup.h
+# w katalogu biblioteki, czyli spoza repo. Dlatego komplet definicji
+# (sterownik, rozdzielczość, piny SPI) idzie flagami kompilatora —
+# ustawia je arduino/Makefile w zmiennej TFT_ESPI_FLAGS. Kompilacja
+# samym `arduino-cli compile --profile default` BEZ tych flag zbuduje
+# bibliotekę pod cudzy panel. Szczegóły w nagłówku esp32_display.ino.
+profiles:
+  default:
+    fqbn: esp32:esp32:esp32s3:USBMode=hwcdc,CDCOnBoot=cdc,PSRAM=disabled
+    platforms:
+      - platform: esp32:esp32 (3.1.1)
+        platform_index_url: https://espressif.github.io/arduino-esp32/package_esp32_index.json
+    libraries:
+      - TFT_eSPI (2.5.43)
+
+default_profile: default
