@@ -7,25 +7,26 @@ opisuje ich rozmieszczenie i przypięte notatki.
 |---|---|
 | `Main.dc.html` | Ekran 1 — Now Playing, wszystkie kontrolki wygaszone |
 | `NowPlayingActive.dc.html` | Ekran 1 — usterka ABS, hamulec ręczny, tempomat 130 km/h |
-| `Doors.dc.html` | Ekran 2, wariant A — bryła + lista otwartych paneli |
-| `DoorsCentral.dc.html` | Ekran 2, wariant B — baner alarmowy + bryła poziomo |
-| `DoorsAll.dc.html` | Ekran 2, wariant A — wszystkie sześć paneli otwarte |
+| `Doors.dc.html` | Ekran 2 — otwarte przednie lewe i bagażnik |
+| `DoorsAll.dc.html` | Ekran 2 — wszystkie sześć paneli otwarte |
 | `Telltales.dc.html` | Arkusz symboli kontrolek (referencja dla firmware) |
 
-Każdy artboard rysuje ekran w prawdziwych pikselach ST7735 (160×128)
+Oba ekrany rysowane są w prawdziwych pikselach ST7735 (128×160, pionowo)
 w kontenerze przeskalowanym `transform: scale(4)` — wartości `font-size`,
 `width` i `height` w środku to bezpośrednio piksele wyświetlacza.
+Arkusz kontrolek to referencja, nie ekran, więc ma własny format 640×512.
 
 ## Regeneracja
 
-Bryła auta i arkusz kontrolek są generowane, żeby geometria i symbole
-były identyczne we wszystkich wariantach:
+Wszystko jest generowane, żeby symbole i geometria bryły nie rozjechały
+się między artboardami:
 
 ```bash
-python3 _gen_doors.py       # Doors / DoorsAll / DoorsCentral
+python3 _gen_screens.py     # Main / NowPlayingActive / Doors / DoorsAll
 python3 _gen_telltales.py   # Telltales
 ```
 
-`Main.dc.html` i `NowPlayingActive.dc.html` edytuje się bezpośrednio.
+`_icons.py` trzyma symbole kontrolek — jedno źródło dla ekranu 1
+i arkusza. Bryła auta mieszka w `_gen_screens.py` (`car()`).
 
 Opis obu ekranów, palety i sygnałów: `docs/WYSWIETLACZ_ESP32_1V8.md`.

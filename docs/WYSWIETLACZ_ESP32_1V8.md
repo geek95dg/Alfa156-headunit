@@ -1,17 +1,17 @@
 # Wyświetlacz pomocniczy 1,8" na ESP32 — projekt ekranów
 
-Mały panel ST7735 **160×128 px, landscape**, sterowany z ESP32 po SPI,
-pokazujący dwa ekrany: metadane odtwarzanej muzyki z kontrolkami oraz
-ostrzeżenie o otwartym nadwoziu.
+Mały panel ST7735 **128×160 px, pionowo** (dłuższa krawędź w pionie),
+sterowany z ESP32 po SPI, pokazujący dwa ekrany: metadane odtwarzanej
+muzyki z kontrolkami oraz ostrzeżenie o otwartym nadwoziu.
 
-Projekt wizualny (kanwa Claude Design, sześć artboardów) jest wygenerowany
+Projekt wizualny (kanwa Claude Design, pięć artboardów) jest wygenerowany
 ze źródeł w `mockups/esp32_1v8/` — patrz `mockups/esp32_1v8/README.md`.
 
 ## Założenia
 
 - Panel jest **wyłącznie wyświetlaczem** — bez dotyku, bez przycisków.
-  Wszystkie sterowanie zostaje na głównym ekranie 10,1" i przy kierownicy.
-- Rysunek w prawdziwych pikselach: artboardy mają kontener 160×128
+  Całe sterowanie zostaje na głównym ekranie 10,1" i przy kierownicy.
+- Rysunek w prawdziwych pikselach: artboardy mają kontener 128×160
   przeskalowany `scale(4)`, więc każda wartość `px` w środku to jeden
   piksel wyświetlacza.
 - Paleta z motywu **Heritage** (domyślny w `config/bcm_config.yaml`),
@@ -21,7 +21,7 @@ ze źródeł w `mockups/esp32_1v8/` — patrz `mockups/esp32_1v8/README.md`.
   |---|---|
   | tło | `#0a0a0a` |
   | tekst główny | `#f4f4f5` |
-  | tekst drugorzędny | `#a1a1aa` / `#71717a` |
+  | tekst drugorzędny | `#a1a1aa` / `#52525b` |
   | akcent (pasek postępu) | `#f59e0b` |
   | linie podziału | `#27272a` |
   | kontrolka wygaszona | `#3f3f46` |
@@ -34,38 +34,52 @@ Trzy pasma w pionie, zgodnie z układem „kontrolki powyżej i poniżej,
 metadane pośrodku”:
 
 ```
-┌──────────────────────────────────────┐  27 px
-│   (ABS)      airbag        klucz     │  kontrolki usterek
-├──────────────────────────────────────┤
-│            ▶ BLUETOOTH               │
-│             Nightcall                │  67 px
-│              Kavinsky                │  metadane
-│         ▬▬▬▬▬▬▬▬▬────────            │
-├──────────────────────────────────────┤
-│    (P)     │  ⊙  130 km/h            │  31 px
-└──────────────────────────────────────┘  kontrolki kierowcy
+┌────────────────────────┐
+│  (ABS)  airbag  klucz  │  32 px — lampki usterek
+├────────────────────────┤
+│      ▶ BLUETOOTH       │
+│       Nightcall        │  90 px — metadane
+│        Kavinsky        │
+│    ▬▬▬▬▬▬▬───────      │
+├────────────────────────┤
+│  (P)  │  ⊙ 130 km/h    │  36 px — stany kierowcy
+└────────────────────────┘
 ```
 
 | element | rozmiar | waga | kolor |
 |---|---|---|---|
 | źródło dźwięku | 7 px | 800 | `#52525b` |
-| tytuł | 15 px | 800 | `#f4f4f5` |
+| tytuł (do 2 linii) | 15 px | 800 | `#f4f4f5` |
 | wykonawca | 10 px | 600 | `#a1a1aa` |
-| pasek postępu | 132 × 3 px | — | `#f59e0b` na `#27272a` |
-| symbol kontrolki | 20 × 20 px | — | zależnie od stanu |
-| zadana prędkość | 20 px | 900 | `#22c55e` |
+| pasek postępu | 104 × 3 px | — | `#f59e0b` na `#27272a` |
+| symbol kontrolki | 22 × 22 px w podkładce 26 × 26 | — | zależnie od stanu |
+| zadana prędkość | 16 px | 900 | `#22c55e` |
 
-Tytuł i wykonawca są ucinane wielokropkiem przy 132 px (ok. 20 znaków).
+Pole tekstu ma 112 px szerokości. Tytuł łamie się do dwóch linii i dopiero
+wtedy dostaje wielokropek; wykonawca zawsze jedna linia z wielokropkiem.
 
 Podział kontrolek jest celowy: **górne pasmo to lampki usterek**
 (ABS, poduszka, immobilizer), **dolne to stany zależne od kierowcy**
 (hamulec ręczny, tempomat). Slot tempomatu jest szerszy, bo po włączeniu
-rozwija się o zadaną prędkość; przy wyłączonym tempomacie zostaje w nim
-sam wygaszony symbol i `---`.
+rozwija się o zadaną prędkość; przy wyłączonym zostaje w nim sam
+wygaszony symbol i `---`.
 
-Kolory lampek zgodne z zegarami 156: ABS i immobilizer bursztynowe
-(`#f59e0b`), hamulec i poduszka czerwone (`#ef4444`), tempomat zielony
-(`#22c55e`).
+### Kontrolki
+
+Symbole trzymają się zegarów 156. ABS i hamulec ręczny mają wspólne
+klamry z dwóch łuków po każdej stronie — czytają się jako jedna rodzina
+hamulcowa, a rozróżnia je zawartość koła (`ABS` kontra `P`). Poduszka to
+pasażer w fotelu z workiem przed sobą, immobilizer to kluczyk, tempomat
+to otwarta tarcza prędkościomierza z igłą.
+
+Zapalona kontrolka dostaje **podkładkę w swoim kolorze przy 13 % krycia
+(promień 3 px) i wąską poświatę** — ten sam język, którym motyw Heritage
+podświetla wartości na ekranie 6,86" (`text-shadow: 0 0 10px rgba(...)`).
+Poświata jest opcjonalna, jeśli na ESP32 okaże się zbyt kosztowna —
+sama podkładka wystarczy, żeby stan był czytelny.
+
+Kolory zgodne z zegarami 156: ABS i immobilizer bursztynowe (`#f59e0b`),
+hamulec i poduszka czerwone (`#ef4444`), tempomat zielony (`#22c55e`).
 
 ## Ekran 2 — otwarte nadwozie
 
@@ -74,23 +88,17 @@ ekran przykrywa ekran 1 w całości — bez timeoutu, bez naprzemiennego
 przełączania i bez powrotu do muzyki. Znika dopiero, gdy wszystko jest
 zamknięte.
 
-Bryła to rzut z góry Alfy Romeo 156 Berlina w proporcji 4430 : 1743 mm
-(1 jednostka rysunku ≈ 39,6 mm). Otwarte drzwi rysowane są jako skrzydło
-wychylone na zewnątrz na przednim zawiasie; maska i klapa bagażnika jako
-wypełniony panel plus wysunięta poza obrys uniesiona pokrywa.
+Ekran to **sama bryła, bez nagłówka i bez nazw paneli** — który panel
+jest otwarty, widać z rysunku. Rzut z góry Alfy Romeo 156 Berlina
+w proporcji 4430 : 1743 mm (1 jednostka rysunku ≈ 39,6 mm), wpisany
+w cały ekran: nadwozie 53 × 136 px, po bokach margines na wychylone
+skrzydła.
 
-Do wyboru są **dwa warianty** (artboardy obok siebie na kanwie):
-
-- **Wariant A** *(wiodący)* — bryła po lewej (66 × 112 px), po prawej
-  nagłówek `⚠ OTWARTE` i lista nazw paneli. Czyta się bez interpretowania
-  grafiki i mieści wszystkie sześć pozycji naraz (`DoorsAll.dc.html`).
-- **Wariant B** — czerwony baner alarmowy u góry z licznikiem otwartych
-  paneli, pod nim bryła obrócona nosem w lewo przez całą szerokość
-  ekranu. Mocniejszy alarmowo i lepiej wykorzystuje format landscape,
-  ale identyfikacja panelu opiera się wyłącznie na grafice.
-
-Nazwy paneli po polsku: `PRZÓD L`, `PRZÓD P`, `TYŁ L`, `TYŁ P`, `MASKA`,
-`BAGAŻNIK`.
+Otwarte drzwi rysowane są jako skrzydło wychylone na przednim zawiasie;
+maska i klapa bagażnika jako wypełniony panel plus uniesiona pokrywa
+wysunięta poza obrys. Skrzydła i pokrywy leżą **na wierzchu obrysu
+nadwozia**, żeby sylwetka czytała się także wtedy, gdy otwarte jest
+wszystko sześć (osobny artboard pokazuje ten przypadek).
 
 ## Sygnały
 
@@ -119,8 +127,7 @@ włączyć.
 
 ## Do rozstrzygnięcia
 
-1. Wariant A czy B dla ekranu 2.
-2. Sposób podłączenia ESP32 do BCM (UART do M910q kontra własny link do
+1. Sposób podłączenia ESP32 do BCM (UART do M910q kontra własny link do
    `sensor_hub`) — nie jest częścią tego projektu wizualnego.
-3. Czy przy tytułach dłuższych niż 132 px zostawić wielokropek, czy dodać
-   przewijanie (marquee).
+2. Czy przy tytułach dłuższych niż dwie linie zostawić wielokropek, czy
+   dodać przewijanie (marquee).
