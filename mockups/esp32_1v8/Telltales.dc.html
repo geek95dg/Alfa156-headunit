@@ -1,0 +1,115 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Public+Sans:wght@400;600;700;800;900&display=swap">
+  <style>
+    body { margin: 0; background: #0a0a0a; font-family: 'Public Sans', system-ui, sans-serif; }
+    a { color: #f59e0b; } a:hover { color: #b45309; }
+  </style>
+</helmet>
+<div style="width: 640px; height: 512px; background: #0a0a0a; padding: 20px 22px; box-sizing: border-box; display: flex; flex-direction: column;">
+
+  <div style="display: flex; flex-direction: column; gap: 4px; padding-bottom: 10px;">
+    <span style="font-size: 17px; font-weight: 900; color: #f4f4f5; letter-spacing: -0.2px;">Kontrolki — arkusz symboli</span>
+    <span style="font-size: 11px; font-weight: 600; color: #71717a;">ST7735 128&times;160 &middot; symbol 22&times;22 px w podkładce 26&times;26 &middot; kolumny: 4&times;, świeci, wygaszona</span>
+  </div>
+
+      <div style="display: flex; align-items: center; gap: 16px; padding: 8px 0; border-top: 1px solid #1c1c1f;">
+        <div style="width: 48px; height: 48px; display: flex; align-items: center; justify-content: center; background: rgba(245, 158, 11, 0.13); border-radius: 5px;"><svg viewBox="0 0 24 24" width="40" height="40" fill="none" style="filter: drop-shadow(0 0 5px rgba(245, 158, 11, 0.55));"><circle cx="12" cy="12" r="7.2" stroke="#f59e0b" stroke-width="1.7"></circle><text x="12" y="14.7" font-size="7.6" font-weight="800" fill="#f59e0b" text-anchor="middle" font-family="'Public Sans', sans-serif" letter-spacing="-0.2">ABS</text><path d="M1.8 8.0a11 11 0 0 0 0 8" stroke="#f59e0b" stroke-width="1.7" stroke-linecap="round"></path><path d="M4.0 9.7a8.6 8.6 0 0 0 0 4.6" stroke="#f59e0b" stroke-width="1.7" stroke-linecap="round"></path><path d="M22.2 8.0a11 11 0 0 1 0 8" stroke="#f59e0b" stroke-width="1.7" stroke-linecap="round"></path><path d="M20.0 9.7a8.6 8.6 0 0 1 0 4.6" stroke="#f59e0b" stroke-width="1.7" stroke-linecap="round"></path></svg></div>
+        <div style="width: 26px; height: 26px; display: flex; align-items: center; justify-content: center; background: rgba(245, 158, 11, 0.13); border-radius: 3px;"><svg viewBox="0 0 24 24" width="22" height="22" fill="none" style="filter: drop-shadow(0 0 2.5px rgba(245, 158, 11, 0.55));"><circle cx="12" cy="12" r="7.2" stroke="#f59e0b" stroke-width="1.7"></circle><text x="12" y="14.7" font-size="7.6" font-weight="800" fill="#f59e0b" text-anchor="middle" font-family="'Public Sans', sans-serif" letter-spacing="-0.2">ABS</text><path d="M1.8 8.0a11 11 0 0 0 0 8" stroke="#f59e0b" stroke-width="1.7" stroke-linecap="round"></path><path d="M4.0 9.7a8.6 8.6 0 0 0 0 4.6" stroke="#f59e0b" stroke-width="1.7" stroke-linecap="round"></path><path d="M22.2 8.0a11 11 0 0 1 0 8" stroke="#f59e0b" stroke-width="1.7" stroke-linecap="round"></path><path d="M20.0 9.7a8.6 8.6 0 0 1 0 4.6" stroke="#f59e0b" stroke-width="1.7" stroke-linecap="round"></path></svg></div>
+        <div style="width: 26px; height: 26px; display: flex; align-items: center; justify-content: center; "><svg viewBox="0 0 24 24" width="22" height="22" fill="none"><circle cx="12" cy="12" r="7.2" stroke="#3f3f46" stroke-width="1.7"></circle><text x="12" y="14.7" font-size="7.6" font-weight="800" fill="#3f3f46" text-anchor="middle" font-family="'Public Sans', sans-serif" letter-spacing="-0.2">ABS</text><path d="M1.8 8.0a11 11 0 0 0 0 8" stroke="#3f3f46" stroke-width="1.7" stroke-linecap="round"></path><path d="M4.0 9.7a8.6 8.6 0 0 0 0 4.6" stroke="#3f3f46" stroke-width="1.7" stroke-linecap="round"></path><path d="M22.2 8.0a11 11 0 0 1 0 8" stroke="#3f3f46" stroke-width="1.7" stroke-linecap="round"></path><path d="M20.0 9.7a8.6 8.6 0 0 1 0 4.6" stroke="#3f3f46" stroke-width="1.7" stroke-linecap="round"></path></svg></div>
+        <div style="width: 168px; flex-shrink: 0; display: flex; flex-direction: column; gap: 3px;">
+          <span style="font-size: 14px; font-weight: 800; color: #f4f4f5;">ABS</span>
+          <span style="font-size: 11px; font-weight: 600; color: #71717a; font-family: ui-monospace, Menlo, monospace;">vehicle.abs_fault*</span>
+        </div>
+        <div style="flex-grow: 1; display: flex; flex-direction: column; gap: 4px; min-width: 0;">
+          <span style="font-size: 12px; font-weight: 600; color: #a1a1aa;">usterka układu ABS</span>
+          <div style="display: flex; align-items: center; gap: 6px;">
+            <div style="width: 9px; height: 9px; background: #F59E0B;"></div>
+            <span style="font-size: 11px; font-weight: 700; color: #71717a; letter-spacing: 0.4px;">#F59E0B &middot; bursztyn</span>
+          </div>
+        </div>
+      </div>
+      <div style="display: flex; align-items: center; gap: 16px; padding: 8px 0; border-top: 1px solid #1c1c1f;">
+        <div style="width: 48px; height: 48px; display: flex; align-items: center; justify-content: center; background: rgba(239, 68, 68, 0.13); border-radius: 5px;"><svg viewBox="0 0 24 24" width="40" height="40" fill="none" style="filter: drop-shadow(0 0 5px rgba(239, 68, 68, 0.55));"><circle cx="6.8" cy="6.4" r="2.7" fill="#ef4444"></circle><path d="M4.2 19.2v-6.1c0-2.4 1.7-4 4.1-4h2.5" stroke="#ef4444" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"></path><path d="M4.2 19.2h7.1" stroke="#ef4444" stroke-width="1.8" stroke-linecap="round"></path><circle cx="16.9" cy="13.1" r="4.7" stroke="#ef4444" stroke-width="1.8"></circle></svg></div>
+        <div style="width: 26px; height: 26px; display: flex; align-items: center; justify-content: center; background: rgba(239, 68, 68, 0.13); border-radius: 3px;"><svg viewBox="0 0 24 24" width="22" height="22" fill="none" style="filter: drop-shadow(0 0 2.5px rgba(239, 68, 68, 0.55));"><circle cx="6.8" cy="6.4" r="2.7" fill="#ef4444"></circle><path d="M4.2 19.2v-6.1c0-2.4 1.7-4 4.1-4h2.5" stroke="#ef4444" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"></path><path d="M4.2 19.2h7.1" stroke="#ef4444" stroke-width="1.8" stroke-linecap="round"></path><circle cx="16.9" cy="13.1" r="4.7" stroke="#ef4444" stroke-width="1.8"></circle></svg></div>
+        <div style="width: 26px; height: 26px; display: flex; align-items: center; justify-content: center; "><svg viewBox="0 0 24 24" width="22" height="22" fill="none"><circle cx="6.8" cy="6.4" r="2.7" fill="#3f3f46"></circle><path d="M4.2 19.2v-6.1c0-2.4 1.7-4 4.1-4h2.5" stroke="#3f3f46" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"></path><path d="M4.2 19.2h7.1" stroke="#3f3f46" stroke-width="1.8" stroke-linecap="round"></path><circle cx="16.9" cy="13.1" r="4.7" stroke="#3f3f46" stroke-width="1.8"></circle></svg></div>
+        <div style="width: 168px; flex-shrink: 0; display: flex; flex-direction: column; gap: 3px;">
+          <span style="font-size: 14px; font-weight: 800; color: #f4f4f5;">Poduszka (SRS)</span>
+          <span style="font-size: 11px; font-weight: 600; color: #71717a; font-family: ui-monospace, Menlo, monospace;">vehicle.airbag_ok</span>
+        </div>
+        <div style="flex-grow: 1; display: flex; flex-direction: column; gap: 4px; min-width: 0;">
+          <span style="font-size: 12px; font-weight: 600; color: #a1a1aa;">airbag_ok = false</span>
+          <div style="display: flex; align-items: center; gap: 6px;">
+            <div style="width: 9px; height: 9px; background: #EF4444;"></div>
+            <span style="font-size: 11px; font-weight: 700; color: #71717a; letter-spacing: 0.4px;">#EF4444 &middot; czerwony</span>
+          </div>
+        </div>
+      </div>
+      <div style="display: flex; align-items: center; gap: 16px; padding: 8px 0; border-top: 1px solid #1c1c1f;">
+        <div style="width: 48px; height: 48px; display: flex; align-items: center; justify-content: center; background: rgba(245, 158, 11, 0.13); border-radius: 5px;"><svg viewBox="0 0 24 24" width="40" height="40" fill="none" style="filter: drop-shadow(0 0 5px rgba(245, 158, 11, 0.55));"><circle cx="6.7" cy="12" r="4.1" stroke="#f59e0b" stroke-width="1.8"></circle><circle cx="6.7" cy="12" r="1.2" fill="#f59e0b"></circle><path d="M10.8 12h9.6" stroke="#f59e0b" stroke-width="1.8" stroke-linecap="round"></path><path d="M16.3 12v3.9" stroke="#f59e0b" stroke-width="1.8" stroke-linecap="round"></path><path d="M19.6 12v2.7" stroke="#f59e0b" stroke-width="1.8" stroke-linecap="round"></path></svg></div>
+        <div style="width: 26px; height: 26px; display: flex; align-items: center; justify-content: center; background: rgba(245, 158, 11, 0.13); border-radius: 3px;"><svg viewBox="0 0 24 24" width="22" height="22" fill="none" style="filter: drop-shadow(0 0 2.5px rgba(245, 158, 11, 0.55));"><circle cx="6.7" cy="12" r="4.1" stroke="#f59e0b" stroke-width="1.8"></circle><circle cx="6.7" cy="12" r="1.2" fill="#f59e0b"></circle><path d="M10.8 12h9.6" stroke="#f59e0b" stroke-width="1.8" stroke-linecap="round"></path><path d="M16.3 12v3.9" stroke="#f59e0b" stroke-width="1.8" stroke-linecap="round"></path><path d="M19.6 12v2.7" stroke="#f59e0b" stroke-width="1.8" stroke-linecap="round"></path></svg></div>
+        <div style="width: 26px; height: 26px; display: flex; align-items: center; justify-content: center; "><svg viewBox="0 0 24 24" width="22" height="22" fill="none"><circle cx="6.7" cy="12" r="4.1" stroke="#3f3f46" stroke-width="1.8"></circle><circle cx="6.7" cy="12" r="1.2" fill="#3f3f46"></circle><path d="M10.8 12h9.6" stroke="#3f3f46" stroke-width="1.8" stroke-linecap="round"></path><path d="M16.3 12v3.9" stroke="#3f3f46" stroke-width="1.8" stroke-linecap="round"></path><path d="M19.6 12v2.7" stroke="#3f3f46" stroke-width="1.8" stroke-linecap="round"></path></svg></div>
+        <div style="width: 168px; flex-shrink: 0; display: flex; flex-direction: column; gap: 3px;">
+          <span style="font-size: 14px; font-weight: 800; color: #f4f4f5;">Immobilizer</span>
+          <span style="font-size: 11px; font-weight: 600; color: #71717a; font-family: ui-monospace, Menlo, monospace;">vehicle.immo_ok</span>
+        </div>
+        <div style="flex-grow: 1; display: flex; flex-direction: column; gap: 4px; min-width: 0;">
+          <span style="font-size: 12px; font-weight: 600; color: #a1a1aa;">immo_ok = false</span>
+          <div style="display: flex; align-items: center; gap: 6px;">
+            <div style="width: 9px; height: 9px; background: #F59E0B;"></div>
+            <span style="font-size: 11px; font-weight: 700; color: #71717a; letter-spacing: 0.4px;">#F59E0B &middot; bursztyn</span>
+          </div>
+        </div>
+      </div>
+      <div style="display: flex; align-items: center; gap: 16px; padding: 8px 0; border-top: 1px solid #1c1c1f;">
+        <div style="width: 48px; height: 48px; display: flex; align-items: center; justify-content: center; background: rgba(239, 68, 68, 0.13); border-radius: 5px;"><svg viewBox="0 0 24 24" width="40" height="40" fill="none" style="filter: drop-shadow(0 0 5px rgba(239, 68, 68, 0.55));"><circle cx="12" cy="12" r="7.2" stroke="#ef4444" stroke-width="1.7"></circle><text x="12" y="15.6" font-size="10.5" font-weight="900" fill="#ef4444" text-anchor="middle" font-family="'Public Sans', sans-serif">P</text><path d="M1.8 8.0a11 11 0 0 0 0 8" stroke="#ef4444" stroke-width="1.7" stroke-linecap="round"></path><path d="M4.0 9.7a8.6 8.6 0 0 0 0 4.6" stroke="#ef4444" stroke-width="1.7" stroke-linecap="round"></path><path d="M22.2 8.0a11 11 0 0 1 0 8" stroke="#ef4444" stroke-width="1.7" stroke-linecap="round"></path><path d="M20.0 9.7a8.6 8.6 0 0 1 0 4.6" stroke="#ef4444" stroke-width="1.7" stroke-linecap="round"></path></svg></div>
+        <div style="width: 26px; height: 26px; display: flex; align-items: center; justify-content: center; background: rgba(239, 68, 68, 0.13); border-radius: 3px;"><svg viewBox="0 0 24 24" width="22" height="22" fill="none" style="filter: drop-shadow(0 0 2.5px rgba(239, 68, 68, 0.55));"><circle cx="12" cy="12" r="7.2" stroke="#ef4444" stroke-width="1.7"></circle><text x="12" y="15.6" font-size="10.5" font-weight="900" fill="#ef4444" text-anchor="middle" font-family="'Public Sans', sans-serif">P</text><path d="M1.8 8.0a11 11 0 0 0 0 8" stroke="#ef4444" stroke-width="1.7" stroke-linecap="round"></path><path d="M4.0 9.7a8.6 8.6 0 0 0 0 4.6" stroke="#ef4444" stroke-width="1.7" stroke-linecap="round"></path><path d="M22.2 8.0a11 11 0 0 1 0 8" stroke="#ef4444" stroke-width="1.7" stroke-linecap="round"></path><path d="M20.0 9.7a8.6 8.6 0 0 1 0 4.6" stroke="#ef4444" stroke-width="1.7" stroke-linecap="round"></path></svg></div>
+        <div style="width: 26px; height: 26px; display: flex; align-items: center; justify-content: center; "><svg viewBox="0 0 24 24" width="22" height="22" fill="none"><circle cx="12" cy="12" r="7.2" stroke="#3f3f46" stroke-width="1.7"></circle><text x="12" y="15.6" font-size="10.5" font-weight="900" fill="#3f3f46" text-anchor="middle" font-family="'Public Sans', sans-serif">P</text><path d="M1.8 8.0a11 11 0 0 0 0 8" stroke="#3f3f46" stroke-width="1.7" stroke-linecap="round"></path><path d="M4.0 9.7a8.6 8.6 0 0 0 0 4.6" stroke="#3f3f46" stroke-width="1.7" stroke-linecap="round"></path><path d="M22.2 8.0a11 11 0 0 1 0 8" stroke="#3f3f46" stroke-width="1.7" stroke-linecap="round"></path><path d="M20.0 9.7a8.6 8.6 0 0 1 0 4.6" stroke="#3f3f46" stroke-width="1.7" stroke-linecap="round"></path></svg></div>
+        <div style="width: 168px; flex-shrink: 0; display: flex; flex-direction: column; gap: 3px;">
+          <span style="font-size: 14px; font-weight: 800; color: #f4f4f5;">Hamulec ręczny</span>
+          <span style="font-size: 11px; font-weight: 600; color: #71717a; font-family: ui-monospace, Menlo, monospace;">vehicle.handbrake</span>
+        </div>
+        <div style="flex-grow: 1; display: flex; flex-direction: column; gap: 4px; min-width: 0;">
+          <span style="font-size: 12px; font-weight: 600; color: #a1a1aa;">dźwignia zaciągnięta</span>
+          <div style="display: flex; align-items: center; gap: 6px;">
+            <div style="width: 9px; height: 9px; background: #EF4444;"></div>
+            <span style="font-size: 11px; font-weight: 700; color: #71717a; letter-spacing: 0.4px;">#EF4444 &middot; czerwony</span>
+          </div>
+        </div>
+      </div>
+      <div style="display: flex; align-items: center; gap: 16px; padding: 8px 0; border-top: 1px solid #1c1c1f;">
+        <div style="width: 48px; height: 48px; display: flex; align-items: center; justify-content: center; background: rgba(34, 197, 94, 0.13); border-radius: 5px;"><svg viewBox="0 0 24 24" width="40" height="40" fill="none" style="filter: drop-shadow(0 0 5px rgba(34, 197, 94, 0.55));"><path d="M6.34 17.66A8 8 0 1 1 17.66 17.66" stroke="#22c55e" stroke-width="1.7" stroke-linecap="round"></path><path d="M7.8 16.2 6.4 17.6M12 4v1.9M17.6 17.6l-1.4-1.4" stroke="#22c55e" stroke-width="1.6" stroke-linecap="round"></path><path d="m12 12 4.5-3.8" stroke="#22c55e" stroke-width="1.9" stroke-linecap="round"></path><circle cx="12" cy="12" r="1.6" fill="#22c55e"></circle></svg></div>
+        <div style="width: 26px; height: 26px; display: flex; align-items: center; justify-content: center; background: rgba(34, 197, 94, 0.13); border-radius: 3px;"><svg viewBox="0 0 24 24" width="22" height="22" fill="none" style="filter: drop-shadow(0 0 2.5px rgba(34, 197, 94, 0.55));"><path d="M6.34 17.66A8 8 0 1 1 17.66 17.66" stroke="#22c55e" stroke-width="1.7" stroke-linecap="round"></path><path d="M7.8 16.2 6.4 17.6M12 4v1.9M17.6 17.6l-1.4-1.4" stroke="#22c55e" stroke-width="1.6" stroke-linecap="round"></path><path d="m12 12 4.5-3.8" stroke="#22c55e" stroke-width="1.9" stroke-linecap="round"></path><circle cx="12" cy="12" r="1.6" fill="#22c55e"></circle></svg></div>
+        <div style="width: 26px; height: 26px; display: flex; align-items: center; justify-content: center; "><svg viewBox="0 0 24 24" width="22" height="22" fill="none"><path d="M6.34 17.66A8 8 0 1 1 17.66 17.66" stroke="#3f3f46" stroke-width="1.7" stroke-linecap="round"></path><path d="M7.8 16.2 6.4 17.6M12 4v1.9M17.6 17.6l-1.4-1.4" stroke="#3f3f46" stroke-width="1.6" stroke-linecap="round"></path><path d="m12 12 4.5-3.8" stroke="#3f3f46" stroke-width="1.9" stroke-linecap="round"></path><circle cx="12" cy="12" r="1.6" fill="#3f3f46"></circle></svg></div>
+        <div style="width: 168px; flex-shrink: 0; display: flex; flex-direction: column; gap: 3px;">
+          <span style="font-size: 14px; font-weight: 800; color: #f4f4f5;">Tempomat</span>
+          <span style="font-size: 11px; font-weight: 600; color: #71717a; font-family: ui-monospace, Menlo, monospace;">vehicle.cruise</span>
+        </div>
+        <div style="flex-grow: 1; display: flex; flex-direction: column; gap: 4px; min-width: 0;">
+          <span style="font-size: 12px; font-weight: 600; color: #a1a1aa;">aktywny + zadana prędkość</span>
+          <div style="display: flex; align-items: center; gap: 6px;">
+            <div style="width: 9px; height: 9px; background: #22C55E;"></div>
+            <span style="font-size: 11px; font-weight: 700; color: #71717a; letter-spacing: 0.4px;">#22C55E &middot; zielony</span>
+          </div>
+        </div>
+      </div>
+
+  <div style="margin-top: auto; padding-top: 12px; border-top: 1px solid #1c1c1f; display: flex; align-items: center; gap: 12px;">
+    <div style="display: flex; align-items: baseline; gap: 4px; flex-shrink: 0;">
+      <span style="font-size: 24px; font-weight: 900; color: #22c55e; line-height: 1; letter-spacing: -0.8px;">130</span>
+      <span style="font-size: 11px; font-weight: 700; color: #52525b;">km/h</span>
+    </div>
+    <span style="font-size: 11px; font-weight: 600; color: #a1a1aa; line-height: 1.45;"><span style="color: #f59e0b; font-weight: 800;">*</span> sygnał, którego BCM jeszcze nie publikuje. Zapalona kontrolka dostaje podkładkę w swoim kolorze (13&nbsp;%&nbsp;krycia) i wąską poświatę. Zadana prędkość: 16&nbsp;px / waga&nbsp;900 / kolor kontrolki. Źródło: ECU &rarr; K-Line &rarr; BCM &rarr; <span style="font-family: ui-monospace, Menlo, monospace; color: #d4d4d8;">vehicle.cruise_set_speed</span>.</span>
+  </div>
+
+</div>
+</x-dc>
+</body>
+</html>

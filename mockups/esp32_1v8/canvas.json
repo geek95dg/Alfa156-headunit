@@ -1,0 +1,33 @@
+{
+  "artboards": [
+    { "file": "Main.dc.html",             "x": 0,    "y": 0,   "w": 512, "h": 640, "title": "Ekran 1 — Now Playing (spoczynek)" },
+    { "file": "NowPlayingActive.dc.html", "x": 632,  "y": 0,   "w": 512, "h": 640, "title": "Ekran 1 — ABS, hamulec, tempomat 130" },
+    { "file": "Doors.dc.html",            "x": 1264, "y": 0,   "w": 512, "h": 640, "title": "Ekran 2 — przód L + bagażnik" },
+    { "file": "DoorsAll.dc.html",         "x": 1896, "y": 0,   "w": 512, "h": 640, "title": "Ekran 2 — wszystko otwarte" },
+    { "file": "Telltales.dc.html",        "x": 0,    "y": 760, "w": 640, "h": 512, "title": "Arkusz kontrolek — referencja" }
+  ],
+  "annotations": [
+    {
+      "id": "ekran-1",
+      "x": -450,
+      "y": 0,
+      "w": 370,
+      "text": "EKRAN 1 — NOW PLAYING\n128 × 160 px, pionowo\n\nPasmo górne (32 px): ABS, poduszka, immobilizer — lampki usterek.\n\nŚrodek (90 px): źródło dźwięku, tytuł 15 px/800 łamany do dwóch linii, wykonawca 10 px/600 z wielokropkiem, pasek postępu 104 × 3 px w bursztynie motywu.\n\nPasmo dolne (36 px): hamulec ręczny w wąskim lewym slocie, tempomat w szerszym prawym — po włączeniu slot pokazuje zadaną prędkość 16 px/900; przy wyłączonym zostaje sam wygaszony symbol i ---.\n\nWszystko rysowane w pikselach wyświetlacza; artboard jest przeskalowany 4×."
+    },
+    {
+      "id": "ekran-2",
+      "x": 1264,
+      "y": -300,
+      "w": 1144,
+      "text": "EKRAN 2 — OTWARTE NADWOZIE — sama bryła, bez podpisów\n\nZasłonięcie stałe: dopóki którykolwiek czujnik zgłasza otwarcie, ten ekran przykrywa ekran 1 w całości — bez timeoutu i bez przełączania. Znika dopiero, gdy wszystko jest zamknięte.\n\nRzut z góry Alfy 156 Berlina w proporcji 4430 : 1743 mm, wpisany w cały ekran (bryła 53 × 136 px). Otwarte drzwi to skrzydło wychylone na przednim zawiasie; maska i klapa to wypełniony panel plus uniesiona pokrywa wysunięta poza obrys. Skrzydła i pokrywy rysowane są na wierzchu obrysu, żeby sylwetka czytała się także przy wszystkim otwartym."
+    },
+    {
+      "id": "dane",
+      "x": -450,
+      "y": 760,
+      "w": 370,
+      "text": "KONTROLKI I SYGNAŁY\n\nSymbole trzymają się zegarów 156: ABS i hamulec w klamrach z łuków (rodzina hamulcowa), poduszka jako pasażer z workiem, immobilizer jako kluczyk, tempomat jako otwarta tarcza prędkościomierza. Zapalona kontrolka dostaje podkładkę w swoim kolorze przy 13 % krycia i wąską poświatę — ten sam język, co świecące wartości motywu Heritage na ekranie 6,86\".\n\nGotowe na magistrali BCM: vehicle.doors (fl, fr, rl, rr, bonnet, trunk), vehicle.handbrake, vehicle.cruise, vehicle.immo_ok, vehicle.airbag_ok oraz bt.media_title / artist / position / duration / playing.\n\nDo dodania: vehicle.abs_fault i vehicle.cruise_set_speed — ta druga docelowo z ECU przez K-Line do BCM i dalej do ESP32.\n\nPaleta z motywu Heritage: tło #0a0a0a, tekst #f4f4f5, akcent #f59e0b, drugorzędny #71717a, linie #27272a, kontrolka wygaszona #3f3f46."
+    }
+  ],
+  "launch": { "view": "canvas" }
+}
