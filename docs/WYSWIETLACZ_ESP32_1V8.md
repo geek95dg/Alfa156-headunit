@@ -185,18 +185,53 @@ złączu jako osobne linie. To dwie najmniej pewne pozycje — w wielu wersjach
 rysują je zegary z własnej magistrali i nie podają dalej. Jeśli ich tam nie
 ma, zostaje wzięcie ich z BCM albo rezygnacja z tych dwóch lampek.
 
-### Z BCM
+### Z BCM, po USB
 
-| dane | temat |
+| dane | temat na magistrali |
 |---|---|
 | stan tempomatu | `vehicle.cruise` |
 | zadana prędkość | `vehicle.cruise_set_speed` — do dodania, z ECU przez K-Line |
 | metadane muzyki | `bt.media_title` / `_artist` / `_position` / `_duration` / `_playing` |
 
-Transport: albo Wi-Fi z odpytywaniem `/api/data` (port 5002 — ma komplet
-pól), albo UART do M910q. Wi-Fi nie wymaga przewodu, ale ekran czeka wtedy
-na wstanie komputera; sygnały pojazdu i tak idą wprost, więc ostrzeżenie
-o otwartych drzwiach działa niezależnie od BCM.
+ESP32-S3 ma natywny kontroler USB-OTG, więc wpina się wprost w port USB
+M910q i zgłasza jako CDC-ACM — bez mostka UART. W Arduino trzeba włączyć
+**USB CDC On Boot**; wtedy `Serial` to ten port. Na płytkach z dwoma
+gniazdami USB-C jedno idzie do natywnego USB, a drugie do mostka
+(CH343/CP2102) — potrzebne jest to pierwsze.
+
+**Reguła udev jest konieczna**, dokładnie z tego samego powodu co przy
+K-Line (`docs/WDROZENIE_M910Q.md` §12): numeracja `/dev/ttyACM*` przeskakuje
+między restartami, a w aucie siedzą już dwa Arduino na USB. Wzorem
+`/dev/ttyUSB_kline` robimy `/dev/ttyACM_display`, dopasowanie po VID:PID
+(natywne USB Espressifa to `303a:1001`) i po numerze seryjnym, jeśli
+ustawisz własny.
+
+Protokół — ten sam kształt linii `KLUCZ:wartość`, którym mówi już
+`sensor_hub`, tylko w drugą stronę: tu BCM pisze, a ESP32 czyta.
+
+```
+TITLE:Nightcall
+ARTIST:Kavinsky
+PLAY:1
+POS:87
+DUR:258
+CRUISE:1
+SETSPD:130
+```
+
+Kodowanie UTF-8; po stronie ESP32 trzeba odwzorować polskie znaki na
+pozycje w foncie bitmapowym. Po stronie BCM potrzebny jest mały moduł
+subskrybujący powyższe tematy i wypisujący te linie do portu —
+odwrotność `src/input/arduino_serial.py`.
+
+Uwaga na **1200 bps**: rdzeń Arduino dla S3 traktuje otwarcie portu przy
+tej prędkości jako żądanie wejścia w bootloader. Otwieranie z Pythona przy
+115200 jest bezpieczne, ale skrypty przelatujące prędkościami potrafią
+zresetować płytkę.
+
+Sygnały pojazdu idą wprost na GPIO, więc **ekran 2 działa niezależnie od
+komputera** — ostrzeżenie o otwartych drzwiach nie czeka na wstanie
+M910q.
 
 ## Zasilanie i pobór
 
@@ -241,10 +276,33 @@ Rekomendacja: wariant 1, a jeśli ostrzeżenie ma działać przy wyłączonym
 zapłonie — wariant 2. Wariant 3 tylko wtedy, gdy ekran ma być stale
 rezydentny, i wyłącznie z policzoną przetwornicą.
 
+### Zasilać z USB czy osobno
+
+Skoro dane i tak idą po USB, kabel do M910q jest już położony — kusi, żeby
+wziąć z niego też 5 V. Dwie drogi, obie sensowne:
+
+**Z USB.** Najprostsze elektrycznie: jeden przewód, jedno zasilanie, zero
+pasożytniczego poboru, bo port gaśnie razem z komputerem. Koszt: ekran
+wstaje dopiero, gdy wstanie M910q, więc kontrolki — informacja bezpieczeństwa
+— pojawiają się z opóźnieniem całego bootu, mimo że ich sygnały siedzą
+na GPIO od przekręcenia kluczyka. Trzeba też sprawdzić w BIOS-ie ThinkCentre,
+czy port nie jest zasilany na stałe w S5 (opcja typu *Always On USB*) —
+jeśli jest, wracamy do pasożytniczego poboru z §wyżej.
+
+**Osobno z +15, dane po USB.** Ekran wstaje z zapłonem i od razu pokazuje
+stan pojazdu; muzyka i tempomat dochodzą, gdy komputer się podniesie.
+Wymaga tylko pilnowania, żeby własne 5 V nie trafiło w VBUS: albo płytka
+rozdzielająca zasilanie zewnętrzne od VBUS, albo kabel z odłączoną żyłą
+VBUS i wykrywaniem obecności hosta osobnym GPIO. Masa musi być wspólna.
+
+Rekomendacja: **osobno z +15**. Lampka ABS czy poduszki, która zapala się
+pół minuty po przekręceniu kluczyka, jest gorsza niż jej brak, a zasilanie
+z zapłonu i tak wychodzi na zero pod względem poboru.
+
 ## Do rozstrzygnięcia
 
 1. Czy ABS i poduszka są dostępne na złączu fabrycznego wyświetlacza jako
    osobne linie 12 V — do zmierzenia w aucie.
-2. Transport danych z BCM: Wi-Fi kontra UART.
+2. Zasilanie: z USB czy osobno z +15 (patrz wyżej).
 3. Czy przy tytułach dłuższych niż dwie linie zostawić wielokropek, czy
    dodać przewijanie (marquee).
