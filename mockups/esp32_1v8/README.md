@@ -29,4 +29,9 @@ python3 _gen_telltales.py   # Telltales
 `_icons.py` trzyma symbole kontrolek — jedno źródło dla ekranu 1
 i arkusza. Bryła auta mieszka w `_gen_screens.py` (`car()`).
 
-Opis obu ekranów, palety i sygnałów: `docs/WYSWIETLACZ_ESP32_1V8.md`.
+`assets_preview.png` nie jest artboardem — to podgląd sprite'ów wypalonych
+z renderów przez `tools/esp32_assets.py`, wrzucany tu po każdym przebiegu
+generatora, żeby dało się je obejrzeć okiem przed wgraniem na panel.
+
+Opis obu ekranów, palety, sygnałów i zasilania:
+`docs/WYSWIETLACZ_ESP32_1V8.md`.

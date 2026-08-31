@@ -100,34 +100,151 @@ wysunięta poza obrys. Skrzydła i pokrywy leżą **na wierzchu obrysu
 nadwozia**, żeby sylwetka czytała się także wtedy, gdy otwarte jest
 wszystko sześć (osobny artboard pokazuje ten przypadek).
 
-## Sygnały
+## Assety — z renderów do `assets.h`
 
-Gotowe na magistrali zdarzeń BCM (`src/input/arduino_serial.py`,
-`arduino/sensor_hub/sensor_hub.ino`):
+Grafika nie jest rysowana prymitywami w firmware, tylko wypalona w sprite'y
+RGB565. Powód jest prosty: poświata i miękka kreska z renderów są nie do
+odtworzenia `drawLine()`, a w bitmapie kosztują zero.
 
-| temat | typ | używa |
-|---|---|---|
-| `vehicle.doors` | dict `{fl, fr, rl, rr, bonnet, trunk}` | ekran 2 |
-| `vehicle.handbrake` | bool | ekran 1 |
-| `vehicle.cruise` | bool | ekran 1 |
-| `vehicle.immo_ok` | bool | ekran 1 |
-| `vehicle.airbag_ok` | bool | ekran 1 |
-| `bt.media_title` / `_artist` / `_position` / `_duration` / `_playing` | — | ekran 1 |
+Generuje je `tools/esp32_assets.py`:
 
-Do dodania:
+```bash
+python tools/esp32_assets.py            # -> arduino/esp32_display/assets.h
+python tools/esp32_assets.py --thicken 7    # grubsza kreska
+```
 
-| temat | typ | skąd |
-|---|---|---|
-| `vehicle.abs_fault` | bool | brak — wymaga nowego wejścia w `sensor_hub` |
-| `vehicle.cruise_set_speed` | int (km/h) | ECU → K-Line → BCM → ESP32 |
+Skrypt bierze **dwa** pliki z `mockups/`:
 
-`FEATURE_CRUISE`, `FEATURE_IMMO` i `FEATURE_AIRBAG` są w firmware
-`sensor_hub` domyślnie zakomentowane — dla tego wyświetlacza trzeba je
-włączyć.
+- `screen (9).png` — rzut z góry narysowany w dwóch kolorach naraz:
+  bursztynowe nadwozie (kompletne, zamknięte) i czerwone otwarte panele.
+  Skrypt rozdziela je po barwie, a warstwę czerwoną rozbija na sześć
+  osobnych brył po położeniu środka ciężkości: maska, czworo drzwi, klapa.
+- `screen.png` — kontrolki w kolorach zegarów 156. Stan wygaszony jest
+  **wyliczany** z zapalonego (przygaszenie do 30 % + odsycenie), więc
+  osobne rendery zgaszonych lampek są niepotrzebne.
+
+**Nie wolno mieszać różnych renderów.** Każdy z nich to osobny rysunek:
+`screen (9)` ma nadwozie 425 × 1069 px, `screen (10)` — 470 × 1040 px,
+a ich obrysy rozjeżdżają się o kilka pikseli na całej długości. Panele
+z jednego pliku nałożone na bryłę z drugiego dadzą podwójne kontury.
+Spasowanie działa tylko dlatego, że wszystko pochodzi z jednego rysunku
+i przechodzi przez tę samą transformację (klasa `Frame`).
+
+Kreska w źródle ma ~3 px, a zjazd do 128 × 160 to skala ~1:7 — bez
+pogrubienia maski przed skalowaniem linia gaśnie do brązu. Domyślne 5 px
+daje jasny, czytelny obrys.
+
+Każdy panel zapisywany jest w dwóch wersjach wyciętych z **tego samego**
+rastra: `closed` (sama karoseria) i `open` (karoseria z czerwonym panelem).
+Firmware przełącza stan jednym nieprzezroczystym blitem prostokąta — bez
+kanału alfa, bo tło ekranu jest jednolicie czarne. Sześć niezależnych
+paneli daje wszystkie 64 kombinacje bez ani jednego dodatkowego obrazka.
+
+Budżet: **~84 KB** we flashu (bryła 40 KB, dwanaście wycinków paneli
+~30 KB, osiem kontrolek 13,5 KB). Podgląd do obejrzenia okiem ląduje
+w `mockups/esp32_1v8/assets_preview.png`.
+
+Czego w assetach nie ma i trzeba dorobić osobno: **font bitmapowy**
+na tytuł, wykonawcę i cyfry prędkości — to dane, zmieniają się w locie.
+Koniecznie z Latin Extended-A, bo tytuły z BT przychodzą z ogonkami.
+
+## Sygnały — dwa źródła
+
+Kontrolki i otwarcia idą **wprost do ESP32**: w miejscu montażu jest
+złącze fabrycznego wyświetlacza, na którym te stany są dostępne jako
+poziomy 12 V / 0 V. Z BCM przychodzi tylko to, czego w aucie nie ma
+w postaci prostego napięcia.
+
+### Wprost z auta, przez PC817
+
+| sygnał | ekran |
+|---|---|
+| ABS | 1 |
+| hamulec ręczny | 1 |
+| poduszka (SRS) | 1 |
+| immobilizer | 1 |
+| drzwi ×4, maska, klapa | 2 |
+
+Układ wejściowy jest już w projekcie opisany — `docs/SCHEMATY_POLACZEN.md`
+§3.1: sygnał 12 V → 4,7 kΩ → PC817 pin 1, pin 2 → masa pojazdu, pin 4
+(kolektor) → GPIO w trybie `INPUT_PULLUP`, pin 3 (emiter) → masa ESP32.
+Stan aktywny to **LOW**. Dla ESP32-S3 obowiązuje ten sam schemat — GPIO
+są 3,3 V i **nie tolerują nawet 5 V**, o 12 V nie wspominając, a instalacja
+samochodowa potrafi wypuścić impulsy grubo powyżej 40 V. Każde wejście
+zasługuje dodatkowo na TVS (np. SMBJ24A) po stronie pojazdu.
+
+**Nie zakładaj polaryzacji — zmierz ją.** W autach tej epoki krańcówki
+drzwi są zwykle **zwierane do masy** (linia ma ~12 V przy zamkniętych,
+0 V przy otwartych), czyli działają odwrotnie niż sterowana plusem lampka.
+Firmware `sensor_hub` już to zresztą tak traktuje (`INPUT_PULLUP`,
+`LOW = otwarte`). Dla każdej linii trzeba sprawdzić miernikiem: napięcie
+w spoczynku, w stanie aktywnym oraz czy linia źródłuje prąd, czy go zwiera.
+
+Osobno warto zweryfikować, czy **ABS i poduszka** w ogóle występują na tym
+złączu jako osobne linie. To dwie najmniej pewne pozycje — w wielu wersjach
+rysują je zegary z własnej magistrali i nie podają dalej. Jeśli ich tam nie
+ma, zostaje wzięcie ich z BCM albo rezygnacja z tych dwóch lampek.
+
+### Z BCM
+
+| dane | temat |
+|---|---|
+| stan tempomatu | `vehicle.cruise` |
+| zadana prędkość | `vehicle.cruise_set_speed` — do dodania, z ECU przez K-Line |
+| metadane muzyki | `bt.media_title` / `_artist` / `_position` / `_duration` / `_playing` |
+
+Transport: albo Wi-Fi z odpytywaniem `/api/data` (port 5002 — ma komplet
+pól), albo UART do M910q. Wi-Fi nie wymaga przewodu, ale ekran czeka wtedy
+na wstanie komputera; sygnały pojazdu i tak idą wprost, więc ostrzeżenie
+o otwartych drzwiach działa niezależnie od BCM.
+
+## Zasilanie i pobór
+
+| stan | ESP32-S3 | podświetlenie | razem @3,3 V | z 12 V przy sprawności 85 % |
+|---|---|---|---|---|
+| praca, Wi-Fi | 80–120 mA | 20–60 mA | 150–200 mA | **~60 mA** |
+| praca, tylko UART | 30–40 mA | 20–60 mA | 60–110 mA | ~35 mA |
+| light sleep | ~240 µA | 0 | ~0,3 mA | — |
+| deep sleep | ~8 µA | 0 | ~20 µA | zależy od przetwornicy |
+
+Podświetlenie warto wyprowadzić na kanał LEDC (PWM) — projekt ma już
+`arduino.light_level` z fotorezystora, więc ten ekran może ściemniać się
+razem z resztą, a przy okazji schodzi w dolne rejony tabeli.
+
+### Czy można wpiąć na stałe do akumulatora
+
+**Nie za samą przetwornicą step-down.** Przy ~60 mA ciągłego poboru to
+1,44 Ah na dobę. Akumulator w 156 to ok. 60–70 Ah, a samo auto pobiera
+już ~20–30 mA na spoczynku. Po dwóch tygodniach postoju zabraknie blisko
+połowy pojemności — a JTD potrzebuje zdrowego akumulatora, żeby ruszyć.
+Przyjęta granica pasożytniczego poboru dla całego auta to ~30–50 mA i ten
+budżet jest już w dużej części zajęty.
+
+Trzy wyjścia, od najprostszego:
+
+1. **Zasilanie z +15 (po zapłonie), nie z +30.** Pobór na postoju zeruje
+   się całkowicie. Projekt i tak ma rozpoznawanie zapłonu
+   (`schematics/ignition_sense.svg`, `vehicle.ignition_raw`).
+2. **Buck z +30, ale bramkowany wejściem EN** — zapłonem albo sumą linii
+   drzwiowych przez diody. Moduł jest wtedy naprawdę wyłączony przy
+   zamkniętym aucie i budzi się, gdy otworzysz drzwi. Sensowne, jeśli
+   ekran ma ostrzegać o niedomkniętym bagażniku po zaparkowaniu.
+3. **Deep sleep z wybudzaniem EXT1** na liniach drzwiowych — ale wtedy
+   o wyniku decyduje **prąd spoczynkowy przetwornicy, nie ESP32**.
+   Popularny LM2596 bierze 5–10 mA i przekreśla całą operację; MP1584
+   jest lepszy, ale moduły z dzielnikiem sprzężenia i tak siedzą na
+   ~0,1–1 mA. Do tego scenariusza trzeba przetwornicy z niskim prądem
+   własnym (klasa TPS62840 / TPS62740, jednostki µA), a nie modułu
+   z targu. Budżet do utrzymania: ≤100 µA łącznie.
+
+Rekomendacja: wariant 1, a jeśli ostrzeżenie ma działać przy wyłączonym
+zapłonie — wariant 2. Wariant 3 tylko wtedy, gdy ekran ma być stale
+rezydentny, i wyłącznie z policzoną przetwornicą.
 
 ## Do rozstrzygnięcia
 
-1. Sposób podłączenia ESP32 do BCM (UART do M910q kontra własny link do
-   `sensor_hub`) — nie jest częścią tego projektu wizualnego.
-2. Czy przy tytułach dłuższych niż dwie linie zostawić wielokropek, czy
+1. Czy ABS i poduszka są dostępne na złączu fabrycznego wyświetlacza jako
+   osobne linie 12 V — do zmierzenia w aucie.
+2. Transport danych z BCM: Wi-Fi kontra UART.
+3. Czy przy tytułach dłuższych niż dwie linie zostawić wielokropek, czy
    dodać przewijanie (marquee).
