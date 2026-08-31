@@ -1,0 +1,81 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Public+Sans:wght@400;600;700;800;900&display=swap">
+  <style>
+    body { margin: 0; background: #0a0a0a; font-family: 'Public Sans', system-ui, sans-serif; }
+    a { color: #f59e0b; } a:hover { color: #b45309; }
+  </style>
+</helmet>
+<div style="position: relative; width: 640px; height: 512px; overflow: hidden; background: #0a0a0a;">
+  <div style="position: absolute; top: 0; left: 0; width: 160px; height: 128px; transform: scale(4); transform-origin: 0 0; background: #0a0a0a; display: flex; flex-direction: column;">
+
+    <div style="height: 27px; flex-shrink: 0; display: flex; align-items: center; justify-content: space-around; border-bottom: 1px solid #27272a;">
+      <svg viewBox="0 0 24 24" width="20" height="20" fill="none" aria-label="ABS">
+        <circle cx="12" cy="12" r="7.6" stroke="#f59e0b" stroke-width="1.5"></circle>
+        <text x="12" y="14.9" font-size="8" font-weight="800" fill="#f59e0b" text-anchor="middle" font-family="'Public Sans', sans-serif">ABS</text>
+        <path d="M2.4 8.2a9.4 9.4 0 0 0 0 7.6" stroke="#f59e0b" stroke-width="1.5" stroke-linecap="round"></path>
+        <path d="M21.6 8.2a9.4 9.4 0 0 1 0 7.6" stroke="#f59e0b" stroke-width="1.5" stroke-linecap="round"></path>
+      </svg>
+      <svg viewBox="0 0 24 24" width="20" height="20" fill="none" aria-label="Airbag">
+        <circle cx="7.6" cy="6.2" r="2.5" fill="#3f3f46"></circle>
+        <path d="M4.6 18.6V12.4c0-2.1 1.5-3.4 3.4-3.4h2.2" stroke="#3f3f46" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"></path>
+        <path d="M4.6 18.6h6.6" stroke="#3f3f46" stroke-width="1.6" stroke-linecap="round"></path>
+        <circle cx="16.6" cy="12.6" r="4.4" stroke="#3f3f46" stroke-width="1.6"></circle>
+      </svg>
+      <svg viewBox="0 0 24 24" width="20" height="20" fill="none" aria-label="Immobilizer">
+        <circle cx="7.2" cy="12" r="3.8" stroke="#3f3f46" stroke-width="1.6"></circle>
+        <circle cx="7.2" cy="12" r="1.1" fill="#3f3f46"></circle>
+        <path d="M11 12h9.4" stroke="#3f3f46" stroke-width="1.6" stroke-linecap="round"></path>
+        <path d="M16.4 12v3.8" stroke="#3f3f46" stroke-width="1.6" stroke-linecap="round"></path>
+        <path d="M19.2 12v2.8" stroke="#3f3f46" stroke-width="1.6" stroke-linecap="round"></path>
+      </svg>
+    </div>
+
+    <div style="flex-grow: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 5px; padding: 0 8px; min-height: 0;">
+      <div style="display: flex; align-items: center; gap: 3px;">
+        <svg viewBox="0 0 10 10" width="7" height="7" aria-label="Playing"><path d="M2 1.2 8.4 5 2 8.8Z" fill="#52525b"></path></svg>
+        <span style="font-size: 7px; font-weight: 800; letter-spacing: 0.7px; color: #52525b;">ANDROID AUTO</span>
+      </div>
+      <div style="font-size: 15px; font-weight: 800; color: #f4f4f5; line-height: 1.1; max-width: 144px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: center;">Interstellar Overdrive</div>
+      <div style="font-size: 10px; font-weight: 600; color: #a1a1aa; line-height: 1.1; max-width: 144px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: center;">The Psychedelic Sounds</div>
+      <div style="width: 132px; height: 3px; background: #27272a; margin-top: 2px;">
+        <div style="width: 24%; height: 3px; background: #f59e0b;"></div>
+      </div>
+    </div>
+
+    <div style="height: 31px; flex-shrink: 0; display: flex; align-items: stretch; border-top: 1px solid #27272a;">
+      <div style="width: 54px; display: flex; align-items: center; justify-content: center;">
+        <svg viewBox="0 0 24 24" width="20" height="20" fill="none" aria-label="Hamulec reczny">
+          <circle cx="12" cy="12" r="7.6" stroke="#ef4444" stroke-width="1.5"></circle>
+          <text x="12" y="15.4" font-size="10" font-weight="800" fill="#ef4444" text-anchor="middle" font-family="'Public Sans', sans-serif">P</text>
+          <path d="M2.4 8.2a9.4 9.4 0 0 0 0 7.6" stroke="#ef4444" stroke-width="1.5" stroke-linecap="round"></path>
+          <path d="M21.6 8.2a9.4 9.4 0 0 1 0 7.6" stroke="#ef4444" stroke-width="1.5" stroke-linecap="round"></path>
+        </svg>
+      </div>
+      <div style="width: 1px; background: #27272a;"></div>
+      <div style="flex-grow: 1; display: flex; align-items: center; justify-content: center; gap: 5px;">
+        <svg viewBox="0 0 24 24" width="20" height="20" fill="none" aria-label="Tempomat">
+          <circle cx="12" cy="12" r="8.2" stroke="#22c55e" stroke-width="1.5"></circle>
+          <path d="m12 12 4.6-3.9" stroke="#22c55e" stroke-width="1.6" stroke-linecap="round"></path>
+          <circle cx="12" cy="12" r="1.5" fill="#22c55e"></circle>
+          <path d="M6.1 17.9 7.3 16.7M12 3.8v1.7M17.9 17.9l-1.2-1.2" stroke="#22c55e" stroke-width="1.5" stroke-linecap="round"></path>
+        </svg>
+        <div style="display: flex; align-items: baseline; gap: 3px;">
+          <span style="font-size: 20px; font-weight: 900; color: #22c55e; line-height: 1; letter-spacing: -0.5px;">130</span>
+          <span style="font-size: 8px; font-weight: 700; color: #52525b; letter-spacing: 0.4px;">km/h</span>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</div>
+</x-dc>
+</body>
+</html>

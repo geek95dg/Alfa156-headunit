@@ -1,0 +1,34 @@
+{
+  "artboards": [
+    { "file": "Main.dc.html",            "x": 0,    "y": 0,    "w": 640, "h": 512, "title": "Ekran 1 — Now Playing (spoczynek)" },
+    { "file": "NowPlayingActive.dc.html","x": 760,  "y": 0,    "w": 640, "h": 512, "title": "Ekran 1 — kontrolki aktywne + tempomat" },
+    { "file": "Doors.dc.html",           "x": 0,    "y": 680,  "w": 640, "h": 512, "title": "Ekran 2 — wariant A (wiodący)" },
+    { "file": "DoorsCentral.dc.html",    "x": 760,  "y": 680,  "w": 640, "h": 512, "title": "Ekran 2 — wariant B" },
+    { "file": "DoorsAll.dc.html",        "x": 1520, "y": 680,  "w": 640, "h": 512, "title": "Ekran 2 — wszystko otwarte (A)" },
+    { "file": "Telltales.dc.html",       "x": 0,    "y": 1360, "w": 640, "h": 512, "title": "Arkusz kontrolek — referencja" }
+  ],
+  "annotations": [
+    {
+      "id": "ekran-1",
+      "x": -430,
+      "y": 0,
+      "w": 360,
+      "text": "EKRAN 1 — NOW PLAYING\n\nPasmo górne (27 px): ABS, poduszka, immobilizer — lampki usterek, domyślnie wygaszone (#3f3f46).\n\nŚrodek: źródło dźwięku, tytuł (15 px/800), wykonawca (10 px/600), pasek postępu 3 px w bursztynie motywu. Tytuł i wykonawca ucinane wielokropkiem — na 160 px mieści się ok. 20 znaków.\n\nPasmo dolne (31 px): hamulec ręczny w lewym slocie, tempomat w szerokim prawym — po włączeniu slot rozwija się o zadaną prędkość (20 px/900) i jednostkę.\n\nWszystko rysowane w pikselach wyświetlacza; artboard jest przeskalowany 4x."
+    },
+    {
+      "id": "ekran-2",
+      "x": -430,
+      "y": 680,
+      "w": 360,
+      "text": "EKRAN 2 — OTWARTE NADWOZIE\n\nZasłonięcie stałe: dopóki którykolwiek czujnik zgłasza otwarcie, ten ekran przykrywa ekran 1 w całości — bez timeoutu i bez przełączania. Znika dopiero, gdy wszystko jest zamknięte.\n\nBryła to rzut z góry Alfy 156 Berlina w proporcji 4430 : 1743 mm. Otwarte drzwi rysowane jako skrzydło wychylone na zewnątrz, maska i klapa jako panel wypełniony plus obrys uniesionej pokrywy.\n\nDWA WARIANTY DO WYBORU:\n\nA — bryła po lewej, po prawej nagłówek OTWARTE i lista paneli. Czyta się bez interpretowania grafiki, mieści wszystkie sześć pozycji (artboard obok).\n\nB — czerwony baner u góry, bryła centralnie, podpisy przy panelach. Mocniejszy alarmowo, ale przy wielu otwarciach podpisy się tłoczą.\n\nMain trzyma na razie wariant A."
+    },
+    {
+      "id": "dane",
+      "x": -430,
+      "y": 1360,
+      "w": 360,
+      "text": "SYGNAŁY\n\nGotowe na magistrali zdarzeń BCM: vehicle.doors (fl, fr, rl, rr, bonnet, trunk), vehicle.handbrake, vehicle.cruise, vehicle.immo_ok, vehicle.airbag_ok oraz bt.media_title / artist / position / duration / playing.\n\nDo dodania: vehicle.abs_fault i vehicle.cruise_set_speed — ta druga docelowo z ECU przez K-Line do BCM i dalej do ESP32.\n\nPaleta z motywu Heritage (domyślny w bcm_config.yaml): tło #0a0a0a, tekst #f4f4f5, akcent #f59e0b, drugorzędny #71717a, linie #27272a. Kolory lampek zgodne z zegarami 156: ABS i immo bursztyn, hamulec i poduszka czerwień, tempomat zieleń."
+    }
+  ],
+  "launch": { "view": "canvas" }
+}
