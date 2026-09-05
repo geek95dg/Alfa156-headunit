@@ -479,7 +479,11 @@ class DashboardRenderer:
         pygame.display.set_caption("BCM v7 — Alfa Romeo 156 Dashboard")
         clock = pygame.time.Clock()
 
-        # Start WebViewer for x86 — streams dashboard frames to browser
+        # Start WebViewer for x86 — serves the HTML5 frontend, which draws
+        # itself in the browser from event-bus data pushed over the WebSocket.
+        # It does NOT consume this Pygame surface: the old frame-streaming
+        # viewer (MJPEG of the Pygame window) is gone, so there is nothing
+        # here to hand the rendered frame to.
         web_viewer = None
         if platform == "x86":
             web_viewer = WebViewer(event_bus=self.bus)
@@ -510,9 +514,6 @@ class DashboardRenderer:
             # Draw
             self._draw_frame(screen)
             pygame.display.flip()
-
-            if web_viewer:
-                web_viewer.update_frame(screen)
 
             clock.tick(self.fps)
 

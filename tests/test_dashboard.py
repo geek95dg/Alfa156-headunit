@@ -303,3 +303,55 @@ class TestSettingsScreen:
         for key, label, options in SETTINGS:
             val = cfg.get(key)
             assert val is not None, f"Config key {key} returned None"
+
+
+class TestRendererWebViewerContract:
+    """Regression guard for the Pygame render loop <-> WebViewer boundary.
+
+    The loop used to push its Pygame surface into the web viewer with
+    ``web_viewer.update_frame(screen)`` — a leftover from the era when the
+    viewer streamed the Pygame window to the browser as MJPEG. Today's
+    WebViewer serves the HTML5 frontend, which paints itself from event-bus
+    data over the WebSocket, so it has no such method and never sees a
+    Pygame surface. The stale call crashed every run of
+    ``python main.py --platform x86 --headless`` with
+    ``AttributeError: 'WebViewer' object has no attribute 'update_frame'``.
+
+    The mock below is built with ``spec_set=WebViewer``, so it only answers
+    to attributes the real class actually has — any call the renderer
+    invents raises AttributeError exactly like the real object does.
+    """
+
+    def test_render_loop_calls_only_real_webviewer_methods(self, monkeypatch):
+        from unittest.mock import MagicMock
+        # Dummy SDL drivers = the --headless path, no X display needed.
+        monkeypatch.setenv("SDL_VIDEODRIVER", "dummy")
+        monkeypatch.setenv("SDL_AUDIODRIVER", "dummy")
+
+        import src.dashboard.renderer as renderer_mod
+        from src.dashboard.web_viewer import WebViewer
+
+        fake_viewer = MagicMock(spec_set=WebViewer)
+        monkeypatch.setattr(renderer_mod, "WebViewer",
+                            lambda *a, **kw: fake_viewer)
+
+        cfg = BCMConfig(platform_override="x86")
+        bus = EventBus()
+        renderer = renderer_mod.DashboardRenderer(cfg, bus)
+
+        # Stop after a few frames instead of drawing the whole dashboard —
+        # this test is about the WebViewer calls, not about pixels.
+        frames = []
+
+        def _count_frames(surface):
+            frames.append(surface)
+            if len(frames) >= 3:
+                renderer.stop()
+
+        monkeypatch.setattr(renderer, "_draw_frame", _count_frames)
+
+        renderer.run()  # must not raise
+
+        assert len(frames) >= 3
+        fake_viewer.start.assert_called_once()
+        fake_viewer.stop.assert_called_once()
