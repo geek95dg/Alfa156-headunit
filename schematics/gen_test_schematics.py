@@ -59,6 +59,10 @@ STYLE = '''<style>
  .wnb{fill:#ffffff;stroke:#8b9aa6;stroke-width:1.2;rx:3}
  .ldr{stroke:#7d8c99;stroke-width:1.3;fill:none}
  .ldrf{fill:#7d8c99;stroke:none}
+ .bus{stroke:#c08a4a;stroke-width:11;fill:none;stroke-linecap:round;opacity:0.45}
+ .cu{fill:#d9a066;stroke:#8a5a22;stroke-width:1.4}
+ .cg{fill:#b9bec4;stroke:#4a545c;stroke-width:1.4}
+ .pk{fill:#fffaf0;stroke:#6b4a12;stroke-width:1.6}
 </style>'''
 
 
@@ -315,7 +319,7 @@ class Sheet:
 # ======================================================================
 #  ARKUSZ 1 — ZASILANIE
 # ======================================================================
-s = Sheet(1620, 1946,
+s = Sheet(1620, 2046,
           "BCM v8.5 — arkusz 1/2: ZASILANIE (wariant testowo-rozwojowy, M910q)",
           "Każdy element osobno. Cewki i styki przekaźników rozdzielone — "
           "K1 i K2 to po jednym przekaźniku Bosch, narysowanym w dwóch "
@@ -390,10 +394,10 @@ s.w(830, RAIL, 902, RAIL)
 s.wn(874, RAIL - 15, 6)
 
 # --- ładowarka CC-CV
-m1 = s.module(902, 148, 214, 200, "M1", "MODUŁ CC-CV BOOST", "SZBK07 / „900 W 15 A”",
+m1 = s.module(902, 148, 214, 200, "M1", "MODUŁ CC-CV BOOST", "„900 W 15 A” / „1500 W 30 A”",
               left=[("in+", "IN+"), ("in-", "IN−")],
               right=[("out+", "OUT+"), ("out-", "OUT−")])
-s.txt(1009, 372, "CV 14,40 V · CC 7,5 A", "vc")
+s.txt(1009, 372, "CV 14,40 V · CC 8,0 A", "vc")
 s.path([(902, RAIL), (884, RAIL), (884, m1["in+"][1]), (m1["in+"][0], m1["in+"][1])])
 s.path([(m1["in-"][0], m1["in-"][1]), (866, m1["in-"][1]), (866, GA)])
 s.star_gnd(866, GA)
@@ -447,48 +451,88 @@ s.a('<line class="wd" x1="40" y1="800" x2="1580" y2="800"/>')
 # ---------------- BAND B
 s.sect(40, 852, "B", "BANK BUFOROWY · OCHRONA ROZŁADOWANIA · WYŁĄCZNIK GŁÓWNY")
 PB, NB = 930, 1160
-s.a(f'<line class="wp" x1="150" y1="{PB}" x2="1470" y2="{PB}"/>')
-s.a(f'<line class="wg" x1="150" y1="{NB}" x2="1300" y2="{NB}"/>')
-s.txt(156, PB - 14, "SZYNA „+” BANKU · 2,5 mm²", "nh")
-s.txt(156, NB + 26, "SZYNA „−” BANKU · 2,5 mm²", "nh")
+BUS_L, BUS_R = 170, 906
+# szyny zbiorcze — płaskownik miedziany rysowany pod przewodem
+s.a(f'<line class="bus" x1="{BUS_L}" y1="{PB}" x2="{BUS_R}" y2="{PB}"/>')
+s.a(f'<line class="bus" x1="{BUS_L}" y1="{NB}" x2="{BUS_R}" y2="{NB}"/>')
+s.a(f'<line class="wp" x1="{BUS_L}" y1="{PB}" x2="1470" y2="{PB}"/>')
+s.a(f'<line class="wg" x1="{BUS_L}" y1="{NB}" x2="{BUS_R}" y2="{NB}"/>')
+s.txt(176, PB - 16, "SZYNA „+” BANKU · płaskownik Cu 15 × 2 mm", "nh")
+s.txt(210, NB + 26, "SZYNA „−” BANKU · płaskownik Cu 15 × 2 mm", "nh")
 s.dot(1470, PB)
 
-for i in range(4):
-    bx = 210 + i * 140
+for i in range(7):
+    bx = 200 + i * 112
     s.dot(bx, PB)
-    yy = s.fuse_v(bx, PB, f"F{i+2}", "10 A", side=1 if i % 2 == 0 else -1)
+    yy = s.fuse_v(bx, PB, f"FB{i+1}", "10 A", side=1 if i % 2 == 0 else -1)
     s.w(bx, yy, bx, yy + 12)
     s.battery(bx, yy + 12, f"BT{i+1}", "5,1 Ah")
     s.w(bx, yy + 74, bx, NB)
     s.dot(bx, NB)
-s.txt(430, 1222, "4 × CSB HR1221W F2 · 12 V / 5,1 Ah AGM · równolegle = 20,4 Ah", "vc")
+s.txt(536, 1236,
+      "7 × CSB HR1221W F2 · 12 V / 5,1 Ah AGM · równolegle = 35,7 Ah · 12,6 kg", "vc")
 
-s.dot(790, PB)
-x = s.fuse_h(790, PB, "F7", "15 A")
+# odbiór po przekątnej — bieguny wychodzą z PRZECIWNYCH końców szyny
+s.dot(BUS_R, PB)
+s.txt(BUS_R, PB - 32, "odbiór „+”", "rc")
+s.dot(BUS_L, NB)
+s.txt(BUS_L - 16, NB - 12, "odbiór „−”", "re")
+
+s.dot(1000, PB)
+x = s.fuse_h(1000, PB, "F7", "15 A")
 s.wn(x + 18, PB - 15, 8)
-m3 = s.module(920, 878, 214, 200, "M3", "XH-M609", "ochrona głębokiego rozładowania",
+m3 = s.module(1100, 878, 214, 200, "M3", "XH-M609", "ochrona głębokiego rozładowania",
               left=[("vin+", "VIN+"), ("vin-", "VIN−")],
               right=[("vout+", "VOUT+"), ("vout-", "VOUT−")])
-s.txt(1027, 1102, "odcina 11,00 V · wraca 12,60 V", "vc")
+s.txt(1207, 1102, "odcina 11,00 V · wraca 12,60 V", "vc")
 s.w(x, PB, m3["vin+"][0], m3["vin+"][1])
-s.path([(880, NB), (880, m3["vin-"][1]), (m3["vin-"][0], m3["vin-"][1])])
-s.dot(880, NB)
-s.wn(902, m3["vin-"][1] - 15, 9)
-s.path([(m3["vout-"][0], m3["vout-"][1]), (1300, m3["vout-"][1]), (1300, NB)])
-s.dot(1300, NB)
-s.w(1300, NB, 1400, NB, "wg")
-s.star_gnd(1400, NB)
+# „−” wraca od przeciwnego końca szyny niż wychodzi „+”
+s.path([(BUS_L, NB), (BUS_L, 1284), (940, 1284), (940, m3["vin-"][1]),
+        (m3["vin-"][0], m3["vin-"][1])])
+s.wn(940, 1230, 9)
+s.path([(m3["vout-"][0], m3["vout-"][1]), (1400, m3["vout-"][1]), (1400, 1100)])
+s.star_gnd(1400, 1100)
 
-s.path([(m3["vout+"][0], m3["vout+"][1]), (1200, m3["vout+"][1])])
-s.wn(1176, m3["vout+"][1] - 15, 10)
-x = s.switch_h(1200, m3["vout+"][1], "S1", "rozłącznik masy 100 A")
-s.path([(x, m3["vout+"][1]), (1540, m3["vout+"][1]), (1540, 1340)])
+s.path([(m3["vout+"][0], m3["vout+"][1]), (1380, m3["vout+"][1])])
+s.wn(1356, m3["vout+"][1] - 15, 10)
+x = s.switch_h(1380, m3["vout+"][1], "S1", "rozłącznik masy 100 A")
+s.path([(x, m3["vout+"][1]), (1540, m3["vout+"][1]), (1540, 1440)])
 
-s.a('<line class="wd" x1="40" y1="1240" x2="1580" y2="1240"/>')
+# ---- DETAL: jak połączyć siedem pakietów
+# Ramka kończy się na x=1524 — przewód S1 → szyna odbiorników biegnie
+# pionem x=1540 i musi zostać widoczny obok niej, a nie pod nią.
+s.box(964, 1146, 560, 186, "note")
+s.txt(980, 1170, "SZYNA ZBIORCZA — SIEDEM PAKIETÓW (detal)", "nh")
+s.a('<rect class="cu" x="1002" y="1212" width="200" height="9" rx="2"/>')
+s.a('<rect class="cg" x="1002" y="1284" width="200" height="9" rx="2"/>')
+for i in range(7):
+    tx = 1014 + i * 29
+    s.w(tx, 1221, tx, 1232, "wp")
+    s.a(f'<rect class="pk" x="{tx-9}" y="1232" width="18" height="40" rx="3"/>')
+    s.txt(tx, 1257, str(i + 1), "wn")
+    s.w(tx, 1272, tx, 1284, "wg")
+s.dot(1002, 1216)
+s.path([(1002, 1216), (986, 1216), (986, 1196)], "wp")
+s.txt(986, 1190, "„+”", "rc")
+s.dot(1202, 1288)
+s.path([(1202, 1288), (1212, 1288), (1212, 1312)], "wg")
+s.txt(1212, 1322, "„−”", "rc")
+for _y, _t in ((1188, "Dwa płaskowniki miedziane, osobno"),
+               (1204, "dla „+” i „−”: min. 15 × 2 mm"),
+               (1220, "(zalecane 20 × 3 mm), siedem"),
+               (1236, "odczepów M6 co 70 mm. Ogonki"),
+               (1252, "1,5 mm² równej długości, ≤ 30 mm."),
+               (1276, "ODBIÓR PO PRZEKĄTNEJ: bieguny"),
+               (1292, "z przeciwnych końców szyny (1 ↔ 7)"),
+               (1308, "→ rozrzut prądów 1,0 %. Oba z"),
+               (1324, "jednego końca: 4,6 % — ZAKAZ.")):
+    s.txt(1236, _y, _t, "nt")
+
+s.a('<line class="wd" x1="40" y1="1340" x2="1580" y2="1340"/>')
 
 # ---------------- BAND C
-s.sect(40, 1292, "C", "ODBIORNIKI — zasilane stale, niezależnie od zapłonu")
-LB, LG = 1340, 1700
+s.sect(40, 1392, "C", "ODBIORNIKI — zasilane stale, niezależnie od zapłonu")
+LB, LG = 1440, 1800
 s.a(f'<line class="wp" x1="180" y1="{LB}" x2="1540" y2="{LB}"/>')
 s.dot(1540, LB)
 s.txt(186, LB - 14, "SZYNA ODBIORNIKÓW +12 V (za S1)", "nh")
@@ -556,24 +600,24 @@ s.txt(1490, m6["out-"][1] + 50, "Arduino Nano", "vc")
 for _bx, _t in ((240, "45 W · dlatego F8 = 7,5 A, nie 5 A"),
                 (860, "logika i dotyk panelu idą po USB"),
                 (1250, "Nano musi żyć, gdy M910q śpi")):
-    s.txt(_bx + 60, 1756, _t, "vc")
-    s.leader(_bx + 60, 1742, _bx + 60, 1620)
+    s.txt(_bx + 60, 1856, _t, "vc")
+    s.leader(_bx + 60, 1842, _bx + 60, 1720)
 
-s.box(60, 1790, 1000, 56, "note")
-s.txt(80, 1814, "MASA — punkt gwiazdowy", "nh")
-s.txt(80, 1834, "Wszystkie symbole masy na tym arkuszu to JEDEN punkt: "
+s.box(60, 1890, 1000, 56, "note")
+s.txt(80, 1914, "MASA — punkt gwiazdowy", "nh")
+s.txt(80, 1934, "Wszystkie symbole masy na tym arkuszu to JEDEN punkt: "
                 "„−” BT0, „−” D5 i C1, K1:85, K2:85, IN−/OUT− M1, V− M2, "
                 "szyna „−” banku, VIN−/VOUT− M3, IN− M4/M5/M6.", "nt")
-s.box(1090, 1790, 470, 56, "note")
-s.txt(1110, 1814, "Numery w ramkach", "nh")
-s.txt(1110, 1834, "= numery przewodów z tabel §10 docs/SCHEMATY_POLACZEN.md", "nt")
+s.box(1090, 1890, 470, 56, "note")
+s.txt(1110, 1914, "Numery w ramkach", "nh")
+s.txt(1110, 1934, "= numery przewodów z tabel §10 docs/SCHEMATY_POLACZEN.md", "nt")
 
-s.box(60, 1862, 1500, 74, "note")
-s.txt(80, 1886, "KIERUNKI DIOD — sprawdź przed lutowaniem", "nh")
-s.txt(80, 1906, "D5 (1.5KE33CA lub SMCJ26CA): sufiks CA = dwukierunkowa. "
+s.box(60, 1962, 1500, 74, "note")
+s.txt(80, 1986, "KIERUNKI DIOD — sprawdź przed lutowaniem", "nh")
+s.txt(80, 2006, "D5 (1.5KE33CA lub SMCJ26CA): sufiks CA = dwukierunkowa. "
                 "Nie ma anody ani katody, wlutuj w dowolną stronę. Uwaga: "
                 "1.5KE33A (bez C) to inna dioda — jednokierunkowa,", "nt")
-s.txt(80, 1926, "tam pasek/katoda idzie na PLUS. Sprawdź miernikiem w trybie "
+s.txt(80, 2026, "tam pasek/katoda idzie na PLUS. Sprawdź miernikiem w trybie "
                 "diody: dwukierunkowa daje OL w obie strony.   ·   "
                 "D1 MBR2545CT: blaszka = katoda → IN+ ładowarki.   ·   "
                 "D6 i D7 (1N4007): pasek = katoda → zacisk 86 cewki.", "nt")

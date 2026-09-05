@@ -78,7 +78,7 @@
 
   <rect class="bg" x="0" y="0" width="1440" height="820"/>
   <text class="ttl" x="24" y="32">Schemat elektryczny — wariant testowo-rozwojowy</text>
-  <text class="sub" x="24" y="54">Ładowanie przez przekaźnik zapłonu i MBR2545CT · bank 4 × CSB HR1221W · LVD XH-M609 · M910q zasilany stale. Wykrywanie zapłonu: ignition_sense.svg</text>
+  <text class="sub" x="24" y="54">Ładowanie przez przekaźnik zapłonu i MBR2545CT · bank 7 × CSB HR1221W · LVD XH-M609 · M910q zasilany stale. Wykrywanie zapłonu: ignition_sense.svg</text>
   <line x1="24" y1="66" x2="1416" y2="66" stroke="#c8d2da" stroke-width="1.5"/>
 
   <!-- ================= A. CHARGING ================= -->
@@ -152,7 +152,7 @@
   <rect class="blkg" x="620" y="132" width="176" height="72"/>
   <text class="lbb" x="708" y="154">Moduł CC-CV boost</text>
   <text class="lbc" x="708" y="172">CV 14,40 V</text>
-  <text class="lbc" x="708" y="190">CC 7,5 A (4 pakiety)</text>
+  <text class="lbc" x="708" y="190">CC 8,0 A (7 pakietów)</text>
   <line class="wg" x1="708" y1="204" x2="708" y2="252"/>
   <use xlink:href="#gnd" x="708" y="252"/>
 
@@ -168,8 +168,9 @@
   <!-- bank -->
   <line class="wp" x1="1024" y1="168" x2="1084" y2="168"/>
   <line class="wp" x1="1084" y1="168" x2="1372" y2="168"/>
-  <text class="lbb" x="1228" y="118">BANK · 4 × CSB HR1221W F2 (20,4 Ah)</text>
-  <text class="ref" x="1150" y="136">F2…F5 · 10 A na każdy pakiet</text>
+  <text class="lbb" x="1228" y="112">BANK · 7 × CSB HR1221W F2 (35,7 Ah · 12,6 kg)</text>
+  <text class="ref" x="1228" y="130" text-anchor="middle">FB1…FB7 · 10 A na każdy pakiet</text>
+  <text class="lbc" x="1228" y="148">szyna: płaskownik Cu 15 × 2 mm · odbiór po przekątnej</text>
 
   <g>
     <circle class="symf" cx="1104" cy="168" r="3"/>
@@ -288,12 +289,12 @@
   <rect class="note" x="1160" y="376" width="256" height="180"/>
   <text class="nh" x="1176" y="398">Oznaczenia bezpieczników</text>
   <text class="nt" x="1176" y="420">F1  15 A — zasilanie ładowarki</text>
-  <text class="nt" x="1176" y="440">F2…F5  10 A — po jednym na pakiet</text>
+  <text class="nt" x="1176" y="440">FB1…FB7  10 A — po jednym na pakiet</text>
   <text class="nt" x="1176" y="460">F7  15 A — wejście XH-M609</text>
   <text class="nt" x="1176" y="480">F8  7,5 A — odgałęzienie XL6019</text>
   <text class="nt" x="1176" y="500">F9  2 A — odgałęzienie LM2596</text>
-  <text class="nt" x="1176" y="524">Przekroje: F1–F7 2,5 mm²,</text>
-  <text class="nt" x="1176" y="542">F8–F9 1,5 mm², cewka K1 0,75 mm²</text>
+  <text class="nt" x="1176" y="524">Przekroje: F1 4 mm², FB1…FB7 1,5 mm²,</text>
+  <text class="nt" x="1176" y="542">F7 2,5 mm², F8–F9 1,5 mm², K1 0,75 mm²</text>
 
   <rect class="note" x="24" y="580" width="676" height="212"/>
   <text class="nh" x="40" y="602">Czego na tym schemacie celowo nie ma</text>
@@ -308,12 +309,12 @@
 
   <rect class="note" x="724" y="580" width="692" height="212"/>
   <text class="nh" x="740" y="602">Trzy rzeczy, które trzeba zrobić dobrze przy montażu</text>
-  <text class="nt" x="740" y="624">1.  D1 na radiatorze. Przy 9 A rozprasza ok. 4,5 W. Blaszka TO-220 jest</text>
+  <text class="nt" x="740" y="624">1.  D1 na radiatorze. Przy 9,2 A rozprasza ok. 4,4 W. Blaszka TO-220 jest</text>
   <text class="nt" x="740" y="642">     połączona z katodą — izoluj ją podkładką mikową albo daj radiator,</text>
   <text class="nt" x="740" y="660">     który nie dotyka nadwozia.</text>
   <text class="nt" x="740" y="682">2.  Masa w jednym punkcie. Wszystkie „−” z tego rysunku schodzą do punktu</text>
   <text class="nt" x="740" y="700">     gwiazdowego, nie do przypadkowych śrub karoserii.</text>
-  <text class="nt" x="740" y="722">3.  Nastawy przed podłączeniem banku. XL6019 19,5 V, boost 14,40 V / 8 A,</text>
+  <text class="nt" x="740" y="722">3.  Nastawy przed podłączeniem banku. XL6019 19,5 V, boost 14,40 V / 8,0 A,</text>
   <text class="nt" x="740" y="740">     rozłącznik 15,30 V, LVD 11,00 / 12,60 V — wszystko na zasilaczu lab.</text>
   <text class="nt" x="740" y="770">Zaciski po kolei i kolejność montażu: wiring_test_build.svg</text>
 </svg>

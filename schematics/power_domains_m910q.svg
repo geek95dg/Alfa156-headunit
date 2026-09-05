@@ -27,7 +27,7 @@
   <!-- BUS -->
   <rect class="box" x="360" y="86" width="460" height="62"/>
   <text class="h" x="590" y="110">Szyna buforowana 12 V — za XH-M609 i wyłącznikiem głównym</text>
-  <text class="t" x="590" y="132">bank 4 × CSB HR1221W · 20,4 Ah · listwa dystrybucyjna z bezpiecznikami</text>
+  <text class="t" x="590" y="132">bank 7 × CSB HR1221W · 35,7 Ah · 12,6 kg · listwa dystrybucyjna</text>
 
   <path class="wire" d="M590 148 L590 180"/>
   <path class="wire" d="M240 180 L940 180"/>
@@ -120,7 +120,7 @@
   <text class="tl" x="80" y="618">• bezpiecznik wg karty wzmacniacza, przy klemie „+”, przewód 6 mm²</text>
   <text class="tl" x="80" y="638">• gotowy wzmacniacz samochodowy 4-kanałowy (nie DIY)</text>
   <text class="tl" x="80" y="658">• REM wprost z linii zapłonu · masa lokalna, przy wzmacniaczu</text>
-  <text class="note" x="80" y="676">Szczyty 20–30 A rozłożyłyby bank AGM w kilkanaście minut.</text>
+  <text class="note" x="80" y="676">Szczyty 20–30 A (0,6–0,8 C) zjadłyby połowę banku w godzinę.</text>
 
   <!-- ============ BUDGET ============ -->
   <rect x="700" y="536" width="420" height="234" fill="#fbfcfd" stroke="#c8d2da" stroke-width="1.5" rx="6"/>
@@ -128,17 +128,17 @@
   <line x1="716" y1="570" x2="1104" y2="570" stroke="#c8d2da"/>
   <text class="tb" x="722" y="590">Stan</text>
   <text class="tb" x="852" y="590">Pobór</text>
-  <text class="tb" x="972" y="590">4 pakiety</text>
+  <text class="tb" x="972" y="590">7 pakietów (35,7 Ah)</text>
   
   <line x1="716" y1="598" x2="1104" y2="598" stroke="#c8d2da"/>
-  <text class="tl" x="722" y="618">Praca</text><text class="tl" x="852" y="618">10–55 W</text><text class="tl" x="972" y="618">~2,9 h bez silnika</text>
-  <text class="tl" x="722" y="642">S3 (kluczyk OFF)</text><text class="tl" x="852" y="642">200–460 mA</text><text class="tl" x="972" y="642">0,9–2,1 dnia</text>
-  <text class="tl" x="722" y="666">Wyłączony</text><text class="tl" x="852" y="666">50–150 mA</text><text class="tl" x="972" y="666">2,8–8,5 dnia</text>
+  <text class="tl" x="722" y="618">Praca</text><text class="tl" x="852" y="618">10–55 W</text><text class="tl" x="972" y="618">~5,1 h bez silnika</text>
+  <text class="tl" x="722" y="642">S3 (kluczyk OFF)</text><text class="tl" x="852" y="642">200–460 mA</text><text class="tl" x="972" y="642">1,6–3,7 dnia</text>
+  <text class="tl" x="722" y="666">Wyłączony</text><text class="tl" x="852" y="666">50–150 mA</text><text class="tl" x="972" y="666">5,0–14,9 dnia</text>
   <line x1="716" y1="680" x2="1104" y2="680" stroke="#c8d2da"/>
-  <text class="note" x="722" y="700">Czasy do 50 % DoD. Arduino przechodzi z S3 do pełnego wyłączenia po 2 h</text>
-  <text class="note" x="722" y="716">zgaszonego zapłonu — dłuższy impuls na ten sam przycisk.</text>
+  <text class="note" x="722" y="700">Czasy do 50 % DoD (17,85 Ah); wiersz „Praca” — przy 3,5 A z banku.</text>
+  <text class="note" x="722" y="716">Arduino wyłącza M910q po 2 h zgaszonego zapłonu — dłuższy impuls.</text>
   <text class="note" x="722" y="740">Wyświetlacz gaśnie z komputerem — USB w S3 jest martwe.</text>
-  <text class="note" x="722" y="756">Rozrzut w obu wierszach to własny pobór XH-M609 — ZMIERZ go.</text>
+  <text class="note" x="722" y="756">Rozrzut w wierszu „Wyłączony” to własny pobór XH-M609 — ZMIERZ go.</text>
 
   <text class="note" x="24" y="778">Wyłącznik główny to jedyne realne zero poboru. Na postój dłuższy niż tydzień rozłączaj bank — inaczej LVD odetnie go przy 11,00 V.</text>
   <text class="note" x="24" y="800">Wszystkie bezpieczniki: wkładki nożowe ATO/ATC w listwie dystrybucyjnej z pokrywą, w miejscu dostępnym bez demontażu deski rozdzielczej.</text>

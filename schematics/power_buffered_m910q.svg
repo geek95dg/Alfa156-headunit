@@ -1,4 +1,4 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="1180" height="1080" viewBox="0 0 1180 1080" font-family="DejaVu Sans, Verdana, sans-serif">
+<svg xmlns="http://www.w3.org/2000/svg" width="1180" height="1140" viewBox="0 0 1180 1140" font-family="DejaVu Sans, Verdana, sans-serif">
   <title>BCM v8.5 — Zasilanie buforowane Lenovo M910q (tor główny)</title>
   <style>
     .bg   { fill: #ffffff; }
@@ -20,7 +20,7 @@
     .dom  { font-size: 12px; font-weight: bold; }
   </style>
 
-  <rect class="bg" x="0" y="0" width="1180" height="1080"/>
+  <rect class="bg" x="0" y="0" width="1180" height="1140"/>
   <text class="ttl" x="24" y="32">BCM v8.5 — zasilanie buforowane, Lenovo ThinkCentre M910q Tiny</text>
   <text class="sub" x="24" y="52">Tor główny: akumulator samochodowy → ładowanie CC-CV → bank CSB HR1221W (AGM) → LVD → domeny A/B → step-up 19 V</text>
   <line class="wthin" x1="24" y1="62" x2="1156" y2="62" stroke="#c8d2da"/>
@@ -52,7 +52,7 @@
   <!-- 4. CC-CV CHARGER -->
   <rect class="box" x="40" y="404" width="270" height="112"/>
   <text class="h" x="175" y="426">Ładowarka CC-CV (buck-boost)</text>
-  <text class="t" x="175" y="444">CC: 7,5 A  (limit katalogowy 8,4 A)</text>
+  <text class="t" x="175" y="444">CC: 8,0 A  (sufit katalogowy 14,7 A)</text>
   <text class="t" x="175" y="460">CV absorpcja: 14,40 V @ 25 °C</text>
   <text class="t" x="175" y="476">float: 13,65 V @ 25 °C</text>
   <text class="t" x="175" y="494">komp. −30 mV/°C abs. / −18 mV/°C float</text>
@@ -63,40 +63,45 @@
   <!-- 5. OVERCHARGE CUTOFF -->
   <rect class="boxW" x="40" y="554" width="270" height="86"/>
   <text class="h" x="175" y="576">Blokada przeładowania</text>
-  <text class="t" x="175" y="594">rozłącznik nadnapięciowy (2. warstwa)</text>
+  <text class="t" x="175" y="594">XH-M603 (2. warstwa) — styki ≤ 8,0 A</text>
   <text class="t" x="175" y="610">rozwiera przy 15,30 V</text>
   <text class="t" x="175" y="626">zwiera ponownie przy 14,00 V</text>
 
   <path class="wire" d="M175 640 L175 678"/>
 
   <!-- 6. BUFFER BUS + AGM BANK -->
-  <rect class="boxA" x="40" y="678" width="270" height="150"/>
+  <rect class="boxA" x="40" y="678" width="270" height="222"/>
   <text class="h" x="175" y="700">Szyna bufora 12 V — bank AGM</text>
-  <text class="t" x="175" y="718">4 × CSB HR1221W F2 (12 V / 5,1 Ah) równolegle</text>
-  <text class="t" x="175" y="734">20,4 Ah, szyna 4 mm² lub mostek miedziany</text>
+  <text class="t" x="175" y="718">7 × CSB HR1221W F2 (12 V / 5,1 Ah)</text>
+  <text class="t" x="175" y="734">35,7 Ah · 12,6 kg · układ 4+3</text>
 
   <g>
-    <rect class="batt" x="58" y="746" width="42" height="34"/><text class="t" x="79" y="767">5,1 Ah</text>
-    <rect class="batt" x="106" y="746" width="42" height="34"/><text class="t" x="127" y="767">5,1 Ah</text>
-    <rect class="batt" x="154" y="746" width="42" height="34"/><text class="t" x="175" y="767">5,1 Ah</text>
-    <rect class="batt" x="202" y="746" width="42" height="34"/><text class="t" x="223" y="767">5,1 Ah</text>
-    <rect class="batt" x="250" y="746" width="42" height="34"/><text class="t" x="271" y="767">5,1 Ah</text>
+    <rect class="batt" x="82" y="742" width="42" height="30"/><text class="t" x="103" y="762">5,1 Ah</text>
+    <rect class="batt" x="130" y="742" width="42" height="30"/><text class="t" x="151" y="762">5,1 Ah</text>
+    <rect class="batt" x="178" y="742" width="42" height="30"/><text class="t" x="199" y="762">5,1 Ah</text>
+    <rect class="batt" x="226" y="742" width="42" height="30"/><text class="t" x="247" y="762">5,1 Ah</text>
+    <rect class="batt" x="106" y="776" width="42" height="30"/><text class="t" x="127" y="796">5,1 Ah</text>
+    <rect class="batt" x="154" y="776" width="42" height="30"/><text class="t" x="175" y="796">5,1 Ah</text>
+    <rect class="batt" x="202" y="776" width="42" height="30"/><text class="t" x="223" y="796">5,1 Ah</text>
   </g>
-  <text class="t" x="175" y="798">każdy pakiet: bezpiecznik 10 A, zaciski F2 6,35 mm</text>
-  <text class="t" x="175" y="816">jednakowe długości przewodów do szyny</text>
+  <text class="t" x="175" y="824">szyna: 2 płaskowniki Cu 15 × 2 mm</text>
+  <text class="t" x="175" y="840">7 odczepów co 70 mm · ogonki równe</text>
+  <text class="warn" x="175" y="858" text-anchor="middle">ODBIÓR PO PRZEKĄTNEJ</text>
+  <text class="t" x="175" y="874">„+” z odczepu 1, „−” z odczepu 7</text>
+  <text class="t" x="175" y="890">FB1…FB7 — po 10 A na każdy pakiet</text>
 
-  <path class="wire" d="M175 828 L175 866"/>
+  <path class="wire" d="M175 900 L175 920"/>
 
   <!-- 7. LVD -->
-  <rect class="boxW" x="40" y="866" width="270" height="80"/>
-  <text class="h" x="175" y="888">LVD — moduł XH-M609</text>
-  <text class="t" x="175" y="906">rozłącza obciążenia przy 11,00 V</text>
-  <text class="t" x="175" y="922">załącza ponownie przy 12,60 V</text>
-  <text class="t" x="175" y="938">przekaźnik 20 A · bezp. 15 A na VIN+</text>
+  <rect class="boxW" x="40" y="920" width="270" height="80"/>
+  <text class="h" x="175" y="942">LVD — moduł XH-M609</text>
+  <text class="t" x="175" y="960">rozłącza obciążenia przy 11,00 V</text>
+  <text class="t" x="175" y="976">załącza ponownie przy 12,60 V</text>
+  <text class="t" x="175" y="992">przekaźnik 20 A · F7 15 A MIDI na VIN+</text>
 
   <!-- bus out to the right -->
-  <path class="wire" d="M175 946 L175 980 L700 980"/>
-  <text class="tl" x="330" y="972">szyna buforowana 12 V (za LVD)</text>
+  <path class="wire" d="M175 1000 L175 1036 L700 1036"/>
+  <text class="tl" x="330" y="1028">szyna buforowana 12 V (za LVD)</text>
 
   <!-- ============ RIGHT COLUMN: DOMAINS ============ -->
   <text class="dom" x="430" y="96" fill="#2d6a2d">DOMENA A — zasilana zawsze</text>
@@ -122,7 +127,7 @@
   <text class="t" x="580" y="490">0 W przy rozwartym przekaźniku</text>
 
   <!-- Domain A feed -->
-  <path class="wire" d="M700 980 L760 980 L760 264 L730 264"/>
+  <path class="wire" d="M700 1036 L760 1036 L760 264 L730 264"/>
   <path class="wire" d="M760 264 L760 204 L730 204"/>
   <circle cx="760" cy="264" r="4" fill="#c0392b"/>
 
@@ -134,8 +139,8 @@
   <text class="t" x="965" y="636">styk: szyna buforowana → step-up</text>
   <text class="t" x="965" y="654">dioda gaszeniowa 1N4007 na cewce</text>
 
-  <path class="wire" d="M760 980 L965 980 L965 664"/>
-  <circle cx="760" cy="980" r="4" fill="#c0392b"/>
+  <path class="wire" d="M760 1036 L965 1036 L965 664"/>
+  <circle cx="760" cy="1036" r="4" fill="#c0392b"/>
   <path class="wthin" d="M965 700 L1080 700" stroke-dasharray="4 3"/>
   <text class="note" x="985" y="694">ACC z zamka kluczyka</text>
 
@@ -169,31 +174,33 @@
   <path class="wire" d="M965 330 L965 302"/>
 
   <!-- GND rail -->
-  <path class="gnd" d="M60 1024 L1120 1024"/>
-  <path class="gnd" d="M175 1010 L175 1024"/>
-  <path class="gnd" d="M580 1010 L580 1024"/>
-  <path class="gnd" d="M965 1010 L965 1024"/>
-  <path class="gnd" d="M560 1024 L600 1024 M568 1032 L592 1032 M576 1040 L584 1040"/>
-  <text class="tl" x="620" y="1002">Masa wspólna — jeden punkt masy nadwozia, 6 mm², oczyszczony do metalu</text>
+  <path class="gnd" d="M60 1080 L1120 1080"/>
+  <path class="gnd" d="M175 1066 L175 1080"/>
+  <path class="gnd" d="M580 1066 L580 1080"/>
+  <path class="gnd" d="M965 1066 L965 1080"/>
+  <path class="gnd" d="M560 1080 L600 1080 M568 1088 L592 1088 M576 1096 L584 1096"/>
+  <text class="tl" x="620" y="1058">Masa wspólna — jeden punkt masy nadwozia, 6 mm², oczyszczony do metalu</text>
 
   <!-- Legend -->
-  <rect x="430" y="740" width="330" height="200" fill="#fbfcfd" stroke="#c8d2da" stroke-width="1.5" rx="6"/>
+  <rect x="430" y="740" width="330" height="220" fill="#fbfcfd" stroke="#c8d2da" stroke-width="1.5" rx="6"/>
   <text class="h" x="595" y="762">Przekroje i zabezpieczenia</text>
-  <text class="tl" x="446" y="784">akumulator → bezpiecznik → przekaźnik</text>
+  <text class="tl" x="446" y="784">akumulator → bezp. → przekaźnik</text>
   <text class="tl" x="700" y="784" text-anchor="end">6 mm²</text>
-  <text class="tl" x="446" y="804">ładowarka → bank (do 6 A)</text>
-  <text class="tl" x="700" y="804" text-anchor="end">2,5 mm²</text>
-  <text class="tl" x="446" y="824">pakiet gel → szyna (10 A bezp.)</text>
-  <text class="tl" x="700" y="824" text-anchor="end">1,5 mm²</text>
-  <text class="tl" x="446" y="844">szyna → LVD → step-up (7 A)</text>
-  <text class="tl" x="700" y="844" text-anchor="end">2,5 mm²</text>
-  <text class="tl" x="446" y="864">step-up → M910q (3,5 A @ 19 V)</text>
-  <text class="tl" x="700" y="864" text-anchor="end">1,5 mm²</text>
-  <text class="tl" x="446" y="884">odgałęzienie domeny A (&lt; 1 A)</text>
-  <text class="tl" x="700" y="884" text-anchor="end">0,75 mm²</text>
-  <text class="tl" x="446" y="904">masa wspólna do nadwozia</text>
-  <text class="tl" x="700" y="904" text-anchor="end">6 mm²</text>
-  <text class="note" x="446" y="928">Przekroje dla trasy ok. 3 m przy spadku napięcia &lt; 3 %.</text>
+  <text class="tl" x="446" y="804">ładowarka → bank (do 10 A)</text>
+  <text class="tl" x="700" y="804" text-anchor="end">4 mm²</text>
+  <text class="tl" x="446" y="824">szyna zbiorcza banku (Cu)</text>
+  <text class="tl" x="700" y="824" text-anchor="end">15 × 2 mm</text>
+  <text class="tl" x="446" y="844">pakiet AGM → szyna, 7 × 10 A</text>
+  <text class="tl" x="700" y="844" text-anchor="end">1,5 mm²</text>
+  <text class="tl" x="446" y="864">szyna → LVD → step-up (7,5 A)</text>
+  <text class="tl" x="700" y="864" text-anchor="end">2,5 mm²</text>
+  <text class="tl" x="446" y="884">step-up → M910q (3,5 A @ 19 V)</text>
+  <text class="tl" x="700" y="884" text-anchor="end">1,5 mm²</text>
+  <text class="tl" x="446" y="904">odgałęzienie domeny A (&lt; 1 A)</text>
+  <text class="tl" x="700" y="904" text-anchor="end">0,75 mm²</text>
+  <text class="tl" x="446" y="924">masa wspólna do nadwozia</text>
+  <text class="tl" x="700" y="924" text-anchor="end">6 mm²</text>
+  <text class="note" x="446" y="948">Przekroje dla trasy ok. 3 m przy spadku napięcia &lt; 3 %.</text>
 
-  <text class="note" x="24" y="1064">Wzmacniacz audio to gotowy moduł samochodowy zasilany osobną gałęzią 12 V prosto z akumulatora rozruchowego, z własną masą — nie obciąża banku buforowego.</text>
+  <text class="note" x="24" y="1122">Wzmacniacz audio to gotowy moduł samochodowy zasilany osobną gałęzią 12 V prosto z akumulatora rozruchowego, z własną masą — nie obciąża banku buforowego.</text>
 </svg>

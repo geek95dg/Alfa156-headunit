@@ -441,14 +441,23 @@ razem z resztą, a przy okazji schodzi w dolne rejony tabeli.
 
 ### Czy można wpiąć na stałe do akumulatora
 
-**Nie za samą przetwornicą step-down.** Przy ~60 mA ciągłego poboru to
-1,44 Ah na dobę. Akumulator w 156 to ok. 60–70 Ah, a samo auto pobiera
-już ~20–30 mA na spoczynku. Po dwóch tygodniach postoju zabraknie blisko
-połowy pojemności — a JTD potrzebuje zdrowego akumulatora, żeby ruszyć.
-Przyjęta granica pasożytniczego poboru dla całego auta to ~30–50 mA i ten
-budżet jest już w dużej części zajęty.
+Najpierw rozróżnienie, którego wcześniejsze wydanie tej sekcji nie robiło:
+w tym projekcie są **dwa** źródła i tylko jedno z nich jest przedmiotem
+rachunku poniżej.
 
-Trzy wyjścia, od najprostszego:
+| Źródło | Kto z niego żyje | Panel |
+|--------|------------------|-------|
+| **Akumulator rozruchowy** (60–70 Ah) | rozrusznik, wzmacniacz, instalacja auta | przypadek opisany zaraz niżej |
+| **Bank buforowy** — 7 × CSB HR1221W, **35,7 Ah** ([`ZASILANIE_BUFOROWANE.md`](ZASILANIE_BUFOROWANE.md) §4.2) | cały head unit, non stop | osobny rachunek — **wariant 4** |
+
+**Z akumulatora rozruchowego: nie, nie za samą przetwornicą step-down.**
+Przy ~60 mA ciągłego poboru to 1,44 Ah na dobę. Akumulator w 156 to ok.
+60–70 Ah, a samo auto pobiera już ~20–30 mA na spoczynku. Po dwóch tygodniach
+postoju zabraknie blisko połowy pojemności — a JTD potrzebuje zdrowego
+akumulatora, żeby ruszyć. Przyjęta granica pasożytniczego poboru dla całego
+auta to ~30–50 mA i ten budżet jest już w dużej części zajęty.
+
+Cztery wyjścia, od najprostszego:
 
 1. **Zasilanie z +15 (po zapłonie), nie z +30.** Pobór na postoju zeruje
    się całkowicie. Projekt i tak ma rozpoznawanie zapłonu
@@ -464,10 +473,55 @@ Trzy wyjścia, od najprostszego:
    ~0,1–1 mA. Do tego scenariusza trzeba przetwornicy z niskim prądem
    własnym (klasa TPS62840 / TPS62740, jednostki µA), a nie modułu
    z targu. Budżet do utrzymania: ≤100 µA łącznie.
+4. **Zasilanie z szyny buforowanej (domena A), zamiast z instalacji auta.**
+   To nie jest wariant „z akumulatora" w sensie punktów 1–3: bank i tak żyje
+   non stop i to on, a nie akumulator rozruchowy, zasila head unit na postoju
+   — [`ZASILANIE_BUFOROWANE.md`](ZASILANIE_BUFOROWANE.md) §1 mówi wprost, że
+   „akumulator rozruchowy **nigdy** nie zasila head unitu na postoju";
+   rozdziela je przekaźnik ładowania z diodą. Pobór panelu jest wtedy pozycją
+   budżetu **banku**, a nie budżetu pasożytniczego auta.
 
-Rekomendacja: wariant 1, a jeśli ostrzeżenie ma działać przy wyłączonym
-zapłonie — wariant 2. Wariant 3 tylko wtedy, gdy ekran ma być stale
-rezydentny, i wyłącznie z policzoną przetwornicą.
+   Co to kosztuje przy dzisiejszym banku (liczone do 50 % DoD, metodyka §9.2
+   tamtego dokumentu):
+
+   | | Bank 4 pakiety (poprzednio) | **Bank 7 pakietów (dziś)** |
+   |---|---|---|
+   | Pojemność użyteczna do 50 % DoD | 10,2 Ah | **17,85 Ah** |
+   | Sam panel (60 mA) wytrzymałby | 7,1 dnia | **12,4 dnia** |
+   | Postój przy bazie 80 mA + panel = 140 mA | 3,0 dnia | **5,3 dnia** |
+   | Postój przy bazie 185 mA + panel = 245 mA | 1,7 dnia | **3,0 dnia** |
+   | *dla porównania — postój bez panelu* | *5,3 / 2,3 dnia* | *9,3 / 4,0 dnia* |
+
+   Stałe zasilanie panelu kosztuje więc **24–43 % czasu postoju**. Przy
+   czterech pakietach schodziło to do 3,0–1,7 dnia i było nie do przyjęcia;
+   przy siedmiu zostaje **5,3–3,0 dnia** i to już jest do obrony. W zamian
+   znika własna skarga tego dokumentu (sekcja niżej): kontrolki bezpieczeństwa
+   pojawiają się od przekręcenia kluczyka, a nie po pełnym boocie M910q.
+
+   Warunki: wpięcie **za LVD i wyłącznikiem głównym S1**, własna wkładka
+   2 A z listwy, i **dopisanie panelu do budżetu §9.1**
+   [`ZASILANIE_BUFOROWANE.md`](ZASILANIE_BUFOROWANE.md) — dziś go tam nie ma,
+   tabela obejmuje tylko Nano #1, HM-10, RXB6, moduł przekaźników i straty
+   bucka (razem 60 mA).
+
+Rekomendacja: **wariant 1 albo 4** — i to jest wybór architektoniczny, nie
+elektryczny.
+
+- **Wariant 1 (+15)** jest najprostszy i zeruje pobór na postoju, ale
+  w wersji **docelowej** szyna +15 nie jest już źródłem zasilania niczego:
+  [`ZASILANIE_BUFOROWANE.md`](ZASILANIE_BUFOROWANE.md) §2 stwierdza, że
+  „zapłon nie odcina już żadnego odbiornika — jest wyłącznie **sygnałem**".
+  Wzięcie stamtąd prądu oznacza w praktyce ciągnięcie z akumulatora
+  rozruchowego, czyli dokładnie to, czego zakazuje §1. W wariancie
+  **testowym**, gdzie panel i tak jest osobnym bytem, zarzut ten nie jest
+  jeszcze wiążący.
+- **Wariant 4 (domena A)** jest zgodny z architekturą docelową i przy banku
+  35,7 Ah mieści się w budżecie. Kosztuje 24–43 % czasu postoju i wymaga
+  aktualizacji §9.1.
+
+Wariant 2 zostaje, jeśli ostrzeżenie ma działać przy wyłączonym zapłonie bez
+sięgania do banku. Wariant 3 tylko wtedy, gdy ekran ma być stale rezydentny,
+i wyłącznie z policzoną przetwornicą.
 
 ### Zasilać z USB czy osobno
 
@@ -488,17 +542,21 @@ Wymaga tylko pilnowania, żeby własne 5 V nie trafiło w VBUS: albo płytka
 rozdzielająca zasilanie zewnętrzne od VBUS, albo kabel z odłączoną żyłą
 VBUS i wykrywaniem obecności hosta osobnym GPIO. Masa musi być wspólna.
 
-Rekomendacja: **osobno z +15**. Lampka ABS czy poduszki, która zapala się
-pół minuty po przekręceniu kluczyka, jest gorsza niż jej brak, a zasilanie
-z zapłonu i tak wychodzi na zero pod względem poboru.
+Rekomendacja: **osobno, nie z USB.** Lampka ABS czy poduszki, która zapala
+się pół minuty po przekręceniu kluczyka, jest gorsza niż jej brak. Skąd wziąć
+te 12 V, rozstrzyga sekcja wyżej: **z +15** w wariancie testowym (pobór na
+postoju zerowy) albo **z szyny buforowanej / domeny A** w wersji docelowej
+(zgodne z architekturą, kosztuje 24–43 % czasu postoju przy banku 35,7 Ah).
+Elektrycznie i mechanicznie oba rozwiązania są identyczne — różni je tylko to,
+do którego zacisku podepniesz wejście bucka.
 
 ## Do rozstrzygnięcia
 
 Rozstrzygnięte — zostają na liście, żeby było widać, czym się skończyło:
 
-- ~~Zasilanie: z USB czy osobno z +15~~ → **osobno z +15**, z przeciętą
-  żyłą VBUS w kablu USB. Lampka bezpieczeństwa, która zapala się pół minuty
-  po przekręceniu kluczyka, jest gorsza niż jej brak. Wariant „tylko z USB”
+- ~~Zasilanie: z USB czy osobno~~ → **osobno**, z przeciętą żyłą VBUS
+  w kablu USB. Lampka bezpieczeństwa, która zapala się pół minuty po
+  przekręceniu kluczyka, jest gorsza niż jej brak. Wariant „tylko z USB”
   zostaje opisany jako alternatywa, bo elektrycznie jest prostszy.
 - ~~Rozkład kontrolek między pasmami~~ → **cztery lampki usterek w paśmie
   górnym**, dolne pasmo w całości dla tempomatu, lewe 40 px jako rezerwa.
@@ -512,6 +570,14 @@ Rozstrzygnięte — zostają na liście, żeby było widać, czym się skończy�
 
 Otwarte:
 
+0. **Skąd wziąć 12 V dla panelu w wersji docelowej: +15 czy szyna buforowana
+   (domena A).** Sekcja „Czy można wpiąć na stałe do akumulatora", wariant 1
+   vs 4. Rachunek jest policzony i przy banku 35,7 Ah wariant 4 mieści się
+   w budżecie (postój 5,3–3,0 dnia zamiast 9,3–4,0), ale +15 jako **źródło
+   zasilania** kłóci się z [`ZASILANIE_BUFOROWANE.md`](ZASILANIE_BUFOROWANE.md)
+   §2, gdzie zapłon jest wyłącznie sygnałem. Decyzja pociąga za sobą dopisanie
+   panelu do budżetu §9.1 tamtego dokumentu i wiersz w tabeli przekrojów §8.2
+   — dlatego nie została podjęta tu samodzielnie.
 1. Czy **ABS i poduszka** są dostępne na złączu fabrycznego wyświetlacza
    jako osobne linie 12 V — do zmierzenia w aucie. Jeśli nie, zostaje
    wzięcie ich z BCM albo rezygnacja z tych dwóch lampek.

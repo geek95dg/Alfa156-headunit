@@ -103,6 +103,15 @@ BLE-gated trunk button) possible without flattening the car battery.
 
 ### 2.2 Battery buffer — 4-6 × 12 V 5 Ah SLA in parallel
 
+> **Historical — superseded.** This section describes an earlier sizing.
+> The bank as built has **seven CSB HR1221W packs in parallel: 35.7 Ah,
+> 12.6 kg, catalogue charge ceiling 14.7 A, charger set to CC 8.0 A**.
+> The 15-20 A bulk-charge figure below is no longer the binding limit
+> (the charging path is), and the standby table in §2.3 does not apply.
+> Authoritative numbers, in Polish: [`ZASILANIE_BUFOROWANE.md`](ZASILANIE_BUFOROWANE.md)
+> §4.2 (bank), §4.3 (busbar topology for an odd pack count), §9.2
+> (standby) and §13.1 (what exactly was wrong here).
+
 Four to six sealed lead-acid 12 V 5 Ah batteries wired in parallel form
 the always-on bus. Using five is the sweet spot (25 Ah pack, ~17 days
 parked-car standby at 60 mA Domain A draw). Six (30 Ah) gives ~21 days;
@@ -192,6 +201,14 @@ Car 12V (ACC)  ──[30 A fuse]──┬──[Schottky diode MBR2045]──┐
 | 4 batteries | 20 Ah | 60 mA | ~14 days |
 | 5 batteries | 25 Ah | 60 mA | ~17 days |
 | 6 batteries | 30 Ah | 60 mA | ~21 days |
+
+> **Historical — superseded.** These figures are full discharges, not the
+> 50 % DoD the caption claims, and the bank has seven packs (35.7 Ah), not
+> four to six. The "~5 Ah/week halves the standby figures" line below is
+> wrong too, and was wrong at any pack count: 5 Ah/week is ~29.8 mA of
+> equivalent draw, so at an 80 mA base it shortens standby to
+> 80/(80+29.8) = **73 %**, not 50 %. Current table and the corrected RTC
+> figure: [`ZASILANIE_BUFOROWANE.md`](ZASILANIE_BUFOROWANE.md) §9.2 and §9.3.
 
 (60 mA = Nano ~25 mA + HM-10 idle ~15 mA + RXB6 idle ~5 mA + relay
 quiescent ~10 mA + buck losses ~5 mA. Discharge limited to 50 % DoD

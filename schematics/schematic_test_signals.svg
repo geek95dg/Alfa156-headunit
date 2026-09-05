@@ -45,6 +45,10 @@
  .wnb{fill:#ffffff;stroke:#8b9aa6;stroke-width:1.2;rx:3}
  .ldr{stroke:#7d8c99;stroke-width:1.3;fill:none}
  .ldrf{fill:#7d8c99;stroke:none}
+ .bus{stroke:#c08a4a;stroke-width:11;fill:none;stroke-linecap:round;opacity:0.45}
+ .cu{fill:#d9a066;stroke:#8a5a22;stroke-width:1.4}
+ .cg{fill:#b9bec4;stroke:#4a545c;stroke-width:1.4}
+ .pk{fill:#fffaf0;stroke:#6b4a12;stroke-width:1.6}
 </style>
 <rect class="bg" x="0" y="0" width="1620" height="1230"/>
 <text class="ttl" x="40" y="44">BCM v8.5 — arkusz 2/2: SYGNAŁY I STEROWANIE (Arduino Nano)</text>

@@ -134,9 +134,9 @@
   <text class="sec" x="60" y="548">Dlaczego osobno</text>
   <rect x="60" y="558" width="560" height="182" fill="#fbfcfd" stroke="#c8d2da" stroke-width="1.5" rx="6"/>
   <text class="tb" x="78" y="582">Prąd</text>
-  <text class="note" x="78" y="600">Wzmacniacz 4 × 50 W RMS pobiera w szczytach 20–30 A. Bank 20,4 Ah</text>
-  <text class="note" x="78" y="616">rozłożyłby się przy takim prądzie w kilkanaście minut, a przekaźnik</text>
-  <text class="note" x="78" y="632">XH-M609 (20 A) zostałby przekroczony.</text>
+  <text class="note" x="78" y="600">Wzmacniacz 4 × 50 W RMS pobiera w szczytach 20–30 A. Bank 35,7 Ah</text>
+  <text class="note" x="78" y="616">zszedłby przy takim prądzie (0,6–0,8 C) do połowy w niecałą godzinę,</text>
+  <text class="note" x="78" y="632">a przekaźnik XH-M609 (20 A) zostałby przekroczony.</text>
   <text class="tb" x="78" y="658">Zakłócenia</text>
   <text class="note" x="78" y="676">Wzmacniacz to najbardziej „brudne” obciążenie w aucie — impulsy prądu</text>
   <text class="note" x="78" y="692">w rytm muzyki. Poza szyną komputera oszczędza to sporo problemów.</text>

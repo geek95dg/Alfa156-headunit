@@ -104,6 +104,27 @@
             always-on features alive without involving the M910q at all.
           </p>
 
+          <div class="box box-warning">
+            <div class="box-title">Historical &mdash; superseded</div>
+            <p>
+              This page describes an earlier sizing of the buffer bank. As
+              built, the bank is <strong>seven CSB HR1221W packs in parallel:
+              35.7 Ah, 12.6 kg, catalogue charge ceiling 14.7 A, charger set
+              to CC 8.0 A</strong>. Three consequences: the 15&ndash;20 A
+              bulk-charge figure is no longer the binding limit (the charging
+              path is &mdash; the XH-M603 board caps it at 8.0 A); the standby
+              figures below are full discharges rather than the 50 % DoD they
+              claim; and the &ldquo;RTC wake halves those figures&rdquo; line
+              is wrong at any pack count &mdash; 5 Ah/week is ~29.8 mA of
+              equivalent draw, which at an 80 mA base leaves
+              <strong>73 %</strong>, not 50 %. Authoritative numbers, in
+              Polish: <code>docs/ZASILANIE_BUFOROWANE.md</code> &sect;4.2
+              (bank), &sect;4.3 (busbar topology for an odd pack count),
+              &sect;9.2 (standby), &sect;9.3 (RTC) and &sect;13.1 (what
+              exactly was wrong here).
+            </p>
+          </div>
+
           <div class="box box-info">
             <div class="box-title">Parked-car standby budget</div>
             <p>
@@ -217,6 +238,9 @@
               (Domain A draw) limited to 50 % DoD = <strong>~17 days</strong>
               standby on a 5-battery pack before the LVD trips. 4 packs
               (20 Ah) gives ~14 days; 6 packs (30 Ah) gives ~21 days.
+              <em>Superseded &mdash; those are full discharges, and the bank
+              has seven packs (35.7 Ah): ~12.4 days to 50 % DoD at 60 mA.
+              See the note above.</em>
             </li>
           </ul>
 

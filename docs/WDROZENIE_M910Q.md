@@ -171,20 +171,21 @@ Tutaj tylko to, co trzeba wiedzieć, żeby zrozumieć resztę wdrożenia.
 odbiornika — jest sygnałem, który Arduino zamienia na impuls na styki
 **przycisku zasilania M910q**:
 
-| Stan | Pobór z banku | Postój (4 pakiety, 20,4 Ah) |
+| Stan | Pobór z banku | Postój (7 pakietów, 35,7 Ah) |
 |------|---------------|------------------------------|
-| Praca | 10–55 W | — |
-| **S3** (kluczyk OFF) | 200–460 mA | ~0,9–2,1 dnia |
-| **Wyłączony** (impuls 5 s po 2 h) | 50–150 mA | ~2,8–8,5 dnia |
+| Praca | 10–55 W (3,5 A z banku) | ~5,1 h przy zgaszonym silniku |
+| **S3** (kluczyk OFF) | 200–460 mA | ~1,6–3,7 dnia |
+| **Wyłączony** (impuls 5 s po 2 h) | 50–150 mA | ~5,0–14,9 dnia |
 
 Jedyny przekaźnik w torze mocy siedzi w **ładowaniu**, nie w odbiornikach.
 Uzasadnienie i porównanie z porzuconym modelem „domena B":
 [`ZASILANIE_BUFOROWANE.md`](ZASILANIE_BUFOROWANE.md) §2.2.
 
-Między akumulatorem auta a head unitem stoi **bank 4 × CSB HR1221W F2**
-(12 V / 5,1 Ah AGM, razem 20,4 Ah — więcej fizycznie się nie mieści),
-ładowany przez ładowarkę CC-CV z profilem **AGM** (14,40 V absorpcji /
-13,65 V float, maks. 8,4 A wg karty katalogowej),
+Między akumulatorem auta a head unitem stoi **bank 7 × CSB HR1221W F2**
+(12 V / 5,1 Ah AGM, łączone równolegle — razem **35,7 Ah** przy niezmienionym
+napięciu 12 V, masa 12,6 kg), ładowany przez ładowarkę CC-CV z profilem
+**AGM** (14,40 V absorpcji / 13,65 V float, **nastawa CC 8,0 A** przy suficie
+katalogowym 14,7 A — ogranicza tor ładowania, nie akumulator),
 chroniony rozłącznikiem nadnapięciowym (15,3 V) i modułem **XH-M609** jako
 LVD (11,0 / 12,60 V). M910q zasila **przetwornica step-up XL6019**
 (12 → 19,5 V) za przekaźnikiem zapłonu.
@@ -797,8 +798,8 @@ z parowaniem telefonów.
 > **Zasilanie wzmacniacza idzie osobną gałęzią** prosto z akumulatora
 > rozruchowego (bezpiecznik wg karty modułu, zwykle 20–30 A), **nie z banku
 > buforowego** — patrz [`ZASILANIE_BUFOROWANE.md`](ZASILANIE_BUFOROWANE.md) §2.
-> Szczyty 20–30 A rozłożyłyby bank AGM w kilkanaście minut i przekroczyły
-> przekaźnik LVD.
+> Szczyty 20–30 A przekroczyłyby przekaźnik LVD (20 A) — i to jest argument
+> rozstrzygający, bo nie zależy od pojemności banku.
 
 Z systemem buforowanym łączy wzmacniacz wyłącznie **sygnał REM z zacisku 87
 i ekran kabla RCA**. Masę prowadź lokalnie, przy wzmacniaczu — wspólna masa
@@ -878,10 +879,10 @@ za zakończone.
 
 ```
 [ ] Rozruch silnika przy działającym BCM — komputer NIE resetuje się
-[ ] Wyłączenie zapłonu → impuls z Arduino, M910q schodzi do S3 (400–550 mA)
+[ ] Wyłączenie zapłonu → impuls z Arduino, M910q schodzi do S3 (200–460 mA)
 [ ] Domena A dalej działa — pilot 433 MHz i BLE bagażnika odpowiadają
 [ ] Prąd spoczynkowy logiki ~60 mA
-[ ] Prąd ładowania banku ≤ 6 A przy pracującym silniku
+[ ] Prąd na wyjściu ładowarki ≤ 8 A, do szyny banku ~4,5 A (silnik pracuje)
 [ ] Napięcie banku nie przekracza 14,40 V (wg kompensacji temperaturowej)
 [ ] Po 48 h postoju auto normalnie odpala
 [ ] BCM wstaje automatycznie po włączeniu zapłonu
@@ -997,8 +998,11 @@ Wnioski:
 
 **Napięcia są prawidłowe** — HR1221W to AGM, a karta katalogowa CSB dopuszcza
 14,4–15,0 V cyklicznie i 13,5–13,8 V buforowo. **Limit prądu nie jest**:
-katalog podaje 2,1 A na pakiet, czyli 8,4 A dla banku czterech. Brakuje też
-kompensacji temperaturowej (−18 mV/°C float, −30 mV/°C cykl).
+katalog podaje 2,1 A na pakiet. Przy dzisiejszym banku **siedmiu** pakietów
+sufit wynosi 14,7 A, więc dolna wartość z tamtych notatek mieści się w karcie
+— ale obowiązująca nastawa to **CC 8,0 A** i ogranicza ją tor ładowania
+(płytka XH-M603), a nie akumulator. Brakuje też kompensacji temperaturowej
+(−18 mV/°C float, −30 mV/°C cykl).
 
 Obowiązujące nastawy: [`ZASILANIE_BUFOROWANE.md`](ZASILANIE_BUFOROWANE.md) §4.4–§4.5 i §5.
 

@@ -379,7 +379,7 @@ def build_schematic(out_path):
 
     # --- M1 moduł CC-CV (poza płytką, po prawej; piny wprost naprzeciw zacisków)
     m1 = s.module(1150, 158, 250, 236, "M1", "MODUŁ CC-CV BOOST",
-                  "ładowarka banku · CV 14,40 V / CC 6,0 A",
+                  "ładowarka banku · CV 14,40 V / CC 8,0 A",
                   left=(("in+", "IN +"), ("in-", "IN −"),
                         ("out+", "OUT +"), ("out-", "OUT −")), cls="blkc")
     s.path([(BXR, RAIL), (m1["in+"][0], m1["in+"][1])])
@@ -406,8 +406,12 @@ def build_schematic(out_path):
     s.txt(BXL + 12, ACCY - 14, "X6.1 ZAPŁON / ACC", "pin")
     s.wn(216, ACCY - 15, 4)
     s.path([(190, ACCY), (BXL, ACCY)])
-    s.txt(120, ACCY + 4, "z linii ACC", "te")
-    s.txt(120, ACCY + 20, "(albo D+ alternatora)", "ve")
+    # Oba napisy są kotwiczone końcem (text-anchor:end), a dłuższy z nich ma
+    # ok. 123 px — przy x=120 wychodził poza lewą krawędź arkusza i pierwszy
+    # znak był ucinany w rastrze. x=164 stawia jego lewy koniec na marginesie
+    # 40 px, tym samym co tytuł i blok notatek, i zostawia 26 px do przewodu.
+    s.txt(164, ACCY + 4, "z linii ACC", "te")
+    s.txt(164, ACCY + 20, "(albo D+ alternatora)", "ve")
     s.path([(BXL, ACCY), (438, ACCY)])
     s.dot(376, ACCY)
     s.diode_v(376, ACCY + 6, "D6", "1N4007", up=True, side=-1)
@@ -454,7 +458,7 @@ def build_schematic(out_path):
     s.path([(BXR, yb), (1060, yb), (1060, 690), (1096, 690)])
     s.wn(1080, 668, 7)
     s.txt(1106, 686, "przewód 7 → SZYNA „+” BANKU", "tb")
-    s.txt(1106, 702, "(4 × HR1221W, bezpieczniki pakietów)", "v")
+    s.txt(1106, 702, "(7 × HR1221W = 35,7 Ah, wkładki FB1…FB7)", "v")
     s.txt(1106, 718, "uwaga: bank tylko przez X5.4 —", "v")
     s.txt(1106, 734, "bez M2 zewrzyj X5.1 z X5.3 drutem", "v")
 
@@ -562,7 +566,7 @@ def build_schematic(out_path):
         ("X2.1 / X2.2", "M1 IN+ / IN− — wejście ładowarki CC-CV (przewód 6)"),
         ("X3.1 / X3.2", "M1 OUT+ / OUT− — wyjście ładowarki (przewód B)"),
         ("X5.1 / X5.2", "XH-M603 DC-IN+ / DC-IN− (przewody 7a″, 7b — 1,5 mm²)"),
-        ("X5.3 / X5.4", "XH-M603 OUT+ (7d″) · szyna „+” banku (przewód 7, 2,5 mm²)"),
+        ("X5.3 / X5.4", "XH-M603 OUT+ (7d″) · szyna „+” banku (przewód 7, 4 mm²)"),
         ("X6.1 / X6.2", "zapłon / ACC (przewód 4) · przelot ACC dalej (PC817, REM)"),
         ("GND M4", "oczko 6 mm² → punkt gwiazdowy masy"),
     ]
@@ -583,13 +587,15 @@ def build_schematic(out_path):
         s.txt(880, y0 + i * 24, a, "tb" if b else "nh")
         s.txt(1040, y0 + i * 24, b, "nt")
 
-    s.box(40, 1720, 1580, 250, "note")
+    s.box(40, 1720, 1580, 372, "note")
     notes = [
         ("XH-M603 pracuje W TORZE ładowania (IN+ → OUT+), nie jako pilot przekaźnika K2 — zmiana wobec §6.3.",
          "Zweryfikowane działanie modułu: przekaźnik siedzi wewnętrznie między DC-IN+ a OUT+, a pomiar napięcia "
          "jest po stronie OUT (akumulatora). W układzie „pilot + K2” po zadziałaniu OUT spada do zera przez cewkę "
          "i moduł natychmiast zwiera z powrotem — oscylacja niszczy styki. W torze działa zgodnie z przeznaczeniem: "
-         "przy CC 6,0 A (nastawa domyślna §5.3) styki 10 A wystarczają, a moduł mierzy wprost napięcie banku. "
+         "przy CC 8,0 A (nastawa dla banku siedmiu pakietów, §5.3) płytka modułu pracuje na 80 % swojej "
+         "obciążalności — bez komfortowego zapasu; wyżej trzeba modułu z wolnym stykiem i przekaźnika K2. "
+         "Moduł mierzy wprost napięcie banku. "
          "Zasilanie ma z toru ładowania, więc na postoju pobór wynosi zero. Progi: rozwarcie 15,30 V, powrót 14,00 V."),
         ("Budowa etapami.",
          "Zanim kupisz M2 (XH-M603), zewrzyj X5.1 z X5.3 kawałkiem przewodu w zaciskach — tor ładowania działa "
@@ -620,7 +626,7 @@ def build_schematic(out_path):
             s.txt(78, yn, ln, "nt")
         yn += 30
 
-    s.txt(40, 2140, "Nastawy: M1 CV 14,40 V / CC 6,0–7,5 A · M2 rozwarcie 15,30 V, powrót 14,00 V · "
+    s.txt(40, 2140, "Nastawy: M1 CV 14,40 V / CC 8,0 A · M2 rozwarcie 15,30 V, powrót 14,00 V · "
                     "M3 (XH-M609) 11,00 / 12,60 V · przetwornica 19,5 V pod obciążeniem.", "nh")
     s.txt(40, 2164, "Montaż i trawienie: docs/PCB_ZASILANIE.md · mozaika: pcb_power_etch.svg · "
                     "rozmieszczenie: pcb_power_layout.svg", "nt")

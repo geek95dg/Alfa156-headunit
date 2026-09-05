@@ -156,7 +156,7 @@
 <rect class="blkc" x="1150" y="158" width="250" height="236"/>
 <text class="mref" x="1275.0" y="183">M1</text>
 <text class="mname" x="1275.0" y="202">MODUŁ CC-CV BOOST</text>
-<text class="vc" x="1275.0" y="220">ładowarka banku · CV 14,40 V / CC 6,0 A</text>
+<text class="vc" x="1275.0" y="220">ładowarka banku · CV 14,40 V / CC 8,0 A</text>
 <line class="w" x1="1132" y1="250" x2="1150" y2="250"/>
 <text class="pin" x="1160" y="255">IN +</text>
 <line class="w" x1="1132" y1="286" x2="1150" y2="286"/>
@@ -194,8 +194,8 @@
 <rect class="wnb" x="204" y="555" width="24" height="18"/>
 <text class="wn" x="216" y="569">4</text>
 <line class="w" x1="190" y1="580" x2="250" y2="580"/>
-<text class="te" x="120" y="584">z linii ACC</text>
-<text class="ve" x="120" y="600">(albo D+ alternatora)</text>
+<text class="te" x="164" y="584">z linii ACC</text>
+<text class="ve" x="164" y="600">(albo D+ alternatora)</text>
 <line class="w" x1="250" y1="580" x2="438" y2="580"/>
 <circle class="symf" cx="376" cy="580" r="3.8"/>
 <line class="w" x1="376" y1="586" x2="376" y2="602"/>
@@ -262,7 +262,7 @@
 <rect class="wnb" x="1068" y="658" width="24" height="18"/>
 <text class="wn" x="1080" y="672">7</text>
 <text class="tb" x="1106" y="686">przewód 7 → SZYNA „+” BANKU</text>
-<text class="v" x="1106" y="702">(4 × HR1221W, bezpieczniki pakietów)</text>
+<text class="v" x="1106" y="702">(7 × HR1221W = 35,7 Ah, wkładki FB1…FB7)</text>
 <text class="v" x="1106" y="718">uwaga: bank tylko przez X5.4 —</text>
 <text class="v" x="1106" y="734">bez M2 zewrzyj X5.1 z X5.3 drutem</text>
 <line class="wg" x1="300" y1="720" x2="1004" y2="720"/>
@@ -439,7 +439,7 @@
 <text class="tb" x="60" y="1596">X5.1 / X5.2</text>
 <text class="nt" x="240" y="1596">XH-M603 DC-IN+ / DC-IN− (przewody 7a″, 7b — 1,5 mm²)</text>
 <text class="tb" x="60" y="1620">X5.3 / X5.4</text>
-<text class="nt" x="240" y="1620">XH-M603 OUT+ (7d″) · szyna „+” banku (przewód 7, 2,5 mm²)</text>
+<text class="nt" x="240" y="1620">XH-M603 OUT+ (7d″) · szyna „+” banku (przewód 7, 4 mm²)</text>
 <text class="tb" x="60" y="1644">X6.1 / X6.2</text>
 <text class="nt" x="240" y="1644">zapłon / ACC (przewód 4) · przelot ACC dalej (PC817, REM)</text>
 <text class="tb" x="60" y="1668">GND M4</text>
@@ -458,22 +458,23 @@
 <text class="nt" x="1040" y="1620">AUX 12 V (za F11) — moduł przekaźników / wentylator</text>
 <text class="tb" x="880" y="1644">J1.1 / J1.2</text>
 <text class="nt" x="1040" y="1644">V_BANK → ADC sensor-huba · GND sygnałowa</text>
-<rect class="note" x="40" y="1720" width="1580" height="250"/>
+<rect class="note" x="40" y="1720" width="1580" height="372"/>
 <text class="nh" x="60" y="1748">XH-M603 pracuje W TORZE ładowania (IN+ → OUT+), nie jako pilot przekaźnika K2 — zmiana wobec §6.3.</text>
 <text class="nt" x="78" y="1766">Zweryfikowane działanie modułu: przekaźnik siedzi wewnętrznie między DC-IN+ a OUT+, a pomiar napięcia jest po stronie OUT (akumulatora). W układzie</text>
 <text class="nt" x="78" y="1784">„pilot + K2” po zadziałaniu OUT spada do zera przez cewkę i moduł natychmiast zwiera z powrotem — oscylacja niszczy styki. W torze działa zgodnie z</text>
-<text class="nt" x="78" y="1802">przeznaczeniem: przy CC 6,0 A (nastawa domyślna §5.3) styki 10 A wystarczają, a moduł mierzy wprost napięcie banku. Zasilanie ma z toru ładowania,</text>
-<text class="nt" x="78" y="1820">więc na postoju pobór wynosi zero. Progi: rozwarcie 15,30 V, powrót 14,00 V.</text>
-<text class="nh" x="60" y="1850">Budowa etapami.</text>
-<text class="nt" x="78" y="1868">Zanim kupisz M2 (XH-M603), zewrzyj X5.1 z X5.3 kawałkiem przewodu w zaciskach — tor ładowania działa bez warstwy nadnapięciowej. Tak samo można</text>
-<text class="nt" x="78" y="1886">zacząć bez M1: ładowanie pomijasz, a płytka B i bank pracują.</text>
-<text class="nh" x="60" y="1916">Czego celowo NIE ma na płytkach.</text>
-<text class="nt" x="78" y="1934">K2, D7 i JP1 (patrz wyżej — pilot odpada), X4 (bank wychodzi z X5.4), REM wzmacniacza (bierz z przelotu ACC X6.2), drugi TVS, kondensator na szynie</text>
-<text class="nt" x="78" y="1952">za LVD (bank to bufor), NTC rozruchowy (tylko przy czkawce XL6019 — w linii, poza płytką), kompensacja temperaturowa (wariant B świadomie bez niej),</text>
-<text class="nt" x="78" y="1970">C6 470 µF na wyjściu przetwornicy 19,5 V (moduł „1500 W 30 A” ma własne kondensatory).</text>
-<text class="nh" x="60" y="2000">Masy.</text>
-<text class="nt" x="78" y="2018">Każda płytka ma jeden odpływ masy do punktu gwiazdowego (A: śruba M4 w polu masy, B: X8.2). Otwory montażowe są odizolowane — tulejki/słupki</text>
-<text class="nt" x="78" y="2036">nylonowe, żeby nie zrobić drugiej drogi masy przez karoserię.</text>
-<text class="nh" x="40" y="2140">Nastawy: M1 CV 14,40 V / CC 6,0–7,5 A · M2 rozwarcie 15,30 V, powrót 14,00 V · M3 (XH-M609) 11,00 / 12,60 V · przetwornica 19,5 V pod obciążeniem.</text>
+<text class="nt" x="78" y="1802">przeznaczeniem: przy CC 8,0 A (nastawa dla banku siedmiu pakietów, §5.3) płytka modułu pracuje na 80 % swojej obciążalności — bez komfortowego</text>
+<text class="nt" x="78" y="1820">zapasu; wyżej trzeba modułu z wolnym stykiem i przekaźnika K2. Moduł mierzy wprost napięcie banku. Zasilanie ma z toru ładowania, więc na postoju</text>
+<text class="nt" x="78" y="1838">pobór wynosi zero. Progi: rozwarcie 15,30 V, powrót 14,00 V.</text>
+<text class="nh" x="60" y="1868">Budowa etapami.</text>
+<text class="nt" x="78" y="1886">Zanim kupisz M2 (XH-M603), zewrzyj X5.1 z X5.3 kawałkiem przewodu w zaciskach — tor ładowania działa bez warstwy nadnapięciowej. Tak samo można</text>
+<text class="nt" x="78" y="1904">zacząć bez M1: ładowanie pomijasz, a płytka B i bank pracują.</text>
+<text class="nh" x="60" y="1934">Czego celowo NIE ma na płytkach.</text>
+<text class="nt" x="78" y="1952">K2, D7 i JP1 (patrz wyżej — pilot odpada), X4 (bank wychodzi z X5.4), REM wzmacniacza (bierz z przelotu ACC X6.2), drugi TVS, kondensator na szynie</text>
+<text class="nt" x="78" y="1970">za LVD (bank to bufor), NTC rozruchowy (tylko przy czkawce XL6019 — w linii, poza płytką), kompensacja temperaturowa (wariant B świadomie bez niej),</text>
+<text class="nt" x="78" y="1988">C6 470 µF na wyjściu przetwornicy 19,5 V (moduł „1500 W 30 A” ma własne kondensatory).</text>
+<text class="nh" x="60" y="2018">Masy.</text>
+<text class="nt" x="78" y="2036">Każda płytka ma jeden odpływ masy do punktu gwiazdowego (A: śruba M4 w polu masy, B: X8.2). Otwory montażowe są odizolowane — tulejki/słupki</text>
+<text class="nt" x="78" y="2054">nylonowe, żeby nie zrobić drugiej drogi masy przez karoserię.</text>
+<text class="nh" x="40" y="2140">Nastawy: M1 CV 14,40 V / CC 8,0 A · M2 rozwarcie 15,30 V, powrót 14,00 V · M3 (XH-M609) 11,00 / 12,60 V · przetwornica 19,5 V pod obciążeniem.</text>
 <text class="nt" x="40" y="2164">Montaż i trawienie: docs/PCB_ZASILANIE.md · mozaika: pcb_power_etch.svg · rozmieszczenie: pcb_power_layout.svg</text>
 </svg>
