@@ -146,12 +146,17 @@ i limit prądu **15–20 A**.
 |----------|--------------|------------------------------|---------|
 | Absorpcja @ 25 °C | 14,4 V | 14,4–15,0 V (cykl) | ✅ prawidłowo |
 | Float @ 25 °C | 13,8 V | 13,5–13,8 V (bufor) | ✅ prawidłowo |
-| Maks. prąd ładowania | 15–20 A | **2,1 A/pakiet → 8,4 A na 4** | ❌ za wysoko |
+| Maks. prąd ładowania | 15–20 A | **2,1 A/pakiet → 14,7 A na 7** | ⚠ mieści się w karcie, ale nie w torze |
 | Kompensacja temperaturowa | brak | **−18 mV/°C** float, **−30 mV/°C** cykl | ❌ brak |
 
 **Dlaczego prąd ma znaczenie.** Ładowanie powyżej katalogowego limitu grzeje
-płyty i przyspiesza korozję siatki; przy 15–20 A na bank pięciu HR1221W to
-niemal dwukrotne przekroczenie. Przyjęta nastawa **6 A** to 57 % limitu.
+płyty i przyspiesza korozję siatki. Przy banku, jaki opisywały tamte notatki
+(pięć pakietów, sufit 10,5 A), 15–20 A było niemal dwukrotnym przekroczeniem.
+Dzisiejszy bank ma **siedem pakietów** i sufit katalogowy **14,7 A**, więc
+dolny kraniec „15–20 A" już się w karcie mieści — zarzut zmienia adresata.
+Nastawę ogranicza teraz **tor ładowania**, a nie akumulator: płytka XH-M603
+wyrabia ok. 10 A i spec podaje „≤ 8 A". Przyjęta nastawa to **CC 8,0 A**,
+czyli 54 % sufitu katalogowego i 80 % obciążalności płytki.
 
 **Dlaczego kompensacja ma znaczenie.** Bagażnik latem osiąga 45–55 °C. Bez
 kompensacji bank przy stałych 14,4 V jest w takich warunkach stale
@@ -195,7 +200,7 @@ Podane dwie działające topologie:
 | Wariant | Rozwiązanie | Koszt |
 |---------|-------------|-------|
 | **A — zalecany** | ładowarka DC-DC B2B z presetem AGM (Victron Orion-Tr Smart, Redarc BCDC, Sterling) — buck-boost, limit prądu, kompensacja temperaturowa, detekcja pracy alternatora w jednym pudełku | 800–1000 PLN |
-| **B — DIY** | przekaźnik ładowania + dioda **MBR2545CT** + moduł **CC-CV boost** nastawiony na 14,40 V / 6,0 A | 70–180 PLN |
+| **B — DIY** | przekaźnik ładowania + dioda **MBR2545CT** + moduł **CC-CV boost** nastawiony na 14,40 V / **8,0 A** | 70–180 PLN |
 
 W wariancie B tor ładowania **musi być fizycznie rozłączany**: boost nie może
 dawać napięcia niższego niż wejściowe, więc przy zgaszonym silniku próbowałby
@@ -206,21 +211,26 @@ barierą na wypadek zespawania styków.
 ### 3.3 Czas postoju „~17 dni" to pełne rozładowanie
 
 Liczba w `X86_PLATFORM_SETUP.md` § 2.3 jest opisana jako „ograniczone do 50 %
-DoD", ale 25 Ah / 0,060 A = 417 h = 17,4 dnia to **zejście do zera**.
-Przy faktycznej pojemności 25,5 Ah i ograniczeniu do 50 % DoD wychodzi
-12,75 Ah / 0,060 A = 212 h.
+DoD", ale 25 Ah / 0,060 A = 417 h = 17,4 dnia to **zejście do zera**. Dla
+banku, jaki tamte notatki opisywały (pięć pakietów, czyli faktycznie
+25,5 Ah), ograniczenie do 50 % DoD daje 12,75 Ah / 0,060 A = 212 h, czyli
+8,9 dnia. Dzisiejszy bank ma **siedem pakietów (35,7 Ah)** — obowiązujący
+wiersz jest w tabeli niżej.
 
 | Pakiety | Pojemność | Do 30 % DoD | Do 50 % DoD | Do progu LVD |
 |---------|-----------|-------------|-------------|--------------|
-| **4** | **20,4 Ah** | **~4,3 dnia** | **~7,1 dnia** | **~10,6 dnia** |
+| 4 | 20,4 Ah | ~4,3 dnia | ~7,1 dnia | ~10,6 dnia |
 | 5 | 25,5 Ah | ~5,3 dnia | ~8,9 dnia | ~13,3 dnia |
 | 6 | 30,6 Ah | ~6,4 dnia | ~10,6 dnia | ~15,9 dnia |
+| **7** | **35,7 Ah** | **~7,4 dnia** | **~12,4 dnia** | **~18,6 dnia** |
 | 8 | 40,8 Ah | ~8,5 dnia | ~14,2 dnia | ~21,3 dnia |
 
-> Wiersz 5 był pierwotnie przyjęty jako optimum energetyczne. Ostatecznie
-> bank ma **cztery pakiety** — ograniczenie jest fizyczne (nie ma gdzie
-> schować więcej), nie energetyczne. Aktualne liczby: §4.2
-> [`ZASILANIE_BUFOROWANE.md`](ZASILANIE_BUFOROWANE.md).
+> Wiersz 5 był pierwotnie przyjęty jako optimum energetyczne, a wydanie
+> pośrednie zeszło na **cztery** pakiety z powodu miejsca. Ostatecznie bank
+> ma **siedem pakietów** (35,7 Ah, 12,6 kg) — uzasadnienie i to, co się przez
+> to przesunęło, są w §4.2 [`ZASILANIE_BUFOROWANE.md`](ZASILANIE_BUFOROWANE.md).
+> Ta tabela liczy przy poborze 60 mA (sama logika); tabela §9.2 tamtego
+> dokumentu liczy przy poborze sumarycznym z LVD i to ona jest operacyjna.
 
 Kolumna 30 % DoD doszła dlatego, że HR to seria buforowa (UPS), a nie
 trakcyjna — płytsze rozładowanie wyraźnie wydłuża jej życie.

@@ -33,7 +33,7 @@
   <text class="t" x="300" y="138">masa na fabrycznym punkcie nadwozia, nie „gdziekolwiek”</text>
 
   <path class="wire" d="M300 152 L300 186"/>
-  <text class="fuse" x="312" y="172">bezp. 15 A przy klemie „+” · 2,5 mm²</text>
+  <text class="fuse" x="312" y="172">F1 15 A przy klemie „+” · 4 mm²</text>
 
   <rect class="boxC" x="90" y="186" width="420" height="62"/>
   <text class="h" x="300" y="209">Ochrona wejścia</text>
@@ -48,8 +48,8 @@
   <path class="wire" d="M300 344 L300 378"/>
 
   <rect class="boxC" x="90" y="378" width="420" height="76"/>
-  <text class="h" x="300" y="401">Moduł CC-CV boost — „900 W 15 A” albo SZBK07</text>
-  <text class="t" x="300" y="420">CV 14,40 V · CC 7,5 A dla czterech pakietów</text>
+  <text class="h" x="300" y="401">Moduł CC-CV boost — „900 W 15 A”</text>
+  <text class="t" x="300" y="420">albo „1500 W 30 A” · CV 14,40 V · CC 8,0 A (7 pakietów)</text>
   <text class="t" x="300" y="438">radiator i przewiew — 8 A ciągłe to nie jest praca „na sucho”</text>
 
   <path class="wire" d="M300 454 L300 488"/>
@@ -63,13 +63,13 @@
   <text class="tb" x="90" y="576" fill="#9a6b12" font-size="13.5">BANK</text>
 
   <rect class="boxB" x="90" y="584" width="420" height="84"/>
-  <text class="h" x="300" y="607">BANK 4 × CSB HR1221W F2 — 20,4 Ah</text>
-  <text class="t" x="300" y="626">bezpiecznik 10 A na „+” każdego pakietu, osobno</text>
-  <text class="t" x="300" y="644">nasuwki F2 6,35 mm · łączenie równoległe wg §4.3 ZASILANIE</text>
-  <text class="t" x="300" y="661">cztery pakiety — więcej fizycznie się nie mieści</text>
+  <text class="h" x="300" y="607">BANK 7 × CSB HR1221W F2 — 35,7 Ah · 12,6 kg</text>
+  <text class="t" x="300" y="626">wkładka 10 A (FB1…FB7) na „+” każdego pakietu</text>
+  <text class="t" x="300" y="644">nasuwki F2 6,35 mm · szyna: 2 płaskowniki Cu 15 × 2 mm</text>
+  <text class="t" x="300" y="661">odbiór po przekątnej: „+” odczep 1, „−” odczep 7 (§4.3)</text>
 
   <path class="wire" d="M300 668 L300 702"/>
-  <text class="fuse" x="312" y="690">bezp. 15 A przed VIN+</text>
+  <text class="fuse" x="312" y="690">F7 15 A MIDI przed VIN+</text>
 
   <text class="tb" x="90" y="694" fill="#2b4a8a" font-size="13.5">ODBIORNIKI</text>
 
@@ -111,15 +111,15 @@
   <text class="nt" x="576" y="437">Moduł limituje prąd WYJŚCIOWY — obciążenie plus</text>
   <text class="nt" x="576" y="454">ładowanie. Zestaw pobiera podczas jazdy ok. 3,5 A.</text>
   <text class="nt" x="576" y="475">CC 4 A  →  do banku 0,5 A  →  nigdy się nie doładuje</text>
-  <text class="nt" x="576" y="492">CC 7,5 A →  do banku 4,0 A  →  z 50 % w ~2,6 h jazdy</text>
-  <text class="nt" x="576" y="513">Sufit katalogowy CSB: 2,1 A × 4 = 8,4 A.</text>
+  <text class="nt" x="576" y="492">CC 8,0 A →  do banku 4,5 A  →  z 50 % w 4,0 h fazy CC</text>
+  <text class="nt" x="576" y="513">Sufit CSB: 2,1 A × 7 = 14,7 A — ogranicza tor, nie bank.</text>
 
   <rect class="note" x="560" y="540" width="376" height="112"/>
   <text class="nh" x="576" y="562">Pobór postojowy — S3 to nie zero</text>
   <text class="nt" x="576" y="583">M910q w S3 160–320 mA + Arduino 15 mA + XH-M609</text>
   <text class="nt" x="576" y="600">20–125 mA  =  razem 200–460 mA z banku.</text>
-  <text class="nt" x="576" y="621">4 pakiety (20,4 Ah) → 0,9–2,1 dnia w S3</text>
-  <text class="nt" x="576" y="638">Po wyłączeniu (impuls 5 s): 50–150 mA → 2,8–8,5 dnia.</text>
+  <text class="nt" x="576" y="621">7 pakietów (35,7 Ah) → 1,6–3,7 dnia w S3</text>
+  <text class="nt" x="576" y="638">Po wyłączeniu (impuls 5 s): 50–150 mA → 5,0–14,9 dnia.</text>
 
   <rect class="note" x="560" y="668" width="376" height="230"/>
   <text class="nh" x="576" y="690">Bezpieczniki i przekroje</text>
@@ -128,21 +128,21 @@
   <text class="tb" x="800" y="719">Bezp.</text>
   <text class="tb" x="866" y="719">Przekrój</text>
   <line x1="576" y1="727" x2="920" y2="727" stroke="#c8d2da"/>
-  <text class="nt" x="576" y="746">ładowarka ← akumulator</text><text class="nt" x="800" y="746">15 A</text><text class="nt" x="866" y="746">2,5 mm²</text>
-  <text class="nt" x="576" y="768">każdy pakiet banku</text><text class="nt" x="800" y="768">10 A</text><text class="nt" x="866" y="768">2,5 mm²</text>
+  <text class="nt" x="576" y="746">ładowarka ← akumulator</text><text class="nt" x="800" y="746">15 A</text><text class="nt" x="866" y="746">4 mm²</text>
+  <text class="nt" x="576" y="768">ogonek pakietu → szyna</text><text class="nt" x="800" y="768">10 A</text><text class="nt" x="866" y="768">1,5 mm²</text>
   <text class="nt" x="576" y="790">wejście XH-M609</text><text class="nt" x="800" y="790">15 A</text><text class="nt" x="866" y="790">2,5 mm²</text>
   <text class="nt" x="576" y="812">odgałęzienie do XL6019</text><text class="nt" x="800" y="812">7,5 A</text><text class="nt" x="866" y="812">1,5 mm²</text>
   <text class="nt" x="576" y="834">panel 7" (przez USB)</text><text class="nt" x="800" y="834">—</text><text class="nt" x="866" y="834">—</text>
   <text class="nt" x="576" y="856">podświetlenie (LM2596)</text><text class="nt" x="800" y="856">2 A</text><text class="nt" x="866" y="856">1,5 mm²</text>
   <line x1="576" y1="868" x2="920" y2="868" stroke="#c8d2da"/>
-  <text class="foot" x="576" y="886">2,5 mm² zamiast 6 mm² — bo ładowarka daje 8 A, nie 25 A.</text>
+  <text class="foot" x="576" y="886">Wejście 4 mm² (ładowarka daje 8 A). Szyna banku: płaskownik Cu.</text>
 
   <rect class="note" x="560" y="914" width="376" height="174"/>
   <text class="nh" x="576" y="936">Kolejność pierwszego załączenia</text>
   <text class="nt" x="576" y="957">1. Wyłącznik główny rozwarty, ładowarka odłączona.</text>
   <text class="nt" x="576" y="978">2. Nastawy XL6019, XH-M609, boostu i rozłącznika</text>
   <text class="nt" x="576" y="995">    nadnapięciowego sprawdzone na zasilaczu lab.</text>
-  <text class="nt" x="576" y="1016">3. Bank złożony, bezpieczniki pakietów założone.</text>
+  <text class="nt" x="576" y="1016">3. Bank (7 pakietów) złożony, wkładki FB1…FB7 założone.</text>
   <text class="nt" x="576" y="1037">4. Pomiar 19,5 V na XL6019 BEZ M910q.</text>
   <text class="nt" x="576" y="1058">5. M910q. 6. Tor ładowania JAKO OSTATNI, na zgaszonym</text>
   <text class="nt" x="576" y="1075">    silniku. 7. Rozruch i pomiar prądu ładowania.</text>

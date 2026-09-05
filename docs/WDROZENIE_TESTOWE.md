@@ -82,7 +82,7 @@ przechodzi do STANDBY, co oznacza wygaszenie podświetlenia i
 | Karta WiFi MediaTek MT7921 | **AA wireless po P2P-GO już działa** |
 | Pody SWC + dekoder | rezystorowa drabinka → wejście analogowe |
 | Modem LTE Huawei E3372 | HiLink, USB |
-| Akumulatory CSB HR1221W × 8 | AGM 12 V / 5,1 Ah |
+| Akumulatory CSB HR1221W × 8 | AGM 12 V / 5,1 Ah — do banku idzie **7** (§3.4) |
 | **XL6019** | step-up 12 → 19,5 V dla M910q |
 | **XH-M609** | LVD, ochrona banku przed rozładowaniem |
 
@@ -105,7 +105,7 @@ Tabele „skąd → dokąd": [`SCHEMATY_POLACZEN.md`](SCHEMATY_POLACZEN.md) §10
 
 ```
 akumulator rozruchowy
-   │  bezpiecznik 15 A przy klemie „+", przewód 2,5 mm²
+   │  bezpiecznik F1 15 A przy klemie „+", przewód 4 mm²
    ▼
 TVS + kondensator 470 µF/35 V        ← ochrona wejścia (§5.4 ZASILANIE)
    │
@@ -122,7 +122,7 @@ moduł CC-CV boost  (CV 14,40 V, CC wg §3.3)
 rozłącznik nadnapięciowy (próg 15,30 V)   ← warstwa 2
    │
    ▼
-BANK AGM 4 × HR1221W ── bezpiecznik 10 A na „+" każdego pakietu
+BANK AGM 7 × HR1221W ── bezpiecznik 10 A (FB1…FB7) na „+" każdego pakietu
    │
    ▼
 XH-M609 (LVD)  ── bezpiecznik 15 A przed VIN+
@@ -139,7 +139,7 @@ wyłącznik główny na „+"  (albo rozłącznik masy na „−" banku)
 sygnał zapłonu ──► wejście Arduino ──► USB ──► M910q: S3 / wybudzenie
 ```
 
-Cztery rzeczy warto tu zauważyć:
+Pięć rzeczy warto tu zauważyć:
 
 - **Nie ma już domeny B.** M910q wisi na buforze na stałe, a zapłon jest
   tylko **sygnałem** — Arduino go wykrywa i usypia albo wybudza komputer.
@@ -154,6 +154,13 @@ Cztery rzeczy warto tu zauważyć:
   a przy napięciu banku bliskim progu LVD **4,6 A**. Bezpiecznik 5 A
   siedziałby na krawędzi i przepalał się bez żadnej usterki — dlatego
   **7,5 A**.
+- **Przewody toru ładowania przy CC 8,0 A.** Wejście toru niesie wtedy
+  ~9,2 A: na 3 m przewodu 2,5 mm² to 0,39 V (2,8 %) — mieści się w kryterium
+  3 %, ale bez zapasu, więc **zalecany jest 4 mm²** (0,24 V). Odcinek
+  **ładowarka → szyna „+" banku bierz 4 mm² zawsze**, bo jego spadek siedzi
+  w pętli CV i opóźnia wejście w absorpcję (§8.2
+  [`ZASILANIE_BUFOROWANE.md`](ZASILANIE_BUFOROWANE.md)). Wkładka F1 15 A
+  zostaje bez zmian — 9,2 A to 62 % jej wartości.
 
 ### 3.1a Stałe zasilanie i S3 — co to kosztuje
 
@@ -177,17 +184,18 @@ Cena też jest realna — i to jest najważniejsza liczba w tej zmianie:
 > tu bezużyteczne, a Arduino **musi** mieć własne 5 V z MP1584 — inaczej
 > zgaśnie razem z portem i nie będzie czym nacisnąć przycisku.
 
-| Stan | Pobór | 4 pakiety (20,4 Ah, do 50 % DoD) |
-|------|-------|----------------------------------|
-| **S3** | 200–460 mA | **0,9–2,1 dnia** |
-| **Wyłączony** (impuls 5 s) | 50–150 mA | **2,8–8,5 dnia** |
+| Stan | Pobór | 7 pakietów (35,7 Ah, do 50 % DoD) |
+|------|-------|-----------------------------------|
+| **S3** | 200–460 mA | **1,6–3,7 dnia** |
+| **Wyłączony** (impuls 5 s) | 50–150 mA | **5,0–14,9 dnia** |
 
 Dlatego eskalacja z S3 do pełnego wyłączenia po dwóch godzinach jest tu
 naprawdę warta zachodu — a przy sterowaniu przyciskiem zasilania kosztuje
 tyle, co dłuższy impuls.
 
-Rozrzut w obu wierszach bierze się prawie w całości z XH-M609. Zmierz go
-raz, a obie liczby zrobią się konkretne.
+W wierszu **Wyłączony** rozrzut bierze się w całości z XH-M609. W wierszu
+**S3** większą część wnosi sam M910q (160–320 mA z tabeli wyżej), więc tam
+zmierzyć trzeba oba. Zmierz je raz, a obie liczby zrobią się konkretne.
 
 Co z tym zrobić:
 
@@ -368,24 +376,31 @@ a dioda MBR2545CT jest drugą barierą, gdyby styki się zespawały. Szczegóły
 | Model | Dane | Cena (PLN) | Kiedy ten |
 |-------|------|-----------|-----------|
 | **„900 W 15 A" z wyświetlaczem** (typ CNC/DPS, wej. 8–60 V, wyj. 10–120 V) | CC 0–15 A, nastawa cyfrowa z odczytem | 90–140 | **bierz ten** — wpisujesz 14,40 V i 8,0 A i odczytujesz z powrotem; przy pierwszej instalacji to warte tych 40 zł różnicy |
-| **SZBK07** (SZ-BT07CCCV-D1 „1500 W 30 A", wej. 10–60 V, wyj. 12–90 V) | CC 0,8–20 A ±0,3 A · sprawność 92–97 % · ochrona odwrotnej polaryzacji · 130 × 84 × 52 mm | 80–130 | duży zapas mocy, pracuje zimno; nastawa potencjometrami — mierz multimetrem |
-| **„600 W 10 A"** (wej. 10–60 V, wyj. 12–80 V) | CC-CV potencjometrami | 50–80 | tylko przy trzech pakietach (CC do 6 A) |
+| **„1500 W 30 A" boost CC-CV** (wej. 10–60 V, wyj. 12–97 V) | CC 0,8–22 A · sprawność 92–97 % · 130 × 84 × 52 mm, radiator + wentylator | 60–95 | duży zapas mocy, pracuje zimno; nastawa potencjometrami — mierz multimetrem |
+| ~~**„600 W 10 A"**~~ (wej. 10–60 V, wyj. 12–80 V) | CC-CV potencjometrami | 50–80 | **odpada** — przy CC 8,0 A to 80 % jego zakresu, a ścieżki tej płytki są słabe |
+
+> **Nie szukaj SZBK07.** Wcześniejsze wydanie wymieniało go tu jako
+> „1500 W 30 A" — to przetwornica **obniżająca** (buck 300 W na LM5116),
+> więc z 13,7 V nie zrobi 14,4 V. Moduł o podobnych gabarytach szukaj po
+> frazie „boost converter 1500W 30A 10-60V". Uzasadnienie: §5.3a
+> [`ZASILANIE_BUFOROWANE.md`](ZASILANIE_BUFOROWANE.md).
 
 > **Sprawdź „auto output on power-on"** w module z wyświetlaczem. Jeśli ta
 > opcja jest wyłączona, po każdym uruchomieniu silnika wyjście stoi w OFF
 > i bank się nie ładuje — bez żadnego objawu, dopóki nie zejdzie do LVD.
 
-Modułu **buck-boost LTC3780** (WD2002SJ / XR-131) *nie* bierz do pięciu
+Modułu **buck-boost LTC3780** (WD2002SJ / XR-131) *nie* bierz do siedmiu
 pakietów: utrzymałby 13,8 V, ale ciągle daje tylko 7 A / 80 W, czyli ~5,8 A
-przy 13,8 V. Po odjęciu 3,5 A obciążenia zostaje 2,3 A do banku.
+przy 13,8 V. Po odjęciu 3,5 A obciążenia zostaje 2,3 A do banku — czyli
+11,6 h fazy CC z progu LVD zamiast 5,95 h.
 
 **Rozdział ładowania** — przekaźnik plus dioda, obie pozycje po kilkanaście
 złotych:
 
 | Element | Dane | Cena (PLN) | Uwaga |
 |---------|------|-----------|-------|
-| **Przekaźnik 30 A SPDT** + podstawka | cewka z zapłonu, dioda 1N4007 równolegle | 15–25 | tor niesie 9 A, więc 30 A styków to spory zapas |
-| **MBR2545CT** — 25 A / 45 V, TO-220AB | dwie połówki 12,5 A ze wspólną katodą | 5–12 | **zewrzyj obie anody** — przy 9 A łącznie Vf spada do ~0,45 V. Radiator obowiązkowy (ok. 4,5 W). Blaszka jest katodą, więc izoluj ją od masy |
+| **Przekaźnik 30 A SPDT** + podstawka | cewka z zapłonu, dioda 1N4007 równolegle | 15–25 | tor niesie 9,2 A przy CC 8,0 A, więc 30 A styków to spory zapas |
+| **MBR2545CT** — 25 A / 45 V, TO-220AB | dwie połówki 12,5 A ze wspólną katodą | 5–12 | **zewrzyj obie anody** — przy 9,2 A łącznie każda wiezie 4,6 A, Vf ≈ 0,48 V. Radiator obowiązkowy (**4,4 W** przy CC 8,0 A — ten sam, co przy czterech pakietach). Blaszka jest katodą, więc izoluj ją od masy |
 
 > **Cewka z zapłonu ma jeden koszt.** Przy kluczyku w ON bez pracującego
 > silnika przekaźnik jest zwarty i boost ładuje bank **z akumulatora
@@ -409,41 +424,83 @@ Reguła:
 ```
 CC = obciążenie (≈3,5 A) + docelowy prąd ładowania
      jednocześnie CC ≤ 2,1 A × liczba pakietów   ← sufit katalogowy CSB
+     oraz         CC ≤ 8,0 A                     ← sufit toru: płytka XH-M603
 ```
 
 | Pakiety | Sufit katalogowy | Zalecane CC | Netto do banku |
 |---------|------------------|-------------|----------------|
-| **4** | **8,4 A** | **7,5 A** | **4,0 A** |
-| 3 | 6,3 A | 6,0 A | 2,5 A |
+| **7** | **14,7 A** | **8,0 A** | **4,5 A** |
+| 6 (po awarii jednego pakietu) | 12,6 A | 8,0 A | 4,5 A |
+| 4 (poprzednia konfiguracja) | 8,4 A | 7,5 A | 4,0 A |
 
-Bank ma cztery pakiety, więc sufit katalogowy to **8,4 A** — nastawa 7,5 A
-zostawia pod nim ~11 % zapasu i daje 4,0 A netto do banku. Przy takim
-prądzie tani moduł **wymaga radiatora i przewiewu**; katalogowe 10 A na
-puszce traktuj jako wartość szczytową, nie roboczą.
+**Przy siedmiu pakietach ten rachunek się odwraca.** Sufit katalogowy wynosi
+14,7 A i **przestał być wiążący** — nastawę ogranicza teraz tor ładowania,
+konkretnie płytka rozłącznika nadnapięciowego XH-M603 (realna obciążalność
+ok. 10 A, spec „≤ 8 A"). Stąd **CC 8,0 A**, czyli 54 % sufitu akumulatorów
+i 80 % obciążalności płytki. Element po elemencie: §6.3
+[`ZASILANIE_BUFOROWANE.md`](ZASILANIE_BUFOROWANE.md).
+
+Przy takim prądzie tani moduł **wymaga radiatora i przewiewu**; katalogowe
+10 A na puszce traktuj jako wartość szczytową, nie roboczą.
+
+> **Zmierz temperaturę zacisków XH-M603 przy 8 A przez 30 min**, zanim
+> oprzesz na tej nastawie cały układ. Obciążalność ~10 A jest oszacowaniem,
+> nie wartością katalogową. Jeśli moduł się grzeje — zejdź na CC 6,0 A
+> i pogódź się z 14–16 h ładowania od progu LVD.
 
 ### 3.4 Ile pakietów
 
-**Cztery (20,4 Ah)** — i nie jest to wybór energetyczny, tylko fizyczny:
-więcej po prostu nie ma gdzie schować. Pozostałe cztery z ośmiu zostają
-jako zapas.
+**Siedem (35,7 Ah)** — z ośmiu posiadanych; jeden zostaje w zapasie.
+Pakiety łączone **równolegle**, więc napięcie zostaje 12 V, a sumuje się
+pojemność i dopuszczalny prąd ładowania.
 
 | Pakiety | Pojemność | Praca przy zgaszonym silniku (3,5 A) | Postój w S3 (300 mA) | Doładowanie z 50 % |
 |---------|-----------|--------------------------------------|----------------------|--------------------|
-| **4** | **20,4 Ah** | **~2,9 h** | **~1,4 dnia** | **~2,6 h jazdy** |
-| 5 | 25,5 Ah | ~3,6 h | ~1,8 dnia | ~2,8 h jazdy |
+| 4 (poprzednio, CC 7,5 A) | 20,4 Ah | ~2,9 h | ~1,4 dnia | ~2,6 h jazdy |
+| 6 (po awarii jednego) | 30,6 Ah | ~4,4 h | ~2,1 dnia | ~3,4 h jazdy |
+| **7** | **35,7 Ah** | **~5,1 h** | **~2,5 dnia** | **~4,0 h jazdy** |
 
-Wszystko do 50 % DoD; pełny rozrzut poboru w S3 (200–460 mA) jest w §3.1a.
+Wszystko do 50 % DoD. Kolumna „doładowanie" to sama faza CC, bez absorpcji:
+dla sześciu i siedmiu pakietów przy nastawie **CC 8,0 A** i obciążeniu 3,5 A
+(netto 4,5 A do banku), dla wiersza czteropakietowego przy jego własnej
+ówczesnej nastawie CC 7,5 A (netto 4,0 A). Na pełne naładowanie dolicz
+mnożnik ×1,3–1,5. Pełny rozrzut poboru w S3 (200–460 mA) jest w §3.1a.
 
-Co kosztuje zejście z pięciu na cztery: 20 % pojemności, czyli ok. pół doby
-postoju w S3 i godzinę pracy przy zgaszonym silniku. Prąd ładowania schodzi
-z 8,0 na 7,5 A, żeby zmieścić się pod katalogowym sufitem 8,4 A. Nic poza
-tym się nie zmienia — układ zasilania zostaje bez zmian.
+Co daje przejście z czterech pakietów na siedem: **+75 % pojemności**
+(20,4 → 35,7 Ah), +5,4 kg masy (7,2 → **12,6 kg**) i sufit ładowania
+podniesiony z 8,4 na **14,7 A**. Nastawa CC idzie z 7,5 na **8,0 A** — nie
+dlatego, że tyle pozwala akumulator (pozwala na 14,7 A), tylko dlatego, że
+tyle wyrabia tor ładowania (§3.3).
+
+> **Uwaga, to jest kontrintuicyjne.** Siedem pakietów kupuje **dłuższy postój**,
+> a nie odporność na krótkie przejazdy. Doładowanie po rutynowym postoju
+> wydłuża się z ~2,6 h do ~4,0 h fazy CC, bo pojemność urosła o 75 %, a prąd
+> netto do banku tylko o 12 %. Minimalna dzienna jazda podtrzymująca bilans
+> zależy wyłącznie od prądu ładowania — tabela w §9.4
+> [`ZASILANIE_BUFOROWANE.md`](ZASILANIE_BUFOROWANE.md).
+
+> **Miejsce montażu trzeba zmierzyć.** Siedem pakietów to 490 × 90 × 101 mm
+> w jednym rzędzie albo 280 × 180 × 101 mm w układzie 4 + 3 (zalecany
+> mechanicznie). Ze skrzynką ok. 300 × 200 × 115 mm. Ta dokumentacja nie
+> podaje wymiarów przestrzeni pod fotelem pasażera — sprawdź to przed
+> zakupem skrzynki. Masa 12,6 kg wymaga też czterech punktów mocowania M8
+> z płytkami rozkładającymi ≥ 40 × 40 × 3 mm; §4.7 ZASILANIE_BUFOROWANE.
 
 > Krótkie przejazdy po mieście nie doładują banku po dłuższym postoju.
 > Kolumna „doładowanie" zakłada ciągłą jazdę z pracującym alternatorem.
 
 > **Bezpieczników na pakietach nie pomijaj.** Zwarty HR1221W potrafi oddać
-> ponad 100 A — 5 Ah wystarczy, żeby zapalić przewód.
+> ponad 100 A — 5 Ah wystarczy, żeby zapalić przewód. Siedem sztuk, oznaczenia
+> **FB1…FB7** (nie F2…F8 — F7 i F8 są już zajęte). Prąd zwarciowy przez
+> wkładkę uszkodzonego pakietu to 637 A, a przez każdą z sześciu zdrowych
+> 106 A: stosunek 6 : 1 zamiast 3 : 1, czyli selektywność jest **lepsza** niż
+> przy czterech pakietach.
+
+> **Łączenie równoległe siedmiu pakietów wymaga szyny zbiorczej.** Dwa
+> płaskowniki miedziane (min. 15 × 2 mm) z siedmioma odczepami co 70 mm,
+> odbiór **po przekątnej** — „+" z odczepu 1, „−" z odczepu 7. Ogonki 1,5 mm²
+> o równej długości ±30 mm. Nigdy oba bieguny z jednego końca szyny.
+> Rysunek i liczby: §4.3 [`ZASILANIE_BUFOROWANE.md`](ZASILANIE_BUFOROWANE.md).
 
 ### 3.5 Nastawy modułów
 
@@ -491,14 +548,14 @@ w osobnym dokumencie: **[`LISTA_ZAKUPOWA.md`](LISTA_ZAKUPOWA.md)**.
 
 | | |
 |---|---|
-| **Razem do kupienia** | **~483–928 PLN** |
-| Największe pozycje | moduł CC-CV boost (50–140), rozłącznik nadnapięciowy (40–80), skrzynka na bank (60–120), rozłącznik masy (40–70) |
+| **Razem do kupienia** | **~670–1305 PLN** |
+| Największe pozycje | moduł CC-CV boost (50–140), skrzynka na bank na 7 pakietów (100–200), szyny zbiorcze banku (60–140), rozłącznik nadnapięciowy (40–80), rozłącznik masy (40–70) |
 | Czego **nie** kupujesz | VSR, ładowarka B2B, DAC USB, karta WiFi, buck dla panelu — pełna lista z powodami tamże |
 | Warto dołożyć | multimetr z pomiarem prądu DC 10 A — bez niego nie odbierzesz instalacji |
 
 Masz już: M910q, ekran 7", MT7921, pody SWC, modem LTE, 8 × HR1221W
-(**do banku idą 4** — §3.4), XL6019, XH-M609, Pro Micro, Nano V3,
-LM2596 i MP1584.
+(**do banku idzie 7** — §3.4, jeden zostaje w zapasie), XL6019, XH-M609,
+Pro Micro, Nano V3, LM2596 i MP1584.
 
 ---
 

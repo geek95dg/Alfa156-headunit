@@ -26,6 +26,8 @@ MODULES: dict[str, dict] = {
                     "default": True},
 
     # --- registry modules (generic start via entry) ---
+    "esp32_display": {"part": 2, "description": "Wyświetlacz pomocniczy 1,8\" na ESP32 (metadane + tempomat po USB)",
+                    "entry": ("src.dashboard.esp32_link", "start_esp32_link"), "default": False},
     "obd":         {"part": 3,  "description": "OBD-II / K-Line Communication",
                     "entry": ("src.obd.simulator", "start_obd"), "default": False},
     "parking":     {"part": 4,  "description": "Parking Sensors System",

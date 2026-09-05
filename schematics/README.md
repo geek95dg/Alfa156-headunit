@@ -26,7 +26,7 @@ M910q Tiny**.
 
 | Plik | Co przedstawia |
 |------|----------------|
-| [`schematic_test_power.svg`](schematic_test_power.svg) | **Arkusz 1/2 — zasilanie, komponentowo.** Każdy element osobno: BT0, F1, D5 (TVS) i C1 narysowane oddzielnie, styki i cewki K1/K2 rozdzielone, D1 jako dwie diody Schottky ze zwartymi anodami, cztery pakiety banku z własnymi bezpiecznikami, S1, trzy przetwornice. Moduły kupne (M1…M6) jako prostokąty z nazwanymi zaciskami. Numery przewodów zgodne z §10 [`../docs/SCHEMATY_POLACZEN.md`](../docs/SCHEMATY_POLACZEN.md). |
+| [`schematic_test_power.svg`](schematic_test_power.svg) | **Arkusz 1/2 — zasilanie, komponentowo.** Każdy element osobno: BT0, F1, D5 (TVS) i C1 narysowane oddzielnie, styki i cewki K1/K2 rozdzielone, D1 jako dwie diody Schottky ze zwartymi anodami, siedem pakietów banku (BT1…BT7) z własnymi wkładkami FB1…FB7 na szynie zbiorczej z płaskownika, S1, trzy przetwornice. Detal łączenia siedmiu pakietów (odbiór po przekątnej) w pasie B. Moduły kupne (M1…M6) jako prostokąty z nazwanymi zaciskami. Numery przewodów zgodne z §10 [`../docs/SCHEMATY_POLACZEN.md`](../docs/SCHEMATY_POLACZEN.md). |
 | [`schematic_test_signals.svg`](schematic_test_signals.svg) | **Arkusz 2/2 — sygnały i Arduino, komponentowo.** Dwa transoptory PC817 (zapłon → D9, bieg wsteczny → D10) z rezystorami i filtrami, Arduino Nano, moduł przekaźnika i przycisk zasilania M910q ze stykami równolegle. Pokazuje rozdział mas: gwiazda vs masa auta. Wejście biegu wstecznego wymaga `FEATURE_REV` w firmwarze. |
 | [`gen_test_schematics.py`](gen_test_schematics.py) | **Generator obu arkuszy.** `python3 schematics/gen_test_schematics.py` z katalogu głównego repo. Po zmianie tabel §10 popraw generator i wygeneruj SVG ponownie — nie edytuj tych dwóch SVG ręcznie. |
 | [`schematic_test_build.svg`](schematic_test_build.svg) | **Schemat ideowy wariantu testowego, wersja skrócona** — symbole elektryczne, ale elementy pogrupowane w bloki. Szybki przegląd; do montażu użyj dwóch arkuszy powyżej. Opis: [`../docs/WDROZENIE_TESTOWE.md`](../docs/WDROZENIE_TESTOWE.md). |
@@ -40,6 +40,37 @@ M910q Tiny**.
 | [`wiring_vehicle_arduino.svg`](wiring_vehicle_arduino.svg) | **Sygnały pojazdu → Arduino** — punkty poboru w aucie, stopień PC817, dzielniki napięcia, podciągnięcia, rozpiska pinów trzech płytek, tor K-Line. |
 | [`wiring_usb_av.svg`](wiring_usb_av.svg) | **USB, obraz, audio, kamery** — co idzie przez hub, a co bezpośrednio w port, przejściówki DP → HDMI, tor audio i przypisanie kamer. |
 | [`vehicle_layout_m910q.svg`](vehicle_layout_m910q.svg) | **Rozmieszczenie w aucie** — rzut z góry Alfy 156 ze strefami montażu, trasami kablowymi, uzasadnieniem lokalizacji i bilansem masy. |
+| [`esp32_display_wiring.svg`](esp32_display_wiring.svg) | **Wyświetlacz pomocniczy 1,8" (ESP32-S3 + ST7735)** — stopień PC817 narysowany raz plus tabela dziesięciu wejść z numerami GPIO, panel po SPI, zasilanie z +15 przez buck 5 V, dane po natywnym USB. Rozdział mas i uwaga o przeciętej żyle VBUS. Tabele: [`../docs/SCHEMATY_POLACZEN.md`](../docs/SCHEMATY_POLACZEN.md) § 11. |
+| [`gen_esp32_display.py`](gen_esp32_display.py) | **Generator powyższego.** `python3 schematics/gen_esp32_display.py` — przed zapisem sam sprawdza, czy bloki na siebie nie nachodzą i czy żaden napis nie wychodzi z ramki, nie wpada pod sąsiedni prostokąt ani na inny napis (mierzy je fontem DejaVu Sans, tym samym, którym narysuje je przeglądarka). Po zmianie § 11 popraw generator, nie SVG. |
+
+### Eksport do PNG
+
+| Plik | Co robi |
+|------|---------|
+| [`render_png.py`](render_png.py) | **Render SVG → PNG.** `python3 schematics/render_png.py` z katalogu głównego repo — komplet schematów zasilania ląduje w `png/` pod tymi samymi nazwami. Pojedynczy arkusz: `python3 schematics/render_png.py charging_lvd.svg`; wszystkie arkusze w katalogu: `--all`; kontrola aktualności bez zapisu (do CI): `--check`; lżejsze pliki: `--scale 1.5`. Wymaga `pip install cairosvg`. |
+
+PNG jest **plikiem wynikowym**: poprawia się SVG (a dla arkuszy generowanych —
+generator) i renderuje ponownie, nigdy odwrotnie. Skala domyślna 2,0 robi
+z najdrobniejszego napisu na arkuszu (9 px — nazwy pakietów na kaflach banku;
+typowy dolny stopień to 10,5 px) odpowiednio 18 i 21 px, czyli tekst czyta się
+przy oglądaniu 1:1 i zostaje zapas na przybliżenie; najcięższy arkusz waży przy
+niej ok. 0,8 MB. Dwa przebiegi na tym samym SVG dają **bajtowo identyczny** plik, więc
+`git status` po ponownym renderze zostaje czysty, o ile w systemie jest font
+**DejaVu Sans** — ten sam, którym opisane są schematy. Bez niego cairo podstawi
+inny krój i napisy rozjadą się wobec SVG.
+
+Domyślny komplet to **dziewięć arkuszy zasilania**: `power_domains_m910q`,
+`power_buffered_m910q`, `charging_lvd`, `wiring_power_modules`,
+`power_test_build`, `schematic_test_build`, `schematic_test_power`,
+`wiring_test_build` i `pcb_power_schematic` — dokładną listę wypisuje
+`--list`. Arkusze spoza zasilania (m.in. [`vehicle_layout_m910q.svg`](vehicle_layout_m910q.svg)
+i [`audio_system.svg`](audio_system.svg)) **nie mają PNG w repo** i nie pilnuje
+ich `--check`; wyrenderujesz je z nazwy albo przez `--all`.
+
+Dwa arkusze drukowane 1:1 — [`pcb_power_layout.svg`](pcb_power_layout.svg)
+i [`pcb_power_etch.svg`](pcb_power_etch.svg) — są **poza** domyślnym kompletem.
+Ich raster (210 mm przy 96 dpi × 2 = 192 dpi) nadaje się na podgląd, ale mozaikę
+miedzi drukuj wyłącznie z SVG w skali 100 % i sprawdź linijkę kontrolną 50 mm.
 
 ---
 
@@ -99,6 +130,7 @@ po USB**. Okablowanie pin-po-pinie jest w
 | Pro Micro | `arduino/rotary_encoder` | Enkoder, przyciski, SWC, panel muzyczny, jasność |
 | Nano #1 | `arduino/output_controller` | Domena A: pilot 433 MHz, bagażnik przez BLE, PWM podświetlenia |
 | Nano #2 | `arduino/sensor_hub` | Telemetria: drzwi, maska, ręczny, zapłon, deszcz, DS18B20 |
+| ESP32-S3 *(opcjonalna)* | `arduino/esp32_display` | Wyświetlacz pomocniczy 1,8": kontrolki i otwarcia z GPIO, metadane z BCM po USB |
 
 Interfejs K-Line (L9637D) na M910q idzie przez **CP2102 po USB**, a nie przez
 UART na złączu GPIO — patrz [`../docs/KLINE_SNIFFING.md`](../docs/KLINE_SNIFFING.md).

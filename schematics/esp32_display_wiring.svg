@@ -1,0 +1,354 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1620" height="1600" viewBox="0 0 1620 1600" font-family="DejaVu Sans, Verdana, sans-serif">
+<title>BCM v8.5 — wyświetlacz pomocniczy 1,8" (ESP32-S3 + ST7735 128×160)</title>
+<style>
+ .bg{fill:#ffffff}
+ .w{stroke:#16242e;stroke-width:2.2;fill:none;stroke-linecap:round}
+ .wp{stroke:#c0392b;stroke-width:2.8;fill:none;stroke-linecap:round}
+ .wg{stroke:#3d4f5c;stroke-width:2.4;fill:none;stroke-linecap:round}
+ .wo{stroke:#9a6b12;stroke-width:2.4;fill:none;stroke-linecap:round}
+ .wu{stroke:#2d6a2d;stroke-width:2.6;fill:none;stroke-linecap:round}
+ .wd{stroke:#8b9aa6;stroke-width:1.6;fill:none;stroke-dasharray:5 4}
+ .sym{stroke:#16242e;stroke-width:2.2;fill:none}
+ .symf{stroke:#16242e;stroke-width:2.2;fill:#16242e}
+ .blk{fill:#f5f8fa;stroke:#2b3a45;stroke-width:2.2;rx:5}
+ .blkm{fill:#eef4fa;stroke:#2b4a8a;stroke-width:2.2;rx:5}
+ .blkr{fill:#fdf6e8;stroke:#9a6b12;stroke-width:2.2;rx:5}
+ .blkc{fill:#eef8ee;stroke:#2d6a2d;stroke-width:2.2;rx:5}
+ .opto{fill:#fbf3fb;stroke:#7a3d8f;stroke-width:2.2;rx:5;stroke-dasharray:7 4}
+ .term{fill:#ffffff;stroke:#16242e;stroke-width:2.4}
+ .note{fill:#fbfcfd;stroke:#c8d2da;stroke-width:1.5;rx:6}
+ .tbl{fill:#ffffff;stroke:#c8d2da;stroke-width:1.5;rx:6}
+ .tbh{fill:#eef4fa;stroke:none}
+ .sectb{fill:#2d6a2d;rx:4}
+ .ttl{font-size:23px;font-weight:bold;fill:#0d1c26}
+ .sub{font-size:13px;fill:#576875}
+ .sec{font-size:16px;font-weight:bold;fill:#2d6a2d}
+ .sn{font-size:15px;font-weight:bold;fill:#ffffff;text-anchor:middle}
+ .r{font-size:12.5px;font-weight:bold;fill:#a8321a}
+ .rc{font-size:12.5px;font-weight:bold;fill:#a8321a;text-anchor:middle}
+ .v{font-size:11.5px;fill:#40515e}
+ .vc{font-size:11.5px;fill:#40515e;text-anchor:middle}
+ .ve{font-size:11.5px;fill:#40515e;text-anchor:end}
+ .lbl{font-size:11.5px;fill:#33424e}
+ .lbb{font-size:13px;font-weight:bold;fill:#0d1c26;text-anchor:middle}
+ .pin{font-size:11.5px;font-weight:bold;fill:#2b4a8a}
+ .pine{font-size:11.5px;font-weight:bold;fill:#2b4a8a;text-anchor:end}
+ .mref{font-size:14px;font-weight:bold;fill:#a8321a;text-anchor:middle}
+ .mname{font-size:12.5px;font-weight:bold;fill:#0d1c26;text-anchor:middle}
+ .te{font-size:12.5px;font-weight:bold;fill:#0d1c26;text-anchor:end}
+ .tb{font-size:12px;font-weight:bold;fill:#0d1c26}
+ .td{font-size:12px;fill:#33424e}
+ .go{font-size:11px;font-weight:bold;fill:#9a6b12;text-anchor:middle}
+ .gl{font-size:11px;font-weight:bold;fill:#3d4f5c;text-anchor:middle}
+ .nh{font-size:13px;font-weight:bold;fill:#0d1c26}
+ .nt{font-size:11.5px;fill:#4a5a66}
+ .ldr{stroke:#7d8c99;stroke-width:1.3;fill:none}
+ .ldrf{fill:#7d8c99;stroke:none}
+</style>
+<rect class="bg" x="0" y="0" width="1620" height="1600"/>
+<text class="ttl" x="40" y="44">BCM v8.5 — wyświetlacz pomocniczy 1,8" (ESP32-S3 + ST7735 128×160)</text>
+<text class="sub" x="40" y="68">Dziesięć wejść 12 V przez PC817, panel po SPI, zasilanie z +15, dane po USB.</text>
+<text class="sub" x="40" y="88">Stopień PC817 narysowany raz — dla wszystkich dziesięciu sygnałów jest identyczny (§3.1 SCHEMATY_POLACZEN.md). Skrzyżowanie przewodów bez kropki = brak połączenia.</text>
+<rect class="sectb" x="40" y="110" width="26" height="26"/>
+<text class="sn" x="53" y="129">A</text>
+<text class="sec" x="78" y="130">WEJŚCIE 12 V PRZEZ PC817 — jeden stopień, powtarzany ×10</text>
+<circle class="term" cx="250" cy="222" r="7"/>
+<text class="te" x="234" y="227">ABS  (U1)</text>
+<text class="ve" x="234" y="244">12 V z auta</text>
+<line class="w" x1="257" y1="222" x2="350" y2="222"/>
+<circle class="symf" cx="300" cy="222" r="3.8"/>
+<line class="w" x1="300" y1="222" x2="300" y2="242"/>
+<line class="w" x1="300" y1="242" x2="300" y2="256"/>
+<polygon class="symf" points="289,274 311,274 300,256"/>
+<path class="sym" d="M 286 280 L 286 274 L 314 274 L 314 268"/>
+<polygon class="symf" points="289,282 311,282 300,300"/>
+<path class="sym" d="M 286 276 L 286 282 L 314 282 L 314 288"/>
+<line class="w" x1="300" y1="300" x2="300" y2="314"/>
+<text class="r" x="322" y="268">D1</text>
+<text class="v" x="322" y="283">SMBJ24A</text>
+<line class="w" x1="350" y1="222" x2="362" y2="222"/>
+<rect class="sym" x="362" y="212" width="34" height="20" fill="#fff"/>
+<line class="w" x1="396" y1="222" x2="408" y2="222"/>
+<text class="rc" x="379" y="205">R1</text>
+<text class="vc" x="379" y="250">4,7 kΩ</text>
+<line class="w" x1="408" y1="222" x2="460" y2="222"/>
+<rect class="opto" x="460" y="190" width="150" height="130"/>
+<text class="rc" x="535" y="178">U1</text>
+<text class="vc" x="535" y="342">PC817 — ABS</text>
+<line class="w" x1="460" y1="222" x2="498" y2="222"/>
+<line class="w" x1="498" y1="222" x2="498" y2="236"/>
+<polygon class="symf" points="487,236 509,236 498,256"/>
+<line class="sym" x1="486" y1="256" x2="510" y2="256"/>
+<line class="w" x1="498" y1="256" x2="498" y2="288"/>
+<line class="w" x1="498" y1="288" x2="460" y2="288"/>
+<line class="sym" x1="514" y1="234" x2="526" y2="224"/>
+<polygon class="symf" points="526,224 517,224 522,232"/>
+<line class="sym" x1="514" y1="248" x2="526" y2="238"/>
+<polygon class="symf" points="526,238 517,238 522,246"/>
+<text class="pine" x="452" y="226">1</text>
+<text class="pine" x="452" y="292">2</text>
+<line class="w" x1="564" y1="230" x2="564" y2="280"/>
+<line class="w" x1="564" y1="238" x2="590" y2="220"/>
+<line class="w" x1="564" y1="272" x2="586" y2="288"/>
+<polygon class="symf" points="586,288 576,282 578,291"/>
+<line class="w" x1="590" y1="220" x2="590" y2="214"/>
+<line class="w" x1="590" y1="214" x2="610" y2="214"/>
+<line class="w" x1="586" y1="288" x2="590" y2="292"/>
+<line class="w" x1="590" y1="292" x2="610" y2="292"/>
+<text class="pin" x="618" y="218">4</text>
+<text class="pin" x="618" y="296">3</text>
+<text class="vc" x="535" y="358">wyjście → GPIO4 (INPUT_PULLUP)</text>
+<line class="w" x1="460" y1="288" x2="340" y2="288"/>
+<line class="w" x1="340" y1="288" x2="340" y2="560"/>
+<line class="w" x1="300" y1="314" x2="300" y2="560"/>
+<line class="w" x1="300" y1="560" x2="340" y2="560"/>
+<circle class="symf" cx="340" cy="560" r="3.8"/>
+<line class="w" x1="340" y1="560" x2="340" y2="572"/>
+<line class="wo" x1="323" y1="572" x2="357" y2="572"/>
+<line class="wo" x1="328" y1="572" x2="320" y2="586"/>
+<line class="wo" x1="336" y1="572" x2="328" y2="586"/>
+<line class="wo" x1="344" y1="572" x2="336" y2="586"/>
+<line class="wo" x1="352" y1="572" x2="344" y2="586"/>
+<text class="go" x="340" y="604">MASA POJAZDU — nie łączyć z masą ESP32</text>
+<rect class="sectb" x="900" y="110" width="26" height="26"/>
+<text class="sn" x="913" y="129">B</text>
+<text class="sec" x="938" y="130">ESP32-S3 I PANEL ST7735 PO SPI</text>
+<rect class="blkc" x="900" y="170" width="310" height="680"/>
+<text class="mref" x="1055.0" y="195">A5</text>
+<text class="mname" x="1055.0" y="214">ESP32-S3 (N16R8)</text>
+<text class="vc" x="1055.0" y="232">esp32_display.ino · USB CDC On Boot = ON</text>
+<line class="w" x1="882" y1="262" x2="900" y2="262"/>
+<text class="pin" x="910" y="267">GND</text>
+<line class="w" x1="882" y1="298" x2="900" y2="298"/>
+<text class="pin" x="910" y="303">GPIO4</text>
+<line class="w" x1="882" y1="334" x2="900" y2="334"/>
+<text class="pin" x="910" y="339">GPIO5</text>
+<line class="w" x1="882" y1="370" x2="900" y2="370"/>
+<text class="pin" x="910" y="375">GPIO6</text>
+<line class="w" x1="882" y1="406" x2="900" y2="406"/>
+<text class="pin" x="910" y="411">GPIO7</text>
+<line class="w" x1="882" y1="442" x2="900" y2="442"/>
+<text class="pin" x="910" y="447">GPIO1</text>
+<line class="w" x1="882" y1="478" x2="900" y2="478"/>
+<text class="pin" x="910" y="483">GPIO15</text>
+<line class="w" x1="882" y1="514" x2="900" y2="514"/>
+<text class="pin" x="910" y="519">GPIO16</text>
+<line class="w" x1="882" y1="550" x2="900" y2="550"/>
+<text class="pin" x="910" y="555">GPIO17</text>
+<line class="w" x1="882" y1="586" x2="900" y2="586"/>
+<text class="pin" x="910" y="591">GPIO18</text>
+<line class="w" x1="882" y1="622" x2="900" y2="622"/>
+<text class="pin" x="910" y="627">GPIO2</text>
+<line class="w" x1="1210" y1="262" x2="1228" y2="262"/>
+<text class="pine" x="1200" y="267">GPIO12</text>
+<line class="w" x1="1210" y1="298" x2="1228" y2="298"/>
+<text class="pine" x="1200" y="303">GPIO11</text>
+<line class="w" x1="1210" y1="334" x2="1228" y2="334"/>
+<text class="pine" x="1200" y="339">GPIO10</text>
+<line class="w" x1="1210" y1="370" x2="1228" y2="370"/>
+<text class="pine" x="1200" y="375">GPIO13</text>
+<line class="w" x1="1210" y1="406" x2="1228" y2="406"/>
+<text class="pine" x="1200" y="411">GPIO14</text>
+<line class="w" x1="1210" y1="442" x2="1228" y2="442"/>
+<text class="pine" x="1200" y="447">GPIO21</text>
+<line class="w" x1="1210" y1="478" x2="1228" y2="478"/>
+<text class="pine" x="1200" y="483">3V3</text>
+<line class="w" x1="1210" y1="514" x2="1228" y2="514"/>
+<text class="pine" x="1200" y="519">GND</text>
+<text class="lbl" x="996" y="267">masa emiterów PC817</text>
+<text class="lbl" x="996" y="303">ABS</text>
+<text class="lbl" x="996" y="339">Hamulec ręczny</text>
+<text class="lbl" x="996" y="375">Poduszka (SRS)</text>
+<text class="lbl" x="996" y="411">Immobilizer</text>
+<text class="lbl" x="996" y="447">Maska</text>
+<text class="lbl" x="996" y="483">Drzwi przód lewe</text>
+<text class="lbl" x="996" y="519">Drzwi przód prawe</text>
+<text class="lbl" x="996" y="555">Drzwi tył lewe</text>
+<text class="lbl" x="996" y="591">Drzwi tył prawe</text>
+<text class="lbl" x="996" y="627">Klapa bagażnika</text>
+<line class="w" x1="610" y1="214" x2="720" y2="214"/>
+<line class="w" x1="720" y1="214" x2="720" y2="298"/>
+<line class="w" x1="720" y1="298" x2="882" y2="298"/>
+<line class="w" x1="610" y1="292" x2="660" y2="292"/>
+<line class="w" x1="660" y1="292" x2="660" y2="262"/>
+<line class="w" x1="660" y1="262" x2="882" y2="262"/>
+<line class="w" x1="800" y1="334" x2="800" y2="622"/>
+<line class="w" x1="800" y1="334" x2="882" y2="334"/>
+<line class="w" x1="800" y1="370" x2="882" y2="370"/>
+<line class="w" x1="800" y1="406" x2="882" y2="406"/>
+<line class="w" x1="800" y1="442" x2="882" y2="442"/>
+<line class="w" x1="800" y1="478" x2="882" y2="478"/>
+<line class="w" x1="800" y1="514" x2="882" y2="514"/>
+<line class="w" x1="800" y1="550" x2="882" y2="550"/>
+<line class="w" x1="800" y1="586" x2="882" y2="586"/>
+<line class="w" x1="800" y1="622" x2="882" y2="622"/>
+<line class="w" x1="770" y1="478.0" x2="800" y2="478.0"/>
+<text class="ve" x="762" y="470.0">U2–U10 — dziewięć identycznych</text>
+<text class="ve" x="762" y="486.0">stopni PC817 (tabela niżej)</text>
+<rect class="blk" x="1400" y="170" width="180" height="420"/>
+<text class="mref" x="1490.0" y="195">DS3</text>
+<text class="mname" x="1490.0" y="214">PANEL ST7735</text>
+<text class="vc" x="1490.0" y="232">1,8" 128×160, pionowo</text>
+<line class="w" x1="1382" y1="262" x2="1400" y2="262"/>
+<text class="pin" x="1410" y="267">SCL / SCK</text>
+<line class="w" x1="1228" y1="262" x2="1382" y2="262"/>
+<line class="w" x1="1382" y1="298" x2="1400" y2="298"/>
+<text class="pin" x="1410" y="303">SDA / MOSI</text>
+<line class="w" x1="1228" y1="298" x2="1382" y2="298"/>
+<line class="w" x1="1382" y1="334" x2="1400" y2="334"/>
+<text class="pin" x="1410" y="339">CS</text>
+<line class="w" x1="1228" y1="334" x2="1382" y2="334"/>
+<line class="w" x1="1382" y1="370" x2="1400" y2="370"/>
+<text class="pin" x="1410" y="375">DC / A0</text>
+<line class="w" x1="1228" y1="370" x2="1382" y2="370"/>
+<line class="w" x1="1382" y1="406" x2="1400" y2="406"/>
+<text class="pin" x="1410" y="411">RES</text>
+<line class="w" x1="1228" y1="406" x2="1382" y2="406"/>
+<line class="w" x1="1382" y1="442" x2="1400" y2="442"/>
+<text class="pin" x="1410" y="447">BLK / LED</text>
+<line class="w" x1="1228" y1="442" x2="1382" y2="442"/>
+<line class="w" x1="1382" y1="478" x2="1400" y2="478"/>
+<text class="pin" x="1410" y="483">VCC</text>
+<line class="w" x1="1228" y1="478" x2="1382" y2="478"/>
+<line class="w" x1="1382" y1="514" x2="1400" y2="514"/>
+<text class="pin" x="1410" y="519">GND</text>
+<line class="w" x1="1228" y1="514" x2="1382" y2="514"/>
+<text class="vc" x="1305.0" y="434">PWM — kanał LEDC</text>
+<rect class="note" x="1240" y="620" width="340" height="210"/>
+<text class="nh" x="1258" y="646">PANEL — co sprawdzić przy module</text>
+<text class="nt" x="1258" y="670">Kolejność pinów na module bywa różna — czytaj</text>
+<text class="nt" x="1258" y="689">opisy na płytce, nie kolejność na tym rysunku.</text>
+<text class="nt" x="1258" y="708">Moduł z AMS1117 i buforem 74HC245 zasilaj 5 V;</text>
+<text class="nt" x="1258" y="727">moduł bez stabilizatora — 3,3 V. Sygnały: 3,3 V.</text>
+<text class="nt" x="1258" y="746">BLK bywa zwarty do VCC — wtedy ściemnianie</text>
+<text class="nt" x="1258" y="765">wymaga przecięcia ścieżki albo tranzystora.</text>
+<text class="nt" x="1258" y="784">TFT_eSPI: User_Setup z ST7735_DRIVER,</text>
+<text class="nt" x="1258" y="803">TFT_WIDTH 128 / TFT_HEIGHT 160, SPI 27 MHz.</text>
+<rect class="tbl" x="60" y="660" width="770" height="292"/>
+<rect class="tbh" x="62" y="662" width="766" height="42"/>
+<text class="nh" x="80" y="688">DZIESIĘĆ WEJŚĆ — każde przez własny stopień PC817 (R 4,7 kΩ + TVS)</text>
+<text class="tb" x="80" y="726">U1</text>
+<text class="td" x="130" y="726">ABS</text>
+<text class="tb" x="300" y="726">GPIO4</text>
+<text class="td" x="390" y="726">ekran 1</text>
+<text class="td" x="460" y="726">złącze fabrycznego wyświetlacza</text>
+<text class="tb" x="80" y="750">U2</text>
+<text class="td" x="130" y="750">Hamulec ręczny</text>
+<text class="tb" x="300" y="750">GPIO5</text>
+<text class="td" x="390" y="750">ekran 1</text>
+<text class="td" x="460" y="750">wyłącznik dźwigni</text>
+<text class="tb" x="80" y="774">U3</text>
+<text class="td" x="130" y="774">Poduszka (SRS)</text>
+<text class="tb" x="300" y="774">GPIO6</text>
+<text class="td" x="390" y="774">ekran 1</text>
+<text class="td" x="460" y="774">złącze fabrycznego wyświetlacza</text>
+<text class="tb" x="80" y="798">U4</text>
+<text class="td" x="130" y="798">Immobilizer</text>
+<text class="tb" x="300" y="798">GPIO7</text>
+<text class="td" x="390" y="798">ekran 1</text>
+<text class="td" x="460" y="798">złącze fabrycznego wyświetlacza</text>
+<text class="tb" x="80" y="822">U5</text>
+<text class="td" x="130" y="822">Maska</text>
+<text class="tb" x="300" y="822">GPIO1</text>
+<text class="td" x="390" y="822">ekran 2</text>
+<text class="td" x="460" y="822">wyłącznik maski</text>
+<text class="tb" x="80" y="846">U6</text>
+<text class="td" x="130" y="846">Drzwi przód lewe</text>
+<text class="tb" x="300" y="846">GPIO15</text>
+<text class="td" x="390" y="846">ekran 2</text>
+<text class="td" x="460" y="846">krańcówka oświetlenia wnętrza</text>
+<text class="tb" x="80" y="870">U7</text>
+<text class="td" x="130" y="870">Drzwi przód prawe</text>
+<text class="tb" x="300" y="870">GPIO16</text>
+<text class="td" x="390" y="870">ekran 2</text>
+<text class="td" x="460" y="870">krańcówka oświetlenia wnętrza</text>
+<text class="tb" x="80" y="894">U8</text>
+<text class="td" x="130" y="894">Drzwi tył lewe</text>
+<text class="tb" x="300" y="894">GPIO17</text>
+<text class="td" x="390" y="894">ekran 2</text>
+<text class="td" x="460" y="894">krańcówka oświetlenia wnętrza</text>
+<text class="tb" x="80" y="918">U9</text>
+<text class="td" x="130" y="918">Drzwi tył prawe</text>
+<text class="tb" x="300" y="918">GPIO18</text>
+<text class="td" x="390" y="918">ekran 2</text>
+<text class="td" x="460" y="918">krańcówka oświetlenia wnętrza</text>
+<text class="tb" x="80" y="942">U10</text>
+<text class="td" x="130" y="942">Klapa bagażnika</text>
+<text class="tb" x="300" y="942">GPIO2</text>
+<text class="td" x="390" y="942">ekran 2</text>
+<text class="td" x="460" y="942">wyłącznik klapy</text>
+<text class="nt" x="60" y="970">Oznaczenia U1–U10, D1, F12, M8, A5 i DS3 należą do TEGO podukładu — arkusze wariantu testowego (§10) mają własną numerację.</text>
+<rect class="sectb" x="40" y="980" width="26" height="26"/>
+<text class="sn" x="53" y="999">C</text>
+<text class="sec" x="78" y="1000">ZASILANIE Z +15 (PO ZAPŁONIE), DANE PO USB</text>
+<circle class="term" cx="250" cy="1116" r="7"/>
+<text class="te" x="234" y="1121">+15</text>
+<text class="ve" x="234" y="1138">po zapłonie</text>
+<line class="w" x1="257" y1="1116" x2="320" y2="1116"/>
+<line class="w" x1="320" y1="1116" x2="330" y2="1116"/>
+<rect class="sym" x="330" y="1107" width="38" height="18" fill="#fff"/>
+<line class="w" x1="330" y1="1116" x2="368" y2="1116"/>
+<line class="w" x1="368" y1="1116" x2="378" y2="1116"/>
+<text class="rc" x="349" y="1099">F12</text>
+<text class="vc" x="349" y="1143">2 A</text>
+<line class="w" x1="378" y1="1116" x2="442" y2="1116"/>
+<rect class="blkr" x="460" y="1024" width="214" height="200"/>
+<text class="mref" x="567.0" y="1049">M8</text>
+<text class="mname" x="567.0" y="1068">BUCK 12 V → 5 V</text>
+<text class="vc" x="567.0" y="1086">MP1584 (klasa jak M6)</text>
+<line class="w" x1="442" y1="1116" x2="460" y2="1116"/>
+<text class="pin" x="470" y="1121">IN+</text>
+<line class="w" x1="442" y1="1152" x2="460" y2="1152"/>
+<text class="pin" x="470" y="1157">IN−</text>
+<line class="w" x1="674" y1="1116" x2="692" y2="1116"/>
+<text class="pine" x="664" y="1121">OUT+</text>
+<line class="w" x1="674" y1="1152" x2="692" y2="1152"/>
+<text class="pine" x="664" y="1157">OUT−</text>
+<line class="w" x1="442" y1="1152" x2="410" y2="1152"/>
+<line class="w" x1="410" y1="1152" x2="410" y2="1240"/>
+<line class="w" x1="410" y1="1240" x2="410" y2="1252"/>
+<line class="wg" x1="392" y1="1252" x2="428" y2="1252"/>
+<line class="wg" x1="399" y1="1259" x2="421" y2="1259"/>
+<line class="wg" x1="406" y1="1266" x2="414" y2="1266"/>
+<text class="gl" x="410" y="1282">PUNKT GWIAZDOWY</text>
+<line class="w" x1="960" y1="850" x2="960" y2="890"/>
+<line class="w" x1="1045" y1="850" x2="1045" y2="890"/>
+<line class="w" x1="1130" y1="850" x2="1130" y2="890"/>
+<text class="lbl" x="968" y="872">5V</text>
+<text class="lbl" x="1053" y="872">GND</text>
+<text class="lbl" x="1138" y="872">USB-C (natywne, 303a:1001)</text>
+<line class="w" x1="692" y1="1116" x2="960" y2="1116"/>
+<line class="w" x1="960" y1="1116" x2="960" y2="890"/>
+<line class="w" x1="692" y1="1152" x2="1045" y2="1152"/>
+<line class="w" x1="1045" y1="1152" x2="1045" y2="890"/>
+<circle class="symf" cx="1045" cy="1152" r="3.8"/>
+<line class="w" x1="1045" y1="1152" x2="1045" y2="1240"/>
+<line class="w" x1="1045" y1="1240" x2="1045" y2="1252"/>
+<line class="wg" x1="1027" y1="1252" x2="1063" y2="1252"/>
+<line class="wg" x1="1034" y1="1259" x2="1056" y2="1259"/>
+<line class="wg" x1="1041" y1="1266" x2="1049" y2="1266"/>
+<text class="gl" x="1045" y="1282">ta sama gwiazda co M910q</text>
+<line class="wu" x1="1130" y1="890" x2="1130" y2="1180"/>
+<line class="wu" x1="1130" y1="1180" x2="1330" y2="1180"/>
+<rect class="blkm" x="1330" y="1120" width="250" height="120"/>
+<text class="mname" x="1455" y="1152">M910q</text>
+<text class="vc" x="1455" y="1176">port USB (przez hub)</text>
+<text class="vc" x="1455" y="1200">/dev/ttyACM_display</text>
+<text class="vc" x="1455" y="1222">reguła udev 99-bcm-esp32-display</text>
+<text class="vc" x="1230" y="1166">USB CDC 115200</text>
+<rect class="note" x="60" y="1330" width="740" height="110"/>
+<text class="nh" x="80" y="1356">PINY ESP32-S3 — zajęte i zakazane</text>
+<text class="nt" x="80" y="1382">Użyte: 1, 2, 4, 5, 6, 7 (wejścia) · 10–14 i 21 (panel) · 15–18 (wejścia drzwi).</text>
+<text class="nt" x="80" y="1402">NIE WOLNO: 0, 3, 45, 46 — strapping (płytka nie wstanie albo wejdzie w bootloader);</text>
+<text class="nt" x="80" y="1422">19, 20 — natywne USB, czyli cały protokół; 26–37 — flash i PSRAM modułu N16R8.</text>
+<rect class="note" x="820" y="1330" width="760" height="110"/>
+<text class="nh" x="840" y="1356">WEJŚCIA I MASY</text>
+<text class="nt" x="840" y="1382">Wszystkie dziesięć w trybie INPUT_PULLUP, stan aktywny LOW, debounce 30 ms (state.h).</text>
+<text class="nt" x="840" y="1402">Polaryzacji NIE zakładaj — zmierz. Krańcówki drzwi w autach tej epoki zwykle zwierają do masy.</text>
+<text class="nt" x="840" y="1422">Masa pojazdu dotyka wyłącznie diod transoptorów (piny 1–2). Po stronie pinów 3–4 jest masa ESP32.</text>
+<rect class="note" x="60" y="1470" width="1520" height="104"/>
+<text class="nh" x="80" y="1496">ZASILANIE I VBUS — dwa warianty, oba poprawne</text>
+<text class="nt" x="80" y="1522">Osobno z +15 (rysunek): ekran wstaje z zapłonem, kontrolki działają zanim M910q się podniesie. WARUNEK: przetnij żyłę VBUS (czerwoną) w kablu USB — 5 V z buck'a i 5 V z portu</text>
+<text class="nt" x="80" y="1542">nie mogą się bić. Masa w kablu USB zostaje połączona, inaczej nie ma wspólnego punktu odniesienia dla danych.   ·   Tylko z USB: bez M8 i bez bezpiecznika, jeden kabel, zero poboru na postoju,</text>
+<text class="nt" x="80" y="1562">ale ekran wstaje dopiero z komputerem — sprawdź też w BIOS-ie, czy port nie jest zasilany w S5 (Always On USB). Uzasadnienie obu: docs/WYSWIETLACZ_ESP32_1V8.md §Zasilanie i pobór.</text>
+</svg>

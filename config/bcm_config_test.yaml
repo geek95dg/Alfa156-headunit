@@ -52,6 +52,7 @@ modules:
   blinker_monitor: false   # brak sygnałów z auta
   rain_sensor: false
   central_lock: false      # brak Nano #1 i modułu przekaźników
+  esp32_display: false     # brak płytki ESP32-S3 z panelem 1,8"
   lighting: false
   performance: false       # zależy od OBD
   alarm: false

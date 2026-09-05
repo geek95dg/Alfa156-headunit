@@ -58,13 +58,13 @@
   <!-- ============ 3. CHARGE RELAY + DIODE ============ -->
   <rect class="mod" x="60" y="278" width="300" height="72"/>
   <text class="mt" x="210" y="300">Przekaźnik + MBR2545CT</text>
-  <text class="ms" x="210" y="318">12 V / 140 A · zał. 13,3 V · wył. 12,8 V</text>
+  <text class="ms" x="210" y="318">Bosch 30 A SPDT + D1 · cewka z zapłonu albo D+</text>
   <text class="ms" x="110" y="336">od auta</text>
   <text class="ms" x="222" y="336">do bufora</text>
   <text class="ms" x="320" y="336">masa</text>
-  <rect class="term" x="84" y="341" width="52" height="18"/><text class="tp" x="110" y="354">BAT 1</text>
-  <rect class="term" x="196" y="341" width="52" height="18"/><text class="tp" x="222" y="354">BAT 2</text>
-  <rect class="term" x="300" y="341" width="40" height="18"/><text class="tp" x="320" y="354">GND</text>
+  <rect class="term" x="84" y="341" width="52" height="18"/><text class="tp" x="110" y="354">K1 · 30</text>
+  <rect class="term" x="196" y="341" width="52" height="18"/><text class="tp" x="222" y="354">K1 · 87</text>
+  <rect class="term" x="300" y="341" width="40" height="18"/><text class="tp" x="320" y="354">K1 · 85</text>
 
   <path class="minus" d="M320 359 L320 386"/>
   <use href="#gnd" x="320" y="386"/>
@@ -76,8 +76,8 @@
   <rect class="mod" x="440" y="86" width="330" height="122"/>
   <text class="mt" x="605" y="110">Ładowarka CC-CV</text>
   <text class="ms" x="605" y="128">A: Victron Orion-Tr Smart (preset AGM)</text>
-  <text class="ms" x="605" y="144">B: moduł CC-CV boost 300 W / 10 A</text>
-  <text class="ms" x="605" y="162">nastawy: CV 14,40 V · CC 6,0 A</text>
+  <text class="ms" x="605" y="144">B: moduł CC-CV boost „900 W 15 A”</text>
+  <text class="ms" x="605" y="162">nastawy: CV 14,40 V · CC 8,0 A</text>
   <text class="ms" x="484" y="182">IN +</text>
   <text class="ms" x="542" y="182">IN −</text>
   <text class="ms" x="670" y="182">OUT +</text>
@@ -100,7 +100,7 @@
 
   <!-- charger OUT+ to OVP COM -->
   <path class="plus" d="M670 208 L670 258 L1006 258 L1006 210"/>
-  <text class="wl" x="800" y="252">2,5 mm² — tor ładowania</text>
+  <text class="wl" x="686" y="252">4 mm² — tor ładowania</text>
 
   <!-- ================= 5. OVP ================= -->
   <rect class="modP" x="800" y="86" width="380" height="122"/>
@@ -126,31 +126,93 @@
 
   <!-- OVP NC to bank -->
   <path class="plus" d="M1064 208 L1064 320 L900 320 L900 470"/>
-  <text class="wl" x="906" y="360">2,5 mm² → bank</text>
+  <text class="wl" x="906" y="360">4 mm² → bank</text>
+
+  <!-- ============ DETAL: SZYNA ZBIORCZA BANKU ============ -->
+  <rect x="60" y="530" width="360" height="284" fill="#fbfcfd" stroke="#c8d2da" stroke-width="1.5" rx="6"/>
+  <text class="mt" x="240" y="554">Szyna zbiorcza banku — detal</text>
+  <text class="ms" x="240" y="572">2 płaskowniki Cu 15 × 2 mm · odczepy co 70 mm</text>
+  <rect x="104" y="592" width="232" height="9" fill="#d9a066" stroke="#8a5a22" stroke-width="1.4" rx="2"/>
+  <rect x="104" y="704" width="232" height="9" fill="#b9bec4" stroke="#4a545c" stroke-width="1.4" rx="2"/>
+  <path class="plus" d="M104 596 L74 596"/>
+  <text class="wl" x="66" y="586">„+” → F7 i ładowarka</text>
+  <path class="minus" d="M336 709 L368 709"/>
+  <text class="wn" x="288" y="730">„−” → masa</text>
+  <line x1="120" y1="601" x2="120" y2="614" stroke="#c0392b" stroke-width="2"/>
+  <rect x="113" y="614" width="14" height="18" fill="#ffffff" stroke="#a8321a" stroke-width="1.4" rx="2"/>
+  <line x1="120" y1="632" x2="120" y2="640" stroke="#c0392b" stroke-width="2"/>
+  <rect x="108" y="640" width="25" height="38" fill="#fffaf0" stroke="#6b4a12" stroke-width="1.5" rx="3"/>
+  <text class="tp" x="120" y="664">1</text>
+  <line x1="120" y1="678" x2="120" y2="704" stroke="#222831" stroke-width="2"/>
+  <line x1="153" y1="601" x2="153" y2="614" stroke="#c0392b" stroke-width="2"/>
+  <rect x="146" y="614" width="14" height="18" fill="#ffffff" stroke="#a8321a" stroke-width="1.4" rx="2"/>
+  <line x1="153" y1="632" x2="153" y2="640" stroke="#c0392b" stroke-width="2"/>
+  <rect x="141" y="640" width="25" height="38" fill="#fffaf0" stroke="#6b4a12" stroke-width="1.5" rx="3"/>
+  <text class="tp" x="153" y="664">2</text>
+  <line x1="153" y1="678" x2="153" y2="704" stroke="#222831" stroke-width="2"/>
+  <line x1="186" y1="601" x2="186" y2="614" stroke="#c0392b" stroke-width="2"/>
+  <rect x="179" y="614" width="14" height="18" fill="#ffffff" stroke="#a8321a" stroke-width="1.4" rx="2"/>
+  <line x1="186" y1="632" x2="186" y2="640" stroke="#c0392b" stroke-width="2"/>
+  <rect x="174" y="640" width="25" height="38" fill="#fffaf0" stroke="#6b4a12" stroke-width="1.5" rx="3"/>
+  <text class="tp" x="186" y="664">3</text>
+  <line x1="186" y1="678" x2="186" y2="704" stroke="#222831" stroke-width="2"/>
+  <line x1="219" y1="601" x2="219" y2="614" stroke="#c0392b" stroke-width="2"/>
+  <rect x="212" y="614" width="14" height="18" fill="#ffffff" stroke="#a8321a" stroke-width="1.4" rx="2"/>
+  <line x1="219" y1="632" x2="219" y2="640" stroke="#c0392b" stroke-width="2"/>
+  <rect x="207" y="640" width="25" height="38" fill="#fffaf0" stroke="#6b4a12" stroke-width="1.5" rx="3"/>
+  <text class="tp" x="219" y="664">4</text>
+  <line x1="219" y1="678" x2="219" y2="704" stroke="#222831" stroke-width="2"/>
+  <line x1="252" y1="601" x2="252" y2="614" stroke="#c0392b" stroke-width="2"/>
+  <rect x="245" y="614" width="14" height="18" fill="#ffffff" stroke="#a8321a" stroke-width="1.4" rx="2"/>
+  <line x1="252" y1="632" x2="252" y2="640" stroke="#c0392b" stroke-width="2"/>
+  <rect x="240" y="640" width="25" height="38" fill="#fffaf0" stroke="#6b4a12" stroke-width="1.5" rx="3"/>
+  <text class="tp" x="252" y="664">5</text>
+  <line x1="252" y1="678" x2="252" y2="704" stroke="#222831" stroke-width="2"/>
+  <line x1="285" y1="601" x2="285" y2="614" stroke="#c0392b" stroke-width="2"/>
+  <rect x="278" y="614" width="14" height="18" fill="#ffffff" stroke="#a8321a" stroke-width="1.4" rx="2"/>
+  <line x1="285" y1="632" x2="285" y2="640" stroke="#c0392b" stroke-width="2"/>
+  <rect x="273" y="640" width="25" height="38" fill="#fffaf0" stroke="#6b4a12" stroke-width="1.5" rx="3"/>
+  <text class="tp" x="285" y="664">6</text>
+  <line x1="285" y1="678" x2="285" y2="704" stroke="#222831" stroke-width="2"/>
+  <line x1="318" y1="601" x2="318" y2="614" stroke="#c0392b" stroke-width="2"/>
+  <rect x="311" y="614" width="14" height="18" fill="#ffffff" stroke="#a8321a" stroke-width="1.4" rx="2"/>
+  <line x1="318" y1="632" x2="318" y2="640" stroke="#c0392b" stroke-width="2"/>
+  <rect x="306" y="640" width="25" height="38" fill="#fffaf0" stroke="#6b4a12" stroke-width="1.5" rx="3"/>
+  <text class="tp" x="318" y="664">7</text>
+  <line x1="318" y1="678" x2="318" y2="704" stroke="#222831" stroke-width="2"/>
+  <text class="warn" x="240" y="750" text-anchor="middle">ODBIÓR PO PRZEKĄTNEJ</text>
+  <text class="note" x="76" y="766">„+” z odczepu 1, „−” z odczepu 7 — rozrzut prądów 1,0 %.</text>
+  <text class="note" x="76" y="780">Oba bieguny z jednego końca dałyby 4,6 %.</text>
+  <text class="note" x="76" y="794">FB1…FB7 — wkładki 10 A. Ogonki 1,5 mm², równej długości.</text>
+  <text class="note" x="76" y="808">Szyna MUSI mieć pokrywę izolacyjną — zwarcie to 2,4 kA.</text>
 
   <!-- ================= 6. BANK ================= -->
   <rect class="modA" x="440" y="470" width="470" height="172"/>
-  <text class="mt" x="675" y="494">Bank buforowy — 4 × CSB HR1221W F2</text>
-  <text class="ms" x="675" y="512">12 V / 5,1 Ah AGM · razem 20,4 Ah · zaciski faston 6,35 mm</text>
+  <text class="mt" x="675" y="494">Bank buforowy — 7 × CSB HR1221W F2</text>
+  <text class="ms" x="675" y="512">12 V / 5,1 Ah AGM · razem 35,7 Ah · 12,6 kg · układ 4+3</text>
   <g>
-    <rect class="term" x="466" y="526" width="70" height="42"/>
-    <text class="tp" x="501" y="543">HR1221W</text><text class="ms" x="501" y="559">+F2  −F2</text>
-    <rect class="term" x="552" y="526" width="70" height="42"/>
-    <text class="tp" x="587" y="543">HR1221W</text><text class="ms" x="587" y="559">+F2  −F2</text>
-    <rect class="term" x="638" y="526" width="70" height="42"/>
-    <text class="tp" x="673" y="543">HR1221W</text><text class="ms" x="673" y="559">+F2  −F2</text>
-    <rect class="term" x="724" y="526" width="70" height="42"/>
-    <text class="tp" x="759" y="543">HR1221W</text><text class="ms" x="759" y="559">+F2  −F2</text>
-    <rect class="term" x="810" y="526" width="70" height="42"/>
-    <text class="tp" x="845" y="543">HR1221W</text><text class="ms" x="845" y="559">+F2  −F2</text>
+    <rect class="term" x="466" y="526" width="54" height="42"/>
+    <text class="tp" x="493" y="544" font-size="9">HR1221W</text><text class="ms" x="493" y="560">FB1</text>
+    <rect class="term" x="526" y="526" width="54" height="42"/>
+    <text class="tp" x="553" y="544" font-size="9">HR1221W</text><text class="ms" x="553" y="560">FB2</text>
+    <rect class="term" x="586" y="526" width="54" height="42"/>
+    <text class="tp" x="613" y="544" font-size="9">HR1221W</text><text class="ms" x="613" y="560">FB3</text>
+    <rect class="term" x="646" y="526" width="54" height="42"/>
+    <text class="tp" x="673" y="544" font-size="9">HR1221W</text><text class="ms" x="673" y="560">FB4</text>
+    <rect class="term" x="706" y="526" width="54" height="42"/>
+    <text class="tp" x="733" y="544" font-size="9">HR1221W</text><text class="ms" x="733" y="560">FB5</text>
+    <rect class="term" x="766" y="526" width="54" height="42"/>
+    <text class="tp" x="793" y="544" font-size="9">HR1221W</text><text class="ms" x="793" y="560">FB6</text>
+    <rect class="term" x="826" y="526" width="54" height="42"/>
+    <text class="tp" x="853" y="544" font-size="9">HR1221W</text><text class="ms" x="853" y="560">FB7</text>
   </g>
-  <text class="ms" x="675" y="588">każdy „+” przez własny bezpiecznik 10 A do szyny · 1,5 mm²</text>
-  <text class="ms" x="675" y="604">wszystkie „−” na wspólny mostek masowy · 1,5 mm²</text>
-  <text class="ms" x="675" y="620">jednakowe długości przewodów od pakietu do szyny</text>
-  <text class="ms" x="675" y="636">NTC 10 kΩ przyklejony do boku środkowego pakietu</text>
+  <text class="ms" x="675" y="588">każdy „+” przez własną wkładkę 10 A (FB1…FB7) · ogonek 1,5 mm²</text>
+  <text class="ms" x="675" y="604">wszystkie „−” na płaskownik masowy · ogonki 1,5 mm², nasuwki F2 6,35 mm</text>
+  <text class="ms" x="675" y="620">ogonki równej długości (różnica pętli ≤ 30 mm) · NTC 10 kΩ na pakiecie #4</text>
+  <text class="warn" x="675" y="636">odbiór po przekątnej — szczegół po lewej</text>
 
   <path class="plus" d="M600 642 L600 690"/>
-  <text class="wl" x="606" y="670">2,5 mm² · bezp. 15 A</text>
+  <text class="wl" x="606" y="670">2,5 mm² · F7 15 A MIDI</text>
   <path class="minus" d="M845 642 L845 668"/>
   <use href="#gnd" x="845" y="668"/>
 
@@ -158,7 +220,7 @@
   <rect class="modP" x="440" y="690" width="470" height="106"/>
   <text class="mt" x="675" y="714">XH-M609 — rozłącznik podnapięciowy</text>
   <text class="ms" x="675" y="732">odcięcie 11,00 V · powrót 12,60 V · przekaźnik 20 A</text>
-  <text class="ms" x="675" y="750">VIN — od banku (bezp. 15 A) · VOUT — do listwy</text>
+  <text class="ms" x="675" y="750">VIN — od banku (F7 15 A MIDI) · VOUT — do listwy</text>
   <text class="ms" x="516" y="770">VIN +</text>
   <text class="ms" x="590" y="770">VIN −</text>
   <text class="ms" x="749" y="770">VOUT +</text>
@@ -316,7 +378,7 @@
   <text class="mt" x="915" y="1412">Kolejność podłączania</text>
   <text class="wn" x="668" y="1436">1. Punkt gwiazdowy masy nadwozia</text>
   <text class="wn" x="668" y="1456">2. Wszystkie moduły i zaciski — bez zasilania</text>
-  <text class="wn" x="668" y="1476">3. Bank z bezpiecznikami, rozłącznik masy ROZWARTY</text>
+  <text class="wn" x="668" y="1476">3. Bank (7 pakietów) z FB1…FB7, rozłącznik masy ROZWARTY</text>
   <text class="wn" x="668" y="1496">4. Bezpiecznik główny 30 A wkładany JAKO OSTATNI</text>
 
   <text class="note" x="24" y="1542">Symbol masy oznacza połączenie z JEDNYM punktem gwiazdowym na nadwoziu (6 mm², goły metal, wazelina techniczna). Wyjątkiem jest masa wzmacniaczy — osobno, przy wzmacniaczach.</text>

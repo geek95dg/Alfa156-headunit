@@ -14,9 +14,16 @@ bez lutownicy przy każdej zmianie.
 | [`../schematics/pcb_power_layout.svg`](../schematics/pcb_power_layout.svg) | rozmieszczenie elementów 1:1, opisy zacisków, BOM, wiercenie |
 | [`../schematics/pcb_power_etch.svg`](../schematics/pcb_power_etch.svg) | **mozaika miedzi 1:1 do wydruku** + widok kontrolny + proces trawienia |
 | [`../schematics/gen_pcb_power.py`](../schematics/gen_pcb_power.py) | generator trzech powyższych — po zmianie projektu popraw i wygeneruj ponownie |
+| [`../schematics/png/pcb_power_schematic.png`](../schematics/png/pcb_power_schematic.png) | ten sam schemat ideowy w PNG — do podglądu na telefonie i wklejek; render [`../schematics/render_png.py`](../schematics/render_png.py) |
 
 Generator sam sprawdza spójność sieci i prześwity (uruchom
 `python3 schematics/gen_pcb_power.py` — błędy projektu przerywają generację).
+
+Rastrową kopię schematu ideowego robi `python3 schematics/render_png.py`
+(wynik w `schematics/png/`, szczegóły w
+[`../schematics/README.md`](../schematics/README.md#eksport-do-png)). Montażówki
+i mozaiki miedzi **nie drukuj z PNG** — te dwa arkusze idą do druku wyłącznie
+z SVG w skali 100 %, z kontrolą linijki 50 mm.
 
 ---
 
@@ -52,7 +59,7 @@ X1 (+AKU za F1 15 A) → D5 (TVS) + C1 → K1 (styk) → D1 (MBR2545CT)
 | X2.1 / X2.2 | M1 IN+ / IN− — wejście ładowarki CC-CV | 6 |
 | X3.1 / X3.2 | M1 OUT+ / OUT− — wyjście ładowarki | B |
 | X5.1 / X5.2 | XH-M603 DC-IN+ / DC-IN− | 7a″ / 7b |
-| X5.3 / X5.4 | XH-M603 OUT+ · **szyna „+" banku** (2,5 mm²) | 7d″ / 7 |
+| X5.3 / X5.4 | XH-M603 OUT+ · **szyna „+" banku** (**4 mm²** — spadek siedzi w pętli CV, §8.2 ZASILANIE) | 7d″ / 7 |
 | X6.1 / X6.2 | zapłon / ACC (cewka K1) · przelot ACC dalej (PC817, REM) | 4 |
 | GND M4 | oczko 6 mm² → punkt gwiazdowy masy | — |
 
@@ -138,9 +145,20 @@ Gdyby OUT+ sterował cewką K2, po zadziałaniu (rozwarciu) napięcie na OUT
 spada do zera przez rezystancję cewki → moduł widzi „pusty akumulator" →
 natychmiast zwiera z powrotem → **oscylacja kilka razy na sekundę, styki
 umierają**. W torze ładowania (do czego moduł zaprojektowano) wszystko się
-zgadza: mierzy wprost napięcie banku, przy CC **6,0 A** (nastawa domyślna
-§5.3) jego styki 10 A wystarczają, a zasilanie ma z toru ładowania — na
+zgadza: mierzy wprost napięcie banku, a zasilanie ma z toru ładowania — na
 postoju pobiera **zero**. Progi bez zmian: rozwarcie 15,30 V, powrót 14,00 V.
+
+**Prąd przez ten moduł przy banku siedmiu pakietów.** Obowiązująca nastawa to
+**CC 8,0 A** (§4.4 i §6.3 ZASILANIE_BUFOROWANE) — 80 % realnej obciążalności
+płytki (~10 A) i dokładnie deklarowana granica spec „≤ 8 A". To jest **wąskie
+gardło całego toru ładowania**: sufit katalogowy siedmiu HR1221W wynosi
+14,7 A i przestał być wiążący, więc powyżej 8,0 A ta konstrukcja (XH-M603
+wprost w torze) traci ważność i trzeba wrócić do układu „pilot + K2"
+z modułem mającym wolny styk COM/NO.
+
+> **Zmierz temperaturę zacisków X5 przy 8 A przez 30 min** przed zabudową.
+> Obciążalność ~10 A jest oszacowaniem, nie wartością katalogową, a od niej
+> zależy nastawa CC całego układu.
 
 Konsekwencje: **K2, D7 i drugi przekaźnik Bosch wypadają z projektu**,
 a przewody 7a–7e z §10.1 zastępują 4 krótkie odcinki do zacisków X5
@@ -155,7 +173,7 @@ oznacza cykle minutowe i pełną ochronę do końca jazdy.
 | K1 = przekaźnik PCB T90 zamiast Bosch + podstawka | wlutowany, tańszy (3–6 zł), styki 30 A; podstawka i fastony odpadają |
 | F8 = 10 A przy nowej przetwornicy | §2 wyżej; z XL6019 zostaje 7,5 A |
 | Wyjście przetwornicy: 19,5–20,0 V | 20 V = napięcie oryginalnego zasilacza; środek okna 19–21 V |
-| Odgałęzienia F8–F11 na płytce B | zastępują listwę bezpiecznikową (40–70 zł) dla tych obwodów; F1/F7 i bezpieczniki pakietów zostają inline przy źródłach |
+| Odgałęzienia F8–F11 na płytce B | zastępują listwę bezpiecznikową (40–70 zł) dla tych obwodów; F1, F7 i bezpieczniki pakietów **FB1…FB7** zostają inline przy źródłach |
 | SZBK07 wykreślony z listy ładowarek | to buck, nie boost — patrz §2 |
 
 ---
@@ -167,7 +185,7 @@ oznacza cykle minutowe i pełną ochronę do końca jazdy.
 | **K2 + D7 + JP1** | pilot z K2 odpada (§3); jeden przekaźnik i jedna dioda gasząca mniej |
 | **X4 (osobny zacisk banku)** | bank wychodzi z X5.4 — ta sama sieć co OUT+ modułu M2 |
 | **Drugi TVS** | jeden na wejściu wystarcza; za bankiem szyna jest buforowana samym bankiem |
-| **Kondensator na szynie za LVD** | bank 20,4 Ah to kondensator, jakiego nie kupisz |
+| **Kondensator na szynie za LVD** | bank 35,7 Ah o rezystancji 5,29 mΩ to kondensator, jakiego nie kupisz |
 | **C6 470 µF na wyjściu przetwornicy 19,5 V** | dotyczył „czkawki" XL6019; moduł „1500 W 30 A" ma własne kondensatory i limit CC |
 | **Termistor NTC rozruchowy (§3.2b)** | jw. — potrzebny tylko, jeśli zostajesz przy XL6019 i faktycznie wystąpi czkawka; wtedy inline, poza płytką |
 | **Kompensacja temperaturowa ładowania** | wariant B świadomie bez niej (§5.3c ZASILANIE_BUFOROWANE — absorpcja tylko podczas jazdy) |
@@ -202,7 +220,7 @@ Elementy **wlutowywane** (moduły M1–M6 kupujesz wg dotychczasowych list):
 | 16 | **Przetwornica „1500 W 30 A" boost CC-CV** (§2) | 1 | **60–95** |
 
 Do tego pozycje niezmienione z [`LISTA_ZAKUPOWA.md`](LISTA_ZAKUPOWA.md)
-(ładowarka CC-CV M1, XH-M603, przewody, bezpieczniki inline F1/F7/pakietów).
+(ładowarka CC-CV M1, XH-M603, przewody, bezpieczniki inline F1, F7 i FB1…FB7).
 **Wykreśl z tamtej listy:** oba przekaźniki Bosch z podstawkami (poz. 1
 i 5a), drugi kondensator 470 µF (poz. 7 — wystarczy jeden).
 
@@ -247,6 +265,17 @@ układem:
 | **3** | Trawisz i uzbrajasz **płytkę A** (bez M2!): X5.1–X5.3 zwarte drutem w zaciskach. Podłączasz K1 pod ACC, ładowarkę M1 pod X2/X3, bank pod X5.4 | ładowanie wariantem B działa (bez warstwy nadnapięciowej) |
 | **4** | Dokupujesz **XH-M603**, ustawiasz progi na zasilaczu (§8), wpinasz w X5, wyjmujesz zworkę | pełna ochrona przed przeładowaniem |
 | **5** | Wymieniasz XL6019 na przetwornicę **„1500 W 30 A"** (19,5–20,0 V / CC 4 A), F8 → 10 A, kasujesz limit RAPL | pełne 65 W dla M910q |
+
+> ⚠ **Etap 5 koliduje z bankiem siedmiu pakietów — nie planuj ich niezależnie.**
+> Skasowanie limitu RAPL podnosi obciążenie szyny podczas jazdy z 3,5 A do
+> ok. 5,1 A (a szczytowe z 7,5 do 9,7 A). Ponieważ moduł CC-CV limituje prąd
+> **wyjściowy** (obciążenie plus ładowanie), przy CC 8,0 A do banku zostanie
+> wtedy 2,9 A netto zamiast 4,5 A, a ładowanie od progu LVD wydłuży się
+> z 5,95 do **9,2 h fazy CC**. Jeżeli oba kroki mają wejść, nastawa CC musi
+> pójść na 10 A — a to wymaga wymiany modułu nadnapięciowego (na taki
+> z wolnym stykiem COM/NO), F1 → 20 A, przewodu wejściowego 6 mm²
+> i mocniejszego radiatora diody. Rachunek: §6.3 i §9.4
+> [`ZASILANIE_BUFOROWANE.md`](ZASILANIE_BUFOROWANE.md).
 
 Etapy 1–2 nie dotykają toru ładowania, 3–5 nie dotykają dystrybucji —
 w każdej chwili masz jeżdżące auto.

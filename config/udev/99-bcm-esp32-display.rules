@@ -1,0 +1,30 @@
+# BCM v8.5 — stała nazwa portu wyświetlacza pomocniczego 1,8" (ESP32-S3)
+#
+# Instalacja:
+#     sudo cp config/udev/99-bcm-esp32-display.rules /etc/udev/rules.d/
+#     sudo udevadm control --reload-rules && sudo udevadm trigger
+#     ls -l /dev/ttyACM_display      # oczekiwane: dowiązanie do ttyACMn
+#
+# Po co: numeracja /dev/ttyACM* przeskakuje między restartami, a na tych
+# samych węzłach siedzi już Pro Micro (oba Nano idą przez CH340 na
+# /dev/ttyUSB*, więc skanu nie dotyczą). src/dashboard/esp32_link.py otwiera
+# najpierw stałą ścieżkę (klucz esp32_display.port w config/bcm_config.yaml)
+# i dopiero jej brak włącza skan /dev/ttyACM0..3 z handshakiem PING/PONG.
+# Ścieżce z tej reguły most ufa bez pytania — dlatego musi być dokładna.
+#
+# 303a:1001 to natywne USB Espressifa: ESP32-S3 zgłasza się jako CDC-ACM
+# po włączeniu "USB CDC On Boot" w Arduino IDE. Ten sam VID:PID mają
+# WSZYSTKIE płytki z tej rodziny, więc przy dwóch ESP32 w aucie trzeba
+# dołożyć numer seryjny — odczytaj go z płytki:
+#     udevadm info -a -n /dev/ttyACM0 | grep -m1 'ATTRS{serial}'
+# i dopisz do reguły ATTRS{serial}=="XX:XX:XX:XX:XX:XX".
+#
+# Uwaga: drugie gniazdo USB-C na płytkach deweloperskich idzie do mostka
+# UART (CH343/CP2102) i ma inny VID:PID — ta reguła go nie złapie i nie
+# powinna. Protokół chodzi po natywnym USB.
+#
+# Reguła K-Line (CP2102 -> /dev/ttyUSB_kline) jest opisana w
+# docs/KLINE_SNIFFING.md §5.4 i nie jest tu powielana, żeby nie robić
+# drugiego źródła prawdy.
+
+SUBSYSTEM=="tty", ATTRS{idVendor}=="303a", ATTRS{idProduct}=="1001", SYMLINK+="ttyACM_display", GROUP="dialout", MODE="0660"

@@ -3,12 +3,14 @@
 
 from _icons import telltale, ABS, AIRBAG, IMMO, BRAKE, CRUISE
 
+# Cztery pierwsze lampki wchodzą wprost na GPIO przez PC817 (stan aktywny LOW);
+# tempomat przychodzi z BCM po USB, bo w aucie nie ma go jako prostego napięcia.
 ROWS = [
-    (ABS,    "ABS",            "vehicle.abs_fault*", "usterka układu ABS",       "#F59E0B", "bursztyn"),
-    (AIRBAG, "Poduszka (SRS)", "vehicle.airbag_ok",  "airbag_ok = false",        "#EF4444", "czerwony"),
-    (IMMO,   "Immobilizer",    "vehicle.immo_ok",    "immo_ok = false",          "#F59E0B", "bursztyn"),
-    (BRAKE,  "Hamulec ręczny", "vehicle.handbrake",  "dźwignia zaciągnięta",     "#EF4444", "czerwony"),
-    (CRUISE, "Tempomat",       "vehicle.cruise",     "aktywny + zadana prędkość","#22C55E", "zielony"),
+    (ABS,    "ABS",            "GPIO4  \u2190 PC817*", "usterka układu ABS",       "#F59E0B", "bursztyn"),
+    (AIRBAG, "Poduszka (SRS)", "GPIO6  \u2190 PC817*", "usterka SRS",              "#EF4444", "czerwony"),
+    (IMMO,   "Immobilizer",    "GPIO7  \u2190 PC817",  "klucz nierozpoznany",      "#F59E0B", "bursztyn"),
+    (BRAKE,  "Hamulec ręczny", "GPIO5  \u2190 PC817",  "dźwignia zaciągnięta",     "#EF4444", "czerwony"),
+    (CRUISE, "Tempomat",       "CRUISE: \u2190 USB",   "aktywny + zadana prędkość","#22C55E", "zielony"),
 ]
 
 ROW = """      <div style="display: flex; align-items: center; gap: 16px; padding: 8px 0; border-top: 1px solid #1c1c1f;">
@@ -57,7 +59,7 @@ DOC = """<!doctype html>
 
   <div style="display: flex; flex-direction: column; gap: 4px; padding-bottom: 10px;">
     <span style="font-size: 17px; font-weight: 900; color: #f4f4f5; letter-spacing: -0.2px;">Kontrolki — arkusz symboli</span>
-    <span style="font-size: 11px; font-weight: 600; color: #71717a;">ST7735 128&times;160 &middot; symbol 22&times;22 px w podkładce 26&times;26 &middot; kolumny: 4&times;, świeci, wygaszona</span>
+    <span style="font-size: 11px; font-weight: 600; color: #71717a;">ST7735 128&times;160 &middot; symbol 22&times;22 px w podkładce 26&times;26 &middot; kolumny: 4&times;, świeci, wygaszona &middot; źródło sygnału</span>
   </div>
 
 %s
@@ -67,7 +69,7 @@ DOC = """<!doctype html>
       <span style="font-size: 24px; font-weight: 900; color: #22c55e; line-height: 1; letter-spacing: -0.8px;">130</span>
       <span style="font-size: 11px; font-weight: 700; color: #52525b;">km/h</span>
     </div>
-    <span style="font-size: 11px; font-weight: 600; color: #a1a1aa; line-height: 1.45;"><span style="color: #f59e0b; font-weight: 800;">*</span> sygnał, którego BCM jeszcze nie publikuje. Zapalona kontrolka dostaje podkładkę w swoim kolorze (13&nbsp;%%&nbsp;krycia) i wąską poświatę. Zadana prędkość: 16&nbsp;px / waga&nbsp;900 / kolor kontrolki. Źródło: ECU &rarr; K-Line &rarr; BCM &rarr; <span style="font-family: ui-monospace, Menlo, monospace; color: #d4d4d8;">vehicle.cruise_set_speed</span>.</span>
+    <span style="font-size: 11px; font-weight: 600; color: #a1a1aa; line-height: 1.45;"><span style="color: #f59e0b; font-weight: 800;">*</span> do zmierzenia miernikiem, czy ta linia jest na złączu fabrycznego wyświetlacza. Zapalona kontrolka dostaje podkładkę w swoim kolorze (13&nbsp;%%&nbsp;krycia) i wąską poświatę. Zadana prędkość: 16&nbsp;px / waga&nbsp;900 / kolor kontrolki; <span style="font-family: ui-monospace, Menlo, monospace; color: #d4d4d8;">vehicle.cruise_set_speed</span> nie ma jeszcze producenta w BCM, więc do czasu znalezienia ramki w ECU pole pokazuje <span style="font-family: ui-monospace, Menlo, monospace; color: #d4d4d8;">---</span>.</span>
   </div>
 
 </div>

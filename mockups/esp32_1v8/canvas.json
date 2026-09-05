@@ -12,7 +12,7 @@
       "x": -450,
       "y": 0,
       "w": 370,
-      "text": "EKRAN 1 — NOW PLAYING\n128 × 160 px, pionowo\n\nPasmo górne (32 px): ABS, poduszka, immobilizer — lampki usterek.\n\nŚrodek (90 px): źródło dźwięku, tytuł 15 px/800 łamany do dwóch linii, wykonawca 10 px/600 z wielokropkiem, pasek postępu 104 × 3 px w bursztynie motywu.\n\nPasmo dolne (36 px): hamulec ręczny w wąskim lewym slocie, tempomat w szerszym prawym — po włączeniu slot pokazuje zadaną prędkość 16 px/900; przy wyłączonym zostaje sam wygaszony symbol i ---.\n\nWszystko rysowane w pikselach wyświetlacza; artboard jest przeskalowany 4×."
+      "text": "EKRAN 1 — NOW PLAYING\n128 × 160 px, pionowo\n\nPasmo górne (32 px): WSZYSTKIE cztery lampki usterek — ABS, hamulec ręczny, poduszka, immobilizer. Ta kolejność jest kontraktem: tak samo ułożone są TELLTALES[] w assets.h i InputId w state.h.\n\nŚrodek (90 px): źródło dźwięku, tytuł 15 px/800 łamany do dwóch linii, wykonawca 10 px/600 z wielokropkiem, pasek postępu 104 × 3 px w bursztynie motywu.\n\nPasmo dolne (36 px): w całości dla tempomatu — po włączeniu prawa komórka pokazuje zadaną prędkość 16 px/900 i km/h 7 px, przy wyłączonym zostaje sam wygaszony symbol i ---. Lewe 40 px jest PUSTE, jako rezerwa na przyszłą piątą informację (np. temperaturę zewnętrzną).\n\nWszystko rysowane w pikselach wyświetlacza; artboard jest przeskalowany 4×."
     },
     {
       "id": "ekran-2",

@@ -34,6 +34,7 @@ step-up 19 V) ma osobny dokument: **[`ZASILANIE_BUFOROWANE.md`](ZASILANIE_BUFORO
 17. [Diagnostyka](#17-diagnostyka)
 18. [Reset i ponowna instalacja](#18-reset-i-ponowna-instalacja)
 19. [Znane rozbieżności](#19-znane-rozbieżności)
+20. [Wyświetlacz pomocniczy 1,8" na ESP32](#20-wyświetlacz-pomocniczy-18-na-esp32)
 
 ---
 
@@ -170,20 +171,21 @@ Tutaj tylko to, co trzeba wiedzieć, żeby zrozumieć resztę wdrożenia.
 odbiornika — jest sygnałem, który Arduino zamienia na impuls na styki
 **przycisku zasilania M910q**:
 
-| Stan | Pobór z banku | Postój (4 pakiety, 20,4 Ah) |
+| Stan | Pobór z banku | Postój (7 pakietów, 35,7 Ah) |
 |------|---------------|------------------------------|
-| Praca | 10–55 W | — |
-| **S3** (kluczyk OFF) | 200–460 mA | ~0,9–2,1 dnia |
-| **Wyłączony** (impuls 5 s po 2 h) | 50–150 mA | ~2,8–8,5 dnia |
+| Praca | 10–55 W (3,5 A z banku) | ~5,1 h przy zgaszonym silniku |
+| **S3** (kluczyk OFF) | 200–460 mA | ~1,6–3,7 dnia |
+| **Wyłączony** (impuls 5 s po 2 h) | 50–150 mA | ~5,0–14,9 dnia |
 
 Jedyny przekaźnik w torze mocy siedzi w **ładowaniu**, nie w odbiornikach.
 Uzasadnienie i porównanie z porzuconym modelem „domena B":
 [`ZASILANIE_BUFOROWANE.md`](ZASILANIE_BUFOROWANE.md) §2.2.
 
-Między akumulatorem auta a head unitem stoi **bank 4 × CSB HR1221W F2**
-(12 V / 5,1 Ah AGM, razem 20,4 Ah — więcej fizycznie się nie mieści),
-ładowany przez ładowarkę CC-CV z profilem **AGM** (14,40 V absorpcji /
-13,65 V float, maks. 8,4 A wg karty katalogowej),
+Między akumulatorem auta a head unitem stoi **bank 7 × CSB HR1221W F2**
+(12 V / 5,1 Ah AGM, łączone równolegle — razem **35,7 Ah** przy niezmienionym
+napięciu 12 V, masa 12,6 kg), ładowany przez ładowarkę CC-CV z profilem
+**AGM** (14,40 V absorpcji / 13,65 V float, **nastawa CC 8,0 A** przy suficie
+katalogowym 14,7 A — ogranicza tor ładowania, nie akumulator),
 chroniony rozłącznikiem nadnapięciowym (15,3 V) i modułem **XH-M609** jako
 LVD (11,0 / 12,60 V). M910q zasila **przetwornica step-up XL6019**
 (12 → 19,5 V) za przekaźnikiem zapłonu.
@@ -692,6 +694,10 @@ picocom -b 115200 /dev/ttyUSB1
 Okablowanie pin-po-pinie: [`ARDUINO_SETUP_GUIDE.md`](ARDUINO_SETUP_GUIDE.md)
 §7 (Nano always-on) i §7b (sensor hub).
 
+> **Czwarta płytka — opcjonalna.** Wyświetlacz pomocniczy 1,8" ma własny
+> ESP32-S3 (`arduino/esp32_display`), też wgrywany przez `make -C arduino`,
+> ale z rdzeniem `esp32:esp32` i po natywnym USB. Cała procedura: §20.
+
 ---
 
 ## 12. K-Line / OBD
@@ -792,8 +798,8 @@ z parowaniem telefonów.
 > **Zasilanie wzmacniacza idzie osobną gałęzią** prosto z akumulatora
 > rozruchowego (bezpiecznik wg karty modułu, zwykle 20–30 A), **nie z banku
 > buforowego** — patrz [`ZASILANIE_BUFOROWANE.md`](ZASILANIE_BUFOROWANE.md) §2.
-> Szczyty 20–30 A rozłożyłyby bank AGM w kilkanaście minut i przekroczyły
-> przekaźnik LVD.
+> Szczyty 20–30 A przekroczyłyby przekaźnik LVD (20 A) — i to jest argument
+> rozstrzygający, bo nie zależy od pojemności banku.
 
 Z systemem buforowanym łączy wzmacniacz wyłącznie **sygnał REM z zacisku 87
 i ekran kabla RCA**. Masę prowadź lokalnie, przy wzmacniaczu — wspólna masa
@@ -825,6 +831,7 @@ zawsze pierwszeństwo.
 | Moduł | Co trzeba |
 |-------|-----------|
 | `obd` | `use_real_hardware: true` + reguła udev (§12) |
+| `esp32_display` | płytka ESP32-S3 na USB + reguła udev (§20) |
 | `wifi_hotspot` | osobny dongiel USB WiFi (§13.1) |
 | `weather` | klucz API OpenWeatherMap |
 | `route_planner` | klucze OpenRouteService / TomTom |
@@ -872,10 +879,10 @@ za zakończone.
 
 ```
 [ ] Rozruch silnika przy działającym BCM — komputer NIE resetuje się
-[ ] Wyłączenie zapłonu → impuls z Arduino, M910q schodzi do S3 (400–550 mA)
+[ ] Wyłączenie zapłonu → impuls z Arduino, M910q schodzi do S3 (200–460 mA)
 [ ] Domena A dalej działa — pilot 433 MHz i BLE bagażnika odpowiadają
 [ ] Prąd spoczynkowy logiki ~60 mA
-[ ] Prąd ładowania banku ≤ 6 A przy pracującym silniku
+[ ] Prąd na wyjściu ładowarki ≤ 8 A, do szyny banku ~4,5 A (silnik pracuje)
 [ ] Napięcie banku nie przekracza 14,40 V (wg kompensacji temperaturowej)
 [ ] Po 48 h postoju auto normalnie odpala
 [ ] BCM wstaje automatycznie po włączeniu zapłonu
@@ -991,8 +998,11 @@ Wnioski:
 
 **Napięcia są prawidłowe** — HR1221W to AGM, a karta katalogowa CSB dopuszcza
 14,4–15,0 V cyklicznie i 13,5–13,8 V buforowo. **Limit prądu nie jest**:
-katalog podaje 2,1 A na pakiet, czyli 8,4 A dla banku czterech. Brakuje też
-kompensacji temperaturowej (−18 mV/°C float, −30 mV/°C cykl).
+katalog podaje 2,1 A na pakiet. Przy dzisiejszym banku **siedmiu** pakietów
+sufit wynosi 14,7 A, więc dolna wartość z tamtych notatek mieści się w karcie
+— ale obowiązująca nastawa to **CC 8,0 A** i ogranicza ją tor ładowania
+(płytka XH-M603), a nie akumulator. Brakuje też kompensacji temperaturowej
+(−18 mV/°C float, −30 mV/°C cykl).
 
 Obowiązujące nastawy: [`ZASILANIE_BUFOROWANE.md`](ZASILANIE_BUFOROWANE.md) §4.4–§4.5 i §5.
 
@@ -1044,6 +1054,130 @@ Plik `config/systemd/bcm-headunit.service` był **wariantem Orange Pi PC**,
 mimo neutralnej nazwy. Został zarchiwizowany jako
 `Archive/orange-pi-pc/bcm-headunit-opi-pc.service`. Na M910q instaluje się
 `bcm-headunit-x86.service` **pod nazwą** `bcm-headunit.service` (§7.1).
+
+---
+
+## 20. Wyświetlacz pomocniczy 1,8" na ESP32
+
+Panel **ST7735 128 × 160 px, pionowo**, w miejscu fabrycznego wyświetlacza:
+ekran 1 to metadane muzyki z kontrolkami, ekran 2 — ostrzeżenie o otwartym
+nadwoziu. Sterownikiem jest **ESP32-S3** wpięty w USB, ale kontrolki i czujniki
+otwarcia idą **wprost z auta na GPIO**, więc ekran 2 działa niezależnie od
+komputera.
+
+Projekt ekranów, protokół i budżet poboru:
+[`WYSWIETLACZ_ESP32_1V8.md`](WYSWIETLACZ_ESP32_1V8.md). Okablowanie
+zacisk po zacisku: [`SCHEMATY_POLACZEN.md`](SCHEMATY_POLACZEN.md) §11
++ [`../schematics/esp32_display_wiring.svg`](../schematics/esp32_display_wiring.svg).
+
+**Moduł jest opcjonalny** — domyślnie wyłączony (`modules.esp32_display: false`).
+Brak płytki na USB niczego nie psuje: most loguje to raz i czeka.
+
+### 20.1 Firmware
+
+Rdzeń Espressifa dla `arduino-cli` instaluje się osobno (~1 GB) — komplet
+poleceń jest w nagłówku [`../arduino/Makefile`](../arduino/Makefile).
+
+```bash
+make -C arduino esp32_display-test                        # testy hosta, bez płytki
+make -C arduino esp32_display                             # kompilacja
+make -C arduino esp32_display-upload PORT=/dev/ttyACM_display
+```
+
+> **W Arduino IDE zaznacz „USB CDC On Boot: Enabled”.** Bez tego `Serial`
+> nie jest natywnym USB i protokół nie ma czym jechać. `Makefile` podaje
+> komplet ustawień panelu (`TFT_ESPI_FLAGS`) flagami kompilatora, żeby
+> konfiguracja `TFT_eSPI` została w repo, a nie w katalogu biblioteki.
+
+Testy hosta (`arduino/esp32_display/test/test_host.cpp`) sprawdzają parser
+protokołu, debounce wejść, wybór ekranu, font i składanie napisów — czystym
+`g++`, bez płytki.
+Warto je puścić przed każdym wgraniem.
+
+### 20.2 Port USB i reguła udev
+
+Wpięcie: **natywne** gniazdo USB-C ESP32-S3 → hub USB → M910q
+([`SCHEMATY_POLACZEN.md`](SCHEMATY_POLACZEN.md) §5.3). Drugie gniazdo na
+płytkach deweloperskich idzie do mostka UART i **nie** nadaje się do tego
+zastosowania.
+
+Reguła udev jest konieczna z tego samego powodu co przy K-Line (§12):
+numeracja `/dev/ttyACM*` przeskakuje między restartami, a na tych węzłach
+siedzi już Pro Micro (§11 — oba Nano są na `/dev/ttyUSB*`).
+
+```bash
+cd /opt/bcm
+sudo cp config/udev/99-bcm-esp32-display.rules /etc/udev/rules.d/
+sudo udevadm control --reload-rules && sudo udevadm trigger
+ls -l /dev/ttyACM_display      # oczekiwane: dowiązanie -> ttyACMn
+```
+
+Gdy dowiązanie nie powstaje:
+
+```bash
+lsusb | grep -i espressif                 # oczekiwane: ID 303a:1001
+udevadm info -a -n /dev/ttyACM0 | grep -m3 'idVendor\|idProduct\|{serial}'
+groups | grep dialout                     # bez tego port jest tylko do odczytu roota
+```
+
+> **Dwa ESP32 w aucie = ten sam VID:PID.** `303a:1001` mają wszystkie płytki
+> z tej rodziny. Wtedy dopisz do reguły `ATTRS{serial}=="..."` — numer seryjny
+> odczytasz poleceniem wyżej. Plik reguły ma to opisane w komentarzu.
+
+### 20.3 Włączenie modułu
+
+```yaml
+# config/bcm_config.yaml
+modules:
+  esp32_display: true
+esp32_display:
+  port: /dev/ttyACM_display   # ścieżce z udev most ufa bez pytania
+  baudrate: 115200
+  scan: true                  # brak ścieżki -> skan ttyACM0..3 z PING/PONG
+  ping_interval: 2.0          # ESP32 uznaje BCM za offline po 5 s ciszy
+  time_unit: ms               # jednostka bt.media_position na magistrali
+```
+
+Most po stronie BCM to [`../src/dashboard/esp32_link.py`](../src/dashboard/esp32_link.py),
+startowany generycznie z rejestru `src/core/modules_catalog.py`.
+**Zmiana wymaga restartu BCM** (§15).
+
+### 20.4 Weryfikacja — czy linie lecą
+
+Najpierw „na sucho”, z zatrzymanym BCM (dwa procesy nie mogą trzymać jednego
+portu):
+
+```bash
+sudo systemctl stop bcm-headunit
+stty -F /dev/ttyACM_display 115200 raw -echo
+cat /dev/ttyACM_display &                      # po resecie płytki: READY
+printf 'PING\n' > /dev/ttyACM_display          # oczekiwane: PONG
+printf 'SRC:BT\nTITLE:Nightcall\nARTIST:Kavinsky\nPLAY:1\nDUR:258\nPOS:87\n' \
+    > /dev/ttyACM_display                      # na ekranie: tytuł, wykonawca, pasek
+kill %1
+```
+
+Potem z uruchomionym BCM:
+
+```bash
+sudo systemctl start bcm-headunit
+journalctl -u bcm-headunit -f | grep -i esp32
+# oczekiwane:  ESP32 display: most uruchomiony (port docelowy /dev/ttyACM_display)
+#              ESP32 display podłączony: /dev/ttyACM_display
+```
+
+| Objaw | Przyczyna |
+|-------|-----------|
+| Brak `/dev/ttyACM_display` | reguła nie wgrana albo kabel w gnieździe mostka UART, a nie w natywnym USB |
+| `ESP32 display: brak portu (...) — tryb bezczynny` | portu nie ma; most czeka i próbuje dalej, to nie jest błąd |
+| `... nie jest wyświetlaczem (3 próby) — przestaję go zaczepiać` | skan trafił na Pro Micro (`/dev/ttyACM0`) i nie dostał `PONG`; wgraj regułę udev, żeby skan w ogóle nie ruszał — czytanie z tego portu podkrada bajty `arduino_serial.py` |
+| `ESP32 display: utrata portu ...` | kabel wypięty albo płytka zresetowana w trakcie pracy; most zamyka port, szuka od nowa i po znalezieniu wysyła pełny stan — nic nie trzeba robić |
+| Metadane gasną do `---`, kontrolki działają | BCM milczy > 5 s — moduł wyłączony, BCM zatrzymany albo kabel wypięty |
+| Kontrolki i ekran 2 działają przy wyłączonym komputerze | tak ma być — te sygnały idą wprost na GPIO |
+| Płytka resetuje się przy otwieraniu portu | ktoś otworzył port przy **1200 bps**; rdzeń S3 traktuje to jako wejście w bootloader |
+
+Wgranego firmware nie trzeba ruszać przy aktualizacjach BCM — protokół jest
+jednokierunkowy i wstecznie zgodny: **nieznany klucz ESP32 ignoruje bez błędu**.
 
 ---
 

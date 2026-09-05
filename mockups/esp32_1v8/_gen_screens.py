@@ -120,7 +120,15 @@ DOC = """<!doctype html>
 
 
 def now_playing(source, title, artist, progress, abs_lit, airbag_lit, immo_lit, brake_lit, cruise_speed):
-    """Ekran 1 — kontrolki nad i pod, metadane posrodku."""
+    """Ekran 1 — cztery kontrolki w pasmie gornym, metadane posrodku.
+
+    Rozklad jest kontraktem (docs/WYSWIETLACZ_ESP32_1V8.md, "Ekran 1"):
+    pasmo gorne 32 px to WSZYSTKIE cztery lampki usterek w kolejnosci
+    ABS, hamulec, poduszka, immobilizer — tej samej, ktora ma TELLTALES[]
+    w assets.h i InputId w state.h. Pasmo dolne 36 px nalezy w calosci do
+    tempomatu, a jego lewe 40 px zostaje PUSTE jako rezerwa (miejsce na
+    przyszla piata informacje, np. temperature zewnetrzna).
+    """
     if cruise_speed is None:
         cruise_slot = ('%s\n        <span style="font-size: 12px; font-weight: 800; letter-spacing: 1.4px;'
                        ' color: %s;">---</span>' % (telltale(CRUISE, False), OFF))
@@ -135,14 +143,16 @@ def now_playing(source, title, artist, progress, abs_lit, airbag_lit, immo_lit, 
     <div style="height: 32px; flex-shrink: 0; display: flex; align-items: center; justify-content: space-around;
                 border-bottom: 1px solid {line};">
       {t_abs}
+      {t_brake}
       {t_airbag}
       {t_immo}
     </div>
 
     <div style="flex-grow: 1; display: flex; flex-direction: column; align-items: center; justify-content: center;
                 gap: 6px; padding: 0 8px; min-height: 0;">
-      <div style="display: flex; align-items: center; gap: 3px;">
-        <svg viewBox="0 0 10 10" width="7" height="7" aria-label="Odtwarzanie"><path d="M2 1.2 8.4 5 2 8.8Z" fill="{dim}"></path></svg>
+      <!-- sam napis, bez trojkata odtwarzania: FONT_LABEL nie ma strzalki,
+           wiec firmware dopisuje przy pauzie " . PAUZA" (text_layout.h) -->
+      <div style="display: flex; align-items: center;">
         <span style="font-size: 7px; font-weight: 800; letter-spacing: 0.7px; color: {dim};">{source}</span>
       </div>
       <div style="font-size: 15px; font-weight: 800; line-height: 1.15; color: {text}; text-align: center;
@@ -156,10 +166,8 @@ def now_playing(source, title, artist, progress, abs_lit, airbag_lit, immo_lit, 
     </div>
 
     <div style="height: 36px; flex-shrink: 0; display: flex; align-items: stretch; border-top: 1px solid {line};">
-      <div style="width: 40px; display: flex; align-items: center; justify-content: center;">
-        {t_brake}
-      </div>
-      <div style="width: 1px; background: {line};"></div>
+      <!-- lewe 40 px: rezerwa, celowo puste -->
+      <div style="width: 40px;"></div>
       <div style="flex-grow: 1; display: flex; align-items: center; justify-content: center; gap: 3px; padding-right: 3px;">
         {cruise}
       </div>
