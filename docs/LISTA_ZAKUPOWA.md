@@ -42,7 +42,7 @@ Ceny orientacyjne, rynek PL, 2025/2026. **Razem: ~670–1305 PLN.**
 | # | Element | Specyfikacja | Po co | Cena (PLN) |
 |---|---------|--------------|-------|-----------|
 | 1 | Przekaźnik 30 A SPDT + podstawka | Bosch 12 V | rozłącza tor ładowania przy zgaszonym silniku | 15–25 |
-| 2 | **Dioda MBR2545CT** | 25 A / 45 V, TO-220AB | blokada wsteczna; **obie anody zwarte** | 5–12 |
+| 2 | **Ładowarka DC-DC izolowana** | B2B 12→12 V, ≥10 A, profil AGM z float, wyzwalanie zapłonem | zastępuje boost **i** diodę MBR2545CT — izolacja blokuje przepływ wsteczny sama (ZASILANIE §5.5). VEVOR 12/12-20 albo klon w obudowie IP55; **potwierdź izolację omomierzem przed montażem** | 150–550 |
 | 3 | Radiator do TO-220 + podkładka mikowa | 4,4 W strat przy CC 8,0 A (≥ 6 K/W) | blaszka diody to katoda — musi być izolowana | 7–15 |
 | 4 | **Moduł CC-CV boost** | „900 W 15 A" z wyświetlaczem albo „1500 W 30 A" boost (**nie SZBK07** — to buck, patrz [`PCB_ZASILANIE.md`](PCB_ZASILANIE.md) §2) | ładowarka: CV 14,40 V, **CC 8,0 A** | 50–140 |
 | 5 | **Rozłącznik nadnapięciowy** | **XH-M603** (albo XH-M604) — ta sama rodzina co XH-M609 | blokada przeładowania: 15,30 V / powrót 14,00 V | 40–80 |
@@ -94,7 +94,7 @@ Ceny orientacyjne, rynek PL, 2025/2026. **Razem: ~670–1305 PLN.**
 | Element | Dlaczego |
 |---------|----------|
 | VSR / separator akumulatorów | zastąpiony przekaźnikiem z zapłonu i diodą — §5.3c [`ZASILANIE_BUFOROWANE.md`](ZASILANIE_BUFOROWANE.md) |
-| Ładowarka B2B (Victron / Redarc) | przy nastawie CC 8,0 A wariant z przekaźnikiem i boostem robi to samo za ~1/5 ceny. Ocena przestaje być prawdziwa dopiero, gdyby ktoś chciał wejść na 13–14,7 A — wtedy Orion-Tr Smart 12/12-18 jest jedynym torem, który to udźwignie (ale warstwy nadnapięciowej i tak nie omija) |
+| Ładowarka B2B markowa (Victron / Redarc) | tanie moduły izolowane robią to samo za ułamek ceny. Marka zaczyna się bronić dopiero przy wejściu na 13–14,7 A albo gdy zależy Ci na konfiguracji profilu z telefonu |
 | Moduł buck-boost LTC3780 | utrzyma 13,8 V, ale tylko 80 W ciągle — po odjęciu obciążenia zostaje 2,3 A do banku, czyli 11,6 h fazy CC z progu LVD przy siedmiu pakietach |
 | Czujnik NTC | tanie moduły CC-CV nie mają wejścia kompensacji |
 | Przewód 6 mm², bezpiecznik główny 30 A | wymiarowane pod ładowarkę B2B; przy CC 8,0 A tor wejściowy niesie 9,2 A i 2,5 mm² z F1 15 A mieści się w kryterium 3 % (0,39 V na 3 m) — choć bez zapasu, więc na ten odcinek zalecany jest 4 mm² (§3.1 [`WDROZENIE_TESTOWE.md`](WDROZENIE_TESTOWE.md)). 6 mm² staje się konieczne dopiero od CC 10 A |
