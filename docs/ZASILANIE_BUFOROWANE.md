@@ -787,12 +787,34 @@ Samochodowa ładowarka DC-DC („B2B", battery-to-battery) rozwiązuje w jednym
 pudełku wszystko: topologię buck-boost, limit prądu, profil wielostopniowy
 z presetem **AGM**, kompensację temperaturową i detekcję pracy alternatora.
 
-| Model | Prąd | Orientacyjna cena | Uwagi |
-|-------|------|------------------|-------|
-| Victron Orion-Tr Smart 12/12-18 | 18 A | ~800–1000 PLN | konfiguracja przez Bluetooth, preset AGM, izolowana |
-| Victron Orion XS 12/12-50 | 50 A | ~1200–1500 PLN | przewymiarowana nawet dla 35,7 Ah |
-| Redarc BCDC1225D | 25 A | ~1300–1600 PLN | bardzo odporna, popularna w off-roadzie |
-| Sterling BB1230 | 30 A | ~900–1200 PLN | |
+**Wymaganie nadrzędne: ładowarka ma być IZOLOWANA GALWANICZNIE** (§5.5).
+To zawęża wybór, ale nie do drogich modeli — izolację mają też tanie moduły.
+
+| Model | Prąd | Izolacja | Orientacyjna cena | Uwagi |
+|-------|------|----------|------------------|-------|
+| **VEVOR 12/12-20** (i klony pod innymi markami) | 20 A / 250 W | **tak**, deklarowana | ~400–550 PLN | trójstopniowy profil ołowiu (bulk / absorpcja / float), tryb AGM, wyzwalanie zapłonem — **wybór podstawowy** |
+| Bezmarkowy „DC-DC B2B 12→14,6 V" w obudowie aluminiowej IP55 | 6–10 A | zwykle tak — **do potwierdzenia** | ~150–300 PLN | wybór napięcia zworką (12,6 / 14,0 / 14,5 V), CC bez stopni; najtańsza droga, ale sprawdź profil |
+| Renogy REGO 12/12-20 | 20 A | tak | ~700–900 PLN | sprawność 94 %, preset AGM |
+| Victron Orion-Tr Smart 12/12-18 | 18 A | **wersja izolowana to osobny wariant** — sprawdź symbol | ~800–1000 PLN | konfiguracja przez Bluetooth, preset AGM |
+
+> **Czego nie dało się zweryfikować.** Specyfikacje z dwóch pierwszych
+> wierszy pochodzą z opisów sklepowych, nie z kart katalogowych —
+> listingów AliExpress i VEVOR nie udało się otworzyć przy pisaniu tego
+> rozdziału. Przed zakupem potwierdź u sprzedawcy trzy rzeczy: **czy
+> wyjście jest naprawdę odizolowane od wejścia** (zmierz omomierzem
+> między masą wejścia a masą wyjścia — ma być rozwarcie), **czy jest
+> stopień float**, oraz **czy ładowanie startuje z zapłonu**, a nie
+> zawsze gdy jest napięcie na wejściu.
+
+**Czego szukać w opisie, a co jest pułapką**
+
+| Cecha | Dlaczego to ważne |
+|-------|-------------------|
+| „isolated input/output", transformator w środku | bez tego cały §5.5 nie działa |
+| profil trójstopniowy z **float 13,65 V** | samo CC-CV trzymające 14,40 V przez godziny jazdy wysuszy AGM |
+| wyzwalanie **zapłonem / D+** | inaczej ładowarka wyciąga akumulator rozruchowy na postoju |
+| nastawa prądu | potrzeba **8,0 A**; moduł 20 A pracuje wtedy na 40 % i zostaje zimny |
+| „14,6 V" bez możliwości zejścia niżej | to napięcie LiFePO4, nie AGM — dla HR1221W za wysokie |
 
 Prąd nastaw i tak na **8,0 A** — nie dlatego, że tyle wynosi sufit
 akumulatorów (dla siedmiu HR1221W to 14,7 A), tylko dlatego, że tyle wynosi
@@ -806,13 +828,51 @@ która udźwignęłaby pełne ładowanie siedmiu pakietów.
 > XH-M603 ogranicza oba warianty tak samo. Sama ładowarka tego problemu nie
 > rozwiązuje.
 
-**Co odpada przy wariancie A:** przekaźnik ładowania (ładowarka sama wykrywa
-pracę silnika), dioda Schottky (izolacja jest w środku), osobny czujnik NTC
-(jest wbudowany albo w komplecie).
+**Co odpada przy wariancie A:** przekaźnik ładowania (o ile ładowarka ma
+wejście wyzwalające — jeśli nie, K1 zostaje), **dioda Schottky MBR2545CT
+wraz z radiatorem** (izolacja blokuje przepływ wsteczny sama z siebie —
+to 4,4 W strat mniej i jeden element cieplny mniej na płytce), osobny
+czujnik NTC (jest wbudowany albo w komplecie).
 
-### 5.3 Wariant B — DIY
+### 5.5 Po co izolacja galwaniczna
 
-Tańszy, ale wymaga uwagi przy nastawianiu i regularnej kontroli.
+Bank ma być jedynym źródłem dla szyny buforowanej. Przy ładowarce
+nieizolowanej tak nie jest: masa wejścia i masa wyjścia to ten sam
+potencjał, więc prąd ładowania i tętnienia alternatora wracają tym samym
+przewodem, którym płynie prąd odbiorników. Bank owszem, bocznikuje część
+zakłóceń swoją niską impedancją, ale nie wszystkie — a wspólny powrót
+zamyka pętlę masy między instalacją auta a zestawem.
+
+Transformator w ładowarce przerywa tę drogę. Po stronie wyjścia zostaje
+obwód, w którym jedynym źródłem jest bank, a jedynym odbiorem szyna
+buforowana. Zakłócenia z alternatora muszą przejść przez chemię banku,
+czyli praktycznie nie przechodzą.
+
+Konsekwencje, o których trzeba pamiętać przy montażu:
+
+1. **Masa banku i masa pojazdu spotykają się w JEDNYM punkcie.** Jeżeli
+   zewrzesz je w dwóch miejscach, robisz pętlę i cały zysk znika.
+   Punkt łączenia daj przy banku, krótkim przewodem 6 mm² do oczyszczonej
+   blachy nadwozia.
+2. **Na płytce A nie ma już strony izolowanej.** Wyjście ładowarki,
+   XH-M603 i bank schodzą się na listwie **L1 przy banku** — sześć
+   zacisków, opis w `schematics/pcb_power_schematic.svg`. Płytka A ma
+   znów jedną masę i nie wymaga dzielenia pola miedzi.
+3. **Wzmacniacz nadal wisi na akumulatorze rozruchowym** z własną masą
+   (§2). Ekran RCA łączy więc dwie różne masy i to jest teraz jedyna
+   pozostała droga sprzężenia. Jeżeli pojawi się przydźwięk, rozstrzyga
+   się to izolatorem pętli masy na RCA albo przeniesieniem punktu masy
+   zestawu bliżej wzmacniacza — nie kolejnym przewodem masowym.
+
+### 5.6 Wariant B — DIY (nieizolowany)
+
+Tańszy, ale wymaga uwagi przy nastawianiu i regularnej kontroli — i,
+co ważniejsze, **nie daje izolacji galwanicznej** (§5.5). Moduł boost
+ma wspólną masę wejścia i wyjścia, więc prąd ładowania wraca tą samą
+drogą co prąd odbiorników. Dioda MBR2545CT blokuje wprawdzie przepływ
+wsteczny, ale nie rozdziela mas. Wybieraj ten wariant tylko wtedy, gdy
+izolacja nie jest dla Ciebie priorytetem albo gdy budujesz etapami
+i ładowarkę izolowaną dołożysz później.
 
 ```
 akumulator → bezp. 15 A → TVS + C → przekaźnik ładowania → dioda MBR2545CT
@@ -1421,6 +1481,98 @@ nie zależy: spadek na pętli 2 m przy 2,5 mm² to 105 mV, czyli 0,8 %.
   klucz.
 
 ---
+
+## 8a. Bank w bagażniku — trasy, przekroje i mocowanie
+
+Wariant montażu przyjęty do dalszych prac: **bank na stelażu w bagażniku**,
+przykręconym do blachy, na której siedzi oparcie tylnej kanapy;
+**M910q przy nogach pasażera**; ładowarka, LVD i przetwornica step-up
+**razem z bankiem w bagażniku**.
+
+### 8a.1 Gdzie postawić przetwornicę — to nie jest obojętne
+
+Przez długą trasę do przodu opłaca się przesyłać **19,5 V, nie 12 V**.
+Ta sama moc przy wyższym napięciu to o połowę mniejszy prąd, a straty
+spadają z kwadratem prądu:
+
+| Wariant | Prąd w trasie 3,5 m | Spadek na 4 mm² | Straty w przewodzie |
+|---------|--------------------|-----------------|---------------------|
+| step-up z przodu, 12 V do przodu | 7,5 A | 115 mV (0,96 %) | 0,86 W |
+| **step-up w bagażniku, 19,5 V do przodu** | **3,34 A** | **51 mV (0,26 %)** | **0,17 W** |
+
+Drugi powód jest ważniejszy od strat: **LVD musi mierzyć napięcie banku,
+a nie napięcie po trzech metrach przewodu**. Przy step-upie z przodu próg
+11,00 V zadziałałby o 0,1–0,2 V za późno, bo moduł widziałby napięcie
+zaniżone o spadek na trasie. Trzymając LVD i przetwornicę przy banku,
+mierzysz to, co trzeba.
+
+Do przodu idą więc tylko dwa przewody 19,5 V i masa — plus bezpiecznik
+5 A przy wtyku M910q (§8.2).
+
+### 8a.2 Zbieranie siedmiu pakietów
+
+Zamiar „7 × 4 mm² zebrane w jeden przewód" jest słuszny co do idei —
+punkt gwiazdowy z równymi ogonkami to elektrycznie to samo, co szyna
+z równymi odczepami. Dwie poprawki praktyczne:
+
+**Przekrój ogonków: 2,5 mm², nie 4 mm².** Na jeden pakiet przypada
+1,14 A przy ładowaniu i 1,07 A przy rozładowaniu — 4 mm² to
+czterokrotny zapas, który niczego nie poprawia, bo o rezystancji gałęzi
+decyduje samo ogniwo (23 mΩ wobec 2,6 mΩ przewodu). Za to **wsuwka F2
+6,35 mm, którą mają HR1221W, jest przewidziana na 0,5–2,5 mm²** —
+4 mm² albo się nie zaciśnie porządnie, albo rozepchnie tulejkę.
+Zysk z 4 mm² jest żaden, ryzyko złego zacisku realne.
+
+**Nie zbieraj siedmiu ogonków w jednej tulejce.** Siedem razy 4 mm² to
+28 mm² miedzi — nie ma zacisku, który to porządnie obejmie, a zacisk
+oczkowy z siedmioma przewodami pod jedną śrubą rozluźni się od drgań.
+Zamiast tego **płaskownik miedziany 15 × 2 mm z siedmioma odczepami
+co 70 mm** (§4.3), po jednym na „+" i na „−", z odbiorem po przekątnej:
+zasilanie z odczepu 1, masa z odczepu 7. Rozrzut prądów między pakietami
+spada wtedy do 1 % wobec 4,6 % przy odbiorze z jednego końca.
+
+Z płaskownika wychodzi **jeden przewód 4 mm²** do listwy L1 — i to jest
+dokładnie ten „jeden kabel dalej", o który chodziło.
+
+### 8a.3 Bezpiecznik przy banku — bezwzględnie
+
+Przewód wychodzący z banku **musi mieć bezpiecznik w odległości do
+30 cm od szyny**. Bank 35,7 Ah daje prąd zwarciowy prospektywny ok.
+**2,4 kA**; niezabezpieczony przewód 4 mm² biegnący przez całe auto to
+przy zwarciu palnik. Wkładka **15 A klasy MIDI/ANL** (nie ATO — ATO ma
+zdolność wyłączania ok. 1 kA, czyli poniżej tego, co bank potrafi dać).
+
+### 8a.4 Mocowanie do blachy pod oparciem kanapy
+
+Sam bank waży **12,6 kg**, ze stelażem i pasami licz ok. 15 kg. To nie
+jest obojętne dla blachy:
+
+| Przeciążenie | Siła na mocowaniu |
+|--------------|-------------------|
+| 10 g (hamowanie awaryjne) | 1,5 kN ≈ 150 kgf |
+| 20 g (kryterium jak dla mocowania ładunku) | 3,0 kN ≈ 300 kgf |
+
+Blacha półki pod oparciem kanapy w 156 ma ułamek milimetra — **śruby
+przykręcone wprost w nią wyrwą się z materiałem**. Wymagania minimalne:
+
+- **podkładki rozkładające** od spodu, min. 3 mm stali, co najmniej
+  40 cm² na śrubę — nie zwykłe podkładki,
+- **śruby M8** klasy 8.8, minimum cztery, najlepiej wpięte w przetłoczenie
+  albo poprzeczkę, a nie w płaską blachę,
+- stelaż oparty również o **podłogę bagażnika**, żeby moment nie wisiał
+  na samej półce,
+- pasy przytrzymujące pakiety w stelażu — **pakiet, który wyjdzie ze
+  stelaża, jest pociskiem lecącym w oparcie kanapy**, czyli w plecy
+  pasażerów.
+
+Układ **4 + 3 w dwóch rzędach** (280 × 180 mm) jest pod tym względem
+wyraźnie lepszy niż siedem w rzędzie (490 mm): moment gnący na wsporniku
+spada z 7,57 do 4,33 N·m.
+
+AGM jest szczelny, więc bagażnik jest dla niego właściwym miejscem —
+ale obudowy nie zamykaj hermetycznie: przy przeładowaniu zawory
+upustowe muszą mieć gdzie oddać gaz.
+
 
 ## 9. Budżet energetyczny i czas postoju
 

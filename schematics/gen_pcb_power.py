@@ -308,7 +308,7 @@ class Sheet:
 def build_schematic(out_path):
     s = Sheet(1660, 2210,
               "PCB zasilania buforowanego — schemat ideowy dwóch płytek",
-              "Płytka A: tor ładowania (K1, D1, XH-M603 w torze). "
+              "Płytka A: tor ładowania (K1, ładowarka izolowana, XH-M603 w torze). "
               "Płytka B: dystrybucja szyny za S1 (F8–F11, dzielnik pomiaru banku). "
               "Oznaczenia i numery przewodów zgodne z §10 SCHEMATY_POLACZEN.md.")
 
@@ -316,6 +316,7 @@ def build_schematic(out_path):
     s.sect(40, 122, "A", "PŁYTKA A — TOR ŁADOWANIA (100 × 75 mm, jednostronna)")
     RAIL, ACCY, GMA = 250, 580, 720
     BXL, BXR = 250, 1010         # krawędzie płytki A na rysunku
+    LX = 1084                    # listwa L1 przy banku (strona izolowana)
 
     s.a(f'<rect class="brd" x="{BXL}" y="160" width="{BXR-BXL}" height="610"/>')
     s.txt(BXL + 12, 148, "PŁYTKA A", "brdl")
@@ -357,49 +358,43 @@ def build_schematic(out_path):
     n87x = x + 24
     s.dot(n87x, RAIL)
 
-    # --- D1 MBR2545CT (dwie połówki)
-    dbx = 570
-    s.a(f'<rect class="wd" x="{dbx}" y="170" width="156" height="150" fill="none"/>')
-    s.txt(dbx + 78, 192, "D1 · MBR2545CT", "rc")
-    s.path([(n87x, RAIL), (dbx + 20, RAIL)])
-    s.path([(dbx + 20, RAIL - 44), (dbx + 20, RAIL)])
-    s.dot(dbx + 20, RAIL)
-    x1 = s.schottky_h(dbx + 20, RAIL - 44)
-    x2 = s.schottky_h(dbx + 20, RAIL)
-    s.path([(x1, RAIL - 44), (x1 + 14, RAIL - 44), (x1 + 14, RAIL), (x2, RAIL)])
-    s.dot(x2, RAIL)
-    s.txt(dbx + 78, RAIL + 40, "anody 1+3 zwarte", "vc")
-    s.txt(dbx + 78, RAIL + 56, "katoda 2 = blaszka → radiator", "vc")
-
-    # --- X2 (do M1) na prawej krawędzi
-    s.path([(x2, RAIL), (BXR, RAIL)])
+    # --- brak diody blokującej: ładowarka M1 jest izolowana galwanicznie,
+    #     więc prąd z banku nie ma czym wrócić do instalacji auta. Odpada
+    #     MBR2545CT razem z radiatorem i 4,4 W strat.
+    s.path([(n87x, RAIL), (BXR, RAIL)])
+    s.txt(660, RAIL - 22, "bez diody blokującej —", "vc")
+    s.txt(660, RAIL - 6, "izolacja w M1 zastępuje MBR2545CT", "vc")
     s.term(BXR, RAIL, "", None)
     s.txt(BXR - 14, RAIL - 14, "X2.1", "pine")
     s.wn(BXR + 60, RAIL - 16, 6)
 
     # --- M1 moduł CC-CV (poza płytką, po prawej; piny wprost naprzeciw zacisków)
-    m1 = s.module(1150, 158, 250, 236, "M1", "MODUŁ CC-CV BOOST",
-                  "ładowarka banku · CV 14,40 V / CC 8,0 A",
+    m1 = s.module(1150, 158, 250, 236, "M1", "ŁADOWARKA IZOLOWANA",
+                  "DC-DC B2B · CV 14,40 V / CC 8,0 A",
                   left=(("in+", "IN +"), ("in-", "IN −"),
                         ("out+", "OUT +"), ("out-", "OUT −")), cls="blkc")
+    # bariera galwaniczna wewnątrz ładowarki — rysowana między parą wejściową
+    # a wyjściową, bo to ona rozdziela masę pojazdu od masy banku
+    ybar = (m1["in-"][1] + m1["out+"][1]) / 2
+    s.a(f'<line class="wd" x1="1150" y1="{ybar}" x2="1400" y2="{ybar}"/>')
+    s.txt(1275, ybar - 8, "izolacja galwaniczna", "vc")
     s.path([(BXR, RAIL), (m1["in+"][0], m1["in+"][1])])
     # IN− → X2.2 (GND)
     s.term(BXR, m1["in-"][1], "", None)
     s.txt(BXR - 14, m1["in-"][1] - 14, "X2.2", "pine")
     s.path([(m1["in-"][0], m1["in-"][1]), (BXR, m1["in-"][1])])
-    s.path([(BXR, m1["in-"][1]), (950, m1["in-"][1]), (950, GMA)])
-    # OUT+ → X3.1
-    s.term(BXR, m1["out+"][1], "", None)
-    s.txt(BXR - 14, m1["out+"][1] - 14, "X3.1", "pine")
-    s.path([(m1["out+"][0], m1["out+"][1]), (BXR, m1["out+"][1])])
-    s.wn(1076, m1["out+"][1] - 16, "B")
-    # OUT− → X3.2 (GND)
-    s.term(BXR, m1["out-"][1], "", None)
-    s.txt(BXR - 14, m1["out-"][1] + 24, "X3.2", "pine")
-    s.path([(m1["out-"][0], m1["out-"][1]), (BXR, m1["out-"][1])])
-    s.path([(BXR, m1["out-"][1]), (1004, m1["out-"][1]), (1004, 690), (1004, GMA)])
-    # X3.1 → X5.1 (ścieżka na płytce)
-    s.path([(BXR, m1["out+"][1]), (980, m1["out+"][1]), (980, 472), (BXR, 472)])
+    s.path([(BXR, m1["in-"][1]), (920, m1["in-"][1]), (920, GMA)])
+    # OUT+ → L1.1 (listwa przy banku)
+    s.term(LX, m1["out+"][1], "", None)
+    s.txt(LX - 14, m1["out+"][1] - 14, "L1.1", "pine")
+    s.path([(m1["out+"][0], m1["out+"][1]), (LX, m1["out+"][1])])
+    # OUT− → L1.2, dalej wprost na masę banku
+    s.term(LX, m1["out-"][1], "", None)
+    s.txt(LX - 14, m1["out-"][1] + 24, "L1.2", "pine")
+    s.path([(m1["out-"][0], m1["out-"][1]), (LX, m1["out-"][1])])
+    s.path([(LX, m1["out-"][1]), (1050, m1["out-"][1]), (1050, 690)])
+    # L1.1 → L1.3 (mostek w listwie, wejście M2)
+    s.path([(LX, m1["out+"][1]), (1064, m1["out+"][1]), (1064, 472), (LX, 472)])
 
     # --- cewka K1 + D6, zasilana z ACC (X6)
     s.term(BXL, ACCY, "", None)
@@ -434,36 +429,36 @@ def build_schematic(out_path):
                         ("out+", "OUT +")), cls="blkr")
     yi, yg, yo = m2["in+"][1], m2["in-"][1], m2["out+"][1]
     # X5.1 → M2 IN+ (przewód 7a″)
-    s.term(BXR, yi, "", None)
-    s.txt(BXR - 14, yi - 14, "X5.1", "pine")
-    s.path([(BXR, yi), (m2["in+"][0], yi)])
-    s.txt(1080, yi - 10, "7a″", "wn")
+    s.term(LX, yi, "", None)
+    s.txt(LX - 14, yi - 14, "L1.3", "pine")
+    s.path([(LX, yi), (m2["in+"][0], yi)])
+    s.txt(1140, yi - 10, "7a″", "wn")
     # X5.2 → M2 IN− (GND, przewód 7b)
-    s.term(BXR, yg, "", None)
-    s.txt(BXR - 14, yg - 14, "X5.2", "pine")
-    s.path([(BXR, yg), (m2["in-"][0], yg)])
-    s.txt(1080, yg - 10, "7b", "wn")
-    s.path([(BXR, yg), (1004, yg)])
-    s.dot(1004, yg)
+    s.term(LX, yg, "", None)
+    s.txt(LX - 14, yg - 14, "L1.2", "pine")
+    s.path([(LX, yg), (m2["in-"][0], yg)])
+    s.txt(1140, yg - 10, "7b", "wn")
+    s.path([(1050, yg), (LX, yg)])
+    s.dot(1050, yg)
     # X5.3 ← M2 OUT+ (przewód 7d″)
-    s.term(BXR, yo, "", None)
-    s.txt(BXR - 14, yo - 14, "X5.3", "pine")
-    s.path([(m2["out+"][0], yo), (BXR, yo)])
-    s.txt(1080, yo - 10, "7d″", "wn")
+    s.term(LX, yo, "", None)
+    s.txt(LX - 14, yo - 14, "L1.4", "pine")
+    s.path([(m2["out+"][0], yo), (LX, yo)])
+    s.txt(1140, yo - 10, "7d″", "wn")
     # X5.3 → X5.4 (ścieżka na płytce) i wyjście na szynę banku
     yb = yo + 36
-    s.term(BXR, yb, "", None)
-    s.txt(BXR - 14, yb - 14, "X5.4 BANK+", "pine")
-    s.path([(BXR, yo), (996, yo), (996, yb), (BXR, yb)])
-    s.path([(BXR, yb), (1060, yb), (1060, 690), (1096, 690)])
-    s.wn(1080, 668, 7)
-    s.txt(1106, 686, "przewód 7 → SZYNA „+” BANKU", "tb")
-    s.txt(1106, 702, "(7 × HR1221W = 35,7 Ah, wkładki FB1…FB7)", "v")
-    s.txt(1106, 718, "uwaga: bank tylko przez X5.4 —", "v")
-    s.txt(1106, 734, "bez M2 zewrzyj X5.1 z X5.3 drutem", "v")
+    s.term(LX, yb, "", None)
+    s.txt(LX - 14, yb - 14, "L1.5", "pine")
+    s.path([(LX, yo), (1064, yo), (1064, yb), (LX, yb)])
+    s.path([(LX, yb), (1120, yb), (1120, 690), (1142, 690)])
+    s.wn(1136, 668, 7)
+    s.txt(1152, 686, "przewód 7 → SZYNA „+” BANKU", "tb")
+    s.txt(1152, 702, "(7 × HR1221W = 35,7 Ah, wkładki FB1…FB7)", "v")
+    s.txt(1152, 718, "uwaga: bank wychodzi z L1.5 (+) i L1.6 (−) —", "v")
+    s.txt(1152, 734, "bez M2 zewrzyj L1.3 z L1.4 drutem", "v")
 
     # --- masa płytki A
-    s.path([(300, GMA), (1004, GMA)], "wg")
+    s.path([(300, GMA), (930, GMA)], "wg")
     s.txt(560, GMA - 32, "POLE MASY PŁYTKI A", "gl")
     s.txt(560, GMA - 16, "(dolny pas miedzi)", "gl")
     s.path([(520, GMA), (520, GMA + 10)], "wg")
@@ -473,6 +468,16 @@ def build_schematic(out_path):
     s.txt(540, GMA + 32, "jedyna masa płytki → punkt gwiazdowy", "v")
     s.path([(520, GMA + 30), (520, GMA + 68), (300, GMA + 68), (300, GMA + 82)], "wg")
     s.star_gnd(300, GMA + 82, "gwiazda")
+
+    # --- wyspa masy banku (strona izolowana) — NIE łączy się z polem masy
+    s.dot(1050, 690)
+    s.term(LX, 726, "", None)
+    s.txt(LX - 14, 746, "L1.6", "pine")
+    s.path([(1050, 690), (1050, 726), (LX, 726)], "wg")
+    s.a('<rect class="brd" x="1040" y="300" width="88" height="452" fill="none"/>')
+    s.txt(1044, 276, "LISTWA L1", "brdl")
+    s.txt(560, GMA + 96, "Masa pojazdu i masa banku spotykają się TYLKO w aucie, w jednym punkcie —", "v")
+    s.txt(560, GMA + 112, "na płytce nie wolno ich zewrzeć, bo znika cały zysk z izolacji.", "v")
 
     # ------------------------------------------------------------------
     s.sect(40, 900, "B", "PŁYTKA B — DYSTRYBUCJA SZYNY BUFOROWANEJ (100 × 60 mm, jednostronna)")
@@ -563,10 +568,11 @@ def build_schematic(out_path):
     rows_a = [
         ("PŁYTKA A", ""),
         ("X1.1 / X1.2", "„+” z F1 15 A (przewód 2) · masa do punktu gwiazdowego"),
-        ("X2.1 / X2.2", "M1 IN+ / IN− — wejście ładowarki CC-CV (przewód 6)"),
-        ("X3.1 / X3.2", "M1 OUT+ / OUT− — wyjście ładowarki (przewód B)"),
-        ("X5.1 / X5.2", "XH-M603 DC-IN+ / DC-IN− (przewody 7a″, 7b — 1,5 mm²)"),
-        ("X5.3 / X5.4", "XH-M603 OUT+ (7d″) · szyna „+” banku (przewód 7, 4 mm²)"),
+        ("X2.1 / X2.2", "M1 IN+ / IN− — wejście ładowarki, strona pojazdu (przewód 6)"),
+        ("L1.1 … L1.6", "listwa PRZY BANKU, strona izolowana: L1.1 M1 OUT+ · L1.2 M1 OUT− i M2 DC-IN− · "
+         "L1.3 M2 DC-IN+ · L1.4 M2 OUT+ · L1.5 szyna „+” banku · L1.6 masa banku (4 mm²)"),
+        
+        
         ("X6.1 / X6.2", "zapłon / ACC (przewód 4) · przelot ACC dalej (PC817, REM)"),
         ("GND M4", "oczko 6 mm² → punkt gwiazdowy masy"),
     ]
@@ -597,8 +603,17 @@ def build_schematic(out_path):
          "obciążalności — bez komfortowego zapasu; wyżej trzeba modułu z wolnym stykiem i przekaźnika K2. "
          "Moduł mierzy wprost napięcie banku. "
          "Zasilanie ma z toru ładowania, więc na postoju pobór wynosi zero. Progi: rozwarcie 15,30 V, powrót 14,00 V."),
+        ("Ładowarka jest IZOLOWANA — stąd dwie masy na płytce A.",
+         "M1 to gotowa ładowarka DC-DC typu battery-to-battery z transformatorem, a nie moduł boost. Wejście "
+         "(masa pojazdu) i wyjście (masa banku) nie mają wspólnego potencjału, więc prąd ładowania i tętnienia "
+         "alternatora nie płyną wspólnym powrotem z prądem odbiorników — bank zostaje jedynym źródłem dla "
+         "szyny buforowanej. Konsekwencje na płytce: (1) odpada dioda D1 MBR2545CT wraz z radiatorem, bo izolacja "
+         "sama blokuje przepływ wsteczny — mniej o 4,4 W strat; (2) pole masy płytki (X1.2, D5, C1, cewka K1, "
+         "M1 IN−) NIE MOŻE stykać się z wyspą masy banku (X3.2, X5.2, X3.3) — prześwit minimum 4 mm, żadnej "
+         "przelotki ani zworki; (3) masa banku dochodzi do nadwozia w JEDNYM punkcie w aucie, nie na płytce. "
+         "Zwarcie obu mas na płytce nie uszkodzi niczego, ale kasuje cały zysk z izolacji."),
         ("Budowa etapami.",
-         "Zanim kupisz M2 (XH-M603), zewrzyj X5.1 z X5.3 kawałkiem przewodu w zaciskach — tor ładowania działa "
+         "Zanim kupisz M2 (XH-M603), zewrzyj L1.3 z L1.4 kawałkiem przewodu w listwie — tor ładowania działa "
          "bez warstwy nadnapięciowej. Tak samo można zacząć bez M1: ładowanie pomijasz, a płytka B i bank pracują."),
         ("Czego celowo NIE ma na płytkach.",
          "K2, D7 i JP1 (patrz wyżej — pilot odpada), X4 (bank wychodzi z X5.4), REM wzmacniacza (bierz z przelotu "
@@ -819,7 +834,15 @@ def footprint_fuse_ato(p, x, y, net_top, net_bot, ref):
 
 # ---------------------------------------------------------------------
 def build_board_a():
-    p = Pcb("PŁYTKA A — ŁADOWANIE", 100, 75)
+    """Płytka A po przejściu na ładowarkę izolowaną.
+
+    Zostaje wyłącznie strona pojazdu: bezpiecznik, ochrona przepięciowa,
+    przekaźnik ładowania i wyjście na wejście ładowarki. Strona izolowana
+    (wyjście ładowarki, XH-M603, bank) nie ma tu czego szukać — to trzy
+    przewody schodzące się na szynie banku, a nie zaciski na tej płytce.
+    Dzięki temu płytka ma znów JEDNĄ masę i nie trzeba dzielić pola miedzi.
+    """
+    p = Pcb("PŁYTKA A — ŁADOWANIE (strona pojazdu)", 100, 75)
 
     # --- lewa kolumna zacisków
     footprint_kf(p, 9, 8, 2, 7.62, True, ["AKU", "GND"],
@@ -827,14 +850,9 @@ def build_board_a():
     footprint_kf(p, 9, 27, 2, 5.0, True, ["ACC", "ACC"],
                  ["X6.1 ACC", "X6.2 ACC dalej"], 1.3, 3.0)
 
-    # --- prawa kolumna zacisków
+    # --- prawa kolumna: wyłącznie wejście ładowarki
     footprint_kf(p, 90, 8, 2, 7.62, True, ["CHGIN", "GND"],
                  ["X2.1 → M1 IN+", "X2.2 → M1 IN−"], 1.5, 4.4)
-    footprint_kf(p, 90, 27, 2, 7.62, True, ["GND", "CHGOUT"],
-                 ["X3.2 ← M1 OUT−", "X3.1 ← M1 OUT+"], 1.5, 4.4)
-    footprint_kf(p, 90, 44, 4, 5.0, True, ["CHGOUT", "GND", "BANK", "BANK"],
-                 ["X5.1 → M2 IN+", "X5.2 → M2 IN−",
-                  "X5.3 ← M2 OUT+", "X5.4 → BANK+"], 1.3, 3.0)
 
     # --- elementy
     p.pad(16, 8, "c", 2.8, 2.8, 1.3, "AKU", "D5:a")
@@ -844,11 +862,7 @@ def build_board_a():
     p.pad(26, 13, "c", 2.4, 2.4, 1.0, "GND", "C1:−")
     p.silk.append(("circle", 26, 10.5, 5.2, "C1"))
     footprint_t90(p, 40, 21, {"coil1": "ACC", "coil2": "GND",
-                              "com": "AKU", "no": "KL87"})
-    p.pad(74, 26, "c", 2.6, 2.6, 1.2, "KL87", "D1:1 A")
-    p.pad(76.54, 22, "c", 3.0, 3.0, 1.2, "CHGIN", "D1:2 K (odgięta)")
-    p.pad(79.08, 26, "c", 2.6, 2.6, 1.2, "KL87", "D1:3 A")
-    p.silk.append(("rect", 69, 27.5, 15, 14.5, "D1+radiator"))
+                              "com": "AKU", "no": "CHGIN"})
     p.pad(30, 36, "c", 2.2, 2.2, 1.0, "ACC", "D6:k")
     p.pad(30, 46.16, "c", 2.2, 2.2, 1.0, "GND", "D6:a")
     p.silk.append(("rect", 27.9, 37.6, 4.2, 7.0, "D6"))
@@ -864,15 +878,10 @@ def build_board_a():
     p.trace("ACC", 2, [(30, 36), (30, 32)])
     p.trace("GND", 2, [(30, 46.16), (30, 66.5)])
     p.trace("GND", 2, [(42.54, 26.1), (42.54, 66.5)])
-    p.trace("KL87", 4, [(57.74, 29.9), (57.74, 35), (76.5, 35), (76.5, 30)])
-    p.trace("KL87", 3, [(74, 26), (74, 30), (79.08, 30), (79.08, 26)])
-    p.trace("CHGIN", 4, [(76.54, 22), (76.54, 18), (85, 18), (85, 10), (90, 8)])
+    # styk 87 przekaźnika wprost na zacisk wejścia ładowarki — bez diody
+    p.trace("CHGIN", 4, [(57.74, 29.9), (57.74, 18), (85, 18), (85, 10), (90, 8)])
     p.trace("GND", 3.5, [(90, 15.62), (96, 15.62)])
     p.trace("GND", 5, [(96, 15.62), (96, 66.5)])
-    p.trace("GND", 3, [(90, 27), (96, 27)])
-    p.trace("GND", 3, [(90, 49), (96, 49)])
-    p.trace("CHGOUT", 5, [(90, 34.62), (90, 44)])
-    p.trace("BANK", 5, [(90, 54), (90, 59)])
 
     # --- pole masy + śruba M4 + otwory montażowe
     p.pour("GND", 3, 66, 94, 6)
@@ -881,6 +890,8 @@ def build_board_a():
     for hx, hy in ((4, 4), (96, 4), (4, 71), (96, 71)):
         p.hole(hx, hy, 3.2)
     p.ctext.append((57, 59.5, "BCM-A", 3.2))
+    p.ctext.append((70, 45, "wolne pole — po usunięciu D1", 2.4))
+    p.ctext.append((70, 50, "i zacisków strony izolowanej", 2.4))
     return p
 
 
@@ -1079,8 +1090,8 @@ def build_pcb_sheets(layout_path, etch_path):
             s.a(f'<line class="ldr" x1="{ax+x+a/2+0.4}" y1="{ay+y}" '
                 f'x2="{ax+A.w+2.5}" y2="{ay+y}"/>')
             s.txt(ax + A.w + 3, ay + y + 0.8, lab, "w")
-    s.txt(ax, ay + A.h + 4.5, "D1: MBR2545CT na radiatorze (pole 15×14 mm za pinami), środkową nóżkę "
-                              "(katodę) odegnij 4 mm do przodu — ma osobny pad.", "n")
+    s.txt(ax, ay + A.h + 4.5, "Strona izolowana (wyjście ładowarki, XH-M603, bank) schodzi się na listwie L1 "
+                              "przy banku — nie na tej płytce. Wolne pole zostaje po diodzie D1.", "n")
     s.txt(ax, ay + A.h + 8, "K1: T90/SLA-12VDC-SL-A — pady COM-A i NC wiercone, zostają wolne "
                             "(warianty 4/5/6-pin). C1: 470 µF, raster 5,0 mm.", "n")
     s.txt(ax, ay + A.h + 11.5, "GND M4: śruba M4 z oczkiem 6 mm² do punktu gwiazdowego. Otwory "
@@ -1108,9 +1119,9 @@ def build_pcb_sheets(layout_path, etch_path):
 
     s.txt(12, 232, "ELEMENTY LUTOWANE W PŁYTKI (moduły M1–M6 podłączasz do zacisków — nie wlutowujesz):", "h")
     bom = [
-        "PŁYTKA A:  K1 = SLA-12VDC-SL-A (T90 30 A) · D1 = MBR2545CT + radiator ≥6 K/W · "
-        "D5 = 1.5KE33CA · D6 = 1N4007 · C1 = 470 µF/35 V low-ESR",
-        "           X1/X2/X3 = KF7.62-2P · X5 = KF301-4P · X6 = KF301-2P · śruba M4 + oczko",
+        "PŁYTKA A:  K1 = SLA-12VDC-SL-A (T90 30 A) · D5 = 1.5KE33CA · D6 = 1N4007 · "
+        "C1 = 470 µF/35 V low-ESR — diody D1 nie ma, ładowarka jest izolowana",
+        "           X1/X2 = KF7.62-2P · X6 = KF301-2P · śruba M4 + oczko · L1 = listwa 6-torowa przy banku",
         "PŁYTKA B:  4 × oprawka ATO PCB (albo klipsy) · R5 = 100 kΩ 1 % · R6 = 27 kΩ 1 % · C7 = 100 nF · "
         "X8/X9 = KF7.62-2P · X10–X12, J1 = KF301-2P",
         "Ścieżki mocy (AKU, KL87, CHGIN/OUT, BANK, BUS, F8) pocynuj grubo albo wzmocnij drutem 1,5 mm² "
@@ -1147,9 +1158,9 @@ def build_pcb_sheets(layout_path, etch_path):
     e.txt(cx, 116, "WIERCENIE", "h")
     drills = [
         ("Φ 1,0", "R5, R6, C7, C1, D6"),
-        ("Φ 1,2", "cewka K1, piny D1 (MBR2545CT)"),
-        ("Φ 1,3", "KF301 (X5, X6, X10–X12, J1), D5"),
-        ("Φ 1,5", "KF7.62 (X1–X3, X8, X9)"),
+        ("Φ 1,2", "cewka K1"),
+        ("Φ 1,3", "KF301 (X6, X10–X12, J1), D5"),
+        ("Φ 1,5", "KF7.62 (X1, X2, X8, X9)"),
         ("Φ 2,0", "styki K1 (COM/NO/NC), pady bezpieczników"),
         ("Φ 2,4", "czopy oprawek ATO (bez miedzi)"),
         ("Φ 3,2", "otwory montażowe (odizolowane)"),
@@ -1173,8 +1184,8 @@ def build_pcb_sheets(layout_path, etch_path):
     ]
     for i, t in enumerate(steps):
         e.txt(12, 205 + i * 3.8, t, "n")
-    e.txt(12, 240, "Sieci na płytce A: AKU (X1→K1→D1) · KL87 · CHGIN (→M1) · CHGOUT (M1→M2) · "
-                   "BANK (M2→bank) · ACC (cewka K1) · GND (pole dolne).", "n")
+    e.txt(12, 240, "Sieci na płytce A: AKU (X1→K1) · CHGIN (styk 87 → X2.1 → M1 IN+) · "
+                   "ACC (cewka K1) · GND (pole dolne). Strona izolowana jest poza płytką — listwa L1.", "n")
     e.txt(12, 244, "Sieci na płytce B: BUS (X8→bezpieczniki) · F8O–F11O (odgałęzienia) · "
                    "SIG (dzielnik) · GND (obwódka górna).", "n")
     e.txt(12, 252, "Wygenerowano: schematics/gen_pcb_power.py — nie edytuj SVG ręcznie.", "sub")
