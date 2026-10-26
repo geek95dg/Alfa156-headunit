@@ -645,6 +645,197 @@ const App = (() => {
             } catch (e) { /* ignore */ }
         },
 
+        /** Open modal to confirm kiosk restart */
+        restartKioskModal() {
+            let overlay = document.getElementById("kiosk-restart-modal");
+            if (!overlay) {
+                overlay = document.createElement("div");
+                overlay.id = "kiosk-restart-modal";
+                document.body.appendChild(overlay);
+            }
+            overlay.className = "fixed inset-0 z-[200] flex items-center justify-center p-4";
+            overlay.style.background = "rgba(0,0,0,0.85)";
+            overlay.innerHTML = `
+                <div class="rounded-2xl p-6 w-[380px] max-w-full shadow-2xl text-center"
+                     style="background:var(--card-bg);border:1px solid var(--card-border);color:var(--color-on-surface)">
+                    <div class="w-14 h-14 rounded-full bg-red-600/20 text-red-500 mx-auto flex items-center justify-center mb-3">
+                        <span class="material-symbols-outlined text-3xl">restart_alt</span>
+                    </div>
+                    <h3 class="text-lg font-bold mb-2">${App.t("kiosk_restart", "Restart kiosku")}</h3>
+                    <p class="text-xs mb-6" style="color:var(--text-dim)">${App.t("kiosk_restart_confirm", "Czy na pewno chcesz zrestartować cały kiosk?")}</p>
+                    <div class="flex gap-3 justify-center">
+                        <button class="px-5 py-2.5 rounded-xl text-xs font-bold hover:opacity-80 transition-opacity"
+                                style="background:var(--card-border);color:var(--text-mid)"
+                                onclick="document.getElementById('kiosk-restart-modal').remove()">
+                            ${App.t("cancel", "Anuluj")}
+                        </button>
+                        <button class="px-6 py-2.5 bg-red-600 hover:bg-red-500 text-white rounded-xl text-xs font-bold transition-colors flex items-center gap-1.5"
+                                onclick="App.restartKiosk()">
+                            <span class="material-symbols-outlined text-sm">restart_alt</span>
+                            ${App.t("kiosk_restart", "Restartuj")}
+                        </button>
+                    </div>
+                </div>
+            `;
+        },
+
+        /** Execute kiosk restart and show reloading splash */
+        async restartKiosk() {
+            const modal = document.getElementById("kiosk-restart-modal");
+            if (modal) modal.remove();
+
+            let splash = document.getElementById("kiosk-restarting-overlay");
+            if (!splash) {
+                splash = document.createElement("div");
+                splash.id = "kiosk-restarting-overlay";
+                document.body.appendChild(splash);
+            }
+            splash.className = "fixed inset-0 z-[300] flex flex-col items-center justify-center bg-black text-white p-6";
+            splash.innerHTML = `
+                <div class="flex flex-col items-center gap-4 text-center">
+                    <span class="material-symbols-outlined text-6xl text-red-500 animate-spin">sync</span>
+                    <h2 class="text-2xl font-bold">${App.t("kiosk_restarting", "Restartowanie kiosku...")}</h2>
+                    <p class="text-xs text-zinc-400 max-w-sm">Ładowanie panelu nastąpi automatycznie po restarcie procesów.</p>
+                </div>
+            `;
+
+            try {
+                await fetch("/api/kiosk/restart", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ scope: "kiosk" })
+                });
+            } catch (e) {
+                console.log("Kiosk restart triggered", e);
+            }
+
+            // Poll until server is answering again, then reload window
+            let checkCount = 0;
+            const pollInterval = setInterval(async () => {
+                checkCount++;
+                try {
+                    const res = await fetch("/api/data", { cache: "no-store" });
+                    if (res.ok) {
+                        clearInterval(pollInterval);
+                        setTimeout(() => window.location.reload(true), 500);
+                    }
+                } catch (e) {
+                    // still restarting
+                }
+                if (checkCount > 30) {
+                    clearInterval(pollInterval);
+                    window.location.reload(true);
+                }
+            }, 1000);
+        },
+
+        /** Open modal to confirm baremetal OS reboot */
+        rebootSystemModal() {
+            let overlay = document.getElementById("system-reboot-modal");
+            if (!overlay) {
+                overlay = document.createElement("div");
+                overlay.id = "system-reboot-modal";
+                document.body.appendChild(overlay);
+            }
+            overlay.className = "fixed inset-0 z-[200] flex items-center justify-center p-4";
+            overlay.style.background = "rgba(0,0,0,0.85)";
+            overlay.innerHTML = `
+                <div class="rounded-2xl p-6 w-[380px] max-w-full shadow-2xl text-center"
+                     style="background:var(--card-bg);border:1px solid var(--card-border);color:var(--color-on-surface)">
+                    <div class="w-14 h-14 rounded-full bg-red-600/20 text-red-500 mx-auto flex items-center justify-center mb-3">
+                        <span class="material-symbols-outlined text-3xl">power_settings_new</span>
+                    </div>
+                    <h3 class="text-lg font-bold mb-2">${App.t("system_reboot", "Restart komputera")}</h3>
+                    <p class="text-xs mb-6" style="color:var(--text-dim)">${App.t("system_reboot_confirm", "Czy na pewno chcesz zrestartować cały komputer (baremetal)? Nastąpi pełny reboot systemu.")}</p>
+                    <div class="flex gap-3 justify-center">
+                        <button class="px-5 py-2.5 rounded-xl text-xs font-bold hover:opacity-80 transition-opacity"
+                                style="background:var(--card-border);color:var(--text-mid)"
+                                onclick="document.getElementById('system-reboot-modal').remove()">
+                            ${App.t("cancel", "Anuluj")}
+                        </button>
+                        <button class="px-6 py-2.5 bg-red-600 hover:bg-red-500 text-white rounded-xl text-xs font-bold transition-colors flex items-center gap-1.5"
+                                onclick="App.rebootSystem()">
+                            <span class="material-symbols-outlined text-sm">power_settings_new</span>
+                            ${App.t("system_reboot", "Restartuj system")}
+                        </button>
+                    </div>
+                </div>
+            `;
+        },
+
+        /** Execute baremetal OS reboot and show rebooting splash */
+        async rebootSystem() {
+            const modal = document.getElementById("system-reboot-modal");
+            if (modal) modal.remove();
+
+            let splash = document.getElementById("system-rebooting-overlay");
+            if (!splash) {
+                splash = document.createElement("div");
+                splash.id = "system-rebooting-overlay";
+                document.body.appendChild(splash);
+            }
+            splash.className = "fixed inset-0 z-[300] flex flex-col items-center justify-center bg-black text-white p-6";
+            splash.innerHTML = `
+                <div class="flex flex-col items-center gap-4 text-center">
+                    <span class="material-symbols-outlined text-6xl text-red-500 animate-spin">sync</span>
+                    <h2 class="text-2xl font-bold">${App.t("system_rebooting", "Restartowanie komputera...")}</h2>
+                    <p class="text-xs text-zinc-400 max-w-sm">${App.t("system_reboot_desc", "Pełny reboot OS (np. przy braku karty dźwiękowej). Panel powróci automatycznie.")}</p>
+                </div>
+            `;
+
+            try {
+                await fetch("/api/system/reboot", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" }
+                });
+            } catch (e) {
+                console.log("System reboot triggered", e);
+            }
+
+            // Wait 8 seconds before polling (full system reboot takes time)
+            let checkCount = 0;
+            setTimeout(() => {
+                const pollInterval = setInterval(async () => {
+                    checkCount++;
+                    try {
+                        const res = await fetch("/api/data", { cache: "no-store" });
+                        if (res.ok) {
+                            clearInterval(pollInterval);
+                            setTimeout(() => window.location.reload(true), 1000);
+                        }
+                    } catch (e) {
+                        // still booting
+                    }
+                    if (checkCount > 90) {
+                        clearInterval(pollInterval);
+                        window.location.reload(true);
+                    }
+                }, 2000);
+            }, 8000);
+        },
+
+        /** Restart Android Auto service */
+        async restartAA() {
+            try {
+                await fetch("/api/aa/restart", { method: "POST" });
+            } catch (e) {
+                console.error("AA restart failed:", e);
+            }
+        },
+
+        /** Toggle Android Auto Auto-restart */
+        async setAAAutoRestart(enabled) {
+            try {
+                await fetch("/api/aa/config", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ auto_restart: enabled }),
+                });
+            } catch (e) {
+                console.error("Set AA auto-restart failed:", e);
+            }
+        },
+
         /** Initialize the application */
         async init() {
             _appEl = document.getElementById("app");

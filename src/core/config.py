@@ -83,7 +83,7 @@ class BCMConfig:
         if not path.exists():
             raise FileNotFoundError(f"Config file not found: {path}")
 
-        with open(path, "r") as f:
+        with open(path, "r", encoding="utf-8") as f:
             self._data: dict = yaml.safe_load(f) or {}
 
         # Resolve platform
@@ -124,7 +124,7 @@ class BCMConfig:
         """Persist current config back to YAML file."""
         out = Path(path) if path else self.config_path
         out.parent.mkdir(parents=True, exist_ok=True)
-        with open(out, "w") as f:
+        with open(out, "w", encoding="utf-8") as f:
             yaml.dump(self._data, f, default_flow_style=False, sort_keys=False)
 
     @staticmethod

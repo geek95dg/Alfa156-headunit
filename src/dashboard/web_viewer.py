@@ -218,6 +218,8 @@ class WebViewer:
             "aa_status": _val("multimedia.openauto_status", "unavailable"),
             "aa_available": _val("multimedia.openauto_status", "unavailable") in (
                 "running", "connected", "restarting"),
+            "aa_auto_restart": _val("multimedia.aa_auto_restart",
+                                   self._config.get("multimedia.aa_auto_restart", True) if self._config else True),
             "lte_connected": _val("lte.connected", False),
             "lte_signal": _val("lte.signal_strength", 0),
             # Audio
@@ -376,6 +378,7 @@ class WebViewer:
                 "speed_unit": cfg.get("units.speed", "km/h"),
                 "temp_unit": cfg.get("units.temperature", "C"),
                 "brightness": cfg.get("display.dashboard.brightness", 70),
+                "aa_auto_restart": cfg.get("multimedia.aa_auto_restart", True),
             })
 
         @app.route("/api/config", methods=["POST"])
@@ -391,9 +394,17 @@ class WebViewer:
                 ("speed_unit", "units.speed"),
                 ("temp_unit", "units.temperature"),
                 ("brightness", "display.dashboard.brightness"),
+                ("aa_auto_restart", "multimedia.aa_auto_restart"),
             ]:
                 if key in data:
                     cfg.set(config_key, data[key])
+
+            if "aa_auto_restart" in data:
+                openauto = _get_openauto()
+                if openauto:
+                    openauto.auto_restart_enabled = bool(data["aa_auto_restart"])
+                elif viewer._event_bus:
+                    viewer._event_bus.publish("multimedia.aa_auto_restart", bool(data["aa_auto_restart"]))
 
             # Notify event bus of config change
             if viewer._event_bus:
@@ -828,6 +839,146 @@ class WebViewer:
                 return jsonify({"ok": True, "x": px, "y": py})
             except Exception:
                 return jsonify({"ok": False}), 500
+
+        def _get_openauto():
+            if viewer._event_bus:
+                result = viewer._event_bus.get_last("multimedia._internals")
+                if result and result[0]:
+                    return result[0].get("openauto")
+            return None
+
+        @app.route("/aa/restart", methods=["POST"])
+        @app.route("/api/aa/restart", methods=["POST"])
+        def aa_restart():
+            """Manually restart OpenAuto process and Xvfb."""
+            log.info("Manual AA restart requested via API")
+            openauto = _get_openauto()
+            if openauto:
+                threading.Thread(target=openauto.restart, daemon=True, name="aa-http-restart").start()
+                return jsonify({"ok": True, "status": "restarting"})
+            elif viewer._event_bus:
+                viewer._event_bus.publish("multimedia.restart_request", True)
+                return jsonify({"ok": True, "status": "restarting"})
+            return jsonify({"ok": False, "error": "openauto not available"}), 503
+
+        @app.route("/api/aa/config", methods=["GET"])
+        def aa_config_get():
+            """Get Android Auto configuration and auto-restart setting."""
+            openauto = _get_openauto()
+            auto_restart = openauto.auto_restart_enabled if openauto else (
+                viewer._config.get("multimedia.aa_auto_restart", True) if viewer._config else True
+            )
+            timeout = getattr(openauto, "_connection_timeout", 90) if openauto else (
+                viewer._config.get("multimedia.aa_connection_timeout", 90) if viewer._config else 90
+            )
+            status = "unavailable"
+            if viewer._event_bus:
+                st = viewer._event_bus.get_last("multimedia.openauto_status")
+                if st:
+                    status = st[0]
+            return jsonify({
+                "auto_restart": auto_restart,
+                "timeout": timeout,
+                "status": status,
+            })
+
+        @app.route("/api/aa/config", methods=["POST"])
+        def aa_config_set():
+            """Update Android Auto settings (auto-restart toggle)."""
+            data = request.get_json(silent=True) or {}
+            if "auto_restart" in data:
+                enabled = bool(data["auto_restart"])
+                if viewer._config:
+                    viewer._config.set("multimedia.aa_auto_restart", enabled)
+                    try:
+                        viewer._config.save()
+                    except Exception:
+                        pass
+                openauto = _get_openauto()
+                if openauto:
+                    openauto.auto_restart_enabled = enabled
+                elif viewer._event_bus:
+                    viewer._event_bus.publish("multimedia.aa_auto_restart", enabled)
+                return jsonify({"ok": True, "auto_restart": enabled})
+            return jsonify({"error": "missing auto_restart"}), 400
+
+        @app.route("/api/kiosk/restart", methods=["POST"])
+        def api_kiosk_restart():
+            """Restart the kiosk UI and display processes.
+
+            On baremetal (systemd): restarts bcm-kiosk or kills chromium so xinitrc
+            respawns it fresh, and notifies the UI.
+            """
+            log.info("Kiosk restart requested via API")
+            data = request.get_json(silent=True) or {}
+            scope = data.get("scope", "kiosk")
+
+            def _perform_restart():
+                time.sleep(0.5)
+                # 1. Try systemd service restart for bcm-kiosk if active
+                try:
+                    rc = subprocess.run(
+                        ["systemctl", "is-active", "--quiet", "bcm-kiosk.service"],
+                        timeout=3
+                    ).returncode
+                    if rc == 0:
+                        subprocess.run(["systemctl", "restart", "bcm-kiosk.service"], timeout=5)
+                        log.info("Restarted bcm-kiosk.service via systemctl")
+                        return
+                except Exception as e:
+                    log.debug("systemctl bcm-kiosk check failed: %s", e)
+
+                # 2. On x86 setup where bcm-kiosk is masked and Chromium runs via xinitrc:
+                # Killing chromium causes xinitrc to finish wait and relaunch clean Chromium.
+                try:
+                    subprocess.run(["pkill", "-f", "chromium"], timeout=3)
+                    log.info("Sent pkill to chromium processes for kiosk relaunch")
+                except Exception as e:
+                    log.debug("pkill chromium failed: %s", e)
+
+                # 3. If scope is 'system' or 'bcm', also restart bcm-headunit service
+                if scope in ("system", "all", "bcm"):
+                    try:
+                        subprocess.run(["systemctl", "restart", "bcm-headunit.service"], timeout=5)
+                    except Exception as e:
+                        log.debug("systemctl bcm-headunit restart failed: %s", e)
+
+            threading.Thread(target=_perform_restart, daemon=True, name="kiosk-restart-worker").start()
+            return jsonify({"ok": True, "message": "kiosk restarting"})
+
+        @app.route("/api/system/reboot", methods=["POST"])
+        def api_system_reboot():
+            """Reboot the entire baremetal computer (host OS).
+
+            Gracefully notifies power.shutting_down (sync disk, flush configs),
+            then issues a system reboot command.
+            """
+            log.warning("System reboot requested via API")
+            if viewer._event_bus:
+                try:
+                    viewer._event_bus.publish("power.shutting_down", True)
+                except Exception as e:
+                    log.warning("Failed to publish power.shutting_down: %s", e)
+
+            def _perform_reboot():
+                time.sleep(1.2)
+                commands = [
+                    ["systemctl", "reboot"],
+                    ["sudo", "systemctl", "reboot"],
+                    ["reboot"],
+                    ["sudo", "reboot"],
+                ]
+                for cmd in commands:
+                    try:
+                        log.info("Executing system reboot command: %s", " ".join(cmd))
+                        res = subprocess.run(cmd, timeout=8)
+                        if res.returncode == 0:
+                            return
+                    except Exception as e:
+                        log.warning("Command %s failed: %s", cmd, e)
+
+            threading.Thread(target=_perform_reboot, daemon=True, name="system-reboot-worker").start()
+            return jsonify({"ok": True, "message": "system reboot initiated"})
 
         # --- Bluetooth management API (moved from aa_display.py) ---
 

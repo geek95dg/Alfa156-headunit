@@ -100,11 +100,19 @@ App.registerScreen("audio", (() => {
                         </div>
                     </div>
                 </div>
-                <button class="mt-2 px-4 py-1.5 rounded-lg text-xs font-bold hover:opacity-80"
-                        style="background:var(--card-border);color:var(--text-mid)"
-                        onclick="App.navigateTo('settings')">
-                    ← ${t("back_to_dash","Back")}
-                </button>
+                <div class="mt-3 flex items-center justify-between">
+                    <button class="px-4 py-1.5 rounded-lg text-xs font-bold hover:opacity-80"
+                            style="background:var(--card-border);color:var(--text-mid)"
+                            onclick="App.navigateTo('settings')">
+                        ← ${t("back_to_dash","Back")}
+                    </button>
+                    <button class="px-3.5 py-1.5 bg-red-600/90 hover:bg-red-500 text-white rounded-lg text-xs font-bold flex items-center gap-1.5 shadow-md active:scale-95 transition-all"
+                            onclick="App.rebootSystemModal()"
+                            title="${t("system_reboot_desc", "Pełny reboot OS (np. przy braku karty dźwiękowej)")}">
+                        <span class="material-symbols-outlined text-sm">power_settings_new</span>
+                        ${t("system_reboot", "Restart komputera")}
+                    </button>
+                </div>
             </main>
             ${NavBar.render(theme, "settings")}
         </div>`;

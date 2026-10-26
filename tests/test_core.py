@@ -153,7 +153,7 @@ class TestShippedModuleConfig:
         import pathlib
         import yaml
         root = pathlib.Path(__file__).resolve().parent.parent
-        return yaml.safe_load((root / "config" / name).read_text())["modules"]
+        return yaml.safe_load((root / "config" / name).read_text(encoding="utf-8"))["modules"]
 
     @pytest.mark.parametrize("cfg_name", ["bcm_config.yaml", "bcm_config_test.yaml"])
     def test_every_toggle_is_a_known_module(self, cfg_name):

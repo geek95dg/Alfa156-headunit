@@ -21,9 +21,14 @@ App.registerScreen("a2", (() => {
         // the canvas in fullscreen mode).
         let statusBadge = "";
         if (isFailed) {
-            statusBadge = `<div class="absolute top-2 left-1/2 -translate-x-1/2 z-20 bg-red-600/90 text-white text-xs font-bold px-4 py-1.5 rounded-full">AA Service Failed</div>`;
+            statusBadge = `<div class="absolute top-2 left-1/2 -translate-x-1/2 z-20 flex items-center gap-2 bg-red-600/90 text-white text-xs font-bold px-4 py-1.5 rounded-full shadow-lg">
+                <span>AA Service Failed</span>
+                <button onclick="App.restartAA()" class="underline ml-2 flex items-center gap-1 hover:opacity-80">
+                    <span class="material-symbols-outlined text-xs">sync</span> Restart
+                </button>
+            </div>`;
         } else if (isRestarting) {
-            statusBadge = `<div class="absolute top-2 left-1/2 -translate-x-1/2 z-20 bg-amber-600/90 text-white text-xs font-bold px-4 py-1.5 rounded-full animate-pulse">Restarting...</div>`;
+            statusBadge = `<div class="absolute top-2 left-1/2 -translate-x-1/2 z-20 bg-amber-600/90 text-white text-xs font-bold px-4 py-1.5 rounded-full animate-pulse shadow-lg">Restarting...</div>`;
         }
 
         // Placeholder message varies by status
@@ -95,6 +100,33 @@ App.registerScreen("a2", (() => {
                                 <span class="material-symbols-outlined text-2xl">wifi</span>
                             </div>
                             <span class="text-xs font-bold">WiFi</span>
+                        </div>
+                    </div>
+
+                    <!-- Quick controls: Restart AA, Kiosk Restart, Auto-restart toggle -->
+                    <div class="flex flex-col items-center gap-3 mt-2">
+                        <div class="flex items-center gap-3">
+                            <button onclick="App.restartAA()"
+                                    class="px-4 py-2 rounded-xl text-xs font-bold flex items-center gap-2 hover:opacity-80 transition-all shadow-md active:scale-95"
+                                    style="background:${theme==='modern'?'#e2e8f0':'#27272a'};color:${theme==='modern'?'#0f172a':'#fff'};border:1px solid ${theme==='modern'?'#cbd5e1':'#3f3f46'}">
+                                <span class="material-symbols-outlined text-base ${isRestarting ? 'animate-spin' : ''}">sync</span>
+                                ${isRestarting ? t("aa_restarting", "Restartowanie...") : t("aa_restart", "Restartuj AA")}
+                            </button>
+                            <button onclick="App.restartKioskModal()"
+                                    class="px-4 py-2 bg-red-600/20 border border-red-600/40 hover:bg-red-600/30 text-red-400 rounded-xl text-xs font-bold flex items-center gap-2 transition-all shadow-md active:scale-95">
+                                <span class="material-symbols-outlined text-base">restart_alt</span>
+                                ${t("kiosk_restart", "Restart kiosku")}
+                            </button>
+                        </div>
+                        <div class="flex items-center gap-2 text-[11px] opacity-70">
+                            <span>${t("aa_auto_restart", "Autorestart AA")}:</span>
+                            <span class="font-bold ${data.aa_auto_restart ? 'text-green-400' : 'text-zinc-500'}">
+                                ${data.aa_auto_restart ? t("active", "AKTYWNY") : t("inactive", "NIEAKTYWNY")}
+                            </span>
+                            <button onclick="App.setAAAutoRestart(${!data.aa_auto_restart})"
+                                    class="underline ml-1 cursor-pointer hover:opacity-100 font-semibold" style="color:var(--color-primary, #ef4444)">
+                                (${data.aa_auto_restart ? 'wyłącz' : 'włącz'})
+                            </button>
                         </div>
                     </div>
                 </div>

@@ -61,6 +61,7 @@ const AppBar = (() => {
                 ${btIcon}
                 <span class="material-symbols-outlined text-zinc-600 cursor-pointer hover:text-zinc-400 p-1" style="font-size:28px;" onclick="App.navigateTo('audio')">equalizer</span>
                 <span class="material-symbols-outlined text-zinc-600 cursor-pointer hover:text-zinc-400 p-1" style="font-size:28px;" onclick="App.navigateTo('settings')">settings</span>
+                <span class="material-symbols-outlined text-zinc-600 cursor-pointer hover:text-red-400 p-1" style="font-size:26px;" title="Restart kiosku" onclick="App.restartKioskModal()">restart_alt</span>
             </div>
         </header>`;
     }

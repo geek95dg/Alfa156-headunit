@@ -245,6 +245,18 @@ class OpenAutoController:
         self._monitor_thread: Optional[threading.Thread] = None
         self._log_thread: Optional[threading.Thread] = None
 
+        # Connection watchdog settings & state
+        self._auto_restart_enabled = bool(
+            config.get("multimedia.aa_auto_restart", True)) if config else True
+        self._connection_timeout = int(
+            config.get("multimedia.aa_connection_timeout", 90)) if config else 90
+        self._max_connection_restarts = 3
+        self._connection_restart_count = 0
+        self._last_start_or_trigger_time = 0.0
+        self._device_connected = threading.Event()
+        self._connection_watchdog_thread: Optional[threading.Thread] = None
+        self._connection_exhausted = False
+
         self._project_dir = os.path.dirname(os.path.dirname(
             os.path.dirname(os.path.abspath(__file__))))
 
@@ -277,6 +289,36 @@ class OpenAutoController:
         # handed credentials for a network that no longer existed.
         self._event_bus.subscribe("wifi.ap_credentials", self._on_ap_credentials)
 
+        # Bluetooth events & remote commands
+        self._event_bus.subscribe("bt.connected", self._on_bt_connected)
+        self._event_bus.subscribe("bt.disconnected", self._on_bt_disconnected)
+        self._event_bus.subscribe("multimedia.restart_request", self._on_restart_request)
+        self._event_bus.subscribe("multimedia.set_auto_restart", self._on_set_auto_restart)
+
+    def _on_bt_connected(self, topic: str, value: Any, timestamp: float) -> None:
+        """When phone connects via Bluetooth, re-arm the connection watchdog."""
+        if value and self._running and not self._device_connected.is_set():
+            log.info("[AA-Watchdog] Phone connected to BT — arming AA connection timer (%ds)",
+                     self._connection_timeout)
+            self._last_start_or_trigger_time = time.time()
+            self._connection_restart_count = 0
+            self._connection_exhausted = False
+
+    def _on_bt_disconnected(self, topic: str, value: Any, timestamp: float) -> None:
+        """Phone disconnected from BT."""
+        if self._device_connected.is_set():
+            log.info("[AA-Watchdog] Phone disconnected from BT — clearing connected state")
+            self._device_connected.clear()
+            self._last_start_or_trigger_time = time.time()
+            self._event_bus.publish("multimedia.openauto_status", "running")
+
+    def _on_restart_request(self, topic: str, value: Any, timestamp: float) -> None:
+        if value:
+            threading.Thread(target=self.restart, daemon=True, name="aa-bus-restart").start()
+
+    def _on_set_auto_restart(self, topic: str, value: Any, timestamp: float) -> None:
+        self.auto_restart_enabled = bool(value)
+
     def _on_ap_credentials(self, topic: str, value: Any, timestamp: float) -> None:
         """Regenerate openauto.ini when the AP publishes its real credentials."""
         if not self._binary:
@@ -298,6 +340,33 @@ class OpenAutoController:
     @property
     def running(self) -> bool:
         return self._running and self._process is not None and self._process.poll() is None
+
+    @property
+    def auto_restart_enabled(self) -> bool:
+        return self._auto_restart_enabled
+
+    @auto_restart_enabled.setter
+    def auto_restart_enabled(self, value: bool) -> None:
+        val = bool(value)
+        self._auto_restart_enabled = val
+        if self._config:
+            self._config.set("multimedia.aa_auto_restart", val)
+            try:
+                self._config.save()
+            except Exception:
+                pass
+        self._event_bus.publish("multimedia.aa_auto_restart", val)
+        log.info("[AA] Auto-restart toggled to %s", val)
+        if val and self._running and not self._device_connected.is_set():
+            self._last_start_or_trigger_time = time.time()
+            self._connection_restart_count = 0
+            self._connection_exhausted = False
+            if self._connection_watchdog_thread is None or not self._connection_watchdog_thread.is_alive():
+                self._connection_watchdog_thread = threading.Thread(
+                    target=self._connection_watchdog, daemon=True,
+                    name="aa-connection-watchdog",
+                )
+                self._connection_watchdog_thread.start()
 
     def start(self) -> bool:
         """Launch OpenAuto.
@@ -419,6 +488,18 @@ class OpenAutoController:
             )
             self._monitor_thread.start()
 
+            # Arm connection watchdog tracking
+            self._last_start_or_trigger_time = time.time()
+            self._device_connected.clear()
+            self._connection_exhausted = False
+
+            if self._auto_restart_enabled:
+                self._connection_watchdog_thread = threading.Thread(
+                    target=self._connection_watchdog, daemon=True,
+                    name="aa-connection-watchdog",
+                )
+                self._connection_watchdog_thread.start()
+
             self._event_bus.publish("multimedia.openauto_status", "running")
             self._event_bus.publish("audio.source_available", {
                 "source": "android_auto", "available": True,
@@ -447,6 +528,7 @@ class OpenAutoController:
     def stop(self) -> None:
         """Stop OpenAuto."""
         self._running = False
+        self._device_connected.set()
 
         if self._process and self._process.poll() is None:
             self._process.send_signal(signal.SIGTERM)
@@ -462,6 +544,16 @@ class OpenAutoController:
         self._event_bus.publish("audio.source_available", {
             "source": "android_auto", "available": False,
         })
+
+    def restart(self) -> bool:
+        """Full manual restart of OpenAuto (e.g. from UI)."""
+        log.info("[AA] Manual restart requested")
+        self._connection_restart_count = 0
+        self._connection_exhausted = False
+        self._device_connected.clear()
+        self.stop()
+        time.sleep(2)
+        return self.start()
 
     def _force_fullscreen_window(self, display: str) -> None:
         """Force the autoapp Qt window to cover the full Xvfb canvas.
@@ -709,9 +801,17 @@ class OpenAutoController:
                 if text:
                     # Detect AA connection events from autoapp logs
                     if "Device Connected" in text:
+                        self._device_connected.set()
+                        self._connection_restart_count = 0
+                        self._connection_exhausted = False
                         self._event_bus.publish("multimedia.openauto_status",
                                                 "connected")
                         log.info("[AA] Device connected: %s", text)
+                    elif "Device Disconnected" in text or "connection lost" in text.lower():
+                        self._device_connected.clear()
+                        self._last_start_or_trigger_time = time.time()
+                        self._event_bus.publish("multimedia.openauto_status", "running")
+                        log.info("[AA] Device disconnected: %s", text)
                     elif "SocketInfoRequest" in text and "Sent" in text:
                         log.info("[AA] Wireless handshake: %s", text)
                     elif "btservice" in text.lower():
@@ -772,6 +872,60 @@ class OpenAutoController:
                 return
 
             time.sleep(1)
+
+    def _connection_watchdog(self) -> None:
+        """Watchdog that monitors AA connection status.
+
+        If OpenAuto is running but no device connects within ``self._connection_timeout``
+        seconds, restarts OpenAuto automatically to recover from stalled socket/BT
+        bootstrap states.
+
+        Can be enabled/disabled via self.auto_restart_enabled (UI switch).
+        """
+        while self._running:
+            time.sleep(2)
+            if not self._running:
+                break
+
+            if not self._auto_restart_enabled:
+                continue
+
+            if self._device_connected.is_set():
+                continue
+
+            if not self._process or self._process.poll() is not None:
+                continue
+
+            elapsed = time.time() - self._last_start_or_trigger_time
+            if elapsed >= self._connection_timeout:
+                if self._connection_restart_count < self._max_connection_restarts:
+                    self._connection_restart_count += 1
+                    log.warning(
+                        "[AA-Watchdog] No device connected within %ds — "
+                        "auto-restarting AA (attempt %d/%d)",
+                        int(elapsed), self._connection_restart_count, self._max_connection_restarts
+                    )
+                    self._event_bus.publish("multimedia.openauto_status", "restarting")
+                    self._event_bus.publish("multimedia.aa_auto_restarting", {
+                        "attempt": self._connection_restart_count,
+                        "max_attempts": self._max_connection_restarts,
+                        "elapsed": int(elapsed),
+                    })
+                    self.stop()
+                    time.sleep(3)
+                    if self._auto_restart_enabled:
+                        self.start()
+                    return
+                else:
+                    if not self._connection_exhausted:
+                        log.warning(
+                            "[AA-Watchdog] Reached max connection restart attempts (%d). "
+                            "Paused until next BT connection or manual restart.",
+                            self._max_connection_restarts
+                        )
+                        self._connection_exhausted = True
+                        self._event_bus.publish("multimedia.openauto_status", "failed")
+                        self._event_bus.publish("multimedia.aa_connection_failed", True)
 
     def _on_shutdown(self, topic: str, value: Any, timestamp: float) -> None:
         if value:
@@ -847,3 +1001,4 @@ def start_multimedia(config: Any, event_bus: EventBus, hal: Any = None,
         "openauto": openauto,
         "bluetooth": bt_mgr,
     })
+    event_bus.publish("multimedia.aa_auto_restart", openauto.auto_restart_enabled)

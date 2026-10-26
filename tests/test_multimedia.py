@@ -196,6 +196,42 @@ class TestOpenAutoController:
         self.bus.publish("power.shutting_down", True)
         assert ctrl.running is False
 
+    def test_auto_restart_enabled_property(self):
+        ctrl = OpenAutoController(self.config, self.bus)
+        assert ctrl.auto_restart_enabled is True
+
+        events = []
+        self.bus.subscribe("multimedia.aa_auto_restart", lambda t, v, ts: events.append(v))
+
+        ctrl.auto_restart_enabled = False
+        assert ctrl.auto_restart_enabled is False
+        assert False in events
+
+        ctrl.auto_restart_enabled = True
+        assert ctrl.auto_restart_enabled is True
+        assert True in events
+
+    def test_manual_restart_without_binary(self):
+        ctrl = OpenAutoController(self.config, self.bus)
+        if not ctrl.available:
+            result = ctrl.restart()
+            assert result is False
+            assert ctrl.running is False
+
+    def test_bt_connection_events_rearm(self):
+        ctrl = OpenAutoController(self.config, self.bus)
+        # Should not raise when phone connects/disconnects
+        self.bus.publish("bt.connected", {"address": "11:22:33:44:55:66", "name": "Pixel"})
+        self.bus.publish("bt.disconnected", {"address": "11:22:33:44:55:66"})
+
+    def test_auto_restart_event_bus_toggle(self):
+        ctrl = OpenAutoController(self.config, self.bus)
+        assert ctrl.auto_restart_enabled is True
+        self.bus.publish("multimedia.set_auto_restart", False)
+        assert ctrl.auto_restart_enabled is False
+        self.bus.publish("multimedia.set_auto_restart", True)
+        assert ctrl.auto_restart_enabled is True
+
 
 # ---------------------------------------------------------------------------
 # Integration: start_multimedia entry point
@@ -328,7 +364,7 @@ class TestShippedConfigCredentials:
         import yaml
 
         root = pathlib.Path(__file__).resolve().parent.parent
-        cfg = yaml.safe_load((root / "config" / cfg_name).read_text())
+        cfg = yaml.safe_load((root / "config" / cfg_name).read_text(encoding="utf-8"))
         wifi = cfg.get("wifi", {})
         for key in ("ssid_runtime", "password_runtime", "bssid_runtime"):
             assert not wifi.get(key), (

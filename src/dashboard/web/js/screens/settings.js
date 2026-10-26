@@ -26,6 +26,48 @@ const Settings = {
     // Module on/off toggles (modules.* in bcm_config.yaml)
     _modules: { list: [], loaded: false, status: "" },
 
+    // Android Auto settings & control
+    _aa: { autoRestart: true, loaded: false, restarting: false },
+
+    async aaLoad(force) {
+        if (Settings._aa.loaded && !force) return;
+        try {
+            const res = await fetch("/api/aa/config");
+            const data = await res.json();
+            Settings._aa.autoRestart = !!data.auto_restart;
+            Settings._aa.loaded = true;
+            App.navigateTo("settings");
+        } catch (e) {}
+    },
+
+    async toggleAAAutoRestart() {
+        const next = !Settings._aa.autoRestart;
+        Settings._aa.autoRestart = next;
+        App.navigateTo("settings");
+        try {
+            await fetch("/api/aa/config", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ auto_restart: next }),
+            });
+        } catch (e) {
+            Settings._aa.autoRestart = !next;
+            App.navigateTo("settings");
+        }
+    },
+
+    async restartAA() {
+        Settings._aa.restarting = true;
+        App.navigateTo("settings");
+        try {
+            await fetch("/api/aa/restart", { method: "POST" });
+        } catch (e) {}
+        setTimeout(() => {
+            Settings._aa.restarting = false;
+            App.navigateTo("settings");
+        }, 3000);
+    },
+
     async modulesLoad(force) {
         if (Settings._modules.loaded && !force) return;
         try {
@@ -450,6 +492,7 @@ App.registerScreen("settings", (() => {
         }
         Settings.wifiLoad();
         Settings.modulesLoad();
+        Settings.aaLoad();
 
         container.innerHTML = `<div class="screen-container" style="background:var(--color-surface);color:var(--color-on-surface)">
             ${AppBar.render(theme, data)}
@@ -646,6 +689,54 @@ App.registerScreen("settings", (() => {
                                 <span class="text-[11px] font-bold" style="color:var(--color-on-surface)">${m.name}</span>
                                 <span class="text-[9px] truncate ml-auto text-right" style="color:var(--text-dim);max-width:60%">${m.description}</span>
                             </label>`).join("")}
+                    </div>
+                </div>
+                <!-- System & Kiosk Control -->
+                <div class="rounded-xl p-3 mt-3" style="background:var(--card-bg);border:1px solid var(--card-border)">
+                    <div class="flex items-center justify-between mb-3 gap-2 flex-wrap">
+                        <div>
+                            <p class="text-[10px] font-bold uppercase tracking-wider" style="color:var(--text-dim)">${t("system_control", "SYSTEM I KIOSK")}</p>
+                            <p class="text-[9px]" style="color:var(--text-dim)">${t("system_kiosk_desc", "Sterowanie procesami kiosku i Android Auto")}</p>
+                        </div>
+                        <div class="flex items-center gap-2">
+                            <button class="px-3 py-1.5 rounded-lg text-xs font-bold hover:opacity-80 flex items-center gap-1.5 transition-opacity"
+                                    style="background:var(--card-border);color:var(--text-mid)"
+                                    onclick="App.restartKioskModal()">
+                                <span class="material-symbols-outlined text-sm">restart_alt</span>
+                                ${t("kiosk_restart", "Restart kiosku")}
+                            </button>
+                            <button class="px-3 py-1.5 bg-red-600 hover:bg-red-500 text-white rounded-lg text-xs font-bold flex items-center gap-1.5 shadow-md active:scale-95 transition-all"
+                                    onclick="App.rebootSystemModal()"
+                                    title="${t("system_reboot_desc", "Pełny reboot OS (np. przy braku karty dźwiękowej)")}">
+                                <span class="material-symbols-outlined text-sm">power_settings_new</span>
+                                ${t("system_reboot", "Restart komputera")}
+                            </button>
+                        </div>
+                    </div>
+                    <div class="grid grid-cols-2 gap-3 pt-2" style="border-top:1px solid var(--card-border)">
+                        <!-- AA Auto-restart toggle -->
+                        <div class="flex items-center justify-between p-2.5 rounded-lg" style="background:var(--color-surface)">
+                            <div class="pr-2">
+                                <p class="text-xs font-bold" style="color:var(--color-on-surface)">${t("aa_auto_restart", "Autorestart AA")}</p>
+                                <p class="text-[9px]" style="color:var(--text-dim)">${t("aa_auto_restart_desc", "Automatycznie restartuj AA przy braku połączenia")}</p>
+                            </div>
+                            ${_toggle(Settings._aa.autoRestart, "Settings.toggleAAAutoRestart()")}
+                        </div>
+
+                        <!-- Manual AA restart button -->
+                        <div class="flex items-center justify-between p-2.5 rounded-lg" style="background:var(--color-surface)">
+                            <div>
+                                <p class="text-xs font-bold" style="color:var(--color-on-surface)">${t("android_auto", "Android Auto")}</p>
+                                <p class="text-[9px]" style="color:var(--text-dim)">Status: <span class="font-bold ${data.aa_status === 'connected' ? 'text-green-500' : data.aa_status === 'running' ? 'text-blue-400' : 'text-zinc-400'}">${data.aa_status || 'unavailable'}</span></p>
+                            </div>
+                            <button class="px-3 py-1.5 rounded-lg text-xs font-bold hover:opacity-80 flex items-center gap-1 transition-opacity"
+                                    style="background:var(--card-border);color:var(--text-mid)"
+                                    onclick="Settings.restartAA()"
+                                    ${Settings._aa.restarting ? 'disabled' : ''}>
+                                <span class="material-symbols-outlined text-sm ${Settings._aa.restarting ? 'animate-spin' : ''}">sync</span>
+                                ${Settings._aa.restarting ? t("aa_restarting", "Restartowanie...") : t("aa_restart", "Restartuj AA")}
+                            </button>
+                        </div>
                     </div>
                 </div>
                 <button class="mt-3 px-4 py-2 rounded-lg text-xs font-bold hover:opacity-80" style="background:var(--card-border);color:var(--text-mid)" onclick="App.navigateTo('a1')">
