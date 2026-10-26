@@ -1,0 +1,15 @@
+[Unit]
+Description=BCM — correct the clock from an HTTPS Date header (no NTP client on this box)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/bcm-timesync.sh
+# A car spends most of its life without an uplink. The script already
+# exits 0 when it cannot reach anything, so a failure here means a real
+# fault, not "parked in a garage".
+TimeoutStartSec=45
+
+[Install]
+WantedBy=multi-user.target

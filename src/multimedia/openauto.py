@@ -148,22 +148,41 @@ def _create_openauto_config(project_dir: str, app_config: Any = None) -> None:
         wifi_mac = _resolve_wifi_mac(app_config)
         bt_adapter = _resolve_bt_adapter_addr(app_config)
 
-    # OpenAuto Resolution codes (per autoapp source):
-    #   0 = 480p, 1 = 720p, 2 = 1080p, 3 = auto/stretch
-    # 720p is the sweet spot for in-vehicle screens — sharper than
-    # 480p once scaled to the canvas, and the encode bandwidth fits
-    # well inside Wi-Fi/USB even on older phones. Reserve 1080p for
-    # canvases that genuinely have ≥1080 px of vertical room.
+    # Resolution codes, from the authoritative aasdk enum
+    # (/usr/local/include/aasdk_proto/VideoResolutionEnum.pb.h):
+    #   0 = NONE, 1 = 480p, 2 = 720p, 3 = 1080p, 4 = 1440p
     #
-    # ``multimedia.aa_resolution`` overrides the choice: 480p / 720p / 1080p,
-    # or the raw code. The default stays automatic, so nothing has to be set
-    # for a 1024x600 panel to get 720p.
-    _RES_CODES = {"480p": 0, "480": 0, "720p": 1, "720": 1,
-                  "1080p": 2, "1080": 2, "auto_stretch": 3}
+    # This used to be documented — and implemented — as "0 = 480p, 1 = 720p,
+    # 2 = 1080p, 3 = auto/stretch", which is off by one against the enum
+    # autoapp actually reads. So BCM wrote Resolution=1 meaning 720p and
+    # autoapp projected 480p, which is what its own Settings dialog showed and
+    # how the fault was finally spotted. Every session in this log — including
+    # the 94-minute and 36-minute clean ones — therefore ran at 480p.
+    #
+    # 720p is the sweet spot for in-vehicle screens — sharper than 480p once
+    # scaled to the canvas, and the encode bandwidth fits well inside
+    # Wi-Fi/USB even on older phones. Reserve 1080p for canvases that
+    # genuinely have >=1080 px of vertical room; below that it is only
+    # downscaled into the same pixels, costing CPU for no detail.
+    #
+    # ``multimedia.aa_resolution`` pins the choice: 480p / 720p / 1080p, or
+    # the raw code. Leave it unset for the automatic rule above.
+    #
+    # This is NOT an AA fault knob. Every dropout in this project traced back
+    # to the phone's "Unknown sources" gate, never to a resolution — and 480p
+    # is what all of it, good and bad, actually ran on. Keep it as the
+    # known-good fallback, not as the first thing to change when AA misbehaves.
+    #
+    # Note also that autoapp rewrites openauto.ini in its own schema at
+    # runtime and BCM regenerates the file on every start(), so a change made
+    # in autoapp's own Settings dialog survives only until the next AA
+    # restart. This config key is where it sticks.
+    _RES_CODES = {"480p": 1, "480": 1, "720p": 2, "720": 2,
+                  "1080p": 3, "1080": 3}
     if height >= 1080:
-        resolution_code = 2
+        resolution_code = 3
     else:
-        resolution_code = 1
+        resolution_code = 2
     if app_config:
         wanted = str(app_config.get("multimedia.aa_resolution", "")
                      or "").strip().lower()
@@ -218,9 +237,13 @@ AdapterMAC={wifi_mac}
     with open(config_path, "w") as f:
         f.write(config_content)
 
-    log.info("Created openauto config at %s (SSID=%s, WiFi MAC=%s, BT=%s)",
+    log.info("Created openauto config at %s (SSID=%s, WiFi MAC=%s, BT=%s, "
+             "Resolution=%d %s)",
              config_path, ssid or "(empty)",
-             wifi_mac or "(unresolved)", bt_adapter or "(default)")
+             wifi_mac or "(unresolved)", bt_adapter or "(default)",
+             resolution_code,
+             {1: "480p", 2: "720p", 3: "1080p", 4: "1440p"}.get(
+                 resolution_code, "?"))
 
 
 class OpenAutoController:
@@ -374,8 +397,16 @@ class OpenAutoController:
         Returns:
             True if launched successfully.
         """
-        if self._running:
-            log.warning("OpenAuto already running")
+        # Guard on a live process, NOT on self._running. The watchdog's whole
+        # job is to call start() after autoapp died, and it has no way to clear
+        # _running first — the flag doubles as "we want AA up", and clearing it
+        # would be indistinguishable from stop(). So every crash restart hit
+        # this check, logged "OpenAuto already running", returned False, and
+        # then the watchdog thread returned too: no process, no watchdog, and
+        # AA dead until BCM itself was restarted. Nothing in the log said so
+        # beyond one warning line that read like a harmless double-start.
+        if self._process is not None and self._process.poll() is None:
+            log.warning("OpenAuto already running (PID %d)", self._process.pid)
             return False
 
         if not self._binary:
