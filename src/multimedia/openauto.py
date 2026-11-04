@@ -567,6 +567,10 @@ class OpenAutoController:
                 self._process.wait(timeout=5)
             except subprocess.TimeoutExpired:
                 self._process.kill()
+                try:
+                    self._process.wait(timeout=5)
+                except subprocess.TimeoutExpired:
+                    pass
             log.info("OpenAuto stopped")
 
         self._process = None
@@ -575,6 +579,9 @@ class OpenAutoController:
         self._event_bus.publish("audio.source_available", {
             "source": "android_auto", "available": False,
         })
+        
+        # Give time for ports and sockets to be released
+        time.sleep(2)
 
     def restart(self) -> bool:
         """Full manual restart of OpenAuto (e.g. from UI)."""
@@ -582,8 +589,23 @@ class OpenAutoController:
         self._connection_restart_count = 0
         self._connection_exhausted = False
         self._device_connected.clear()
+        
+        # Stop OpenAuto and all related processes
         self.stop()
-        time.sleep(2)
+        
+        # Additional cleanup: kill any remaining autoapp/btservice processes
+        # that might not have been caught by stop()
+        self._kill_stale()
+        
+        # Wait for all resources (ports, sockets, Bluetooth) to be fully released
+        # This is critical for wireless AA which uses Bluetooth bootstrap
+        log.info("[AA] Waiting for resources to be released before restart...")
+        time.sleep(3)
+        
+        # Reset Bluetooth adapter to ensure clean state
+        self._reset_bt_adapter()
+        
+        # Now start fresh
         return self.start()
 
     def _force_fullscreen_window(self, display: str) -> None:
@@ -800,9 +822,75 @@ class OpenAutoController:
             log.info("Xvfb stopped")
         self._xvfb_process = None
 
-    def _kill_stale(self) -> None:
-        """Kill any stale autoapp processes from previous runs."""
+    def _reset_bt_adapter(self) -> None:
+        """Reset Bluetooth adapter to ensure clean state for AA reconnection.
+        
+        This helps recover from stalled Bluetooth states that can prevent
+        autoapp's btservice from properly initializing.
+        """
         try:
+            # Find Bluetooth adapter
+            result = subprocess.run(
+                ["bluetoothctl", "list"],
+                capture_output=True, text=True, timeout=5,
+            )
+            if result.returncode != 0:
+                log.debug("Bluetooth adapter not found via bluetoothctl")
+                return
+            
+            # Get first adapter MAC address
+            for line in result.stdout.strip().splitlines():
+                if "Controller" in line:
+                    parts = line.split()
+                    for part in parts:
+                        if len(part) == 17 and ':' in part:  # MAC address format
+                            adapter_mac = part
+                            log.info("[AA] Resetting Bluetooth adapter %s", adapter_mac)
+                            
+                            # Reset the adapter using hciconfig
+                            try:
+                                subprocess.run(
+                                    ["hciconfig", adapter_mac, "down"],
+                                    timeout=3,
+                                    capture_output=True,
+                                )
+                                time.sleep(1)
+                                subprocess.run(
+                                    ["hciconfig", adapter_mac, "up"],
+                                    timeout=3,
+                                    capture_output=True,
+                                )
+                                log.info("[AA] Bluetooth adapter reset complete")
+                            except Exception as e:
+                                log.warning("[AA] Failed to reset Bluetooth adapter: %s", e)
+                            
+                            # Also try via bluetoothctl
+                            try:
+                                subprocess.run(
+                                    ["bluetoothctl", "power", "off"],
+                                    timeout=3,
+                                    capture_output=True,
+                                )
+                                time.sleep(1)
+                                subprocess.run(
+                                    ["bluetoothctl", "power", "on"],
+                                    timeout=3,
+                                    capture_output=True,
+                                )
+                                log.info("[AA] Bluetooth power cycle complete")
+                            except Exception as e:
+                                log.warning("[AA] Failed to power cycle Bluetooth: %s", e)
+                            
+                            return
+        except FileNotFoundError:
+            log.debug("bluetoothctl or hciconfig not available")
+        except Exception as e:
+            log.debug("Bluetooth reset failed: %s", e)
+
+    def _kill_stale(self) -> None:
+        """Kill any stale autoapp and related processes from previous runs."""
+        try:
+            # Kill autoapp processes
             result = subprocess.run(
                 ["pgrep", "-f", "autoapp"],
                 capture_output=True, text=True, timeout=3,
@@ -816,7 +904,89 @@ class OpenAutoController:
                         log.info("Killed stale autoapp process (PID %d)", pid_int)
                     except (ValueError, ProcessLookupError):
                         pass
-                time.sleep(1)  # Wait for port release
+            
+            # Also kill any btservice processes that might be orphaned
+            result = subprocess.run(
+                ["pgrep", "-f", "btservice"],
+                capture_output=True, text=True, timeout=3,
+            )
+            if result.returncode == 0 and result.stdout.strip():
+                pids = result.stdout.strip().split()
+                for pid in pids:
+                    try:
+                        pid_int = int(pid)
+                        os.kill(pid_int, signal.SIGTERM)
+                        log.info("Killed stale btservice process (PID %d)", pid_int)
+                    except (ValueError, ProcessLookupError):
+                        pass
+            
+            # Wait for processes to terminate and release ports
+            time.sleep(2)
+            
+            # Force kill any remaining autoapp/btservice processes
+            for name in ["autoapp", "btservice"]:
+                result = subprocess.run(
+                    ["pgrep", "-f", name],
+                    capture_output=True, text=True, timeout=3,
+                )
+                if result.returncode == 0 and result.stdout.strip():
+                    pids = result.stdout.strip().split()
+                    for pid in pids:
+                        try:
+                            pid_int = int(pid)
+                            os.kill(pid_int, signal.SIGKILL)
+                            log.info("Force killed stale %s process (PID %d)", name, pid_int)
+                        except (ValueError, ProcessLookupError):
+                            pass
+            
+            # Clean up any processes using port 5000 (btservice default port)
+            self._kill_processes_on_port(5000)
+            
+            # Additional wait for cleanup
+            time.sleep(1)
+        except Exception:
+            pass
+    
+    def _kill_processes_on_port(self, port: int) -> None:
+        """Kill any processes using the specified port."""
+        try:
+            # Try using fuser
+            result = subprocess.run(
+                ["fuser", str(port), "/tcp"],
+                capture_output=True, text=True, timeout=3,
+            )
+            if result.returncode == 0 and result.stdout.strip():
+                pids = result.stdout.strip().split()
+                for pid in pids:
+                    try:
+                        pid_int = int(pid)
+                        os.kill(pid_int, signal.SIGKILL)
+                        log.info("Killed process on port %d (PID %d)", port, pid_int)
+                    except (ValueError, ProcessLookupError):
+                        pass
+        except FileNotFoundError:
+            # Try using ss and kill
+            try:
+                result = subprocess.run(
+                    ["ss", "-tlnp"],
+                    capture_output=True, text=True, timeout=3,
+                )
+                if result.returncode == 0:
+                    for line in result.stdout.splitlines():
+                        if f":{port}" in line:
+                            # Extract PID from the line
+                            parts = line.split()
+                            for part in parts:
+                                if part.startswith("pid="):
+                                    pid = part[4:]
+                                    try:
+                                        pid_int = int(pid)
+                                        os.kill(pid_int, signal.SIGKILL)
+                                        log.info("Killed process on port %d via ss (PID %d)", port, pid_int)
+                                    except (ValueError, ProcessLookupError):
+                                        pass
+            except Exception:
+                pass
         except Exception:
             pass
 
