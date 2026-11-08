@@ -118,6 +118,29 @@ def start_audio(config: Any, event_bus: EventBus, hal: Any = None,
     # did, and start_audio() applied it a second time, so two routing threads
     # fought over the default sink.
     pw = PipeWireController(config, event_bus)
+
+    # Microphone routing (default source for AA voice + HFP uplink). Inert
+    # unless audio.mic_router is true; runs on its own thread so a slow or
+    # missing PipeWire session never delays startup. Started before
+    # start_output() on purpose: openauto's start() waits (up to 5 s) for the
+    # first audio.mic_state, because autoapp picks its input device once per
+    # AA session. The router itself waits briefly for the output sink choice.
+    mic_router = None
+    try:
+        from src.audio.mic_router import MicRouter
+        mic_router = MicRouter(config, event_bus, controller=pw)
+        mic_router.start()
+    except Exception:
+        log.exception("Mic router failed to start (non-critical)")
+        mic_router = None
+        if config.get("audio.mic_router", False):
+            # Say so on the bus: openauto's start() waits for the first
+            # audio.mic_state, and a router that will never report must not
+            # hold AA back. 'error' = unknown, VoiceCommandButton then
+            # follows audio.mic_phone (see openauto._mic_available).
+            event_bus.publish("audio.mic_state",
+                              {"state": "error", "source": "", "aec": False})
+
     pw.start_output()
 
     # Source manager
@@ -143,6 +166,11 @@ def start_audio(config: Any, event_bus: EventBus, hal: Any = None,
 
     # Hand the output back and kill the filter-chain child on the way out.
     def _on_shutdown(topic: str, value: Any, timestamp: float) -> None:
+        # Router first, so it cannot retarget (= restart) the EQ child that
+        # pw.stop() is about to kill. Its stop() never waits for a routing
+        # pass in progress, so a wedged PipeWire cannot stall this handler.
+        if mic_router is not None:
+            mic_router.stop(restore_eq=False)
         pw.stop()
         if spectrum is not None:
             spectrum.stop()
@@ -160,4 +188,5 @@ def start_audio(config: Any, event_bus: EventBus, hal: Any = None,
         "ducking": ducking,
         "volume": volume,
         "spectrum": spectrum,
+        "mic_router": mic_router,
     })

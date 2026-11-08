@@ -54,6 +54,13 @@ ACTIONS = frozenset({"down", "move", "up", "cancel", "tap"})
 #: from a client — ``submit()`` only takes :data:`ACTIONS`).
 _RELEASE = "_release"
 
+#: Internal action queued by :meth:`AATouchInjector.submit_key`.
+_KEY = "_key"
+
+#: Keys that may be sent to autoapp (xdotool keysym names). Only what
+#: openDsh's InputDevice maps and BCM uses: ``m`` = MICROPHONE_1 (voice).
+KEYS = frozenset({"m"})
+
 #: Per-command xdotool timeout. A wedged X server must not wedge the worker.
 XDOTOOL_TIMEOUT_S = 2.0
 
@@ -86,15 +93,17 @@ def _unit(value: Any) -> Optional[float]:
 class _Event:
     """One queued injection request (pixels already resolved)."""
 
-    __slots__ = ("action", "x", "y", "client", "epoch")
+    __slots__ = ("action", "x", "y", "client", "epoch", "key")
 
     def __init__(self, action: str, x: int, y: int,
-                 client: Optional[Hashable], epoch: int) -> None:
+                 client: Optional[Hashable], epoch: int,
+                 key: Optional[str] = None) -> None:
         self.action = action
         self.x = x
         self.y = y
         self.client = client
         self.epoch = epoch
+        self.key = key
 
 
 class AATouchInjector:
@@ -194,6 +203,24 @@ class AATouchInjector:
                     log.debug("AA touch queue full — dropping %s", action)
                     return False
                 queue.append(event)
+            self._cond.notify()
+        return True
+
+    def submit_key(self, key: Any, client: Optional[Hashable] = None) -> bool:
+        """Queue one key press (``xdotool key --clearmodifiers <key>``).
+
+        Only :data:`KEYS` are accepted. Rides the same queue as touches, so
+        it is serialised with them and bounded the same way. The touch
+        button state is left alone. Never raises; False means rejected.
+        """
+        if not isinstance(key, str) or key not in KEYS:
+            return False
+        with self._cond:
+            if self._stopped or not self._available:
+                return False
+            if len(self._queue) >= self._max_queue and not self._drop_oldest_move():
+                return False
+            self._queue.append(_Event(_KEY, 0, 0, client, self._epoch, key=key))
             self._cond.notify()
         return True
 
@@ -310,6 +337,11 @@ class AATouchInjector:
                 return
             down = self._button_down
             owner = self._owner
+
+        if event.action == _KEY:
+            if event.key in KEYS:   # re-checked: never an unvetted keysym
+                self._run(["key", "--clearmodifiers", event.key])
+            return
 
         x, y = str(event.x), str(event.y)
         move = ["mousemove", "--screen", "0", x, y]

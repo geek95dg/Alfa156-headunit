@@ -336,3 +336,38 @@ class TestWorkerThread:
         inj.process_pending()
         inj.stop()
         assert calls[-1] == ["xdotool", "mouseup", "1"]
+
+
+class TestVoiceKey:
+    """submit_key: the M key autoapp maps to MICROPHONE_1 (Etap 2a)."""
+
+    def test_key_is_sent_with_clearmodifiers(self):
+        inj, run = make()
+        assert inj.submit_key("m", client="voice")
+        inj.process_pending()
+        assert run.calls == [XDO + ["key", "--clearmodifiers", "m"]]
+        assert run.kwargs[0]["env"]["DISPLAY"] == ":99"
+
+    @pytest.mark.parametrize("key", ["M", "ctrl+m", "m; rm -rf /", "", None, 5, ["m"], "Return"])
+    def test_only_whitelisted_keys(self, key):
+        inj, run = make()
+        assert inj.submit_key(key) is False
+        inj.process_pending()
+        assert run.calls == []
+
+    def test_key_leaves_a_held_button_alone(self):
+        inj, run = make()
+        inj.submit("down", 0.5, 0.5, client="a")
+        inj.submit_key("m", client="voice")
+        inj.process_pending()
+        assert inj.button_down is True
+        assert run.calls[-1] == XDO + ["key", "--clearmodifiers", "m"]
+
+    def test_key_dropped_after_reset_and_when_stopped(self):
+        inj, run = make()
+        inj.submit_key("m")
+        inj.reset()                          # AA restarting: stale key dropped
+        inj.process_pending()
+        assert run.calls == []
+        inj.stop()
+        assert inj.submit_key("m") is False

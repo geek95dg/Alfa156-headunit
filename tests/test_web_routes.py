@@ -221,6 +221,31 @@ class TestInputMessages:
         assert env.runner.calls == [["xdotool", "mousemove", "--screen", "0", x, y, "click", "1"]]
         assert no_web_subprocess == []
 
+    def test_voice_key_method_sends_m(self, env, no_web_subprocess):
+        env.cfg.set("multimedia.aa_voice_method", "key")
+        env.bus.publish("aa.voice_trigger", True)
+        env.injector.process_pending()
+        assert env.runner.calls == [["xdotool", "key", "--clearmodifiers", "m"]]
+        assert no_web_subprocess == []
+
+    def test_voice_key_falls_back_to_tap_without_voice_button(self, env):
+        # autoapp started without a mic -> VoiceCommandButton=false -> M is ignored
+        env.cfg.set("multimedia.aa_voice_method", "key")
+        env.bus.publish("multimedia._internals",
+                        {"openauto": SimpleNamespace(voice_button_enabled=False)})
+        env.bus.publish("aa.voice_trigger", True)
+        env.injector.process_pending()
+        assert env.runner.calls[0][-2:] == ["click", "1"]
+
+    def test_notifications_in_payload_expire(self, env):
+        from src.core.notifications import publish_notification
+        publish_notification(env.bus, "Brak mikrofonu", ttl=5, now=time.time())
+        assert [n["title"] for n in env.viewer._get_dashboard_data()["notifications"]] == [
+            "Brak mikrofonu"]
+        publish_notification(env.bus, "old", ttl=1, now=time.time() - 100, key="x")
+        titles = [n["title"] for n in env.viewer._get_dashboard_data()["notifications"]]
+        assert "old" not in titles
+
     def test_lazy_injector_is_created_once(self):
         viewer = WebViewer(event_bus=EventBus(), config=BCMConfig(platform_override="x86"))
         try:
@@ -487,3 +512,30 @@ class TestMJPEGStream:
         assert res.data == b""
         assert no_web_subprocess and no_web_subprocess[0][0] == "ffmpeg"
         assert env.viewer._aa_stream_active == []
+
+
+# ── POST /api/phone/dial (browser input -> log, bus, oFono) ─────────────
+
+class TestPhoneDialRoute:
+    def _dials(self, env):
+        seen = []
+        env.bus.subscribe("bt.cmd.dial", lambda t, v, ts: seen.append(v))
+        return seen
+
+    def test_phonebook_number_is_normalised(self, env):
+        seen = self._dials(env)
+        res = env.client.post("/api/phone/dial", json={"number": "+48 600-123-456"})
+        assert res.status_code == 200
+        assert res.get_json() == {"ok": True, "number": "+48600123456"}
+        assert seen == ["+48600123456"]
+
+    @pytest.mark.parametrize("body", [
+        {"number": "600\nINFO forged"}, {"number": "abc"}, {"number": "1" * 40},
+        {"number": ""}, {"number": None}, {"number": ["112"]}, {}, None, "112",
+    ])
+    def test_invalid_is_400_and_never_published(self, env, body):
+        seen = self._dials(env)
+        res = env.client.post("/api/phone/dial", json=body)
+        assert res.status_code == 400
+        assert res.get_json()["ok"] is False
+        assert seen == []

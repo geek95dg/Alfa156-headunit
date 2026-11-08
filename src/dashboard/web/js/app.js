@@ -536,8 +536,80 @@ const App = (() => {
         _tickClock();
     }
 
+    // --- Phone calls (bt.call_state from the oFono monitor) ---
+    // Only the CURRENT screen's update() runs on new data, so a call that
+    // arrives while the kiosk shows A1/A3/A4 used to show nothing: the A8
+    // overlay (answer / reject) only appeared if the driver was already on
+    // A8, and Phone._callState went stale everywhere else. The call state is
+    // therefore followed here, on every screen.
+    const CALL_STATES = ["idle", "incoming", "ringing", "active"];
+    // Never pulled to A8 from these: A8 shows the overlay itself, and on A2
+    // Android Auto projects its own call UI.
+    const CALL_NAV_SKIP = ["a8", "a2"];
+    let _lastCallState = null;   // last bt_call_state seen from the backend
+    let _lastCallKey = null;     // state + caller info, to spot news only
+    let _callReturnTo = null;    // screen to go back to after an auto-switch
+
+    /** Pure: where a bt_call_state change should take the kiosk, or null.
+     *  prev: last backend state (null before the first payload), next: new
+     *  state, screen: current screen, returnTo: the screen we came from if
+     *  this call already switched to A8 by itself. */
+    function callNavDecision(prev, next, screen, returnTo) {
+        if (CALL_STATES.indexOf(next) === -1 || next === prev) return null;
+        if (next === "idle") {
+            // Call over: go back only if WE moved the driver and they stayed.
+            return (returnTo && screen === "a8") ? returnTo : null;
+        }
+        if (CALL_NAV_SKIP.indexOf(screen) !== -1) return null;
+        if (next === "incoming") return "a8";      // needs answer / reject
+        // A call started on the phone (or already running when the kiosk
+        // loaded): show the hang-up overlay once, not on every state step.
+        if (prev === "idle" || prev === null) return "a8";
+        return null;
+    }
+
+    /** Caller info from the payload as plain, bounded strings. Escaping is
+     *  done where it is rendered (phone.js _esc), not here. */
+    function _callInfoOf(v) {
+        if (!v || typeof v !== "object") return {};
+        const out = {};
+        if (v.number != null && v.number !== "") out.number = String(v.number).slice(0, 32);
+        if (v.name != null && v.name !== "") out.name = String(v.name).slice(0, 64);
+        return out;
+    }
+
+    function _syncCallState(data) {
+        const next = data ? data.bt_call_state : undefined;
+        if (CALL_STATES.indexOf(next) === -1) return;
+        const info = next === "idle" ? {} : _callInfoOf(data.bt_call_info);
+        const key = next + "|" + (info.number || "") + "|" + (info.name || "");
+        // Act on NEWS from the backend only. Re-applying an unchanged state on
+        // every push would clobber Phone.dial()'s instant local "ringing".
+        if (key === _lastCallKey) return;
+        const prev = _lastCallState;
+        _lastCallState = next;
+        _lastCallKey = key;
+        if (typeof Phone !== "undefined" && Phone) {
+            Phone._callState = next;
+            Phone._callInfo = info;
+        }
+        const target = callNavDecision(prev, next, _currentScreen, _callReturnTo);
+        if (next === "idle") _callReturnTo = null;
+        if (target === "a8") {
+            if (!_callReturnTo) {
+                _callReturnTo = NAV_SCREENS.includes(_currentScreen) || _currentScreen === "settings"
+                    ? _currentScreen : (_loadLastScreen() || "a1");
+            }
+            navigateTo("a8");
+        } else if (target) {
+            navigateTo(target);
+        }
+    }
+
     /** Update current screen with new data */
     function onDataUpdate(data) {
+        // Calls first: may switch to A8, whose update() then sees fresh state.
+        try { _syncCallState(data); } catch (e) { /* never break the data loop */ }
         if (_renderers[_currentScreen] && _renderers[_currentScreen].update) {
             _renderers[_currentScreen].update(data, _currentTheme);
         }
@@ -548,6 +620,10 @@ const App = (() => {
         _syncReverseOverlay(data);
         // Icing alert check
         _checkIcingAlert(data);
+        // Backend announcements (e.g. "no microphone") as toasts, on any screen.
+        if (typeof Notifications !== "undefined" && Notifications.syncToasts) {
+            Notifications.syncToasts(data.notifications);
+        }
     }
 
     function _syncReverseOverlay(data) {
@@ -600,6 +676,9 @@ const App = (() => {
         navNext,
         navCycleNext,
         getNavIndex,
+
+        /** Pure call-navigation rule (exported for the node test). */
+        callNavDecision,
 
         /** NavBar autohide controls (called from NavBar markup + global) */
         showNavBar,
@@ -910,7 +989,12 @@ const App = (() => {
                 bootMode = bm.boot_mode || "warm";
             } catch (e) { /* default to warm */ }
 
-            if (bootMode === "cold") {
+            // An incoming call may already have switched to A8 while the
+            // boot-mode fetch was in flight (data flows from DataStore.init
+            // above) — only take the boot path if nothing navigated yet.
+            if (_currentScreen !== "init") {
+                /* keep the screen the call (or SWC) chose */
+            } else if (bootMode === "cold") {
                 navigateTo(restoreTarget);
             } else {
                 navigateTo("init");

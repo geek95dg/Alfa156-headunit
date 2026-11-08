@@ -1,5 +1,5 @@
 #!/bin/bash
-# One-shot installer for the BT / WiFi / AA / splash fixes.
+# One-shot installer for the BT / WiFi / AA / splash / call-audio fixes.
 # Run once with sudo, then reboot.
 #
 #   sudo bash /opt/bcm/config/scripts/apply-fixes.sh
@@ -15,14 +15,27 @@ if [ "$(id -u)" -ne 0 ]; then
     echo "Run with sudo: sudo bash $0"; exit 1
 fi
 
-echo "==> 1/6  Installing splash player + units"
+# Kiosk/session user: PipeWire + WirePlumber run as this user. Explicit
+# BCM_USER wins, then the autologin drop-in setup-x86.sh wrote (the ground
+# truth for the kiosk session, also right from a plain root shell), then
+# SUDO_USER, then setup-x86.sh's default.
+AUTOLOGIN_CONF=/etc/systemd/system/getty@tty1.service.d/autologin.conf
+if [ -z "${BCM_USER:-}" ] && [ -f "$AUTOLOGIN_CONF" ]; then
+    BCM_USER=$(sed -n 's/.*--autologin[[:space:]]\{1,\}\([^[:space:]]\{1,\}\).*/\1/p' "$AUTOLOGIN_CONF" | head -n1)
+fi
+if [ -z "${BCM_USER:-}" ] && [ -n "${SUDO_USER:-}" ] && [ "${SUDO_USER}" != "root" ]; then
+    BCM_USER=$SUDO_USER
+fi
+BCM_USER=${BCM_USER:-abner}
+
+echo "==> 1/7  Installing splash player + units"
 install -m 0755 "$BCM_DIR/config/scripts/bcm-splash-play.sh" /usr/local/bin/bcm-splash-play.sh
 install -m 0644 "$BCM_DIR/config/systemd/bcm-splash-main.service" /etc/systemd/system/bcm-splash-main.service
 install -m 0644 "$BCM_DIR/config/systemd/bcm-splash-small.service" /etc/systemd/system/bcm-splash-small.service
 systemctl disable bcm-splash-small.service 2>/dev/null || true
 rm -f /etc/systemd/system/multi-user.target.wants/bcm-splash-small.service
 
-echo "==> 2/6  Installing Bluetooth setup (Class=carkit + AlwaysPairable)"
+echo "==> 2/7  Installing Bluetooth setup (Class=carkit + AlwaysPairable)"
 install -m 0755 "$BCM_DIR/config/scripts/bcm-bluetooth-setup.sh" /usr/local/bin/bcm-bluetooth-setup.sh
 install -m 0644 "$BCM_DIR/config/systemd/bcm-bluetooth.service" /etc/systemd/system/bcm-bluetooth.service
 
@@ -63,7 +76,7 @@ if [ -f /etc/bluetooth/main.conf ]; then
 fi
 systemctl restart bluetooth.service 2>/dev/null || true
 
-echo "==> 3/6  Writing hostapd config (5 GHz ch149, country US)"
+echo "==> 3/7  Writing hostapd config (5 GHz ch149, country US)"
 # MT7921 exposes UNII-3 (ch149-165) at 30 dBm with the worldwide regdom
 # baked into firmware-mediatek, so the AP comes up on 5 GHz without any
 # regdom tricks. AA Wireless gets clean H.264 throughput over 80 MHz here.
@@ -97,7 +110,7 @@ EOF
     sleep 2
 fi
 
-echo "==> 4/6  Installing NAT helper for internet sharing"
+echo "==> 4/7  Installing NAT helper for internet sharing"
 # Tracked script, the same file setup-x86.sh installs (it used to be a
 # heredoc here that had drifted: operstate==up only, so LTE (operstate
 # unknown) was skipped, and bnep*/p2p-* were NAT-ed like real uplinks).
@@ -157,7 +170,95 @@ grep -q '^net.ipv4.ip_forward=1' /etc/sysctl.conf 2>/dev/null \
     || echo 'net.ipv4.ip_forward=1' >> /etc/sysctl.conf
 sysctl -w net.ipv4.ip_forward=1 >/dev/null 2>&1 || true
 
-echo "==> 5/6  Reloading systemd + enabling units"
+echo "==> 5/7  Audio for calls and AA voice (oFono, WirePlumber, D-Bus policy)"
+# ofono = the HFP backend (51-bcm-hfp-ofono.conf). Missing ofonod means calls
+# never reach the head unit, so check it loudly instead of `|| true`.
+apt-get install -y ofono || true
+if command -v ofonod >/dev/null 2>&1 || [ -x /usr/sbin/ofonod ]; then
+    echo "    ofonod: $(command -v ofonod 2>/dev/null || echo /usr/sbin/ofonod)"
+else
+    echo "    WARNING: ofono (ofonod) is NOT installed — phone calls will NOT reach the head unit."
+    echo "             Fix: sudo apt-get install ofono, then re-run this script."
+fi
+
+# The drop-ins use WirePlumber 0.5 syntax; 0.4 ignores them silently.
+WP_VER=$(wireplumber --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+(\.[0-9]+)?' | head -n1)
+if [ -z "$WP_VER" ]; then
+    echo "    WARNING: wireplumber --version gave no version — cannot check >= 0.5"
+else
+    WP_MAJOR=${WP_VER%%.*}
+    WP_MINOR=${WP_VER#*.}
+    WP_MINOR=${WP_MINOR%%.*}
+    if [ "$WP_MAJOR" -eq 0 ] && [ "$WP_MINOR" -lt 5 ]; then
+        echo "    WARNING: WirePlumber $WP_VER < 0.5 — 51-bcm-hfp-ofono.conf is ignored, the dialer will not work."
+    else
+        echo "    WirePlumber $WP_VER"
+    fi
+fi
+
+install -d /etc/systemd/system/ofono.service.d
+install -m 0644 "$BCM_DIR/config/systemd/ofono.service.d/10-bcm-hfp-only.conf" \
+    /etc/systemd/system/ofono.service.d/10-bcm-hfp-only.conf
+install -d /etc/wireplumber/wireplumber.conf.d
+install -m 0644 "$BCM_DIR/config/wireplumber/wireplumber.conf.d/51-bcm-hfp-ofono.conf" \
+    /etc/wireplumber/wireplumber.conf.d/51-bcm-hfp-ofono.conf
+
+# D-Bus policy: WirePlumber (as $BCM_USER) registers oFono's
+# HandsfreeAudioAgent on org.ofono; the stock ofono.conf only allows root, so
+# the registration was rejected ("Register() failed" / "Rejecting" in the
+# journal) and calls got no audio. The user name is validated before it goes
+# into the XML.
+if [[ "$BCM_USER" =~ ^[A-Za-z_][A-Za-z0-9_.-]*$ ]]; then
+    install -d /etc/dbus-1/system.d
+    cat > /etc/dbus-1/system.d/bcm-ofono-pipewire.conf <<EOF
+<!DOCTYPE busconfig PUBLIC "-//freedesktop//DTD D-BUS Bus Configuration 1.0//EN"
+ "http://www.freedesktop.org/standards/dbus/1.0/busconfig.dtd">
+<!-- Installed by BCM (setup-x86.sh / apply-fixes.sh). WirePlumber runs as
+     "$BCM_USER" and, with bluez5.hfphsp-backend = "ofono"
+     (51-bcm-hfp-ofono.conf), registers oFono's HandsfreeAudioAgent on the
+     system bus. The stock ofono.conf allows that only for root, so without
+     this file the agent registration is rejected and calls get no audio.
+     Remove this file to revert. -->
+<busconfig>
+  <policy user="$BCM_USER">
+    <allow send_destination="org.ofono"/>
+  </policy>
+</busconfig>
+EOF
+    chmod 0644 /etc/dbus-1/system.d/bcm-ofono-pipewire.conf
+    # dbus-daemon notices new policy files by itself; reload to be sure.
+    systemctl reload dbus.service 2>/dev/null || true
+else
+    echo "    WARNING: BCM_USER='$BCM_USER' is not a valid user name — D-Bus policy NOT installed"
+fi
+
+systemctl daemon-reload
+systemctl enable ofono 2>/dev/null || true
+systemctl restart ofono 2>/dev/null || true
+# Restart the user's audio stack so the drop-in and the policy apply now ...
+systemctl --user -M "$BCM_USER@" restart wireplumber pipewire pipewire-pulse 2>/dev/null || true
+# ... wait (max ~5 s) until WirePlumber has created the ALSA sinks again: BCM's
+# wait_for_pipewire() only checks that `wpctl status` answers, so a BCM that
+# starts too early logs "No hardware audio sinks found" and runs without the
+# EQ / output selection ...
+BCM_UID=$(id -u "$BCM_USER" 2>/dev/null || true)
+if [ -n "$BCM_UID" ]; then
+    for _ in $(seq 1 10); do
+        if sudo -u "$BCM_USER" LC_ALL=C "XDG_RUNTIME_DIR=/run/user/$BCM_UID" \
+                wpctl status --name 2>/dev/null | grep -q 'alsa_output\.'; then
+            break
+        fi
+        sleep 0.5
+    done
+fi
+# ... and then bcm-headunit: its EQ filter-chain is a `pipewire -c` child BCM
+# does not supervise. It lost its PipeWire connection with the restart above,
+# and without a BCM restart there is no EQ sink (= no sound). try-restart:
+# only if it is running — a head unit stopped on purpose (or left to the
+# ignition watcher) stays stopped.
+systemctl try-restart bcm-headunit.service 2>/dev/null || true
+
+echo "==> 6/7  Reloading systemd + enabling units"
 systemctl daemon-reload
 systemctl enable bcm-nat.service 2>/dev/null || true
 systemctl enable bcm-nat-late.timer 2>/dev/null || true
@@ -165,7 +266,7 @@ systemctl restart bcm-nat.service 2>/dev/null || true
 systemctl start bcm-nat-late.timer 2>/dev/null || true
 systemctl restart bcm-bluetooth.service 2>/dev/null || true
 
-echo "==> 6/6  Done."
+echo "==> 7/7  Done."
 echo
 echo "Next: reboot to verify"
 echo "  - Splash plays on the main display, small stays black, exits"
@@ -174,5 +275,8 @@ echo "  - Phone sees AP on 5 GHz ch 149, gets internet via LTE NAT."
 echo "  - BCM auto-connects to the last paired phone on boot,"
 echo "    advertises HFP/PBAP/AA so phonebook + dialer light up."
 echo "  - Android Auto fills the full content area, touch lines up 1:1."
+echo "  - Calls: an incoming call switches the dashboard to the A8 overlay"
+echo "    (answer / reject; on the Android Auto screen AA shows its own)."
+echo "    Audio problems: sudo bash $BCM_DIR/tools/bcm-audio-diag.sh"
 echo
 echo "  sudo reboot"

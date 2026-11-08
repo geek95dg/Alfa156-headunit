@@ -4,7 +4,10 @@
   pull / navbar / pass decisions and the finish rules — as a table;
 * the AA edge state machine (createEdgeTracker) on scripted touches;
 * smoke harnesses that load app.js+appbar.js and screens/android_auto.js in
-  a node vm with DOM stubs (tests/js/*.js, plain node + assert).
+  a node vm with DOM stubs (tests/js/*.js, plain node + assert);
+* call_nav_smoke.js: app.js + screens/phone.js — an incoming call switches to
+  A8 from any screen (not A2), Phone state never goes stale, caller text is
+  escaped, and the kiosk returns to the previous screen when the call ends.
 """
 
 import json
@@ -177,7 +180,8 @@ def test_edge_tracker(name, ops, expected):
     assert events == expected
 
 
-@pytest.mark.parametrize("harness", ["app_smoke.js", "aa_screen_smoke.js"])
+@pytest.mark.parametrize("harness", ["app_smoke.js", "aa_screen_smoke.js",
+                                     "call_nav_smoke.js"])
 def test_screen_harness(harness):
     res = subprocess.run([NODE, str(JS / harness)], capture_output=True, text=True,
                          timeout=60)

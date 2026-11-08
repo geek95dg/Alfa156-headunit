@@ -472,3 +472,112 @@ class TestBrightnessController:
         """Verify brightness steps are correct."""
         assert BRIGHTNESS_STEPS == [15, 30, 45, 60, 80, 100]
         assert len(BRIGHTNESS_STEPS) == 6
+
+
+# ---------------------------------------------------------------------------
+# Voice-AA handler (src/input/voice_aa.py) — Etap 2a
+# ---------------------------------------------------------------------------
+
+class _VoiceCfg(dict):
+    def get(self, key, default=None):
+        return super().get(key, default)
+
+
+class _FakeTimer:
+    """threading.Timer stand-in: fires only when the test says so."""
+
+    instances = []
+
+    def __init__(self, interval, fn, args=()):
+        self.interval, self.fn, self.args = interval, fn, tuple(args)
+        self.cancelled = False
+        self.daemon = False
+        _FakeTimer.instances.append(self)
+
+    def start(self):
+        pass
+
+    def cancel(self):
+        self.cancelled = True
+
+    def fire(self):
+        self.fn(*self.args)
+
+
+class TestVoiceAA:
+    def _handler(self, **cfg):
+        from src.input.voice_aa import VoiceAAHandler
+        _FakeTimer.instances = []
+        bus = EventBus()
+        triggers, notes, ducks = [], [], []
+        bus.subscribe("aa.voice_trigger", lambda t, v, ts: triggers.append(v))
+        bus.subscribe("system.notifications", lambda t, v, ts: notes.append(v))
+        bus.subscribe("audio.duck", lambda t, v, ts: ducks.append(v))
+        config = _VoiceCfg({"audio.voice_listen_sec": 8})
+        config.update(cfg)
+        handler = VoiceAAHandler(config, bus, timer_factory=_FakeTimer)
+        return handler, bus, triggers, notes, ducks
+
+    def test_no_mic_shows_a_notification_and_does_not_trigger(self):
+        handler, bus, triggers, notes, _ = self._handler()
+        bus.publish("audio.mic_state", {"state": "none", "source": "bcm_null_mic", "aec": False})
+        bus.publish("input.voice_aa_trigger", True)
+        bus.publish("input.voice_aa_trigger", True)
+        assert triggers == []
+        assert len(notes) == 2
+        entry = notes[-1][-1]
+        assert entry["title"] == "Brak mikrofonu – sterowanie głosowe wyłączone"
+        assert entry["icon"] == "mic_off" and entry["severity"] == "warning"
+        assert len(notes[-1]) == 1          # same key: replaced, not piled up
+
+    def test_no_mic_allowed_when_not_required(self):
+        handler, bus, triggers, notes, _ = self._handler(**{"audio.voice_require_mic": False})
+        bus.publish("audio.mic_state", {"state": "none", "source": "bcm_null_mic", "aec": False})
+        bus.publish("input.voice_aa_trigger", True)
+        assert triggers == [True] and notes == []
+
+    @pytest.mark.parametrize("state", [None, {"state": "ok"}, {"state": "error"}])
+    def test_router_off_or_mic_present_triggers(self, state):
+        handler, bus, triggers, notes, ducks = self._handler()
+        if state is not None:
+            bus.publish("audio.mic_state", state)
+        bus.publish("input.voice_aa_trigger", True)
+        assert triggers == [True] and notes == []
+        assert ducks == []                  # dead audio.duck is gone
+
+    def test_key_method_sends_every_press(self):
+        handler, bus, triggers, _, _ = self._handler(**{"multimedia.aa_voice_method": "key"})
+        for _ in range(3):
+            bus.publish("input.voice_aa_trigger", True)
+        assert triggers == [True, True, True]
+        assert _FakeTimer.instances == []   # stateless: no window, no timer
+        assert handler.active is False
+
+    def test_tap_second_press_taps_again_and_closes_the_window(self):
+        handler, bus, triggers, _, _ = self._handler()
+        bus.publish("input.voice_aa_trigger", True)
+        assert handler.active is True and triggers == [True]
+        bus.publish("input.voice_aa_trigger", True)
+        assert handler.active is False
+        assert triggers == [True, True]     # the 2nd press reaches AA (toggle)
+        assert _FakeTimer.instances[0].cancelled
+        bus.publish("input.voice_aa_trigger", True)
+        assert handler.active is True       # a fresh window
+
+    def test_stale_timer_does_not_end_a_newer_window(self):
+        handler, bus, triggers, _, _ = self._handler()
+        bus.publish("input.voice_aa_trigger", True)      # window 1
+        bus.publish("input.voice_aa_trigger", True)      # closes it
+        bus.publish("input.voice_aa_trigger", True)      # window 2
+        _FakeTimer.instances[0].fire()                   # late timer of window 1
+        assert handler.active is True
+        _FakeTimer.instances[-1].fire()
+        assert handler.active is False
+        assert triggers[-1] is False                     # "window closed"
+
+    @pytest.mark.parametrize("value, expected", [
+        ("key", "key"), ("TAP", "tap"), ("", "tap"), (None, "tap"), ("swipe", "tap")])
+    def test_voice_method(self, value, expected):
+        from src.input.voice_aa import voice_method
+        assert voice_method(_VoiceCfg({"multimedia.aa_voice_method": value})) == expected
+        assert voice_method(None) == "tap"

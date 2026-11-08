@@ -21,6 +21,7 @@ from typing import Optional, Any, Hashable
 from urllib.parse import urlsplit
 
 from src.core.logger import get_logger
+from src.core.notifications import active_notifications
 
 log = get_logger("web_viewer")
 
@@ -271,7 +272,7 @@ class WebViewer:
         self._aa_stream_active: list[int] = []
         self._aa_stream_procs: dict[int, Any] = {}
 
-        # Forward voice-AA trigger to xdotool tap on AA mic icon
+        # Forward voice-AA trigger to autoapp (M key or tap on the mic icon)
         if event_bus:
             event_bus.subscribe("aa.voice_trigger", self._on_aa_voice_trigger)
             # Xvfb is torn down on stop/restart — drop queued touches and the
@@ -418,8 +419,9 @@ class WebViewer:
             "audio_treble": _val("audio.treble", 0),
             "audio_fader": _val("audio.fader", 0),
             "audio_balance": _val("audio.balance", 0),
-            # Notifications
-            "notifications": _val("system.notifications", []),
+            # Notifications (src/core/notifications.py) — expired entries are
+            # dropped here, the topic itself is only republished on news.
+            "notifications": active_notifications(_val("system.notifications", [])),
             # Vehicle status (from Arduino serial)
             "vehicle_doors": _val("vehicle.doors", {}),
             "vehicle_handbrake": _val("vehicle.handbrake", False),
@@ -452,7 +454,14 @@ class WebViewer:
         log.debug("Browser key: %s -> %s", key, mapped)
 
     def _on_aa_voice_trigger(self, topic: str, value, timestamp: float) -> None:
-        """Tap the AA mic icon when the voice button is pressed.
+        """Press AA's voice control when the voice button is pressed.
+
+        ``multimedia.aa_voice_method``: ``key`` sends the M key (autoapp:
+        Qt::Key_M -> MICROPHONE_1), ``tap`` (default) taps the AA mic icon.
+        The key only works when the running autoapp was started with
+        VoiceCommandButton=true (there was a mic at the time); otherwise
+        this falls back to the tap. Whether a press may reach AA at all
+        (no mic -> notification) is decided upstream in VoiceAAHandler.
 
         Goes through the touch injector: same canvas size as Xvfb and the
         touch path (this used to read display.multimedia.* with a 504 px
@@ -461,8 +470,21 @@ class WebViewer:
         """
         if not value:
             return
-        rel_x, rel_y = 0.05, 0.08
+        from src.input.voice_aa import voice_method
+        method = voice_method(self._config)
         injector = self._get_aa_injector()
+        if method == "key":
+            openauto = self._openauto()
+            if openauto is not None and getattr(openauto, "voice_button_enabled", True) is False:
+                log.info("Voice-AA: VoiceCommandButton is off in the running "
+                         "autoapp (no mic when AA started) — tapping instead")
+            elif injector is None or not injector.submit_key("m", client="voice"):
+                log.warning("Voice-AA: key could not be queued (xdotool missing?)")
+                return
+            else:
+                log.info("Voice-AA: sending the voice key (M) to autoapp")
+                return
+        rel_x, rel_y = 0.05, 0.08
         if injector is None or not injector.submit("tap", rel_x, rel_y, client="voice"):
             log.warning("Voice-AA: tap could not be queued (xdotool missing?)")
             return
@@ -1788,9 +1810,16 @@ class WebViewer:
 
         @app.route("/api/phone/dial", methods=["POST"])
         def api_phone_dial():
-            data = request.get_json(silent=True) or {}
-            number = data.get("number", "")
-            if number and viewer._event_bus:
+            # Browser input -> log, event bus and oFono's Dial(): only a plain
+            # dial string passes (separators from phonebook entries dropped,
+            # then 1-32 of 0-9 + * #). Anything else is a 400, never echoed raw.
+            from src.multimedia.bluetooth import normalize_dial_number
+            data = request.get_json(silent=True)
+            raw = data.get("number", "") if isinstance(data, dict) else ""
+            number = normalize_dial_number(raw)
+            if not number:
+                return jsonify({"ok": False, "error": "invalid number"}), 400
+            if viewer._event_bus:
                 viewer._event_bus.publish("bt.cmd.dial", number)
             return jsonify({"ok": True, "number": number})
 

@@ -181,8 +181,29 @@ audio:
   # na osobnej gałęzi 12 V — patrz docs/ZASILANIE_BUFOROWANE.md § 2.
   amp_main: car-amp-4ch
   amp_sub: none
+  # Mikrofon (src/audio/mic_router.py). Router ustawia domyślne źródło
+  # PipeWire, zanim wystartuje sesja AA (autoapp wybiera mikrofon raz na
+  # sesję) — z niego korzysta asystent AA i rozmowa przez HFP.
+  mic_router: true
+  # Fragment node.name mikrofonu z `wpctl status --name`, np.
+  # alsa_input.usb-C-Media_Electronics (im dokładniej, tym lepiej — samo
+  # "alsa_input.usb-" pasuje też do wejścia karty USB). '' = brak mikrofonu:
+  # domyślnym źródłem jest cisza (bcm_null_mic), a nie monitor wyjścia
+  # (asystent słyszałby muzykę z auta) ani pływające wejście (szum).
   mic_phone: ''
+  # Redukcja echa (webrtc w osobnym procesie, jak EQ): false | auto | true.
+  # auto = tylko gdy jest libspa-aec-webrtc.so. Każdy błąd => surowy mikrofon.
+  mic_echo_cancel: false
+  # Mikrofon na innej karcie niż wyjście => karta wyjściowa dostaje profil
+  # tylko-wyjście (jej nieużywane wejście daje szum i obciąża tanią kartę).
+  mic_disable_unused_inputs: true
+  # Bez mikrofonu przycisk głosu nie uruchamia asystenta (zawieszał się),
+  # tylko pokazuje powiadomienie "Brak mikrofonu – sterowanie głosowe wyłączone".
+  voice_require_mic: true
+  # Nieużywane od etapu 2a (wyciszanie przy asystencie ściszałoby też jego głos).
   voice_duck_pct: 40
+  # Okno nasłuchu dla aa_voice_method: tap (drugie naciśnięcie w oknie
+  # stuka ponownie i kończy okno).
   voice_listen_sec: 8
 camera:
   segment_minutes: 5
@@ -370,6 +391,20 @@ multimedia:
   # Rozdzielczość projekcji AA: 480p / 720p / 1080p (puste = automat, który
   # dla płótna 1024x504 i tak wybiera 720p). 720p jest sprawdzone w aucie.
   aa_resolution: 720p
+  # Wyjście audio autoapp ([Audio] OutputBackendType w openauto.ini):
+  # qt | rtaudio. RtAudio (domyślne w kodzie) przy pustym buforze gra w kółko
+  # ostatnie ~50 ms, gdy asystent zabierze fokus = "zawieszenie + brzęczenie";
+  # Qt naprawdę wstrzymuje wyjście. Powrót: rtaudio i restart AA.
+  aa_audio_backend: qt
+  # Jak przycisk głosu uruchamia asystenta AA: key = klawisz M na :99
+  # (autoapp: MICROPHONE_1, wymaga mikrofonu przy starcie AA), tap = stuknięcie
+  # w ikonę mikrofonu (stare zachowanie, fallback).
+  aa_voice_method: key
+  # [Input] openauto.ini: true = autoapp zgłasza telefonowi przyciski
+  # (play/pauza/następny, D-pad, pokrętło, wstecz/OK…; klucze *Button openDsh).
+  # BCM dziś wysyła do AA tylko M (głos), więc to przygotowanie pod SWC.
+  # Domyślnie w kodzie false = produkcja bez zmian (żaden przycisk).
+  aa_input_buttons: true
 bluetooth:
   enabled: true
   preferred_adapter: ''
