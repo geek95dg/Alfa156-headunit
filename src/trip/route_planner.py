@@ -170,7 +170,8 @@ class RoutePlanner:
                 "RoutePlanner: brak travel.openrouteservice_key — trasy będą "
                 "liczone W LINII PROSTEJ, bez dróg i bez realnego czasu "
                 "przejazdu. Załóż darmowe konto na openrouteservice.org i "
-                "wpisz klucz w config/bcm_config.yaml -> travel."
+                "wpisz klucz do /etc/bcm/bcm.env jako BCM_ORS_API_KEY "
+                "(config/bcm.env.example)."
             )
 
     # ------------------------------------------------------------------ #

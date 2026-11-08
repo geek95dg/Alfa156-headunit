@@ -29,6 +29,79 @@ const Settings = {
     // Android Auto settings & control
     _aa: { autoRestart: true, loaded: false, restarting: false },
 
+    // Internet from the phone (Bluetooth PAN, src/network/phone_tether.py).
+    // data.phone_tether = {state, ip, iface, hint} from the dashboard payload,
+    // or null while the module is not running (production config: no row).
+    _tetherColors: {
+        connected: "#16a34a",                       // green-600, as _toggle()
+        connecting: "var(--color-primary)",
+        no_nap: "#d97706",                          // amber: user action needed
+        failed: "#dc2626",
+        unavailable: "#dc2626",
+    },
+
+    _esc(s) {
+        // Text from nmcli/the network — escape before it goes into innerHTML.
+        return String(s == null ? "" : s)
+            .replace(/&/g, "&amp;")
+            .replace(/</g, "&lt;")
+            .replace(/>/g, "&gt;")
+            .replace(/"/g, "&quot;")
+            .replace(/'/g, "&#39;");
+    },
+
+    _tetherRetryAt: 0,
+
+    /** "Ponów" in the failed state: ask the backend to retry now. The server
+     *  rate-limits too (429); this only swallows double taps. The row itself
+     *  changes through update() when net.phone_tether does. */
+    async tetherRetry() {
+        const now = Date.now();
+        if (now - Settings._tetherRetryAt < 3000) return;
+        Settings._tetherRetryAt = now;
+        try {
+            await fetch("/api/phone_tether/retry", { method: "POST" });
+        } catch (e) { /* offline kiosk: the backend retries on its own */ }
+    },
+
+    /** One info row "Internet z telefonu: <stan> <ip>"; '' without a payload
+     *  (module not running). Inline styles only (Tailwind is precompiled —
+     *  new utility classes would not exist). */
+    tetherRowHtml(pt, t) {
+        t = t || ((k, d) => d);
+        if (!pt || typeof pt !== "object") return "";
+        const state = typeof pt.state === "string" ? pt.state : "unknown";
+        const labels = {
+            disabled: t("tether_disabled", "wyłączony"),
+            unavailable: t("tether_unavailable", "brak NetworkManagera"),
+            waiting_phone: t("tether_waiting_phone", "czeka na telefon"),
+            no_nap: t("tether_no_nap", "włącz tethering Bluetooth w telefonie"),
+            connecting: t("tether_connecting", "łączenie…"),
+            connected: t("tether_connected", "połączono"),
+            failed: t("tether_failed", "błąd — ponowię"),
+        };
+        const label = Object.prototype.hasOwnProperty.call(labels, state)
+            ? labels[state] : state;
+        const color = Settings._tetherColors[state] || "var(--text-dim)";
+        const ip = (state === "connected" && pt.ip)
+            ? ` <span style="color:var(--text-mid);font-family:monospace">${Settings._esc(pt.ip)}</span>` : "";
+        const iface = (state === "connected" && pt.iface)
+            ? ` <span style="color:var(--text-dim)">(${Settings._esc(pt.iface)})</span>` : "";
+        // A failed `connection up` mostly means tethering is off on the phone
+        // (Android refuses BNEP instead of hiding NAP) — say what to check,
+        // never the raw nmcli error.
+        const hint = (state === "failed" && pt.hint === "check_tethering")
+            ? `<span style="color:var(--text-mid);flex-basis:100%;padding-left:24px">${Settings._esc(
+                t("tether_failed_hint", "sprawdź „Tethering przez Bluetooth” w telefonie"))}</span>` : "";
+        const retry = state === "failed"
+            ? `<button data-tether-retry onclick="Settings.tetherRetry()" style="margin-left:auto;padding:4px 10px;border-radius:8px;font-size:11px;font-weight:700;background:var(--card-border);color:var(--text-mid);border:none">${Settings._esc(t("tether_retry", "Ponów"))}</button>` : "";
+        return `<div data-tether-state="${Settings._esc(state)}" style="display:flex;flex-wrap:wrap;align-items:center;gap:4px 8px;padding:8px 12px;border-radius:12px;background:var(--card-bg);border:1px solid var(--card-border);font-size:11px;line-height:1.3">
+            <span class="material-symbols-outlined" style="font-size:16px;color:${color}">wifi_tethering</span>
+            <span style="color:var(--text-dim);font-weight:700">${Settings._esc(t("phone_tether", "Internet z telefonu"))}:</span>
+            <span style="color:${color};font-weight:700">${Settings._esc(label)}</span>${ip}${iface}${retry}${hint}
+        </div>`;
+    },
+
     async aaLoad(force) {
         if (Settings._aa.loaded && !force) return;
         try {
@@ -483,9 +556,29 @@ const Settings = {
 
 App.registerScreen("settings", (() => {
     let _radioFetchedAt = 0;
+    // Last phone_tether payload drawn; update() redraws only that row.
+    let _tetherKey = "null";
+
+    function _tetherKeyOf(data) {
+        return JSON.stringify((data && data.phone_tether) || null);
+    }
+
+    /** Live data while Settings is open: only the phone-internet row changes
+     *  here (state / IP appear while the driver watches). Never a full
+     *  re-render — that would reset the scroll position and the OSK. */
+    function update(data) {
+        const key = _tetherKeyOf(data);
+        if (key === _tetherKey) return;
+        const slot = document.querySelector("[data-tether-slot]");
+        if (!slot) return;
+        _tetherKey = key;
+        slot.innerHTML = Settings.tetherRowHtml(data && data.phone_tether, App.t.bind(App));
+    }
+
     function render(container, theme, data) {
         const config = App.getConfig();
         const t = App.t.bind(App);
+        _tetherKey = _tetherKeyOf(data);
         const paired = Settings._btPaired;
         const discovered = Settings._btDiscovered;
         const scanning = Settings._btScanning;
@@ -542,6 +635,10 @@ App.registerScreen("settings", (() => {
                                 </div>
                             </div>
                         </div>
+                        <!-- Internet from the phone (BT PAN). display:contents: an
+                             empty slot (module off) adds no flex gap; update()
+                             swaps its content. -->
+                        <div data-tether-slot style="display:contents">${Settings.tetherRowHtml(data && data.phone_tether, t)}</div>
                         <!-- Wi-Fi Hotspot / ALFA-NET network access. The live
                              Android Auto P2P-GO credentials used to show here,
                              but wpa_supplicant regenerates them every boot and
@@ -906,5 +1003,5 @@ App.registerScreen("settings", (() => {
         return `<button class="px-2 py-1 rounded text-xs font-bold hover:opacity-80" style="${style}" onclick="Settings.setUnit('${type}','${v}')">${label}</button>`;
     }
 
-    return { render };
+    return { render, update };
 })());

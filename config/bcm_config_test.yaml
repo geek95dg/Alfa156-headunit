@@ -9,6 +9,8 @@
 #   • przyciski SWC przez Arduino Pro Micro (USB HID)
 #   • modem LTE — na x86 moduł `network` tylko raportuje stan łącza,
 #     samo połączenie robi NetworkManager
+#   • internet z telefonu po Bluetooth (PAN, moduł `phone_tether`) — pogoda,
+#     planer tras i korekta zegara (bcm-timesync) bez modemu LTE
 #
 # Wszystko pozostałe wyłączone, żeby nie szukać usterek w rzeczach,
 # których jeszcze nie ma podłączonych.
@@ -59,6 +61,11 @@ modules:
   input: true              # przyciski SWC przez Pro Micro (USB HID)
   audio: true              # głośność i EQ na domyślnym sinku PipeWire
   network: true            # status łącza (LTE/WiFi/ethernet) — tylko odczyt
+  phone_tether: true       # internet z telefonu: Bluetooth PAN przez
+                           # NetworkManager (blok network.phone_tether niżej);
+                           # w telefonie włącz „Tethering przez Bluetooth”
+  weather: true            # OpenWeatherMap; klucz z /etc/bcm/bcm.env
+                           # (BCM_OWM_API_KEY) — bez klucza dane demo
 
   # --- WYŁĄCZONE: brak podłączonego sprzętu ---
   obd: false               # brak CP2102 + L9637D
@@ -71,7 +78,6 @@ modules:
                            # odcięcie domeny B robi sprzęt, nie ten moduł
   location: false          # brak GPS
   tracking: false          # zależy od GPS
-  weather: false           # wymaga klucza API
   blinker_monitor: false   # brak sygnałów z auta
   rain_sensor: false
   central_lock: false      # brak Nano #1 i modułu przekaźników
@@ -86,12 +92,17 @@ modules:
   bluetooth: true          # bootstrap handshake'u AA wireless (btservice
                            # jest w autoapp; tu rejestrują się PBAP/MAP
                            # i wymuszany jest CoD carkit 0x620420)
-  phonebook: false         # PBAP działałby, ale nie jest przedmiotem testu
+  phonebook: true          # kontakty i historia połączeń (PBAP) na ekranie
+                           # telefonu A8; telefon musi ZEZWOLIĆ na dostęp do
+                           # kontaktów (pytanie przy parowaniu / ustawienia BT
+                           # urządzenia w telefonie); wymaga bluetooth: true
   fuel_sender: false       # brak ADC z Arduino
   wifi_ap: true            # P2P-GO na MT7921 — łącze danych Android Auto
   wifi_hotspot: false      # ALFA-NET wymaga OSOBNEGO radia (dongla USB) —
                            # MT7921 zgłasza #{AP, P2P-GO} <= 1
-  route_planner: false     # wymaga kluczy API
+  route_planner: true      # plan podróży (A3, tryb --frontend); klucze z
+                           # /etc/bcm/bcm.env: BCM_ORS_API_KEY (bez niego trasa
+                           # w linii prostej), BCM_TOMTOM_API_KEY (utrudnienia)
   small_display: false     # jeden ekran w wariancie testowym
 display:
   # Wariant testowy: panel 7" 1024x600.
@@ -312,6 +323,10 @@ wifi:
     dhcp_start: 10.0.1.10
     dhcp_end: 10.0.1.50
     share_internet: true
+    # Czy pasażerowie w ALFA-NET mogą korzystać z internetu z telefonu
+    # kierowcy (Bluetooth PAN, bnep*) — to jego pakiet danych. Sieć AA (P2P-GO)
+    # nigdy nie wychodzi przez bnep* (ruch telefonu wracałby do telefonu).
+    share_phone_internet: true
   # ssid_runtime / password_runtime / bssid_runtime są USTAWIANE W LOCIE przez
   # wifi_ap.py po utworzeniu grupy P2P-GO i trzymane tylko w pamięci (klucze
   # *_runtime nigdy nie są zapisywane — ani tu, ani w local.yaml). Nie wpisuj ich
@@ -333,6 +348,48 @@ travel:
   # Klucze z /etc/bcm/bcm.env: BCM_ORS_API_KEY, BCM_TOMTOM_API_KEY.
   openrouteservice_key: ''
   tomtom_key: ''
+network:
+  # Internet z telefonu po Bluetooth (PAN) — src/network/phone_tether.py,
+  # włączany przełącznikiem modules.phone_tether. BCM zakłada w NetworkManagerze
+  # profil `con_name` (typ panu) dla telefonu i podnosi go, gdy telefon jest
+  # połączony po BT. Telefon musi mieć włączony „Tethering przez Bluetooth”
+  # (Android potrafi go wyłączyć po restarcie telefonu) — bez tego stan
+  # w Ustawieniach to „błąd” z podpowiedzią „sprawdź Tethering przez Bluetooth”
+  # (albo „włącz tethering…”, gdy NM w ogóle nie widzi usługi NAP telefonu).
+  # Zachowanie z wyłączonym tetheringiem NIE jest jeszcze sprawdzone w aucie:
+  # nmcli -t -f DEVICE,TYPE,STATE device; nmcli connection up id bcm-phone-pan
+  # Podgląd: nmcli connection show --active (szukaj bcm-phone-pan).
+  phone_tether:
+    # '' = telefon z bt.connected, a gdy tam brak adresu — ostatni używany
+    # (multimedia.last_bt_device). Wpisz AA:BB:CC:DD:EE:FF, żeby przypiąć
+    # jeden telefon (np. telefon pasażera nie dostanie wtedy profilu).
+    mac: ''
+    # Nazwa profilu w NetworkManagerze (litery, cyfry, _ . -).
+    con_name: bcm-phone-pan
+    # Metryka trasy domyślnej: 750 = domyślna NM dla Bluetooth; przyszły modem
+    # LTE (NM: 700) wygra sam, telefon zostanie zapasem.
+    route_metric: 750
+    # Po nieudanej próbie: pierwsza ponowna po retry_sec, potem 2x dłużej.
+    # Limit max_retry_sec dotyczy braku NetworkManagera / błędu profilu;
+    # nieudane `connection up` (najczęściej tethering wyłączony w telefonie —
+    # Android odrzuca wtedy połączenie BNEP) ponawiamy najwyżej co
+    # max_retry_connected_sec, żeby po włączeniu tetheringu nie czekać 10 min.
+    # Nowe połączenie BT i przycisk „Ponów” w Ustawieniach zerują licznik.
+    retry_sec: 60
+    max_retry_sec: 600
+    max_retry_connected_sec: 120
+    # Co ile sekund sprawdzać stan (pyta tylko NetworkManagera, nie radio BT).
+    check_sec: 30
+    # Ile sekund po połączeniu telefonu NIE ruszać BlueZ — w tym czasie
+    # Android Auto wymienia po RFCOMM dane Wi-Fi Direct.
+    settle_sec: 15
+    # Po zestawieniu łącza uruchom raz bcm-timesync.service (zegar po odcięciu
+    # prądu bywa przesunięty o godziny).
+    trigger_timesync: true
+    # Autoconnect profilu w NetworkManagerze. false = łącze podnosi tylko BCM
+    # (po połączeniu telefonu, z settle_sec i backoffem); przy true NM sam
+    # wołałby telefon, także gdy go nie ma w aucie, i w trakcie startu AA.
+    autoconnect: false
 power:
   shutdown_delay_seconds: 30
   backlight_fade_ms: 1000
@@ -408,3 +465,8 @@ multimedia:
 bluetooth:
   enabled: true
   preferred_adapter: ''
+  # Ile sekund po połączeniu telefonu odczekać przed pobraniem kontaktów
+  # (PBAP = sesja OBEX po RFCOMM). W tym czasie Android Auto wymienia po
+  # RFCOMM dane Wi-Fi Direct — tyle samo co network.phone_tether.settle_sec.
+  # Domyślnie w kodzie 3 s (produkcja bez zmian).
+  phonebook_settle_sec: 15

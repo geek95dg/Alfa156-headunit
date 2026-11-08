@@ -898,7 +898,9 @@ class OpenAutoController:
         env = {**os.environ, "DISPLAY": display}
         candidates = ["autoapp", "OpenAuto", "openauto", "openDsh"]
         last_wid: Optional[str] = None
-        deadline = time.time() + 30.0     # 30 s bootstrap window
+        # Monotonic: the AA bootstrap overlaps the phone's PAN coming up,
+        # and bcm-timesync may then move the wall clock by hours.
+        deadline = time.monotonic() + 30.0     # 30 s bootstrap window
 
         def _find_window_id() -> Optional[str]:
             for name in candidates:
@@ -925,7 +927,7 @@ class OpenAutoController:
                 pass
             return None
 
-        while self._running and time.time() < deadline:
+        while self._running and time.monotonic() < deadline:
             wid = _find_window_id()
             if wid and wid != last_wid:
                 try:
@@ -939,7 +941,7 @@ class OpenAutoController:
                     log.info("Resized autoapp window %s to %dx%d",
                              wid, width, height)
                     last_wid = wid
-                    deadline = time.time() + 10.0  # keep monitoring briefly
+                    deadline = time.monotonic() + 10.0  # keep monitoring briefly
                 except Exception as e:
                     log.debug("windowsize failed: %s", e)
             time.sleep(0.5)

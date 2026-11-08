@@ -13,6 +13,12 @@ can render them via /api/phone/contacts and /api/phone/history.
 
 Results are cached to ~/.bcm/phonebook-<addr>.json so a slow PBAP
 pull doesn't blank the A3 screen between sessions.
+
+The pull waits ``bluetooth.phonebook_settle_sec`` (code default 3 s, the old
+fixed delay) after ``bt.connected``: PBAP is an OBEX session over RFCOMM, and
+in the first seconds after the phone connects Android Auto bootstraps its
+Wi-Fi credentials over RFCOMM too. The test config uses the same 15 s as
+``network.phone_tether.settle_sec``. A disconnect during the wait cancels it.
 """
 
 from __future__ import annotations
@@ -45,6 +51,11 @@ OBEX_PBAP_IFACE = "org.bluez.obex.PhonebookAccess1"
 
 CACHE_DIR = os.path.expanduser("~/.bcm")
 PULL_TIMEOUT_S = 30.0
+#: Default wait between bt.connected and the pull (the historical value:
+#: Android shows the PBAP authorise popup only once audio is rolling).
+DEFAULT_SETTLE_S = 3.0
+MAX_SETTLE_S = 120.0
+_SETTLE_STEP_S = 0.5
 
 # obexd ships in slightly different libexec locations across distros.
 _OBEXD_BIN_CANDIDATES = (
@@ -190,14 +201,41 @@ def _to_ui_history(records: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return out
 
 
+def settle_from_config(config: Any) -> float:
+    """``bluetooth.phonebook_settle_sec`` as seconds in ``[0, MAX_SETTLE_S]``;
+    the default for a missing or non-numeric value."""
+    value = None
+    getter = getattr(config, "get", None)
+    if callable(getter):
+        try:
+            value = getter("bluetooth.phonebook_settle_sec")
+        except Exception:
+            value = None
+    if value is None:
+        return DEFAULT_SETTLE_S
+    if isinstance(value, bool) or not isinstance(value, (int, float)) \
+            or value != value or value in (float("inf"), float("-inf")):
+        log.warning("bluetooth.phonebook_settle_sec=%r is not a number — using %ss",
+                    value, DEFAULT_SETTLE_S)
+        return DEFAULT_SETTLE_S
+    return float(min(max(value, 0.0), MAX_SETTLE_S))
+
+
 class PhonebookSync:
     """Drives obexd PBAP sessions per connected BT device."""
 
-    def __init__(self, event_bus: EventBus):
+    def __init__(self, event_bus: EventBus, settle_sec: float = DEFAULT_SETTLE_S,
+                 sleep=time.sleep, clock=time.monotonic):
         self._bus = event_bus
         self._lock = threading.Lock()
         self._active_addr: Optional[str] = None
         self._stop_flag = False
+        # Bumped by every _sync start: a sync still waiting out its settle
+        # when the phone reconnects must not pull alongside the new one.
+        self._sync_gen = 0
+        self._settle_sec = settle_sec
+        self._sleep = sleep
+        self._clock = clock
         # bcm-headunit runs headless as root with no login session, so
         # there's no D-Bus session bus and obexd (the session-bus service
         # providing PhonebookAccess1) is never started. We bring up a
@@ -338,17 +376,39 @@ class PhonebookSync:
         except Exception:
             log.exception("PBAP sync raised for %s", addr)
 
+    def _still_current(self, addr: str, gen: int) -> bool:
+        with self._lock:
+            return (not self._stop_flag and self._active_addr == addr
+                    and self._sync_gen == gen)
+
+    def _wait_settle(self, addr: str, gen: int) -> bool:
+        """Wait ``settle_sec`` in short steps; False if the phone went away
+        (or a newer sync took over) meanwhile."""
+        deadline = self._clock() + self._settle_sec
+        while True:
+            if not self._still_current(addr, gen):
+                return False
+            remaining = deadline - self._clock()
+            if remaining <= 0:
+                return True
+            self._sleep(min(_SETTLE_STEP_S, remaining))
+
     def _sync(self, addr: str) -> None:
         with self._lock:
             if self._active_addr == addr:
                 return
             self._active_addr = addr
             self._stop_flag = False
+            self._sync_gen += 1
+            gen = self._sync_gen
 
         # Give the phone a moment to authorise the PBAP service after
         # the A2DP link comes up — Android delays the PBAP authorise
-        # popup until after audio is rolling.
-        time.sleep(3)
+        # popup until after audio is rolling — and let the AA wireless
+        # bootstrap have RFCOMM to itself (module docstring).
+        if not self._wait_settle(addr, gen):
+            log.info("PBAP: %s went away during the settle wait — pull skipped", addr)
+            return
 
         bus = self._ensure_session_bus()
         if bus is None:
@@ -476,8 +536,10 @@ class PhonebookSync:
             bus.get_object(OBEX_BUS, path),
             "org.freedesktop.DBus.Properties",
         )
-        deadline = time.time() + timeout
-        while time.time() < deadline:
+        # Monotonic: the pull runs right when the phone's PAN comes up and
+        # bcm-timesync may move the wall clock by hours (also backwards).
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
             try:
                 status = str(props.Get("org.bluez.obex.Transfer1", "Status"))
             except dbus.exceptions.DBusException:
@@ -491,8 +553,9 @@ class PhonebookSync:
         return False
 
 
-def start_phonebook_sync(event_bus: EventBus) -> PhonebookSync:
+def start_phonebook_sync(event_bus: EventBus, config: Any = None) -> PhonebookSync:
     """Entry point — call once from main.py after BluetoothManager init."""
-    sync = PhonebookSync(event_bus)
-    log.info("PBAP phonebook sync ready (subscribed to bt.connected)")
+    settle = settle_from_config(config)
+    sync = PhonebookSync(event_bus, settle_sec=settle)
+    log.info("PBAP phonebook sync ready (subscribed to bt.connected, settle %.0fs)", settle)
     return sync

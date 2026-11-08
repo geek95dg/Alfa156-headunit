@@ -1,8 +1,19 @@
 """Weather data module — fetches weather from OpenWeatherMap API.
 
-Subscribes to gps.position for coordinates, requires lte.connected=True.
+Subscribes to gps.position for coordinates (plausible fixes only), requires
+an uplink: lte.connected, net.phone_tether=connected, or the x86 platform.
 Polls every 15 minutes (configurable). Caches last response to disk.
 On x86 without API key: returns hardcoded Milan demo weather data.
+
+Failed fetches back off: 60 s, 120 s, … up to the poll interval. (It used to
+retry every ~5 s while offline — nothing was ever fetched successfully, so
+"time since the last fetch" never stopped being due.) Scheduling uses a
+monotonic clock: bcm-timesync may move the wall clock by hours, which must
+neither stall the poller nor trigger a burst of requests.
+
+When the phone's Bluetooth internet comes up (net.phone_tether, see
+src/network/phone_tether.py) a fetch is forced — usually the first moment of
+the drive real data can be had.
 
 Publishes to event bus:
     weather.current  — dict with condition, temp, feels_like, humidity, wind
@@ -11,13 +22,62 @@ Publishes to event bus:
 """
 
 import json
-from src.core.fsutil import atomic_write_json
-from src.core.logger import get_logger
+import math
 import threading
 import time
 from pathlib import Path
+from typing import Any, Callable, Optional
+from urllib.parse import urlencode
+
+from src.core.fsutil import atomic_write_json
+from src.core.logger import get_logger
 
 log = get_logger("weather")
+
+#: First retry after a failed fetch; doubles up to the poll interval.
+RETRY_MIN_S = 60
+#: How often the poller re-checks its conditions (events wake it sooner).
+LOOP_S = 5
+#: A forced fetch is skipped if good data arrived less than this long ago
+#: (a flapping PAN link must not turn into a request storm).
+FORCE_MIN_AGE_S = 60
+
+
+def valid_coords(lat: Any, lon: Any) -> Optional[tuple[float, float]]:
+    """``(lat, lon)`` as floats if both are finite and in range, else None.
+
+    The values go into the OpenWeatherMap URL; the search location comes
+    from the browser, so nothing but a real coordinate may pass.
+    """
+    out = []
+    for value, limit in ((lat, 90.0), (lon, 180.0)):
+        if isinstance(value, bool):
+            return None
+        if not isinstance(value, (int, float, str)):
+            return None
+        try:
+            value = float(value.strip() if isinstance(value, str) else value)
+        except (ValueError, OverflowError):     # OverflowError: a 400-digit int
+            return None
+        if not math.isfinite(value) or abs(value) > limit:
+            return None
+        out.append(value)
+    return out[0], out[1]
+
+
+def _plausible_fix(value: Any) -> Optional[tuple[float, float]]:
+    """Coordinates from a ``gps.position`` payload worth using, else None.
+
+    A receiver without a fix reports 0,0 (and the payload may say
+    ``fix: False``) — weather for the Gulf of Guinea is not what the driver
+    wants, so those are ignored and the last good / default location stays.
+    """
+    if not isinstance(value, dict) or value.get("fix", True) is False:
+        return None
+    coords = valid_coords(value.get("lat"), value.get("lon"))
+    if coords is None or (coords[0] == 0.0 and coords[1] == 0.0):
+        return None
+    return coords
 
 CACHE_DIR = Path.home() / ".cache" / "bcm"
 CACHE_FILE = CACHE_DIR / "weather.json"
@@ -52,17 +112,32 @@ class WeatherManager:
         platform: "opi" or "x86".
     """
 
-    def __init__(self, event_bus, config: dict, platform: str = "x86"):
+    def __init__(self, event_bus, config: dict, platform: str = "x86",
+                 clock: Callable[[], float] = time.monotonic):
         self._bus = event_bus
         self._config = config
         self._platform = platform
+        self._clock = clock
         self._running = False
         self._thread = None
         self._lat = 0.0
         self._lon = 0.0
         self._has_gps = False
         self._lte_connected = False
-        self._last_fetch = 0
+        self._tether_connected = False
+        self._last_fetch = 0          # wall time of the last good fetch (info only)
+        # Scheduling, all on self._clock (monotonic):
+        self._next_fetch = 0.0        # 0 = as soon as the conditions allow
+        self._retry_delay = RETRY_MIN_S
+        self._last_success: Optional[float] = None
+        self._state_logged = False
+        self._wake = threading.Event()
+        # force_fetch() runs on the event-bus dispatcher while the poller may
+        # be inside a fetch. _force_gen counts forces; a fetch that fails
+        # after a force arrived must not push the forced retry out by the
+        # backoff (the force usually means "the uplink just came up").
+        self._sched_lock = threading.Lock()
+        self._force_gen = 0
         self._poll_interval = config.get("weather", {}).get("poll_interval_min", 15) * 60
         self._api_key = config.get("weather", {}).get("api_key", "")
         # Default location fallback when GPS is not available
@@ -78,7 +153,12 @@ class WeatherManager:
         # Subscribe to GPS, LTE, and search location events
         self._bus.subscribe("gps.position", self._on_gps_position)
         self._bus.subscribe("lte.connected", self._on_lte_status)
+        self._bus.subscribe("net.phone_tether", self._on_phone_tether)
         self._bus.subscribe("weather.search_location", self._on_search_location)
+        # The phone's internet may already be up (no edge to wait for).
+        last = self._bus.get_last("net.phone_tether")
+        if last is not None and isinstance(last[0], dict):
+            self._tether_connected = last[0].get("state") == "connected"
 
         self._thread = threading.Thread(target=self._run, daemon=True,
                                         name="weather-poller")
@@ -89,32 +169,67 @@ class WeatherManager:
     def stop(self):
         """Stop weather polling."""
         self._running = False
+        self._wake.set()
         self._bus.unsubscribe("gps.position", self._on_gps_position)
         self._bus.unsubscribe("lte.connected", self._on_lte_status)
+        self._bus.unsubscribe("net.phone_tether", self._on_phone_tether)
         self._bus.unsubscribe("weather.search_location", self._on_search_location)
         if self._thread:
             self._thread.join(timeout=3)
         log.info("WeatherManager stopped")
 
     def _on_gps_position(self, topic, value, timestamp):
-        """Handle GPS position updates."""
-        if isinstance(value, dict):
-            self._lat = value.get("lat", 0.0)
-            self._lon = value.get("lon", 0.0)
-            self._has_gps = True
+        """Handle GPS position updates — plausible fixes only (no 0,0)."""
+        coords = _plausible_fix(value)
+        if coords is None:
+            return
+        self._lat, self._lon = coords
+        self._has_gps = True
 
     def _on_lte_status(self, topic, value, timestamp):
         """Handle LTE connectivity updates."""
         self._lte_connected = bool(value)
 
+    def _on_phone_tether(self, topic, value, timestamp):
+        """Phone internet (BT PAN) state; going ``connected`` forces a fetch.
+
+        Runs on the event-bus dispatcher: only flags and wakes the poller.
+        """
+        connected = isinstance(value, dict) and value.get("state") == "connected"
+        was = self._tether_connected
+        self._tether_connected = connected
+        if connected and not was:
+            self.force_fetch("phone internet connected")
+
+    def force_fetch(self, reason: str = "") -> bool:
+        """Fetch on the poller's next pass, skipping any backoff.
+
+        Ignored when good data is younger than :data:`FORCE_MIN_AGE_S`.
+        Returns True if a fetch was scheduled.
+        """
+        now = self._clock()
+        if self._last_success is not None and now - self._last_success < FORCE_MIN_AGE_S:
+            return False
+        with self._sched_lock:
+            self._force_gen += 1
+            self._next_fetch = 0.0
+            self._retry_delay = RETRY_MIN_S
+        self._wake.set()
+        log.info("Weather: fetch forced (%s)", reason or "request")
+        return True
+
     def _on_search_location(self, topic, value, timestamp):
         """Handle user-selected city from weather search."""
         if isinstance(value, dict):
-            self._lat = value.get("lat", self._lat)
-            self._lon = value.get("lon", self._lon)
+            coords = valid_coords(value.get("lat"), value.get("lon"))
+            if coords is None:
+                log.warning("Weather search location rejected (not a coordinate)")
+                self._bus.publish("weather.search_done", time.time())
+                return
+            self._lat, self._lon = coords
             self._has_gps = True
-            log.info("Weather location set via search: %.2f, %.2f (%s)",
-                     self._lat, self._lon, value.get("city", ""))
+            log.info("Weather location set via search: %.2f, %.2f (%r)",
+                     self._lat, self._lon, str(value.get("city", ""))[:80])
             # Directly trigger fetch in background thread instead of relying on poll loop
             threading.Thread(target=self._immediate_fetch, daemon=True,
                              name="weather-search-fetch").start()
@@ -132,7 +247,7 @@ class WeatherManager:
             if data:
                 self._publish_data(data)
                 self._save_cache(data)
-                self._last_fetch = time.time()
+                self._fetch_succeeded(self._clock())
                 log.info("Weather search fetch SUCCESS: %s, %.1f°C",
                          data.get("city", "?"),
                          data.get("current", {}).get("temp", 0))
@@ -165,47 +280,83 @@ class WeatherManager:
             log.info("Weather API key set (%d chars), will fetch real data",
                      len(self._api_key))
 
-        _first_fetch = True  # Skip poll_interval on first attempt
         while self._running:
-            now = time.time()
+            # Clear before the pass: a wake-up during it is not lost.
+            self._wake.clear()
+            try:
+                self._poll_once()
+            except Exception as e:
+                log.error("Weather poll FAILED: %s", e, exc_info=True)
+            # Conditions are re-checked every LOOP_S; a search or the phone's
+            # internet coming up wakes the loop at once.
+            self._wake.wait(LOOP_S)
 
-            # Use default location when GPS is not available
-            has_location = self._has_gps
-            if not has_location and self._default_lat and self._default_lon:
-                self._lat = self._default_lat
-                self._lon = self._default_lon
-                has_location = True
+    def _poll_once(self) -> bool:
+        """One poller pass. Returns True if a fetch was attempted.
 
-            # Log state on first iteration for debugging
-            if _first_fetch:
-                log.info("Weather poll state: api_key=%s, has_location=%s (%.2f,%.2f), "
-                         "lte=%s, platform=%s, poll_interval=%ds",
-                         bool(self._api_key), has_location, self._lat, self._lon,
-                         self._lte_connected, self._platform, self._poll_interval)
+        Fetches when there is a key, a location and an uplink, and the
+        schedule (poll interval after success, backoff after failure) says
+        it is due.
+        """
+        now = self._clock()
 
-            # Fetch if conditions met — skip poll_interval on first fetch
-            should_fetch = (self._api_key and has_location
-                            and (self._lte_connected or self._platform == "x86")
-                            and (_first_fetch or now - self._last_fetch >= self._poll_interval))
-            if should_fetch:
-                log.info("Weather: attempting fetch for %.2f,%.2f (first=%s)",
-                         self._lat, self._lon, _first_fetch)
-                _first_fetch = False
-                try:
-                    data = self._fetch_weather()
-                    if data:
-                        self._publish_data(data)
-                        self._save_cache(data)
-                        self._last_fetch = now
-                        log.info("Weather fetch SUCCESS: %s, %.1f°C",
-                                 data.get("city", "?"),
-                                 data.get("current", {}).get("temp", 0))
-                    else:
-                        log.warning("Weather fetch returned None")
-                except Exception as e:
-                    log.error("Weather fetch FAILED: %s", e, exc_info=True)
+        # Use default location when GPS is not available
+        has_location = self._has_gps
+        if not has_location and self._default_lat and self._default_lon:
+            self._lat = self._default_lat
+            self._lon = self._default_lon
+            has_location = True
+        online = self._lte_connected or self._tether_connected or self._platform == "x86"
 
-            time.sleep(5)  # Check conditions every 5s (fast response to search)
+        # Log state once for debugging
+        if not self._state_logged:
+            self._state_logged = True
+            log.info("Weather poll state: api_key=%s, has_location=%s (%.2f,%.2f), "
+                     "lte=%s, phone_tether=%s, platform=%s, poll_interval=%ds",
+                     bool(self._api_key), has_location, self._lat, self._lon,
+                     self._lte_connected, self._tether_connected, self._platform,
+                     self._poll_interval)
+
+        if not (self._api_key and has_location and online):
+            return False
+        if now < self._next_fetch:
+            return False
+
+        log.info("Weather: attempting fetch for %.2f,%.2f", self._lat, self._lon)
+        with self._sched_lock:
+            force_gen = self._force_gen
+        try:
+            data = self._fetch_weather()
+        except Exception as e:
+            log.error("Weather fetch FAILED: %s", e, exc_info=True)
+            data = None
+        if data:
+            self._publish_data(data)
+            self._save_cache(data)
+            self._fetch_succeeded(now)
+            log.info("Weather fetch SUCCESS: %s, %.1f°C",
+                     data.get("city", "?"),
+                     data.get("current", {}).get("temp", 0))
+        else:
+            with self._sched_lock:
+                if self._force_gen != force_gen:
+                    # Forced while this (probably still offline) fetch ran:
+                    # keep force_fetch()'s "now" — the wake event is set, the
+                    # next pass fetches at once — and do not grow the backoff.
+                    log.info("Weather fetch returned no data — retrying at once (forced)")
+                    return True
+                delay = self._retry_delay
+                self._next_fetch = now + delay
+                self._retry_delay = min(delay * 2, max(self._poll_interval, RETRY_MIN_S))
+            log.warning("Weather fetch returned no data — next attempt in %ds", delay)
+        return True
+
+    def _fetch_succeeded(self, now: float) -> None:
+        """Good data: next regular poll after the interval, backoff reset."""
+        self._last_fetch = time.time()
+        self._last_success = now
+        self._retry_delay = RETRY_MIN_S
+        self._next_fetch = now + self._poll_interval
 
     def _fetch_weather(self) -> dict | None:
         """Fetch current weather + forecast from OpenWeatherMap API."""
@@ -214,9 +365,11 @@ class WeatherManager:
             import urllib.error
 
             # Current weather
-            url = (f"https://api.openweathermap.org/data/2.5/weather"
-                   f"?lat={self._lat}&lon={self._lon}"
-                   f"&appid={self._api_key}&units=metric")
+            # urlencode: the key comes from the environment and the
+            # coordinates from GPS/search — none of them may add parameters.
+            query = urlencode({"lat": self._lat, "lon": self._lon,
+                               "appid": self._api_key, "units": "metric"})
+            url = f"https://api.openweathermap.org/data/2.5/weather?{query}"
             req = urllib.request.Request(url, headers={"User-Agent": "BCM-v7/1.0"})
             try:
                 with urllib.request.urlopen(req, timeout=10) as resp:
@@ -227,9 +380,7 @@ class WeatherManager:
                 return None
 
             # 5-day forecast
-            url_fc = (f"https://api.openweathermap.org/data/2.5/forecast"
-                      f"?lat={self._lat}&lon={self._lon}"
-                      f"&appid={self._api_key}&units=metric&cnt=24")
+            url_fc = f"https://api.openweathermap.org/data/2.5/forecast?{query}&cnt=24"
             req_fc = urllib.request.Request(url_fc, headers={"User-Agent": "BCM-v7/1.0"})
             try:
                 with urllib.request.urlopen(req_fc, timeout=10) as resp:

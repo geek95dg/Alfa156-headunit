@@ -22,6 +22,10 @@ from urllib.parse import urlsplit
 
 from src.core.logger import get_logger
 from src.core.notifications import active_notifications
+from src.network.phone_tether import HINTS as _TETHER_HINTS
+from src.network.phone_tether import RETRY_TOPIC as _TETHER_RETRY_TOPIC
+from src.network.phone_tether import STATES as _TETHER_STATES
+from src.weather.weather import valid_coords
 
 log = get_logger("web_viewer")
 
@@ -225,6 +229,32 @@ def _save_config(cfg: Any, what: str) -> bool:
         return False
 
 
+#: Minimum spacing of POST /api/phone_tether/retry (one nmcli attempt each).
+_TETHER_RETRY_MIN_INTERVAL_S = 10.0
+
+
+def _phone_tether_summary(value: Any) -> Optional[dict]:
+    """``net.phone_tether`` → ``{state, ip, iface, hint}`` for the payload.
+
+    Only what the Settings row shows, and only known states / hints and
+    plausible lengths: the values come from nmcli output (the frontend
+    escapes them too). Never published = the module is not running (the
+    production config) = None, and Settings shows no row at all.
+    """
+    if not isinstance(value, dict):
+        return None
+    state = value.get("state")
+    ip = value.get("ip")
+    iface = value.get("iface")
+    hint = value.get("hint")
+    return {
+        "state": state if isinstance(state, str) and state in _TETHER_STATES else "unknown",
+        "ip": ip if isinstance(ip, str) and len(ip) <= 45 else "",
+        "iface": iface if isinstance(iface, str) and len(iface) <= 15 else "",
+        "hint": hint if isinstance(hint, str) and hint in _TETHER_HINTS else "",
+    }
+
+
 class WebViewer:
     """HTML5/Tailwind dashboard served via Flask + WebSocket.
 
@@ -263,6 +293,11 @@ class WebViewer:
         # so a dashboard without AA never starts the worker thread.
         self._aa_injector = None
         self._aa_injector_lock = threading.Lock()
+
+        # POST /api/phone_tether/retry rate limit (monotonic: bcm-timesync
+        # may move the wall clock right after the link comes up).
+        self._tether_retry_lock = threading.Lock()
+        self._tether_retry_last: Optional[float] = None
 
         # /aa/stream bookkeeping: generation ids of the live MJPEG streams
         # (oldest first) and each one's ffmpeg, so a newer stream can stop an
@@ -408,7 +443,11 @@ class WebViewer:
             # reconnects its MJPEG <img> when it changes.
             "aa_stream_epoch": _val("multimedia.aa_stream_epoch", 0),
             "lte_connected": _val("lte.connected", False),
-            "lte_signal": _val("lte.signal_strength", 0),
+            # src/network/lte.py publishes lte.signal (0-5 bars); the old
+            # lte.signal_strength key was never published, so this was 0.
+            "lte_signal": _val("lte.signal", 0),
+            # Internet from the phone (src/network/phone_tether.py).
+            "phone_tether": _phone_tether_summary(_val("net.phone_tether")),
             # Audio
             "audio_volume": _val("audio.volume", 70),
             "audio_muted": _val("audio.mute_changed", False),
@@ -1823,6 +1862,31 @@ class WebViewer:
                 viewer._event_bus.publish("bt.cmd.dial", number)
             return jsonify({"ok": True, "number": number})
 
+        @app.route("/api/phone_tether/retry", methods=["POST"])
+        def api_phone_tether_retry():
+            """"Ponów" in Settings: retry the phone's Bluetooth internet now.
+
+            Takes no arguments (the body is ignored — nothing from the
+            browser reaches nmcli) and only publishes
+            net.phone_tether.cmd.retry; src/network/phone_tether.py drops its
+            backoff. At most one per _TETHER_RETRY_MIN_INTERVAL_S, as each
+            one can cost a `connection up` of up to 30 s.
+            """
+            if not viewer._event_bus:
+                return jsonify({"ok": False, "error": "event bus unavailable"}), 503
+            now = time.monotonic()
+            with viewer._tether_retry_lock:
+                last = viewer._tether_retry_last
+                if last is not None and now - last < _TETHER_RETRY_MIN_INTERVAL_S:
+                    wait = int(_TETHER_RETRY_MIN_INTERVAL_S - (now - last)) + 1
+                    res = jsonify({"ok": False, "error": "too many requests",
+                                   "retry_after": wait})
+                    res.headers["Retry-After"] = str(wait)
+                    return res, 429
+                viewer._tether_retry_last = now
+            viewer._event_bus.publish(_TETHER_RETRY_TOPIC, True)
+            return jsonify({"ok": True})
+
         @app.route("/api/phone/answer", methods=["POST"])
         def api_phone_answer():
             if viewer._event_bus:
@@ -1895,13 +1959,23 @@ class WebViewer:
         @app.route("/api/weather/location", methods=["POST"])
         def api_weather_set_location():
             """Set weather location (from search). Triggers re-fetch."""
-            data = request.get_json(silent=True) or {}
+            data = request.get_json(silent=True)
+            if not isinstance(data, dict):
+                data = {}
             lat = data.get("lat")
             lon = data.get("lon")
             city = data.get("city", "")
-            if lat is not None and lon is not None and viewer._event_bus:
-                viewer._event_bus.publish("weather.search_location",
-                                          {"lat": lat, "lon": lon, "city": city})
+            if lat is None or lon is None:
+                return jsonify({"error": "missing lat/lon"}), 400
+            # The coordinates end up in the OpenWeatherMap URL.
+            coords = valid_coords(lat, lon)
+            if coords is None:
+                return jsonify({"error": "lat/lon must be numbers in range"}), 400
+            if viewer._event_bus:
+                viewer._event_bus.publish("weather.search_location", {
+                    "lat": coords[0], "lon": coords[1],
+                    "city": city[:100] if isinstance(city, str) else "",
+                })
                 return jsonify({"ok": True})
             return jsonify({"error": "missing lat/lon"}), 400
 
@@ -2029,10 +2103,12 @@ class WebViewer:
             bus = viewer._event_bus
             if not bus:
                 return jsonify({"codes": [], "error": "no bus"})
-            requested_at = time.time()
+            requested_at = time.time()      # compared with bus timestamps
             bus.publish("obd.dtc.read_request", True)
-            deadline = requested_at + 3.0
-            while time.time() < deadline:
+            # The wait itself on the monotonic clock: a wall-clock jump
+            # (bcm-timesync) must not keep this request thread spinning.
+            deadline = time.monotonic() + 3.0
+            while time.monotonic() < deadline:
                 result = bus.get_last("obd.dtc.codes")
                 if result and result[1] >= requested_at:
                     codes = result[0]
@@ -2052,10 +2128,10 @@ class WebViewer:
             bus = viewer._event_bus
             if not bus:
                 return jsonify({"ok": False, "error": "no bus"})
-            requested_at = time.time()
+            requested_at = time.time()      # compared with bus timestamps
             bus.publish("obd.dtc.clear_request", True)
-            deadline = requested_at + 3.0
-            while time.time() < deadline:
+            deadline = time.monotonic() + 3.0
+            while time.monotonic() < deadline:
                 result = bus.get_last("obd.dtc.cleared")
                 if result and result[1] >= requested_at:
                     return jsonify({"ok": bool(result[0])})

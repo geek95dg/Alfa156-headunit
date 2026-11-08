@@ -11,7 +11,11 @@ key is configured.
 from __future__ import annotations
 
 import math
+from pathlib import Path
 
+from src.core import modules_catalog
+from src.core.config import BCMConfig
+from src.core.event_bus import EventBus
 from src.trip.route_planner import (
     RoutePlanner,
     estimate_fuel,
@@ -130,3 +134,28 @@ def test_planner_straight_line_fallback_without_keys():
     assert plan["incidents"] == []
     # Two-point "polyline" with start and end
     assert len(plan["geometry"]) == 2
+
+
+# ---------------------------------------------------------------------- #
+# Start path with the test-car config (main.py --frontend)               #
+# ---------------------------------------------------------------------- #
+
+REPO = Path(__file__).resolve().parent.parent
+
+
+def test_planner_builds_from_test_config_and_takes_keys_from_env():
+    """main.py builds RoutePlanner(config, event_bus) when
+    modules.route_planner is on — true in bcm_config_test.yaml. The keys
+    are never in the tracked file; they come from /etc/bcm/bcm.env."""
+    path = str(REPO / "config" / "bcm_config_test.yaml")
+    cfg = BCMConfig(path, "x86", env={})
+    assert modules_catalog.is_enabled(cfg, "route_planner") is True
+    planner = RoutePlanner(cfg, EventBus())
+    assert planner._ors_key == "" and planner._tomtom_key == ""
+    plan = planner.plan(start=(50.06, 19.94), dest=(52.23, 21.01), avg_consumption=7.0)
+    assert plan["distance_km"] > 200 and plan["incidents"] == []
+
+    cfg = BCMConfig(path, "x86", env={"BCM_ORS_API_KEY": "ors-test",
+                                      "BCM_TOMTOM_API_KEY": "tt-test"})
+    planner = RoutePlanner(cfg, EventBus())
+    assert (planner._ors_key, planner._tomtom_key) == ("ors-test", "tt-test")

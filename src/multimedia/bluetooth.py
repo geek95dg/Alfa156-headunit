@@ -1643,8 +1643,10 @@ class BluetoothManager:
             # Verify the connection actually came up. ``info`` is the
             # source of truth because BlueZ updates the Connected
             # property when the link layer settles.
-            deadline = time.time() + verify_budget_seconds
-            while time.time() < deadline:
+            # Monotonic: bcm-timesync (started when the phone's PAN comes
+            # up) may move the wall clock by hours, also backwards.
+            deadline = time.monotonic() + verify_budget_seconds
+            while time.monotonic() < deadline:
                 v = self.get_device_info(address)
                 if v.get("connected"):
                     name = v.get("name", address)

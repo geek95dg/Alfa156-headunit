@@ -13,6 +13,7 @@ On OPi5: uses the onboard or dedicated WiFi card.
 """
 
 import os
+import re
 import signal
 import subprocess
 import threading
@@ -82,6 +83,45 @@ def _netmask_to_prefix(netmask: str) -> int:
     parts = netmask.split(".")
     binary = "".join(f"{int(p):08b}" for p in parts)
     return binary.count("1")
+
+
+#: Interface name prefixes that are never an uplink for NAT. Same list as
+#: config/scripts/bcm-nat.sh (keep them in sync):
+#:   p2p-*          the Wi-Fi Direct group — that is the phone's side
+#:   bnep*          Bluetooth PAN = internet FROM the phone (phone_tether);
+#:                  NAT-ing the AA AP out through it would send the phone's
+#:                  own traffic back to the phone. Only the AA AP: ALFA-NET's
+#:                  clients are passengers, see ``allow_pan`` below.
+#:   docker*, veth* container bridges, not a way out
+_NON_UPLINK_PREFIXES = ("p2p-", "bnep", "docker", "veth")
+_PAN_PREFIX = "bnep"
+
+#: Kernel interface names are at most 15 bytes, never contain '/' or
+#: whitespace. Anything else did not come from /sys/class/net and is not
+#: handed to iptables.
+_IFACE_NAME_RE = re.compile(r"^[A-Za-z0-9_.:-]{1,15}$")
+
+
+def _is_uplink_candidate(name: str, ap_iface: Optional[str],
+                         allow_pan: bool = False) -> bool:
+    """May ``name`` be used as an uplink for the AP's NAT?
+
+    Pure (no I/O) so the rule can be tested as a table. Excludes ``lo``, the
+    AP interface itself and :data:`_NON_UPLINK_PREFIXES`; whether the
+    interface is actually up is the caller's business.
+
+    ``allow_pan`` lets ``bnep*`` through. Only for ALFA-NET: the driver's
+    phone is a client of the AA P2P AP, not of ALFA-NET, so nothing loops
+    back there — and without LTE the phone's PAN is the only uplink the
+    passengers could share (``wifi.alfa_net.share_phone_internet``).
+    """
+    if not isinstance(name, str) or not _IFACE_NAME_RE.fullmatch(name):
+        return False
+    if name == "lo" or (ap_iface and name == ap_iface):
+        return False
+    if allow_pan and name.startswith(_PAN_PREFIX):
+        return True
+    return not name.startswith(_NON_UPLINK_PREFIXES)
 
 
 def _has_networkmanager() -> bool:
@@ -484,11 +524,12 @@ class WiFiAPManager:
             log.warning("Could not enable IP forwarding: %s", e)
             return
 
-        # 2. Find an uplink interface — anything that isn't us.
+        # 2. Find an uplink interface — anything that isn't us, the phone's
+        # own Bluetooth internet (bnep*) or a container bridge.
         uplinks = []
         try:
-            for iface in os.listdir("/sys/class/net"):
-                if iface in ("lo", self._interface):
+            for iface in sorted(os.listdir("/sys/class/net")):
+                if not _is_uplink_candidate(iface, self._interface):
                     continue
                 # Prefer modem-style (ww*, wwan*) and ethernet up first
                 operstate_path = f"/sys/class/net/{iface}/operstate"
@@ -946,8 +987,8 @@ class WiFiAPManager:
 
         # Wait for ctrl socket to appear.
         ctrl_path = os.path.join(ctrl_dir, self._interface)
-        deadline = time.time() + 5.0
-        while time.time() < deadline and not os.path.exists(ctrl_path):
+        deadline = time.monotonic() + 5.0     # immune to clock jumps
+        while time.monotonic() < deadline and not os.path.exists(ctrl_path):
             if self._wpa_proc.poll() is not None:
                 log.error("wpa_supplicant exited before ctrl socket ready")
                 return False
@@ -1373,18 +1414,28 @@ class WiFiAPManager:
             self._net_iface = None
 
     def _add_nat_for(self, iface: str) -> None:
-        """Add MASQUERADE for ALFA-NET clients via any non-WiFi uplink."""
+        """Add MASQUERADE for ALFA-NET clients via any non-WiFi uplink.
+
+        The phone's Bluetooth internet (``bnep*``) counts, as it always did
+        here, unless ``wifi.alfa_net.share_phone_internet`` is false (it is
+        the driver's mobile data). Runs once when ALFA-NET comes up, so a PAN
+        link that appears later is not picked up until the next start.
+        """
         try:
             with open("/proc/sys/net/ipv4/ip_forward", "w") as f:
                 f.write("1\n")
         except OSError:
             return
+        share_pan = self._config.get("wifi.alfa_net.share_phone_internet", True) is not False
         uplinks = []
         try:
-            for u in os.listdir("/sys/class/net"):
-                if u in ("lo", iface, self._interface):
+            for u in sorted(os.listdir("/sys/class/net")):
+                # Neither ALFA-NET's own iface nor the AA AP is a way out;
+                # Wi-Fi radios are skipped here as before (the shared card).
+                if not (_is_uplink_candidate(u, iface, allow_pan=share_pan)
+                        and _is_uplink_candidate(u, self._interface, allow_pan=share_pan)):
                     continue
-                if u.startswith(("wlan", "wlp", "wlx", "p2p-")):
+                if u.startswith(("wlan", "wlp", "wlx")):
                     continue
                 try:
                     with open(f"/sys/class/net/{u}/operstate") as f:

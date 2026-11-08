@@ -50,6 +50,9 @@ MODULES: dict[str, dict] = {
                     "entry": ("src.location.tracker", "start_tracker"), "default": False},
     "network":     {"part": 13, "description": "LTE/Cellular Connectivity",
                     "entry": ("src.network.lte", "start_network"), "default": False},
+    # Off in code (production unchanged); this toggle is its only switch.
+    "phone_tether": {"part": 13, "description": "Internet z telefonu (Bluetooth PAN przez NetworkManager)",
+                    "entry": ("src.network.phone_tether", "start_phone_tether"), "default": False},
     "weather":     {"part": 14, "description": "Weather Data (OpenWeatherMap)",
                     "entry": ("src.weather.weather", "start_weather"), "default": False},
     "rain_sensor": {"part": 15, "description": "Rain Sensor + Auto Wipers",

@@ -292,7 +292,7 @@ def main() -> None:
     if bt_enabled and modules_catalog.is_enabled(config, "phonebook"):
         try:
             from src.multimedia.phonebook import start_phonebook_sync
-            start_phonebook_sync(event_bus)
+            start_phonebook_sync(event_bus, config)
         except Exception:
             log.exception("PBAP phonebook sync failed to init (non-critical)")
 

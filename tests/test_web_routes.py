@@ -539,3 +539,97 @@ class TestPhoneDialRoute:
         assert res.status_code == 400
         assert res.get_json()["ok"] is False
         assert seen == []
+
+
+# ── Phone internet / LTE in the dashboard payload ────────────────────────
+
+class TestConnectivityPayload:
+    def test_phone_tether_is_none_while_the_module_never_published(self, env):
+        # Production config: module off -> no row in Settings (unchanged UI).
+        assert env.viewer._get_dashboard_data()["phone_tether"] is None
+
+    def test_phone_tether_summary(self, env):
+        env.bus.publish("net.phone_tether", {
+            "state": "connected", "iface": "bnep0", "ip": "192.168.44.23", "prefix": 24,
+            "gateway": "192.168.44.1", "mac": "AA:BB:CC:DD:EE:01", "error": "", "hint": "",
+            "since": 1.0})
+        assert env.viewer._get_dashboard_data()["phone_tether"] == {
+            "state": "connected", "ip": "192.168.44.23", "iface": "bnep0", "hint": ""}
+
+    def test_phone_tether_failed_hint_is_passed_on(self, env):
+        env.bus.publish("net.phone_tether", {"state": "failed", "hint": "check_tethering",
+                                             "error": "Error: <raw nmcli text>"})
+        summary = env.viewer._get_dashboard_data()["phone_tether"]
+        assert summary == {"state": "failed", "ip": "", "iface": "", "hint": "check_tethering"}
+        assert "error" not in summary          # raw error text never reaches the UI
+
+    @pytest.mark.parametrize("value, expected", [
+        ({"state": "<script>"}, {"state": "unknown", "ip": "", "iface": "", "hint": ""}),
+        ({"state": "connected", "ip": "x" * 100, "iface": ["bnep0"], "hint": "<b>"},
+         {"state": "connected", "ip": "", "iface": "", "hint": ""}),
+        ("connected", None),
+    ])
+    def test_phone_tether_garbage_is_neutralised(self, env, value, expected):
+        env.bus.publish("net.phone_tether", value)
+        assert env.viewer._get_dashboard_data()["phone_tether"] == expected
+
+    def test_lte_signal_reads_the_published_key(self, env):
+        env.bus.publish("lte.signal", 3)
+        assert env.viewer._get_dashboard_data()["lte_signal"] == 3
+
+
+# ── POST /api/phone_tether/retry ─────────────────────────────────────────
+
+class TestPhoneTetherRetryRoute:
+    def _seen(self, env):
+        seen = []
+        env.bus.subscribe("net.phone_tether.cmd.retry", lambda t, v, ts: seen.append(v))
+        return seen
+
+    def test_publishes_an_argument_free_retry(self, env):
+        seen = self._seen(env)
+        res = env.client.post("/api/phone_tether/retry",
+                              json={"mac": "AA:BB:CC:DD:EE:01; reboot", "con": "--x"})
+        assert res.status_code == 200 and res.get_json() == {"ok": True}
+        assert seen == [True]                  # the body never travels on
+
+    def test_rate_limited(self, env):
+        seen = self._seen(env)
+        assert env.client.post("/api/phone_tether/retry").status_code == 200
+        res = env.client.post("/api/phone_tether/retry")
+        assert res.status_code == 429
+        assert 1 <= int(res.headers["Retry-After"]) <= 11
+        assert seen == [True]
+        env.viewer._tether_retry_last -= wv._TETHER_RETRY_MIN_INTERVAL_S   # time passes
+        assert env.client.post("/api/phone_tether/retry").status_code == 200
+        assert seen == [True, True]
+
+    def test_get_is_not_allowed(self, env):
+        assert env.client.get("/api/phone_tether/retry").status_code == 405
+
+
+# ── POST /api/weather/location ───────────────────────────────────────────
+
+class TestWeatherLocationRoute:
+    def _seen(self, env):
+        seen = []
+        env.bus.subscribe("weather.search_location", lambda t, v, ts: seen.append(v))
+        return seen
+
+    def test_valid_location_is_published_as_floats(self, env):
+        seen = self._seen(env)
+        res = env.client.post("/api/weather/location",
+                              json={"lat": "52.23", "lon": 21.01, "city": "Warszawa"})
+        assert res.status_code == 200
+        assert seen == [{"lat": 52.23, "lon": 21.01, "city": "Warszawa"}]
+
+    @pytest.mark.parametrize("body", [
+        {"lat": "1&appid=evil", "lon": 2}, {"lat": 91, "lon": 0}, {"lat": 0, "lon": 181},
+        {"lat": True, "lon": 1}, {"lat": [1], "lon": 1}, {"lat": 1}, {}, None, "52,21",
+        {"lat": 10 ** 400, "lon": 1}, {"lat": "nan", "lon": 1},
+    ])
+    def test_invalid_is_400_and_never_published(self, env, body):
+        seen = self._seen(env)
+        res = env.client.post("/api/weather/location", json=body)
+        assert res.status_code == 400
+        assert seen == []
