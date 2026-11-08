@@ -6,6 +6,7 @@ Subscribes to GPS speed and OBD boost, tracks acceleration runs.
 import json
 import os
 import time
+from src.core.fsutil import atomic_write_json
 from src.core.logger import get_logger
 
 log = get_logger("performance")
@@ -62,12 +63,12 @@ class PerformanceTracker:
             self._history = []
 
     def _save_history(self):
+        # Atomic: the result is saved right after a run, i.e. while driving,
+        # when a power cut is most likely.
         try:
-            os.makedirs(os.path.dirname(self.HISTORY_FILE), exist_ok=True)
-            with open(self.HISTORY_FILE, "w") as f:
-                json.dump(self._history, f)
-        except Exception:
-            pass
+            atomic_write_json(self.HISTORY_FILE, self._history)
+        except Exception as e:
+            log.debug("Performance history save failed: %s", e)
 
 
 def start_performance(config, event_bus, hal=None, **kwargs):

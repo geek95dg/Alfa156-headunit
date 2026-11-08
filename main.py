@@ -7,14 +7,29 @@ Usage:
     python main.py --platform x86 --headless    # x86 without X display (dashboard via WebViewer)
     python main.py --platform x86 --dry-run     # list modules without starting them
     python main.py --platform x86 --modules obd,dashboard
+    python main.py --config config/bcm_config_test.yaml --local-config /tmp/l.yaml
+    python main.py --config config/bcm_config_test.yaml --no-local-config
+
+Configuration = base YAML (--config, never written) + local overlay
+(--local-config, default config/local.yaml next to the base; runtime changes
+from the UI are saved there) + secrets from the environment
+(/etc/bcm/bcm.env via systemd, or <repo>/.env for development).
 """
 
 import argparse
 import os
 import signal
 import time
+from pathlib import Path
+from typing import Optional
 
-from src.core.config import BCMConfig
+from src.core.config import (
+    SECRET_ENV_MAP,
+    BCMConfig,
+    count_leaves,
+    default_local_path,
+    resolve_base_path,
+)
 from src.core.logger import setup_logging, get_logger
 from src.core.event_bus import EventBus
 from src.core.hal import HAL
@@ -68,7 +83,20 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--config",
         default=None,
-        help="Path to config YAML (default: config/bcm_config.yaml)",
+        help="Path to the base config YAML (default: config/bcm_config.yaml). "
+             "BCM never writes this file.",
+    )
+    parser.add_argument(
+        "--local-config",
+        default=None,
+        metavar="PATH",
+        help="Local overlay with runtime changes (default: $BCM_LOCAL_CONFIG, "
+             "else local.yaml next to the base config)",
+    )
+    parser.add_argument(
+        "--no-local-config",
+        action="store_true",
+        help="Do not load or write a local overlay (UI changes last until restart)",
     )
     parser.add_argument(
         "--modules",
@@ -94,6 +122,25 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
+REPO_ROOT = Path(__file__).resolve().parent
+
+
+def resolve_local_config(args: argparse.Namespace, base_path: Path) -> Optional[Path]:
+    """Where the local overlay lives (None = disabled).
+
+    Precedence: --no-local-config > --local-config > $BCM_LOCAL_CONFIG >
+    local.yaml next to the base config.
+    """
+    if args.no_local_config:
+        return None
+    if args.local_config:
+        return Path(args.local_config)
+    env_path = os.environ.get("BCM_LOCAL_CONFIG", "").strip()
+    if env_path:
+        return Path(env_path)
+    return default_local_path(base_path)
+
+
 def main() -> None:
     args = parse_args()
 
@@ -102,22 +149,30 @@ def main() -> None:
         os.environ["SDL_VIDEODRIVER"] = "dummy"
         os.environ["SDL_AUDIODRIVER"] = "dummy"
 
-    # Load configuration
+    # Load configuration: base YAML + local overlay + secrets from env
     platform_override = args.platform if args.platform != "auto" else None
-    config = BCMConfig(config_path=args.config, platform_override=platform_override)
+    base_path = resolve_base_path(args.config, platform_override)
+    local_path = resolve_local_config(args, base_path)
+    config = BCMConfig(config_path=args.config, platform_override=platform_override,
+                       local_path=local_path, env=os.environ,
+                       dotenv_path=REPO_ROOT / ".env")
+    # The secrets now live in the config object. Drop them from our own
+    # environment so autoapp, nmcli & co. (spawned with os.environ) do not
+    # inherit API keys they have no use for.
+    for var in SECRET_ENV_MAP.values():
+        os.environ.pop(var, None)
 
-    # Initialize logging
+    # Initialize logging. Per-module levels come from system.module_levels
+    # (logger name relative to "bcm" → level); empty by default.
     log_level = config.get("system.log_level", "INFO")
     log_file = config.get("system.log_file")
-    # Keep BT/multimedia at DEBUG for investigation, rest at configured level
-    module_levels = {
-        "multimedia.bluetooth": "DEBUG",
-        "multimedia.openauto": "DEBUG",
-        "multimedia.wifi_ap": "DEBUG",
-        "multimedia.aa_display": "INFO",
-    }
+    module_levels = config.get("system.module_levels") or {}
+    if not isinstance(module_levels, dict):
+        module_levels = {}
     setup_logging(level=log_level, log_file=log_file,
-                  module_levels=module_levels)
+                  module_levels=module_levels,
+                  max_mb=config.get("system.log_max_mb", 5),
+                  backups=config.get("system.log_backups", 3))
     log = get_logger("main")
 
     log.info("=" * 60)
@@ -125,6 +180,22 @@ def main() -> None:
     log.info("Version: %s", config.get("system.version", "unknown"))
     log.info("Platform: %s", config.platform)
     log.info("Config: %s", config.config_path)
+    if config.local_path is not None:
+        log.info("Local overlay: %s (%s, %d overridden value(s))",
+                 config.local_path,
+                 "present" if config.local_path.exists() else "absent",
+                 count_leaves(config.overlay()))
+    else:
+        log.info("Local overlay: disabled — UI changes will not survive a restart")
+    if config.secret_sources:
+        # Names only — never the values.
+        log.info("Secrets from environment: %s",
+                 ", ".join(sorted(config.secret_sources.values())))
+    if module_levels:
+        log.info("Module log levels: %s",
+                 ", ".join(f"{k}={v}" for k, v in sorted(module_levels.items(), key=str)))
+    for warning in config.load_warnings:
+        log.warning("Config: %s", warning)
     log.info("=" * 60)
 
     # Initialize core components. async_dispatch: subscriber callbacks

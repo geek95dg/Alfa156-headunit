@@ -15,6 +15,7 @@ import time
 from typing import Any, Optional
 
 from src.core.event_bus import EventBus
+from src.core.fsutil import atomic_write_text, cleanup_stale_tmp
 from src.core.logger import get_logger
 from src.multimedia.bluetooth import BluetoothManager
 
@@ -119,6 +120,9 @@ def _create_openauto_config(project_dir: str, app_config: Any = None) -> None:
     config at runtime (stores last BT device, settings, etc.).
     """
     config_path = os.path.join(project_dir, "openauto.ini")
+    # A power cut mid-write (AA starts around ignition-on and cranking)
+    # orphans .openauto.ini.XXXX.tmp — which holds the PSK. Sweep old ones.
+    cleanup_stale_tmp(project_dir, ".openauto.ini.")
     # Regenerate unconditionally — credentials change in Settings need
     # to propagate without user intervention, and the file is tiny so
     # the overhead is negligible. V5 marker stays in the header for
@@ -234,8 +238,9 @@ SSID={ssid}
 Password={password}
 AdapterMAC={wifi_mac}
 """
-    with open(config_path, "w") as f:
-        f.write(config_content)
+    # Atomic, and 0600: [WiFi] Password is the Wi-Fi Direct PSK. autoapp
+    # runs as the same user as BCM, so it can still read (and rewrite) it.
+    atomic_write_text(config_path, config_content, mode=0o600)
 
     log.info("Created openauto config at %s (SSID=%s, WiFi MAC=%s, BT=%s, "
              "Resolution=%d %s)",

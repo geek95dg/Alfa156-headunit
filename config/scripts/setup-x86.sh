@@ -62,7 +62,7 @@ warn() { echo -e "${YELLOW}  WARN: $1${NC}"; }
 fail() { echo -e "${RED}  FAIL: $1${NC}"; exit 1; }
 ok()   { echo -e "${GREEN}  OK${NC}"; }
 
-TOTAL=14
+TOTAL=15
 
 if [ "$(id -u)" -ne 0 ]; then
     fail "Run with sudo: sudo bash $0"
@@ -92,7 +92,17 @@ for svc in bcm-ignition-watcher bcm-headunit bcm-splash-main bcm-splash-small bc
     systemctl stop "$svc" 2>/dev/null || true
     systemctl disable "$svc" 2>/dev/null || true
 done
+# Timers too: their unit files are removed below, and a timer left enabled
+# would leave a dangling symlink in timers.target.wants (and keep firing a
+# service that no longer exists until the next reboot). Step 6 / 9
+# reinstall and re-enable them.
+for timer in bcm-timesync.timer bcm-nat-late.timer; do
+    systemctl stop "$timer" 2>/dev/null || true
+    systemctl disable "$timer" 2>/dev/null || true
+done
 rm -f /etc/systemd/system/bcm-*.service
+rm -f /etc/systemd/system/bcm-*.timer
+rm -f /usr/local/bin/bcm-timesync.sh
 rm -rf /etc/systemd/system/bcm-splash-main.service.d
 rm -rf /etc/systemd/system/bcm-splash-small.service.d
 rm -rf /etc/systemd/system/hostapd.service.d
@@ -124,6 +134,8 @@ rm -f /lib/systemd/system-sleep/bcm-sleep
 rm -f /etc/systemd/logind.conf.d/bcm-power.conf
 rm -f /etc/systemd/system/bcm-lte.service
 # leave /etc/bcm/lte.conf — user may have edited APN for non-Orange SIM
+# leave /etc/bcm/bcm.env — it holds the user's API keys and passwords
+# (bcm-harden.sh only creates it when missing and fixes its permissions)
 
 rm -f /etc/chromium/policies/managed/bcm.json
 rm -f /etc/X11/Xwrapper.config
@@ -293,11 +305,22 @@ ok
 
 step 6 "Installing systemd services..."
 
+# Installed under the plain name bcm-headunit.service: the ignition watcher
+# starts it by that name (--service bcm-headunit.service). The unit runs
+# config/bcm_config_test.yaml (BCM_CONFIG) and reads secrets from
+# /etc/bcm/bcm.env (EnvironmentFile=-, so a missing file never blocks it).
 cp "$BCM_DIR/config/systemd/bcm-headunit-x86.service" /etc/systemd/system/bcm-headunit.service
 cp "$BCM_DIR/config/systemd/bcm-ignition-watcher.service" /etc/systemd/system/
 cp "$BCM_DIR/config/systemd/bcm-splash-main.service" /etc/systemd/system/
 cp "$BCM_DIR/config/systemd/bcm-splash-small.service" /etc/systemd/system/
 cp "$BCM_DIR/config/systemd/bcm-resume.service" /etc/systemd/system/
+
+# Clock correction from an HTTPS Date header (no NTP client on this box):
+# without it a flat CMOS cell or an RTC written in local time shows a
+# wrong dashboard clock until something else fixes it.
+install -m 0755 "$BCM_DIR/config/scripts/bcm-timesync.sh" /usr/local/bin/bcm-timesync.sh
+install -m 0644 "$BCM_DIR/config/systemd/bcm-timesync.service" /etc/systemd/system/bcm-timesync.service
+install -m 0644 "$BCM_DIR/config/systemd/bcm-timesync.timer" /etc/systemd/system/bcm-timesync.timer
 
 # Splash player helper — single process drives both connectors via
 # gst-launch + two kmssinks (one DRM master, no race).
@@ -334,9 +357,12 @@ rm -f /etc/systemd/system/multi-user.target.wants/bcm-splash-small.service
 
 systemctl daemon-reload
 systemctl enable bcm-ignition-watcher bcm-splash-main bcm-resume
+# The timer (not the service) is what gets enabled: it fires 2 min after
+# boot and hourly. Offline is normal in a car — the script exits 0 then.
+systemctl enable --now bcm-timesync.timer 2>/dev/null || true
 ok
 
-# ─── Phase 6: Kiosk (autologin + X + xinitrc) ────────────────────
+# ─── Phase 7: Kiosk (autologin + X + xinitrc) ────────────────────
 
 step 7 "Setting up kiosk (autologin + X11 + xinitrc)..."
 
@@ -464,7 +490,7 @@ cp "$BCM_DIR/config/scripts/chromium-policy.json" /etc/chromium/policies/managed
 systemctl daemon-reload
 ok
 
-# ─── Phase 7: Power button → suspend ─────────────────────────────
+# ─── Phase 8: Power button → suspend ─────────────────────────────
 
 step 8 "Configuring power button → suspend (acpid)..."
 
@@ -498,7 +524,7 @@ systemctl enable acpid
 systemctl restart systemd-logind 2>/dev/null || true
 ok
 
-# ─── Phase 8: WiFi Access Point ──────────────────────────────────
+# ─── Phase 9: WiFi Access Point ──────────────────────────────────
 
 step 9 "Setting up WiFi AP ($WIFI_SSID on $WIFI_IFACE)..."
 
@@ -656,51 +682,11 @@ EOF
 
     # Persistent NAT helper. iptables rules don't survive reboot on
     # Debian by default; this oneshot reapplies them after the AP iface
-    # comes up.
-    cat > /usr/local/bin/bcm-nat.sh <<'NATEOF'
-#!/bin/bash
-# Apply MASQUERADE + FORWARD rules between the BCM AP iface and any
-# uplink that has a default route. Idempotent — checks before adding.
-#
-# Why "default route" rather than operstate: the LTE wwan driver (cdc_ether
-# on Huawei E3372) reports operstate=unknown even when fully up, so the
-# previous "operstate==up" check silently skipped LTE and AP clients
-# only reached the internet via ethernet (if attached).
-set -u
-AP_IFACE="${AP_IFACE:-wlp2s0}"
-log() { logger -t bcm-nat "$*"; echo "[bcm-nat] $*"; }
-[ -d "/sys/class/net/$AP_IFACE" ] || { log "AP iface $AP_IFACE missing"; exit 0; }
-sysctl -w net.ipv4.ip_forward=1 >/dev/null 2>&1 || true
-
-# Enumerate uplinks: any iface with a default route, plus any iface
-# whose operstate is up/unknown (covers static-IP ethernet without a
-# default route in the table at the moment we run).
-declare -A UPLINKS=()
-while read -r dev; do
-    [ -n "$dev" ] && UPLINKS["$dev"]=1
-done < <(ip -4 route show default 2>/dev/null | awk '{for(i=1;i<=NF;i++)if($i=="dev")print $(i+1)}')
-for up in $(ls /sys/class/net); do
-    [ "$up" = "lo" ] && continue
-    [ "$up" = "$AP_IFACE" ] && continue
-    state=$(cat "/sys/class/net/$up/operstate" 2>/dev/null || echo down)
-    case "$state" in up|unknown) UPLINKS["$up"]=1 ;; esac
-done
-
-for up in "${!UPLINKS[@]}"; do
-    [ "$up" = "$AP_IFACE" ] && continue
-    iptables -t nat -C POSTROUTING -o "$up" -j MASQUERADE 2>/dev/null \
-        || iptables -t nat -A POSTROUTING -o "$up" -j MASQUERADE
-    iptables -C FORWARD -i "$up" -o "$AP_IFACE" -m state \
-        --state RELATED,ESTABLISHED -j ACCEPT 2>/dev/null \
-        || iptables -A FORWARD -i "$up" -o "$AP_IFACE" -m state \
-                  --state RELATED,ESTABLISHED -j ACCEPT
-    iptables -C FORWARD -i "$AP_IFACE" -o "$up" -j ACCEPT 2>/dev/null \
-        || iptables -A FORWARD -i "$AP_IFACE" -o "$up" -j ACCEPT
-    log "NAT enabled: $AP_IFACE -> $up"
-done
-exit 0
-NATEOF
-    chmod +x /usr/local/bin/bcm-nat.sh
+    # comes up. The script is tracked in the repo (config/scripts/bcm-nat.sh)
+    # instead of a heredoc here, so setup-x86.sh and apply-fixes.sh can no
+    # longer drift apart. It never NATs into p2p-*, bnep* (phone's own
+    # internet over BT PAN), docker* or veth*.
+    install -m 0755 "$BCM_DIR/config/scripts/bcm-nat.sh" /usr/local/bin/bcm-nat.sh
 
     cat > /etc/systemd/system/bcm-nat.service <<EOF
 [Unit]
@@ -753,7 +739,7 @@ EOF
     ok
 fi
 
-# ─── Phase 9b: LTE modem (Huawei E3372) ──────────────────────────
+# ─── Phase 10: LTE modem (Huawei E3372) ──────────────────────────
 
 step 10 "Configuring LTE modem..."
 
@@ -814,19 +800,24 @@ else
     ok
 fi
 
-# ─── Phase 10: GRUB (silent boot) ────────────────────────────────
+# ─── Phase 11: GRUB (silent boot) ────────────────────────────────
 
 step 11 "Configuring silent boot (GRUB)..."
 
 if [ -f /etc/default/grub ]; then
     cp /etc/default/grub /etc/default/grub.bak
+    # fsck.repair=yes and never skip fsck at boot: without a buffered supply every
+    # ignition-off is a hard power cut, and skipping fsck lets the damage
+    # pile up until the box no longer boots. A clean ext4 check costs well
+    # under a second; a dirty one gets repaired instead of dropping to an
+    # emergency shell (bcm-harden.sh in Phase 13 enforces the same).
     cat > /etc/default/grub <<'EOF'
 GRUB_DEFAULT=0
 GRUB_TIMEOUT=0
 GRUB_HIDDEN_TIMEOUT=0
 GRUB_HIDDEN_TIMEOUT_QUIET=true
 GRUB_DISTRIBUTOR=""
-GRUB_CMDLINE_LINUX_DEFAULT="quiet loglevel=0 vt.global_cursor_default=0 rd.systemd.show_status=false rd.udev.log_level=3 fsck.mode=skip console=tty2"
+GRUB_CMDLINE_LINUX_DEFAULT="quiet loglevel=0 vt.global_cursor_default=0 rd.systemd.show_status=false rd.udev.log_level=3 fsck.repair=yes console=tty2"
 GRUB_CMDLINE_LINUX=""
 GRUB_DISABLE_OS_PROBER=true
 EOF
@@ -838,7 +829,7 @@ EOF
 fi
 ok
 
-# ─── Phase 10: Permissions ────────────────────────────────────────
+# ─── Phase 12: Permissions ────────────────────────────────────────
 
 step 12 "Setting permissions..."
 
@@ -955,11 +946,34 @@ systemctl restart bluetooth 2>/dev/null || true
 systemctl restart bcm-bluetooth 2>/dev/null || true
 ok
 
-# ─── Phase 11: Quick test ────────────────────────────────────────
+# ─── Phase 13: Hardening (power-loss resilience) ─────────────────
 
-step 13 "Testing BCM (headless)..."
+step 13 "Hardening (power cuts + faster boot)..."
 
-TEST_OUTPUT=$(su - "$BCM_USER" -c "cd $BCM_DIR && source .venv/bin/activate && timeout 10 python main.py --platform x86 --config config/bcm_config.yaml --frontend 2>&1" || true)
+# journald in RAM, shorter writeback, noatime on /, fsck.repair=yes, no
+# apt timers / wait-online / cloud-init, bcm.env scaffold (0600). --no-units:
+# Phase 6 already installed the BCM units. A failure here must not abort
+# the rest of the setup — the script is idempotent and can be re-run.
+if BCM_DIR="$BCM_DIR" bash "$BCM_DIR/config/scripts/bcm-harden.sh" --no-units; then
+    ok
+else
+    warn "bcm-harden.sh failed — preview and re-run it:"
+    warn "  sudo bash $BCM_DIR/config/scripts/bcm-harden.sh --dry-run"
+fi
+
+# ─── Phase 14: Quick test ────────────────────────────────────────
+
+step 14 "Testing BCM (headless)..."
+
+# Same base config as the installed unit (bcm-headunit.service sets
+# BCM_CONFIG=config/bcm_config_test.yaml); BCM_CONFIG in the environment
+# overrides it. Restricted to a plain relative/absolute path because it is
+# spliced into the su -c command line below.
+SMOKE_CONFIG="${BCM_CONFIG:-config/bcm_config_test.yaml}"
+case "$SMOKE_CONFIG" in
+    *[!A-Za-z0-9_./-]*) fail "BCM_CONFIG contains unexpected characters: $SMOKE_CONFIG" ;;
+esac
+TEST_OUTPUT=$(su - "$BCM_USER" -c "cd $BCM_DIR && source .venv/bin/activate && timeout 10 python main.py --platform x86 --config $SMOKE_CONFIG --frontend 2>&1" || true)
 
 if echo "$TEST_OUTPUT" | grep -qi "running on\|serving flask\|started"; then
     echo -e "  ${GREEN}Flask started OK${NC}"
@@ -969,9 +983,9 @@ else
     echo "  (Non-fatal — may work after reboot with displays connected)"
 fi
 
-# ─── Phase 12: Summary ───────────────────────────────────────────
+# ─── Phase 15: Summary ───────────────────────────────────────────
 
-step 14 "Done!"
+step 15 "Done!"
 
 echo ""
 echo "========================================="
@@ -987,6 +1001,15 @@ echo "    - Dashboard appears on $MAIN_OUTPUT"
 echo "    - Touch works on main display"
 echo "    - Power button → suspend (not shutdown)"
 echo "    - Phone sees '$WIFI_SSID' and gets IP"
+echo "    - findmnt -no OPTIONS /   (noatime)"
+echo "    - cat /proc/cmdline       (fsck.repair=yes)"
+echo "    - systemctl list-timers   (bcm-timesync, no apt-daily)"
+echo ""
+echo " BIOS (F1 at power-on): Power → After Power Loss → Power On,"
+echo " otherwise the PC stays off when the ignition brings power back."
+echo ""
+echo " API keys / passwords go to /etc/bcm/bcm.env (root:root 0600):"
+echo "    sudo nano /etc/bcm/bcm.env"
 echo ""
 echo " To replace placeholder splash with your own:"
 echo "    cp your_video.mp4 $BCM_DIR/assets/splash/main.mp4"

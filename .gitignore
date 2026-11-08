@@ -11,6 +11,19 @@ logs/
 dist/
 build/
 .env
+# Runtime config overlay written by BCM (+ .bak, .broken-*, temporaries)
+# and real secrets — never commit them. config/bcm.env.example stays tracked.
+# Unanchored on purpose: the overlay lives next to whichever base YAML is
+# used (e.g. Archive/orange-pi-pc/local.yaml for the archived rig).
+local.yaml*
+.local.yaml.*
+# separate overlays per base, e.g. local-temp.yaml (see config/bcm.env.example)
+local-*.yaml*
+.local-*.yaml.*
+bcm.env
+# Leftovers of src/core/fsutil.py atomic writes (.<name>.XXXX.tmp) cut short
+# by a power cut, e.g. /opt/bcm/.openauto.ini.XXXX.tmp next to openauto.ini.
+.*.tmp
 openauto.ini
 openauto_wifi_recent.ini
 

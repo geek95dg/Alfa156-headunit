@@ -6,11 +6,17 @@ After=multi-user.target bluetooth.target bcm-bluetooth.service
 [Service]
 Type=simple
 
+# Same base config as bcm-headunit (only power.* is read here); override
+# it with BCM_CONFIG in /etc/bcm/bcm.env, which wins over Environment=.
+# For OPi PC (archived): BCM_CONFIG=Archive/orange-pi-pc/bcm_config_opi_pc.yaml
+Environment=BCM_CONFIG=config/bcm_config_test.yaml
+EnvironmentFile=-/etc/bcm/bcm.env
+
 # Resolve the Python venv at service-start time — honour both
 # /opt/bcm/.venv (current manual) and /opt/bcm/venv (older clones).
-# For OPi PC (archived): --config Archive/orange-pi-pc/bcm_config_opi_pc.yaml
-# For x86:    --config config/bcm_config.yaml --autostart
-ExecStart=/bin/bash -c 'VENV=/opt/bcm/.venv; [ -x "$VENV/bin/python" ] || VENV=/opt/bcm/venv; exec "$VENV/bin/python" -m src.power.ignition_watcher --config config/bcm_config.yaml --autostart --service bcm-headunit.service'
+# "$$" is systemd's escape for a literal "$" (see bcm-headunit-x86.service):
+# bash, not systemd, expands ${BCM_CONFIG:-...}.
+ExecStart=/bin/bash -c 'VENV=/opt/bcm/.venv; [ -x "$VENV/bin/python" ] || VENV=/opt/bcm/venv; exec "$VENV/bin/python" -m src.power.ignition_watcher --config "$${BCM_CONFIG:-config/bcm_config_test.yaml}" --autostart --service bcm-headunit.service'
 WorkingDirectory=/opt/bcm
 Environment=PYTHONPATH=/opt/bcm
 

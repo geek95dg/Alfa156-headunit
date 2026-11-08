@@ -98,34 +98,18 @@ EOF
 fi
 
 echo "==> 4/6  Installing NAT helper for internet sharing"
-cat > /usr/local/bin/bcm-nat.sh <<'NATEOF'
-#!/bin/bash
-set -u
-AP_IFACE="${AP_IFACE:-wlp2s0}"
-log() { logger -t bcm-nat "$*"; echo "[bcm-nat] $*"; }
-[ -d "/sys/class/net/$AP_IFACE" ] || { log "AP iface $AP_IFACE missing"; exit 0; }
-sysctl -w net.ipv4.ip_forward=1 >/dev/null 2>&1 || true
-for up in $(ls /sys/class/net); do
-    [ "$up" = "lo" ] && continue
-    [ "$up" = "$AP_IFACE" ] && continue
-    state=$(cat "/sys/class/net/$up/operstate" 2>/dev/null || echo down)
-    [ "$state" = "up" ] || continue
-    iptables -t nat -C POSTROUTING -o "$up" -j MASQUERADE 2>/dev/null \
-        || iptables -t nat -A POSTROUTING -o "$up" -j MASQUERADE
-    iptables -C FORWARD -i "$up" -o "$AP_IFACE" -m state \
-        --state RELATED,ESTABLISHED -j ACCEPT 2>/dev/null \
-        || iptables -A FORWARD -i "$up" -o "$AP_IFACE" -m state \
-                  --state RELATED,ESTABLISHED -j ACCEPT
-    iptables -C FORWARD -i "$AP_IFACE" -o "$up" -j ACCEPT 2>/dev/null \
-        || iptables -A FORWARD -i "$AP_IFACE" -o "$up" -j ACCEPT
-    log "NAT enabled: $AP_IFACE -> $up"
-done
-exit 0
-NATEOF
-chmod +x /usr/local/bin/bcm-nat.sh
+# Tracked script, the same file setup-x86.sh installs (it used to be a
+# heredoc here that had drifted: operstate==up only, so LTE (operstate
+# unknown) was skipped, and bnep*/p2p-* were NAT-ed like real uplinks).
+install -m 0755 "$BCM_DIR/config/scripts/bcm-nat.sh" /usr/local/bin/bcm-nat.sh
 
 AP_IFACE_DETECTED=$(awk -F= '/^interface=/{print $2; exit}' /etc/hostapd/hostapd.conf 2>/dev/null)
 AP_IFACE_DETECTED=${AP_IFACE_DETECTED:-wlp2s0}
+# No ExecStartPost with a half-minute sleep here (an older revision had
+# one): it held bcm-nat.service in "activating" for 30 s on every boot,
+# at the top of systemd-analyze blame.
+# Uplinks that come up late are handled by bcm-nat-late.timer below,
+# exactly as setup-x86.sh does it.
 cat > /etc/systemd/system/bcm-nat.service <<EOF
 [Unit]
 Description=BCM — NAT internet sharing from AP via uplink
@@ -137,11 +121,32 @@ Type=oneshot
 RemainAfterExit=yes
 Environment=AP_IFACE=$AP_IFACE_DETECTED
 ExecStart=/usr/local/bin/bcm-nat.sh
-ExecStartPost=/bin/bash -c 'sleep 30 && /usr/local/bin/bcm-nat.sh'
-TimeoutStartSec=90
+TimeoutStartSec=20
 
 [Install]
 WantedBy=multi-user.target
+EOF
+
+cat > /etc/systemd/system/bcm-nat-late.service <<EOF
+[Unit]
+Description=BCM — re-apply NAT once uplink has settled
+After=bcm-nat.service
+
+[Service]
+Type=oneshot
+Environment=AP_IFACE=$AP_IFACE_DETECTED
+ExecStart=/usr/local/bin/bcm-nat.sh
+EOF
+cat > /etc/systemd/system/bcm-nat-late.timer <<EOF
+[Unit]
+Description=BCM — fire bcm-nat once 30 s after boot
+
+[Timer]
+OnBootSec=30s
+Unit=bcm-nat-late.service
+
+[Install]
+WantedBy=timers.target
 EOF
 
 # Persist IP forwarding
@@ -155,7 +160,9 @@ sysctl -w net.ipv4.ip_forward=1 >/dev/null 2>&1 || true
 echo "==> 5/6  Reloading systemd + enabling units"
 systemctl daemon-reload
 systemctl enable bcm-nat.service 2>/dev/null || true
+systemctl enable bcm-nat-late.timer 2>/dev/null || true
 systemctl restart bcm-nat.service 2>/dev/null || true
+systemctl start bcm-nat-late.timer 2>/dev/null || true
 systemctl restart bcm-bluetooth.service 2>/dev/null || true
 
 echo "==> 6/6  Done."

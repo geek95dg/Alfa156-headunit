@@ -249,9 +249,18 @@ const Settings = {
                 Settings._wifi.status = d.error || "Save failed";
             } else {
                 Settings._wifi.restartRequired = !!d.restart_required;
-                Settings._wifi.status = d.restart_required
-                    ? "Saved — toggle Wi-Fi AP to apply"
-                    : "Saved";
+                const apply = d.restart_required ? " — toggle Wi-Fi AP to apply" : "";
+                // The change is live in both cases below, but would quietly
+                // revert on the next BCM restart — say so instead of "Saved".
+                // Strict checks: an older server without these fields = saved.
+                if (Array.isArray(d.env_managed) && d.env_managed.length) {
+                    Settings._wifi.status = "Applied until restart — password is " +
+                        "managed by /etc/bcm/bcm.env" + apply;
+                } else if (d.persisted === false) {
+                    Settings._wifi.status = "Applied, but NOT saved (lost on restart)" + apply;
+                } else {
+                    Settings._wifi.status = "Saved" + apply;
+                }
             }
         } catch (e) {
             Settings._wifi.status = "Save failed (network)";

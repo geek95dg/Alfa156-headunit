@@ -26,6 +26,7 @@ import time
 from typing import Any, Optional
 
 from src.core.event_bus import EventBus
+from src.core.fsutil import atomic_write_json
 from src.core.logger import get_logger
 
 log = get_logger("multimedia.phonebook")
@@ -379,16 +380,17 @@ class PhonebookSync:
         contacts = self._pull_book(bus, pbap, "internal", "pb")
         history = self._pull_book(bus, pbap, "internal", "cch")
 
-        # Persist cache
+        # Persist cache — atomically (a power cut mid-write must not leave
+        # a truncated file) and 0600: contacts and call history are personal
+        # data of the phone owner.
         try:
-            with open(_cache_path(addr), "w") as f:
-                json.dump({
-                    "addr": addr,
-                    "contacts": contacts,
-                    "history": history,
-                    "pulled_at": int(time.time()),
-                }, f)
-        except OSError as e:
+            atomic_write_json(_cache_path(addr), {
+                "addr": addr,
+                "contacts": contacts,
+                "history": history,
+                "pulled_at": int(time.time()),
+            }, mode=0o600)
+        except (OSError, TypeError, ValueError) as e:
             log.debug("PBAP cache write failed: %s", e)
 
         # Cache keeps the raw vCard-parsed records (full numbers list);

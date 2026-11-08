@@ -11,6 +11,7 @@ Publishes to event bus:
 """
 
 import json
+from src.core.fsutil import atomic_write_json
 from src.core.logger import get_logger
 import threading
 import time
@@ -159,8 +160,10 @@ class WeatherManager:
         if not self._api_key:
             log.warning("No weather API key — staying on demo/cached data")
         else:
-            log.info("Weather API key set, will fetch real data (key=%s...)",
-                     self._api_key[:8])
+            # Never log the key itself (not even a prefix) — logs/bcm.log
+            # and the journal are not secret stores.
+            log.info("Weather API key set (%d chars), will fetch real data",
+                     len(self._api_key))
 
         _first_fetch = True  # Skip poll_interval on first attempt
         while self._running:
@@ -333,12 +336,14 @@ class WeatherManager:
 
     @staticmethod
     def _save_cache(data: dict):
-        """Save weather data to disk cache."""
+        """Save weather data to disk cache.
+
+        Atomic (temp file + rename): a power cut mid-write used to leave a
+        truncated JSON behind. 0600 — the payload includes the location.
+        """
         try:
-            CACHE_DIR.mkdir(parents=True, exist_ok=True)
             data["_ts"] = time.time()
-            with open(CACHE_FILE, "w") as f:
-                json.dump(data, f)
+            atomic_write_json(CACHE_FILE, data, mode=0o600)
         except Exception as e:
             log.warning("Weather cache save failed: %s", e)
 
