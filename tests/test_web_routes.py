@@ -633,3 +633,366 @@ class TestWeatherLocationRoute:
         res = env.client.post("/api/weather/location", json=body)
         assert res.status_code == 400
         assert seen == []
+
+
+# ── Trips + GPX (src/location/tracker.py) ────────────────────────────────
+
+class _TrackerCfg:
+    def __init__(self, db):
+        self._data = {"tracking.db_path": db, "tracking.interval_sec": 0,
+                      "tracking.trip_end_idle_sec": 0}
+
+    def get(self, key, default=None):
+        return self._data.get(key, default)
+
+
+@pytest.fixture
+def tracker(env, tmp_path):
+    from src.location.tracker import start_tracker
+    trk = start_tracker(config=_TrackerCfg(str(tmp_path / "trips.db")), event_bus=env.bus)
+    yield trk
+    trk.stop()
+
+
+def _drive(bus):
+    for lat, speed in ((52.2297, 50.0), (52.2397, 60.0), (52.2497, 0.0), (52.2497, 0.0)):
+        bus.publish("gps.position", {"lat": lat, "lon": 21.0122, "speed": speed,
+                                     "heading": 0.0, "alt": 100.0, "altitude": 100.0,
+                                     "fix": True})
+
+
+class _FakeTracker:
+    """list_trips/get_trip/export_gpx recorder for the edge cases."""
+
+    def __init__(self, trips=(), points=0):
+        self.trips = list(trips)
+        self.points = points
+        self.limits = []
+
+    def list_trips(self, limit=50):
+        self.limits.append(limit)
+        return self.trips
+
+    def get_trip(self, trip_id):
+        return {"trip_id": trip_id, "start_ts": 0, "points": self.points}
+
+    def export_gpx(self, trip_id):
+        raise AssertionError("must not export a trip without points")
+
+
+class TestTripsRoutes:
+    def test_503_when_tracking_module_is_off(self, env):
+        assert env.client.get("/api/tracking/trips").status_code == 503
+        assert env.client.get("/api/tracking/trips").get_json()["trips"] == []
+        assert env.client.get("/api/tracking/trips/1.gpx").status_code == 503
+        res = env.client.get("/trips")
+        assert res.status_code == 503 and "modules.tracking" in res.get_data(as_text=True)
+
+    def test_trip_list_json(self, env, tracker):
+        _drive(env.bus)
+        res = env.client.get("/api/tracking/trips")
+        assert res.status_code == 200
+        trips = res.get_json()["trips"]
+        assert len(trips) == 1
+        trip = trips[0]
+        assert trip["trip_id"] == 1 and trip["points"] >= 3 and trip["distance_km"] > 0
+        assert trip["end_ts"] is not None
+        assert trip["gpx_url"] == "/api/tracking/trips/1.gpx"
+
+    @pytest.mark.parametrize("raw, expected", [
+        (None, 50), ("0", 1), ("-5", 1), ("7", 7), ("500", 500), ("100000", 500),
+        ("abc", 50), ("1e3", 50), ("", 50), ("9" * 40, 50), ("٣", 50),
+        ("--5", 50), ("+5", 50), ("5-", 50), ("-", 50), ("0x10", 50),
+    ])
+    def test_limit_is_clamped(self, env, raw, expected):
+        fake = _FakeTracker()
+        env.bus.publish("tracking._internals", {"tracker": fake})
+        from urllib.parse import quote
+        url = "/api/tracking/trips" + ("" if raw is None else "?limit=" + quote(raw))
+        assert env.client.get(url).status_code == 200
+        assert fake.limits == [expected]
+
+    def test_gpx_download(self, env, tracker):
+        import xml.etree.ElementTree as ET
+        _drive(env.bus)
+        start_ts = tracker.get_trip(1)["start_ts"]
+        res = env.client.get("/api/tracking/trips/1.gpx")
+        assert res.status_code == 200
+        assert res.mimetype == "application/gpx+xml"
+        day = time.strftime("%Y%m%d", time.localtime(start_ts))
+        assert res.headers["Content-Disposition"] == f'attachment; filename="bcm-trip-1-{day}.gpx"'
+        assert res.headers["X-Content-Type-Options"] == "nosniff"
+        root = ET.fromstring(res.data)
+        assert root.tag == "{http://www.topografix.com/GPX/1/1}gpx"
+        assert len(root.findall(".//{http://www.topografix.com/GPX/1/1}trkpt")) >= 3
+
+    def test_gpx_404s(self, env, tracker):
+        assert env.client.get("/api/tracking/trips/999.gpx").status_code == 404
+        assert env.client.get("/api/tracking/trips/" + "9" * 30 + ".gpx").status_code == 404
+        assert env.client.get("/api/tracking/trips/-1.gpx").status_code == 404
+        assert env.client.get("/api/tracking/trips/abc.gpx").status_code == 404
+
+    def test_gpx_404_for_a_trip_without_points(self, env):
+        env.bus.publish("tracking._internals", {"tracker": _FakeTracker(points=0)})
+        assert env.client.get("/api/tracking/trips/3.gpx").status_code == 404
+
+    def test_trips_page_lists_and_links(self, env, tracker):
+        _drive(env.bus)
+        res = env.client.get("/trips")
+        assert res.status_code == 200 and res.mimetype == "text/html"
+        body = res.get_data(as_text=True)
+        assert "Zapisane trasy" in body and "Trasa 1" in body
+        assert 'href="/api/tracking/trips/1.gpx"' in body
+        assert "default-src 'none'" in res.headers["Content-Security-Policy"]
+        assert "<script" not in body and 'class="' not in body   # inline styles only
+
+    def test_trips_page_escapes_everything(self, env):
+        env.bus.publish("tracking._internals", {"tracker": _FakeTracker(trips=[
+            {"trip_id": 5, "start_ts": "<b>x</b>", "end_ts": None, "distance_km": "<i>",
+             "avg_speed": None, "max_speed": float("nan"), "points": 0},
+            {"trip_id": "<script>alert(1)</script>"},
+            "garbage",
+        ])})
+        env.bus.publish("gps.fix", True)
+        env.bus.publish("gps.source_state", {"source": "udp",
+                                             "peer": "<script>alert(1)</script>"})
+        res = env.client.get("/trips")
+        body = res.get_data(as_text=True)
+        assert res.status_code == 200
+        assert "<script" not in body and "<b>" not in body and "<i>" not in body
+        assert "&lt;script&gt;" in body                   # the peer, escaped
+        assert "Trasa 5" in body and "w trakcie" in body and "brak punktów" in body
+
+
+# ── Network access policy ────────────────────────────────────────────────
+
+def _policy_client(env, mode, networks=None):
+    env.cfg.set("dashboard.remote_access", mode)
+    if networks is not None:
+        env.cfg.set("dashboard.allowed_networks", networks)
+    return env.viewer._build_app().test_client()
+
+
+def _as(addr, host="10.0.0.1:5002"):
+    """Request from ``addr`` with this ``Host`` header (an IP by default,
+    as a phone browser opening http://10.0.0.1:5002/trips sends)."""
+    return {"environ_base": {"REMOTE_ADDR": addr},
+            "environ_overrides": {"HTTP_HOST": host}}
+
+
+class TestAccessPolicy:
+    def test_production_default_is_full_from_anywhere(self, env):
+        assert env.cfg.get("dashboard.remote_access") is None
+        assert env.client.get("/api/data", **_as("8.8.8.8")).status_code == 200
+
+    def test_outside_allowed_networks_is_403(self, env, tracker):
+        client = _policy_client(env, "tracking")
+        res = client.get("/trips", **_as("8.8.8.8"))
+        assert res.status_code == 403
+        assert res.get_json()["config_key"] == "dashboard.allowed_networks"
+
+    def test_tracking_mode_allows_trips_only(self, env, tracker):
+        client = _policy_client(env, "tracking")
+        seen = []
+        env.bus.subscribe("net.phone_tether.cmd.retry", lambda t, v, ts: seen.append(v))
+        phone = _as("10.0.0.23")
+        assert client.get("/trips", **phone).status_code == 200
+        assert client.get("/api/tracking/trips", **phone).status_code == 200
+        assert client.get("/api/data", **phone).status_code == 403
+        assert client.get("/", **phone).status_code == 403
+        assert client.get("/no/such/page", **phone).status_code == 403
+        res = client.post("/api/phone_tether/retry", **phone)
+        assert res.status_code == 403
+        body = res.get_json()
+        assert body["config_key"] == "dashboard.remote_access" and "/trips" in body["hint"]
+        assert seen == []
+
+    @pytest.mark.parametrize("addr", ["127.0.0.1", "127.0.0.2", "::1", "::ffff:127.0.0.1"])
+    def test_loopback_kiosk_always_has_full_access(self, env, addr):
+        for mode in ("tracking", "none", "readonly"):
+            client = _policy_client(env, mode)
+            assert client.get("/api/data", **_as(addr)).status_code == 200
+            assert client.post("/api/phone_tether/retry", **_as(addr)).status_code in (200, 429)
+
+    def test_readonly_mode(self, env):
+        client = _policy_client(env, "readonly")
+        lan = _as("192.168.1.50")
+        assert client.get("/api/data", **lan).status_code == 200
+        assert client.head("/api/config", **lan).status_code == 200
+        assert client.post("/api/phone_tether/retry", **lan).status_code == 403
+        assert client.post("/api/weather/location", json={"lat": 1, "lon": 2},
+                           **lan).status_code == 403
+        assert client.get("/api/wifi/config", **lan).status_code == 403    # passwords
+
+    def test_readonly_refuses_gets_with_side_effects(self, env):
+        client = _policy_client(env, "readonly")
+        lan = _as("192.168.1.50")
+        requests_seen = []
+        env.bus.subscribe("obd.dtc.read_request", lambda t, v, ts: requests_seen.append(v))
+        assert client.get("/api/dtc/read", **lan).status_code == 403     # K-Line to the ECU
+        assert requests_seen == []
+        assert client.get("/api/weather/search?q=Milano", **lan).status_code == 403
+        assert client.get("/api/trip/search?q=Milano", **lan).status_code == 403
+
+    def test_every_get_view_is_classified_for_readonly(self, env):
+        # A new GET route must be put on the allow-list or the deny-list
+        # deliberately — an unclassified one is refused from the network.
+        app = env.viewer._build_app()
+        gets = {rule.endpoint for rule in app.url_map.iter_rules()
+                if "GET" in (rule.methods or ())}
+        assert not wv._READONLY_ENDPOINTS & wv._READONLY_DENIED_ENDPOINTS
+        assert gets == wv._READONLY_ENDPOINTS | wv._READONLY_DENIED_ENDPOINTS
+
+    @pytest.mark.parametrize("mode", ["tracking", "readonly"])
+    def test_dns_rebinding_host_is_refused(self, env, tracker, mode):
+        client = _policy_client(env, mode)
+        res = client.get("/trips", **_as("10.0.0.23", host="evil.example:5002"))
+        assert res.status_code == 403
+        body = res.get_json()
+        assert body["config_key"] == "dashboard.allowed_hosts" and "10.0.0.1" in body["hint"]
+        assert client.get("/api/tracking/trips/1.gpx",
+                          **_as("10.0.0.23", host="evil.example")).status_code == 403
+        assert client.get("/trips", **_as("10.0.0.23")).status_code == 200
+        assert client.get("/trips", **_as("10.0.0.23", host="[fe80::1]:5002")).status_code == 200
+        # The kiosk is not affected (a rebinding page cannot come from here).
+        assert client.get("/trips", **_as("127.0.0.1", host="localhost:5002")).status_code == 200
+
+    def test_allowed_hosts_lets_a_name_through(self, env, tracker):
+        env.cfg.set("dashboard.allowed_hosts", ["BCM.local.", "bad name", 5])
+        client = _policy_client(env, "tracking")
+        assert client.get("/trips", **_as("10.0.0.23", host="bcm.local:5002")).status_code == 200
+        assert client.get("/trips", **_as("10.0.0.23", host="evil.example")).status_code == 403
+
+    def test_full_mode_does_not_check_host(self, env):
+        # Production default: the legacy behaviour, whatever the Host.
+        assert env.client.get("/api/data", **_as("8.8.8.8", host="car.example")).status_code == 200
+
+    def test_none_mode_and_typos_fail_closed(self, env, tracker):
+        for mode in ("none", "readonyl", 5):
+            client = _policy_client(env, mode)
+            assert client.get("/trips", **_as("10.0.0.23")).status_code == 403
+            assert client.get("/trips").status_code == 200        # loopback
+
+    def test_custom_networks_and_bad_entries(self, env, tracker):
+        client = _policy_client(env, "tracking", ["10.0.0.0/24", "not-a-cidr"])
+        assert client.get("/trips", **_as("10.0.0.23")).status_code == 200
+        assert client.get("/trips", **_as("10.0.1.23")).status_code == 403
+        assert client.get("/trips", **_as("192.168.1.2")).status_code == 403
+
+    def test_policy_endpoints_exist(self, env):
+        app = env.viewer._build_app()
+        names = set(app.view_functions)
+        assert wv._TRACKING_ENDPOINTS <= names
+        assert wv._READONLY_ENDPOINTS <= names
+        assert wv._READONLY_DENIED_ENDPOINTS <= names
+        assert {"ws_data_handler", "ws_input_handler"} <= names
+
+    def test_refusals_are_logged_once_per_minute(self, env, monkeypatch):
+        lines = []
+        monkeypatch.setattr(wv.log, "info", lambda msg, *a: lines.append(msg % a))
+        client = _policy_client(env, "none")
+        for _ in range(5):
+            client.get("/api/data", **_as("10.0.0.23"))
+        client.get("/api/data", **_as("10.0.0.24"))
+        refused = [line for line in lines if line.startswith("Refused")]
+        assert len(refused) == 2
+        assert "dashboard.remote_access" in refused[0]
+
+    @pytest.mark.parametrize("addr, method, endpoint, mode, allowed", [
+        ("10.0.0.5", "GET", "trips_page", "tracking", True),
+        ("10.0.0.5", "HEAD", "api_tracking_trip_gpx", "tracking", True),
+        ("10.0.0.5", "POST", "trips_page", "tracking", False),
+        ("10.0.0.5", "GET", None, "tracking", False),
+        ("10.0.0.5", "GET", "ws_data_handler", "readonly", True),
+        ("10.0.0.5", "GET", "ws_input_handler", "readonly", False),
+        ("10.0.0.5", "DELETE", "api_dvr_delete", "readonly", False),
+        ("10.0.0.5", "GET", "api_dtc_read", "readonly", False),
+        ("10.0.0.5", "GET", "api_weather_search", "readonly", False),
+        ("10.0.0.5", "GET", "api_trip_search", "readonly", False),
+        ("10.0.0.5", "GET", "some_future_view", "readonly", False),
+        ("10.0.0.5", "GET", None, "readonly", False),
+        ("10.0.0.5", "GET", "api_data", "readonly", True),
+        ("8.8.8.8", "POST", "api_system_reboot", "full", True),
+        ("8.8.8.8", "GET", "trips_page", "readonly", False),
+        ("", "GET", "trips_page", "tracking", False),
+        (None, "GET", "trips_page", "tracking", False),
+        ("fe80::1%wlan0", "GET", "trips_page", "tracking", False),
+        ("::1", "POST", "api_system_reboot", "none", True),
+    ])
+    def test_decision_table(self, addr, method, endpoint, mode, allowed):
+        nets = tuple(wv.ipaddress.ip_network(n) for n in wv._DEFAULT_ALLOWED_NETWORKS)
+        decision = wv._access_decision(addr, method, endpoint, mode, nets, "10.0.0.1:5002")
+        assert (decision is None) is allowed
+
+    @pytest.mark.parametrize("host, allowed", [
+        ("10.0.0.1:5002", True),
+        ("10.0.0.1", True),
+        ("192.168.44.23:5002", True),
+        ("[fe80::1]:5002", True),
+        ("[::1]", True),
+        ("bcm.local:5002", True),          # in allowed_hosts
+        ("BCM.LOCAL.", True),
+        ("evil.example:5002", False),
+        ("10.0.0.1.nip.io:5002", False),
+        ("0x0a000001:5002", False),        # numeric forms only browsers decode
+        ("localhost:5002", False),         # from a remote address: not a browser
+        ("[fe80::1", False),
+        ("", False),
+        (None, False),
+    ])
+    def test_host_header_table(self, host, allowed):
+        nets = tuple(wv.ipaddress.ip_network(n) for n in wv._DEFAULT_ALLOWED_NETWORKS)
+        decision = wv._access_decision("10.0.0.23", "GET", "trips_page", "tracking", nets,
+                                       host, ("bcm.local",))
+        assert (decision is None) is allowed
+        if not allowed:
+            assert decision[0] == "dashboard.allowed_hosts"
+
+
+class _FakeDataWS(_FakeWSServer):
+    def __init__(self, environ, **kw):
+        super().__init__(environ, **kw)
+        self.sent = []
+
+    def send(self, data):
+        self.sent.append(data)
+
+
+class TestWebSocketPolicy:
+    @pytest.fixture
+    def ws_env(self, env, monkeypatch):
+        import flask_sock
+        _FakeWSServer.instances = []
+        monkeypatch.setattr(flask_sock, "Server", _FakeDataWS)
+        env.viewer._running = True
+        yield env
+        env.viewer._running = False
+
+    def _open(self, client, path, addr="127.0.0.1", origin=None, host="localhost:5002"):
+        headers = {"Upgrade": "websocket", "Connection": "Upgrade",
+                   "Sec-WebSocket-Key": "dGhlIHNhbXBsZSBub25jZQ==",
+                   "Sec-WebSocket-Version": "13", "Host": host}
+        if origin is not None:
+            headers["Origin"] = origin
+        return client.get(path, headers=headers, **_as(addr, host))
+
+    def test_data_socket_checks_origin(self, ws_env):
+        self._open(ws_env.client, "/ws", origin="http://evil.example")
+        ws = _FakeWSServer.instances[-1]
+        assert ws.sent == [] and ws.received == 0
+        self._open(ws_env.client, "/ws", origin="http://localhost:5002")
+        ws = _FakeWSServer.instances[-1]
+        assert len(ws.sent) == 1 and json.loads(ws.sent[0])["gps_fix"] is False
+
+    def test_policy_runs_before_the_websocket_handshake(self, ws_env):
+        client = _policy_client(ws_env, "readonly")
+        res = self._open(client, "/ws/input", addr="10.0.0.23", host="10.0.0.1:5002",
+                         origin="http://10.0.0.1:5002")
+        assert res.status_code == 403
+        assert _FakeWSServer.instances == []          # never reached flask_sock
+        self._open(client, "/ws", addr="10.0.0.23", host="10.0.0.1:5002",
+                   origin="http://10.0.0.1:5002")
+        assert len(_FakeWSServer.instances) == 1      # the data socket is a view
+        client = _policy_client(ws_env, "tracking")
+        res = self._open(client, "/ws", addr="10.0.0.23", host="10.0.0.1:5002")
+        assert res.status_code == 403 and len(_FakeWSServer.instances) == 1

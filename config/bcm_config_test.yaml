@@ -66,6 +66,11 @@ modules:
                            # w telefonie włącz „Tethering przez Bluetooth”
   weather: true            # OpenWeatherMap; klucz z /etc/bcm/bcm.env
                            # (BCM_OWM_API_KEY) — bez klucza dane demo
+  location: true           # GPS Z TELEFONU (NMEA po UDP z aplikacji
+                           # GPSd Forwarder, zapas: TCP po Bluetooth PAN) —
+                           # blok hardware.gps niżej
+  tracking: true           # zapis tras do SQLite + lista tras i GPX:
+                           # http://10.0.0.1:5002/trips w przeglądarce telefonu
 
   # --- WYŁĄCZONE: brak podłączonego sprzętu ---
   obd: false               # brak CP2102 + L9637D
@@ -76,8 +81,6 @@ modules:
                            # reaguje tylko na zdarzenia sim.ignition /
                            # sim.reverse_gear — brak wejścia GPIO, więc
                            # odcięcie domeny B robi sprzęt, nie ten moduł
-  location: false          # brak GPS
-  tracking: false          # zależy od GPS
   blinker_monitor: false   # brak sygnałów z auta
   rain_sensor: false
   central_lock: false      # brak Nano #1 i modułu przekaźników
@@ -104,6 +107,24 @@ modules:
                            # /etc/bcm/bcm.env: BCM_ORS_API_KEY (bez niego trasa
                            # w linii prostej), BCM_TOMTOM_API_KEY (utrudnienia)
   small_display: false     # jeden ekran w wariancie testowym
+dashboard:
+  # Kto z SIECI może korzystać z dashboardu na porcie 5002 (kiosk na tym
+  # komputerze — 127.0.0.1 — ma zawsze pełny dostęp):
+  #   full     — wszystko, z każdego adresu (stare zachowanie, domyślne w kodzie)
+  #   readonly — tylko podgląd (GET i strumień /ws), bez sterowania i haseł
+  #   tracking — z sieci TYLKO lista tras i pliki GPX (/trips, /api/tracking/*)
+  #   none     — z sieci nic
+  # Tutaj tracking: telefon w sieci AA albo po PAN pobierze GPX, ale nie
+  # zrestartuje komputera ani nie odczyta haseł Wi-Fi. Do debugowania
+  # z laptopa wpisz `dashboard: {remote_access: full}` w config/local.yaml.
+  remote_access: tracking
+  # Spoza tych sieci (gdy tryb nie jest full) każda prośba dostaje 403.
+  allowed_networks: ['10.0.0.0/8', '172.16.0.0/12', '192.168.0.0/16']
+  # Z sieci (gdy tryb nie jest full) dashboard otwiera się tylko po adresie IP
+  # (http://10.0.0.1:5002/trips) — obcy serwis nie podstawi wtedy swojej nazwy
+  # pod 10.0.0.1 (DNS rebinding) i nie wyczyta tras z przeglądarki telefonu.
+  # Nazwy, które mają działać mimo to, wpisz tutaj, np. ['bcm.local'].
+  allowed_hosts: []
 display:
   # Wariant testowy: panel 7" 1024x600.
   # Docelowo 10,1" 1280x800 — wartości produkcyjne w bcm_config.yaml.
@@ -161,8 +182,44 @@ obd:
 hardware:
   gps:
     enabled: true
-    port: /dev/ttyUSB0
+    # Skąd brać NMEA: auto | demo | serial | udp | tcp albo lista — wszystkie
+    # wejścia z listy działają naraz i karmią jeden parser. auto = stare
+    # zachowanie (x86 → trasa demo po Mediolanie). W aucie nie ma odbiornika
+    # GPS, więc pozycję daje telefon:
+    #   • udp — aplikacja GPSd Forwarder (F-Droid) w telefonie wysyła zdania
+    #     NMEA na 10.0.0.1, port 10110 (UDP) przez Wi-Fi Android Auto;
+    #     w telefonie lokalizacja „zawsze” i bez optymalizacji baterii;
+    #   • tcp — zapas: aplikacja „serwer NMEA TCP” w telefonie, BCM łączy się
+    #     przez Bluetooth PAN (host pan-gateway = telefon, brama interfejsu
+    #     bnep*; wymaga internetu z telefonu, moduł phone_tether).
+    # Pozycja trafia dalej tylko przy ważnym fixie; zegara systemowego NIE
+    # ustawiamy z NMEA (UDP da się podrobić) — od tego jest bcm-timesync.
+    # Podgląd: sudo tcpdump -ni any udp port 10110; dane gps_* w /api/data.
+    source: [udp, tcp]
+    port: /dev/ttyUSB0       # tylko dla source: serial (też /dev/rfcomm0)
     baudrate: 9600
+    # Po tylu sekundach bez ważnej pozycji gps.fix = false.
+    stale_sec: 5
+    # Zdania bez sumy kontrolnej (*hh) są odrzucane.
+    require_checksum: true
+    udp:
+      bind: 0.0.0.0
+      port: 10110
+      # Skąd przyjmować datagramy: sieć Wi-Fi Direct AA (telefon dostaje
+      # 10.0.0.x), lokalne testy (nc -u 127.0.0.1 10110) i „pan” = podsieć
+      # Bluetooth PAN z telefonem (interfejsy bnep*). Reszta jest ignorowana
+      # (jeden wpis w logu na minutę na nadawcę).
+      allowed_sources: ['10.0.0.0/24', '127.0.0.0/8', pan]
+      # Największy przyjmowany datagram (bajty). Część aplikacji wysyła całą
+      # epokę naraz — z kilkoma systemami GNSS to ponad 2 KiB zdań GSV.
+      max_datagram: 8192
+    tcp:
+      host: pan-gateway
+      # Port ustawiony w aplikacji serwera NMEA w telefonie.
+      port: 50000
+      connect_timeout: 5
+      # Ponowne łączenie: 1 s, 2 s, 4 s … najwyżej co tyle sekund.
+      backoff_max_sec: 60
   lte:
     enabled: true
     device: ''
@@ -433,10 +490,14 @@ crash_detection:
   post_crash_record_sec: 60
 tracking:
   db_path: data/gps_tracks.db
-  interval_sec: 30
+  # Punkt trasy co 5 s (produkcja: 30 s) — dokładniejszy ślad w GPX.
+  interval_sec: 5
   trip_start_kmh: 5
   trip_end_kmh: 2
   trip_end_idle_sec: 60
+  # Trasa zamyka się sama po tylu sekundach bez pozycji z GPS (telefon
+  # wyszedł z auta, aplikacja GPS przestała wysyłać).
+  no_fix_close_sec: 300
   lte_sync_min: 15
   geofence_lat: 0
   geofence_lon: 0

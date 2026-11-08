@@ -9,8 +9,12 @@ Replaces the old Pygame frame-streaming viewer.
 """
 
 import glob
+import html
+import ipaddress
 import json
+import math
 import os
+import re
 import select
 import shutil
 import subprocess
@@ -89,8 +93,10 @@ def _ws_origin_allowed(origin: Optional[str], host: Optional[str]) -> bool:
     http/https, host:port equal to the ``Host`` header; the kiosk uses
     http://localhost:5002 and connects to ``location.host``). A missing
     Origin is a non-browser client and stays allowed. Not a defence against
-    DNS rebinding (there Origin and Host agree) — the network access policy
-    is the layer for that.
+    DNS rebinding (there Origin and Host agree): the network access policy
+    (_access_decision) covers that in readonly/tracking by requiring an IP
+    address or a dashboard.allowed_hosts name in Host. In ``full`` mode
+    (the legacy default) nothing does — that mode trusts the whole network.
     """
     if origin is None:
         return True
@@ -255,6 +261,328 @@ def _phone_tether_summary(value: Any) -> Optional[dict]:
     }
 
 
+# ── Network access policy (Flask before_request) ─────────────────────────
+# The dashboard listens on 0.0.0.0:5002 without authentication: anyone who
+# can reach it could reboot the car PC, read the Wi-Fi passwords or type
+# into Android Auto. dashboard.remote_access limits what NON-loopback
+# clients may do; the kiosk itself (Chromium on this machine, 127.0.0.1/::1)
+# always has full access, whatever the mode.
+#
+#   full      every client, every route, from anywhere — the legacy
+#             behaviour and the code default (production unchanged).
+#             allowed_networks is NOT applied in this mode.
+#   readonly  GET/HEAD views on the allow-list _READONLY_ENDPOINTS and the
+#             data WebSocket (/ws) from allowed_networks; never POST/DELETE
+#             or /ws/input. An ALLOW-list on purpose: a GET with side
+#             effects (/api/dtc/read talks to the ECU, the geocoding
+#             searches spend the API key quota) or one that hands out
+#             secrets must not become reachable just because it is a GET,
+#             and a route added later stays kiosk-only until someone
+#             decides otherwise (tests/test_web_routes.py makes every GET
+#             view be classified). Everything the dashboard shows (phone,
+#             media, position) is still visible — it is a view.
+#   tracking  only the trip list and GPX download (/trips, /api/tracking/*)
+#             from allowed_networks — the test car's setting: the phone
+#             browser fetches GPX, nothing else is reachable from Wi-Fi/PAN.
+#   none      loopback only.
+#
+# Outside dashboard.allowed_networks every request is refused unless the
+# mode is full. In readonly/tracking the Host header must also be an IP
+# address or a name listed in dashboard.allowed_hosts: that defeats DNS
+# rebinding, where a page from a hostile site in the phone's browser has
+# its name re-pointed at 10.0.0.1 — the request then comes from the phone
+# (an allowed network) with Host "evil.example:5002", and Origin agrees
+# with Host, so the /ws Origin check cannot see it.
+# The decision is made on the matched endpoint (the view
+# that would run), not on the raw path, so ".." / "//" / encoding tricks
+# cannot reach a view the mode does not list; unknown URLs are refused
+# too. flask-sock WebSocket routes are ordinary Flask routes, so the
+# before_request hook runs before their handshake as well.
+# X-Forwarded-For is ignored on purpose: there is no proxy in front of
+# the dashboard, and the header is whatever the client wants it to be.
+_REMOTE_ACCESS_MODES = ("full", "readonly", "tracking", "none")
+_DEFAULT_ALLOWED_NETWORKS = ("10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16")
+_SAFE_METHODS = ("GET", "HEAD")
+#: Views reachable from the network in "tracking" mode (GET/HEAD only).
+_TRACKING_ENDPOINTS = frozenset({"trips_page", "api_tracking_trips", "api_tracking_trip_gpx"})
+#: GET views reachable from the network in "readonly" mode — read-only
+#: views of what the dashboard shows (static files, state, lists).
+_READONLY_ENDPOINTS = frozenset({
+    "index", "static", "css", "js", "assets", "splash_asset", "api_i18n",
+    "api_data", "api_config_get", "api_modules_get", "api_swc_get",
+    "api_swc_learn_status", "api_audio_eq_get", "api_ready_get", "api_boot_mode",
+    "api_dvr_list", "api_dvr_play", "api_dvr_usb_status", "api_dvr_usb_browse",
+    "aa_status", "aa_config_get", "bt_status", "bt_devices", "bt_connected",
+    "bt_pairing_status", "api_radio_status", "api_phone_contacts",
+    "api_phone_history", "api_phone_status", "api_trip_route", "api_debug_weather",
+    "api_tracking_trips", "api_tracking_trip_gpx", "trips_page", "ws_data_handler",
+})
+#: GET views deliberately kept OFF the readonly allow-list (documentation,
+#: and the test that every GET view is classified): /ws/input injects keys
+#: and AA touches; /api/wifi/config returns the Wi-Fi passwords; the
+#: AA/camera streams and the camera probe open exclusive devices (and
+#: would retire the kiosk's own AA stream — only two may run);
+#: /api/dtc/read makes K-Line traffic with the ECU and holds a server
+#: thread for up to 3 s; the two searches call OpenWeatherMap with our key.
+_READONLY_DENIED_ENDPOINTS = frozenset({
+    "ws_input_handler", "api_wifi_config_get", "aa_stream",
+    "camera_stream", "camera_available", "api_dtc_read",
+    "api_weather_search", "api_trip_search",
+})
+_HOSTNAME_RE = re.compile(r"[a-z0-9](?:[a-z0-9.-]{0,251}[a-z0-9])?")
+#: One "refused" log line per client address per this many seconds.
+_ACCESS_LOG_EVERY_S = 60.0
+
+
+def _client_ip(remote_addr: Any) -> Optional[Any]:
+    """``REMOTE_ADDR`` → ipaddress object (IPv4-mapped IPv6 unwrapped)."""
+    if not isinstance(remote_addr, str) or not remote_addr:
+        return None
+    try:
+        ip = ipaddress.ip_address(remote_addr.split("%", 1)[0])
+    except ValueError:
+        return None
+    if ip.version == 6 and ip.ipv4_mapped is not None:
+        ip = ip.ipv4_mapped
+    return ip
+
+
+def _host_name(host: Any) -> str:
+    """``Host`` header → lower-case name/address without port ("" if none).
+
+    ``10.0.0.1:5002`` → ``10.0.0.1``; ``[fe80::1]:5002`` → ``fe80::1``;
+    a trailing dot (``bcm.local.``) is dropped so it matches the list.
+    """
+    if not isinstance(host, str):
+        return ""
+    host = host.strip().lower()
+    if host.startswith("["):
+        end = host.find("]")
+        return host[1:end] if end > 0 else ""
+    if host.count(":") == 1:
+        host = host.split(":", 1)[0]
+    return host.rstrip(".")
+
+
+def _host_allowed(host: Any, allowed_hosts: tuple) -> bool:
+    """IP literal, or a name from ``dashboard.allowed_hosts`` (rebinding guard)."""
+    name = _host_name(host)
+    if not name:
+        return False
+    try:
+        ipaddress.ip_address(name)
+        return True
+    except ValueError:
+        return name in allowed_hosts
+
+
+def _load_access_policy(cfg: Any) -> tuple[str, tuple, tuple]:
+    """``dashboard.{remote_access, allowed_networks, allowed_hosts}`` →
+    (mode, networks, host names).
+
+    A value that is not a known mode fails CLOSED ("none": the kiosk keeps
+    working, the network gets nothing) — a typo must not open everything.
+    ``allowed_hosts`` defaults to none: only IP addresses in ``Host``.
+    """
+    raw_mode = cfg.get("dashboard.remote_access", "full") if cfg is not None else "full"
+    if raw_mode is None:
+        raw_mode = "full"
+    mode = raw_mode.strip().lower() if isinstance(raw_mode, str) else None
+    if mode not in _REMOTE_ACCESS_MODES:
+        log.error("dashboard.remote_access=%r is not one of %s — using 'none' "
+                  "(only the kiosk on this machine)", raw_mode, "/".join(_REMOTE_ACCESS_MODES))
+        mode = "none"
+    raw_nets = cfg.get("dashboard.allowed_networks", None) if cfg is not None else None
+    if raw_nets is None:
+        raw_nets = list(_DEFAULT_ALLOWED_NETWORKS)
+    elif isinstance(raw_nets, str):
+        raw_nets = [raw_nets]
+    if not isinstance(raw_nets, (list, tuple)):
+        log.error("dashboard.allowed_networks=%r is not a list — no remote network allowed",
+                  raw_nets)
+        raw_nets = []
+    networks = []
+    for entry in raw_nets:
+        try:
+            networks.append(ipaddress.ip_network(str(entry), strict=False))
+        except ValueError:
+            log.warning("dashboard.allowed_networks: %r is not a CIDR — ignored", entry)
+    raw_hosts = cfg.get("dashboard.allowed_hosts", None) if cfg is not None else None
+    if raw_hosts is None:
+        raw_hosts = []
+    elif isinstance(raw_hosts, str):
+        raw_hosts = [raw_hosts]
+    if not isinstance(raw_hosts, (list, tuple)):
+        log.error("dashboard.allowed_hosts=%r is not a list — only IP addresses allowed",
+                  raw_hosts)
+        raw_hosts = []
+    hosts = []
+    for entry in raw_hosts:
+        name = entry.strip().lower().rstrip(".") if isinstance(entry, str) else ""
+        if _HOSTNAME_RE.fullmatch(name):
+            hosts.append(name)
+        else:
+            log.warning("dashboard.allowed_hosts: %r is not a host name — ignored", entry)
+    return mode, tuple(networks), tuple(hosts)
+
+
+def _access_decision(remote_addr: Any, method: str, endpoint: Optional[str],
+                     mode: str, networks: tuple, host: Any = None,
+                     allowed_hosts: tuple = ()) -> Optional[tuple[str, str]]:
+    """None = allowed; else ``(config_key, reason)`` for the 403.
+
+    ``host`` is the request's ``Host`` header (checked for remote clients
+    in readonly/tracking; a missing one is refused, browsers always send it).
+    """
+    ip = _client_ip(remote_addr)
+    if ip is not None and ip.is_loopback:
+        return None                         # the kiosk: always full access
+    if mode == "full":
+        return None
+    if mode == "none":
+        return ("dashboard.remote_access",
+                "remote access is 'none': only the kiosk on this machine")
+    if ip is None or not any(ip in net for net in networks):
+        return ("dashboard.allowed_networks",
+                f"{remote_addr} is outside dashboard.allowed_networks")
+    if not _host_allowed(host, allowed_hosts):
+        # repr + truncation: the header is the client's text and ends up
+        # in the log line.
+        return ("dashboard.allowed_hosts",
+                f"Host {_host_name(host)[:64]!r} is neither an IP address nor "
+                f"listed in dashboard.allowed_hosts (DNS rebinding guard)")
+    if mode == "readonly":
+        if method not in _SAFE_METHODS:
+            return ("dashboard.remote_access", "remote access is 'readonly': GET only")
+        if endpoint not in _READONLY_ENDPOINTS:
+            return ("dashboard.remote_access",
+                    "remote access is 'readonly': not available from the network")
+        return None
+    # tracking
+    if method in _SAFE_METHODS and endpoint in _TRACKING_ENDPOINTS:
+        return None
+    return ("dashboard.remote_access",
+            "remote access is 'tracking': only /trips and /api/tracking/* from the network")
+
+
+# ── Trips (src/location/tracker.py) ──────────────────────────────────────
+_TRIPS_DEFAULT_LIMIT = 50
+_LIMIT_RE = re.compile(r"-?[0-9]{1,9}")
+_TRIPS_MAX_LIMIT = 500
+#: Trips listed on the /trips page.
+_TRIPS_PAGE_LIMIT = 100
+#: SQLite INTEGER range; a larger id from the URL is simply "not found".
+_MAX_TRIP_ID = 2**63 - 1
+_TRIPS_CSP = ("default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; "
+              "form-action 'none'; frame-ancestors 'none'")
+
+
+def _clamp_limit(raw: Any) -> int:
+    """``?limit=`` → int in 1..500 (default 50 when missing or not a number).
+
+    One strict pattern instead of str methods: ``"--5".lstrip("-")`` passes
+    isdigit() and int() then raised (HTTP 500 + traceback on demand), and
+    isdigit() also accepts non-ASCII digits.
+    """
+    if raw is None:
+        return _TRIPS_DEFAULT_LIMIT
+    text = str(raw).strip()
+    if not _LIMIT_RE.fullmatch(text):
+        return _TRIPS_DEFAULT_LIMIT
+    return min(max(int(text), 1), _TRIPS_MAX_LIMIT)
+
+
+def _num_or_none(value: Any) -> Optional[float]:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    value = float(value)
+    return value if math.isfinite(value) else None
+
+
+def _trip_json(trip: Any) -> Optional[dict]:
+    """One tracker trip → the JSON the API returns (numbers only)."""
+    if not isinstance(trip, dict):
+        return None
+    trip_id = trip.get("trip_id")
+    if isinstance(trip_id, bool) or not isinstance(trip_id, int):
+        return None
+    points = trip.get("points")
+    points = points if isinstance(points, int) and not isinstance(points, bool) else 0
+    return {
+        "trip_id": trip_id,
+        "start_ts": _num_or_none(trip.get("start_ts")),
+        "end_ts": _num_or_none(trip.get("end_ts")),
+        "distance_km": _num_or_none(trip.get("distance_km")),
+        "avg_speed": _num_or_none(trip.get("avg_speed")),
+        "max_speed": _num_or_none(trip.get("max_speed")),
+        "points": points,
+        "gpx_url": f"/api/tracking/trips/{trip_id}.gpx" if points else None,
+    }
+
+
+def _local_time(ts: Any, fmt: str) -> str:
+    ts = _num_or_none(ts)
+    if ts is None:
+        return ""
+    try:
+        return time.strftime(fmt, time.localtime(ts))
+    except (OverflowError, OSError, ValueError):
+        return ""
+
+
+def _render_trips_html(trips: Optional[list], gps_line: str) -> str:
+    """The phone-browser trip list. Every dynamic value is HTML-escaped.
+
+    Inline styles only (the dashboard's Tailwind is precompiled, and this
+    page loads nothing else — its CSP forbids it).
+    """
+    esc = html.escape
+    cards = []
+    if trips is None:
+        cards.append('<p style="color:#f59e0b">Rejestrator tras jest wyłączony '
+                     '(modules.tracking) albo baza tras jest niedostępna.</p>')
+    elif not trips:
+        cards.append('<p style="color:#a1a1aa">Brak zapisanych tras.</p>')
+    for raw in trips or []:
+        trip = _trip_json(raw)
+        if trip is None:
+            continue
+        start = _local_time(trip["start_ts"], "%Y-%m-%d %H:%M")
+        end = _local_time(trip["end_ts"], "%H:%M") if trip["end_ts"] is not None else "w trakcie"
+        dist = trip["distance_km"]
+        avg = trip["avg_speed"]
+        vmax = trip["max_speed"]
+        stats = [f"{dist:.1f} km" if dist is not None else "— km",
+                 f"śr. {avg:.0f} km/h" if avg is not None else "",
+                 f"maks. {vmax:.0f} km/h" if vmax is not None else "",
+                 f"{trip['points']} pkt"]
+        link = (f'<a href="{esc(trip["gpx_url"])}" style="display:inline-block;margin-top:8px;'
+                f'padding:8px 14px;border-radius:8px;background:#b91c1c;color:#fff;'
+                f'text-decoration:none;font-weight:600">Pobierz GPX</a>'
+                if trip["gpx_url"] else
+                '<span style="display:inline-block;margin-top:8px;color:#71717a">brak punktów</span>')
+        cards.append(
+            '<div style="background:#18181b;border:1px solid #3f3f46;border-radius:12px;'
+            'padding:12px 14px;margin:0 0 10px 0">'
+            f'<div style="font-weight:700;font-size:16px">Trasa {esc(str(trip["trip_id"]))}</div>'
+            f'<div style="color:#d4d4d8;margin-top:2px">{esc(start)} → {esc(end)}</div>'
+            f'<div style="color:#a1a1aa;margin-top:2px">{esc(" · ".join(s for s in stats if s))}</div>'
+            f'{link}</div>')
+    return (
+        '<!doctype html>\n<html lang="pl"><head><meta charset="utf-8">'
+        '<meta name="viewport" content="width=device-width,initial-scale=1">'
+        '<title>Trasy — BCM</title></head>'
+        '<body style="margin:0;padding:16px;background:#09090b;color:#f4f4f5;'
+        'font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;font-size:15px;'
+        'line-height:1.4">'
+        '<h1 style="font-size:20px;margin:0 0 4px 0">Zapisane trasy</h1>'
+        f'<p style="color:#a1a1aa;margin:0 0 14px 0">{esc(gps_line)}</p>'
+        + "".join(cards) +
+        '<p style="color:#71717a;font-size:12px;margin-top:16px">GPX 1.1 — otworzysz go '
+        'w aplikacji z mapami (np. OsmAnd, Google Earth).</p>'
+        "</body></html>\n")
+
+
 class WebViewer:
     """HTML5/Tailwind dashboard served via Flask + WebSocket.
 
@@ -293,6 +621,11 @@ class WebViewer:
         # so a dashboard without AA never starts the worker thread.
         self._aa_injector = None
         self._aa_injector_lock = threading.Lock()
+
+        # Network access policy: last "refused" log time per client address
+        # (monotonic; bounded — see _log_refusal).
+        self._access_log_lock = threading.Lock()
+        self._access_log_last: dict[str, float] = {}
 
         # POST /api/phone_tether/retry rate limit (monotonic: bcm-timesync
         # may move the wall clock right after the link comes up).
@@ -529,6 +862,47 @@ class WebViewer:
             return
         px, py = injector.to_pixels(rel_x, rel_y) or (0, 0)
         log.info("Voice-AA: tapping AA mic icon at (%d, %d)", px, py)
+
+    # ── Trips / GPS helpers ──────────────────────────────────────────────
+
+    def _tracker(self) -> Any:
+        """The running GPSTracker (``tracking._internals``), or None."""
+        if self._event_bus:
+            result = self._event_bus.get_last("tracking._internals")
+            if result and isinstance(result[0], dict):
+                return result[0].get("tracker")
+        return None
+
+    def _gps_status_line(self) -> str:
+        """One line about the GPS for the /trips page (shown escaped)."""
+        bus = self._event_bus
+        if bus is None:
+            return "GPS: brak danych"
+        fix = bus.get_last("gps.fix")
+        state = bus.get_last("gps.source_state")
+        info = state[0] if state and isinstance(state[0], dict) else {}
+        if fix is None and not info:
+            return "GPS: brak danych (moduł location wyłączony albo brak sygnału)"
+        if fix is not None and fix[0] is True:
+            source = str(info.get("source") or "")[:16]
+            peer = str(info.get("peer") or "")[:64]
+            detail = ", ".join(x for x in (source, peer) if x)
+            return f"GPS: jest pozycja ({detail})" if detail else "GPS: jest pozycja"
+        return "GPS: brak pozycji — sprawdź aplikację GPS w telefonie"
+
+    def _log_refusal(self, addr: str, method: str, path: str, key: str, reason: str) -> None:
+        """INFO line for a refused request, at most once a minute per address."""
+        now = time.monotonic()
+        with self._access_log_lock:
+            last = self._access_log_last.get(addr)
+            if last is not None and 0 <= now - last < _ACCESS_LOG_EVERY_S:
+                return
+            if len(self._access_log_last) >= 256:
+                self._access_log_last.clear()
+            self._access_log_last[addr] = now
+        log.info("Refused %s %r from %s: %s (%s; further refusals from this "
+                 "address are not logged for %.0f s)", method, path[:100], addr,
+                 reason, key, _ACCESS_LOG_EVERY_S)
 
     # ── Android Auto helpers ─────────────────────────────────────────────
 
@@ -843,6 +1217,31 @@ class WebViewer:
         app.config.setdefault("SOCK_SERVER_OPTIONS", {"max_message_size": 64 * 1024})
         sock = Sock(app)
         viewer = self
+
+        # --- Network access policy (see _access_decision) ---
+        access_mode, access_networks, access_hosts = _load_access_policy(viewer._config)
+        log.info("Remote access: %s%s (the kiosk on this machine always has full access)",
+                 access_mode,
+                 "" if access_mode in ("full", "none") else
+                 " from " + ", ".join(str(n) for n in access_networks)
+                 + "; Host: IP addresses" + "".join(", " + h for h in access_hosts))
+
+        @app.before_request
+        def enforce_access_policy():
+            decision = _access_decision(request.remote_addr, request.method,
+                                        request.endpoint, access_mode, access_networks,
+                                        request.host, access_hosts)
+            if decision is None:
+                return None
+            key, reason = decision
+            viewer._log_refusal(str(request.remote_addr), request.method,
+                                request.path, key, reason)
+            body = {"error": "forbidden", "reason": reason, "config_key": key}
+            if key == "dashboard.allowed_hosts":
+                body["hint"] = "Otwórz adres IP, np. http://10.0.0.1:5002/trips"
+            elif access_mode == "tracking":
+                body["hint"] = "Z sieci dostępna jest tylko lista tras: /trips"
+            return jsonify(body), 403
 
         # --- Static file serving ---
 
@@ -2229,10 +2628,76 @@ class WebViewer:
             result["available"] = any(result.values())
             return jsonify(result)
 
+        # --- Trips + GPX (src/location/tracker.py) ---
+
+        @app.route("/api/tracking/trips")
+        def api_tracking_trips():
+            tracker = viewer._tracker()
+            if tracker is None:
+                return jsonify({"error": "tracking module is not running (modules.tracking)",
+                                "trips": []}), 503
+            limit = _clamp_limit(request.args.get("limit"))
+            try:
+                trips = tracker.list_trips(limit)
+            except Exception:
+                log.exception("Listing trips failed")
+                return jsonify({"error": "trip database unavailable", "trips": []}), 503
+            out = [t for t in (_trip_json(raw) for raw in trips or []) if t is not None]
+            return jsonify({"trips": out})
+
+        @app.route("/api/tracking/trips/<int:trip_id>.gpx")
+        def api_tracking_trip_gpx(trip_id):
+            tracker = viewer._tracker()
+            if tracker is None:
+                return jsonify({"error": "tracking module is not running (modules.tracking)"}), 503
+            if trip_id > _MAX_TRIP_ID:
+                return jsonify({"error": "no such trip"}), 404
+            try:
+                trip = tracker.get_trip(trip_id)
+                if not trip or not trip.get("points"):
+                    return jsonify({"error": "no such trip, or it has no points"}), 404
+                gpx = tracker.export_gpx(trip_id)
+            except Exception:
+                log.exception("GPX export of trip %d failed", trip_id)
+                return jsonify({"error": "trip database unavailable"}), 503
+            day = _local_time(trip.get("start_ts"), "%Y%m%d") or "00000000"
+            resp = Response(gpx, mimetype="application/gpx+xml")
+            # Only digits go into the header — nothing to escape.
+            resp.headers["Content-Disposition"] = (
+                f'attachment; filename="bcm-trip-{int(trip_id)}-{day}.gpx"')
+            resp.headers["X-Content-Type-Options"] = "nosniff"
+            resp.headers["Cache-Control"] = "no-store"
+            return resp
+
+        @app.route("/trips")
+        def trips_page():
+            tracker = viewer._tracker()
+            trips = None
+            if tracker is not None:
+                try:
+                    trips = tracker.list_trips(_TRIPS_PAGE_LIMIT)
+                except Exception:
+                    log.exception("Listing trips for /trips failed")
+            body = _render_trips_html(trips, viewer._gps_status_line())
+            resp = Response(body, status=200 if trips is not None else 503,
+                            mimetype="text/html")
+            resp.headers["Content-Security-Policy"] = _TRIPS_CSP
+            resp.headers["X-Content-Type-Options"] = "nosniff"
+            resp.headers["Cache-Control"] = "no-store"
+            return resp
+
         # --- WebSocket: real-time data stream ---
 
         @sock.route("/ws")
         def ws_data_handler(ws):
+            # Same-origin check as /ws/input: a foreign page open in a
+            # browser on the network must not read the dashboard stream
+            # (position, caller, contacts on screen).
+            origin = request.headers.get("Origin")
+            if not _ws_origin_allowed(origin, request.host):
+                log.debug("Rejected /ws from foreign Origin %r (host %r)",
+                          origin, request.host)
+                return
             with viewer._ws_lock:
                 viewer._ws_clients.append(ws)
             log.info("WebSocket client connected (data)")
