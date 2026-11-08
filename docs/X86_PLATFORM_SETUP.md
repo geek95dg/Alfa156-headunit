@@ -441,12 +441,17 @@ GRUB_TIMEOUT=0
 GRUB_HIDDEN_TIMEOUT=0
 GRUB_HIDDEN_TIMEOUT_QUIET=true
 GRUB_DISTRIBUTOR=""
-GRUB_CMDLINE_LINUX_DEFAULT="quiet loglevel=0 vt.global_cursor_default=0 rd.systemd.show_status=false rd.udev.log_level=3 fsck.mode=skip console=tty2"
+GRUB_CMDLINE_LINUX_DEFAULT="quiet loglevel=0 vt.global_cursor_default=0 rd.systemd.show_status=false rd.udev.log_level=3 fsck.repair=yes console=tty2"
 GRUB_CMDLINE_LINUX=""
 GRUB_DISABLE_OS_PROBER=true
 EOF
 sudo update-grub
 ```
+
+**Use `fsck.repair=yes`, never `fsck.mode=skip`:** without a buffered supply
+every ignition-off is a hard power cut. Skipping fsck lets ext4 damage pile
+up until the box no longer boots; a clean check takes a fraction of a second
+(`setup-x86.sh` and `bcm-harden.sh` set the same).
 
 **Do NOT add `splash`** — that enables Plymouth spinner.
 

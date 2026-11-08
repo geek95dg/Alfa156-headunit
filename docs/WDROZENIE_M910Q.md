@@ -470,12 +470,18 @@ GRUB_TIMEOUT=0
 GRUB_HIDDEN_TIMEOUT=0
 GRUB_HIDDEN_TIMEOUT_QUIET=true
 GRUB_DISTRIBUTOR=""
-GRUB_CMDLINE_LINUX_DEFAULT="quiet loglevel=0 vt.global_cursor_default=0 rd.systemd.show_status=false rd.udev.log_level=3 fsck.mode=skip console=tty2"
+GRUB_CMDLINE_LINUX_DEFAULT="quiet loglevel=0 vt.global_cursor_default=0 rd.systemd.show_status=false rd.udev.log_level=3 fsck.repair=yes console=tty2"
 GRUB_CMDLINE_LINUX=""
 GRUB_DISABLE_OS_PROBER=true
 EOF
 sudo update-grub
 ```
+
+> **`fsck.repair=yes`, nigdy `fsck.mode=skip`:** bez zasilania buforowanego
+> każde zgaszenie silnika to twarde odcięcie prądu. Pominięty fsck pozwala
+> uszkodzeniom ext4 narastać, aż system przestanie wstawać; czysty dysk
+> sprawdza się w ułamku sekundy (to samo ustawia `setup-x86.sh` i
+> `bcm-harden.sh`).
 
 > **Nie dodawaj `splash`** do linii kernela — to włącza Plymouth, który
 > gryzie się z odtwarzaniem wideo przez DRM.
