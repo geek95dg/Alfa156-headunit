@@ -7,6 +7,7 @@ delegates heavy lifting to :class:`src.trip.route_planner.RoutePlanner`
 running in a background thread so the OBD event handler never blocks.
 """
 
+import math
 import threading
 import time
 from typing import Any, Optional
@@ -14,6 +15,16 @@ from typing import Any, Optional
 from src.core.logger import get_logger
 
 log = get_logger("trip_computer")
+
+#: A GPS position older than this is not used as the route origin.
+GPS_MAX_AGE_S = 30.0
+
+
+def _finite(value: Any) -> Optional[float]:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    value = float(value)
+    return value if math.isfinite(value) else None
 
 
 class TripComputer:
@@ -261,14 +272,23 @@ class TripComputer:
     def _current_gps_or_fallback(self) -> tuple[float, float]:
         """Best-effort origin coordinate for a travel plan.
 
-        Uses the most recent ``gps.lat``/``gps.lon`` published on the
-        event bus if available; otherwise falls back to a sensible
-        default (Kraków city centre) so demo mode still produces a
-        meaningful route.
+        Uses ``gps.lat``/``gps.lon`` only while ``gps.fix`` is True and
+        both are younger than :data:`GPS_MAX_AGE_S` — the bus keeps the last
+        value until restart, and a position from before the fix was lost
+        (phone taken out of the car, GPS app killed) can be kilometres off.
+        Otherwise falls back
+        to a sensible default (Kraków city centre) so demo mode still
+        produces a meaningful route.
         """
         if self._bus is not None:
+            fix = self._bus.get_last("gps.fix")
             lat = self._bus.get_last("gps.lat")
             lon = self._bus.get_last("gps.lon")
-            if lat and lon:
-                return (float(lat[0]), float(lon[0]))
+            if fix and fix[0] is True and lat and lon:
+                now = time.time()
+                fresh = all(-5.0 <= now - item[1] < GPS_MAX_AGE_S for item in (lat, lon))
+                coords = (_finite(lat[0]), _finite(lon[0]))
+                if fresh and None not in coords and abs(coords[0]) <= 90 \
+                        and abs(coords[1]) <= 180:
+                    return coords
         return (50.0647, 19.9450)

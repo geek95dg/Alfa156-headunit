@@ -9,6 +9,8 @@
 #   • przyciski SWC przez Arduino Pro Micro (USB HID)
 #   • modem LTE — na x86 moduł `network` tylko raportuje stan łącza,
 #     samo połączenie robi NetworkManager
+#   • internet z telefonu po Bluetooth (PAN, moduł `phone_tether`) — pogoda,
+#     planer tras i korekta zegara (bcm-timesync) bez modemu LTE
 #
 # Wszystko pozostałe wyłączone, żeby nie szukać usterek w rzeczach,
 # których jeszcze nie ma podłączonych.
@@ -59,6 +61,16 @@ modules:
   input: true              # przyciski SWC przez Pro Micro (USB HID)
   audio: true              # głośność i EQ na domyślnym sinku PipeWire
   network: true            # status łącza (LTE/WiFi/ethernet) — tylko odczyt
+  phone_tether: true       # internet z telefonu: Bluetooth PAN przez
+                           # NetworkManager (blok network.phone_tether niżej);
+                           # w telefonie włącz „Tethering przez Bluetooth”
+  weather: true            # OpenWeatherMap; klucz z /etc/bcm/bcm.env
+                           # (BCM_OWM_API_KEY) — bez klucza dane demo
+  location: true           # GPS Z TELEFONU (NMEA po UDP z aplikacji
+                           # GPSd Forwarder, zapas: TCP po Bluetooth PAN) —
+                           # blok hardware.gps niżej
+  tracking: true           # zapis tras do SQLite + lista tras i GPX:
+                           # http://10.0.0.1:5002/trips w przeglądarce telefonu
 
   # --- WYŁĄCZONE: brak podłączonego sprzętu ---
   obd: false               # brak CP2102 + L9637D
@@ -69,9 +81,6 @@ modules:
                            # reaguje tylko na zdarzenia sim.ignition /
                            # sim.reverse_gear — brak wejścia GPIO, więc
                            # odcięcie domeny B robi sprzęt, nie ten moduł
-  location: false          # brak GPS
-  tracking: false          # zależy od GPS
-  weather: false           # wymaga klucza API
   blinker_monitor: false   # brak sygnałów z auta
   rain_sensor: false
   central_lock: false      # brak Nano #1 i modułu przekaźników
@@ -86,13 +95,36 @@ modules:
   bluetooth: true          # bootstrap handshake'u AA wireless (btservice
                            # jest w autoapp; tu rejestrują się PBAP/MAP
                            # i wymuszany jest CoD carkit 0x620420)
-  phonebook: false         # PBAP działałby, ale nie jest przedmiotem testu
+  phonebook: true          # kontakty i historia połączeń (PBAP) na ekranie
+                           # telefonu A8; telefon musi ZEZWOLIĆ na dostęp do
+                           # kontaktów (pytanie przy parowaniu / ustawienia BT
+                           # urządzenia w telefonie); wymaga bluetooth: true
   fuel_sender: false       # brak ADC z Arduino
   wifi_ap: true            # P2P-GO na MT7921 — łącze danych Android Auto
   wifi_hotspot: false      # ALFA-NET wymaga OSOBNEGO radia (dongla USB) —
                            # MT7921 zgłasza #{AP, P2P-GO} <= 1
-  route_planner: false     # wymaga kluczy API
+  route_planner: true      # plan podróży (A3, tryb --frontend); klucze z
+                           # /etc/bcm/bcm.env: BCM_ORS_API_KEY (bez niego trasa
+                           # w linii prostej), BCM_TOMTOM_API_KEY (utrudnienia)
   small_display: false     # jeden ekran w wariancie testowym
+dashboard:
+  # Kto z SIECI może korzystać z dashboardu na porcie 5002 (kiosk na tym
+  # komputerze — 127.0.0.1 — ma zawsze pełny dostęp):
+  #   full     — wszystko, z każdego adresu (stare zachowanie, domyślne w kodzie)
+  #   readonly — tylko podgląd (GET i strumień /ws), bez sterowania i haseł
+  #   tracking — z sieci TYLKO lista tras i pliki GPX (/trips, /api/tracking/*)
+  #   none     — z sieci nic
+  # Tutaj tracking: telefon w sieci AA albo po PAN pobierze GPX, ale nie
+  # zrestartuje komputera ani nie odczyta haseł Wi-Fi. Do debugowania
+  # z laptopa wpisz `dashboard: {remote_access: full}` w config/local.yaml.
+  remote_access: tracking
+  # Spoza tych sieci (gdy tryb nie jest full) każda prośba dostaje 403.
+  allowed_networks: ['10.0.0.0/8', '172.16.0.0/12', '192.168.0.0/16']
+  # Z sieci (gdy tryb nie jest full) dashboard otwiera się tylko po adresie IP
+  # (http://10.0.0.1:5002/trips) — obcy serwis nie podstawi wtedy swojej nazwy
+  # pod 10.0.0.1 (DNS rebinding) i nie wyczyta tras z przeglądarki telefonu.
+  # Nazwy, które mają działać mimo to, wpisz tutaj, np. ['bcm.local'].
+  allowed_hosts: []
 display:
   # Wariant testowy: panel 7" 1024x600.
   # Docelowo 10,1" 1280x800 — wartości produkcyjne w bcm_config.yaml.
@@ -150,8 +182,44 @@ obd:
 hardware:
   gps:
     enabled: true
-    port: /dev/ttyUSB0
+    # Skąd brać NMEA: auto | demo | serial | udp | tcp albo lista — wszystkie
+    # wejścia z listy działają naraz i karmią jeden parser. auto = stare
+    # zachowanie (x86 → trasa demo po Mediolanie). W aucie nie ma odbiornika
+    # GPS, więc pozycję daje telefon:
+    #   • udp — aplikacja GPSd Forwarder (F-Droid) w telefonie wysyła zdania
+    #     NMEA na 10.0.0.1, port 10110 (UDP) przez Wi-Fi Android Auto;
+    #     w telefonie lokalizacja „zawsze” i bez optymalizacji baterii;
+    #   • tcp — zapas: aplikacja „serwer NMEA TCP” w telefonie, BCM łączy się
+    #     przez Bluetooth PAN (host pan-gateway = telefon, brama interfejsu
+    #     bnep*; wymaga internetu z telefonu, moduł phone_tether).
+    # Pozycja trafia dalej tylko przy ważnym fixie; zegara systemowego NIE
+    # ustawiamy z NMEA (UDP da się podrobić) — od tego jest bcm-timesync.
+    # Podgląd: sudo tcpdump -ni any udp port 10110; dane gps_* w /api/data.
+    source: [udp, tcp]
+    port: /dev/ttyUSB0       # tylko dla source: serial (też /dev/rfcomm0)
     baudrate: 9600
+    # Po tylu sekundach bez ważnej pozycji gps.fix = false.
+    stale_sec: 5
+    # Zdania bez sumy kontrolnej (*hh) są odrzucane.
+    require_checksum: true
+    udp:
+      bind: 0.0.0.0
+      port: 10110
+      # Skąd przyjmować datagramy: sieć Wi-Fi Direct AA (telefon dostaje
+      # 10.0.0.x), lokalne testy (nc -u 127.0.0.1 10110) i „pan” = podsieć
+      # Bluetooth PAN z telefonem (interfejsy bnep*). Reszta jest ignorowana
+      # (jeden wpis w logu na minutę na nadawcę).
+      allowed_sources: ['10.0.0.0/24', '127.0.0.0/8', pan]
+      # Największy przyjmowany datagram (bajty). Część aplikacji wysyła całą
+      # epokę naraz — z kilkoma systemami GNSS to ponad 2 KiB zdań GSV.
+      max_datagram: 8192
+    tcp:
+      host: pan-gateway
+      # Port ustawiony w aplikacji serwera NMEA w telefonie.
+      port: 50000
+      connect_timeout: 5
+      # Ponowne łączenie: 1 s, 2 s, 4 s … najwyżej co tyle sekund.
+      backoff_max_sec: 60
   lte:
     enabled: true
     device: ''
@@ -181,8 +249,29 @@ audio:
   # na osobnej gałęzi 12 V — patrz docs/ZASILANIE_BUFOROWANE.md § 2.
   amp_main: car-amp-4ch
   amp_sub: none
+  # Mikrofon (src/audio/mic_router.py). Router ustawia domyślne źródło
+  # PipeWire, zanim wystartuje sesja AA (autoapp wybiera mikrofon raz na
+  # sesję) — z niego korzysta asystent AA i rozmowa przez HFP.
+  mic_router: true
+  # Fragment node.name mikrofonu z `wpctl status --name`, np.
+  # alsa_input.usb-C-Media_Electronics (im dokładniej, tym lepiej — samo
+  # "alsa_input.usb-" pasuje też do wejścia karty USB). '' = brak mikrofonu:
+  # domyślnym źródłem jest cisza (bcm_null_mic), a nie monitor wyjścia
+  # (asystent słyszałby muzykę z auta) ani pływające wejście (szum).
   mic_phone: ''
+  # Redukcja echa (webrtc w osobnym procesie, jak EQ): false | auto | true.
+  # auto = tylko gdy jest libspa-aec-webrtc.so. Każdy błąd => surowy mikrofon.
+  mic_echo_cancel: false
+  # Mikrofon na innej karcie niż wyjście => karta wyjściowa dostaje profil
+  # tylko-wyjście (jej nieużywane wejście daje szum i obciąża tanią kartę).
+  mic_disable_unused_inputs: true
+  # Bez mikrofonu przycisk głosu nie uruchamia asystenta (zawieszał się),
+  # tylko pokazuje powiadomienie "Brak mikrofonu – sterowanie głosowe wyłączone".
+  voice_require_mic: true
+  # Nieużywane od etapu 2a (wyciszanie przy asystencie ściszałoby też jego głos).
   voice_duck_pct: 40
+  # Okno nasłuchu dla aa_voice_method: tap (drugie naciśnięcie w oknie
+  # stuka ponownie i kończy okno).
   voice_listen_sec: 8
 camera:
   segment_minutes: 5
@@ -291,6 +380,10 @@ wifi:
     dhcp_start: 10.0.1.10
     dhcp_end: 10.0.1.50
     share_internet: true
+    # Czy pasażerowie w ALFA-NET mogą korzystać z internetu z telefonu
+    # kierowcy (Bluetooth PAN, bnep*) — to jego pakiet danych. Sieć AA (P2P-GO)
+    # nigdy nie wychodzi przez bnep* (ruch telefonu wracałby do telefonu).
+    share_phone_internet: true
   # ssid_runtime / password_runtime / bssid_runtime są USTAWIANE W LOCIE przez
   # wifi_ap.py po utworzeniu grupy P2P-GO i trzymane tylko w pamięci (klucze
   # *_runtime nigdy nie są zapisywane — ani tu, ani w local.yaml). Nie wpisuj ich
@@ -312,6 +405,48 @@ travel:
   # Klucze z /etc/bcm/bcm.env: BCM_ORS_API_KEY, BCM_TOMTOM_API_KEY.
   openrouteservice_key: ''
   tomtom_key: ''
+network:
+  # Internet z telefonu po Bluetooth (PAN) — src/network/phone_tether.py,
+  # włączany przełącznikiem modules.phone_tether. BCM zakłada w NetworkManagerze
+  # profil `con_name` (typ panu) dla telefonu i podnosi go, gdy telefon jest
+  # połączony po BT. Telefon musi mieć włączony „Tethering przez Bluetooth”
+  # (Android potrafi go wyłączyć po restarcie telefonu) — bez tego stan
+  # w Ustawieniach to „błąd” z podpowiedzią „sprawdź Tethering przez Bluetooth”
+  # (albo „włącz tethering…”, gdy NM w ogóle nie widzi usługi NAP telefonu).
+  # Zachowanie z wyłączonym tetheringiem NIE jest jeszcze sprawdzone w aucie:
+  # nmcli -t -f DEVICE,TYPE,STATE device; nmcli connection up id bcm-phone-pan
+  # Podgląd: nmcli connection show --active (szukaj bcm-phone-pan).
+  phone_tether:
+    # '' = telefon z bt.connected, a gdy tam brak adresu — ostatni używany
+    # (multimedia.last_bt_device). Wpisz AA:BB:CC:DD:EE:FF, żeby przypiąć
+    # jeden telefon (np. telefon pasażera nie dostanie wtedy profilu).
+    mac: ''
+    # Nazwa profilu w NetworkManagerze (litery, cyfry, _ . -).
+    con_name: bcm-phone-pan
+    # Metryka trasy domyślnej: 750 = domyślna NM dla Bluetooth; przyszły modem
+    # LTE (NM: 700) wygra sam, telefon zostanie zapasem.
+    route_metric: 750
+    # Po nieudanej próbie: pierwsza ponowna po retry_sec, potem 2x dłużej.
+    # Limit max_retry_sec dotyczy braku NetworkManagera / błędu profilu;
+    # nieudane `connection up` (najczęściej tethering wyłączony w telefonie —
+    # Android odrzuca wtedy połączenie BNEP) ponawiamy najwyżej co
+    # max_retry_connected_sec, żeby po włączeniu tetheringu nie czekać 10 min.
+    # Nowe połączenie BT i przycisk „Ponów” w Ustawieniach zerują licznik.
+    retry_sec: 60
+    max_retry_sec: 600
+    max_retry_connected_sec: 120
+    # Co ile sekund sprawdzać stan (pyta tylko NetworkManagera, nie radio BT).
+    check_sec: 30
+    # Ile sekund po połączeniu telefonu NIE ruszać BlueZ — w tym czasie
+    # Android Auto wymienia po RFCOMM dane Wi-Fi Direct.
+    settle_sec: 15
+    # Po zestawieniu łącza uruchom raz bcm-timesync.service (zegar po odcięciu
+    # prądu bywa przesunięty o godziny).
+    trigger_timesync: true
+    # Autoconnect profilu w NetworkManagerze. false = łącze podnosi tylko BCM
+    # (po połączeniu telefonu, z settle_sec i backoffem); przy true NM sam
+    # wołałby telefon, także gdy go nie ma w aucie, i w trakcie startu AA.
+    autoconnect: false
 power:
   shutdown_delay_seconds: 30
   backlight_fade_ms: 1000
@@ -355,10 +490,14 @@ crash_detection:
   post_crash_record_sec: 60
 tracking:
   db_path: data/gps_tracks.db
-  interval_sec: 30
+  # Punkt trasy co 5 s (produkcja: 30 s) — dokładniejszy ślad w GPX.
+  interval_sec: 5
   trip_start_kmh: 5
   trip_end_kmh: 2
   trip_end_idle_sec: 60
+  # Trasa zamyka się sama po tylu sekundach bez pozycji z GPS (telefon
+  # wyszedł z auta, aplikacja GPS przestała wysyłać).
+  no_fix_close_sec: 300
   lte_sync_min: 15
   geofence_lat: 0
   geofence_lon: 0
@@ -370,6 +509,25 @@ multimedia:
   # Rozdzielczość projekcji AA: 480p / 720p / 1080p (puste = automat, który
   # dla płótna 1024x504 i tak wybiera 720p). 720p jest sprawdzone w aucie.
   aa_resolution: 720p
+  # Wyjście audio autoapp ([Audio] OutputBackendType w openauto.ini):
+  # qt | rtaudio. RtAudio (domyślne w kodzie) przy pustym buforze gra w kółko
+  # ostatnie ~50 ms, gdy asystent zabierze fokus = "zawieszenie + brzęczenie";
+  # Qt naprawdę wstrzymuje wyjście. Powrót: rtaudio i restart AA.
+  aa_audio_backend: qt
+  # Jak przycisk głosu uruchamia asystenta AA: key = klawisz M na :99
+  # (autoapp: MICROPHONE_1, wymaga mikrofonu przy starcie AA), tap = stuknięcie
+  # w ikonę mikrofonu (stare zachowanie, fallback).
+  aa_voice_method: key
+  # [Input] openauto.ini: true = autoapp zgłasza telefonowi przyciski
+  # (play/pauza/następny, D-pad, pokrętło, wstecz/OK…; klucze *Button openDsh).
+  # BCM dziś wysyła do AA tylko M (głos), więc to przygotowanie pod SWC.
+  # Domyślnie w kodzie false = produkcja bez zmian (żaden przycisk).
+  aa_input_buttons: true
 bluetooth:
   enabled: true
   preferred_adapter: ''
+  # Ile sekund po połączeniu telefonu odczekać przed pobraniem kontaktów
+  # (PBAP = sesja OBEX po RFCOMM). W tym czasie Android Auto wymienia po
+  # RFCOMM dane Wi-Fi Direct — tyle samo co network.phone_tether.settle_sec.
+  # Domyślnie w kodzie 3 s (produkcja bez zmian).
+  phonebook_settle_sec: 15

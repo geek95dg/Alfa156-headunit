@@ -678,3 +678,173 @@ def test_setup_and_cleanup_never_delete_bcm_env():
     for name in ("setup-x86.sh", "cleanup-x86.sh", "apply-fixes.sh", "bcm-harden.sh"):
         for line in _code_lines(_read(name)):
             assert not re.search(r"\brm\b[^\n]*bcm\.env", line), f"{name}: {line}"
+
+
+# ─── Etap 2a: oFono / WirePlumber / D-Bus policy, audio diagnostics ─────
+
+WIREPLUMBER_DROPIN = REPO / "config" / "wireplumber" / "wireplumber.conf.d" / "51-bcm-hfp-ofono.conf"
+AUDIO_DIAG = REPO / "tools" / "bcm-audio-diag.sh"
+
+
+@pytest.mark.parametrize("name", ["setup-x86.sh", "apply-fixes.sh"])
+class TestOfonoInstall:
+    def test_dbus_policy_heredoc_for_the_session_user(self, name):
+        text = _read(name)
+        assert "cat > /etc/dbus-1/system.d/bcm-ofono-pipewire.conf <<EOF" in text
+        assert '<policy user="$BCM_USER">' in text
+        assert '<allow send_destination="org.ofono"/>' in text
+        assert "HandsfreeAudioAgent" in text            # the XML comment says why
+        # the user name is validated before it is templated into XML
+        assert '[[ "$BCM_USER" =~ ^[A-Za-z_][A-Za-z0-9_.-]*$ ]]' in text
+
+    def test_ofono_install_is_checked_not_silenced(self, name):
+        code = "\n".join(_code_lines(_read(name)))
+        assert not re.search(r"\bofono\b[^\n]*2>/dev/null \|\| true", code.replace(
+            "systemctl enable ofono 2>/dev/null || true", "").replace(
+            "systemctl restart ofono 2>/dev/null || true", ""))
+        assert "command -v ofonod" in code
+        assert "apt-get install -y ofono || true" in code
+
+    def test_wireplumber_version_is_checked(self, name):
+        text = _read(name)
+        assert "wireplumber --version" in text
+        assert '"$WP_MINOR" -lt 5' in text
+
+    def test_installs_the_wireplumber_dropin(self, name):
+        assert "51-bcm-hfp-ofono.conf\" \\\n    /etc/wireplumber/wireplumber.conf.d/51-bcm-hfp-ofono.conf" in _read(name)
+
+    def test_restarts_user_audio_services(self, name):
+        assert ('systemctl --user -M "$BCM_USER@" restart wireplumber pipewire pipewire-pulse'
+                in _read(name))
+
+
+class TestApplyFixesAudio:
+    text = _read("apply-fixes.sh")
+
+    def test_headunit_restarted_after_the_audio_stack(self):
+        user = self.text.index('systemctl --user -M "$BCM_USER@" restart')
+        sinks = self.text.index("wpctl status --name 2>/dev/null | grep -q 'alsa_output\\.'")
+        headunit = self.text.index("systemctl try-restart bcm-headunit.service")
+        assert user < sinks < headunit   # EQ child is not supervised; sinks first
+
+    def test_never_starts_a_stopped_headunit(self):
+        code = "\n".join(_code_lines(self.text))
+        assert "systemctl restart bcm-headunit" not in code
+        assert "systemctl start bcm-headunit" not in code
+
+    def test_sink_wait_is_bounded(self):
+        assert "for _ in $(seq 1 10); do" in self.text and "sleep 0.5" in self.text
+
+    def test_session_user_detection(self):
+        assert "--autologin" in self.text and 'BCM_USER=${BCM_USER:-abner}' in self.text
+
+    def test_step_numbers_are_consistent(self):
+        steps = re.findall(r'^echo "==> (\d+)/(\d+) ', self.text, flags=re.M)
+        assert [int(n) for n, _ in steps] == list(range(1, len(steps) + 1))
+        assert {int(total) for _, total in steps} == {len(steps)}
+
+
+def test_wireplumber_dropin_pins_msbc_off():
+    lines = _code_lines(WIREPLUMBER_DROPIN.read_text(encoding="utf-8"))
+    assert any(re.fullmatch(r"\s*bluez5\.enable-msbc\s*=\s*false\s*", l) for l in lines)
+    assert any('bluez5.hfphsp-backend = "ofono"' in l for l in lines)
+
+
+class TestAudioDiag:
+    text = AUDIO_DIAG.read_text(encoding="utf-8")
+
+    @pytest.mark.skipif(shutil.which("bash") is None, reason="bash not installed")
+    def test_bash_syntax(self):
+        res = subprocess.run(["bash", "-n", str(AUDIO_DIAG)], capture_output=True, text=True,
+                             timeout=30)
+        assert res.returncode == 0, res.stderr
+
+    def test_never_prints_the_wifi_section(self):
+        assert '$0=="[Audio]"||$0=="[Input]"' in self.text
+        assert "[WiFi]" not in "\n".join(_code_lines(self.text))
+
+    def test_state_changes_only_after_confirmation(self):
+        code = _code_lines(self.text)
+        first_confirm = next(i for i, l in enumerate(code) if 'confirm "Wykonać test A' in l)
+        for i, line in enumerate(code):
+            if re.search(r"set-mute|set-sink-input-mute", line):
+                assert i > first_confirm, line
+        joined = "\n".join(code)
+        for forbidden in ("set-default", "set-profile", "systemctl restart", "systemctl stop",
+                          "rm -", "tee /etc", "> /etc"):
+            assert forbidden not in joined, forbidden
+
+    def test_mute_is_always_undone(self):
+        block = self._test_a_block()
+        # the trap is armed BEFORE anything is muted (Ctrl-C mid-loop)
+        assert block.index("trap restore_mute EXIT") < block.index('set_mute "$id" 1')
+        assert "trap 'restore_mute; exit 130' INT TERM" in block
+        assert 'pactl set-sink-input-mute "$1" "$2"' in block
+        assert 'wpctl set-mute "$1" "$2"' in block
+
+    def test_runs_pipewire_tools_in_the_user_session(self):
+        # LC_ALL=C: pactl/wpctl output is parsed; sudo keeps LANG/LC_*.
+        assert 'U=(sudo -u "$BCM_USER" LC_ALL=C "XDG_RUNTIME_DIR=/run/user/$U_UID")' in self.text
+        assert 'U=(env LC_ALL=C "XDG_RUNTIME_DIR=/run/user/$U_UID")' in self.text
+        assert 'eval' not in "\n".join(_code_lines(self.text))
+
+    # ── Test A, run for real with a fake wpctl (no PipeWire touched) ──────
+
+    def _test_a_block(self):
+        start = self.text.index('if confirm "Wykonać test A teraz?"; then')
+        return self.text[start:self.text.index('hdr "Test B:')]
+
+    def _run_test_a(self, tmp_path, pw_nodes_out, fail_on=""):
+        log = tmp_path / "calls.log"
+        bin_dir = tmp_path / "bin"
+        bin_dir.mkdir()
+        wpctl = bin_dir / "wpctl"
+        # Records every call; optionally "presses Ctrl-C" (SIGINT to the
+        # script) when it sees a given argument string.
+        wpctl.write_text(
+            "#!/bin/bash\n"
+            f'echo "$*" >> "{log}"\n'
+            f'if [ -n "{fail_on}" ] && [ "$*" = "{fail_on}" ]; then kill -INT $PPID; fi\n'
+        )
+        wpctl.chmod(0o755)
+        prelude = (
+            "set -u\n"
+            f'PATH="{bin_dir}:$PATH"\n'
+            "U=(env)\n"
+            "confirm() { return 0; }\n"
+            'have() { [ "$1" = wpctl ] || [ "$1" = python3 ]; }\n'
+            f"pw_nodes() {{ printf '{pw_nodes_out}'; }}\n"
+            "sleep() { :; }\n"
+            'info() { echo "INFO $*"; }\nok() { echo "OK $*"; }\nwarn() { echo "WARN $*"; }\n'
+        )
+        res = subprocess.run(["bash", "-c", prelude + self._test_a_block() + "echo END\n"],
+                             capture_output=True, text=True, timeout=30)
+        calls = log.read_text().splitlines() if log.exists() else []
+        return res, calls
+
+    @pytest.mark.skipif(shutil.which("bash") is None, reason="bash not installed")
+    def test_test_a_mutes_numeric_ids_only_and_restores(self, tmp_path):
+        # an empty line / junk id (what the localised pactl parse produced)
+        # must never reach wpctl
+        res, calls = self._run_test_a(tmp_path, "42\\tautoapp\\n\\tx\\nabc\\ty\\n7\\tz\\n")
+        assert res.returncode == 0, res.stderr
+        assert calls == ["set-mute 42 1", "set-mute 7 1", "set-mute 42 0", "set-mute 7 0"]
+        assert "END" in res.stdout and "OK odciszone" in res.stdout
+
+    @pytest.mark.skipif(shutil.which("bash") is None, reason="bash not installed")
+    def test_test_a_without_streams_draws_no_conclusion(self, tmp_path):
+        res, calls = self._run_test_a(tmp_path, "\\t\\n")
+        assert res.returncode == 0, res.stderr
+        assert calls == []
+        assert "test pominięty" in res.stdout
+        assert "pętla bufora" not in res.stdout and "Brzęczało dalej" not in res.stdout
+
+    @pytest.mark.skipif(shutil.which("bash") is None, reason="bash not installed")
+    def test_test_a_ctrl_c_mid_loop_unmutes(self, tmp_path):
+        res, calls = self._run_test_a(tmp_path, "42\\ta\\n7\\tb\\n9\\tc\\n",
+                                      fail_on="set-mute 7 1")
+        assert res.returncode == 130
+        assert "END" not in res.stdout
+        assert calls[:2] == ["set-mute 42 1", "set-mute 7 1"]
+        assert "set-mute 9 1" not in calls
+        assert sorted(calls[2:]) == ["set-mute 42 0", "set-mute 7 0"]

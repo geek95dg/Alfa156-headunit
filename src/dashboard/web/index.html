@@ -52,9 +52,12 @@
     <!-- Scripts: defer = downloaded in parallel, executed in document
          order after parse (so app.js still runs first) and never block
          first paint. splash.js must precede app.js — App.init checks
-         typeof Splash to arm the wake overlay. -->
+         typeof Splash to arm the wake overlay — and so must gestures.js
+         (window.BCMGestures, used by the touch handlers set up in
+         App.init and by the A2 overlay). -->
     <script defer src="/js/websocket.js"></script>
     <script defer src="/js/components/splash.js"></script>
+    <script defer src="/js/components/gestures.js"></script>
     <script defer src="/js/app.js"></script>
     <script defer src="/js/components/appbar.js"></script>
     <script defer src="/js/components/navbar.js"></script>

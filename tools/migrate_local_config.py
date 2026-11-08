@@ -28,6 +28,10 @@ SKIPPED   the base wins for features the new base enables on purpose
           phone tether) — an old ``false`` would silently switch them off.
           Only that direction is skipped: a feature the device has on and
           the base off is migrated (WRITE) like any other value.
+          Likewise for values the new base changes on purpose
+          (BASE_CHANGED_DEFAULTS, e.g. ``tracking.interval_sec`` 30 → 5 s):
+          a device file still holding the OLD default never chose it, so
+          the base wins; any other device value is a choice and migrated.
           ``--keep-source PATH`` keeps the device value anyway.
 
 The difference and the never-persist rules are the very functions
@@ -87,6 +91,15 @@ SKIP_BASE_WINS = (
     "modules.network",
     "modules.phone_tether",
 )
+
+#: Values the new base changes on purpose → the OLD default(s) they replace.
+#: The device file (bcm_config_temp.yaml) predates the change and still
+#: carries the old default; copying it to local.yaml would silently undo
+#: the change (stage 4: 30 s points made the GPX too coarse). A device
+#: value that is NOT an old default was set by someone and is migrated.
+BASE_CHANGED_DEFAULTS: dict = {
+    "tracking.interval_sec": (30,),
+}
 
 #: Hardware-specific values — migrated, but listed for a human to check.
 REVIEW_PATHS = (
@@ -232,13 +245,24 @@ def build_plan(source: dict, base: dict, *, excludes=(), keep_source=()) -> dict
         # feature off that the new base turns on. A device `true` over a
         # base `false` is a feature the user enabled — migrating that is
         # exactly right (skipping it would silently switch weather & co. off).
+        keep = _covered_by_any(keep_source, dotpath)
+        base_value = get_path(base, dotpath)
         if (_covered_by_any(SKIP_BASE_WINS, dotpath)
-                and not _covered_by_any(keep_source, dotpath)
-                and not value and get_path(base, dotpath)):
+                and not keep and not value and base_value):
             plan["skipped"].append({
                 "path": dotpath,
                 "source": safe_value(dotpath, value),
-                "base": safe_value(dotpath, get_path(base, dotpath)),
+                "base": safe_value(dotpath, base_value),
+            })
+            continue
+        old_defaults = BASE_CHANGED_DEFAULTS.get(dotpath)
+        if (old_defaults is not None and not keep and not isinstance(value, bool)
+                and value in old_defaults and base_value is not None):
+            plan["skipped"].append({
+                "path": dotpath,
+                "source": safe_value(dotpath, value),
+                "base": safe_value(dotpath, base_value),
+                "reason": "old default; the new base changes it on purpose",
             })
             continue
         group = "review" if _covered_by_any(REVIEW_PATHS, dotpath) else "write"
@@ -294,7 +318,8 @@ def print_report(plan: dict, args: argparse.Namespace, out: Path, out_exists: bo
     print(f"SKIPPED ({len(plan['skipped'])}) — base wins (keep the device value with "
           f"--keep-source PATH):")
     for item in plan["skipped"]:
-        print(f"  {item['path']}: device {_fmt(item['source'])}, base {_fmt(item['base'])}")
+        why = f" — {item['reason']}" if "reason" in item else ""
+        print(f"  {item['path']}: device {_fmt(item['source'])}, base {_fmt(item['base'])}{why}")
     print()
 
 

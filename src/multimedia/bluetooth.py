@@ -10,6 +10,7 @@ On x86, works with built-in or USB Bluetooth adapter.
 On OPi, uses onboard or USB BT.
 """
 
+import re
 import subprocess
 import threading
 import time
@@ -680,6 +681,260 @@ def _run_btctl(args: list[str], timeout: float = 10.0) -> tuple[int, str, str]:
             return -2, "", "bluetoothctl timed out"
 
 
+# ─── oFono call tracking ──────────────────────────────────────────────────
+#
+# oFono (HFP backend, see config/wireplumber/.../51-bcm-hfp-ofono.conf) tells
+# us about calls with D-Bus signals; nothing listened before, so bt.call_state
+# only ever changed when the dashboard itself dialled/answered/hung up, and an
+# incoming call never showed the A8 overlay. The mapping below is pure (no
+# D-Bus), so it is unit-tested; _start_ofono_monitor() only feeds it.
+
+OFONO_SERVICE = "org.ofono"
+OFONO_VCM_IFACE = "org.ofono.VoiceCallManager"
+
+#: oFono VoiceCall.State -> bt.call_state (what screens/phone.js shows).
+#: "disconnected" maps to nothing: the call is on its way out (CallRemoved).
+_OFONO_STATE_MAP = {
+    "incoming": "incoming", "waiting": "incoming",
+    "dialing": "ringing", "alerting": "ringing",
+    "active": "active", "held": "active",
+}
+#: When several calls exist, the one needing the driver's attention wins:
+#: a ringing/waiting call over an outgoing one over the running one.
+_CALL_STATE_PRIORITY = {"incoming": 3, "ringing": 2, "active": 1}
+
+_CALL_NUMBER_MAX = 32
+_CALL_NAME_MAX = 64
+
+
+def map_ofono_call_state(state: Any) -> Optional[str]:
+    """oFono call State -> ``incoming`` | ``ringing`` | ``active`` | None."""
+    if not isinstance(state, str):
+        return None
+    return _OFONO_STATE_MAP.get(state.strip().lower())
+
+
+def sanitize_call_text(value: Any, limit: int) -> str:
+    """Caller number/name from the phone network: untrusted text.
+
+    Control and bidi-override characters are removed (a spoofed caller name
+    must not reorder or break the UI), whitespace collapsed, length capped.
+    The UI escapes it as well.
+    """
+    from src.core.notifications import clean_text
+    if value is None or isinstance(value, (bytes, bytearray)):
+        return ""
+    return clean_text(value, limit)
+
+
+#: What a dial string may contain after separators are dropped: digits and
+#: the keypad's + * # (oFono validates the number itself as well).
+_DIAL_NUMBER_RE = re.compile(r"^[0-9+*#]{1,%d}$" % _CALL_NUMBER_MAX)
+#: Visual separators phonebooks use ("+48 600-123-456", "(22) 123 45 67").
+_DIAL_SEPARATORS_RE = re.compile(r"[\s\-().\/]")
+
+
+def normalize_dial_number(value: Any) -> str:
+    """A dial string from the browser -> ``+48600123456`` or ``''`` if invalid.
+
+    Spaces, dashes, dots, slashes and parentheses are dropped (contacts from
+    PBAP carry them); what is left must be 1-32 of ``0-9 + * #``. Anything
+    else — control characters, letters, an overlong payload — is refused.
+    """
+    if not isinstance(value, (str, int)) or isinstance(value, bool):
+        return ""
+    text = str(value)
+    if len(text) > 4 * _CALL_NUMBER_MAX:
+        return ""
+    number = _DIAL_SEPARATORS_RE.sub("", text)
+    return number if _DIAL_NUMBER_RE.match(number) else ""
+
+
+def aggregate_calls(calls: dict[str, dict]) -> tuple[str, dict]:
+    """``(bt.call_state, bt.call_info)`` for the current set of oFono calls.
+
+    ``calls`` maps call object path -> oFono properties. No mappable call
+    -> ``("idle", {})``.
+    """
+    best: Optional[tuple[str, dict]] = None
+    for path in sorted(calls):
+        props = calls[path] or {}
+        mapped = map_ofono_call_state(props.get("State"))
+        if mapped is None:
+            continue
+        if best is None or _CALL_STATE_PRIORITY[mapped] > _CALL_STATE_PRIORITY[best[0]]:
+            best = (mapped, props)
+    if best is None:
+        return "idle", {}
+    state, props = best
+    return state, {
+        "number": sanitize_call_text(props.get("LineIdentification"), _CALL_NUMBER_MAX),
+        "name": sanitize_call_text(props.get("Name"), _CALL_NAME_MAX),
+    }
+
+
+class OfonoCallTracker:
+    """oFono call/modem signals -> ``bt.call_*`` events. No D-Bus in here.
+
+    Publishes on transitions only:
+
+    * ``bt.call_state`` incoming|ringing|active|idle and ``bt.call_info``
+      ``{number, name}``;
+    * entering ``incoming``: ``bt.call_incoming``;
+    * back to idle (last call gone): ``bt.call_ended`` and an empty
+      ``bt.call_info``.
+
+    ``bt.hfp_active`` / ``audio.phone_call`` (ducking) are NOT published
+    here: BluetoothManager derives them from ``bt.call_state`` (see
+    ``_on_call_state``), so a call started on the phone itself, an answered
+    one and a reconciled one all keep ``BluetoothManager.hfp_active`` and
+    the topics in step.
+
+    ``live`` is True only while the D-Bus monitor actually feeds the tracker
+    (receivers and name watch registered, GLib loop running). A tracker that
+    is not fed must not "correct" the UI to idle — see reconcile().
+
+    Thread-safe: the GLib loop thread feeds it, the BluetoothManager's
+    command handlers read it.
+    """
+
+    def __init__(self, event_bus: Any) -> None:
+        self._bus = event_bus
+        self._lock = threading.Lock()
+        self._calls: dict[str, dict] = {}
+        self._modems: dict[str, list[str]] = {}
+        self._state = "idle"
+        self._info: dict = {}
+        self.live = False
+
+    # ── state ─────────────────────────────────────────────────────────────
+
+    @property
+    def state(self) -> str:
+        return self._state
+
+    @property
+    def info(self) -> dict:
+        return dict(self._info)
+
+    def has_voice_modem(self) -> bool:
+        with self._lock:
+            return any(OFONO_VCM_IFACE in ifaces for ifaces in self._modems.values())
+
+    # ── modems ────────────────────────────────────────────────────────────
+
+    def modem_added(self, path: Any, props: Any) -> None:
+        ifaces = []
+        if isinstance(props, dict):
+            ifaces = [str(i) for i in (props.get("Interfaces") or [])]
+        with self._lock:
+            self._modems[str(path)] = ifaces
+
+    def modem_property_changed(self, path: Any, name: Any, value: Any) -> None:
+        if str(name) != "Interfaces":
+            return
+        with self._lock:
+            self._modems[str(path)] = [str(i) for i in (value or [])]
+            gone = OFONO_VCM_IFACE not in self._modems[str(path)]
+            if gone:
+                self._drop_calls_of(str(path))
+        if gone:
+            self._update()
+
+    def modem_removed(self, path: Any) -> None:
+        with self._lock:
+            self._modems.pop(str(path), None)
+            self._drop_calls_of(str(path))
+        self._update()
+
+    def _drop_calls_of(self, modem_path: str) -> None:
+        """Caller holds the lock. Calls live under the modem's object path."""
+        prefix = modem_path.rstrip("/") + "/"
+        for call in [c for c in self._calls if c.startswith(prefix)]:
+            del self._calls[call]
+
+    # ── calls ─────────────────────────────────────────────────────────────
+
+    def seed(self, modems: Any, calls_by_modem: Any = None) -> None:
+        """Replace everything with a fresh GetModems/GetCalls snapshot."""
+        with self._lock:
+            self._modems.clear()
+            self._calls.clear()
+            for path, props in modems or []:
+                ifaces = props.get("Interfaces") if isinstance(props, dict) else None
+                self._modems[str(path)] = [str(i) for i in (ifaces or [])]
+            for calls in (calls_by_modem or {}).values():
+                for call_path, call_props in calls or []:
+                    self._calls[str(call_path)] = dict(call_props or {})
+        self._update()
+
+    def reset(self) -> None:
+        """oFono went away: no modems, no calls."""
+        self.seed([], {})
+
+    def call_added(self, path: Any, props: Any) -> None:
+        with self._lock:
+            self._calls[str(path)] = dict(props or {}) if isinstance(props, dict) else {}
+        self._update()
+
+    def call_removed(self, path: Any) -> None:
+        with self._lock:
+            self._calls.pop(str(path), None)
+        self._update()
+
+    def call_property_changed(self, path: Any, name: Any, value: Any) -> None:
+        if str(name) not in ("State", "LineIdentification", "Name"):
+            return
+        with self._lock:
+            call = self._calls.get(str(path))
+            if call is None:
+                return  # PropertyChanged of a call we never saw added
+            call[str(name)] = value
+        self._update()
+
+    # ── publishing ────────────────────────────────────────────────────────
+
+    def _update(self) -> None:
+        with self._lock:
+            calls = {p: dict(c) for p, c in self._calls.items()}
+            previous, previous_info = self._state, self._info
+            state, info = aggregate_calls(calls)
+            self._state, self._info = state, info
+        if state == previous and info == previous_info:
+            return
+        bus = self._bus
+        if state == "idle":
+            bus.publish("bt.call_state", "idle")
+            bus.publish("bt.call_info", {})
+            if previous != "idle":
+                log.info("Call ended (oFono)")
+                bus.publish("bt.call_ended", True)
+            return
+        bus.publish("bt.call_info", dict(info))
+        if state != previous:
+            bus.publish("bt.call_state", state)
+            log.info("Call %s (oFono): %s", state, info.get("name") or info.get("number") or "?")
+            if state == "incoming":
+                bus.publish("bt.call_incoming", True)
+
+    def reconcile(self) -> None:
+        """Re-publish the real state if an optimistic UI publish disagrees.
+
+        The dashboard's dial/answer/hangup handlers publish the expected
+        state at once (snappy UI). If the oFono action failed, the bus keeps
+        that wrong guess; this puts oFono's truth back. Only while ``live``:
+        a tracker nobody feeds says "idle" for a call that is really up
+        (oFono's blocking Dial/Answer worked), and would kill the overlay.
+        """
+        if not self.live:
+            return
+        last = self._bus.get_last("bt.call_state")
+        if last is not None and last[0] == self._state:
+            return
+        self._bus.publish("bt.call_info", self.info)
+        self._bus.publish("bt.call_state", self._state)
+
+
 class BluetoothManager:
     """Manages Bluetooth connections for audio streaming and calls.
 
@@ -727,6 +982,11 @@ class BluetoothManager:
         self._connect_lock = threading.Lock()
         self._connecting_addr: Optional[str] = None
 
+        # oFono call tracking (see _start_ofono_monitor). None until the
+        # monitor is up — no D-Bus/oFono on dev machines and in tests.
+        self._call_tracker: Optional[OfonoCallTracker] = None
+        self._ofono_warned: set[str] = set()
+
         # Optional explicit adapter override from config — pin a specific
         # USB BT dongle MAC if auto-detect picks the wrong one.
         try:
@@ -739,7 +999,11 @@ class BluetoothManager:
 
         self._check_availability()
 
-        # Subscribe to call events for HFP routing
+        # Subscribe to call events for HFP routing. bt.call_state is the one
+        # source for "a call is on" (_hfp_active, bt.hfp_active,
+        # audio.phone_call), whoever published it: the oFono monitor, the
+        # dashboard's provisional dial/answer/hangup, or a reconcile.
+        self._event_bus.subscribe("bt.call_state", self._on_call_state)
         self._event_bus.subscribe("bt.call_incoming", self._on_call_incoming)
         self._event_bus.subscribe("bt.call_ended", self._on_call_ended)
         # Reconnect to the paired phone the instant the head unit wakes.
@@ -1379,8 +1643,10 @@ class BluetoothManager:
             # Verify the connection actually came up. ``info`` is the
             # source of truth because BlueZ updates the Connected
             # property when the link layer settles.
-            deadline = time.time() + verify_budget_seconds
-            while time.time() < deadline:
+            # Monotonic: bcm-timesync (started when the phone's PAN comes
+            # up) may move the wall clock by hours, also backwards.
+            deadline = time.monotonic() + verify_budget_seconds
+            while time.monotonic() < deadline:
                 v = self.get_device_info(address)
                 if v.get("connected"):
                     name = v.get("name", address)
@@ -1464,6 +1730,8 @@ class BluetoothManager:
         self._monitor_thread.start()
         # Start AVRCP media metadata monitor (D-Bus)
         self._start_media_monitor()
+        # Follow calls from oFono (incoming call overlay, real call state)
+        self._start_ofono_monitor()
         # Register HFP call command handlers
         self._init_hfp_commands()
         # Register AVRCP media transport command handlers (play/pause/skip)
@@ -1580,10 +1848,22 @@ class BluetoothManager:
         self._event_bus.subscribe("bt.cmd.hangup", self._on_cmd_hangup)
         log.info("HFP call command handlers registered")
 
+    # The bt.call_state publishes in _on_cmd_* are PROVISIONAL: they make the
+    # UI react at once. The oFono monitor publishes the real state when the
+    # phone confirms, and _schedule_call_reconcile() puts it back if the
+    # oFono action failed and the guess was wrong.
+
     def _on_cmd_dial(self, topic: str, value: Any, timestamp: float) -> None:
-        """Initiate an outgoing call via BT HFP."""
-        number = str(value).strip()
+        """Initiate an outgoing call via BT HFP.
+
+        ``value`` comes from the browser (POST /api/phone/dial validates it
+        too): visual separators are dropped, anything but a plain dial
+        string is refused — it goes into the log, the bus and oFono.
+        """
+        number = normalize_dial_number(value)
         if not number:
+            log.warning("HFP dial refused: not a phone number (%r)",
+                        sanitize_call_text(value, _CALL_NUMBER_MAX))
             return
         log.info("HFP dial request: %s", number)
         self._hfp_active = True
@@ -1596,6 +1876,7 @@ class BluetoothManager:
                 self._hfp_dial_dbus(number)
             except Exception as e:
                 log.warning("HFP D-Bus dial failed: %s (call may still work via phone)", e)
+        self._schedule_call_reconcile()
 
     def _on_cmd_answer(self, topic: str, value: Any, timestamp: float) -> None:
         """Answer an incoming call via BT HFP."""
@@ -1609,6 +1890,7 @@ class BluetoothManager:
                 self._hfp_answer_dbus()
             except Exception as e:
                 log.warning("HFP D-Bus answer failed: %s", e)
+        self._schedule_call_reconcile()
 
     def _on_cmd_hangup(self, topic: str, value: Any, timestamp: float) -> None:
         """Hang up or reject a call via BT HFP."""
@@ -1623,71 +1905,240 @@ class BluetoothManager:
                 self._hfp_hangup_dbus()
             except Exception as e:
                 log.warning("HFP D-Bus hangup failed: %s", e)
+        self._schedule_call_reconcile()
+
+    def _schedule_call_reconcile(self, delay: float = 3.0) -> None:
+        """After a provisional publish, re-assert oFono's state if it differs.
+
+        Only with a LIVE monitor (see OfonoCallTracker.live): without one the
+        provisional state is all we have and stays.
+        """
+        tracker = self._call_tracker
+        if tracker is None or not tracker.live:
+            return
+        timer = threading.Timer(delay, tracker.reconcile)
+        timer.daemon = True
+        timer.start()
+
+    def _warn_ofono_once(self, key: str, detail: str) -> None:
+        """One WARNING per reason: calls are the one thing that must not fail
+        silently (these used to be debug lines nobody saw)."""
+        if key in self._ofono_warned:
+            return
+        self._ofono_warned.add(key)
+        log.warning("oFono: %s — rozmowy nie trafią do headunitu (calls stay on "
+                    "the phone). Check `systemctl status ofono` and "
+                    "tools/bcm-audio-diag.sh.", detail)
+
+    def _ofono_voice_modems(self, bus: Any) -> list:
+        """Object paths of oFono modems that have a VoiceCallManager."""
+        import dbus
+        manager = bus.get_object(OFONO_SERVICE, "/")
+        modems = dbus.Interface(manager, "org.ofono.Manager").GetModems(timeout=5.0)
+        found = [path for path, props in modems
+                 if OFONO_VCM_IFACE in props.get("Interfaces", [])]
+        if not found:
+            self._warn_ofono_once("no_vcm", "no modem with VoiceCallManager "
+                                  "(phone not connected over HFP?)")
+        return found
 
     def _hfp_dial_dbus(self, number: str) -> None:
-        """Dial via ofono VoiceCallManager or direct AT command."""
+        """Dial via ofono VoiceCallManager."""
         import dbus
         bus = dbus.SystemBus()
-        # Try ofono first (standard HFP interface)
         try:
-            manager = bus.get_object("org.ofono", "/")
-            modems = dbus.Interface(manager, "org.ofono.Manager").GetModems(timeout=5.0)
-            for path, props in modems:
-                if "org.ofono.VoiceCallManager" in props.get("Interfaces", []):
-                    vcm = dbus.Interface(
-                        bus.get_object("org.ofono", path),
-                        "org.ofono.VoiceCallManager"
-                    )
-                    vcm.Dial(number, "", timeout=5.0)
-                    log.info("HFP dial via ofono: %s", number)
-                    return
-        except dbus.DBusException:
-            pass
-        log.debug("ofono not available for dial — phone app handles the call")
+            for path in self._ofono_voice_modems(bus):
+                vcm = dbus.Interface(bus.get_object(OFONO_SERVICE, path), OFONO_VCM_IFACE)
+                vcm.Dial(number, "", timeout=5.0)
+                log.info("HFP dial via ofono: %s", number)
+                return
+        except dbus.DBusException as e:
+            self._warn_ofono_once("dbus", f"D-Bus error ({e.get_dbus_name()})")
 
     def _hfp_answer_dbus(self) -> None:
-        """Answer via ofono VoiceCall."""
+        """Answer via ofono: Answer() an incoming call, HoldAndAnswer() a waiting one.
+
+        A second call during a call is "waiting" in oFono (shown as
+        "incoming" by the UI); VoiceCall.Answer() refuses it, the manager's
+        HoldAndAnswer() puts the current call on hold and takes the new one.
+        """
         import dbus
         bus = dbus.SystemBus()
         try:
-            manager = bus.get_object("org.ofono", "/")
-            modems = dbus.Interface(manager, "org.ofono.Manager").GetModems(timeout=5.0)
-            for path, props in modems:
-                if "org.ofono.VoiceCallManager" in props.get("Interfaces", []):
-                    vcm_obj = bus.get_object("org.ofono", path)
-                    calls = dbus.Interface(vcm_obj, "org.ofono.VoiceCallManager").GetCalls(timeout=5.0)
-                    for call_path, call_props in calls:
-                        if call_props.get("State") == "incoming":
-                            call_iface = dbus.Interface(
-                                bus.get_object("org.ofono", call_path),
-                                "org.ofono.VoiceCall"
-                            )
-                            call_iface.Answer(timeout=5.0)
-                            log.info("HFP answered via ofono")
-                            return
-        except dbus.DBusException:
-            pass
-        log.debug("ofono not available for answer")
+            for path in self._ofono_voice_modems(bus):
+                vcm = dbus.Interface(bus.get_object(OFONO_SERVICE, path), OFONO_VCM_IFACE)
+                calls = vcm.GetCalls(timeout=5.0)
+                states = {str(call_path): str(props.get("State", ""))
+                          for call_path, props in calls}
+                for call_path, state in states.items():
+                    if state == "incoming":
+                        dbus.Interface(bus.get_object(OFONO_SERVICE, call_path),
+                                       "org.ofono.VoiceCall").Answer(timeout=5.0)
+                        log.info("HFP answered via ofono")
+                        return
+                if "waiting" in states.values():
+                    vcm.HoldAndAnswer(timeout=5.0)
+                    log.info("HFP: held the current call and answered the waiting one")
+                    return
+            log.info("HFP answer: no incoming call in oFono")
+        except dbus.DBusException as e:
+            self._warn_ofono_once("dbus", f"D-Bus error ({e.get_dbus_name()})")
 
     def _hfp_hangup_dbus(self) -> None:
         """Hangup via ofono VoiceCallManager.HangupAll()."""
         import dbus
         bus = dbus.SystemBus()
         try:
-            manager = bus.get_object("org.ofono", "/")
-            modems = dbus.Interface(manager, "org.ofono.Manager").GetModems(timeout=5.0)
+            for path in self._ofono_voice_modems(bus):
+                vcm = dbus.Interface(bus.get_object(OFONO_SERVICE, path), OFONO_VCM_IFACE)
+                vcm.HangupAll(timeout=5.0)
+                log.info("HFP hangup via ofono")
+                return
+        except dbus.DBusException as e:
+            self._warn_ofono_once("dbus", f"D-Bus error ({e.get_dbus_name()})")
+
+    # --- oFono call monitor ---
+
+    def _start_ofono_monitor(self) -> bool:
+        """Follow calls from oFono on a GLib loop thread (like the AVRCP monitor).
+
+        Signals: Manager.ModemAdded/ModemRemoved, Modem.PropertyChanged
+        (Interfaces: VoiceCallManager appears when the phone's HFP link is
+        up), VoiceCallManager.CallAdded/CallRemoved and VoiceCall
+        .PropertyChanged. They feed :class:`OfonoCallTracker`, which
+        publishes bt.call_state / bt.call_info / bt.call_incoming /
+        bt.call_ended. The org.ofono owner is watched, so a restarted ofonod
+        is re-read and a vanished one ends any call shown.
+
+        Without dbus-python / GLib (tests, dev machines) or without oFono this
+        degrades to a log line; the dashboard's provisional states still work.
+        Returns True if the monitor thread was started.
+        """
+        if not HAS_DBUS:
+            log.debug("D-Bus not available — oFono call monitor disabled")
+            return False
+        if self._call_tracker is not None:
+            return True
+        tracker = OfonoCallTracker(self._event_bus)
+        self._call_tracker = tracker
+
+        def _seed(bus) -> None:
+            import dbus
+            try:
+                manager = dbus.Interface(bus.get_object(OFONO_SERVICE, "/"),
+                                         "org.ofono.Manager")
+                modems = manager.GetModems(timeout=5.0)
+            except Exception as e:
+                tracker.reset()
+                name = getattr(e, "get_dbus_name", lambda: "")() or type(e).__name__
+                self._warn_ofono_once("not_running", f"service not reachable ({name})")
+                return
+            calls_by_modem = {}
             for path, props in modems:
-                if "org.ofono.VoiceCallManager" in props.get("Interfaces", []):
-                    vcm = dbus.Interface(
-                        bus.get_object("org.ofono", path),
-                        "org.ofono.VoiceCallManager"
-                    )
-                    vcm.HangupAll(timeout=5.0)
-                    log.info("HFP hangup via ofono")
-                    return
-        except dbus.DBusException:
-            pass
-        log.debug("ofono not available for hangup")
+                if OFONO_VCM_IFACE not in props.get("Interfaces", []):
+                    continue
+                try:
+                    vcm = dbus.Interface(bus.get_object(OFONO_SERVICE, path), OFONO_VCM_IFACE)
+                    calls_by_modem[str(path)] = vcm.GetCalls(timeout=5.0)
+                except Exception:
+                    log.debug("oFono GetCalls(%s) failed", path, exc_info=True)
+            tracker.seed(modems, calls_by_modem)
+            log.info("oFono call monitor: %d modem(s), %d with VoiceCallManager",
+                     len(modems), len(calls_by_modem))
+
+        def _monitor() -> None:
+            try:
+                import dbus
+                import dbus.mainloop.glib
+                from gi.repository import GLib
+
+                dbus.mainloop.glib.DBusGMainLoop(set_as_default=True)
+                bus = dbus.SystemBus()
+
+                # bus_name=OFONO_SERVICE on every receiver: the default system
+                # bus policy lets ANY local process emit signals, so without a
+                # sender filter a local user could fake CallAdded and make the
+                # dashboard announce a call / switch screens. dbus-python
+                # resolves the well-known name to its current owner (and
+                # follows it across ofonod restarts).
+
+                def _guard(fn):
+                    # A malformed signal must not kill the GLib thread.
+                    def wrapped(*args, **kwargs):
+                        try:
+                            fn(*args, **kwargs)
+                        except Exception:
+                            log.debug("oFono signal handler failed", exc_info=True)
+                    return wrapped
+
+                bus.add_signal_receiver(
+                    _guard(lambda path, props: tracker.modem_added(path, props)),
+                    dbus_interface="org.ofono.Manager", signal_name="ModemAdded",
+                    bus_name=OFONO_SERVICE)
+                bus.add_signal_receiver(
+                    _guard(lambda path: tracker.modem_removed(path)),
+                    dbus_interface="org.ofono.Manager", signal_name="ModemRemoved",
+                    bus_name=OFONO_SERVICE)
+                bus.add_signal_receiver(
+                    _guard(lambda name, value, path=None:
+                           tracker.modem_property_changed(path, name, value)),
+                    dbus_interface="org.ofono.Modem", signal_name="PropertyChanged",
+                    path_keyword="path", bus_name=OFONO_SERVICE)
+                bus.add_signal_receiver(
+                    _guard(lambda path, props: tracker.call_added(path, props)),
+                    dbus_interface=OFONO_VCM_IFACE, signal_name="CallAdded",
+                    bus_name=OFONO_SERVICE)
+                bus.add_signal_receiver(
+                    _guard(lambda path: tracker.call_removed(path)),
+                    dbus_interface=OFONO_VCM_IFACE, signal_name="CallRemoved",
+                    bus_name=OFONO_SERVICE)
+                bus.add_signal_receiver(
+                    _guard(lambda name, value, path=None:
+                           tracker.call_property_changed(path, name, value)),
+                    dbus_interface="org.ofono.VoiceCall", signal_name="PropertyChanged",
+                    path_keyword="path", bus_name=OFONO_SERVICE)
+
+                def _owner_changed(owner) -> None:
+                    if owner:
+                        _seed(bus)
+                    else:
+                        tracker.reset()
+                        self._warn_ofono_once("not_running", "service is not running")
+
+                # Called at once with the current owner ('' = not running), so
+                # this also does the initial seed.
+                bus.watch_name_owner(OFONO_SERVICE, _guard(_owner_changed))
+                tracker.live = True
+                log.info("oFono call monitor started (D-Bus)")
+                GLib.MainLoop().run()
+                log.warning("oFono call monitor loop ended — incoming calls will "
+                            "not show on the dashboard")
+            except Exception as e:
+                log.warning("oFono call monitor unavailable (%s) — incoming calls "
+                            "will not show on the dashboard", e)
+            finally:
+                # Not fed any more: never let reconcile() "correct" a live
+                # call to idle from this tracker's stale view.
+                tracker.live = False
+
+        self._event_bus.subscribe("bt.connected", self._on_bt_connected_ofono)
+        threading.Thread(target=_monitor, daemon=True, name="bt-ofono-monitor").start()
+        return True
+
+    def _on_bt_connected_ofono(self, topic: str, value: Any, timestamp: float) -> None:
+        """Phone connected: oFono should have a voice modem shortly after."""
+        if not value or self._call_tracker is None:
+            return
+        timer = threading.Timer(20.0, self._check_ofono_modem)
+        timer.daemon = True
+        timer.start()
+
+    def _check_ofono_modem(self) -> None:
+        tracker = self._call_tracker
+        if tracker is not None and tracker.live and self._connected_device \
+                and not tracker.has_voice_modem():
+            self._warn_ofono_once("no_vcm", "phone connected, but no modem with "
+                                  "VoiceCallManager after 20 s")
 
     # --- AVRCP media metadata ---
 
@@ -1900,16 +2351,36 @@ class BluetoothManager:
 
     # --- HFP call handling ---
 
+    def _publish_if_changed(self, topic: str, value: Any) -> None:
+        """Publish unless the topic already holds ``value`` (no duplicate
+        ducking toggles when several call events say the same thing)."""
+        last = self._event_bus.get_last(topic)
+        if last is None or last[0] != value:
+            self._event_bus.publish(topic, value)
+
+    def _on_call_state(self, topic: str, value: Any, timestamp: float) -> None:
+        """Keep _hfp_active / bt.hfp_active / audio.phone_call in step with
+        bt.call_state: incoming, ringing (also a call dialled on the phone)
+        and active are "on", idle is "off". A reconcile that puts oFono's
+        idle back after a failed answer therefore also un-ducks the music.
+        """
+        if not isinstance(value, str):
+            return
+        active = value != "idle"
+        self._hfp_active = active
+        self._publish_if_changed("bt.hfp_active", active)
+        self._publish_if_changed("audio.phone_call", active)
+
     def _on_call_incoming(self, topic: str, value: Any, timestamp: float) -> None:
         self._hfp_active = True
-        self._event_bus.publish("bt.hfp_active", True)
-        self._event_bus.publish("audio.phone_call", True)
+        self._publish_if_changed("bt.hfp_active", True)
+        self._publish_if_changed("audio.phone_call", True)
         log.info("HFP call active")
 
     def _on_call_ended(self, topic: str, value: Any, timestamp: float) -> None:
         self._hfp_active = False
-        self._event_bus.publish("bt.hfp_active", False)
-        self._event_bus.publish("audio.phone_call", False)
+        self._publish_if_changed("bt.hfp_active", False)
+        self._publish_if_changed("audio.phone_call", False)
         log.info("HFP call ended")
 
 

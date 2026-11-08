@@ -391,49 +391,72 @@ const App = (() => {
         }, 2000);
     }
 
-    // --- Touch Swipe Navigation ---
+    // --- Touch gestures ---
+    // Two edge gestures, classified by components/gestures.js:
+    //   pull DOWN from the top edge   → next screen (navCycleNext),
+    //   swipe UP from the bottom edge → reveal the autohiding NavBar.
+    // The old horizontal swipe is gone: it fired on the AA stream too, so a
+    // horizontal drag meant for the phone changed the BCM screen. Both
+    // gestures are evaluated on touchend only — nothing navigates mid-drag.
+    //
+    // Touches on the AA overlay are skipped: A2 runs the same edge machine
+    // itself (screens/android_auto.js) because it must also decide what goes
+    // to the phone. Overlays/modals are skipped so a pull never navigates
+    // the screen away underneath them.
+    const GESTURE_OVERLAYS = "#osk-overlay, #reverse-overlay, #kiosk-restart-modal, "
+        + "#system-reboot-modal, #kiosk-restarting-overlay, #system-rebooting-overlay, "
+        + "#bt-pairing-overlay, #bcm-splash-overlay";
+
+    function _isFormControl(el) {
+        if (!el) return false;
+        const tag = el.tagName;
+        return tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT"
+            || tag === "BUTTON" || !!el.isContentEditable;
+    }
+
+    function _gestureIgnored(el) {
+        if (el && el.closest && el.closest("#aa-touch-overlay")) return true;
+        if (document.querySelector(GESTURE_OVERLAYS)) return true;
+        return false;
+    }
+
     function _initTouchSwipe() {
-        let startX = 0;
-        let startY = 0;
-        let suppress = false;
-        let bottomEdgeStart = false;
-        const BOTTOM_EDGE_PX = 40;
-        const isInteractive = (el) => {
-            if (!el) return false;
-            const tag = el.tagName;
-            if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT"
-                || tag === "BUTTON") return true;
-            if (el.isContentEditable) return true;
-            if (el.closest && el.closest("#osk-overlay")) return true;
-            return false;
-        };
+        const G = window.BCMGestures;
+        if (!G) return;   // gestures.js failed to load — keyboard nav still works
+        let tracking = false;
+        let zone = null;
+        let startX = 0, startY = 0, startT = 0;
+        let onControl = false;
+
         document.addEventListener("touchstart", (e) => {
-            startX = e.touches[0].clientX;
-            startY = e.touches[0].clientY;
-            // Bottom-edge swipe-up reveals the navbar regardless of
-            // what's underneath the finger (AA stream, map, etc.) — so
-            // don't suppress just because the touch landed on, e.g.,
-            // the AA touch overlay. Only ignore it for inputs/OSK.
-            suppress = isInteractive(e.target);
-            bottomEdgeStart = (window.innerHeight - startY) <= BOTTOM_EDGE_PX;
+            tracking = false;
+            if (!e.touches || e.touches.length !== 1) return;  // pinch etc.
+            if (_gestureIgnored(e.target)) return;
+            const t = e.touches[0];
+            zone = G.edgeZone(t.clientY, window.innerHeight);
+            if (!zone) return;
+            tracking = true;
+            startX = t.clientX;
+            startY = t.clientY;
+            startT = performance.now();
+            onControl = _isFormControl(e.target);
         }, { passive: true });
+
+        document.addEventListener("touchcancel", () => { tracking = false; }, { passive: true });
+
         document.addEventListener("touchend", (e) => {
-            const dx = e.changedTouches[0].clientX - startX;
-            const dy = e.changedTouches[0].clientY - startY;
-            // Swipe up from the bottom edge → reveal NavBar (works on
-            // every screen, including the AA fullscreen view).
-            if (bottomEdgeStart && dy < -40 && Math.abs(dy) > Math.abs(dx)) {
-                showNavBar();
-                bottomEdgeStart = false;
-                suppress = false;
-                return;
-            }
-            bottomEdgeStart = false;
-            if (suppress) { suppress = false; return; }
-            // Require horizontal swipe > 60px and more horizontal than vertical
-            if (Math.abs(dx) > 60 && Math.abs(dx) > Math.abs(dy) * 1.5) {
-                if (dx < 0) navNext();  // Swipe left → next screen
-                else navPrev();          // Swipe right → prev screen
+            if (!tracking) return;
+            tracking = false;
+            if (!e.changedTouches || !e.changedTouches.length) return;
+            const t = e.changedTouches[0];
+            const dx = t.clientX - startX;
+            const dy = t.clientY - startY;
+            if (zone === "bottom") {
+                // Works over buttons too (fixed-bottom controls sit right in
+                // the edge strip); a tap there is < NAVBAR_MIN and passes.
+                if (G.navbarDone(dx, dy)) showNavBar();
+            } else if (zone === "top" && !onControl) {
+                if (G.pullDone(dx, dy, performance.now() - startT)) navCycleNext();
             }
         }, { passive: true });
     }
@@ -468,39 +491,6 @@ const App = (() => {
             _scheduleNavHide();
         }
     }
-    /** Inject a thin invisible hot-zone at the bottom of <body> so the
-     *  edge-swipe detector still fires when the touch lands on a
-     *  child element with stopPropagation behavior.
-     *
-     *  The hotzone tracks its OWN touch start/end and only fires the
-     *  reveal on a real swipe-up gesture; a plain tap passes through
-     *  to the underlying UI button. Earlier versions called showNavBar
-     *  on any touchstart in the bottom 36 px which stole taps from
-     *  fixed-bottom controls (the "after scaling, touch is off" bug
-     *  the user kept hitting — buttons grew into the hotzone strip). */
-    function _ensureNavHotzone() {
-        if (document.getElementById("bcm-nav-hotzone")) return;
-        const hot = document.createElement("div");
-        hot.id = "bcm-nav-hotzone";
-        hot.className = "bcm-navbar-hotzone";
-        let hotStartY = 0;
-        let hotStartT = 0;
-        hot.addEventListener("touchstart", (e) => {
-            hotStartY = e.touches[0].clientY;
-            hotStartT = Date.now();
-        }, { passive: true });
-        hot.addEventListener("touchend", (e) => {
-            const endY = e.changedTouches[0].clientY;
-            const dy = endY - hotStartY;
-            const dt = Date.now() - hotStartT;
-            // Real swipe-up: at least 24 px upward within 500 ms.
-            // Anything else (a tap, a long press, a horizontal drag)
-            // is left to bubble through to the element below.
-            if (dy < -24 && dt < 500) showNavBar();
-        }, { passive: true });
-        document.body.appendChild(hot);
-    }
-
     function navPrev() {
         const idx = NAV_SCREENS.indexOf(_currentScreen);
         if (idx > 0) {
@@ -515,8 +505,111 @@ const App = (() => {
         }
     }
 
+    /** Pull-down target: the next A-screen, wrapping A4 → A1. From a screen
+     *  outside the cycle (Settings, Audio, init…) go back to the last
+     *  A-screen the user was on, else A1. */
+    function navCycleNext() {
+        const idx = NAV_SCREENS.indexOf(_currentScreen);
+        if (idx >= 0) {
+            navigateTo(NAV_SCREENS[(idx + 1) % NAV_SCREENS.length]);
+        } else {
+            navigateTo(_loadLastScreen() || "a1");
+        }
+    }
+
+    // --- Top-bar clock ---
+    // AppBar.render() stamps the time once; nothing refreshed it, so the
+    // clock stood still until the next screen change. Tick once a second
+    // (AppBar.update only writes when the text changed) and catch up at once
+    // when the kiosk becomes visible again.
+    let _clockTimer = null;
+    function _tickClock() {
+        if (typeof AppBar === "undefined") return;
+        try { AppBar.update(document, DataStore.getAll()); } catch (e) { /* never kill the timer */ }
+    }
+    function _startClock() {
+        if (_clockTimer) return;
+        _clockTimer = setInterval(_tickClock, 1000);
+        document.addEventListener("visibilitychange", () => {
+            if (!document.hidden) _tickClock();
+        });
+        _tickClock();
+    }
+
+    // --- Phone calls (bt.call_state from the oFono monitor) ---
+    // Only the CURRENT screen's update() runs on new data, so a call that
+    // arrives while the kiosk shows A1/A3/A4 used to show nothing: the A8
+    // overlay (answer / reject) only appeared if the driver was already on
+    // A8, and Phone._callState went stale everywhere else. The call state is
+    // therefore followed here, on every screen.
+    const CALL_STATES = ["idle", "incoming", "ringing", "active"];
+    // Never pulled to A8 from these: A8 shows the overlay itself, and on A2
+    // Android Auto projects its own call UI.
+    const CALL_NAV_SKIP = ["a8", "a2"];
+    let _lastCallState = null;   // last bt_call_state seen from the backend
+    let _lastCallKey = null;     // state + caller info, to spot news only
+    let _callReturnTo = null;    // screen to go back to after an auto-switch
+
+    /** Pure: where a bt_call_state change should take the kiosk, or null.
+     *  prev: last backend state (null before the first payload), next: new
+     *  state, screen: current screen, returnTo: the screen we came from if
+     *  this call already switched to A8 by itself. */
+    function callNavDecision(prev, next, screen, returnTo) {
+        if (CALL_STATES.indexOf(next) === -1 || next === prev) return null;
+        if (next === "idle") {
+            // Call over: go back only if WE moved the driver and they stayed.
+            return (returnTo && screen === "a8") ? returnTo : null;
+        }
+        if (CALL_NAV_SKIP.indexOf(screen) !== -1) return null;
+        if (next === "incoming") return "a8";      // needs answer / reject
+        // A call started on the phone (or already running when the kiosk
+        // loaded): show the hang-up overlay once, not on every state step.
+        if (prev === "idle" || prev === null) return "a8";
+        return null;
+    }
+
+    /** Caller info from the payload as plain, bounded strings. Escaping is
+     *  done where it is rendered (phone.js _esc), not here. */
+    function _callInfoOf(v) {
+        if (!v || typeof v !== "object") return {};
+        const out = {};
+        if (v.number != null && v.number !== "") out.number = String(v.number).slice(0, 32);
+        if (v.name != null && v.name !== "") out.name = String(v.name).slice(0, 64);
+        return out;
+    }
+
+    function _syncCallState(data) {
+        const next = data ? data.bt_call_state : undefined;
+        if (CALL_STATES.indexOf(next) === -1) return;
+        const info = next === "idle" ? {} : _callInfoOf(data.bt_call_info);
+        const key = next + "|" + (info.number || "") + "|" + (info.name || "");
+        // Act on NEWS from the backend only. Re-applying an unchanged state on
+        // every push would clobber Phone.dial()'s instant local "ringing".
+        if (key === _lastCallKey) return;
+        const prev = _lastCallState;
+        _lastCallState = next;
+        _lastCallKey = key;
+        if (typeof Phone !== "undefined" && Phone) {
+            Phone._callState = next;
+            Phone._callInfo = info;
+        }
+        const target = callNavDecision(prev, next, _currentScreen, _callReturnTo);
+        if (next === "idle") _callReturnTo = null;
+        if (target === "a8") {
+            if (!_callReturnTo) {
+                _callReturnTo = NAV_SCREENS.includes(_currentScreen) || _currentScreen === "settings"
+                    ? _currentScreen : (_loadLastScreen() || "a1");
+            }
+            navigateTo("a8");
+        } else if (target) {
+            navigateTo(target);
+        }
+    }
+
     /** Update current screen with new data */
     function onDataUpdate(data) {
+        // Calls first: may switch to A8, whose update() then sees fresh state.
+        try { _syncCallState(data); } catch (e) { /* never break the data loop */ }
         if (_renderers[_currentScreen] && _renderers[_currentScreen].update) {
             _renderers[_currentScreen].update(data, _currentTheme);
         }
@@ -527,6 +620,10 @@ const App = (() => {
         _syncReverseOverlay(data);
         // Icing alert check
         _checkIcingAlert(data);
+        // Backend announcements (e.g. "no microphone") as toasts, on any screen.
+        if (typeof Notifications !== "undefined" && Notifications.syncToasts) {
+            Notifications.syncToasts(data.notifications);
+        }
     }
 
     function _syncReverseOverlay(data) {
@@ -577,7 +674,11 @@ const App = (() => {
         navigateTo,
         navPrev,
         navNext,
+        navCycleNext,
         getNavIndex,
+
+        /** Pure call-navigation rule (exported for the node test). */
+        callNavDecision,
 
         /** NavBar autohide controls (called from NavBar markup + global) */
         showNavBar,
@@ -873,10 +974,12 @@ const App = (() => {
             // Keyboard input
             document.addEventListener("keydown", handleKeyDown);
 
-            // Touch swipe navigation (for touchscreen) + bottom-edge
-            // hot-zone that reveals the autohiding navbar.
+            // Edge gestures (touchscreen): pull down from the top = next
+            // screen, swipe up from the bottom = NavBar.
             _initTouchSwipe();
-            _ensureNavHotzone();
+
+            // Live top-bar clock (i18n is loaded, so the date is localised).
+            _startClock();
 
             const restoreTarget = _loadLastScreen() || "a1";
             let bootMode = "warm";
@@ -886,7 +989,12 @@ const App = (() => {
                 bootMode = bm.boot_mode || "warm";
             } catch (e) { /* default to warm */ }
 
-            if (bootMode === "cold") {
+            // An incoming call may already have switched to A8 while the
+            // boot-mode fetch was in flight (data flows from DataStore.init
+            // above) — only take the boot path if nothing navigated yet.
+            if (_currentScreen !== "init") {
+                /* keep the screen the call (or SWC) chose */
+            } else if (bootMode === "cold") {
                 navigateTo(restoreTarget);
             } else {
                 navigateTo("init");

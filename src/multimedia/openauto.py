@@ -8,6 +8,7 @@ Entry point: start_multimedia() is called from main.py.
 """
 
 import os
+import re
 import signal
 import subprocess
 import threading
@@ -35,6 +36,22 @@ def _find_openauto() -> Optional[str]:
         if os.path.isfile(path) and os.access(path, os.X_OK):
             return path
     return None
+
+
+def _parse_pids(text: str) -> list[int]:
+    """PIDs from ``pgrep``/``fuser`` output, in order, without duplicates.
+
+    fuser may suffix an access letter ("1234c"); anything else that is not
+    a number is ignored rather than trusted.
+    """
+    pids: list[int] = []
+    for token in (text or "").split():
+        m = re.fullmatch(r"(\d+)[a-zA-Z]*", token)
+        if m:
+            pid = int(m.group(1))
+            if pid not in pids:
+                pids.append(pid)
+    return pids
 
 
 def _aa_canvas_size(app_config: Any) -> tuple[int, int]:
@@ -113,11 +130,120 @@ def _resolve_bt_adapter_addr(app_config: Any) -> str:
     return addr.upper() if addr else ""
 
 
-def _create_openauto_config(project_dir: str, app_config: Any = None) -> None:
+#: openDsh ``Audio.OutputBackendType`` (enum AudioOutputBackendType
+#: { RTAUDIO, QT } in openauto/Configuration/AudioOutputBackendType.hpp).
+_AUDIO_BACKENDS = {"rtaudio": 0, "qt": 1}
+
+#: [Input] keys openDsh actually reads (Configuration::readButtonCodes): each
+#: ``Input.<Name>`` is a bool (default false) that adds one aasdk ButtonCode to
+#: the list the phone is told about and that InputDevice forwards. Written only
+#: with ``multimedia.aa_input_buttons: true`` — see _create_openauto_config.
+#: VoiceCommandButton (MICROPHONE_1) is handled separately.
+_INPUT_BUTTON_KEYS = (
+    "PlayButton", "PauseButton", "TogglePlayButton", "NextTrackButton",
+    "PreviousTrackButton", "HomeButton", "PhoneButton", "CallEndButton",
+    "LeftButton", "RightButton", "UpButton", "DownButton",
+    "ScrollWheelButton", "BackButton", "EnterButton",
+)
+
+#: How long start() waits for the mic router's first audio.mic_state.
+MIC_WAIT_TIMEOUT_S = 5.0
+
+#: Node names we are willing to pass on as PULSE_SOURCE.
+_SAFE_NODE_NAME = re.compile(r"^[A-Za-z0-9_.:+@-]{1,200}$")
+
+
+def _audio_backend(app_config: Any) -> tuple[int, str]:
+    """``multimedia.aa_audio_backend`` -> (OutputBackendType code, name).
+
+    Code default ``rtaudio`` keeps the production behaviour (the key used to
+    be absent, and absent means RtAudio in openDsh).
+    """
+    wanted = "rtaudio"
+    if app_config:
+        wanted = str(app_config.get("multimedia.aa_audio_backend", "rtaudio")
+                     or "rtaudio").strip().lower()
+    if wanted not in _AUDIO_BACKENDS:
+        log.warning("multimedia.aa_audio_backend=%r not understood — using "
+                    "rtaudio; valid: qt, rtaudio", wanted)
+        wanted = "rtaudio"
+    return _AUDIO_BACKENDS[wanted], wanted
+
+
+def _input_buttons_enabled(app_config: Any) -> bool:
+    """``multimedia.aa_input_buttons`` (code default False = production unchanged)."""
+    if not app_config:
+        return False
+    return bool(app_config.get("multimedia.aa_input_buttons", False))
+
+
+def _mic_available(app_config: Any, mic_state: Any = None) -> bool:
+    """Is there a microphone for the AA voice button / VoiceCommandButton?
+
+    The mic router's verdict wins (``audio.mic_state`` ``ok`` / ``none``).
+    Before it has reported — router disabled, PipeWire not up, or ``error``
+    — fall back to whether ``audio.mic_phone`` names a mic at all.
+    """
+    state = mic_state.get("state") if isinstance(mic_state, dict) else None
+    if state == "ok":
+        return True
+    if state == "none":
+        return False
+    if not app_config:
+        return False
+    return bool(str(app_config.get("audio.mic_phone", "") or "").strip())
+
+
+def _build_autoapp_env(app_config: Any, mic_source: str, base_env: Any, *,
+                       uid: Optional[int] = None,
+                       exists: Any = os.path.exists,
+                       isdir: Any = os.path.isdir) -> dict[str, str]:
+    """Audio / runtime environment for autoapp. No side effects.
+
+    * ``PULSE_SERVER`` + ``PIPEWIRE_RUNTIME_DIR``: BCM runs as root, PipeWire
+      in the autologin user's session (uid 1000) — point autoapp's Qt
+      PulseAudio backend at that socket unless the environment already does.
+    * ``PULSE_SINK`` from ``audio.aa_sink`` (empty = PipeWire default, i.e.
+      bcm_eq_sink, which keeps AA under the dashboard's volume and EQ).
+    * ``PULSE_SOURCE`` = the mic router's choice. Cosmetic: Qt opens
+      ``QAudioDeviceInfo::defaultInputDevice()`` by name, so the real lever
+      is the server's default source, which the router sets before AA starts.
+    * ``XDG_RUNTIME_DIR`` for our own uid (Qt warns without it); the
+      /tmp/runtime-root fallback is created by the caller.
+    """
+    env = dict(base_env)
+    if uid is None:
+        uid = os.getuid()
+    if "PULSE_SERVER" not in env:
+        for candidate in (1000, uid):
+            sock = f"/run/user/{candidate}/pulse/native"
+            if exists(sock):
+                env["PULSE_SERVER"] = f"unix:{sock}"
+                env["PIPEWIRE_RUNTIME_DIR"] = f"/run/user/{candidate}"
+                break
+    aa_sink = ""
+    if app_config is not None:
+        aa_sink = str(app_config.get("audio.aa_sink", "") or "").strip()
+    if aa_sink:
+        env["PULSE_SINK"] = aa_sink
+    source = (mic_source or "").strip() if isinstance(mic_source, str) else ""
+    if source and _SAFE_NODE_NAME.match(source):
+        env["PULSE_SOURCE"] = source
+    if "XDG_RUNTIME_DIR" not in env:
+        runtime_dir = f"/run/user/{uid}"
+        env["XDG_RUNTIME_DIR"] = runtime_dir if isdir(runtime_dir) else "/tmp/runtime-root"
+    return env
+
+
+def _create_openauto_config(project_dir: str, app_config: Any = None,
+                            mic_available: Optional[bool] = None) -> dict[str, Any]:
     """Create openauto.ini in the project directory (autoapp's working dir).
 
-    Only creates the file if it doesn't exist — autoapp manages its own
-    config at runtime (stores last BT device, settings, etc.).
+    Regenerated on every start (see below). ``mic_available`` decides
+    VoiceCommandButton; None = derive it from ``audio.mic_phone``.
+    Returns what was written that matters at runtime:
+    ``{"voice_button": bool, "audio_backend": "qt"|"rtaudio",
+    "input_buttons": bool}``.
     """
     config_path = os.path.join(project_dir, "openauto.ini")
     # A power cut mid-write (AA starts around ignition-on and cranking)
@@ -134,11 +260,9 @@ def _create_openauto_config(project_dir: str, app_config: Any = None) -> None:
     password = ""
     wifi_mac = ""
     bt_adapter = ""
-    # 1024 × 504 = full BCM content area (dash 1024×600 minus AppBar 48
-    # + NavBar 48). _aa_canvas_size returns this same value when no
-    # explicit override is set, so autoapp renders into the exact box
-    # the JS panel exposes — no letterboxing, no touch-coordinate skew.
-    width = 1024
+    # Canvas height only picks the Resolution below. (It also used to go
+    # into [Input] TouchscreenWidth/Height, keys openDsh never read: the
+    # touch area is the autoapp window, sized by _force_fullscreen_window.)
     height = 504
     if app_config:
         # Prefer runtime credentials when set by wifi_ap.py — Wi-Fi
@@ -148,7 +272,7 @@ def _create_openauto_config(project_dir: str, app_config: Any = None) -> None:
                 or app_config.get("wifi.ssid", ""))
         password = (app_config.get("wifi.password_runtime", "")
                     or app_config.get("wifi.password", ""))
-        width, height = _aa_canvas_size(app_config)
+        _width, height = _aa_canvas_size(app_config)
         wifi_mac = _resolve_wifi_mac(app_config)
         bt_adapter = _resolve_bt_adapter_addr(app_config)
 
@@ -201,6 +325,35 @@ def _create_openauto_config(project_dir: str, app_config: Any = None) -> None:
                     "auto choice (%d); use 480p, 720p or 1080p",
                     wanted, resolution_code)
 
+    # [Audio] OutputBackendType — the "AA voice hangs the audio and buzzes"
+    # fault. In openDsh, RtAudioOutput's read callback does not zero-fill a
+    # short read and its suspend() is an empty "//not needed". When the
+    # assistant takes audio focus the phone simply stops feeding the media
+    # channel, so the last 42-64 ms buffer keeps looping in the output
+    # stream: the "freeze + buzz". QtAudioOutput::suspend() really suspends
+    # the QAudioOutput. Code default stays rtaudio (= the key absent, i.e.
+    # production unchanged); bcm_config_test.yaml selects qt.
+    backend_code, backend_name = _audio_backend(app_config)
+
+    # [Input]: openDsh reads Input.EnableTouchscreen (default true) and one
+    # bool per button (Input.PlayButton …, default false). The old
+    # ButtonCodes.* / TouchscreenEnabled / TouchscreenWidth/Height keys are
+    # not in its schema and were silently ignored — so no button was ever
+    # enabled, and with aa_input_buttons off (code default) that stays so:
+    # the phone is not told about a D-pad / rotary BCM never sends.
+    # VoiceCommandButton (MICROPHONE_1, Qt::Key_M in InputDevice) only when
+    # there is a microphone: without one the assistant can only hang, and the
+    # voice button is refused upstream anyway (audio.voice_require_mic).
+    if mic_available is None:
+        mic_available = _mic_available(app_config)
+    voice_button = bool(mic_available)
+    input_buttons = _input_buttons_enabled(app_config)
+    input_lines = "\n".join(
+        ["EnableTouchscreen=true"]
+        + ([f"{key}=true" for key in _INPUT_BUTTON_KEYS] if input_buttons else [])
+        + [f"VoiceCommandButton={'true' if voice_button else 'false'}"]
+    )
+
     config_content = f"""{VERSION_MARKER} — OpenAuto configuration for Alfa156 Headunit
 [General]
 HandednessOfTrafficType=0
@@ -216,22 +369,14 @@ MarginHeight=0
 MusicAudioChannelEnabled=1
 SpeechAudioChannelEnabled=1
 MediaAudioDelay=0
+OutputBackendType={backend_code}
 
 [Bluetooth]
 AdapterType=0
 RemoteAdapterAddress={bt_adapter}
 
 [Input]
-ButtonCodes.Enter=23
-ButtonCodes.Left=21
-ButtonCodes.Right=22
-ButtonCodes.Up=19
-ButtonCodes.Down=20
-ButtonCodes.Back=4
-ButtonCodes.Home=3
-TouchscreenEnabled=1
-TouchscreenWidth={width}
-TouchscreenHeight={height}
+{input_lines}
 
 [WiFi]
 SSID={ssid}
@@ -243,12 +388,16 @@ AdapterMAC={wifi_mac}
     atomic_write_text(config_path, config_content, mode=0o600)
 
     log.info("Created openauto config at %s (SSID=%s, WiFi MAC=%s, BT=%s, "
-             "Resolution=%d %s)",
+             "Resolution=%d %s, audio=%s, voice button=%s, AA buttons=%s)",
              config_path, ssid or "(empty)",
              wifi_mac or "(unresolved)", bt_adapter or "(default)",
              resolution_code,
              {1: "480p", 2: "720p", 3: "1080p", 4: "1440p"}.get(
-                 resolution_code, "?"))
+                 resolution_code, "?"),
+             backend_name, "on" if voice_button else "off",
+             "on" if input_buttons else "off")
+    return {"voice_button": voice_button, "audio_backend": backend_name,
+            "input_buttons": input_buttons}
 
 
 class OpenAutoController:
@@ -261,9 +410,22 @@ class OpenAutoController:
 
     XVFB_DISPLAY = ":99"
 
-    def __init__(self, config: Any, event_bus: EventBus):
+    def __init__(self, config: Any, event_bus: EventBus,
+                 mic_wait_timeout: float = MIC_WAIT_TIMEOUT_S):
         self._config = config
         self._event_bus = event_bus
+        # The mic router's first verdict (see _wait_for_mic_state). Set from
+        # the audio.mic_state subscription; the timeout is a test seam.
+        self._mic_wait_timeout = max(0.0, float(mic_wait_timeout))
+        self._mic_state_seen = threading.Event()
+        # Set after the first wait ran out: a router that never reported
+        # (failed to start, PipeWire never came up) must not cost every later
+        # start()/auto-restart another 5 s.
+        self._mic_wait_gave_up = False
+        # What the RUNNING autoapp was started with (set by start() just
+        # before Popen, not by credential-only ini rewrites): web_viewer falls
+        # back from the M key to the tap when VoiceCommandButton is off.
+        self.voice_button_enabled = False
         self._platform = config.get("system.platform", "x86")
         self._binary = _find_openauto()
         self._process: Optional[subprocess.Popen] = None
@@ -285,13 +447,25 @@ class OpenAutoController:
         self._connection_watchdog_thread: Optional[threading.Thread] = None
         self._connection_exhausted = False
 
+        # restart() takes ~10 s (stop, kill stale, BT power cycle, start). A
+        # second tap on "Restart AA" — or the HTTP endpoint and the event-bus
+        # request racing each other — used to run a second restart() in
+        # parallel: two stop()/start() sequences interleaved, two Xvfb/autoapp
+        # launches fighting over :99 and port 5000. Only one may run; the
+        # others return False at once (non-blocking acquire). The connection
+        # watchdog's stop/start takes the same lock.
+        self._restart_lock = threading.Lock()
+
         self._project_dir = os.path.dirname(os.path.dirname(
             os.path.dirname(os.path.abspath(__file__))))
 
+        self._event_bus.subscribe("audio.mic_state", self._on_mic_state)
+
         if self._binary:
             log.info("OpenAuto found: %s", self._binary)
-            # Create config in project root (autoapp reads from cwd)
-            _create_openauto_config(self._project_dir, app_config=config)
+            # Create config in project root (autoapp reads from cwd). No
+            # autoapp runs yet, so voice_button_enabled is left alone.
+            self._write_ini(record_running=False)
         else:
             # This is THE reason Android Auto does not come up on a fresh
             # install: autoapp is not part of setup-x86.sh, it has to be built
@@ -347,12 +521,79 @@ class OpenAutoController:
     def _on_set_auto_restart(self, topic: str, value: Any, timestamp: float) -> None:
         self.auto_restart_enabled = bool(value)
 
+    # ── microphone (src/audio/mic_router.py) ─────────────────────────────
+
+    def _on_mic_state(self, topic: str, value: Any, timestamp: float) -> None:
+        self._mic_state_seen.set()
+
+    def _last(self, topic: str) -> Any:
+        last = self._event_bus.get_last(topic) if self._event_bus else None
+        return last[0] if last else None
+
+    def _mic_router_enabled(self) -> bool:
+        """audio.mic_router on AND the audio module (which runs it) enabled."""
+        if not self._config or not bool(self._config.get("audio.mic_router", False)):
+            return False
+        try:
+            from src.core import modules_catalog
+            return bool(modules_catalog.is_enabled(self._config, "audio"))
+        except Exception:
+            return True
+
+    def mic_wait_pending(self) -> bool:
+        """Would start() block waiting for the mic router right now?"""
+        return (self._mic_router_enabled() and not self._mic_wait_gave_up
+                and self._last("audio.mic_state") is None)
+
+    def _wait_for_mic_state(self) -> bool:
+        """Wait (bounded) for the mic router's first ``audio.mic_state``.
+
+        autoapp opens QAudioDeviceInfo::defaultInputDevice() once per AA
+        session, so the default source must be right BEFORE the session
+        starts. Never waits when the router is disabled (production), and
+        waits at most ONCE per process: after a timeout later starts go
+        ahead at once. Returns True when a state is known.
+        """
+        if not self._mic_router_enabled():
+            return False
+        if self._last("audio.mic_state") is not None:
+            return True
+        if self._mic_wait_gave_up:
+            return False
+        log.info("Waiting up to %.0f s for the mic router before starting AA",
+                 self._mic_wait_timeout)
+        if self._mic_state_seen.wait(self._mic_wait_timeout):
+            return True
+        self._mic_wait_gave_up = True
+        log.warning("Mic router has not reported within %.0f s — starting AA "
+                    "with whatever the default source is (not waiting again)",
+                    self._mic_wait_timeout)
+        return False
+
+    def _mic_available(self) -> bool:
+        return _mic_available(self._config, self._last("audio.mic_state"))
+
+    def _write_ini(self, record_running: bool) -> None:
+        """(Re)write openauto.ini.
+
+        ``record_running``: True only from start(), right before autoapp is
+        launched with this file — then ``voice_button_enabled`` describes the
+        process about to run. A credential refresh (_on_ap_credentials)
+        rewrites the file under a RUNNING autoapp that will not re-read it,
+        so it must not flip the flag: the M key would then go to an autoapp
+        that filters MICROPHONE_1 out, and the tap fallback would never run.
+        """
+        written = _create_openauto_config(self._project_dir, app_config=self._config,
+                                          mic_available=self._mic_available())
+        if record_running:
+            self.voice_button_enabled = bool((written or {}).get("voice_button"))
+
     def _on_ap_credentials(self, topic: str, value: Any, timestamp: float) -> None:
         """Regenerate openauto.ini when the AP publishes its real credentials."""
         if not self._binary:
             return
         try:
-            _create_openauto_config(self._project_dir, app_config=self._config)
+            self._write_ini(record_running=False)
             ssid = ""
             if isinstance(value, dict):
                 ssid = value.get("ssid", "")
@@ -368,6 +609,11 @@ class OpenAutoController:
     @property
     def running(self) -> bool:
         return self._running and self._process is not None and self._process.poll() is None
+
+    @property
+    def restart_in_progress(self) -> bool:
+        """True while a restart() is running (the web UI reports it)."""
+        return self._restart_lock.locked()
 
     @property
     def auto_restart_enabled(self) -> bool:
@@ -422,14 +668,17 @@ class OpenAutoController:
         log.info("Starting OpenAuto: binary=%s, platform=%s",
                  self._binary, self._platform)
 
+        # Default source first (mic or silence), THEN the AA session: autoapp
+        # picks its input device once per session. Bounded, and a no-op
+        # unless audio.mic_router is enabled.
+        self._wait_for_mic_state()
+
         # Refresh openauto.ini on every start so credential changes
         # made via Settings → AA Wireless propagate without a BCM
         # restart. The file is tiny (≈700 bytes) so the rewrite is
-        # essentially free.
+        # essentially free. VoiceCommandButton follows the mic state too.
         try:
-            project_dir = os.path.dirname(os.path.dirname(
-                os.path.dirname(os.path.abspath(__file__))))
-            _create_openauto_config(project_dir, app_config=self._config)
+            self._write_ini(record_running=True)
         except Exception:
             log.exception("Could not refresh openauto.ini")
 
@@ -464,44 +713,30 @@ class OpenAutoController:
             else:
                 log.info("x86 with display: DISPLAY=%s", env.get("DISPLAY"))
 
-        # Connect to PipeWire-pulse if running under different user.
-        # Set PULSE_SERVER so autoapp can reach PipeWire-pulse socket.
-        # XDG_RUNTIME_DIR must point to our own process (root) runtime dir
-        # to avoid Qt warnings, but PULSE_SERVER can reference another user.
-        if "PULSE_SERVER" not in env:
-            for uid in [1000, os.getuid()]:
-                sock = f"/run/user/{uid}/pulse/native"
-                if os.path.exists(sock):
-                    env["PULSE_SERVER"] = f"unix:{sock}"
-                    env["PIPEWIRE_RUNTIME_DIR"] = f"/run/user/{uid}"
-                    log.info("Audio: PULSE_SERVER=%s", sock)
-                    break
-
+        # Audio + runtime env (PULSE_SERVER into the user's PipeWire session,
+        # PULSE_SINK from audio.aa_sink, PULSE_SOURCE from the mic router,
+        # XDG_RUNTIME_DIR) — see _build_autoapp_env.
+        had_server = "PULSE_SERVER" in env
+        had_runtime = "XDG_RUNTIME_DIR" in env
+        mic_source = self._last("audio.input_source")
+        env = _build_autoapp_env(self._config, mic_source if isinstance(mic_source, str) else "",
+                                 env)
+        if not had_server:
+            if "PULSE_SERVER" in env:
+                log.info("Audio: PULSE_SERVER=%s", env["PULSE_SERVER"])
             else:
                 log.warning("No PulseAudio socket found — audio may not work")
-
-        # Optional: pin autoapp's audio to a specific PipeWire sink (node.name)
-        # instead of the default. Set audio.aa_sink in config to override; empty
-        # = use the PipeWire default, i.e. bcm_eq_sink → the sink chosen by
-        # audio.sink. Leaving it empty is what keeps AA under the dashboard's
-        # own volume slider and EQ, so prefer changing audio.sink over this.
-        aa_sink = ""
-        if self._config is not None:
-            aa_sink = str(self._config.get("audio.aa_sink", "") or "").strip()
-        if aa_sink:
-            env["PULSE_SINK"] = aa_sink
-            log.info("Audio: PULSE_SINK=%s (autoapp pinned sink)", aa_sink)
-
-        # Ensure XDG_RUNTIME_DIR is set for the running process's own UID
-        if "XDG_RUNTIME_DIR" not in env:
-            my_uid = os.getuid()
-            runtime_dir = f"/run/user/{my_uid}"
-            if not os.path.isdir(runtime_dir):
-                runtime_dir = "/tmp/runtime-root"
-                os.makedirs(runtime_dir, exist_ok=True)
-                os.chmod(runtime_dir, 0o700)
-            env["XDG_RUNTIME_DIR"] = runtime_dir
-            log.debug("Set XDG_RUNTIME_DIR=%s", runtime_dir)
+        if env.get("PULSE_SINK"):
+            log.info("Audio: PULSE_SINK=%s (autoapp pinned sink)", env["PULSE_SINK"])
+        if env.get("PULSE_SOURCE"):
+            log.info("Audio: PULSE_SOURCE=%s (mic router's default source)",
+                     env["PULSE_SOURCE"])
+        if not had_runtime and env.get("XDG_RUNTIME_DIR") == "/tmp/runtime-root":
+            try:
+                os.makedirs("/tmp/runtime-root", exist_ok=True)
+                os.chmod("/tmp/runtime-root", 0o700)
+            except OSError as e:
+                log.debug("Cannot prepare /tmp/runtime-root: %s", e)
 
         try:
             self._process = subprocess.Popen(
@@ -588,30 +823,60 @@ class OpenAutoController:
         # Give time for ports and sockets to be released
         time.sleep(2)
 
+    def start_in_background(self) -> None:
+        """start() on a daemon thread, holding the restart lock.
+
+        Holding ``_restart_lock`` makes a dashboard restart or the connection
+        watchdog during this window back off ("already restarting") instead
+        of launching a second autoapp next to this one.
+        """
+        def _run() -> None:
+            if not self._restart_lock.acquire(blocking=False):
+                log.info("[AA] Restart in progress — skipping the first start")
+                return
+            try:
+                self.start()
+            except Exception:
+                log.exception("OpenAuto first start failed")
+            finally:
+                self._restart_lock.release()
+
+        threading.Thread(target=_run, daemon=True, name="openauto-first-start").start()
+
     def restart(self) -> bool:
-        """Full manual restart of OpenAuto (e.g. from UI)."""
-        log.info("[AA] Manual restart requested")
-        self._connection_restart_count = 0
-        self._connection_exhausted = False
-        self._device_connected.clear()
-        
-        # Stop OpenAuto and all related processes
-        self.stop()
-        
-        # Additional cleanup: kill any remaining autoapp/btservice processes
-        # that might not have been caught by stop()
-        self._kill_stale()
-        
-        # Wait for all resources (ports, sockets, Bluetooth) to be fully released
-        # This is critical for wireless AA which uses Bluetooth bootstrap
-        log.info("[AA] Waiting for resources to be released before restart...")
-        time.sleep(3)
-        
-        # Reset Bluetooth adapter to ensure clean state
-        self._reset_bt_adapter()
-        
-        # Now start fresh
-        return self.start()
+        """Full manual restart of OpenAuto (e.g. from UI).
+
+        Returns False without doing anything if another restart is already
+        running (see ``_restart_lock``), otherwise the result of start().
+        """
+        if not self._restart_lock.acquire(blocking=False):
+            log.info("[AA] Restart already in progress — ignoring request")
+            return False
+        try:
+            log.info("[AA] Manual restart requested")
+            self._connection_restart_count = 0
+            self._connection_exhausted = False
+            self._device_connected.clear()
+
+            # Stop OpenAuto and all related processes
+            self.stop()
+
+            # Additional cleanup: kill any remaining autoapp/btservice processes
+            # that might not have been caught by stop()
+            self._kill_stale()
+
+            # Wait for all resources (ports, sockets, Bluetooth) to be fully released
+            # This is critical for wireless AA which uses Bluetooth bootstrap
+            log.info("[AA] Waiting for resources to be released before restart...")
+            time.sleep(3)
+
+            # Reset Bluetooth adapter to ensure clean state
+            self._reset_bt_adapter()
+
+            # Now start fresh
+            return self.start()
+        finally:
+            self._restart_lock.release()
 
     def _force_fullscreen_window(self, display: str) -> None:
         """Force the autoapp Qt window to cover the full Xvfb canvas.
@@ -633,7 +898,9 @@ class OpenAutoController:
         env = {**os.environ, "DISPLAY": display}
         candidates = ["autoapp", "OpenAuto", "openauto", "openDsh"]
         last_wid: Optional[str] = None
-        deadline = time.time() + 30.0     # 30 s bootstrap window
+        # Monotonic: the AA bootstrap overlaps the phone's PAN coming up,
+        # and bcm-timesync may then move the wall clock by hours.
+        deadline = time.monotonic() + 30.0     # 30 s bootstrap window
 
         def _find_window_id() -> Optional[str]:
             for name in candidates:
@@ -660,7 +927,7 @@ class OpenAutoController:
                 pass
             return None
 
-        while self._running and time.time() < deadline:
+        while self._running and time.monotonic() < deadline:
             wid = _find_window_id()
             if wid and wid != last_wid:
                 try:
@@ -674,7 +941,7 @@ class OpenAutoController:
                     log.info("Resized autoapp window %s to %dx%d",
                              wid, width, height)
                     last_wid = wid
-                    deadline = time.time() + 10.0  # keep monitoring briefly
+                    deadline = time.monotonic() + 10.0  # keep monitoring briefly
                 except Exception as e:
                     log.debug("windowsize failed: %s", e)
             time.sleep(0.5)
@@ -762,6 +1029,11 @@ class OpenAutoController:
                 log.error("Xvfb exited immediately: %s", stderr)
                 return None
             log.info("Xvfb started on %s (%dx%d)", display_num, width, height)
+            # A new X server means every open MJPEG capture of the old one is
+            # dead. The A2 screen watches this epoch and reconnects its
+            # stream, so the picture comes back after an AA restart without
+            # reloading the kiosk (F5).
+            self._event_bus.publish("multimedia.aa_stream_epoch", time.time())
 
             # Launch a minimal window manager inside Xvfb so that every
             # top-level window created by openauto/autoapp is forced to
@@ -794,14 +1066,11 @@ class OpenAutoController:
                     if os.path.exists(cmdline_path):
                         with open(cmdline_path, "rb") as cf:
                             cmdline = cf.read().decode(errors="replace")
-                        if "Xvfb" in cmdline:
-                            os.kill(old_pid, signal.SIGTERM)
+                        if ("Xvfb" in cmdline
+                                and OpenAutoController._kill_pid(old_pid, signal.SIGTERM)):
                             time.sleep(0.5)
                             # Force kill if still alive
-                            try:
-                                os.kill(old_pid, signal.SIGKILL)
-                            except ProcessLookupError:
-                                pass
+                            OpenAutoController._kill_pid(old_pid, signal.SIGKILL)
                             log.info("Killed stale Xvfb (PID %d) on %s",
                                      old_pid, display)
                 except (ProcessLookupError, PermissionError):
@@ -892,85 +1161,84 @@ class OpenAutoController:
         except Exception as e:
             log.debug("Bluetooth reset failed: %s", e)
 
+    @staticmethod
+    def _kill_pid(pid: int, sig: int) -> bool:
+        """Send ``sig`` to ``pid`` unless it is BCM itself or a special PID.
+
+        Every kill in this class goes through here. ``pgrep -f``/``fuser``
+        output is matched loosely, and BCM's own PID must never be on the
+        receiving end (the web server can hold sockets too). PIDs <= 1 are
+        refused because ``kill(0)`` / ``kill(-1)`` signal whole groups.
+        """
+        if pid <= 1 or pid == os.getpid():
+            log.warning("Refusing to send signal %d to PID %d", sig, pid)
+            return False
+        try:
+            os.kill(pid, sig)
+            return True
+        except ProcessLookupError:
+            return False
+        except PermissionError as e:
+            log.debug("kill(%d, %d) not permitted: %s", pid, sig, e)
+            return False
+
+    @staticmethod
+    def _pgrep(pattern: str) -> list[int]:
+        """PIDs whose command line matches ``pattern`` (never our own)."""
+        result = subprocess.run(
+            ["pgrep", "-f", pattern],
+            capture_output=True, text=True, timeout=3,
+        )
+        if result.returncode != 0:
+            return []
+        return [pid for pid in _parse_pids(result.stdout) if pid != os.getpid()]
+
     def _kill_stale(self) -> None:
         """Kill any stale autoapp and related processes from previous runs."""
         try:
-            # Kill autoapp processes
-            result = subprocess.run(
-                ["pgrep", "-f", "autoapp"],
-                capture_output=True, text=True, timeout=3,
-            )
-            if result.returncode == 0 and result.stdout.strip():
-                pids = result.stdout.strip().split()
-                for pid in pids:
-                    try:
-                        pid_int = int(pid)
-                        os.kill(pid_int, signal.SIGTERM)
-                        log.info("Killed stale autoapp process (PID %d)", pid_int)
-                    except (ValueError, ProcessLookupError):
-                        pass
-            
-            # Also kill any btservice processes that might be orphaned
-            result = subprocess.run(
-                ["pgrep", "-f", "btservice"],
-                capture_output=True, text=True, timeout=3,
-            )
-            if result.returncode == 0 and result.stdout.strip():
-                pids = result.stdout.strip().split()
-                for pid in pids:
-                    try:
-                        pid_int = int(pid)
-                        os.kill(pid_int, signal.SIGTERM)
-                        log.info("Killed stale btservice process (PID %d)", pid_int)
-                    except (ValueError, ProcessLookupError):
-                        pass
-            
+            # SIGTERM autoapp and any orphaned btservice first
+            for name in ("autoapp", "btservice"):
+                for pid in self._pgrep(name):
+                    if self._kill_pid(pid, signal.SIGTERM):
+                        log.info("Killed stale %s process (PID %d)", name, pid)
+
             # Wait for processes to terminate and release ports
             time.sleep(2)
-            
+
             # Force kill any remaining autoapp/btservice processes
-            for name in ["autoapp", "btservice"]:
-                result = subprocess.run(
-                    ["pgrep", "-f", name],
-                    capture_output=True, text=True, timeout=3,
-                )
-                if result.returncode == 0 and result.stdout.strip():
-                    pids = result.stdout.strip().split()
-                    for pid in pids:
-                        try:
-                            pid_int = int(pid)
-                            os.kill(pid_int, signal.SIGKILL)
-                            log.info("Force killed stale %s process (PID %d)", name, pid_int)
-                        except (ValueError, ProcessLookupError):
-                            pass
-            
+            for name in ("autoapp", "btservice"):
+                for pid in self._pgrep(name):
+                    if self._kill_pid(pid, signal.SIGKILL):
+                        log.info("Force killed stale %s process (PID %d)", name, pid)
+
             # Clean up any processes using port 5000 (btservice default port)
             self._kill_processes_on_port(5000)
-            
+
             # Additional wait for cleanup
             time.sleep(1)
         except Exception:
-            pass
-    
+            log.debug("Stale process cleanup failed", exc_info=True)
+
     def _kill_processes_on_port(self, port: int) -> None:
-        """Kill any processes using the specified port."""
+        """Kill any processes using the specified TCP port.
+
+        ``fuser`` takes the port as ONE ``PORT/tcp`` argument. This used to
+        pass ``["fuser", "5000", "/tcp"]`` — a file named "5000" and the path
+        "/tcp" — so it never found the btservice still bound to 5000.
+        """
+        own_pid = os.getpid()
         try:
-            # Try using fuser
+            # fuser prints the PIDs on stdout ("5000/tcp:" goes to stderr).
             result = subprocess.run(
-                ["fuser", str(port), "/tcp"],
+                ["fuser", f"{port}/tcp"],
                 capture_output=True, text=True, timeout=3,
             )
-            if result.returncode == 0 and result.stdout.strip():
-                pids = result.stdout.strip().split()
-                for pid in pids:
-                    try:
-                        pid_int = int(pid)
-                        os.kill(pid_int, signal.SIGKILL)
-                        log.info("Killed process on port %d (PID %d)", port, pid_int)
-                    except (ValueError, ProcessLookupError):
-                        pass
+            if result.returncode == 0:
+                for pid in _parse_pids(result.stdout):
+                    if pid != own_pid and self._kill_pid(pid, signal.SIGKILL):
+                        log.info("Killed process on port %d (PID %d)", port, pid)
         except FileNotFoundError:
-            # Try using ss and kill
+            # No fuser (psmisc) — fall back to ss
             try:
                 result = subprocess.run(
                     ["ss", "-tlnp"],
@@ -978,22 +1246,19 @@ class OpenAutoController:
                 )
                 if result.returncode == 0:
                     for line in result.stdout.splitlines():
-                        if f":{port}" in line:
-                            # Extract PID from the line
-                            parts = line.split()
-                            for part in parts:
-                                if part.startswith("pid="):
-                                    pid = part[4:]
-                                    try:
-                                        pid_int = int(pid)
-                                        os.kill(pid_int, signal.SIGKILL)
-                                        log.info("Killed process on port %d via ss (PID %d)", port, pid_int)
-                                    except (ValueError, ProcessLookupError):
-                                        pass
+                        cols = line.split()
+                        # Local address is column 4: "*:5000", "0.0.0.0:5000", "[::]:5000"
+                        if len(cols) < 4 or not cols[3].endswith(f":{port}"):
+                            continue
+                        for pid_str in re.findall(r"pid=(\d+)", line):
+                            pid = int(pid_str)
+                            if pid != own_pid and self._kill_pid(pid, signal.SIGKILL):
+                                log.info("Killed process on port %d via ss (PID %d)",
+                                         port, pid)
             except Exception:
-                pass
+                log.debug("ss fallback failed", exc_info=True)
         except Exception:
-            pass
+            log.debug("fuser %d/tcp failed", port, exc_info=True)
 
     def _read_logs(self) -> None:
         """Forward autoapp stdout/stderr to our logger."""
@@ -1111,16 +1376,27 @@ class OpenAutoController:
                         "auto-restarting AA (attempt %d/%d)",
                         int(elapsed), self._connection_restart_count, self._max_connection_restarts
                     )
-                    self._event_bus.publish("multimedia.openauto_status", "restarting")
-                    self._event_bus.publish("multimedia.aa_auto_restarting", {
-                        "attempt": self._connection_restart_count,
-                        "max_attempts": self._max_connection_restarts,
-                        "elapsed": int(elapsed),
-                    })
-                    self.stop()
-                    time.sleep(3)
-                    if self._auto_restart_enabled:
-                        self.start()
+                    # Same lock as restart(): a manual restart running right
+                    # now owns the stop/kill/start sequence — interleaving
+                    # with it would start an autoapp that its _kill_stale()
+                    # then kills.
+                    if not self._restart_lock.acquire(blocking=False):
+                        log.info("[AA-Watchdog] Restart already in progress — "
+                                 "skipping auto-restart")
+                        return
+                    try:
+                        self._event_bus.publish("multimedia.openauto_status", "restarting")
+                        self._event_bus.publish("multimedia.aa_auto_restarting", {
+                            "attempt": self._connection_restart_count,
+                            "max_attempts": self._max_connection_restarts,
+                            "elapsed": int(elapsed),
+                        })
+                        self.stop()
+                        time.sleep(3)
+                        if self._auto_restart_enabled:
+                            self.start()
+                    finally:
+                        self._restart_lock.release()
                     return
                 else:
                     if not self._connection_exhausted:
@@ -1172,9 +1448,18 @@ def start_multimedia(config: Any, event_bus: EventBus, hal: Any = None,
     # Auto-launch OpenAuto if configured
     auto_start = config.get("multimedia.auto_start_openauto", True)
     log.info("OpenAuto auto_start=%s, available=%s", auto_start, openauto.available)
+    background_start = False
     if auto_start:
         if openauto.available:
-            openauto.start()
+            if openauto.mic_wait_pending():
+                background_start = True
+                # This first start may wait up to MIC_WAIT_TIMEOUT_S for the
+                # mic router (cold boot, PipeWire session not up yet). Do it
+                # off the main thread so the dashboard and the SIGTERM handler
+                # (both set up by main.py after the modules) are not delayed.
+                openauto.start_in_background()
+            else:
+                openauto.start()
         else:
             log.warning("OpenAuto auto_start enabled but binary not found")
 
@@ -1199,7 +1484,8 @@ def start_multimedia(config: Any, event_bus: EventBus, hal: Any = None,
                      "will NOT work. Set wifi.enabled=true in bcm_config.yaml")
 
     log.info("=== Multimedia module running (openauto=%s, bt=%s, wifi=%s) ===",
-             "active" if openauto.running else "unavailable",
+             "starting" if background_start
+             else "active" if openauto.running else "unavailable",
              "active" if bt_mgr.available else "simulated",
              "enabled" if wifi_enabled else "DISABLED")
 

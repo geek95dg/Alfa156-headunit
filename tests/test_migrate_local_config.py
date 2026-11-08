@@ -193,6 +193,29 @@ class TestMigrate:
         assert {i["path"] for i in plan["skipped"]} == {"modules.phonebook"}
         assert plan["overlay"] == {"modules": {"weather": True, "route_planner": True}}
 
+    def test_old_default_of_a_deliberately_changed_value_is_skipped(self):
+        """tracking.interval_sec: the car's file still says 30 (the old
+        default) — copying it would undo the base's 5 s; a value somebody
+        actually chose is migrated."""
+        base = {"tracking": {"interval_sec": 5, "trip_start_kmh": 5}}
+        plan = tool.build_plan({"tracking": {"interval_sec": 30, "trip_start_kmh": 5}}, base)
+        assert plan["overlay"] == {}
+        assert [i["path"] for i in plan["skipped"]] == ["tracking.interval_sec"]
+        assert plan["skipped"][0]["base"] == 5 and plan["skipped"][0]["source"] == 30
+        plan = tool.build_plan({"tracking": {"interval_sec": 10}}, base)
+        assert plan["overlay"] == {"tracking": {"interval_sec": 10}}
+        plan = tool.build_plan({"tracking": {"interval_sec": 30}}, base,
+                               keep_source=["tracking.interval_sec"])
+        assert plan["overlay"] == {"tracking": {"interval_sec": 30}}
+
+    def test_real_device_file_does_not_undo_the_gpx_interval(self):
+        """Dry run on the tracked device file against the tracked test base."""
+        source = yaml.safe_load((REPO / "config" / "bcm_config_temp.yaml").read_text())
+        base = yaml.safe_load((REPO / "config" / "bcm_config_test.yaml").read_text())
+        plan = tool.build_plan(source, base)
+        assert "interval_sec" not in plan["overlay"].get("tracking", {})
+        assert "tracking.interval_sec" in {i["path"] for i in plan["skipped"]}
+
     def test_exclude(self, files, capsys):
         base, source, out = files
         _run(capsys, "--source", source, "--base", base, "--out", out,

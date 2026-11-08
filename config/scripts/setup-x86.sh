@@ -889,9 +889,69 @@ fi
 # without it bluetoothd answers `Protocol not available` to every A2DP
 # connect attempt and pairing handshakes get dropped before the audio
 # profile completes. pipewire-audio pulls in the right defaults for
-# headset routing. ofono = HFP call-control backend so the dialer can
-# place/answer/hang up calls (PipeWire's native HFP backend has no dial API).
-apt-get install -y libspa-0.2-bluetooth pipewire-audio rfkill iw bluez-obexd ofono 2>/dev/null || true
+# headset routing.
+apt-get install -y libspa-0.2-bluetooth pipewire-audio rfkill iw bluez-obexd 2>/dev/null || true
+
+# ofono = HFP call-control backend so the dialer can place/answer/hang up
+# calls (PipeWire's native HFP backend has no dial API) — and, with the
+# WirePlumber drop-in below, the ONLY HFP backend: without ofonod calls never
+# reach the head unit. It used to be installed with `2>/dev/null || true`
+# in the line above, so a failed install was invisible. Install it on its
+# own and say loudly when it is missing.
+apt-get install -y ofono || true
+if command -v ofonod >/dev/null 2>&1 || [ -x /usr/sbin/ofonod ]; then
+    echo "  ofonod: $(command -v ofonod 2>/dev/null || echo /usr/sbin/ofonod)"
+else
+    warn "ofono (ofonod) is NOT installed — phone calls will NOT reach the head unit."
+    warn "  Fix: sudo apt-get install ofono, then re-run this script (or apply-fixes.sh)."
+fi
+
+# The WirePlumber drop-ins in /etc/wireplumber/wireplumber.conf.d use the
+# 0.5 SPA-JSON syntax; WirePlumber 0.4 (Lua config) silently ignores them,
+# which would leave the native HFP backend active and the dialer dead.
+WP_VER=$(wireplumber --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+(\.[0-9]+)?' | head -n1 || true)
+if [ -z "$WP_VER" ]; then
+    warn "wireplumber --version gave no version — cannot check the >= 0.5 requirement"
+else
+    WP_MAJOR=${WP_VER%%.*}
+    WP_MINOR=${WP_VER#*.}
+    WP_MINOR=${WP_MINOR%%.*}
+    if [ "$WP_MAJOR" -eq 0 ] && [ "$WP_MINOR" -lt 5 ]; then
+        warn "WirePlumber $WP_VER < 0.5: 51-bcm-hfp-ofono.conf is ignored (0.5 syntax) — HFP stays on the native backend, the dialer will not work."
+    else
+        echo "  WirePlumber $WP_VER"
+    fi
+fi
+
+# D-Bus policy for the oFono HFP backend. WirePlumber runs as the kiosk user
+# and registers oFono's HandsfreeAudioAgent (HandsfreeAudioManager.Register on
+# org.ofono). Stock ofono.conf only lets root (and at_console, which systemd
+# systems no longer honour) talk to org.ofono, so the registration was
+# rejected ("Register() failed" / "Rejecting" in the journal) and SCO audio
+# never got set up. The user name is validated before it goes into the XML.
+if [[ "$BCM_USER" =~ ^[A-Za-z_][A-Za-z0-9_.-]*$ ]]; then
+    install -d /etc/dbus-1/system.d
+    cat > /etc/dbus-1/system.d/bcm-ofono-pipewire.conf <<EOF
+<!DOCTYPE busconfig PUBLIC "-//freedesktop//DTD D-BUS Bus Configuration 1.0//EN"
+ "http://www.freedesktop.org/standards/dbus/1.0/busconfig.dtd">
+<!-- Installed by BCM (setup-x86.sh / apply-fixes.sh). WirePlumber runs as
+     "$BCM_USER" and, with bluez5.hfphsp-backend = "ofono"
+     (51-bcm-hfp-ofono.conf), registers oFono's HandsfreeAudioAgent on the
+     system bus. The stock ofono.conf allows that only for root, so without
+     this file the agent registration is rejected and calls get no audio.
+     Remove this file to revert. -->
+<busconfig>
+  <policy user="$BCM_USER">
+    <allow send_destination="org.ofono"/>
+  </policy>
+</busconfig>
+EOF
+    chmod 0644 /etc/dbus-1/system.d/bcm-ofono-pipewire.conf
+    # dbus-daemon notices new policy files by itself; reload to be sure.
+    systemctl reload dbus.service 2>/dev/null || true
+else
+    warn "BCM_USER='$BCM_USER' is not a valid user name — D-Bus policy for oFono NOT installed"
+fi
 
 # Enable Bluetooth (needed for AA wireless pairing)
 cp "$BCM_DIR/config/scripts/bcm-bluetooth-setup.sh" /usr/local/bin/
@@ -918,6 +978,11 @@ install -d /etc/wireplumber/wireplumber.conf.d
 install -m 0644 "$BCM_DIR/config/wireplumber/wireplumber.conf.d/51-bcm-hfp-ofono.conf" \
     /etc/wireplumber/wireplumber.conf.d/51-bcm-hfp-ofono.conf
 systemctl enable ofono 2>/dev/null || true
+# Fresh install: the user's PipeWire/WirePlumber pick up the drop-in and the
+# D-Bus policy at the reboot this script ends with. Restarting them now
+# (if a session is already running) is harmless; bcm-headunit is not running
+# yet, so its EQ child (`pipewire -c`, not supervised) cannot be orphaned.
+systemctl --user -M "$BCM_USER@" restart wireplumber pipewire pipewire-pulse 2>/dev/null || true
 
 # Clean up Intel-8087 disable artifacts from prior installs (the MT7921
 # combo card replaces the old internal Intel BT so the udev rule and

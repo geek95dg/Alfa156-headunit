@@ -9,16 +9,27 @@ Replaces the old Pygame frame-streaming viewer.
 """
 
 import glob
+import html
+import ipaddress
 import json
+import math
 import os
+import re
+import select
 import shutil
 import subprocess
 import time
 import threading
 from pathlib import Path
-from typing import Optional, Any
+from typing import Optional, Any, Hashable
+from urllib.parse import urlsplit
 
 from src.core.logger import get_logger
+from src.core.notifications import active_notifications
+from src.network.phone_tether import HINTS as _TETHER_HINTS
+from src.network.phone_tether import RETRY_TOPIC as _TETHER_RETRY_TOPIC
+from src.network.phone_tether import STATES as _TETHER_STATES
+from src.weather.weather import valid_coords
 
 log = get_logger("web_viewer")
 
@@ -59,6 +70,68 @@ _BROWSER_KEY_MAP = {
     "AudioVolumeDown": "-",
     "AudioVolumeMute": "0",
 }
+
+
+# ── /ws/input + /aa/touch ────────────────────────────────────────────────
+#: Larger input messages are dropped unparsed. A real one is ~80 bytes.
+_MAX_INPUT_MESSAGE = 4096
+#: KeyboardEvent.key values are short ("MediaTrackPrevious" is the longest
+#: one we map); anything longer is not a key.
+_MAX_KEY_NAME = 32
+#: Actions accepted by the HTTP fallback POST /aa/touch (no "move": see there).
+_AA_HTTP_TOUCH_ACTIONS = ("tap", "down", "up", "cancel")
+
+
+def _ws_origin_allowed(origin: Optional[str], host: Optional[str]) -> bool:
+    """Is a WebSocket handshake with this ``Origin`` from our own page?
+
+    Browsers do no CORS check on WebSockets: any page the browser opens —
+    e.g. the phone browsing while joined to the head unit's AP — could open
+    /ws/input and inject keys and, since AA drags go over it too, touches
+    into the phone's AA session. Browsers always send ``Origin`` on a
+    WebSocket handshake, so a present Origin must name this server (scheme
+    http/https, host:port equal to the ``Host`` header; the kiosk uses
+    http://localhost:5002 and connects to ``location.host``). A missing
+    Origin is a non-browser client and stays allowed. Not a defence against
+    DNS rebinding (there Origin and Host agree): the network access policy
+    (_access_decision) covers that in readonly/tracking by requiring an IP
+    address or a dashboard.allowed_hosts name in Host. In ``full`` mode
+    (the legacy default) nothing does — that mode trusts the whole network.
+    """
+    if origin is None:
+        return True
+    try:
+        parts = urlsplit(origin.strip())
+    except ValueError:
+        return False
+    if parts.scheme not in ("http", "https") or not parts.netloc or not host:
+        return False
+    default_port = ":443" if parts.scheme == "https" else ":80"
+
+    def _norm(netloc: str) -> str:
+        netloc = netloc.strip().lower()
+        return netloc[:-len(default_port)] if netloc.endswith(default_port) else netloc
+
+    return _norm(parts.netloc) == _norm(host)
+
+# ── /aa/stream (MJPEG from Xvfb) ─────────────────────────────────────────
+# Each stream is one ffmpeg x11grab process. The old generator did a blocking
+# read(): if Xvfb wedged or vanished during an AA restart, the request thread
+# and its ffmpeg hung forever, and every kiosk reload added another pair.
+#: poll() timeout on ffmpeg's stdout (poll, not select: select() raises
+#: ValueError for any fd >= FD_SETSIZE (1024), so a 24/7 process that ever
+#: held ~1000 descriptors would end every stream at once).
+_AA_STREAM_READ_TIMEOUT_S = 5.0
+#: End the stream after this long without a complete JPEG frame; the kiosk
+#: reconnects with backoff.
+_AA_STREAM_STALL_S = 10.0
+#: Concurrent streams kept alive; the newest win (a reloaded kiosk must not be
+#: refused because its previous incarnation is still draining). A retired
+#: stream's ffmpeg is terminated directly, because its request thread may be
+#: stuck inside a write to a client that stopped reading.
+_AA_STREAM_MAX_CLIENTS = 2
+#: A partial frame bigger than this is garbage — drop it instead of growing.
+_AA_STREAM_MAX_BUFFER = 8 * 1024 * 1024
 
 
 # ── /api/config POST validation ──────────────────────────────────────────
@@ -162,6 +235,354 @@ def _save_config(cfg: Any, what: str) -> bool:
         return False
 
 
+#: Minimum spacing of POST /api/phone_tether/retry (one nmcli attempt each).
+_TETHER_RETRY_MIN_INTERVAL_S = 10.0
+
+
+def _phone_tether_summary(value: Any) -> Optional[dict]:
+    """``net.phone_tether`` → ``{state, ip, iface, hint}`` for the payload.
+
+    Only what the Settings row shows, and only known states / hints and
+    plausible lengths: the values come from nmcli output (the frontend
+    escapes them too). Never published = the module is not running (the
+    production config) = None, and Settings shows no row at all.
+    """
+    if not isinstance(value, dict):
+        return None
+    state = value.get("state")
+    ip = value.get("ip")
+    iface = value.get("iface")
+    hint = value.get("hint")
+    return {
+        "state": state if isinstance(state, str) and state in _TETHER_STATES else "unknown",
+        "ip": ip if isinstance(ip, str) and len(ip) <= 45 else "",
+        "iface": iface if isinstance(iface, str) and len(iface) <= 15 else "",
+        "hint": hint if isinstance(hint, str) and hint in _TETHER_HINTS else "",
+    }
+
+
+# ── Network access policy (Flask before_request) ─────────────────────────
+# The dashboard listens on 0.0.0.0:5002 without authentication: anyone who
+# can reach it could reboot the car PC, read the Wi-Fi passwords or type
+# into Android Auto. dashboard.remote_access limits what NON-loopback
+# clients may do; the kiosk itself (Chromium on this machine, 127.0.0.1/::1)
+# always has full access, whatever the mode.
+#
+#   full      every client, every route, from anywhere — the legacy
+#             behaviour and the code default (production unchanged).
+#             allowed_networks is NOT applied in this mode.
+#   readonly  GET/HEAD views on the allow-list _READONLY_ENDPOINTS and the
+#             data WebSocket (/ws) from allowed_networks; never POST/DELETE
+#             or /ws/input. An ALLOW-list on purpose: a GET with side
+#             effects (/api/dtc/read talks to the ECU, the geocoding
+#             searches spend the API key quota) or one that hands out
+#             secrets must not become reachable just because it is a GET,
+#             and a route added later stays kiosk-only until someone
+#             decides otherwise (tests/test_web_routes.py makes every GET
+#             view be classified). Everything the dashboard shows (phone,
+#             media, position) is still visible — it is a view.
+#   tracking  only the trip list and GPX download (/trips, /api/tracking/*)
+#             from allowed_networks — the test car's setting: the phone
+#             browser fetches GPX, nothing else is reachable from Wi-Fi/PAN.
+#   none      loopback only.
+#
+# Outside dashboard.allowed_networks every request is refused unless the
+# mode is full. In readonly/tracking the Host header must also be an IP
+# address or a name listed in dashboard.allowed_hosts: that defeats DNS
+# rebinding, where a page from a hostile site in the phone's browser has
+# its name re-pointed at 10.0.0.1 — the request then comes from the phone
+# (an allowed network) with Host "evil.example:5002", and Origin agrees
+# with Host, so the /ws Origin check cannot see it.
+# The decision is made on the matched endpoint (the view
+# that would run), not on the raw path, so ".." / "//" / encoding tricks
+# cannot reach a view the mode does not list; unknown URLs are refused
+# too. flask-sock WebSocket routes are ordinary Flask routes, so the
+# before_request hook runs before their handshake as well.
+# X-Forwarded-For is ignored on purpose: there is no proxy in front of
+# the dashboard, and the header is whatever the client wants it to be.
+_REMOTE_ACCESS_MODES = ("full", "readonly", "tracking", "none")
+_DEFAULT_ALLOWED_NETWORKS = ("10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16")
+_SAFE_METHODS = ("GET", "HEAD")
+#: Views reachable from the network in "tracking" mode (GET/HEAD only).
+_TRACKING_ENDPOINTS = frozenset({"trips_page", "api_tracking_trips", "api_tracking_trip_gpx"})
+#: GET views reachable from the network in "readonly" mode — read-only
+#: views of what the dashboard shows (static files, state, lists).
+_READONLY_ENDPOINTS = frozenset({
+    "index", "static", "css", "js", "assets", "splash_asset", "api_i18n",
+    "api_data", "api_config_get", "api_modules_get", "api_swc_get",
+    "api_swc_learn_status", "api_audio_eq_get", "api_ready_get", "api_boot_mode",
+    "api_dvr_list", "api_dvr_play", "api_dvr_usb_status", "api_dvr_usb_browse",
+    "aa_status", "aa_config_get", "bt_status", "bt_devices", "bt_connected",
+    "bt_pairing_status", "api_radio_status", "api_phone_contacts",
+    "api_phone_history", "api_phone_status", "api_trip_route", "api_debug_weather",
+    "api_tracking_trips", "api_tracking_trip_gpx", "trips_page", "ws_data_handler",
+})
+#: GET views deliberately kept OFF the readonly allow-list (documentation,
+#: and the test that every GET view is classified): /ws/input injects keys
+#: and AA touches; /api/wifi/config returns the Wi-Fi passwords; the
+#: AA/camera streams and the camera probe open exclusive devices (and
+#: would retire the kiosk's own AA stream — only two may run);
+#: /api/dtc/read makes K-Line traffic with the ECU and holds a server
+#: thread for up to 3 s; the two searches call OpenWeatherMap with our key.
+_READONLY_DENIED_ENDPOINTS = frozenset({
+    "ws_input_handler", "api_wifi_config_get", "aa_stream",
+    "camera_stream", "camera_available", "api_dtc_read",
+    "api_weather_search", "api_trip_search",
+})
+_HOSTNAME_RE = re.compile(r"[a-z0-9](?:[a-z0-9.-]{0,251}[a-z0-9])?")
+#: One "refused" log line per client address per this many seconds.
+_ACCESS_LOG_EVERY_S = 60.0
+
+
+def _client_ip(remote_addr: Any) -> Optional[Any]:
+    """``REMOTE_ADDR`` → ipaddress object (IPv4-mapped IPv6 unwrapped)."""
+    if not isinstance(remote_addr, str) or not remote_addr:
+        return None
+    try:
+        ip = ipaddress.ip_address(remote_addr.split("%", 1)[0])
+    except ValueError:
+        return None
+    if ip.version == 6 and ip.ipv4_mapped is not None:
+        ip = ip.ipv4_mapped
+    return ip
+
+
+def _host_name(host: Any) -> str:
+    """``Host`` header → lower-case name/address without port ("" if none).
+
+    ``10.0.0.1:5002`` → ``10.0.0.1``; ``[fe80::1]:5002`` → ``fe80::1``;
+    a trailing dot (``bcm.local.``) is dropped so it matches the list.
+    """
+    if not isinstance(host, str):
+        return ""
+    host = host.strip().lower()
+    if host.startswith("["):
+        end = host.find("]")
+        return host[1:end] if end > 0 else ""
+    if host.count(":") == 1:
+        host = host.split(":", 1)[0]
+    return host.rstrip(".")
+
+
+def _host_allowed(host: Any, allowed_hosts: tuple) -> bool:
+    """IP literal, or a name from ``dashboard.allowed_hosts`` (rebinding guard)."""
+    name = _host_name(host)
+    if not name:
+        return False
+    try:
+        ipaddress.ip_address(name)
+        return True
+    except ValueError:
+        return name in allowed_hosts
+
+
+def _load_access_policy(cfg: Any) -> tuple[str, tuple, tuple]:
+    """``dashboard.{remote_access, allowed_networks, allowed_hosts}`` →
+    (mode, networks, host names).
+
+    A value that is not a known mode fails CLOSED ("none": the kiosk keeps
+    working, the network gets nothing) — a typo must not open everything.
+    ``allowed_hosts`` defaults to none: only IP addresses in ``Host``.
+    """
+    raw_mode = cfg.get("dashboard.remote_access", "full") if cfg is not None else "full"
+    if raw_mode is None:
+        raw_mode = "full"
+    mode = raw_mode.strip().lower() if isinstance(raw_mode, str) else None
+    if mode not in _REMOTE_ACCESS_MODES:
+        log.error("dashboard.remote_access=%r is not one of %s — using 'none' "
+                  "(only the kiosk on this machine)", raw_mode, "/".join(_REMOTE_ACCESS_MODES))
+        mode = "none"
+    raw_nets = cfg.get("dashboard.allowed_networks", None) if cfg is not None else None
+    if raw_nets is None:
+        raw_nets = list(_DEFAULT_ALLOWED_NETWORKS)
+    elif isinstance(raw_nets, str):
+        raw_nets = [raw_nets]
+    if not isinstance(raw_nets, (list, tuple)):
+        log.error("dashboard.allowed_networks=%r is not a list — no remote network allowed",
+                  raw_nets)
+        raw_nets = []
+    networks = []
+    for entry in raw_nets:
+        try:
+            networks.append(ipaddress.ip_network(str(entry), strict=False))
+        except ValueError:
+            log.warning("dashboard.allowed_networks: %r is not a CIDR — ignored", entry)
+    raw_hosts = cfg.get("dashboard.allowed_hosts", None) if cfg is not None else None
+    if raw_hosts is None:
+        raw_hosts = []
+    elif isinstance(raw_hosts, str):
+        raw_hosts = [raw_hosts]
+    if not isinstance(raw_hosts, (list, tuple)):
+        log.error("dashboard.allowed_hosts=%r is not a list — only IP addresses allowed",
+                  raw_hosts)
+        raw_hosts = []
+    hosts = []
+    for entry in raw_hosts:
+        name = entry.strip().lower().rstrip(".") if isinstance(entry, str) else ""
+        if _HOSTNAME_RE.fullmatch(name):
+            hosts.append(name)
+        else:
+            log.warning("dashboard.allowed_hosts: %r is not a host name — ignored", entry)
+    return mode, tuple(networks), tuple(hosts)
+
+
+def _access_decision(remote_addr: Any, method: str, endpoint: Optional[str],
+                     mode: str, networks: tuple, host: Any = None,
+                     allowed_hosts: tuple = ()) -> Optional[tuple[str, str]]:
+    """None = allowed; else ``(config_key, reason)`` for the 403.
+
+    ``host`` is the request's ``Host`` header (checked for remote clients
+    in readonly/tracking; a missing one is refused, browsers always send it).
+    """
+    ip = _client_ip(remote_addr)
+    if ip is not None and ip.is_loopback:
+        return None                         # the kiosk: always full access
+    if mode == "full":
+        return None
+    if mode == "none":
+        return ("dashboard.remote_access",
+                "remote access is 'none': only the kiosk on this machine")
+    if ip is None or not any(ip in net for net in networks):
+        return ("dashboard.allowed_networks",
+                f"{remote_addr} is outside dashboard.allowed_networks")
+    if not _host_allowed(host, allowed_hosts):
+        # repr + truncation: the header is the client's text and ends up
+        # in the log line.
+        return ("dashboard.allowed_hosts",
+                f"Host {_host_name(host)[:64]!r} is neither an IP address nor "
+                f"listed in dashboard.allowed_hosts (DNS rebinding guard)")
+    if mode == "readonly":
+        if method not in _SAFE_METHODS:
+            return ("dashboard.remote_access", "remote access is 'readonly': GET only")
+        if endpoint not in _READONLY_ENDPOINTS:
+            return ("dashboard.remote_access",
+                    "remote access is 'readonly': not available from the network")
+        return None
+    # tracking
+    if method in _SAFE_METHODS and endpoint in _TRACKING_ENDPOINTS:
+        return None
+    return ("dashboard.remote_access",
+            "remote access is 'tracking': only /trips and /api/tracking/* from the network")
+
+
+# ── Trips (src/location/tracker.py) ──────────────────────────────────────
+_TRIPS_DEFAULT_LIMIT = 50
+_LIMIT_RE = re.compile(r"-?[0-9]{1,9}")
+_TRIPS_MAX_LIMIT = 500
+#: Trips listed on the /trips page.
+_TRIPS_PAGE_LIMIT = 100
+#: SQLite INTEGER range; a larger id from the URL is simply "not found".
+_MAX_TRIP_ID = 2**63 - 1
+_TRIPS_CSP = ("default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; "
+              "form-action 'none'; frame-ancestors 'none'")
+
+
+def _clamp_limit(raw: Any) -> int:
+    """``?limit=`` → int in 1..500 (default 50 when missing or not a number).
+
+    One strict pattern instead of str methods: ``"--5".lstrip("-")`` passes
+    isdigit() and int() then raised (HTTP 500 + traceback on demand), and
+    isdigit() also accepts non-ASCII digits.
+    """
+    if raw is None:
+        return _TRIPS_DEFAULT_LIMIT
+    text = str(raw).strip()
+    if not _LIMIT_RE.fullmatch(text):
+        return _TRIPS_DEFAULT_LIMIT
+    return min(max(int(text), 1), _TRIPS_MAX_LIMIT)
+
+
+def _num_or_none(value: Any) -> Optional[float]:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    value = float(value)
+    return value if math.isfinite(value) else None
+
+
+def _trip_json(trip: Any) -> Optional[dict]:
+    """One tracker trip → the JSON the API returns (numbers only)."""
+    if not isinstance(trip, dict):
+        return None
+    trip_id = trip.get("trip_id")
+    if isinstance(trip_id, bool) or not isinstance(trip_id, int):
+        return None
+    points = trip.get("points")
+    points = points if isinstance(points, int) and not isinstance(points, bool) else 0
+    return {
+        "trip_id": trip_id,
+        "start_ts": _num_or_none(trip.get("start_ts")),
+        "end_ts": _num_or_none(trip.get("end_ts")),
+        "distance_km": _num_or_none(trip.get("distance_km")),
+        "avg_speed": _num_or_none(trip.get("avg_speed")),
+        "max_speed": _num_or_none(trip.get("max_speed")),
+        "points": points,
+        "gpx_url": f"/api/tracking/trips/{trip_id}.gpx" if points else None,
+    }
+
+
+def _local_time(ts: Any, fmt: str) -> str:
+    ts = _num_or_none(ts)
+    if ts is None:
+        return ""
+    try:
+        return time.strftime(fmt, time.localtime(ts))
+    except (OverflowError, OSError, ValueError):
+        return ""
+
+
+def _render_trips_html(trips: Optional[list], gps_line: str) -> str:
+    """The phone-browser trip list. Every dynamic value is HTML-escaped.
+
+    Inline styles only (the dashboard's Tailwind is precompiled, and this
+    page loads nothing else — its CSP forbids it).
+    """
+    esc = html.escape
+    cards = []
+    if trips is None:
+        cards.append('<p style="color:#f59e0b">Rejestrator tras jest wyłączony '
+                     '(modules.tracking) albo baza tras jest niedostępna.</p>')
+    elif not trips:
+        cards.append('<p style="color:#a1a1aa">Brak zapisanych tras.</p>')
+    for raw in trips or []:
+        trip = _trip_json(raw)
+        if trip is None:
+            continue
+        start = _local_time(trip["start_ts"], "%Y-%m-%d %H:%M")
+        end = _local_time(trip["end_ts"], "%H:%M") if trip["end_ts"] is not None else "w trakcie"
+        dist = trip["distance_km"]
+        avg = trip["avg_speed"]
+        vmax = trip["max_speed"]
+        stats = [f"{dist:.1f} km" if dist is not None else "— km",
+                 f"śr. {avg:.0f} km/h" if avg is not None else "",
+                 f"maks. {vmax:.0f} km/h" if vmax is not None else "",
+                 f"{trip['points']} pkt"]
+        link = (f'<a href="{esc(trip["gpx_url"])}" style="display:inline-block;margin-top:8px;'
+                f'padding:8px 14px;border-radius:8px;background:#b91c1c;color:#fff;'
+                f'text-decoration:none;font-weight:600">Pobierz GPX</a>'
+                if trip["gpx_url"] else
+                '<span style="display:inline-block;margin-top:8px;color:#71717a">brak punktów</span>')
+        cards.append(
+            '<div style="background:#18181b;border:1px solid #3f3f46;border-radius:12px;'
+            'padding:12px 14px;margin:0 0 10px 0">'
+            f'<div style="font-weight:700;font-size:16px">Trasa {esc(str(trip["trip_id"]))}</div>'
+            f'<div style="color:#d4d4d8;margin-top:2px">{esc(start)} → {esc(end)}</div>'
+            f'<div style="color:#a1a1aa;margin-top:2px">{esc(" · ".join(s for s in stats if s))}</div>'
+            f'{link}</div>')
+    return (
+        '<!doctype html>\n<html lang="pl"><head><meta charset="utf-8">'
+        '<meta name="viewport" content="width=device-width,initial-scale=1">'
+        '<title>Trasy — BCM</title></head>'
+        '<body style="margin:0;padding:16px;background:#09090b;color:#f4f4f5;'
+        'font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;font-size:15px;'
+        'line-height:1.4">'
+        '<h1 style="font-size:20px;margin:0 0 4px 0">Zapisane trasy</h1>'
+        f'<p style="color:#a1a1aa;margin:0 0 14px 0">{esc(gps_line)}</p>'
+        + "".join(cards) +
+        '<p style="color:#71717a;font-size:12px;margin-top:16px">GPX 1.1 — otworzysz go '
+        'w aplikacji z mapami (np. OsmAnd, Google Earth).</p>'
+        "</body></html>\n")
+
+
 class WebViewer:
     """HTML5/Tailwind dashboard served via Flask + WebSocket.
 
@@ -196,9 +617,36 @@ class WebViewer:
         # Path to the web frontend files
         self._web_dir = os.path.join(os.path.dirname(__file__), "web")
 
-        # Forward voice-AA trigger to xdotool tap on AA mic icon
+        # AA touch injection (src/multimedia/aa_input.py), built on first use
+        # so a dashboard without AA never starts the worker thread.
+        self._aa_injector = None
+        self._aa_injector_lock = threading.Lock()
+
+        # Network access policy: last "refused" log time per client address
+        # (monotonic; bounded — see _log_refusal).
+        self._access_log_lock = threading.Lock()
+        self._access_log_last: dict[str, float] = {}
+
+        # POST /api/phone_tether/retry rate limit (monotonic: bcm-timesync
+        # may move the wall clock right after the link comes up).
+        self._tether_retry_lock = threading.Lock()
+        self._tether_retry_last: Optional[float] = None
+
+        # /aa/stream bookkeeping: generation ids of the live MJPEG streams
+        # (oldest first) and each one's ffmpeg, so a newer stream can stop an
+        # older one's capture even while that request thread is blocked.
+        self._aa_stream_lock = threading.Lock()
+        self._aa_stream_seq = 0
+        self._aa_stream_active: list[int] = []
+        self._aa_stream_procs: dict[int, Any] = {}
+
+        # Forward voice-AA trigger to autoapp (M key or tap on the mic icon)
         if event_bus:
             event_bus.subscribe("aa.voice_trigger", self._on_aa_voice_trigger)
+            # Xvfb is torn down on stop/restart — drop queued touches and the
+            # pressed-button state that belonged to the old X server.
+            event_bus.subscribe("multimedia.openauto_status",
+                                self._on_openauto_status)
 
     def attach_trip(self, trip_computer, route_planner=None) -> None:
         """Attach trip computer + planner after construction.
@@ -230,6 +678,9 @@ class WebViewer:
 
     def stop(self) -> None:
         self._running = False
+        injector = self._aa_injector
+        if injector is not None:
+            injector.stop()
 
     def _get_dashboard_data(self) -> dict:
         """Collect all current event bus values into a JSON-serializable dict."""
@@ -321,8 +772,15 @@ class WebViewer:
                 "running", "connected", "restarting"),
             "aa_auto_restart": _val("multimedia.aa_auto_restart",
                                    self._config.get("multimedia.aa_auto_restart", True) if self._config else True),
+            # Bumped by OpenAutoController each time Xvfb (re)starts; A2
+            # reconnects its MJPEG <img> when it changes.
+            "aa_stream_epoch": _val("multimedia.aa_stream_epoch", 0),
             "lte_connected": _val("lte.connected", False),
-            "lte_signal": _val("lte.signal_strength", 0),
+            # src/network/lte.py publishes lte.signal (0-5 bars); the old
+            # lte.signal_strength key was never published, so this was 0.
+            "lte_signal": _val("lte.signal", 0),
+            # Internet from the phone (src/network/phone_tether.py).
+            "phone_tether": _phone_tether_summary(_val("net.phone_tether")),
             # Audio
             "audio_volume": _val("audio.volume", 70),
             "audio_muted": _val("audio.mute_changed", False),
@@ -333,8 +791,9 @@ class WebViewer:
             "audio_treble": _val("audio.treble", 0),
             "audio_fader": _val("audio.fader", 0),
             "audio_balance": _val("audio.balance", 0),
-            # Notifications
-            "notifications": _val("system.notifications", []),
+            # Notifications (src/core/notifications.py) — expired entries are
+            # dropped here, the topic itself is only republished on news.
+            "notifications": active_notifications(_val("system.notifications", [])),
             # Vehicle status (from Arduino serial)
             "vehicle_doors": _val("vehicle.doors", {}),
             "vehicle_handbrake": _val("vehicle.handbrake", False),
@@ -367,24 +826,335 @@ class WebViewer:
         log.debug("Browser key: %s -> %s", key, mapped)
 
     def _on_aa_voice_trigger(self, topic: str, value, timestamp: float) -> None:
-        """Tap the AA mic icon via xdotool when voice button is pressed."""
+        """Press AA's voice control when the voice button is pressed.
+
+        ``multimedia.aa_voice_method``: ``key`` sends the M key (autoapp:
+        Qt::Key_M -> MICROPHONE_1), ``tap`` (default) taps the AA mic icon.
+        The key only works when the running autoapp was started with
+        VoiceCommandButton=true (there was a mic at the time); otherwise
+        this falls back to the tap. Whether a press may reach AA at all
+        (no mic -> notification) is decided upstream in VoiceAAHandler.
+
+        Goes through the touch injector: same canvas size as Xvfb and the
+        touch path (this used to read display.multimedia.* with a 504 px
+        fallback), serialised with touches, and no 2 s subprocess call on
+        the event-bus thread.
+        """
         if not value:
             return
+        from src.input.voice_aa import voice_method
+        method = voice_method(self._config)
+        injector = self._get_aa_injector()
+        if method == "key":
+            openauto = self._openauto()
+            if openauto is not None and getattr(openauto, "voice_button_enabled", True) is False:
+                log.info("Voice-AA: VoiceCommandButton is off in the running "
+                         "autoapp (no mic when AA started) — tapping instead")
+            elif injector is None or not injector.submit_key("m", client="voice"):
+                log.warning("Voice-AA: key could not be queued (xdotool missing?)")
+                return
+            else:
+                log.info("Voice-AA: sending the voice key (M) to autoapp")
+                return
+        rel_x, rel_y = 0.05, 0.08
+        if injector is None or not injector.submit("tap", rel_x, rel_y, client="voice"):
+            log.warning("Voice-AA: tap could not be queued (xdotool missing?)")
+            return
+        px, py = injector.to_pixels(rel_x, rel_y) or (0, 0)
+        log.info("Voice-AA: tapping AA mic icon at (%d, %d)", px, py)
+
+    # ── Trips / GPS helpers ──────────────────────────────────────────────
+
+    def _tracker(self) -> Any:
+        """The running GPSTracker (``tracking._internals``), or None."""
+        if self._event_bus:
+            result = self._event_bus.get_last("tracking._internals")
+            if result and isinstance(result[0], dict):
+                return result[0].get("tracker")
+        return None
+
+    def _gps_status_line(self) -> str:
+        """One line about the GPS for the /trips page (shown escaped)."""
+        bus = self._event_bus
+        if bus is None:
+            return "GPS: brak danych"
+        fix = bus.get_last("gps.fix")
+        state = bus.get_last("gps.source_state")
+        info = state[0] if state and isinstance(state[0], dict) else {}
+        if fix is None and not info:
+            return "GPS: brak danych (moduł location wyłączony albo brak sygnału)"
+        if fix is not None and fix[0] is True:
+            source = str(info.get("source") or "")[:16]
+            peer = str(info.get("peer") or "")[:64]
+            detail = ", ".join(x for x in (source, peer) if x)
+            return f"GPS: jest pozycja ({detail})" if detail else "GPS: jest pozycja"
+        return "GPS: brak pozycji — sprawdź aplikację GPS w telefonie"
+
+    def _log_refusal(self, addr: str, method: str, path: str, key: str, reason: str) -> None:
+        """INFO line for a refused request, at most once a minute per address."""
+        now = time.monotonic()
+        with self._access_log_lock:
+            last = self._access_log_last.get(addr)
+            if last is not None and 0 <= now - last < _ACCESS_LOG_EVERY_S:
+                return
+            if len(self._access_log_last) >= 256:
+                self._access_log_last.clear()
+            self._access_log_last[addr] = now
+        log.info("Refused %s %r from %s: %s (%s; further refusals from this "
+                 "address are not logged for %.0f s)", method, path[:100], addr,
+                 reason, key, _ACCESS_LOG_EVERY_S)
+
+    # ── Android Auto helpers ─────────────────────────────────────────────
+
+    def _openauto(self) -> Any:
+        """The running OpenAutoController, if the multimedia module is up."""
+        if self._event_bus:
+            result = self._event_bus.get_last("multimedia._internals")
+            if result and result[0]:
+                return result[0].get("openauto")
+        return None
+
+    def _aa_canvas_size(self) -> tuple[int, int]:
+        """AA canvas size — the one Xvfb, the MJPEG capture and touch use.
+
+        Imported lazily so the web viewer doesn't hard-fail if the
+        multimedia module is missing (e.g. when AA is disabled).
+        """
+        cfg = self._config
         try:
-            rel_x, rel_y = 0.05, 0.08
-            w = self._config.get("display.multimedia.width", 1024) if self._config else 1024
-            h = self._config.get("display.multimedia.height", 504) if self._config else 504
-            px = int(rel_x * w)
-            py = int(rel_y * h)
-            subprocess.run(
-                ["xdotool", "mousemove", "--screen", "0",
-                 str(px), str(py), "click", "1"],
-                timeout=2, capture_output=True,
-                env={**os.environ, "DISPLAY": ":99"},
-            )
-            log.info("Voice-AA: tapped AA mic icon at (%d, %d)", px, py)
-        except Exception as e:
-            log.warning("Voice-AA tap failed: %s", e)
+            from src.multimedia.openauto import _aa_canvas_size
+            return _aa_canvas_size(cfg) if cfg else (1024, 504)
+        except Exception:
+            w = cfg.get("display.multimedia.width", 1024) if cfg else 1024
+            h = cfg.get("display.multimedia.height", 504) if cfg else 504
+            try:
+                return int(w), int(h)
+            except (TypeError, ValueError):
+                return 1024, 504
+
+    def _get_aa_injector(self) -> Any:
+        """The touch injector, created on first use; None if it can't be."""
+        if self._aa_injector is None:
+            with self._aa_injector_lock:
+                if self._aa_injector is None:
+                    try:
+                        from src.multimedia.aa_input import AATouchInjector
+                        self._aa_injector = AATouchInjector(size_fn=self._aa_canvas_size)
+                    except Exception:
+                        log.exception("AA touch injector unavailable")
+                        return None
+        return self._aa_injector
+
+    def _release_aa_touch(self, client_key: Hashable) -> None:
+        """Release the AA button if ``client_key`` holds it. Never raises."""
+        injector = self._aa_injector
+        if injector is None:
+            return
+        try:
+            injector.release(client_key)
+        except Exception:
+            log.debug("AA touch release failed", exc_info=True)
+
+    def _on_openauto_status(self, topic: str, value: Any, timestamp: float) -> None:
+        if value in ("stopped", "restarting"):
+            injector = self._aa_injector
+            if injector is not None:
+                injector.reset()
+
+    def _handle_input_message(self, msg: Any, client_key: Hashable = None) -> bool:
+        """Dispatch one /ws/input message. Never raises; True if acted on.
+
+        Accepts the raw WebSocket payload (str/bytes) or an already decoded
+        dict. Messages:
+          ``{"type": "keydown", "key": "<KeyboardEvent.key>"}``
+          ``{"type": "aa_touch", "action": "down|move|up|cancel|tap",
+             "x": 0..1, "y": 0..1}``
+        Anything else — oversized, not JSON, wrong types — is dropped.
+        """
+        try:
+            if isinstance(msg, (bytes, bytearray)):
+                if len(msg) > _MAX_INPUT_MESSAGE:
+                    return False
+                msg = bytes(msg).decode("utf-8")
+            if isinstance(msg, str):
+                if len(msg) > _MAX_INPUT_MESSAGE:
+                    return False
+                data = json.loads(msg)
+            else:
+                data = msg
+            if not isinstance(data, dict):
+                return False
+            kind = data.get("type")
+            if kind == "keydown":
+                key = data.get("key")
+                if not isinstance(key, str) or not key or len(key) > _MAX_KEY_NAME:
+                    return False
+                self._handle_browser_key(key)
+                return True
+            if kind == "aa_touch":
+                injector = self._get_aa_injector()
+                if injector is None:
+                    return False
+                return injector.submit(data.get("action"), data.get("x"),
+                                       data.get("y"), client=client_key)
+            return False
+        except Exception:
+            log.debug("Dropped malformed /ws/input message", exc_info=True)
+            return False
+
+    def _serve_input_ws(self, ws: Any) -> None:
+        """Read loop of one /ws/input connection.
+
+        Keyboard (SWC pod, OSK) and AA touch share this socket. Message
+        handling lives in _handle_input_message(), which never raises: this
+        loop used to break on ANY exception, so one malformed message
+        silently killed keyboard input until the page was reloaded.
+        """
+        client_key = id(ws)
+        log.info("WebSocket client connected (input)")
+        try:
+            while self._running:
+                try:
+                    msg = ws.receive(timeout=1)
+                except Exception:
+                    break  # connection closed
+                if msg is None:
+                    continue
+                self._handle_input_message(msg, client_key)
+        finally:
+            # A finger still down when the socket drops would leave the AA
+            # button pressed — release whatever this client holds.
+            self._release_aa_touch(client_key)
+            log.info("WebSocket client disconnected (input)")
+
+    def _aa_stream_alive(self, generation: int) -> bool:
+        with self._aa_stream_lock:
+            return generation in self._aa_stream_active
+
+    @staticmethod
+    def _terminate_stream_proc(proc: Any) -> None:
+        """SIGTERM a retired stream's ffmpeg without waiting. Never raises.
+
+        Reaping (wait/kill) stays with the generator that owns ``proc``: the
+        newer request must not block on it.
+        """
+        try:
+            proc.terminate()
+        except Exception:
+            log.debug("AA stream: terminating a retired ffmpeg failed", exc_info=True)
+
+    def _aa_mjpeg_frames(self, popen: Any = None):
+        """Yield multipart MJPEG parts captured from Xvfb (:99) by ffmpeg.
+
+        * reads with poll() (``_AA_STREAM_READ_TIMEOUT_S``) and ends the
+          stream after ``_AA_STREAM_STALL_S`` without a complete frame, so a
+          dead X server frees the thread and ffmpeg;
+        * at most ``_AA_STREAM_MAX_CLIENTS`` streams live at once — a new one
+          retires the oldest and terminates its ffmpeg right away (that
+          generator may be blocked in ``yield`` behind a stalled client and
+          would otherwise keep x11grab + JPEG encoding running); the old
+          loop then ends on EOF / the liveness check once its write returns.
+
+        ``popen`` is a test seam (``subprocess.Popen`` by default).
+        """
+        w, h = self._aa_canvas_size()
+        retired_procs = []
+        with self._aa_stream_lock:
+            self._aa_stream_seq += 1
+            generation = self._aa_stream_seq
+            self._aa_stream_active.append(generation)
+            while len(self._aa_stream_active) > _AA_STREAM_MAX_CLIENTS:
+                retired = self._aa_stream_active.pop(0)
+                retired_proc = self._aa_stream_procs.pop(retired, None)
+                if retired_proc is not None:
+                    retired_procs.append(retired_proc)
+                log.info("AA stream %d retired by newer stream %d", retired, generation)
+        for retired_proc in retired_procs:
+            self._terminate_stream_proc(retired_proc)
+        proc = None
+        try:
+            try:
+                # bufsize=0: a raw pipe, so poll() readiness and os.read()
+                # agree (a buffered reader can hide data from poll()).
+                proc = (popen or subprocess.Popen)(
+                    ["ffmpeg", "-f", "x11grab", "-framerate", "25",
+                     "-video_size", f"{w}x{h}",
+                     "-draw_mouse", "0",
+                     "-i", ":99",
+                     "-f", "mjpeg", "-q:v", "3",
+                     "-an", "pipe:1"],
+                    stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+                    bufsize=0,
+                )
+            except Exception as e:
+                log.warning("AA stream: ffmpeg could not start: %s", e)
+                return
+            with self._aa_stream_lock:
+                # Retired while ffmpeg was starting? Then the loop below ends
+                # at once and the finally block stops this proc.
+                if generation in self._aa_stream_active:
+                    self._aa_stream_procs[generation] = proc
+            fd = proc.stdout.fileno()
+            poller = select.poll()
+            poller.register(fd, select.POLLIN | select.POLLHUP)
+            timeout_ms = int(_AA_STREAM_READ_TIMEOUT_S * 1000)
+            buf = b""
+            SOI = b"\xff\xd8"
+            EOI = b"\xff\xd9"
+            last_frame = time.monotonic()
+            while self._aa_stream_alive(generation):
+                if time.monotonic() - last_frame > _AA_STREAM_STALL_S:
+                    log.info("AA stream %d: no frame for %.0fs — closing",
+                             generation, _AA_STREAM_STALL_S)
+                    break
+                try:
+                    if not poller.poll(timeout_ms):
+                        continue
+                    # Readable, hung up or invalid: os.read() returns data,
+                    # b"" (EOF) or raises — each handled below.
+                    chunk = os.read(fd, 65536)
+                except (OSError, ValueError) as e:
+                    log.debug("AA stream %d: read failed: %s", generation, e)
+                    break
+                if not chunk:
+                    break  # ffmpeg exited (no X server, killed, …)
+                buf += chunk
+                while True:
+                    start = buf.find(SOI)
+                    if start == -1:
+                        buf = b""
+                        break
+                    end = buf.find(EOI, start + 2)
+                    if end == -1:
+                        buf = buf[start:]
+                        break
+                    frame = buf[start:end + 2]
+                    buf = buf[end + 2:]
+                    last_frame = time.monotonic()
+                    yield (b"--frame\r\n"
+                           b"Content-Type: image/jpeg\r\n\r\n"
+                           + frame + b"\r\n")
+                if len(buf) > _AA_STREAM_MAX_BUFFER:
+                    buf = b""
+        finally:
+            with self._aa_stream_lock:
+                if generation in self._aa_stream_active:
+                    self._aa_stream_active.remove(generation)
+                self._aa_stream_procs.pop(generation, None)
+            if proc is not None:
+                try:
+                    proc.terminate()
+                    try:
+                        proc.wait(timeout=3)
+                    except subprocess.TimeoutExpired:
+                        proc.kill()  # ffmpeg ignored SIGTERM — don't leak it
+                        proc.wait(timeout=3)
+                except Exception:
+                    log.debug("AA stream: ffmpeg cleanup failed", exc_info=True)
+                try:
+                    proc.stdout.close()
+                except Exception:
+                    pass
 
     def _broadcast_loop(self) -> None:
         """Periodically broadcast event bus data to all WebSocket clients."""
@@ -423,9 +1193,55 @@ class WebViewer:
             time.sleep(0.066)  # ~15 FPS
 
     def _run_server(self) -> None:
+        app = self._build_app()
+        # threaded=True: the dashboard renders fire many concurrent
+        # GETs (radio status, wifi config, BT lists, music, weather…)
+        # plus the touch input WS. A single-threaded werkzeug serializes
+        # everything, so a slow handler (e.g. bluetoothctl scan, nmcli)
+        # stalls every other endpoint and the UI feels frozen on touch.
+        app.run(host=self.host, port=self.port, debug=False,
+                use_reloader=False, threaded=True)
+
+    def _build_app(self) -> "Flask":
+        """Create the Flask app with every route, without serving it.
+
+        Split from _run_server() so tests can drive the real routes through
+        ``_build_app().test_client()`` instead of copying them.
+        """
         app = Flask(__name__, static_folder=self._web_dir)
+        # Bound what a browser may send over a WebSocket: the client never
+        # sends anything on /ws, and /ws/input messages are ~100 bytes
+        # (_handle_input_message drops anything over _MAX_INPUT_MESSAGE).
+        # simple-websocket's default is unlimited; a larger frame now closes
+        # that one socket and the page reconnects.
+        app.config.setdefault("SOCK_SERVER_OPTIONS", {"max_message_size": 64 * 1024})
         sock = Sock(app)
         viewer = self
+
+        # --- Network access policy (see _access_decision) ---
+        access_mode, access_networks, access_hosts = _load_access_policy(viewer._config)
+        log.info("Remote access: %s%s (the kiosk on this machine always has full access)",
+                 access_mode,
+                 "" if access_mode in ("full", "none") else
+                 " from " + ", ".join(str(n) for n in access_networks)
+                 + "; Host: IP addresses" + "".join(", " + h for h in access_hosts))
+
+        @app.before_request
+        def enforce_access_policy():
+            decision = _access_decision(request.remote_addr, request.method,
+                                        request.endpoint, access_mode, access_networks,
+                                        request.host, access_hosts)
+            if decision is None:
+                return None
+            key, reason = decision
+            viewer._log_refusal(str(request.remote_addr), request.method,
+                                request.path, key, reason)
+            body = {"error": "forbidden", "reason": reason, "config_key": key}
+            if key == "dashboard.allowed_hosts":
+                body["hint"] = "Otwórz adres IP, np. http://10.0.0.1:5002/trips"
+            elif access_mode == "tracking":
+                body["hint"] = "Z sieci dostępna jest tylko lista tras: /trips"
+            return jsonify(body), 403
 
         # --- Static file serving ---
 
@@ -849,71 +1665,10 @@ class WebViewer:
 
         # --- Android Auto — direct Xvfb MJPEG stream (no port 5001) ---
 
-        def _aa_canvas_size_local() -> tuple[int, int]:
-            """Match the AA canvas calculation in src.multimedia.openauto.
-
-            Imported lazily so the web viewer doesn't hard-fail if the
-            multimedia module is missing (e.g. when AA is disabled).
-            """
-            try:
-                from src.multimedia.openauto import _aa_canvas_size
-                return _aa_canvas_size(viewer._config) if viewer._config else (1024, 504)
-            except Exception:
-                cfg = viewer._config
-                w = cfg.get("display.multimedia.width", 1024) if cfg else 1024
-                h = cfg.get("display.multimedia.height", 504) if cfg else 504
-                return int(w), int(h)
-
-        def _aa_mjpeg_generator():
-            """Stream MJPEG frames from Xvfb (:99) using ffmpeg."""
-            w, h = _aa_canvas_size_local()
-            try:
-                proc = subprocess.Popen(
-                    ["ffmpeg", "-f", "x11grab", "-framerate", "25",
-                     "-video_size", f"{w}x{h}",
-                     "-draw_mouse", "0",
-                     "-i", ":99",
-                     "-f", "mjpeg", "-q:v", "3",
-                     "-an", "pipe:1"],
-                    stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
-                )
-            except Exception:
-                return
-            buf = b""
-            SOI = b"\xff\xd8"
-            EOI = b"\xff\xd9"
-            try:
-                while True:
-                    chunk = proc.stdout.read(4096)
-                    if not chunk:
-                        break
-                    buf += chunk
-                    while True:
-                        start = buf.find(SOI)
-                        if start == -1:
-                            buf = b""
-                            break
-                        end = buf.find(EOI, start + 2)
-                        if end == -1:
-                            buf = buf[start:]
-                            break
-                        frame = buf[start:end + 2]
-                        buf = buf[end + 2:]
-                        yield (b"--frame\r\n"
-                               b"Content-Type: image/jpeg\r\n\r\n"
-                               + frame + b"\r\n")
-            finally:
-                proc.terminate()
-                try:
-                    proc.wait(timeout=3)
-                except subprocess.TimeoutExpired:
-                    proc.kill()  # ffmpeg ignored SIGTERM — don't leak it
-                    proc.wait(timeout=3)
-
         @app.route("/aa/stream")
         def aa_stream():
             """Direct MJPEG stream from Xvfb (:99) — no port 5001 proxy."""
-            return Response(_aa_mjpeg_generator(),
+            return Response(viewer._aa_mjpeg_frames(),
                             mimetype="multipart/x-mixed-replace; boundary=frame")
 
         @app.route("/aa/status")
@@ -928,30 +1683,41 @@ class WebViewer:
 
         @app.route("/aa/touch", methods=["POST"])
         def aa_touch():
-            """Forward touch/click to Xvfb via xdotool."""
-            data = request.get_json(silent=True) or {}
-            rel_x = data.get("x", 0.5)
-            rel_y = data.get("y", 0.5)
-            w, h = _aa_canvas_size_local()
-            px = max(0, min(w, int(rel_x * w)))
-            py = max(0, min(h, int(rel_y * h)))
-            try:
-                subprocess.run(
-                    ["xdotool", "mousemove", "--screen", "0",
-                     str(px), str(py), "click", "1"],
-                    timeout=2, capture_output=True,
-                    env={**os.environ, "DISPLAY": ":99"},
-                )
-                return jsonify({"ok": True, "x": px, "y": py})
-            except Exception:
-                return jsonify({"ok": False}), 500
+            """Forward a touch to Xvfb (HTTP fallback of the /ws/input path).
+
+            Body ``{"x": 0..1, "y": 0..1, "action"?: ...}``. Without
+            ``action`` it is a tap, exactly as before. The kiosk only falls
+            back here for tap/down/up/cancel while the input WebSocket is
+            down; ``move`` is refused — a drag over HTTP would be one request
+            (and one server thread) per frame.
+            """
+            data = request.get_json(silent=True)
+            if data is None:
+                data = {}
+            if not isinstance(data, dict):
+                return jsonify({"ok": False, "error": "body must be a JSON object"}), 400
+            action = data.get("action", "tap")
+            if action not in _AA_HTTP_TOUCH_ACTIONS:
+                return jsonify({"ok": False,
+                                "error": f"action must be one of {list(_AA_HTTP_TOUCH_ACTIONS)}"}), 400
+            injector = viewer._get_aa_injector()
+            if injector is None:
+                return jsonify({"ok": False, "error": "touch injection unavailable"}), 503
+            px = py = None
+            if action != "cancel":
+                # Missing coordinates keep the old default (canvas centre);
+                # present-but-invalid ones (NaN, strings, bools) are a 400.
+                pixels = injector.to_pixels(data.get("x", 0.5), data.get("y", 0.5))
+                if pixels is None:
+                    return jsonify({"ok": False, "error": "x and y must be finite numbers"}), 400
+                px, py = pixels
+            if not injector.submit(action, data.get("x", 0.5), data.get("y", 0.5),
+                                   client="http"):
+                return jsonify({"ok": False, "error": "touch injection unavailable"}), 503
+            return jsonify({"ok": True, "action": action, "x": px, "y": py})
 
         def _get_openauto():
-            if viewer._event_bus:
-                result = viewer._event_bus.get_last("multimedia._internals")
-                if result and result[0]:
-                    return result[0].get("openauto")
-            return None
+            return viewer._openauto()
 
         @app.route("/aa/restart", methods=["POST"])
         @app.route("/api/aa/restart", methods=["POST"])
@@ -960,6 +1726,11 @@ class WebViewer:
             log.info("Manual AA restart requested via API")
             openauto = _get_openauto()
             if openauto:
+                # A second tap while restart() runs must not start another
+                # thread (the controller would refuse it anyway, but the UI
+                # deserves to know it is already happening).
+                if getattr(openauto, "restart_in_progress", False) is True:
+                    return jsonify({"ok": True, "status": "already_restarting"})
                 threading.Thread(target=openauto.restart, daemon=True, name="aa-http-restart").start()
                 return jsonify({"ok": True, "status": "restarting"})
             elif viewer._event_bus:
@@ -1477,11 +2248,43 @@ class WebViewer:
 
         @app.route("/api/phone/dial", methods=["POST"])
         def api_phone_dial():
-            data = request.get_json(silent=True) or {}
-            number = data.get("number", "")
-            if number and viewer._event_bus:
+            # Browser input -> log, event bus and oFono's Dial(): only a plain
+            # dial string passes (separators from phonebook entries dropped,
+            # then 1-32 of 0-9 + * #). Anything else is a 400, never echoed raw.
+            from src.multimedia.bluetooth import normalize_dial_number
+            data = request.get_json(silent=True)
+            raw = data.get("number", "") if isinstance(data, dict) else ""
+            number = normalize_dial_number(raw)
+            if not number:
+                return jsonify({"ok": False, "error": "invalid number"}), 400
+            if viewer._event_bus:
                 viewer._event_bus.publish("bt.cmd.dial", number)
             return jsonify({"ok": True, "number": number})
+
+        @app.route("/api/phone_tether/retry", methods=["POST"])
+        def api_phone_tether_retry():
+            """"Ponów" in Settings: retry the phone's Bluetooth internet now.
+
+            Takes no arguments (the body is ignored — nothing from the
+            browser reaches nmcli) and only publishes
+            net.phone_tether.cmd.retry; src/network/phone_tether.py drops its
+            backoff. At most one per _TETHER_RETRY_MIN_INTERVAL_S, as each
+            one can cost a `connection up` of up to 30 s.
+            """
+            if not viewer._event_bus:
+                return jsonify({"ok": False, "error": "event bus unavailable"}), 503
+            now = time.monotonic()
+            with viewer._tether_retry_lock:
+                last = viewer._tether_retry_last
+                if last is not None and now - last < _TETHER_RETRY_MIN_INTERVAL_S:
+                    wait = int(_TETHER_RETRY_MIN_INTERVAL_S - (now - last)) + 1
+                    res = jsonify({"ok": False, "error": "too many requests",
+                                   "retry_after": wait})
+                    res.headers["Retry-After"] = str(wait)
+                    return res, 429
+                viewer._tether_retry_last = now
+            viewer._event_bus.publish(_TETHER_RETRY_TOPIC, True)
+            return jsonify({"ok": True})
 
         @app.route("/api/phone/answer", methods=["POST"])
         def api_phone_answer():
@@ -1555,13 +2358,23 @@ class WebViewer:
         @app.route("/api/weather/location", methods=["POST"])
         def api_weather_set_location():
             """Set weather location (from search). Triggers re-fetch."""
-            data = request.get_json(silent=True) or {}
+            data = request.get_json(silent=True)
+            if not isinstance(data, dict):
+                data = {}
             lat = data.get("lat")
             lon = data.get("lon")
             city = data.get("city", "")
-            if lat is not None and lon is not None and viewer._event_bus:
-                viewer._event_bus.publish("weather.search_location",
-                                          {"lat": lat, "lon": lon, "city": city})
+            if lat is None or lon is None:
+                return jsonify({"error": "missing lat/lon"}), 400
+            # The coordinates end up in the OpenWeatherMap URL.
+            coords = valid_coords(lat, lon)
+            if coords is None:
+                return jsonify({"error": "lat/lon must be numbers in range"}), 400
+            if viewer._event_bus:
+                viewer._event_bus.publish("weather.search_location", {
+                    "lat": coords[0], "lon": coords[1],
+                    "city": city[:100] if isinstance(city, str) else "",
+                })
                 return jsonify({"ok": True})
             return jsonify({"error": "missing lat/lon"}), 400
 
@@ -1689,10 +2502,12 @@ class WebViewer:
             bus = viewer._event_bus
             if not bus:
                 return jsonify({"codes": [], "error": "no bus"})
-            requested_at = time.time()
+            requested_at = time.time()      # compared with bus timestamps
             bus.publish("obd.dtc.read_request", True)
-            deadline = requested_at + 3.0
-            while time.time() < deadline:
+            # The wait itself on the monotonic clock: a wall-clock jump
+            # (bcm-timesync) must not keep this request thread spinning.
+            deadline = time.monotonic() + 3.0
+            while time.monotonic() < deadline:
                 result = bus.get_last("obd.dtc.codes")
                 if result and result[1] >= requested_at:
                     codes = result[0]
@@ -1712,10 +2527,10 @@ class WebViewer:
             bus = viewer._event_bus
             if not bus:
                 return jsonify({"ok": False, "error": "no bus"})
-            requested_at = time.time()
+            requested_at = time.time()      # compared with bus timestamps
             bus.publish("obd.dtc.clear_request", True)
-            deadline = requested_at + 3.0
-            while time.time() < deadline:
+            deadline = time.monotonic() + 3.0
+            while time.monotonic() < deadline:
                 result = bus.get_last("obd.dtc.cleared")
                 if result and result[1] >= requested_at:
                     return jsonify({"ok": bool(result[0])})
@@ -1813,10 +2628,76 @@ class WebViewer:
             result["available"] = any(result.values())
             return jsonify(result)
 
+        # --- Trips + GPX (src/location/tracker.py) ---
+
+        @app.route("/api/tracking/trips")
+        def api_tracking_trips():
+            tracker = viewer._tracker()
+            if tracker is None:
+                return jsonify({"error": "tracking module is not running (modules.tracking)",
+                                "trips": []}), 503
+            limit = _clamp_limit(request.args.get("limit"))
+            try:
+                trips = tracker.list_trips(limit)
+            except Exception:
+                log.exception("Listing trips failed")
+                return jsonify({"error": "trip database unavailable", "trips": []}), 503
+            out = [t for t in (_trip_json(raw) for raw in trips or []) if t is not None]
+            return jsonify({"trips": out})
+
+        @app.route("/api/tracking/trips/<int:trip_id>.gpx")
+        def api_tracking_trip_gpx(trip_id):
+            tracker = viewer._tracker()
+            if tracker is None:
+                return jsonify({"error": "tracking module is not running (modules.tracking)"}), 503
+            if trip_id > _MAX_TRIP_ID:
+                return jsonify({"error": "no such trip"}), 404
+            try:
+                trip = tracker.get_trip(trip_id)
+                if not trip or not trip.get("points"):
+                    return jsonify({"error": "no such trip, or it has no points"}), 404
+                gpx = tracker.export_gpx(trip_id)
+            except Exception:
+                log.exception("GPX export of trip %d failed", trip_id)
+                return jsonify({"error": "trip database unavailable"}), 503
+            day = _local_time(trip.get("start_ts"), "%Y%m%d") or "00000000"
+            resp = Response(gpx, mimetype="application/gpx+xml")
+            # Only digits go into the header — nothing to escape.
+            resp.headers["Content-Disposition"] = (
+                f'attachment; filename="bcm-trip-{int(trip_id)}-{day}.gpx"')
+            resp.headers["X-Content-Type-Options"] = "nosniff"
+            resp.headers["Cache-Control"] = "no-store"
+            return resp
+
+        @app.route("/trips")
+        def trips_page():
+            tracker = viewer._tracker()
+            trips = None
+            if tracker is not None:
+                try:
+                    trips = tracker.list_trips(_TRIPS_PAGE_LIMIT)
+                except Exception:
+                    log.exception("Listing trips for /trips failed")
+            body = _render_trips_html(trips, viewer._gps_status_line())
+            resp = Response(body, status=200 if trips is not None else 503,
+                            mimetype="text/html")
+            resp.headers["Content-Security-Policy"] = _TRIPS_CSP
+            resp.headers["X-Content-Type-Options"] = "nosniff"
+            resp.headers["Cache-Control"] = "no-store"
+            return resp
+
         # --- WebSocket: real-time data stream ---
 
         @sock.route("/ws")
         def ws_data_handler(ws):
+            # Same-origin check as /ws/input: a foreign page open in a
+            # browser on the network must not read the dashboard stream
+            # (position, caller, contacts on screen).
+            origin = request.headers.get("Origin")
+            if not _ws_origin_allowed(origin, request.host):
+                log.debug("Rejected /ws from foreign Origin %r (host %r)",
+                          origin, request.host)
+                return
             with viewer._ws_lock:
                 viewer._ws_clients.append(ws)
             log.info("WebSocket client connected (data)")
@@ -1852,24 +2733,12 @@ class WebViewer:
 
         @sock.route("/ws/input")
         def ws_input_handler(ws):
-            log.info("WebSocket client connected (input)")
-            while viewer._running:
-                try:
-                    msg = ws.receive(timeout=1)
-                    if msg is None:
-                        continue
-                    data = json.loads(msg)
-                    if data.get("type") == "keydown" and "key" in data:
-                        viewer._handle_browser_key(data["key"])
-                except json.JSONDecodeError:
-                    log.debug("Invalid JSON from browser input WS")
-                except Exception:
-                    break
+            origin = request.headers.get("Origin")
+            if not _ws_origin_allowed(origin, request.host):
+                # Returning closes the socket before a single message is read.
+                log.debug("Rejected /ws/input from foreign Origin %r (host %r)",
+                          origin, request.host)
+                return
+            viewer._serve_input_ws(ws)
 
-        # threaded=True: the dashboard renders fire many concurrent
-        # GETs (radio status, wifi config, BT lists, music, weather…)
-        # plus the touch input WS. A single-threaded werkzeug serializes
-        # everything, so a slow handler (e.g. bluetoothctl scan, nmcli)
-        # stalls every other endpoint and the UI feels frozen on touch.
-        app.run(host=self.host, port=self.port, debug=False,
-                use_reloader=False, threaded=True)
+        return app

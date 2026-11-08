@@ -53,15 +53,18 @@ const Phone = {
         Phone._callInfo = { number: number, name: "" };
         Phone._input = "";
         App.navigateTo("a8");
+        let ok = false;
         try {
-            await fetch("/api/phone/dial", {
+            const res = await fetch("/api/phone/dial", {
                 method: "POST",
                 headers: {"Content-Type": "application/json"},
                 body: JSON.stringify({number: number}),
             });
-            // Call state will be updated via WebSocket when bt.call_state changes
-        } catch (e) {
-            // If request fails, reset to idle
+            // 400 = not a dial string (the backend refuses it); otherwise the
+            // call state follows bt.call_state over the WebSocket.
+            ok = !!res.ok;
+        } catch (e) { /* network error: same as refused */ }
+        if (!ok && Phone._callState === "ringing") {
             Phone._callState = "idle";
             Phone._callInfo = {};
             App.navigateTo("a8");
@@ -115,6 +118,13 @@ App.registerScreen("a8", (() => {
     let _contactsLoaded = false;
     let _historyLoaded = false;
 
+    // Caller name/number come from the phone network via oFono (bt.call_info)
+    // — untrusted text going into innerHTML, so it is escaped.
+    function _esc(v) {
+        return String(v == null ? "" : v).replace(/&/g, "&amp;").replace(/</g, "&lt;")
+            .replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+    }
+
     function render(container, theme, data) {
         const t = App.t.bind(App);
         const bgCls = theme === "modern" ? "bg-slate-100 text-slate-900" : "bg-black text-white";
@@ -160,6 +170,8 @@ App.registerScreen("a8", (() => {
         </div>`;
 
         // Load contacts/history once
+        _renderedCallKey = _callKey();
+
         if (!_contactsLoaded) { _contactsLoaded = true; Phone.loadContacts(); }
         if (!_historyLoaded) { _historyLoaded = true; Phone.loadHistory(); }
     }
@@ -170,7 +182,7 @@ App.registerScreen("a8", (() => {
 
         return `<div class="flex flex-col items-center h-full">
             <!-- Number display -->
-            <div id="dialer-display" class="text-3xl font-bold tracking-wider mb-3 h-10" style="color:${accent};">${Phone._input || "\u00a0"}</div>
+            <div id="dialer-display" class="text-3xl font-bold tracking-wider mb-3 h-10" style="color:${accent};">${_esc(Phone._input) || "\u00a0"}</div>
             <!-- Keypad -->
             <div class="grid grid-cols-3 gap-2 w-[280px]">
                 ${keys.map(k => `<button class="${keyBg} rounded-xl py-3 text-xl font-bold active:scale-95 transition-transform" onclick="Phone.key('${k}')">${k}</button>`).join("")}
@@ -190,13 +202,16 @@ App.registerScreen("a8", (() => {
     function _renderContacts(theme, cardBg, accent, t) {
         const filterBg = theme === "modern" ? "bg-white border-slate-200" : "bg-zinc-800 border-zinc-700";
         const filtered = Phone._contactsFilter
-            ? Phone._contacts.filter(c => c.name.toLowerCase().includes(Phone._contactsFilter.toLowerCase()))
+            ? Phone._contacts.filter(c => String(c.name || "").toLowerCase().includes(Phone._contactsFilter.toLowerCase()))
             : Phone._contacts;
+        // Names/numbers come from the phone's phonebook (PBAP): untrusted
+        // text, escaped for innerHTML. The number reaches dialNumber() via a
+        // data- attribute, never spliced into the onclick JavaScript.
 
         return `<div class="flex flex-col h-full">
             <div class="flex items-center gap-2 ${filterBg} border rounded-lg px-3 py-1.5 mb-2 shrink-0">
                 <span class="material-symbols-outlined opacity-40" style="font-size:18px;">search</span>
-                <input type="text" value="${Phone._contactsFilter}" placeholder="${t("search_contacts","Search...")}"
+                <input type="text" value="${_esc(Phone._contactsFilter)}" placeholder="${t("search_contacts","Search...")}"
                        class="bg-transparent border-none outline-none text-sm flex-1 p-0"
                        oninput="Phone.filterContacts(this.value)">
             </div>
@@ -206,12 +221,12 @@ App.registerScreen("a8", (() => {
                         <span class="material-symbols-outlined text-4xl mb-2">person_off</span>
                         <span class="text-sm font-bold">${t("no_contacts","No contacts synced")}</span>
                        </div>`
-                    : filtered.map(c => `<div class="${cardBg} border rounded-lg p-2 flex justify-between items-center cursor-pointer hover:opacity-80" onclick="Phone.dialNumber('${c.number}')">
+                    : filtered.map(c => `<div class="${cardBg} border rounded-lg p-2 flex justify-between items-center cursor-pointer hover:opacity-80" data-number="${_esc(c.number)}" onclick="Phone.dialNumber(this.dataset.number)">
                         <div class="flex items-center gap-3">
-                            <div class="w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold" style="background:${accent}20;color:${accent};">${c.name.charAt(0)}</div>
+                            <div class="w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold" style="background:${accent}20;color:${accent};">${_esc(String(c.name || "").charAt(0))}</div>
                             <div>
-                                <p class="text-sm font-bold">${c.name}</p>
-                                <p class="text-[10px] opacity-50">${c.number}</p>
+                                <p class="text-sm font-bold">${_esc(c.name)}</p>
+                                <p class="text-[10px] opacity-50">${_esc(c.number)}</p>
                             </div>
                         </div>
                         <span class="material-symbols-outlined opacity-30" style="font-size:20px;">call</span>
@@ -231,25 +246,30 @@ App.registerScreen("a8", (() => {
                     <span class="material-symbols-outlined text-4xl mb-2">history</span>
                     <span class="text-sm font-bold">${t("no_history","No call history")}</span>
                    </div>`
-                : Phone._history.map(h => `<div class="${cardBg} border rounded-lg p-2 flex justify-between items-center cursor-pointer hover:opacity-80" onclick="Phone.dialNumber('${h.number}')">
+                : Phone._history.map(h => `<div class="${cardBg} border rounded-lg p-2 flex justify-between items-center cursor-pointer hover:opacity-80" data-number="${_esc(h.number)}" onclick="Phone.dialNumber(this.dataset.number)">
                     <div class="flex items-center gap-3">
                         <span class="material-symbols-outlined ${colorMap[h.type]||''}" style="font-size:20px;">${iconMap[h.type]||'call'}</span>
                         <div>
-                            <p class="text-sm font-bold">${h.name || h.number}</p>
-                            <p class="text-[10px] opacity-50">${h.time || ''}</p>
+                            <p class="text-sm font-bold">${_esc(h.name || h.number)}</p>
+                            <p class="text-[10px] opacity-50">${_esc(h.time || '')}</p>
                         </div>
                     </div>
-                    <span class="text-[10px] opacity-40">${h.duration || ''}</span>
+                    <span class="text-[10px] opacity-40">${_esc(h.duration || '')}</span>
                 </div>`).join("")
             }
         </div>`;
     }
 
+    // The overlays read the call state from Phone themselves: render()'s
+    // _callState/_callInfo are local to render(), and referencing them here
+    // threw a ReferenceError — the screen broke exactly when a call started.
     function _renderCallOverlay(theme, accent, t) {
+        const _callState = Phone._callState || "idle";
+        const _callInfo = Phone._callInfo || {};
         if (_callState === "incoming") return "";
         return `<div class="absolute inset-0 z-50 flex flex-col items-center justify-center" style="background:rgba(0,0,0,0.9);">
             <span class="material-symbols-outlined text-6xl mb-4" style="color:${accent};">call</span>
-            <p class="text-2xl font-bold">${_callInfo.name || _callInfo.number || "..."}</p>
+            <p class="text-2xl font-bold">${_esc(_callInfo.name || _callInfo.number || "...")}</p>
             <p class="text-sm opacity-50 mt-1">${_callState === "ringing" ? t("calling","Calling...") : t("on_call","On call")}</p>
             <p id="call-duration" class="text-lg font-mono mt-4 opacity-60">00:00</p>
             <div class="flex gap-6 mt-6">
@@ -264,10 +284,11 @@ App.registerScreen("a8", (() => {
     }
 
     function _renderIncomingOverlay(theme, accent, t) {
+        const _callInfo = Phone._callInfo || {};
         return `<div class="absolute inset-0 z-50 flex flex-col items-center justify-center" style="background:rgba(0,0,0,0.95);">
             <span class="material-symbols-outlined text-6xl text-green-500 mb-4 animate-pulse">ring_volume</span>
             <p class="text-sm opacity-50 mb-1">${t("incoming_call","Incoming call")}</p>
-            <p class="text-2xl font-bold">${_callInfo.name || _callInfo.number || "Unknown"}</p>
+            <p class="text-2xl font-bold">${_esc(_callInfo.name || _callInfo.number || "Unknown")}</p>
             <div class="flex gap-8 mt-8">
                 <button class="w-16 h-16 rounded-full bg-red-600 text-white flex items-center justify-center active:scale-95" onclick="Phone.reject()">
                     <span class="material-symbols-outlined text-2xl">call_end</span>
@@ -279,12 +300,18 @@ App.registerScreen("a8", (() => {
         </div>`;
     }
 
+    // What the last render() showed of the call. Phone._callState/_callInfo
+    // are kept in sync with bt.call_state by app.js (_syncCallState) on EVERY
+    // screen — that is also where an incoming call switches to A8. Here we
+    // only re-render when the overlay on screen is out of date (state change,
+    // or the caller's name arriving after the call itself).
+    let _renderedCallKey = "";
+    function _callKey() {
+        return (Phone._callState || "idle") + "|" + JSON.stringify(Phone._callInfo || {});
+    }
+
     function update(data) {
-        if (data.bt_call_state && data.bt_call_state !== Phone._callState) {
-            Phone._callState = data.bt_call_state;
-            Phone._callInfo = data.bt_call_info || {};
-            App.navigateTo("a8");
-        }
+        if (_callKey() !== _renderedCallKey) App.navigateTo("a8");
     }
 
     return { render, update };

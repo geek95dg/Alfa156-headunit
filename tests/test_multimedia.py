@@ -216,12 +216,16 @@ class TestOpenAutoController:
         assert ctrl.auto_restart_enabled is True
         assert True in events
 
-    def test_manual_restart_without_binary(self):
+    def test_manual_restart_without_binary(self, openauto_sandbox):
+        # restart() runs pgrep/fuser/kill and a Bluetooth power cycle; the
+        # conftest sandbox records those instead of running them.
         ctrl = OpenAutoController(self.config, self.bus)
         if not ctrl.available:
             result = ctrl.restart()
             assert result is False
             assert ctrl.running is False
+            assert openauto_sandbox.kills == []
+            assert ["fuser", "5000/tcp"] in openauto_sandbox.calls
 
     def test_bt_connection_events_rearm(self):
         ctrl = OpenAutoController(self.config, self.bus)
@@ -554,3 +558,273 @@ class TestShippedConfigSelection:
         assert _shipped_configs(tmp_path) == [cfg / "bcm_config.yaml"]
         listed = {p.name for p in _repo_files(tmp_path)}
         assert listed == {"bcm_config.yaml", ".gitignore"}
+
+
+# ---------------------------------------------------------------------------
+# Etap 2a: openauto.ini [Audio]/[Input], mic wait, autoapp environment
+# ---------------------------------------------------------------------------
+
+class _Cfg(dict):
+    """Minimal config: get() with defaults, nothing else."""
+
+    def get(self, key, default=None):
+        return super().get(key, default)
+
+    def set(self, key, value):
+        self[key] = value
+
+    def save(self):
+        return True
+
+    def is_module_enabled(self, name):
+        return False
+
+
+def _ini(tmp_path, cfg=None, **kw):
+    import configparser
+    from src.multimedia.openauto import _create_openauto_config
+    written = _create_openauto_config(str(tmp_path), app_config=cfg, **kw)
+    text = (tmp_path / "openauto.ini").read_text()
+    parser = configparser.ConfigParser(strict=False, interpolation=None)
+    parser.optionxform = str
+    parser.read_string(text.split("\n", 1)[1])     # skip the "; BCM_CONFIG" marker
+    return parser, text, written
+
+
+class TestOpenAutoIniAudioInput:
+    @pytest.mark.parametrize("value, code, name", [
+        (None, "0", "rtaudio"),           # code default = production unchanged
+        ("rtaudio", "0", "rtaudio"),
+        ("qt", "1", "qt"),
+        ("QT", "1", "qt"),
+        ("pulse", "0", "rtaudio"),        # unknown -> safe default
+    ])
+    def test_output_backend(self, tmp_path, value, code, name):
+        cfg = _Cfg() if value is None else _Cfg({"multimedia.aa_audio_backend": value})
+        ini, _, written = _ini(tmp_path, cfg)
+        assert ini["Audio"]["OutputBackendType"] == code
+        assert written["audio_backend"] == name
+
+    def test_no_config_still_writes_rtaudio(self, tmp_path):
+        ini, _, _ = _ini(tmp_path, None)
+        assert ini["Audio"]["OutputBackendType"] == "0"
+
+    BUTTONS = ("PlayButton", "PauseButton", "TogglePlayButton", "NextTrackButton",
+               "PreviousTrackButton", "HomeButton", "PhoneButton", "CallEndButton",
+               "LeftButton", "RightButton", "UpButton", "DownButton",
+               "ScrollWheelButton", "BackButton", "EnterButton")
+
+    def test_input_uses_opendsh_keys(self, tmp_path):
+        ini, text, written = _ini(tmp_path, _Cfg({"multimedia.aa_input_buttons": True}),
+                                  mic_available=True)
+        section = ini["Input"]
+        assert section["EnableTouchscreen"] == "true"
+        for key in self.BUTTONS:
+            assert section[key] == "true", key
+        assert written["input_buttons"] is True
+        # the keys openDsh never read are gone
+        for old in ("ButtonCodes", "TouchscreenEnabled", "TouchscreenWidth", "TouchscreenHeight"):
+            assert old not in text
+
+    @pytest.mark.parametrize("cfg", [None, _Cfg(), _Cfg({"multimedia.aa_input_buttons": False})])
+    def test_buttons_off_by_default_production_unchanged(self, tmp_path, cfg):
+        # Code default: no *Button key at all — openDsh's default for each is
+        # false, i.e. the phone is told about exactly the buttons it was
+        # told about before (none), and EnableTouchscreen=true is openDsh's
+        # own default too.
+        ini, _, written = _ini(tmp_path, cfg, mic_available=False)
+        assert sorted(ini["Input"]) == ["EnableTouchscreen", "VoiceCommandButton"]
+        assert ini["Input"]["VoiceCommandButton"] == "false"
+        assert written["input_buttons"] is False
+
+    def test_test_config_enables_the_buttons(self):
+        import yaml
+        root = pathlib.Path(__file__).resolve().parent.parent
+        test_cfg = yaml.safe_load((root / "config" / "bcm_config_test.yaml").read_text())
+        prod_cfg = yaml.safe_load((root / "config" / "bcm_config.yaml").read_text())
+        assert test_cfg["multimedia"]["aa_input_buttons"] is True
+        assert "aa_input_buttons" not in (prod_cfg.get("multimedia") or {})
+
+    @pytest.mark.parametrize("cfg, mic, expected", [
+        (_Cfg(), True, "true"),
+        (_Cfg(), False, "false"),
+        (_Cfg({"audio.mic_phone": "alsa_input.usb-"}), None, "true"),   # before the router reports
+        (_Cfg({"audio.mic_phone": ""}), None, "false"),
+    ])
+    def test_voice_button_follows_the_mic(self, tmp_path, cfg, mic, expected):
+        ini, _, written = _ini(tmp_path, cfg, mic_available=mic)
+        assert ini["Input"]["VoiceCommandButton"] == expected
+        assert written["voice_button"] is (expected == "true")
+
+    @pytest.mark.parametrize("state, phone, expected", [
+        ({"state": "ok"}, "", True),
+        ({"state": "none"}, "alsa_input.usb-", False),
+        ({"state": "error"}, "alsa_input.usb-", True),   # unknown -> config decides
+        (None, "", False),
+        ("garbage", "x", True),
+    ])
+    def test_mic_available(self, state, phone, expected):
+        from src.multimedia.openauto import _mic_available
+        assert _mic_available(_Cfg({"audio.mic_phone": phone}), state) is expected
+
+    def test_wifi_and_video_sections_kept(self, tmp_path):
+        ini, _, _ = _ini(tmp_path, _Cfg({"wifi.ssid": "ALFA_AA"}))
+        assert ini["WiFi"]["SSID"] == "ALFA_AA"
+        assert ini["Video"]["Resolution"] == "2"
+
+
+class TestBuildAutoappEnv:
+    def _env(self, cfg=None, mic="", base=None, socks=(), dirs=()):
+        from src.multimedia.openauto import _build_autoapp_env
+        return _build_autoapp_env(cfg if cfg is not None else _Cfg(), mic,
+                                  dict(base or {}), uid=0,
+                                  exists=lambda p: p in socks, isdir=lambda p: p in dirs)
+
+    def test_points_at_the_user_session(self):
+        env = self._env(socks={"/run/user/1000/pulse/native"})
+        assert env["PULSE_SERVER"] == "unix:/run/user/1000/pulse/native"
+        assert env["PIPEWIRE_RUNTIME_DIR"] == "/run/user/1000"
+        assert env["XDG_RUNTIME_DIR"] == "/tmp/runtime-root"
+
+    def test_respects_existing_environment(self):
+        env = self._env(base={"PULSE_SERVER": "unix:/x", "XDG_RUNTIME_DIR": "/run/user/0"},
+                        socks={"/run/user/1000/pulse/native"})
+        assert env["PULSE_SERVER"] == "unix:/x"
+        assert "PIPEWIRE_RUNTIME_DIR" not in env
+        assert env["XDG_RUNTIME_DIR"] == "/run/user/0"
+
+    def test_no_socket_no_server(self):
+        env = self._env(dirs={"/run/user/0"})
+        assert "PULSE_SERVER" not in env
+        assert env["XDG_RUNTIME_DIR"] == "/run/user/0"
+
+    def test_sink_and_source(self):
+        env = self._env(_Cfg({"audio.aa_sink": "alsa_output.usb-x"}), mic="bcm_null_mic")
+        assert env["PULSE_SINK"] == "alsa_output.usb-x"
+        assert env["PULSE_SOURCE"] == "bcm_null_mic"
+
+    @pytest.mark.parametrize("mic", ["", None, 'bad"name', "x" * 300, "a b"])
+    def test_unsafe_or_empty_source_is_not_exported(self, mic):
+        assert "PULSE_SOURCE" not in self._env(mic=mic)
+
+    def test_pure(self):
+        base = {"A": "1"}
+        from src.multimedia.openauto import _build_autoapp_env
+        _build_autoapp_env(_Cfg(), "bcm_mic", base, uid=0, exists=lambda p: False,
+                           isdir=lambda p: False)
+        assert base == {"A": "1"}
+
+
+class TestStartWaitsForMic:
+    def _ctrl(self, tmp_path, cfg, timeout=30.0):
+        bus = EventBus()
+        ctrl = OpenAutoController(cfg, bus, mic_wait_timeout=timeout)
+        ctrl._binary = "/nonexistent/autoapp"     # popen is sandboxed (conftest)
+        ctrl._project_dir = str(tmp_path)          # openauto.ini goes to tmp
+        return ctrl, bus
+
+    def test_no_wait_when_router_disabled(self, tmp_path, openauto_sandbox):
+        import time as _time
+        ctrl, _ = self._ctrl(tmp_path, _Cfg({"audio.mic_router": False, "modules.audio": True}))
+        started = _time.monotonic()
+        assert ctrl.start() is False               # sandbox: autoapp cannot launch
+        assert _time.monotonic() - started < 5.0   # did not sit in a 30 s wait
+        assert ctrl._wait_for_mic_state() is False
+        assert (tmp_path / "openauto.ini").exists()
+        assert ["/nonexistent/autoapp"] in openauto_sandbox.calls
+
+    def test_no_wait_when_audio_module_off(self, tmp_path):
+        ctrl, _ = self._ctrl(tmp_path, _Cfg({"audio.mic_router": True, "modules.audio": False}))
+        assert ctrl._mic_router_enabled() is False
+
+    def test_waits_until_timeout_without_a_state(self, tmp_path):
+        import time as _time
+        ctrl, _ = self._ctrl(tmp_path, _Cfg({"audio.mic_router": True, "modules.audio": True}),
+                             timeout=0.05)
+        started = _time.monotonic()
+        assert ctrl._wait_for_mic_state() is False
+        assert _time.monotonic() - started >= 0.04
+
+    def test_known_state_returns_at_once_and_sets_voice_button(self, tmp_path):
+        ctrl, bus = self._ctrl(tmp_path, _Cfg({"audio.mic_router": True, "modules.audio": True}))
+        bus.publish("audio.mic_state", {"state": "ok", "source": "alsa_input.usb-x", "aec": False})
+        bus.publish("audio.input_source", "alsa_input.usb-x")
+        assert ctrl._wait_for_mic_state() is True
+        ctrl.start()
+        assert ctrl.voice_button_enabled is True
+        assert "VoiceCommandButton=true" in (tmp_path / "openauto.ini").read_text()
+
+    def test_state_arriving_during_the_wait_ends_it(self, tmp_path):
+        import threading
+        ctrl, bus = self._ctrl(tmp_path, _Cfg({"audio.mic_router": True, "modules.audio": True}),
+                               timeout=10.0)
+        threading.Timer(0.05, lambda: bus.publish(
+            "audio.mic_state", {"state": "none", "source": "bcm_null_mic", "aec": False})).start()
+        assert ctrl._wait_for_mic_state() is True
+        ctrl._write_ini(record_running=True)
+        assert ctrl.voice_button_enabled is False
+
+    def test_waits_at_most_once_per_process(self, tmp_path):
+        import time as _time
+        ctrl, _ = self._ctrl(tmp_path, _Cfg({"audio.mic_router": True, "modules.audio": True}),
+                             timeout=0.2)
+        assert ctrl.mic_wait_pending() is True
+        assert ctrl._wait_for_mic_state() is False      # first: waits, times out
+        assert ctrl.mic_wait_pending() is False
+        started = _time.monotonic()
+        assert ctrl._wait_for_mic_state() is False      # later: no second wait
+        assert _time.monotonic() - started < 0.1
+
+    def test_router_failure_state_ends_the_wait(self, tmp_path):
+        # volume.py publishes state=error when the MicRouter cannot start
+        ctrl, bus = self._ctrl(tmp_path, _Cfg({"audio.mic_router": True, "modules.audio": True,
+                                               "audio.mic_phone": "alsa_input.usb-"}))
+        bus.publish("audio.mic_state", {"state": "error", "source": "", "aec": False})
+        assert ctrl.mic_wait_pending() is False
+        assert ctrl._wait_for_mic_state() is True
+        assert ctrl._mic_available() is True             # error -> config decides
+
+    def test_credential_rewrite_keeps_the_running_flag(self, tmp_path):
+        # autoapp started without a mic (VoiceCommandButton=false); the mic
+        # appears later and the AP republishes its credentials: the ini is
+        # rewritten, but the RUNNING autoapp still filters MICROPHONE_1.
+        ctrl, bus = self._ctrl(tmp_path, _Cfg({"audio.mic_router": True, "modules.audio": True}))
+        bus.publish("audio.mic_state", {"state": "none", "source": "bcm_null_mic", "aec": False})
+        ctrl.start()
+        assert ctrl.voice_button_enabled is False
+        bus.publish("audio.mic_state", {"state": "ok", "source": "alsa_input.usb-x", "aec": False})
+        ctrl._on_ap_credentials("wifi.ap_credentials", {"ssid": "X"}, 0.0)
+        assert "VoiceCommandButton=true" in (tmp_path / "openauto.ini").read_text()
+        assert ctrl.voice_button_enabled is False
+        ctrl.start()                                     # next autoapp gets it
+        assert ctrl.voice_button_enabled is True
+
+    def test_first_start_runs_in_the_background_when_waiting(self, tmp_path, monkeypatch):
+        import time as _time
+        from src.multimedia import openauto as oa
+        cfg = _Cfg({"audio.mic_router": True, "modules.audio": True,
+                    "multimedia.auto_start_openauto": True})
+        bus = EventBus()
+        created = {}
+        real_init = oa.OpenAutoController.__init__
+
+        def init(self, config, event_bus, mic_wait_timeout=oa.MIC_WAIT_TIMEOUT_S):
+            real_init(self, config, event_bus, mic_wait_timeout=0.3)
+            self._binary = "/nonexistent/autoapp"
+            self._project_dir = str(tmp_path)
+            created["ctrl"] = self
+
+        monkeypatch.setattr(oa.OpenAutoController, "__init__", init)
+        from types import SimpleNamespace
+        bt = SimpleNamespace(available=False, connected=False)
+        started = _time.monotonic()
+        oa.start_multimedia(cfg, bus, bt_manager=bt)
+        assert _time.monotonic() - started < 0.25        # did not block on the wait
+        ctrl = created["ctrl"]
+        # the restart lock is held while the background start runs
+        deadline = _time.monotonic() + 5
+        while ctrl.restart_in_progress and _time.monotonic() < deadline:
+            _time.sleep(0.02)
+        assert not ctrl.restart_in_progress
+        assert (tmp_path / "openauto.ini").exists()
+        assert ctrl._mic_wait_gave_up is True

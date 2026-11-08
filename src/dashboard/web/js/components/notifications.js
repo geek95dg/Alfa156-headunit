@@ -103,5 +103,92 @@ const Notifications = (() => {
         </div>`;
     }
 
-    return { getNotifications, renderHeritage, renderModern, renderAutodelta };
+    // --- Toasts for backend announcements (system.notifications) ---------
+    //
+    // src/core/notifications.py publishes short-lived entries {id, severity,
+    // icon, title, desc, ttl}; web_viewer drops expired ones from the
+    // payload. Each id is shown once, as a toast on top of whatever screen is
+    // active (A2/AA included). Text arrives from the backend and is rendered
+    // with textContent only — never innerHTML. Inline styles only: Tailwind
+    // is precompiled, new classes would not exist.
+    const TOAST_MAX_VISIBLE = 3;
+    const TOAST_MAX_MS = 10000;
+    const SEEN_MAX = 50;
+    const _seen = [];
+    const TOAST_COLORS = { danger: "#dc2626", warning: "#f59e0b", info: "#71717a" };
+
+    /** Entries of `list` not in `seen` that are worth a toast. Pure. */
+    function pendingToasts(list, seen) {
+        if (!Array.isArray(list)) return [];
+        return list.filter((n) => n && typeof n === "object"
+            && (typeof n.id === "string" || typeof n.id === "number")
+            && typeof n.title === "string" && n.title
+            && seen.indexOf(String(n.id)) === -1);
+    }
+
+    function _remember(id) {
+        _seen.push(String(id));
+        while (_seen.length > SEEN_MAX) _seen.shift();
+    }
+
+    function _toastHost(doc) {
+        let host = doc.getElementById("bcm-toast-host");
+        if (!host) {
+            host = doc.createElement("div");
+            host.id = "bcm-toast-host";
+            host.style.cssText = "position:fixed;top:56px;left:50%;transform:translateX(-50%);"
+                + "z-index:400;display:flex;flex-direction:column;gap:8px;align-items:center;"
+                + "pointer-events:none;max-width:90vw;";
+            (doc.body || doc.documentElement).appendChild(host);
+        }
+        return host;
+    }
+
+    function _showToast(doc, n) {
+        const host = _toastHost(doc);
+        while (host.children.length >= TOAST_MAX_VISIBLE) host.removeChild(host.firstChild);
+        const box = doc.createElement("div");
+        box.setAttribute("role", "status");
+        box.style.cssText = "display:flex;gap:12px;align-items:center;padding:10px 16px;"
+            + "border-radius:10px;background:rgba(15,15,15,0.94);color:#fff;"
+            + "box-shadow:0 6px 24px rgba(0,0,0,0.5);border-left:4px solid "
+            + (TOAST_COLORS[n.severity] || TOAST_COLORS.info) + ";max-width:90vw;";
+        const icon = doc.createElement("span");
+        icon.className = "material-symbols-outlined";
+        icon.style.cssText = "font-size:26px;color:" + (TOAST_COLORS[n.severity] || TOAST_COLORS.info) + ";";
+        icon.textContent = /^[a-z0-9_]{1,40}$/.test(n.icon || "") ? n.icon : "info";
+        const text = doc.createElement("div");
+        const title = doc.createElement("div");
+        title.style.cssText = "font-size:15px;font-weight:700;line-height:1.25;";
+        title.textContent = String(n.title).slice(0, 120);
+        text.appendChild(title);
+        if (n.desc) {
+            const desc = doc.createElement("div");
+            desc.style.cssText = "font-size:12px;opacity:0.7;margin-top:2px;";
+            desc.textContent = String(n.desc).slice(0, 240);
+            text.appendChild(desc);
+        }
+        box.appendChild(icon);
+        box.appendChild(text);
+        host.appendChild(box);
+        const ttl = Number(n.ttl) > 0 ? Number(n.ttl) * 1000 : 6000;
+        setTimeout(() => { if (box.parentNode) box.parentNode.removeChild(box); },
+                   Math.min(TOAST_MAX_MS, ttl));
+    }
+
+    /** Show a toast for every new backend notification. Never throws. */
+    function syncToasts(list, doc) {
+        try {
+            const d = doc || (typeof document !== "undefined" ? document : null);
+            for (const n of pendingToasts(list, _seen)) {
+                _remember(n.id);
+                if (d) _showToast(d, n);
+            }
+        } catch (e) { /* a toast must never break the data loop */ }
+    }
+
+    return { getNotifications, renderHeritage, renderModern, renderAutodelta,
+             pendingToasts, syncToasts };
 })();
+
+if (typeof module !== "undefined" && module.exports) module.exports = Notifications;
