@@ -161,8 +161,13 @@ class SettingsScreen:
         return config_key
 
     def save(self) -> None:
-        self.config.save()
-        log.info("Settings saved to %s", self.config.config_path)
+        # Changes go to the local overlay (config/local.yaml); the base YAML
+        # at config_path is never written, so do not claim it was.
+        if self.config.save():
+            log.info("Settings saved to %s", getattr(self.config, "local_path", None))
+        else:
+            log.info("Settings changed in memory only (no local overlay configured "
+                     "or save failed — see earlier log)")
 
     def draw(self, surface: pygame.Surface, theme: ThemeBase,
              lang: str = "pl") -> None:

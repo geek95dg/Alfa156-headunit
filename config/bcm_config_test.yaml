@@ -20,12 +20,35 @@
 # konfigurację, więc jest to pełna kopia z pozmienianymi kluczami.
 # Instrukcja: docs/WDROZENIE_TESTOWE.md
 #
+# Warstwy konfiguracji (od najsłabszej):
+#   1. ten plik — BAZA, śledzona w gicie; BCM NIGDY go nie zapisuje, więc
+#      `git pull` w aucie nie trafia na konflikty, a komentarze zostają;
+#   2. config/local.yaml — NAKŁADKA (poza gitem, 0600): BCM zapisuje tu
+#      atomowo tylko RÓŻNICE względem bazy (motyw, przełączniki modułów,
+#      ostatni telefon BT…). Możesz ją też edytować ręcznie; uszkodzona
+#      nakładka → BCM bierze local.yaml.bak albo samą bazę i wstaje dalej.
+#      Inna ścieżka: --local-config PATH / BCM_LOCAL_CONFIG, wyłączenie:
+#      --no-local-config;
+#   3. /etc/bcm/bcm.env — SEKRETY (klucze API, hasła) jako zmienne
+#      środowiskowe ładowane przez systemd; wzór: config/bcm.env.example.
+#      Wartości z env nigdy nie są zapisywane do local.yaml.
+#
 system:
   name: BCM v8.5
   version: 8.5.1
   platform: x86
   log_level: DEBUG
   log_file: logs/bcm.log
+  # Rotacja logs/bcm.log: rozmiar jednego pliku w MB i liczba kopii
+  # (bcm.log.1 … .3) — log DEBUG nie zapcha dysku.
+  log_max_mb: 5
+  log_backups: 3
+  # Poziomy logowania wybranych modułów (nazwa loggera bez prefiksu "bcm.").
+  # BT / AA / Wi-Fi Direct zostają na DEBUG do diagnozy połączeń.
+  module_levels:
+    multimedia.bluetooth: DEBUG
+    multimedia.openauto: DEBUG
+    multimedia.wifi_ap: DEBUG
   simulation: false
 # Jeden przełącznik na każdy moduł/podsystem — pełna lista i stan
 # także w UI: Settings -> Moduły (GET/POST /api/modules).
@@ -269,7 +292,8 @@ wifi:
     dhcp_end: 10.0.1.50
     share_internet: true
   # ssid_runtime / password_runtime / bssid_runtime są USTAWIANE W LOCIE przez
-  # wifi_ap.py po utworzeniu grupy P2P-GO i zapisywane tutaj. Nie wpisuj ich
+  # wifi_ap.py po utworzeniu grupy P2P-GO i trzymane tylko w pamięci (klucze
+  # *_runtime nigdy nie są zapisywane — ani tu, ani w local.yaml). Nie wpisuj ich
   # ręcznie: Wi-Fi Direct generuje nowe SSID i hasło przy każdej grupie, a
   # nieaktualna para trafia do openauto.ini i telefon dostaje namiary na sieć,
   # która już nie istnieje. Puste = użyj ssid/password powyżej do czasu, aż AP
@@ -278,11 +302,14 @@ wifi:
   password_runtime: ''
   bssid_runtime: ''
 weather:
-  api_key: 631c2365675e193584b0f986798554c1
+  # Klucz OpenWeatherMap NIE trafia do gita — podaj go w /etc/bcm/bcm.env
+  # jako BCM_OWM_API_KEY (patrz config/bcm.env.example).
+  api_key: ''
   poll_interval_min: 15
   default_lat: 50.06
   default_lon: 19.94
 travel:
+  # Klucze z /etc/bcm/bcm.env: BCM_ORS_API_KEY, BCM_TOMTOM_API_KEY.
   openrouteservice_key: ''
   tomtom_key: ''
 power:
@@ -338,7 +365,11 @@ tracking:
   geofence_radius_km: 0
   sms_number: ''
 multimedia:
-  last_bt_device: C0:7A:D6:90:E9:CC
+  # Ustawiane w locie przy połączeniu BT i zapisywane do config/local.yaml.
+  last_bt_device: ''
+  # Rozdzielczość projekcji AA: 480p / 720p / 1080p (puste = automat, który
+  # dla płótna 1024x504 i tak wybiera 720p). 720p jest sprawdzone w aucie.
+  aa_resolution: 720p
 bluetooth:
   enabled: true
   preferred_adapter: ''

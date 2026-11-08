@@ -1,3 +1,16 @@
+# DEPRECATED — nie używaj tego pliku w nowych instalacjach.
+#
+# Dawniej usługa bcm-headunit startowała z tego pliku, a BCM nadpisywał go
+# w locie (komentarze znikały, trafiały tu hasła Wi-Fi Direct *_runtime
+# i klucze API). Teraz bazą jest config/bcm_config_test.yaml (BCM go nie
+# zmienia), zmiany z UI idą do config/local.yaml (poza gitem), a sekrety do
+# /etc/bcm/bcm.env. Przeniesienie ustawień z urządzenia:
+#   python3 tools/migrate_local_config.py --source <kopia tego pliku> \
+#       --base config/bcm_config_test.yaml            # podgląd (dry-run)
+#   ... --write                                       # zapis config/local.yaml
+#
+# Plik zostaje tylko dlatego, że zainstalowana kopia unitu w
+# /etc/systemd/system może go jeszcze wskazywać — do czasu odświeżenia unitów.
 system:
   name: BCM v8.5
   version: 8.5.1
@@ -211,16 +224,18 @@ wifi:
     dhcp_start: 10.0.1.10
     dhcp_end: 10.0.1.50
     share_internet: true
-  ssid_runtime: DIRECT-Hr
-  password_runtime: qBYK90eQ
-  bssid_runtime: 4e:82:a9:17:47:97
+  ssid_runtime: ''
+  password_runtime: ''
+  bssid_runtime: ''
 weather:
-  api_key: 631c2365675e193584b0f986798554c1
+  # Klucz OpenWeatherMap NIE trafia do gita — podaj go w /etc/bcm/bcm.env
+  # jako BCM_OWM_API_KEY (patrz config/bcm.env.example).
+  api_key: ''
   poll_interval_min: 15
   default_lat: 50.06
   default_lon: 19.94
 travel:
-  openrouteservice_key: PASTE_ORS_KEY_HERE
+  openrouteservice_key: ''
   tomtom_key: ''
 power:
   shutdown_delay_seconds: 30
@@ -275,7 +290,7 @@ tracking:
   geofence_radius_km: 0
   sms_number: ''
 multimedia:
-  last_bt_device: C0:7A:D6:90:E9:CC
+  last_bt_device: ''
   aa_resolution: 720p
 bluetooth:
   enabled: true

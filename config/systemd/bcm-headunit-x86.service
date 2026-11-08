@@ -9,11 +9,23 @@ PartOf=bcm-ignition-watcher.service
 [Service]
 Type=simple
 
-# Resolve venv path (.venv or venv)
-# Platform and config are set here — edit for your target:
-#   x86:    --platform x86    --config config/bcm_config.yaml
-#   OPi PC (archived): --platform opi_pc --config Archive/orange-pi-pc/bcm_config_opi_pc.yaml
-ExecStart=/bin/bash -c 'VENV=/opt/bcm/.venv; [ -x "$VENV/bin/python" ] || VENV=/opt/bcm/venv; exec "$VENV/bin/python" main.py --platform x86 --config config/bcm_config_temp.yaml --frontend'
+# Base config (tracked in git, never written by BCM). Runtime changes from
+# the UI go to config/local.yaml next to it. To switch or roll back, set
+# BCM_CONFIG in /etc/bcm/bcm.env — EnvironmentFile overrides Environment=,
+# so e.g. BCM_CONFIG=config/bcm_config_temp.yaml restores the old file.
+#   OPi PC (archived): --platform opi_pc, BCM_CONFIG=Archive/orange-pi-pc/bcm_config_opi_pc.yaml
+Environment=BCM_CONFIG=config/bcm_config_test.yaml
+# Secrets (API keys, passwords), root:root 0600 — see config/bcm.env.example.
+# The leading '-' keeps a missing file from blocking the start.
+EnvironmentFile=-/etc/bcm/bcm.env
+
+# Resolve venv path (.venv or venv).
+# Quoting: "$VENV" sits inside the single-quoted bash -c word, where systemd
+# does not expand braceless variables, so bash sees it as written. The
+# config path uses "$$" because systemd itself WOULD expand "${...}" inside
+# a word: "$$" is systemd's escape for a literal "$", so bash receives
+# "${BCM_CONFIG:-...}" and the fallback still applies if the variable is unset.
+ExecStart=/bin/bash -c 'VENV=/opt/bcm/.venv; [ -x "$VENV/bin/python" ] || VENV=/opt/bcm/venv; exec "$VENV/bin/python" main.py --platform x86 --config "$${BCM_CONFIG:-config/bcm_config_test.yaml}" --frontend'
 WorkingDirectory=/opt/bcm
 Environment=PYTHONPATH=/opt/bcm
 Environment=BCM_PLATFORM=x86

@@ -235,7 +235,9 @@ wifi:
   password_runtime: ''
   bssid_runtime: ''
 weather:
-  api_key: 631c2365675e193584b0f986798554c1
+  # Klucz OpenWeatherMap NIE trafia do gita — podaj go w /etc/bcm/bcm.env
+  # jako BCM_OWM_API_KEY (patrz config/bcm.env.example).
+  api_key: ''
   poll_interval_min: 15
   default_lat: 50.06
   default_lon: 19.94
@@ -295,7 +297,8 @@ tracking:
   geofence_radius_km: 0
   sms_number: ''
 multimedia:
-  last_bt_device: C0:7A:D6:90:E9:CC
+  # Ustawiane w locie przy połączeniu BT i zapisywane do config/local.yaml.
+  last_bt_device: ''
   aa_auto_restart: true
   aa_connection_timeout: 90
 bluetooth:

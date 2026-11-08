@@ -61,6 +61,107 @@ _BROWSER_KEY_MAP = {
 }
 
 
+# ── /api/config POST validation ──────────────────────────────────────────
+# The endpoint used to store whatever JSON it received; since the values now
+# persist to config/local.yaml, a bogus theme or a string brightness would
+# survive restarts. Allowed values mirror the Settings screen
+# (web/js/screens/settings.js) and settings_screen.py.
+_CONFIG_THEMES = ("heritage", "modern", "autodelta")
+_CONFIG_SPEED_UNITS = ("km/h", "mph")
+_CONFIG_TEMP_UNITS = ("C", "F")
+
+# request key → config dot-path, in the order they are applied
+_CONFIG_FIELDS = (
+    ("theme", "display.dashboard.theme"),
+    ("language", "language"),
+    ("speed_unit", "units.speed"),
+    ("temp_unit", "units.temperature"),
+    ("brightness", "display.dashboard.brightness"),
+    ("aa_auto_restart", "multimedia.aa_auto_restart"),
+)
+
+
+def _available_languages() -> tuple:
+    from src.dashboard.i18n import STRINGS
+    return tuple(STRINGS)
+
+
+def _validate_config_update(data: Any) -> tuple[list[tuple[str, str, Any]], Optional[tuple[str, str]]]:
+    """Validate a POST /api/config body.
+
+    Returns ``(updates, error)``: ``updates`` is a list of
+    ``(request_key, config_path, value)`` to apply; ``error`` is
+    ``(request_key, message)`` for the first invalid field, in which case
+    nothing may be applied (all-or-nothing). Unknown keys are ignored, as
+    before.
+    """
+    if not isinstance(data, dict):
+        return [], ("", "body must be a JSON object")
+    updates: list[tuple[str, str, Any]] = []
+    for key, config_key in _CONFIG_FIELDS:
+        if key not in data:
+            continue
+        value = data[key]
+        if key == "theme":
+            if value not in _CONFIG_THEMES:
+                return [], (key, f"theme must be one of {list(_CONFIG_THEMES)}")
+        elif key == "language":
+            languages = _available_languages()
+            if value not in languages:
+                return [], (key, f"language must be one of {list(languages)}")
+        elif key == "speed_unit":
+            if value not in _CONFIG_SPEED_UNITS:
+                return [], (key, f"speed_unit must be one of {list(_CONFIG_SPEED_UNITS)}")
+        elif key == "temp_unit":
+            if value not in _CONFIG_TEMP_UNITS:
+                return [], (key, f"temp_unit must be one of {list(_CONFIG_TEMP_UNITS)}")
+        elif key == "brightness":
+            # bool is an int subclass — True must not become brightness 1.
+            if isinstance(value, float) and value.is_integer():
+                value = int(value)
+            if isinstance(value, bool) or not isinstance(value, int) or not 0 <= value <= 100:
+                return [], (key, "brightness must be an integer 0-100")
+        elif key == "aa_auto_restart":
+            if not isinstance(value, bool):
+                return [], (key, "aa_auto_restart must be true or false")
+        updates.append((key, config_key, value))
+    return updates, None
+
+
+#: Wi-Fi secrets that may be provided by /etc/bcm/bcm.env (SECRET_ENV_MAP).
+_WIFI_SECRET_PATHS = ("wifi.password", "wifi.alfa_net.password")
+
+
+def _unpersisted_wifi_secrets(cfg: Any) -> list[str]:
+    """Wi-Fi secret paths changed at runtime that bcm.env overrides on restart.
+
+    Never raises; a config object without the helper (tests, older code)
+    simply reports none.
+    """
+    changed = getattr(cfg, "unpersisted_secret_changes", None)
+    if not callable(changed):
+        return []
+    try:
+        return [p for p in changed() if p in _WIFI_SECRET_PATHS]
+    except Exception:
+        log.debug("unpersisted_secret_changes failed", exc_info=True)
+        return []
+
+
+def _save_config(cfg: Any, what: str) -> bool:
+    """Persist ``cfg`` to the local overlay; never raises.
+
+    Returns True if the change is on disk. A save failure must not turn a
+    successful in-memory change into an HTTP 500 or kill an event-bus
+    callback — it is logged and reported as ``persisted: false``.
+    """
+    try:
+        return bool(cfg.save())
+    except Exception:
+        log.exception("Saving config (%s) failed", what)
+        return False
+
+
 class WebViewer:
     """HTML5/Tailwind dashboard served via Flask + WebSocket.
 
@@ -387,30 +488,35 @@ class WebViewer:
             if cfg is None:
                 return jsonify({"error": "no config"}), 500
 
-            data = request.get_json(silent=True) or {}
-            for key, config_key in [
-                ("theme", "display.dashboard.theme"),
-                ("language", "language"),
-                ("speed_unit", "units.speed"),
-                ("temp_unit", "units.temperature"),
-                ("brightness", "display.dashboard.brightness"),
-                ("aa_auto_restart", "multimedia.aa_auto_restart"),
-            ]:
-                if key in data:
-                    cfg.set(config_key, data[key])
+            data = request.get_json(silent=True)
+            if data is None:
+                data = {}
+            updates, error = _validate_config_update(data)
+            if error is not None:
+                key, message = error
+                return jsonify({"ok": False, "error": message, "key": key}), 400
 
-            if "aa_auto_restart" in data:
+            for _key, config_key, value in updates:
+                cfg.set(config_key, value)
+            applied = {key: value for key, _ck, value in updates}
+
+            if "aa_auto_restart" in applied:
                 openauto = _get_openauto()
                 if openauto:
-                    openauto.auto_restart_enabled = bool(data["aa_auto_restart"])
+                    openauto.auto_restart_enabled = applied["aa_auto_restart"]
                 elif viewer._event_bus:
-                    viewer._event_bus.publish("multimedia.aa_auto_restart", bool(data["aa_auto_restart"]))
+                    viewer._event_bus.publish("multimedia.aa_auto_restart",
+                                              applied["aa_auto_restart"])
 
-            # Notify event bus of config change
+            # Persist (until now this endpoint never saved, so theme /
+            # language / units reverted on every restart).
+            persisted = _save_config(cfg, "settings") if applied else False
+
+            # Notify event bus of config change (validated values only)
             if viewer._event_bus:
-                viewer._event_bus.publish("config.changed", data)
+                viewer._event_bus.publish("config.changed", applied)
 
-            return jsonify({"ok": True})
+            return jsonify({"ok": True, "persisted": persisted})
 
         # --- Module toggles (Settings -> Moduły) ---
 
@@ -440,14 +546,12 @@ class WebViewer:
             legacy = MODULES[name].get("legacy_key")
             if legacy:
                 cfg.set(legacy, enabled)
-            try:
-                cfg.save()
-            except Exception as e:
-                return jsonify({"error": f"save failed: {e}"}), 500
+            persisted = _save_config(cfg, f"module {name}")
             if viewer._event_bus:
                 viewer._event_bus.publish("config.changed",
                                           {"module": name, "enabled": enabled})
-            return jsonify({"ok": True, "restart_required": True})
+            return jsonify({"ok": True, "restart_required": True,
+                            "persisted": persisted})
 
         # --- SWC mapping API ---
 
@@ -477,10 +581,10 @@ class WebViewer:
             if not isinstance(mapping, dict):
                 return jsonify({"error": "mapping must be a dict"}), 400
             cfg.set("swc.mapping", mapping)
-            cfg.save()
+            persisted = _save_config(cfg, "swc mapping")
             if viewer._event_bus:
                 viewer._event_bus.publish("input.swc_config_changed", mapping)
-            return jsonify({"ok": True})
+            return jsonify({"ok": True, "persisted": persisted})
 
         # --- SWC learn mode ---
 
@@ -508,7 +612,9 @@ class WebViewer:
                 if action in mapping and isinstance(mapping[action], list):
                     mapping[action][min(pod, len(mapping[action]) - 1)] = button_name
                     cfg.set("swc.mapping", mapping)
-                    cfg.save()
+                    # Runs on the event-bus thread: a save error must not
+                    # propagate into the dispatcher.
+                    _save_config(cfg, "swc learn")
 
         def _on_learn_keyname(topic, value, timestamp):
             if not _swc_learn["active"] or not isinstance(value, str):
@@ -890,10 +996,7 @@ class WebViewer:
                 enabled = bool(data["auto_restart"])
                 if viewer._config:
                     viewer._config.set("multimedia.aa_auto_restart", enabled)
-                    try:
-                        viewer._config.save()
-                    except Exception:
-                        pass
+                    _save_config(viewer._config, "aa auto_restart")
                 openauto = _get_openauto()
                 if openauto:
                     openauto.auto_restart_enabled = enabled
@@ -1274,11 +1377,12 @@ class WebViewer:
                                     }), 400
             if an_enabled is not None:
                 cfg.set("wifi.alfa_net.enabled", bool(an_enabled))
-            try:
-                cfg.save()
-            except Exception as e:
-                log.exception("Saving wifi config failed")
-                return jsonify({"ok": False, "error": str(e)}), 500
+            # The change is live either way; report honestly whether it
+            # survives a restart. A password provided by /etc/bcm/bcm.env is
+            # never written to local.yaml (env wins on the next start), and
+            # with --no-local-config nothing is written at all.
+            persisted = _save_config(cfg, "wifi")
+            env_managed = _unpersisted_wifi_secrets(cfg)
 
             # Regenerate openauto.ini so the autoapp picks up new
             # credentials on next AA start. The file is tiny; we drop
@@ -1300,7 +1404,8 @@ class WebViewer:
             # the user toggles Wi-Fi AP off/on in the UI to apply,
             # which keeps the action visible (avoids surprising
             # connectivity drops).
-            return jsonify({"ok": True, "restart_required": True})
+            return jsonify({"ok": True, "restart_required": True,
+                            "persisted": persisted, "env_managed": env_managed})
 
         @app.route("/api/radio/wifi", methods=["POST"])
         def api_radio_wifi():

@@ -80,11 +80,11 @@ _agent_registered = False  # Guard against double registration
 def _device_path_to_addr(device_path: str) -> str:
     """Convert D-Bus device path to BT address.
 
-    Example: /org/bluez/hci0/dev_C0_7A_D6_90_E9_CC → C0:7A:D6:90:E9:CC
+    Example: /org/bluez/hci0/dev_AA_BB_CC_DD_EE_01 → AA:BB:CC:DD:EE:01
     """
-    node = device_path.split("/")[-1]  # dev_C0_7A_D6_90_E9_CC
+    node = device_path.split("/")[-1]  # dev_AA_BB_CC_DD_EE_01
     if node.startswith("dev_"):
-        node = node[4:]  # C0_7A_D6_90_E9_CC
+        node = node[4:]  # AA_BB_CC_DD_EE_01
     return node.replace("_", ":")
 AGENT_CAPABILITY = "DisplayYesNo"
 
