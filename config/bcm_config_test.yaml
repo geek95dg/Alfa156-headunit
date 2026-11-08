@@ -99,6 +99,10 @@ modules:
                            # telefonu A8; telefon musi ZEZWOLIĆ na dostęp do
                            # kontaktów (pytanie przy parowaniu / ustawienia BT
                            # urządzenia w telefonie); wymaga bluetooth: true
+  phone_status: true       # stan telefonu w pasku górnym: zasięg, operator,
+                           # bateria (z oFono przez HFP, bateria zapasowo
+                           # z BlueZ); wymaga bluetooth: true; w kodzie
+                           # domyślnie wyłączony (produkcja bez zmian)
   fuel_sender: false       # brak ADC z Arduino
   wifi_ap: true            # P2P-GO na MT7921 — łącze danych Android Auto
   wifi_hotspot: false      # ALFA-NET wymaga OSOBNEGO radia (dongla USB) —
@@ -531,3 +535,12 @@ bluetooth:
   # RFCOMM dane Wi-Fi Direct — tyle samo co network.phone_tether.settle_sec.
   # Domyślnie w kodzie 3 s (produkcja bez zmian).
   phonebook_settle_sec: 15
+  # Stan telefonu w pasku (modules.phone_status): odczyt z oFono/BlueZ co
+  # poll_sec sekund, gdy telefon jest połączony (i od razu po połączeniu).
+  # Odczyt z pamięci oFono/BlueZ (telefon sam przysyła zmiany); tylko
+  # pierwszy odczyt Handsfree po połączeniu HFP wysyła do telefonu jedno
+  # AT+CNUM.
+  # Gdy nie odpowiada ani oFono, ani BlueZ: kolejna próba po retry_sec.
+  phone_status:
+    poll_sec: 20
+    retry_sec: 120

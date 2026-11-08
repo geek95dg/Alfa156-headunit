@@ -108,6 +108,10 @@ const App = (() => {
         // Render new screen
         _appEl.innerHTML = "";
         _renderers[screen].render(_appEl, _currentTheme, DataStore.getAll());
+        // Fill the fresh AppBar at once instead of on the next clock tick:
+        // the phone operator name only ever arrives through AppBar.update()
+        // (textContent — untrusted text never goes into the markup).
+        _tickClock();
 
         // Mount (start updates)
         if (_renderers[screen].mount) {

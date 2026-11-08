@@ -77,6 +77,9 @@ MODULES: dict[str, dict] = {
                      "legacy_key": "bluetooth.enabled", "default": True},
     "phonebook":    {"part": 11, "description": "PBAP phonebook + call history sync (A8 phone screen)",
                      "default": True},
+    # Off in code (production unchanged); started only with Bluetooth on.
+    "phone_status": {"part": 11, "description": "Stan telefonu w pasku górnym (bateria, zasięg, operator — oFono/BlueZ)",
+                     "default": False},
     "fuel_sender":  {"part": 21, "description": "Fuel tank sender calibration (Arduino ADC → %)",
                      "legacy_key": "fuel_sender.enabled", "default": True},
     "wifi_ap":      {"part": 11, "description": "WiFi dla Android Auto wireless (Wi-Fi Direct / P2P-GO, karta wewnętrzna)",

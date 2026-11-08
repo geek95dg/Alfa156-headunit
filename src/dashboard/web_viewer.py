@@ -26,6 +26,7 @@ from urllib.parse import urlsplit
 
 from src.core.logger import get_logger
 from src.core.notifications import active_notifications
+from src.multimedia.phone_status import sanitize_status as _phone_status_summary
 from src.network.phone_tether import HINTS as _TETHER_HINTS
 from src.network.phone_tether import RETRY_TOPIC as _TETHER_RETRY_TOPIC
 from src.network.phone_tether import STATES as _TETHER_STATES
@@ -781,6 +782,10 @@ class WebViewer:
             "lte_signal": _val("lte.signal", 0),
             # Internet from the phone (src/network/phone_tether.py).
             "phone_tether": _phone_tether_summary(_val("net.phone_tether")),
+            # Phone battery / signal / operator for the top bar
+            # (src/multimedia/phone_status.py). Re-sanitised here: values come
+            # from the phone; None = module not running (no cluster drawn).
+            "phone_status": _phone_status_summary(_val("bt.phone_status")),
             # Audio
             "audio_volume": _val("audio.volume", 70),
             "audio_muted": _val("audio.mute_changed", False),

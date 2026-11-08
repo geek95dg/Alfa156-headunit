@@ -296,6 +296,16 @@ def main() -> None:
         except Exception:
             log.exception("PBAP phonebook sync failed to init (non-critical)")
 
+    # Phone battery / signal / operator for the top bar (bt.phone_status,
+    # read from oFono/BlueZ over a private D-Bus connection). Off unless
+    # modules.phone_status is set (test config); needs Bluetooth.
+    if bt_enabled and modules_catalog.is_enabled(config, "phone_status"):
+        try:
+            from src.multimedia.phone_status import start_phone_status
+            start_phone_status(config, event_bus)
+        except Exception:
+            log.exception("Phone status monitor failed to init (non-critical)")
+
     # Start WiFi AP for Android Auto wireless data link
     wifi_ap = None
     wifi_enabled = modules_catalog.is_enabled(config, "wifi_ap")

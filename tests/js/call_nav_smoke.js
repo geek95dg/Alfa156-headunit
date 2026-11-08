@@ -163,7 +163,8 @@ function push(state, info) {
     assert.strictEqual(Phone._callState, "ringing", "provisional dial state clobbered");
 
     // Phonebook entries (PBAP = untrusted) are escaped, and the number goes
-    // through a data- attribute, never into the onclick JavaScript.
+    // through a data-dial attribute read by a delegated listener — no inline
+    // handler carries it (tests/js/phone_escape_smoke.js goes further).
     await new Promise((r) => setTimeout(r, 0));       // let loadContacts settle
     Phone._contacts = [{ name: "<img src=x onerror=alert(1)>", number: "1');alert(1);//" }];
     Phone._history = [{ name: "<b>x</b>", number: "2", type: "missed", time: "<i>" }];
@@ -173,13 +174,13 @@ function push(state, info) {
         const page = el("app").innerHTML;
         assert.ok(!page.includes("<img") && !page.includes("<b>x") && !page.includes("<i>"),
             tab + ": raw phonebook HTML reached innerHTML");
-        assert.ok(!page.includes("dialNumber('"), tab + ": number spliced into onclick");
-        assert.ok(page.includes("onclick=\"Phone.dialNumber(this.dataset.number)\""));
+        assert.ok(!page.includes("dialNumber("), tab + ": number-carrying inline handler");
+        assert.ok(page.includes("data-dial="), tab + ": row without data-dial");
     }
     assert.ok(el("app").innerHTML.includes("&lt;b&gt;x&lt;/b&gt;"));
     Phone._tab = "contacts";
     App.navigateTo("a8");
-    assert.ok(el("app").innerHTML.includes('data-number="1&#39;);alert(1);//"'));
+    assert.ok(el("app").innerHTML.includes('data-dial="1&#39;);alert(1);//"'));
 
     // Garbage never throws out of the data loop.
     dataListener({ bt_call_state: { x: 1 }, bt_call_info: "nope" });

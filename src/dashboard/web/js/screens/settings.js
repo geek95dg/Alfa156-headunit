@@ -444,9 +444,9 @@ const Settings = {
         overlay.innerHTML = `<div style="background:var(--card-bg);border:1px solid var(--card-border)" class="rounded-2xl p-6 w-[360px] shadow-2xl text-center" style="color:var(--text-primary)">
             <span class="material-symbols-outlined text-4xl text-blue-400 mb-3">bluetooth</span>
             <h3 class="text-lg font-bold mb-2" style="color:var(--text-primary)">${t("bt_pair_confirm","Confirm Pairing")}</h3>
-            <p class="text-sm mb-4" style="color:var(--text-dim)">${req.address}</p>
+            <p class="text-sm mb-4" style="color:var(--text-dim)">${Settings._esc(req.address)}</p>
             <div class="rounded-xl py-4 px-6 mb-4" style="background:var(--color-surface)">
-                <span class="text-3xl font-mono font-bold tracking-[0.3em]" style="color:var(--text-primary)">${req.passkey || "------"}</span>
+                <span class="text-3xl font-mono font-bold tracking-[0.3em]" style="color:var(--text-primary)">${Settings._esc(req.passkey || "------")}</span>
             </div>
             <p class="text-[10px] mb-4" style="color:var(--text-dim)">${t("bt_pair_match","Does this code match your device?")}</p>
             <div class="flex gap-3 justify-center">
@@ -852,7 +852,17 @@ App.registerScreen("settings", (() => {
         </div>`;
     }
 
+    // A Bluetooth address as bluetoothctl prints it. Only such a value is
+    // put into the inline onclick handlers below (hex digits and colons
+    // cannot break out of the JavaScript string); anything else gets no
+    // action buttons at all.
+    const BT_MAC_RE = /^[0-9A-Fa-f]{2}(:[0-9A-Fa-f]{2}){5}$/;
+
     function _renderDevice(d, type, t) {
+        // Device names come over the air: during a scan ANY device in range
+        // picks its own name (no pairing needed) — escaped like all phone data.
+        const esc = Settings._esc;
+        const mac = typeof d.address === "string" && BT_MAC_RE.test(d.address) ? d.address : "";
         const isConnected = d.connected === true;
         const isPaired = type === "paired";
         const statusBadge = isConnected
@@ -862,14 +872,16 @@ App.registerScreen("settings", (() => {
                 : `<span class="text-[7px] font-bold px-1.5 py-0.5 rounded bg-blue-600/20 text-blue-400">New</span>`;
 
         let actions = "";
-        if (type === "discovered") {
-            actions = `<button class="text-[8px] font-bold px-2 py-1 rounded bg-blue-600 text-white hover:bg-blue-500" onclick="Settings.btPair('${d.address}')">${t("bt_pair","Pair")}</button>`;
+        if (!mac) {
+            actions = "";
+        } else if (type === "discovered") {
+            actions = `<button class="text-[8px] font-bold px-2 py-1 rounded bg-blue-600 text-white hover:bg-blue-500" onclick="Settings.btPair('${mac}')">${t("bt_pair","Pair")}</button>`;
         } else if (isConnected) {
             actions = `<button class="text-[8px] font-bold px-2 py-1 rounded bg-red-600/20 text-red-400 hover:bg-red-600/30" onclick="Settings.btDisconnect()">${t("bt_disconnect","Disconnect")}</button>`;
         } else {
             actions = `<div class="flex gap-1">
-                <button class="text-[8px] font-bold px-2 py-1 rounded bg-green-700 text-white hover:bg-green-600" onclick="Settings.btConnect('${d.address}')">${t("bt_connect","Connect")}</button>
-                <button class="text-[8px] font-bold px-1.5 py-1 rounded hover:opacity-80" style="background:var(--card-border);color:var(--text-mid)" onclick="Settings.btRemove('${d.address}')" title="${t("bt_remove","Remove")}">
+                <button class="text-[8px] font-bold px-2 py-1 rounded bg-green-700 text-white hover:bg-green-600" onclick="Settings.btConnect('${mac}')">${t("bt_connect","Connect")}</button>
+                <button class="text-[8px] font-bold px-1.5 py-1 rounded hover:opacity-80" style="background:var(--card-border);color:var(--text-mid)" onclick="Settings.btRemove('${mac}')" title="${t("bt_remove","Remove")}">
                     <span class="material-symbols-outlined" style="font-size:12px;">delete</span>
                 </button>
             </div>`;
@@ -880,10 +892,10 @@ App.registerScreen("settings", (() => {
                 <span class="material-symbols-outlined ${isConnected ? 'text-green-500' : ''}" style="font-size:16px;${isConnected ? '' : 'color:var(--text-dim)'}">bluetooth</span>
                 <div>
                     <div class="flex items-center gap-2">
-                        <p class="text-xs font-bold">${d.name || d.address}</p>
+                        <p class="text-xs font-bold">${esc(d.name || d.address)}</p>
                         ${statusBadge}
                     </div>
-                    <p class="text-[9px]" style="color:var(--text-dim)">${d.address}</p>
+                    <p class="text-[9px]" style="color:var(--text-dim)">${esc(d.address)}</p>
                 </div>
             </div>
             ${actions}

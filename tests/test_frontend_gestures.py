@@ -11,12 +11,22 @@
 * settings_tether_smoke.js: screens/settings.js — the "Internet z telefonu"
   row (state label, IP only when connected, values escaped, inline styles, no
   row without a payload, hint + "Ponów" when failed) and update(), which
-  redraws only that row while Settings is open.
+  redraws only that row while Settings is open;
+* appbar_phone_smoke.js: components/appbar.js — the phone cluster (signal /
+  operator / battery from data.phone_status): hidden without a phone, glyphs
+  by level, the operator only ever via textContent, change-only updates;
+  the glyph names it can produce are checked against the bundled font;
+* phone_escape_smoke.js: text from the phone or any Bluetooth device in range
+  (PBAP contacts/history, call overlays, AVRCP title, BT device names, the
+  pairing popup, notification cards) never becomes markup or script, and a
+  phonebook number reaches the dialer only through data-dial + a validated
+  delegated click.
 """
 
 import json
 import os
 import shutil
+import struct
 import subprocess
 from pathlib import Path
 
@@ -185,9 +195,99 @@ def test_edge_tracker(name, ops, expected):
 
 
 @pytest.mark.parametrize("harness", ["app_smoke.js", "aa_screen_smoke.js",
-                                     "call_nav_smoke.js", "settings_tether_smoke.js"])
+                                     "call_nav_smoke.js", "settings_tether_smoke.js",
+                                     "appbar_phone_smoke.js", "phone_escape_smoke.js"])
 def test_screen_harness(harness):
     res = subprocess.run([NODE, str(JS / harness)], capture_output=True, text=True,
                          timeout=60)
     assert res.returncode == 0, res.stderr or res.stdout
     assert res.stdout.strip().endswith("ok")
+
+
+# ── Material Symbols: the glyphs the top-bar phone cluster asks for ──────
+
+FONT = ROOT / "src/dashboard/web/assets/fonts/material-symbols-latin.ttf"
+
+
+def _font_ligatures(path):
+    """Names the font turns into icons: the GSUB ligature table (lookup type
+    4, also behind extension lookups, type 7) read with plain struct — no
+    fontTools in the venv. Letters are mapped back through the cmap."""
+    data = path.read_bytes()
+
+    def u16(o):
+        return struct.unpack(">H", data[o:o + 2])[0]
+
+    def u32(o):
+        return struct.unpack(">I", data[o:o + 4])[0]
+
+    tables = {}
+    for i in range(u16(4)):
+        rec = 12 + 16 * i
+        tables[data[rec:rec + 4].decode("latin-1")] = u32(rec + 8)
+
+    gid2ch = {}
+    cmap = tables["cmap"]
+    for i in range(u16(cmap + 2)):
+        sub = cmap + u32(cmap + 4 + 8 * i + 4)
+        if u16(sub) != 4:
+            continue
+        segs = u16(sub + 6) // 2
+        ends, starts = sub + 14, sub + 16 + 2 * segs
+        deltas, ranges = starts + 2 * segs, starts + 4 * segs
+        for k in range(segs):
+            start, end = u16(starts + 2 * k), u16(ends + 2 * k)
+            delta = struct.unpack(">h", data[deltas + 2 * k:deltas + 2 * k + 2])[0]
+            ro = u16(ranges + 2 * k)
+            for c in range(start, min(end, 0x7F) + 1):
+                if ro:
+                    g = u16(ranges + 2 * k + ro + 2 * (c - start))
+                    g = (g + delta) & 0xFFFF if g else 0
+                else:
+                    g = (c + delta) & 0xFFFF
+                if g:
+                    gid2ch.setdefault(g, chr(c).lower())
+
+    def coverage(o):
+        if u16(o) == 1:
+            return [u16(o + 4 + 2 * i) for i in range(u16(o + 2))]
+        out = []
+        for i in range(u16(o + 2)):
+            out.extend(range(u16(o + 4 + 6 * i), u16(o + 6 + 6 * i) + 1))
+        return out
+
+    names = set()
+    gsub = tables["GSUB"]
+    lookups = gsub + u16(gsub + 8)
+    for li in range(u16(lookups)):
+        lo = lookups + u16(lookups + 2 + 2 * li)
+        for si in range(u16(lo + 4)):
+            so, kind = lo + u16(lo + 6 + 2 * si), u16(lo)
+            if kind == 7:
+                kind, so = u16(so + 2), so + u32(so + 4)
+            if kind != 4:
+                continue
+            for k, first in enumerate(coverage(so + u16(so + 2))):
+                ls = so + u16(so + 6 + 2 * k)
+                for j in range(u16(ls)):
+                    lig = ls + u16(ls + 2 + 2 * j)
+                    comps = [u16(lig + 4 + 2 * c) for c in range(u16(lig + 2) - 1)]
+                    chars = [gid2ch.get(g) for g in [first] + comps]
+                    if None not in chars:
+                        names.add("".join(chars))
+    return names
+
+
+def test_phone_cluster_glyphs_exist_in_the_bundled_font():
+    """A glyph name the font does not know renders as its literal text
+    ("signal_cellular_3_bar") in the top bar."""
+    ligatures = _font_ligatures(FONT)
+    # The parser itself works: icons the dashboard has always used.
+    assert {"bluetooth", "equalizer", "settings", "restart_alt", "call"} <= ligatures
+    res = subprocess.run([NODE, str(JS / "appbar_phone_smoke.js")], capture_output=True,
+                         text=True, timeout=60)
+    assert res.returncode == 0, res.stderr or res.stdout
+    glyphs = set(json.loads(res.stdout.strip().splitlines()[0]))
+    assert len(glyphs) == 14
+    missing = sorted(glyphs - ligatures)
+    assert not missing, f"not in {FONT.name}: {missing}"
