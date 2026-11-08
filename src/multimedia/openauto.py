@@ -8,6 +8,7 @@ Entry point: start_multimedia() is called from main.py.
 """
 
 import os
+import re
 import signal
 import subprocess
 import threading
@@ -35,6 +36,22 @@ def _find_openauto() -> Optional[str]:
         if os.path.isfile(path) and os.access(path, os.X_OK):
             return path
     return None
+
+
+def _parse_pids(text: str) -> list[int]:
+    """PIDs from ``pgrep``/``fuser`` output, in order, without duplicates.
+
+    fuser may suffix an access letter ("1234c"); anything else that is not
+    a number is ignored rather than trusted.
+    """
+    pids: list[int] = []
+    for token in (text or "").split():
+        m = re.fullmatch(r"(\d+)[a-zA-Z]*", token)
+        if m:
+            pid = int(m.group(1))
+            if pid not in pids:
+                pids.append(pid)
+    return pids
 
 
 def _aa_canvas_size(app_config: Any) -> tuple[int, int]:
@@ -285,6 +302,15 @@ class OpenAutoController:
         self._connection_watchdog_thread: Optional[threading.Thread] = None
         self._connection_exhausted = False
 
+        # restart() takes ~10 s (stop, kill stale, BT power cycle, start). A
+        # second tap on "Restart AA" — or the HTTP endpoint and the event-bus
+        # request racing each other — used to run a second restart() in
+        # parallel: two stop()/start() sequences interleaved, two Xvfb/autoapp
+        # launches fighting over :99 and port 5000. Only one may run; the
+        # others return False at once (non-blocking acquire). The connection
+        # watchdog's stop/start takes the same lock.
+        self._restart_lock = threading.Lock()
+
         self._project_dir = os.path.dirname(os.path.dirname(
             os.path.dirname(os.path.abspath(__file__))))
 
@@ -368,6 +394,11 @@ class OpenAutoController:
     @property
     def running(self) -> bool:
         return self._running and self._process is not None and self._process.poll() is None
+
+    @property
+    def restart_in_progress(self) -> bool:
+        """True while a restart() is running (the web UI reports it)."""
+        return self._restart_lock.locked()
 
     @property
     def auto_restart_enabled(self) -> bool:
@@ -589,29 +620,39 @@ class OpenAutoController:
         time.sleep(2)
 
     def restart(self) -> bool:
-        """Full manual restart of OpenAuto (e.g. from UI)."""
-        log.info("[AA] Manual restart requested")
-        self._connection_restart_count = 0
-        self._connection_exhausted = False
-        self._device_connected.clear()
-        
-        # Stop OpenAuto and all related processes
-        self.stop()
-        
-        # Additional cleanup: kill any remaining autoapp/btservice processes
-        # that might not have been caught by stop()
-        self._kill_stale()
-        
-        # Wait for all resources (ports, sockets, Bluetooth) to be fully released
-        # This is critical for wireless AA which uses Bluetooth bootstrap
-        log.info("[AA] Waiting for resources to be released before restart...")
-        time.sleep(3)
-        
-        # Reset Bluetooth adapter to ensure clean state
-        self._reset_bt_adapter()
-        
-        # Now start fresh
-        return self.start()
+        """Full manual restart of OpenAuto (e.g. from UI).
+
+        Returns False without doing anything if another restart is already
+        running (see ``_restart_lock``), otherwise the result of start().
+        """
+        if not self._restart_lock.acquire(blocking=False):
+            log.info("[AA] Restart already in progress — ignoring request")
+            return False
+        try:
+            log.info("[AA] Manual restart requested")
+            self._connection_restart_count = 0
+            self._connection_exhausted = False
+            self._device_connected.clear()
+
+            # Stop OpenAuto and all related processes
+            self.stop()
+
+            # Additional cleanup: kill any remaining autoapp/btservice processes
+            # that might not have been caught by stop()
+            self._kill_stale()
+
+            # Wait for all resources (ports, sockets, Bluetooth) to be fully released
+            # This is critical for wireless AA which uses Bluetooth bootstrap
+            log.info("[AA] Waiting for resources to be released before restart...")
+            time.sleep(3)
+
+            # Reset Bluetooth adapter to ensure clean state
+            self._reset_bt_adapter()
+
+            # Now start fresh
+            return self.start()
+        finally:
+            self._restart_lock.release()
 
     def _force_fullscreen_window(self, display: str) -> None:
         """Force the autoapp Qt window to cover the full Xvfb canvas.
@@ -762,6 +803,11 @@ class OpenAutoController:
                 log.error("Xvfb exited immediately: %s", stderr)
                 return None
             log.info("Xvfb started on %s (%dx%d)", display_num, width, height)
+            # A new X server means every open MJPEG capture of the old one is
+            # dead. The A2 screen watches this epoch and reconnects its
+            # stream, so the picture comes back after an AA restart without
+            # reloading the kiosk (F5).
+            self._event_bus.publish("multimedia.aa_stream_epoch", time.time())
 
             # Launch a minimal window manager inside Xvfb so that every
             # top-level window created by openauto/autoapp is forced to
@@ -794,14 +840,11 @@ class OpenAutoController:
                     if os.path.exists(cmdline_path):
                         with open(cmdline_path, "rb") as cf:
                             cmdline = cf.read().decode(errors="replace")
-                        if "Xvfb" in cmdline:
-                            os.kill(old_pid, signal.SIGTERM)
+                        if ("Xvfb" in cmdline
+                                and OpenAutoController._kill_pid(old_pid, signal.SIGTERM)):
                             time.sleep(0.5)
                             # Force kill if still alive
-                            try:
-                                os.kill(old_pid, signal.SIGKILL)
-                            except ProcessLookupError:
-                                pass
+                            OpenAutoController._kill_pid(old_pid, signal.SIGKILL)
                             log.info("Killed stale Xvfb (PID %d) on %s",
                                      old_pid, display)
                 except (ProcessLookupError, PermissionError):
@@ -892,85 +935,84 @@ class OpenAutoController:
         except Exception as e:
             log.debug("Bluetooth reset failed: %s", e)
 
+    @staticmethod
+    def _kill_pid(pid: int, sig: int) -> bool:
+        """Send ``sig`` to ``pid`` unless it is BCM itself or a special PID.
+
+        Every kill in this class goes through here. ``pgrep -f``/``fuser``
+        output is matched loosely, and BCM's own PID must never be on the
+        receiving end (the web server can hold sockets too). PIDs <= 1 are
+        refused because ``kill(0)`` / ``kill(-1)`` signal whole groups.
+        """
+        if pid <= 1 or pid == os.getpid():
+            log.warning("Refusing to send signal %d to PID %d", sig, pid)
+            return False
+        try:
+            os.kill(pid, sig)
+            return True
+        except ProcessLookupError:
+            return False
+        except PermissionError as e:
+            log.debug("kill(%d, %d) not permitted: %s", pid, sig, e)
+            return False
+
+    @staticmethod
+    def _pgrep(pattern: str) -> list[int]:
+        """PIDs whose command line matches ``pattern`` (never our own)."""
+        result = subprocess.run(
+            ["pgrep", "-f", pattern],
+            capture_output=True, text=True, timeout=3,
+        )
+        if result.returncode != 0:
+            return []
+        return [pid for pid in _parse_pids(result.stdout) if pid != os.getpid()]
+
     def _kill_stale(self) -> None:
         """Kill any stale autoapp and related processes from previous runs."""
         try:
-            # Kill autoapp processes
-            result = subprocess.run(
-                ["pgrep", "-f", "autoapp"],
-                capture_output=True, text=True, timeout=3,
-            )
-            if result.returncode == 0 and result.stdout.strip():
-                pids = result.stdout.strip().split()
-                for pid in pids:
-                    try:
-                        pid_int = int(pid)
-                        os.kill(pid_int, signal.SIGTERM)
-                        log.info("Killed stale autoapp process (PID %d)", pid_int)
-                    except (ValueError, ProcessLookupError):
-                        pass
-            
-            # Also kill any btservice processes that might be orphaned
-            result = subprocess.run(
-                ["pgrep", "-f", "btservice"],
-                capture_output=True, text=True, timeout=3,
-            )
-            if result.returncode == 0 and result.stdout.strip():
-                pids = result.stdout.strip().split()
-                for pid in pids:
-                    try:
-                        pid_int = int(pid)
-                        os.kill(pid_int, signal.SIGTERM)
-                        log.info("Killed stale btservice process (PID %d)", pid_int)
-                    except (ValueError, ProcessLookupError):
-                        pass
-            
+            # SIGTERM autoapp and any orphaned btservice first
+            for name in ("autoapp", "btservice"):
+                for pid in self._pgrep(name):
+                    if self._kill_pid(pid, signal.SIGTERM):
+                        log.info("Killed stale %s process (PID %d)", name, pid)
+
             # Wait for processes to terminate and release ports
             time.sleep(2)
-            
+
             # Force kill any remaining autoapp/btservice processes
-            for name in ["autoapp", "btservice"]:
-                result = subprocess.run(
-                    ["pgrep", "-f", name],
-                    capture_output=True, text=True, timeout=3,
-                )
-                if result.returncode == 0 and result.stdout.strip():
-                    pids = result.stdout.strip().split()
-                    for pid in pids:
-                        try:
-                            pid_int = int(pid)
-                            os.kill(pid_int, signal.SIGKILL)
-                            log.info("Force killed stale %s process (PID %d)", name, pid_int)
-                        except (ValueError, ProcessLookupError):
-                            pass
-            
+            for name in ("autoapp", "btservice"):
+                for pid in self._pgrep(name):
+                    if self._kill_pid(pid, signal.SIGKILL):
+                        log.info("Force killed stale %s process (PID %d)", name, pid)
+
             # Clean up any processes using port 5000 (btservice default port)
             self._kill_processes_on_port(5000)
-            
+
             # Additional wait for cleanup
             time.sleep(1)
         except Exception:
-            pass
-    
+            log.debug("Stale process cleanup failed", exc_info=True)
+
     def _kill_processes_on_port(self, port: int) -> None:
-        """Kill any processes using the specified port."""
+        """Kill any processes using the specified TCP port.
+
+        ``fuser`` takes the port as ONE ``PORT/tcp`` argument. This used to
+        pass ``["fuser", "5000", "/tcp"]`` — a file named "5000" and the path
+        "/tcp" — so it never found the btservice still bound to 5000.
+        """
+        own_pid = os.getpid()
         try:
-            # Try using fuser
+            # fuser prints the PIDs on stdout ("5000/tcp:" goes to stderr).
             result = subprocess.run(
-                ["fuser", str(port), "/tcp"],
+                ["fuser", f"{port}/tcp"],
                 capture_output=True, text=True, timeout=3,
             )
-            if result.returncode == 0 and result.stdout.strip():
-                pids = result.stdout.strip().split()
-                for pid in pids:
-                    try:
-                        pid_int = int(pid)
-                        os.kill(pid_int, signal.SIGKILL)
-                        log.info("Killed process on port %d (PID %d)", port, pid_int)
-                    except (ValueError, ProcessLookupError):
-                        pass
+            if result.returncode == 0:
+                for pid in _parse_pids(result.stdout):
+                    if pid != own_pid and self._kill_pid(pid, signal.SIGKILL):
+                        log.info("Killed process on port %d (PID %d)", port, pid)
         except FileNotFoundError:
-            # Try using ss and kill
+            # No fuser (psmisc) — fall back to ss
             try:
                 result = subprocess.run(
                     ["ss", "-tlnp"],
@@ -978,22 +1020,19 @@ class OpenAutoController:
                 )
                 if result.returncode == 0:
                     for line in result.stdout.splitlines():
-                        if f":{port}" in line:
-                            # Extract PID from the line
-                            parts = line.split()
-                            for part in parts:
-                                if part.startswith("pid="):
-                                    pid = part[4:]
-                                    try:
-                                        pid_int = int(pid)
-                                        os.kill(pid_int, signal.SIGKILL)
-                                        log.info("Killed process on port %d via ss (PID %d)", port, pid_int)
-                                    except (ValueError, ProcessLookupError):
-                                        pass
+                        cols = line.split()
+                        # Local address is column 4: "*:5000", "0.0.0.0:5000", "[::]:5000"
+                        if len(cols) < 4 or not cols[3].endswith(f":{port}"):
+                            continue
+                        for pid_str in re.findall(r"pid=(\d+)", line):
+                            pid = int(pid_str)
+                            if pid != own_pid and self._kill_pid(pid, signal.SIGKILL):
+                                log.info("Killed process on port %d via ss (PID %d)",
+                                         port, pid)
             except Exception:
-                pass
+                log.debug("ss fallback failed", exc_info=True)
         except Exception:
-            pass
+            log.debug("fuser %d/tcp failed", port, exc_info=True)
 
     def _read_logs(self) -> None:
         """Forward autoapp stdout/stderr to our logger."""
@@ -1111,16 +1150,27 @@ class OpenAutoController:
                         "auto-restarting AA (attempt %d/%d)",
                         int(elapsed), self._connection_restart_count, self._max_connection_restarts
                     )
-                    self._event_bus.publish("multimedia.openauto_status", "restarting")
-                    self._event_bus.publish("multimedia.aa_auto_restarting", {
-                        "attempt": self._connection_restart_count,
-                        "max_attempts": self._max_connection_restarts,
-                        "elapsed": int(elapsed),
-                    })
-                    self.stop()
-                    time.sleep(3)
-                    if self._auto_restart_enabled:
-                        self.start()
+                    # Same lock as restart(): a manual restart running right
+                    # now owns the stop/kill/start sequence — interleaving
+                    # with it would start an autoapp that its _kill_stale()
+                    # then kills.
+                    if not self._restart_lock.acquire(blocking=False):
+                        log.info("[AA-Watchdog] Restart already in progress — "
+                                 "skipping auto-restart")
+                        return
+                    try:
+                        self._event_bus.publish("multimedia.openauto_status", "restarting")
+                        self._event_bus.publish("multimedia.aa_auto_restarting", {
+                            "attempt": self._connection_restart_count,
+                            "max_attempts": self._max_connection_restarts,
+                            "elapsed": int(elapsed),
+                        })
+                        self.stop()
+                        time.sleep(3)
+                        if self._auto_restart_enabled:
+                            self.start()
+                    finally:
+                        self._restart_lock.release()
                     return
                 else:
                     if not self._connection_exhausted:

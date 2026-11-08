@@ -415,8 +415,9 @@ main.content-area { scrollbar-width: thin; }
 
 /* ---- AUTOHIDING NAVBAR ----
  * NavBar is absolute-positioned over the content; hidden by default
- * so screens get the full viewport. App._initNavBarAutohide() reveals
- * it on a swipe up from the bottom edge and auto-hides after 4s.
+ * so screens get the full viewport. A swipe up from the bottom edge
+ * (App._initTouchSwipe, or the AA overlay on A2) reveals it via
+ * App.showNavBar(); it auto-hides after 4s.
  */
 .bcm-navbar {
     transform: translateY(100%);
@@ -427,24 +428,6 @@ main.content-area { scrollbar-width: thin; }
 .bcm-navbar.bcm-navbar-shown {
     transform: translateY(0);
     pointer-events: auto;
-}
-/* Thin invisible hot-zone at the bottom of the viewport. Used to be a
- * tap-catcher; that stole touches from any fixed-bottom button after
- * the +15% rem bump grew controls into the strip. Now `pointer-events:
- * none` so the document-level swipe-up handler in `_initTouchSwipe()`
- * detects bottom-edge gestures via bubbling and taps fall through to
- * the underlying button. The element is still injected so the
- * existing JS bindings keep their handle.
- */
-.bcm-navbar-hotzone {
-    position: absolute;
-    bottom: 0;
-    left: 0;
-    right: 0;
-    height: 36px;
-    z-index: 49;
-    background: transparent;
-    pointer-events: none;
 }
 
 /* ---- ENCODER/SWITCH NAVIGATION ---- */

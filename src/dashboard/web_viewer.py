@@ -11,12 +11,14 @@ Replaces the old Pygame frame-streaming viewer.
 import glob
 import json
 import os
+import select
 import shutil
 import subprocess
 import time
 import threading
 from pathlib import Path
-from typing import Optional, Any
+from typing import Optional, Any, Hashable
+from urllib.parse import urlsplit
 
 from src.core.logger import get_logger
 
@@ -59,6 +61,66 @@ _BROWSER_KEY_MAP = {
     "AudioVolumeDown": "-",
     "AudioVolumeMute": "0",
 }
+
+
+# ── /ws/input + /aa/touch ────────────────────────────────────────────────
+#: Larger input messages are dropped unparsed. A real one is ~80 bytes.
+_MAX_INPUT_MESSAGE = 4096
+#: KeyboardEvent.key values are short ("MediaTrackPrevious" is the longest
+#: one we map); anything longer is not a key.
+_MAX_KEY_NAME = 32
+#: Actions accepted by the HTTP fallback POST /aa/touch (no "move": see there).
+_AA_HTTP_TOUCH_ACTIONS = ("tap", "down", "up", "cancel")
+
+
+def _ws_origin_allowed(origin: Optional[str], host: Optional[str]) -> bool:
+    """Is a WebSocket handshake with this ``Origin`` from our own page?
+
+    Browsers do no CORS check on WebSockets: any page the browser opens —
+    e.g. the phone browsing while joined to the head unit's AP — could open
+    /ws/input and inject keys and, since AA drags go over it too, touches
+    into the phone's AA session. Browsers always send ``Origin`` on a
+    WebSocket handshake, so a present Origin must name this server (scheme
+    http/https, host:port equal to the ``Host`` header; the kiosk uses
+    http://localhost:5002 and connects to ``location.host``). A missing
+    Origin is a non-browser client and stays allowed. Not a defence against
+    DNS rebinding (there Origin and Host agree) — the network access policy
+    is the layer for that.
+    """
+    if origin is None:
+        return True
+    try:
+        parts = urlsplit(origin.strip())
+    except ValueError:
+        return False
+    if parts.scheme not in ("http", "https") or not parts.netloc or not host:
+        return False
+    default_port = ":443" if parts.scheme == "https" else ":80"
+
+    def _norm(netloc: str) -> str:
+        netloc = netloc.strip().lower()
+        return netloc[:-len(default_port)] if netloc.endswith(default_port) else netloc
+
+    return _norm(parts.netloc) == _norm(host)
+
+# ── /aa/stream (MJPEG from Xvfb) ─────────────────────────────────────────
+# Each stream is one ffmpeg x11grab process. The old generator did a blocking
+# read(): if Xvfb wedged or vanished during an AA restart, the request thread
+# and its ffmpeg hung forever, and every kiosk reload added another pair.
+#: poll() timeout on ffmpeg's stdout (poll, not select: select() raises
+#: ValueError for any fd >= FD_SETSIZE (1024), so a 24/7 process that ever
+#: held ~1000 descriptors would end every stream at once).
+_AA_STREAM_READ_TIMEOUT_S = 5.0
+#: End the stream after this long without a complete JPEG frame; the kiosk
+#: reconnects with backoff.
+_AA_STREAM_STALL_S = 10.0
+#: Concurrent streams kept alive; the newest win (a reloaded kiosk must not be
+#: refused because its previous incarnation is still draining). A retired
+#: stream's ffmpeg is terminated directly, because its request thread may be
+#: stuck inside a write to a client that stopped reading.
+_AA_STREAM_MAX_CLIENTS = 2
+#: A partial frame bigger than this is garbage — drop it instead of growing.
+_AA_STREAM_MAX_BUFFER = 8 * 1024 * 1024
 
 
 # ── /api/config POST validation ──────────────────────────────────────────
@@ -196,9 +258,26 @@ class WebViewer:
         # Path to the web frontend files
         self._web_dir = os.path.join(os.path.dirname(__file__), "web")
 
+        # AA touch injection (src/multimedia/aa_input.py), built on first use
+        # so a dashboard without AA never starts the worker thread.
+        self._aa_injector = None
+        self._aa_injector_lock = threading.Lock()
+
+        # /aa/stream bookkeeping: generation ids of the live MJPEG streams
+        # (oldest first) and each one's ffmpeg, so a newer stream can stop an
+        # older one's capture even while that request thread is blocked.
+        self._aa_stream_lock = threading.Lock()
+        self._aa_stream_seq = 0
+        self._aa_stream_active: list[int] = []
+        self._aa_stream_procs: dict[int, Any] = {}
+
         # Forward voice-AA trigger to xdotool tap on AA mic icon
         if event_bus:
             event_bus.subscribe("aa.voice_trigger", self._on_aa_voice_trigger)
+            # Xvfb is torn down on stop/restart — drop queued touches and the
+            # pressed-button state that belonged to the old X server.
+            event_bus.subscribe("multimedia.openauto_status",
+                                self._on_openauto_status)
 
     def attach_trip(self, trip_computer, route_planner=None) -> None:
         """Attach trip computer + planner after construction.
@@ -230,6 +309,9 @@ class WebViewer:
 
     def stop(self) -> None:
         self._running = False
+        injector = self._aa_injector
+        if injector is not None:
+            injector.stop()
 
     def _get_dashboard_data(self) -> dict:
         """Collect all current event bus values into a JSON-serializable dict."""
@@ -321,6 +403,9 @@ class WebViewer:
                 "running", "connected", "restarting"),
             "aa_auto_restart": _val("multimedia.aa_auto_restart",
                                    self._config.get("multimedia.aa_auto_restart", True) if self._config else True),
+            # Bumped by OpenAutoController each time Xvfb (re)starts; A2
+            # reconnects its MJPEG <img> when it changes.
+            "aa_stream_epoch": _val("multimedia.aa_stream_epoch", 0),
             "lte_connected": _val("lte.connected", False),
             "lte_signal": _val("lte.signal_strength", 0),
             # Audio
@@ -367,24 +452,274 @@ class WebViewer:
         log.debug("Browser key: %s -> %s", key, mapped)
 
     def _on_aa_voice_trigger(self, topic: str, value, timestamp: float) -> None:
-        """Tap the AA mic icon via xdotool when voice button is pressed."""
+        """Tap the AA mic icon when the voice button is pressed.
+
+        Goes through the touch injector: same canvas size as Xvfb and the
+        touch path (this used to read display.multimedia.* with a 504 px
+        fallback), serialised with touches, and no 2 s subprocess call on
+        the event-bus thread.
+        """
         if not value:
             return
+        rel_x, rel_y = 0.05, 0.08
+        injector = self._get_aa_injector()
+        if injector is None or not injector.submit("tap", rel_x, rel_y, client="voice"):
+            log.warning("Voice-AA: tap could not be queued (xdotool missing?)")
+            return
+        px, py = injector.to_pixels(rel_x, rel_y) or (0, 0)
+        log.info("Voice-AA: tapping AA mic icon at (%d, %d)", px, py)
+
+    # ── Android Auto helpers ─────────────────────────────────────────────
+
+    def _openauto(self) -> Any:
+        """The running OpenAutoController, if the multimedia module is up."""
+        if self._event_bus:
+            result = self._event_bus.get_last("multimedia._internals")
+            if result and result[0]:
+                return result[0].get("openauto")
+        return None
+
+    def _aa_canvas_size(self) -> tuple[int, int]:
+        """AA canvas size — the one Xvfb, the MJPEG capture and touch use.
+
+        Imported lazily so the web viewer doesn't hard-fail if the
+        multimedia module is missing (e.g. when AA is disabled).
+        """
+        cfg = self._config
         try:
-            rel_x, rel_y = 0.05, 0.08
-            w = self._config.get("display.multimedia.width", 1024) if self._config else 1024
-            h = self._config.get("display.multimedia.height", 504) if self._config else 504
-            px = int(rel_x * w)
-            py = int(rel_y * h)
-            subprocess.run(
-                ["xdotool", "mousemove", "--screen", "0",
-                 str(px), str(py), "click", "1"],
-                timeout=2, capture_output=True,
-                env={**os.environ, "DISPLAY": ":99"},
-            )
-            log.info("Voice-AA: tapped AA mic icon at (%d, %d)", px, py)
-        except Exception as e:
-            log.warning("Voice-AA tap failed: %s", e)
+            from src.multimedia.openauto import _aa_canvas_size
+            return _aa_canvas_size(cfg) if cfg else (1024, 504)
+        except Exception:
+            w = cfg.get("display.multimedia.width", 1024) if cfg else 1024
+            h = cfg.get("display.multimedia.height", 504) if cfg else 504
+            try:
+                return int(w), int(h)
+            except (TypeError, ValueError):
+                return 1024, 504
+
+    def _get_aa_injector(self) -> Any:
+        """The touch injector, created on first use; None if it can't be."""
+        if self._aa_injector is None:
+            with self._aa_injector_lock:
+                if self._aa_injector is None:
+                    try:
+                        from src.multimedia.aa_input import AATouchInjector
+                        self._aa_injector = AATouchInjector(size_fn=self._aa_canvas_size)
+                    except Exception:
+                        log.exception("AA touch injector unavailable")
+                        return None
+        return self._aa_injector
+
+    def _release_aa_touch(self, client_key: Hashable) -> None:
+        """Release the AA button if ``client_key`` holds it. Never raises."""
+        injector = self._aa_injector
+        if injector is None:
+            return
+        try:
+            injector.release(client_key)
+        except Exception:
+            log.debug("AA touch release failed", exc_info=True)
+
+    def _on_openauto_status(self, topic: str, value: Any, timestamp: float) -> None:
+        if value in ("stopped", "restarting"):
+            injector = self._aa_injector
+            if injector is not None:
+                injector.reset()
+
+    def _handle_input_message(self, msg: Any, client_key: Hashable = None) -> bool:
+        """Dispatch one /ws/input message. Never raises; True if acted on.
+
+        Accepts the raw WebSocket payload (str/bytes) or an already decoded
+        dict. Messages:
+          ``{"type": "keydown", "key": "<KeyboardEvent.key>"}``
+          ``{"type": "aa_touch", "action": "down|move|up|cancel|tap",
+             "x": 0..1, "y": 0..1}``
+        Anything else — oversized, not JSON, wrong types — is dropped.
+        """
+        try:
+            if isinstance(msg, (bytes, bytearray)):
+                if len(msg) > _MAX_INPUT_MESSAGE:
+                    return False
+                msg = bytes(msg).decode("utf-8")
+            if isinstance(msg, str):
+                if len(msg) > _MAX_INPUT_MESSAGE:
+                    return False
+                data = json.loads(msg)
+            else:
+                data = msg
+            if not isinstance(data, dict):
+                return False
+            kind = data.get("type")
+            if kind == "keydown":
+                key = data.get("key")
+                if not isinstance(key, str) or not key or len(key) > _MAX_KEY_NAME:
+                    return False
+                self._handle_browser_key(key)
+                return True
+            if kind == "aa_touch":
+                injector = self._get_aa_injector()
+                if injector is None:
+                    return False
+                return injector.submit(data.get("action"), data.get("x"),
+                                       data.get("y"), client=client_key)
+            return False
+        except Exception:
+            log.debug("Dropped malformed /ws/input message", exc_info=True)
+            return False
+
+    def _serve_input_ws(self, ws: Any) -> None:
+        """Read loop of one /ws/input connection.
+
+        Keyboard (SWC pod, OSK) and AA touch share this socket. Message
+        handling lives in _handle_input_message(), which never raises: this
+        loop used to break on ANY exception, so one malformed message
+        silently killed keyboard input until the page was reloaded.
+        """
+        client_key = id(ws)
+        log.info("WebSocket client connected (input)")
+        try:
+            while self._running:
+                try:
+                    msg = ws.receive(timeout=1)
+                except Exception:
+                    break  # connection closed
+                if msg is None:
+                    continue
+                self._handle_input_message(msg, client_key)
+        finally:
+            # A finger still down when the socket drops would leave the AA
+            # button pressed — release whatever this client holds.
+            self._release_aa_touch(client_key)
+            log.info("WebSocket client disconnected (input)")
+
+    def _aa_stream_alive(self, generation: int) -> bool:
+        with self._aa_stream_lock:
+            return generation in self._aa_stream_active
+
+    @staticmethod
+    def _terminate_stream_proc(proc: Any) -> None:
+        """SIGTERM a retired stream's ffmpeg without waiting. Never raises.
+
+        Reaping (wait/kill) stays with the generator that owns ``proc``: the
+        newer request must not block on it.
+        """
+        try:
+            proc.terminate()
+        except Exception:
+            log.debug("AA stream: terminating a retired ffmpeg failed", exc_info=True)
+
+    def _aa_mjpeg_frames(self, popen: Any = None):
+        """Yield multipart MJPEG parts captured from Xvfb (:99) by ffmpeg.
+
+        * reads with poll() (``_AA_STREAM_READ_TIMEOUT_S``) and ends the
+          stream after ``_AA_STREAM_STALL_S`` without a complete frame, so a
+          dead X server frees the thread and ffmpeg;
+        * at most ``_AA_STREAM_MAX_CLIENTS`` streams live at once — a new one
+          retires the oldest and terminates its ffmpeg right away (that
+          generator may be blocked in ``yield`` behind a stalled client and
+          would otherwise keep x11grab + JPEG encoding running); the old
+          loop then ends on EOF / the liveness check once its write returns.
+
+        ``popen`` is a test seam (``subprocess.Popen`` by default).
+        """
+        w, h = self._aa_canvas_size()
+        retired_procs = []
+        with self._aa_stream_lock:
+            self._aa_stream_seq += 1
+            generation = self._aa_stream_seq
+            self._aa_stream_active.append(generation)
+            while len(self._aa_stream_active) > _AA_STREAM_MAX_CLIENTS:
+                retired = self._aa_stream_active.pop(0)
+                retired_proc = self._aa_stream_procs.pop(retired, None)
+                if retired_proc is not None:
+                    retired_procs.append(retired_proc)
+                log.info("AA stream %d retired by newer stream %d", retired, generation)
+        for retired_proc in retired_procs:
+            self._terminate_stream_proc(retired_proc)
+        proc = None
+        try:
+            try:
+                # bufsize=0: a raw pipe, so poll() readiness and os.read()
+                # agree (a buffered reader can hide data from poll()).
+                proc = (popen or subprocess.Popen)(
+                    ["ffmpeg", "-f", "x11grab", "-framerate", "25",
+                     "-video_size", f"{w}x{h}",
+                     "-draw_mouse", "0",
+                     "-i", ":99",
+                     "-f", "mjpeg", "-q:v", "3",
+                     "-an", "pipe:1"],
+                    stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+                    bufsize=0,
+                )
+            except Exception as e:
+                log.warning("AA stream: ffmpeg could not start: %s", e)
+                return
+            with self._aa_stream_lock:
+                # Retired while ffmpeg was starting? Then the loop below ends
+                # at once and the finally block stops this proc.
+                if generation in self._aa_stream_active:
+                    self._aa_stream_procs[generation] = proc
+            fd = proc.stdout.fileno()
+            poller = select.poll()
+            poller.register(fd, select.POLLIN | select.POLLHUP)
+            timeout_ms = int(_AA_STREAM_READ_TIMEOUT_S * 1000)
+            buf = b""
+            SOI = b"\xff\xd8"
+            EOI = b"\xff\xd9"
+            last_frame = time.monotonic()
+            while self._aa_stream_alive(generation):
+                if time.monotonic() - last_frame > _AA_STREAM_STALL_S:
+                    log.info("AA stream %d: no frame for %.0fs — closing",
+                             generation, _AA_STREAM_STALL_S)
+                    break
+                try:
+                    if not poller.poll(timeout_ms):
+                        continue
+                    # Readable, hung up or invalid: os.read() returns data,
+                    # b"" (EOF) or raises — each handled below.
+                    chunk = os.read(fd, 65536)
+                except (OSError, ValueError) as e:
+                    log.debug("AA stream %d: read failed: %s", generation, e)
+                    break
+                if not chunk:
+                    break  # ffmpeg exited (no X server, killed, …)
+                buf += chunk
+                while True:
+                    start = buf.find(SOI)
+                    if start == -1:
+                        buf = b""
+                        break
+                    end = buf.find(EOI, start + 2)
+                    if end == -1:
+                        buf = buf[start:]
+                        break
+                    frame = buf[start:end + 2]
+                    buf = buf[end + 2:]
+                    last_frame = time.monotonic()
+                    yield (b"--frame\r\n"
+                           b"Content-Type: image/jpeg\r\n\r\n"
+                           + frame + b"\r\n")
+                if len(buf) > _AA_STREAM_MAX_BUFFER:
+                    buf = b""
+        finally:
+            with self._aa_stream_lock:
+                if generation in self._aa_stream_active:
+                    self._aa_stream_active.remove(generation)
+                self._aa_stream_procs.pop(generation, None)
+            if proc is not None:
+                try:
+                    proc.terminate()
+                    try:
+                        proc.wait(timeout=3)
+                    except subprocess.TimeoutExpired:
+                        proc.kill()  # ffmpeg ignored SIGTERM — don't leak it
+                        proc.wait(timeout=3)
+                except Exception:
+                    log.debug("AA stream: ffmpeg cleanup failed", exc_info=True)
+                try:
+                    proc.stdout.close()
+                except Exception:
+                    pass
 
     def _broadcast_loop(self) -> None:
         """Periodically broadcast event bus data to all WebSocket clients."""
@@ -423,7 +758,28 @@ class WebViewer:
             time.sleep(0.066)  # ~15 FPS
 
     def _run_server(self) -> None:
+        app = self._build_app()
+        # threaded=True: the dashboard renders fire many concurrent
+        # GETs (radio status, wifi config, BT lists, music, weather…)
+        # plus the touch input WS. A single-threaded werkzeug serializes
+        # everything, so a slow handler (e.g. bluetoothctl scan, nmcli)
+        # stalls every other endpoint and the UI feels frozen on touch.
+        app.run(host=self.host, port=self.port, debug=False,
+                use_reloader=False, threaded=True)
+
+    def _build_app(self) -> "Flask":
+        """Create the Flask app with every route, without serving it.
+
+        Split from _run_server() so tests can drive the real routes through
+        ``_build_app().test_client()`` instead of copying them.
+        """
         app = Flask(__name__, static_folder=self._web_dir)
+        # Bound what a browser may send over a WebSocket: the client never
+        # sends anything on /ws, and /ws/input messages are ~100 bytes
+        # (_handle_input_message drops anything over _MAX_INPUT_MESSAGE).
+        # simple-websocket's default is unlimited; a larger frame now closes
+        # that one socket and the page reconnects.
+        app.config.setdefault("SOCK_SERVER_OPTIONS", {"max_message_size": 64 * 1024})
         sock = Sock(app)
         viewer = self
 
@@ -849,71 +1205,10 @@ class WebViewer:
 
         # --- Android Auto — direct Xvfb MJPEG stream (no port 5001) ---
 
-        def _aa_canvas_size_local() -> tuple[int, int]:
-            """Match the AA canvas calculation in src.multimedia.openauto.
-
-            Imported lazily so the web viewer doesn't hard-fail if the
-            multimedia module is missing (e.g. when AA is disabled).
-            """
-            try:
-                from src.multimedia.openauto import _aa_canvas_size
-                return _aa_canvas_size(viewer._config) if viewer._config else (1024, 504)
-            except Exception:
-                cfg = viewer._config
-                w = cfg.get("display.multimedia.width", 1024) if cfg else 1024
-                h = cfg.get("display.multimedia.height", 504) if cfg else 504
-                return int(w), int(h)
-
-        def _aa_mjpeg_generator():
-            """Stream MJPEG frames from Xvfb (:99) using ffmpeg."""
-            w, h = _aa_canvas_size_local()
-            try:
-                proc = subprocess.Popen(
-                    ["ffmpeg", "-f", "x11grab", "-framerate", "25",
-                     "-video_size", f"{w}x{h}",
-                     "-draw_mouse", "0",
-                     "-i", ":99",
-                     "-f", "mjpeg", "-q:v", "3",
-                     "-an", "pipe:1"],
-                    stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
-                )
-            except Exception:
-                return
-            buf = b""
-            SOI = b"\xff\xd8"
-            EOI = b"\xff\xd9"
-            try:
-                while True:
-                    chunk = proc.stdout.read(4096)
-                    if not chunk:
-                        break
-                    buf += chunk
-                    while True:
-                        start = buf.find(SOI)
-                        if start == -1:
-                            buf = b""
-                            break
-                        end = buf.find(EOI, start + 2)
-                        if end == -1:
-                            buf = buf[start:]
-                            break
-                        frame = buf[start:end + 2]
-                        buf = buf[end + 2:]
-                        yield (b"--frame\r\n"
-                               b"Content-Type: image/jpeg\r\n\r\n"
-                               + frame + b"\r\n")
-            finally:
-                proc.terminate()
-                try:
-                    proc.wait(timeout=3)
-                except subprocess.TimeoutExpired:
-                    proc.kill()  # ffmpeg ignored SIGTERM — don't leak it
-                    proc.wait(timeout=3)
-
         @app.route("/aa/stream")
         def aa_stream():
             """Direct MJPEG stream from Xvfb (:99) — no port 5001 proxy."""
-            return Response(_aa_mjpeg_generator(),
+            return Response(viewer._aa_mjpeg_frames(),
                             mimetype="multipart/x-mixed-replace; boundary=frame")
 
         @app.route("/aa/status")
@@ -928,30 +1223,41 @@ class WebViewer:
 
         @app.route("/aa/touch", methods=["POST"])
         def aa_touch():
-            """Forward touch/click to Xvfb via xdotool."""
-            data = request.get_json(silent=True) or {}
-            rel_x = data.get("x", 0.5)
-            rel_y = data.get("y", 0.5)
-            w, h = _aa_canvas_size_local()
-            px = max(0, min(w, int(rel_x * w)))
-            py = max(0, min(h, int(rel_y * h)))
-            try:
-                subprocess.run(
-                    ["xdotool", "mousemove", "--screen", "0",
-                     str(px), str(py), "click", "1"],
-                    timeout=2, capture_output=True,
-                    env={**os.environ, "DISPLAY": ":99"},
-                )
-                return jsonify({"ok": True, "x": px, "y": py})
-            except Exception:
-                return jsonify({"ok": False}), 500
+            """Forward a touch to Xvfb (HTTP fallback of the /ws/input path).
+
+            Body ``{"x": 0..1, "y": 0..1, "action"?: ...}``. Without
+            ``action`` it is a tap, exactly as before. The kiosk only falls
+            back here for tap/down/up/cancel while the input WebSocket is
+            down; ``move`` is refused — a drag over HTTP would be one request
+            (and one server thread) per frame.
+            """
+            data = request.get_json(silent=True)
+            if data is None:
+                data = {}
+            if not isinstance(data, dict):
+                return jsonify({"ok": False, "error": "body must be a JSON object"}), 400
+            action = data.get("action", "tap")
+            if action not in _AA_HTTP_TOUCH_ACTIONS:
+                return jsonify({"ok": False,
+                                "error": f"action must be one of {list(_AA_HTTP_TOUCH_ACTIONS)}"}), 400
+            injector = viewer._get_aa_injector()
+            if injector is None:
+                return jsonify({"ok": False, "error": "touch injection unavailable"}), 503
+            px = py = None
+            if action != "cancel":
+                # Missing coordinates keep the old default (canvas centre);
+                # present-but-invalid ones (NaN, strings, bools) are a 400.
+                pixels = injector.to_pixels(data.get("x", 0.5), data.get("y", 0.5))
+                if pixels is None:
+                    return jsonify({"ok": False, "error": "x and y must be finite numbers"}), 400
+                px, py = pixels
+            if not injector.submit(action, data.get("x", 0.5), data.get("y", 0.5),
+                                   client="http"):
+                return jsonify({"ok": False, "error": "touch injection unavailable"}), 503
+            return jsonify({"ok": True, "action": action, "x": px, "y": py})
 
         def _get_openauto():
-            if viewer._event_bus:
-                result = viewer._event_bus.get_last("multimedia._internals")
-                if result and result[0]:
-                    return result[0].get("openauto")
-            return None
+            return viewer._openauto()
 
         @app.route("/aa/restart", methods=["POST"])
         @app.route("/api/aa/restart", methods=["POST"])
@@ -960,6 +1266,11 @@ class WebViewer:
             log.info("Manual AA restart requested via API")
             openauto = _get_openauto()
             if openauto:
+                # A second tap while restart() runs must not start another
+                # thread (the controller would refuse it anyway, but the UI
+                # deserves to know it is already happening).
+                if getattr(openauto, "restart_in_progress", False) is True:
+                    return jsonify({"ok": True, "status": "already_restarting"})
                 threading.Thread(target=openauto.restart, daemon=True, name="aa-http-restart").start()
                 return jsonify({"ok": True, "status": "restarting"})
             elif viewer._event_bus:
@@ -1852,24 +2163,12 @@ class WebViewer:
 
         @sock.route("/ws/input")
         def ws_input_handler(ws):
-            log.info("WebSocket client connected (input)")
-            while viewer._running:
-                try:
-                    msg = ws.receive(timeout=1)
-                    if msg is None:
-                        continue
-                    data = json.loads(msg)
-                    if data.get("type") == "keydown" and "key" in data:
-                        viewer._handle_browser_key(data["key"])
-                except json.JSONDecodeError:
-                    log.debug("Invalid JSON from browser input WS")
-                except Exception:
-                    break
+            origin = request.headers.get("Origin")
+            if not _ws_origin_allowed(origin, request.host):
+                # Returning closes the socket before a single message is read.
+                log.debug("Rejected /ws/input from foreign Origin %r (host %r)",
+                          origin, request.host)
+                return
+            viewer._serve_input_ws(ws)
 
-        # threaded=True: the dashboard renders fire many concurrent
-        # GETs (radio status, wifi config, BT lists, music, weather…)
-        # plus the touch input WS. A single-threaded werkzeug serializes
-        # everything, so a slow handler (e.g. bluetoothctl scan, nmcli)
-        # stalls every other endpoint and the UI feels frozen on touch.
-        app.run(host=self.host, port=self.port, debug=False,
-                use_reloader=False, threaded=True)
+        return app

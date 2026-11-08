@@ -68,7 +68,9 @@ const AppBar = (() => {
 
     function _formatTime() {
         const now = new Date();
-        return now.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", hour12: false });
+        // hourCycle "h23", not hour12:false: with en-US, hour12:false picks
+        // the h24 cycle in Chromium and midnight renders as "24:05".
+        return now.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", hourCycle: "h23" });
     }
 
     function _formatDate() {
@@ -88,13 +90,20 @@ const AppBar = (() => {
         return `${Math.round(temp)}\u00b0C`;
     }
 
+    function _setText(el, text) {
+        // Only touch the DOM on a change — App's clock calls this every
+        // second and a no-op write still costs a style/layout pass.
+        if (el && el.textContent !== text) el.textContent = text;
+    }
+
+    /** Refresh time/date/temperature in place. `container` is anything with
+     *  querySelector (App's clock passes `document`); screens without an
+     *  AppBar (A2) simply have no data-bind nodes. */
     function update(container, data) {
-        const timeEl = container.querySelector('[data-bind="time"]');
-        const dateEl = container.querySelector('[data-bind="date"]');
-        const tempEl = container.querySelector('[data-bind="ext_temp"]');
-        if (timeEl) timeEl.textContent = _formatTime();
-        if (dateEl) dateEl.textContent = _formatDate();
-        if (tempEl) tempEl.textContent = _formatTemp(data);
+        if (!container || typeof container.querySelector !== "function") return;
+        _setText(container.querySelector('[data-bind="time"]'), _formatTime());
+        _setText(container.querySelector('[data-bind="date"]'), _formatDate());
+        _setText(container.querySelector('[data-bind="ext_temp"]'), _formatTemp(data || {}));
     }
 
     return { render, update };

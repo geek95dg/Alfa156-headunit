@@ -216,12 +216,16 @@ class TestOpenAutoController:
         assert ctrl.auto_restart_enabled is True
         assert True in events
 
-    def test_manual_restart_without_binary(self):
+    def test_manual_restart_without_binary(self, openauto_sandbox):
+        # restart() runs pgrep/fuser/kill and a Bluetooth power cycle; the
+        # conftest sandbox records those instead of running them.
         ctrl = OpenAutoController(self.config, self.bus)
         if not ctrl.available:
             result = ctrl.restart()
             assert result is False
             assert ctrl.running is False
+            assert openauto_sandbox.kills == []
+            assert ["fuser", "5000/tcp"] in openauto_sandbox.calls
 
     def test_bt_connection_events_rearm(self):
         ctrl = OpenAutoController(self.config, self.bus)

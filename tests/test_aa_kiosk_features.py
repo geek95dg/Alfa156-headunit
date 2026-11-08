@@ -1,6 +1,10 @@
 """Unit and integration tests for AA auto-restart and kiosk restart features."""
 
 import json
+import os
+import signal
+import subprocess
+import threading
 import time
 import pytest
 
@@ -47,15 +51,19 @@ class TestAAAutoRestartController:
         self.bus.publish("multimedia.set_auto_restart", True)
         assert self.ctrl.auto_restart_enabled is True
 
-    def test_manual_restart_request_via_event_bus(self):
-        # Publishing multimedia.restart_request triggers restart()
+    def test_manual_restart_request_via_event_bus(self, openauto_sandbox):
+        # Publishing multimedia.restart_request triggers restart() in a
+        # thread. The conftest sandbox stands in for pgrep/fuser/kill and
+        # bluetoothctl, and the thread is joined before the test ends so it
+        # can never outlive the sandbox.
         events = []
         self.bus.subscribe("multimedia.openauto_status", lambda t, v, ts: events.append(v))
         self.bus.publish("multimedia.restart_request", True)
-        # Give thread a moment
-        time.sleep(0.1)
+        _join_threads("aa-bus-restart")
         # Without binary, start returns False and status is unavailable/stopped
         assert "unavailable" in events or "stopped" in events
+        assert openauto_sandbox.kills == []
+        assert not self.ctrl.restart_in_progress
 
     def test_bt_connected_arms_timer_and_resets_restart_count(self):
         self.ctrl._connection_restart_count = 2
@@ -84,6 +92,155 @@ class TestAAAutoRestartController:
         if not self.ctrl.auto_restart_enabled:
             restarted = False
         assert not restarted
+
+
+def _join_threads(name: str, timeout: float = 5.0) -> None:
+    """Wait for every live thread called ``name`` (fails if one hangs)."""
+    deadline = time.monotonic() + timeout
+    for thread in [th for th in threading.enumerate() if th.name == name]:
+        thread.join(max(0.0, deadline - time.monotonic()))
+        assert not thread.is_alive(), f"{name} thread did not finish"
+
+
+class TestAARestartSafety:
+    """restart() concurrency, the cleanup helpers' argv, and the PID guard.
+
+    Replaces the old root-level test_aa_restart.py, which ran the real
+    _kill_stale()/_reset_bt_adapter()/_kill_processes_on_port() (pgrep +
+    SIGKILL, Bluetooth power cycle) on whatever machine ran it. Everything
+    here goes through the conftest ``openauto_sandbox``.
+    """
+
+    def setup_method(self):
+        self.bus = EventBus()
+        self.config = BCMConfig(platform_override="x86")
+        self.config.save = lambda path=None: None
+        self.ctrl = OpenAutoController(self.config, self.bus)
+
+    def test_concurrent_restart_runs_once(self, monkeypatch):
+        entered = threading.Event()
+        release = threading.Event()
+        stop_calls = []
+
+        def blocking_stop():
+            stop_calls.append(1)
+            entered.set()
+            release.wait(5)
+
+        monkeypatch.setattr(self.ctrl, "stop", blocking_stop)
+        monkeypatch.setattr(self.ctrl, "start", lambda: True)
+        results = []
+        first = threading.Thread(target=lambda: results.append(self.ctrl.restart()))
+        first.start()
+        try:
+            assert entered.wait(5), "first restart() never reached stop()"
+            assert self.ctrl.restart_in_progress is True
+            # Second request while the first is stuck in stop(): refused at
+            # once, without calling stop() again.
+            assert self.ctrl.restart() is False
+        finally:
+            release.set()
+            first.join(5)
+        assert results == [True]
+        assert stop_calls == [1]
+        assert self.ctrl.restart_in_progress is False
+        # The lock is free again: a later restart runs normally.
+        assert self.ctrl.restart() is True
+        assert stop_calls == [1, 1]
+
+    def test_fuser_gets_port_slash_tcp_and_never_our_pid(self, openauto_sandbox):
+        own = os.getpid()
+
+        def handler(argv, kwargs):
+            if argv[0] == "fuser":
+                return subprocess.CompletedProcess(
+                    argv, 0, stdout=f" {own} 4242c 4242 junk\n", stderr="5000/tcp:")
+            return None
+
+        openauto_sandbox.handler = handler
+        self.ctrl._kill_processes_on_port(5000)
+        assert ["fuser", "5000/tcp"] in openauto_sandbox.calls
+        assert openauto_sandbox.kills == [(4242, signal.SIGKILL)]
+
+    def test_ss_fallback_matches_exact_port_and_skips_own_pid(self, openauto_sandbox):
+        own = os.getpid()
+        ss_out = (
+            "State  Recv-Q Send-Q Local Address:Port Peer Address:Port Process\n"
+            'LISTEN 0 5 0.0.0.0:5000 0.0.0.0:* users:(("btservice",pid=777,fd=3))\n'
+            f'LISTEN 0 5 0.0.0.0:5000 0.0.0.0:* users:(("python3",pid={own},fd=9))\n'
+            'LISTEN 0 5 0.0.0.0:50000 0.0.0.0:* users:(("other",pid=888,fd=3))\n'
+        )
+
+        def handler(argv, kwargs):
+            if argv[0] == "fuser":
+                raise FileNotFoundError("fuser")
+            if argv[0] == "ss":
+                return subprocess.CompletedProcess(argv, 0, stdout=ss_out, stderr="")
+            return None
+
+        openauto_sandbox.handler = handler
+        self.ctrl._kill_processes_on_port(5000)
+        assert openauto_sandbox.kills == [(777, signal.SIGKILL)]
+
+    def test_kill_stale_terminates_matches_but_not_us(self, openauto_sandbox):
+        own = os.getpid()
+
+        def handler(argv, kwargs):
+            if argv[:2] == ["pgrep", "-f"]:
+                return subprocess.CompletedProcess(argv, 0, stdout=f"{own}\n31337\n", stderr="")
+            return None
+
+        openauto_sandbox.handler = handler
+        self.ctrl._kill_stale()
+        pids = {pid for pid, _sig in openauto_sandbox.kills}
+        assert pids == {31337}
+        assert (31337, signal.SIGTERM) in openauto_sandbox.kills
+        assert (31337, signal.SIGKILL) in openauto_sandbox.kills
+        assert openauto_sandbox.ran("pgrep", "-f", "autoapp")
+        assert openauto_sandbox.ran("pgrep", "-f", "btservice")
+        assert ["fuser", "5000/tcp"] in openauto_sandbox.calls
+
+    def test_bt_reset_commands_are_recorded_not_run(self, openauto_sandbox):
+        def handler(argv, kwargs):
+            if argv == ["bluetoothctl", "list"]:
+                return subprocess.CompletedProcess(
+                    argv, 0, stdout="Controller AA:BB:CC:DD:EE:FF hci0 [default]\n", stderr="")
+            return None
+
+        openauto_sandbox.handler = handler
+        self.ctrl._reset_bt_adapter()
+        assert ["bluetoothctl", "power", "off"] in openauto_sandbox.calls
+        assert ["bluetoothctl", "power", "on"] in openauto_sandbox.calls
+
+    def test_real_kill_guard_refuses_own_and_special_pids(self, openauto_sandbox):
+        # Signal 0 only probes — harmless even if the guard were broken.
+        real = openauto_sandbox.real_kill_pid
+        assert real(os.getpid(), 0) is False
+        assert real(0, 0) is False
+        assert real(-1, 0) is False
+        assert real(1, 0) is False
+
+    def test_xvfb_start_publishes_stream_epoch_once(self, openauto_sandbox, monkeypatch):
+        epochs = []
+        self.bus.subscribe("multimedia.aa_stream_epoch", lambda t, v, ts: epochs.append(v))
+
+        class _FakeXvfb:
+            pid = 4321
+            stderr = None
+
+            def poll(self):
+                return None
+
+        openauto_sandbox.subprocess.Popen = lambda *a, **k: _FakeXvfb()
+        monkeypatch.setattr(OpenAutoController, "_cleanup_stale_xvfb",
+                            staticmethod(lambda display: None))
+        monkeypatch.setattr(self.ctrl, "_start_window_manager", lambda display: None)
+        assert self.ctrl._start_xvfb() == ":99"
+        assert len(epochs) == 1 and epochs[0] > 0
+        # Already running: same X server, the open streams are still valid.
+        assert self.ctrl._start_xvfb() == ":99"
+        assert len(epochs) == 1
+        self.ctrl._xvfb_process = None
 
 
 class TestI18nNewKeys:
@@ -209,13 +366,16 @@ class TestWebViewerAPI:
         assert data["auto_restart"] is False
         assert ctrl.auto_restart_enabled is False
 
-    def test_aa_restart_endpoint(self, test_client):
+    def test_aa_restart_endpoint(self, test_client, openauto_sandbox):
+        # The replicated route runs the real restart() synchronously — safe
+        # only because the sandbox records pgrep/fuser/bluetoothctl.
         client, ctrl, cfg, bus, viewer = test_client
         res = client.post("/api/aa/restart")
         assert res.status_code == 200
         data = res.get_json()
         assert data["ok"] is True
         assert data["status"] == "restarting"
+        assert openauto_sandbox.kills == []
 
     def test_kiosk_restart_endpoint(self, test_client):
         client, ctrl, cfg, bus, viewer = test_client
