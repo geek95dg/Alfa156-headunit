@@ -193,6 +193,40 @@ Dlatego eskalacja z S3 do pełnego wyłączenia po dwóch godzinach jest tu
 naprawdę warta zachodu — a przy sterowaniu przyciskiem zasilania kosztuje
 tyle, co dłuższy impuls.
 
+> Impuls 5 s dostaje **tylko maszyna stabilnie uśpiona** (z diodą panelu,
+> `FEATURE_PWRLED`). Komputer obudzony ręcznie przy zgaszonym zapłonie
+> sensor hub najpierw usypia krótkim impulsem, a 2 h liczy od chwili
+> wybudzenia — pracujący Linux nie dostaje twardego wyłączenia. Bez diody
+> (pętla otwarta) „uśpiona” znaczy tylko „tak zakładamy po własnym impulsie”.
+> Po krótkim impulsie na pracującą maszynę sensor hub przez 90 s nie
+> naciska drugi raz: `bcm-power-toggle.sh` najpierw zatrzymuje BCM (do
+> 45 s), a drugie wciśnięcie uśpiłoby komputer ponownie zaraz po
+> wybudzeniu. Jeśli w tym czasie wróci zapłon (zgasł silnik, ponowny
+> rozruch), a komputer mimo to zaśnie, dostaje krótki impuls i wstaje.
+> Logika jest w `arduino/sensor_hub/power_logic.h`, z testami na PC
+> (`make -C arduino sensor_hub-test`), także dla przepełnienia `millis()`
+> po ~49,7 dnia pracy płytki.
+>
+> **Sprawdzenie na stole, zanim zaczniesz polegać na eskalacji.** Rytm
+> migania diody M910q w S3 nie jest znany, a eskalacja (i każde
+> naciśnięcie) działa tylko na stan, który się utrzymał. BCM zatrzymany
+> (trzyma port), `picocom -b 115200 /dev/ttyUSB1`, potem:
+>
+> 1. komputer pracuje → po kilku sekundach, potem co 2 s, `PWR:RUNNING`;
+> 2. uśpij go (`systemctl suspend`) → w ciągu kilku sekund `PWR:SLEEP`
+>    i **przez co najmniej 3 minuty wyłącznie `PWR:SLEEP`** — żadnej linii
+>    `PWR:RUNNING` ani `PWR:OFF` pomiędzy;
+> 3. obudź go przyciskiem → `PWR:RUNNING` (dekoder czeka ~6 s ciągłego
+>    światła, zanim uzna pracę);
+> 4. wyłącz go → `PWR:OFF`.
+>
+> Jeśli w kroku 2 stan przeskakuje, dekoder nie rozpoznaje rytmu: sensor
+> hub nie wyśle wtedy ani impulsu 5 s, ani krótkiego impulsu eskalacji
+> (maszyna zostaje w S3 i pobiera prąd z wiersza **S3**), a pobudkę
+> zapłonem wyśle dopiero po ~30 s. Zapisz rytm (ile świeci, ile nie)
+> i popraw `PWR_LED_QUIET_WINDOWS` w `power_logic.h` — obecnie rozpoznaje
+> miganie z przerwami do ~6 s.
+
 W wierszu **Wyłączony** rozrzut bierze się w całości z XH-M609. W wierszu
 **S3** większą część wnosi sam M910q (160–320 mA z tabeli wyżej), więc tam
 zmierzyć trzeba oba. Zmierz je raz, a obie liczby zrobią się konkretne.

@@ -162,7 +162,16 @@ class BatteryMonitor:
         self.bus = event_bus
         self._cfg = load_settings(config)
         self._clock = clock
-        self._lock = threading.Lock()
+        self._lock = threading.Lock()           # sample deques
+        # tick() runs on the serial thread (each sample) AND on the stale
+        # checker; computing under _lock but publishing after releasing it
+        # let the two interleave, so an older result could be published
+        # after a newer one (e.g. "unknown" after a fresh "ok"). One
+        # evaluation-and-publish at a time. Re-entrant: with a synchronous
+        # bus a subscriber may end up calling tick() again on this thread.
+        # Holding it while publishing is fine — publish only queues (the
+        # production bus dispatches on its own thread).
+        self._tick_lock = threading.RLock()
         n = int(self._cfg["smoothing_samples"])
         self._volts: deque[tuple[float, float]] = deque(maxlen=n)
         self._amps: deque[tuple[float, float]] = deque(maxlen=n)
@@ -230,12 +239,18 @@ class BatteryMonitor:
 
     def tick(self) -> None:
         """Re-evaluate and publish what changed (called per sample and by
-        the background thread, which is what notices a stale bank)."""
-        updates: list[tuple[str, Any]] = []
-        with self._lock:
-            now = self._clock()
-            volts = self._fresh_median(self._volts, now)
-            amps = self._fresh_median(self._amps, now)
+        the background thread, which is what notices a stale bank).
+
+        Evaluation and publishing form one critical section
+        (``_tick_lock``), so results reach the bus in the order they were
+        computed.
+        """
+        with self._tick_lock:
+            updates: list[tuple[str, Any]] = []
+            with self._lock:
+                now = self._clock()
+                volts = self._fresh_median(self._volts, now)
+                amps = self._fresh_median(self._amps, now)
             c = self._cfg
             if volts is None:
                 state, pct, reliable = "unknown", None, False
@@ -256,13 +271,11 @@ class BatteryMonitor:
             for t, v in changed:
                 self._published[t] = v
             edges = self._edges(state, volts)
-        for topic, value in changed:
-            self.bus.publish(topic, value)
-        for topic, value in edges:
-            self.bus.publish(topic, value)
+            for topic, value in changed + edges:
+                self.bus.publish(topic, value)
 
     def _edges(self, state: str, volts: Optional[float]) -> list[tuple[str, bool]]:
-        """battery.low / battery.critical on transitions only (under the lock).
+        """battery.low / battery.critical on transitions only (under ``_tick_lock``).
 
         ``unknown`` leaves both flags as they were: a lost sensor says nothing
         about the bank, and flipping "low" off then on again would be noise.

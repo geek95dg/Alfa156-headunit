@@ -1,15 +1,22 @@
-"""Static checks for the sensor_hub BATT: firmware and its build plumbing.
+"""Static checks for the sensor_hub firmware and its build plumbing.
 
 There is no arduino-cli in the test environment (the CI ``arduino`` job
 compiles for real), so these tests pin the text: the optional variants are
 built by ``make -C arduino sensor_hub-variants`` and CI calls it, the sketch
 keeps its pin-conflict guards, and the switches stay commented out so a
-``-DFEATURE_…`` flag is the only thing turning them on.
+``-DFEATURE_…`` flag (``SENSOR_HUB_FEATURES=…`` for a normal build/upload) is
+the only thing turning them on.
 
 A host-side ``g++ -fsyntax-only`` pass over the sketch with tiny stand-ins for
 the Arduino headers additionally catches typos in the ``#ifdef`` blocks and
 checks that the ``#error`` guards fire. It is a smoke test, not a substitute
 for the AVR build (skipped when g++ is missing).
+
+The power-button decisions live in ``sensor_hub/power_logic.h`` (plain C++);
+``test_power_logic.cpp`` drives them on a simulated M910q, across the
+``millis()`` wrap (~49.7 days — the Nano runs 24/7 from the buffer) and is run
+here too, so CI's pytest job executes it (skipped without g++). Static checks
+make sure no deadline is compared as ``now < deadline`` again.
 """
 
 import re
@@ -22,6 +29,8 @@ import pytest
 REPO = Path(__file__).resolve().parent.parent
 ARDUINO = REPO / "arduino"
 SKETCH = ARDUINO / "sensor_hub" / "sensor_hub.ino"
+POWER_LOGIC = ARDUINO / "sensor_hub" / "power_logic.h"
+POWER_TEST = ARDUINO / "sensor_hub" / "test" / "test_power_logic.cpp"
 MAKEFILE = ARDUINO / "Makefile"
 CI = REPO / ".github" / "workflows" / "ci.yml"
 UDEV = REPO / "config" / "udev" / "99-bcm-sensor-hub.rules"
@@ -66,6 +75,27 @@ class TestBuildPlumbing:
         assert re.search(r"^VARIANTS_BUILD_DIR := \$\(CURDIR\)/build$", mk, flags=re.M)
         assert re.search(r"^build/$", (REPO / ".gitignore").read_text(), flags=re.M)
 
+    def test_features_variable_defaults_to_empty(self):
+        # Empty by default: `make` / `make sensor_hub` build the sketch as
+        # committed, exactly like before.
+        mk = MAKEFILE.read_text(encoding="utf-8")
+        assert re.search(r"^SENSOR_HUB_FEATURES \?=\s*$", mk, flags=re.M)
+
+    def test_upload_rule_works_for_phony_targets(self):
+        # make never searches pattern rules for .PHONY targets, so a plain
+        # "%-upload: %" made every *-upload a silent no-op.
+        mk = MAKEFILE.read_text(encoding="utf-8")
+        assert re.search(r"^\$\(addsuffix -upload,\$\(SKETCHES\)\): %-upload: %$", mk, flags=re.M)
+        assert not re.search(r"^%-upload:", mk, flags=re.M)
+
+    def test_host_test_target(self):
+        mk = MAKEFILE.read_text(encoding="utf-8")
+        assert re.search(r"^sensor_hub-test:", mk, flags=re.M)
+        assert re.search(r"^test: .*\bsensor_hub-test\b", mk, flags=re.M)
+        body = mk.split("\nsensor_hub-test:", 1)[1].split("\n\n", 1)[0]
+        assert "sensor_hub/test/test_power_logic.cpp" in body
+        assert "$(HOST_CXXFLAGS)" in body                          # -Werror like esp32
+
     def test_ci_compiles_the_variants(self):
         ci = CI.read_text(encoding="utf-8")
         arduino_job = ci.split("\n  arduino:", 1)[1]
@@ -101,10 +131,10 @@ class TestSketch:
     def test_batt_report_rides_on_the_full_state(self, ino):
         full = ino.split("void reportFullState() {", 1)[1].split("\n}\n", 1)[0]
         # Last thing in the full-state report, right after the PWR: block.
-        assert re.search(r"PWR_NAMES\[pwrState\]\);\n#endif\n#if defined\(FEATURE_BATT_ADC\) "
+        assert re.search(r"PWR_NAMES\[pwr\.state\]\);\n#endif\n#if defined\(FEATURE_BATT_ADC\) "
                          r"\|\| defined\(FEATURE_BATT_INA226\)\n  battReport\(\);\n#endif$", full)
         # …and NOT in the power-state setter, which prints PWR: on change only.
-        setter = ino.split("void pwrSetState(PwrState s) {", 1)[1].split("\n}\n", 1)[0]
+        setter = ino.split("void pwrReportState() {", 1)[1].split("\n}\n", 1)[0]
         assert "battReport" not in setter
 
     def test_protocol_line_documented(self, ino):
@@ -126,6 +156,96 @@ class TestSketch:
         y = (ARDUINO / "sensor_hub" / "sketch.yaml").read_text(encoding="utf-8")
         m = re.search(r"platform: arduino:avr \((\d+)\.(\d+)\.(\d+)\)", y)
         assert m and tuple(map(int, m.groups())) >= (1, 8, 3)
+
+
+# ── power button (FEATURE_PWRBTN) ──────────────────────────────────────────
+
+
+@pytest.fixture(scope="module")
+def logic() -> str:
+    return POWER_LOGIC.read_text(encoding="utf-8")
+
+
+class TestPowerButton:
+    # "now < deadline" / "deadline > now" — wrong once millis() wraps: the old
+    # deadline stays huge while now restarts from 0 (bug: "now < pwrSettleUntil"
+    # froze power control for weeks after ~49.7 days of uptime).
+    _DEADLINE_CMP = re.compile(r"\bnow\s*<(?!<)\s*[A-Za-z_][\w.]*|[A-Za-z_][\w.]*\s*>(?!>)\s*now\b")
+
+    def test_no_absolute_time_comparisons(self, ino, logic):
+        for name, text in (("sensor_hub.ino", ino), ("power_logic.h", logic)):
+            bad = [m.group(0) for m in self._DEADLINE_CMP.finditer(_code(text))]
+            assert bad == [], f"{name}: {bad}"
+        assert "pwrSettleUntil" not in ino
+
+    def test_settle_deadline_is_rollover_safe(self, logic):
+        code = _code(logic)
+        assert "if ((int32_t)(now - s.settleUntil) < 0) return PWR_ACT_NONE;" in code
+        # The signed difference only works for deadlines < 2^31 ms (~24.8 days)
+        # away, so the deadline is dropped once it has passed.
+        settle = code.split("if (s.settling) {", 1)[1].split("}", 1)[0]
+        assert "s.settling = false;" in settle
+        # 32-bit time on the host too, or the wrap tests would test nothing.
+        assert "unsigned long" not in code
+
+    def test_pulse_end_uses_a_flag_not_zero(self, ino):
+        code = _code(ino)
+        assert "if ((long)(now - pwrPulseUntil) >= 0) {" in code
+        assert "bool          pwrPulsing" in code
+        assert not re.search(r"if\s*\(\s*pwrPulseUntil\s*\)", code)
+
+    def test_long_only_from_sleep(self, logic):
+        code = _code(logic)
+        assert code.count("return PWR_ACT_LONG;") == 1
+        escalation = code.split("switch (s.state) {", 1)[1]
+        sleep_case = escalation.split("case PWR_SLEEP:", 1)[1].split("case ", 1)[0]
+        assert "return PWR_ACT_LONG;" in sleep_case
+        running_case = escalation.split("case PWR_RUNNING:", 1)[1].split("default:", 1)[0]
+        assert "return pwrShort(s, now, PWR_SLEEP);" in running_case
+        assert "LONG" not in running_case
+        # …and only from a state that has really HELD, never inside the
+        # host's suspend window.
+        before = code.split("switch (s.state) {", 1)[0].rsplit("if (!s.ignLevel && s.escDue", 1)[1]
+        assert "if (!steady) return PWR_ACT_NONE;" in before
+        assert "if (s.grace) return PWR_ACT_NONE;" in before
+
+    def test_steady_means_held_not_just_equal(self, logic):
+        # Review finding: "stable == state" alone passes every flicker window
+        # that happens to read the old stable value (S3 woken every hour).
+        steady = _code(logic).split("inline bool pwrSteady(", 1)[1].split("\n}\n", 1)[0]
+        assert "s.state == s.stable" in steady
+        assert "(uint32_t)(now - s.stateSince) >= PWR_STABLE_MS" in steady
+        assert "s.state != PWR_UNKNOWN" in steady
+
+    def test_suspend_grace_covers_the_host_stop_timeout(self, logic):
+        # bcm-power-toggle.sh stops bcm-headunit (TimeoutStopSec) before it
+        # suspends; the window in which no second SHORT is sent must be longer.
+        grace = int(re.search(r"#define PWR_SUSPEND_GRACE_MS\s+(\d+)UL", logic).group(1))
+        unit = (REPO / "config" / "systemd" / "bcm-headunit-x86.service").read_text(encoding="utf-8")
+        stop_s = int(re.search(r"^TimeoutStopSec=(\d+)$", unit, flags=re.M).group(1))
+        assert grace >= (stop_s + 30) * 1000
+        script = (REPO / "config" / "scripts" / "bcm-power-toggle.sh").read_text(encoding="utf-8")
+        assert "systemctl stop bcm-headunit.service" in script
+
+    def test_external_wake_rearms_escalation(self, logic):
+        code = _code(logic)
+        assert re.search(r"s\.stable == PWR_RUNNING && prev != PWR_RUNNING && s\.ignKnown && "
+                         r"!s\.ignLevel\) \{\s*pwrArmEscalation\(s, now\);", code)
+        arm = code.split("inline void pwrArmEscalation(", 1)[1].split("\n}\n", 1)[0]
+        assert "s.offDone = false;" in arm and "s.ignOffAt = now;" in arm
+
+    def test_sketch_uses_the_logic(self, ino):
+        assert re.search(r'#ifdef FEATURE_PWRBTN\n#include "power_logic.h"\n#endif', ino)
+        # LED decoding lives in the header too (host-tested), not in the sketch.
+        observe = ino.split("void pwrObserveLed(unsigned long now) {", 1)[1].split("\n}\n", 1)[0]
+        assert "if (pwrLedSample(pwrLed, lit, now)) pwrObserve(pwr, pwrLed.decoded, now);" in observe
+        assert "pwrLedEdges" not in ino and "PWR_LED_WINDOW_MS     1600UL" not in ino
+        assert "pwrLedInit(pwrLed, millis());" in ino
+        handler = ino.split("void handlePwrButton(unsigned long now) {", 1)[1].split("\n}\n", 1)[0]
+        assert "pwrStep(pwr, now, inIgn.state)" in handler
+        assert "pwrPulseDone(pwr, now);" in handler
+        setup = ino.split("void setup() {", 1)[1].split("\n}\n", 1)[0]
+        assert "pwrInit(pwr, PWR_CLOSED_LOOP, millis());" in setup
 
 
 def test_udev_template_is_inert_until_filled():
@@ -224,8 +344,10 @@ def host_tree(tmp_path_factory):
 
 def _syntax(host_tree, *defines):
     gxx, root, src = host_tree
+    # -I sketch dir: the copied .ino includes "power_logic.h" next to it.
     return subprocess.run(
-        [gxx, "-std=gnu++11", "-fsyntax-only", f"-I{root}", *defines, str(src)],
+        [gxx, "-std=gnu++11", "-fsyntax-only", f"-I{root}", f"-I{SKETCH.parent}",
+         *defines, str(src)],
         capture_output=True, text=True, timeout=60)
 
 
@@ -244,3 +366,80 @@ def test_host_guards_fire(host_tree, defines, message):
     res = _syntax(host_tree, *defines)
     assert res.returncode != 0
     assert message in res.stderr
+
+
+# ── power_logic.h on the host ──────────────────────────────────────────────
+
+
+def test_power_logic_host_harness(tmp_path):
+    """make -C arduino sensor_hub-test, run from pytest so CI executes it."""
+    gxx = shutil.which("g++")
+    if not gxx:
+        pytest.skip("g++ not available")
+    exe = tmp_path / "test_power_logic"
+    build = subprocess.run(
+        [gxx, "-std=c++17", "-Wall", "-Wextra", "-Werror", "-o", str(exe), str(POWER_TEST)],
+        capture_output=True, text=True, timeout=120)
+    assert build.returncode == 0, build.stderr
+    run = subprocess.run([str(exe)], capture_output=True, text=True, timeout=60)
+    assert run.returncode == 0, run.stderr
+    assert "sensor_hub power_logic: OK" in run.stdout
+
+
+def test_power_logic_compiles_as_gnu11(tmp_path):
+    """The AVR core builds with -std=gnu++11; the header must not need more."""
+    gxx = shutil.which("g++")
+    if not gxx:
+        pytest.skip("g++ not available")
+    src = tmp_path / "t.cpp"
+    src.write_text('#include "power_logic.h"\nint main() { PwrLogic s; pwrInit(s, true, 0); '
+                   'PwrLed d; pwrLedInit(d, 0); if (pwrLedSample(d, true, 0)) '
+                   'pwrObserve(s, d.decoded, 0); return pwrStep(s, 0, false); }\n',
+                   encoding="utf-8")
+    res = subprocess.run(
+        [gxx, "-std=gnu++11", "-Wall", "-Wextra", "-Werror", "-fsyntax-only",
+         f"-I{POWER_LOGIC.parent}", str(src)],
+        capture_output=True, text=True, timeout=60)
+    assert res.returncode == 0, res.stderr
+
+
+# ── SENSOR_HUB_FEATURES through make (dry run, nothing is compiled) ────────
+
+
+def _make_dry(*args):
+    make = shutil.which("make")
+    if not make:
+        pytest.skip("make not available")
+    return subprocess.run([make, "-n", "-C", str(ARDUINO), "ARDUINO_CLI=arduino-cli", *args],
+                          capture_output=True, text=True, timeout=60)
+
+
+def test_make_sensor_hub_without_features_is_unchanged():
+    res = _make_dry("sensor_hub")
+    assert res.returncode == 0, res.stderr
+    assert "arduino-cli compile --profile default --warnings default" in res.stdout
+    assert "--build-property" not in res.stdout
+
+
+def test_make_sensor_hub_with_features():
+    res = _make_dry("sensor_hub", "SENSOR_HUB_FEATURES=BATT_ADC")
+    assert res.returncode == 0, res.stderr
+    assert '--build-property "compiler.cpp.extra_flags=-DFEATURE_BATT_ADC"' in res.stdout
+
+
+def test_make_upload_compiles_with_the_same_features():
+    res = _make_dry("sensor_hub-upload", "PORT=/dev/ttyUSB0",
+                    "SENSOR_HUB_FEATURES=BATT_INA226 AIRBAG")
+    assert res.returncode == 0, res.stderr
+    out = res.stdout
+    compile_at = out.index('"compiler.cpp.extra_flags=-DFEATURE_BATT_INA226 -DFEATURE_AIRBAG"')
+    upload_at = out.index("arduino-cli upload --profile default -p /dev/ttyUSB0")
+    assert compile_at < upload_at
+
+
+@pytest.mark.parametrize("bad", ["BAT_ADC", "FEATURE_BATT_ADC", "batt_adc", "DOORS"])
+def test_make_rejects_unknown_features(bad):
+    # A typo would otherwise build firmware WITHOUT the feature, silently.
+    res = _make_dry("sensor_hub", f"SENSOR_HUB_FEATURES={bad}")
+    assert res.returncode != 0
+    assert "SENSOR_HUB_FEATURES: nieznane" in res.stderr

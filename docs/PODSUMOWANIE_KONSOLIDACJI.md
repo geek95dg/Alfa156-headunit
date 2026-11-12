@@ -310,7 +310,17 @@ bank AGM nigdy nie doszedłby do pełna) i akumulatory rozruchowe zamiast HR1221
 
 ---
 
-## 6. Znaleziona luka — moduł `battery` nic nie liczy
+## 6. Znaleziona luka — moduł `battery` nic nie liczy (naprawione później)
+
+> **Stan obecny.** Luka opisana niżej została zamknięta po konsolidacji
+> (przygotowane, domyślnie wyłączone): `arduino/sensor_hub` wysyła
+> `BATT:<mV>[,<mA>]` (warianty `FEATURE_BATT_ADC` — dzielnik na A6 — i
+> `FEATURE_BATT_INA226` — napięcie i prąd), `arduino_serial.py` publikuje
+> z tego `arduino.battery_voltage`, a `battery.py` ma progi AGM 12 V.
+> Włączenie: `make -C arduino sensor_hub-upload PORT=… SENSOR_HUB_FEATURES=BATT_ADC`
+> i `modules.battery: true`; kalibracja i szczegóły w
+> `ZASILANIE_BUFOROWANE.md` §13.4. Tekst niżej to zapis stanu z chwili
+> konsolidacji.
 
 `src/power/battery.py` ma progi **ogniwa Li-ion 18650**:
 
@@ -334,10 +344,10 @@ w `config/bcm_config.yaml` włącza więc kod, który nigdy nic nie policzy.
    12,85 / 12,40 / 11,80 / 11,20 V (`CRITICAL_V` powyżej progu LVD 11,0 V,
    żeby BCM zdążył zareagować, zanim LVD odetnie zasilanie).
 
-**Nie zostało to naprawione** — to praca po stronie firmware'u Arduino,
-wykraczająca poza zakres zadania dokumentacyjnego. Rozpisane
-w `ZASILANIE_BUFOROWANE.md` §13.4 i `WDROZENIE_M910Q.md` §19.3. Do czasu
-wykonania — kontrola woltomierzem z listy zalecanych zakupów.
+W chwili konsolidacji **nie zostało to naprawione** — to praca po stronie
+firmware'u Arduino, wykraczająca poza zakres zadania dokumentacyjnego.
+Zrobione później (ramka wyżej); opis w `ZASILANIE_BUFOROWANE.md` §13.4
+i `WDROZENIE_M910Q.md` §19.3.
 
 ---
 
@@ -406,7 +416,7 @@ poza zakres konsolidacji dokumentacji:
 
 | # | Zadanie | Zakres |
 |---|---------|--------|
-| 1 | Dorobić monitoring banku buforowego (§6) | firmware Arduino + progi w `battery.py` |
+| 1 | ~~Dorobić monitoring banku buforowego (§6)~~ — zrobione, domyślnie wyłączone | firmware Arduino + progi w `battery.py` |
 | 2 | Poprawić domyślne `MAIN_OUTPUT`/`SMALL_OUTPUT` w `setup-x86.sh` na `DP-1`/`DP-2` | jedna linia, ale wymaga potwierdzenia na sprzęcie |
 | 3 | Poprawić limit prądu ładowania i dopisać kompensację temperaturową w `X86_PLATFORM_SETUP.md` i `10-power-suspend.html` | dokumenty źródłowe, obecnie tylko oznaczone ⚠ |
 | 4 | Przenieść treść `x86-production/*.html` do markdown albo odwrotnie | duplikacja treści między MD a HTML |

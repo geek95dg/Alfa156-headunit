@@ -18,9 +18,11 @@ but also sends plain-text serial data for sensors and vehicle status:
         AIRBAG:1           — airbag system OK (0=fault)
         BATT:12650,-3400   — buffer bank (sensor_hub FEATURE_BATT_*):
                              voltage in mV, optional current in mA
-                             (+ charging, - discharging). A value below 100
-                             is taken as volts (BATT:12.65), the form the
-                             older docs (ZASILANIE_BUFOROWANE.md §13.4) used.
+                             (+ charging, - discharging). Volts are accepted
+                             only WITH a decimal point (BATT:12.65, the form
+                             the older docs, ZASILANIE_BUFOROWANE.md §13.4,
+                             used); an integer is always mV, so a truncated
+                             "BATT:12" is 0.012 V and rejected, not 12 V.
 
     Debug (logged only):
         SWC:..., MUSIC:..., STALK:...
@@ -35,8 +37,12 @@ opens. Probing has costs, which is why the test config turns it off: opening
 a CH340 Nano asserts DTR and RESETS it, and it can grab a port another module
 owns (K-Line adapter, GPS receiver, central-lock Nano). Ports configured for
 ENABLED modules (central_lock, location, obd, esp32_display) are therefore
-skipped by their real path (udev symlinks resolved). Ports of disabled modules
-are still probed — that keeps the production config's behaviour unchanged.
+skipped by their real path (udev symlinks resolved), at start-up and again
+before every reconnect (re-plugging renumbers ttyUSB*, and an owner's udev
+symlink may now point at the probed node). The GPS port counts only when
+``hardware.gps.source`` really opens it (``serial``, or ``auto`` on a non-x86
+platform — the rule of src/location/gps.py). Ports of disabled modules are
+still probed — that keeps the production config's behaviour unchanged.
 
 Stability
 ---------
@@ -44,14 +50,18 @@ The reader is an outer reconnect loop: a lost or not-yet-present port is
 retried with backoff 1 → 30 s (it used to end the thread for good on the first
 serial error), the port stays open between reads, and
 ``arduino.sensor_hub_connected`` (bool) is published on every change. The
-probed port is NOT re-probed on reconnect: re-probing every 30 s would keep
-resetting the other Nanos through DTR. For a port that survives re-plugging,
-use the udev symlink.
+backoff starts over only after a session that stayed up for
+:data:`STABLE_SESSION_S`: a CH340 Nano resets on every open (DTR) and prints
+its banner, so "it sent a line" proves nothing about a port that drops a few
+seconds after each open. The probed port is NOT re-probed on reconnect:
+re-probing every 30 s would keep resetting the other Nanos through DTR. For a
+port that survives re-plugging, use the udev symlink.
 
 Security: everything from the serial line is untrusted. Lines are length
 capped, numeric fields are parsed with strict patterns and range-checked, and
-rejected input is logged only as a truncated ``repr`` (no control characters
-reach the log), rate-limited.
+serial text reaches the log only as a truncated ``repr`` (no control
+characters, no fake log lines); unknown and unparsable lines are additionally
+rate-limited.
 """
 
 import os
@@ -84,6 +94,10 @@ READ_TIMEOUT_S = 1.0        # readline() timeout — also bounds how long stop()
 MAX_LINE_BYTES = 256        # the longest real line (DOOR:...) is ~45 bytes
 RECONNECT_MIN_S = 1.0       # first retry after a lost port (re-plugged cable)
 RECONNECT_MAX_S = 30.0      # then back off to twice a minute
+STABLE_SESSION_S = 60.0     # a session at least this long resets the backoff
+LOST_LOG_S = 300.0          # at most one "lost" / "connected" line per 5 min each
+NOISE_LOG_S = 60.0          # unknown / unparsable lines: one debug line per minute
+LOG_TEXT_MAX = 64           # serial text in the log: repr of at most this many chars
 
 # BATT: plausibility. A 12 V bank outside 5-20 V, or more than 100 A through
 # the shunt, is a broken divider, a floating pin or line noise — not a value
@@ -91,15 +105,15 @@ RECONNECT_MAX_S = 30.0      # then back off to twice a minute
 BATT_V_MIN = 5.0
 BATT_V_MAX = 20.0
 BATT_A_MAX = 100.0
-# Firmware sends millivolts (integer). Anything below this is volts — no 12 V
-# bank reads under 100 mV, and no sane "volts" reading is 100 or more.
-BATT_VOLTS_BELOW = 100.0
 BATT_REJECT_LOG_S = 60.0    # at most one debug line per minute about bad BATT:
 
-# BATT:<number>[,<number>] — bounded digits, so no float("1e400") / "nan"
-# style surprises can come through.
+# BATT:<mV>[,<mA>] or BATT:<V.v>[,<mA>] — bounded digits, so no
+# float("1e400") / "nan" style surprises can come through. Volts need the
+# decimal point: the firmware sends integer mV, and a line cut short by
+# noise ("BATT:12" from "BATT:12650") must not read as a healthy 12 V.
 _BATT_RE = re.compile(
-    r"([+-]?\d{1,6}(?:\.\d{1,4})?)(?:\s*,\s*([+-]?\d{1,7}(?:\.\d{1,3})?))?")
+    r"(?:(?P<mv>[+-]?\d{1,6})|(?P<v>[+-]?\d{1,2}\.\d{1,4}))"
+    r"(?:\s*,\s*(?P<ma>[+-]?\d{1,7}(?:\.\d{1,3})?))?")
 # Validates a configured port: printable ASCII under /dev/ (by-id / by-path
 # names contain ':'), same rule as hardware.gps.port in src/location/gps.py.
 _SERIAL_PORT_RE = re.compile(r"/dev/[!-~]{1,235}")
@@ -122,7 +136,7 @@ def parse_batt(payload: str) -> tuple[float, Optional[float]]:
     """``BATT:`` payload → (volts, amps or None).
 
     ``12650`` → 12.65 V; ``12650,-3400`` → 12.65 V, -3.4 A; ``12.65`` →
-    12.65 V (below :data:`BATT_VOLTS_BELOW` it is volts already).
+    12.65 V (volts only with a decimal point; ``12`` is 12 mV → rejected).
 
     Raises:
         ValueError: not a BATT payload, or outside the plausible range.
@@ -130,13 +144,15 @@ def parse_batt(payload: str) -> tuple[float, Optional[float]]:
     m = _BATT_RE.fullmatch(payload.strip())
     if not m:
         raise ValueError("not <mV>[,<mA>]")
-    raw_v = float(m.group(1))
-    volts = raw_v if abs(raw_v) < BATT_VOLTS_BELOW else raw_v / 1000.0
+    if m.group("v") is not None:
+        volts = float(m.group("v"))
+    else:
+        volts = int(m.group("mv")) / 1000.0
     if not BATT_V_MIN <= volts <= BATT_V_MAX:
         raise ValueError(f"{volts:.3f} V outside {BATT_V_MIN:g}-{BATT_V_MAX:g} V")
     amps: Optional[float] = None
-    if m.group(2) is not None:
-        amps = float(m.group(2)) / 1000.0
+    if m.group("ma") is not None:
+        amps = float(m.group("ma")) / 1000.0
         if abs(amps) > BATT_A_MAX:
             raise ValueError(f"{amps:.3f} A beyond ±{BATT_A_MAX:g} A")
         amps = round(amps, 3)
@@ -194,18 +210,48 @@ def _as_bool(value: Any, default: bool) -> bool:
     return default
 
 
+def _gps_opens_serial(config: Any) -> bool:
+    """Does the location module open ``hardware.gps.port`` at all?
+
+    Mirrors ``_resolve_sources`` in src/location/gps.py (kept quiet here —
+    gps.py logs bad values itself): ``auto`` (also a missing key) means the
+    demo route on x86 and the serial receiver elsewhere; a name or list
+    opens the port only when it names ``serial``. With ``[udp, tcp]`` (the
+    phone as GPS) the port is a leftover default and the probe may use it.
+    """
+    value = _cfg_get(config, "hardware.gps.source", "auto")
+    platform = _cfg_get(config, "system.platform", "x86")
+    if not isinstance(platform, str):
+        platform = "x86"
+    if value is None or (isinstance(value, str) and value.strip().lower() in ("", "auto")):
+        items = ["auto"]
+    elif isinstance(value, str):
+        items = [v.strip().lower() for v in value.split(",") if v.strip()]
+    elif isinstance(value, (list, tuple)):
+        items = [v.strip().lower() for v in value if isinstance(v, str)]
+    else:
+        return False
+    if items == ["auto"]:
+        return platform != "x86"
+    return "serial" in items
+
+
 def owned_serial_ports(config: Any) -> list[str]:
     """Ports that enabled modules use, for the probe to keep away from.
 
     Only ENABLED modules count: a port in a disabled module's block is a
     config default nobody opens, and skipping it would change which port
-    the production config (all those modules off) finds.
+    the production config (all those modules off) finds. The GPS port counts
+    only when the GPS really reads it (:func:`_gps_opens_serial`).
     """
     ports: list[str] = []
     for module, key in _OWNED_PORT_KEYS:
         port = _cfg_get(config, key)
-        if isinstance(port, str) and port and _module_enabled(config, module):
-            ports.append(port)
+        if not (isinstance(port, str) and port and _module_enabled(config, module)):
+            continue
+        if module == "location" and not _gps_opens_serial(config):
+            continue
+        ports.append(port)
     return ports
 
 
@@ -252,6 +298,34 @@ def find_arduino_serial(exclude: Optional[Iterable[str]] = None,
     return None
 
 
+class _LogLimiter:
+    """At most one log line per ``interval`` seconds (injected clock); the
+    next line that gets through says how many were held back. A broken
+    divider repeats every 2 s and a flapping port every few seconds — 24/7
+    that would bury everything else in the journal.
+
+    The caller still passes untrusted text as ``%r`` of a truncated string.
+    """
+
+    def __init__(self, clock: Callable[[], float], interval: float) -> None:
+        self._clock = clock
+        self._interval = interval
+        self._at: Optional[float] = None
+        self._suppressed = 0
+
+    def __call__(self, level: Callable[..., None], fmt: str, *args: Any) -> bool:
+        now = self._clock()
+        if self._at is not None and now - self._at < self._interval:
+            self._suppressed += 1
+            return False
+        more = (f" (+{self._suppressed} more since last report)"
+                if self._suppressed else "")
+        level(fmt + "%s", *args, more)
+        self._at = now
+        self._suppressed = 0
+        return True
+
+
 class ArduinoSerialListener:
     """Reads serial data from Arduino and publishes to event bus.
 
@@ -291,7 +365,8 @@ class ArduinoSerialListener:
             serial_factory: ``factory(port, baud, timeout=...)`` returning an
                 object with ``readline(size)`` and ``close()``; tests pass a
                 fake, default ``serial.Serial``.
-            clock: monotonic time source (log rate limiting).
+            clock: monotonic time source (session length for the backoff,
+                log rate limiting).
         """
         self._bus = event_bus
         self._running = False
@@ -300,8 +375,12 @@ class ArduinoSerialListener:
         self._clock = clock
         self._serial_factory = serial_factory
         self._connected: Optional[bool] = None
-        self._batt_log_at: Optional[float] = None
-        self._batt_suppressed = 0
+        self._batt_log = _LogLimiter(clock, BATT_REJECT_LOG_S)
+        self._noise_log = _LogLimiter(clock, NOISE_LOG_S)
+        self._lost_log = _LogLimiter(clock, LOST_LOG_S)
+        # Separate limiter: a burst of INFO "connected" lines must not use up
+        # the window of the "lost" WARNING (or the other way round).
+        self._connected_log = _LogLimiter(clock, LOST_LOG_S)
 
         if port is None:
             port = _cfg_get(config, "arduino.sensor_hub_port", "")
@@ -310,6 +389,9 @@ class ArduinoSerialListener:
         if exclude is None:
             exclude = owned_serial_ports(config)
         exclude = [p for p in exclude if isinstance(p, str) and p]
+        # Kept for _open(): the owners' symlinks are resolved again before
+        # every reconnect, not only by the start-up probe.
+        self._exclude: list[str] = exclude
 
         self._port: Optional[str] = None
         self._port_source = "none"
@@ -369,6 +451,18 @@ class ArduinoSerialListener:
     # ── reader ─────────────────────────────────────────────────────────────
 
     def _open(self) -> Any:
+        """Open the port; OSError (→ backoff) when it cannot or must not be.
+
+        A PROBED port is checked against the other modules' ports again here:
+        re-plugging renumbers ttyUSB*, so the node found at start-up may now
+        be the K-Line adapter or the GPS (their udev symlinks follow the
+        device). Opening it would reset that device through DTR and feed its
+        bytes to this parser. A configured port is the operator's explicit
+        choice and is used as-is, as at start-up.
+        """
+        if self._port_source == "probe" and self._exclude:
+            if os.path.realpath(self._port) in _realpaths(self._exclude):
+                raise OSError(f"{self._port} now belongs to another module")
         factory = self._serial_factory
         if factory is None:
             if not _SERIAL_AVAILABLE:
@@ -384,10 +478,13 @@ class ArduinoSerialListener:
     def _listen_loop(self) -> None:
         """Open → read until error → close → wait (1 → 30 s) → reopen.
 
-        The delay grows on every failed or empty session and goes back to
-        the minimum once a session delivered a line, so a flapping port is
-        retried at most every 30 s while a re-plugged cable comes back
-        within a second.
+        The delay grows on every failed or short session and goes back to
+        the minimum only after a session that stayed open for
+        :data:`STABLE_SESSION_S` (by the injected clock). "Delivered a line"
+        is not enough: a CH340 Nano resets on every open and prints its
+        banner, so a port that dies seconds after each open would otherwise
+        be hammered every second forever. A healthy link that drops (cable
+        re-plugged) still comes back within a second.
         """
         delay = RECONNECT_MIN_S
         failures = 0
@@ -407,8 +504,11 @@ class ArduinoSerialListener:
 
             self._set_connected(True)
             if failures:
-                log.info("Arduino serial %s connected", self._port)
-            lines = 0
+                # Every short session counts as a failure now, so a flapping
+                # port would log this at INFO on each reopen (~2500 lines a
+                # day at the 30 s cap) — rate-limited like "lost".
+                self._connected_log(log.info, "Arduino serial %s connected", self._port)
+            opened_at = self._clock()
             try:
                 while self._running:
                     raw = ser.readline(MAX_LINE_BYTES)
@@ -417,10 +517,10 @@ class ArduinoSerialListener:
                     line = raw.decode("utf-8", errors="ignore").strip()
                     if not line:
                         continue
-                    lines += 1
                     self._parse_line(line)
             except Exception as e:
-                log.warning("Arduino serial %s lost: %s — reconnecting", self._port, e)
+                self._lost_log(log.warning, "Arduino serial %s lost: %s — reconnecting",
+                               self._port, e)
             finally:
                 try:
                     ser.close()
@@ -430,7 +530,7 @@ class ArduinoSerialListener:
 
             if not self._running:
                 break
-            if lines:
+            if self._clock() - opened_at >= STABLE_SESSION_S:
                 delay = RECONNECT_MIN_S
                 failures = 0
             else:
@@ -442,7 +542,13 @@ class ArduinoSerialListener:
     # ── parser ─────────────────────────────────────────────────────────────
 
     def _parse_line(self, line: str) -> None:
-        """Parse Arduino serial output line."""
+        """Parse one line (untrusted; at most :data:`MAX_LINE_BYTES`).
+
+        Whatever is logged is ``repr`` of the first :data:`LOG_TEXT_MAX`
+        characters, so control characters or a fake "ERROR ..." line cannot
+        reach the journal verbatim; unknown and unparsable lines are also
+        rate-limited (a Nano spewing garbage at 115200 baud would flood it).
+        """
         try:
             if line.startswith("LIGHT:"):
                 self._bus.publish("arduino.light_level", int(line[6:]))
@@ -486,13 +592,17 @@ class ArduinoSerialListener:
                 self._bus.publish("vehicle.power_state", line[4:])
 
             elif line.startswith(("SWC:", "MUSIC:", "STALK:", "PWRACT:")):
-                log.debug("Arduino: %s", line)
+                log.debug("Arduino: %r", line[:LOG_TEXT_MAX])
 
             else:
-                log.debug("Arduino unknown: %s", line)
+                self._noise_log(log.debug, "Arduino unknown line: %r",
+                                line[:LOG_TEXT_MAX])
 
         except (ValueError, IndexError) as e:
-            log.debug("Parse error '%s': %s", line, e)
+            # The exception text quotes the payload with repr() itself; the
+            # type name is enough next to our own cut repr.
+            self._noise_log(log.debug, "Arduino parse error (%s): %r",
+                            type(e).__name__, line[:LOG_TEXT_MAX])
 
     def _parse_batt(self, line: str) -> None:
         """BATT:<mV>[,<mA>] (or BATT:<V>) → arduino.battery_voltage/_current.
@@ -518,15 +628,8 @@ class ArduinoSerialListener:
     def _log_batt_reject(self, line: str, reason: str) -> None:
         """One debug line per :data:`BATT_REJECT_LOG_S` — a broken divider
         repeats every 2 s and must not flood the log."""
-        now = self._clock()
-        if self._batt_log_at is not None and now - self._batt_log_at < BATT_REJECT_LOG_S:
-            self._batt_suppressed += 1
-            return
-        more = f" (+{self._batt_suppressed} more since last report)" \
-            if self._batt_suppressed else ""
-        log.debug("Arduino BATT ignored (%s): %r%s", reason, line[:64], more)
-        self._batt_log_at = now
-        self._batt_suppressed = 0
+        self._batt_log(log.debug, "Arduino BATT ignored (%s): %r",
+                       reason, line[:LOG_TEXT_MAX])
 
     def _parse_doors(self, payload: str) -> None:
         """Parse DOOR:FL=1,FR=0,RL=0,RR=0,BONNET=0,TRUNK=0"""

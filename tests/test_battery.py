@@ -5,6 +5,7 @@ a fake clock, so staleness is tested without sleeping.
 """
 
 import math
+import threading
 
 import pytest
 
@@ -306,6 +307,52 @@ class TestCompat:
         make(smoothing_samples=1)
         _feed(bus, clock, 11.0)
         assert not [t for t, _ in events if t.startswith("battery.backup_")]
+
+
+class _SlowBus:
+    """Bus whose first ``battery.state`` publish from the sample thread
+    stalls until released — the window in which the stale checker used to
+    compute AND publish a newer result before the older one got out."""
+
+    def __init__(self) -> None:
+        self.published: list[tuple[str, object]] = []
+        self.stalled = threading.Event()
+        self.release = threading.Event()
+        self._stall_once = True
+
+    def subscribe(self, topic, cb):
+        pass
+
+    def unsubscribe(self, topic, cb):
+        pass
+
+    def publish(self, topic, value=None):
+        if topic == "battery.state" and self._stall_once:
+            self._stall_once = False
+            self.stalled.set()
+            self.release.wait(5.0)
+        self.published.append((topic, value))
+
+
+def test_concurrent_ticks_publish_in_computation_order():
+    bus = _SlowBus()
+    clock = _Clock()
+    mon = BatteryMonitor(bus, {"battery": {"smoothing_samples": 1, "stale_sec": 30}},
+                         clock=clock)
+    sample = threading.Thread(target=mon._on_voltage,
+                              args=("arduino.battery_voltage", 12.6, 0.0))
+    sample.start()                       # computes "ok", stalls while publishing it
+    assert bus.stalled.wait(5.0)
+    clock.t += 31                        # the sample is stale from now on
+    checker = threading.Thread(target=mon.tick)
+    checker.start()                      # computes "unknown"
+    checker.join(0.2)                    # with the old code it published here
+    bus.release.set()
+    sample.join(5.0)
+    checker.join(5.0)
+    states = [v for t, v in bus.published if t == "battery.state"]
+    assert states == ["ok", "unknown"]   # never a stale "ok" after "unknown"
+    assert mon.state == "unknown"
 
 
 def test_end_to_end_from_the_serial_line(monkeypatch):

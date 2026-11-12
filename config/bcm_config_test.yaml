@@ -491,7 +491,9 @@ arduino:
   # /dev/ttyACM0..1 i /dev/ttyUSB0..2, pierwszy, który się otworzy, wygrywa).
   # Wyłączone, bo samo otwarcie portu ustawia DTR i RESETUJE każde Nano na
   # CH340, a sondowanie może zająć port adaptera K-Line, GPS albo zamka
-  # (porty WŁĄCZONYCH modułów są pomijane, wyłączonych — nie). Skutek:
+  # (porty WŁĄCZONYCH modułów są pomijane, także przy każdym ponownym
+  # otwarciu; port GPS tylko, gdy hardware.gps.source go czyta — serial albo
+  # auto poza x86; porty wyłączonych modułów — nie). Skutek:
   # bez sensor_hub_port BCM nie czyta Arduino przez port szeregowy wcale —
   # przyciski SWC z Pro Micro idą przez USB HID i działają dalej; nie jest
   # czytany tylko LIGHT: z Pro Micro (dziś nic z niego nie korzysta).
