@@ -237,6 +237,16 @@ def _save_config(cfg: Any, what: str) -> bool:
         return False
 
 
+def _modules_restart_required(modules: list, changed: bool) -> bool:
+    """True if any module's saved toggles differ from what is running now
+    (``restart_pending`` from catalog_state). Without a boot snapshot
+    (``restart_pending`` absent) a change just saved (``changed``) is
+    assumed to need one, and a plain read says nothing is pending."""
+    if any("restart_pending" not in m for m in modules):
+        return changed
+    return any(m["restart_pending"] for m in modules)
+
+
 #: Minimum spacing of POST /api/phone_tether/retry (one nmcli attempt each).
 _TETHER_RETRY_MIN_INTERVAL_S = 10.0
 #: Minimum spacing of POST /api/phone/dial, per bucket: the kiosk on this
@@ -710,7 +720,7 @@ class WebViewer:
     def __init__(self, host: str = "0.0.0.0", port: int = 5002,
                  event_bus=None, config=None, bt_manager=None,
                  trip_computer=None, route_planner=None,
-                 wifi_ap=None) -> None:
+                 wifi_ap=None, boot_module_runs=None) -> None:
         self.host = host
         self.port = port
         self._event_bus = event_bus
@@ -762,6 +772,18 @@ class WebViewer:
         self._aa_stream_active: list[int] = []
         self._aa_stream_procs: dict[int, Any] = {}
 
+        # Which modules run in THIS process. /api/modules compares the saved
+        # toggles with it, so "wymaga restartu BCM" appears only where a
+        # restart would actually change something. main.py hands over what
+        # it really started (``boot_module_runs`` — also right for a run
+        # with --modules, which the config alone does not know about); only
+        # without it (tests, the Pygame renderer) is it recomputed from the
+        # config, which at this point still matches the start-up decision.
+        if isinstance(boot_module_runs, dict):
+            self._modules_boot_runs = {str(k): bool(v) for k, v in boot_module_runs.items()}
+        else:
+            self._modules_boot_runs = self._modules_runs(config)
+
         # Forward voice-AA trigger to autoapp (M key or tap on the mic icon)
         if event_bus:
             event_bus.subscribe("aa.voice_trigger", self._on_aa_voice_trigger)
@@ -769,6 +791,25 @@ class WebViewer:
             # pressed-button state that belonged to the old X server.
             event_bus.subscribe("multimedia.openauto_status",
                                 self._on_openauto_status)
+
+    @staticmethod
+    def _modules_runs(config) -> Optional[dict]:
+        """``{name: runs}`` for this config; None if it cannot be resolved
+        (no config, a plain dict in tests)."""
+        if config is None or not hasattr(config, "is_module_enabled"):
+            return None
+        try:
+            from src.core import modules_catalog
+            return {name: st.runs for name, st in modules_catalog.module_states(config).items()}
+        except Exception:
+            log.exception("Module state snapshot failed")
+            return None
+
+    def _modules_payload(self, config) -> list:
+        """/api/modules list: the catalog with requires/hardware/available/
+        blocked_by/needs and, with a boot snapshot, restart_pending."""
+        from src.core.modules_catalog import catalog_state
+        return catalog_state(config, self._modules_boot_runs)
 
     def attach_trip(self, trip_computer, route_planner=None) -> None:
         """Attach trip computer + planner after construction.
@@ -1485,34 +1526,72 @@ class WebViewer:
         def api_modules_get():
             cfg = viewer._config
             if cfg is None:
-                return jsonify({"modules": []})
-            from src.core.modules_catalog import catalog_state
-            return jsonify({"modules": catalog_state(cfg)})
+                return jsonify({"modules": [], "restart_required": False})
+            modules = viewer._modules_payload(cfg)
+            return jsonify({"modules": modules,
+                            "restart_required": _modules_restart_required(modules, False)})
 
         @app.route("/api/modules", methods=["POST"])
         def api_modules_set():
-            """Persist a module toggle. Takes effect after BCM restart."""
+            """Persist a module toggle (``modules.<name>`` in local.yaml).
+
+            Body: ``{"name": str, "enabled": bool, "with_deps": bool?}``.
+            Strict types — a string "false" must not switch anything on.
+            A planned module (no code in this version) cannot be switched on
+            (409). ``with_deps: true`` also switches on what the catalog
+            says it needs (``enable_plan``) — only ever on the driver's
+            explicit confirmation in Settings; without it the toggle is
+            saved alone and the module logs one warning at start-up.
+            The response says whether a BCM restart is needed for the saved
+            state to take effect (``restart_required``) and carries the
+            fresh module list, so the screen does not have to ask again.
+            """
             cfg = viewer._config
             if cfg is None:
                 return jsonify({"error": "no config"}), 500
-            data = request.get_json(silent=True) or {}
+            data = request.get_json(silent=True)
+            if not isinstance(data, dict):
+                return jsonify({"error": "expected a JSON object"}), 400
+            from src.core import modules_catalog as mc
             name = data.get("name")
-            from src.core.modules_catalog import MODULES
-            if name not in MODULES:
-                return jsonify({"error": f"unknown module: {name}"}), 400
-            enabled = bool(data.get("enabled"))
-            cfg.set(f"modules.{name}", enabled)
-            # Keep the legacy ad-hoc key in sync so code that still reads
-            # it directly (e.g. openauto's wifi.enabled warning) agrees.
-            legacy = MODULES[name].get("legacy_key")
-            if legacy:
-                cfg.set(legacy, enabled)
+            if not isinstance(name, str) or name not in mc.MODULES:
+                return jsonify({"error": "unknown module"}), 400
+            enabled = data.get("enabled")
+            if not isinstance(enabled, bool):
+                return jsonify({"error": "enabled must be true or false"}), 400
+            with_deps = data.get("with_deps", False)
+            if not isinstance(with_deps, bool):
+                return jsonify({"error": "with_deps must be true or false"}), 400
+            if enabled and not mc.is_available(mc.MODULES[name]):
+                return jsonify({"error": "module not available in this version",
+                                "available": False}), 409
+            also: list[str] = []
+            if enabled and with_deps:
+                plan = mc.enable_plan(mc.MODULES, mc.enabled_map(cfg), name)
+                if plan is None:
+                    return jsonify({"error": "dependencies cannot be enabled in this version",
+                                    "available": False}), 409
+                also = plan
+            for module in also + [name]:
+                cfg.set(f"modules.{module}", enabled)
+                # Keep the legacy ad-hoc key in sync so code that still reads
+                # it directly (e.g. openauto's wifi.enabled warning) agrees.
+                legacy = mc.MODULES[module].get("legacy_key")
+                if legacy:
+                    cfg.set(legacy, enabled)
             persisted = _save_config(cfg, f"module {name}")
             if viewer._event_bus:
                 viewer._event_bus.publish("config.changed",
-                                          {"module": name, "enabled": enabled})
-            return jsonify({"ok": True, "restart_required": True,
-                            "persisted": persisted})
+                                          {"module": name, "enabled": enabled,
+                                           "also": list(also)})
+            modules = viewer._modules_payload(cfg)
+            this = next((m for m in modules if m["name"] == name), {})
+            return jsonify({"ok": True, "persisted": persisted,
+                            "enabled_also": also,
+                            "runs": this.get("runs", False),
+                            "blocked_by": this.get("blocked_by", []),
+                            "restart_required": _modules_restart_required(modules, True),
+                            "modules": modules})
 
         # --- SWC mapping API ---
 

@@ -349,7 +349,7 @@ async function runSuggestions(browser, c) {
     await page.evaluate(() => App.navigateTo("a4"));
     await page.waitForSelector("#weather-search-input");
     await typeGdy("#weather-search-input");
-    const firstPlace = "#weather-search-results [onclick^='WeatherSearch.select']";
+    const firstPlace = "#weather-search-results [data-weather-idx]";
     await page.waitForSelector(firstPlace, { timeout: 3000 });
     item = await visibleCentre(firstPlace);
     if (!item) fail(`${tag}: weather suggestion hidden under the keyboard`);

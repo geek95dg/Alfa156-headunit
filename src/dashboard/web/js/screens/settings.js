@@ -23,8 +23,21 @@ const Settings = {
              restartRequired: false, status: "",
              internet_share_available: false },
 
-    // Module on/off toggles (modules.* in bcm_config.yaml)
-    _modules: { list: [], loaded: false, status: "" },
+    // Module on/off toggles (modules.* — GET/POST /api/modules; the list
+    // carries requires/hardware/available/blocked_by/needs/would_stop from
+    // src/core/modules_catalog.py). `confirm` is the open question before a
+    // toggle with consequences (dependencies off / dependents running) —
+    // nothing is ever switched on or off in cascade without it. `statusName`:
+    // the module the last status line is about (drawn under its row).
+    _modules: { list: [], loaded: false, status: "", statusName: null,
+                restartRequired: false, confirm: null, busy: false },
+    // Settings → Moduły headings, in this order ("" = modules without a group).
+    _moduleGroups: [
+        ["", "modules_group_core", "Podstawowe"],
+        ["telefon_w_aucie", "modules_group_telefon_w_aucie", "Telefon w aucie"],
+        ["bezpieczenstwo", "modules_group_bezpieczenstwo", "Bezpieczeństwo"],
+        ["zasilanie", "modules_group_zasilanie", "Zasilanie i wybudzanie"],
+    ],
 
     // Android Auto settings & control
     _aa: { autoRestart: true, loaded: false, restarting: false },
@@ -193,33 +206,340 @@ const Settings = {
         try {
             const res = await fetch("/api/modules");
             const data = await res.json();
-            Settings._modules.list = data.modules || [];
+            Settings._modules.list = Array.isArray(data.modules) ? data.modules : [];
+            Settings._modules.restartRequired = !!data.restart_required;
             Settings._modules.loaded = true;
-            App.navigateTo("settings");
+            Settings._modulesRedraw(false);
         } catch (e) { /* keep last known state */ }
     },
 
+    _t() {
+        return (App.t ? App.t.bind(App) : (k, d) => d);
+    },
+
+    /** Redraw only the Moduły card. A full App.navigateTo("settings")
+     *  rebuilds .content-area and puts its scroll back at the top — the card
+     *  sits near the bottom of Settings, so on the 1024x600 panel the
+     *  question (and the save status) would be drawn below the screen while
+     *  the tapped checkbox just flips back. Same pattern as update() for
+     *  [data-tether-slot]. `reveal`: after an action, scroll the question /
+     *  status (drawn under the tapped row) into view by the smallest amount.
+     *  Without the card in the DOM (the driver left Settings while a
+     *  request was in flight) the state is only kept for the next visit —
+     *  never pull the driver back to Settings. */
+    _modulesRedraw(reveal) {
+        const slot = document.querySelector("[data-modules-card]");
+        if (!slot) {
+            if (App.getCurrentScreen && App.getCurrentScreen() === "settings") {
+                App.navigateTo("settings");
+            }
+            return;
+        }
+        slot.innerHTML = Settings.modulesCardHtml(Settings._modules, Settings._t());
+        if (!reveal) return;
+        const el = slot.querySelector("[data-module-question]")
+            || slot.querySelector("[data-modules-status]");
+        if (el && typeof el.scrollIntoView === "function") el.scrollIntoView({ block: "nearest" });
+    },
+
+    /** Checkbox changed. A toggle with consequences opens a question under
+     *  the module's row instead of saving: switching on a module whose
+     *  dependencies do not run, or switching off one that others need.
+     *  Everything else is saved at once. The checkbox is redrawn from the
+     *  list, so until the driver confirms it shows the saved state. */
     async moduleToggle(name, enabled) {
+        const mods = Settings._modules;
+        const m = mods.list.find(x => x && x.name === name);
+        if (!m || typeof enabled !== "boolean") return;
+        const t = Settings._t();
+        if (enabled && m.available === false) {
+            mods.status = t("module_unavailable", "niedostępny w tej wersji");
+            mods.statusName = name;
+            Settings._modulesRedraw(true);
+            return;
+        }
+        const blocked = Array.isArray(m.blocked_by) ? m.blocked_by : [];
+        if (enabled && blocked.length) {
+            mods.confirm = { name, action: "enable", blocked,
+                             needs: Array.isArray(m.needs) ? m.needs : null };
+            Settings._modulesRedraw(true);
+            return;
+        }
+        const stops = Array.isArray(m.would_stop) ? m.would_stop : [];
+        if (!enabled && stops.length) {
+            mods.confirm = { name, action: "disable", stops };
+            Settings._modulesRedraw(true);
+            return;
+        }
+        mods.confirm = null;
+        await Settings._modulePost({ name, enabled });
+    },
+
+    /** "Włącz z zależnościami" in the row of a module that is ON but does
+     *  not run (a dependency is off, or on but itself blocked): the same
+     *  question as for enabling, listing what the server says has to be
+     *  switched on (`needs`). Nothing is saved before the driver confirms. */
+    moduleFixDeps(name) {
+        const mods = Settings._modules;
+        const m = mods.list.find(x => x && x.name === name);
+        if (!m || !m.enabled || m.runs || !Array.isArray(m.needs) || !m.needs.length) return;
+        mods.confirm = { name, action: "enable", already: true,
+                         blocked: Array.isArray(m.blocked_by) ? m.blocked_by : [],
+                         needs: m.needs };
+        Settings._modulesRedraw(true);
+    },
+
+    /** Answer to the open question: "deps" (enable with dependencies),
+     *  "only" (save this toggle alone), "disable", or "cancel". */
+    async moduleConfirm(choice) {
+        const c = Settings._modules.confirm;
+        Settings._modules.confirm = null;
+        if (!c || choice === "cancel") {
+            Settings._modulesRedraw(false);
+            return;
+        }
+        if (c.action === "enable" && (choice === "deps" || choice === "only")) {
+            const withDeps = choice === "deps" && Array.isArray(c.needs) && c.needs.length > 0;
+            await Settings._modulePost({ name: c.name, enabled: true, with_deps: withDeps });
+        } else if (c.action === "disable" && choice === "disable") {
+            await Settings._modulePost({ name: c.name, enabled: false });
+        } else {
+            Settings._modulesRedraw(false);
+        }
+    },
+
+    async _modulePost(body) {
+        const mods = Settings._modules;
+        if (mods.busy) return;               // double tap while saving
+        mods.busy = true;
+        const t = Settings._t();
         try {
             const res = await fetch("/api/modules", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ name, enabled }),
+                body: JSON.stringify(body),
             });
-            const data = await res.json();
-            if (data.ok) {
-                const m = Settings._modules.list.find(x => x.name === name);
-                if (m) m.enabled = enabled;
-                Settings._modules.status =
-                    (App.t ? App.t.call(App, "restart_required", "Zapisano — wymagany restart BCM") :
-                     "Zapisano — wymagany restart BCM");
+            let data = {};
+            try { data = await res.json(); } catch (e) { /* non-JSON error page */ }
+            if (res.ok && data && data.ok) {
+                if (Array.isArray(data.modules)) {
+                    mods.list = data.modules;
+                } else {
+                    const m = mods.list.find(x => x && x.name === body.name);
+                    if (m) m.enabled = body.enabled;
+                }
+                mods.restartRequired = !!data.restart_required;
+                let msg = data.restart_required
+                    ? t("module_saved_restart", "Zapisano — wymaga restartu BCM")
+                    : t("module_saved", "Zapisano");
+                if (Array.isArray(data.enabled_also) && data.enabled_also.length) {
+                    msg += " — " + t("module_enabled_also", "włączono też: {deps}")
+                        .replace("{deps}", () => data.enabled_also.map(String).join(", "));
+                }
+                if (data.persisted === false) {
+                    msg += " — " + t("module_not_persisted",
+                        "nie zapisano w local.yaml — zmiana zniknie po restarcie");
+                }
+                mods.status = msg;
             } else {
-                Settings._modules.status = data.error || "error";
+                mods.status = (data && typeof data.error === "string")
+                    ? data.error : ("HTTP " + res.status);
             }
         } catch (e) {
-            Settings._modules.status = "error: " + e;
+            mods.status = "error: " + e;
         }
-        App.navigateTo("settings");
+        mods.statusName = typeof body.name === "string" ? body.name : null;
+        mods.busy = false;
+        Settings._modulesRedraw(true);
+    },
+
+    /** name -> module of the list (a Map: a module called "__proto__" or
+     *  "constructor" must not reach Object.prototype). */
+    _moduleIndex(list) {
+        const byName = new Map();
+        if (Array.isArray(list)) {
+            list.forEach(m => { if (m && typeof m.name === "string") byName.set(m.name, m); });
+        }
+        return byName;
+    },
+
+    /** One dependency as the driver should read it. A dependency that is
+     *  switched ON but does not run is not "off" — telling the driver to
+     *  enable it would send them to the wrong toggle; its own dependency is
+     *  the cause (the row of that module says which). */
+    _moduleDepLabel(name, byName, t) {
+        const d = byName ? byName.get(String(name)) : undefined;
+        if (d && d.available === false) {
+            return `${name} (${t("module_unavailable", "niedostępny w tej wersji")})`;
+        }
+        if (d && d.enabled && !d.runs) {
+            return `${name} (${t("module_dep_blocked", "włączony, ale nie działa")})`;
+        }
+        return String(name);
+    },
+
+    /** "a, b lub c" for requirement groups ([["a"], ["b", "c"]]); with
+     *  `byName` (see _moduleIndex) each name says why it does not run. */
+    _moduleGroupsText(groups, t, byName) {
+        if (!Array.isArray(groups)) return "";
+        const or = " " + t("module_or", "lub") + " ";
+        const label = byName ? (n => Settings._moduleDepLabel(n, byName, t)) : String;
+        return groups.filter(Array.isArray)
+            .map(g => g.map(label).join(or))
+            .filter(Boolean).join(", ");
+    },
+
+    /** One module: checkbox (data-module, never inline data in JS), name,
+     *  description, hardware note, requirements, and why it will not start /
+     *  that it needs a restart. For a module that is on but blocked it shows
+     *  the server's `needs` (what actually has to be switched on — for a
+     *  chain that is the root, not the direct dependency) with a "Włącz z
+     *  zależnościami" button. `byName`: the whole list (_moduleIndex), for
+     *  the dependency labels. Every value escaped; inline styles only. */
+    moduleRowHtml(m, t, byName) {
+        t = t || ((k, d) => d);
+        if (!m || typeof m !== "object" || typeof m.name !== "string") return "";
+        const esc = Settings._esc;
+        const unavailable = m.available === false;
+        // A planned module cannot be switched on; one that is on anyway
+        // (hand-edited local.yaml) can still be switched off.
+        const disabled = unavailable && !m.enabled;
+        const req = [];
+        if (Array.isArray(m.requires)) m.requires.forEach(n => req.push([n]));
+        if (Array.isArray(m.requires_any)) m.requires_any.forEach(g => req.push(g));
+        const lines = [];
+        if (m.hardware) {
+            lines.push(`<span data-module-hw style="color:var(--text-mid)">${esc(t("module_hardware", "Sprzęt"))}: ${esc(m.hardware)}</span>`);
+        }
+        if (req.length) {
+            lines.push(`<span style="color:var(--text-dim)">${esc(t("module_requires", "wymaga"))}: ${esc(Settings._moduleGroupsText(req, t))}</span>`);
+        }
+        let fix = "";
+        if (unavailable) {
+            lines.push(`<span data-module-unavailable style="color:var(--text-dim);font-style:italic">${esc(t("module_unavailable", "niedostępny w tej wersji"))}</span>`);
+        } else if (m.enabled && !m.runs && m.reason === "cycle") {
+            lines.push(`<span data-module-blocked style="color:#d97706;font-weight:700">${esc(t("module_cycle", "nie wystartuje — błąd katalogu modułów"))}</span>`);
+        } else if (m.enabled && !m.runs && Array.isArray(m.needs) && m.needs.length) {
+            lines.push(`<span data-module-blocked style="color:#d97706;font-weight:700">${esc(t("module_blocked_needs", "nie wystartuje — trzeba włączyć"))}: ${esc(m.needs.map(String).join(", "))}</span>`);
+            // The name travels in a data attribute, never inside the JS.
+            fix = `<button type="button" data-module-fix="${esc(m.name)}" onclick="Settings.moduleFixDeps(this.dataset.moduleFix)" style="align-self:flex-start;margin-top:2px;padding:4px 10px;border-radius:8px;font-size:10px;font-weight:700;border:none;background:var(--color-primary);color:#fff">${esc(t("module_enable_with_deps", "Włącz z zależnościami"))}</button>`;
+        } else if (m.enabled && !m.runs && Array.isArray(m.blocked_by) && m.blocked_by.length) {
+            lines.push(`<span data-module-blocked style="color:#d97706;font-weight:700">${esc(t("module_blocked", "nie wystartuje — brak"))}: ${esc(Settings._moduleGroupsText(m.blocked_by, t, byName))}</span>`);
+        }
+        if (m.restart_pending) {
+            lines.push(`<span data-module-restart style="color:var(--color-primary);font-weight:700">${esc(t("module_restart_pending", "wymaga restartu BCM"))}</span>`);
+        }
+        // The fix button sits outside the <label>: a tap on it must not
+        // also toggle the checkbox.
+        return `<div data-module-cell="${esc(m.name)}" style="display:flex;flex-direction:column;border-bottom:1px solid var(--card-border);padding:4px 0;min-width:0">
+        <label data-module-row="${esc(m.name)}" style="display:flex;align-items:flex-start;gap:8px;cursor:${disabled ? "default" : "pointer"};opacity:${disabled ? "0.6" : "1"}">
+            <input type="checkbox" data-module="${esc(m.name)}" ${m.enabled ? "checked" : ""} ${disabled ? "disabled" : ""}
+                style="margin-top:2px;flex:none" onchange="Settings.moduleToggle(this.dataset.module, this.checked)">
+            <span style="display:flex;flex-direction:column;gap:1px;min-width:0;flex:1;font-size:9px;line-height:1.3">
+                <span style="display:flex;gap:6px;align-items:baseline;min-width:0">
+                    <span style="font-size:11px;font-weight:700;color:var(--color-on-surface);flex:none">${esc(m.name)}</span>
+                    <span style="color:var(--text-dim);margin-left:auto;text-align:right;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0">${esc(m.description)}</span>
+                </span>
+                ${lines.join("")}
+            </span>
+        </label>${fix ? `<span style="padding-left:21px">${fix}</span>` : ""}
+        </div>`;
+    },
+
+    /** The open question (see moduleToggle), or ''. Buttons carry fixed
+     *  choice words only — the module name is never part of the JS.
+     *  `byName` (_moduleIndex) marks dependencies that are on but blocked. */
+    moduleConfirmHtml(c, t, byName) {
+        t = t || ((k, d) => d);
+        if (!c || typeof c !== "object" || typeof c.name !== "string") return "";
+        const esc = Settings._esc;
+        const btn = (choice, label, primary) =>
+            `<button type="button" data-module-confirm="${choice}" onclick="Settings.moduleConfirm('${choice}')" style="padding:6px 12px;border-radius:8px;font-size:11px;font-weight:700;border:none;${primary ? "background:var(--color-primary);color:#fff" : "background:var(--card-border);color:var(--text-mid)"}">${esc(label)}</button>`;
+        const sub = (key, fallback, deps) => t(key, fallback)
+            .replace("{name}", () => c.name).replace("{deps}", () => deps);
+        let text = "";
+        let buttons = "";
+        if (c.action === "enable") {
+            const missing = Settings._moduleGroupsText(c.blocked, t, byName);
+            text = esc(sub("module_needs_title", "„{name}” wymaga modułów, które nie działają: {deps}.", missing));
+            if (Array.isArray(c.needs) && c.needs.length) {
+                text += " " + esc(sub("module_enable_also", "Włączyć też: {deps}?", c.needs.map(String).join(", ")));
+                buttons = btn("deps", t("module_enable_with_deps", "Włącz z zależnościami"), true);
+                // Already on (the row's fix button): "only this one" would change nothing.
+                if (!c.already) buttons += btn("only", t("module_enable_only", "Tylko ten moduł"), false);
+            } else {
+                text += " " + esc(sub("module_deps_unavailable",
+                    "Potrzebne moduły nie są dostępne w tej wersji — „{name}” nie wystartuje.", ""));
+                if (!c.already) buttons = btn("only", t("module_enable_anyway", "Zapisz mimo to"), false);
+            }
+        } else if (c.action === "disable") {
+            const stops = Array.isArray(c.stops) ? c.stops.map(String).join(", ") : "";
+            text = esc(sub("module_disable_stops", "Wyłączenie „{name}” zatrzyma też: {deps}.", stops));
+            buttons = btn("disable", t("module_disable", "Wyłącz"), true);
+        } else {
+            return "";
+        }
+        buttons += btn("cancel", t("module_cancel", "Anuluj"), false);
+        return `<div data-module-question="${esc(c.action)}" style="margin:4px 0 8px 0;padding:8px 12px;border-radius:12px;border:1px solid #d97706;background:var(--card-bg);font-size:11px;line-height:1.4;color:var(--color-on-surface)">
+            <p style="margin:0 0 8px 0">${text}</p>
+            <div style="display:flex;flex-wrap:wrap;gap:8px">${buttons}</div>
+        </div>`;
+    },
+
+    /** Body of the Moduły card: restart banner, the module list grouped by
+     *  catalog ``group``, and the open question / last save status. Those
+     *  two are drawn right under the grid line of the module they are about
+     *  (across both columns), so they appear next to the checkbox the
+     *  driver just tapped instead of at the top of a card taller than the
+     *  screen; without a module they go to the top of the card. */
+    modulesCardHtml(state, t) {
+        t = t || ((k, d) => d);
+        const esc = Settings._esc;
+        state = state || {};
+        const list = Array.isArray(state.list) ? state.list.filter(m => m && typeof m.name === "string") : [];
+        const byName = Settings._moduleIndex(list);
+        const confirm = state.confirm && typeof state.confirm === "object"
+            && typeof state.confirm.name === "string" ? state.confirm : null;
+        const statusHtml = state.status
+            ? `<p data-modules-status style="margin:4px 0 8px 0;font-size:10px;color:var(--color-primary)">${esc(state.status)}</p>`
+            : "";
+        const statusName = statusHtml && typeof state.statusName === "string"
+            && byName.has(state.statusName) ? state.statusName : null;
+        const confirmName = confirm && byName.has(confirm.name) ? confirm.name : null;
+        let html = "";
+        if (state.restartRequired) {
+            html += `<p data-modules-restart style="margin:0 0 8px 0;padding:6px 10px;border-radius:8px;background:var(--card-border);color:var(--color-primary);font-size:11px;font-weight:700">${esc(t("module_restart_pending", "wymaga restartu BCM"))}</p>`;
+        }
+        if (statusHtml && statusName === null) html += statusHtml;
+        if (confirm && confirmName === null) html += Settings.moduleConfirmHtml(confirm, t, byName);
+        const notesFor = (name) => {
+            let h = "";
+            if (name === confirmName) h += Settings.moduleConfirmHtml(confirm, t, byName);
+            if (name === statusName) h += statusHtml;
+            return h ? `<div data-module-notes="${esc(name)}" style="grid-column:1/-1;min-width:0">${h}</div>` : "";
+        };
+        const known = Settings._moduleGroups.map(g => g[0]);
+        const groups = Settings._moduleGroups.slice();
+        list.forEach(m => {
+            const g = typeof m.group === "string" ? m.group : "";
+            if (!known.includes(g)) { known.push(g); groups.push([g, "", g]); }
+        });
+        groups.forEach(([key, tkey, fallback]) => {
+            const items = list.filter(m => (typeof m.group === "string" ? m.group : "") === key);
+            if (!items.length) return;
+            const cells = [];
+            items.forEach((m, i) => {
+                cells.push(Settings.moduleRowHtml(m, t, byName));
+                // End of a grid line (2 columns) or of the group: the notes
+                // of both modules on this line, so no row is pushed aside.
+                if (i % 2 === 1 || i === items.length - 1) {
+                    items.slice(i - (i % 2), i + 1).forEach(x => cells.push(notesFor(x.name)));
+                }
+            });
+            html += `<p data-module-group="${esc(key)}" style="margin:8px 0 2px 0;font-size:9px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;color:var(--text-dim)">${esc(tkey ? t(tkey, fallback) : fallback)}</p>
+                <div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));column-gap:16px">${cells.join("")}</div>`;
+        });
+        return html;
     },
 
     async radioRefresh() {
@@ -859,16 +1179,7 @@ App.registerScreen("settings", (() => {
                         <p class="text-[10px] font-bold uppercase tracking-wider" style="color:var(--text-dim)">${t("modules", "Moduły")}</p>
                         <p class="text-[9px]" style="color:var(--text-dim)">${t("modules_hint", "Zmiany działają po restarcie BCM")}</p>
                     </div>
-                    ${Settings._modules.status ? `<p class="text-[10px] mb-2" style="color:var(--color-primary)">${Settings._modules.status}</p>` : ""}
-                    <div class="grid grid-cols-2 gap-x-4 gap-y-1">
-                        ${Settings._modules.list.map(m => `
-                            <label class="flex items-center gap-2 py-1 cursor-pointer" style="border-bottom:1px solid var(--card-border)">
-                                <input type="checkbox" ${m.enabled ? "checked" : ""}
-                                    onchange="Settings.moduleToggle('${m.name}', this.checked)">
-                                <span class="text-[11px] font-bold" style="color:var(--color-on-surface)">${m.name}</span>
-                                <span class="text-[9px] truncate ml-auto text-right" style="color:var(--text-dim);max-width:60%">${m.description}</span>
-                            </label>`).join("")}
-                    </div>
+                    <div data-modules-card>${Settings.modulesCardHtml(Settings._modules, t)}</div>
                 </div>
                 <!-- System & Kiosk Control -->
                 <div class="rounded-xl p-3 mt-3" style="background:var(--card-bg);border:1px solid var(--card-border)">

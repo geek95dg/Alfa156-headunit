@@ -102,7 +102,7 @@ class TestStartFromConfigs:
 
     def test_test_config_starts_phonebook_with_the_aa_settle(self):
         cfg = self._cfg("bcm_config_test.yaml")
-        # main.py: `if bt_enabled and modules_catalog.is_enabled(config, "phonebook")`
+        # main.py: `if _runs("phonebook")` — phonebook requires bluetooth
         assert modules_catalog.is_enabled(cfg, "bluetooth") is True
         assert modules_catalog.is_enabled(cfg, "phonebook") is True
         bus = EventBus()

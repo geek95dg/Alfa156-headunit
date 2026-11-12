@@ -56,6 +56,12 @@ rm -f /etc/hostapd/hostapd.conf
 rm -f /etc/dnsmasq.d/bcm-ap.conf
 rm -f /etc/network/interfaces.d/bcm-ap
 rm -f /etc/network/interfaces.d/static
+# setup-x86.sh makes the Wi-Fi card and p2p-* unmanaged for NetworkManager
+# and lets systemd-networkd skip p2p-* (bcm-unmanage-p2p.conf is the name
+# older setups used). Left behind, the card would stay unmanaged for good.
+rm -f /etc/NetworkManager/conf.d/bcm-unmanage-wifi.conf
+rm -f /etc/NetworkManager/conf.d/bcm-unmanage-p2p.conf
+rm -f /etc/systemd/network/00-bcm-p2p.network
 nmcli device set wlp2s0 managed yes 2>/dev/null || true
 ip addr flush dev wlp2s0 2>/dev/null || true
 

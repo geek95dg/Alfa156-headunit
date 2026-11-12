@@ -26,7 +26,21 @@
   weather map badge following gps_fix, and the travel plan's
   "start: domyślny (brak GPS)";
 * dial_result_smoke.js: screens/phone.js drops its instant "ringing"
-  overlay when the backend reports a failed dial (bt.dial_result).
+  overlay when the backend reports a failed dial (bt.dial_result);
+* settings_modules_smoke.js: Settings → Moduły — hardware note,
+  "niedostępny w tej wersji", "nie wystartuje" and "wymaga restartu BCM",
+  the explicit question before enabling a module whose dependencies are off
+  (or disabling one others need), escaping, inline styles only; module
+  actions redraw only the card, with the question under the tapped row;
+* settings_modules_browser_smoke.js: the same card on the real dashboard in
+  headless Chromium at 1024x600 (mouse and touch), fed from the real
+  catalog: the question and the save status stay on screen when the card is
+  scrolled into view (a full re-render used to reset the scroll and draw
+  them below the panel). Skipped without the playwright package/Chromium;
+* weather_escape_smoke.js: screens/weather.js — geocoder place names and
+  the weather city / condition never become markup, results are picked via
+  data-weather-idx + one delegated listener, and only valid coordinates reach
+  the map and POST /api/weather/location.
 """
 
 import json
@@ -203,12 +217,49 @@ def test_edge_tracker(name, ops, expected):
 @pytest.mark.parametrize("harness", ["app_smoke.js", "aa_screen_smoke.js",
                                      "call_nav_smoke.js", "settings_tether_smoke.js",
                                      "appbar_phone_smoke.js", "phone_escape_smoke.js",
-                                     "gps_visibility_smoke.js", "dial_result_smoke.js"])
+                                     "gps_visibility_smoke.js", "dial_result_smoke.js",
+                                     "settings_modules_smoke.js", "weather_escape_smoke.js"])
 def test_screen_harness(harness):
     res = subprocess.run([NODE, str(JS / harness)], capture_output=True, text=True,
                          timeout=60)
     assert res.returncode == 0, res.stderr or res.stdout
     assert res.stdout.strip().endswith("ok")
+
+
+# pytest.ini's 60 s per-test limit is tight for two browser runs on a slow
+# host; the subprocess limit stays below this mark so a hang ends in a
+# readable TimeoutExpired with node killed, not in pytest-timeout.
+@pytest.mark.timeout(150)
+def test_modules_card_in_chromium(tmp_path):
+    """Settings → Moduły at 1024x600: the dependency question and the save
+    status are drawn where the driver is looking. The fixture is the real
+    catalog_state — test config with bluetooth and phone_status off, then
+    the reply after "Włącz z zależnościami" on phone_status."""
+    from src.core import modules_catalog as mc
+    from src.core.config import BCMConfig
+
+    cfg = BCMConfig(config_path=str(ROOT / "config" / "bcm_config_test.yaml"),
+                    platform_override="x86", local_path=None, env={})
+    for key in ("modules.bluetooth", "bluetooth.enabled", "modules.phone_status"):
+        cfg.set(key, False)
+    boot = {n: st.runs for n, st in mc.module_states(cfg).items()}
+    before = mc.catalog_state(cfg, boot)
+    assert {m["name"]: m["needs"] for m in before}["phone_status"] == ["bluetooth"]
+    for key in ("modules.bluetooth", "bluetooth.enabled", "modules.phone_status"):
+        cfg.set(key, True)
+    after = mc.catalog_state(cfg, boot)
+    fixture = tmp_path / "modules.json"
+    fixture.write_text(json.dumps({
+        "before": {"modules": before, "restart_required": False},
+        "after": {"modules": after, "restart_required": True, "enabled_also": ["bluetooth"]},
+    }), encoding="utf-8")
+    res = subprocess.run([NODE, str(JS / "settings_modules_browser_smoke.js"), str(fixture)],
+                         capture_output=True, text=True, timeout=120)
+    out = res.stdout.strip()
+    if res.returncode == 0 and out.startswith("SKIP:"):
+        pytest.skip(out[5:].strip())
+    assert res.returncode == 0, res.stderr or res.stdout
+    assert out.endswith("ok"), out
 
 
 # ── Material Symbols: the glyphs the top-bar phone cluster asks for ──────

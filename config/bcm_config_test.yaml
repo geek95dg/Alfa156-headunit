@@ -113,6 +113,31 @@ modules:
                            # /etc/bcm/bcm.env: BCM_ORS_API_KEY (bez niego trasa
                            # w linii prostej), BCM_TOMTOM_API_KEY (utrudnienia)
   small_display: false     # jeden ekran w wariancie testowym
+
+  # --- moduły dodatkowe (telefon w aucie, bezpieczeństwo, wybudzanie) ---
+  # Każdy ma TYLKO ten jeden przełącznik (bez pod-kluczy „enabled” w blokach
+  # niżej). Wszystkie wyłączone: wymagają nowego sprzętu i w tej wersji nie
+  # mają jeszcze kodu — Ustawienia → Moduły pokazują je jako „niedostępny
+  # w tej wersji”. Zależności i potrzebny sprzęt: src/core/modules_catalog.py;
+  # moduł bez włączonych zależności nie startuje (jedno ostrzeżenie w logu).
+  car_phone: false         # telefon w aucie: Redmi na USB (tethering, GPS,
+                           # bateria, czas z telefonu)
+  car_phone_hotspot: false # hotspot Wi-Fi z Redmi; wymaga car_phone
+  phone_sensors: false     # czujniki Redmi (światło, akcelerometr); wymaga
+                           # car_phone
+  car_phone_agent: false   # agent Termux w Redmi; wymaga car_phone
+  parking_guard: false     # pozycja i alarm na postoju; wymaga car_phone_agent
+  cabin_watch: false       # czuwanie kabiny kamerą Redmi; wymaga
+                           # car_phone_agent
+  crash_sms: false         # SMS po stłuczce; wymaga crash_detect,
+                           # phone_sensors i car_phone_agent
+  call112: false           # „Zadzwoń na 112” w oknie wypadku; wymaga
+                           # crash_detect oraz car_phone_agent albo bluetooth
+                           # (+ mikrofon)
+  auto_brightness: false   # jasność ekranu z czujnika światła; wymaga
+                           # phone_sensors albo input (Arduino)
+  remote_session: false    # sesja po zdalnym wybudzeniu; wymaga input
+                           # (Nano #2 z FEATURE_WAKE_*)
 dashboard:
   # Kto z SIECI może korzystać z dashboardu na porcie 5002 (kiosk na tym
   # komputerze — 127.0.0.1 — ma zawsze pełny dostęp):

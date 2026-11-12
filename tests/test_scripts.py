@@ -161,6 +161,36 @@ class TestSetupX86:
         assert "${BCM_CONFIG:-config/bcm_config_test.yaml}" in self.text
         assert "--config config/bcm_config.yaml" not in self.text
 
+    def test_nm_unmanaged_devices_is_one_key_in_one_file(self):
+        """NetworkManager does not merge ``[keyfile] unmanaged-devices=`` from
+        several conf.d files — the one parsed last wins. With the Wi-Fi rule
+        in bcm-unmanage-wifi.conf and the p2p-* rule in bcm-unmanage-p2p.conf
+        the p2p-* rule was ignored (``-wifi`` sorts after ``-p2p``), so NM kept
+        toggling the P2P-GO group link. One file, one ';'-separated value."""
+        values = [l.strip() for l in _code_lines(self.text)
+                  if l.strip().startswith("unmanaged-devices=")]
+        assert values == ["unmanaged-devices=interface-name:$WIFI_IFACE;interface-name:p2p-*"]
+        written = re.findall(r"(?:cat\s*>|tee(?:\s+-a)?)\s+(/etc/NetworkManager/conf\.d/[^\s<]+)",
+                             self.text)
+        assert written == ["/etc/NetworkManager/conf.d/bcm-unmanage-wifi.conf"], written
+        # A re-run on a car that still has the old second file removes it
+        # before the merged one is written (phase 9, not only the phase-1 cleanup).
+        phase9 = self.text[self.text.index('step 9 "'):self.text.index('step 10 "')]
+        rm_at = phase9.index("rm -f /etc/NetworkManager/conf.d/bcm-unmanage-p2p.conf")
+        assert rm_at < phase9.index("cat > /etc/NetworkManager/conf.d/bcm-unmanage-wifi.conf")
+
+    def test_no_other_script_writes_unmanaged_devices(self):
+        """A second writer would bring back the "last file wins" problem."""
+        for script in SHELL_SCRIPTS:
+            if script.name == "setup-x86.sh":
+                continue
+            lines = _code_lines(script.read_text(encoding="utf-8"))
+            assert not any("unmanaged-devices=" in l for l in lines), script.name
+            # the old p2p file may only ever be removed
+            for l in lines:
+                if "bcm-unmanage-p2p.conf" in l:
+                    assert l.strip().startswith("rm -f "), (script.name, l)
+
 
 # ─── apply-fixes.sh ────────────────────────────────────────────────────
 
@@ -636,6 +666,18 @@ class TestCleanup:
         assert "rm -f /etc/systemd/system/bcm-*.timer" in self.text
         assert re.search(r"for timer in [^\n]*bcm-timesync\.timer[^\n]*bcm-nat-late\.timer", self.text)
         assert "systemctl unmask NetworkManager-wait-online.service" in self.text
+
+    def test_removes_the_unmanaged_device_rules_setup_writes(self):
+        # Every NetworkManager / networkd file setup-x86.sh writes (or used to
+        # write) for the Wi-Fi card and p2p-*: left behind, the card stays
+        # unmanaged after a cleanup without a reinstall.
+        setup = _read("setup-x86.sh")
+        written = set(re.findall(r"cat > (/etc/(?:NetworkManager/conf\.d|systemd/network)/\S+)",
+                                 setup))
+        assert written == {"/etc/NetworkManager/conf.d/bcm-unmanage-wifi.conf",
+                           "/etc/systemd/network/00-bcm-p2p.network"}
+        for path in written | {"/etc/NetworkManager/conf.d/bcm-unmanage-p2p.conf"}:
+            assert f"rm -f {path}" in _code_lines(self.text), path
 
     def test_reenables_only_under_markers(self):
         apt_if = self.text.index('if [ -f "$APT_MARKER" ]; then')

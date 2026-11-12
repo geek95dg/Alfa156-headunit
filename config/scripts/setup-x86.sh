@@ -536,20 +536,23 @@ else
     # Release from NetworkManager
     nmcli device set "$WIFI_IFACE" managed no 2>/dev/null || true
 
+    # ONE file, ONE key. Wi-Fi Direct P2P group interfaces (p2p-*) must be
+    # unmanaged too — without that NetworkManager + systemd-networkd toggle
+    # the link UP/DOWN, which wpa_supplicant interprets as the group going
+    # away and tears the P2P-GO down (only relevant with wifi.mode p2p_go,
+    # harmless otherwise).
+    # Both rules used to live in two conf.d files with the same
+    # [keyfile] unmanaged-devices= key. NetworkManager does not merge such
+    # a key across files — the file parsed last (alphabetical:
+    # bcm-unmanage-wifi.conf after bcm-unmanage-p2p.conf) wins — so the
+    # p2p-* rule was most likely ignored. One value, list separator ';'.
+    # The old p2p file is removed on every run (re-run of setup on a car
+    # that has it).
     mkdir -p /etc/NetworkManager/conf.d
+    rm -f /etc/NetworkManager/conf.d/bcm-unmanage-p2p.conf
     cat > /etc/NetworkManager/conf.d/bcm-unmanage-wifi.conf <<EOF
 [keyfile]
-unmanaged-devices=interface-name:$WIFI_IFACE
-EOF
-
-    # Wi-Fi Direct P2P group interfaces (p2p-*) need to be unmanaged
-    # too — without this NetworkManager + systemd-networkd toggle the
-    # link UP/DOWN, which wpa_supplicant interprets as the group going
-    # away and tears the P2P-GO down. Only relevant if you flip
-    # wifi.mode to p2p_go in YAML; harmless otherwise.
-    cat > /etc/NetworkManager/conf.d/bcm-unmanage-p2p.conf <<'EOF'
-[keyfile]
-unmanaged-devices=interface-name:p2p-*
+unmanaged-devices=interface-name:$WIFI_IFACE;interface-name:p2p-*
 EOF
     mkdir -p /etc/systemd/network
     cat > /etc/systemd/network/00-bcm-p2p.network <<'EOF'

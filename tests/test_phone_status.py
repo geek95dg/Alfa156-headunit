@@ -744,7 +744,10 @@ class TestRegistration:
 
     def test_main_starts_it_only_with_bluetooth(self):
         text = (REPO / "main.py").read_text(encoding="utf-8")
-        assert 'if bt_enabled and modules_catalog.is_enabled(config, "phone_status"):' in text
+        # The catalog says it requires bluetooth; main.py starts it only when
+        # the dependency check (plan_modules) says it runs.
+        assert modules_catalog.MODULES["phone_status"]["requires"] == ("bluetooth",)
+        assert 'if _runs("phone_status"):' in text
         assert "start_phone_status(config, event_bus)" in text
 
     def test_entry_point_starts_the_monitor(self):

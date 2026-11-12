@@ -740,10 +740,14 @@ iface $WIFI_IFACE inet static
     netmask 255.255.255.0
 EOF
 
-# Step 5: Prevent NetworkManager from reclaiming the interface on reboot
+# Step 5: Prevent NetworkManager from reclaiming the interface on reboot.
+# ONE key with every rule (';'-separated): NM does not merge the same key
+# from several conf.d files — the file parsed last wins. p2p-* = Wi-Fi Direct
+# groups (setup-x86.sh writes exactly this line).
+sudo rm -f /etc/NetworkManager/conf.d/bcm-unmanage-p2p.conf
 sudo tee /etc/NetworkManager/conf.d/bcm-unmanage-wifi.conf >/dev/null <<EOF
 [keyfile]
-unmanaged-devices=interface-name:$WIFI_IFACE
+unmanaged-devices=interface-name:$WIFI_IFACE;interface-name:p2p-*
 EOF
 
 # Step 6: Apply IP now and start services
