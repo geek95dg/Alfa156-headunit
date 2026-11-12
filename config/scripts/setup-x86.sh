@@ -909,6 +909,27 @@ else
     warn "  Fix: sudo apt-get install ofono, then re-run this script (or apply-fixes.sh)."
 fi
 
+# adb = the car phone module (src/network/car_phone.py, modules.car_phone):
+# USB tethering, GPS forward and battery of the phone mounted in the car.
+# Same pattern as ofono: its own checked install, a loud warning when it is
+# missing (the module then shows "brak adb" and does nothing else). Only
+# the Debian package — no PPA, no SDK download. adb is used over USB only;
+# the module runs its server on a Unix socket in the root-only directory
+# /run/bcm-adb (ADB_SERVER_SOCKET), not on 127.0.0.1:5037 where every LOCAL
+# user could reach it (see docs/WDROZENIE_TESTOWE.md §5.7).
+# NOT installed here on purpose (documented only, see the same section):
+# /etc/NetworkManager/conf.d/bcm-connectivity.conf ([connectivity] uri +
+# interval: NM adds 20000 to the metric of an uplink without internet) and
+# no-auto-default=driver:rndis_host,driver:cdc_ncm (no "Wired connection N"
+# with metric 100 for the phone) — both wait for a check on the car.
+apt-get install -y adb || true
+if command -v adb >/dev/null 2>&1; then
+    echo "  adb: $(command -v adb)"
+else
+    warn "adb is NOT installed — the car phone (modules.car_phone) will NOT work."
+    warn "  Fix: sudo apt-get install adb, then re-run this script (or apply-fixes.sh)."
+fi
+
 # The WirePlumber drop-ins in /etc/wireplumber/wireplumber.conf.d use the
 # 0.5 SPA-JSON syntax; WirePlumber 0.4 (Lua config) silently ignores them,
 # which would leave the native HFP backend active and the dialer dead.

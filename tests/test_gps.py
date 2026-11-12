@@ -887,3 +887,363 @@ class TestConsumers:
             trk.stop()
         assert _plausible_fix(rec.values("gps.position")[-1]) == (
             pytest.approx(52.2297), pytest.approx(21.0122))
+
+
+# ── source priority (two phones in the car, plan section C) ──────────────
+
+# Kraków instead of Warsaw, 50 knots, heading south: the "other phone".
+RMC_OTHER = nmea("GPRMC,123519.50,A,5003.000,N,01956.000,E,050.0,180.0,081126,,,A")
+VTG_FAST = nmea("GPVTG,270.0,T,,M,054.0,N,100.0,K,A")
+
+
+class TestPriority:
+    def _mgr(self, **cfg):
+        clock = FakeClock()
+        base = {"source": ["tcp", "udp"]}
+        base.update(cfg)
+        mgr, bus, rec = make_manager(base, clock=clock)
+        return mgr, bus, rec, clock
+
+    def test_default_is_the_order_of_source(self):
+        assert self._mgr()[0].priority == ["tcp", "udp"]
+        assert self._mgr(source=["udp", "tcp"])[0].priority == ["udp", "tcp"]
+        assert make_manager({"source": "udp"})[0]._own_parsers == {}     # one input: no cost
+
+    def test_explicit_priority_and_junk(self, caplog):
+        mgr = self._mgr(source=["udp", "tcp"], priority=["tcp", "gsm", 5, "serial"])[0]
+        assert mgr.priority == ["tcp", "udp"]          # serial is not an input here
+        assert self._mgr(source=["udp", "tcp"], priority="tcp")[0].priority == ["tcp", "udp"]
+        assert self._mgr(source=["udp", "tcp"], priority={"a": 1})[0].priority == ["udp", "tcp"]
+        assert self._mgr(priority_hold_sec="x")[0]._hold == 3.0
+        assert self._mgr(priority_hold_sec=999)[0]._hold == 60.0
+
+    def test_lower_input_is_held_back_while_the_better_one_has_a_fix(self):
+        mgr, bus, rec, clock = self._mgr()
+        assert mgr.feed(RMC, "tcp") is True
+        clock.t += 1.0
+        assert mgr.feed(RMC_OTHER, "udp") is True      # valid sentence, just not used
+        assert mgr.held_back == 1
+        pos = bus.get_last("gps.position")[0]
+        assert pos["source"] == "tcp" and pos["lat"] == pytest.approx(52.2297, abs=1e-3)
+        mgr.feed(VTG_FAST, "udp")                      # the other phone's speed ...
+        clock.t += 1.0
+        mgr.feed(RMC, "tcp")
+        assert bus.get_last("gps.position")[0]["speed"] == pytest.approx(18.5, abs=0.1)
+        assert all(p["source"] == "tcp" for p in rec.values("gps.position"))
+
+    def test_falls_back_after_the_hold_and_returns(self):
+        mgr, bus, rec, clock = self._mgr()
+        mgr.feed(RMC, "tcp")
+        clock.t += 2.9
+        mgr.feed(RMC_OTHER, "udp")
+        assert bus.get_last("gps.position")[0]["source"] == "tcp"
+        clock.t += 0.2                                 # 3.1 s without a tcp fix
+        mgr.feed(RMC_OTHER, "udp")
+        pos = bus.get_last("gps.position")[0]
+        assert pos["source"] == "udp" and pos["lat"] == pytest.approx(50.05, abs=1e-3)
+        clock.t += 1.0
+        mgr.feed(RMC, "tcp")                           # the better one is back: at once
+        assert bus.get_last("gps.position")[0]["source"] == "tcp"
+        clock.t += 1.0
+        mgr.feed(RMC_OTHER, "udp")
+        assert bus.get_last("gps.position")[0]["source"] == "tcp"
+
+    def test_an_input_that_never_had_a_fix_blocks_nothing(self):
+        mgr, bus, rec, clock = self._mgr()
+        mgr.feed(GSV, "tcp")                           # not even a wanted sentence
+        mgr.feed(RMC_OTHER, "udp")
+        assert bus.get_last("gps.position")[0]["source"] == "udp"
+        assert mgr.held_back == 0
+
+    def test_hold_zero_takes_everything(self):
+        mgr, bus, rec, clock = self._mgr(priority_hold_sec=0)
+        mgr.feed(RMC, "tcp")
+        clock.t += 1.0
+        mgr.feed(RMC_OTHER, "udp")
+        assert bus.get_last("gps.position")[0]["source"] == "udp"
+
+    def test_a_feed_name_that_is_no_input_is_never_held(self):
+        mgr, bus, rec, clock = self._mgr()
+        mgr.feed(RMC, "tcp")
+        clock.t += 1.0
+        mgr.feed(RMC_OTHER, "test")
+        assert bus.get_last("gps.position")[0]["source"] == "test"
+
+    def test_invalid_sentence_is_still_refused(self):
+        mgr, bus, rec, clock = self._mgr()
+        assert mgr.feed("$GPRMC,garbage*00", "udp") is False
+        assert mgr.feed(RMC_OTHER[:-2] + "00", "udp") is False
+
+
+class TestTCPAuto:
+    def _tcp(self, **tcp):
+        cfg = {"source": "tcp", "tcp": dict({"host": "auto"}, **tcp)}
+        mgr, bus, rec = make_manager(cfg, route_reader=lambda: PROC_NET_ROUTE)
+        return mgr, bus, mgr.inputs["tcp"]
+
+    def test_follows_the_car_phone_forward(self):
+        mgr, bus, tcp = self._tcp()
+        assert tcp._host == "auto"
+        assert tcp._resolve() == ("192.168.44.1", 50000)          # no car phone: PAN
+        bus.publish("net.car_phone", {"state": "connected", "gps_forward": True,
+                                      "gps_port": 50001})
+        assert tcp._resolve() == ("127.0.0.1", 50001)
+        bus.publish("net.car_phone", {"state": "no_device", "gps_forward": False,
+                                      "gps_port": None})
+        assert tcp._resolve() == ("192.168.44.1", 50000)
+
+    @pytest.mark.parametrize("value", [
+        {"state": "connected", "gps_forward": "true", "gps_port": 50000},
+        {"state": "connected", "gps_forward": True, "gps_port": 0},
+        {"state": "connected", "gps_forward": True, "gps_port": True},
+        {"state": "connected", "gps_forward": True, "gps_port": "50000"},
+        {"state": "connected", "gps_forward": True, "gps_port": 70000},
+        {"state": "disabled", "gps_forward": True, "gps_port": 50000},
+        "connected", None,
+    ])
+    def test_junk_on_the_bus_falls_back_to_pan(self, value):
+        mgr, bus, tcp = self._tcp()
+        bus.publish("net.car_phone", value)
+        assert tcp._resolve() == ("192.168.44.1", 50000)
+
+    def test_explicit_host_ignores_the_car_phone(self):
+        mgr, bus, tcp = self._tcp(host="127.0.0.1", port=5555)
+        bus.publish("net.car_phone", {"state": "connected", "gps_forward": True,
+                                      "gps_port": 50001})
+        assert tcp._resolve() == ("127.0.0.1", 5555)
+
+    def test_no_pan_and_no_forward_is_waiting(self):
+        cfg = {"source": "tcp", "tcp": {"host": "auto"}}
+        mgr, bus, rec = make_manager(cfg, route_reader=lambda: PROC_NET_ROUTE.splitlines()[0])
+        assert mgr.inputs["tcp"]._resolve() is None
+
+    def test_connects_to_the_forward(self):
+        srv = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        srv.bind(("127.0.0.1", 0))
+        srv.listen(1)
+        srv.settimeout(5.0)
+        port = srv.getsockname()[1]
+
+        def serve():
+            try:
+                conn, _ = srv.accept()
+            except OSError:
+                return
+            conn.sendall((RMC + "\r\n").encode())
+            time.sleep(0.3)
+            conn.close()
+
+        threading.Thread(target=serve, daemon=True).start()
+        bus = EventBus()
+        bus.publish("net.car_phone", {"state": "connected", "gps_forward": True,
+                                      "gps_port": port})
+        mgr = GPSManager(bus, {"hardware": {"gps": {"source": "tcp", "tcp": {
+            "host": "auto", "backoff_min_sec": 0.05, "backoff_max_sec": 0.1}}}}, "x86",
+            route_reader=lambda: PROC_NET_ROUTE.splitlines()[0] + "\n")
+        mgr.start()
+        try:
+            assert wait_until(lambda: bus.get_last("gps.position") is not None, timeout=3.0)
+            assert mgr.inputs["tcp"].peer == f"127.0.0.1:{port}"
+        finally:
+            mgr.stop()
+            srv.close()
+
+    # ── auto: switching while connected, fallback from a silent forward ──
+
+    def test_fallback_to_pan_after_empty_forward_sessions_and_reprobe(self):
+        clock = FakeClock()
+        cfg = {"source": "tcp", "tcp": {"host": "auto"}}
+        mgr, bus, rec = make_manager(cfg, clock=clock, route_reader=lambda: PROC_NET_ROUTE)
+        tcp = mgr.inputs["tcp"]
+        bus.publish("net.car_phone", {"state": "connected", "gps_forward": True,
+                                      "gps_port": 50001})
+        fwd, pan = ("127.0.0.1", 50001), ("192.168.44.1", 50000)
+        for _ in range(gps_mod.AUTO_EMPTY_MAX - 1):
+            assert tcp._resolve() == fwd and tcp._kind == "forward"
+            tcp._forward_result(False)                 # accepted, closed, no NMEA
+        assert tcp._resolve() == fwd
+        tcp._forward_result(False)
+        assert tcp._resolve() == pan and tcp._kind == "pan"
+        assert tcp._forward_wanted() is False          # a PAN session is left alone ...
+        clock.t += gps_mod.AUTO_FORWARD_REPROBE_S
+        assert tcp._forward_wanted() is True           # ... until the forward's next chance
+        assert tcp._resolve() == fwd
+        tcp._forward_result(False)                     # still silent: PAN again
+        assert tcp._resolve() == pan
+        clock.t += gps_mod.AUTO_FORWARD_REPROBE_S
+        assert tcp._resolve() == fwd
+        tcp._forward_result(True)                      # the app is up: first choice again
+        assert tcp._resolve() == fwd
+        tcp._forward_result(False)
+        assert tcp._resolve() == fwd                   # one silent session is no fallback
+
+    def test_silent_forward_without_pan_keeps_trying_the_forward(self):
+        clock = FakeClock()
+        cfg = {"source": "tcp", "tcp": {"host": "auto"}}
+        mgr, bus, rec = make_manager(cfg, clock=clock,
+                                     route_reader=lambda: PROC_NET_ROUTE.splitlines()[0])
+        tcp = mgr.inputs["tcp"]
+        bus.publish("net.car_phone", {"state": "connected", "gps_forward": True,
+                                      "gps_port": 50001})
+        for _ in range(gps_mod.AUTO_EMPTY_MAX + 2):
+            assert tcp._resolve() == ("127.0.0.1", 50001)
+            tcp._forward_result(False)
+        # The forward goes (cable pulled) and comes back: a fresh chance.
+        bus.publish("net.car_phone", {"state": "no_device", "gps_forward": False,
+                                      "gps_port": None})
+        assert tcp._resolve() is None
+        assert tcp._fwd_empty == 0
+
+    @staticmethod
+    def _server(mode, stop):
+        """127.0.0.1 server: ``stream`` sends RMC every 50 ms per connection,
+        ``empty`` accepts and hangs up at once (adb forward, app down)."""
+        srv = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        srv.bind(("127.0.0.1", 0))
+        srv.listen(8)
+        srv.settimeout(0.2)
+        accepted = []
+
+        def serve_conn(conn):
+            try:
+                while not stop.is_set():
+                    conn.sendall((RMC + "\r\n").encode())
+                    time.sleep(0.05)
+            except OSError:
+                pass
+            finally:
+                conn.close()
+
+        def loop():
+            while not stop.is_set():
+                try:
+                    conn, _ = srv.accept()
+                except socket.timeout:
+                    continue
+                except OSError:
+                    return
+                accepted.append(1)
+                if mode[0] == "stream":
+                    threading.Thread(target=serve_conn, args=(conn,), daemon=True).start()
+                else:
+                    conn.close()
+            srv.close()
+
+        threading.Thread(target=loop, daemon=True).start()
+        return srv.getsockname()[1], accepted
+
+    @staticmethod
+    def _loopback_pan_route():
+        # bnep0 default route via 127.0.0.1 (0100007F in host byte order).
+        return ("Iface\tDestination\tGateway \tFlags\tRefCnt\tUse\tMetric\tMask\t\tMTU\t"
+                "Window\tIRTT\n"
+                "bnep0\t00000000\t0100007F\t0003\t0\t0\t750\t00000000\t0\t0\t0\n")
+
+    def test_pan_session_gives_way_when_the_forward_appears(self, monkeypatch):
+        monkeypatch.setattr(gps_mod, "AUTO_RECHECK_S", 0.2)
+        stop = threading.Event()
+        pan_port, pan_acc = self._server(["stream"], stop)
+        fwd_port, fwd_acc = self._server(["stream"], stop)
+        bus = EventBus()
+        mgr = GPSManager(bus, {"hardware": {"gps": {"source": "tcp", "tcp": {
+            "host": "auto", "port": pan_port, "backoff_min_sec": 0.05,
+            "backoff_max_sec": 0.1}}}}, "x86", route_reader=self._loopback_pan_route)
+        mgr.start()
+        try:
+            tcp = mgr.inputs["tcp"]
+            assert wait_until(lambda: tcp.peer == f"127.0.0.1:{pan_port}"
+                              and bus.get_last("gps.position") is not None, timeout=3.0)
+            bus.publish("net.car_phone", {"state": "connected", "gps_forward": True,
+                                          "gps_port": fwd_port})
+            assert wait_until(lambda: tcp.peer == f"127.0.0.1:{fwd_port}"
+                              and tcp.state == "connected", timeout=3.0)
+            assert len(pan_acc) == 1                   # left once, not retried
+        finally:
+            stop.set()
+            mgr.stop()
+
+    def test_silent_forward_falls_back_to_pan_then_returns(self, monkeypatch):
+        monkeypatch.setattr(gps_mod, "AUTO_RECHECK_S", 0.1)
+        monkeypatch.setattr(gps_mod, "AUTO_FORWARD_REPROBE_S", 1.0)
+        stop = threading.Event()
+        pan_port, pan_acc = self._server(["stream"], stop)
+        fwd_mode = ["empty"]
+        fwd_port, fwd_acc = self._server(fwd_mode, stop)
+        bus = EventBus()
+        bus.publish("net.car_phone", {"state": "connected", "gps_forward": True,
+                                      "gps_port": fwd_port})
+        mgr = GPSManager(bus, {"hardware": {"gps": {"source": "tcp", "tcp": {
+            "host": "auto", "port": pan_port, "backoff_min_sec": 0.05,
+            "backoff_max_sec": 0.1}}}}, "x86", route_reader=self._loopback_pan_route)
+        mgr.start()
+        try:
+            tcp = mgr.inputs["tcp"]
+            assert wait_until(lambda: len(fwd_acc) >= gps_mod.AUTO_EMPTY_MAX, timeout=3.0)
+            assert wait_until(lambda: tcp.peer == f"127.0.0.1:{pan_port}"
+                              and bus.get_last("gps.position") is not None, timeout=3.0)
+            assert len(fwd_acc) == gps_mod.AUTO_EMPTY_MAX     # no 4th try straight away
+            fwd_mode[0] = "stream"                     # the phone's NMEA app started
+            assert wait_until(lambda: tcp.peer == f"127.0.0.1:{fwd_port}"
+                              and tcp._fwd_empty == 0 and tcp._got_data, timeout=4.0)
+        finally:
+            stop.set()
+            mgr.stop()
+
+    def test_test_config_keeps_todays_behaviour_without_the_car_phone(self):
+        from pathlib import Path
+
+        from src.core.config import BCMConfig
+        repo = Path(__file__).resolve().parent.parent
+        cfg = BCMConfig(config_path=str(repo / "config" / "bcm_config_test.yaml"),
+                        platform_override="x86", local_path=None, env={})
+        bus = EventBus()
+        mgr = GPSManager(bus, cfg, "x86", clock=FakeClock(), ip_runner=FakeRunner(""),
+                         route_reader=lambda: PROC_NET_ROUTE)
+        assert mgr.sources == ["tcp", "udp"] and mgr.priority == ["tcp", "udp"]
+        assert mgr.inputs["tcp"]._resolve() == ("192.168.44.1", 50000)    # pan-gateway
+        # Plan C: the forward accepts before the phone's NMEA app is up — the
+        # position must follow within ~10 s of the app starting, not 60 s.
+        assert mgr.inputs["tcp"]._backoff.cap == 10
+        assert mgr.feed(RMC, "udp") is True              # only the main phone's UDP: used
+        assert bus.get_last("gps.position")[0]["source"] == "udp"
+
+
+class TestTCPEmptySessionLog:
+    def test_accept_then_close_is_logged_once_per_minute(self, caplog):
+        import logging
+        srv = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        srv.bind(("127.0.0.1", 0))
+        srv.listen(8)
+        srv.settimeout(5.0)
+        port = srv.getsockname()[1]
+        accepted = []
+
+        def serve():
+            while len(accepted) < 5:
+                try:
+                    conn, _ = srv.accept()
+                except OSError:
+                    return
+                accepted.append(1)
+                conn.close()                         # adb forward, app not running
+
+        threading.Thread(target=serve, daemon=True).start()
+        mgr = GPSManager(EventBus(), {"hardware": {"gps": {"source": "tcp", "tcp": {
+            "host": "127.0.0.1", "port": port, "backoff_min_sec": 0.02,
+            "backoff_max_sec": 0.05}}}}, "x86")
+        with caplog.at_level(logging.DEBUG, logger="bcm.location.gps"):
+            mgr.start()
+            try:
+                assert wait_until(lambda: len(accepted) >= 5, timeout=5.0)
+            finally:
+                mgr.stop()
+                srv.close()
+        infos = [r.getMessage() for r in caplog.records
+                 if r.name == "bcm.location.gps" and r.levelno == logging.INFO]
+        assert len([m for m in infos if "without sending NMEA" in m]) == 1, infos
+        assert not any(m.startswith("GPS TCP connected") for m in infos), infos
+        debugs = [r.getMessage() for r in caplog.records
+                  if r.name == "bcm.location.gps" and r.levelno == logging.DEBUG]
+        assert any("without sending NMEA" in m for m in debugs)

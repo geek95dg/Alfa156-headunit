@@ -1,7 +1,8 @@
 """Weather data module — fetches weather from OpenWeatherMap API.
 
 Subscribes to gps.position for coordinates (plausible fixes only), requires
-an uplink: lte.connected, net.phone_tether=connected, or the x86 platform.
+an uplink: lte.connected, net.phone_tether=connected, net.car_phone=connected,
+or the x86 platform.
 Polls every 15 minutes (configurable). Caches last response to disk.
 On x86 without API key: returns hardcoded Milan demo weather data.
 
@@ -12,8 +13,9 @@ monotonic clock: bcm-timesync may move the wall clock by hours, which must
 neither stall the poller nor trigger a burst of requests.
 
 When the phone's Bluetooth internet comes up (net.phone_tether, see
-src/network/phone_tether.py) a fetch is forced — usually the first moment of
-the drive real data can be had.
+src/network/phone_tether.py) or the car phone's USB tethering does
+(net.car_phone, src/network/car_phone.py) a fetch is forced — usually the
+first moment of the drive real data can be had.
 
 Location — what wins
 --------------------
@@ -191,6 +193,7 @@ class WeatherManager:
         self._search_coords: Optional[tuple[float, float]] = None
         self._lte_connected = False
         self._tether_connected = False
+        self._car_phone_connected = False
         self._last_fetch = 0          # wall time of the last good fetch (info only)
         # Scheduling, all on self._clock (monotonic):
         self._next_fetch = 0.0        # 0 = as soon as the conditions allow
@@ -226,11 +229,15 @@ class WeatherManager:
         self._bus.subscribe("gps.position", self._on_gps_position)
         self._bus.subscribe("lte.connected", self._on_lte_status)
         self._bus.subscribe("net.phone_tether", self._on_phone_tether)
+        self._bus.subscribe("net.car_phone", self._on_car_phone)
         self._bus.subscribe("weather.search_location", self._on_search_location)
         # The phone's internet may already be up (no edge to wait for).
         last = self._bus.get_last("net.phone_tether")
         if last is not None and isinstance(last[0], dict):
             self._tether_connected = last[0].get("state") == "connected"
+        last = self._bus.get_last("net.car_phone")
+        if last is not None and isinstance(last[0], dict):
+            self._car_phone_connected = last[0].get("state") == "connected"
 
         self._thread = threading.Thread(target=self._run, daemon=True,
                                         name="weather-poller")
@@ -245,6 +252,7 @@ class WeatherManager:
         self._bus.unsubscribe("gps.position", self._on_gps_position)
         self._bus.unsubscribe("lte.connected", self._on_lte_status)
         self._bus.unsubscribe("net.phone_tether", self._on_phone_tether)
+        self._bus.unsubscribe("net.car_phone", self._on_car_phone)
         self._bus.unsubscribe("weather.search_location", self._on_search_location)
         if self._thread:
             self._thread.join(timeout=3)
@@ -325,6 +333,18 @@ class WeatherManager:
         self._tether_connected = connected
         if connected and not was:
             self.force_fetch("phone internet connected")
+
+    def _on_car_phone(self, topic, value, timestamp):
+        """Car phone USB tethering state (net.car_phone); going
+        ``connected`` forces a fetch, exactly like _on_phone_tether.
+
+        Runs on the event-bus dispatcher: only flags and wakes the poller.
+        """
+        connected = isinstance(value, dict) and value.get("state") == "connected"
+        was = self._car_phone_connected
+        self._car_phone_connected = connected
+        if connected and not was:
+            self.force_fetch("car phone internet connected")
 
     def force_fetch(self, reason: str = "", ignore_min_age: bool = False) -> bool:
         """Fetch on the poller's next pass, skipping any backoff.
@@ -451,16 +471,18 @@ class WeatherManager:
         if not has_gps and self._default_lat and self._default_lon:
             source, coords = LOC_DEFAULT, (self._default_lat, self._default_lon)
             has_location = True
-        online = self._lte_connected or self._tether_connected or self._platform == "x86"
+        online = (self._lte_connected or self._tether_connected
+                  or self._car_phone_connected or self._platform == "x86")
 
         # Log state once for debugging
         if not self._state_logged:
             self._state_logged = True
             log.info("Weather poll state: api_key=%s, has_location=%s (%.2f,%.2f), "
-                     "lte=%s, phone_tether=%s, platform=%s, poll_interval=%ds",
+                     "lte=%s, phone_tether=%s, car_phone=%s, platform=%s, "
+                     "poll_interval=%ds",
                      bool(self._api_key), has_location, coords[0], coords[1],
-                     self._lte_connected, self._tether_connected, self._platform,
-                     self._poll_interval)
+                     self._lte_connected, self._tether_connected,
+                     self._car_phone_connected, self._platform, self._poll_interval)
 
         if not (self._api_key and has_location and online):
             return False

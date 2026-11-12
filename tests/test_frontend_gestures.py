@@ -12,6 +12,10 @@
   row (state label, IP only when connected, values escaped, inline styles, no
   row without a payload, hint + "Ponów" when failed) and update(), which
   redraws only that row while Settings is open;
+* settings_car_phone_smoke.js: screens/settings.js — the "Telefon w aucie"
+  row (data.car_phone: state label, IP only when connected, battery / °C /
+  GPS / hotspot, heat colour from the module's own level, hints instead of
+  raw adb errors, escaping, inline styles, "Ponów") and its update() slot;
 * appbar_phone_smoke.js: components/appbar.js — the phone cluster (signal /
   operator / battery from data.phone_status): hidden without a phone, glyphs
   by level, the operator only ever via textContent, change-only updates;
@@ -218,7 +222,8 @@ def test_edge_tracker(name, ops, expected):
                                      "call_nav_smoke.js", "settings_tether_smoke.js",
                                      "appbar_phone_smoke.js", "phone_escape_smoke.js",
                                      "gps_visibility_smoke.js", "dial_result_smoke.js",
-                                     "settings_modules_smoke.js", "weather_escape_smoke.js"])
+                                     "settings_modules_smoke.js", "weather_escape_smoke.js",
+                                     "settings_car_phone_smoke.js"])
 def test_screen_harness(harness):
     res = subprocess.run([NODE, str(JS / harness)], capture_output=True, text=True,
                          timeout=60)

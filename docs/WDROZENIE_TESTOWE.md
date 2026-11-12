@@ -697,6 +697,138 @@ Parowanie: telefon → BT → sparuj z adapterem BCM → Android sam zaproponuje
 Android Auto. Kolejne uruchomienia łączą się automatycznie (boot sweep
 w `BluetoothManager`).
 
+**autoapp tylko bezprzewodowo.** `config/scripts/install-openauto.sh`
+domyślnie (`BCM_AA_USB=0`) łata autoapp tak, że w ogóle nie dotyka USB.
+Bez tej łatki autoapp wysyła handshake Android Auto (AOAP) do **każdego**
+urządzenia USB i przełączyłby telefon w aucie (§5.7) w tryb akcesorium.
+Binarka zbudowana wcześniej nie ma łatki — przebuduj:
+`sudo BCM_AA_USB=0 bash config/scripts/install-openauto.sh --force`
+(`BCM_AA_USB=1` = zachowanie upstream, AA także po kablu).
+
+### 5.7 Telefon w aucie (Redmi na USB, `modules.car_phone`)
+
+Drugi telefon zamontowany na stałe (plan, sekcja C) daje internet przez
+tethering USB, pozycję GPS i zegar; BCM pilnuje jego baterii i temperatury.
+Moduł `src/network/car_phone.py`, domyślnie **wyłączony** (w kodzie,
+w `bcm_config.yaml` i w `bcm_config_test.yaml`) — włącz go w Ustawieniach →
+Moduły, gdy telefon jest podłączony. `car_phone_hotspot` (wymaga
+`car_phone`) dokłada do wiersza „Telefon w aucie” stan hotspotu Wi-Fi
+telefonu (tylko odczyt).
+
+Kolejność:
+
+1. autoapp bez USB (§5.6, `BCM_AA_USB=0 … --force`).
+2. `adb` z pakietu Debiana — instalują go `setup-x86.sh` i `apply-fixes.sh`
+   (głośne ostrzeżenie, gdy się nie uda); `bcm-harden.sh` krok 8 tylko
+   raportuje.
+3. W telefonie: opcje programisty → debugowanie USB, „Disable adb
+   authorization timeout”; aplikacja serwera NMEA TCP (np. gpsdRelay) na
+   porcie 50000 (`network.car_phone.gps_remote_port`).
+4. Podłącz telefon i raz wywołaj adb **przez gniazdo BCM** (niżej,
+   „Bezpieczeństwo”) — w telefonie „Zawsze zezwalaj z tego komputera”:
+
+   ```bash
+   sudo install -d -m 0700 /run/bcm-adb     # moduł tworzy go sam; ręcznie tylko przed jego startem
+   sudo env ADB_SERVER_SOCKET=localfilesystem:/run/bcm-adb/adb.sock adb devices -l
+   ```
+
+   Klucz adb to `/root/.android/adbkey` (generuje go adb; nigdy w repo).
+   Zwykłe `sudo adb …` uruchamia **drugi** serwer adb na `127.0.0.1:5037`,
+   który walczy z serwerem BCM o telefon na USB — jeśli to się zdarzyło:
+   `sudo adb kill-server`. Wygodny alias:
+   `alias bcm-adb='sudo env ADB_SERVER_SOCKET=localfilesystem:/run/bcm-adb/adb.sock adb'`.
+5. Przy dwóch urządzeniach Android na USB wpisz serial z `bcm-adb devices -l`
+   do `network.car_phone.serial` w `config/local.yaml` (bez tego moduł nic
+   nie robi i pokazuje podpowiedź).
+
+Co robi moduł (co `check_sec`, wszystko listami argumentów, bez powłoki):
+
+| Krok | Polecenie | Uwagi |
+|------|-----------|-------|
+| telefon | `adb devices -l` | tylko urządzenia USB; stany `device` / `unauthorized` / `offline` |
+| AOAP | `/sys/bus/usb/devices/*/idVendor,idProduct` | 18d1:2d0x = ktoś (autoapp) przełączył telefon w tryb AA — podpowiedź `aa_usb_probe` |
+| łącze | `nmcli … connection show --active` | profil `bcm-car-phone` aktywny = „połączono”, niezależnie od adb |
+| profil | `nmcli connection add type ethernet … match.driver "rndis_host cdc_ncm"` | metryka 650 (PAN 750, modem 700); **bez** `cdc_ether` — tego sterownika używa modem E3372 |
+| tethering | `adb shell svc usb getFunctions` / `setFunctions rndis` | wynik `getFunctions` jest na stderr; 3 nieudane próby = `tether_blocked` |
+| GPS | `adb forward tcp:50000 tcp:50000` | sprawdzane w każdym przebiegu (restart BCM zabija serwer adb z forwardami) |
+| bateria | `adb shell dumpsys battery` | co `battery_sec`; powyżej `warn_temp_c`/`critical_temp_c` powiadomienie, gaśnie poniżej `warn_temp_c − 3` |
+| zegar | `adb shell date +%s` → `timedatectl set-time @…` | tylko gdy `bcm-timesync` nie zadziałał w ostatnim okresie timera (1 h + 15 min zapasu; znacznik `/run/bcm-timesync.ok`) i dryf ≥ `time_sync_drift_s`; walidacja niżej |
+| hotspot | `adb shell dumpsys tethering` | tylko odczyt, z `car_phone_hotspot`; nieznany format = brak informacji |
+
+Zegar z telefonu — kiedy **nie** jest używany. Telefon, który stracił czas
+(bateria rozładowana na długim postoju, potem włączony ręcznie), startuje
+z zegarem ustawionym na datę zbudowania ROM-u (`ro.build.date.utc`) i liczy
+od niej, dopóki nie dostanie czasu z sieci. Ustawienie z tego headunitu
+cofnęłoby go o miesiące, a `set-time` zapisuje też RTC — wtedy HTTPS
+(„certificate not yet valid”) blokuje `bcm-timesync` i błąd przetrwałby
+odcięcie prądu. Dlatego moduł:
+
+- odrzuca odczyt krótszy niż 48 h od daty ROM-u (`adb shell getprop
+  ro.build.date.utc`, raz na podłączenie; nieczytelna = zegar nieużywany);
+  świeżo wgrany ROM oznacza więc do 2 dni bez czasu z telefonu (internet
+  przez tethering i `bcm-timesync` działają normalnie);
+- cofa zegar o więcej niż 1 h tylko wtedy, gdy drugi odczyt 10 min później
+  pokazuje ten sam dryf (±5 s); mniejsze różnice i przesunięcie do przodu
+  stosuje od razu.
+
+GPS: `hardware.gps.tcp.host: auto` łączy się z forwardem adb
+(`127.0.0.1:50000`), gdy moduł go zgłasza, a w przeciwnym razie — jak
+dotąd — z głównym telefonem po Bluetooth PAN (`pan-gateway`). Sesja
+z `pan-gateway` co 5 s sprawdza, czy forward się pojawił, i wtedy od razu
+przechodzi na niego. Forward przyjmuje połączenie także wtedy, gdy
+aplikacja NMEA w telefonie nie działa (adb zaraz je zamyka): po 3 takich
+pustych sesjach z rzędu wejście bierze `pan-gateway`, forward dostaje
+kolejną szansę co 5 min i wraca na pierwsze miejsce, gdy tylko poda zdania.
+`hardware.gps.tcp.backoff_max_sec: 10` w `bcm_config_test.yaml` — pozycja
+przychodzi najpóźniej ~10 s po starcie aplikacji NMEA.
+`hardware.gps.priority: [tcp, udp]` sprawia, że pozycje z dwóch telefonów
+się nie przeplatają: UDP (główny telefon) jest brany dopiero wtedy, gdy TCP
+nie ma ważnej pozycji od `priority_hold_sec` (3 s).
+
+Bezpieczeństwo:
+
+- adb tylko po kablu USB; nigdy `adb tcpip`, moduł nigdy nie woła `su`.
+- `adb shell` skleja argumenty w jedną linię bez escapowania, dlatego do
+  telefonu trafiają wyłącznie stałe słowa i zwalidowane liczby (porty);
+  serial jest walidowany i idzie tylko do lokalnego klienta adb po `-s`.
+- Serwer adb (uruchamiany przez BCM jako root) domyślnie słuchałby na
+  `127.0.0.1:5037`, czyli byłby osiągalny dla **każdego lokalnego**
+  użytkownika, także kiosku: pełne `adb shell` na telefonie i nasłuchy po
+  stronie hosta zakładane jako root (`forward local:<ścieżka>` najpierw
+  usuwa tę ścieżkę). Dlatego każde wywołanie adb z modułu ma
+  `ADB_SERVER_SOCKET=localfilesystem:/run/bcm-adb/adb.sock` — gniazdo Unix
+  w katalogu `0700` roota. Moduł tworzy katalog przed każdym przebiegiem
+  (musi być prawdziwym katalogiem, nie dowiązaniem, i należeć do roota);
+  gdy się nie da, adb w ogóle nie rusza (stan „błąd adb”). Do sprawdzenia
+  na stole: `sudo ss -xlp | grep bcm-adb` pokazuje gniazdo, a
+  `ss -ltn | grep 5037` — nic. Forward GPS słucha tylko na 127.0.0.1.
+
+Na później (opisane, **nie** instalowane przez skrypty — do sprawdzenia
+w aucie):
+
+- `/etc/NetworkManager/conf.d/bcm-connectivity.conf` z `[connectivity]`
+  `uri=…` i `interval=60`: NM dodaje wtedy 20000 do metryki łącza bez
+  internetu, więc „kabel jest, ale telefon bez zasięgu” przełączy się na PAN.
+  Adres URI do potwierdzenia na Debianie.
+- `[main] no-auto-default=driver:rndis_host,driver:cdc_ncm` w osobnym pliku,
+  jeśli NM zacznie tworzyć dla telefonu „Wired connection N” z metryką 100.
+- Hotspot z BCM (`cmd wifi start-softap`) — niesprawdzone na tym ROM-ie.
+
+Podgląd: wiersz „Telefon w aucie” w Ustawieniach (stan, IP, bateria, °C,
+GPS, hotspot, przycisk „Ponów”), `bcm-adb devices -l` (alias z kroku 4),
+`nmcli connection show --active`, `journalctl -u bcm-headunit | grep -i "car phone"`.
+
+**Wyłączenie modułu.** `modules.car_phone: false` kończy tylko nadzór BCM.
+Profil NetworkManagera `bcm-car-phone` zostaje (autoconnect, metryka 650,
+pasuje do **każdego** urządzenia `rndis_host`/`cdc_ncm`), więc NM dalej
+kieruje ruch przez dowolny telefon z włączonym tetheringiem USB — także
+Redmi z „Default USB configuration: USB tethering” albo telefon kierowcy
+wpięty z tetheringiem — już bez alarmu temperatury. Po wyłączeniu modułu:
+
+```bash
+sudo nmcli connection delete bcm-car-phone
+```
+
 ---
 
 ## 6. Uruchomienie

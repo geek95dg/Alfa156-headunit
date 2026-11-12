@@ -60,6 +60,20 @@ class TestRun:
         assert (rc, out) == (3, "a\nb\n")
         assert "\n" not in err and "\x1b" not in err and len(err) == _proc.ERROR_MAX
 
+    def test_raw_stderr_keeps_lines_and_is_bounded(self):
+        # adb's getFunctions answer is a line of its own on stderr, after
+        # whatever the ROM's linker warns about — cleaned it would be lost.
+        text = "WARNING: linker: /system/bin/svc: unused DT entry\nrndis,adb\n"
+        runner = Runner(subprocess.CompletedProcess([], 0, "", text))
+        assert _proc._run(runner, ["adb"], raw_stderr=True) == (0, "", text)
+        assert _proc._run(runner, ["adb"])[2] == " ".join(text.split())   # default: cleaned
+        runner = Runner(subprocess.CompletedProcess([], 0, "", "x" * 10000))
+        assert len(_proc._run(runner, ["adb"], raw_stderr=True)[2]) == _proc.RAW_STDERR_MAX
+        # Errors of the runner itself stay the short, cleaned messages.
+        runner = Runner(exc=subprocess.TimeoutExpired(["adb"], 3))
+        assert _proc._run(runner, ["adb"], 3, raw_stderr=True) == (
+            _proc.RC_TIMEOUT, "", "adb timed out after 3 s")
+
     def test_bytes_and_odd_results_never_raise(self):
         runner = Runner(SimpleNamespace(returncode=0, stdout=b"ok\xff", stderr=b"warn"))
         assert _proc._run(runner, ["adb"]) == (0, "ok�", "warn")

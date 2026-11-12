@@ -66,9 +66,10 @@ modules:
                            # w telefonie włącz „Tethering przez Bluetooth”
   weather: true            # OpenWeatherMap; klucz z /etc/bcm/bcm.env
                            # (BCM_OWM_API_KEY) — bez klucza dane demo
-  location: true           # GPS Z TELEFONU (NMEA po UDP z aplikacji
-                           # GPSd Forwarder, zapas: TCP po Bluetooth PAN) —
-                           # blok hardware.gps niżej
+  location: true           # GPS Z TELEFONU: TCP (telefon w aucie przez adb
+                           # forward albo główny telefon po Bluetooth PAN) ma
+                           # pierwszeństwo przed UDP (GPSd Forwarder) — blok
+                           # hardware.gps niżej
   tracking: true           # zapis tras do SQLite + lista tras i GPX:
                            # http://10.0.0.1:5002/trips w przeglądarce telefonu
 
@@ -116,13 +117,20 @@ modules:
 
   # --- moduły dodatkowe (telefon w aucie, bezpieczeństwo, wybudzanie) ---
   # Każdy ma TYLKO ten jeden przełącznik (bez pod-kluczy „enabled” w blokach
-  # niżej). Wszystkie wyłączone: wymagają nowego sprzętu i w tej wersji nie
-  # mają jeszcze kodu — Ustawienia → Moduły pokazują je jako „niedostępny
-  # w tej wersji”. Zależności i potrzebny sprzęt: src/core/modules_catalog.py;
-  # moduł bez włączonych zależności nie startuje (jedno ostrzeżenie w logu).
-  car_phone: false         # telefon w aucie: Redmi na USB (tethering, GPS,
-                           # bateria, czas z telefonu)
-  car_phone_hotspot: false # hotspot Wi-Fi z Redmi; wymaga car_phone
+  # niżej). Wszystkie wyłączone, bo wymagają nowego sprzętu. car_phone
+  # i car_phone_hotspot mają już kod — włącz je w Ustawieniach → Moduły, gdy
+  # Redmi jest podłączony; reszta nie ma jeszcze kodu (Ustawienia pokazują je
+  # jako „niedostępny w tej wersji”). Zależności i potrzebny sprzęt:
+  # src/core/modules_catalog.py; moduł bez włączonych zależności nie startuje
+  # (jedno ostrzeżenie w logu).
+  car_phone: false         # telefon w aucie: Redmi na USB przez adb —
+                           # tethering USB, GPS (adb forward), bateria
+                           # i temperatura, czas z telefonu; blok
+                           # network.car_phone niżej. NAJPIERW autoapp
+                           # bez USB: sudo BCM_AA_USB=0 bash
+                           # config/scripts/install-openauto.sh --force
+  car_phone_hotspot: false # stan hotspotu Wi-Fi Redmi w Ustawieniach (tylko
+                           # odczyt); wymaga car_phone
   phone_sensors: false     # czujniki Redmi (światło, akcelerometr); wymaga
                            # car_phone
   car_phone_agent: false   # agent Termux w Redmi; wymaga car_phone
@@ -235,7 +243,15 @@ hardware:
     # ustawiamy z NMEA (UDP da się podrobić) — od tego jest bcm-timesync.
     # Podgląd: wiersz „GPS” w Ustawieniach (źródło, stan, nadawca),
     # sudo tcpdump -ni any udp port 10110; dane gps_* i gps_state w /api/data.
-    source: [udp, tcp]
+    source: [tcp, udp]
+    # Kolejność ważności wejść (najlepsze pierwsze). Gdy pozycję dają dwa
+    # telefony naraz (telefon w aucie po USB/TCP i główny po PAN/UDP), dane
+    # z gorszego wejścia są brane dopiero wtedy, gdy każde lepsze nie ma
+    # ważnej pozycji od priority_hold_sec sekund — bez tego pozycje i
+    # prędkości przeplatałyby się. Wejście, które nigdy nie miało pozycji, nie
+    # blokuje innych, więc przy jednym działającym źródle nic się nie zmienia.
+    priority: [tcp, udp]
+    priority_hold_sec: 3
     port: /dev/ttyUSB0       # tylko dla source: serial (też /dev/rfcomm0)
     baudrate: 9600
     # Po tylu sekundach bez ważnej pozycji gps.fix = false.
@@ -254,12 +270,25 @@ hardware:
       # epokę naraz — z kilkoma systemami GNSS to ponad 2 KiB zdań GSV.
       max_datagram: 8192
     tcp:
-      host: pan-gateway
-      # Port ustawiony w aplikacji serwera NMEA w telefonie.
+      # auto = telefon w aucie przez adb forward (127.0.0.1:port), gdy moduł
+      # car_phone zgłasza działający forward GPS; w przeciwnym razie
+      # pan-gateway, czyli główny telefon po Bluetooth PAN (jak dotąd).
+      # Wybór przy każdym łączeniu, a w trakcie sesji z pan-gateway co 5 s:
+      # pojawienie się forwardu przełącza od razu. Forward przyjmuje
+      # połączenie także wtedy, gdy aplikacja NMEA w telefonie nie działa —
+      # po 3 takich pustych sesjach z rzędu BCM bierze pan-gateway, a forward
+      # próbuje ponownie co 5 min (i od razu wraca na niego, gdy zacznie
+      # dawać zdania).
+      host: auto
+      # Port ustawiony w aplikacji serwera NMEA w telefonie (i lokalny port
+      # forwardu adb, gdy network.car_phone.gps_local_port = 0).
       port: 50000
       connect_timeout: 5
-      # Ponowne łączenie: 1 s, 2 s, 4 s … najwyżej co tyle sekund.
-      backoff_max_sec: 60
+      # Ponowne łączenie: 1 s, 2 s, 4 s … najwyżej co tyle sekund. Krótko,
+      # bo forward adb przyjmuje połączenie, zanim aplikacja NMEA w telefonie
+      # wstanie — pozycja ma przyjść najpóźniej ~10 s po jej starcie.
+      # Ponowienie to jedno połączenie na 127.0.0.1 albo do telefonu po PAN.
+      backoff_max_sec: 10
   lte:
     enabled: true
     device: ''
@@ -492,6 +521,58 @@ network:
     # (po połączeniu telefonu, z settle_sec i backoffem); przy true NM sam
     # wołałby telefon, także gdy go nie ma w aucie, i w trakcie startu AA.
     autoconnect: false
+  # Telefon w aucie (Redmi na USB, src/network/car_phone.py) — działa tylko
+  # z modules.car_phone: true. Internet przez tethering USB (metryka 650:
+  # wygrywa z Bluetooth PAN 750, a gdy kabel albo tethering padnie, kernel
+  # sam wraca na PAN), GPS z aplikacji serwera NMEA w telefonie przez
+  # adb forward (hardware.gps.tcp.host: auto), bateria i temperatura
+  # telefonu (powiadomienie przy przegrzaniu), zegar z telefonu, gdy
+  # bcm-timesync nie zadziałał w ostatnim okresie timera.
+  # Serwer adb BCM słucha na gnieździe /run/bcm-adb/adb.sock (katalog tylko
+  # dla roota), nie na 127.0.0.1:5037 — ręcznie zawsze przez nie:
+  #   sudo env ADB_SERVER_SOCKET=localfilesystem:/run/bcm-adb/adb.sock adb …
+  # (zwykłe `sudo adb …` uruchamia drugi serwer, który walczy o telefon).
+  # Przygotowanie Redmi: debugowanie USB, „Always allow” przy pierwszym
+  # `adb devices -l` (jak wyżej) na tym komputerze, aplikacja serwera NMEA
+  # TCP na porcie gps_remote_port. adb tylko po kablu USB, nigdy `adb tcpip`.
+  # Podgląd: adb devices -l (jak wyżej); nmcli connection show --active
+  # (szukaj bcm-car-phone); wiersz „Telefon w aucie” w Ustawieniach.
+  # Wyłączenie modułu NIE usuwa profilu bcm-car-phone (NM dalej łączy się
+  # z każdym telefonem z tetheringiem USB): sudo nmcli connection delete
+  # bcm-car-phone. Szczegóły: docs/WDROZENIE_TESTOWE.md §5.7.
+  car_phone:
+    # '' = jedyny telefon na USB w stanie „device”. Przy dwóch urządzeniach
+    # wpisz serial z `adb devices -l` (najlepiej w config/local.yaml).
+    serial: ''
+    con_name: bcm-car-phone
+    route_metric: 650
+    # svc_usb = BCM włącza tethering USB przez adb (svc usb setFunctions);
+    # none = tethering włącza sam telefon („Default USB configuration”).
+    tether_method: svc_usb
+    usb_function: rndis      # rndis albo ncm
+    check_sec: 30
+    retry_sec: 15
+    max_retry_sec: 300
+    # Po włączeniu tetheringu USB telefon łączy się ponownie — tyle sekund
+    # czekamy, zanim sprawdzimy wynik.
+    settle_sec: 10
+    gps_forward: true
+    gps_remote_port: 50000   # port serwera NMEA TCP w telefonie
+    gps_local_port: 0        # 0 = hardware.gps.tcp.port
+    battery_sec: 60
+    # Ostrzeżenie / alarm przy temperaturze baterii (°C); alarm gaśnie
+    # dopiero poniżej warn_temp_c − 3.
+    warn_temp_c: 45
+    critical_temp_c: 50
+    trigger_timesync: true
+    # Czas z telefonu (kabel jest zaufany, w przeciwieństwie do NMEA po UDP):
+    # tylko gdy bcm-timesync nie zadziałał w ostatnim okresie timera
+    # (1 h + 15 min) i dryf zegara przekracza time_sync_drift_s sekund.
+    # Nigdy z zegara bliższego niż 48 h dacie zbudowania ROM-u (tak startuje
+    # telefon, który stracił czas), a cofnięcie o ponad 1 h dopiero, gdy
+    # drugi odczyt 10 min później pokaże ten sam dryf.
+    time_sync: true
+    time_sync_drift_s: 30
 power:
   shutdown_delay_seconds: 30
   backlight_fade_ms: 1000

@@ -29,6 +29,26 @@ HOSTS=(
     "https://cloudflare.com"
 )
 
+# Proof of a good sync for other parts of BCM: the car phone module
+# (src/network/car_phone.py) sets the clock from the phone over USB only
+# when THIS script has not succeeded within its last timer period (1 h, plus
+# 15 min slack for the timer's accuracy and curl) — the internet is the
+# better source. Written on every success (clock already right, or
+# corrected), never when offline. /run is tmpfs: a fresh boot starts without
+# it, which is exactly "no sync since the power cut". Content:
+# "<CLOCK_BOOTTIME seconds> <epoch>" — boot time (from /proc/uptime) because
+# the wall clock is the thing that may just have jumped; it also counts
+# time spent in S3.
+OK_MARKER=/run/bcm-timesync.ok
+
+mark_ok() {
+    local up _rest
+    read -r up _rest < /proc/uptime 2>/dev/null || return 0
+    printf '%s %s\n' "${up%%.*}" "$(date -u +%s)" > "$OK_MARKER.tmp" 2>/dev/null \
+        && mv -f "$OK_MARKER.tmp" "$OK_MARKER" 2>/dev/null
+    return 0
+}
+
 # Below this we do not touch the clock. Rewriting the RTC on every tick
 # for sub-minute jitter buys nothing and costs a write; the fault we care
 # about is hours out, not seconds.
@@ -52,6 +72,7 @@ for host in "${HOSTS[@]}"; do
 
     if [ "$drift" -lt "$THRESHOLD_SEC" ]; then
         echo "clock within ${drift}s of $host — leaving it alone"
+        mark_ok
         exit 0
     fi
 
@@ -62,6 +83,7 @@ for host in "${HOSTS[@]}"; do
         echo "clock corrected by ${drift}s from $host — now $(date)"
         # `date -s` fallback leaves the RTC stale; push it explicitly.
         timedatectl set-time "$(date '+%Y-%m-%d %H:%M:%S')" 2>/dev/null || true
+        mark_ok
         exit 0
     fi
 

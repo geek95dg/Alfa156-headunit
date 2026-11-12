@@ -26,7 +26,36 @@ instead (a fake position is worse than none).
 Other keys (code defaults in :data:`DEFAULTS`): ``port`` / ``baudrate``
 (serial), ``stale_sec`` (no valid fix for that long ⇒ ``gps.fix`` False),
 ``require_checksum``, ``udp.{bind, port, allowed_sources, max_datagram}``,
-``tcp.{host, port, connect_timeout, backoff_max_sec}``.
+``tcp.{host, port, connect_timeout, backoff_max_sec}``, ``priority``,
+``priority_hold_sec``.
+
+Source priority — ``hardware.gps.priority``
+-------------------------------------------
+With two phones in the car (the driver's phone over Bluetooth PAN/UDP, the
+car phone over USB/TCP — plan section C) several inputs deliver fixes at
+once, and taking every one of them interleaves two slightly different
+positions and speeds (camera/crash_detect.py reads such a jump as a hard
+braking). ``priority`` lists input names, best first (default: the order of
+``source``; inputs it does not name come last, in ``source`` order). A
+sentence from an input is used only when every HIGHER-priority input has had
+no valid fix for at least ``priority_hold_sec`` (default 3 s, 0-60) — an
+input that never had a fix counts as "none for ever", so a single working
+input behaves exactly as without priorities. Each input keeps its own
+parser to track its fixes; the published state is built only from the
+sentences that were used. ``feed()`` callers with a name that is not an
+input (tests: ``"test"``) are never held back.
+
+``tcp.host: auto`` — the car phone's ``adb forward`` (``127.0.0.1:<port>``
+from ``net.car_phone``) while ``src/network/car_phone.py`` reports
+``gps_forward: true``, else ``pan-gateway`` as before. Decided again at
+every connect (a cable pulled mid-drive falls back on the next reconnect)
+and, during a ``pan-gateway`` session, every :data:`AUTO_RECHECK_S`: a
+forward that appears takes over at once instead of after the session.
+The forward ACCEPTS even when the phone's NMEA app is not running (adb
+hangs up a moment later), so after :data:`AUTO_EMPTY_MAX` forward sessions
+in a row without one NMEA line the ``pan-gateway`` is used meanwhile, and
+the forward gets one more chance every :data:`AUTO_FORWARD_REPROBE_S`
+(it is back to first choice as soon as one of its sessions delivers).
 
 Published (only VALID fixes — a receiver without a fix used to publish 0,0,
 which put the car in the Gulf of Guinea for weather/trip/tracker)::
@@ -118,7 +147,13 @@ DEFAULTS: dict[str, Any] = {
         # Reconnect when a connected server sends nothing for this long.
         "idle_timeout_sec": 30,
     },
+    # None = the order of `source`; see "Source priority" above.
+    "priority": None,
+    "priority_hold_sec": 3,
 }
+
+#: Topic of src/network/car_phone.py (``tcp.host: auto``).
+CAR_PHONE_TOPIC = "net.car_phone"
 
 #: NMEA 0183 says 82 characters; NMEA 4.x receivers and phones exceed it a
 #: little. Anything longer is not a sentence we want.
@@ -165,6 +200,15 @@ RAW_LINES_PER_SOURCE = 500
 #: /proc/net/route this often (at most) — PAN down is not a failure, so
 #: the exponential backoff must not grow meanwhile.
 PAN_POLL_S = 5.0
+#: ``tcp.host: auto`` (see the module docstring): a pan-gateway session
+#: looks for the car phone's forward this often; that many forward sessions
+#: in a row without NMEA => pan-gateway meanwhile; the forward is then
+#: retried this often (a retry costs the PAN session at most a reconnect,
+#: or the idle timeout if the forward holds the connection open silently —
+#: UDP from the main phone covers the gap).
+AUTO_RECHECK_S = 5.0
+AUTO_EMPTY_MAX = 3
+AUTO_FORWARD_REPROBE_S = 300.0
 #: ``pan`` subnets are re-read from ``ip`` at most this often (and an
 #: empty answer after :data:`PAN_CACHE_EMPTY_S`, so a fresh PAN link is
 #: picked up quickly).
@@ -1078,7 +1122,8 @@ class _TCPInput(_Input):
         super().__init__(manager)
         d = DEFAULTS["tcp"]
         host = cfg.get("host", d["host"])
-        if isinstance(host, str) and (host == "pan-gateway" or _HOST_RE.fullmatch(host)):
+        if isinstance(host, str) and (host in ("pan-gateway", "auto")
+                                      or _HOST_RE.fullmatch(host)):
             self._host = host
         else:
             log.warning("hardware.gps.tcp.host=%r is not a host name/address — using %s",
@@ -1102,25 +1147,82 @@ class _TCPInput(_Input):
         self._sock: Optional[socket.socket] = None
         #: Successful connections so far (tests).
         self.connections = 0
+        # Connections that were accepted and closed without one NMEA line
+        # since the last INFO about it (see _log_session).
+        self._empty_sessions = 0
+        self._got_data = False
+        # tcp.host: auto — what the current session talks to ("forward" |
+        # "pan" | "fixed"), forward sessions in a row without NMEA, and
+        # (monotonic) when the forward gets its next chance while the PAN
+        # gateway stands in for it.
+        self._kind = ""
+        self._fwd_empty = 0
+        self._fwd_probe_at = 0.0
+        # Set by _read_loop when a PAN session gives way to the forward.
+        self._switch = False
 
-    def _resolve(self) -> Optional[str]:
-        if self._host != "pan-gateway":
-            return self._host
+    def _pan_gateway(self) -> Optional[str]:
         try:
             return _parse_proc_net_route(self._mgr._route_reader())
         except OSError as e:
             log.debug("GPS TCP: cannot read %s: %s", PROC_NET_ROUTE, e)
             return None
 
+    def _resolve(self) -> Optional[tuple[str, int]]:
+        """``(host, port)`` to connect to now, None while there is none.
+        Also notes the kind of target (``_kind``) for :meth:`run`."""
+        if self._host == "auto":
+            port = self._mgr.car_phone_gps_port()
+            if port is None:
+                self._fwd_empty = 0         # a new forward later = a fresh chance
+            else:
+                gateway = None
+                if self._fwd_empty >= AUTO_EMPTY_MAX \
+                        and self._mgr._clock() < self._fwd_probe_at:
+                    gateway = self._pan_gateway()
+                if gateway is None:         # first choice, retry due, or no PAN
+                    self._kind = "forward"
+                    return "127.0.0.1", port
+                self._kind = "pan"
+                return gateway, self._port
+        elif self._host != "pan-gateway":
+            self._kind = "fixed"
+            return self._host, self._port
+        self._kind = "pan"
+        gateway = self._pan_gateway()
+        return (gateway, self._port) if gateway else None
+
+    def _forward_wanted(self) -> bool:
+        """auto, during a PAN session: should it give way to the forward?"""
+        if self._mgr.car_phone_gps_port() is None:
+            return False
+        return self._fwd_empty < AUTO_EMPTY_MAX or self._mgr._clock() >= self._fwd_probe_at
+
+    def _forward_result(self, delivered: bool) -> None:
+        """A session with (or a connect to) the forward ended."""
+        if delivered:
+            self._fwd_empty = 0
+            return
+        self._fwd_empty += 1
+        if self._fwd_empty >= AUTO_EMPTY_MAX:
+            self._fwd_probe_at = self._mgr._clock() + AUTO_FORWARD_REPROBE_S
+            if self._fwd_empty == AUTO_EMPTY_MAX:
+                log.info("GPS TCP: the car phone's GPS forward accepted %d connections in a "
+                         "row without NMEA — is the NMEA server app running on it? Using "
+                         "the Bluetooth PAN gateway meanwhile, when there is one (forward "
+                         "retried every %.0f s)", self._fwd_empty,
+                         AUTO_FORWARD_REPROBE_S)
+
     def run(self) -> None:
         backoff = self._backoff
         while not self._stopping():
-            host = self._resolve()
-            if not host:
+            target = self._resolve()
+            if not target:
                 self.state = "waiting"
                 self.peer = ""
                 if self._log_limit.ready("no-gateway"):
-                    log.info("GPS TCP: no Bluetooth PAN gateway yet (bnep*) — waiting")
+                    log.info("GPS TCP: no Bluetooth PAN gateway yet (bnep*)%s — waiting",
+                             " and no car phone GPS forward" if self._host == "auto" else "")
                 # PAN down is not a failure of ours: poll the routing table
                 # at a fixed short interval (growing the backoff here would
                 # start the fallback up to backoff_max_sec late after every
@@ -1131,27 +1233,36 @@ class _TCPInput(_Input):
                 if self._wait(min(PAN_POLL_S, backoff.cap)):
                     break
                 continue
-            self.peer = f"{host}:{self._port}"
+            host, port = target
+            self.peer = f"{host}:{port}"
             self.state = "connecting"
             try:
-                sock = socket.create_connection((host, self._port),
+                sock = socket.create_connection((host, port),
                                                 timeout=self._connect_timeout)
             except OSError as e:
                 self.state = "error"
                 level = log.warning if backoff.failures == 0 else log.debug
                 level("GPS TCP: cannot connect to %s: %s — retrying", self.peer, e)
+                if self._kind == "forward":
+                    self._forward_result(False)
                 if self._wait(backoff.failure()):
                     break
                 continue
             self._sock = sock
             self.connections += 1
             self.state = "connected"
-            log.info("GPS TCP connected to %s", self.peer)
+            self._got_data = False
+            self._switch = False
+            # Logged only once it is clear whether the server sent anything
+            # (_log_session): an `adb forward` listener ACCEPTS even when the
+            # phone's NMEA app is not running, then closes at once — that
+            # used to log an INFO pair on every backoff step, all night.
+            log.debug("GPS TCP connected to %s", self.peer)
             try:
                 self._read_loop(sock)
             except OSError as e:
                 if not self._stopping():
-                    log.info("GPS TCP: connection to %s lost: %s", self.peer, e)
+                    self._log_session(f"connection to {self.peer} lost: {e}")
             finally:
                 self._sock = None
                 self._announced = False
@@ -1162,6 +1273,13 @@ class _TCPInput(_Input):
             if self._stopping():
                 break
             self.state = "disconnected"
+            if self._switch:
+                # Left a working PAN session for the forward: connect now.
+                self._switch = False
+                backoff.reset()
+                continue
+            if self._kind == "forward":
+                self._forward_result(self._got_data)
             # The backoff is reset only by accepted data, so a server that
             # accepts and hangs up at once is not hammered every second.
             if self._wait(backoff.failure()):
@@ -1171,7 +1289,18 @@ class _TCPInput(_Input):
         sock.settimeout(1.0)
         buf = b""
         last_data = self._mgr._clock()
+        # auto on the PAN gateway: look for the car phone's forward now and
+        # then (also while data flows — recv returns at least every second).
+        recheck = self._host == "auto" and self._kind == "pan"
+        last_check = last_data
         while not self._stopping():
+            if recheck and self._mgr._clock() - last_check >= AUTO_RECHECK_S:
+                last_check = self._mgr._clock()
+                if self._forward_wanted():
+                    log.info("GPS TCP: the car phone's GPS forward is up — leaving %s for it",
+                             self.peer)
+                    self._switch = True
+                    return
             try:
                 chunk = sock.recv(4096)
             except socket.timeout:
@@ -1182,15 +1311,39 @@ class _TCPInput(_Input):
                 continue
             if not chunk:
                 if not self._stopping():        # stop() shuts the socket down
-                    log.info("GPS TCP: %s closed the connection", self.peer)
+                    self._log_session(f"{self.peer} closed the connection")
                 return
             last_data = self._mgr._clock()
+            if not self._got_data:
+                self._got_data = True
+                if self._kind == "forward":
+                    self._forward_result(True)      # first choice again, at once
+                log.info("GPS TCP connected to %s%s", self.peer,
+                         f" (after {self._empty_sessions} connections without data)"
+                         if self._empty_sessions else "")
+                self._empty_sessions = 0
             buf += chunk
             while b"\n" in buf:
                 raw, buf = buf.split(b"\n", 1)
                 self._line(raw.strip())
             if len(buf) > MAX_LINE * 2:
                 buf = b""       # no newline in sight: not NMEA, drop it
+
+    def _log_session(self, what: str) -> None:
+        """End of a connection. With data: INFO, as before. Without (the
+        server accepted and hung up — typically adb forward with the phone
+        app not running): one INFO per LOG_EVERY_S with the count, the rest
+        at DEBUG."""
+        if self._got_data:
+            log.info("GPS TCP: %s", what)
+            return
+        self._empty_sessions += 1
+        if self._log_limit.ready("empty-session"):
+            log.info("GPS TCP: %s without sending NMEA (%d such connection%s) — is the "
+                     "NMEA server app running on the phone?", what, self._empty_sessions,
+                     "" if self._empty_sessions == 1 else "s")
+        else:
+            log.debug("GPS TCP: %s without sending NMEA", what)
 
     def _line(self, line: bytes) -> None:
         # Same order as UDP: unused sentence types never reach the bucket.
@@ -1260,6 +1413,22 @@ class GPSManager:
             require = True
         self._parser = NMEAParser(require_checksum=require, clock=clock)
         self._demo = DemoGPSGenerator()
+        self.priority = self._resolve_priority(section.get("priority", DEFAULTS["priority"]))
+        self._hold = float(_number(section.get("priority_hold_sec",
+                                               DEFAULTS["priority_hold_sec"]),
+                                   DEFAULTS["priority_hold_sec"], 0, 60, "priority_hold_sec"))
+        # Per-input parsers (only with two or more ranked inputs): they see
+        # every sentence of their input, so each input's own fixes are known
+        # even while it is held back; the shared parser above builds what is
+        # published.
+        self._rank = {name: i for i, name in enumerate(self.priority)}
+        self._own_parsers: dict[str, NMEAParser] = {}
+        if len(self.priority) > 1:
+            self._own_parsers = {name: NMEAParser(require_checksum=require, clock=clock)
+                                 for name in self.priority}
+        self._input_fix_at: dict[str, float] = {}
+        #: Sentences held back by the priority rule (tests / diagnostics).
+        self.held_back = 0
 
         self._lock = threading.Lock()
         self._stop = threading.Event()
@@ -1278,6 +1447,56 @@ class GPSManager:
         self._next_state_at: Optional[float] = None
 
     # ── setup ─────────────────────────────────────────────────────────────
+
+    def _resolve_priority(self, value: Any) -> list[str]:
+        """``hardware.gps.priority`` → ranked input names (best first).
+
+        Only names of configured inputs count; the rest of ``source`` follows
+        in its own order. Junk is logged and ignored, never fatal."""
+        ranked: list[str] = []
+        if value is not None:
+            if isinstance(value, str):
+                value = [v.strip() for v in value.split(",") if v.strip()]
+            if not isinstance(value, (list, tuple)):
+                log.warning("hardware.gps.priority=%r is not a list — using the order of "
+                            "source", value)
+                value = []
+            for item in value:
+                name = item.strip().lower() if isinstance(item, str) else None
+                if name not in SOURCES:
+                    log.warning("hardware.gps.priority: unknown input %r ignored", item)
+                    continue
+                if name in self.sources and name not in ranked:
+                    ranked.append(name)
+        return ranked + [name for name in self.sources if name not in ranked]
+
+    def car_phone_gps_port(self) -> Optional[int]:
+        """Local port of the car phone's GPS forward, or None (``tcp.host:
+        auto``). Read from the bus at connect time — no subscription, so
+        the location module does not depend on car_phone's start order."""
+        try:
+            last = self._bus.get_last(CAR_PHONE_TOPIC)
+        except Exception:
+            return None
+        value = last[0] if last else None
+        if not isinstance(value, dict) or value.get("gps_forward") is not True \
+                or value.get("state") == "disabled":
+            return None
+        port = value.get("gps_port")
+        if isinstance(port, bool) or not isinstance(port, int) or not 1 <= port <= 65535:
+            return None
+        return port
+
+    def _held_back_locked(self, source: str, now: float) -> bool:
+        """True if a higher-priority input had a valid fix within the hold."""
+        rank = self._rank.get(source)
+        if rank is None or rank == 0:
+            return False
+        for better in self.priority[:rank]:
+            at = self._input_fix_at.get(better)
+            if at is not None and 0 <= now - at < self._hold:
+                return True
+        return False
 
     def _build_inputs(self) -> None:
         section = self._section
@@ -1358,6 +1577,19 @@ class GPSManager:
         Returns True when the sentence was accepted by the parser.
         """
         with self._lock:
+            own = self._own_parsers.get(source)
+            if own is not None:
+                # Ranked input: its own parser decides validity and records
+                # its fixes; the shared one only gets what is not held back.
+                now = self._clock()
+                own_before = own.fix_count
+                if not own.parse(line):
+                    return False
+                if own.fix_count != own_before:
+                    self._input_fix_at[source] = now
+                if self._held_back_locked(source, now):
+                    self.held_back += 1
+                    return True
             before = self._parser.fix_count
             if not self._parser.parse(line):
                 return False

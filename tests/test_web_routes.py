@@ -788,6 +788,109 @@ class TestGpsStatePayload:
         assert body["gps_state"]["inputs"] == [] and body["gps_state"]["source"] == "udp"
 
 
+# ── Car phone in the dashboard payload (src/network/car_phone.py) ────────
+
+CAR_PHONE_FULL = {
+    "state": "connected", "adb": "device", "serial": "1a…4d", "iface": "usb0",
+    "ip": "192.168.42.100", "prefix": 24, "gateway": "192.168.42.129", "gps_forward": True,
+    "gps_port": 50000, "battery_pct": 78, "temp_c": 31.25, "charging": True, "full": False,
+    "plugged": "usb", "health": "good", "overridden": False, "hotspot_active": True,
+    "hotspot_clients": 2, "heat": None, "time_synced_at": None, "error": "", "hint": "",
+    "since": 1.0}
+
+
+class TestCarPhonePayload:
+    def test_none_while_the_module_never_published(self, env):
+        assert env.viewer._get_dashboard_data()["car_phone"] is None
+
+    def test_summary(self, env):
+        env.bus.publish("net.car_phone", CAR_PHONE_FULL)
+        assert env.viewer._get_dashboard_data()["car_phone"] == {
+            "state": "connected", "hint": "", "adb": "device", "serial": "1a…4d",
+            "ip": "192.168.42.100", "prefix": 24, "gateway": "192.168.42.129",
+            "iface": "usb0", "gps_forward": True, "battery_pct": 78, "temp_c": 31.2,
+            "charging": True, "full": False, "plugged": "usb", "health": "good",
+            "overridden": False, "hotspot_active": True, "hotspot_clients": 2, "heat": None,
+            "error": ""}
+
+    def test_garbage_is_neutralised(self, env):
+        env.bus.publish("net.car_phone", {
+            "state": "<script>", "hint": "<b>", "adb": "root", "serial": "1a2b3c4d",
+            "ip": "x" * 100, "prefix": 99, "gateway": ["x"], "iface": "a" * 40,
+            "gps_forward": "yes", "battery_pct": 150, "temp_c": float("nan"),
+            "charging": "true", "full": 1, "plugged": "<img>", "health": "on fire",
+            "overridden": "yes", "hotspot_active": 1, "hotspot_clients": -3,
+            "heat": "<x>", "error": 42})
+        summary = env.viewer._get_dashboard_data()["car_phone"]
+        assert summary == {
+            "state": "unknown", "hint": "", "adb": "", "serial": "", "ip": "", "prefix": None,
+            "gateway": "", "iface": "", "gps_forward": False, "battery_pct": None,
+            "temp_c": None, "charging": None, "full": None, "plugged": None, "health": None,
+            "overridden": False, "hotspot_active": None, "hotspot_clients": None,
+            "heat": None, "error": ""}
+
+    def test_the_full_serial_never_reaches_the_ui(self, env):
+        env.bus.publish("net.car_phone", dict(CAR_PHONE_FULL, serial="1a2b3c4d"))
+        assert env.viewer._get_dashboard_data()["car_phone"]["serial"] == ""
+
+    def test_long_error_is_cut(self, env):
+        env.bus.publish("net.car_phone", dict(CAR_PHONE_FULL, error="e" * 500))
+        assert len(env.viewer._get_dashboard_data()["car_phone"]["error"]) == 200
+
+    @pytest.mark.parametrize("value", ["connected", None, ["x"], 5])
+    def test_non_dict_is_none(self, env, value):
+        env.bus.publish("net.car_phone", value)
+        assert env.viewer._get_dashboard_data()["car_phone"] is None
+
+    def test_every_published_state_and_hint_passes(self, env):
+        from src.network import car_phone as cp_mod
+        for state in cp_mod.STATES:
+            for hint in cp_mod.HINTS:
+                env.bus.publish("net.car_phone", dict(CAR_PHONE_FULL, state=state, hint=hint))
+                summary = env.viewer._get_dashboard_data()["car_phone"]
+                assert summary["state"] == state and summary["hint"] == hint
+
+
+# ── POST /api/car_phone/retry ────────────────────────────────────────────
+
+class TestCarPhoneRetryRoute:
+    def _seen(self, env):
+        seen = []
+        env.bus.subscribe("net.car_phone.cmd.retry", lambda t, v, ts: seen.append(v))
+        return seen
+
+    def test_publishes_an_argument_free_retry(self, env):
+        seen = self._seen(env)
+        res = env.client.post("/api/car_phone/retry", json={"serial": "x; reboot"})
+        assert res.status_code == 200 and res.get_json() == {"ok": True}
+        assert seen == [True]
+
+    def test_rate_limited(self, env):
+        seen = self._seen(env)
+        assert env.client.post("/api/car_phone/retry").status_code == 200
+        res = env.client.post("/api/car_phone/retry")
+        assert res.status_code == 429
+        assert 1 <= int(res.headers["Retry-After"]) <= 11
+        assert res.get_json()["retry_after"] == int(res.headers["Retry-After"])
+        assert seen == [True]
+        env.viewer._car_phone_retry_last -= wv._CAR_PHONE_RETRY_MIN_INTERVAL_S
+        assert env.client.post("/api/car_phone/retry").status_code == 200
+        assert seen == [True, True]
+
+    def test_independent_of_the_tether_limit(self, env):
+        assert env.client.post("/api/phone_tether/retry").status_code == 200
+        assert env.client.post("/api/car_phone/retry").status_code == 200
+
+    def test_get_is_not_allowed(self, env):
+        assert env.client.get("/api/car_phone/retry").status_code == 405
+
+    def test_readonly_network_client_is_refused(self, env):
+        seen = self._seen(env)
+        client = _policy_client(env, "readonly")
+        assert client.post("/api/car_phone/retry", **_as("192.168.1.50")).status_code == 403
+        assert seen == []
+
+
 # ── POST /api/phone_tether/retry ─────────────────────────────────────────
 
 class TestPhoneTetherRetryRoute:

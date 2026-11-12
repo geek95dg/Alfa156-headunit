@@ -50,6 +50,8 @@ RC_TIMEOUT = 124
 #: Exit status reported for an argv that is not a non-empty list of strings —
 #: the runner is never called with it.
 RC_BAD_ARGV = 2
+#: Longest RAW stderr kept for a caller that parses it (``raw_stderr``).
+RAW_STDERR_MAX = 4096
 #: Kernel interface name (as reported for GENERAL.IP-IFACE).
 IFACE_RE = re.compile(r"^[A-Za-z0-9_.-]{1,15}$")
 
@@ -193,7 +195,8 @@ def _warn_missing_default(prog: str) -> None:
 def _run(runner: Callable[..., Any], argv: Sequence[str],
          timeout: float = PROBE_TIMEOUT_S, *,
          env_extra: Optional[Mapping[str, str]] = None,
-         on_missing: Optional[Callable[[str], None]] = None) -> tuple[int, str, str]:
+         on_missing: Optional[Callable[[str], None]] = None,
+         raw_stderr: bool = False) -> tuple[int, str, str]:
     """Run one command. Never raises; returns ``(rc, stdout, cleaned stderr)``.
 
     Args:
@@ -206,6 +209,13 @@ def _run(runner: Callable[..., Any], argv: Sequence[str],
         on_missing: called with the program name when the binary does not
             exist (:data:`RC_MISSING`); the caller logs its own warning ONCE.
             Without it a generic warning is logged once per program.
+        raw_stderr: return stderr as the tool wrote it (lines kept, only cut
+            to :data:`RAW_STDERR_MAX` characters) instead of cleaned. For a
+            caller that PARSES stderr line by line — ``adb shell svc usb
+            getFunctions`` prints its answer there, after whatever warnings
+            the ROM's linker emits; joined into one 200-character line the
+            answer would be lost. The caller must still pass any of it
+            through :func:`clean_error` before it reaches the UI or the log.
     """
     if isinstance(argv, (str, bytes)) or not isinstance(argv, (list, tuple)) or not argv \
             or not all(isinstance(a, str) for a in argv):
@@ -238,4 +248,6 @@ def _run(runner: Callable[..., Any], argv: Sequence[str],
     # bool is an int subclass — a fake returning True must not read as rc 1.
     if isinstance(rc, bool) or not isinstance(rc, int):
         rc = 1
+    if raw_stderr:
+        return rc, out, err[:RAW_STDERR_MAX]
     return rc, out, clean_error(err)

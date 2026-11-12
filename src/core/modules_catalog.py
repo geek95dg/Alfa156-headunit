@@ -83,6 +83,22 @@ MODULES: dict[str, dict] = {
                     "entry": ("src.network.phone_tether", "start_phone_tether"), "default": False,
                     "requires": ("bluetooth",),
                     "hardware": "telefon z włączonym tetheringiem Bluetooth"},
+    # Off in code (production unchanged); this toggle is its only switch.
+    # Plan C + D1: the phone mounted in the car on USB (adb) — tethering,
+    # GPS forward, battery/heat, clock. No dependency: it does not need
+    # Bluetooth, and autoapp must be built wireless-only (BCM_AA_USB=0 in
+    # install-openauto.sh) or it flips the phone into AA accessory mode.
+    # Switching it OFF stops BCM's supervision only: the NetworkManager
+    # profile it created (autoconnect, metric 650, any rndis_host/cdc_ncm
+    # device) stays and keeps routing through ANY phone with USB tethering
+    # on — hence the note in "hardware" (shown in Settings → Moduły) and
+    # docs/WDROZENIE_TESTOWE.md §5.7.
+    "car_phone":    {"part": 22, "description": "Telefon w aucie: internet (tethering USB), GPS, bateria i czas z telefonu",
+                    "entry": ("src.network.car_phone", "start_car_phone"), "default": False,
+                    "group": "telefon_w_aucie",
+                    "hardware": "Redmi na USB (adb, debugowanie USB); autoapp z BCM_AA_USB=0. "
+                                "Po wyłączeniu usuń profil: sudo nmcli connection delete "
+                                "bcm-car-phone"},
     "weather":     {"part": 14, "description": "Weather Data (OpenWeatherMap)",
                     "entry": ("src.weather.weather", "start_weather"), "default": False},
     "rain_sensor": {"part": 15, "description": "Rain Sensor + Auto Wipers",
@@ -122,15 +138,15 @@ MODULES: dict[str, dict] = {
     "small_display": {"part": 2,  "description": "4.3\" stats display server (port 5003)",
                      "default": True},
 
-    # --- planned modules (plan sections C–I): listed, never started ---
+    # --- planned modules (plan sections D3–I): listed, never started ---
     # Every one defaults to False and is the ONLY switch of its feature
     # (no ``enabled`` sub-keys in the config blocks). ``planned`` goes away
     # when the code lands; ``requires`` already describes the final graph.
-    "car_phone":    {"part": 22, "description": "Telefon w aucie: internet (tethering USB), GPS, bateria i czas z telefonu",
-                     "default": False, "planned": True, "group": "telefon_w_aucie",
-                     "hardware": "Redmi na USB (adb, debugowanie USB)"},
+    # Plan D2 — read inside car_phone (no start path of its own): the
+    # hotspot status in its Settings row. Read-only; the hotspot itself is
+    # configured and switched on the phone.
     "car_phone_hotspot": {"part": 22, "description": "Hotspot Wi-Fi dla pasażerów z telefonu w aucie (stan w Ustawieniach)",
-                     "default": False, "planned": True, "group": "telefon_w_aucie",
+                     "default": False, "group": "telefon_w_aucie",
                      "requires": ("car_phone",),
                      "hardware": "Redmi: hotspot skonfigurowany w telefonie"},
     "phone_sensors": {"part": 22, "description": "Czujniki telefonu w aucie: światło i akcelerometr",

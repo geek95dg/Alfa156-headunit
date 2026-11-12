@@ -115,6 +115,100 @@ const Settings = {
         </div>`;
     },
 
+    // The phone mounted in the car (USB/adb, src/network/car_phone.py).
+    // data.car_phone = web_viewer._car_phone_summary(net.car_phone), or null
+    // while the module is not running (production config: no row).
+    _carPhoneColors: {
+        connected: "#16a34a",
+        tethering: "var(--color-primary)",
+        no_device: "#d97706",                       // amber: plug in / unlock
+        unauthorized: "#d97706",
+        no_adb: "#dc2626",
+        adb_error: "#dc2626",
+        failed: "#dc2626",
+    },
+    _carPhoneRetryAt: 0,
+
+    /** "Ponów" in the car phone row (POST /api/car_phone/retry; the server
+     *  rate-limits too — 429 — this only swallows double taps). */
+    async carPhoneRetry() {
+        const now = Date.now();
+        if (now - Settings._carPhoneRetryAt < 3000) return;
+        Settings._carPhoneRetryAt = now;
+        try {
+            await fetch("/api/car_phone/retry", { method: "POST" });
+        } catch (e) { /* offline kiosk: the backend retries on its own */ }
+    },
+
+    /** One info row "Telefon w aucie: <stan> <ip> · 78% 31 °C · GPS · hotspot"
+     *  plus, for a known problem, what to do (never the raw adb/nmcli
+     *  error). '' without a payload. Inline styles only (Tailwind is
+     *  precompiled); every value goes through _esc and numbers are checked
+     *  for type before they are drawn. */
+    carPhoneRowHtml(cp, t) {
+        t = t || ((k, d) => d);
+        if (!cp || typeof cp !== "object") return "";
+        const esc = Settings._esc;
+        const state = typeof cp.state === "string" ? cp.state : "unknown";
+        const labels = {
+            disabled: t("car_phone_disabled", "wyłączony"),
+            no_adb: t("car_phone_no_adb", "brak adb"),
+            adb_error: t("car_phone_adb_error", "błąd adb — ponowię"),
+            no_device: t("car_phone_no_device", "brak telefonu na USB"),
+            unauthorized: t("car_phone_unauthorized", "zezwól na debugowanie USB"),
+            tethering: t("car_phone_tethering", "włączam tethering USB…"),
+            connected: t("car_phone_connected", "połączono"),
+            failed: t("car_phone_failed", "błąd — ponowię"),
+        };
+        const label = Object.prototype.hasOwnProperty.call(labels, state) ? labels[state] : state;
+        const color = Settings._carPhoneColors[state] || "var(--text-dim)";
+        const mono = (v) => `<span style="color:var(--text-mid);font-family:monospace">${esc(v)}</span>`;
+        const dim = (v) => `<span style="color:var(--text-dim)">${esc(v)}</span>`;
+        const parts = [];
+        if (state === "connected" && cp.ip) {
+            parts.push(mono(cp.ip) + (cp.iface ? " " + dim(`(${cp.iface})`) : ""));
+        }
+        const facts = [];
+        if (Number.isInteger(cp.battery_pct) && cp.battery_pct >= 0 && cp.battery_pct <= 100) {
+            const plug = cp.charging === true ? " ⚡" : (cp.full === true ? " ✓" : "");
+            facts.push(`${cp.battery_pct}%${plug}`);
+        }
+        // heat: the module's own hysteresis (warn/critical_temp_c from the
+        // config) — the row does not second-guess the thresholds.
+        const hot = cp.heat === "warning" || cp.heat === "danger";
+        if (typeof cp.temp_c === "number" && isFinite(cp.temp_c)) {
+            facts.push(`${Math.round(cp.temp_c)} °C`);
+        }
+        if (cp.gps_forward === true) facts.push(t("car_phone_gps", "GPS"));
+        if (cp.hotspot_active === true) {
+            const n = Number.isInteger(cp.hotspot_clients) ? ` (${cp.hotspot_clients})` : "";
+            facts.push(t("car_phone_hotspot_on", "hotspot") + n);
+        } else if (cp.hotspot_active === false) {
+            facts.push(t("car_phone_hotspot_off", "hotspot wył."));
+        }
+        if (facts.length) {
+            parts.push(`<span style="color:${hot ? "#dc2626" : "var(--text-mid)"}">${esc(facts.join(" · "))}</span>`);
+        }
+        const hints = {
+            authorize: t("car_phone_hint_authorize", "odblokuj telefon i zaznacz „Zawsze zezwalaj” dla debugowania USB"),
+            pin_serial: t("car_phone_hint_pin_serial", "kilka telefonów na USB — wpisz network.car_phone.serial"),
+            tether_blocked: t("car_phone_hint_tether_blocked", "telefon nie włącza tetheringu USB — włącz go ręcznie albo sprawdź operatora"),
+            aa_usb_probe: t("car_phone_hint_aa_usb_probe", "autoapp przełącza telefon w tryb Android Auto — przebuduj z BCM_AA_USB=0"),
+            install_adb: t("car_phone_hint_install_adb", "zainstaluj adb: sudo apt install adb"),
+        };
+        const hintText = (typeof cp.hint === "string" && Object.prototype.hasOwnProperty.call(hints, cp.hint))
+            ? hints[cp.hint] : "";
+        const hint = hintText
+            ? `<span data-car-phone-hint style="color:var(--text-mid);flex-basis:100%;padding-left:24px">${esc(hintText)}</span>` : "";
+        const retry = (state === "failed" || state === "adb_error")
+            ? `<button data-car-phone-retry onclick="Settings.carPhoneRetry()" style="margin-left:auto;padding:4px 10px;border-radius:8px;font-size:11px;font-weight:700;background:var(--card-border);color:var(--text-mid);border:none">${esc(t("car_phone_retry", "Ponów"))}</button>` : "";
+        return `<div data-car-phone-state="${esc(state)}" style="display:flex;flex-wrap:wrap;align-items:center;gap:4px 8px;padding:8px 12px;border-radius:12px;background:var(--card-bg);border:1px solid var(--card-border);font-size:11px;line-height:1.3">
+            <span class="material-symbols-outlined" style="font-size:16px;color:${color}">phone_android</span>
+            <span style="color:var(--text-dim);font-weight:700">${esc(t("car_phone", "Telefon w aucie"))}:</span>
+            <span style="color:${color};font-weight:700">${esc(label)}</span>${parts.length ? " " + parts.join(" ") : ""}${retry}${hint}
+        </div>`;
+    },
+
     /** One info row "GPS: <źródło> <stan> <nadawca>" from data.gps_state
      *  (web_viewer._gps_state_summary of gps.source_state), plus — while
      *  there is no fix — where the phone should send its NMEA: the head
@@ -926,9 +1020,14 @@ App.registerScreen("settings", (() => {
     // Last phone_tether / GPS payload drawn; update() redraws only those rows.
     let _tetherKey = "null";
     let _gpsKey = "null";
+    let _carPhoneKey = "null";
 
     function _tetherKeyOf(data) {
         return JSON.stringify((data && data.phone_tether) || null);
+    }
+
+    function _carPhoneKeyOf(data) {
+        return JSON.stringify((data && data.car_phone) || null);
     }
 
     /** What the GPS row shows: gps_state without last_ts (it changes with
@@ -941,8 +1040,8 @@ App.registerScreen("settings", (() => {
             pt && pt.state === "connected" ? pt.ip : ""]);
     }
 
-    /** Live data while Settings is open: only the phone-internet and GPS rows
-     *  change here (state / IP appear while the driver watches). Never a full
+    /** Live data while Settings is open: only the phone-internet, car phone
+     *  and GPS rows change here (state / IP appear while the driver watches). Never a full
      *  re-render — that would reset the scroll position and the OSK. */
     function update(data) {
         const t = App.t.bind(App);
@@ -952,6 +1051,14 @@ App.registerScreen("settings", (() => {
             if (slot) {
                 _tetherKey = key;
                 slot.innerHTML = Settings.tetherRowHtml(data && data.phone_tether, t);
+            }
+        }
+        const carKey = _carPhoneKeyOf(data);
+        if (carKey !== _carPhoneKey) {
+            const slot = document.querySelector("[data-car-phone-slot]");
+            if (slot) {
+                _carPhoneKey = carKey;
+                slot.innerHTML = Settings.carPhoneRowHtml(data && data.car_phone, t);
             }
         }
         const gpsKey = _gpsKeyOf(data);
@@ -970,6 +1077,7 @@ App.registerScreen("settings", (() => {
         const t = App.t.bind(App);
         _tetherKey = _tetherKeyOf(data);
         _gpsKey = _gpsKeyOf(data);
+        _carPhoneKey = _carPhoneKeyOf(data);
         const paired = Settings._btPaired;
         const discovered = Settings._btDiscovered;
         const scanning = Settings._btScanning;
@@ -1030,6 +1138,8 @@ App.registerScreen("settings", (() => {
                              empty slot (module off) adds no flex gap; update()
                              swaps its content. -->
                         <div data-tether-slot style="display:contents">${Settings.tetherRowHtml(data && data.phone_tether, t)}</div>
+                        <!-- The phone mounted in the car (USB, adb) — same slot idea. -->
+                        <div data-car-phone-slot style="display:contents">${Settings.carPhoneRowHtml(data && data.car_phone, t)}</div>
                         <!-- GPS source / fix + where to send NMEA (same slot idea). -->
                         <div data-gps-slot style="display:contents">${Settings.gpsRowHtml(data && data.gps_state, data && data.phone_tether, t)}</div>
                         <!-- Wi-Fi Hotspot / ALFA-NET network access. The live

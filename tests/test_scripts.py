@@ -890,3 +890,180 @@ class TestAudioDiag:
         assert calls[:2] == ["set-mute 42 1", "set-mute 7 1"]
         assert "set-mute 9 1" not in calls
         assert sorted(calls[2:]) == ["set-mute 42 0", "set-mute 7 0"]
+
+
+# ─── Telefon w aucie (plan C): autoapp wireless-only, adb, timesync marker ──
+
+# A minimal App::waitForDevice in the layout of openDsh/openauto (develop,
+# openauto/App.cpp) — only what the patch looks at, not the real source.
+_APP_CPP = """\
+void App::waitForDevice(bool enumerate)
+{
+    this->waitForUSBDevice();
+    this->waitForWirelessDevice();
+
+    if(enumerate)
+    {
+        strand_.dispatch([this, self = this->shared_from_this()]() {
+            this->enumerateDevices();
+        });
+    }
+}
+
+void App::waitForUSBDevice()
+{
+    usbHub_->start(std::move(promise));
+}
+"""
+
+
+@pytest.fixture(scope="module")
+def autoapp_patch_lib(tmp_path_factory):
+    """log/warn/die + patch_aa_wireless_only() from install-openauto.sh,
+    sourced on their own: the patch only edits the file it is given."""
+    text = _read("install-openauto.sh")
+    helpers = "\n".join(l for l in text.splitlines()
+                        if re.match(r"^(log|warn|die)\(\)\s", l))
+    src = helpers + "\n" + "patch_aa_wireless_only() {\n" + \
+        _function_body(text, "patch_aa_wireless_only") + "}\n"
+    # no command in it may touch anything but the file (messages may name them)
+    assert not re.search(r"^\s*(apt-get|git|make|cmake|install|rm|systemctl)\b",
+                         _function_body(text, "patch_aa_wireless_only"), flags=re.M)
+    path = tmp_path_factory.mktemp("autoapp-patch") / "lib.sh"
+    path.write_text(src, encoding="utf-8")
+    return path
+
+
+def _patch(lib, target):
+    res = subprocess.run(
+        ["bash", "-c", 'set -euo pipefail; WORK=/nonexistent; source "$1"; '
+                       'patch_aa_wireless_only "$2"', "bash", str(lib), str(target)],
+        capture_output=True, text=True, timeout=10, cwd=target.parent)
+    return res.returncode, res.stdout + res.stderr
+
+
+class TestInstallOpenautoUsbPatch:
+    text = _read("install-openauto.sh")
+
+    def test_gate_defaults_to_wireless_only_and_is_validated(self):
+        assert 'BCM_AA_USB="${BCM_AA_USB:-0}"' in self.text
+        assert re.search(r'case "\$BCM_AA_USB" in\s+0\|1\) ;;\s+\*\) die ', self.text)
+        assert 'if [[ "$BCM_AA_USB" == "0" ]]; then\n    patch_aa_wireless_only openauto/App.cpp' \
+            in self.text
+
+    def test_patch_comes_before_the_openauto_build(self):
+        build = self.text.index('log "Buduję openauto"')
+        patch = self.text.index("patch_aa_wireless_only openauto/App.cpp")
+        cmake = self.text.index("cmake ..", build)
+        assert build < patch < cmake
+
+    def test_header_explains_why_and_the_force_rebuild(self):
+        header = self.text.split("set -euo pipefail", 1)[0]
+        assert "AOAP" in header and "car_phone" in header
+        assert "--force" in header and "BCM_AA_USB=1" in header
+
+    def test_mode_is_recorded_and_checked_without_force(self):
+        assert 'echo "BCM_AA_USB=$BCM_AA_USB" > "$MODE_FILE"' in self.text
+        early = self.text[self.text.index('if [[ -x "$BIN" && $FORCE -eq 0 ]]'):]
+        early = early[:early.index("exit 0")]
+        assert '"$MODE_FILE"' in early and "--force" in early
+
+    @pytest.mark.skipif(shutil.which("bash") is None, reason="bash not installed")
+    def test_patch_comments_out_both_usb_calls_once(self, autoapp_patch_lib, tmp_path):
+        target = tmp_path / "App.cpp"
+        target.write_text(_APP_CPP)
+        rc, out = _patch(autoapp_patch_lib, target)
+        assert rc == 0, out
+        patched = target.read_text()
+        assert "this->waitForUSBDevice();" not in patched
+        assert "this->enumerateDevices();" not in patched
+        assert "this->waitForWirelessDevice();" in patched          # wireless stays
+        assert "void App::waitForUSBDevice()" in patched            # definition untouched
+        assert patched.count("BCM_AA_USB=0") == 2
+        # idempotent: a second run changes nothing and says so
+        rc, out = _patch(autoapp_patch_lib, target)
+        assert rc == 0 and "już nałożona" in out
+        assert target.read_text() == patched
+
+    @pytest.mark.skipif(shutil.which("bash") is None, reason="bash not installed")
+    @pytest.mark.parametrize("source", [
+        _APP_CPP.replace("    this->waitForUSBDevice();\n", ""),            # upstream moved it
+        _APP_CPP.replace("this->enumerateDevices();", "enumerate_all();"),
+        _APP_CPP.replace("    this->waitForUSBDevice();\n",
+                         "    this->waitForUSBDevice();\n    this->waitForUSBDevice();\n"),
+        _APP_CPP.replace("    this->waitForUSBDevice();\n",
+                         "    /* BCM_AA_USB=0: half */\n"),                # half-patched
+    ], ids=["usb-call-missing", "enumerate-missing", "usb-call-twice", "half-patched"])
+    def test_patch_fails_loudly_and_leaves_the_file(self, autoapp_patch_lib, tmp_path, source):
+        target = tmp_path / "App.cpp"
+        target.write_text(source)
+        rc, out = _patch(autoapp_patch_lib, target)
+        assert rc != 0 and "[błąd]" in out
+        assert target.read_text() == source                       # never half-applied
+
+    @pytest.mark.skipif(shutil.which("bash") is None, reason="bash not installed")
+    def test_missing_file_fails(self, autoapp_patch_lib, tmp_path):
+        rc, out = _patch(autoapp_patch_lib, tmp_path / "nope.cpp")
+        assert rc != 0 and "BCM_AA_USB=1" in out
+
+
+@pytest.mark.parametrize("name", ["setup-x86.sh", "apply-fixes.sh"])
+class TestAdbInstall:
+    def test_single_checked_package(self, name):
+        code = "\n".join(_code_lines(_read(name)))
+        assert "apt-get install -y adb || true" in code
+        assert "command -v adb >/dev/null 2>&1" in code
+        assert re.search(r"adb is NOT installed", code)
+        # never hidden in a bulk list or silenced (messages may name the fix)
+        for line in code.splitlines():
+            if line.strip().startswith("apt-get") and re.search(r"\badb\b", line):
+                assert line.strip() == "apt-get install -y adb || true", line
+        assert "adb tcpip" not in code
+
+    def test_nm_dropins_are_documented_not_written(self, name):
+        code = "\n".join(_code_lines(_read(name)))
+        assert "bcm-connectivity.conf" not in code
+        assert "no-auto-default" not in code
+
+
+def test_harden_only_reports_adb():
+    text = _read("bcm-harden.sh")
+    body = _function_body(text, "step_nm_bluetooth")
+    assert "command -v adb" in body
+    # report only: no apt command (run/run_quiet or bare) for adb anywhere
+    assert not re.search(r"^\s*(run\s+|run_quiet\s+)?apt-get[^\n]*\badb\b", text, flags=re.M)
+
+
+def test_apply_fixes_installs_the_timesync_script_only_if_present():
+    text = _read("apply-fixes.sh")
+    assert ('if [ -f /usr/local/bin/bcm-timesync.sh ]; then\n'
+            '    install -m 0755 "$BCM_DIR/config/scripts/bcm-timesync.sh" '
+            '/usr/local/bin/bcm-timesync.sh') in text
+
+
+class TestTimesyncMarker:
+    text = _read("bcm-timesync.sh")
+
+    def test_marker_on_every_success_never_offline(self):
+        assert "OK_MARKER=/run/bcm-timesync.ok" in self.text
+        within = self.text.index("leaving it alone")
+        corrected = self.text.index("clock corrected by")
+        offline = self.text.index("no uplink to read a Date header")
+        assert self.text.index("mark_ok", within) < self.text.index("exit 0", within)
+        assert self.text.index("mark_ok", corrected) < self.text.index("exit 0", corrected)
+        assert "mark_ok" not in self.text[offline:]
+
+    @pytest.mark.skipif(shutil.which("bash") is None, reason="bash not installed")
+    def test_mark_ok_writes_boottime_and_epoch(self, tmp_path):
+        from src.network.car_phone import read_timesync_marker
+        lib = tmp_path / "lib.sh"
+        lib.write_text("mark_ok() {\n" + _function_body(self.text, "mark_ok") + "}\n")
+        marker = tmp_path / "ok"
+        res = subprocess.run(["bash", "-c", 'set -u; OK_MARKER="$2"; source "$1"; mark_ok',
+                              "bash", str(lib), str(marker)],
+                             capture_output=True, text=True, timeout=10)
+        assert res.returncode == 0, res.stderr
+        up, epoch = marker.read_text().split()
+        assert up.isdigit() and epoch.isdigit() and int(epoch) > 1_700_000_000
+        assert read_timesync_marker(str(marker)) == float(up)    # what car_phone reads
+        assert not (tmp_path / "ok.tmp").exists()

@@ -848,6 +848,16 @@ make -j$(nproc)
 sudo make install
 ```
 
+> **Wireless-only autoapp (`BCM_AA_USB`).** `config/scripts/install-openauto.sh`
+> additionally comments out `this->waitForUSBDevice();` and
+> `this->enumerateDevices();` in `openauto/App.cpp` (`BCM_AA_USB=0`, the
+> default): stock autoapp sends the Android Auto accessory (AOAP) handshake to
+> EVERY USB device and would flip the car phone (`modules.car_phone`, USB
+> tethering over adb) into accessory mode. The script fails loudly when the
+> pattern is not found. `BCM_AA_USB=1` keeps upstream USB support. Changing it
+> needs a rebuild: `sudo BCM_AA_USB=0 bash config/scripts/install-openauto.sh --force`.
+> Details (Polish): `docs/WDROZENIE_TESTOWE.md` §5.6–5.7.
+
 ### 11.5 Verify
 
 ```bash

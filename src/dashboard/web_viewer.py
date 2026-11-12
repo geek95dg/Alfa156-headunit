@@ -28,6 +28,10 @@ from urllib.parse import urlsplit
 from src.core.logger import get_logger
 from src.core.notifications import active_notifications
 from src.multimedia.phone_status import sanitize_status as _phone_status_summary
+from src.network.car_phone import ADB_STATES as _CAR_PHONE_ADB_STATES
+from src.network.car_phone import HINTS as _CAR_PHONE_HINTS
+from src.network.car_phone import RETRY_TOPIC as _CAR_PHONE_RETRY_TOPIC
+from src.network.car_phone import STATES as _CAR_PHONE_STATES
 from src.network.phone_tether import HINTS as _TETHER_HINTS
 from src.network.phone_tether import RETRY_TOPIC as _TETHER_RETRY_TOPIC
 from src.network.phone_tether import STATES as _TETHER_STATES
@@ -280,6 +284,76 @@ def _phone_tether_summary(value: Any) -> Optional[dict]:
         "ip": ip if isinstance(ip, str) and len(ip) <= 45 else "",
         "iface": iface if isinstance(iface, str) and len(iface) <= 15 else "",
         "hint": hint if isinstance(hint, str) and hint in _TETHER_HINTS else "",
+    }
+
+
+#: Minimum spacing of POST /api/car_phone/retry (each can cost adb calls and
+#: a `connection up` of up to 30 s).
+_CAR_PHONE_RETRY_MIN_INTERVAL_S = 10.0
+_CAR_PHONE_PLUGGED = ("", "ac", "usb", "wireless", "dock")
+_CAR_PHONE_HEALTH = ("unknown", "good", "overheat", "dead", "over_voltage", "failure", "cold")
+_SERIAL_MASK_RE = re.compile(r"^(?:…|[A-Za-z0-9._:-]{2}…[A-Za-z0-9._:-]{2})$")
+
+
+def _car_phone_summary(value: Any) -> Optional[dict]:
+    """``net.car_phone`` → what the Settings row "Telefon w aucie" shows.
+
+    Whitelists for state / hint / adb / plugged / health, numbers checked
+    for type and range, strings for length and shape: the values come from
+    adb and nmcli output (the frontend escapes them too). The serial is
+    passed on only in its masked form (``1a…4d``) — the payload is visible
+    from the network in ``readonly`` mode. Never published = the module is
+    not running (production) = None, and Settings shows no row.
+    """
+    if not isinstance(value, dict):
+        return None
+
+    def num(key, lo, hi, integer=False):
+        v = value.get(key)
+        if isinstance(v, bool) or not isinstance(v, (int, float)):
+            return None
+        if integer and not isinstance(v, int):
+            return None
+        if v != v or not lo <= v <= hi:        # NaN, out of range
+            return None
+        return v
+
+    def flag(key):
+        v = value.get(key)
+        return v if isinstance(v, bool) else None
+
+    def pick(key, allowed, default=""):
+        v = value.get(key)
+        return v if isinstance(v, str) and v in allowed else default
+
+    state = value.get("state")
+    ip = value.get("ip")
+    iface = value.get("iface")
+    gateway = value.get("gateway")
+    serial = value.get("serial")
+    error = value.get("error")
+    temp = num("temp_c", -40, 100)
+    return {
+        "state": state if isinstance(state, str) and state in _CAR_PHONE_STATES else "unknown",
+        "hint": pick("hint", _CAR_PHONE_HINTS),
+        "adb": pick("adb", _CAR_PHONE_ADB_STATES),
+        "serial": serial if isinstance(serial, str) and _SERIAL_MASK_RE.fullmatch(serial) else "",
+        "ip": ip if isinstance(ip, str) and len(ip) <= 45 else "",
+        "prefix": num("prefix", 0, 32, integer=True),
+        "gateway": gateway if isinstance(gateway, str) and len(gateway) <= 45 else "",
+        "iface": iface if isinstance(iface, str) and len(iface) <= 15 else "",
+        "gps_forward": value.get("gps_forward") is True,
+        "battery_pct": num("battery_pct", 0, 100, integer=True),
+        "temp_c": round(temp, 1) if temp is not None else None,
+        "charging": flag("charging"),
+        "full": flag("full"),
+        "plugged": pick("plugged", _CAR_PHONE_PLUGGED, None),
+        "health": pick("health", _CAR_PHONE_HEALTH, None),
+        "overridden": value.get("overridden") is True,
+        "hotspot_active": flag("hotspot_active"),
+        "hotspot_clients": num("hotspot_clients", 0, 255, integer=True),
+        "heat": pick("heat", ("warning", "danger"), None),
+        "error": error[:200] if isinstance(error, str) else "",
     }
 
 
@@ -758,6 +832,9 @@ class WebViewer:
         # may move the wall clock right after the link comes up).
         self._tether_retry_lock = threading.Lock()
         self._tether_retry_last: Optional[float] = None
+        # POST /api/car_phone/retry rate limit (monotonic, as above).
+        self._car_phone_retry_lock = threading.Lock()
+        self._car_phone_retry_last: Optional[float] = None
 
         # POST /api/phone/dial rate limit: last accepted dial per bucket
         # ("kiosk" = loopback, "network" = everyone else), monotonic.
@@ -950,6 +1027,9 @@ class WebViewer:
             "lte_signal": _val("lte.signal", 0),
             # Internet from the phone (src/network/phone_tether.py).
             "phone_tether": _phone_tether_summary(_val("net.phone_tether")),
+            # The phone mounted in the car (src/network/car_phone.py): USB
+            # tethering, GPS forward, battery. None = module not running.
+            "car_phone": _car_phone_summary(_val("net.car_phone")),
             # Phone battery / signal / operator for the top bar
             # (src/multimedia/phone_status.py). Re-sanitised here: values come
             # from the phone; None = module not running (no cluster drawn).
@@ -2567,6 +2647,31 @@ class WebViewer:
                     return res, 429
                 viewer._tether_retry_last = now
             viewer._event_bus.publish(_TETHER_RETRY_TOPIC, True)
+            return jsonify({"ok": True})
+
+        @app.route("/api/car_phone/retry", methods=["POST"])
+        def api_car_phone_retry():
+            """"Ponów" in the "Telefon w aucie" row: retry the car phone now.
+
+            Takes no arguments (the body is ignored — nothing from the
+            browser reaches adb or nmcli) and only publishes
+            net.car_phone.cmd.retry; src/network/car_phone.py drops its
+            backoff and tethering attempt counter. At most one per
+            _CAR_PHONE_RETRY_MIN_INTERVAL_S (429 with Retry-After).
+            """
+            if not viewer._event_bus:
+                return jsonify({"ok": False, "error": "event bus unavailable"}), 503
+            now = time.monotonic()
+            with viewer._car_phone_retry_lock:
+                last = viewer._car_phone_retry_last
+                if last is not None and now - last < _CAR_PHONE_RETRY_MIN_INTERVAL_S:
+                    wait = int(_CAR_PHONE_RETRY_MIN_INTERVAL_S - (now - last)) + 1
+                    res = jsonify({"ok": False, "error": "too many requests",
+                                   "retry_after": wait})
+                    res.headers["Retry-After"] = str(wait)
+                    return res, 429
+                viewer._car_phone_retry_last = now
+            viewer._event_bus.publish(_CAR_PHONE_RETRY_TOPIC, True)
             return jsonify({"ok": True})
 
         @app.route("/api/phone/answer", methods=["POST"])

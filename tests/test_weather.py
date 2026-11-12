@@ -65,6 +65,7 @@ def make(platform="x86", api_key="k", poll_min=15, results=None, **weather_cfg):
     bus.subscribe("gps.position", wm._on_gps_position)
     bus.subscribe("lte.connected", wm._on_lte_status)
     bus.subscribe("net.phone_tether", wm._on_phone_tether)
+    bus.subscribe("net.car_phone", wm._on_car_phone)
     bus.subscribe("weather.search_location", wm._on_search_location)
     return wm, bus, clock, attempts
 
@@ -214,6 +215,49 @@ class TestPhoneTether:
             assert wm._tether_connected is True
             bus.publish("net.phone_tether", {"state": "waiting_phone"})
             assert wm._tether_connected is False
+        finally:
+            wm.stop()
+
+
+class TestCarPhone:
+    """net.car_phone (src/network/car_phone.py, USB tethering) counts as an
+    uplink and forces a fetch on its edge into connected — like PAN."""
+
+    def test_connected_forces_a_fetch_once_per_edge(self):
+        wm, bus, clock, attempts = make(results=[GOOD, GOOD, GOOD])
+        wm._poll_once()
+        clock.advance(120)
+        bus.publish("net.car_phone", {"state": "connected", "ip": "192.168.42.100"})
+        wm._poll_once()
+        assert len(attempts) == 2
+        clock.advance(120)
+        bus.publish("net.car_phone", {"state": "connected", "battery_pct": 77})
+        wm._poll_once()
+        assert len(attempts) == 2                  # not an edge: no new force
+
+    def test_it_is_an_uplink_off_x86(self):
+        wm, bus, clock, attempts = make(platform="opi")
+        wm._poll_once()
+        assert attempts == []
+        bus.publish("net.car_phone", {"state": "tethering"})
+        wm._poll_once()
+        assert attempts == []
+        bus.publish("net.car_phone", {"state": "connected"})
+        wm._poll_once()
+        assert len(attempts) == 1
+        bus.publish("net.car_phone", {"state": "no_device"})
+        assert wm._car_phone_connected is False
+
+    def test_start_seeds_and_subscribes(self):
+        bus = EventBus()
+        bus.publish("net.car_phone", {"state": "connected"})
+        wm = WeatherManager(bus, {"weather": {"api_key": ""}}, "opi", clock=FakeClock())
+        wm._run = lambda: None
+        wm.start()
+        try:
+            assert wm._car_phone_connected is True
+            bus.publish("net.car_phone", "garbage")
+            assert wm._car_phone_connected is False
         finally:
             wm.stop()
 
