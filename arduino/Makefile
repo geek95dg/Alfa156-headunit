@@ -18,6 +18,7 @@
 #   make output_controller-upload PORT=/dev/ttyUSB1
 #   make esp32_display-upload PORT=/dev/ttyACM_display
 #   make esp32_display-test   # testy hosta (g++), bez płytki i bez arduino-cli
+#   make sensor_hub-variants  # sensor_hub z każdą opcjonalną funkcją osobno
 #
 # Wersje płytek i bibliotek są przypięte w sketch.yaml każdego sketcha
 # (profile arduino-cli) — kompilacja jest powtarzalna bez globalnego
@@ -47,7 +48,18 @@ CXX ?= g++
 HOST_CXXFLAGS ?= -std=c++17 -Wall -Wextra -Werror
 ESP32_TEST_BIN := $(CURDIR)/esp32_display/build/test_host
 
-.PHONY: all $(SKETCHES) $(addsuffix -upload,$(SKETCHES)) esp32_display-test test clean
+# Opcjonalne funkcje sensor_hub, które w sketchu są domyślnie wyłączone
+# (zakomentowane #define). Zwykłe `make` ich nie kompiluje, więc bez tego celu
+# nikt by nie zauważył, że się zepsuły. Każdy wariant to osobna kompilacja
+# z flagą -DFEATURE_<nazwa> i WŁASNYM katalogiem build: arduino-cli trzyma
+# w nim skompilowany rdzeń i obiekty, a flagi różnią się między wariantami.
+# Katalogi leżą w arduino/build/ — poza folderem sketcha (arduino-cli nie
+# zbiera z niego plików) i pod regułą `build/` z .gitignore.
+SENSOR_HUB_VARIANTS ?= BATT_ADC BATT_INA226
+VARIANTS_BUILD_DIR := $(CURDIR)/build
+
+.PHONY: all $(SKETCHES) $(addsuffix -upload,$(SKETCHES)) esp32_display-test test clean \
+        sensor_hub-variants
 
 all: $(SKETCHES)
 
@@ -61,6 +73,15 @@ esp32_display:
 		--build-property "compiler.cpp.extra_flags=$(TFT_ESPI_FLAGS)" \
 		$(CURDIR)/esp32_display
 
+sensor_hub-variants:
+	@for v in $(SENSOR_HUB_VARIANTS); do \
+		echo "== sensor_hub + FEATURE_$$v"; \
+		$(ARDUINO_CLI) compile --profile default --warnings default \
+			--build-path $(VARIANTS_BUILD_DIR)/sensor_hub-$$v \
+			--build-property "compiler.cpp.extra_flags=-DFEATURE_$$v" \
+			$(CURDIR)/sensor_hub || exit 1; \
+	done
+
 esp32_display-test:
 	@mkdir -p $(dir $(ESP32_TEST_BIN))
 	$(CXX) $(HOST_CXXFLAGS) -o $(ESP32_TEST_BIN) \
@@ -72,4 +93,4 @@ esp32_display-test:
 	$(ARDUINO_CLI) upload --profile default -p $(PORT) $(CURDIR)/$*
 
 clean:
-	rm -rf $(addsuffix /build,$(SKETCHES))
+	rm -rf $(addsuffix /build,$(SKETCHES)) $(VARIANTS_BUILD_DIR)

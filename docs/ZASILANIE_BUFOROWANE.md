@@ -2040,7 +2040,32 @@ Poprawione wartości w §9.2.
 
 ### 13.4 Moduł `battery` nie monitoruje banku buforowego
 
-`src/power/battery.py` jest napisany pod **ogniwo Li-ion 18650**:
+> **Stan obecny (przygotowane, domyślnie wyłączone).** Wszystkie trzy kroki
+> z listy niżej są już w repozytorium:
+>
+> - firmware: `arduino/sensor_hub/sensor_hub.ino` ma przełączniki
+>   `FEATURE_BATT_ADC` (dzielnik 100k/27k na A6, samo napięcie) i
+>   `FEATURE_BATT_INA226` (I2C na A4/A5 + bocznik, napięcie **i** prąd);
+>   oba są zakomentowane, CI kompiluje każdy osobno
+>   (`make -C arduino sensor_hub-variants`);
+> - format linii: **`BATT:<mV>[,<mA>]`**, np. `BATT:12650,-3400` = 12,65 V,
+>   3,4 A rozładowania (prąd dodatni = ładowanie); bez INA226 samo
+>   `BATT:12650`. Parser w `src/input/arduino_serial.py` przyjmuje też
+>   starszą postać z punktu 2 (`BATT:12.65` — wartość poniżej 100 to wolty),
+>   a odczyty spoza 5–20 V albo ±100 A odrzuca. Publikuje
+>   `arduino.battery_voltage` [V] i `arduino.battery_current` [A];
+> - `src/power/battery.py` (`BatteryMonitor`) ma progi AGM z tabeli niżej
+>   w bloku `battery:` configu (z histerezą 0,1 V, wykrywaniem ładowania
+>   powyżej 13,2 V albo 0,2 A i medianą z 5 odczytów) i publikuje
+>   `battery.state` = charging | full | ok | low | critical | unknown.
+>   Niczego nie wyłącza — to robi sprzętowe LVD.
+>
+> Włączenie: sketch z jednym `#define FEATURE_BATT_…`, port sensor huba
+> w `arduino.sensor_hub_port` (stała nazwa: szablon
+> `config/udev/99-bcm-sensor-hub.rules`) i `modules.battery: true`.
+> Opis poniżej zostaje jako zapis tego, skąd te zmiany się wzięły.
+
+`src/power/battery.py` był napisany pod **ogniwo Li-ion 18650**:
 
 ```python
 FULL_V = 4.2
@@ -2060,7 +2085,9 @@ nic nie policzy.
    5 V, np. 100 kΩ / 27 kΩ daje przy 15 V ok. 3,2 V — bezpiecznie w zakresie.
    Rezystory 1 %, kondensator 100 nF na wyjściu dzielnika.
 2. **Publikacja odczytu** z `arduino/sensor_hub/sensor_hub.ino` jako
-   `BATT:<napięcie>`, mapowana na `arduino.battery_voltage`.
+   `BATT:<napięcie>`, mapowana na `arduino.battery_voltage`. (Firmware
+   wysyła ostatecznie miliwolty i opcjonalnie prąd: `BATT:<mV>[,<mA>]`;
+   parser przyjmuje obie postacie — patrz ramka wyżej.)
 3. **Progi dla banku 12 V** zamiast ogniwa Li-ion:
 
    | Stała | Wartość dla banku AGM 12 V |

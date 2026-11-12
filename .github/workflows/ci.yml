@@ -42,3 +42,7 @@ jobs:
         # sketch.yaml build profiles pin the core + library versions,
         # so arduino-cli fetches exactly what each sketch needs.
         run: make -C arduino
+      - name: Compile optional sensor_hub variants
+        # FEATURE_BATT_ADC / FEATURE_BATT_INA226 are off in the sketch, so the
+        # step above never builds them; compile each one separately via -D.
+        run: make -C arduino sensor_hub-variants

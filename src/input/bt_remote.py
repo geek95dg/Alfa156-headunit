@@ -127,8 +127,10 @@ def start_input(config: Any, event_bus: EventBus, hal: Any = None,
     arduino_hid = ArduinoHidListener(event_bus)
     arduino_hid.start()
 
-    # Arduino serial listener (light sensor data + debug)
-    arduino_serial = ArduinoSerialListener(event_bus)
+    # Arduino serial listener (light sensor, sensor_hub telemetry, BATT: +
+    # debug). The config picks the port: arduino.sensor_hub_port, or probing
+    # (arduino.probe_ports) that keeps away from ports of enabled modules.
+    arduino_serial = ArduinoSerialListener(event_bus, config)
     arduino_serial.start()
 
     # Voice-AA handler (duck audio + tap AA mic on SWC voice button)

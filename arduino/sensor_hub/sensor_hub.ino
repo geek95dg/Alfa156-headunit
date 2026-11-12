@@ -15,6 +15,10 @@
  *   CRUISE:1 / IMMO:1 / AIRBAG:1                 opcjonalne
  *   PWR:RUNNING|SLEEP|OFF|UNKNOWN                stan M910q
  *   PWRACT:SHORT|LONG                            wysłany impuls na przycisk
+ *   BATT:12650,-3400                             bank buforowy: napięcie [mV],
+ *                                                prąd [mA] (+ ładowanie,
+ *                                                - rozładowanie). Bez INA226
+ *                                                tylko napięcie: BATT:12650
  *
  * ================= WŁĄCZANIE / WYŁĄCZANIE FUNKCJI =================
  * Każda funkcja ma własny przełącznik kompilacji. Zakomentuj
@@ -40,6 +44,13 @@
 // #define FEATURE_CRUISE  // tempomat aktywny (A4) — opcja
 // #define FEATURE_IMMO    // immobilizer OK (A5) — opcja
 // #define FEATURE_AIRBAG  // airbag OK (D13, uwaga: pin z LED) — opcja
+// #define FEATURE_BATT_ADC    // napięcie banku przez dzielnik 100k/27k na A6
+                               // (ZASILANIE_BUFOROWANE.md §13.4). Tylko napięcie.
+// #define FEATURE_BATT_INA226 // INA226 na I2C (A4=SDA, A5=SCL) + bocznik
+                               // — napięcie I prąd banku. Zalecane: prąd
+                               // odróżnia ładowanie od postoju i pozwala
+                               // liczyć stan naładowania. Wyklucza się
+                               // z FEATURE_CRUISE/IMMO i FEATURE_BATT_ADC.
 /* ================================================================== */
 
 /*
@@ -61,6 +72,9 @@
  *   A0-A3 HC-SR04 ECHO FL/FR/RL/RR — TYLKO z FEATURE_PARK, które
  *         wyklucza się z FEATURE_PWRBTN (patrz #error niżej)
  *   A4  Tempomat, A5 Immo (opcje), D13 Airbag (opcja)
+ *   A4/A5 I2C SDA/SCL do INA226        (FEATURE_BATT_INA226)
+ *   A6  Dzielnik napięcia banku        (FEATURE_BATT_ADC; wejście tylko
+ *       analogowe: +BANK─100k─┬─A6, ┴─27k─GND, 100 nF A6─GND)
  *
  * Watchdog: 2 s — zawieszenie = automatyczny reset.
  *
@@ -91,6 +105,10 @@
 
 #include <avr/wdt.h>
 
+#ifdef FEATURE_BATT_INA226
+#include <Wire.h>
+#endif
+
 #ifdef FEATURE_TEMP
 #include <OneWire.h>
 #include <DallasTemperature.h>
@@ -119,6 +137,12 @@
 #endif
 #if defined(FEATURE_PWRBTN) && defined(FEATURE_PARK)
 #error "Konflikt pinow: FEATURE_PARK uzywa A0-A3 na ECHO, FEATURE_PWRBTN A0/A1"
+#endif
+#if defined(FEATURE_BATT_INA226) && (defined(FEATURE_CRUISE) || defined(FEATURE_IMMO))
+#error "Konflikt pinow: FEATURE_BATT_INA226 uzywa A4/A5 (I2C), tak jak CRUISE/IMMO"
+#endif
+#if defined(FEATURE_BATT_INA226) && defined(FEATURE_BATT_ADC)
+#error "Wybierz jedno zrodlo pomiaru banku: FEATURE_BATT_INA226 albo FEATURE_BATT_ADC"
 #endif
 #if defined(FEATURE_PWRLED) && !defined(FEATURE_PWRBTN)
 #error "FEATURE_PWRLED bez FEATURE_PWRBTN nie ma czego synchronizowac"
@@ -225,6 +249,139 @@ unsigned long pwrLedWindowAt = 0;
 
 unsigned long lastStateRefresh = 0;
 
+// =============================================================================
+// Pomiar banku buforowego (BATT:). Raport idzie razem z pełnym stanem co 2 s.
+// Oba warianty są domyślnie wyłączone; CI kompiluje każdy z nich osobno
+// (make -C arduino sensor_hub-variants, flaga -DFEATURE_BATT_...), więc
+// przełączniki wyżej muszą zostać zakomentowane — sama flaga je zastępuje.
+// Po stronie BCM: src/input/arduino_serial.py → arduino.battery_voltage/
+// _current, src/power/battery.py (modules.battery, domyślnie wyłączony).
+// =============================================================================
+#ifdef FEATURE_BATT_ADC
+#define PIN_BATT_ADC     A6
+// Dzielnik 100k/27k: V_bank = V_adc * (100 + 27) / 27. Przy 15 V na A6 jest
+// 3,19 V – bezpiecznie poniżej 5 V. Referencją jest VCC z MP1584, więc
+// współczynnik trzeba SKALIBROWAĆ: zmierz multimetrem napięcie banku i ustaw
+// BATT_ADC_CAL tak, żeby BATT: w monitorze portu pokazywał to samo.
+#define BATT_ADC_VREF_MV 5000L
+#define BATT_ADC_R1_K     100L
+#define BATT_ADC_R2_K      27L
+// Liczy się tylko STOSUNEK R1:R2 — jednostka dowolna, byle wspólna. Stałe
+// są typu long, żeby rachunek w battReport() został na liczbach
+// całkowitych. Wariant 10k/2,2k: wpisz R1_K=100, R2_K=22 (oba ×10), a nie
+// 10 i 2.2 — ułamek przełączyłby całe wyrażenie na float (zadziała, ale
+// po nic). Przy 15 V na A6 jest wtedy 2,70 V.
+// Wybór dzielnika: 100k/27k to ~21 kΩ impedancji źródła, więcej niż
+// zalecane dla ADC 10 kΩ, więc kondensator 100 nF A6─GND jest OBOWIĄZKOWY
+// (on ładuje kondensator próbkujący). 10k/2,2k obejdzie się bez niego, ale
+// stale pobiera z banku ~1 mA zamiast ~0,1 mA (≈ 25 mAh na dobę postoju).
+// Przepełnienie: 1023 * BATT_ADC_VREF_MV * (R1 + R2) musi zmieścić się
+// w long (2^31), czyli R1 + R2 <= 400.
+#define BATT_ADC_CAL     1.000f   // korekta po kalibracji (np. 1.012)
+#define BATT_ADC_SAMPLES     9    // nieparzyście – mediana
+
+static_assert(BATT_ADC_SAMPLES % 2 == 1 && BATT_ADC_SAMPLES <= 31,
+              "BATT_ADC_SAMPLES: nieparzysta liczba <= 31 (mediana, int8_t j)");
+static_assert(BATT_ADC_R1_K + BATT_ADC_R2_K <= 400,
+              "BATT_ADC_R1_K + BATT_ADC_R2_K > 400 przepelni long w battReport()");
+
+// Mediana z kilku odczytów – odporna na pojedyncze piki z instalacji.
+int battAdcMedian() {
+  analogRead(PIN_BATT_ADC);            // przełącz multiplekser, odrzuć
+  delayMicroseconds(200);
+  int s[BATT_ADC_SAMPLES];
+  for (uint8_t i = 0; i < BATT_ADC_SAMPLES; i++) {
+    s[i] = analogRead(PIN_BATT_ADC);
+    delayMicroseconds(300);
+  }
+  for (uint8_t i = 1; i < BATT_ADC_SAMPLES; i++) {   // sortowanie wstawianiem
+    int v = s[i]; int8_t j = i - 1;
+    while (j >= 0 && s[j] > v) { s[j + 1] = s[j]; j--; }
+    s[j + 1] = v;
+  }
+  return s[BATT_ADC_SAMPLES / 2];
+}
+
+void battInit() {}
+
+void battReport() {
+  long adc = battAdcMedian();
+  long mv  = adc * BATT_ADC_VREF_MV * (BATT_ADC_R1_K + BATT_ADC_R2_K)
+             / (1023L * BATT_ADC_R2_K);
+  mv = (long)(mv * BATT_ADC_CAL);
+  Serial.print(F("BATT:"));
+  Serial.println(mv);
+}
+#endif
+
+#ifdef FEATURE_BATT_INA226
+// INA226: magistrala do 36 V mierzona bezpośrednio (bez dzielnika), prąd
+// z bocznika w linii MINUS banku (low-side) albo PLUS (high-side) – układ
+// mierzy oba warianty. Kierunek: prąd DO banku (ładowanie) ma dać wynik
+// dodatni; jeśli wychodzi odwrotnie, zamień przewody IN+/IN- albo ustaw
+// BATT_INA_SIGN na -1.
+#define BATT_INA_ADDR     0x40     // A0=A1=GND
+#define BATT_SHUNT_MOHM   3.75f    // bocznik 20 A / 75 mV = 3,75 mΩ
+#define BATT_INA_SIGN     1
+#define INA_REG_CONFIG    0x00
+#define INA_REG_SHUNT     0x01     // LSB 2,5 µV, ze znakiem
+#define INA_REG_BUS       0x02     // LSB 1,25 mV
+// AVG=16, VBUSCT=VSHCT=1,1 ms, tryb ciągły shunt+bus → nowy wynik co ~35 ms
+#define INA_CONFIG_VALUE  0x4527
+
+bool battInaOk = false;
+
+bool inaWrite(uint8_t reg, uint16_t v) {
+  Wire.beginTransmission(BATT_INA_ADDR);
+  Wire.write(reg);
+  Wire.write((uint8_t)(v >> 8));
+  Wire.write((uint8_t)(v & 0xFF));
+  return Wire.endTransmission() == 0;
+}
+
+bool inaRead(uint8_t reg, uint16_t& v) {
+  Wire.beginTransmission(BATT_INA_ADDR);
+  Wire.write(reg);
+  if (Wire.endTransmission(false) != 0) return false;
+  if (Wire.requestFrom((uint8_t)BATT_INA_ADDR, (uint8_t)2) != 2) return false;
+  // Dwa osobne odczyty: w wyrażeniu „read() << 8 | read()” kolejność
+  // wywołań nie jest w C++ określona — kompilator może zamienić bajty.
+  uint8_t hi = Wire.read();
+  uint8_t lo = Wire.read();
+  v = ((uint16_t)hi << 8) | lo;
+  return true;
+}
+
+void battInit() {
+  Wire.begin();
+  // setWireTimeout jest w rdzeniu arduino:avr od 1.8.3 (sketch.yaml: 1.8.6).
+  // 3 ms + reset magistrali: zawieszony INA226 nie zatrzyma loop(), a watchdog
+  // (2 s) jeszcze w setup() nie działa.
+  Wire.setWireTimeout(3000, true);
+  battInaOk = inaWrite(INA_REG_CONFIG, INA_CONFIG_VALUE);
+  if (!battInaOk) Serial.println(F("BATT: INA226 nie odpowiada"));
+}
+
+void battReport() {
+  uint16_t rawBus = 0, rawShunt = 0;
+  if (!battInaOk) {                         // ponów inicjalizację
+    battInaOk = inaWrite(INA_REG_CONFIG, INA_CONFIG_VALUE);
+    if (!battInaOk) return;
+  }
+  if (!inaRead(INA_REG_BUS, rawBus) || !inaRead(INA_REG_SHUNT, rawShunt)) {
+    battInaOk = false;
+    return;
+  }
+  long mv = ((long)rawBus * 125L) / 100L;                 // 1,25 mV/LSB
+  // µV / mΩ = mA
+  long ma = (long)((int16_t)rawShunt * 2.5f / BATT_SHUNT_MOHM) * BATT_INA_SIGN;
+  Serial.print(F("BATT:"));
+  Serial.print(mv);
+  Serial.print(',');
+  Serial.println(ma);
+}
+#endif
+
 // -----------------------------------------------------------------------------
 void setup() {
   wdt_disable();  // czysty stan po resecie watchdogiem
@@ -275,6 +432,10 @@ void setup() {
 #ifdef FEATURE_TEMP
   tempSensor.begin();
   tempSensor.setWaitForConversion(false);  // konwersja asynchroniczna
+#endif
+
+#if defined(FEATURE_BATT_ADC) || defined(FEATURE_BATT_INA226)
+  battInit();
 #endif
 
   Serial.println(F("BCM v8.5 Sensor Hub ready"));
@@ -532,6 +693,9 @@ void reportFullState() {
 #ifdef FEATURE_PWRBTN
   Serial.print(F("PWR:"));
   Serial.println(PWR_NAMES[pwrState]);
+#endif
+#if defined(FEATURE_BATT_ADC) || defined(FEATURE_BATT_INA226)
+  battReport();
 #endif
 }
 

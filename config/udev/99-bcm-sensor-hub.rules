@@ -1,0 +1,39 @@
+# BCM v8.5 — stała nazwa portu sensor huba (Arduino Nano, CH340) — SZABLON
+#
+# Ten plik NIE jest instalowany przez żaden skrypt. Reguła poniżej celowo nie
+# pasuje do niczego, dopóki nie wpiszesz w nią ścieżki USB swojego gniazda.
+#
+# Po co: oba Nano (sensor hub i Nano #1 zamka centralnego) mają ten sam
+# mostek CH340 (1a86:7523), zwykle BEZ numeru seryjnego, a numeracja
+# /dev/ttyUSB* zależy od kolejności wykrycia — razem z adapterem K-Line i
+# odbiornikiem GPS. Jedyne, co je rozróżnia, to gniazdo USB, w które są
+# wpięte (ID_PATH). Stała nazwa pozwala ustawić w configu
+#     arduino:
+#       sensor_hub_port: /dev/ttyBCM_SENSOR
+#       probe_ports: false
+# i src/input/arduino_serial.py przestaje sondować porty (sondowanie ustawia
+# DTR, a to RESETUJE każde otwierane Nano i potrafi zająć cudzy port).
+#
+# Jak uzupełnić:
+#  1. Ustal, który ttyUSB to sensor hub. Otwarcie portu resetuje Nano, więc
+#     po chwili wypisze baner (tu: /dev/ttyUSB0 — sprawdź po kolei):
+#         stty -F /dev/ttyUSB0 115200 raw -echo; timeout 5 cat /dev/ttyUSB0
+#     Sensor hub: "BCM v8.5 Sensor Hub ready", potem DOOR:/IGN:/PWR: co 2 s.
+#     (Nano zamka mówi JSON-em na 9600 bodów, K-Line i GPS to nie CH340.)
+#  2. Odczytaj ścieżkę gniazda:
+#         udevadm info -q property -n /dev/ttyUSB0 | grep '^ID_PATH='
+#     np. ID_PATH=pci-0000:00:14.0-usb-0:2:1.0
+#  3. Wpisz tę wartość w ENV{ID_PATH} poniżej (w cudzysłowie, bez "ID_PATH=")
+#     i zainstaluj:
+#         sudo cp config/udev/99-bcm-sensor-hub.rules /etc/udev/rules.d/
+#         sudo udevadm control --reload-rules && sudo udevadm trigger
+#         ls -l /dev/ttyBCM_SENSOR      # oczekiwane: dowiązanie do ttyUSBn
+#
+# Uwaga: reguła wiąże się z GNIAZDEM, nie z płytką — przełożenie kabla do
+# innego portu (albo huba USB) wymaga nowej ścieżki. Bez udev to samo daje
+# wpis sensor_hub_port: /dev/serial/by-path/<ID_PATH>-port0 (dowiązanie,
+# które systemd tworzy sam; listę pokaże ls -l /dev/serial/by-path/).
+#
+# ID_PATH ustawia systemowe 60-serial.rules, dlatego ten plik ma numer 99.
+
+SUBSYSTEM=="tty", ATTRS{idVendor}=="1a86", ATTRS{idProduct}=="7523", ENV{ID_PATH}=="UZUPELNIJ-ID_PATH-z-udevadm-info", SYMLINK+="ttyBCM_SENSOR", GROUP="dialout", MODE="0660"
