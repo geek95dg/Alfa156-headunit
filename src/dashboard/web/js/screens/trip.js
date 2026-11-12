@@ -388,6 +388,9 @@ App.registerScreen("a3", (() => {
     async function _selectResult(idx) {
         const r = _searchResults[idx];
         if (!r) return;
+        // A search still pending from the last keystroke (300 ms debounce)
+        // would bring the suggestion list back after the pick.
+        if (_searchDebounce) { clearTimeout(_searchDebounce); _searchDebounce = null; }
         _searchResults = [];
         try {
             await fetch("/api/trip/destination", {

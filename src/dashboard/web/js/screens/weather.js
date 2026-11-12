@@ -419,6 +419,9 @@ const WeatherSearch = {
     async select(idx) {
         const r = WeatherSearch._results[idx];
         if (!r) return;
+        // A search still pending from the last keystroke (300 ms debounce)
+        // would re-open the list under the field cleared below.
+        clearTimeout(WeatherSearch._timer);
         WeatherSearch._hideResults();
         const input = document.getElementById("weather-search-input");
         if (input) input.value = "";
