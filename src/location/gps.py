@@ -4,9 +4,12 @@ Why it looks like this
 ----------------------
 The test car has no GPS receiver, but the phone is always there: an app
 such as *GPSd Forwarder* (F-Droid) sends the phone's NMEA sentences as UDP
-datagrams to the head unit (``10.0.0.1:10110`` over the Android Auto Wi-Fi
-Direct link), and an "NMEA TCP server" app can serve them over Bluetooth
-PAN as a fallback. A real UART receiver (NEO-6M/M8N, also a Bluetooth GPS
+datagrams to the head unit's Bluetooth PAN address (``bnep0``, shown in
+Settings, port 10110), or an "NMEA TCP server" app serves them and BCM
+connects to the phone as ``pan-gateway``. The Android Auto Wi-Fi Direct
+address (``10.0.0.1``) is NOT recommended: wireless AA brings that Wi-Fi up
+as a network for the AA app only, and other apps' packets to 10.0.0.1 leave
+over mobile data. A real UART receiver (NEO-6M/M8N, also a Bluetooth GPS
 mouse on ``/dev/rfcomm0``) remains supported.
 
 Sources — ``hardware.gps.source``

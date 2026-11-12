@@ -20,7 +20,13 @@
   (PBAP contacts/history, call overlays, AVRCP title, BT device names, the
   pairing popup, notification cards) never becomes markup or script, and a
   phonebook number reaches the dialer only through data-dial + a validated
-  delegated click.
+  delegated click;
+* gps_visibility_smoke.js: the Settings "GPS" row (source, fix, sender, the
+  "send NMEA to <bnep0 IP>:10110" hint, escaping, change-only update()), the
+  weather map badge following gps_fix, and the travel plan's
+  "start: domyślny (brak GPS)";
+* dial_result_smoke.js: screens/phone.js drops its instant "ringing"
+  overlay when the backend reports a failed dial (bt.dial_result).
 """
 
 import json
@@ -196,7 +202,8 @@ def test_edge_tracker(name, ops, expected):
 
 @pytest.mark.parametrize("harness", ["app_smoke.js", "aa_screen_smoke.js",
                                      "call_nav_smoke.js", "settings_tether_smoke.js",
-                                     "appbar_phone_smoke.js", "phone_escape_smoke.js"])
+                                     "appbar_phone_smoke.js", "phone_escape_smoke.js",
+                                     "gps_visibility_smoke.js", "dial_result_smoke.js"])
 def test_screen_harness(harness):
     res = subprocess.run([NODE, str(JS / harness)], capture_output=True, text=True,
                          timeout=60)

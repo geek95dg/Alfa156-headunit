@@ -296,6 +296,14 @@ tracking:
   geofence_lon: 0
   geofence_radius_km: 0
   sms_number: ''
+# Dostęp do dashboardu (port 5002) z SIECI. Bez sekcji `dashboard` obowiązuje
+# domyślne z kodu `remote_access: full`: każde urządzenie w LAN, na AP albo
+# w PAN może sterować wszystkim (wyjątek: /api/phone/dial z sieci przyjmuje
+# tylko zwykły numer — bez numerów alarmowych i kodów z * lub #, najwyżej
+# raz na 5 s). ZALECANE w aucie, w config/local.yaml:
+#   dashboard: {remote_access: tracking}
+# Wtedy z sieci tylko lista tras i GPX; kiosk na tym komputerze (127.0.0.1)
+# ma zawsze pełny dostęp. Opis trybów: config/bcm_config_test.yaml.
 multimedia:
   # Ustawiane w locie przy połączeniu BT i zapisywane do config/local.yaml.
   last_bt_device: ''

@@ -849,13 +849,13 @@ class TestConsumers:
 
         bus = EventBus()
         tc = TripComputer(event_bus=bus)
-        fallback = (50.0647, 19.9450)
+        fallback = ((50.0647, 19.9450), "fallback")
         assert tc._current_gps_or_fallback() == fallback
         bus.publish("gps.lat", 52.2297)
         bus.publish("gps.lon", 21.0122)
         assert tc._current_gps_or_fallback() == fallback       # no gps.fix yet
         bus.publish("gps.fix", True)
-        assert tc._current_gps_or_fallback() == (52.2297, 21.0122)
+        assert tc._current_gps_or_fallback() == ((52.2297, 21.0122), "gps")
         real = time.time
         monkeypatch.setattr(tc_mod.time, "time", lambda: real() + 31)
         assert tc._current_gps_or_fallback() == fallback       # 31 s old

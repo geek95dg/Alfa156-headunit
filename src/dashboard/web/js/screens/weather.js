@@ -30,6 +30,7 @@ App.registerScreen("a4", (() => {
         _updateEl("weather-feels", data.weather_feels_like != null ? `Feels ${Math.round(data.weather_feels_like)}°` : "");
         _updateEl("weather-wind", `${Math.round(data.weather_wind_speed || 0)} km/h`);
         _updateEl("weather-humidity", `${data.weather_humidity || 0}%`);
+        _updateEl("weather-gps-label", _gpsLabel(data));
 
         // Move map to weather location (from search) or GPS position
         const wLat = data.weather_lat || data.gps_lat;
@@ -44,6 +45,16 @@ App.registerScreen("a4", (() => {
     function _updateEl(id, text) {
         const el = document.getElementById(id);
         if (el) el.textContent = text;
+    }
+
+    /** Map badge: "GPS AKTYWNY" only with a real fix (data.gps_fix from the
+     *  backend). It used to say so always — also while the weather was for
+     *  the default city because no GPS had arrived. Fixed i18n strings only,
+     *  so it is safe in the template and via textContent. */
+    function _gpsLabel(data) {
+        return (data && data.gps_fix === true)
+            ? App.t("gps_active", "GPS AKTYWNY")
+            : App.t("gps_no_fix", "BRAK GPS");
     }
 
     function _initMap() {
@@ -159,7 +170,7 @@ App.registerScreen("a4", (() => {
                     <div class="absolute top-3 left-3 z-10 bg-black/70 backdrop-blur-sm rounded-lg px-3 py-2 border border-amber-900/30">
                         <div class="flex items-center gap-2">
                             <span class="material-symbols-outlined text-amber-500" style="font-size:16px;">location_on</span>
-                            <span class="text-[10px] text-zinc-400 font-bold uppercase">${t("gps_active")}</span>
+                            <span id="weather-gps-label" class="text-[10px] text-zinc-400 font-bold uppercase">${_gpsLabel(data)}</span>
                         </div>
                     </div>
                     <div class="absolute bottom-3 left-3 right-3 z-10 bg-black/70 backdrop-blur-sm rounded-lg px-3 py-2 border border-amber-900/30 flex justify-between items-center">

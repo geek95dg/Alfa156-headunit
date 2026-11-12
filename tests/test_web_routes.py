@@ -540,6 +540,145 @@ class TestPhoneDialRoute:
         assert res.get_json()["ok"] is False
         assert seen == []
 
+    # ── emergency numbers from the network (0f) ─────────────────────────
+
+    @pytest.mark.parametrize("addr", ["192.168.1.50", "10.0.0.23", "172.16.4.2",
+                                      "192.168.44.1", "8.8.8.8", "::ffff:192.168.1.5"])
+    @pytest.mark.parametrize("number", ["112", "+48 112", "0048112", "*31#112", "#31#997",
+                                        "112#", "998", "999", "911", "984", "987",
+                                        # caller-ID codes with an info field: Android
+                                        # dials what follows -> 112
+                                        "*31*#112", "*31*1#112", "#31*#112", "*31*0#112",
+                                        # permanent forwarding to a premium number
+                                        "**21*0700123456#"])
+    def test_emergency_number_from_the_network_is_403(self, env, addr, number):
+        # remote_access "full" (production default): the route is reachable.
+        assert env.cfg.get("dashboard.remote_access") is None
+        seen = self._dials(env)
+        res = env.client.post("/api/phone/dial", json={"number": number}, **_as(addr))
+        assert res.status_code == 403
+        assert res.get_json()["ok"] is False
+        assert seen == []
+
+    @pytest.mark.parametrize("number", ["*100#", "*#06#", "##002#", "#31#600123456",
+                                        "600123456#", "12", "+" + "1" * 21])
+    def test_codes_from_the_network_are_403(self, env, number, caplog):
+        import logging
+        seen = self._dials(env)
+        with caplog.at_level(logging.WARNING, logger="bcm.web_viewer"):
+            res = env.client.post("/api/phone/dial", json={"number": number},
+                                  **_as("192.168.1.50"))
+        assert res.status_code == 403
+        assert res.get_json()["error"] == "forbidden"
+        assert seen == []
+        assert any("plain number" in r.getMessage() for r in caplog.records)
+
+    @pytest.mark.parametrize("number", ["*100#", "*31#600123456", "**21*600123456#"])
+    def test_the_kiosk_may_dial_codes(self, env, number):
+        seen = self._dials(env)
+        res = env.client.post("/api/phone/dial", json={"number": number})
+        assert res.status_code == 200
+        assert seen == [number]
+
+    @pytest.mark.parametrize("addr", ["127.0.0.1", "::1"])
+    def test_the_kiosk_may_dial_112(self, env, addr):
+        seen = self._dials(env)
+        res = env.client.post("/api/phone/dial", json={"number": "112"}, **_as(addr))
+        assert res.status_code == 200
+        assert seen == ["112"]
+
+    def test_refusal_is_logged_once_a_minute_per_address(self, env, caplog):
+        import logging
+        with caplog.at_level(logging.WARNING, logger="bcm.web_viewer"):
+            for _ in range(3):
+                env.client.post("/api/phone/dial", json={"number": "112"}, **_as("192.168.1.50"))
+        hits = [r for r in caplog.records if "emergency number 112" in r.getMessage()]
+        assert len(hits) == 1 and hits[0].levelno == logging.WARNING
+        assert "192.168.1.50" in hits[0].getMessage()
+
+    def test_ordinary_numbers_still_work_from_the_network(self, env):
+        seen = self._dials(env)
+        for number in ("600123456", "+48 600 123 112", "1120"):
+            env.viewer._dial_last.clear()
+            res = env.client.post("/api/phone/dial", json={"number": number},
+                                  **_as("192.168.1.50"))
+            assert res.status_code == 200, number
+        assert seen == ["600123456", "+48600123112", "1120"]
+
+    def test_ofono_emergency_numbers_are_refused_too(self, env):
+        env.viewer._bt_manager = SimpleNamespace(available=False,
+                                                 emergency_numbers=lambda: frozenset({"08", "118"}))
+        res = env.client.post("/api/phone/dial", json={"number": "118"}, **_as("10.0.0.23"))
+        assert res.status_code == 403
+        # a broken manager never turns into a 500
+        env.viewer._bt_manager = SimpleNamespace(
+            available=False, emergency_numbers=lambda: (_ for _ in ()).throw(RuntimeError()))
+        assert env.client.post("/api/phone/dial", json={"number": "112"},
+                               **_as("10.0.0.23")).status_code == 403
+        assert env.client.post("/api/phone/dial", json={"number": "118"},
+                               **_as("10.0.0.23")).status_code == 200
+
+    def test_tracking_mode_refuses_any_dial_from_the_network(self, env):
+        client = _policy_client(env, "tracking")
+        seen = self._dials(env)
+        res = client.post("/api/phone/dial", json={"number": "600123456"}, **_as("10.0.0.23"))
+        assert res.status_code == 403 and seen == []
+
+    # ── rate limit ───────────────────────────────────────────────────────
+
+    def test_rate_limited_per_bucket(self, env, monkeypatch):
+        now = [1000.0]
+        monkeypatch.setattr(wv.time, "monotonic", lambda: now[0])
+        seen = self._dials(env)
+        note = []
+        env.bus.subscribe("system.notifications", lambda t, v, ts: note.append(v))
+        lan = _as("192.168.1.50")
+        assert env.client.post("/api/phone/dial", json={"number": "600123456"},
+                               **lan).status_code == 200
+        res = env.client.post("/api/phone/dial", json={"number": "600123457"}, **_as("10.0.0.9"))
+        assert res.status_code == 429                    # one bucket for the network
+        assert res.headers["Retry-After"] == "6"
+        assert res.get_json()["retry_after"] == 6
+        assert note == []                                # no kiosk toast for the network
+        # The kiosk has its own bucket: the network cannot starve it.
+        assert env.client.post("/api/phone/dial", json={"number": "112"}).status_code == 200
+        res = env.client.post("/api/phone/dial", json={"number": "112"})
+        assert res.status_code == 429
+        assert note and note[-1][-1]["key"] == "dial_result"
+        now[0] += wv._DIAL_MIN_INTERVAL_S
+        assert env.client.post("/api/phone/dial", json={"number": "112"}).status_code == 200
+        assert seen == ["600123456", "112", "112"]
+
+    def test_refused_and_invalid_requests_do_not_use_up_the_budget(self, env):
+        env.client.post("/api/phone/dial", json={"number": "abc"}, **_as("192.168.1.50"))
+        env.client.post("/api/phone/dial", json={"number": "112"}, **_as("192.168.1.50"))
+        assert env.client.post("/api/phone/dial", json={"number": "600123456"},
+                               **_as("192.168.1.50")).status_code == 200
+
+
+class TestDialResultPayload:
+    def test_none_before_any_dial(self, env):
+        assert env.viewer._get_dashboard_data()["bt_dial_result"] is None
+
+    def test_sanitised(self, env):
+        env.bus.publish("bt.dial_result", {"ok": False, "path": "hfp", "error": "no_modem",
+                                           "ts": 12.5})
+        assert env.viewer._get_dashboard_data()["bt_dial_result"] == {
+            "ok": False, "error": "no_modem", "ts": 12.5}
+        env.bus.publish("bt.dial_result", {"ok": "yes", "error": "<b>", "ts": "x"})
+        assert env.viewer._get_dashboard_data()["bt_dial_result"] == {
+            "ok": False, "error": None, "ts": None}
+        env.bus.publish("bt.dial_result", {"ok": None, "error": "<b>", "ts": 1})
+        assert env.viewer._get_dashboard_data()["bt_dial_result"]["ok"] is False
+
+    def test_unknown_outcome_keeps_ok_none(self, env):
+        # Dial() got no reply in time: the call may be going out, A8 keeps
+        # its overlay (phone.js only drops it for ok === false).
+        env.bus.publish("bt.dial_result", {"ok": None, "path": "hfp", "error": "unknown",
+                                           "ts": 3.0})
+        assert env.viewer._get_dashboard_data()["bt_dial_result"] == {
+            "ok": None, "error": "unknown", "ts": 3.0}
+
 
 # ── Phone internet / LTE in the dashboard payload ────────────────────────
 
@@ -576,6 +715,77 @@ class TestConnectivityPayload:
     def test_lte_signal_reads_the_published_key(self, env):
         env.bus.publish("lte.signal", 3)
         assert env.viewer._get_dashboard_data()["lte_signal"] == 3
+
+
+# ── GPS source state in the dashboard payload (zgłoszenie A) ─────────────
+
+class TestGpsStatePayload:
+    STATE = {"source": "udp", "state": "fix", "peer": "192.168.44.1:43210",
+             "last_ts": 1_700_000_000.0,
+             "inputs": [{"source": "udp", "state": "receiving", "peer": "192.168.44.1:43210",
+                         "last_ts": 1_700_000_000.0},
+                        {"source": "tcp", "state": "waiting", "peer": "", "last_ts": None}]}
+
+    def test_none_while_the_location_module_never_published(self, env):
+        assert env.viewer._get_dashboard_data()["gps_state"] is None
+
+    def test_api_data_carries_the_sanitised_state(self, env):
+        env.bus.publish("gps.source_state", self.STATE)
+        body = env.client.get("/api/data").get_json()
+        assert body["gps_state"] == {
+            "source": "udp", "state": "fix", "peer": "192.168.44.1",
+            "last_ts": 1_700_000_000.0,
+            "inputs": [{"source": "udp", "state": "receiving"},
+                       {"source": "tcp", "state": "waiting"}],
+            "udp_port": 10110, "tcp_port": 50000,
+        }
+
+    def test_no_fix_lists_the_configured_inputs_and_ports(self, env):
+        env.cfg.set("hardware.gps.udp.port", 10111)
+        env.bus.publish("gps.source_state", {"source": "udp,tcp", "state": "no_fix",
+                                             "peer": "", "last_ts": None, "inputs": []})
+        gs = env.viewer._get_dashboard_data()["gps_state"]
+        assert gs["source"] == "udp,tcp" and gs["state"] == "no_fix"
+        assert (gs["udp_port"], gs["tcp_port"]) == (10111, 50000)
+
+    def test_only_running_inputs_get_a_port(self, env):
+        env.bus.publish("gps.source_state", {"source": "serial", "state": "no_fix",
+                                             "peer": "/dev/ttyUSB0", "inputs": []})
+        gs = env.viewer._get_dashboard_data()["gps_state"]
+        assert gs["peer"] == ""                          # not an IP
+        assert gs["udp_port"] is None and gs["tcp_port"] is None
+
+    @pytest.mark.parametrize("peer, expected", [
+        ("192.168.44.1:5000", "192.168.44.1"), ("10.0.0.23:10110", "10.0.0.23"),
+        ("127.0.0.1:50000", "127.0.0.1"), ("[fe80::1]:50000", "fe80::1"),
+        ("8.8.8.8:53", ""), ("[2001:4860::8888]:53", ""), ("evil<script>", ""),
+        ("/dev/rfcomm0", ""), ("", ""), (None, ""), (12, ""), ("1" * 100, ""),
+    ])
+    def test_peer_only_as_a_private_ip(self, peer, expected):
+        assert wv._gps_peer_ip(peer) == expected
+
+    @pytest.mark.parametrize("value", [None, "fix", [], 5])
+    def test_garbage_is_none(self, env, value):
+        env.bus.publish("gps.source_state", value)
+        assert env.viewer._get_dashboard_data()["gps_state"] is None
+
+    def test_unknown_names_are_dropped(self, env):
+        env.bus.publish("gps.source_state", {
+            "source": "udp,<b>x</b>", "state": "<script>", "peer": "1.2.3.4:5",
+            "last_ts": float("nan"),
+            "inputs": [{"source": "evil", "state": "x"}, {"source": "udp", "state": "<i>"}, "x"]})
+        gs = env.viewer._get_dashboard_data()["gps_state"]
+        assert gs["source"] == "udp" and gs["state"] == "no_fix"
+        assert gs["peer"] == "" and gs["last_ts"] is None
+        assert gs["inputs"] == [{"source": "udp", "state": "unknown"}]
+        json.dumps(gs)                                   # serialisable
+
+    @pytest.mark.parametrize("inputs", [5, "udp", {"source": "udp"}, True, 1.5])
+    def test_inputs_that_are_not_a_list_only_cost_the_row(self, env, inputs):
+        env.bus.publish("gps.source_state", {"source": "udp", "state": "fix",
+                                             "inputs": inputs})
+        body = env.client.get("/api/data").get_json()       # no 500
+        assert body["gps_state"]["inputs"] == [] and body["gps_state"]["source"] == "udp"
 
 
 # ── POST /api/phone_tether/retry ─────────────────────────────────────────

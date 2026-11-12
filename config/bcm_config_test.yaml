@@ -191,16 +191,25 @@ hardware:
     # Skąd brać NMEA: auto | demo | serial | udp | tcp albo lista — wszystkie
     # wejścia z listy działają naraz i karmią jeden parser. auto = stare
     # zachowanie (x86 → trasa demo po Mediolanie). W aucie nie ma odbiornika
-    # GPS, więc pozycję daje telefon:
+    # GPS, więc pozycję daje telefon — NAJPIERW przez Bluetooth PAN
+    # („Internet z telefonu”, moduł phone_tether), bo interfejs tetheringu
+    # Bluetooth jest osiągalny dla każdej aplikacji w telefonie:
     #   • udp — aplikacja GPSd Forwarder (F-Droid) w telefonie wysyła zdania
-    #     NMEA na 10.0.0.1, port 10110 (UDP) przez Wi-Fi Android Auto;
-    #     w telefonie lokalizacja „zawsze” i bez optymalizacji baterii;
-    #   • tcp — zapas: aplikacja „serwer NMEA TCP” w telefonie, BCM łączy się
-    #     przez Bluetooth PAN (host pan-gateway = telefon, brama interfejsu
-    #     bnep*; wymaga internetu z telefonu, moduł phone_tether).
+    #     NMEA na adres bnep0 headunitu, port 10110 (UDP). Adres pokazują
+    #     Ustawienia w wierszu „Internet z telefonu” (i podpowiedź w wierszu
+    #     „GPS”); w telefonie lokalizacja „zawsze” i bez optymalizacji baterii;
+    #   • tcp — odporne na zmianę adresu: aplikacja „serwer NMEA TCP”
+    #     w telefonie na porcie 50000; BCM sam łączy się z telefonem jako
+    #     pan-gateway (brama interfejsu bnep*).
+    # NIEZALECANE: GPSd Forwarder na 10.0.0.1 (Wi-Fi Android Auto). Wireless
+    # AA podnosi to Wi-Fi jako sieć tylko dla aplikacji AA (bez internetu);
+    # pakiety innych aplikacji do 10.0.0.1 idą domyślną siecią, czyli danymi
+    # komórkowymi, i przepadają. Dlatego UDP przyjmuje też 10.0.0.0/24 tylko
+    # na wypadek telefonów, u których to akurat działa.
     # Pozycja trafia dalej tylko przy ważnym fixie; zegara systemowego NIE
     # ustawiamy z NMEA (UDP da się podrobić) — od tego jest bcm-timesync.
-    # Podgląd: sudo tcpdump -ni any udp port 10110; dane gps_* w /api/data.
+    # Podgląd: wiersz „GPS” w Ustawieniach (źródło, stan, nadawca),
+    # sudo tcpdump -ni any udp port 10110; dane gps_* i gps_state w /api/data.
     source: [udp, tcp]
     port: /dev/ttyUSB0       # tylko dla source: serial (też /dev/rfcomm0)
     baudrate: 9600
@@ -405,8 +414,13 @@ weather:
   # jako BCM_OWM_API_KEY (patrz config/bcm.env.example).
   api_key: ''
   poll_interval_min: 15
+  # Bez GPS pogoda jest dla tego miejsca. Pierwszy fix GPS po takim
+  # pobraniu wymusza od razu nowe (nie czeka do kolejnego odpytania).
   default_lat: 50.06
   default_lon: 19.94
+  # Po przejechaniu tylu km od miejsca ostatniego pobrania z GPS pogoda
+  # pobiera się ponownie, bez czekania na poll_interval_min (0 = wyłączone).
+  refetch_distance_km: 15
 travel:
   # Klucze z /etc/bcm/bcm.env: BCM_ORS_API_KEY, BCM_TOMTOM_API_KEY.
   openrouteservice_key: ''

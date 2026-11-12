@@ -102,6 +102,53 @@ const Settings = {
         </div>`;
     },
 
+    /** One info row "GPS: <źródło> <stan> <nadawca>" from data.gps_state
+     *  (web_viewer._gps_state_summary of gps.source_state), plus — while
+     *  there is no fix — where the phone should send its NMEA: the head
+     *  unit's bnep0 address from data.phone_tether (Bluetooth PAN reaches
+     *  every app on the phone; 10.0.0.1 of wireless AA does not). '' without
+     *  a payload (location module off). Inline styles only; every value is
+     *  escaped (the sender address comes from the network). */
+    gpsRowHtml(gs, pt, t) {
+        t = t || ((k, d) => d);
+        if (!gs || typeof gs !== "object") return "";
+        const esc = Settings._esc;
+        const fix = gs.state === "fix";
+        const color = fix ? "#16a34a" : "#d97706";
+        const names = { udp: "UDP", tcp: "TCP", serial: t("gps_src_serial", "port szeregowy"),
+                        demo: t("gps_src_demo", "demo") };
+        const source = (typeof gs.source === "string" ? gs.source : "").split(",")
+            .filter(Boolean).map((n) => names[n] || n).join(" + ") || "—";
+        const label = fix ? t("gps_state_fix", "jest pozycja") : t("gps_state_no_fix", "brak pozycji");
+        const peer = (fix && gs.peer)
+            ? ` <span style="color:var(--text-dim)">${esc(t("gps_peer", "od"))}</span> <span style="color:var(--text-mid);font-family:monospace">${esc(gs.peer)}</span>` : "";
+        let hint = "";
+        if (!fix) {
+            const ip = (pt && typeof pt === "object" && pt.state === "connected" && pt.ip)
+                ? String(pt.ip) : t("gps_hint_no_ip", "<IP bnep0 z „Internet z telefonu”>");
+            const parts = [];
+            if (Number.isInteger(gs.udp_port)) {
+                // Function replacements: "$&" in a value must stay literal.
+                parts.push(t("gps_hint_udp", "Wyślij NMEA na {addr}:{port} (UDP)")
+                    .replace("{addr}", () => ip).replace("{port}", () => String(gs.udp_port)));
+            }
+            if (Number.isInteger(gs.tcp_port)) {
+                parts.push(t("gps_hint_tcp", "uruchom serwer NMEA TCP na porcie {port}")
+                    .replace("{port}", () => String(gs.tcp_port)));
+            }
+            if (parts.length) {
+                hint = `<span data-gps-hint style="color:var(--text-mid);flex-basis:100%;padding-left:24px">${esc(
+                    parts.join(" " + t("gps_hint_or", "albo") + " "))}</span>`;
+            }
+        }
+        return `<div data-gps-state="${esc(fix ? "fix" : "no_fix")}" style="display:flex;flex-wrap:wrap;align-items:center;gap:4px 8px;padding:8px 12px;border-radius:12px;background:var(--card-bg);border:1px solid var(--card-border);font-size:11px;line-height:1.3">
+            <span class="material-symbols-outlined" style="font-size:16px;color:${color}">${fix ? "gps_fixed" : "gps_not_fixed"}</span>
+            <span style="color:var(--text-dim);font-weight:700">${esc(t("gps_row", "GPS"))}:</span>
+            <span style="color:var(--text-mid)">${esc(source)}</span>
+            <span style="color:${color};font-weight:700">${esc(label)}</span>${peer}${hint}
+        </div>`;
+    },
+
     async aaLoad(force) {
         if (Settings._aa.loaded && !force) return;
         try {
@@ -556,29 +603,53 @@ const Settings = {
 
 App.registerScreen("settings", (() => {
     let _radioFetchedAt = 0;
-    // Last phone_tether payload drawn; update() redraws only that row.
+    // Last phone_tether / GPS payload drawn; update() redraws only those rows.
     let _tetherKey = "null";
+    let _gpsKey = "null";
 
     function _tetherKeyOf(data) {
         return JSON.stringify((data && data.phone_tether) || null);
     }
 
-    /** Live data while Settings is open: only the phone-internet row changes
-     *  here (state / IP appear while the driver watches). Never a full
+    /** What the GPS row shows: gps_state without last_ts (it changes with
+     *  every fix, the row does not show it) + the bnep0 IP of the hint. */
+    function _gpsKeyOf(data) {
+        const gs = data && data.gps_state;
+        if (!gs || typeof gs !== "object") return "null";
+        const pt = data.phone_tether;
+        return JSON.stringify([gs.source, gs.state, gs.peer, gs.udp_port, gs.tcp_port,
+            pt && pt.state === "connected" ? pt.ip : ""]);
+    }
+
+    /** Live data while Settings is open: only the phone-internet and GPS rows
+     *  change here (state / IP appear while the driver watches). Never a full
      *  re-render — that would reset the scroll position and the OSK. */
     function update(data) {
+        const t = App.t.bind(App);
         const key = _tetherKeyOf(data);
-        if (key === _tetherKey) return;
-        const slot = document.querySelector("[data-tether-slot]");
-        if (!slot) return;
-        _tetherKey = key;
-        slot.innerHTML = Settings.tetherRowHtml(data && data.phone_tether, App.t.bind(App));
+        if (key !== _tetherKey) {
+            const slot = document.querySelector("[data-tether-slot]");
+            if (slot) {
+                _tetherKey = key;
+                slot.innerHTML = Settings.tetherRowHtml(data && data.phone_tether, t);
+            }
+        }
+        const gpsKey = _gpsKeyOf(data);
+        if (gpsKey !== _gpsKey) {
+            const slot = document.querySelector("[data-gps-slot]");
+            if (slot) {
+                _gpsKey = gpsKey;
+                slot.innerHTML = Settings.gpsRowHtml(data && data.gps_state,
+                                                     data && data.phone_tether, t);
+            }
+        }
     }
 
     function render(container, theme, data) {
         const config = App.getConfig();
         const t = App.t.bind(App);
         _tetherKey = _tetherKeyOf(data);
+        _gpsKey = _gpsKeyOf(data);
         const paired = Settings._btPaired;
         const discovered = Settings._btDiscovered;
         const scanning = Settings._btScanning;
@@ -639,6 +710,8 @@ App.registerScreen("settings", (() => {
                              empty slot (module off) adds no flex gap; update()
                              swaps its content. -->
                         <div data-tether-slot style="display:contents">${Settings.tetherRowHtml(data && data.phone_tether, t)}</div>
+                        <!-- GPS source / fix + where to send NMEA (same slot idea). -->
+                        <div data-gps-slot style="display:contents">${Settings.gpsRowHtml(data && data.gps_state, data && data.phone_tether, t)}</div>
                         <!-- Wi-Fi Hotspot / ALFA-NET network access. The live
                              Android Auto P2P-GO credentials used to show here,
                              but wpa_supplicant regenerates them every boot and

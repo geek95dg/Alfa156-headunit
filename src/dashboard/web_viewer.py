@@ -12,6 +12,7 @@ import glob
 import html
 import ipaddress
 import json
+import logging
 import math
 import os
 import re
@@ -238,6 +239,16 @@ def _save_config(cfg: Any, what: str) -> bool:
 
 #: Minimum spacing of POST /api/phone_tether/retry (one nmcli attempt each).
 _TETHER_RETRY_MIN_INTERVAL_S = 10.0
+#: Minimum spacing of POST /api/phone/dial, per bucket: the kiosk on this
+#: machine and "everyone else" are counted separately, so a client on the
+#: network cannot keep the driver's own dialer (also for 112) at 429.
+_DIAL_MIN_INTERVAL_S = 5.0
+#: What a client that is not the kiosk may dial: a plain number, nothing
+#: with ``*``/``#``. Those make the phone run MMI/supplementary-service codes
+#: — ``*31*#112`` still calls 112 (Android dials what follows the caller-ID
+#: code), ``**21*<number>#`` forwards every call permanently (also to a
+#: premium-rate number), USSD codes reach the operator account.
+_NETWORK_DIAL_RE = re.compile(r"^\+?[0-9]{3,20}$")
 
 
 def _phone_tether_summary(value: Any) -> Optional[dict]:
@@ -262,6 +273,107 @@ def _phone_tether_summary(value: Any) -> Optional[dict]:
     }
 
 
+#: gps.source_state values the Settings row may show (src/location/gps.py).
+_GPS_SOURCES = ("demo", "serial", "udp", "tcp")
+_GPS_STATES = ("fix", "no_fix")
+_GPS_INPUT_STATES = ("starting", "running", "connected", "receiving", "listening",
+                     "waiting", "connecting", "disconnected", "error", "demo_fallback")
+#: Code defaults of hardware.gps.{udp,tcp}.port (gps.DEFAULTS) for the hint.
+_GPS_DEFAULT_PORTS = {"udp": 10110, "tcp": 50000}
+
+
+def _gps_peer_ip(peer: Any) -> str:
+    """``"192.168.44.1:43210"`` → ``"192.168.44.1"``, only for a private address.
+
+    The payload is visible from the network in ``readonly`` mode; a public
+    address (or a serial device path) is not what the Settings row needs.
+    """
+    if not isinstance(peer, str) or not peer or len(peer) > 64:
+        return ""
+    host = peer.strip()
+    if host.startswith("["):                              # [v6]:port
+        host = host[1:host.find("]")] if "]" in host else ""
+    elif host.count(":") == 1:                            # v4:port
+        host = host.split(":", 1)[0]
+    try:
+        ip = ipaddress.ip_address(host)
+    except ValueError:
+        return ""
+    if ip.version == 6 and ip.ipv4_mapped is not None:
+        ip = ip.ipv4_mapped
+    return str(ip) if ip.is_private else ""
+
+
+def _gps_port(cfg: Any, name: str) -> int:
+    default = _GPS_DEFAULT_PORTS[name]
+    try:
+        value = cfg.get(f"hardware.gps.{name}.port", default) if cfg is not None else default
+    except Exception:
+        value = default
+    if isinstance(value, bool) or not isinstance(value, int) or not 1 <= value <= 65535:
+        return default
+    return value
+
+
+def _gps_state_summary(value: Any, cfg: Any = None) -> Optional[dict]:
+    """``gps.source_state`` → what the Settings "GPS" row shows, or None.
+
+    ``{source, state, peer, last_ts, inputs: [{source, state}], udp_port,
+    tcp_port}`` — known names only, the sender only as a private IP (see
+    _gps_peer_ip), ports only for inputs that run (they make the "send NMEA
+    to <bnep0 IP>:10110" hint right). None while the location module never
+    published one (module off): no row.
+    """
+    if not isinstance(value, dict):
+        return None
+    raw_source = value.get("source")
+    names = [n for n in (raw_source.split(",") if isinstance(raw_source, str) else [])
+             if n in _GPS_SOURCES]
+    state = value.get("state")
+    last_ts = _num_or_none(value.get("last_ts"))
+    inputs = []
+    # gps.source_state is IPC-relayable: a malformed "inputs" (5, a string)
+    # must cost the GPS row, never the whole /api/data payload.
+    raw_inputs = value.get("inputs")
+    for item in raw_inputs if isinstance(raw_inputs, list) else []:
+        if len(inputs) >= len(_GPS_SOURCES):
+            break
+        if not isinstance(item, dict) or item.get("source") not in _GPS_SOURCES:
+            continue
+        istate = item.get("state")
+        inputs.append({"source": item["source"],
+                       "state": istate if istate in _GPS_INPUT_STATES else "unknown"})
+    running = {i["source"] for i in inputs} | set(names)
+    return {
+        "source": ",".join(dict.fromkeys(names)),
+        "state": state if state in _GPS_STATES else "no_fix",
+        "peer": _gps_peer_ip(value.get("peer")),
+        "last_ts": last_ts if last_ts is not None and last_ts > 0 else None,
+        "inputs": inputs,
+        "udp_port": _gps_port(cfg, "udp") if "udp" in running else None,
+        "tcp_port": _gps_port(cfg, "tcp") if "tcp" in running else None,
+    }
+
+
+def _dial_result_summary(value: Any) -> Optional[dict]:
+    """``bt.dial_result`` → ``{ok, error, ts}`` with a known error code only.
+
+    ``ok`` is None only for error "unknown" (oFono did not answer Dial() in
+    time — the call may be going out; A8 keeps its overlay).
+    """
+    if not isinstance(value, dict):
+        return None
+    from src.multimedia.bluetooth import DIAL_ERRORS
+    error = value.get("error")
+    error = error if error in DIAL_ERRORS else None
+    ok = value.get("ok")
+    return {
+        "ok": True if ok is True else (None if ok is None and error == "unknown" else False),
+        "error": error,
+        "ts": _num_or_none(value.get("ts")),
+    }
+
+
 # ── Network access policy (Flask before_request) ─────────────────────────
 # The dashboard listens on 0.0.0.0:5002 without authentication: anyone who
 # can reach it could reboot the car PC, read the Wi-Fi passwords or type
@@ -271,7 +383,11 @@ def _phone_tether_summary(value: Any) -> Optional[dict]:
 #
 #   full      every client, every route, from anywhere — the legacy
 #             behaviour and the code default (production unchanged).
-#             allowed_networks is NOT applied in this mode.
+#             allowed_networks is NOT applied in this mode. Recommended
+#             for production instead: "tracking" (a phone can still fetch
+#             GPX; nothing can reboot the PC, read passwords or dial).
+#             POST /api/phone/dial refuses emergency numbers from the
+#             network and is rate-limited even here.
 #   readonly  GET/HEAD views on the allow-list _READONLY_ENDPOINTS and the
 #             data WebSocket (/ws) from allowed_networks; never POST/DELETE
 #             or /ws/input. An ALLOW-list on purpose: a GET with side
@@ -633,6 +749,11 @@ class WebViewer:
         self._tether_retry_lock = threading.Lock()
         self._tether_retry_last: Optional[float] = None
 
+        # POST /api/phone/dial rate limit: last accepted dial per bucket
+        # ("kiosk" = loopback, "network" = everyone else), monotonic.
+        self._dial_lock = threading.Lock()
+        self._dial_last: dict[str, float] = {}
+
         # /aa/stream bookkeeping: generation ids of the live MJPEG streams
         # (oldest first) and each one's ffmpeg, so a newer stream can stop an
         # older one's capture even while that request thread is blocked.
@@ -738,6 +859,9 @@ class WebViewer:
             "gps_heading": _val("gps.heading", 0),
             "gps_fix": _val("gps.fix", False),
             "gps_satellites": _val("gps.satellites", 0),
+            # Which input feeds the GPS and whether it has a fix — Settings
+            # shows it with a hint where to send NMEA (None = module off).
+            "gps_state": _gps_state_summary(_val("gps.source_state"), self._config),
             # Weather
             "weather_condition": _wc.get("condition", ""),
             "weather_temp": _wc.get("temp", None),
@@ -768,6 +892,9 @@ class WebViewer:
             "bt_available": self._bt_manager.available if self._bt_manager else False,
             "bt_call_state": _val("bt.call_state", "idle"),
             "bt_call_info": _val("bt.call_info", {}),
+            # Outcome of the last dial (src/multimedia/bluetooth.py): A8 drops
+            # its instant "ringing" overlay when it failed. None = no dial yet.
+            "bt_dial_result": _dial_result_summary(_val("bt.dial_result")),
             "aa_status": _val("multimedia.openauto_status", "unavailable"),
             "aa_available": _val("multimedia.openauto_status", "unavailable") in (
                 "running", "connected", "restarting"),
@@ -895,8 +1022,20 @@ class WebViewer:
             return f"GPS: jest pozycja ({detail})" if detail else "GPS: jest pozycja"
         return "GPS: brak pozycji — sprawdź aplikację GPS w telefonie"
 
-    def _log_refusal(self, addr: str, method: str, path: str, key: str, reason: str) -> None:
-        """INFO line for a refused request, at most once a minute per address."""
+    def _emergency_numbers(self) -> frozenset:
+        """oFono's EmergencyNumbers via the BluetoothManager (empty if unknown)."""
+        getter = getattr(self._bt_manager, "emergency_numbers", None)
+        if not callable(getter):
+            return frozenset()
+        try:
+            return frozenset(getter())
+        except Exception:
+            log.debug("emergency_numbers() failed", exc_info=True)
+            return frozenset()
+
+    def _log_refusal(self, addr: str, method: str, path: str, key: str, reason: str,
+                     level: int = logging.INFO) -> None:
+        """A log line for a refused request, at most once a minute per address."""
         now = time.monotonic()
         with self._access_log_lock:
             last = self._access_log_last.get(addr)
@@ -905,9 +1044,10 @@ class WebViewer:
             if len(self._access_log_last) >= 256:
                 self._access_log_last.clear()
             self._access_log_last[addr] = now
-        log.info("Refused %s %r from %s: %s (%s; further refusals from this "
-                 "address are not logged for %.0f s)", method, path[:100], addr,
-                 reason, key, _ACCESS_LOG_EVERY_S)
+        emit = log.warning if level >= logging.WARNING else log.info
+        emit("Refused %s %r from %s: %s (%s; further refusals from this "
+             "address are not logged for %.0f s)", method, path[:100], addr,
+             reason, key, _ACCESS_LOG_EVERY_S)
 
     # ── Android Auto helpers ─────────────────────────────────────────────
 
@@ -2253,15 +2393,74 @@ class WebViewer:
 
         @app.route("/api/phone/dial", methods=["POST"])
         def api_phone_dial():
-            # Browser input -> log, event bus and oFono's Dial(): only a plain
-            # dial string passes (separators from phonebook entries dropped,
-            # then 1-32 of 0-9 + * #). Anything else is a 400, never echoed raw.
-            from src.multimedia.bluetooth import normalize_dial_number
+            """Dial on the driver's phone (HFP) — A8 dialer, phonebook, history.
+
+            Browser input -> log, event bus and oFono's Dial(): only a plain
+            dial string passes (separators from phonebook entries dropped,
+            then 1-32 of 0-9 + * #). Anything else is a 400, never echoed raw.
+
+            From any client that is NOT the kiosk on this machine (with
+            remote_access "full" — the code default, production — any device
+            on the LAN / AP / PAN reaches this route), 403 for:
+              * anything but a plain number (_NETWORK_DIAL_RE): ``*``/``#``
+                codes can still call 112 (``*31*#112``), forward the
+                driver's calls or run USSD;
+              * emergency numbers (BUILTIN_EMERGENCY_NUMBERS ∪ oFono's
+                EmergencyNumbers, normalised — "+48 112", "0048112" …).
+            The kiosk may dial both (codes from the A8 keypad; 112 for a
+            driver reporting someone else's accident). For production,
+            dashboard.remote_access: tracking is recommended — then no
+            network client reaches this route at all.
+
+            Rate limit: one dial per _DIAL_MIN_INTERVAL_S per bucket (kiosk /
+            network), 429 + Retry-After — premium-rate numbers stay possible
+            from the network in "full" mode, but not in a loop.
+            """
+            from src.multimedia.bluetooth import is_emergency_number, normalize_dial_number
             data = request.get_json(silent=True)
             raw = data.get("number", "") if isinstance(data, dict) else ""
             number = normalize_dial_number(raw)
             if not number:
                 return jsonify({"ok": False, "error": "invalid number"}), 400
+            ip = _client_ip(request.remote_addr)
+            local = ip is not None and ip.is_loopback
+            if not local and not _NETWORK_DIAL_RE.match(number):
+                viewer._log_refusal(str(request.remote_addr)[:64], request.method,
+                                    request.path, "dial_code",
+                                    "only a plain number may be dialled from the network "
+                                    "(no * or # codes)", level=logging.WARNING)
+                return jsonify({"ok": False, "error": "forbidden",
+                                "reason": "only a plain phone number can be dialled "
+                                          "from the network"}), 403
+            if not local and is_emergency_number(number, viewer._emergency_numbers()):
+                # WARNING, but once a minute per address: a client hammering
+                # the route must not flood the log either.
+                viewer._log_refusal(str(request.remote_addr)[:64], request.method,
+                                    request.path, "emergency_number",
+                                    f"emergency number {number} — only the kiosk on "
+                                    f"this machine may dial it", level=logging.WARNING)
+                return jsonify({"ok": False, "error": "forbidden",
+                                "reason": "emergency numbers can only be dialled "
+                                          "from the head unit's own screen"}), 403
+            bucket = "kiosk" if local else "network"
+            now = time.monotonic()
+            with viewer._dial_lock:
+                last = viewer._dial_last.get(bucket)
+                if last is not None and 0 <= now - last < _DIAL_MIN_INTERVAL_S:
+                    wait = int(_DIAL_MIN_INTERVAL_S - (now - last)) + 1
+                    limited = True
+                else:
+                    viewer._dial_last[bucket] = now
+                    limited = False
+            if limited:
+                if local and viewer._event_bus:
+                    from src.core.notifications import publish_notification
+                    publish_notification(viewer._event_bus, "Poczekaj chwilę",
+                                         f"Kolejne wybieranie za {wait} s.",
+                                         severity="info", icon="call", key="dial_result")
+                res = jsonify({"ok": False, "error": "too many requests", "retry_after": wait})
+                res.headers["Retry-After"] = str(wait)
+                return res, 429
             if viewer._event_bus:
                 viewer._event_bus.publish("bt.cmd.dial", number)
             return jsonify({"ok": True, "number": number})
@@ -2425,15 +2624,21 @@ class WebViewer:
             """Set travel-plan destination and trigger RoutePlanner.plan()."""
             if viewer._trip_computer is None:
                 return jsonify({"error": "trip computer not available"}), 503
-            data = request.get_json(silent=True) or {}
+            data = request.get_json(silent=True)
+            data = data if isinstance(data, dict) else {}
             lat = data.get("lat")
             lon = data.get("lon")
-            name = data.get("name") or data.get("city") or "Destination"
             if lat is None or lon is None:
                 return jsonify({"error": "missing lat/lon"}), 400
-            viewer._trip_computer.set_destination(
-                float(lat), float(lon), str(name),
-            )
+            # Browser input: a real coordinate only (float() let NaN/inf
+            # through to the route planner and raised a 500 on a list), and
+            # a printable one-line name — it goes into the log and the UI.
+            coords = valid_coords(lat, lon)
+            if coords is None:
+                return jsonify({"error": "lat/lon must be a coordinate"}), 400
+            from src.core.notifications import clean_text
+            name = clean_text(data.get("name") or data.get("city") or "", 80) or "Destination"
+            viewer._trip_computer.set_destination(coords[0], coords[1], name)
             return jsonify({"ok": True, "name": name})
 
         @app.route("/api/trip/clear", methods=["POST"])
