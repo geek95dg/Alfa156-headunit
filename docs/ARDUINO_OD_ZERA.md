@@ -275,6 +275,12 @@ Jeden przewód połączeniowy (albo spinacz, albo kawałek drutu). Serio, tyle.
 **`PWRACT:SHORT` to moment, w którym płytka „naciska" przycisk.** Gdyby był
 podłączony moduł przekaźnika, usłyszałbyś teraz kliknięcie.
 
+Jeśli po kroku 4 zewrzesz D9 ponownie w ciągu 90 s, `PWRACT:SHORT` przyjdzie
+dopiero po upływie tych 90 s. To nie usterka: impuls z kroku 4 usypiał
+„pracujący” komputer, a ten najpierw zatrzymuje BCM (do 45 s). Drugie
+wciśnięcie w tym czasie uśpiłoby go ponownie zaraz po wybudzeniu, więc
+płytka czeka, aż usypianie na pewno się skończy.
+
 Jeśli te cztery kroki przechodzą — **firmware działa poprawnie i możesz
 przejść do montażu**.
 
@@ -381,6 +387,10 @@ Firmware działa na biurku. Kolejność montażu:
    w kablu USB. Powód: M910q odcina zasilanie portów w S3, więc płytka
    zasilana z USB zgasłaby razem z nim i nie miałaby czym nacisnąć przycisku
 4. **Włącz `FEATURE_PWRLED`** dopiero po podłączeniu odczytu diody panelu
+   i od razu sprawdź dekoder: w S3 płytka ma przez kilka minut wysyłać
+   wyłącznie `PWR:SLEEP`, bez przeskoków na `PWR:RUNNING`/`PWR:OFF` —
+   pełna procedura w [`WDROZENIE_TESTOWE.md`](WDROZENIE_TESTOWE.md) §3.1a
+   („Sprawdzenie na stole”). Bez tego eskalacja do wyłączenia nie zadziała
 
 Szerszy kontekst — po co to wszystko i jak działa całość:
 [`WDROZENIE_TESTOWE.md`](WDROZENIE_TESTOWE.md) §3.1a.

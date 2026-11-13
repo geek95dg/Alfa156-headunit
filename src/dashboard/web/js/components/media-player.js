@@ -50,6 +50,15 @@ const MediaPlayer = (() => {
         } catch (e) { /* ignore */ }
     }
 
+    // Title/artist are AVRCP metadata from the phone (any track name a
+    // streaming service or a file carries) — untrusted text going into
+    // innerHTML, so it is escaped. main.js update() refreshes them with
+    // textContent.
+    function _esc(v) {
+        return String(v == null ? "" : v).replace(/&/g, "&amp;").replace(/</g, "&lt;")
+            .replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+    }
+
     // Theme token tables — keep the structure identical, vary the colours.
     const THEMES = {
         heritage: {
@@ -79,7 +88,8 @@ const MediaPlayer = (() => {
         const title = data.bt_media_title || "No Media";
         const artist = data.bt_media_artist || "---";
         const playIcon = data.bt_media_playing ? "pause" : "play_arrow";
-        const vol = (data.audio_volume != null) ? data.audio_volume : 70;
+        const volNum = Number(data.audio_volume);
+        const vol = (data.audio_volume != null && isFinite(volNum)) ? volNum : 70;
         const muteIcon = data.audio_muted ? "volume_off" : "volume_up";
         return `<div class="rounded-2xl border p-5 flex flex-col gap-5 ${tk.card}">
             <div class="flex items-center gap-4">
@@ -88,8 +98,8 @@ const MediaPlayer = (() => {
                 </div>
                 <div class="flex-1 overflow-hidden">
                     <p class="text-[10px] font-black uppercase tracking-widest ${tk.label}">Now Playing</p>
-                    <p id="media-title" class="text-xl font-bold truncate ${tk.title}">${title}</p>
-                    <p id="media-artist" class="text-sm truncate ${tk.artist}">${artist}</p>
+                    <p id="media-title" class="text-xl font-bold truncate ${tk.title}">${_esc(title)}</p>
+                    <p id="media-artist" class="text-sm truncate ${tk.artist}">${_esc(artist)}</p>
                 </div>
             </div>
             <div class="flex items-center justify-center gap-8">
@@ -112,3 +122,5 @@ const MediaPlayer = (() => {
 
     return { renderHeritage, renderModern, renderAutodelta, cmd, setVolume, toggleMute };
 })();
+
+if (typeof module !== "undefined" && module.exports) module.exports = MediaPlayer;

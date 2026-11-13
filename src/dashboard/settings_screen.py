@@ -48,7 +48,7 @@ SWC_AVAILABLE_ACTIONS = [
     "volume_up", "volume_down", "mute", "menu_up", "menu_down", "home", "back",
     "next_track", "prev_track", "play_pause", "phone_pickup", "phone_hangup",
     "bcm_power_toggle", "voice_aa_trigger", "navigate_aa",
-    "source_cycle", "brightness_cycle", "disabled",
+    "source_cycle", "brightness_cycle", "crash_cancel", "disabled",
 ]
 
 ACTION_DISPLAY_NAMES = {
@@ -60,6 +60,7 @@ ACTION_DISPLAY_NAMES = {
     "bcm_power_toggle": "Power Toggle", "voice_aa_trigger": "AA Voice",
     "navigate_aa": "Open AA",
     "source_cycle": "Source Cycle", "brightness_cycle": "Brightness",
+    "crash_cancel": "Cancel crash SMS",
     "disabled": "-- Disabled --",
 }
 
@@ -150,12 +151,16 @@ class SettingsScreen:
         btn_name = SWC_BUTTON_NAMES[self.selected_index]
         config_key = f"swc.buttons.{btn_name}"
         current = self.config.get(config_key, "disabled")
+        # Optional actions only while their module is on (crash_cancel →
+        # modules.crash_sms): production offers nothing that does nothing.
+        from src.input.swc_remote import action_available
+        options = [a for a in SWC_AVAILABLE_ACTIONS if action_available(a, self.config)]
         try:
-            idx = SWC_AVAILABLE_ACTIONS.index(current)
+            idx = options.index(current)
         except ValueError:
             idx = 0
-        new_idx = (idx + direction) % len(SWC_AVAILABLE_ACTIONS)
-        new_action = SWC_AVAILABLE_ACTIONS[new_idx]
+        new_idx = (idx + direction) % len(options)
+        new_action = options[new_idx]
         self.config.set(config_key, new_action)
         log.info("SWC mapping changed: %s = %s", btn_name, new_action)
         return config_key

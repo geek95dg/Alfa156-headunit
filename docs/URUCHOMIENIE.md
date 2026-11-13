@@ -252,7 +252,7 @@ co obowiązuje, gdyby klucz usunąć z YAML-a.
 | `lighting` | Oświetlenie: follow-me-home, mrugnięcie powitalne | `true` | wyłączony |
 | `performance` | Pomiary osiągów (stoper 0–100, boost) | `true` | wyłączony |
 | `alarm` | Alarm samochodowy (PIR, przechył, wstrząs, syrena) | `true` | wyłączony |
-| `crash_detect` | Detekcja kolizji + ochrona nagrań DVR | `true` | wyłączony |
+| `crash_detect` | Wykrywanie stłuczki (akcelerometr telefonu, zapasowo sam GPS) + ochrona nagrań DVR; bez kamer, wymaga `location` | `true` | wyłączony |
 | `battery` | Monitor baterii buforowej (bufor SLA) | `true` | wyłączony |
 | `bluetooth` | Bluetooth (BlueZ) — parowanie, A2DP/HFP, sterowanie mediami | `true` | włączony |
 | `phonebook` | Synchronizacja książki telefonicznej PBAP + historia połączeń (ekran A8) | `true` | włączony (podąża za `bluetooth`, gdy brak własnego klucza) |

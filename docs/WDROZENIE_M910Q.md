@@ -842,7 +842,7 @@ zawsze pierwszeństwo.
 | `weather` | klucz API OpenWeatherMap |
 | `route_planner` | klucze OpenRouteService / TomTom |
 | `network` | na x86 **tylko raportuje** stan łącza — połączenie robi NetworkManager; `config/lte.conf` dotyczy wariantu ARM |
-| `battery` | ⚠ patrz §19.3 — nie działa bez dorobienia dzielnika i progów |
+| `battery` | sensor hub z `SENSOR_HUB_FEATURES=BATT_ADC` albo `BATT_INA226` (dzielnik na A6 / INA226) — §19.3 |
 
 ---
 
@@ -1015,15 +1015,30 @@ Obowiązujące nastawy: [`ZASILANIE_BUFOROWANE.md`](ZASILANIE_BUFOROWANE.md) §4
 Tam też jest wyjaśnione, dlaczego proponowany moduł **buck** XL4016 nie może
 pełnić roli ładowarki (nie podniesie napięcia do absorpcji) — §5.1.
 
-### 19.3 Moduł `battery` nie monitoruje banku buforowego
+### 19.3 Moduł `battery` — monitor banku buforowego (przygotowany, domyślnie wyłączony)
 
-`src/power/battery.py` ma progi **ogniwa Li-ion 18650** (4,2 / 3,7 / 3,3 /
-3,0 V) i nasłuchuje zdarzenia `arduino.battery_voltage`, którego **żaden
-z trzech sketchy Arduino nie publikuje**. `modules.battery: true` włącza więc
-kod, który nigdy nic nie policzy.
+Dawniej `src/power/battery.py` miał progi **ogniwa Li-ion 18650** (4,2 / 3,7
+/ 3,3 / 3,0 V) i czekał na `arduino.battery_voltage`, którego żaden sketch
+nie wysyłał. Dziś:
 
-Co trzeba dorobić (dzielnik napięcia, publikacja z sensor huba, progi dla
-banku 12 V): [`ZASILANIE_BUFOROWANE.md`](ZASILANIE_BUFOROWANE.md) §13.4.
+- `arduino/sensor_hub` ma pomiar banku w dwóch wariantach, domyślnie
+  wyłączonych: `FEATURE_BATT_ADC` (dzielnik 100k/27k na A6, samo napięcie)
+  i `FEATURE_BATT_INA226` (I2C + bocznik, napięcie i prąd). Wysyła
+  `BATT:<mV>[,<mA>]` co 2 s; `arduino_serial.py` publikuje
+  `arduino.battery_voltage` [V] i `arduino.battery_current` [A];
+- `battery.py` ma progi AGM 12 V (12,85 / 12,40 / 11,80 / 11,20 V,
+  blok `battery:` w configu) i publikuje `battery.state`. Niczego nie
+  wyłącza — to robi sprzętowe LVD.
+
+Włączenie: wgranie sensor huba z flagą (bez edycji sketcha), port
+w `arduino.sensor_hub_port`, `modules.battery: true`:
+
+```bash
+make -C arduino sensor_hub-upload PORT=/dev/ttyUSB1 SENSOR_HUB_FEATURES=BATT_ADC
+```
+
+Szczegóły, w tym kalibracja (`BATT_ADC_CAL` względem multimetru, znak
+prądu INA226): [`ZASILANIE_BUFOROWANE.md`](ZASILANIE_BUFOROWANE.md) §13.4.
 
 ### 19.4 Czas postoju „17 dni"
 

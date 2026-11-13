@@ -40,6 +40,37 @@ App.registerScreen("a3", (() => {
         if (el) el.textContent = text;
     }
 
+    /** Escape text for innerHTML (place names / incident texts come from
+     *  geocoding and traffic APIs, i.e. from the network). */
+    function _esc(s) {
+        return String(s == null ? "" : s)
+            .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+            .replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+    }
+
+    /** Where the route starts (plan.origin_source from TripComputer):
+     *  "fallback" = no fresh GPS fix, the route is computed from the
+     *  default point — say so, it looks like a real route otherwise.
+     *  Inline styles only (Tailwind is precompiled). '' when there is no
+     *  plan or the origin is not known yet. */
+    function _originHtml(plan, planning) {
+        if (!plan || !plan.destination_name || planning) return "";
+        const t = (k, d) => (typeof App !== "undefined" && App.t ? App.t(k, d) : d);
+        if (plan.origin_source === "fallback") {
+            return `<div data-trip-origin="fallback" style="display:flex;align-items:center;gap:6px;font-size:10px;color:#fcd34d;">
+                   <span class="material-symbols-outlined" style="font-size:14px;color:#f59e0b;">location_off</span>
+                   <span>${_esc(t("trip_origin_fallback", "start: domyślny (brak GPS)"))}</span>
+               </div>`;
+        }
+        if (plan.origin_source === "gps") {
+            return `<div data-trip-origin="gps" style="display:flex;align-items:center;gap:6px;font-size:10px;color:#a1a1aa;">
+                   <span class="material-symbols-outlined" style="font-size:14px;color:#16a34a;">my_location</span>
+                   <span>${_esc(t("trip_origin_gps", "start: pozycja GPS"))}</span>
+               </div>`;
+        }
+        return "";
+    }
+
     // --- Travel Plan UI ---------------------------------------------------
 
     // Snapshot of the plan fingerprint used to detect real changes so we
@@ -56,6 +87,7 @@ App.registerScreen("a3", (() => {
             (p.weather_points || []).length,
             (p.incidents || []).length,
             !!data.trip_planning,
+            p.origin_source || "",
         ]);
     }
 
@@ -108,7 +140,7 @@ App.registerScreen("a3", (() => {
             ? incidents.slice(0, 4).map(inc => `
                 <div class="flex items-center gap-2 text-[10px]">
                     <span class="material-symbols-outlined text-red-400" style="font-size:14px;">warning</span>
-                    <span class="text-zinc-300 truncate">${inc.description || "Incident"}</span>
+                    <span class="text-zinc-300 truncate">${_esc(inc.description || "Incident")}</span>
                 </div>`).join("")
             : `<span class="text-[9px] text-zinc-500">${plan.destination_name ? "No road works reported" : "Set destination to see incidents"}</span>`;
 
@@ -157,9 +189,10 @@ App.registerScreen("a3", (() => {
                 </h2>
             </div>
             ${approxNotice}
+            ${_originHtml(plan, planning)}
             <div class="tp-search-wrap" style="position:relative;">
                 <input class="tp-search" type="text" placeholder="Destination (e.g. Gdynia)"
-                       value="${name.replace(/"/g, '&quot;')}"
+                       value="${_esc(name)}"
                        style="width:100%;background:#18181b;border:1px solid #3f3f46;border-radius:6px;padding:10px 12px;font-size:14px;color:#f4f4f5;outline:none;">
             </div>
             <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;">
@@ -355,6 +388,9 @@ App.registerScreen("a3", (() => {
     async function _selectResult(idx) {
         const r = _searchResults[idx];
         if (!r) return;
+        // A search still pending from the last keystroke (300 ms debounce)
+        // would bring the suggestion list back after the pick.
+        if (_searchDebounce) { clearTimeout(_searchDebounce); _searchDebounce = null; }
         _searchResults = [];
         try {
             await fetch("/api/trip/destination", {

@@ -81,9 +81,6 @@ cleaned and cut to 200 characters. A missing nmcli is a state, not a crash.
 
 from __future__ import annotations
 
-import ipaddress
-import math
-import os
 import re
 import subprocess
 import threading
@@ -91,6 +88,20 @@ import time
 from typing import Any, Callable, Optional
 
 from src.core.logger import get_logger
+# Shared with car_phone (adb + nmcli): argv-only runner that never raises,
+# LC_ALL=C, error cleaning, config readers. Re-exported here so existing
+# imports (web_viewer, tests) keep working.
+from src.network._proc import ERROR_MAX as ERROR_MAX
+from src.network._proc import IFACE_RE as IFACE_RE
+from src.network._proc import PROBE_TIMEOUT_S as PROBE_TIMEOUT_S
+from src.network._proc import _cfg_get as _cfg_get
+from src.network._proc import _number as _proc_number
+# Named _run_cmd here: PhoneTether._run is the worker thread's loop.
+from src.network._proc import _run as _run_cmd
+from src.network._proc import clean_error as clean_error
+from src.network._proc import parse_ip_status as parse_ip_status
+from src.network._proc import proc_env as proc_env
+from src.network._proc import split_terse as split_terse
 
 log = get_logger("network.phone_tether")
 
@@ -144,20 +155,14 @@ MAC_RE = re.compile(r"^[0-9A-F]{2}(:[0-9A-F]{2}){5}$")
 #: Profile names we accept. Starts with an alphanumeric so it can never be
 #: read as an nmcli option.
 CON_NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$")
-#: Kernel interface name (as reported for GENERAL.IP-IFACE).
-IFACE_RE = re.compile(r"^[A-Za-z0-9_.-]{1,15}$")
 
 #: nmcli exit status "connection, device or access point does not exist".
 NMCLI_NOT_FOUND = 10
-PROBE_TIMEOUT_S = 8.0
 EDIT_TIMEOUT_S = 15.0
 UP_WAIT_S = 30
 UP_TIMEOUT_S = UP_WAIT_S + 15.0
 TIMESYNC_TIMEOUT_S = 10.0
 TIMESYNC_ARGV = ["systemctl", "start", "--no-block", "bcm-timesync.service"]
-ERROR_MAX = 200
-
-_CONTROL_RE = re.compile(r"[\x00-\x1f\x7f]+")
 
 
 # ── pure helpers (tested directly) ─────────────────────────────────────────
@@ -168,28 +173,6 @@ def normalize_mac(value: Any) -> Optional[str]:
         return None
     mac = value.strip().upper()
     return mac if MAC_RE.fullmatch(mac) else None
-
-
-def split_terse(line: str) -> list[str]:
-    """Split one ``nmcli -t`` line on *unescaped* ``:``.
-
-    Terse output escapes ``:`` and ``\\`` inside values with a backslash —
-    a Bluetooth device's name IS its address (``AA\\:BB\\:…``).
-    """
-    fields: list[str] = []
-    cur: list[str] = []
-    it = iter(line)
-    for ch in it:
-        if ch == "\\":
-            nxt = next(it, "")
-            cur.append(nxt)
-        elif ch == ":":
-            fields.append("".join(cur))
-            cur = []
-        else:
-            cur.append(ch)
-    fields.append("".join(cur))
-    return fields
 
 
 def parse_bt_devices(text: str) -> dict[str, str]:
@@ -227,88 +210,9 @@ def parse_profile(text: str) -> tuple[str, str, str, str]:
     return bdaddr, bt_type.lower(), metric, autoconnect.lower()
 
 
-def parse_ip_status(text: str) -> dict[str, Any]:
-    """``GENERAL.IP-IFACE,IP4.ADDRESS,IP4.GATEWAY`` → iface/ip/prefix/gateway.
-
-    Parsed by content, not position, because a multi-address device prints
-    ``a/24 | b/16`` on one line in some nmcli versions and one per line in
-    others. Every value is validated — they end up in the UI.
-    """
-    status: dict[str, Any] = {"iface": "", "ip": "", "prefix": None, "gateway": ""}
-    for line in (text or "").splitlines():
-        for field in split_terse(line):
-            for token in field.split("|"):
-                token = token.strip()
-                if not token or token == "--":
-                    continue
-                if "/" in token:
-                    if status["ip"]:
-                        continue
-                    try:
-                        iface = ipaddress.IPv4Interface(token)
-                    except ValueError:
-                        continue
-                    status["ip"] = str(iface.ip)
-                    status["prefix"] = iface.network.prefixlen
-                    continue
-                try:
-                    gateway = ipaddress.IPv4Address(token)
-                except ValueError:
-                    if not status["iface"] and IFACE_RE.fullmatch(token):
-                        status["iface"] = token
-                    continue
-                if not status["gateway"]:
-                    status["gateway"] = str(gateway)
-    return status
-
-
-def clean_error(text: Any) -> str:
-    """One line, no control characters, at most :data:`ERROR_MAX` chars."""
-    if not text:
-        return ""
-    s = _CONTROL_RE.sub(" ", str(text))
-    s = " ".join(s.split())
-    return s[:ERROR_MAX]
-
-
-def _cfg_get(config: Any, dotpath: str, default: Any = None) -> Any:
-    """Read ``a.b.c`` from a BCMConfig (dotted ``get``) or nested dicts."""
-    if config is None:
-        return default
-    getter = getattr(config, "get", None)
-    if callable(getter):
-        try:
-            value = getter(dotpath)
-        except Exception:
-            value = None
-        if value is not None:
-            return value
-    node = config
-    for key in dotpath.split("."):
-        if isinstance(node, dict) and key in node:
-            node = node[key]
-        else:
-            return default
-    return node
-
-
 def _number(value: Any, default: float, lo: float, hi: float, name: str) -> float:
-    """A finite number within ``[lo, hi]`` (clamped), else ``default``."""
-    if isinstance(value, bool) or not isinstance(value, (int, float)) \
-            or not math.isfinite(value):
-        if value is not None:
-            log.warning("network.phone_tether.%s=%r is not a number — using %s",
-                        name, value, default)
-        return default
-    return min(max(value, lo), hi)
-
-
-def _nm_env() -> dict[str, str]:
-    """nmcli's field values must not be translated (we compare them)."""
-    env = dict(os.environ)
-    env["LC_ALL"] = "C"
-    env.pop("LANGUAGE", None)
-    return env
+    """:func:`src.network._proc._number` for ``network.phone_tether.*``."""
+    return _proc_number("network.phone_tether", value, default, lo, hi, name, logger=log)
 
 
 # ── the manager ────────────────────────────────────────────────────────────
@@ -831,27 +735,15 @@ class PhoneTether:
             log.warning(message)
 
     def _nm(self, argv: list[str], timeout: float = PROBE_TIMEOUT_S) -> tuple[int, str, str]:
-        """Run one command. Never raises; ``(rc, stdout, cleaned stderr)``."""
-        try:
-            result = self._runner(argv, capture_output=True, text=True, errors="replace",
-                                  timeout=timeout, env=_nm_env())
-        except FileNotFoundError:
-            self._warn_once(f"missing:{argv[0]}",
-                            f"Phone tether: {argv[0]} not installed — internet from the "
-                            "phone needs NetworkManager")
-            return 127, "", f"{argv[0]} not installed"
-        except subprocess.TimeoutExpired:
-            return 124, "", f"{argv[0]} timed out after {int(timeout)} s"
-        except Exception as e:
-            return 1, "", clean_error(f"{argv[0]}: {e}")
-        rc = getattr(result, "returncode", 1)
-        out = getattr(result, "stdout", "") or ""
-        err = getattr(result, "stderr", "") or ""
-        if not isinstance(out, str):
-            out = out.decode("utf-8", "replace")
-        if not isinstance(err, str):
-            err = err.decode("utf-8", "replace")
-        return (rc if isinstance(rc, int) else 1), out, clean_error(err)
+        """Run one command (:func:`src.network._proc._run`). Never raises;
+        ``(rc, stdout, cleaned stderr)`` — 127 missing binary (one warning per
+        program), 124 timeout."""
+        return _run_cmd(self._runner, argv, timeout, on_missing=self._warn_missing)
+
+    def _warn_missing(self, prog: str) -> None:
+        self._warn_once(f"missing:{prog}",
+                        f"Phone tether: {prog} not installed — internet from the "
+                        "phone needs NetworkManager")
 
 
 def start_phone_tether(config, event_bus, hal=None, **kwargs) -> PhoneTether:

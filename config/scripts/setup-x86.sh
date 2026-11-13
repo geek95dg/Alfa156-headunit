@@ -536,20 +536,23 @@ else
     # Release from NetworkManager
     nmcli device set "$WIFI_IFACE" managed no 2>/dev/null || true
 
+    # ONE file, ONE key. Wi-Fi Direct P2P group interfaces (p2p-*) must be
+    # unmanaged too — without that NetworkManager + systemd-networkd toggle
+    # the link UP/DOWN, which wpa_supplicant interprets as the group going
+    # away and tears the P2P-GO down (only relevant with wifi.mode p2p_go,
+    # harmless otherwise).
+    # Both rules used to live in two conf.d files with the same
+    # [keyfile] unmanaged-devices= key. NetworkManager does not merge such
+    # a key across files — the file parsed last (alphabetical:
+    # bcm-unmanage-wifi.conf after bcm-unmanage-p2p.conf) wins — so the
+    # p2p-* rule was most likely ignored. One value, list separator ';'.
+    # The old p2p file is removed on every run (re-run of setup on a car
+    # that has it).
     mkdir -p /etc/NetworkManager/conf.d
+    rm -f /etc/NetworkManager/conf.d/bcm-unmanage-p2p.conf
     cat > /etc/NetworkManager/conf.d/bcm-unmanage-wifi.conf <<EOF
 [keyfile]
-unmanaged-devices=interface-name:$WIFI_IFACE
-EOF
-
-    # Wi-Fi Direct P2P group interfaces (p2p-*) need to be unmanaged
-    # too — without this NetworkManager + systemd-networkd toggle the
-    # link UP/DOWN, which wpa_supplicant interprets as the group going
-    # away and tears the P2P-GO down. Only relevant if you flip
-    # wifi.mode to p2p_go in YAML; harmless otherwise.
-    cat > /etc/NetworkManager/conf.d/bcm-unmanage-p2p.conf <<'EOF'
-[keyfile]
-unmanaged-devices=interface-name:p2p-*
+unmanaged-devices=interface-name:$WIFI_IFACE;interface-name:p2p-*
 EOF
     mkdir -p /etc/systemd/network
     cat > /etc/systemd/network/00-bcm-p2p.network <<'EOF'
@@ -904,6 +907,27 @@ if command -v ofonod >/dev/null 2>&1 || [ -x /usr/sbin/ofonod ]; then
 else
     warn "ofono (ofonod) is NOT installed — phone calls will NOT reach the head unit."
     warn "  Fix: sudo apt-get install ofono, then re-run this script (or apply-fixes.sh)."
+fi
+
+# adb = the car phone module (src/network/car_phone.py, modules.car_phone):
+# USB tethering, GPS forward and battery of the phone mounted in the car.
+# Same pattern as ofono: its own checked install, a loud warning when it is
+# missing (the module then shows "brak adb" and does nothing else). Only
+# the Debian package — no PPA, no SDK download. adb is used over USB only;
+# the module runs its server on a Unix socket in the root-only directory
+# /run/bcm-adb (ADB_SERVER_SOCKET), not on 127.0.0.1:5037 where every LOCAL
+# user could reach it (see docs/WDROZENIE_TESTOWE.md §5.7).
+# NOT installed here on purpose (documented only, see the same section):
+# /etc/NetworkManager/conf.d/bcm-connectivity.conf ([connectivity] uri +
+# interval: NM adds 20000 to the metric of an uplink without internet) and
+# no-auto-default=driver:rndis_host,driver:cdc_ncm (no "Wired connection N"
+# with metric 100 for the phone) — both wait for a check on the car.
+apt-get install -y adb || true
+if command -v adb >/dev/null 2>&1; then
+    echo "  adb: $(command -v adb)"
+else
+    warn "adb is NOT installed — the car phone (modules.car_phone) will NOT work."
+    warn "  Fix: sudo apt-get install adb, then re-run this script (or apply-fixes.sh)."
 fi
 
 # The WirePlumber drop-ins in /etc/wireplumber/wireplumber.conf.d use the

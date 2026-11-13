@@ -7,6 +7,12 @@
  * share the same source of truth.
  */
 
+/** Rows from /api/phone/{contacts,history}: only objects, as a list (PBAP
+ *  data is the phone's — a malformed reply must not throw in render()). */
+function _phoneRows(value) {
+    return Array.isArray(value) ? value.filter((r) => r && typeof r === "object") : [];
+}
+
 // Phone state & API — defined BEFORE the screen IIFE so render() can read it.
 const Phone = {
     _tab: "contacts",        // "contacts" | "history" | "dialer"
@@ -16,6 +22,51 @@ const Phone = {
     _contactsFilter: "",
     _callState: "idle",      // "idle" | "ringing" | "active" | "incoming"
     _callInfo: {},
+    // ts of the last bt_dial_result seen (undefined until the first payload).
+    _dialResultTs: undefined,
+
+    /** data.bt_dial_result {ok, error, ts} from the backend: a NEW failed
+     *  dial while our instant "ringing" (dial()) is on screen → back to idle.
+     *  Needed because the backend's own "ringing" → "idle" can fall between
+     *  two payloads, and then app.js never sees a change. The toast saying
+     *  why is the backend's (system.notifications, key "dial_result").
+     *  "busy" = a second dial refused while the first is still ringing:
+     *  that call is real, keep it — but dial() already put the SECOND
+     *  number on the overlay, and the refusal changes no bt_call_state
+     *  (app.js sees no news), so the backend's view from ``data`` is shown
+     *  again. ok === null ("unknown": oFono did not answer in time) keeps
+     *  the overlay — the call may be going out. Returns true if a
+     *  re-render is needed. */
+    applyDialResult(dr, data) {
+        const ts = (dr && typeof dr === "object") ? dr.ts : null;
+        if (Phone._dialResultTs === undefined) {    // first payload: just remember
+            Phone._dialResultTs = ts;
+            return false;
+        }
+        if (ts == null || ts === Phone._dialResultTs) return false;
+        Phone._dialResultTs = ts;
+        if (dr.ok !== false || Phone._callState !== "ringing") return false;
+        if (dr.error === "busy") {
+            const state = data && typeof data === "object" ? data.bt_call_state : undefined;
+            if (["idle", "incoming", "ringing", "active"].indexOf(state) === -1) return false;
+            Phone._callState = state;
+            Phone._callInfo = state === "idle" ? {} : Phone._callInfoOf(data.bt_call_info);
+            return true;
+        }
+        Phone._callState = "idle";
+        Phone._callInfo = {};
+        return true;
+    },
+
+    /** bt_call_info from the payload → {number, name} strings, capped
+     *  (same as app.js _callInfoOf; rendered only through _esc()). */
+    _callInfoOf(v) {
+        if (!v || typeof v !== "object") return {};
+        const out = {};
+        if (v.number != null && v.number !== "") out.number = String(v.number).slice(0, 32);
+        if (v.name != null && v.name !== "") out.name = String(v.name).slice(0, 64);
+        return out;
+    },
 
     setTab(tab) { Phone._tab = tab; App.navigateTo("a8"); },
 
@@ -39,8 +90,23 @@ const Phone = {
         }
     },
 
+    /** A number from the phonebook/history → a dial string ("+48600123456"),
+     *  or "" if it is not one. Mirrors bluetooth.normalize_dial_number (the
+     *  backend validates /api/phone/dial again): separators dropped, then
+     *  only 1-32 of 0-9 + * #. PBAP data is untrusted — anything else never
+     *  reaches the dialer. */
+    normalizeNumber(value) {
+        if (typeof value !== "string" && typeof value !== "number") return "";
+        const text = String(value);
+        if (text.length > 128) return "";
+        const number = text.replace(/[\s\-().\/]/g, "");
+        return /^[0-9+*#]{1,32}$/.test(number) ? number : "";
+    },
+
     dialNumber(num) {
-        Phone._input = num;
+        const number = Phone.normalizeNumber(num);
+        if (!number) return;          // not dialable (letters, junk): ignore the tap
+        Phone._input = number;
         Phone._tab = "dialer";
         App.navigateTo("a8");
     },
@@ -60,8 +126,10 @@ const Phone = {
                 headers: {"Content-Type": "application/json"},
                 body: JSON.stringify({number: number}),
             });
-            // 400 = not a dial string (the backend refuses it); otherwise the
-            // call state follows bt.call_state over the WebSocket.
+            // 400 = not a dial string, 403 = an emergency number from a browser
+            // that is not the kiosk, 429 = too soon after the previous dial
+            // (the backend shows why); otherwise the call state follows
+            // bt.call_state and bt_dial_result over the WebSocket.
             ok = !!res.ok;
         } catch (e) { /* network error: same as refused */ }
         if (!ok && Phone._callState === "ringing") {
@@ -99,7 +167,7 @@ const Phone = {
         try {
             const res = await fetch("/api/phone/contacts");
             const data = await res.json();
-            Phone._contacts = data.contacts || [];
+            Phone._contacts = _phoneRows(data && data.contacts);
             App.navigateTo("a8");
         } catch (e) {}
     },
@@ -108,7 +176,7 @@ const Phone = {
         try {
             const res = await fetch("/api/phone/history");
             const data = await res.json();
-            Phone._history = data.history || [];
+            Phone._history = _phoneRows(data && data.history);
             App.navigateTo("a8");
         } catch (e) {}
     },
@@ -118,8 +186,11 @@ App.registerScreen("a8", (() => {
     let _contactsLoaded = false;
     let _historyLoaded = false;
 
-    // Caller name/number come from the phone network via oFono (bt.call_info)
-    // — untrusted text going into innerHTML, so it is escaped.
+    // Everything shown here comes from the phone: caller name/number from the
+    // phone network via oFono (bt.call_info), names/numbers/times from the
+    // phonebook (PBAP). Untrusted text going into innerHTML — always _esc(),
+    // and never spliced into inline JavaScript: rows carry the number in a
+    // data-dial attribute and one delegated listener (_onRowClick) reads it.
     function _esc(v) {
         return String(v == null ? "" : v).replace(/&/g, "&amp;").replace(/</g, "&lt;")
             .replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;");
@@ -154,8 +225,8 @@ App.registerScreen("a8", (() => {
                     </button>
                 </div>
 
-                <!-- Tab content -->
-                <div class="flex-1 overflow-hidden">
+                <!-- Tab content (rows: delegated click, see _onRowClick) -->
+                <div class="flex-1 overflow-hidden" data-phone-rows>
                     ${tab === "contacts" ? _renderContacts(theme, cardBg, accentClr, t) : ""}
                     ${tab === "history" ? _renderHistory(theme, cardBg, accentClr, t) : ""}
                     ${tab === "dialer" ? _renderDialer(theme, cardBg, accentClr, t) : ""}
@@ -169,11 +240,35 @@ App.registerScreen("a8", (() => {
             ${NavBar.render(theme, "a8")}
         </div>`;
 
+        // One listener per render on the freshly built list (it goes away
+        // with the markup on the next render — nothing accumulates).
+        const rows = typeof container.querySelector === "function"
+            ? container.querySelector("[data-phone-rows]") : null;
+        if (rows && typeof rows.addEventListener === "function") {
+            rows.addEventListener("click", _onRowClick);
+        }
+
         // Load contacts/history once
         _renderedCallKey = _callKey();
 
         if (!_contactsLoaded) { _contactsLoaded = true; Phone.loadContacts(); }
         if (!_historyLoaded) { _historyLoaded = true; Phone.loadHistory(); }
+    }
+
+    /** Tap on a contact/history row → its number into the dialer. The value
+     *  is read back from the attribute (the browser un-escapes it) and
+     *  validated again by Phone.dialNumber(). */
+    function _onRowClick(ev) {
+        const target = ev && ev.target;
+        const row = target && typeof target.closest === "function" ? target.closest("[data-dial]") : null;
+        if (row) Phone.dialNumber(row.getAttribute("data-dial"));
+    }
+
+    /** Own-property lookup: h.type comes from the phone, and "constructor"
+     *  or "__proto__" must not pick up Object.prototype members. */
+    function _pick(map, key, fallback) {
+        return typeof key === "string" && Object.prototype.hasOwnProperty.call(map, key)
+            ? map[key] : fallback;
     }
 
     function _renderDialer(theme, cardBg, accent, t) {
@@ -205,8 +300,7 @@ App.registerScreen("a8", (() => {
             ? Phone._contacts.filter(c => String(c.name || "").toLowerCase().includes(Phone._contactsFilter.toLowerCase()))
             : Phone._contacts;
         // Names/numbers come from the phone's phonebook (PBAP): untrusted
-        // text, escaped for innerHTML. The number reaches dialNumber() via a
-        // data- attribute, never spliced into the onclick JavaScript.
+        // text, escaped for innerHTML; the number travels in data-dial.
 
         return `<div class="flex flex-col h-full">
             <div class="flex items-center gap-2 ${filterBg} border rounded-lg px-3 py-1.5 mb-2 shrink-0">
@@ -221,7 +315,7 @@ App.registerScreen("a8", (() => {
                         <span class="material-symbols-outlined text-4xl mb-2">person_off</span>
                         <span class="text-sm font-bold">${t("no_contacts","No contacts synced")}</span>
                        </div>`
-                    : filtered.map(c => `<div class="${cardBg} border rounded-lg p-2 flex justify-between items-center cursor-pointer hover:opacity-80" data-number="${_esc(c.number)}" onclick="Phone.dialNumber(this.dataset.number)">
+                    : filtered.map(c => `<div class="${cardBg} border rounded-lg p-2 flex justify-between items-center cursor-pointer hover:opacity-80" data-dial="${_esc(c.number)}">
                         <div class="flex items-center gap-3">
                             <div class="w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold" style="background:${accent}20;color:${accent};">${_esc(String(c.name || "").charAt(0))}</div>
                             <div>
@@ -246,9 +340,9 @@ App.registerScreen("a8", (() => {
                     <span class="material-symbols-outlined text-4xl mb-2">history</span>
                     <span class="text-sm font-bold">${t("no_history","No call history")}</span>
                    </div>`
-                : Phone._history.map(h => `<div class="${cardBg} border rounded-lg p-2 flex justify-between items-center cursor-pointer hover:opacity-80" data-number="${_esc(h.number)}" onclick="Phone.dialNumber(this.dataset.number)">
+                : Phone._history.map(h => `<div class="${cardBg} border rounded-lg p-2 flex justify-between items-center cursor-pointer hover:opacity-80" data-dial="${_esc(h.number)}">
                     <div class="flex items-center gap-3">
-                        <span class="material-symbols-outlined ${colorMap[h.type]||''}" style="font-size:20px;">${iconMap[h.type]||'call'}</span>
+                        <span class="material-symbols-outlined ${_pick(colorMap, h.type, '')}" style="font-size:20px;">${_pick(iconMap, h.type, 'call')}</span>
                         <div>
                             <p class="text-sm font-bold">${_esc(h.name || h.number)}</p>
                             <p class="text-[10px] opacity-50">${_esc(h.time || '')}</p>
@@ -311,6 +405,7 @@ App.registerScreen("a8", (() => {
     }
 
     function update(data) {
+        Phone.applyDialResult(data && data.bt_dial_result, data);
         if (_callKey() !== _renderedCallKey) App.navigateTo("a8");
     }
 

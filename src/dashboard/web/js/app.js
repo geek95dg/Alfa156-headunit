@@ -108,6 +108,10 @@ const App = (() => {
         // Render new screen
         _appEl.innerHTML = "";
         _renderers[screen].render(_appEl, _currentTheme, DataStore.getAll());
+        // Fill the fresh AppBar at once instead of on the next clock tick:
+        // the phone operator name only ever arrives through AppBar.update()
+        // (textContent — untrusted text never goes into the markup).
+        _tickClock();
 
         // Mount (start updates)
         if (_renderers[screen].mount) {
@@ -405,7 +409,7 @@ const App = (() => {
     // the screen away underneath them.
     const GESTURE_OVERLAYS = "#osk-overlay, #reverse-overlay, #kiosk-restart-modal, "
         + "#system-reboot-modal, #kiosk-restarting-overlay, #system-rebooting-overlay, "
-        + "#bt-pairing-overlay, #bcm-splash-overlay";
+        + "#bt-pairing-overlay, #bcm-splash-overlay, #crash-modal";
 
     function _isFormControl(el) {
         if (!el) return false;
@@ -606,8 +610,22 @@ const App = (() => {
         }
     }
 
+    // --- Crash SMS window (crash.sms_state from src/safety/crash_sms.py) ---
+    // Like calls, followed here on EVERY screen (A2/Android Auto included):
+    // components/crash_modal.js draws #crash-modal on <body> (z-index 300,
+    // listed in GESTURE_OVERLAYS) from data.crash_sms — the countdown, ANULUJ
+    // / "Wyślij teraz" and the result. No navigation: the window covers
+    // whatever screen is up, so the driver does not lose their place.
+    function _syncCrashState(data) {
+        if (typeof CrashModal === "undefined" || !CrashModal) return;
+        CrashModal.sync(data ? data.crash_sms : null);
+    }
+
     /** Update current screen with new data */
     function onDataUpdate(data) {
+        // The crash window first: it must appear even if a screen's update()
+        // throws further down.
+        try { _syncCrashState(data); } catch (e) { /* never break the data loop */ }
         // Calls first: may switch to A8, whose update() then sees fresh state.
         try { _syncCallState(data); } catch (e) { /* never break the data loop */ }
         if (_renderers[_currentScreen] && _renderers[_currentScreen].update) {

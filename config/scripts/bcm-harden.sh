@@ -20,7 +20,7 @@
 #    6. GRUB: zamiast fsck.mode=skip — fsck.repair=yes (kopia, update-grub)
 #    7. szybszy start: mask NetworkManager-wait-online, bez apt-daily*
 #       i unattended-upgrades, bez cloud-init; snapy tylko raport
-#    8. NetworkManager + Bluetooth PAN (internet z telefonu) — tylko raport
+#    8. NetworkManager + Bluetooth PAN (internet z telefonu), adb — tylko raport
 #    9. bcm-timesync.timer włączony
 #   10. podsumowanie: kopie zapasowe, BIOS, czas startu
 #
@@ -884,7 +884,7 @@ EOF
 }
 
 step_nm_bluetooth() {
-    step 8 "NetworkManager + Bluetooth PAN (internet z telefonu) — tylko raport..."
+    step 8 "NetworkManager + Bluetooth PAN (internet z telefonu), adb — tylko raport..."
     local plugin f
     local hits=""
     if systemctl is-active --quiet NetworkManager 2>/dev/null; then
@@ -914,6 +914,13 @@ step_nm_bluetooth() {
         warn "reguła unmanaged-devices obejmuje bnep*/bluetooth w:$hits — NM nie podniesie PAN"
     else
         info "brak reguł unmanaged-devices dla bnep* — OK"
+    fi
+    # Telefon w aucie (modules.car_phone): tylko raport — instalują
+    # setup-x86.sh / apply-fixes.sh (pakiet Debiana adb).
+    if command -v adb >/dev/null 2>&1; then
+        info "adb (telefon w aucie): $(command -v adb)"
+    else
+        info "brak adb — potrzebny tylko dla modules.car_phone (sudo apt-get install adb)"
     fi
     ok
 }

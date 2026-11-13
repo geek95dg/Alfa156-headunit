@@ -8,6 +8,18 @@ App.registerScreen("a4", (() => {
     let _map = null;
     let _marker = null;
 
+    /** City and condition come from OpenWeatherMap (and the city also from
+     *  POST /api/weather/location) — escaped before they go into innerHTML.
+     *  update() uses textContent and needs no escaping. */
+    function _esc(v) {
+        return String(v == null ? "" : v)
+            .replace(/&/g, "&amp;")
+            .replace(/</g, "&lt;")
+            .replace(/>/g, "&gt;")
+            .replace(/"/g, "&quot;")
+            .replace(/'/g, "&#39;");
+    }
+
     function render(container, theme, data) {
         if (theme === "heritage") container.innerHTML = _renderHeritage(data);
         else if (theme === "modern") container.innerHTML = _renderModern(data);
@@ -30,6 +42,7 @@ App.registerScreen("a4", (() => {
         _updateEl("weather-feels", data.weather_feels_like != null ? `Feels ${Math.round(data.weather_feels_like)}°` : "");
         _updateEl("weather-wind", `${Math.round(data.weather_wind_speed || 0)} km/h`);
         _updateEl("weather-humidity", `${data.weather_humidity || 0}%`);
+        _updateEl("weather-gps-label", _gpsLabel(data));
 
         // Move map to weather location (from search) or GPS position
         const wLat = data.weather_lat || data.gps_lat;
@@ -44,6 +57,16 @@ App.registerScreen("a4", (() => {
     function _updateEl(id, text) {
         const el = document.getElementById(id);
         if (el) el.textContent = text;
+    }
+
+    /** Map badge: "GPS AKTYWNY" only with a real fix (data.gps_fix from the
+     *  backend). It used to say so always — also while the weather was for
+     *  the default city because no GPS had arrived. Fixed i18n strings only,
+     *  so it is safe in the template and via textContent. */
+    function _gpsLabel(data) {
+        return (data && data.gps_fix === true)
+            ? App.t("gps_active", "GPS AKTYWNY")
+            : App.t("gps_no_fix", "BRAK GPS");
     }
 
     function _initMap() {
@@ -100,8 +123,8 @@ App.registerScreen("a4", (() => {
 
     function _renderHeritage(data) {
         const t = App.t.bind(App);
-        const city = data.weather_city || "Milan, IT";
-        const condition = data.weather_condition || "Partly Cloudy";
+        const city = _esc(data.weather_city || "Milan, IT");
+        const condition = _esc(data.weather_condition || "Partly Cloudy");
         const temp = data.weather_temp != null ? Math.round(data.weather_temp) : 22;
         const feels = data.weather_feels_like != null ? Math.round(data.weather_feels_like) : temp + 2;
         const wind = Math.round(data.weather_wind_speed || 12);
@@ -159,7 +182,7 @@ App.registerScreen("a4", (() => {
                     <div class="absolute top-3 left-3 z-10 bg-black/70 backdrop-blur-sm rounded-lg px-3 py-2 border border-amber-900/30">
                         <div class="flex items-center gap-2">
                             <span class="material-symbols-outlined text-amber-500" style="font-size:16px;">location_on</span>
-                            <span class="text-[10px] text-zinc-400 font-bold uppercase">${t("gps_active")}</span>
+                            <span id="weather-gps-label" class="text-[10px] text-zinc-400 font-bold uppercase">${_gpsLabel(data)}</span>
                         </div>
                     </div>
                     <div class="absolute bottom-3 left-3 right-3 z-10 bg-black/70 backdrop-blur-sm rounded-lg px-3 py-2 border border-amber-900/30 flex justify-between items-center">
@@ -180,8 +203,8 @@ App.registerScreen("a4", (() => {
 
     function _renderModern(data) {
         const t = App.t.bind(App);
-        const city = data.weather_city || "Milan";
-        const condition = data.weather_condition || "Partly Cloudy";
+        const city = _esc(data.weather_city || "Milan");
+        const condition = _esc(data.weather_condition || "Partly Cloudy");
         const temp = data.weather_temp != null ? Math.round(data.weather_temp) : 18;
         const wind = Math.round(data.weather_wind_speed || 12);
         const humidity = data.weather_humidity || 42;
@@ -251,8 +274,8 @@ App.registerScreen("a4", (() => {
 
     function _renderAutodelta(data) {
         const t = App.t.bind(App);
-        const city = data.weather_city || "Milano, IT";
-        const condition = data.weather_condition || "Partly Cloudy";
+        const city = _esc(data.weather_city || "Milano, IT");
+        const condition = _esc(data.weather_condition || "Partly Cloudy");
         const temp = data.weather_temp != null ? Math.round(data.weather_temp) : 24;
         const feels = data.weather_feels_like != null ? Math.round(data.weather_feels_like) : temp + 2;
         const wind = Math.round(data.weather_wind_speed || 12);
@@ -356,6 +379,28 @@ const WeatherSearch = {
     _timer: null,
     _results: [],
 
+    /** Place names come from the geocoder (OpenWeatherMap, upstream data we
+     *  do not control) — escape them before they go into innerHTML. */
+    _esc(v) {
+        return String(v == null ? "" : v)
+            .replace(/&/g, "&amp;")
+            .replace(/</g, "&lt;")
+            .replace(/>/g, "&gt;")
+            .replace(/"/g, "&quot;")
+            .replace(/'/g, "&#39;");
+    },
+
+    /** Delegated click on the result list: each row carries only its index
+     *  (data-weather-idx); no result text is ever part of an inline handler. */
+    _onResultClick(ev) {
+        const target = ev && ev.target;
+        const row = target && typeof target.closest === "function"
+            ? target.closest("[data-weather-idx]") : null;
+        if (!row) return;
+        const idx = Number(row.getAttribute("data-weather-idx"));
+        if (Number.isInteger(idx)) WeatherSearch.select(idx);
+    },
+
     query(q) {
         clearTimeout(WeatherSearch._timer);
         if (!q || q.length < 2) {
@@ -387,16 +432,26 @@ const WeatherSearch = {
         const hoverCls = theme === "autodelta" ? "hover:bg-[#FF5F00]/10" : theme === "modern" ? "hover:bg-zinc-800" : "hover:bg-amber-900/20";
         const accent = theme === "autodelta" ? "text-[#FF5F00]" : theme === "modern" ? "text-blue-400" : "text-amber-500";
 
+        const esc = WeatherSearch._esc;
         el.innerHTML = `<div class="${bg} border rounded-lg overflow-hidden shadow-2xl">
-            ${WeatherSearch._results.map((r, i) => `<div class="px-3 py-2 cursor-pointer ${hoverCls} flex items-center gap-2 transition-colors"
-                 onclick="WeatherSearch.select(${i})">
+            ${WeatherSearch._results.map((r, i) => {
+                r = (r && typeof r === "object") ? r : {};
+                const place = (r.state ? esc(r.state) + ", " : "") + esc(r.country);
+                return `<div class="px-3 py-2 cursor-pointer ${hoverCls} flex items-center gap-2 transition-colors"
+                 data-weather-idx="${i}">
                 <span class="material-symbols-outlined ${accent}" style="font-size:14px;">location_on</span>
                 <div>
-                    <span class="text-xs font-bold text-white">${r.name}</span>
-                    <span class="text-[10px] text-zinc-400 ml-1">${r.state ? r.state + ', ' : ''}${r.country}</span>
+                    <span class="text-xs font-bold text-white">${esc(r.name)}</span>
+                    <span class="text-[10px] text-zinc-400 ml-1">${place}</span>
                 </div>
-            </div>`).join("")}
+            </div>`;
+            }).join("")}
         </div>`;
+        // The list element is re-created with the screen; bind once per element.
+        if (el.getAttribute("data-ws-bound") !== "1") {
+            el.setAttribute("data-ws-bound", "1");
+            el.addEventListener("click", WeatherSearch._onResultClick);
+        }
         el.style.display = "block";
     },
 
@@ -406,21 +461,31 @@ const WeatherSearch = {
     },
 
     async select(idx) {
+        if (!Number.isInteger(idx)) return;
         const r = WeatherSearch._results[idx];
-        if (!r) return;
+        if (!r || typeof r !== "object") return;
+        // Coordinates go to Leaflet and to the backend — numbers only.
+        const lat = Number(r.lat);
+        const lon = Number(r.lon);
+        if (!Number.isFinite(lat) || !Number.isFinite(lon)
+            || Math.abs(lat) > 90 || Math.abs(lon) > 180) return;
+        // A search still pending from the last keystroke (300 ms debounce)
+        // would re-open the list under the field cleared below.
+        clearTimeout(WeatherSearch._timer);
         WeatherSearch._hideResults();
         const input = document.getElementById("weather-search-input");
         if (input) input.value = "";
 
-        // Move map + update city IMMEDIATELY (don't wait for backend)
-        const cityName = `${r.name}, ${r.country}`;
+        // Move map + update city IMMEDIATELY (don't wait for backend).
+        // textContent, never innerHTML: the name is geocoder data.
+        const cityName = `${r.name == null ? "" : r.name}, ${r.country == null ? "" : r.country}`;
         const cityEl = document.getElementById("weather-city");
         if (cityEl) cityEl.textContent = cityName;
         if (window._weatherMap) {
-            window._weatherMap.setView([r.lat, r.lon], 11);
-            if (window._weatherMarker) window._weatherMarker.setLatLng([r.lat, r.lon]);
+            window._weatherMap.setView([lat, lon], 11);
+            if (window._weatherMarker) window._weatherMarker.setLatLng([lat, lon]);
         }
-        console.log("[WeatherSearch] Selected:", cityName, r.lat, r.lon);
+        console.log("[WeatherSearch] Selected:", cityName, lat, lon);
 
         // Show loading state on weather data elements
         const condEl = document.getElementById("weather-condition");
@@ -438,7 +503,7 @@ const WeatherSearch = {
             const resp = await fetch("/api/weather/location", {
                 method: "POST",
                 headers: {"Content-Type": "application/json"},
-                body: JSON.stringify({lat: r.lat, lon: r.lon, city: cityName}),
+                body: JSON.stringify({lat, lon, city: cityName}),
             });
             const result = await resp.json();
             console.log("[WeatherSearch] location POST response:", result);

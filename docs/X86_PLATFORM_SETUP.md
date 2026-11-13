@@ -740,10 +740,14 @@ iface $WIFI_IFACE inet static
     netmask 255.255.255.0
 EOF
 
-# Step 5: Prevent NetworkManager from reclaiming the interface on reboot
+# Step 5: Prevent NetworkManager from reclaiming the interface on reboot.
+# ONE key with every rule (';'-separated): NM does not merge the same key
+# from several conf.d files — the file parsed last wins. p2p-* = Wi-Fi Direct
+# groups (setup-x86.sh writes exactly this line).
+sudo rm -f /etc/NetworkManager/conf.d/bcm-unmanage-p2p.conf
 sudo tee /etc/NetworkManager/conf.d/bcm-unmanage-wifi.conf >/dev/null <<EOF
 [keyfile]
-unmanaged-devices=interface-name:$WIFI_IFACE
+unmanaged-devices=interface-name:$WIFI_IFACE;interface-name:p2p-*
 EOF
 
 # Step 6: Apply IP now and start services
@@ -843,6 +847,16 @@ cmake .. -DCMAKE_BUILD_TYPE=Release
 make -j$(nproc)
 sudo make install
 ```
+
+> **Wireless-only autoapp (`BCM_AA_USB`).** `config/scripts/install-openauto.sh`
+> additionally comments out `this->waitForUSBDevice();` and
+> `this->enumerateDevices();` in `openauto/App.cpp` (`BCM_AA_USB=0`, the
+> default): stock autoapp sends the Android Auto accessory (AOAP) handshake to
+> EVERY USB device and would flip the car phone (`modules.car_phone`, USB
+> tethering over adb) into accessory mode. The script fails loudly when the
+> pattern is not found. `BCM_AA_USB=1` keeps upstream USB support. Changing it
+> needs a rebuild: `sudo BCM_AA_USB=0 bash config/scripts/install-openauto.sh --force`.
+> Details (Polish): `docs/WDROZENIE_TESTOWE.md` §5.6–5.7.
 
 ### 11.5 Verify
 

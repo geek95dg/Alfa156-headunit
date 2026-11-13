@@ -281,10 +281,17 @@ alarm:
     motion: true
     tilt: true
     shock: true
+# Wykrywanie stłuczki — tylko z modules.crash_detect (tu wyłączone); kamery
+# nie są potrzebne. Opis progów: config/bcm_config_test.yaml i
+# src/safety/crash_detect.py. Stare klucze speed_drop_threshold,
+# g_force_threshold i post_crash_record_sec nie są już czytane.
 crash_detection:
-  speed_drop_threshold: 30
-  g_force_threshold: 3.0
-  post_crash_record_sec: 60
+  min_speed_kmh: 25
+  dv_threshold_kmh: 15
+  dv_window_ms: 150
+  g_h_threshold: 4.0
+  min_rate_hz: 80
+  confirm_stop_kmh: 5
 tracking:
   db_path: data/gps_tracks.db
   interval_sec: 30
@@ -295,7 +302,14 @@ tracking:
   geofence_lat: 0
   geofence_lon: 0
   geofence_radius_km: 0
-  sms_number: ''
+# Dostęp do dashboardu (port 5002) z SIECI. Bez sekcji `dashboard` obowiązuje
+# domyślne z kodu `remote_access: full`: każde urządzenie w LAN, na AP albo
+# w PAN może sterować wszystkim (wyjątek: /api/phone/dial z sieci przyjmuje
+# tylko zwykły numer — bez numerów alarmowych i kodów z * lub #, najwyżej
+# raz na 5 s). ZALECANE w aucie, w config/local.yaml:
+#   dashboard: {remote_access: tracking}
+# Wtedy z sieci tylko lista tras i GPX; kiosk na tym komputerze (127.0.0.1)
+# ma zawsze pełny dostęp. Opis trybów: config/bcm_config_test.yaml.
 multimedia:
   # Ustawiane w locie przy połączeniu BT i zapisywane do config/local.yaml.
   last_bt_device: ''

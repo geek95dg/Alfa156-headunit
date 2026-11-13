@@ -193,6 +193,40 @@ Dlatego eskalacja z S3 do pełnego wyłączenia po dwóch godzinach jest tu
 naprawdę warta zachodu — a przy sterowaniu przyciskiem zasilania kosztuje
 tyle, co dłuższy impuls.
 
+> Impuls 5 s dostaje **tylko maszyna stabilnie uśpiona** (z diodą panelu,
+> `FEATURE_PWRLED`). Komputer obudzony ręcznie przy zgaszonym zapłonie
+> sensor hub najpierw usypia krótkim impulsem, a 2 h liczy od chwili
+> wybudzenia — pracujący Linux nie dostaje twardego wyłączenia. Bez diody
+> (pętla otwarta) „uśpiona” znaczy tylko „tak zakładamy po własnym impulsie”.
+> Po krótkim impulsie na pracującą maszynę sensor hub przez 90 s nie
+> naciska drugi raz: `bcm-power-toggle.sh` najpierw zatrzymuje BCM (do
+> 45 s), a drugie wciśnięcie uśpiłoby komputer ponownie zaraz po
+> wybudzeniu. Jeśli w tym czasie wróci zapłon (zgasł silnik, ponowny
+> rozruch), a komputer mimo to zaśnie, dostaje krótki impuls i wstaje.
+> Logika jest w `arduino/sensor_hub/power_logic.h`, z testami na PC
+> (`make -C arduino sensor_hub-test`), także dla przepełnienia `millis()`
+> po ~49,7 dnia pracy płytki.
+>
+> **Sprawdzenie na stole, zanim zaczniesz polegać na eskalacji.** Rytm
+> migania diody M910q w S3 nie jest znany, a eskalacja (i każde
+> naciśnięcie) działa tylko na stan, który się utrzymał. BCM zatrzymany
+> (trzyma port), `picocom -b 115200 /dev/ttyUSB1`, potem:
+>
+> 1. komputer pracuje → po kilku sekundach, potem co 2 s, `PWR:RUNNING`;
+> 2. uśpij go (`systemctl suspend`) → w ciągu kilku sekund `PWR:SLEEP`
+>    i **przez co najmniej 3 minuty wyłącznie `PWR:SLEEP`** — żadnej linii
+>    `PWR:RUNNING` ani `PWR:OFF` pomiędzy;
+> 3. obudź go przyciskiem → `PWR:RUNNING` (dekoder czeka ~6 s ciągłego
+>    światła, zanim uzna pracę);
+> 4. wyłącz go → `PWR:OFF`.
+>
+> Jeśli w kroku 2 stan przeskakuje, dekoder nie rozpoznaje rytmu: sensor
+> hub nie wyśle wtedy ani impulsu 5 s, ani krótkiego impulsu eskalacji
+> (maszyna zostaje w S3 i pobiera prąd z wiersza **S3**), a pobudkę
+> zapłonem wyśle dopiero po ~30 s. Zapisz rytm (ile świeci, ile nie)
+> i popraw `PWR_LED_QUIET_WINDOWS` w `power_logic.h` — obecnie rozpoznaje
+> miganie z przerwami do ~6 s.
+
 W wierszu **Wyłączony** rozrzut bierze się w całości z XH-M609. W wierszu
 **S3** większą część wnosi sam M910q (160–320 mA z tabeli wyżej), więc tam
 zmierzyć trzeba oba. Zmierz je raz, a obie liczby zrobią się konkretne.
@@ -663,6 +697,445 @@ Parowanie: telefon → BT → sparuj z adapterem BCM → Android sam zaproponuje
 Android Auto. Kolejne uruchomienia łączą się automatycznie (boot sweep
 w `BluetoothManager`).
 
+**autoapp tylko bezprzewodowo.** `config/scripts/install-openauto.sh`
+domyślnie (`BCM_AA_USB=0`) łata autoapp tak, że w ogóle nie dotyka USB.
+Bez tej łatki autoapp wysyła handshake Android Auto (AOAP) do **każdego**
+urządzenia USB i przełączyłby telefon w aucie (§5.7) w tryb akcesorium.
+Binarka zbudowana wcześniej nie ma łatki — przebuduj:
+`sudo BCM_AA_USB=0 bash config/scripts/install-openauto.sh --force`
+(`BCM_AA_USB=1` = zachowanie upstream, AA także po kablu).
+
+### 5.7 Telefon w aucie (Redmi na USB, `modules.car_phone`)
+
+Drugi telefon zamontowany na stałe (plan, sekcja C) daje internet przez
+tethering USB, pozycję GPS i zegar; BCM pilnuje jego baterii i temperatury.
+Moduł `src/network/car_phone.py`, domyślnie **wyłączony** (w kodzie,
+w `bcm_config.yaml` i w `bcm_config_test.yaml`) — włącz go w Ustawieniach →
+Moduły, gdy telefon jest podłączony. `car_phone_hotspot` (wymaga
+`car_phone`) dokłada do wiersza „Telefon w aucie” stan hotspotu Wi-Fi
+telefonu (tylko odczyt).
+
+Kolejność:
+
+1. autoapp bez USB (§5.6, `BCM_AA_USB=0 … --force`).
+2. `adb` z pakietu Debiana — instalują go `setup-x86.sh` i `apply-fixes.sh`
+   (głośne ostrzeżenie, gdy się nie uda); `bcm-harden.sh` krok 8 tylko
+   raportuje.
+3. W telefonie: opcje programisty → debugowanie USB, „Disable adb
+   authorization timeout”; aplikacja serwera NMEA TCP (np. gpsdRelay) na
+   porcie 50000 (`network.car_phone.gps_remote_port`).
+4. Podłącz telefon i raz wywołaj adb **przez gniazdo BCM** (niżej,
+   „Bezpieczeństwo”) — w telefonie „Zawsze zezwalaj z tego komputera”:
+
+   ```bash
+   sudo install -d -m 0700 /run/bcm-adb     # moduł tworzy go sam; ręcznie tylko przed jego startem
+   sudo env ADB_SERVER_SOCKET=localfilesystem:/run/bcm-adb/adb.sock adb devices -l
+   ```
+
+   Klucz adb to `/root/.android/adbkey` (generuje go adb; nigdy w repo).
+   Zwykłe `sudo adb …` uruchamia **drugi** serwer adb na `127.0.0.1:5037`,
+   który walczy z serwerem BCM o telefon na USB — jeśli to się zdarzyło:
+   `sudo adb kill-server`. Wygodny alias:
+   `alias bcm-adb='sudo env ADB_SERVER_SOCKET=localfilesystem:/run/bcm-adb/adb.sock adb'`.
+5. Przy dwóch urządzeniach Android na USB wpisz serial z `bcm-adb devices -l`
+   do `network.car_phone.serial` w `config/local.yaml` (bez tego moduł nic
+   nie robi i pokazuje podpowiedź).
+
+Co robi moduł (co `check_sec`, wszystko listami argumentów, bez powłoki):
+
+| Krok | Polecenie | Uwagi |
+|------|-----------|-------|
+| telefon | `adb devices -l` | tylko urządzenia USB; stany `device` / `unauthorized` / `offline` |
+| AOAP | `/sys/bus/usb/devices/*/idVendor,idProduct` | 18d1:2d0x = ktoś (autoapp) przełączył telefon w tryb AA — podpowiedź `aa_usb_probe` |
+| łącze | `nmcli … connection show --active` | profil `bcm-car-phone` aktywny = „połączono”, niezależnie od adb |
+| profil | `nmcli connection add type ethernet … match.driver "rndis_host cdc_ncm"` | metryka 650 (PAN 750, modem 700); **bez** `cdc_ether` — tego sterownika używa modem E3372 |
+| tethering | `adb shell svc usb getFunctions` / `setFunctions rndis` | wynik `getFunctions` jest na stderr; 3 nieudane próby = `tether_blocked` |
+| GPS | `adb forward tcp:950 tcp:50000` | sprawdzane w każdym przebiegu (restart BCM zabija serwer adb z forwardami); lokalny port 950 z `bcm_config_test.yaml` (`gps_local_port`, 0 = `hardware.gps.tcp.port`) |
+| czujniki | `adb forward tcp:951 tcp:8080` | tylko z `modules.phone_sensors` (§5.8); jedno `forward --list` na przebieg dla wszystkich forwardów |
+| agent | `adb forward tcp:952 tcp:8765` | tylko z `modules.car_phone_agent` (agent Termux, §5.9) |
+| bateria | `adb shell dumpsys battery` | co `battery_sec`; powyżej `warn_temp_c`/`critical_temp_c` powiadomienie, gaśnie poniżej `warn_temp_c − 3` |
+| zegar | `adb shell date +%s` → `timedatectl set-time @…` | tylko gdy `bcm-timesync` nie zadziałał w ostatnim okresie timera (1 h + 15 min zapasu; znacznik `/run/bcm-timesync.ok`) i dryf ≥ `time_sync_drift_s`; walidacja niżej |
+| hotspot | `adb shell dumpsys tethering` | tylko odczyt, z `car_phone_hotspot`; nieznany format = brak informacji |
+
+Zegar z telefonu — kiedy **nie** jest używany. Telefon, który stracił czas
+(bateria rozładowana na długim postoju, potem włączony ręcznie), startuje
+z zegarem ustawionym na datę zbudowania ROM-u (`ro.build.date.utc`) i liczy
+od niej, dopóki nie dostanie czasu z sieci. Ustawienie z tego headunitu
+cofnęłoby go o miesiące, a `set-time` zapisuje też RTC — wtedy HTTPS
+(„certificate not yet valid”) blokuje `bcm-timesync` i błąd przetrwałby
+odcięcie prądu. Dlatego moduł:
+
+- odrzuca odczyt krótszy niż 48 h od daty ROM-u (`adb shell getprop
+  ro.build.date.utc`, raz na podłączenie; nieczytelna = zegar nieużywany);
+  świeżo wgrany ROM oznacza więc do 2 dni bez czasu z telefonu (internet
+  przez tethering i `bcm-timesync` działają normalnie);
+- cofa zegar o więcej niż 1 h tylko wtedy, gdy drugi odczyt 10 min później
+  pokazuje ten sam dryf (±5 s); mniejsze różnice i przesunięcie do przodu
+  stosuje od razu.
+
+GPS: `hardware.gps.tcp.host: auto` łączy się z forwardem adb
+(`127.0.0.1:950` — port bierze z `net.car_phone`), gdy moduł go zgłasza,
+a w przeciwnym razie — jak
+dotąd — z głównym telefonem po Bluetooth PAN (`pan-gateway`). Sesja
+z `pan-gateway` co 5 s sprawdza, czy forward się pojawił, i wtedy od razu
+przechodzi na niego. Forward przyjmuje połączenie także wtedy, gdy
+aplikacja NMEA w telefonie nie działa (adb zaraz je zamyka): po 3 takich
+pustych sesjach z rzędu wejście bierze `pan-gateway`, forward dostaje
+kolejną szansę co 5 min i wraca na pierwsze miejsce, gdy tylko poda zdania.
+`hardware.gps.tcp.backoff_max_sec: 10` w `bcm_config_test.yaml` — pozycja
+przychodzi najpóźniej ~10 s po starcie aplikacji NMEA.
+`hardware.gps.priority: [tcp, udp]` sprawia, że pozycje z dwóch telefonów
+się nie przeplatają: UDP (główny telefon) jest brany dopiero wtedy, gdy TCP
+nie ma ważnej pozycji od `priority_hold_sec` (3 s). UDP przyjmuje datagramy
+tylko z `10.0.0.0/24` i PAN — **nie** z `127.0.0.1`: prędkość z GPS decyduje
+o wykrywaniu stłuczki (§5.8), a lokalnie mógłby ją podać każdy proces, także
+kiosk. Do testów na stole (`nc -u 127.0.0.1 10110`) dopisz `'127.0.0.0/8'`
+do `hardware.gps.udp.allowed_sources` w `config/local.yaml`.
+
+Bezpieczeństwo:
+
+- adb tylko po kablu USB; nigdy `adb tcpip`, moduł nigdy nie woła `su`.
+- `adb shell` skleja argumenty w jedną linię bez escapowania, dlatego do
+  telefonu trafiają wyłącznie stałe słowa i zwalidowane liczby (porty);
+  serial jest walidowany i idzie tylko do lokalnego klienta adb po `-s`.
+- Serwer adb (uruchamiany przez BCM jako root) domyślnie słuchałby na
+  `127.0.0.1:5037`, czyli byłby osiągalny dla **każdego lokalnego**
+  użytkownika, także kiosku: pełne `adb shell` na telefonie i nasłuchy po
+  stronie hosta zakładane jako root (`forward local:<ścieżka>` najpierw
+  usuwa tę ścieżkę). Dlatego każde wywołanie adb z modułu ma
+  `ADB_SERVER_SOCKET=localfilesystem:/run/bcm-adb/adb.sock` — gniazdo Unix
+  w katalogu `0700` roota. Moduł tworzy katalog przed każdym przebiegiem
+  (musi być prawdziwym katalogiem, nie dowiązaniem, i należeć do roota);
+  gdy się nie da, adb w ogóle nie rusza (stan „błąd adb”). Do sprawdzenia
+  na stole: `sudo ss -xlp | grep bcm-adb` pokazuje gniazdo, a
+  `ss -ltn | grep 5037` — nic. Forward GPS słucha tylko na 127.0.0.1.
+- Forwardy czujników i agenta słuchają na portach **uprzywilejowanych**
+  (domyślnie 951 i 952, `network.car_phone.{sensors,agent}_local_port`),
+  a w `bcm_config_test.yaml` także forward GPS (950 — prędkość decyduje
+  o stłuczce; w kodzie domyślnie `hardware.gps.tcp.port`, czyli 50000).
+  BCM ufa temu, co odpowie na `127.0.0.1:<port>` — akcelerometr może
+  wywołać alarm stłuczki, agent wysyła SMS-y. Port ≥ 1024 mógłby zająć
+  wcześniej dowolny lokalny użytkownik (np. kiosk), gdy telefon jest
+  odłączony albo BCM się restartuje, i podszyć się pod telefon. Poniżej
+  `net.ipv4.ip_unprivileged_port_start` (1024 w Debianie; sprawdź `sysctl
+  net.ipv4.ip_unprivileged_port_start`) nasłuch może założyć tylko root,
+  czyli serwer adb. Inny port w configu jest przyjmowany, ale moduł loguje
+  ostrzeżenie; port zajęty przez GPS, drugi forward albo 5002/5003
+  wyłącza tylko ten jeden forward (błąd w `net.car_phone` → `forwards`).
+  Moduły czujników i agenta nigdy nie uruchamiają adb — port i gotowość
+  forwardu biorą z szyny (`net.car_phone`).
+- Port uprzywilejowany chroni tylko przed **zajęciem** go, nie przed
+  **połączeniem**: każdy lokalny proces (także JavaScript w kiosku) może
+  otworzyć `ws://127.0.0.1:951`. SensorServer nie ma uwierzytelniania —
+  obcy klient może czytać strumień, a wiele równoległych strumieni przez
+  USB może obciążyć telefon tak, że częstotliwość spadnie poniżej 80 Hz
+  i wykrywanie z akcelerometru odrzuca dane (nigdy nie wywoła przez to
+  alarmu). Agent na 952 (kolejny etap) musi więc traktować każdego klienta
+  jak wrogiego: HMAC na żądaniach i odpowiedziach, limity, których nie
+  zużyją żądania bez podpisu.
+- Forwardy wynikają z przełączników w **configu** czytanych przy starcie:
+  `main.py --modules car_phone,phone_sensors` przy `phone_sensors: false`
+  w YAML-u uruchamia czujniki bez forwardu (stan `waiting_forward` mówi
+  dlaczego).
+
+Na później (opisane, **nie** instalowane przez skrypty — do sprawdzenia
+w aucie):
+
+- `/etc/NetworkManager/conf.d/bcm-connectivity.conf` z `[connectivity]`
+  `uri=…` i `interval=60`: NM dodaje wtedy 20000 do metryki łącza bez
+  internetu, więc „kabel jest, ale telefon bez zasięgu” przełączy się na PAN.
+  Adres URI do potwierdzenia na Debianie.
+- `[main] no-auto-default=driver:rndis_host,driver:cdc_ncm` w osobnym pliku,
+  jeśli NM zacznie tworzyć dla telefonu „Wired connection N” z metryką 100.
+- Hotspot z BCM (`cmd wifi start-softap`) — niesprawdzone na tym ROM-ie.
+
+Podgląd: wiersz „Telefon w aucie” w Ustawieniach (stan, IP, bateria, °C,
+GPS, hotspot, przycisk „Ponów”), `bcm-adb devices -l` (alias z kroku 4),
+`nmcli connection show --active`, `journalctl -u bcm-headunit | grep -i "car phone"`.
+
+**Wyłączenie modułu.** `modules.car_phone: false` kończy tylko nadzór BCM.
+Profil NetworkManagera `bcm-car-phone` zostaje (autoconnect, metryka 650,
+pasuje do **każdego** urządzenia `rndis_host`/`cdc_ncm`), więc NM dalej
+kieruje ruch przez dowolny telefon z włączonym tetheringiem USB — także
+Redmi z „Default USB configuration: USB tethering” albo telefon kierowcy
+wpięty z tetheringiem — już bez alarmu temperatury. Po wyłączeniu modułu:
+
+```bash
+sudo nmcli connection delete bcm-car-phone
+```
+
+### 5.8 Czujniki telefonu i wykrywanie stłuczki (`phone_sensors`, `crash_detect`)
+
+**Czujniki** (`src/sensors/phone_sensors.py`, `modules.phone_sensors`,
+wymaga `car_phone`, domyślnie wyłączony wszędzie). Aplikacja open-source
+**SensorServer** (umer0586, F-Droid) wysyła akcelerometr, żyroskop i czujnik
+światła jako JSON przez WebSocket; BCM łączy się z nią przez forward
+`sensors` z §5.7 (`127.0.0.1:951` → telefon `:8080`). Żyroskop służy tylko
+do rozpoznania telefonu, który spada, obracając się; gdy SensorServer go
+odmówi (zamknięcie z kodem 4xxx przed pierwszą ramką), BCM łączy się dalej
+bez niego i loguje to raz.
+
+W telefonie, w SensorServer:
+
+1. **Local Host** włączone (serwer słucha tylko na 127.0.0.1 telefonu —
+   dostępny przez adb, nie przez Wi-Fi), port **8080**
+   (`network.car_phone.sensors_remote_port`).
+2. **Częstotliwość próbkowania 10000 µs** (100 Hz). Domyślna w aplikacji
+   jest dużo wolniejsza, a poniżej 80 Hz (`crash_detection.min_rate_hz`)
+   wykrywanie stłuczki z akcelerometru jest wyłączone.
+3. Start serwera przy uruchomieniu telefonu, bateria bez ograniczeń.
+
+BCM publikuje `phone.g_force` (≤ 10 Hz: szczyty poziomo/pionowo w g, zmiana
+prędkości w poziomie w oknie 150 ms, swobodny spadek, nasycenie,
+częstotliwość, `calib_ok`, opóźnienie próbek `lag_ms`, `overrun` = ramki
+odrzucone przez limit 1000/s) i `phone.light_lux` (≤ 2 Hz, mediana; pod
+przyszłą automatyczną jasność). **Nigdy** `alarm.sensor.*` — alarm każdą
+wartość tam traktuje jak włamanie. Stan: `phone_sensors.state`
+(`waiting_forward` / `connecting` / `streaming` / `stale` / `error`; przy
+`waiting_forward` pole `error` mówi, czego brakuje).
+
+Połączenie: brak nasłuchu na `127.0.0.1:951` (forward właśnie odtwarzany
+po ponownym podłączeniu telefonu) = ponowienie najpóźniej co 3 s; inne
+błędy — 1 s, 2 s … do 60 s, a gdy forward wróci, od razu. Sesję
+podtrzymują tylko próbki akcelerometru (10 s bez nich = ponowne łączenie).
+Znaczniki czasu SensorServer muszą być w nanosekundach; jeśli po 5 s
+przyrastają za wolno, moduł loguje to raz i dla tego połączenia bierze
+czas odbioru.
+
+Kalibracja: przy pierwszych ~10 s postoju (silnik na wolnych obrotach
+wystarczy, jazda po drodze nie) moduł zapisuje kierunek grawitacji do
+`data/phone_sensors.json` — średnią z bloków postoju, które się ze sobą
+zgadzają (blok odbiegający o ponad 2,5°, np. łagodne hamowanie tuż przed
+zatrzymaniem, zaczyna zbieranie od nowa). Po restarcie wystarczą ~3 s
+postoju na potwierdzenie; postój na rampie po restarcie nie wyłącza
+kalibracji (liczy się kierunek długoterminowy, τ 60 s). Gdy telefon
+przesunie się w uchwycie o ponad 10° na dłużej, `calib_ok` gaśnie (wraca
+poniżej 7°); przełożenie o ponad 20° (np. gdy BCM był wyłączony) wyłącza
+ją już po kilku sekundach postoju. Po przełożeniu telefonu: usuń
+`data/phone_sensors.json` i zrestartuj BCM.
+Zakres akcelerometru (`sensors.phone.accel_range_g`, domyślnie 8 g):
+`bcm-adb shell dumpsys sensorservice`.
+
+**Wykrywanie stłuczki** (`src/safety/crash_detect.py`, `modules.crash_detect`,
+wymaga `location`; w `bcm_config_test.yaml` włączone, w produkcji nie).
+Kamery **nie** są potrzebne.
+
+- Z akcelerometrem (zdarzenie `source: accel`, jedyne, które w przyszłości
+  może wysłać SMS): prędkość z GPS ≥ 25 km/h w ostatnich 10 s, zmiana
+  prędkości w poziomie ≥ 15 km/h w 150 ms i ≥ 4 g przez ≥ 3 próbki.
+  Odrzucane: dziura (przewaga pionu — tylko gdy żadna próbka nie dobiła do
+  zakresu; przy nasyceniu oba szczyty są obcięte i o „przewadze” decyduje
+  znak, nie fizyka), upadek telefonu (swobodny spadek ≥ 80 ms tuż przed;
+  z żyroskopem także spadek z obrotem, przy którym telefon czyta 0,3–0,8 g),
+  brak kalibracji, < 80 Hz, odrzucone ramki (`overrun`), dane starsze niż
+  1 s (wiek wiadomości plus `lag_ms`). Bez żadnej prędkości z GPS (tunel,
+  garaż podziemny) uderzenie jest zapisywane i chroni nagranie, ale nie
+  kwalifikuje się do SMS.
+- Bez ważnych danych z telefonu — **sam GPS** (`source: gps`): spadek
+  prędkości liczony na ≥ 2 s, średnio ≥ 0,6 g, potwierdzony następną próbką.
+  Wykrywa uderzenia od ok. 45 km/h, ale tak samo wygląda gwałtowne
+  hamowanie do zera — dlatego tylko log, zapis zdarzenia i ochrona nagrania,
+  **nigdy SMS**.
+- Po zdarzeniu `crash.detected` (pozycja: ostatnia znana z jej wiekiem;
+  prędkość „przed” — z próbki sprzed uderzenia), `dvr.protect_segment`
+  i powiadomienie na ekranie; najwyżej jedno na 60 s, ale zdarzenie
+  z akcelerometru zastępuje wcześniejsze „tylko GPS”. `crash.outcome`:
+  `stopped` (prędkość ≤ 5 km/h), `cancelled` (auto jechało dalej > 25 km/h
+  przez 10 s), `unconfirmed` (brak danych przez 120 s).
+- Zapis: `data/crash_events/crash_<data UTC>_<id>.json` (atomowo, 50
+  ostatnich). Podgląd: `journalctl -u bcm-headunit | grep -i crash`.
+
+Do sprawdzenia na stole, zanim ktokolwiek zaufa tym danym: rzeczywista
+częstotliwość SensorServer (≥ 100 Hz) i czy przeżywa w tle, pole `type`
+w ramkach (README opisuje je tylko słownie), znaczniki czasu w ns, czy
+żyroskop przychodzi (w logu „gyroscope frames arriving”; ostrzeżenie
+„without the gyroscope” = telefon go nie podaje), `lag_ms` przy wygaszonym
+ekranie telefonu (stale > 1 s = telefon buforuje czujniki), zakres
+akcelerometru (moduł przy starcie ostrzega, gdy progi są dla niego
+nieosiągalne), progi „postoju” kalibracji przy pracującym silniku
+(odchylenie < 0,35 m/s²), sztywność uchwytu (sekcja G planu).
+
+### 5.9 Agent w telefonie (Termux, `modules.car_phone_agent`)
+
+**Po co.** SMS po stłuczce musi wyjść także wtedy, gdy BCM po uderzeniu już
+nie działa. Dlatego BCM tylko „uzbraja” zdarzenie, a termin wysyłki, treść
+SMS-a (stałe szablony GSM-7, bez polskich liter) i limity (1 zdarzenie na
+10 min, 3 na dobę) pilnuje agent w Redmi: `tools/car_phone/termux/bcm_agent.py`
+(sam Python z biblioteką standardową). Ten sam agent obsłuży później alarm
+na postoju, „Zadzwoń 112” i czuwanie kabiny. Moduł w BCM
+(`src/network/car_phone_agent.py`, wymaga `car_phone`, domyślnie wyłączony
+wszędzie) sprawdza stan agenta co 30 s, wysyła mu ustawienia, gdy się
+zmienią, i paruje go. Sam przebieg SMS-owy (odliczanie na ekranie,
+ANULUJ) to kolejny moduł, `crash_sms` (§5.10).
+
+**W telefonie** (pełny opis w nagłówku `bcm_agent.py`):
+
+1. Termux, **Termux:API** i **Termux:Boot** z F-Droid; Termux:Boot raz
+   otwórz ręcznie.
+2. W Termuxie: `pkg install python termux-api`, skopiuj `bcm_agent.py` do
+   `~/bcm_agent/`, a `boot_bcm_agent.sh` do `~/.termux/boot/`
+   (`chmod 700`). Skrypt bierze `termux-wake-lock` i restartuje agenta po
+   awarii.
+3. Uprawnienia Termux:API: **SMS** i **Telefon**; pierwsze
+   `termux-sms-send -n +48… ` ręcznie (okno zgody). Optymalizacja baterii
+   wyłączona dla Termux, Termux:API i Termux:Boot.
+4. **Xiaomi (MIUI/HyperOS)** — bez tego agent nie wstanie po restarcie
+   albo nie wyśle SMS-a bez człowieka:
+   - Ustawienia → Aplikacje → Termux i Termux:Boot → **Autostart: ON**
+     (inaczej Termux:Boot nie dostaje sygnału startu telefonu);
+   - Ustawienia → Aplikacje → Termux:API → Uprawnienia → **Wysyłanie SMS:
+     „Zezwalaj”**, nie „Pytaj” (przy „Pytaj” każdy SMS czeka na kliknięcie
+     na ekranie telefonu — alarm po stłuczce nigdy by nie wyszedł);
+   - Termux zablokowany w ostatnich aplikacjach (kłódka).
+5. Restart telefonu. Log: `~/.config/bcm_agent/agent.log` (rotowany).
+
+**W BCM:**
+
+1. Sekret (≥ 64 znaki hex): `python3 -c 'import secrets;print(secrets.token_hex(32))'`
+   → `/etc/bcm/bcm.env` jako `BCM_CAR_PHONE_AGENT_SECRET=…`
+   (`config/bcm.env.example`). Nigdy w YAML ani w `local.yaml` — BCM go
+   tam nie zapisze.
+2. Ustawienia → Moduły: `car_phone` i `car_phone_agent`, restart BCM.
+3. W Termuxie `python ~/bcm_agent/bcm_agent.py --pair` — wypisze
+   jednorazowy **kod parowania** (10 cyfr, zapisany w
+   `~/.config/bcm_agent/PAIRING`). W BCM Ustawienia → „Agent w telefonie”:
+   wpisz kod → **Sparuj** (działa tylko z ekranu samochodu, nie z sieci).
+   Agent przyjmuje parowanie wyłącznie przy pliku `PAIRING` i z podpisem
+   zrobionym tym kodem; potem sam usuwa plik (po 5 złych kodach też —
+   wtedy nowy kod: znowu `--pair`). Wiersz pokazuje: stan, wersję agenta,
+   kartę SIM i godzinę ostatniego kontaktu.
+4. Odbiorcy SMS tylko w `config/local.yaml` (`crash_detection.sms.recipients`,
+   najwyżej 3 numery `+48…`; wygodniej: Ustawienia → „SMS po stłuczce”,
+   §5.10); `crash_detection.sms.dry_run: true` (domyślnie)
+   = SMS-y o wypadku i odwołujące agent tylko loguje. Testowy SMS idzie
+   naprawdę tylko na wyraźne żądanie „prawdziwy test” (`real_test`), mimo
+   `dry_run` — po to, żeby sprawdzić wysyłkę, zanim alarm wyjdzie z trybu
+   testowego; w BCM to przycisk „Wyślij testowy SMS” (moduł `crash_sms`,
+   tylko z ekranu auta, z limitem i po potwierdzeniu kierowcy).
+
+**Bezpieczeństwo.** Agent słucha tylko na 127.0.0.1 telefonu; BCM łączy się
+przez forward adb na uprzywilejowanym porcie 952 (kiosk go nie ZAJMIE).
+Połączyć się z agentem może jednak każdy lokalny proces: każda aplikacja
+w telefonie (127.0.0.1:8765) i każdy użytkownik komputera BCM, także
+nieuprzywilejowany użytkownik kiosku (port 952). Dlatego:
+
+- każde żądanie i każda odpowiedź są podpisane HMAC-SHA256 (okno ±60 s,
+  rosnący nonce zapisywany po obu stronach, więc powtórka nie przejdzie ani
+  po restarcie);
+- parowanie wymaga kodu, który powstaje w telefonie i trafia do BCM tylko
+  z rąk kierowcy — proces, który czeka na okno parowania, nie sparuje się
+  pierwszy; odpowiedzi bez podpisu nie zdradzają, czy okno jest otwarte;
+- odpowiedź 2xx (albo nieznany błąd) bez ważnego podpisu = stan „obca
+  odpowiedź — nie ufam”. Niepodpisane 401/403 („niesparowany”, „inny
+  sekret”, zegar) są tylko informacją;
+- gdy agent, z którym BCM już raz potwierdził parowanie tym sekretem, nagle
+  „nie zna sekretu”, wiersz pokazuje ostrzeżenie (agent reinstalowany albo
+  na porcie 8765 odpowiada inna aplikacja po śmierci agenta), a parowanie
+  wymaga **„Sparuj mimo to”** — sekret jedzie przy parowaniu otwartym
+  tekstem przez forward i dostałby go każdy, kto zajął port;
+- do `termux-sms-send` trafia wyłącznie zwalidowany numer i slot karty;
+  tekst idzie na stdin.
+
+Ryzyko, które zostaje: przejęty użytkownik kiosku (ta sama sesja X) mógłby
+podejrzeć wpisywany kod; parowanie rób, gdy w telefonie nie ma obcych
+aplikacji.
+
+**Potwierdzanie wysyłki.** Agent czyta `termux-sms-list -t all` i patrzy na
+typ wiadomości: w „wysłanych” = wysłany; w „nieudanych” = ponowienie (do 3,
+po 30/60/120 s); w żadnej = jeszcze w drodze (Android zapisuje SMS dopiero,
+gdy radio skończy) — czeka do 5 min i uznaje „wysłany, niepotwierdzony”
+bez ponownej wysyłki. Odwołanie jest ostateczne: odbiorca, do którego SMS
+jeszcze nie wyszedł, już go nie dostanie (także po restarcie agenta w
+trakcie); każdy, do kogo alarm mógł wyjść, dostaje jeden SMS odwołujący.
+
+Do sprawdzenia na stole: czy `termux-sms-send` czyta tekst ze stdin na tym
+ROM-ie; czy wysłane SMS-y pojawiają się w `termux-sms-list -t all` z polem
+`type` (`sent` / `failed`) i po jakim czasie (bez odczytu agent uznaje
+„przekazany do Androida” za wysłany, niepotwierdzony); czy
+`sim_state`/`network_operator` z `termux-telephony-deviceinfo` są
+wypełnione; czy po restarcie telefonu wiersz sam wraca do „działa”
+(Autostart); czy Android nie zabija Termuxa w tle (phantom process killer);
+strefa czasowa godziny w SMS-ie.
+
+### 5.10 SMS po stłuczce: okno z odliczaniem (`modules.crash_sms`)
+
+**Co robi.** Po uderzeniu, które `crash_detect` uznał za zdarzenie z prawem
+do SMS-a (tylko akcelerometr; sam GPS nigdy), `src/safety/crash_sms.py` od
+razu uzbraja agenta w telefonie (§5.9) z odliczaniem `countdown_sec`
+(domyślnie 45 s). Od tej chwili **termin trzyma telefon**: bez anulowania
+wyśle SMS także wtedy, gdy BCM padnie albo komputer straci zasilanie. Na
+ekranie BCM — na każdym, także na Android Auto — pojawia się okno:
+
+- wielkie odliczanie, liczba odbiorców, stan telefonu;
+- „ANULUJ – nic się nie stało” (≥ 1/3 ekranu) i „Wyślij teraz”;
+- żółta plakietka **„TRYB TESTOWY – SMS nie zostanie wysłany”** oraz powód,
+  gdy tryb testowy jest wymuszony;
+- krótki pisk co 5 s, dopóki odliczanie naprawdę trwa;
+- po wysyłce / anulowaniu wynik; zamyka się po stuknięciu albo po 60 s;
+  po wysłanym SMS-ie przycisk „Jestem OK – wyślij SMS odwołujący” (osobna
+  trasa — spóźnione ANULUJ nigdy nie wyśle SMS-a odwołującego).
+
+Uzbrajanie jest ponawiane co 2 s, dopóki na ekranie zostało więcej niż 15 s
+(minimum telefonu) — po uderzeniu USB potrafi się przełączyć, a `car_phone`
+odtwarza przekierowanie dopiero w kolejnym przebiegu (do 30 s). Po
+restarcie BCM (np. zanik zasilania przy uderzeniu) zdarzenie jest
+uzbrajane ponownie aż do 2 min od zdarzenia; telefon dostaje wtedy co
+najmniej swoje 15 s. Dopiero potem okno mówi **„Brak połączenia z
+telefonem – SMS NIE zostanie wysłany”** — i tylko wtedy, gdy żadne żądanie
+nie mogło do telefonu dojść. Gdy mogło (przekroczony czas, połączenie
+zerwane po wysłaniu żądania — agent zapisuje zdarzenie przed odpowiedzią),
+okno mówi **„SMS MOŻE zostać wysłany”**, zostawia ANULUJ, a BCM dalej pyta
+telefon o zdarzenie. Gdy telefon przestanie odpowiadać po terminie, okno
+cichnie i mówi „Brak potwierdzenia z telefonu – telefon mógł już wysłać
+SMS” (da się zamknąć). Gdy auto pojedzie dalej (> 25 km/h przez 10 s,
+`crash.outcome: cancelled`), alarm odwołuje się sam, zanim cokolwiek
+wyjdzie. Zdarzenie zapisuje się atomowo w `data/crash_sms.json` (bez
+numerów; pozycja tylko do chwili, gdy telefon ją ma); po restarcie BCM okno
+wraca, jeśli odliczanie trwa.
+
+**Włączenie:** Ustawienia → Moduły → `crash_sms` (wymaga `crash_detect`,
+`phone_sensors`, `car_phone_agent`), restart BCM. Potem Ustawienia →
+**„SMS po stłuczce”**:
+
+1. **Odbiorcy** — do 3 numerów z kierunkowym kraju (pole ma już „+”,
+   klawiatura ekranowa nie ma tego znaku), „Zapisz odbiorców”. Polski numer
+   wpisz z 48 (`48 601 234 567`); same 9 cyfr jest odrzucane — po „+”
+   byłby to inny kraj (601… → +60, Malezja). Zapis idzie tylko do
+   `config/local.yaml`; BCM od razu wysyła je do telefonu.
+2. **„Wyślij testowy SMS”** — dwa stuknięcia (drugie potwierdza, nie
+   wcześniej niż po 0,7 s), bo to PRAWDZIWY SMS do wszystkich odbiorców.
+   Zaraz po zmianie odbiorców BCM czeka, aż telefon ma nową listę
+   („telefon nie ma jeszcze nowych odbiorców”). Wiersz pokazuje, kiedy test
+   był ostatnio potwierdzony w „wysłanych”. **Każda zmiana odbiorców albo
+   slotu SIM kasuje potwierdzenie** — nowy numer musi przejść własny test.
+
+**Tryb testowy** (`crash_detection.sms.dry_run: true`, domyślnie) zostaje,
+dopóki sam go nie wyłączysz w `local.yaml`. Nawet przy `dry_run: false` BCM
+wysyła prawdziwe SMS-y tylko, gdy: agent jest sparowany i zdrowy (ma
+aktualną konfigurację) i testowy SMS do **obecnych** odbiorców był
+potwierdzony w ciągu 30 dni. Inaczej — wymuszony tryb testowy z powodem
+w oknie i w Ustawieniach (i jedna linia w logu). Czujniki telefonu (≥
+`min_rate_hz`, kalibracja) Ustawienia pokazują tylko jako wskaźnik: samo
+zdarzenie z akcelerometru dowodzi, że były w porządku (sprawdza je
+`crash_detect`), więc nie zamieniają prawdziwej stłuczki w test.
+
+**Limity:** BCM `cooldown_min` (10) i `max_per_day` (3); telefon ma też
+własne (1 na 10 min, 3 na dobę). Alarm odwołany, zanim cokolwiek wyszło,
+się nie liczy; zdarzenia w trybie testowym nie blokują prawdziwego.
+
+**Kierownica:** akcja SWC „Anuluj SMS po stłuczce” (`crash_cancel`) — bez
+domyślnego przycisku; widoczna w Ustawieniach → SWC tylko przy włączonym
+`crash_sms`. Arduino wysyła stały kod klawisza, więc **przycisk zachowuje
+też swoją zwykłą akcję** — wybierz rzadko używany, **nigdy rozłącz ani
+odbierz** (po stłuczce dzwoni rodzina). Przycisk działa tylko w trakcie
+odliczania; nigdy w czasie wysyłki ani jako „Jestem OK” po wysłanym SMS-ie.
+Przypisać go można tylko z ekranu auta.
+
+Trasy `/api/crash/{cancel,send_now,follow_up,test,recipients}` działają
+**wyłącznie z ekranu auta** (loopback), także przy `remote_access: full`,
+i mają limit żądań; telefon pasażera widzi okno bez przycisków. Miejsce na
+przycisk „Zadzwoń 112” w oknie jest zarezerwowane (kolejna partia, plan H).
+
 ---
 
 ## 6. Uruchomienie
@@ -802,7 +1275,7 @@ i weryfikowalny osobno:
 | 4 | CP2102 + L9637D | `obd`, `obd.use_real_hardware: true` |
 | 5 | Nano #2 (sensor hub) | `environment`, `rain_sensor`, `blinker_monitor` |
 | 6 | Nano #1 + przekaźniki + MP1584 domeny A | `central_lock`, `lighting` — wtedy dopina się też **regulacja jasności** z §3.1c |
-| 7 | kamery + graber | `camera`, `crash_detect` |
+| 7 | kamery + graber | `camera` (`crash_detect` działa bez kamer — §5.8; z nimi chroni też nagranie) |
 | 8 | GPS | `location`, `tracking` |
 | 9 | ekran 6,86" | `small_display` (hotplug — wystarczy wpiąć) |
 | 10 | ładowarka B2B zamiast przekaźnika + boostu | bez zmian w configu — absorpcja 14,4 V z kompensacją, przewód 6 mm² |

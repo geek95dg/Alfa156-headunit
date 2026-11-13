@@ -288,7 +288,6 @@ tracking:
   geofence_lat: 0
   geofence_lon: 0
   geofence_radius_km: 0
-  sms_number: ''
 multimedia:
   last_bt_device: ''
   aa_resolution: 720p

@@ -28,14 +28,14 @@ if [ -z "${BCM_USER:-}" ] && [ -n "${SUDO_USER:-}" ] && [ "${SUDO_USER}" != "roo
 fi
 BCM_USER=${BCM_USER:-abner}
 
-echo "==> 1/7  Installing splash player + units"
+echo "==> 1/8  Installing splash player + units"
 install -m 0755 "$BCM_DIR/config/scripts/bcm-splash-play.sh" /usr/local/bin/bcm-splash-play.sh
 install -m 0644 "$BCM_DIR/config/systemd/bcm-splash-main.service" /etc/systemd/system/bcm-splash-main.service
 install -m 0644 "$BCM_DIR/config/systemd/bcm-splash-small.service" /etc/systemd/system/bcm-splash-small.service
 systemctl disable bcm-splash-small.service 2>/dev/null || true
 rm -f /etc/systemd/system/multi-user.target.wants/bcm-splash-small.service
 
-echo "==> 2/7  Installing Bluetooth setup (Class=carkit + AlwaysPairable)"
+echo "==> 2/8  Installing Bluetooth setup (Class=carkit + AlwaysPairable)"
 install -m 0755 "$BCM_DIR/config/scripts/bcm-bluetooth-setup.sh" /usr/local/bin/bcm-bluetooth-setup.sh
 install -m 0644 "$BCM_DIR/config/systemd/bcm-bluetooth.service" /etc/systemd/system/bcm-bluetooth.service
 
@@ -76,7 +76,7 @@ if [ -f /etc/bluetooth/main.conf ]; then
 fi
 systemctl restart bluetooth.service 2>/dev/null || true
 
-echo "==> 3/7  Writing hostapd config (5 GHz ch149, country US)"
+echo "==> 3/8  Writing hostapd config (5 GHz ch149, country US)"
 # MT7921 exposes UNII-3 (ch149-165) at 30 dBm with the worldwide regdom
 # baked into firmware-mediatek, so the AP comes up on 5 GHz without any
 # regdom tricks. AA Wireless gets clean H.264 throughput over 80 MHz here.
@@ -110,7 +110,7 @@ EOF
     sleep 2
 fi
 
-echo "==> 4/7  Installing NAT helper for internet sharing"
+echo "==> 4/8  Installing NAT helper for internet sharing"
 # Tracked script, the same file setup-x86.sh installs (it used to be a
 # heredoc here that had drifted: operstate==up only, so LTE (operstate
 # unknown) was skipped, and bnep*/p2p-* were NAT-ed like real uplinks).
@@ -170,7 +170,7 @@ grep -q '^net.ipv4.ip_forward=1' /etc/sysctl.conf 2>/dev/null \
     || echo 'net.ipv4.ip_forward=1' >> /etc/sysctl.conf
 sysctl -w net.ipv4.ip_forward=1 >/dev/null 2>&1 || true
 
-echo "==> 5/7  Audio for calls and AA voice (oFono, WirePlumber, D-Bus policy)"
+echo "==> 5/8  Audio for calls and AA voice (oFono, WirePlumber, D-Bus policy)"
 # ofono = the HFP backend (51-bcm-hfp-ofono.conf). Missing ofonod means calls
 # never reach the head unit, so check it loudly instead of `|| true`.
 apt-get install -y ofono || true
@@ -258,7 +258,24 @@ fi
 # ignition watcher) stays stopped.
 systemctl try-restart bcm-headunit.service 2>/dev/null || true
 
-echo "==> 6/7  Reloading systemd + enabling units"
+echo "==> 6/8  Car phone tools (adb for modules.car_phone)"
+# adb = the car phone module (src/network/car_phone.py): USB tethering, GPS
+# forward, battery. Checked like ofono above — a missing adb is said
+# loudly, the module then only shows "brak adb". Debian package only.
+apt-get install -y adb || true
+if command -v adb >/dev/null 2>&1; then
+    echo "    adb: $(command -v adb)"
+else
+    echo "    WARNING: adb is NOT installed — the car phone (modules.car_phone) will NOT work."
+    echo "             Fix: sudo apt-get install adb, then re-run this script."
+fi
+# bcm-timesync.sh now leaves /run/bcm-timesync.ok on success; car_phone
+# reads it to decide whether the phone's clock may be used (plan D1).
+if [ -f /usr/local/bin/bcm-timesync.sh ]; then
+    install -m 0755 "$BCM_DIR/config/scripts/bcm-timesync.sh" /usr/local/bin/bcm-timesync.sh
+fi
+
+echo "==> 7/8  Reloading systemd + enabling units"
 systemctl daemon-reload
 systemctl enable bcm-nat.service 2>/dev/null || true
 systemctl enable bcm-nat-late.timer 2>/dev/null || true
@@ -266,7 +283,7 @@ systemctl restart bcm-nat.service 2>/dev/null || true
 systemctl start bcm-nat-late.timer 2>/dev/null || true
 systemctl restart bcm-bluetooth.service 2>/dev/null || true
 
-echo "==> 7/7  Done."
+echo "==> 8/8  Done."
 echo
 echo "Next: reboot to verify"
 echo "  - Splash plays on the main display, small stays black, exits"

@@ -2040,7 +2040,84 @@ Poprawione wartości w §9.2.
 
 ### 13.4 Moduł `battery` nie monitoruje banku buforowego
 
-`src/power/battery.py` jest napisany pod **ogniwo Li-ion 18650**:
+> **Stan obecny (przygotowane, domyślnie wyłączone).** Wszystkie trzy kroki
+> z listy niżej są już w repozytorium:
+>
+> - firmware: `arduino/sensor_hub/sensor_hub.ino` ma przełączniki
+>   `FEATURE_BATT_ADC` (dzielnik 100k/27k na A6, samo napięcie) i
+>   `FEATURE_BATT_INA226` (I2C na A4/A5 + bocznik, napięcie **i** prąd);
+>   oba są zakomentowane, CI kompiluje każdy osobno
+>   (`make -C arduino sensor_hub-variants`);
+> - format linii: **`BATT:<mV>[,<mA>]`**, np. `BATT:12650,-3400` = 12,65 V,
+>   3,4 A rozładowania (prąd dodatni = ładowanie); bez INA226 samo
+>   `BATT:12650`. Parser w `src/input/arduino_serial.py` przyjmuje też
+>   starszą postać z punktu 2 (`BATT:12.65`), ale wolty **tylko z kropką
+>   dziesiętną** — liczba całkowita to zawsze miliwolty, więc linia ucięta
+>   przez zakłócenie (`BATT:12` zamiast `BATT:12650`) daje 0,012 V i jest
+>   odrzucana, a nie czytana jako zdrowe 12 V. Odczyty spoza 5–20 V albo
+>   ±100 A też odrzuca. Publikuje `arduino.battery_voltage` [V]
+>   i `arduino.battery_current` [A];
+> - `src/power/battery.py` (`BatteryMonitor`) ma progi AGM z tabeli niżej
+>   w bloku `battery:` configu (z histerezą 0,1 V, wykrywaniem ładowania
+>   powyżej 13,2 V albo 0,2 A i medianą z 5 odczytów) i publikuje
+>   `battery.state` = charging | full | ok | low | critical | unknown.
+>   Niczego nie wyłącza — to robi sprzętowe LVD.
+>
+> **Włączenie** — trzy kroki:
+>
+> 1. Firmware z pomiarem, **flagą przy kompilacji**, bez edycji sketcha:
+>
+>    ```bash
+>    make -C arduino sensor_hub-upload PORT=/dev/ttyUSB1 SENSOR_HUB_FEATURES=BATT_ADC
+>    # albo z INA226 (napięcie i prąd):
+>    make -C arduino sensor_hub-upload PORT=/dev/ttyUSB1 SENSOR_HUB_FEATURES=BATT_INA226
+>    ```
+>
+>    **Nie odkomentowuj** `#define FEATURE_BATT_…` w sketchu: przełączniki
+>    BATT muszą zostać zakomentowane (sprawdzają to testy, CI kompiluje
+>    każdy wariant osobno flagą `-D`), a flaga z `SENSOR_HUB_FEATURES`
+>    robi dokładnie to samo. Makefile przyjmuje tylko nazwy przełączników
+>    zakomentowanych w sketchu — literówka (`BAT_ADC`) kończy się błędem,
+>    a nie cichym firmware bez pomiaru. Sama kompilacja, bez płytki:
+>    `make -C arduino sensor_hub SENSOR_HUB_FEATURES=BATT_ADC`.
+> 2. Port sensor huba w `arduino.sensor_hub_port` (stała nazwa: szablon
+>    `config/udev/99-bcm-sensor-hub.rules`).
+> 3. `modules.battery: true` (w `config/local.yaml`).
+>
+> **Kalibracja** (raz, po montażu; BCM zatrzymany, bo trzyma port):
+>
+> - `picocom -b 115200 /dev/ttyUSB1` — linia `BATT:` co 2 s. Napięcie
+>   ma stać w miejscu: silnik wyłączony od kilku minut (przy ładowaniu
+>   pływa i odczyt multimetru nie zgra się w czasie z `BATT:`).
+> - **`FEATURE_BATT_ADC`:** zmierz multimetrem napięcie na zaciskach banku
+>   i porównaj z `BATT:`. Firmware już mnoży odczyt przez `BATT_ADC_CAL`,
+>   więc nową wartość liczy się **od obecnej**:
+>   `nowe BATT_ADC_CAL = obecne BATT_ADC_CAL × U_multimetr / U_BATT`.
+>   Np. przy domyślnym 1.000: multimetr 12,71 V, `BATT:12560` →
+>   1,000 × 12,71 / 12,56 = **1.012**. Gdyby kolejny pomiar (np. po
+>   wymianie rezystora) dał multimetr 12,60 V przy `BATT:12650`, to
+>   1,012 × 12,60 / 12,65 = **1.008** — samo `U_multimetr / U_BATT`
+>   (0,996) skasowałoby pierwszą korektę. Wpisz wynik
+>   w linię `#define BATT_ADC_CAL` w `sensor_hub.ino` (to jedyna wartość
+>   w sketchu, którą zmienia się pod konkretną płytkę — referencją ADC jest
+>   VCC z MP1584, a rezystory mają tolerancję), wgraj ponownie poleceniem
+>   z kroku 1 i sprawdź jeszcze raz; różnica powinna zejść poniżej
+>   ~0,05 V. Lokalna zmiana sketcha może zablokować `git pull` (gdy sketch
+>   zmieni się też w repo) — przed aktualizacją `git stash`, po niej
+>   `git stash pop`.
+> - **`FEATURE_BATT_INA226`:** napięcie mierzy sam układ (bez dzielnika),
+>   kalibruje się **znak prądu**. Przy pracującym silniku (ładowarka
+>   ładuje) `BATT:<mV>,<mA>` musi mieć prąd **dodatni**, na postoju
+>   z włączonym komputerem — ujemny. Jeśli jest odwrotnie, najprościej
+>   ustawić `battery.current_sign: -1` w `config/local.yaml` (bez
+>   ponownego wgrywania); alternatywnie zamienić przewody IN+/IN- albo
+>   `BATT_INA_SIGN -1` w sketchu. Wartość bezwzględną prądu porównaj
+>   z miernikiem cęgowym DC, jeśli jest pod ręką: rozjazd oznacza inny
+>   bocznik niż 20 A / 75 mV (`BATT_SHUNT_MOHM`).
+>
+> Opis poniżej zostaje jako zapis tego, skąd te zmiany się wzięły.
+
+`src/power/battery.py` był napisany pod **ogniwo Li-ion 18650**:
 
 ```python
 FULL_V = 4.2
@@ -2060,7 +2137,9 @@ nic nie policzy.
    5 V, np. 100 kΩ / 27 kΩ daje przy 15 V ok. 3,2 V — bezpiecznie w zakresie.
    Rezystory 1 %, kondensator 100 nF na wyjściu dzielnika.
 2. **Publikacja odczytu** z `arduino/sensor_hub/sensor_hub.ino` jako
-   `BATT:<napięcie>`, mapowana na `arduino.battery_voltage`.
+   `BATT:<napięcie>`, mapowana na `arduino.battery_voltage`. (Firmware
+   wysyła ostatecznie miliwolty i opcjonalnie prąd: `BATT:<mV>[,<mA>]`;
+   parser przyjmuje obie postacie — patrz ramka wyżej.)
 3. **Progi dla banku 12 V** zamiast ogniwa Li-ion:
 
    | Stała | Wartość dla banku AGM 12 V |

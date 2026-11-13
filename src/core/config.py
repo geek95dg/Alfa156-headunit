@@ -62,6 +62,9 @@ SECRET_ENV_MAP: dict[str, str] = {
     "travel.tomtom_key": "BCM_TOMTOM_API_KEY",
     "wifi.password": "BCM_WIFI_PASSWORD",
     "wifi.alfa_net.password": "BCM_ALFA_NET_PASSWORD",
+    # HMAC secret shared with the Termux agent on the car phone
+    # (src/network/car_phone_agent.py) — env only, never local.yaml.
+    "network.car_phone.agent.secret": "BCM_CAR_PHONE_AGENT_SECRET",
 }
 
 #: Dot-paths that are never persisted, whatever their value.

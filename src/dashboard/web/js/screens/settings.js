@@ -23,8 +23,21 @@ const Settings = {
              restartRequired: false, status: "",
              internet_share_available: false },
 
-    // Module on/off toggles (modules.* in bcm_config.yaml)
-    _modules: { list: [], loaded: false, status: "" },
+    // Module on/off toggles (modules.* — GET/POST /api/modules; the list
+    // carries requires/hardware/available/blocked_by/needs/would_stop from
+    // src/core/modules_catalog.py). `confirm` is the open question before a
+    // toggle with consequences (dependencies off / dependents running) —
+    // nothing is ever switched on or off in cascade without it. `statusName`:
+    // the module the last status line is about (drawn under its row).
+    _modules: { list: [], loaded: false, status: "", statusName: null,
+                restartRequired: false, confirm: null, busy: false },
+    // Settings → Moduły headings, in this order ("" = modules without a group).
+    _moduleGroups: [
+        ["", "modules_group_core", "Podstawowe"],
+        ["telefon_w_aucie", "modules_group_telefon_w_aucie", "Telefon w aucie"],
+        ["bezpieczenstwo", "modules_group_bezpieczenstwo", "Bezpieczeństwo"],
+        ["zasilanie", "modules_group_zasilanie", "Zasilanie i wybudzanie"],
+    ],
 
     // Android Auto settings & control
     _aa: { autoRestart: true, loaded: false, restarting: false },
@@ -102,6 +115,590 @@ const Settings = {
         </div>`;
     },
 
+    // The phone mounted in the car (USB/adb, src/network/car_phone.py).
+    // data.car_phone = web_viewer._car_phone_summary(net.car_phone), or null
+    // while the module is not running (production config: no row).
+    _carPhoneColors: {
+        connected: "#16a34a",
+        tethering: "var(--color-primary)",
+        no_device: "#d97706",                       // amber: plug in / unlock
+        unauthorized: "#d97706",
+        no_adb: "#dc2626",
+        adb_error: "#dc2626",
+        failed: "#dc2626",
+    },
+    _carPhoneRetryAt: 0,
+
+    /** "Ponów" in the car phone row (POST /api/car_phone/retry; the server
+     *  rate-limits too — 429 — this only swallows double taps). */
+    async carPhoneRetry() {
+        const now = Date.now();
+        if (now - Settings._carPhoneRetryAt < 3000) return;
+        Settings._carPhoneRetryAt = now;
+        try {
+            await fetch("/api/car_phone/retry", { method: "POST" });
+        } catch (e) { /* offline kiosk: the backend retries on its own */ }
+    },
+
+    /** One info row "Telefon w aucie: <stan> <ip> · 78% 31 °C · GPS · hotspot"
+     *  plus, for a known problem, what to do (never the raw adb/nmcli
+     *  error). '' without a payload. Inline styles only (Tailwind is
+     *  precompiled); every value goes through _esc and numbers are checked
+     *  for type before they are drawn. */
+    carPhoneRowHtml(cp, t) {
+        t = t || ((k, d) => d);
+        if (!cp || typeof cp !== "object") return "";
+        const esc = Settings._esc;
+        const state = typeof cp.state === "string" ? cp.state : "unknown";
+        const labels = {
+            disabled: t("car_phone_disabled", "wyłączony"),
+            no_adb: t("car_phone_no_adb", "brak adb"),
+            adb_error: t("car_phone_adb_error", "błąd adb — ponowię"),
+            no_device: t("car_phone_no_device", "brak telefonu na USB"),
+            unauthorized: t("car_phone_unauthorized", "zezwól na debugowanie USB"),
+            tethering: t("car_phone_tethering", "włączam tethering USB…"),
+            connected: t("car_phone_connected", "połączono"),
+            failed: t("car_phone_failed", "błąd — ponowię"),
+        };
+        const label = Object.prototype.hasOwnProperty.call(labels, state) ? labels[state] : state;
+        const color = Settings._carPhoneColors[state] || "var(--text-dim)";
+        const mono = (v) => `<span style="color:var(--text-mid);font-family:monospace">${esc(v)}</span>`;
+        const dim = (v) => `<span style="color:var(--text-dim)">${esc(v)}</span>`;
+        const parts = [];
+        if (state === "connected" && cp.ip) {
+            parts.push(mono(cp.ip) + (cp.iface ? " " + dim(`(${cp.iface})`) : ""));
+        }
+        const facts = [];
+        if (Number.isInteger(cp.battery_pct) && cp.battery_pct >= 0 && cp.battery_pct <= 100) {
+            const plug = cp.charging === true ? " ⚡" : (cp.full === true ? " ✓" : "");
+            facts.push(`${cp.battery_pct}%${plug}`);
+        }
+        // heat: the module's own hysteresis (warn/critical_temp_c from the
+        // config) — the row does not second-guess the thresholds.
+        const hot = cp.heat === "warning" || cp.heat === "danger";
+        if (typeof cp.temp_c === "number" && isFinite(cp.temp_c)) {
+            facts.push(`${Math.round(cp.temp_c)} °C`);
+        }
+        if (cp.gps_forward === true) facts.push(t("car_phone_gps", "GPS"));
+        if (cp.hotspot_active === true) {
+            const n = Number.isInteger(cp.hotspot_clients) ? ` (${cp.hotspot_clients})` : "";
+            facts.push(t("car_phone_hotspot_on", "hotspot") + n);
+        } else if (cp.hotspot_active === false) {
+            facts.push(t("car_phone_hotspot_off", "hotspot wył."));
+        }
+        if (facts.length) {
+            parts.push(`<span style="color:${hot ? "#dc2626" : "var(--text-mid)"}">${esc(facts.join(" · "))}</span>`);
+        }
+        const hints = {
+            authorize: t("car_phone_hint_authorize", "odblokuj telefon i zaznacz „Zawsze zezwalaj” dla debugowania USB"),
+            pin_serial: t("car_phone_hint_pin_serial", "kilka telefonów na USB — wpisz network.car_phone.serial"),
+            tether_blocked: t("car_phone_hint_tether_blocked", "telefon nie włącza tetheringu USB — włącz go ręcznie albo sprawdź operatora"),
+            aa_usb_probe: t("car_phone_hint_aa_usb_probe", "autoapp przełącza telefon w tryb Android Auto — przebuduj z BCM_AA_USB=0"),
+            install_adb: t("car_phone_hint_install_adb", "zainstaluj adb: sudo apt install adb"),
+        };
+        const hintText = (typeof cp.hint === "string" && Object.prototype.hasOwnProperty.call(hints, cp.hint))
+            ? hints[cp.hint] : "";
+        const hint = hintText
+            ? `<span data-car-phone-hint style="color:var(--text-mid);flex-basis:100%;padding-left:24px">${esc(hintText)}</span>` : "";
+        const retry = (state === "failed" || state === "adb_error")
+            ? `<button data-car-phone-retry onclick="Settings.carPhoneRetry()" style="margin-left:auto;padding:4px 10px;border-radius:8px;font-size:11px;font-weight:700;background:var(--card-border);color:var(--text-mid);border:none">${esc(t("car_phone_retry", "Ponów"))}</button>` : "";
+        return `<div data-car-phone-state="${esc(state)}" style="display:flex;flex-wrap:wrap;align-items:center;gap:4px 8px;padding:8px 12px;border-radius:12px;background:var(--card-bg);border:1px solid var(--card-border);font-size:11px;line-height:1.3">
+            <span class="material-symbols-outlined" style="font-size:16px;color:${color}">phone_android</span>
+            <span style="color:var(--text-dim);font-weight:700">${esc(t("car_phone", "Telefon w aucie"))}:</span>
+            <span style="color:${color};font-weight:700">${esc(label)}</span>${parts.length ? " " + parts.join(" ") : ""}${retry}${hint}
+        </div>`;
+    },
+
+    // The Termux agent on the car phone (src/network/car_phone_agent.py).
+    // data.car_phone_agent = web_viewer._car_phone_agent_summary(...), or
+    // null while the module is not running (production config: no row).
+    _carPhoneAgentColors: {
+        ok: "#16a34a",
+        waiting_forward: "var(--color-primary)",
+        unpaired: "#d97706",                        // amber: user action needed
+        no_secret: "#d97706",
+        error: "#dc2626",
+        bad_signature: "#dc2626",
+    },
+    _carPhoneAgentPairAt: 0,
+    // Reasons after which a (re)pair can help — the code input is shown.
+    _carPhoneAgentPairReasons: ["secret_mismatch", "agent_reset", "pairing_closed", "bad_code"],
+
+    /** Is the pairing form shown for this payload? Unpaired, or an agent
+     *  that answers but does not know our secret. */
+    carPhoneAgentCanPair(ag) {
+        if (!ag || typeof ag !== "object") return false;
+        if (ag.state === "unpaired") return true;
+        return ag.state === "error" && typeof ag.reason === "string"
+            && Settings._carPhoneAgentPairReasons.indexOf(ag.reason) >= 0;
+    },
+
+    /** "Sparuj": the one-time code the phone printed (python
+     *  ~/bcm_agent/bcm_agent.py --pair) goes to POST /api/car_phone_agent/pair
+     *  (loopback only, rate-limited on the server). Only the code and the
+     *  confirmation flag travel — the secret never passes through the
+     *  browser. The button's data-confirm marks "Sparuj mimo to". Double
+     *  taps are swallowed; the outcome shows in the row via update(). */
+    async carPhoneAgentPair(btn) {
+        const t = (typeof App !== "undefined" && App.t) ? App.t.bind(App) : ((k, d) => d);
+        const input = document.querySelector("[data-car-phone-agent-code]");
+        const msg = document.querySelector("[data-car-phone-agent-msg]");
+        const say = (text) => { if (msg) msg.textContent = text; };
+        const code = input && typeof input.value === "string" ? input.value.replace(/\s+/g, "") : "";
+        if (!/^[0-9]{10}$/.test(code)) {
+            say(t("car_phone_agent_code_hint", "wpisz 10 cyfr kodu z telefonu"));
+            return;
+        }
+        const now = Date.now();
+        if (now - Settings._carPhoneAgentPairAt < 3000) return;
+        Settings._carPhoneAgentPairAt = now;
+        const confirm = !!(btn && btn.dataset && btn.dataset.confirm === "1");
+        try {
+            const res = await fetch("/api/car_phone_agent/pair", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ code, confirm }),
+            });
+            let out = {};
+            try { out = await res.json(); } catch (e) { /* not JSON */ }
+            if (res.ok) {
+                if (input) input.value = "";   // lets update() redraw the row again
+                say(t("car_phone_agent_pairing", "paruję…"));
+            } else {
+                const errors = {
+                    confirm_needed: t("car_phone_agent_err_confirm", "potwierdź: Sparuj mimo to"),
+                    already_paired: t("car_phone_agent_err_paired", "już sparowany"),
+                    no_forward: t("car_phone_agent_err_no_forward", "telefon niepodłączony"),
+                    untrusted: t("car_phone_agent_err_untrusted", "na porcie odpowiada coś innego"),
+                    "too many requests": t("car_phone_agent_err_wait", "chwilę — spróbuj za kilka sekund"),
+                };
+                const key = out && typeof out.error === "string" ? out.error : "";
+                say(Object.prototype.hasOwnProperty.call(errors, key)
+                    ? errors[key] : t("car_phone_agent_err", "nie udało się — spróbuj ponownie"));
+            }
+        } catch (e) { say(t("car_phone_agent_err", "nie udało się — spróbuj ponownie")); }
+    },
+
+    /** While the driver types the code, the row must not be redrawn (the
+     *  OSK writes into the very input element it attached to). */
+    carPhoneAgentTyping(slot) {
+        const input = slot && slot.querySelector ? slot.querySelector("[data-car-phone-agent-code]") : null;
+        if (!input) return false;
+        return document.activeElement === input || (typeof input.value === "string" && input.value !== "");
+    },
+
+    /** One info row "Agent w telefonie: <stan> · v1.0.0 · SIM · kontakt 14:03"
+     *  plus, for a known problem, what to do (never the raw error text) and
+     *  "Sparuj" only while the agent is unpaired. '' without a payload.
+     *  Inline styles only (Tailwind is precompiled); every value is escaped
+     *  and numbers are type-checked before they are drawn. */
+    carPhoneAgentRowHtml(ag, t) {
+        t = t || ((k, d) => d);
+        if (!ag || typeof ag !== "object") return "";
+        const esc = Settings._esc;
+        const state = typeof ag.state === "string" ? ag.state : "unknown";
+        const labels = {
+            disabled: t("car_phone_agent_disabled", "wyłączony"),
+            no_secret: t("car_phone_agent_no_secret", "brak sekretu"),
+            waiting_forward: t("car_phone_agent_waiting_forward", "czeka na telefon"),
+            unpaired: t("car_phone_agent_unpaired", "niesparowany"),
+            ok: t("car_phone_agent_ok", "działa"),
+            error: t("car_phone_agent_error", "błąd — ponowię"),
+            bad_signature: t("car_phone_agent_bad_signature", "obca odpowiedź — nie ufam"),
+        };
+        const label = Object.prototype.hasOwnProperty.call(labels, state) ? labels[state] : state;
+        const color = Settings._carPhoneAgentColors[state] || "var(--text-dim)";
+        const facts = [];
+        if (typeof ag.version === "string" && /^[0-9A-Za-z.+-]{1,16}$/.test(ag.version)) {
+            facts.push("v" + ag.version);
+        }
+        if (ag.sim_ready === true) facts.push(t("car_phone_agent_sim_ok", "SIM"));
+        else if (ag.sim_ready === false) facts.push(t("car_phone_agent_sim_missing", "brak SIM"));
+        if (typeof ag.last_ok_ts === "number" && isFinite(ag.last_ok_ts) && ag.last_ok_ts > 0) {
+            const d = new Date(ag.last_ok_ts * 1000);
+            const hm = String(d.getHours()).padStart(2, "0") + ":" + String(d.getMinutes()).padStart(2, "0");
+            facts.push(t("car_phone_agent_last", "kontakt") + " " + hm);
+        }
+        const factsHtml = facts.length
+            ? ` <span style="color:var(--text-mid)">${esc(facts.join(" · "))}</span>` : "";
+        // What to do: by the module's reason code first, then by state.
+        const hints = {
+            no_secret: t("car_phone_agent_hint_no_secret", "wpisz BCM_CAR_PHONE_AGENT_SECRET do /etc/bcm/bcm.env i zrestartuj BCM"),
+            unpaired: t("car_phone_agent_hint_unpaired", "w Termuxie: python ~/bcm_agent/bcm_agent.py --pair, wpisz kod i Sparuj"),
+            bad_signature: t("car_phone_agent_hint_bad_signature", "na porcie agenta odpowiada coś innego — sprawdź telefon"),
+            pairing_closed: t("car_phone_agent_hint_pairing_closed", "brak kodu w telefonie — wygeneruj nowy: python ~/bcm_agent/bcm_agent.py --pair"),
+            bad_code: t("car_phone_agent_hint_bad_code", "zły kod — sprawdź: cat ~/.config/bcm_agent/PAIRING"),
+            secret_mismatch: t("car_phone_agent_hint_secret_mismatch", "agent ma inny sekret — wygeneruj kod w telefonie (--pair) i sparuj ponownie"),
+            agent_reset: t("car_phone_agent_hint_agent_reset", "agent nie zna już sekretu — jeśli nie reinstalowałeś Termuxa, na porcie 8765 odpowiada inna aplikacja; sprawdź telefon"),
+            clock_skew: t("car_phone_agent_hint_clock_skew", "zegar telefonu i BCM różni się o ponad minutę"),
+            no_answer: t("car_phone_agent_hint_no_answer", "agent nie odpowiada — czy Termux z bcm_agent.py działa?"),
+            config_pending: t("car_phone_agent_hint_config_pending", "telefon ma starą konfigurację — ponowię"),
+            config_refused: t("car_phone_agent_hint_config_refused", "agent odrzucił konfigurację — sprawdź crash_detection.sms"),
+        };
+        const has = (k) => typeof k === "string" && k !== "" && Object.prototype.hasOwnProperty.call(hints, k);
+        let hintText = "";
+        if (has(ag.reason)) hintText = hints[ag.reason];
+        else if (state !== "error" && has(state)) hintText = hints[state];
+        const hint = hintText
+            ? `<span data-car-phone-agent-hint style="color:var(--text-mid);flex-basis:100%;padding-left:24px">${esc(hintText)}</span>` : "";
+        // The pairing form: code input + "Sparuj" ("Sparuj mimo to" after a
+        // proven pairing — needs_confirm). No data in the inline handler;
+        // the confirmation flag is a fixed data attribute.
+        let pair = "";
+        if (Settings.carPhoneAgentCanPair(ag)) {
+            const confirm = ag.needs_confirm === true;
+            const btnLabel = confirm ? t("car_phone_agent_pair_anyway", "Sparuj mimo to")
+                : t("car_phone_agent_pair", "Sparuj");
+            pair = `<span data-car-phone-agent-form style="flex-basis:100%;display:flex;flex-wrap:wrap;align-items:center;gap:6px;padding-left:24px">
+                <input data-car-phone-agent-code type="tel" inputmode="numeric" maxlength="10" autocomplete="off" placeholder="${esc(t("car_phone_agent_code", "kod z telefonu"))}" style="width:130px;padding:6px 8px;border-radius:8px;font-size:13px;letter-spacing:1px;background:var(--color-surface);color:var(--text-primary);border:1px solid var(--card-border)">
+                <button data-car-phone-agent-pair data-confirm="${confirm ? "1" : "0"}" onclick="Settings.carPhoneAgentPair(this)" style="padding:7px 14px;border-radius:8px;font-size:12px;font-weight:700;background:${confirm ? "#d97706" : "var(--card-border)"};color:${confirm ? "#fff" : "var(--text-mid)"};border:none">${esc(btnLabel)}</button>
+                <span data-car-phone-agent-msg style="color:var(--text-mid)"></span>
+            </span>`;
+        }
+        return `<div data-car-phone-agent-state="${esc(state)}" style="display:flex;flex-wrap:wrap;align-items:center;gap:4px 8px;padding:8px 12px;border-radius:12px;background:var(--card-bg);border:1px solid var(--card-border);font-size:11px;line-height:1.3">
+            <span class="material-symbols-outlined" style="font-size:16px;color:${color}">sms</span>
+            <span style="color:var(--text-dim);font-weight:700">${esc(t("car_phone_agent", "Agent w telefonie"))}:</span>
+            <span style="color:${color};font-weight:700">${esc(label)}</span>${factsHtml}${hint}${pair}
+        </div>`;
+    },
+
+    // SMS po stłuczce (src/safety/crash_sms.py). data.crash_sms =
+    // web_viewer._crash_sms_summary(crash.sms_state), or null while the
+    // module is not running (production config: no section at all). Phone
+    // numbers are NEVER in the payload: the editor fetches them from the
+    // loopback-only GET /api/crash/recipients.
+    _crash: { recipients: ["", "", ""], loaded: false, loading: false, msg: "",
+              testArmAt: 0, testMsg: "", saveAt: 0, listening: false },
+    // The on-screen keyboard has no "+": the field holds the digits after it.
+    _crashDigitsRe: /^[1-9][0-9]{7,14}$/,
+    _crashTestArmMs: 6000,
+    // The confirming tap must come this long after the arming one: a
+    // bounced / double tap (two clicks a few ms apart) must not send a REAL
+    // SMS to everybody.
+    _crashTestMinGapMs: 700,
+
+    /** Pure: the typed fields → {numbers: ["+48…"], bad: index|-1, reason}.
+     *  Spaces and dashes are dropped, a leading "+" or "00" is accepted,
+     *  empty fields are skipped; at most 3 (there are only 3 fields).
+     *  Exactly 9 digits is refused (reason "no_cc"): that is a Polish number
+     *  typed without 48, and "+" + those digits would be another country
+     *  (601234567 → +60 Malaysia). A "48" number must have 9 digits after
+     *  it. The server checks the same. */
+    crashParseRecipients(fields) {
+        const numbers = [];
+        const list = Array.isArray(fields) ? fields.slice(0, 3) : [];
+        for (let i = 0; i < list.length; i++) {
+            let v = typeof list[i] === "string" ? list[i].replace(/[\s-]/g, "") : "";
+            if (!v) continue;
+            if (v.startsWith("+")) v = v.slice(1);
+            else if (v.startsWith("00")) v = v.slice(2);
+            if (!Settings._crashDigitsRe.test(v)) return { numbers: [], bad: i, reason: "" };
+            if (v.length === 9) return { numbers: [], bad: i, reason: "no_cc" };
+            if (v.startsWith("48") && v.length !== 11) return { numbers: [], bad: i, reason: "" };
+            const num = "+" + v;
+            if (numbers.indexOf(num) < 0) numbers.push(num);
+        }
+        return { numbers, bad: -1, reason: "" };
+    },
+
+    /** Pure: a saved number as the field shows it (the "+" is printed in
+     *  front of the field): "+48601234567" → "48 601 234 567", so the
+     *  country code is visible; others as plain digits. */
+    crashFieldText(num) {
+        if (typeof num !== "string") return "";
+        const d = num.replace(/^\+/, "");
+        if (!/^[0-9]{1,15}$/.test(d)) return "";
+        const m = d.match(/^48([0-9]{3})([0-9]{3})([0-9]{3})$/);
+        return m ? `48 ${m[1]} ${m[2]} ${m[3]}` : d;
+    },
+
+    /** Fetch the recipients once per Settings visit (kiosk only — the
+     *  route refuses network clients). */
+    async crashLoad(force) {
+        const c = Settings._crash;
+        if ((c.loaded && !force) || c.loading) return;
+        c.loading = true;
+        try {
+            const res = await fetch("/api/crash/recipients");
+            if (res.ok) {
+                const data = await res.json();
+                const list = Array.isArray(data.recipients) ? data.recipients : [];
+                c.recipients = [0, 1, 2].map((i) => Settings.crashFieldText(list[i]));
+                c.loaded = true;
+                Settings._crashFillInputs();
+            }
+        } catch (e) { /* offline kiosk — the fields stay empty */ }
+        c.loading = false;
+    },
+
+    _crashFillInputs() {
+        if (typeof document === "undefined") return;
+        document.querySelectorAll("[data-crash-rcpt]").forEach((input) => {
+            const i = Number(input.getAttribute("data-crash-rcpt"));
+            if (Number.isInteger(i) && i >= 0 && i < 3 && document.activeElement !== input) {
+                input.value = Settings._crash.recipients[i] || "";
+            }
+        });
+    },
+
+    _crashSay(sel, text) {
+        const node = typeof document !== "undefined" ? document.querySelector(sel) : null;
+        if (node) node.textContent = text;
+    },
+
+    /** "Zapisz odbiorców": validated here and again on the server. */
+    async crashSaveRecipients() {
+        const t = (typeof App !== "undefined" && App.t) ? App.t.bind(App) : ((k, d) => d);
+        const c = Settings._crash;
+        const now = Date.now();
+        if (now - c.saveAt < 1500) return;
+        c.saveAt = now;
+        const parsed = Settings.crashParseRecipients(c.recipients);
+        const badMsg = (i, reason) => (reason === "no_cc"
+            ? t("crash_rcpt_no_cc", "Numer {i}: dopisz 48 na początku (np. 48601234567)")
+            : t("crash_rcpt_bad", "Numer {i}: wpisz numer z kierunkowym kraju, np. 48601234567"))
+            .replace("{i}", () => String(i + 1));
+        if (parsed.bad >= 0) {
+            c.msg = badMsg(parsed.bad, parsed.reason);
+            Settings._crashSay("[data-crash-msg]", c.msg);
+            return;
+        }
+        try {
+            const res = await fetch("/api/crash/recipients", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ recipients: parsed.numbers }),
+            });
+            let out = {};
+            try { out = await res.json(); } catch (e) { /* not JSON */ }
+            if (res.ok) {
+                c.msg = out.persisted === false
+                    ? t("crash_rcpt_not_persisted", "Zapisano, ale nie na dysku — po restarcie znikną")
+                    : t("crash_rcpt_saved", "Zapisano ({n})").replace("{n}", () => String(parsed.numbers.length));
+            } else if (res.status === 403) {
+                c.msg = t("crash_kiosk_only", "Tylko z ekranu w aucie");
+            } else if (res.status === 429) {
+                c.msg = t("crash_wait", "Chwilę — spróbuj za kilka sekund");
+            } else if (out && out.error === "bad_number" && Number.isInteger(out.index)
+                       && out.index >= 0 && out.index < 3) {
+                c.msg = badMsg(out.index, out.hint === "no_cc" ? "no_cc" : "");
+            } else {
+                c.msg = t("crash_rcpt_refused", "Nie zapisano — sprawdź numery");
+            }
+        } catch (e) {
+            c.msg = t("crash_rcpt_refused", "Nie zapisano — sprawdź numery");
+        }
+        Settings._crashSay("[data-crash-msg]", c.msg);
+    },
+
+    /** "Wyślij testowy SMS": two taps (the first arms for 6 s) because it
+     *  sends a REAL SMS to every recipient — that is the point: only a
+     *  test confirmed in "wysłane" lets crash SMS leave test mode. */
+    async crashTest() {
+        const t = (typeof App !== "undefined" && App.t) ? App.t.bind(App) : ((k, d) => d);
+        const c = Settings._crash;
+        const now = Date.now();
+        if (!c.testArmAt || now - c.testArmAt > Settings._crashTestArmMs) {
+            c.testArmAt = now;
+            c.testMsg = "";
+            Settings._crashRedrawRow();
+            // Back to "Wyślij testowy SMS" when the confirmation lapses.
+            setTimeout(() => Settings._crashRedrawRow(), Settings._crashTestArmMs + 50);
+            return;
+        }
+        // A bounce of the arming tap is not a confirmation.
+        if (now - c.testArmAt < Settings._crashTestMinGapMs) return;
+        c.testArmAt = 0;
+        c.testMsg = t("crash_test_sending", "wysyłam…");
+        Settings._crashRedrawRow();
+        try {
+            const res = await fetch("/api/crash/test", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ confirm: true }),
+            });
+            let out = {};
+            try { out = await res.json(); } catch (e) { /* not JSON */ }
+            const errors = {
+                no_recipients: t("crash_test_no_recipients", "najpierw zapisz odbiorców"),
+                not_running: t("crash_test_no_agent", "agent w telefonie nie działa"),
+                busy: t("crash_test_busy", "test już w drodze"),
+                config_pending: t("crash_test_config_pending", "telefon nie ma jeszcze nowych odbiorców — spróbuj za chwilę"),
+                "too many requests": t("crash_wait", "Chwilę — spróbuj za kilka sekund"),
+            };
+            const key = out && typeof out.error === "string" ? out.error : "";
+            if (res.ok) c.testMsg = t("crash_test_queued", "przekazano do telefonu");
+            else if (res.status === 403) c.testMsg = t("crash_kiosk_only", "Tylko z ekranu w aucie");
+            else c.testMsg = Object.prototype.hasOwnProperty.call(errors, key)
+                ? errors[key] : t("crash_test_failed", "nie udało się");
+        } catch (e) {
+            c.testMsg = t("crash_test_failed", "nie udało się");
+        }
+        Settings._crashRedrawRow();
+    },
+
+    _crashRedrawRow() {
+        if (typeof document === "undefined") return;
+        const slot = document.querySelector("[data-crash-sms-slot]");
+        const data = (typeof DataStore !== "undefined" && DataStore.getAll) ? DataStore.getAll() : {};
+        const t = (typeof App !== "undefined" && App.t) ? App.t.bind(App) : ((k, d) => d);
+        if (slot) slot.innerHTML = Settings.crashSmsRowHtml(data && data.crash_sms, t);
+    },
+
+    /** One delegated listener set for the section (data-* attributes, no
+     *  data in inline handlers). Installed once on document. */
+    crashListen() {
+        const c = Settings._crash;
+        if (c.listening || typeof document === "undefined" || !document.addEventListener) return;
+        c.listening = true;
+        document.addEventListener("click", (e) => {
+            const el = e.target && e.target.closest ? e.target.closest("[data-crash-save],[data-crash-test]") : null;
+            if (!el) return;
+            if (el.hasAttribute("data-crash-save")) Settings.crashSaveRecipients();
+            else Settings.crashTest();
+        });
+        document.addEventListener("input", (e) => {
+            const el = e.target;
+            if (!el || !el.getAttribute) return;
+            const i = Number(el.getAttribute("data-crash-rcpt"));
+            if (el.hasAttribute("data-crash-rcpt") && Number.isInteger(i) && i >= 0 && i < 3) {
+                Settings._crash.recipients[i] = String(el.value || "").slice(0, 20);
+            }
+        });
+    },
+
+    _crashFmtTime(ts) {
+        if (typeof ts !== "number" || !isFinite(ts) || ts <= 0) return "";
+        const d = new Date(ts * 1000);
+        const p2 = (n) => String(n).padStart(2, "0");
+        return `${p2(d.getDate())}.${p2(d.getMonth() + 1)} ${p2(d.getHours())}:${p2(d.getMinutes())}`;
+    },
+
+    /** The status row "SMS po stłuczce: tryb testowy · odbiorcy: 2" plus why
+     *  test mode is forced, the last test and "Wyślij testowy SMS". '' without
+     *  a payload. Inline styles; every value escaped / type-checked. */
+    crashSmsRowHtml(cs, t) {
+        t = t || ((k, d) => d);
+        if (!cs || typeof cs !== "object") return "";
+        const esc = Settings._esc;
+        const c = Settings._crash;
+        const dry = cs.dry_run !== false;
+        const color = dry ? "#d97706" : "#16a34a";
+        const label = dry ? t("crash_mode_dry", "tryb testowy (SMS nie wychodzą)")
+            : t("crash_mode_real", "prawdziwe SMS-y");
+        const n = Number.isInteger(cs.recipients_n) && cs.recipients_n >= 0 && cs.recipients_n <= 3
+            ? cs.recipients_n : 0;
+        const reasons = {
+            agent_not_ready: t("crash_forced_agent", "agent w telefonie nie jest gotowy"),
+            no_verified_test: t("crash_forced_no_test", "brak potwierdzonego testowego SMS-a"),
+            test_too_old: t("crash_forced_old_test", "testowy SMS starszy niż 30 dni"),
+            sensors_not_streaming: t("crash_forced_sensors", "brak danych z czujników telefonu"),
+            sensor_rate_low: t("crash_forced_rate", "za wolne próbkowanie czujników"),
+            not_calibrated: t("crash_forced_calib", "czujniki telefonu nieskalibrowane"),
+        };
+        const reason = typeof cs.forced_dry_run_reason === "string"
+            && Object.prototype.hasOwnProperty.call(reasons, cs.forced_dry_run_reason)
+            ? `<span data-crash-reason style="color:#d97706;flex-basis:100%;padding-left:24px">${esc(
+                t("crash_forced", "wymuszony tryb testowy: {reason}")
+                    .replace("{reason}", () => reasons[cs.forced_dry_run_reason]))}</span>` : "";
+        const test = cs.test && typeof cs.test === "object" ? cs.test : {};
+        let testText;
+        const verifiedAt = Settings._crashFmtTime(test.last_verified_ts);
+        if (test.request === "sending" || test.request === "queued") {
+            testText = t("crash_test_sending", "wysyłam…");
+        } else if (test.state === "pending") {
+            testText = t("crash_test_pending", "test w toku — telefon sprawdza wysłane");
+        } else if (verifiedAt) {
+            testText = t("crash_test_verified", "ostatni potwierdzony test: {when}").replace("{when}", () => verifiedAt);
+        } else if (test.state === "failed" || test.state === "partial") {
+            testText = t("crash_test_last_failed", "ostatni test nie doszedł do wszystkich");
+        } else {
+            testText = t("crash_test_none", "brak potwierdzonego testu");
+        }
+        const armed = c.testArmAt && Date.now() - c.testArmAt <= Settings._crashTestArmMs;
+        const btnLabel = armed
+            ? t("crash_test_confirm", "Na pewno? PRAWDZIWY SMS do {n} odbiorców").replace("{n}", () => String(n))
+            : t("crash_test_send", "Wyślij testowy SMS");
+        const testBtn = n > 0
+            ? `<button type="button" data-crash-test data-armed="${armed ? "1" : "0"}" style="padding:7px 14px;border-radius:8px;font-size:12px;font-weight:700;border:none;background:${armed ? "#dc2626" : "var(--card-border)"};color:${armed ? "#fff" : "var(--text-mid)"}">${esc(btnLabel)}</button>` : "";
+        return `<div data-crash-sms-row data-crash-dry="${dry ? "1" : "0"}" style="display:flex;flex-wrap:wrap;align-items:center;gap:4px 8px;padding:8px 12px;border-radius:12px;background:var(--card-bg);border:1px solid var(--card-border);font-size:11px;line-height:1.3">
+            <span class="material-symbols-outlined" style="font-size:16px;color:${color}">car_crash</span>
+            <span style="color:var(--text-dim);font-weight:700">${esc(t("crash_sms", "SMS po stłuczce"))}:</span>
+            <span style="color:${color};font-weight:700">${esc(label)}</span>
+            <span style="color:var(--text-mid)">${esc(t("crash_recipients", "odbiorcy SMS: {n}").replace("{n}", () => String(n)))}</span>${reason}
+            <span data-crash-test-state style="color:var(--text-mid);flex-basis:100%;padding-left:24px">${esc(testText)}</span>
+            <span style="flex-basis:100%;display:flex;flex-wrap:wrap;align-items:center;gap:6px;padding-left:24px">${testBtn}<span data-crash-test-msg style="color:var(--text-mid)">${esc(c.testMsg)}</span></span>
+        </div>`;
+    },
+
+    /** The recipients editor (3 fields, the "+" is printed — the OSK has
+     *  none). Drawn by render() only, never by update(): typing must not be
+     *  clobbered by a data push. '' without a payload. */
+    crashEditorHtml(cs, t) {
+        t = t || ((k, d) => d);
+        if (!cs || typeof cs !== "object") return "";
+        const esc = Settings._esc;
+        const fields = [0, 1, 2].map((i) => `<label style="display:flex;align-items:center;gap:4px">
+                <span style="color:var(--text-dim);font-size:13px;font-weight:700">${esc(String(i + 1))}. +</span>
+                <input data-crash-rcpt="${i}" type="tel" inputmode="numeric" maxlength="20" autocomplete="off" value="${esc(Settings._crash.recipients[i] || "")}" placeholder="${esc(t("crash_rcpt_placeholder", "np. 48601234567"))}" style="width:150px;padding:6px 8px;border-radius:8px;font-size:13px;letter-spacing:1px;background:var(--color-surface);color:var(--text-primary);border:1px solid var(--card-border)">
+            </label>`).join("");
+        return `<div data-crash-editor style="display:flex;flex-direction:column;gap:6px;padding:8px 12px;border-radius:12px;background:var(--card-bg);border:1px solid var(--card-border);font-size:11px;line-height:1.3">
+            <span style="color:var(--text-dim);font-weight:700">${esc(t("crash_rcpt_title", "Odbiorcy SMS po stłuczce (najwyżej 3, z kierunkowym kraju)"))}</span>
+            <div style="display:flex;flex-wrap:wrap;gap:6px 12px">${fields}</div>
+            <div style="display:flex;flex-wrap:wrap;align-items:center;gap:8px">
+                <button type="button" data-crash-save style="padding:7px 14px;border-radius:8px;font-size:12px;font-weight:700;border:none;background:var(--color-primary);color:#fff">${esc(t("crash_rcpt_save", "Zapisz odbiorców"))}</button>
+                <span data-crash-msg style="color:var(--text-mid)">${esc(Settings._crash.msg)}</span>
+            </div>
+        </div>`;
+    },
+
+    /** One info row "GPS: <źródło> <stan> <nadawca>" from data.gps_state
+     *  (web_viewer._gps_state_summary of gps.source_state), plus — while
+     *  there is no fix — where the phone should send its NMEA: the head
+     *  unit's bnep0 address from data.phone_tether (Bluetooth PAN reaches
+     *  every app on the phone; 10.0.0.1 of wireless AA does not). '' without
+     *  a payload (location module off). Inline styles only; every value is
+     *  escaped (the sender address comes from the network). */
+    gpsRowHtml(gs, pt, t) {
+        t = t || ((k, d) => d);
+        if (!gs || typeof gs !== "object") return "";
+        const esc = Settings._esc;
+        const fix = gs.state === "fix";
+        const color = fix ? "#16a34a" : "#d97706";
+        const names = { udp: "UDP", tcp: "TCP", serial: t("gps_src_serial", "port szeregowy"),
+                        demo: t("gps_src_demo", "demo") };
+        const source = (typeof gs.source === "string" ? gs.source : "").split(",")
+            .filter(Boolean).map((n) => names[n] || n).join(" + ") || "—";
+        const label = fix ? t("gps_state_fix", "jest pozycja") : t("gps_state_no_fix", "brak pozycji");
+        const peer = (fix && gs.peer)
+            ? ` <span style="color:var(--text-dim)">${esc(t("gps_peer", "od"))}</span> <span style="color:var(--text-mid);font-family:monospace">${esc(gs.peer)}</span>` : "";
+        let hint = "";
+        if (!fix) {
+            const ip = (pt && typeof pt === "object" && pt.state === "connected" && pt.ip)
+                ? String(pt.ip) : t("gps_hint_no_ip", "<IP bnep0 z „Internet z telefonu”>");
+            const parts = [];
+            if (Number.isInteger(gs.udp_port)) {
+                // Function replacements: "$&" in a value must stay literal.
+                parts.push(t("gps_hint_udp", "Wyślij NMEA na {addr}:{port} (UDP)")
+                    .replace("{addr}", () => ip).replace("{port}", () => String(gs.udp_port)));
+            }
+            if (Number.isInteger(gs.tcp_port)) {
+                parts.push(t("gps_hint_tcp", "uruchom serwer NMEA TCP na porcie {port}")
+                    .replace("{port}", () => String(gs.tcp_port)));
+            }
+            if (parts.length) {
+                hint = `<span data-gps-hint style="color:var(--text-mid);flex-basis:100%;padding-left:24px">${esc(
+                    parts.join(" " + t("gps_hint_or", "albo") + " "))}</span>`;
+            }
+        }
+        return `<div data-gps-state="${esc(fix ? "fix" : "no_fix")}" style="display:flex;flex-wrap:wrap;align-items:center;gap:4px 8px;padding:8px 12px;border-radius:12px;background:var(--card-bg);border:1px solid var(--card-border);font-size:11px;line-height:1.3">
+            <span class="material-symbols-outlined" style="font-size:16px;color:${color}">${fix ? "gps_fixed" : "gps_not_fixed"}</span>
+            <span style="color:var(--text-dim);font-weight:700">${esc(t("gps_row", "GPS"))}:</span>
+            <span style="color:var(--text-mid)">${esc(source)}</span>
+            <span style="color:${color};font-weight:700">${esc(label)}</span>${peer}${hint}
+        </div>`;
+    },
+
     async aaLoad(force) {
         if (Settings._aa.loaded && !force) return;
         try {
@@ -146,33 +743,340 @@ const Settings = {
         try {
             const res = await fetch("/api/modules");
             const data = await res.json();
-            Settings._modules.list = data.modules || [];
+            Settings._modules.list = Array.isArray(data.modules) ? data.modules : [];
+            Settings._modules.restartRequired = !!data.restart_required;
             Settings._modules.loaded = true;
-            App.navigateTo("settings");
+            Settings._modulesRedraw(false);
         } catch (e) { /* keep last known state */ }
     },
 
+    _t() {
+        return (App.t ? App.t.bind(App) : (k, d) => d);
+    },
+
+    /** Redraw only the Moduły card. A full App.navigateTo("settings")
+     *  rebuilds .content-area and puts its scroll back at the top — the card
+     *  sits near the bottom of Settings, so on the 1024x600 panel the
+     *  question (and the save status) would be drawn below the screen while
+     *  the tapped checkbox just flips back. Same pattern as update() for
+     *  [data-tether-slot]. `reveal`: after an action, scroll the question /
+     *  status (drawn under the tapped row) into view by the smallest amount.
+     *  Without the card in the DOM (the driver left Settings while a
+     *  request was in flight) the state is only kept for the next visit —
+     *  never pull the driver back to Settings. */
+    _modulesRedraw(reveal) {
+        const slot = document.querySelector("[data-modules-card]");
+        if (!slot) {
+            if (App.getCurrentScreen && App.getCurrentScreen() === "settings") {
+                App.navigateTo("settings");
+            }
+            return;
+        }
+        slot.innerHTML = Settings.modulesCardHtml(Settings._modules, Settings._t());
+        if (!reveal) return;
+        const el = slot.querySelector("[data-module-question]")
+            || slot.querySelector("[data-modules-status]");
+        if (el && typeof el.scrollIntoView === "function") el.scrollIntoView({ block: "nearest" });
+    },
+
+    /** Checkbox changed. A toggle with consequences opens a question under
+     *  the module's row instead of saving: switching on a module whose
+     *  dependencies do not run, or switching off one that others need.
+     *  Everything else is saved at once. The checkbox is redrawn from the
+     *  list, so until the driver confirms it shows the saved state. */
     async moduleToggle(name, enabled) {
+        const mods = Settings._modules;
+        const m = mods.list.find(x => x && x.name === name);
+        if (!m || typeof enabled !== "boolean") return;
+        const t = Settings._t();
+        if (enabled && m.available === false) {
+            mods.status = t("module_unavailable", "niedostępny w tej wersji");
+            mods.statusName = name;
+            Settings._modulesRedraw(true);
+            return;
+        }
+        const blocked = Array.isArray(m.blocked_by) ? m.blocked_by : [];
+        if (enabled && blocked.length) {
+            mods.confirm = { name, action: "enable", blocked,
+                             needs: Array.isArray(m.needs) ? m.needs : null };
+            Settings._modulesRedraw(true);
+            return;
+        }
+        const stops = Array.isArray(m.would_stop) ? m.would_stop : [];
+        if (!enabled && stops.length) {
+            mods.confirm = { name, action: "disable", stops };
+            Settings._modulesRedraw(true);
+            return;
+        }
+        mods.confirm = null;
+        await Settings._modulePost({ name, enabled });
+    },
+
+    /** "Włącz z zależnościami" in the row of a module that is ON but does
+     *  not run (a dependency is off, or on but itself blocked): the same
+     *  question as for enabling, listing what the server says has to be
+     *  switched on (`needs`). Nothing is saved before the driver confirms. */
+    moduleFixDeps(name) {
+        const mods = Settings._modules;
+        const m = mods.list.find(x => x && x.name === name);
+        if (!m || !m.enabled || m.runs || !Array.isArray(m.needs) || !m.needs.length) return;
+        mods.confirm = { name, action: "enable", already: true,
+                         blocked: Array.isArray(m.blocked_by) ? m.blocked_by : [],
+                         needs: m.needs };
+        Settings._modulesRedraw(true);
+    },
+
+    /** Answer to the open question: "deps" (enable with dependencies),
+     *  "only" (save this toggle alone), "disable", or "cancel". */
+    async moduleConfirm(choice) {
+        const c = Settings._modules.confirm;
+        Settings._modules.confirm = null;
+        if (!c || choice === "cancel") {
+            Settings._modulesRedraw(false);
+            return;
+        }
+        if (c.action === "enable" && (choice === "deps" || choice === "only")) {
+            const withDeps = choice === "deps" && Array.isArray(c.needs) && c.needs.length > 0;
+            await Settings._modulePost({ name: c.name, enabled: true, with_deps: withDeps });
+        } else if (c.action === "disable" && choice === "disable") {
+            await Settings._modulePost({ name: c.name, enabled: false });
+        } else {
+            Settings._modulesRedraw(false);
+        }
+    },
+
+    async _modulePost(body) {
+        const mods = Settings._modules;
+        if (mods.busy) return;               // double tap while saving
+        mods.busy = true;
+        const t = Settings._t();
         try {
             const res = await fetch("/api/modules", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ name, enabled }),
+                body: JSON.stringify(body),
             });
-            const data = await res.json();
-            if (data.ok) {
-                const m = Settings._modules.list.find(x => x.name === name);
-                if (m) m.enabled = enabled;
-                Settings._modules.status =
-                    (App.t ? App.t.call(App, "restart_required", "Zapisano — wymagany restart BCM") :
-                     "Zapisano — wymagany restart BCM");
+            let data = {};
+            try { data = await res.json(); } catch (e) { /* non-JSON error page */ }
+            if (res.ok && data && data.ok) {
+                if (Array.isArray(data.modules)) {
+                    mods.list = data.modules;
+                } else {
+                    const m = mods.list.find(x => x && x.name === body.name);
+                    if (m) m.enabled = body.enabled;
+                }
+                mods.restartRequired = !!data.restart_required;
+                let msg = data.restart_required
+                    ? t("module_saved_restart", "Zapisano — wymaga restartu BCM")
+                    : t("module_saved", "Zapisano");
+                if (Array.isArray(data.enabled_also) && data.enabled_also.length) {
+                    msg += " — " + t("module_enabled_also", "włączono też: {deps}")
+                        .replace("{deps}", () => data.enabled_also.map(String).join(", "));
+                }
+                if (data.persisted === false) {
+                    msg += " — " + t("module_not_persisted",
+                        "nie zapisano w local.yaml — zmiana zniknie po restarcie");
+                }
+                mods.status = msg;
             } else {
-                Settings._modules.status = data.error || "error";
+                mods.status = (data && typeof data.error === "string")
+                    ? data.error : ("HTTP " + res.status);
             }
         } catch (e) {
-            Settings._modules.status = "error: " + e;
+            mods.status = "error: " + e;
         }
-        App.navigateTo("settings");
+        mods.statusName = typeof body.name === "string" ? body.name : null;
+        mods.busy = false;
+        Settings._modulesRedraw(true);
+    },
+
+    /** name -> module of the list (a Map: a module called "__proto__" or
+     *  "constructor" must not reach Object.prototype). */
+    _moduleIndex(list) {
+        const byName = new Map();
+        if (Array.isArray(list)) {
+            list.forEach(m => { if (m && typeof m.name === "string") byName.set(m.name, m); });
+        }
+        return byName;
+    },
+
+    /** One dependency as the driver should read it. A dependency that is
+     *  switched ON but does not run is not "off" — telling the driver to
+     *  enable it would send them to the wrong toggle; its own dependency is
+     *  the cause (the row of that module says which). */
+    _moduleDepLabel(name, byName, t) {
+        const d = byName ? byName.get(String(name)) : undefined;
+        if (d && d.available === false) {
+            return `${name} (${t("module_unavailable", "niedostępny w tej wersji")})`;
+        }
+        if (d && d.enabled && !d.runs) {
+            return `${name} (${t("module_dep_blocked", "włączony, ale nie działa")})`;
+        }
+        return String(name);
+    },
+
+    /** "a, b lub c" for requirement groups ([["a"], ["b", "c"]]); with
+     *  `byName` (see _moduleIndex) each name says why it does not run. */
+    _moduleGroupsText(groups, t, byName) {
+        if (!Array.isArray(groups)) return "";
+        const or = " " + t("module_or", "lub") + " ";
+        const label = byName ? (n => Settings._moduleDepLabel(n, byName, t)) : String;
+        return groups.filter(Array.isArray)
+            .map(g => g.map(label).join(or))
+            .filter(Boolean).join(", ");
+    },
+
+    /** One module: checkbox (data-module, never inline data in JS), name,
+     *  description, hardware note, requirements, and why it will not start /
+     *  that it needs a restart. For a module that is on but blocked it shows
+     *  the server's `needs` (what actually has to be switched on — for a
+     *  chain that is the root, not the direct dependency) with a "Włącz z
+     *  zależnościami" button. `byName`: the whole list (_moduleIndex), for
+     *  the dependency labels. Every value escaped; inline styles only. */
+    moduleRowHtml(m, t, byName) {
+        t = t || ((k, d) => d);
+        if (!m || typeof m !== "object" || typeof m.name !== "string") return "";
+        const esc = Settings._esc;
+        const unavailable = m.available === false;
+        // A planned module cannot be switched on; one that is on anyway
+        // (hand-edited local.yaml) can still be switched off.
+        const disabled = unavailable && !m.enabled;
+        const req = [];
+        if (Array.isArray(m.requires)) m.requires.forEach(n => req.push([n]));
+        if (Array.isArray(m.requires_any)) m.requires_any.forEach(g => req.push(g));
+        const lines = [];
+        if (m.hardware) {
+            lines.push(`<span data-module-hw style="color:var(--text-mid)">${esc(t("module_hardware", "Sprzęt"))}: ${esc(m.hardware)}</span>`);
+        }
+        if (req.length) {
+            lines.push(`<span style="color:var(--text-dim)">${esc(t("module_requires", "wymaga"))}: ${esc(Settings._moduleGroupsText(req, t))}</span>`);
+        }
+        let fix = "";
+        if (unavailable) {
+            lines.push(`<span data-module-unavailable style="color:var(--text-dim);font-style:italic">${esc(t("module_unavailable", "niedostępny w tej wersji"))}</span>`);
+        } else if (m.enabled && !m.runs && m.reason === "cycle") {
+            lines.push(`<span data-module-blocked style="color:#d97706;font-weight:700">${esc(t("module_cycle", "nie wystartuje — błąd katalogu modułów"))}</span>`);
+        } else if (m.enabled && !m.runs && Array.isArray(m.needs) && m.needs.length) {
+            lines.push(`<span data-module-blocked style="color:#d97706;font-weight:700">${esc(t("module_blocked_needs", "nie wystartuje — trzeba włączyć"))}: ${esc(m.needs.map(String).join(", "))}</span>`);
+            // The name travels in a data attribute, never inside the JS.
+            fix = `<button type="button" data-module-fix="${esc(m.name)}" onclick="Settings.moduleFixDeps(this.dataset.moduleFix)" style="align-self:flex-start;margin-top:2px;padding:4px 10px;border-radius:8px;font-size:10px;font-weight:700;border:none;background:var(--color-primary);color:#fff">${esc(t("module_enable_with_deps", "Włącz z zależnościami"))}</button>`;
+        } else if (m.enabled && !m.runs && Array.isArray(m.blocked_by) && m.blocked_by.length) {
+            lines.push(`<span data-module-blocked style="color:#d97706;font-weight:700">${esc(t("module_blocked", "nie wystartuje — brak"))}: ${esc(Settings._moduleGroupsText(m.blocked_by, t, byName))}</span>`);
+        }
+        if (m.restart_pending) {
+            lines.push(`<span data-module-restart style="color:var(--color-primary);font-weight:700">${esc(t("module_restart_pending", "wymaga restartu BCM"))}</span>`);
+        }
+        // The fix button sits outside the <label>: a tap on it must not
+        // also toggle the checkbox.
+        return `<div data-module-cell="${esc(m.name)}" style="display:flex;flex-direction:column;border-bottom:1px solid var(--card-border);padding:4px 0;min-width:0">
+        <label data-module-row="${esc(m.name)}" style="display:flex;align-items:flex-start;gap:8px;cursor:${disabled ? "default" : "pointer"};opacity:${disabled ? "0.6" : "1"}">
+            <input type="checkbox" data-module="${esc(m.name)}" ${m.enabled ? "checked" : ""} ${disabled ? "disabled" : ""}
+                style="margin-top:2px;flex:none" onchange="Settings.moduleToggle(this.dataset.module, this.checked)">
+            <span style="display:flex;flex-direction:column;gap:1px;min-width:0;flex:1;font-size:9px;line-height:1.3">
+                <span style="display:flex;gap:6px;align-items:baseline;min-width:0">
+                    <span style="font-size:11px;font-weight:700;color:var(--color-on-surface);flex:none">${esc(m.name)}</span>
+                    <span style="color:var(--text-dim);margin-left:auto;text-align:right;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0">${esc(m.description)}</span>
+                </span>
+                ${lines.join("")}
+            </span>
+        </label>${fix ? `<span style="padding-left:21px">${fix}</span>` : ""}
+        </div>`;
+    },
+
+    /** The open question (see moduleToggle), or ''. Buttons carry fixed
+     *  choice words only — the module name is never part of the JS.
+     *  `byName` (_moduleIndex) marks dependencies that are on but blocked. */
+    moduleConfirmHtml(c, t, byName) {
+        t = t || ((k, d) => d);
+        if (!c || typeof c !== "object" || typeof c.name !== "string") return "";
+        const esc = Settings._esc;
+        const btn = (choice, label, primary) =>
+            `<button type="button" data-module-confirm="${choice}" onclick="Settings.moduleConfirm('${choice}')" style="padding:6px 12px;border-radius:8px;font-size:11px;font-weight:700;border:none;${primary ? "background:var(--color-primary);color:#fff" : "background:var(--card-border);color:var(--text-mid)"}">${esc(label)}</button>`;
+        const sub = (key, fallback, deps) => t(key, fallback)
+            .replace("{name}", () => c.name).replace("{deps}", () => deps);
+        let text = "";
+        let buttons = "";
+        if (c.action === "enable") {
+            const missing = Settings._moduleGroupsText(c.blocked, t, byName);
+            text = esc(sub("module_needs_title", "„{name}” wymaga modułów, które nie działają: {deps}.", missing));
+            if (Array.isArray(c.needs) && c.needs.length) {
+                text += " " + esc(sub("module_enable_also", "Włączyć też: {deps}?", c.needs.map(String).join(", ")));
+                buttons = btn("deps", t("module_enable_with_deps", "Włącz z zależnościami"), true);
+                // Already on (the row's fix button): "only this one" would change nothing.
+                if (!c.already) buttons += btn("only", t("module_enable_only", "Tylko ten moduł"), false);
+            } else {
+                text += " " + esc(sub("module_deps_unavailable",
+                    "Potrzebne moduły nie są dostępne w tej wersji — „{name}” nie wystartuje.", ""));
+                if (!c.already) buttons = btn("only", t("module_enable_anyway", "Zapisz mimo to"), false);
+            }
+        } else if (c.action === "disable") {
+            const stops = Array.isArray(c.stops) ? c.stops.map(String).join(", ") : "";
+            text = esc(sub("module_disable_stops", "Wyłączenie „{name}” zatrzyma też: {deps}.", stops));
+            buttons = btn("disable", t("module_disable", "Wyłącz"), true);
+        } else {
+            return "";
+        }
+        buttons += btn("cancel", t("module_cancel", "Anuluj"), false);
+        return `<div data-module-question="${esc(c.action)}" style="margin:4px 0 8px 0;padding:8px 12px;border-radius:12px;border:1px solid #d97706;background:var(--card-bg);font-size:11px;line-height:1.4;color:var(--color-on-surface)">
+            <p style="margin:0 0 8px 0">${text}</p>
+            <div style="display:flex;flex-wrap:wrap;gap:8px">${buttons}</div>
+        </div>`;
+    },
+
+    /** Body of the Moduły card: restart banner, the module list grouped by
+     *  catalog ``group``, and the open question / last save status. Those
+     *  two are drawn right under the grid line of the module they are about
+     *  (across both columns), so they appear next to the checkbox the
+     *  driver just tapped instead of at the top of a card taller than the
+     *  screen; without a module they go to the top of the card. */
+    modulesCardHtml(state, t) {
+        t = t || ((k, d) => d);
+        const esc = Settings._esc;
+        state = state || {};
+        const list = Array.isArray(state.list) ? state.list.filter(m => m && typeof m.name === "string") : [];
+        const byName = Settings._moduleIndex(list);
+        const confirm = state.confirm && typeof state.confirm === "object"
+            && typeof state.confirm.name === "string" ? state.confirm : null;
+        const statusHtml = state.status
+            ? `<p data-modules-status style="margin:4px 0 8px 0;font-size:10px;color:var(--color-primary)">${esc(state.status)}</p>`
+            : "";
+        const statusName = statusHtml && typeof state.statusName === "string"
+            && byName.has(state.statusName) ? state.statusName : null;
+        const confirmName = confirm && byName.has(confirm.name) ? confirm.name : null;
+        let html = "";
+        if (state.restartRequired) {
+            html += `<p data-modules-restart style="margin:0 0 8px 0;padding:6px 10px;border-radius:8px;background:var(--card-border);color:var(--color-primary);font-size:11px;font-weight:700">${esc(t("module_restart_pending", "wymaga restartu BCM"))}</p>`;
+        }
+        if (statusHtml && statusName === null) html += statusHtml;
+        if (confirm && confirmName === null) html += Settings.moduleConfirmHtml(confirm, t, byName);
+        const notesFor = (name) => {
+            let h = "";
+            if (name === confirmName) h += Settings.moduleConfirmHtml(confirm, t, byName);
+            if (name === statusName) h += statusHtml;
+            return h ? `<div data-module-notes="${esc(name)}" style="grid-column:1/-1;min-width:0">${h}</div>` : "";
+        };
+        const known = Settings._moduleGroups.map(g => g[0]);
+        const groups = Settings._moduleGroups.slice();
+        list.forEach(m => {
+            const g = typeof m.group === "string" ? m.group : "";
+            if (!known.includes(g)) { known.push(g); groups.push([g, "", g]); }
+        });
+        groups.forEach(([key, tkey, fallback]) => {
+            const items = list.filter(m => (typeof m.group === "string" ? m.group : "") === key);
+            if (!items.length) return;
+            const cells = [];
+            items.forEach((m, i) => {
+                cells.push(Settings.moduleRowHtml(m, t, byName));
+                // End of a grid line (2 columns) or of the group: the notes
+                // of both modules on this line, so no row is pushed aside.
+                if (i % 2 === 1 || i === items.length - 1) {
+                    items.slice(i - (i % 2), i + 1).forEach(x => cells.push(notesFor(x.name)));
+                }
+            });
+            html += `<p data-module-group="${esc(key)}" style="margin:8px 0 2px 0;font-size:9px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;color:var(--text-dim)">${esc(tkey ? t(tkey, fallback) : fallback)}</p>
+                <div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));column-gap:16px">${cells.join("")}</div>`;
+        });
+        return html;
     },
 
     async radioRefresh() {
@@ -444,9 +1348,9 @@ const Settings = {
         overlay.innerHTML = `<div style="background:var(--card-bg);border:1px solid var(--card-border)" class="rounded-2xl p-6 w-[360px] shadow-2xl text-center" style="color:var(--text-primary)">
             <span class="material-symbols-outlined text-4xl text-blue-400 mb-3">bluetooth</span>
             <h3 class="text-lg font-bold mb-2" style="color:var(--text-primary)">${t("bt_pair_confirm","Confirm Pairing")}</h3>
-            <p class="text-sm mb-4" style="color:var(--text-dim)">${req.address}</p>
+            <p class="text-sm mb-4" style="color:var(--text-dim)">${Settings._esc(req.address)}</p>
             <div class="rounded-xl py-4 px-6 mb-4" style="background:var(--color-surface)">
-                <span class="text-3xl font-mono font-bold tracking-[0.3em]" style="color:var(--text-primary)">${req.passkey || "------"}</span>
+                <span class="text-3xl font-mono font-bold tracking-[0.3em]" style="color:var(--text-primary)">${Settings._esc(req.passkey || "------")}</span>
             </div>
             <p class="text-[10px] mb-4" style="color:var(--text-dim)">${t("bt_pair_match","Does this code match your device?")}</p>
             <div class="flex gap-3 justify-center">
@@ -556,29 +1460,100 @@ const Settings = {
 
 App.registerScreen("settings", (() => {
     let _radioFetchedAt = 0;
-    // Last phone_tether payload drawn; update() redraws only that row.
+    // Last phone_tether / GPS payload drawn; update() redraws only those rows.
     let _tetherKey = "null";
+    let _gpsKey = "null";
+    let _carPhoneKey = "null";
+    let _agentKey = "null";
 
     function _tetherKeyOf(data) {
         return JSON.stringify((data && data.phone_tether) || null);
     }
 
-    /** Live data while Settings is open: only the phone-internet row changes
-     *  here (state / IP appear while the driver watches). Never a full
+    function _carPhoneKeyOf(data) {
+        return JSON.stringify((data && data.car_phone) || null);
+    }
+
+    function _agentKeyOf(data) {
+        return JSON.stringify((data && data.car_phone_agent) || null);
+    }
+
+    /** What the crash SMS row shows (not the countdown — the window does). */
+    let _crashKey = "null";
+    function _crashKeyOf(data) {
+        const cs = data && data.crash_sms;
+        if (!cs || typeof cs !== "object") return "null";
+        return JSON.stringify([cs.dry_run, cs.forced_dry_run_reason, cs.recipients_n, cs.test]);
+    }
+
+    /** What the GPS row shows: gps_state without last_ts (it changes with
+     *  every fix, the row does not show it) + the bnep0 IP of the hint. */
+    function _gpsKeyOf(data) {
+        const gs = data && data.gps_state;
+        if (!gs || typeof gs !== "object") return "null";
+        const pt = data.phone_tether;
+        return JSON.stringify([gs.source, gs.state, gs.peer, gs.udp_port, gs.tcp_port,
+            pt && pt.state === "connected" ? pt.ip : ""]);
+    }
+
+    /** Live data while Settings is open: only the phone-internet, car phone,
+     *  phone agent and GPS rows change here (state / IP appear while the driver watches). Never a full
      *  re-render — that would reset the scroll position and the OSK. */
     function update(data) {
+        const t = App.t.bind(App);
         const key = _tetherKeyOf(data);
-        if (key === _tetherKey) return;
-        const slot = document.querySelector("[data-tether-slot]");
-        if (!slot) return;
-        _tetherKey = key;
-        slot.innerHTML = Settings.tetherRowHtml(data && data.phone_tether, App.t.bind(App));
+        if (key !== _tetherKey) {
+            const slot = document.querySelector("[data-tether-slot]");
+            if (slot) {
+                _tetherKey = key;
+                slot.innerHTML = Settings.tetherRowHtml(data && data.phone_tether, t);
+            }
+        }
+        const carKey = _carPhoneKeyOf(data);
+        if (carKey !== _carPhoneKey) {
+            const slot = document.querySelector("[data-car-phone-slot]");
+            if (slot) {
+                _carPhoneKey = carKey;
+                slot.innerHTML = Settings.carPhoneRowHtml(data && data.car_phone, t);
+            }
+        }
+        const agentKey = _agentKeyOf(data);
+        if (agentKey !== _agentKey) {
+            const slot = document.querySelector("[data-car-phone-agent-slot]");
+            // Not while the driver types the pairing code (retried on the
+            // next update: _agentKey stays old).
+            if (slot && !Settings.carPhoneAgentTyping(slot)) {
+                _agentKey = agentKey;
+                slot.innerHTML = Settings.carPhoneAgentRowHtml(data && data.car_phone_agent, t);
+            }
+        }
+        const crashKey = _crashKeyOf(data);
+        if (crashKey !== _crashKey) {
+            const slot = document.querySelector("[data-crash-sms-slot]");
+            if (slot) {
+                _crashKey = crashKey;
+                slot.innerHTML = Settings.crashSmsRowHtml(data && data.crash_sms, t);
+            }
+        }
+        const gpsKey = _gpsKeyOf(data);
+        if (gpsKey !== _gpsKey) {
+            const slot = document.querySelector("[data-gps-slot]");
+            if (slot) {
+                _gpsKey = gpsKey;
+                slot.innerHTML = Settings.gpsRowHtml(data && data.gps_state,
+                                                     data && data.phone_tether, t);
+            }
+        }
     }
 
     function render(container, theme, data) {
         const config = App.getConfig();
         const t = App.t.bind(App);
         _tetherKey = _tetherKeyOf(data);
+        _gpsKey = _gpsKeyOf(data);
+        _carPhoneKey = _carPhoneKeyOf(data);
+        _agentKey = _agentKeyOf(data);
+        _crashKey = _crashKeyOf(data);
         const paired = Settings._btPaired;
         const discovered = Settings._btDiscovered;
         const scanning = Settings._btScanning;
@@ -595,6 +1570,10 @@ App.registerScreen("settings", (() => {
         Settings.wifiLoad();
         Settings.modulesLoad();
         Settings.aaLoad();
+        if (data && data.crash_sms) {
+            Settings.crashListen();
+            Settings.crashLoad();
+        }
 
         container.innerHTML = `<div class="screen-container" style="background:var(--color-surface);color:var(--color-on-surface)">
             ${AppBar.render(theme, data)}
@@ -639,6 +1618,16 @@ App.registerScreen("settings", (() => {
                              empty slot (module off) adds no flex gap; update()
                              swaps its content. -->
                         <div data-tether-slot style="display:contents">${Settings.tetherRowHtml(data && data.phone_tether, t)}</div>
+                        <!-- The phone mounted in the car (USB, adb) — same slot idea. -->
+                        <div data-car-phone-slot style="display:contents">${Settings.carPhoneRowHtml(data && data.car_phone, t)}</div>
+                        <!-- The Termux agent on that phone (pairing, health) — same slot idea. -->
+                        <div data-car-phone-agent-slot style="display:contents">${Settings.carPhoneAgentRowHtml(data && data.car_phone_agent, t)}</div>
+                        <!-- SMS po stłuczce: status + testowy SMS (update() swaps it)
+                             and the recipients editor (render() only). -->
+                        <div data-crash-sms-slot style="display:contents">${Settings.crashSmsRowHtml(data && data.crash_sms, t)}</div>
+                        <div data-crash-editor-slot style="display:contents">${Settings.crashEditorHtml(data && data.crash_sms, t)}</div>
+                        <!-- GPS source / fix + where to send NMEA (same slot idea). -->
+                        <div data-gps-slot style="display:contents">${Settings.gpsRowHtml(data && data.gps_state, data && data.phone_tether, t)}</div>
                         <!-- Wi-Fi Hotspot / ALFA-NET network access. The live
                              Android Auto P2P-GO credentials used to show here,
                              but wpa_supplicant regenerates them every boot and
@@ -786,16 +1775,7 @@ App.registerScreen("settings", (() => {
                         <p class="text-[10px] font-bold uppercase tracking-wider" style="color:var(--text-dim)">${t("modules", "Moduły")}</p>
                         <p class="text-[9px]" style="color:var(--text-dim)">${t("modules_hint", "Zmiany działają po restarcie BCM")}</p>
                     </div>
-                    ${Settings._modules.status ? `<p class="text-[10px] mb-2" style="color:var(--color-primary)">${Settings._modules.status}</p>` : ""}
-                    <div class="grid grid-cols-2 gap-x-4 gap-y-1">
-                        ${Settings._modules.list.map(m => `
-                            <label class="flex items-center gap-2 py-1 cursor-pointer" style="border-bottom:1px solid var(--card-border)">
-                                <input type="checkbox" ${m.enabled ? "checked" : ""}
-                                    onchange="Settings.moduleToggle('${m.name}', this.checked)">
-                                <span class="text-[11px] font-bold" style="color:var(--color-on-surface)">${m.name}</span>
-                                <span class="text-[9px] truncate ml-auto text-right" style="color:var(--text-dim);max-width:60%">${m.description}</span>
-                            </label>`).join("")}
-                    </div>
+                    <div data-modules-card>${Settings.modulesCardHtml(Settings._modules, t)}</div>
                 </div>
                 <!-- System & Kiosk Control -->
                 <div class="rounded-xl p-3 mt-3" style="background:var(--card-bg);border:1px solid var(--card-border)">
@@ -852,7 +1832,17 @@ App.registerScreen("settings", (() => {
         </div>`;
     }
 
+    // A Bluetooth address as bluetoothctl prints it. Only such a value is
+    // put into the inline onclick handlers below (hex digits and colons
+    // cannot break out of the JavaScript string); anything else gets no
+    // action buttons at all.
+    const BT_MAC_RE = /^[0-9A-Fa-f]{2}(:[0-9A-Fa-f]{2}){5}$/;
+
     function _renderDevice(d, type, t) {
+        // Device names come over the air: during a scan ANY device in range
+        // picks its own name (no pairing needed) — escaped like all phone data.
+        const esc = Settings._esc;
+        const mac = typeof d.address === "string" && BT_MAC_RE.test(d.address) ? d.address : "";
         const isConnected = d.connected === true;
         const isPaired = type === "paired";
         const statusBadge = isConnected
@@ -862,14 +1852,16 @@ App.registerScreen("settings", (() => {
                 : `<span class="text-[7px] font-bold px-1.5 py-0.5 rounded bg-blue-600/20 text-blue-400">New</span>`;
 
         let actions = "";
-        if (type === "discovered") {
-            actions = `<button class="text-[8px] font-bold px-2 py-1 rounded bg-blue-600 text-white hover:bg-blue-500" onclick="Settings.btPair('${d.address}')">${t("bt_pair","Pair")}</button>`;
+        if (!mac) {
+            actions = "";
+        } else if (type === "discovered") {
+            actions = `<button class="text-[8px] font-bold px-2 py-1 rounded bg-blue-600 text-white hover:bg-blue-500" onclick="Settings.btPair('${mac}')">${t("bt_pair","Pair")}</button>`;
         } else if (isConnected) {
             actions = `<button class="text-[8px] font-bold px-2 py-1 rounded bg-red-600/20 text-red-400 hover:bg-red-600/30" onclick="Settings.btDisconnect()">${t("bt_disconnect","Disconnect")}</button>`;
         } else {
             actions = `<div class="flex gap-1">
-                <button class="text-[8px] font-bold px-2 py-1 rounded bg-green-700 text-white hover:bg-green-600" onclick="Settings.btConnect('${d.address}')">${t("bt_connect","Connect")}</button>
-                <button class="text-[8px] font-bold px-1.5 py-1 rounded hover:opacity-80" style="background:var(--card-border);color:var(--text-mid)" onclick="Settings.btRemove('${d.address}')" title="${t("bt_remove","Remove")}">
+                <button class="text-[8px] font-bold px-2 py-1 rounded bg-green-700 text-white hover:bg-green-600" onclick="Settings.btConnect('${mac}')">${t("bt_connect","Connect")}</button>
+                <button class="text-[8px] font-bold px-1.5 py-1 rounded hover:opacity-80" style="background:var(--card-border);color:var(--text-mid)" onclick="Settings.btRemove('${mac}')" title="${t("bt_remove","Remove")}">
                     <span class="material-symbols-outlined" style="font-size:12px;">delete</span>
                 </button>
             </div>`;
@@ -880,10 +1872,10 @@ App.registerScreen("settings", (() => {
                 <span class="material-symbols-outlined ${isConnected ? 'text-green-500' : ''}" style="font-size:16px;${isConnected ? '' : 'color:var(--text-dim)'}">bluetooth</span>
                 <div>
                     <div class="flex items-center gap-2">
-                        <p class="text-xs font-bold">${d.name || d.address}</p>
+                        <p class="text-xs font-bold">${esc(d.name || d.address)}</p>
                         ${statusBadge}
                     </div>
-                    <p class="text-[9px]" style="color:var(--text-dim)">${d.address}</p>
+                    <p class="text-[9px]" style="color:var(--text-dim)">${esc(d.address)}</p>
                 </div>
             </div>
             ${actions}
@@ -899,6 +1891,7 @@ App.registerScreen("settings", (() => {
             bcm_power_toggle: "Power Toggle", voice_aa_trigger: "AA Voice",
             navigate_aa: "Open AA", home: "Home", back: "Back",
             source_cycle: "Source Cycle", brightness_cycle: "Brightness",
+            crash_cancel: App.t("swc_crash_cancel", "Anuluj SMS po stłuczce"),
         };
         return labels[action] || action;
     }

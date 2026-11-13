@@ -5,6 +5,14 @@ route, predicted fuel, waypoint weather, incidents). The travel plan
 fields are populated by :meth:`TripComputer.set_destination`, which
 delegates heavy lifting to :class:`src.trip.route_planner.RoutePlanner`
 running in a background thread so the OBD event handler never blocks.
+
+Route origin: the current GPS fix when there is a fresh one, otherwise a
+fixed fallback (Kraków city centre). The plan says which
+(``origin_source``: ``gps`` | ``fallback`` | ``given``, plus
+``origin_lat/origin_lon``) — it used to fall back silently, and a route from
+Kraków looks like a real one. When ``gps.fix`` turns True while the active
+plan started from the fallback, the same destination is planned once more
+from the GPS position (after :data:`REPLAN_DELAY_S`, see _on_gps_fix).
 """
 
 import math
@@ -18,6 +26,23 @@ log = get_logger("trip_computer")
 
 #: A GPS position older than this is not used as the route origin.
 GPS_MAX_AGE_S = 30.0
+#: Route origin when there is no fresh GPS fix (Kraków city centre).
+FALLBACK_ORIGIN = (50.0647, 19.9450)
+#: Delay between ``gps.fix`` → True and the re-plan from the GPS position.
+#: The GPS module publishes gps.fix BEFORE gps.lat/gps.lon of the same fix,
+#: and on the async bus our callback may run in between; the delay also
+#: merges a fix that flaps in a tunnel into one re-plan.
+REPLAN_DELAY_S = 3.0
+
+
+def _start_daemon(target, name: str) -> None:
+    threading.Thread(target=target, daemon=True, name=name).start()
+
+
+def _start_timer(delay: float, target) -> None:
+    timer = threading.Timer(delay, target)
+    timer.daemon = True
+    timer.start()
 
 
 def _finite(value: Any) -> Optional[float]:
@@ -39,7 +64,17 @@ class TripComputer:
         self._bus = event_bus
         self._planner = route_planner
         self._plan_lock = threading.Lock()
+        # Bumped by every new plan / clear / reset (under _plan_lock): a
+        # planner worker or a scheduled re-plan that belongs to an older
+        # plan must not write over the current one.
+        self._plan_seq = 0
+        self._replan_scheduled = False
+        # Seams for tests (no threads there): run a worker / a delayed call.
+        self._start_worker = _start_daemon
+        self._schedule = _start_timer
         self.reset()
+        if event_bus is not None:
+            event_bus.subscribe("gps.fix", self._on_gps_fix)
 
     def reset(self) -> None:
         """Reset all trip counters."""
@@ -75,6 +110,12 @@ class TripComputer:
         self.route_approximate: bool = False
         self.plan_error: Optional[str] = None
         self.plan_computed_at: float = 0.0
+        # Where the active plan's route starts (see the module docstring).
+        self.origin_source: Optional[str] = None
+        self.origin_lat: Optional[float] = None
+        self.origin_lon: Optional[float] = None
+        with self._plan_lock:
+            self._plan_seq += 1
 
     def update(self, speed_kmh: float, fuel_rate_lph: float, dt: float | None = None) -> None:
         """Update trip with new speed and fuel rate readings.
@@ -177,10 +218,15 @@ class TripComputer:
             return
 
         with self._plan_lock:
+            self._plan_seq += 1
+            seq = self._plan_seq
             self.destination_lat = lat
             self.destination_lon = lon
             self.destination_name = name
             self.plan_error = None
+            self.origin_source = None
+            self.origin_lat = None
+            self.origin_lon = None
 
         log.info("Planning travel to %s (%.4f, %.4f)", name, lat, lon)
 
@@ -191,9 +237,22 @@ class TripComputer:
             self._bus.publish("trip.planning", True)
 
         def _worker():
-            start = origin
-            if start is None:
-                start = self._current_gps_or_fallback()
+            if origin is not None:
+                start, source = origin, "given"
+            else:
+                start, source = self._current_gps_or_fallback()
+            log.info("Route origin: %s (%.4f, %.4f)", source, start[0], start[1])
+            with self._plan_lock:
+                stale = seq != self._plan_seq
+                idle = self.destination_lat is None
+                if not stale:
+                    # Set before planning: a gps.fix during the (slow) planner
+                    # call must already see that this plan starts from fallback.
+                    self.origin_source = source
+                    self.origin_lat, self.origin_lon = float(start[0]), float(start[1])
+            if stale:                           # replaced before it started
+                self._stale_worker_done(idle)
+                return
             try:
                 result = self._planner.plan(
                     start=start,
@@ -205,35 +264,51 @@ class TripComputer:
                 result = {"error": "planner_exception"}
 
             with self._plan_lock:
-                if result.get("error"):
-                    self.plan_error = result["error"]
-                else:
-                    self.plan_error = None
-                self.route_distance_km = float(result.get("distance_km", 0.0))
-                self.route_eta_min = float(result.get("duration_min", 0.0))
-                self.predicted_fuel_l = float(result.get("predicted_fuel_l", 0.0))
-                self.route_geometry = list(result.get("geometry", []))
-                self.route_waypoints = list(result.get("waypoints", []))
-                self.route_weather_points = list(result.get("weather_points", []))
-                self.route_incidents = list(result.get("incidents", []))
-                # True gdy planer nie miał klucza ORS i policzył linię prostą.
-                # UI musi to nazwać, bo sama liczba wygląda jak realna trasa.
-                self.route_approximate = bool(result.get("approximate", False))
-                self.plan_computed_at = float(result.get("computed_at", time.time()))
+                stale = seq != self._plan_seq
+                idle = self.destination_lat is None
+                if not stale:
+                    self.plan_error = result["error"] if result.get("error") else None
+                    self.route_distance_km = float(result.get("distance_km", 0.0))
+                    self.route_eta_min = float(result.get("duration_min", 0.0))
+                    self.predicted_fuel_l = float(result.get("predicted_fuel_l", 0.0))
+                    self.route_geometry = list(result.get("geometry", []))
+                    self.route_waypoints = list(result.get("waypoints", []))
+                    self.route_weather_points = list(result.get("weather_points", []))
+                    self.route_incidents = list(result.get("incidents", []))
+                    # True gdy planer nie miał klucza ORS i policzył linię prostą.
+                    # UI musi to nazwać, bo sama liczba wygląda jak realna trasa.
+                    self.route_approximate = bool(result.get("approximate", False))
+                    self.plan_computed_at = float(result.get("computed_at", time.time()))
+            if stale:
+                # A newer plan (or a clear) came in meanwhile — its own
+                # worker publishes; this result belongs to the old one.
+                log.info("Route plan to %s superseded — result dropped", name)
+                self._stale_worker_done(idle)
+                return
 
             if self._bus:
                 self._bus.publish("trip.route", self.get_plan_dict())
                 self._bus.publish("trip.planning", False)
 
-        threading.Thread(target=_worker, daemon=True,
-                         name="trip-planner").start()
+        self._start_worker(_worker, "trip-planner")
+
+    def _stale_worker_done(self, idle: bool) -> None:
+        """A superseded worker ends. A newer plan publishes its own result;
+        after a clear/reset (no destination) nobody else would end the
+        "Computing route…" state, so do it here."""
+        if idle and self._bus:
+            self._bus.publish("trip.planning", False)
 
     def clear_destination(self) -> None:
         """Clear the active travel plan and return to live trip stats."""
         with self._plan_lock:
+            self._plan_seq += 1
             self.destination_lat = None
             self.destination_lon = None
             self.destination_name = None
+            self.origin_source = None
+            self.origin_lat = None
+            self.origin_lon = None
             self.route_distance_km = 0.0
             self.route_eta_min = 0.0
             self.predicted_fuel_l = 0.0
@@ -267,18 +342,58 @@ class TripComputer:
                 "approximate": self.route_approximate,
                 "error": self.plan_error,
                 "computed_at": self.plan_computed_at,
+                "origin_source": self.origin_source,
+                "origin_lat": self.origin_lat,
+                "origin_lon": self.origin_lon,
             }
 
-    def _current_gps_or_fallback(self) -> tuple[float, float]:
-        """Best-effort origin coordinate for a travel plan.
+    def _on_gps_fix(self, topic: str, value: Any, timestamp: float) -> None:
+        """``gps.fix`` → True: re-plan once if the active plan used the fallback.
 
-        Uses ``gps.lat``/``gps.lon`` only while ``gps.fix`` is True and
-        both are younger than :data:`GPS_MAX_AGE_S` — the bus keeps the last
-        value until restart, and a position from before the fix was lost
-        (phone taken out of the car, GPS app killed) can be kilometres off.
-        Otherwise falls back
-        to a sensible default (Kraków city centre) so demo mode still
-        produces a meaningful route.
+        Event-bus callback: only schedules (no planning, no network here).
+        At most one re-plan is pending; it is bound to the plan it was
+        scheduled for (``_plan_seq``), so a new destination or a clear in
+        the meantime cancels it.
+        """
+        if value is not True:
+            return
+        with self._plan_lock:
+            if self.destination_lat is None or self.origin_source != "fallback" \
+                    or self._replan_scheduled:
+                return
+            self._replan_scheduled = True
+            seq = self._plan_seq
+        log.info("GPS fix acquired — re-planning the route from the GPS position "
+                 "in %.0f s (it started from the fallback origin)", REPLAN_DELAY_S)
+        self._schedule(REPLAN_DELAY_S, lambda: self._replan_from_gps(seq))
+
+    def _replan_from_gps(self, seq: int) -> None:
+        """The delayed half of _on_gps_fix (timer thread)."""
+        with self._plan_lock:
+            self._replan_scheduled = False
+            if seq != self._plan_seq or self.destination_lat is None \
+                    or self.origin_source != "fallback":
+                return
+            lat, lon = self.destination_lat, self.destination_lon
+            name = self.destination_name or "Destination"
+        _coords, source = self._current_gps_or_fallback()
+        if source != "gps":
+            # Fix reported but no fresh position yet (or lost again): keep
+            # the plan; the next gps.fix edge tries again.
+            log.info("Route re-plan skipped — no fresh GPS position yet")
+            return
+        self.set_destination(lat, lon, name)
+
+    def _current_gps_or_fallback(self) -> tuple[tuple[float, float], str]:
+        """Best-effort origin for a travel plan: ``((lat, lon), source)``.
+
+        ``source`` is ``"gps"`` or ``"fallback"``. Uses ``gps.lat``/
+        ``gps.lon`` only while ``gps.fix`` is True and both are younger than
+        :data:`GPS_MAX_AGE_S` — the bus keeps the last value until restart,
+        and a position from before the fix was lost (phone taken out of the
+        car, GPS app killed) can be kilometres off. Otherwise falls back to
+        :data:`FALLBACK_ORIGIN` (Kraków city centre) so demo mode still
+        produces a meaningful route — and the plan says so.
         """
         if self._bus is not None:
             fix = self._bus.get_last("gps.fix")
@@ -290,5 +405,5 @@ class TripComputer:
                 coords = (_finite(lat[0]), _finite(lon[0]))
                 if fresh and None not in coords and abs(coords[0]) <= 90 \
                         and abs(coords[1]) <= 180:
-                    return coords
-        return (50.0647, 19.9450)
+                    return coords, "gps"
+        return FALLBACK_ORIGIN, "fallback"

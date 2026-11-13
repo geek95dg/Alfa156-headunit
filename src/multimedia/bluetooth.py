@@ -10,6 +10,7 @@ On x86, works with built-in or USB Bluetooth adapter.
 On OPi, uses onboard or USB BT.
 """
 
+import queue
 import re
 import subprocess
 import threading
@@ -750,6 +751,147 @@ def normalize_dial_number(value: Any) -> str:
     return number if _DIAL_NUMBER_RE.match(number) else ""
 
 
+# ── Emergency numbers (POST /api/phone/dial from the network) ────────────
+# web_viewer refuses these for every client that is not the kiosk on this
+# machine: with dashboard.remote_access "full" (the code default) any device
+# on the LAN / AP / PAN could otherwise make the driver's phone call 112.
+# The kiosk's own dialer (A8) may still dial them — witnessing another
+# accident is a legitimate reason.
+
+#: EU 112, US 911; Poland: 997 police, 998 fire brigade, 999 ambulance,
+#: 984 water rescue, 985 mountain/sea rescue, 986 municipal guard,
+#: 987 crisis management. oFono's VoiceCallManager.EmergencyNumbers
+#: (SIM/network list, when known) is added on top.
+BUILTIN_EMERGENCY_NUMBERS = frozenset(
+    {"112", "911", "997", "998", "999", "984", "985", "986", "987"})
+#: Supplementary-service (MMI, 3GPP TS 22.030) prefixes a dial string may
+#: carry in front of the number: ``*31#`` / ``#31#`` (show / hide the caller
+#: ID) and the forms with info fields — ``*31*#``, ``*31*1#``, ``#31*#``.
+#: Same shape as Android's GsmMmiCode pattern
+#: ``((\*|#|\*#|\*\*|##)(\d{2,3})(\*[^*#]*){0,4}#)(.*)``: the phone dials
+#: whatever follows (``*31*#112`` calls 112), so the check must see it too.
+_SS_PREFIX_RE = re.compile(r"^(?:(?:\*\*|\*#|##|\*|#)[0-9]{2,3}(?:\*[^*#]*){0,4}#)+")
+#: What an emergency number from oFono may look like (they are short codes).
+_EMERGENCY_ENTRY_RE = re.compile(r"^[0-9]{2,8}$")
+_EMERGENCY_MAX_ENTRIES = 32
+
+
+def clean_emergency_numbers(value: Any) -> frozenset:
+    """oFono ``EmergencyNumbers`` (array of strings) → frozenset of digit
+    strings; anything malformed is skipped, the list is capped."""
+    if isinstance(value, (str, bytes)) or not isinstance(value, (list, tuple, set, frozenset)):
+        return frozenset()
+    out = set()
+    for item in value:
+        text = str(item).strip() if isinstance(item, str) else ""
+        if _EMERGENCY_ENTRY_RE.match(text):
+            out.add(text)
+        if len(out) >= _EMERGENCY_MAX_ENTRIES:
+            break
+    return frozenset(out)
+
+
+def emergency_candidates(number: Any) -> set[str]:
+    """The forms of a dial string an emergency number could hide behind.
+
+    ``"*31#+48 112#"`` → {"+48112", "48112", "8112", "112", …}: separators
+    dropped (normalize_dial_number), supplementary-service prefixes
+    (_SS_PREFIX_RE, also ``*31*#``) and trailing ``#``/``*`` removed, and
+    for an international form (``+`` or ``00``) the number without a 1-3
+    digit country code — 112 works as +48 112 too. The part after the last
+    ``#`` is checked as well: a phone treats it as the number to dial for
+    any MMI code, not only the ones the prefix pattern knows.
+    Empty for anything that is not a dial string.
+    """
+    n = normalize_dial_number(number)
+    if not n:
+        return set()
+    bases = {_SS_PREFIX_RE.sub("", n).rstrip("#*")}
+    if "#" in n.rstrip("#*"):
+        bases.add(n.rstrip("#*").rsplit("#", 1)[1])
+    out = set()
+    for base in bases:
+        if not base:
+            continue
+        out.add(base)
+        rest = base[1:] if base.startswith("+") else base[2:] if base.startswith("00") else None
+        if rest:
+            out.add(rest)
+            for cc in (1, 2, 3):
+                if len(rest) > cc:
+                    out.add(rest[cc:])
+    return out
+
+
+def is_emergency_number(number: Any, extra: Any = ()) -> bool:
+    """True if ``number`` dials an emergency service (built-in list ∪ extra)."""
+    known = BUILTIN_EMERGENCY_NUMBERS | clean_emergency_numbers(list(extra or ()))
+    return any(c in known for c in emergency_candidates(number))
+
+
+# ── bt.dial_result ───────────────────────────────────────────────────────
+#: ``bt.dial_result`` errors: no oFono modem with a VoiceCallManager (phone
+#: not connected over HFP), any other D-Bus/oFono failure, a dial already
+#: in flight, the phone has no network, the number was refused — and
+#: "unknown": oFono did not answer Dial() in time, the call may well be going
+#: out (``ok`` is None then; oFono's real call state decides, no toast).
+DIAL_ERRORS = ("no_modem", "dbus", "busy", "netdown", "invalid", "unknown")
+#: What the driver sees (toast, key "dial_result") per error ("unknown" has
+#: none: telling the driver to retry while the first call rings is wrong).
+_DIAL_ERROR_TEXT = {
+    "no_modem": ("Nie można zadzwonić", "Telefon nie jest połączony do rozmów (HFP)."),
+    "dbus": ("Nie można zadzwonić", "Błąd połączenia z oFono — spróbuj ponownie."),
+    "busy": ("Wybieranie już trwa", "Poczekaj na poprzednie połączenie."),
+    "netdown": ("Nie można zadzwonić", "Telefon nie ma zasięgu sieci komórkowej."),
+    "invalid": ("Nie można zadzwonić", "Nieprawidłowy numer."),
+}
+#: bt.phone_status registration states meaning "no cellular network".
+_NO_NETWORK_STATES = ("searching", "denied", "unregistered")
+#: D-Bus errors meaning "no answer in time" — not "refused".
+_DBUS_TIMEOUT_ERRORS = (".NoReply", ".Timeout", ".TimedOut")
+#: Dial() reply timeout. Android's HFP gateway answers ATD only once the call
+#: reaches DIALING (HeadsetStateMachine waits up to 10 s for that), and an
+#: emergency call set-up can be slow; it runs on the bt-call worker, so a
+#: long wait blocks nothing else.
+_DIAL_TIMEOUT_S = 15.0
+#: HangupAll() refused with InProgress (oFono still busy with a Dial or
+#: Answer whose reply it has not had yet): tries and the pause between them.
+#: The hang-up must not be lost — the driver pressed it, maybe for an
+#: accidental 112.
+_HANGUP_TRIES = 4
+_HANGUP_RETRY_S = 1.0
+#: Call commands waiting for the bt-call worker; more are dropped (each one
+#: can take seconds, a stuck oFono must not grow an unbounded backlog).
+_CALL_QUEUE_MAX = 8
+#: The bt-call worker exits after this long without work (started again by
+#: the next command), so idle managers keep no thread.
+_CALL_WORKER_IDLE_S = 30.0
+
+
+def dial_error_of(dbus_name: Any, registration: Any = None, dial_sent: bool = True) -> str:
+    """oFono's D-Bus error name from Dial() → a DIAL_ERRORS entry.
+
+    oFono's manager_dial returns InProgress (a call operation is pending),
+    InvalidFormat, NotAvailable (modem not online: -ENETDOWN) or Failed; a
+    plain ``Failed`` while the phone reports no network (bt.phone_status) is
+    "netdown" too. A reply timeout after Dial() was SENT (``dial_sent``) is
+    "unknown" — oFono may be placing the call; before it (GetModems) no call
+    can exist, so it is an ordinary "dbus" failure.
+    """
+    name = dbus_name if isinstance(dbus_name, str) else ""
+    if name.endswith(".InProgress"):
+        return "busy"
+    if name.endswith((".InvalidFormat", ".InvalidArguments")):
+        return "invalid"
+    if name.endswith((".NotAvailable", ".NotRegistered", ".NoNetwork", ".NotAttached")):
+        return "netdown"
+    if name.endswith(".Failed") and registration in _NO_NETWORK_STATES:
+        return "netdown"
+    if name.endswith(_DBUS_TIMEOUT_ERRORS):
+        return "unknown" if dial_sent else "dbus"
+    return "dbus"
+
+
 def aggregate_calls(calls: dict[str, dict]) -> tuple[str, dict]:
     """``(bt.call_state, bt.call_info)`` for the current set of oFono calls.
 
@@ -803,6 +945,8 @@ class OfonoCallTracker:
         self._lock = threading.Lock()
         self._calls: dict[str, dict] = {}
         self._modems: dict[str, list[str]] = {}
+        # VoiceCallManager.EmergencyNumbers per modem (see emergency_numbers).
+        self._emergency: dict[str, frozenset] = {}
         self._state = "idle"
         self._info: dict = {}
         self.live = False
@@ -820,6 +964,30 @@ class OfonoCallTracker:
     def has_voice_modem(self) -> bool:
         with self._lock:
             return any(OFONO_VCM_IFACE in ifaces for ifaces in self._modems.values())
+
+    def voice_modems(self) -> list[str]:
+        with self._lock:
+            return [p for p, ifaces in self._modems.items() if OFONO_VCM_IFACE in ifaces]
+
+    # ── emergency numbers ────────────────────────────────────────────────
+
+    def set_emergency_numbers(self, path: Any, value: Any) -> None:
+        """VoiceCallManager ``EmergencyNumbers`` of one modem (validated)."""
+        numbers = clean_emergency_numbers(value)
+        with self._lock:
+            if numbers:
+                self._emergency[str(path)] = numbers
+            else:
+                self._emergency.pop(str(path), None)
+
+    def vcm_property_changed(self, path: Any, name: Any, value: Any) -> None:
+        if str(name) == "EmergencyNumbers":
+            self.set_emergency_numbers(path, value)
+
+    def emergency_numbers(self) -> frozenset:
+        """Union of every modem's EmergencyNumbers known so far (may be empty)."""
+        with self._lock:
+            return frozenset().union(*self._emergency.values())
 
     # ── modems ────────────────────────────────────────────────────────────
 
@@ -844,6 +1012,7 @@ class OfonoCallTracker:
     def modem_removed(self, path: Any) -> None:
         with self._lock:
             self._modems.pop(str(path), None)
+            self._emergency.pop(str(path), None)
             self._drop_calls_of(str(path))
         self._update()
 
@@ -860,6 +1029,7 @@ class OfonoCallTracker:
         with self._lock:
             self._modems.clear()
             self._calls.clear()
+            self._emergency.clear()
             for path, props in modems or []:
                 ifaces = props.get("Interfaces") if isinstance(props, dict) else None
                 self._modems[str(path)] = [str(i) for i in (ifaces or [])]
@@ -986,6 +1156,18 @@ class BluetoothManager:
         # monitor is up — no D-Bus/oFono on dev machines and in tests.
         self._call_tracker: Optional[OfonoCallTracker] = None
         self._ofono_warned: set[str] = set()
+        # Call commands (dial / answer / hangup, see _submit_call): oFono's
+        # D-Bus calls run one after another on ONE worker thread ("bt-call"),
+        # never on the event-bus dispatcher. One thread, in order: a hang-up
+        # pressed while a Dial is still pending runs after it and ends the
+        # new call (oFono refuses HangupAll during a pending Dial).
+        self._call_queue: queue.Queue = queue.Queue(maxsize=_CALL_QUEUE_MAX)
+        self._call_worker: Optional[threading.Thread] = None
+        self._call_worker_lock = threading.Lock()
+        self._call_sleep = time.sleep                 # hang-up retry pause (tests)
+        # At most one dial queued or in flight (a second one is "busy").
+        self._dial_lock = threading.Lock()
+        self._dial_busy = False
 
         # Optional explicit adapter override from config — pin a specific
         # USB BT dongle MAC if auto-detect picks the wrong one.
@@ -1853,38 +2035,134 @@ class BluetoothManager:
     # phone confirms, and _schedule_call_reconcile() puts it back if the
     # oFono action failed and the guess was wrong.
 
+    def emergency_numbers(self) -> frozenset:
+        """oFono's EmergencyNumbers for the connected phone, if known.
+
+        Used by web_viewer (POST /api/phone/dial) on top of
+        BUILTIN_EMERGENCY_NUMBERS; empty without a live oFono monitor.
+        """
+        tracker = self._call_tracker
+        return tracker.emergency_numbers() if tracker is not None else frozenset()
+
     def _on_cmd_dial(self, topic: str, value: Any, timestamp: float) -> None:
         """Initiate an outgoing call via BT HFP.
 
         ``value`` comes from the browser (POST /api/phone/dial validates it
         too): visual separators are dropped, anything but a plain dial
         string is refused — it goes into the log, the bus and oFono.
+
+        Runs on the event-bus dispatcher, so it only validates, publishes the
+        provisional "ringing" and queues the D-Bus work (GetModems + Dial,
+        seconds) for the bt-call worker: blocking here stalled every other
+        subscriber for up to ~10 s. One dial at a time — a second one while
+        the first is queued or in flight is refused (``bt.dial_result`` busy).
         """
         number = normalize_dial_number(value)
         if not number:
             log.warning("HFP dial refused: not a phone number (%r)",
                         sanitize_call_text(value, _CALL_NUMBER_MAX))
+            self._dial_failed("", "invalid", revert=False)
+            return
+        with self._dial_lock:
+            busy = self._dial_busy
+            self._dial_busy = True
+        if busy:
+            log.warning("HFP dial refused: the previous dial is still in progress")
+            self._dial_failed(number, "busy", revert=False)
             return
         log.info("HFP dial request: %s", number)
         self._hfp_active = True
         self._event_bus.publish("bt.hfp_active", True)
         self._event_bus.publish("bt.call_state", "ringing")
         self._event_bus.publish("bt.call_info", {"number": number, "name": ""})
-        # Try ofono D-Bus for actual call
-        if HAS_DBUS:
-            try:
-                self._hfp_dial_dbus(number)
-            except Exception as e:
-                log.warning("HFP D-Bus dial failed: %s (call may still work via phone)", e)
-        self._schedule_call_reconcile()
+        if not self._submit_call("dial", number):
+            # Never stay "busy" when the dial cannot even be queued.
+            self._dial_done()
+            self._dial_failed(number, "dbus")
 
-    def _on_cmd_answer(self, topic: str, value: Any, timestamp: float) -> None:
-        """Answer an incoming call via BT HFP."""
-        log.info("HFP answer request")
-        self._hfp_active = True
-        self._event_bus.publish("bt.hfp_active", True)
-        self._event_bus.publish("bt.call_state", "active")
-        self._event_bus.publish("audio.phone_call", True)
+    # ── bt-call worker ────────────────────────────────────────────────────
+
+    def _submit_call(self, kind: str, arg: Any = None) -> bool:
+        """Queue a call command for the bt-call worker (bus thread, never
+        blocks). False when it cannot run: queue full or no thread."""
+        try:
+            with self._call_worker_lock:
+                # Under the lock with the worker's idle exit (_call_loop):
+                # a command is never left in a queue nobody reads.
+                worker = self._call_worker
+                if worker is None or not worker.is_alive():
+                    self._call_worker = self._spawn_call_thread()
+                self._call_queue.put_nowait((kind, arg))
+            return True
+        except queue.Full:
+            log.warning("HFP %s dropped: %d call commands are already waiting "
+                        "(oFono not answering?)", kind, _CALL_QUEUE_MAX)
+        except Exception:
+            log.exception("HFP call worker could not be started (%s)", kind)
+        return False
+
+    def _spawn_call_thread(self) -> threading.Thread:
+        thread = threading.Thread(target=self._call_loop, daemon=True, name="bt-call")
+        thread.start()
+        return thread
+
+    def _call_loop(self) -> None:
+        """bt-call worker: runs queued call commands in order. Never raises;
+        exits after _CALL_WORKER_IDLE_S without work."""
+        handlers = {"dial": self._run_dial, "answer": self._run_answer,
+                    "hangup": self._run_hangup}
+        while True:
+            try:
+                kind, arg = self._call_queue.get(timeout=_CALL_WORKER_IDLE_S)
+            except queue.Empty:
+                with self._call_worker_lock:
+                    if self._call_queue.empty():
+                        self._call_worker = None
+                        return
+                continue
+            try:
+                handler = handlers.get(kind)
+                if handler is not None:
+                    handler(arg)
+            except Exception:
+                log.exception("HFP %s failed", kind)
+            finally:
+                self._call_queue.task_done()
+
+    def _dial_done(self) -> None:
+        with self._dial_lock:
+            self._dial_busy = False
+
+    def _run_dial(self, number: str) -> None:
+        """The D-Bus half of _on_cmd_dial (bt-call worker). Never raises."""
+        error: Optional[str] = "dbus"
+        try:
+            if HAS_DBUS:
+                error = self._hfp_dial_dbus(number)
+            else:
+                log.warning("HFP dial: dbus-python is not available — no call")
+        except Exception as e:
+            log.warning("HFP D-Bus dial failed: %s", e)
+            error = "dbus"
+        finally:
+            # Free the slot before announcing: a retry right after the toast
+            # must not be refused as "busy".
+            self._dial_done()
+        if error is None:
+            self._publish_dial_result(True, None)
+            self._schedule_call_reconcile()
+        elif error == "unknown":
+            # No reply in time, but the phone may be dialling: no toast ("try
+            # again" would make a second call), no revert of the provisional
+            # "ringing" — oFono's call state (monitor / reconcile) decides.
+            log.warning("HFP dial: oFono did not answer in %.0f s — the call may "
+                        "still be going out: %s", _DIAL_TIMEOUT_S, number)
+            self._publish_dial_result(None, "unknown")
+            self._schedule_call_reconcile()
+        else:
+            self._dial_failed(number, error)
+
+    def _run_answer(self, _arg: Any = None) -> None:
         if HAS_DBUS:
             try:
                 self._hfp_answer_dbus()
@@ -1892,20 +2170,76 @@ class BluetoothManager:
                 log.warning("HFP D-Bus answer failed: %s", e)
         self._schedule_call_reconcile()
 
-    def _on_cmd_hangup(self, topic: str, value: Any, timestamp: float) -> None:
-        """Hang up or reject a call via BT HFP."""
-        log.info("HFP hangup request")
-        self._hfp_active = False
-        self._event_bus.publish("bt.hfp_active", False)
-        self._event_bus.publish("bt.call_state", "idle")
-        self._event_bus.publish("bt.call_info", {})
-        self._event_bus.publish("audio.phone_call", False)
+    def _run_hangup(self, _arg: Any = None) -> None:
         if HAS_DBUS:
             try:
                 self._hfp_hangup_dbus()
             except Exception as e:
                 log.warning("HFP D-Bus hangup failed: %s", e)
         self._schedule_call_reconcile()
+
+    def _publish_dial_result(self, ok: Optional[bool], error: Optional[str]) -> None:
+        """``bt.dial_result {ok, path, error, ts}``; ok None = outcome unknown."""
+        if ok is None:
+            error = "unknown"
+        self._event_bus.publish("bt.dial_result", {
+            "ok": None if ok is None else bool(ok), "path": "hfp",
+            "error": error if error in DIAL_ERRORS else (None if ok else "dbus"),
+            "ts": time.time(),
+        })
+
+    def _dial_failed(self, number: str, error: str, revert: bool = True) -> None:
+        """A dial did not happen: bt.dial_result, a toast, and no fake call.
+
+        ``revert``: the provisional "ringing" was published for ``number``;
+        put the real state back — oFono's (reconcile) with a live monitor,
+        else idle, but only while the bus still shows OUR provisional call
+        (a call that came in meanwhile is not touched).
+        """
+        from src.core.notifications import publish_notification
+        bus = self._event_bus
+        self._publish_dial_result(False, error)
+        title, desc = _DIAL_ERROR_TEXT.get(error, _DIAL_ERROR_TEXT["dbus"])
+        publish_notification(bus, title, desc, severity="warning", icon="call_end",
+                             key="dial_result")
+        log.warning("HFP dial failed (%s)%s", error, f": {number}" if number else "")
+        if not revert:
+            return
+        tracker = self._call_tracker
+        if tracker is not None and tracker.live:
+            tracker.reconcile()
+            return
+        state = bus.get_last("bt.call_state")
+        info = bus.get_last("bt.call_info")
+        if state is not None and state[0] == "ringing" and info is not None \
+                and isinstance(info[0], dict) and info[0].get("number") == number:
+            bus.publish("bt.call_info", {})
+            bus.publish("bt.call_state", "idle")
+
+    def _on_cmd_answer(self, topic: str, value: Any, timestamp: float) -> None:
+        """Answer an incoming call via BT HFP (D-Bus on the bt-call worker)."""
+        log.info("HFP answer request")
+        self._hfp_active = True
+        self._event_bus.publish("bt.hfp_active", True)
+        self._event_bus.publish("bt.call_state", "active")
+        self._event_bus.publish("audio.phone_call", True)
+        if not HAS_DBUS or not self._submit_call("answer"):
+            self._schedule_call_reconcile()
+
+    def _on_cmd_hangup(self, topic: str, value: Any, timestamp: float) -> None:
+        """Hang up or reject a call via BT HFP (D-Bus on the bt-call worker).
+
+        Queued behind a dial that is still in flight, so it ends that call
+        too (A8 "Rozłącz" or the steering-wheel button right after a tap).
+        """
+        log.info("HFP hangup request")
+        self._hfp_active = False
+        self._event_bus.publish("bt.hfp_active", False)
+        self._event_bus.publish("bt.call_state", "idle")
+        self._event_bus.publish("bt.call_info", {})
+        self._event_bus.publish("audio.phone_call", False)
+        if not HAS_DBUS or not self._submit_call("hangup"):
+            self._schedule_call_reconcile()
 
     def _schedule_call_reconcile(self, delay: float = 3.0) -> None:
         """After a provisional publish, re-assert oFono's state if it differs.
@@ -1942,18 +2276,29 @@ class BluetoothManager:
                                   "(phone not connected over HFP?)")
         return found
 
-    def _hfp_dial_dbus(self, number: str) -> None:
-        """Dial via ofono VoiceCallManager."""
+    def _hfp_dial_dbus(self, number: str) -> Optional[str]:
+        """Dial via ofono VoiceCallManager (bt-call worker, see _run_dial).
+
+        Returns None when oFono accepted the call, else a DIAL_ERRORS code.
+        """
         import dbus
-        bus = dbus.SystemBus()
+        dial_sent = False
         try:
+            bus = dbus.SystemBus()
             for path in self._ofono_voice_modems(bus):
                 vcm = dbus.Interface(bus.get_object(OFONO_SERVICE, path), OFONO_VCM_IFACE)
-                vcm.Dial(number, "", timeout=5.0)
+                dial_sent = True
+                vcm.Dial(number, "", timeout=_DIAL_TIMEOUT_S)
                 log.info("HFP dial via ofono: %s", number)
-                return
+                return None
+            return "no_modem"
         except dbus.DBusException as e:
-            self._warn_ofono_once("dbus", f"D-Bus error ({e.get_dbus_name()})")
+            name = e.get_dbus_name()
+            self._warn_ofono_once("dbus", f"D-Bus error ({name})")
+            status = self._event_bus.get_last("bt.phone_status")
+            registration = status[0].get("registration") \
+                if status is not None and isinstance(status[0], dict) else None
+            return dial_error_of(name, registration, dial_sent=dial_sent)
 
     def _hfp_answer_dbus(self) -> None:
         """Answer via ofono: Answer() an incoming call, HoldAndAnswer() a waiting one.
@@ -1985,17 +2330,34 @@ class BluetoothManager:
             self._warn_ofono_once("dbus", f"D-Bus error ({e.get_dbus_name()})")
 
     def _hfp_hangup_dbus(self) -> None:
-        """Hangup via ofono VoiceCallManager.HangupAll()."""
+        """Hangup via ofono VoiceCallManager.HangupAll() (bt-call worker).
+
+        oFono answers InProgress while a Dial/Answer of its own is still
+        pending (e.g. Dial() timed out on our side, the phone has not
+        answered ATD yet): retried a few times, a second apart, instead of
+        being dropped — otherwise the call goes out after the driver pressed
+        hang-up.
+        """
         import dbus
-        bus = dbus.SystemBus()
-        try:
-            for path in self._ofono_voice_modems(bus):
-                vcm = dbus.Interface(bus.get_object(OFONO_SERVICE, path), OFONO_VCM_IFACE)
-                vcm.HangupAll(timeout=5.0)
-                log.info("HFP hangup via ofono")
+        for attempt in range(1, _HANGUP_TRIES + 1):
+            try:
+                bus = dbus.SystemBus()
+                for path in self._ofono_voice_modems(bus):
+                    vcm = dbus.Interface(bus.get_object(OFONO_SERVICE, path), OFONO_VCM_IFACE)
+                    vcm.HangupAll(timeout=5.0)
+                    log.info("HFP hangup via ofono")
+                    return
                 return
-        except dbus.DBusException as e:
-            self._warn_ofono_once("dbus", f"D-Bus error ({e.get_dbus_name()})")
+            except dbus.DBusException as e:
+                name = e.get_dbus_name()
+                if isinstance(name, str) and name.endswith(".InProgress") \
+                        and attempt < _HANGUP_TRIES:
+                    log.info("HFP hangup: oFono busy (%s) — retry %d/%d in %.0f s",
+                             name, attempt, _HANGUP_TRIES - 1, _HANGUP_RETRY_S)
+                    self._call_sleep(_HANGUP_RETRY_S)
+                    continue
+                self._warn_ofono_once("dbus", f"D-Bus error ({name})")
+                return
 
     # --- oFono call monitor ---
 
@@ -2034,15 +2396,19 @@ class BluetoothManager:
                 self._warn_ofono_once("not_running", f"service not reachable ({name})")
                 return
             calls_by_modem = {}
+            emergency = {}
             for path, props in modems:
                 if OFONO_VCM_IFACE not in props.get("Interfaces", []):
                     continue
                 try:
                     vcm = dbus.Interface(bus.get_object(OFONO_SERVICE, path), OFONO_VCM_IFACE)
                     calls_by_modem[str(path)] = vcm.GetCalls(timeout=5.0)
+                    emergency[str(path)] = vcm.GetProperties(timeout=5.0).get("EmergencyNumbers")
                 except Exception:
-                    log.debug("oFono GetCalls(%s) failed", path, exc_info=True)
+                    log.debug("oFono GetCalls/GetProperties(%s) failed", path, exc_info=True)
             tracker.seed(modems, calls_by_modem)
+            for path, numbers in emergency.items():
+                tracker.set_emergency_numbers(path, numbers)
             log.info("oFono call monitor: %d modem(s), %d with VoiceCallManager",
                      len(modems), len(calls_by_modem))
 
@@ -2092,6 +2458,13 @@ class BluetoothManager:
                     _guard(lambda path: tracker.call_removed(path)),
                     dbus_interface=OFONO_VCM_IFACE, signal_name="CallRemoved",
                     bus_name=OFONO_SERVICE)
+                # EmergencyNumbers changes (SIM/network list) — kept for the
+                # /api/phone/dial emergency check (web_viewer).
+                bus.add_signal_receiver(
+                    _guard(lambda name, value, path=None:
+                           tracker.vcm_property_changed(path, name, value)),
+                    dbus_interface=OFONO_VCM_IFACE, signal_name="PropertyChanged",
+                    path_keyword="path", bus_name=OFONO_SERVICE)
                 bus.add_signal_receiver(
                     _guard(lambda name, value, path=None:
                            tracker.call_property_changed(path, name, value)),
@@ -2139,6 +2512,25 @@ class BluetoothManager:
                 and not tracker.has_voice_modem():
             self._warn_ofono_once("no_vcm", "phone connected, but no modem with "
                                   "VoiceCallManager after 20 s")
+        self._refresh_emergency_numbers()
+
+    def _refresh_emergency_numbers(self) -> None:
+        """Read EmergencyNumbers of the voice modems (timer thread, 20 s after
+        the phone connected): oFono sends no PropertyChanged for the initial
+        list of a modem that appears after the monitor's seed. Never raises.
+        """
+        tracker = self._call_tracker
+        if tracker is None or not tracker.live or not HAS_DBUS:
+            return
+        try:
+            import dbus
+            bus = dbus.SystemBus()
+            for path in tracker.voice_modems():
+                vcm = dbus.Interface(bus.get_object(OFONO_SERVICE, path), OFONO_VCM_IFACE)
+                tracker.set_emergency_numbers(
+                    path, vcm.GetProperties(timeout=5.0).get("EmergencyNumbers"))
+        except Exception:
+            log.debug("oFono EmergencyNumbers refresh failed", exc_info=True)
 
     # --- AVRCP media metadata ---
 

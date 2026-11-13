@@ -70,6 +70,67 @@ MODULE_REGISTRY: dict[str, dict] = {
 DASHBOARD_INFO = {"part": 2, "description": "BCM Dashboard Renderer (web frontend / Pygame)", "start": start_dashboard}
 
 
+def plan_modules(config, cli_modules: Optional[list[str]] = None) -> dict:
+    """What starts: ``modules.*`` toggles (or ``--modules``) after the
+    dependency check of the catalog. Returns ``{name: ModuleStatus}`` for
+    every catalog entry; ``.runs`` is the only thing the start path looks at.
+
+    A module that is on but whose ``requires``/``requires_any`` are not
+    running (or that has no code in this version) gets ``runs == False`` —
+    main() logs ONE warning for it (:func:`modules_catalog.block_message`)
+    and never calls its entry point. ``--modules`` decides the registry
+    modules and the dashboard on its own; subsystems keep their toggles.
+    """
+    overrides = None
+    if cli_modules is not None:
+        wanted = set(cli_modules)
+        overrides = {name: name in wanted for name in ["dashboard", *MODULE_REGISTRY]}
+    return modules_catalog.module_states(config, overrides)
+
+
+def registry_to_start(module_states) -> list:
+    """``[(name, MODULE_REGISTRY entry)]`` of the registry modules that run
+    (toggle on, dependencies running), in registry order. A module that is
+    off or blocked is not in the list, so its entry point is never imported
+    or called."""
+    return [(name, info) for name, info in MODULE_REGISTRY.items()
+            if getattr(module_states.get(name), "runs", False)]
+
+
+def report_blocked_modules(module_states, log) -> int:
+    """ONE warning per module that is switched on but will not start
+    (missing dependency, or no code for it in this version) — registry
+    modules and subsystems alike, so the log says why instead of staying
+    silent. Returns how many were reported. The whole map goes along, so a
+    dependency that is on but blocked itself is named as such, with the
+    toggle that actually has to be switched on (``root_blockers``)."""
+    count = 0
+    for st in module_states.values():
+        message = modules_catalog.block_message(st, states=module_states)
+        if message:
+            log.warning(message)
+            count += 1
+    return count
+
+
+def start_modules(started_modules, config, event_bus, hal, bt_manager=None) -> None:
+    """Start the registry modules main() selected (non-blocking ones; the
+    dashboard comes last). One failing module never stops the others."""
+    log = get_logger("main")
+    for name, info in started_modules:
+        log.info("Starting module: %s", name)
+        try:
+            # Pass existing bt_manager to multimedia to avoid double registration
+            if name == "multimedia" and bt_manager is not None:
+                info["start"](config=config, event_bus=event_bus, hal=hal,
+                              bt_manager=bt_manager)
+            else:
+                info["start"](config=config, event_bus=event_bus, hal=hal)
+            log.info("Module started: %s", name)
+        except Exception:
+            log.exception("Failed to start module: %s", name)
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="BCM v8.5 — Alfa Romeo 156 Head Unit",
@@ -206,39 +267,42 @@ def main() -> None:
 
     log.info("Core initialized: EventBus, HAL (%s)", config.platform)
 
-    # Determine which modules to load (modules.* toggles via the catalog)
-    if args.modules:
-        requested = [m.strip() for m in args.modules.split(",")]
+    # Determine which modules to load (modules.* toggles via the catalog,
+    # then the dependency check: a module whose dependency is off does not
+    # start — see plan_modules()).
+    cli_modules = [m.strip() for m in args.modules.split(",")] if args.modules else None
+    module_states = plan_modules(config, cli_modules)
+
+    def _runs(name: str) -> bool:
+        st = module_states.get(name)
+        return bool(st and st.runs)
+
+    if cli_modules is not None:
+        requested = cli_modules
     else:
-        requested = (
-            ["dashboard"] if modules_catalog.is_enabled(config, "dashboard") else []
-        ) + [
-            name for name in MODULE_REGISTRY
-            if modules_catalog.is_enabled(config, name)
-        ]
+        requested = [name for name in ["dashboard", *MODULE_REGISTRY]
+                     if module_states[name].enabled]
 
     # Report module status
     log.info("--- Module Status ---")
 
     # Report dashboard first
-    dashboard_enabled = "dashboard" in requested
+    dashboard_enabled = _runs("dashboard")
     dash_status = "ENABLED" if dashboard_enabled else "disabled"
     log.info("  %-14s [Part %2d] %s — %s", "dashboard", 2, dash_status,
              DASHBOARD_INFO["description"])
 
-    started_modules = []
     for name, info in MODULE_REGISTRY.items():
-        enabled = name in requested
-        has_impl = "start" in info
-        status = "ENABLED" if enabled else "disabled"
-
-        if enabled and not has_impl:
-            status = "ENABLED (not yet implemented — Part %d)" % info["part"]
-
+        st = module_states[name]
+        if st.runs:
+            status = "ENABLED"
+        elif st.enabled:
+            status = "NOT STARTED (%s)" % st.reason
+        else:
+            status = "disabled"
         log.info("  %-14s [Part %2d] %s — %s", name, info["part"], status, info["description"])
-
-        if enabled and has_impl:
-            started_modules.append((name, info))
+    started_modules = registry_to_start(module_states)
+    report_blocked_modules(module_states, log)
 
     if args.dry_run:
         log.info("--- Dry run complete. %d modules would load (%d implemented). ---",
@@ -250,7 +314,7 @@ def main() -> None:
     # hardware without a BT adapter — the probe retries 5x with 2 s
     # sleeps before giving up).
     bt_manager = None
-    bt_enabled = modules_catalog.is_enabled(config, "bluetooth")
+    bt_enabled = _runs("bluetooth")
     log.info("--- Bluetooth Init (enabled=%s) ---", bt_enabled)
     if bt_enabled:
         try:
@@ -275,7 +339,7 @@ def main() -> None:
             log.exception("BluetoothManager failed to init (non-critical)")
 
     # Fuel sender calibration (ADC from Arduino → fuel level percentage)
-    if modules_catalog.is_enabled(config, "fuel_sender"):
+    if _runs("fuel_sender"):
         try:
             from src.vehicle.fuel_sender import FuelSender
             # instance stays alive via its event-bus subscriptions
@@ -288,17 +352,27 @@ def main() -> None:
     # consumes via /api/phone/{contacts,history}. Without this the phone
     # screen renders empty even when pairing advertises PCE/MCE correctly.
     # Pointless without Bluetooth, so by default it follows the bluetooth
-    # toggle (modules.phonebook overrides).
-    if bt_enabled and modules_catalog.is_enabled(config, "phonebook"):
+    # toggle (modules.phonebook overrides) and requires it (catalog).
+    if _runs("phonebook"):
         try:
             from src.multimedia.phonebook import start_phonebook_sync
             start_phonebook_sync(event_bus, config)
         except Exception:
             log.exception("PBAP phonebook sync failed to init (non-critical)")
 
+    # Phone battery / signal / operator for the top bar (bt.phone_status,
+    # read from oFono/BlueZ over a private D-Bus connection). Off unless
+    # modules.phone_status is set (test config); requires bluetooth (catalog).
+    if _runs("phone_status"):
+        try:
+            from src.multimedia.phone_status import start_phone_status
+            start_phone_status(config, event_bus)
+        except Exception:
+            log.exception("Phone status monitor failed to init (non-critical)")
+
     # Start WiFi AP for Android Auto wireless data link
     wifi_ap = None
-    wifi_enabled = modules_catalog.is_enabled(config, "wifi_ap")
+    wifi_enabled = _runs("wifi_ap")
     log.info("--- WiFi AP Init (enabled=%s) ---", wifi_enabled)
     if wifi_enabled:
         try:
@@ -321,18 +395,7 @@ def main() -> None:
     # the BCM dashboard on port 5002 (web_viewer.py).
 
     # Start non-blocking modules first
-    for name, info in started_modules:
-        log.info("Starting module: %s", name)
-        try:
-            # Pass existing bt_manager to multimedia to avoid double registration
-            if name == "multimedia" and bt_manager is not None:
-                info["start"](config=config, event_bus=event_bus, hal=hal,
-                              bt_manager=bt_manager)
-            else:
-                info["start"](config=config, event_bus=event_bus, hal=hal)
-            log.info("Module started: %s", name)
-        except Exception:
-            log.exception("Failed to start module: %s", name)
+    start_modules(started_modules, config, event_bus, hal, bt_manager)
 
     # Set up shutdown handler
     shutdown = False
@@ -383,7 +446,7 @@ def main() -> None:
                 from src.dashboard.web_viewer import WebViewer
                 from src.dashboard.trip_computer import TripComputer
                 _rp = None
-                if modules_catalog.is_enabled(config, "route_planner"):
+                if _runs("route_planner"):
                     try:
                         from src.trip.route_planner import RoutePlanner
                         _rp = RoutePlanner(config, event_bus)
@@ -397,12 +460,15 @@ def main() -> None:
                     trip_computer=_tc,
                     route_planner=_rp,
                     wifi_ap=wifi_ap,
+                    # What THIS process started (incl. --modules), the
+                    # baseline of "wymaga restartu BCM" in Settings → Moduły.
+                    boot_module_runs={n: st.runs for n, st in module_states.items()},
                 )
                 web_viewer.start()
                 log.info("Main display started at http://localhost:5002")
 
                 # Start small display server (4.3" stats carousel)
-                if modules_catalog.is_enabled(config, "small_display"):
+                if _runs("small_display"):
                     from src.dashboard.small_viewer import SmallDisplayServer
                     small_display = SmallDisplayServer(
                         host="0.0.0.0", port=5003,

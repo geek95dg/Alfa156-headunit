@@ -15,11 +15,19 @@
  *   CRUISE:1 / IMMO:1 / AIRBAG:1                 opcjonalne
  *   PWR:RUNNING|SLEEP|OFF|UNKNOWN                stan M910q
  *   PWRACT:SHORT|LONG                            wysłany impuls na przycisk
+ *   BATT:12650,-3400                             bank buforowy: napięcie [mV],
+ *                                                prąd [mA] (+ ładowanie,
+ *                                                - rozładowanie). Bez INA226
+ *                                                tylko napięcie: BATT:12650
  *
  * ================= WŁĄCZANIE / WYŁĄCZANIE FUNKCJI =================
  * Każda funkcja ma własny przełącznik kompilacji. Zakomentuj
  * #define, żeby całkowicie usunąć funkcję z firmware (pin wraca
  * do dyspozycji). Po zmianie: make -C arduino sensor_hub-upload
+ * Funkcje zakomentowane niżej lepiej włączać flagą niż edycją sketcha
+ * (repo zostaje czyste, git pull bez konfliktów), a BATT_* WYŁĄCZNIE
+ * flagą — patrz blok „Pomiar banku buforowego” niżej:
+ *   make -C arduino sensor_hub-upload PORT=/dev/ttyUSB0 SENSOR_HUB_FEATURES=BATT_ADC
  */
 #define FEATURE_DOORS      // 6x krańcówki drzwi/maski/klapy (D2-D7)
 #define FEATURE_HBRAKE     // ręczny (D8)
@@ -40,6 +48,13 @@
 // #define FEATURE_CRUISE  // tempomat aktywny (A4) — opcja
 // #define FEATURE_IMMO    // immobilizer OK (A5) — opcja
 // #define FEATURE_AIRBAG  // airbag OK (D13, uwaga: pin z LED) — opcja
+// #define FEATURE_BATT_ADC    // napięcie banku przez dzielnik 100k/27k na A6
+                               // (ZASILANIE_BUFOROWANE.md §13.4). Tylko napięcie.
+// #define FEATURE_BATT_INA226 // INA226 na I2C (A4=SDA, A5=SCL) + bocznik
+                               // — napięcie I prąd banku. Zalecane: prąd
+                               // odróżnia ładowanie od postoju i pozwala
+                               // liczyć stan naładowania. Wyklucza się
+                               // z FEATURE_CRUISE/IMMO i FEATURE_BATT_ADC.
 /* ================================================================== */
 
 /*
@@ -61,6 +76,9 @@
  *   A0-A3 HC-SR04 ECHO FL/FR/RL/RR — TYLKO z FEATURE_PARK, które
  *         wyklucza się z FEATURE_PWRBTN (patrz #error niżej)
  *   A4  Tempomat, A5 Immo (opcje), D13 Airbag (opcja)
+ *   A4/A5 I2C SDA/SCL do INA226        (FEATURE_BATT_INA226)
+ *   A6  Dzielnik napięcia banku        (FEATURE_BATT_ADC; wejście tylko
+ *       analogowe: +BANK─100k─┬─A6, ┴─27k─GND, 100 nF A6─GND)
  *
  * Watchdog: 2 s — zawieszenie = automatyczny reset.
  *
@@ -86,10 +104,35 @@
  * maszyny po własnych impulsach i reaguje wyłącznie na ZMIANĘ zapłonu,
  * więc reset watchdogiem nie powoduje przypadkowego wciśnięcia.
  * Z FEATURE_PWRLED odczytuje stan z diody panelu (świeci = praca,
- * miga = S3, zgaszona = wyłączony) i sam się synchronizuje.
+ * miga = S3, zgaszona = wyłączony) i sam się synchronizuje. Rytm migania
+ * M910q w S3 NIE jest sprawdzony na stole: przed poleganiem na eskalacji
+ * trzeba zobaczyć, że w S3 każda linia to PWR:SLEEP, bez przeskoków
+ * (docs/WDROZENIE_TESTOWE.md §3.1a). Naciskamy tylko na stan, który się
+ * utrzymał, więc dioda, której nie da się odczytać, nie budzi komputera
+ * na postoju (po włączeniu zapłonu pobudka przychodzi wtedy po ~30 s).
+ *
+ * Po 2 h zgaszonego zapłonu eskalacja do OFF: LONG (5 s) dostaje TYLKO
+ * maszyna stabilnie uśpiona. Działającą (np. obudzoną ręcznie) najpierw
+ * usypia SHORT, LONG idzie po potwierdzeniu S3. Ręczne wybudzenie przy
+ * zgaszonym zapłonie liczy 2 h od nowa. W pętli otwartej „uśpiona” znaczy
+ * „tak zakładamy po własnym SHORT” — tu tylko dioda daje pewność.
+ * Po SHORT na pracującą maszynę firmware przez 90 s nie naciska drugi raz
+ * (bcm-power-toggle.sh najpierw zatrzymuje BCM, do 45 s, a drugie
+ * wciśnięcie uśpiłoby ją ponownie po wybudzeniu); gdy zapłon wróci w tym
+ * czasie, a maszyna jednak zaśnie, dostaje SHORT i wstaje.
+ * Sama logika (bez I/O) siedzi w power_logic.h i ma testy na PC, także
+ * dla przepełnienia millis() po ~49,7 dnia: make -C arduino sensor_hub-test
  */
 
 #include <avr/wdt.h>
+
+#ifdef FEATURE_BATT_INA226
+#include <Wire.h>
+#endif
+
+#ifdef FEATURE_PWRBTN
+#include "power_logic.h"
+#endif
 
 #ifdef FEATURE_TEMP
 #include <OneWire.h>
@@ -120,6 +163,12 @@
 #if defined(FEATURE_PWRBTN) && defined(FEATURE_PARK)
 #error "Konflikt pinow: FEATURE_PARK uzywa A0-A3 na ECHO, FEATURE_PWRBTN A0/A1"
 #endif
+#if defined(FEATURE_BATT_INA226) && (defined(FEATURE_CRUISE) || defined(FEATURE_IMMO))
+#error "Konflikt pinow: FEATURE_BATT_INA226 uzywa A4/A5 (I2C), tak jak CRUISE/IMMO"
+#endif
+#if defined(FEATURE_BATT_INA226) && defined(FEATURE_BATT_ADC)
+#error "Wybierz jedno zrodlo pomiaru banku: FEATURE_BATT_INA226 albo FEATURE_BATT_ADC"
+#endif
 #if defined(FEATURE_PWRLED) && !defined(FEATURE_PWRBTN)
 #error "FEATURE_PWRLED bez FEATURE_PWRBTN nie ma czego synchronizowac"
 #endif
@@ -140,10 +189,9 @@
 
 #define PWR_PULSE_SHORT_MS     250UL      // krótkie wciśnięcie
 #define PWR_PULSE_LONG_MS     5000UL      // przytrzymanie → twarde wyłączenie
-#define PWR_SETTLE_MS        15000UL      // po impulsie nie ruszamy niczego
-#define PWR_IGN_CONFIRM_MS    2000UL      // zapłon musi się utrzymać (rozruch!)
-#define PWR_OFF_AFTER_MS   7200000UL      // 2 h zgaszonego zapłonu → wyłącz
-#define PWR_LED_WINDOW_MS     1600UL      // okno rozpoznania migania diody
+// Czasy decyzji (cisza po impulsie, potwierdzenie zapłonu, eskalacja po 2 h,
+// okno usypiania) i dekoder diody (PWR_LED_WINDOW_MS) są w power_logic.h
+// razem z logiką, którą testuje się na PC.
 #endif
 
 #ifdef FEATURE_DOORS
@@ -200,30 +248,167 @@ unsigned long lastParkCycle = 0;
 #endif
 
 #ifdef FEATURE_PWRBTN
-enum PwrState : uint8_t { PWR_UNKNOWN = 0, PWR_RUNNING, PWR_SLEEP, PWR_OFF };
 const char* const PWR_NAMES[4] = {"UNKNOWN", "RUNNING", "SLEEP", "OFF"};
 
-PwrState pwrState   = PWR_UNKNOWN;   // co (naszym zdaniem) robi maszyna
-PwrState pwrDesired = PWR_UNKNOWN;   // czego od niej chcemy
+#ifdef FEATURE_PWRLED
+#define PWR_CLOSED_LOOP true
+#else
+#define PWR_CLOSED_LOOP false
+#endif
 
-bool          pwrIgnKnown  = false;  // czy zapłon jest już potwierdzony
-bool          pwrIgnLevel  = false;  // ostatni potwierdzony poziom
-bool          pwrIgnCand   = false;  // kandydat oczekujący na potwierdzenie
-unsigned long pwrIgnCandAt = 0;
-unsigned long pwrIgnOffAt  = 0;      // kiedy zapłon zgasł (do eskalacji)
-bool          pwrOffDone   = false;  // twarde wyłączenie już wysłane
+PwrLogic      pwr;                       // stan i decyzje: power_logic.h
+PwrState      pwrReported = PWR_UNKNOWN; // ostatnio wysłane PWR:
 
-unsigned long pwrPulseUntil  = 0;    // trwa impuls do tej chwili (0 = brak)
-unsigned long pwrSettleUntil = 0;    // cisza po impulsie
+// Osobna flaga zamiast „pwrPulseUntil == 0 znaczy brak impulsu”: millis()+ms
+// potrafi po przepełnieniu wypaść dokładnie na 0 i przekaźnik zostałby
+// zwarty na stałe.
+bool          pwrPulsing    = false;
+unsigned long pwrPulseUntil = 0;         // koniec trwającego impulsu
 #endif
 
 #ifdef FEATURE_PWRLED
-bool          pwrLedLit      = false;
-uint8_t       pwrLedEdges    = 0;
-unsigned long pwrLedWindowAt = 0;
+PwrLed        pwrLed;                    // zbocza diody → stan: power_logic.h
 #endif
 
 unsigned long lastStateRefresh = 0;
+
+// =============================================================================
+// Pomiar banku buforowego (BATT:). Raport idzie razem z pełnym stanem co 2 s.
+// Oba warianty są domyślnie wyłączone; CI kompiluje każdy z nich osobno
+// (make -C arduino sensor_hub-variants, flaga -DFEATURE_BATT_...), więc
+// przełączniki wyżej muszą zostać zakomentowane — sama flaga je zastępuje.
+// Wgranie na płytkę z pomiarem banku (też przez flagę, bez edycji sketcha):
+//   make -C arduino sensor_hub-upload PORT=/dev/ttyUSB0 SENSOR_HUB_FEATURES=BATT_ADC
+// (albo BATT_INA226). Kalibracja: ZASILANIE_BUFOROWANE.md §13.4.
+// Po stronie BCM: src/input/arduino_serial.py → arduino.battery_voltage/
+// _current, src/power/battery.py (modules.battery, domyślnie wyłączony).
+// =============================================================================
+#ifdef FEATURE_BATT_ADC
+#define PIN_BATT_ADC     A6
+// Dzielnik 100k/27k: V_bank = V_adc * (100 + 27) / 27. Przy 15 V na A6 jest
+// 3,19 V – bezpiecznie poniżej 5 V. Referencją jest VCC z MP1584, więc
+// współczynnik trzeba SKALIBROWAĆ: zmierz multimetrem napięcie banku i ustaw
+// BATT_ADC_CAL tak, żeby BATT: w monitorze portu pokazywał to samo. BATT:
+// zawiera już obecną korektę, więc: nowe = obecne × U_multimetr / U_BATT
+// (ZASILANIE_BUFOROWANE.md §13.4).
+#define BATT_ADC_VREF_MV 5000L
+#define BATT_ADC_R1_K     100L
+#define BATT_ADC_R2_K      27L
+// Liczy się tylko STOSUNEK R1:R2 — jednostka dowolna, byle wspólna. Stałe
+// są typu long, żeby rachunek w battReport() został na liczbach
+// całkowitych. Wariant 10k/2,2k: wpisz R1_K=100, R2_K=22 (oba ×10), a nie
+// 10 i 2.2 — ułamek przełączyłby całe wyrażenie na float (zadziała, ale
+// po nic). Przy 15 V na A6 jest wtedy 2,70 V.
+// Wybór dzielnika: 100k/27k to ~21 kΩ impedancji źródła, więcej niż
+// zalecane dla ADC 10 kΩ, więc kondensator 100 nF A6─GND jest OBOWIĄZKOWY
+// (on ładuje kondensator próbkujący). 10k/2,2k obejdzie się bez niego, ale
+// stale pobiera z banku ~1 mA zamiast ~0,1 mA (≈ 25 mAh na dobę postoju).
+// Przepełnienie: 1023 * BATT_ADC_VREF_MV * (R1 + R2) musi zmieścić się
+// w long (2^31), czyli R1 + R2 <= 400.
+#define BATT_ADC_CAL     1.000f   // korekta po kalibracji (np. 1.012)
+#define BATT_ADC_SAMPLES     9    // nieparzyście – mediana
+
+static_assert(BATT_ADC_SAMPLES % 2 == 1 && BATT_ADC_SAMPLES <= 31,
+              "BATT_ADC_SAMPLES: nieparzysta liczba <= 31 (mediana, int8_t j)");
+static_assert(BATT_ADC_R1_K + BATT_ADC_R2_K <= 400,
+              "BATT_ADC_R1_K + BATT_ADC_R2_K > 400 przepelni long w battReport()");
+
+// Mediana z kilku odczytów – odporna na pojedyncze piki z instalacji.
+int battAdcMedian() {
+  analogRead(PIN_BATT_ADC);            // przełącz multiplekser, odrzuć
+  delayMicroseconds(200);
+  int s[BATT_ADC_SAMPLES];
+  for (uint8_t i = 0; i < BATT_ADC_SAMPLES; i++) {
+    s[i] = analogRead(PIN_BATT_ADC);
+    delayMicroseconds(300);
+  }
+  for (uint8_t i = 1; i < BATT_ADC_SAMPLES; i++) {   // sortowanie wstawianiem
+    int v = s[i]; int8_t j = i - 1;
+    while (j >= 0 && s[j] > v) { s[j + 1] = s[j]; j--; }
+    s[j + 1] = v;
+  }
+  return s[BATT_ADC_SAMPLES / 2];
+}
+
+void battInit() {}
+
+void battReport() {
+  long adc = battAdcMedian();
+  long mv  = adc * BATT_ADC_VREF_MV * (BATT_ADC_R1_K + BATT_ADC_R2_K)
+             / (1023L * BATT_ADC_R2_K);
+  mv = (long)(mv * BATT_ADC_CAL);
+  Serial.print(F("BATT:"));
+  Serial.println(mv);
+}
+#endif
+
+#ifdef FEATURE_BATT_INA226
+// INA226: magistrala do 36 V mierzona bezpośrednio (bez dzielnika), prąd
+// z bocznika w linii MINUS banku (low-side) albo PLUS (high-side) – układ
+// mierzy oba warianty. Kierunek: prąd DO banku (ładowanie) ma dać wynik
+// dodatni; jeśli wychodzi odwrotnie, zamień przewody IN+/IN- albo ustaw
+// BATT_INA_SIGN na -1.
+#define BATT_INA_ADDR     0x40     // A0=A1=GND
+#define BATT_SHUNT_MOHM   3.75f    // bocznik 20 A / 75 mV = 3,75 mΩ
+#define BATT_INA_SIGN     1
+#define INA_REG_CONFIG    0x00
+#define INA_REG_SHUNT     0x01     // LSB 2,5 µV, ze znakiem
+#define INA_REG_BUS       0x02     // LSB 1,25 mV
+// AVG=16, VBUSCT=VSHCT=1,1 ms, tryb ciągły shunt+bus → nowy wynik co ~35 ms
+#define INA_CONFIG_VALUE  0x4527
+
+bool battInaOk = false;
+
+bool inaWrite(uint8_t reg, uint16_t v) {
+  Wire.beginTransmission(BATT_INA_ADDR);
+  Wire.write(reg);
+  Wire.write((uint8_t)(v >> 8));
+  Wire.write((uint8_t)(v & 0xFF));
+  return Wire.endTransmission() == 0;
+}
+
+bool inaRead(uint8_t reg, uint16_t& v) {
+  Wire.beginTransmission(BATT_INA_ADDR);
+  Wire.write(reg);
+  if (Wire.endTransmission(false) != 0) return false;
+  if (Wire.requestFrom((uint8_t)BATT_INA_ADDR, (uint8_t)2) != 2) return false;
+  // Dwa osobne odczyty: w wyrażeniu „read() << 8 | read()” kolejność
+  // wywołań nie jest w C++ określona — kompilator może zamienić bajty.
+  uint8_t hi = Wire.read();
+  uint8_t lo = Wire.read();
+  v = ((uint16_t)hi << 8) | lo;
+  return true;
+}
+
+void battInit() {
+  Wire.begin();
+  // setWireTimeout jest w rdzeniu arduino:avr od 1.8.3 (sketch.yaml: 1.8.6).
+  // 3 ms + reset magistrali: zawieszony INA226 nie zatrzyma loop(), a watchdog
+  // (2 s) jeszcze w setup() nie działa.
+  Wire.setWireTimeout(3000, true);
+  battInaOk = inaWrite(INA_REG_CONFIG, INA_CONFIG_VALUE);
+  if (!battInaOk) Serial.println(F("BATT: INA226 nie odpowiada"));
+}
+
+void battReport() {
+  uint16_t rawBus = 0, rawShunt = 0;
+  if (!battInaOk) {                         // ponów inicjalizację
+    battInaOk = inaWrite(INA_REG_CONFIG, INA_CONFIG_VALUE);
+    if (!battInaOk) return;
+  }
+  if (!inaRead(INA_REG_BUS, rawBus) || !inaRead(INA_REG_SHUNT, rawShunt)) {
+    battInaOk = false;
+    return;
+  }
+  long mv = ((long)rawBus * 125L) / 100L;                 // 1,25 mV/LSB
+  // µV / mΩ = mA
+  long ma = (long)((int16_t)rawShunt * 2.5f / BATT_SHUNT_MOHM) * BATT_INA_SIGN;
+  Serial.print(F("BATT:"));
+  Serial.print(mv);
+  Serial.print(',');
+  Serial.println(ma);
+}
+#endif
 
 // -----------------------------------------------------------------------------
 void setup() {
@@ -238,9 +423,11 @@ void setup() {
   digitalWrite(PIN_PWR_RELAY, LOW);
 #endif
   pinMode(PIN_PWR_RELAY, OUTPUT);
+  pwrInit(pwr, PWR_CLOSED_LOOP, millis());
 #endif
 #ifdef FEATURE_PWRLED
   pinMode(PIN_PWR_LED, INPUT_PULLUP);
+  pwrLedInit(pwrLed, millis());
 #endif
 
 #ifdef FEATURE_DOORS
@@ -275,6 +462,10 @@ void setup() {
 #ifdef FEATURE_TEMP
   tempSensor.begin();
   tempSensor.setWaitForConversion(false);  // konwersja asynchroniczna
+#endif
+
+#if defined(FEATURE_BATT_ADC) || defined(FEATURE_BATT_INA226)
+  battInit();
 #endif
 
   Serial.println(F("BCM v8.5 Sensor Hub ready"));
@@ -387,16 +578,18 @@ void pwrRelay(bool on) {
 #endif
 }
 
-void pwrSetState(PwrState s) {
-  if (s == pwrState) return;
-  pwrState = s;
+// PWR: tylko przy zmianie stanu (pełny stan i tak idzie co 2 s).
+void pwrReportState() {
+  if (pwr.state == pwrReported) return;
+  pwrReported = pwr.state;
   Serial.print(F("PWR:"));
-  Serial.println(PWR_NAMES[s]);
+  Serial.println(PWR_NAMES[pwr.state]);
 }
 
 // Impuls jest NIEBLOKUJĄCY — 5 s w delay() zabiłoby watchdoga (2 s).
 void pwrStartPulse(unsigned long ms, const __FlashStringHelper* what) {
   pwrRelay(true);
+  pwrPulsing = true;
   pwrPulseUntil = millis() + ms;
   Serial.print(F("PWRACT:"));
   Serial.println(what);
@@ -404,30 +597,22 @@ void pwrStartPulse(unsigned long ms, const __FlashStringHelper* what) {
 
 #ifdef FEATURE_PWRLED
 // Dioda panelu: świeci ciągle = praca, miga = S3, zgaszona = wyłączony.
-// Rozpoznajemy przez zliczanie zboczy w oknie PWR_LED_WINDOW_MS.
+// Dekoder (zbocza w oknach, z histerezą na wolne miganie) jest w
+// power_logic.h, bo tylko tam da się go przetestować na PC.
 void pwrObserveLed(unsigned long now) {
   bool lit = digitalRead(PIN_PWR_LED) == (PWR_LED_ACTIVE_LOW ? LOW : HIGH);
-  if (lit != pwrLedLit) {
-    pwrLedLit = lit;
-    if (pwrLedEdges < 250) pwrLedEdges++;
-  }
-  if (now - pwrLedWindowAt < PWR_LED_WINDOW_MS) return;
-  pwrLedWindowAt = now;
-
-  if (pwrLedEdges >= 2)   pwrSetState(PWR_SLEEP);
-  else if (pwrLedLit)     pwrSetState(PWR_RUNNING);
-  else                    pwrSetState(PWR_OFF);
-  pwrLedEdges = 0;
+  if (pwrLedSample(pwrLed, lit, now)) pwrObserve(pwr, pwrLed.decoded, now);
 }
 #endif
 
 void handlePwrButton(unsigned long now) {
-  // 1. Domknij trwający impuls i odczekaj, aż maszyna wykona przejście.
-  if (pwrPulseUntil) {
+  // 1. Domknij trwający impuls. Impuls trwa najwyżej 5 s i jest sprawdzany
+  //    w każdym obiegu, więc różnica ze znakiem jest tu bezpieczna.
+  if (pwrPulsing) {
     if ((long)(now - pwrPulseUntil) >= 0) {
       pwrRelay(false);
-      pwrPulseUntil = 0;
-      pwrSettleUntil = now + PWR_SETTLE_MS;
+      pwrPulsing = false;
+      pwrPulseDone(pwr, now);   // cisza, aż maszyna wykona przejście
     }
     return;
   }
@@ -436,74 +621,19 @@ void handlePwrButton(unsigned long now) {
   pwrObserveLed(now);
 #endif
 
-  // 2. Potwierdzenie zapłonu. DEBOUNCE_MS (50 ms) wystarcza do raportowania
-  //    IGN:, ale nie do usypiania komputera — zapad przy rozruchu potrafi
-  //    zgasić ACC na chwilę. Stąd osobne, dłuższe potwierdzenie.
-  bool ign = inIgn.state;
-
-  if (!pwrIgnKnown) {
-    if (ign != pwrIgnCand) { pwrIgnCand = ign; pwrIgnCandAt = now; }
-    if ((now - pwrIgnCandAt) >= PWR_IGN_CONFIRM_MS) {
-      pwrIgnLevel = ign;
-      pwrIgnKnown = true;
-      if (!ign) pwrIgnOffAt = now;
-    }
-    return;  // pierwsza obserwacja po starcie NIE wywołuje akcji
-  }
-
-  if (ign != pwrIgnCand) { pwrIgnCand = ign; pwrIgnCandAt = now; }
-  if (pwrIgnCand != pwrIgnLevel && (now - pwrIgnCandAt) >= PWR_IGN_CONFIRM_MS) {
-    pwrIgnLevel = pwrIgnCand;
-    if (pwrIgnLevel) {
-      pwrDesired = PWR_RUNNING;
-    } else {
-      pwrIgnOffAt = now;
-      pwrOffDone  = false;
-      pwrDesired  = PWR_SLEEP;
-    }
-  }
-
-  // 3. Eskalacja: po dwóch godzinach postoju S3 przestaje się opłacać.
-  if (!pwrIgnLevel && !pwrOffDone && (now - pwrIgnOffAt) >= PWR_OFF_AFTER_MS) {
-    pwrDesired = PWR_OFF;
-  }
-
-  // 4. Wykonanie. Zamiar jest JEDNORAZOWY — po impulsie kasujemy go, żeby
-  //    firmware nie walczył z człowiekiem, który sam nacisnął przycisk.
-  if (now < pwrSettleUntil) return;
-  if (pwrDesired == PWR_UNKNOWN) return;
-  if (pwrDesired == pwrState) { pwrDesired = PWR_UNKNOWN; return; }
-
-  switch (pwrDesired) {
-    case PWR_RUNNING:
+  // 2. Decyzja: potwierdzenie zapłonu, eskalacja, cisza po impulsie —
+  //    power_logic.h (testy: make -C arduino sensor_hub-test).
+  switch (pwrStep(pwr, now, inIgn.state)) {
+    case PWR_ACT_SHORT:
       pwrStartPulse(PWR_PULSE_SHORT_MS, F("SHORT"));
-#ifndef FEATURE_PWRLED
-      pwrSetState(PWR_RUNNING);
-#endif
       break;
-
-    case PWR_SLEEP:
-      // Z wyłączonej maszyny nie robimy S3 — krótki impuls by ją WŁĄCZYŁ.
-      if (pwrState == PWR_OFF) { pwrDesired = PWR_UNKNOWN; break; }
-      pwrStartPulse(PWR_PULSE_SHORT_MS, F("SHORT"));
-#ifndef FEATURE_PWRLED
-      pwrSetState(PWR_SLEEP);
-#endif
-      break;
-
-    case PWR_OFF:
+    case PWR_ACT_LONG:
       pwrStartPulse(PWR_PULSE_LONG_MS, F("LONG"));
-      pwrOffDone = true;
-#ifndef FEATURE_PWRLED
-      pwrSetState(PWR_OFF);
-#endif
       break;
-
     default:
       break;
   }
-
-  pwrDesired = PWR_UNKNOWN;
+  pwrReportState();
 }
 #endif
 
@@ -531,7 +661,10 @@ void reportFullState() {
 #endif
 #ifdef FEATURE_PWRBTN
   Serial.print(F("PWR:"));
-  Serial.println(PWR_NAMES[pwrState]);
+  Serial.println(PWR_NAMES[pwr.state]);
+#endif
+#if defined(FEATURE_BATT_ADC) || defined(FEATURE_BATT_INA226)
+  battReport();
 #endif
 }
 

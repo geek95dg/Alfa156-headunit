@@ -19,7 +19,9 @@
  *
  * Literal pixel values (text-[10px], style="font-size:18px") do NOT
  * scale via rem; those are handled by the escape-bracket overrides and
- * per-component pixel bumps in the JS templates (navbar/appbar/keyboard).
+ * per-component pixel bumps in the JS templates (navbar/appbar). The
+ * on-screen keyboard sizes itself in px from the window height instead
+ * (see #osk-overlay below).
  */
 html {
     font-size: 17px;   /* fallback — #bcm-adaptive-rem overrides per viewport */
@@ -48,11 +50,77 @@ html {
  * Tailwind values — a later CSS rebuild produces the same rule. */
 .max-w-2xl { max-width: 42rem; }
 
-/* When the on-screen keyboard (half-screen, 50vh) is open, pad the
- * scrollable content area up by the keyboard height + a margin so the
- * focused input is never hidden behind the keys. The OSK scrolls the
- * active input into the top half (keyboard.js). */
-body.osk-open .content-area { padding-bottom: 54vh; }
+/* ---- ON-SCREEN KEYBOARD (components/keyboard.js) ----
+ * Sized in px from the window height by oskLayout() in keyboard.js, which
+ * sets --osk-h (panel height), --osk-pad, --osk-gap and --osk-font on <html>
+ * whenever the keyboard opens or the window is resized. Nothing in here is
+ * rem-based on purpose: the old panel was 50vh with rem padding/rows/text,
+ * and after the 17 px root font + 6th key row its content was ~86 px taller
+ * than the panel, so the bottom row (shift … backspace, SPACE, OK) sat below
+ * the screen. Now the rows share the panel height (flex: 1 1 0 +
+ * min-height: 0) and cannot overflow it; the panel cannot exceed the window.
+ * The var() fallbacks only matter if keyboard.js has not set them yet. */
+#osk-overlay {
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 200;
+    height: var(--osk-h, 58vh);
+    max-height: 100vh;
+    max-height: 100dvh;
+    box-sizing: border-box;
+    overflow: hidden;
+    padding: var(--osk-pad, 8px);
+    display: flex;
+    flex-direction: column;
+    gap: var(--osk-gap, 6px);
+    -webkit-backdrop-filter: blur(12px);
+    backdrop-filter: blur(12px);
+}
+#osk-overlay .osk-row {
+    display: flex;
+    flex: 1 1 0;
+    min-height: 0;
+    width: 100%;
+    gap: var(--osk-gap, 6px);
+    align-items: stretch;
+}
+/* Width comes from the flex-1 / flex-[N] weight on each key. */
+#osk-overlay .osk-key {
+    height: 100%;
+    min-width: 0;
+    padding: 0;
+    overflow: hidden;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: var(--osk-font, 20px);
+    line-height: 1;
+}
+#osk-overlay .osk-key .material-symbols-outlined {
+    font-size: calc(var(--osk-font, 20px) * 1.2);
+    line-height: 1;
+}
+/* Typed-text preview in the bottom row (keyboard.js keeps it scrolled to
+ * the end, so the last typed characters stay visible). */
+#osk-overlay .osk-preview {
+    flex: 4 1 0;
+    min-width: 0;
+    align-self: center;
+    overflow: hidden;
+    white-space: nowrap;
+    padding: 0 var(--osk-pad, 8px);
+    font-size: calc(var(--osk-font, 20px) * 0.8);
+    line-height: 1.2;
+    opacity: 0.6;
+}
+/* While the keyboard is open, pad the scrollable content area by the
+ * keyboard height + 16 px, so keyboard.js (_ensureVisible) can always scroll
+ * the focused field to at least 12 px above the keys — even the last field
+ * on the page. The 4 px over the 12 px margin absorb rounding: scrollHeight
+ * and scrollTop are whole pixels, the rem-sized content is not. */
+body.osk-open .content-area { padding-bottom: calc(var(--osk-h, 58vh) + 16px); }
 
 /* Android Auto note: the captured autoapp stream is an <img> filling
  * absolute inset-0, so the rem bump above doesn't change its

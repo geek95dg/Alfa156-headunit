@@ -52,8 +52,37 @@ ACTIONS = [
     "phone_pickup", "phone_hangup",
     "bcm_power_toggle", "voice_aa_trigger", "navigate_aa",
     "home", "back", "source_cycle", "brightness_cycle",
+    # Mapping-only action (no keycode of its own): a button mapped to it in
+    # swc.mapping ALSO cancels a crash SMS while its countdown runs
+    # (input_bridge → crash.cmd.cancel, plan F; never once it is being sent
+    # or after it went out). No default button — the driver picks one in
+    # Settings → SWC. Every button keeps its fixed action as well, so pick
+    # a rarely used one — never hang-up / pick-up (used right after a crash).
+    "crash_cancel",
     "disabled",
 ]
+
+#: Actions without a default button that the SWC table in Settings still
+#: lists (with empty slots) when a saved swc.mapping predates them.
+OPTIONAL_ACTIONS = ("crash_cancel",)
+#: ... and the module each one belongs to: Settings offers the action only
+#: while that module is switched on (``modules.<name>``), so production —
+#: crash_sms off — shows no action that would do nothing.
+OPTIONAL_ACTION_MODULES = {"crash_cancel": "crash_sms"}
+
+
+def action_available(action: str, config: Any) -> bool:
+    """May Settings offer ``action`` with this config? Every action but an
+    optional one whose module is off. A config that cannot be asked counts
+    as "off" (the action is never offered by accident)."""
+    module = OPTIONAL_ACTION_MODULES.get(action)
+    if module is None:
+        return True
+    try:
+        from src.core import modules_catalog
+        return bool(modules_catalog.is_enabled(config, module))
+    except Exception:
+        return False
 
 # Default mapping: action → [pod1_button, pod2_button]
 DEFAULT_MAPPING: dict[str, list[str]] = {

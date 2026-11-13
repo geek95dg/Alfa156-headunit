@@ -12,6 +12,7 @@ import glob
 import html
 import ipaddress
 import json
+import logging
 import math
 import os
 import re
@@ -26,9 +27,20 @@ from urllib.parse import urlsplit
 
 from src.core.logger import get_logger
 from src.core.notifications import active_notifications
+from src.multimedia.phone_status import sanitize_status as _phone_status_summary
+from src.network.car_phone import ADB_STATES as _CAR_PHONE_ADB_STATES
+from src.network.car_phone import HINTS as _CAR_PHONE_HINTS
+from src.network.car_phone import RETRY_TOPIC as _CAR_PHONE_RETRY_TOPIC
+from src.network.car_phone import STATES as _CAR_PHONE_STATES
+from src.network import car_phone_agent as _car_phone_agent
+from src.network.car_phone_agent import PAIR_CODE_RE as _AGENT_PAIR_CODE_RE
+from src.network.car_phone_agent import REASONS as _AGENT_REASONS
+from src.network.car_phone_agent import STATES as _AGENT_STATES
+from src.network.car_phone_agent import TOPIC as _AGENT_TOPIC
 from src.network.phone_tether import HINTS as _TETHER_HINTS
 from src.network.phone_tether import RETRY_TOPIC as _TETHER_RETRY_TOPIC
 from src.network.phone_tether import STATES as _TETHER_STATES
+from src.safety import crash_sms as _crash_sms
 from src.weather.weather import valid_coords
 
 log = get_logger("web_viewer")
@@ -235,8 +247,28 @@ def _save_config(cfg: Any, what: str) -> bool:
         return False
 
 
+def _modules_restart_required(modules: list, changed: bool) -> bool:
+    """True if any module's saved toggles differ from what is running now
+    (``restart_pending`` from catalog_state). Without a boot snapshot
+    (``restart_pending`` absent) a change just saved (``changed``) is
+    assumed to need one, and a plain read says nothing is pending."""
+    if any("restart_pending" not in m for m in modules):
+        return changed
+    return any(m["restart_pending"] for m in modules)
+
+
 #: Minimum spacing of POST /api/phone_tether/retry (one nmcli attempt each).
 _TETHER_RETRY_MIN_INTERVAL_S = 10.0
+#: Minimum spacing of POST /api/phone/dial, per bucket: the kiosk on this
+#: machine and "everyone else" are counted separately, so a client on the
+#: network cannot keep the driver's own dialer (also for 112) at 429.
+_DIAL_MIN_INTERVAL_S = 5.0
+#: What a client that is not the kiosk may dial: a plain number, nothing
+#: with ``*``/``#``. Those make the phone run MMI/supplementary-service codes
+#: — ``*31*#112`` still calls 112 (Android dials what follows the caller-ID
+#: code), ``**21*<number>#`` forwards every call permanently (also to a
+#: premium-rate number), USSD codes reach the operator account.
+_NETWORK_DIAL_RE = re.compile(r"^\+?[0-9]{3,20}$")
 
 
 def _phone_tether_summary(value: Any) -> Optional[dict]:
@@ -261,6 +293,319 @@ def _phone_tether_summary(value: Any) -> Optional[dict]:
     }
 
 
+#: Minimum spacing of POST /api/car_phone/retry (each can cost adb calls and
+#: a `connection up` of up to 30 s).
+_CAR_PHONE_RETRY_MIN_INTERVAL_S = 10.0
+_CAR_PHONE_PLUGGED = ("", "ac", "usb", "wireless", "dock")
+_CAR_PHONE_HEALTH = ("unknown", "good", "overheat", "dead", "over_voltage", "failure", "cold")
+_SERIAL_MASK_RE = re.compile(r"^(?:…|[A-Za-z0-9._:-]{2}…[A-Za-z0-9._:-]{2})$")
+
+
+def _car_phone_summary(value: Any) -> Optional[dict]:
+    """``net.car_phone`` → what the Settings row "Telefon w aucie" shows.
+
+    Whitelists for state / hint / adb / plugged / health, numbers checked
+    for type and range, strings for length and shape: the values come from
+    adb and nmcli output (the frontend escapes them too). The serial is
+    passed on only in its masked form (``1a…4d``) — the payload is visible
+    from the network in ``readonly`` mode. Never published = the module is
+    not running (production) = None, and Settings shows no row.
+    """
+    if not isinstance(value, dict):
+        return None
+
+    def num(key, lo, hi, integer=False):
+        v = value.get(key)
+        if isinstance(v, bool) or not isinstance(v, (int, float)):
+            return None
+        if integer and not isinstance(v, int):
+            return None
+        if v != v or not lo <= v <= hi:        # NaN, out of range
+            return None
+        return v
+
+    def flag(key):
+        v = value.get(key)
+        return v if isinstance(v, bool) else None
+
+    def pick(key, allowed, default=""):
+        v = value.get(key)
+        return v if isinstance(v, str) and v in allowed else default
+
+    state = value.get("state")
+    ip = value.get("ip")
+    iface = value.get("iface")
+    gateway = value.get("gateway")
+    serial = value.get("serial")
+    error = value.get("error")
+    temp = num("temp_c", -40, 100)
+    return {
+        "state": state if isinstance(state, str) and state in _CAR_PHONE_STATES else "unknown",
+        "hint": pick("hint", _CAR_PHONE_HINTS),
+        "adb": pick("adb", _CAR_PHONE_ADB_STATES),
+        "serial": serial if isinstance(serial, str) and _SERIAL_MASK_RE.fullmatch(serial) else "",
+        "ip": ip if isinstance(ip, str) and len(ip) <= 45 else "",
+        "prefix": num("prefix", 0, 32, integer=True),
+        "gateway": gateway if isinstance(gateway, str) and len(gateway) <= 45 else "",
+        "iface": iface if isinstance(iface, str) and len(iface) <= 15 else "",
+        "gps_forward": value.get("gps_forward") is True,
+        "battery_pct": num("battery_pct", 0, 100, integer=True),
+        "temp_c": round(temp, 1) if temp is not None else None,
+        "charging": flag("charging"),
+        "full": flag("full"),
+        "plugged": pick("plugged", _CAR_PHONE_PLUGGED, None),
+        "health": pick("health", _CAR_PHONE_HEALTH, None),
+        "overridden": value.get("overridden") is True,
+        "hotspot_active": flag("hotspot_active"),
+        "hotspot_clients": num("hotspot_clients", 0, 255, integer=True),
+        "heat": pick("heat", ("warning", "danger"), None),
+        "error": error[:200] if isinstance(error, str) else "",
+    }
+
+
+#: Minimum spacing of POST /api/car_phone_agent/pair (each one sends the
+#: secret to whatever answers on the agent forward — a click, not a loop;
+#: only attempts handed to the module count, a malformed body or a refusal
+#: such as "confirmation needed" costs nothing).
+_AGENT_PAIR_MIN_INTERVAL_S = 10.0
+#: The pair body is {"code": "<10 digits>", "confirm": bool} — tiny.
+_AGENT_PAIR_MAX_BODY = 256
+_AGENT_VERSION_RE = re.compile(r"^[0-9A-Za-z.+-]{1,16}$")
+
+
+def _car_phone_agent_summary(value: Any) -> Optional[dict]:
+    """``net.car_phone_agent`` → the Settings row "Agent w telefonie".
+
+    The module validated the agent's answers already; this is the second
+    line (whitelisted state/reason, flags only as booleans, timestamps only
+    as finite epoch numbers, version by pattern) because the payload also
+    reaches network clients in ``readonly`` mode. Never published = the
+    module is not running = None (no row).
+    """
+    if not isinstance(value, dict):
+        return None
+
+    def flag(key):
+        v = value.get(key)
+        return v if isinstance(v, bool) else None
+
+    def ts(key):
+        v = value.get(key)
+        if isinstance(v, bool) or not isinstance(v, (int, float)):
+            return None
+        return v if math.isfinite(v) and 0 < v < 4e9 else None
+
+    state = value.get("state")
+    version = value.get("version")
+    reason = value.get("reason")
+    error = value.get("error")
+    return {
+        "state": state if isinstance(state, str) and state in _AGENT_STATES else "unknown",
+        "paired": flag("paired"),
+        "pairing": flag("pairing"),
+        "version": version if isinstance(version, str) and _AGENT_VERSION_RE.fullmatch(version)
+        else None,
+        "sim_ready": flag("sim_ready"),
+        "last_ok_ts": ts("last_ok_ts"),
+        "last_sent_ts": ts("last_sent_ts"),
+        "reason": reason if isinstance(reason, str) and reason in _AGENT_REASONS else "",
+        "error": error[:200] if isinstance(error, str) else "",
+        "needs_confirm": value.get("needs_confirm") is True,
+    }
+
+
+#: Crash SMS routes (src/safety/crash_sms.py): minimum spacing of accepted
+#: commands, per route (a double tap is swallowed by the UI already; the
+#: limit stops a loop — the first command is queued anyway).
+_CRASH_CMD_MIN_INTERVAL_S = 1.0
+#: One REAL test SMS request per minute (the phone allows one per 10 min).
+_CRASH_TEST_MIN_INTERVAL_S = 60.0
+_CRASH_RECIPIENTS_MIN_INTERVAL_S = 2.0
+#: Bodies: {"event_id": "<32 hex>"}, {"confirm": true},
+#: {"recipients": [3 numbers]} — all tiny.
+_CRASH_MAX_BODY = 512
+#: A recipient as typed: digits, '+', spaces and dashes (removed), bounded.
+_CRASH_RCPT_TYPED_RE = re.compile(r"^[0-9+ -]{1,32}$")
+
+
+def _crash_sms_summary(value: Any) -> Optional[dict]:
+    """``crash.sms_state`` → the crash window and the Settings section.
+
+    A whitelist with types and ranges (the module built it from validated
+    agent answers; this is the second line, because the payload also
+    reaches network clients in ``readonly`` mode). Recipient numbers are
+    never in it — only how many there are. None = the module does not run
+    (no window, no Settings section).
+    """
+    if not isinstance(value, dict):
+        return None
+
+    def flag(key):
+        return value.get(key) is True
+
+    def epoch(v):
+        if isinstance(v, bool) or not isinstance(v, (int, float)):
+            return None
+        return float(v) if math.isfinite(v) and 0 < v < 4e9 else None
+
+    def small_int(v, hi):
+        if isinstance(v, bool) or not isinstance(v, int) or not 0 <= v <= hi:
+            return None
+        return v
+
+    state = value.get("state")
+    eid = value.get("event_id")
+    results = []
+    raw = value.get("results")
+    if isinstance(raw, list):
+        for r in raw[:_car_phone_agent.MAX_RECIPIENTS]:
+            if isinstance(r, dict) and r.get("state") in _crash_sms.RCPT_STATES:
+                results.append({"state": r["state"], "verified": r.get("verified") is True})
+    cancel = value.get("cancel_sms")
+    test = value.get("test") if isinstance(value.get("test"), dict) else {}
+    reason = value.get("forced_dry_run_reason")
+    error = value.get("error")
+    return {
+        "state": state if isinstance(state, str) and state in _crash_sms.STATES else "idle",
+        "event_id": eid if isinstance(eid, str) and _crash_sms.EVENT_ID_RE.fullmatch(eid)
+        else None,
+        "ts": epoch(value.get("ts")),
+        "countdown_s": small_int(value.get("countdown_s"), _car_phone_agent.COUNTDOWN_MAX_S),
+        "countdown_left_s": small_int(value.get("countdown_left_s"),
+                                      _car_phone_agent.COUNTDOWN_MAX_S),
+        "deadline_ts": epoch(value.get("deadline_ts")),
+        "recipients_n": small_int(value.get("recipients_n"),
+                                  _car_phone_agent.MAX_RECIPIENTS) or 0,
+        "phone_ok": flag("phone_ok"),
+        # Anything but an explicit false is shown as test mode.
+        "dry_run": value.get("dry_run") is not False,
+        "forced_dry_run_reason": reason if isinstance(reason, str)
+        and reason in _crash_sms.FORCED_REASONS else "",
+        "results": results,
+        "cancel_sms": {"state": cancel["state"]} if isinstance(cancel, dict)
+        and cancel.get("state") in ("sending", "sent", "partial", "failed") else None,
+        "error": error if isinstance(error, str) and error in _crash_sms.ERRORS else "",
+        "modal": flag("modal"),
+        "cancel_pending": flag("cancel_pending"),
+        "send_now_pending": flag("send_now_pending"),
+        "can_follow_up": flag("can_follow_up"),
+        "may_send": flag("may_send"),
+        "unconfirmed": flag("unconfirmed"),
+        "test": {
+            "request": test.get("request") if test.get("request") in _crash_sms.TEST_REQUESTS
+            else "",
+            "error": test.get("error") if test.get("error") in _crash_sms.TEST_ERRORS else "",
+            "state": test.get("state") if test.get("state") in _car_phone_agent.TEST_STATES
+            else None,
+            "ts": epoch(test.get("ts")),
+            "dry_run": test.get("dry_run") if isinstance(test.get("dry_run"), bool) else None,
+            "verified": test.get("verified") is True,
+            "last_verified_ts": epoch(test.get("last_verified_ts")),
+        },
+    }
+
+
+#: gps.source_state values the Settings row may show (src/location/gps.py).
+_GPS_SOURCES = ("demo", "serial", "udp", "tcp")
+_GPS_STATES = ("fix", "no_fix")
+_GPS_INPUT_STATES = ("starting", "running", "connected", "receiving", "listening",
+                     "waiting", "connecting", "disconnected", "error", "demo_fallback")
+#: Code defaults of hardware.gps.{udp,tcp}.port (gps.DEFAULTS) for the hint.
+_GPS_DEFAULT_PORTS = {"udp": 10110, "tcp": 50000}
+
+
+def _gps_peer_ip(peer: Any) -> str:
+    """``"192.168.44.1:43210"`` → ``"192.168.44.1"``, only for a private address.
+
+    The payload is visible from the network in ``readonly`` mode; a public
+    address (or a serial device path) is not what the Settings row needs.
+    """
+    if not isinstance(peer, str) or not peer or len(peer) > 64:
+        return ""
+    host = peer.strip()
+    if host.startswith("["):                              # [v6]:port
+        host = host[1:host.find("]")] if "]" in host else ""
+    elif host.count(":") == 1:                            # v4:port
+        host = host.split(":", 1)[0]
+    try:
+        ip = ipaddress.ip_address(host)
+    except ValueError:
+        return ""
+    if ip.version == 6 and ip.ipv4_mapped is not None:
+        ip = ip.ipv4_mapped
+    return str(ip) if ip.is_private else ""
+
+
+def _gps_port(cfg: Any, name: str) -> int:
+    default = _GPS_DEFAULT_PORTS[name]
+    try:
+        value = cfg.get(f"hardware.gps.{name}.port", default) if cfg is not None else default
+    except Exception:
+        value = default
+    if isinstance(value, bool) or not isinstance(value, int) or not 1 <= value <= 65535:
+        return default
+    return value
+
+
+def _gps_state_summary(value: Any, cfg: Any = None) -> Optional[dict]:
+    """``gps.source_state`` → what the Settings "GPS" row shows, or None.
+
+    ``{source, state, peer, last_ts, inputs: [{source, state}], udp_port,
+    tcp_port}`` — known names only, the sender only as a private IP (see
+    _gps_peer_ip), ports only for inputs that run (they make the "send NMEA
+    to <bnep0 IP>:10110" hint right). None while the location module never
+    published one (module off): no row.
+    """
+    if not isinstance(value, dict):
+        return None
+    raw_source = value.get("source")
+    names = [n for n in (raw_source.split(",") if isinstance(raw_source, str) else [])
+             if n in _GPS_SOURCES]
+    state = value.get("state")
+    last_ts = _num_or_none(value.get("last_ts"))
+    inputs = []
+    # gps.source_state is IPC-relayable: a malformed "inputs" (5, a string)
+    # must cost the GPS row, never the whole /api/data payload.
+    raw_inputs = value.get("inputs")
+    for item in raw_inputs if isinstance(raw_inputs, list) else []:
+        if len(inputs) >= len(_GPS_SOURCES):
+            break
+        if not isinstance(item, dict) or item.get("source") not in _GPS_SOURCES:
+            continue
+        istate = item.get("state")
+        inputs.append({"source": item["source"],
+                       "state": istate if istate in _GPS_INPUT_STATES else "unknown"})
+    running = {i["source"] for i in inputs} | set(names)
+    return {
+        "source": ",".join(dict.fromkeys(names)),
+        "state": state if state in _GPS_STATES else "no_fix",
+        "peer": _gps_peer_ip(value.get("peer")),
+        "last_ts": last_ts if last_ts is not None and last_ts > 0 else None,
+        "inputs": inputs,
+        "udp_port": _gps_port(cfg, "udp") if "udp" in running else None,
+        "tcp_port": _gps_port(cfg, "tcp") if "tcp" in running else None,
+    }
+
+
+def _dial_result_summary(value: Any) -> Optional[dict]:
+    """``bt.dial_result`` → ``{ok, error, ts}`` with a known error code only.
+
+    ``ok`` is None only for error "unknown" (oFono did not answer Dial() in
+    time — the call may be going out; A8 keeps its overlay).
+    """
+    if not isinstance(value, dict):
+        return None
+    from src.multimedia.bluetooth import DIAL_ERRORS
+    error = value.get("error")
+    error = error if error in DIAL_ERRORS else None
+    ok = value.get("ok")
+    return {
+        "ok": True if ok is True else (None if ok is None and error == "unknown" else False),
+        "error": error,
+        "ts": _num_or_none(value.get("ts")),
+    }
+
+
 # ── Network access policy (Flask before_request) ─────────────────────────
 # The dashboard listens on 0.0.0.0:5002 without authentication: anyone who
 # can reach it could reboot the car PC, read the Wi-Fi passwords or type
@@ -270,7 +615,11 @@ def _phone_tether_summary(value: Any) -> Optional[dict]:
 #
 #   full      every client, every route, from anywhere — the legacy
 #             behaviour and the code default (production unchanged).
-#             allowed_networks is NOT applied in this mode.
+#             allowed_networks is NOT applied in this mode. Recommended
+#             for production instead: "tracking" (a phone can still fetch
+#             GPX; nothing can reboot the PC, read passwords or dial).
+#             POST /api/phone/dial refuses emergency numbers from the
+#             network and is rate-limited even here.
 #   readonly  GET/HEAD views on the allow-list _READONLY_ENDPOINTS and the
 #             data WebSocket (/ws) from allowed_networks; never POST/DELETE
 #             or /ws/input. An ALLOW-list on purpose: a GET with side
@@ -328,6 +677,9 @@ _READONLY_DENIED_ENDPOINTS = frozenset({
     "ws_input_handler", "api_wifi_config_get", "aa_stream",
     "camera_stream", "camera_available", "api_dtc_read",
     "api_weather_search", "api_trip_search",
+    # the crash SMS recipients are personal data (phone numbers): kiosk only
+    # in every mode (the view also refuses non-loopback clients itself)
+    "api_crash_recipients_get",
 })
 _HOSTNAME_RE = re.compile(r"[a-z0-9](?:[a-z0-9.-]{0,251}[a-z0-9])?")
 #: One "refused" log line per client address per this many seconds.
@@ -593,7 +945,7 @@ class WebViewer:
     def __init__(self, host: str = "0.0.0.0", port: int = 5002,
                  event_bus=None, config=None, bt_manager=None,
                  trip_computer=None, route_planner=None,
-                 wifi_ap=None) -> None:
+                 wifi_ap=None, boot_module_runs=None) -> None:
         self.host = host
         self.port = port
         self._event_bus = event_bus
@@ -631,6 +983,20 @@ class WebViewer:
         # may move the wall clock right after the link comes up).
         self._tether_retry_lock = threading.Lock()
         self._tether_retry_last: Optional[float] = None
+        # POST /api/car_phone/retry rate limit (monotonic, as above).
+        self._car_phone_retry_lock = threading.Lock()
+        self._car_phone_retry_last: Optional[float] = None
+        # POST /api/car_phone_agent/pair rate limit (monotonic, as above).
+        self._agent_pair_lock = threading.Lock()
+        self._agent_pair_last: Optional[float] = None
+        # /api/crash/* rate limits: last accepted request per route (monotonic).
+        self._crash_lock = threading.Lock()
+        self._crash_last: dict[str, float] = {}
+
+        # POST /api/phone/dial rate limit: last accepted dial per bucket
+        # ("kiosk" = loopback, "network" = everyone else), monotonic.
+        self._dial_lock = threading.Lock()
+        self._dial_last: dict[str, float] = {}
 
         # /aa/stream bookkeeping: generation ids of the live MJPEG streams
         # (oldest first) and each one's ffmpeg, so a newer stream can stop an
@@ -640,6 +1006,18 @@ class WebViewer:
         self._aa_stream_active: list[int] = []
         self._aa_stream_procs: dict[int, Any] = {}
 
+        # Which modules run in THIS process. /api/modules compares the saved
+        # toggles with it, so "wymaga restartu BCM" appears only where a
+        # restart would actually change something. main.py hands over what
+        # it really started (``boot_module_runs`` — also right for a run
+        # with --modules, which the config alone does not know about); only
+        # without it (tests, the Pygame renderer) is it recomputed from the
+        # config, which at this point still matches the start-up decision.
+        if isinstance(boot_module_runs, dict):
+            self._modules_boot_runs = {str(k): bool(v) for k, v in boot_module_runs.items()}
+        else:
+            self._modules_boot_runs = self._modules_runs(config)
+
         # Forward voice-AA trigger to autoapp (M key or tap on the mic icon)
         if event_bus:
             event_bus.subscribe("aa.voice_trigger", self._on_aa_voice_trigger)
@@ -647,6 +1025,25 @@ class WebViewer:
             # pressed-button state that belonged to the old X server.
             event_bus.subscribe("multimedia.openauto_status",
                                 self._on_openauto_status)
+
+    @staticmethod
+    def _modules_runs(config) -> Optional[dict]:
+        """``{name: runs}`` for this config; None if it cannot be resolved
+        (no config, a plain dict in tests)."""
+        if config is None or not hasattr(config, "is_module_enabled"):
+            return None
+        try:
+            from src.core import modules_catalog
+            return {name: st.runs for name, st in modules_catalog.module_states(config).items()}
+        except Exception:
+            log.exception("Module state snapshot failed")
+            return None
+
+    def _modules_payload(self, config) -> list:
+        """/api/modules list: the catalog with requires/hardware/available/
+        blocked_by/needs and, with a boot snapshot, restart_pending."""
+        from src.core.modules_catalog import catalog_state
+        return catalog_state(config, self._modules_boot_runs)
 
     def attach_trip(self, trip_computer, route_planner=None) -> None:
         """Attach trip computer + planner after construction.
@@ -737,6 +1134,9 @@ class WebViewer:
             "gps_heading": _val("gps.heading", 0),
             "gps_fix": _val("gps.fix", False),
             "gps_satellites": _val("gps.satellites", 0),
+            # Which input feeds the GPS and whether it has a fix — Settings
+            # shows it with a hint where to send NMEA (None = module off).
+            "gps_state": _gps_state_summary(_val("gps.source_state"), self._config),
             # Weather
             "weather_condition": _wc.get("condition", ""),
             "weather_temp": _wc.get("temp", None),
@@ -767,6 +1167,9 @@ class WebViewer:
             "bt_available": self._bt_manager.available if self._bt_manager else False,
             "bt_call_state": _val("bt.call_state", "idle"),
             "bt_call_info": _val("bt.call_info", {}),
+            # Outcome of the last dial (src/multimedia/bluetooth.py): A8 drops
+            # its instant "ringing" overlay when it failed. None = no dial yet.
+            "bt_dial_result": _dial_result_summary(_val("bt.dial_result")),
             "aa_status": _val("multimedia.openauto_status", "unavailable"),
             "aa_available": _val("multimedia.openauto_status", "unavailable") in (
                 "running", "connected", "restarting"),
@@ -781,6 +1184,20 @@ class WebViewer:
             "lte_signal": _val("lte.signal", 0),
             # Internet from the phone (src/network/phone_tether.py).
             "phone_tether": _phone_tether_summary(_val("net.phone_tether")),
+            # The phone mounted in the car (src/network/car_phone.py): USB
+            # tethering, GPS forward, battery. None = module not running.
+            "car_phone": _car_phone_summary(_val("net.car_phone")),
+            # The Termux agent on that phone (src/network/car_phone_agent.py):
+            # pairing / health for the Settings row. None = module not running.
+            "car_phone_agent": _car_phone_agent_summary(_val(_AGENT_TOPIC)),
+            # The crash SMS window (src/safety/crash_sms.py, crash.sms_state):
+            # app.js shows #crash-modal on every screen from it. Whitelisted,
+            # no phone numbers; None = module not running.
+            "crash_sms": _crash_sms_summary(_val(_crash_sms.TOPIC_STATE)),
+            # Phone battery / signal / operator for the top bar
+            # (src/multimedia/phone_status.py). Re-sanitised here: values come
+            # from the phone; None = module not running (no cluster drawn).
+            "phone_status": _phone_status_summary(_val("bt.phone_status")),
             # Audio
             "audio_volume": _val("audio.volume", 70),
             "audio_muted": _val("audio.mute_changed", False),
@@ -890,8 +1307,20 @@ class WebViewer:
             return f"GPS: jest pozycja ({detail})" if detail else "GPS: jest pozycja"
         return "GPS: brak pozycji — sprawdź aplikację GPS w telefonie"
 
-    def _log_refusal(self, addr: str, method: str, path: str, key: str, reason: str) -> None:
-        """INFO line for a refused request, at most once a minute per address."""
+    def _emergency_numbers(self) -> frozenset:
+        """oFono's EmergencyNumbers via the BluetoothManager (empty if unknown)."""
+        getter = getattr(self._bt_manager, "emergency_numbers", None)
+        if not callable(getter):
+            return frozenset()
+        try:
+            return frozenset(getter())
+        except Exception:
+            log.debug("emergency_numbers() failed", exc_info=True)
+            return frozenset()
+
+    def _log_refusal(self, addr: str, method: str, path: str, key: str, reason: str,
+                     level: int = logging.INFO) -> None:
+        """A log line for a refused request, at most once a minute per address."""
         now = time.monotonic()
         with self._access_log_lock:
             last = self._access_log_last.get(addr)
@@ -900,9 +1329,10 @@ class WebViewer:
             if len(self._access_log_last) >= 256:
                 self._access_log_last.clear()
             self._access_log_last[addr] = now
-        log.info("Refused %s %r from %s: %s (%s; further refusals from this "
-                 "address are not logged for %.0f s)", method, path[:100], addr,
-                 reason, key, _ACCESS_LOG_EVERY_S)
+        emit = log.warning if level >= logging.WARNING else log.info
+        emit("Refused %s %r from %s: %s (%s; further refusals from this "
+             "address are not logged for %.0f s)", method, path[:100], addr,
+             reason, key, _ACCESS_LOG_EVERY_S)
 
     # ── Android Auto helpers ─────────────────────────────────────────────
 
@@ -1340,34 +1770,72 @@ class WebViewer:
         def api_modules_get():
             cfg = viewer._config
             if cfg is None:
-                return jsonify({"modules": []})
-            from src.core.modules_catalog import catalog_state
-            return jsonify({"modules": catalog_state(cfg)})
+                return jsonify({"modules": [], "restart_required": False})
+            modules = viewer._modules_payload(cfg)
+            return jsonify({"modules": modules,
+                            "restart_required": _modules_restart_required(modules, False)})
 
         @app.route("/api/modules", methods=["POST"])
         def api_modules_set():
-            """Persist a module toggle. Takes effect after BCM restart."""
+            """Persist a module toggle (``modules.<name>`` in local.yaml).
+
+            Body: ``{"name": str, "enabled": bool, "with_deps": bool?}``.
+            Strict types — a string "false" must not switch anything on.
+            A planned module (no code in this version) cannot be switched on
+            (409). ``with_deps: true`` also switches on what the catalog
+            says it needs (``enable_plan``) — only ever on the driver's
+            explicit confirmation in Settings; without it the toggle is
+            saved alone and the module logs one warning at start-up.
+            The response says whether a BCM restart is needed for the saved
+            state to take effect (``restart_required``) and carries the
+            fresh module list, so the screen does not have to ask again.
+            """
             cfg = viewer._config
             if cfg is None:
                 return jsonify({"error": "no config"}), 500
-            data = request.get_json(silent=True) or {}
+            data = request.get_json(silent=True)
+            if not isinstance(data, dict):
+                return jsonify({"error": "expected a JSON object"}), 400
+            from src.core import modules_catalog as mc
             name = data.get("name")
-            from src.core.modules_catalog import MODULES
-            if name not in MODULES:
-                return jsonify({"error": f"unknown module: {name}"}), 400
-            enabled = bool(data.get("enabled"))
-            cfg.set(f"modules.{name}", enabled)
-            # Keep the legacy ad-hoc key in sync so code that still reads
-            # it directly (e.g. openauto's wifi.enabled warning) agrees.
-            legacy = MODULES[name].get("legacy_key")
-            if legacy:
-                cfg.set(legacy, enabled)
+            if not isinstance(name, str) or name not in mc.MODULES:
+                return jsonify({"error": "unknown module"}), 400
+            enabled = data.get("enabled")
+            if not isinstance(enabled, bool):
+                return jsonify({"error": "enabled must be true or false"}), 400
+            with_deps = data.get("with_deps", False)
+            if not isinstance(with_deps, bool):
+                return jsonify({"error": "with_deps must be true or false"}), 400
+            if enabled and not mc.is_available(mc.MODULES[name]):
+                return jsonify({"error": "module not available in this version",
+                                "available": False}), 409
+            also: list[str] = []
+            if enabled and with_deps:
+                plan = mc.enable_plan(mc.MODULES, mc.enabled_map(cfg), name)
+                if plan is None:
+                    return jsonify({"error": "dependencies cannot be enabled in this version",
+                                    "available": False}), 409
+                also = plan
+            for module in also + [name]:
+                cfg.set(f"modules.{module}", enabled)
+                # Keep the legacy ad-hoc key in sync so code that still reads
+                # it directly (e.g. openauto's wifi.enabled warning) agrees.
+                legacy = mc.MODULES[module].get("legacy_key")
+                if legacy:
+                    cfg.set(legacy, enabled)
             persisted = _save_config(cfg, f"module {name}")
             if viewer._event_bus:
                 viewer._event_bus.publish("config.changed",
-                                          {"module": name, "enabled": enabled})
-            return jsonify({"ok": True, "restart_required": True,
-                            "persisted": persisted})
+                                          {"module": name, "enabled": enabled,
+                                           "also": list(also)})
+            modules = viewer._modules_payload(cfg)
+            this = next((m for m in modules if m["name"] == name), {})
+            return jsonify({"ok": True, "persisted": persisted,
+                            "enabled_also": also,
+                            "runs": this.get("runs", False),
+                            "blocked_by": this.get("blocked_by", []),
+                            "restart_required": _modules_restart_required(modules, True),
+                            "modules": modules})
 
         # --- SWC mapping API ---
 
@@ -1380,12 +1848,40 @@ class WebViewer:
             if not isinstance(mapping, dict):
                 from src.input.swc_remote import DEFAULT_MAPPING
                 mapping = DEFAULT_MAPPING
-            from src.input.swc_remote import ALL_BUTTONS, ACTIONS
+            from src.input.swc_remote import (ALL_BUTTONS, ACTIONS, OPTIONAL_ACTIONS,
+                                              action_available)
+            # Actions added later (crash_cancel) appear with empty slots, so
+            # they can be learned even with a mapping saved before them —
+            # but only while their module is on (production: crash_sms off,
+            # no "Anuluj SMS po stłuczce" row that would do nothing).
+            mapping = dict(mapping)
+            for action in OPTIONAL_ACTIONS:
+                if action_available(action, cfg):
+                    mapping.setdefault(action, ["", ""])
+                else:
+                    mapping.pop(action, None)
             return jsonify({
                 "mapping": mapping,
                 "all_buttons": ALL_BUTTONS,
-                "actions": [a for a in ACTIONS if a != "disabled"],
+                "actions": [a for a in ACTIONS
+                            if a != "disabled" and action_available(a, cfg)],
             })
+
+        def _swc_kiosk_only_refusal(what: str):
+            """Binding ``crash_cancel`` to a wheel button decides what may
+            cancel a crash SMS — as much "controlling the crash SMS" as the
+            /api/crash/* routes, so loopback only, whatever
+            dashboard.remote_access says."""
+            ip = _client_ip(request.remote_addr)
+            if ip is not None and ip.is_loopback:
+                return None
+            viewer._log_refusal(str(request.remote_addr)[:64], request.method,
+                                request.path, "loopback_only",
+                                f"{what} is only possible from the head unit's own screen",
+                                level=logging.WARNING)
+            return jsonify({"ok": False, "error": "forbidden",
+                            "reason": f"{what} is only possible from the head unit's "
+                                      f"own screen"}), 403
 
         @app.route("/api/config/swc", methods=["POST"])
         def api_swc_set():
@@ -1396,6 +1892,25 @@ class WebViewer:
             mapping = data.get("mapping")
             if not isinstance(mapping, dict):
                 return jsonify({"error": "mapping must be a dict"}), 400
+            from src.input.swc_remote import OPTIONAL_ACTIONS
+            saved = cfg.get("swc.mapping")
+            saved = saved if isinstance(saved, dict) else {}
+            mapping = dict(mapping)
+
+            def _bound(v):
+                # The buttons an entry really binds (["", ""] = none).
+                return sorted(b for b in (v if isinstance(v, list) else [v])
+                              if isinstance(b, str) and b)
+
+            for action in OPTIONAL_ACTIONS:
+                if action not in mapping and action in saved:
+                    # A table that does not list it (module off, older
+                    # page) keeps the saved binding instead of erasing it.
+                    mapping[action] = saved[action]
+                if _bound(mapping.get(action)) != _bound(saved.get(action)):
+                    refused = _swc_kiosk_only_refusal(f"changing the SWC button for {action}")
+                    if refused is not None:
+                        return refused
             cfg.set("swc.mapping", mapping)
             persisted = _save_config(cfg, "swc mapping")
             if viewer._event_bus:
@@ -1422,9 +1937,12 @@ class WebViewer:
             cfg = viewer._config
             if cfg and action:
                 from src.input.swc_remote import DEFAULT_MAPPING
+                from src.input.swc_remote import OPTIONAL_ACTIONS
                 mapping = cfg.get("swc.mapping")
                 if not isinstance(mapping, dict):
                     mapping = dict(DEFAULT_MAPPING)
+                if action in OPTIONAL_ACTIONS and not isinstance(mapping.get(action), list):
+                    mapping[action] = ["", ""]      # saved before the action existed
                 if action in mapping and isinstance(mapping[action], list):
                     mapping[action][min(pod, len(mapping[action]) - 1)] = button_name
                     cfg.set("swc.mapping", mapping)
@@ -1447,6 +1965,12 @@ class WebViewer:
         @app.route("/api/config/swc/learn", methods=["POST"])
         def api_swc_learn_start():
             data = request.get_json(silent=True) or {}
+            from src.input.swc_remote import OPTIONAL_ACTIONS
+            if data.get("action") in OPTIONAL_ACTIONS:
+                refused = _swc_kiosk_only_refusal(
+                    f"learning the SWC button for {data.get('action')}")
+                if refused is not None:
+                    return refused
             _swc_learn.update(
                 active=True, action=data.get("action", ""),
                 pod=data.get("pod", 0), result=None, ts=time.time())
@@ -2248,15 +2772,74 @@ class WebViewer:
 
         @app.route("/api/phone/dial", methods=["POST"])
         def api_phone_dial():
-            # Browser input -> log, event bus and oFono's Dial(): only a plain
-            # dial string passes (separators from phonebook entries dropped,
-            # then 1-32 of 0-9 + * #). Anything else is a 400, never echoed raw.
-            from src.multimedia.bluetooth import normalize_dial_number
+            """Dial on the driver's phone (HFP) — A8 dialer, phonebook, history.
+
+            Browser input -> log, event bus and oFono's Dial(): only a plain
+            dial string passes (separators from phonebook entries dropped,
+            then 1-32 of 0-9 + * #). Anything else is a 400, never echoed raw.
+
+            From any client that is NOT the kiosk on this machine (with
+            remote_access "full" — the code default, production — any device
+            on the LAN / AP / PAN reaches this route), 403 for:
+              * anything but a plain number (_NETWORK_DIAL_RE): ``*``/``#``
+                codes can still call 112 (``*31*#112``), forward the
+                driver's calls or run USSD;
+              * emergency numbers (BUILTIN_EMERGENCY_NUMBERS ∪ oFono's
+                EmergencyNumbers, normalised — "+48 112", "0048112" …).
+            The kiosk may dial both (codes from the A8 keypad; 112 for a
+            driver reporting someone else's accident). For production,
+            dashboard.remote_access: tracking is recommended — then no
+            network client reaches this route at all.
+
+            Rate limit: one dial per _DIAL_MIN_INTERVAL_S per bucket (kiosk /
+            network), 429 + Retry-After — premium-rate numbers stay possible
+            from the network in "full" mode, but not in a loop.
+            """
+            from src.multimedia.bluetooth import is_emergency_number, normalize_dial_number
             data = request.get_json(silent=True)
             raw = data.get("number", "") if isinstance(data, dict) else ""
             number = normalize_dial_number(raw)
             if not number:
                 return jsonify({"ok": False, "error": "invalid number"}), 400
+            ip = _client_ip(request.remote_addr)
+            local = ip is not None and ip.is_loopback
+            if not local and not _NETWORK_DIAL_RE.match(number):
+                viewer._log_refusal(str(request.remote_addr)[:64], request.method,
+                                    request.path, "dial_code",
+                                    "only a plain number may be dialled from the network "
+                                    "(no * or # codes)", level=logging.WARNING)
+                return jsonify({"ok": False, "error": "forbidden",
+                                "reason": "only a plain phone number can be dialled "
+                                          "from the network"}), 403
+            if not local and is_emergency_number(number, viewer._emergency_numbers()):
+                # WARNING, but once a minute per address: a client hammering
+                # the route must not flood the log either.
+                viewer._log_refusal(str(request.remote_addr)[:64], request.method,
+                                    request.path, "emergency_number",
+                                    f"emergency number {number} — only the kiosk on "
+                                    f"this machine may dial it", level=logging.WARNING)
+                return jsonify({"ok": False, "error": "forbidden",
+                                "reason": "emergency numbers can only be dialled "
+                                          "from the head unit's own screen"}), 403
+            bucket = "kiosk" if local else "network"
+            now = time.monotonic()
+            with viewer._dial_lock:
+                last = viewer._dial_last.get(bucket)
+                if last is not None and 0 <= now - last < _DIAL_MIN_INTERVAL_S:
+                    wait = int(_DIAL_MIN_INTERVAL_S - (now - last)) + 1
+                    limited = True
+                else:
+                    viewer._dial_last[bucket] = now
+                    limited = False
+            if limited:
+                if local and viewer._event_bus:
+                    from src.core.notifications import publish_notification
+                    publish_notification(viewer._event_bus, "Poczekaj chwilę",
+                                         f"Kolejne wybieranie za {wait} s.",
+                                         severity="info", icon="call", key="dial_result")
+                res = jsonify({"ok": False, "error": "too many requests", "retry_after": wait})
+                res.headers["Retry-After"] = str(wait)
+                return res, 429
             if viewer._event_bus:
                 viewer._event_bus.publish("bt.cmd.dial", number)
             return jsonify({"ok": True, "number": number})
@@ -2285,6 +2868,282 @@ class WebViewer:
                 viewer._tether_retry_last = now
             viewer._event_bus.publish(_TETHER_RETRY_TOPIC, True)
             return jsonify({"ok": True})
+
+        @app.route("/api/car_phone/retry", methods=["POST"])
+        def api_car_phone_retry():
+            """"Ponów" in the "Telefon w aucie" row: retry the car phone now.
+
+            Takes no arguments (the body is ignored — nothing from the
+            browser reaches adb or nmcli) and only publishes
+            net.car_phone.cmd.retry; src/network/car_phone.py drops its
+            backoff and tethering attempt counter. At most one per
+            _CAR_PHONE_RETRY_MIN_INTERVAL_S (429 with Retry-After).
+            """
+            if not viewer._event_bus:
+                return jsonify({"ok": False, "error": "event bus unavailable"}), 503
+            now = time.monotonic()
+            with viewer._car_phone_retry_lock:
+                last = viewer._car_phone_retry_last
+                if last is not None and now - last < _CAR_PHONE_RETRY_MIN_INTERVAL_S:
+                    wait = int(_CAR_PHONE_RETRY_MIN_INTERVAL_S - (now - last)) + 1
+                    res = jsonify({"ok": False, "error": "too many requests",
+                                   "retry_after": wait})
+                    res.headers["Retry-After"] = str(wait)
+                    return res, 429
+                viewer._car_phone_retry_last = now
+            viewer._event_bus.publish(_CAR_PHONE_RETRY_TOPIC, True)
+            return jsonify({"ok": True})
+
+        @app.route("/api/car_phone_agent/pair", methods=["POST"])
+        def api_car_phone_agent_pair():
+            """"Sparuj" in the "Agent w telefonie" row: pair BCM with the
+            Termux agent on the car phone. Body: ``{"code": "<10 digits>",
+            "confirm": bool}`` — the one-time code ``bcm_agent.py --pair``
+            printed on the phone (``confirm``: "Sparuj mimo to" after the
+            module saw this pairing proven before, reason ``agent_reset``).
+
+            Loopback ONLY, whatever dashboard.remote_access says (also in
+            "full"): pairing hands the shared secret to the phone, so only
+            the driver at the head unit's own screen may start it. The code
+            is validated here and handed straight to the module's worker for
+            ONE attempt (CarPhoneAgent.request_pair) — never published on
+            the bus or logged; the secret itself comes from bcm.env, never
+            from the browser. 400 for a malformed body, 409 when the module
+            does not run, has no secret or no forward, something untrusted
+            answers on the forward, it is already paired, or a confirmation
+            is needed; at most one attempt that reaches the phone per
+            _AGENT_PAIR_MIN_INTERVAL_S (429 + Retry-After).
+            """
+            ip = _client_ip(request.remote_addr)
+            if ip is None or not ip.is_loopback:
+                viewer._log_refusal(str(request.remote_addr)[:64], request.method,
+                                    request.path, "loopback_only",
+                                    "pairing the car phone agent is only possible from the "
+                                    "head unit's own screen", level=logging.WARNING)
+                return jsonify({"ok": False, "error": "forbidden",
+                                "reason": "pairing is only possible from the head unit's "
+                                          "own screen"}), 403
+            if request.content_length is not None \
+                    and request.content_length > _AGENT_PAIR_MAX_BODY:
+                return jsonify({"ok": False, "error": "too_large"}), 413
+            data = request.get_json(silent=True)
+            code = data.get("code") if isinstance(data, dict) else None
+            confirm = data.get("confirm", False) if isinstance(data, dict) else False
+            if not isinstance(code, str) or not _AGENT_PAIR_CODE_RE.fullmatch(code) \
+                    or not isinstance(confirm, bool):
+                return jsonify({"ok": False, "error": "bad_code_format",
+                                "reason": "the 10-digit code from the phone"}), 400
+            agent = _car_phone_agent.get_agent()
+            if agent is None:
+                return jsonify({"ok": False, "error": "not_running"}), 409
+            now = time.monotonic()
+            with viewer._agent_pair_lock:
+                last_at = viewer._agent_pair_last
+                if last_at is not None and now - last_at < _AGENT_PAIR_MIN_INTERVAL_S:
+                    wait = int(_AGENT_PAIR_MIN_INTERVAL_S - (now - last_at)) + 1
+                    res = jsonify({"ok": False, "error": "too many requests",
+                                   "retry_after": wait})
+                    res.headers["Retry-After"] = str(wait)
+                    return res, 429
+            # Only an attempt that will reach the phone counts: a refusal here
+            # (e.g. confirm_needed) must not lock out "Sparuj mimo to".
+            result = agent.request_pair(code, confirm)
+            if not result.get("ok"):
+                return jsonify({"ok": False, "error": result.get("error") or "refused"}), 409
+            with viewer._agent_pair_lock:
+                viewer._agent_pair_last = now
+            return jsonify({"ok": True})
+
+        # --- Crash SMS (src/safety/crash_sms.py) ---------------------------
+        # Every /api/crash/* route is for the driver at the head unit's own
+        # screen: loopback ONLY, whatever dashboard.remote_access says (also
+        # in "full"), rate-limited, and nothing from the body is used but a
+        # validated event id / a confirmation flag / the recipients.
+
+        def _crash_kiosk_only(what: str):
+            ip = _client_ip(request.remote_addr)
+            if ip is not None and ip.is_loopback:
+                return None
+            viewer._log_refusal(str(request.remote_addr)[:64], request.method,
+                                request.path, "loopback_only",
+                                f"{what} is only possible from the head unit's own screen",
+                                level=logging.WARNING)
+            return jsonify({"ok": False, "error": "forbidden",
+                            "reason": f"{what} is only possible from the head unit's "
+                                      f"own screen"}), 403
+
+        def _crash_body():
+            """The JSON object of a small body, or (None, error response)."""
+            if request.content_length is not None and request.content_length > _CRASH_MAX_BODY:
+                return None, (jsonify({"ok": False, "error": "too_large"}), 413)
+            data = request.get_json(silent=True)
+            if not isinstance(data, dict):
+                return None, (jsonify({"ok": False, "error": "bad_request"}), 400)
+            return data, None
+
+        def _crash_rate_limited(key: str, interval: float, now: float):
+            with viewer._crash_lock:
+                last = viewer._crash_last.get(key)
+            if last is not None and 0 <= now - last < interval:
+                wait = int(interval - (now - last)) + 1
+                res = jsonify({"ok": False, "error": "too many requests", "retry_after": wait})
+                res.headers["Retry-After"] = str(wait)
+                return res, 429
+            return None
+
+        def _crash_accepted(key: str, now: float) -> None:
+            with viewer._crash_lock:
+                viewer._crash_last[key] = now
+
+        def _crash_command(action: str):
+            refused = _crash_kiosk_only("controlling the crash SMS")
+            if refused is not None:
+                return refused
+            data, err = _crash_body()
+            if err is not None:
+                return err
+            eid = data.get("event_id")
+            if not isinstance(eid, str) or not _crash_sms.EVENT_ID_RE.fullmatch(eid):
+                return jsonify({"ok": False, "error": "bad_event_id"}), 400
+            module = _crash_sms.get_crash_sms()
+            if module is None:
+                return jsonify({"ok": False, "error": "not_running"}), 409
+            now = time.monotonic()
+            limited = _crash_rate_limited(action, _CRASH_CMD_MIN_INTERVAL_S, now)
+            if limited is not None:
+                return limited
+            result = module.command(action, eid, source="ui")
+            if not result.get("ok"):
+                return jsonify({"ok": False, "error": result.get("error") or "refused"}), 409
+            _crash_accepted(action, now)
+            return jsonify({"ok": True})
+
+        @app.route("/api/crash/cancel", methods=["POST"])
+        def api_crash_cancel():
+            """"ANULUJ – nic się nie stało": ``{"event_id": "<hex>"}`` — the
+            event the window shows; another id is a 409, never "the current
+            one". The worker tells the phone. After a sent SMS this is a 409
+            ``not_cancellable``: a late tap is never turned into a cancel
+            SMS (that is /api/crash/follow_up)."""
+            return _crash_command("cancel")
+
+        @app.route("/api/crash/follow_up", methods=["POST"])
+        def api_crash_follow_up():
+            """"Jestem OK – wyślij SMS odwołujący" in the result window after
+            a sent crash SMS: ``{"event_id": "<hex>"}``. The phone sends ONE
+            cancel SMS to every recipient who got the crash SMS (within its
+            15 min). Its own route and action, so nothing but this button
+            can trigger it."""
+            return _crash_command("follow_up")
+
+        @app.route("/api/crash/send_now", methods=["POST"])
+        def api_crash_send_now():
+            """"Wyślij teraz": ``{"event_id": "<hex>"}`` — the phone sends at
+            once instead of at the end of the countdown."""
+            return _crash_command("send_now")
+
+        @app.route("/api/crash/test", methods=["POST"])
+        def api_crash_test():
+            """"Wyślij testowy SMS" in Settings: ``{"confirm": true}`` (the
+            driver confirmed on screen that a REAL test SMS goes to every
+            recipient — it is what the safety gate needs before crash SMS
+            leave test mode). At most one per _CRASH_TEST_MIN_INTERVAL_S;
+            the phone allows one per 10 min on its own."""
+            refused = _crash_kiosk_only("sending a test SMS")
+            if refused is not None:
+                return refused
+            data, err = _crash_body()
+            if err is not None:
+                return err
+            if data.get("confirm") is not True:
+                return jsonify({"ok": False, "error": "confirm_required"}), 400
+            module = _crash_sms.get_crash_sms()
+            if module is None:
+                return jsonify({"ok": False, "error": "not_running"}), 409
+            now = time.monotonic()
+            limited = _crash_rate_limited("test", _CRASH_TEST_MIN_INTERVAL_S, now)
+            if limited is not None:
+                return limited
+            result = module.request_test()
+            if not result.get("ok"):
+                return jsonify({"ok": False, "error": result.get("error") or "refused"}), 409
+            _crash_accepted("test", now)
+            return jsonify({"ok": True})
+
+        @app.route("/api/crash/recipients", methods=["GET"])
+        def api_crash_recipients_get():
+            """The recipients for the Settings editor (kiosk only: personal
+            data). Only valid ones (E.164, at most 3) — what the phone gets."""
+            refused = _crash_kiosk_only("reading the crash SMS recipients")
+            if refused is not None:
+                return refused
+            return jsonify({"recipients": _crash_sms.configured_recipients(viewer._config),
+                            "max": _car_phone_agent.MAX_RECIPIENTS})
+
+        @app.route("/api/crash/recipients", methods=["POST"])
+        def api_crash_recipients_set():
+            """Save ``{"recipients": [...]}`` (at most 3; each E.164 after
+            spaces and dashes are removed; empty entries skipped, duplicates
+            dropped) to crash_detection.sms.recipients — persisted ONLY in
+            the local overlay (cfg.save(); the base YAML is never written).
+            All or nothing: one invalid entry = 400, nothing saved. The
+            numbers are never logged or published; car_phone_agent pushes
+            them to the phone at once (kick)."""
+            refused = _crash_kiosk_only("changing the crash SMS recipients")
+            if refused is not None:
+                return refused
+            data, err = _crash_body()
+            if err is not None:
+                return err
+            raw = data.get("recipients")
+            if not isinstance(raw, list) or len(raw) > _car_phone_agent.MAX_RECIPIENTS:
+                return jsonify({"ok": False, "error": "bad_recipients",
+                                "max": _car_phone_agent.MAX_RECIPIENTS}), 400
+            numbers: list[str] = []
+            for i, entry in enumerate(raw):
+                if not isinstance(entry, str) or (entry.strip()
+                                                  and not _CRASH_RCPT_TYPED_RE.fullmatch(entry)):
+                    return jsonify({"ok": False, "error": "bad_number", "index": i}), 400
+                num = re.sub(r"[ -]", "", entry)
+                if not num:
+                    continue
+                digits = num[1:] if num.startswith("+") else num
+                if digits.isdigit() and len(digits) == 9:
+                    # The editor prints the "+" (the on-screen keyboard has
+                    # none) and sends whatever digits were typed after it,
+                    # so a Polish number typed WITHOUT 48 ("601234567")
+                    # arrives as "+601234567" — Malaysia. Exactly 9 digits
+                    # is such a national number. The test SMS would not
+                    # catch it (it only checks the phone's "wysłane"). A
+                    # rare real 9-digit foreign number fits through
+                    # local.yaml.
+                    return jsonify({"ok": False, "error": "bad_number", "index": i,
+                                    "hint": "no_cc"}), 400
+                if not _car_phone_agent.E164_RE.fullmatch(num) \
+                        or (num.startswith("+48") and len(num) != 12):
+                    # (A Polish number has exactly 9 digits after 48.)
+                    return jsonify({"ok": False, "error": "bad_number", "index": i}), 400
+                if num not in numbers:
+                    numbers.append(num)
+            cfg = viewer._config
+            if cfg is None:
+                return jsonify({"ok": False, "error": "no_config"}), 503
+            now = time.monotonic()
+            limited = _crash_rate_limited("recipients", _CRASH_RECIPIENTS_MIN_INTERVAL_S, now)
+            if limited is not None:
+                return limited
+            _crash_accepted("recipients", now)
+            cfg.set("crash_detection.sms.recipients", numbers)
+            persisted = _save_config(cfg, "crash SMS recipients")
+            log.info("Crash SMS recipients changed: %d number(s)%s", len(numbers),
+                     "" if persisted else " (NOT persisted)")
+            agent = _car_phone_agent.get_agent()
+            if agent is not None:
+                try:
+                    agent.kick()
+                except Exception:
+                    log.debug("agent kick failed", exc_info=True)
+            return jsonify({"ok": True, "persisted": persisted, "recipients_n": len(numbers)})
 
         @app.route("/api/phone/answer", methods=["POST"])
         def api_phone_answer():
@@ -2420,15 +3279,21 @@ class WebViewer:
             """Set travel-plan destination and trigger RoutePlanner.plan()."""
             if viewer._trip_computer is None:
                 return jsonify({"error": "trip computer not available"}), 503
-            data = request.get_json(silent=True) or {}
+            data = request.get_json(silent=True)
+            data = data if isinstance(data, dict) else {}
             lat = data.get("lat")
             lon = data.get("lon")
-            name = data.get("name") or data.get("city") or "Destination"
             if lat is None or lon is None:
                 return jsonify({"error": "missing lat/lon"}), 400
-            viewer._trip_computer.set_destination(
-                float(lat), float(lon), str(name),
-            )
+            # Browser input: a real coordinate only (float() let NaN/inf
+            # through to the route planner and raised a 500 on a list), and
+            # a printable one-line name — it goes into the log and the UI.
+            coords = valid_coords(lat, lon)
+            if coords is None:
+                return jsonify({"error": "lat/lon must be a coordinate"}), 400
+            from src.core.notifications import clean_text
+            name = clean_text(data.get("name") or data.get("city") or "", 80) or "Destination"
+            viewer._trip_computer.set_destination(coords[0], coords[1], name)
             return jsonify({"ok": True, "name": name})
 
         @app.route("/api/trip/clear", methods=["POST"])
