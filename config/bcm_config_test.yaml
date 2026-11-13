@@ -127,10 +127,10 @@ modules:
   # --- moduły dodatkowe (telefon w aucie, bezpieczeństwo, wybudzanie) ---
   # Każdy ma TYLKO ten jeden przełącznik (bez pod-kluczy „enabled” w blokach
   # niżej). Wszystkie wyłączone, bo wymagają nowego sprzętu. car_phone,
-  # car_phone_hotspot, phone_sensors i car_phone_agent mają już kod — włącz je
-  # w Ustawieniach → Moduły, gdy Redmi jest podłączony; reszta nie ma jeszcze
-  # kodu (Ustawienia pokazują je jako „niedostępny w tej wersji”). Zależności
-  # i potrzebny sprzęt:
+  # car_phone_hotspot, phone_sensors, car_phone_agent i crash_sms mają już
+  # kod — włącz je w Ustawieniach → Moduły, gdy Redmi jest podłączony; reszta
+  # nie ma jeszcze kodu (Ustawienia pokazują je jako „niedostępny w tej
+  # wersji”). Zależności i potrzebny sprzęt:
   # src/core/modules_catalog.py; moduł bez włączonych zależności nie startuje
   # (jedno ostrzeżenie w logu).
   car_phone: false         # telefon w aucie: Redmi na USB przez adb —
@@ -156,8 +156,11 @@ modules:
   parking_guard: false     # pozycja i alarm na postoju; wymaga car_phone_agent
   cabin_watch: false       # czuwanie kabiny kamerą Redmi; wymaga
                            # car_phone_agent
-  crash_sms: false         # SMS po stłuczce; wymaga crash_detect,
-                           # phone_sensors i car_phone_agent
+  crash_sms: false         # SMS po stłuczce: okno z odliczaniem i ANULUJ,
+                           # termin trzyma telefon; wymaga crash_detect,
+                           # phone_sensors i car_phone_agent. Odbiorcy
+                           # i testowy SMS: Ustawienia → „SMS po stłuczce”;
+                           # blok crash_detection.sms niżej
   call112: false           # „Zadzwoń na 112” w oknie wypadku; wymaga
                            # crash_detect oraz car_phone_agent albo bluetooth
                            # (+ mikrofon)
@@ -705,24 +708,34 @@ crash_detection:
   g_h_threshold: 4.0
   min_rate_hz: 80
   confirm_stop_kmh: 5
-  # SMS po stłuczce — ustawienia, które BCM przy każdej zmianie wysyła do
-  # agenta w telefonie (modules.car_phone_agent; sam SMS-owy przebieg to
-  # kolejny moduł, crash_sms). Odbiorców NIE wpisuj tutaj: tylko
-  # config/local.yaml, numery E.164 (np. '+48601234567'), najwyżej 3:
-  #   crash_detection:
-  #     sms:
-  #       recipients: ['+48601234567']
+  # SMS po stłuczce (modules.crash_sms, src/safety/crash_sms.py; włącznikiem
+  # jest TYLKO ten przełącznik — tu nie ma klucza „enabled”). Po uderzeniu
+  # BCM od razu uzbraja agenta w telefonie i pokazuje okno z odliczaniem
+  # (ANULUJ – nic się nie stało / Wyślij teraz); od tej chwili termin
+  # trzyma TELEFON — wyśle SMS także wtedy, gdy BCM padnie. Część ustawień
+  # BCM przy każdej zmianie wysyła do agenta (modules.car_phone_agent).
+  # Odbiorców NIE wpisuj tutaj: Ustawienia → „SMS po stłuczce” (zapis do
+  # config/local.yaml), numery E.164 (np. '+48601234567'), najwyżej 3.
   # dry_run: true = SMS-y o wypadku i odwołujące agent tylko loguje (nic nie
-  # wysyła); wyjątek: testowy SMS na wyraźne „prawdziwy test” (real_test, z
-  # ekranu auta). Prawdziwe alarmy dopiero po sprawdzeniach na stole
+  # wysyła); wyjątek: „Wyślij testowy SMS” w Ustawieniach (prawdziwy test,
+  # po potwierdzeniu na ekranie auta). dry_run: false działa dopiero, gdy:
+  # agent jest sparowany i zdrowy, testowy SMS był potwierdzony w wysłanych
+  # w ciągu 30 dni, czujniki telefonu dają ≥ min_rate_hz i są skalibrowane —
+  # inaczej wymuszony tryb testowy z powodem w oknie i w Ustawieniach.
+  # Prawdziwe alarmy dopiero po sprawdzeniach na stole
   # (docs/WDROZENIE_TESTOWE.md §5.9).
+  # countdown_sec: odliczanie w oknie (15–120 s). cooldown_min / max_per_day:
+  # limit BCM (telefon ma też własny: 1 na 10 min, 3 na dobę).
   # vehicle_label: nazwa auta na początku SMS-a (A-Z a-z 0-9 spacja . -,
   # najwyżej 20 znaków, bez polskich liter). follow_up_cancel: po „Jestem OK”
   # jeden SMS odwołujący do tych, którzy dostali alarm (w ciągu 15 min).
   sms:
     dry_run: true
+    countdown_sec: 45
     sim_slot: 0
     vehicle_label: ALFA 156
+    cooldown_min: 10
+    max_per_day: 3
     follow_up_cancel: true
 # Czujniki telefonu w aucie (modules.phone_sensors; src/sensors/phone_sensors.py).
 # Kierunek grawitacji kalibruje się sam przy pierwszych ~10 s postoju
@@ -750,7 +763,6 @@ tracking:
   geofence_lat: 0
   geofence_lon: 0
   geofence_radius_km: 0
-  sms_number: ''
 multimedia:
   # Ustawiane w locie przy połączeniu BT i zapisywane do config/local.yaml.
   last_bt_device: ''

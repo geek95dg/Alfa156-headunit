@@ -121,7 +121,7 @@ def start_input(config: Any, event_bus: EventBus, hal: Any = None,
     # Bridge orphaned SWC actions (media skip, phone answer/hangup) to their
     # real handlers. Without this the wheel next/prev/pickup/hangup do nothing.
     from src.input.input_bridge import InputBridge
-    input_bridge = InputBridge(event_bus)
+    input_bridge = InputBridge(event_bus, config)
 
     # Arduino HID (resistor-ladder buttons → USB HID keycodes)
     arduino_hid = ArduinoHidListener(event_bus)

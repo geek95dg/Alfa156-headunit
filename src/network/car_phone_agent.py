@@ -126,7 +126,13 @@ call it from YOUR OWN worker thread — each call may take a few seconds;
 thread-safe, each returns ``{"ok", "status", "data", "error", "detail"}``
 and never raises: :meth:`~CarPhoneAgent.arm_crash`,
 :meth:`~CarPhoneAgent.cancel`, :meth:`~CarPhoneAgent.send_now`,
-:meth:`~CarPhoneAgent.get`, :meth:`~CarPhoneAgent.test_sms`.
+:meth:`~CarPhoneAgent.get`, :meth:`~CarPhoneAgent.test_sms`. Without I/O
+(any thread): :attr:`~CarPhoneAgent.state` (the published payload),
+:meth:`~CarPhoneAgent.health_facts` (what the last signed health answer
+said beyond the Settings row: the last verified real test SMS, the
+phone's own ``dry_run`` and recipient count — crash_sms' safety gate) and
+:meth:`~CarPhoneAgent.kick` (ask the worker for a health poll and a
+config push now, e.g. right after the recipients were changed).
 ``test_sms(real=True)`` sends a REAL test SMS even while ``dry_run`` is on:
 only from a loopback-only, rate-limited route after the driver confirmed it
 on the head unit's screen.
@@ -333,14 +339,57 @@ def desired_config(config: Any, warn: Optional[Callable[[str, str], None]] = Non
     }
 
 
+#: health_facts() before the first signed health answer.
+_EMPTY_FACTS: dict[str, Any] = {"last_verified_test_ts": None, "last_test": None,
+                                "dry_run": None, "recipients_n": None, "active_event": None,
+                                "config_hash": None}
+_HASH_RE = re.compile(r"^[0-9a-f]{16}$")
+#: States of the agent's last test SMS (``last_test.state``).
+TEST_STATES = ("pending", "sent", "partial", "failed")
+
+
+def parse_health_facts(obj: Any) -> dict[str, Any]:
+    """The extra facts of a signed health answer, type- and range-checked
+    (the answer is authentic, but a newer or broken agent must not hand a
+    module a string where it expects a timestamp)."""
+    out = dict(_EMPTY_FACTS)
+    if not isinstance(obj, dict):
+        return out
+    out["last_verified_test_ts"] = _num(obj.get("last_verified_test_ts"), EVENT_TS_MIN,
+                                        EVENT_TS_MAX)
+    test = obj.get("last_test")
+    if isinstance(test, dict) and test.get("state") in TEST_STATES:
+        out["last_test"] = {
+            "state": test["state"],
+            "ts": _num(test.get("ts"), EVENT_TS_MIN, EVENT_TS_MAX),
+            "dry_run": test.get("dry_run") if isinstance(test.get("dry_run"), bool) else None,
+            "verified": test.get("verified") is True,
+        }
+    dry = obj.get("dry_run")
+    out["dry_run"] = dry if isinstance(dry, bool) else None
+    n = obj.get("recipients_n")
+    out["recipients_n"] = n if isinstance(n, int) and not isinstance(n, bool) \
+        and 0 <= n <= MAX_RECIPIENTS else None
+    active = obj.get("active_event")
+    out["active_event"] = active if isinstance(active, str) \
+        and EVENT_ID_RE.fullmatch(active) else None
+    h = obj.get("config_hash")
+    out["config_hash"] = h if isinstance(h, str) and _HASH_RE.fullmatch(h) else None
+    return out
+
+
 # ── transport ─────────────────────────────────────────────────────────────
 
 class AgentError(Exception):
     """A request that did not produce a signed answer.
 
-    ``code``: no_secret | no_forward | busy | storage | connect | timeout |
-    protocol | bad_signature | one of :data:`UNSIGNED_CODES` (the agent's
-    unsigned refusal; ``body`` carries its informational fields)."""
+    ``code``: no_secret | no_forward | busy | storage | connect | dropped |
+    timeout | protocol | bad_signature | one of :data:`UNSIGNED_CODES` (the
+    agent's unsigned refusal; ``body`` carries its informational fields).
+    ``connect``: the request certainly did not reach the agent (refused,
+    or broken before it was fully written); ``dropped``: the connection
+    broke after the whole request was written — the agent may have acted
+    on it, only the answer is missing."""
 
     def __init__(self, code: str, detail: str = "", status: Optional[int] = None,
                  body: Optional[dict] = None) -> None:
@@ -489,22 +538,35 @@ class AgentClient:
 
         timer = threading.Timer(RESPONSE_DEADLINE_S, _deadline)
         timer.daemon = True
+        # Was the whole request handed to the kernel? A connection that
+        # breaks AFTER that may have reached the agent, which then acts on
+        # it (arms a crash, saves it, answers) — only the answer was lost.
+        # Callers that must not drop such a request (crash_sms: a cancel
+        # the phone never got) need "dropped" told apart from "connect"
+        # (certainly not delivered). An exception inside request() means
+        # the body was not fully written, and the agent ignores a short
+        # body (Content-Length check), so "connect" stays true there.
+        sent = False
         try:
             conn = self._connect(port, REQUEST_TIMEOUT_S)
             timer.start()
             conn.request(method, path, body=data if data else None, headers=headers)
+            sent = True
             resp = conn.getresponse()
             status = int(resp.status)
             sig = (resp.getheader("X-BCM-Sig") or "").strip().lower()
             raw = self._read(resp)
         except http.client.RemoteDisconnected as e:
             # adb's server accepts on the local port and closes the socket
-            # when nothing listens on the phone: "Termux / agent not running".
+            # when nothing listens on the phone: "Termux / agent not running"
+            # — indistinguishable from an agent that got the request and
+            # died (or a USB drop) before answering, hence "dropped".
             if cut.is_set():
                 raise AgentError("timeout", f"no answer within {RESPONSE_DEADLINE_S:.0f} s") \
                     from e
-            raise AgentError("connect", "the connection was closed without an answer "
-                                        "(is the agent running on the phone?)") from e
+            raise AgentError("dropped" if sent else "connect",
+                             "the connection was closed without an answer "
+                             "(is the agent running on the phone?)") from e
         except ConnectionRefusedError as e:
             raise AgentError("connect", f"nothing listens on 127.0.0.1:{port} ({e})") from e
         except (socket.timeout, TimeoutError) as e:
@@ -518,7 +580,8 @@ class AgentClient:
             if cut.is_set():
                 raise AgentError("timeout", f"no answer within {RESPONSE_DEADLINE_S:.0f} s") \
                     from e
-            raise AgentError("connect", str(e) or type(e).__name__) from e
+            raise AgentError("dropped" if sent else "connect", str(e) or type(e).__name__) \
+                from e
         finally:
             timer.cancel()
             if conn is not None:
@@ -632,6 +695,11 @@ class CarPhoneAgent:
         self._info: dict[str, Any] = {"paired": None, "pairing": None, "version": None,
                                       "sim_ready": None, "last_ok_ts": None,
                                       "last_sent_ts": None}
+        # More facts from the last signed health answer, NOT published (the
+        # Settings row does not show them): see health_facts().
+        self._facts: dict[str, Any] = dict(_EMPTY_FACTS)
+        # kick(): another thread asks for a poll now (worker reads it).
+        self._poll_now = False
         self._state = "disabled"
         self._payload: Optional[dict[str, Any]] = None
         self._published_ok_ts: Optional[float] = None
@@ -688,6 +756,30 @@ class CarPhoneAgent:
             if self._payload is None:
                 return None
             return dict(self._payload, since=self._since)
+
+    def health_facts(self) -> dict[str, Any]:
+        """What the last SIGNED ``/v1/health`` said beyond the published
+        row (validated by :func:`parse_health_facts`; all None before the
+        first one): ``last_verified_test_ts`` (a REAL test SMS confirmed in
+        "wysłane" for every recipient), ``last_test`` ``{state, ts,
+        dry_run, verified}``, the phone's own ``dry_run`` and
+        ``recipients_n``, ``active_event``, ``config_hash`` (of the config
+        the phone holds — updated on a successful push too, so crash_sms
+        can tell whether recipients saved a moment ago reached the phone
+        before it sends a test SMS). No I/O; any thread."""
+        with self._state_lock:
+            out = dict(self._facts)
+        if isinstance(out.get("last_test"), dict):
+            out["last_test"] = dict(out["last_test"])
+        return out
+
+    def kick(self) -> None:
+        """Ask the worker for a health poll (and a config push when the
+        phone's config differs) now instead of within 30 s. No I/O; any
+        thread; harmless when stopped."""
+        with self._ev_lock:
+            self._poll_now = True
+        self._wake.set()
 
     def _on_worker(self) -> bool:
         """The caller is the worker — or no worker runs (tests drive
@@ -812,6 +904,10 @@ class CarPhoneAgent:
             self._fwd_seen = (port, True)
             self._delay = BACKOFF_MIN_S
             self._next_poll = 0.0
+        with self._ev_lock:
+            poll_now, self._poll_now = self._poll_now, False
+        if poll_now:
+            self._next_poll = 0.0
         pending = self._take_pair()
         if pending is not None and self.pair(*pending)["ok"]:
             # Paired: health and the config push right away. A failure keeps
@@ -849,7 +945,9 @@ class CarPhoneAgent:
         sim = obj.get("sim_ready")
         sent = _num(obj.get("last_sent_ts"), 0, 4e9)
         pairing = obj.get("pairing")
+        facts = parse_health_facts(obj)
         with self._state_lock:
+            self._facts = facts
             self._info.update(
                 paired=True,
                 pairing=pairing if isinstance(pairing, bool) else None,
@@ -892,7 +990,7 @@ class CarPhoneAgent:
             if t is not None:
                 e.detail = clean_error(f"the phone's clock differs from BCM's by "
                                        f"{int(t - self._wall())} s")
-        elif e.code in ("connect", "timeout"):
+        elif e.code in ("connect", "dropped", "timeout"):
             state, reason = "error", "no_answer"
         elif e.code == "storage":
             state, reason = "error", "storage"
@@ -958,6 +1056,8 @@ class CarPhoneAgent:
         if status == 200 and obj.get("config_hash") == want:
             self._push_failed = None
             self._push_logged = ""
+            with self._state_lock:
+                self._facts["config_hash"] = want
             log.info("Car phone agent: config pushed (%d recipient(s), slot %d, dry_run=%s, "
                      "toggles: %s)", len(desired["recipients"]), desired["sim_slot"],
                      desired["dry_run"],
@@ -1125,6 +1225,7 @@ class CarPhoneAgent:
             "bad_code": ("bad_code", "wrong pairing code"),
             "stale_ts": ("clock_skew", "the phone's clock differs from BCM's"),
             "connect": ("no_answer", res["detail"] or "no answer"),
+            "dropped": ("no_answer", res["detail"] or "no answer"),
             "timeout": ("no_answer", res["detail"] or "no answer"),
         }.get(res["error"], ("http", res["detail"] or res["error"]))
         log.warning("Car phone agent: pairing failed — %s", why)

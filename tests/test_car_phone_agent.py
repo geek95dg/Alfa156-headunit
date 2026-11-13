@@ -689,6 +689,65 @@ class TestTransport:
         st = _state(bus)
         assert st["state"] == "error" and st["reason"] == "no_answer", st
 
+    @pytest.mark.parametrize("rst", [False, True], ids=["fin", "rst"])
+    def test_a_break_after_the_whole_request_is_dropped_not_connect(self, tmp_path, bus, rst):
+        """The agent read the whole POST /v1/crash (and may have armed and
+        saved it) — then the link broke before the answer: "dropped", so
+        crash_sms treats the arm as maybe delivered (a cancel is sent, the
+        event is looked up), never as "certainly not delivered"."""
+        import re as _re
+        import socket as _socket
+        import struct
+        bodies = []
+
+        def read_all_then_close(conn, stop):
+            try:
+                conn.settimeout(3)
+                buf = b""
+                while b"\r\n\r\n" not in buf:
+                    chunk = conn.recv(4096)
+                    if not chunk:
+                        return
+                    buf += chunk
+                head, _, body = buf.partition(b"\r\n\r\n")
+                m = _re.search(rb"content-length:\s*(\d+)", head, _re.I)
+                while m and len(body) < int(m.group(1)):
+                    chunk = conn.recv(4096)
+                    if not chunk:
+                        break
+                    body += chunk
+                bodies.append(body)
+                if rst:
+                    conn.setsockopt(_socket.SOL_SOCKET, _socket.SO_LINGER,
+                                    struct.pack("ii", 1, 0))
+            except OSError:
+                pass
+            finally:
+                conn.close()
+        port, close = _raw_server(read_all_then_close)
+        try:
+            mod = _module(tmp_path, bus)
+            _forward(bus, port)
+            res = mod.arm_crash("ab" * 16, 45, None, None, None, None, None, int(time.time()))
+        finally:
+            close()
+        assert bodies and json.loads(bodies[0])["event_id"] == "ab" * 16   # it arrived whole
+        assert res["ok"] is False and res["error"] == "dropped", res
+
+    def test_refused_is_connect(self, tmp_path, bus):
+        """Nothing listens: the request certainly did not arrive."""
+        import socket as _socket
+        s = _socket.socket()
+        s.bind(("127.0.0.1", 0))
+        port = s.getsockname()[1]
+        s.close()                                        # nothing listens there now
+        mod = _module(tmp_path, bus)
+        _forward(bus, port)
+        res = mod.get("ab" * 16)
+        assert res["ok"] is False and res["error"] == "connect", res
+        mod.cycle()
+        assert _state(bus)["reason"] == "no_answer"
+
 
 # ── threads: one writer, ordered publications, the accessor ─────────────
 
@@ -874,7 +933,8 @@ class TestNonce:
 
 @pytest.fixture
 def crash_sms_has_code(monkeypatch):
-    """Pretend crash_sms is implemented, so its toggle reaches the phone."""
+    """crash_sms has code now (src/safety/crash_sms.py); kept so these tests
+    do not depend on the catalog entry staying that way."""
     info = {k: v for k, v in mc.MODULES["crash_sms"].items() if k != "planned"}
     monkeypatch.setitem(mc.MODULES, "crash_sms", info)
 
@@ -913,7 +973,11 @@ class TestApi:
         assert mod.test_sms()["status"] == 429
 
     def test_agent_refusals_come_back_as_errors(self, tmp_path, bus, phone):
-        mod = self._ready(tmp_path, bus, phone)              # crash_sms is planned: off
+        config = _config()
+        config["modules"]["crash_sms"] = False               # the phone's toggle: off
+        mod = _module(tmp_path, bus, config)
+        _forward(bus, phone.port)
+        _pair(mod, phone)
         res = mod.arm_crash("ab", 45, None, None, None, None, None, int(time.time()))
         assert res == {"ok": False, "status": 409, "data": {"error": "crash_sms_off"},
                        "error": "crash_sms_off", "detail": ""}

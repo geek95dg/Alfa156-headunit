@@ -46,6 +46,17 @@
   catalog: the question and the save status stay on screen when the card is
   scrolled into view (a full re-render used to reset the scroll and draw
   them below the panel). Skipped without the playwright package/Chromium;
+* crash_modal_smoke.js: the crash SMS window (components/crash_modal.js) —
+  which payloads open it, its texts (DRY RUN, forced test-mode reason, "Brak
+  połączenia z telefonem – SMS NIE zostanie wysłany", results), escaping,
+  ANULUJ >= 1/3 of the screen and the reserved 112 slot >= 15% away (from the
+  inline styles); app.js lists #crash-modal in GESTURE_OVERLAYS and syncs it
+  on every screen; the Settings "SMS po stłuczce" row and recipients editor;
+* crash_modal_browser_smoke.js: the same window on the real dashboard in
+  headless Chromium at 1024x600 (mouse and touch): on A2 and A1 without
+  navigating, nothing off-screen, ANULUJ >= 1/3 and on top, an edge pull
+  does not navigate, beeps while pending, one POST {event_id} per tap, the
+  result closes on a tap. Skipped without the playwright package/Chromium;
 * weather_escape_smoke.js: screens/weather.js — geocoder place names and
   the weather city / condition never become markup, results are picked via
   data-weather-idx + one delegated listener, and only valid coordinates reach
@@ -54,6 +65,7 @@
 
 import json
 import os
+import re
 import shutil
 import struct
 import subprocess
@@ -229,7 +241,8 @@ def test_edge_tracker(name, ops, expected):
                                      "gps_visibility_smoke.js", "dial_result_smoke.js",
                                      "settings_modules_smoke.js", "weather_escape_smoke.js",
                                      "settings_car_phone_smoke.js",
-                                     "settings_car_phone_agent_smoke.js"])
+                                     "settings_car_phone_agent_smoke.js",
+                                     "crash_modal_smoke.js"])
 def test_screen_harness(harness):
     res = subprocess.run([NODE, str(JS / harness)], capture_output=True, text=True,
                          timeout=60)
@@ -271,6 +284,29 @@ def test_modules_card_in_chromium(tmp_path):
         pytest.skip(out[5:].strip())
     assert res.returncode == 0, res.stderr or res.stdout
     assert out.endswith("ok"), out
+
+
+@pytest.mark.timeout(150)
+def test_crash_modal_in_chromium():
+    """The crash window at 1024x600 in headless Chromium (see the harness)."""
+    res = subprocess.run([NODE, str(JS / "crash_modal_browser_smoke.js")],
+                         capture_output=True, text=True, timeout=120)
+    out = res.stdout.strip()
+    if res.returncode == 0 and out.startswith("SKIP:"):
+        pytest.skip(out[5:].strip())
+    assert res.returncode == 0, res.stderr or res.stdout
+    assert out.endswith("ok"), out
+
+
+def test_crash_window_glyphs_exist_in_the_bundled_font():
+    """Every icon name the crash window and its Settings row can draw."""
+    names = _font_ligatures(FONT)
+    src = (ROOT / "src/dashboard/web/js/components/crash_modal.js").read_text(encoding="utf-8")
+    block = re.search(r"const icons = \{([^}]*)\}", src).group(1)
+    icons = set(re.findall(r'[a-z_]+: "([a-z_]+)"', block))
+    icons |= {"info", "car_crash", "help"}                # help: "unconfirmed"
+    assert len(icons) >= 7
+    assert icons <= names, icons - names
 
 
 # ── Material Symbols: the glyphs the top-bar phone cluster asks for ──────

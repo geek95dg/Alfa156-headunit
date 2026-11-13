@@ -143,6 +143,15 @@ MODULES: dict[str, dict] = {
                     "requires": ("location",),
                     "hardware": "GPS (moduł location); pełne wykrywanie z czujnikami telefonu "
                                 "(phone_sensors), sam GPS tylko zapisuje zdarzenie"},
+    # Plan F "Przebieg": the countdown window and the SMS flow. The PHONE
+    # (car_phone_agent) holds the deadline and sends; BCM arms it, shows the
+    # window and forwards cancel / send now. Test mode (dry_run) until the
+    # safety gate passes — see src/safety/crash_sms.py.
+    "crash_sms":   {"part": 20, "description": "SMS do bliskich po wykryciu stłuczki (z odliczaniem i anulowaniem)",
+                    "entry": ("src.safety.crash_sms", "start_crash_sms"), "default": False,
+                    "group": "bezpieczenstwo",
+                    "requires": ("crash_detect", "phone_sensors", "car_phone_agent"),
+                    "hardware": "Redmi z kartą SIM, sztywny uchwyt; odbiorcy w Ustawieniach"},
     "battery":     {"part": 21, "description": "Battery Backup Monitor",
                     "entry": ("src.power.battery", "start_battery"), "default": False},
 
@@ -184,10 +193,6 @@ MODULES: dict[str, dict] = {
                      "default": False, "planned": True, "group": "telefon_w_aucie",
                      "requires": ("car_phone_agent",),
                      "hardware": "Redmi: przednia kamera, blokada ekranu „Brak”"},
-    "crash_sms":    {"part": 20, "description": "SMS do bliskich po wykryciu stłuczki (z odliczaniem i anulowaniem)",
-                     "default": False, "planned": True, "group": "bezpieczenstwo",
-                     "requires": ("crash_detect", "phone_sensors", "car_phone_agent"),
-                     "hardware": "Redmi z kartą SIM, sztywny uchwyt"},
     # The 112 button lives in the crash window (crash_detect). Two paths:
     # the car phone on speaker (agent) or the main phone over HFP — the
     # latter only with a microphone, which is checked at run time.

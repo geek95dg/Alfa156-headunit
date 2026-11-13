@@ -32,8 +32,10 @@ NEW_TOGGLES = ("car_phone", "car_phone_hotspot", "phone_sensors", "auto_brightne
                "crash_sms", "call112", "car_phone_agent", "parking_guard",
                "cabin_watch", "remote_session")
 #: ... of which these have code now (plan C + D1/D2: src/network/car_phone.py,
-#: D3: src/sensors/phone_sensors.py, F: src/network/car_phone_agent.py).
-IMPLEMENTED = ("car_phone", "car_phone_hotspot", "phone_sensors", "car_phone_agent")
+#: D3: src/sensors/phone_sensors.py, F: src/network/car_phone_agent.py and
+#: src/safety/crash_sms.py).
+IMPLEMENTED = ("car_phone", "car_phone_hotspot", "phone_sensors", "car_phone_agent",
+               "crash_sms")
 #: ... and these are still planned (listed, never started).
 PLANNED = tuple(n for n in NEW_TOGGLES if n not in IMPLEMENTED)
 
@@ -81,6 +83,7 @@ class TestShippedCatalog:
                                                         "start_phone_sensors")
         assert mc.MODULES["car_phone_agent"]["entry"] == ("src.network.car_phone_agent",
                                                           "start_car_phone_agent")
+        assert mc.MODULES["crash_sms"]["entry"] == ("src.safety.crash_sms", "start_crash_sms")
 
     @pytest.mark.parametrize("cfg_name", ["bcm_config.yaml", "bcm_config_test.yaml"])
     @pytest.mark.parametrize("name", NEW_TOGGLES)
@@ -207,8 +210,11 @@ class TestEnablePlan:
     def test_real_catalog(self):
         cfg = _cfg(bluetooth=False)
         assert mc.enable_plan(mc.MODULES, mc.enabled_map(cfg), "phone_status") == ["bluetooth"]
-        # every C–I module needs something planned: nothing to offer yet
-        assert mc.enable_plan(mc.MODULES, mc.enabled_map(cfg), "crash_sms") is None
+        # crash_sms has code: everything it needs, dependencies first
+        assert mc.enable_plan(mc.MODULES, mc.enabled_map(cfg), "crash_sms") == [
+            "location", "crash_detect", "car_phone", "phone_sensors", "car_phone_agent"]
+        # call112 is still planned: nothing to offer yet
+        assert mc.enable_plan(mc.MODULES, mc.enabled_map(cfg), "call112") is None
 
     def test_would_stop(self):
         cat = _cat(bt=None, pb=("bt",), ps=("pb",), other=None)
@@ -329,9 +335,9 @@ class TestMainStartPath:
             assert len(hits) == 1 and "missing dependency bluetooth" in hits[0], msgs
 
     def test_planned_module_switched_on_is_reported_not_started(self, spies, caplog):
-        cfg = _cfg(cabin_watch=True, crash_sms=True)
+        cfg = _cfg(cabin_watch=True, call112=True)
         states = _start(cfg)
-        assert not states["cabin_watch"].runs and not states["crash_sms"].runs
+        assert not states["cabin_watch"].runs and not states["call112"].runs
         log = logging.getLogger("bcm.main.test")
         with caplog.at_level(logging.WARNING, logger="bcm.main.test"):
             assert main.report_blocked_modules(states, log) == 2
@@ -358,6 +364,21 @@ class TestMainStartPath:
         _start(_cfg(car_phone_agent=True, car_phone=True))
         assert sorted(n for n in spies if n.startswith("car_phone")) == [
             "car_phone", "car_phone_agent"]
+
+    def test_crash_sms_starts_only_with_all_its_dependencies(self, spies):
+        # off (the shipped default) — its entry point is never even imported
+        _start(_cfg("bcm_config_test.yaml"))
+        assert "crash_sms" not in spies
+        deps = dict(car_phone=True, phone_sensors=True, car_phone_agent=True)
+        for missing in ("phone_sensors", "car_phone_agent"):
+            spies.clear()
+            states = _start(_cfg("bcm_config_test.yaml", crash_sms=True,
+                                 **dict(deps, **{missing: False})))
+            assert "crash_sms" not in spies
+            assert states["crash_sms"].blocked_by == ((missing,),)
+        spies.clear()
+        _start(_cfg("bcm_config_test.yaml", crash_sms=True, **deps))
+        assert "crash_sms" in spies
 
     def test_cli_modules_decide_registry_modules(self, spies):
         cfg = _cfg("bcm_config_test.yaml")
@@ -429,7 +450,9 @@ class TestModulesApi:
         # crash_detect runs in the test config (GPS-only path, plan F)
         assert mods["crash_detect"]["runs"] is True
         assert mods["crash_sms"]["blocked_by"] == [["phone_sensors"], ["car_phone_agent"]]
-        assert mods["crash_sms"]["needs"] is None
+        assert mods["crash_sms"]["needs"] == ["car_phone", "phone_sensors", "car_phone_agent"]
+        assert mods["crash_sms"]["available"] is True and mods["crash_sms"]["kind"] == "module"
+        assert mods["call112"]["available"] is False and mods["call112"]["needs"] is None
         assert mods["auto_brightness"]["requires_any"] == [["phone_sensors", "input"]]
         assert mods["phone_status"]["requires"] == ["bluetooth"]
         assert mods["phone_status"]["runs"] is True

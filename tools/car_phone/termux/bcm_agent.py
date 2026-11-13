@@ -694,6 +694,16 @@ def test_verified(d: Any) -> bool:
                                      for r in d["rcpt"])
 
 
+def test_covers(d: Any, cfg: Mapping[str, Any]) -> bool:
+    """Czy test objął WSZYSTKICH obecnych odbiorców (i ten sam slot SIM)?
+    Test do numeru A nie dowodzi niczego o numerze B dopisanym później —
+    a od potwierdzonego testu zależy, czy SMS po stłuczce jest prawdziwy."""
+    if not isinstance(d, dict) or d.get("slot") != cfg.get("sim_slot"):
+        return False
+    tested = {r.get("num") for r in d.get("rcpt") or [] if isinstance(r, dict)}
+    return bool(cfg.get("recipients")) and set(cfg["recipients"]) <= tested
+
+
 def delivery_view(d: dict) -> list:
     return [{"to": mask_number(r["num"]), "state": r["st"], "tries": r["tries"],
              "verified": r["verified"], "error": r["err"]} for r in d["rcpt"]]
@@ -1300,7 +1310,8 @@ class Agent:
             if isinstance(test, dict):
                 last_test = {"state": test.get("state"), "ts": test.get("wall"),
                              "dry_run": test.get("dry"),
-                             "verified": test_verified(test.get("delivery"))}
+                             "verified": test_verified(test.get("delivery"))
+                             and test_covers(test.get("delivery"), self.config)}
             out = {
                 "version": VERSION,
                 "uptime_s": int(self._clock() - self._started),
@@ -1336,7 +1347,22 @@ class Agent:
                 log.error("Cannot save the config: %s", _clean(e))
                 return 500, {"error": "storage"}
             changed = norm != self.config
+            # Inny zestaw odbiorców albo slot SIM: potwierdzony test ich nie
+            # dotyczył — BCM wróci do trybu testowego do nowego testu.
+            # (Zmiana samych przełączników / dry_run / etykiety go nie kasuje.)
+            retest = (set(norm["recipients"]) != set(self.config["recipients"])
+                      or norm["sim_slot"] != self.config["sim_slot"]) \
+                and self.meta.get("last_verified_test_ts") is not None
             self.config = norm
+            if retest:
+                self.meta["last_verified_test_ts"] = None
+                try:
+                    self._save_meta()
+                except OSError as e:
+                    log.error("Cannot save the test state: %s", _clean(e))
+        if retest:
+            log.warning("Recipients or SIM slot changed — the verified test no longer counts; "
+                        "send a new test SMS")
         if changed:
             log.info("Config updated: %d recipient(s), slot %d, toggles %s, dry_run=%s",
                      len(norm["recipients"]), norm["sim_slot"],
@@ -1870,8 +1896,13 @@ class Agent:
                 test["state"] = state
                 if delivery_done(d):
                     log.info("Test SMS: %s", state)
-                    if test_verified(d):
+                    # Only if it reached every CURRENT recipient: a test
+                    # queued before the list changed proves nothing new.
+                    if test_verified(d) and test_covers(d, self.config):
                         self.meta["last_verified_test_ts"] = int(self._wall())
+                    elif test_verified(d):
+                        log.warning("Test SMS verified, but the recipients changed since it "
+                                    "was queued — it does not count")
 
     def run_scheduler(self, stop: threading.Event) -> None:
         while not stop.is_set():

@@ -966,7 +966,7 @@ na postoju, „Zadzwoń 112” i czuwanie kabiny. Moduł w BCM
 (`src/network/car_phone_agent.py`, wymaga `car_phone`, domyślnie wyłączony
 wszędzie) sprawdza stan agenta co 30 s, wysyła mu ustawienia, gdy się
 zmienią, i paruje go. Sam przebieg SMS-owy (odliczanie na ekranie,
-ANULUJ) to kolejny moduł, `crash_sms`.
+ANULUJ) to kolejny moduł, `crash_sms` (§5.10).
 
 **W telefonie** (pełny opis w nagłówku `bcm_agent.py`):
 
@@ -1005,12 +1005,13 @@ ANULUJ) to kolejny moduł, `crash_sms`.
    wtedy nowy kod: znowu `--pair`). Wiersz pokazuje: stan, wersję agenta,
    kartę SIM i godzinę ostatniego kontaktu.
 4. Odbiorcy SMS tylko w `config/local.yaml` (`crash_detection.sms.recipients`,
-   najwyżej 3 numery `+48…`); `crash_detection.sms.dry_run: true` (domyślnie)
+   najwyżej 3 numery `+48…`; wygodniej: Ustawienia → „SMS po stłuczce”,
+   §5.10); `crash_detection.sms.dry_run: true` (domyślnie)
    = SMS-y o wypadku i odwołujące agent tylko loguje. Testowy SMS idzie
    naprawdę tylko na wyraźne żądanie „prawdziwy test” (`real_test`), mimo
    `dry_run` — po to, żeby sprawdzić wysyłkę, zanim alarm wyjdzie z trybu
-   testowego; jego trasa w BCM (moduł `crash_sms`) ma działać tylko z
-   ekranu auta, z limitem i po potwierdzeniu kierowcy.
+   testowego; w BCM to przycisk „Wyślij testowy SMS” (moduł `crash_sms`,
+   tylko z ekranu auta, z limitem i po potwierdzeniu kierowcy).
 
 **Bezpieczeństwo.** Agent słucha tylko na 127.0.0.1 telefonu; BCM łączy się
 przez forward adb na uprzywilejowanym porcie 952 (kiosk go nie ZAJMIE).
@@ -1055,6 +1056,85 @@ ROM-ie; czy wysłane SMS-y pojawiają się w `termux-sms-list -t all` z polem
 wypełnione; czy po restarcie telefonu wiersz sam wraca do „działa”
 (Autostart); czy Android nie zabija Termuxa w tle (phantom process killer);
 strefa czasowa godziny w SMS-ie.
+
+### 5.10 SMS po stłuczce: okno z odliczaniem (`modules.crash_sms`)
+
+**Co robi.** Po uderzeniu, które `crash_detect` uznał za zdarzenie z prawem
+do SMS-a (tylko akcelerometr; sam GPS nigdy), `src/safety/crash_sms.py` od
+razu uzbraja agenta w telefonie (§5.9) z odliczaniem `countdown_sec`
+(domyślnie 45 s). Od tej chwili **termin trzyma telefon**: bez anulowania
+wyśle SMS także wtedy, gdy BCM padnie albo komputer straci zasilanie. Na
+ekranie BCM — na każdym, także na Android Auto — pojawia się okno:
+
+- wielkie odliczanie, liczba odbiorców, stan telefonu;
+- „ANULUJ – nic się nie stało” (≥ 1/3 ekranu) i „Wyślij teraz”;
+- żółta plakietka **„TRYB TESTOWY – SMS nie zostanie wysłany”** oraz powód,
+  gdy tryb testowy jest wymuszony;
+- krótki pisk co 5 s, dopóki odliczanie naprawdę trwa;
+- po wysyłce / anulowaniu wynik; zamyka się po stuknięciu albo po 60 s;
+  po wysłanym SMS-ie przycisk „Jestem OK – wyślij SMS odwołujący” (osobna
+  trasa — spóźnione ANULUJ nigdy nie wyśle SMS-a odwołującego).
+
+Uzbrajanie jest ponawiane co 2 s, dopóki na ekranie zostało więcej niż 15 s
+(minimum telefonu) — po uderzeniu USB potrafi się przełączyć, a `car_phone`
+odtwarza przekierowanie dopiero w kolejnym przebiegu (do 30 s). Po
+restarcie BCM (np. zanik zasilania przy uderzeniu) zdarzenie jest
+uzbrajane ponownie aż do 2 min od zdarzenia; telefon dostaje wtedy co
+najmniej swoje 15 s. Dopiero potem okno mówi **„Brak połączenia z
+telefonem – SMS NIE zostanie wysłany”** — i tylko wtedy, gdy żadne żądanie
+nie mogło do telefonu dojść. Gdy mogło (przekroczony czas, połączenie
+zerwane po wysłaniu żądania — agent zapisuje zdarzenie przed odpowiedzią),
+okno mówi **„SMS MOŻE zostać wysłany”**, zostawia ANULUJ, a BCM dalej pyta
+telefon o zdarzenie. Gdy telefon przestanie odpowiadać po terminie, okno
+cichnie i mówi „Brak potwierdzenia z telefonu – telefon mógł już wysłać
+SMS” (da się zamknąć). Gdy auto pojedzie dalej (> 25 km/h przez 10 s,
+`crash.outcome: cancelled`), alarm odwołuje się sam, zanim cokolwiek
+wyjdzie. Zdarzenie zapisuje się atomowo w `data/crash_sms.json` (bez
+numerów; pozycja tylko do chwili, gdy telefon ją ma); po restarcie BCM okno
+wraca, jeśli odliczanie trwa.
+
+**Włączenie:** Ustawienia → Moduły → `crash_sms` (wymaga `crash_detect`,
+`phone_sensors`, `car_phone_agent`), restart BCM. Potem Ustawienia →
+**„SMS po stłuczce”**:
+
+1. **Odbiorcy** — do 3 numerów z kierunkowym kraju (pole ma już „+”,
+   klawiatura ekranowa nie ma tego znaku), „Zapisz odbiorców”. Polski numer
+   wpisz z 48 (`48 601 234 567`); same 9 cyfr jest odrzucane — po „+”
+   byłby to inny kraj (601… → +60, Malezja). Zapis idzie tylko do
+   `config/local.yaml`; BCM od razu wysyła je do telefonu.
+2. **„Wyślij testowy SMS”** — dwa stuknięcia (drugie potwierdza, nie
+   wcześniej niż po 0,7 s), bo to PRAWDZIWY SMS do wszystkich odbiorców.
+   Zaraz po zmianie odbiorców BCM czeka, aż telefon ma nową listę
+   („telefon nie ma jeszcze nowych odbiorców”). Wiersz pokazuje, kiedy test
+   był ostatnio potwierdzony w „wysłanych”. **Każda zmiana odbiorców albo
+   slotu SIM kasuje potwierdzenie** — nowy numer musi przejść własny test.
+
+**Tryb testowy** (`crash_detection.sms.dry_run: true`, domyślnie) zostaje,
+dopóki sam go nie wyłączysz w `local.yaml`. Nawet przy `dry_run: false` BCM
+wysyła prawdziwe SMS-y tylko, gdy: agent jest sparowany i zdrowy (ma
+aktualną konfigurację) i testowy SMS do **obecnych** odbiorców był
+potwierdzony w ciągu 30 dni. Inaczej — wymuszony tryb testowy z powodem
+w oknie i w Ustawieniach (i jedna linia w logu). Czujniki telefonu (≥
+`min_rate_hz`, kalibracja) Ustawienia pokazują tylko jako wskaźnik: samo
+zdarzenie z akcelerometru dowodzi, że były w porządku (sprawdza je
+`crash_detect`), więc nie zamieniają prawdziwej stłuczki w test.
+
+**Limity:** BCM `cooldown_min` (10) i `max_per_day` (3); telefon ma też
+własne (1 na 10 min, 3 na dobę). Alarm odwołany, zanim cokolwiek wyszło,
+się nie liczy; zdarzenia w trybie testowym nie blokują prawdziwego.
+
+**Kierownica:** akcja SWC „Anuluj SMS po stłuczce” (`crash_cancel`) — bez
+domyślnego przycisku; widoczna w Ustawieniach → SWC tylko przy włączonym
+`crash_sms`. Arduino wysyła stały kod klawisza, więc **przycisk zachowuje
+też swoją zwykłą akcję** — wybierz rzadko używany, **nigdy rozłącz ani
+odbierz** (po stłuczce dzwoni rodzina). Przycisk działa tylko w trakcie
+odliczania; nigdy w czasie wysyłki ani jako „Jestem OK” po wysłanym SMS-ie.
+Przypisać go można tylko z ekranu auta.
+
+Trasy `/api/crash/{cancel,send_now,follow_up,test,recipients}` działają
+**wyłącznie z ekranu auta** (loopback), także przy `remote_access: full`,
+i mają limit żądań; telefon pasażera widzi okno bez przycisków. Miejsce na
+przycisk „Zadzwoń 112” w oknie jest zarezerwowane (kolejna partia, plan H).
 
 ---
 

@@ -362,6 +362,296 @@ const Settings = {
         </div>`;
     },
 
+    // SMS po stłuczce (src/safety/crash_sms.py). data.crash_sms =
+    // web_viewer._crash_sms_summary(crash.sms_state), or null while the
+    // module is not running (production config: no section at all). Phone
+    // numbers are NEVER in the payload: the editor fetches them from the
+    // loopback-only GET /api/crash/recipients.
+    _crash: { recipients: ["", "", ""], loaded: false, loading: false, msg: "",
+              testArmAt: 0, testMsg: "", saveAt: 0, listening: false },
+    // The on-screen keyboard has no "+": the field holds the digits after it.
+    _crashDigitsRe: /^[1-9][0-9]{7,14}$/,
+    _crashTestArmMs: 6000,
+    // The confirming tap must come this long after the arming one: a
+    // bounced / double tap (two clicks a few ms apart) must not send a REAL
+    // SMS to everybody.
+    _crashTestMinGapMs: 700,
+
+    /** Pure: the typed fields → {numbers: ["+48…"], bad: index|-1, reason}.
+     *  Spaces and dashes are dropped, a leading "+" or "00" is accepted,
+     *  empty fields are skipped; at most 3 (there are only 3 fields).
+     *  Exactly 9 digits is refused (reason "no_cc"): that is a Polish number
+     *  typed without 48, and "+" + those digits would be another country
+     *  (601234567 → +60 Malaysia). A "48" number must have 9 digits after
+     *  it. The server checks the same. */
+    crashParseRecipients(fields) {
+        const numbers = [];
+        const list = Array.isArray(fields) ? fields.slice(0, 3) : [];
+        for (let i = 0; i < list.length; i++) {
+            let v = typeof list[i] === "string" ? list[i].replace(/[\s-]/g, "") : "";
+            if (!v) continue;
+            if (v.startsWith("+")) v = v.slice(1);
+            else if (v.startsWith("00")) v = v.slice(2);
+            if (!Settings._crashDigitsRe.test(v)) return { numbers: [], bad: i, reason: "" };
+            if (v.length === 9) return { numbers: [], bad: i, reason: "no_cc" };
+            if (v.startsWith("48") && v.length !== 11) return { numbers: [], bad: i, reason: "" };
+            const num = "+" + v;
+            if (numbers.indexOf(num) < 0) numbers.push(num);
+        }
+        return { numbers, bad: -1, reason: "" };
+    },
+
+    /** Pure: a saved number as the field shows it (the "+" is printed in
+     *  front of the field): "+48601234567" → "48 601 234 567", so the
+     *  country code is visible; others as plain digits. */
+    crashFieldText(num) {
+        if (typeof num !== "string") return "";
+        const d = num.replace(/^\+/, "");
+        if (!/^[0-9]{1,15}$/.test(d)) return "";
+        const m = d.match(/^48([0-9]{3})([0-9]{3})([0-9]{3})$/);
+        return m ? `48 ${m[1]} ${m[2]} ${m[3]}` : d;
+    },
+
+    /** Fetch the recipients once per Settings visit (kiosk only — the
+     *  route refuses network clients). */
+    async crashLoad(force) {
+        const c = Settings._crash;
+        if ((c.loaded && !force) || c.loading) return;
+        c.loading = true;
+        try {
+            const res = await fetch("/api/crash/recipients");
+            if (res.ok) {
+                const data = await res.json();
+                const list = Array.isArray(data.recipients) ? data.recipients : [];
+                c.recipients = [0, 1, 2].map((i) => Settings.crashFieldText(list[i]));
+                c.loaded = true;
+                Settings._crashFillInputs();
+            }
+        } catch (e) { /* offline kiosk — the fields stay empty */ }
+        c.loading = false;
+    },
+
+    _crashFillInputs() {
+        if (typeof document === "undefined") return;
+        document.querySelectorAll("[data-crash-rcpt]").forEach((input) => {
+            const i = Number(input.getAttribute("data-crash-rcpt"));
+            if (Number.isInteger(i) && i >= 0 && i < 3 && document.activeElement !== input) {
+                input.value = Settings._crash.recipients[i] || "";
+            }
+        });
+    },
+
+    _crashSay(sel, text) {
+        const node = typeof document !== "undefined" ? document.querySelector(sel) : null;
+        if (node) node.textContent = text;
+    },
+
+    /** "Zapisz odbiorców": validated here and again on the server. */
+    async crashSaveRecipients() {
+        const t = (typeof App !== "undefined" && App.t) ? App.t.bind(App) : ((k, d) => d);
+        const c = Settings._crash;
+        const now = Date.now();
+        if (now - c.saveAt < 1500) return;
+        c.saveAt = now;
+        const parsed = Settings.crashParseRecipients(c.recipients);
+        const badMsg = (i, reason) => (reason === "no_cc"
+            ? t("crash_rcpt_no_cc", "Numer {i}: dopisz 48 na początku (np. 48601234567)")
+            : t("crash_rcpt_bad", "Numer {i}: wpisz numer z kierunkowym kraju, np. 48601234567"))
+            .replace("{i}", () => String(i + 1));
+        if (parsed.bad >= 0) {
+            c.msg = badMsg(parsed.bad, parsed.reason);
+            Settings._crashSay("[data-crash-msg]", c.msg);
+            return;
+        }
+        try {
+            const res = await fetch("/api/crash/recipients", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ recipients: parsed.numbers }),
+            });
+            let out = {};
+            try { out = await res.json(); } catch (e) { /* not JSON */ }
+            if (res.ok) {
+                c.msg = out.persisted === false
+                    ? t("crash_rcpt_not_persisted", "Zapisano, ale nie na dysku — po restarcie znikną")
+                    : t("crash_rcpt_saved", "Zapisano ({n})").replace("{n}", () => String(parsed.numbers.length));
+            } else if (res.status === 403) {
+                c.msg = t("crash_kiosk_only", "Tylko z ekranu w aucie");
+            } else if (res.status === 429) {
+                c.msg = t("crash_wait", "Chwilę — spróbuj za kilka sekund");
+            } else if (out && out.error === "bad_number" && Number.isInteger(out.index)
+                       && out.index >= 0 && out.index < 3) {
+                c.msg = badMsg(out.index, out.hint === "no_cc" ? "no_cc" : "");
+            } else {
+                c.msg = t("crash_rcpt_refused", "Nie zapisano — sprawdź numery");
+            }
+        } catch (e) {
+            c.msg = t("crash_rcpt_refused", "Nie zapisano — sprawdź numery");
+        }
+        Settings._crashSay("[data-crash-msg]", c.msg);
+    },
+
+    /** "Wyślij testowy SMS": two taps (the first arms for 6 s) because it
+     *  sends a REAL SMS to every recipient — that is the point: only a
+     *  test confirmed in "wysłane" lets crash SMS leave test mode. */
+    async crashTest() {
+        const t = (typeof App !== "undefined" && App.t) ? App.t.bind(App) : ((k, d) => d);
+        const c = Settings._crash;
+        const now = Date.now();
+        if (!c.testArmAt || now - c.testArmAt > Settings._crashTestArmMs) {
+            c.testArmAt = now;
+            c.testMsg = "";
+            Settings._crashRedrawRow();
+            // Back to "Wyślij testowy SMS" when the confirmation lapses.
+            setTimeout(() => Settings._crashRedrawRow(), Settings._crashTestArmMs + 50);
+            return;
+        }
+        // A bounce of the arming tap is not a confirmation.
+        if (now - c.testArmAt < Settings._crashTestMinGapMs) return;
+        c.testArmAt = 0;
+        c.testMsg = t("crash_test_sending", "wysyłam…");
+        Settings._crashRedrawRow();
+        try {
+            const res = await fetch("/api/crash/test", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ confirm: true }),
+            });
+            let out = {};
+            try { out = await res.json(); } catch (e) { /* not JSON */ }
+            const errors = {
+                no_recipients: t("crash_test_no_recipients", "najpierw zapisz odbiorców"),
+                not_running: t("crash_test_no_agent", "agent w telefonie nie działa"),
+                busy: t("crash_test_busy", "test już w drodze"),
+                config_pending: t("crash_test_config_pending", "telefon nie ma jeszcze nowych odbiorców — spróbuj za chwilę"),
+                "too many requests": t("crash_wait", "Chwilę — spróbuj za kilka sekund"),
+            };
+            const key = out && typeof out.error === "string" ? out.error : "";
+            if (res.ok) c.testMsg = t("crash_test_queued", "przekazano do telefonu");
+            else if (res.status === 403) c.testMsg = t("crash_kiosk_only", "Tylko z ekranu w aucie");
+            else c.testMsg = Object.prototype.hasOwnProperty.call(errors, key)
+                ? errors[key] : t("crash_test_failed", "nie udało się");
+        } catch (e) {
+            c.testMsg = t("crash_test_failed", "nie udało się");
+        }
+        Settings._crashRedrawRow();
+    },
+
+    _crashRedrawRow() {
+        if (typeof document === "undefined") return;
+        const slot = document.querySelector("[data-crash-sms-slot]");
+        const data = (typeof DataStore !== "undefined" && DataStore.getAll) ? DataStore.getAll() : {};
+        const t = (typeof App !== "undefined" && App.t) ? App.t.bind(App) : ((k, d) => d);
+        if (slot) slot.innerHTML = Settings.crashSmsRowHtml(data && data.crash_sms, t);
+    },
+
+    /** One delegated listener set for the section (data-* attributes, no
+     *  data in inline handlers). Installed once on document. */
+    crashListen() {
+        const c = Settings._crash;
+        if (c.listening || typeof document === "undefined" || !document.addEventListener) return;
+        c.listening = true;
+        document.addEventListener("click", (e) => {
+            const el = e.target && e.target.closest ? e.target.closest("[data-crash-save],[data-crash-test]") : null;
+            if (!el) return;
+            if (el.hasAttribute("data-crash-save")) Settings.crashSaveRecipients();
+            else Settings.crashTest();
+        });
+        document.addEventListener("input", (e) => {
+            const el = e.target;
+            if (!el || !el.getAttribute) return;
+            const i = Number(el.getAttribute("data-crash-rcpt"));
+            if (el.hasAttribute("data-crash-rcpt") && Number.isInteger(i) && i >= 0 && i < 3) {
+                Settings._crash.recipients[i] = String(el.value || "").slice(0, 20);
+            }
+        });
+    },
+
+    _crashFmtTime(ts) {
+        if (typeof ts !== "number" || !isFinite(ts) || ts <= 0) return "";
+        const d = new Date(ts * 1000);
+        const p2 = (n) => String(n).padStart(2, "0");
+        return `${p2(d.getDate())}.${p2(d.getMonth() + 1)} ${p2(d.getHours())}:${p2(d.getMinutes())}`;
+    },
+
+    /** The status row "SMS po stłuczce: tryb testowy · odbiorcy: 2" plus why
+     *  test mode is forced, the last test and "Wyślij testowy SMS". '' without
+     *  a payload. Inline styles; every value escaped / type-checked. */
+    crashSmsRowHtml(cs, t) {
+        t = t || ((k, d) => d);
+        if (!cs || typeof cs !== "object") return "";
+        const esc = Settings._esc;
+        const c = Settings._crash;
+        const dry = cs.dry_run !== false;
+        const color = dry ? "#d97706" : "#16a34a";
+        const label = dry ? t("crash_mode_dry", "tryb testowy (SMS nie wychodzą)")
+            : t("crash_mode_real", "prawdziwe SMS-y");
+        const n = Number.isInteger(cs.recipients_n) && cs.recipients_n >= 0 && cs.recipients_n <= 3
+            ? cs.recipients_n : 0;
+        const reasons = {
+            agent_not_ready: t("crash_forced_agent", "agent w telefonie nie jest gotowy"),
+            no_verified_test: t("crash_forced_no_test", "brak potwierdzonego testowego SMS-a"),
+            test_too_old: t("crash_forced_old_test", "testowy SMS starszy niż 30 dni"),
+            sensors_not_streaming: t("crash_forced_sensors", "brak danych z czujników telefonu"),
+            sensor_rate_low: t("crash_forced_rate", "za wolne próbkowanie czujników"),
+            not_calibrated: t("crash_forced_calib", "czujniki telefonu nieskalibrowane"),
+        };
+        const reason = typeof cs.forced_dry_run_reason === "string"
+            && Object.prototype.hasOwnProperty.call(reasons, cs.forced_dry_run_reason)
+            ? `<span data-crash-reason style="color:#d97706;flex-basis:100%;padding-left:24px">${esc(
+                t("crash_forced", "wymuszony tryb testowy: {reason}")
+                    .replace("{reason}", () => reasons[cs.forced_dry_run_reason]))}</span>` : "";
+        const test = cs.test && typeof cs.test === "object" ? cs.test : {};
+        let testText;
+        const verifiedAt = Settings._crashFmtTime(test.last_verified_ts);
+        if (test.request === "sending" || test.request === "queued") {
+            testText = t("crash_test_sending", "wysyłam…");
+        } else if (test.state === "pending") {
+            testText = t("crash_test_pending", "test w toku — telefon sprawdza wysłane");
+        } else if (verifiedAt) {
+            testText = t("crash_test_verified", "ostatni potwierdzony test: {when}").replace("{when}", () => verifiedAt);
+        } else if (test.state === "failed" || test.state === "partial") {
+            testText = t("crash_test_last_failed", "ostatni test nie doszedł do wszystkich");
+        } else {
+            testText = t("crash_test_none", "brak potwierdzonego testu");
+        }
+        const armed = c.testArmAt && Date.now() - c.testArmAt <= Settings._crashTestArmMs;
+        const btnLabel = armed
+            ? t("crash_test_confirm", "Na pewno? PRAWDZIWY SMS do {n} odbiorców").replace("{n}", () => String(n))
+            : t("crash_test_send", "Wyślij testowy SMS");
+        const testBtn = n > 0
+            ? `<button type="button" data-crash-test data-armed="${armed ? "1" : "0"}" style="padding:7px 14px;border-radius:8px;font-size:12px;font-weight:700;border:none;background:${armed ? "#dc2626" : "var(--card-border)"};color:${armed ? "#fff" : "var(--text-mid)"}">${esc(btnLabel)}</button>` : "";
+        return `<div data-crash-sms-row data-crash-dry="${dry ? "1" : "0"}" style="display:flex;flex-wrap:wrap;align-items:center;gap:4px 8px;padding:8px 12px;border-radius:12px;background:var(--card-bg);border:1px solid var(--card-border);font-size:11px;line-height:1.3">
+            <span class="material-symbols-outlined" style="font-size:16px;color:${color}">car_crash</span>
+            <span style="color:var(--text-dim);font-weight:700">${esc(t("crash_sms", "SMS po stłuczce"))}:</span>
+            <span style="color:${color};font-weight:700">${esc(label)}</span>
+            <span style="color:var(--text-mid)">${esc(t("crash_recipients", "odbiorcy SMS: {n}").replace("{n}", () => String(n)))}</span>${reason}
+            <span data-crash-test-state style="color:var(--text-mid);flex-basis:100%;padding-left:24px">${esc(testText)}</span>
+            <span style="flex-basis:100%;display:flex;flex-wrap:wrap;align-items:center;gap:6px;padding-left:24px">${testBtn}<span data-crash-test-msg style="color:var(--text-mid)">${esc(c.testMsg)}</span></span>
+        </div>`;
+    },
+
+    /** The recipients editor (3 fields, the "+" is printed — the OSK has
+     *  none). Drawn by render() only, never by update(): typing must not be
+     *  clobbered by a data push. '' without a payload. */
+    crashEditorHtml(cs, t) {
+        t = t || ((k, d) => d);
+        if (!cs || typeof cs !== "object") return "";
+        const esc = Settings._esc;
+        const fields = [0, 1, 2].map((i) => `<label style="display:flex;align-items:center;gap:4px">
+                <span style="color:var(--text-dim);font-size:13px;font-weight:700">${esc(String(i + 1))}. +</span>
+                <input data-crash-rcpt="${i}" type="tel" inputmode="numeric" maxlength="20" autocomplete="off" value="${esc(Settings._crash.recipients[i] || "")}" placeholder="${esc(t("crash_rcpt_placeholder", "np. 48601234567"))}" style="width:150px;padding:6px 8px;border-radius:8px;font-size:13px;letter-spacing:1px;background:var(--color-surface);color:var(--text-primary);border:1px solid var(--card-border)">
+            </label>`).join("");
+        return `<div data-crash-editor style="display:flex;flex-direction:column;gap:6px;padding:8px 12px;border-radius:12px;background:var(--card-bg);border:1px solid var(--card-border);font-size:11px;line-height:1.3">
+            <span style="color:var(--text-dim);font-weight:700">${esc(t("crash_rcpt_title", "Odbiorcy SMS po stłuczce (najwyżej 3, z kierunkowym kraju)"))}</span>
+            <div style="display:flex;flex-wrap:wrap;gap:6px 12px">${fields}</div>
+            <div style="display:flex;flex-wrap:wrap;align-items:center;gap:8px">
+                <button type="button" data-crash-save style="padding:7px 14px;border-radius:8px;font-size:12px;font-weight:700;border:none;background:var(--color-primary);color:#fff">${esc(t("crash_rcpt_save", "Zapisz odbiorców"))}</button>
+                <span data-crash-msg style="color:var(--text-mid)">${esc(Settings._crash.msg)}</span>
+            </div>
+        </div>`;
+    },
+
     /** One info row "GPS: <źródło> <stan> <nadawca>" from data.gps_state
      *  (web_viewer._gps_state_summary of gps.source_state), plus — while
      *  there is no fix — where the phone should send its NMEA: the head
@@ -1188,6 +1478,14 @@ App.registerScreen("settings", (() => {
         return JSON.stringify((data && data.car_phone_agent) || null);
     }
 
+    /** What the crash SMS row shows (not the countdown — the window does). */
+    let _crashKey = "null";
+    function _crashKeyOf(data) {
+        const cs = data && data.crash_sms;
+        if (!cs || typeof cs !== "object") return "null";
+        return JSON.stringify([cs.dry_run, cs.forced_dry_run_reason, cs.recipients_n, cs.test]);
+    }
+
     /** What the GPS row shows: gps_state without last_ts (it changes with
      *  every fix, the row does not show it) + the bnep0 IP of the hint. */
     function _gpsKeyOf(data) {
@@ -1229,6 +1527,14 @@ App.registerScreen("settings", (() => {
                 slot.innerHTML = Settings.carPhoneAgentRowHtml(data && data.car_phone_agent, t);
             }
         }
+        const crashKey = _crashKeyOf(data);
+        if (crashKey !== _crashKey) {
+            const slot = document.querySelector("[data-crash-sms-slot]");
+            if (slot) {
+                _crashKey = crashKey;
+                slot.innerHTML = Settings.crashSmsRowHtml(data && data.crash_sms, t);
+            }
+        }
         const gpsKey = _gpsKeyOf(data);
         if (gpsKey !== _gpsKey) {
             const slot = document.querySelector("[data-gps-slot]");
@@ -1247,6 +1553,7 @@ App.registerScreen("settings", (() => {
         _gpsKey = _gpsKeyOf(data);
         _carPhoneKey = _carPhoneKeyOf(data);
         _agentKey = _agentKeyOf(data);
+        _crashKey = _crashKeyOf(data);
         const paired = Settings._btPaired;
         const discovered = Settings._btDiscovered;
         const scanning = Settings._btScanning;
@@ -1263,6 +1570,10 @@ App.registerScreen("settings", (() => {
         Settings.wifiLoad();
         Settings.modulesLoad();
         Settings.aaLoad();
+        if (data && data.crash_sms) {
+            Settings.crashListen();
+            Settings.crashLoad();
+        }
 
         container.innerHTML = `<div class="screen-container" style="background:var(--color-surface);color:var(--color-on-surface)">
             ${AppBar.render(theme, data)}
@@ -1311,6 +1622,10 @@ App.registerScreen("settings", (() => {
                         <div data-car-phone-slot style="display:contents">${Settings.carPhoneRowHtml(data && data.car_phone, t)}</div>
                         <!-- The Termux agent on that phone (pairing, health) — same slot idea. -->
                         <div data-car-phone-agent-slot style="display:contents">${Settings.carPhoneAgentRowHtml(data && data.car_phone_agent, t)}</div>
+                        <!-- SMS po stłuczce: status + testowy SMS (update() swaps it)
+                             and the recipients editor (render() only). -->
+                        <div data-crash-sms-slot style="display:contents">${Settings.crashSmsRowHtml(data && data.crash_sms, t)}</div>
+                        <div data-crash-editor-slot style="display:contents">${Settings.crashEditorHtml(data && data.crash_sms, t)}</div>
                         <!-- GPS source / fix + where to send NMEA (same slot idea). -->
                         <div data-gps-slot style="display:contents">${Settings.gpsRowHtml(data && data.gps_state, data && data.phone_tether, t)}</div>
                         <!-- Wi-Fi Hotspot / ALFA-NET network access. The live
@@ -1576,6 +1891,7 @@ App.registerScreen("settings", (() => {
             bcm_power_toggle: "Power Toggle", voice_aa_trigger: "AA Voice",
             navigate_aa: "Open AA", home: "Home", back: "Back",
             source_cycle: "Source Cycle", brightness_cycle: "Brightness",
+            crash_cancel: App.t("swc_crash_cancel", "Anuluj SMS po stłuczce"),
         };
         return labels[action] || action;
     }

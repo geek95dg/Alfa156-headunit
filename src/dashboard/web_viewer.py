@@ -40,6 +40,7 @@ from src.network.car_phone_agent import TOPIC as _AGENT_TOPIC
 from src.network.phone_tether import HINTS as _TETHER_HINTS
 from src.network.phone_tether import RETRY_TOPIC as _TETHER_RETRY_TOPIC
 from src.network.phone_tether import STATES as _TETHER_STATES
+from src.safety import crash_sms as _crash_sms
 from src.weather.weather import valid_coords
 
 log = get_logger("web_viewer")
@@ -413,6 +414,97 @@ def _car_phone_agent_summary(value: Any) -> Optional[dict]:
     }
 
 
+#: Crash SMS routes (src/safety/crash_sms.py): minimum spacing of accepted
+#: commands, per route (a double tap is swallowed by the UI already; the
+#: limit stops a loop — the first command is queued anyway).
+_CRASH_CMD_MIN_INTERVAL_S = 1.0
+#: One REAL test SMS request per minute (the phone allows one per 10 min).
+_CRASH_TEST_MIN_INTERVAL_S = 60.0
+_CRASH_RECIPIENTS_MIN_INTERVAL_S = 2.0
+#: Bodies: {"event_id": "<32 hex>"}, {"confirm": true},
+#: {"recipients": [3 numbers]} — all tiny.
+_CRASH_MAX_BODY = 512
+#: A recipient as typed: digits, '+', spaces and dashes (removed), bounded.
+_CRASH_RCPT_TYPED_RE = re.compile(r"^[0-9+ -]{1,32}$")
+
+
+def _crash_sms_summary(value: Any) -> Optional[dict]:
+    """``crash.sms_state`` → the crash window and the Settings section.
+
+    A whitelist with types and ranges (the module built it from validated
+    agent answers; this is the second line, because the payload also
+    reaches network clients in ``readonly`` mode). Recipient numbers are
+    never in it — only how many there are. None = the module does not run
+    (no window, no Settings section).
+    """
+    if not isinstance(value, dict):
+        return None
+
+    def flag(key):
+        return value.get(key) is True
+
+    def epoch(v):
+        if isinstance(v, bool) or not isinstance(v, (int, float)):
+            return None
+        return float(v) if math.isfinite(v) and 0 < v < 4e9 else None
+
+    def small_int(v, hi):
+        if isinstance(v, bool) or not isinstance(v, int) or not 0 <= v <= hi:
+            return None
+        return v
+
+    state = value.get("state")
+    eid = value.get("event_id")
+    results = []
+    raw = value.get("results")
+    if isinstance(raw, list):
+        for r in raw[:_car_phone_agent.MAX_RECIPIENTS]:
+            if isinstance(r, dict) and r.get("state") in _crash_sms.RCPT_STATES:
+                results.append({"state": r["state"], "verified": r.get("verified") is True})
+    cancel = value.get("cancel_sms")
+    test = value.get("test") if isinstance(value.get("test"), dict) else {}
+    reason = value.get("forced_dry_run_reason")
+    error = value.get("error")
+    return {
+        "state": state if isinstance(state, str) and state in _crash_sms.STATES else "idle",
+        "event_id": eid if isinstance(eid, str) and _crash_sms.EVENT_ID_RE.fullmatch(eid)
+        else None,
+        "ts": epoch(value.get("ts")),
+        "countdown_s": small_int(value.get("countdown_s"), _car_phone_agent.COUNTDOWN_MAX_S),
+        "countdown_left_s": small_int(value.get("countdown_left_s"),
+                                      _car_phone_agent.COUNTDOWN_MAX_S),
+        "deadline_ts": epoch(value.get("deadline_ts")),
+        "recipients_n": small_int(value.get("recipients_n"),
+                                  _car_phone_agent.MAX_RECIPIENTS) or 0,
+        "phone_ok": flag("phone_ok"),
+        # Anything but an explicit false is shown as test mode.
+        "dry_run": value.get("dry_run") is not False,
+        "forced_dry_run_reason": reason if isinstance(reason, str)
+        and reason in _crash_sms.FORCED_REASONS else "",
+        "results": results,
+        "cancel_sms": {"state": cancel["state"]} if isinstance(cancel, dict)
+        and cancel.get("state") in ("sending", "sent", "partial", "failed") else None,
+        "error": error if isinstance(error, str) and error in _crash_sms.ERRORS else "",
+        "modal": flag("modal"),
+        "cancel_pending": flag("cancel_pending"),
+        "send_now_pending": flag("send_now_pending"),
+        "can_follow_up": flag("can_follow_up"),
+        "may_send": flag("may_send"),
+        "unconfirmed": flag("unconfirmed"),
+        "test": {
+            "request": test.get("request") if test.get("request") in _crash_sms.TEST_REQUESTS
+            else "",
+            "error": test.get("error") if test.get("error") in _crash_sms.TEST_ERRORS else "",
+            "state": test.get("state") if test.get("state") in _car_phone_agent.TEST_STATES
+            else None,
+            "ts": epoch(test.get("ts")),
+            "dry_run": test.get("dry_run") if isinstance(test.get("dry_run"), bool) else None,
+            "verified": test.get("verified") is True,
+            "last_verified_ts": epoch(test.get("last_verified_ts")),
+        },
+    }
+
+
 #: gps.source_state values the Settings row may show (src/location/gps.py).
 _GPS_SOURCES = ("demo", "serial", "udp", "tcp")
 _GPS_STATES = ("fix", "no_fix")
@@ -585,6 +677,9 @@ _READONLY_DENIED_ENDPOINTS = frozenset({
     "ws_input_handler", "api_wifi_config_get", "aa_stream",
     "camera_stream", "camera_available", "api_dtc_read",
     "api_weather_search", "api_trip_search",
+    # the crash SMS recipients are personal data (phone numbers): kiosk only
+    # in every mode (the view also refuses non-loopback clients itself)
+    "api_crash_recipients_get",
 })
 _HOSTNAME_RE = re.compile(r"[a-z0-9](?:[a-z0-9.-]{0,251}[a-z0-9])?")
 #: One "refused" log line per client address per this many seconds.
@@ -894,6 +989,9 @@ class WebViewer:
         # POST /api/car_phone_agent/pair rate limit (monotonic, as above).
         self._agent_pair_lock = threading.Lock()
         self._agent_pair_last: Optional[float] = None
+        # /api/crash/* rate limits: last accepted request per route (monotonic).
+        self._crash_lock = threading.Lock()
+        self._crash_last: dict[str, float] = {}
 
         # POST /api/phone/dial rate limit: last accepted dial per bucket
         # ("kiosk" = loopback, "network" = everyone else), monotonic.
@@ -1092,6 +1190,10 @@ class WebViewer:
             # The Termux agent on that phone (src/network/car_phone_agent.py):
             # pairing / health for the Settings row. None = module not running.
             "car_phone_agent": _car_phone_agent_summary(_val(_AGENT_TOPIC)),
+            # The crash SMS window (src/safety/crash_sms.py, crash.sms_state):
+            # app.js shows #crash-modal on every screen from it. Whitelisted,
+            # no phone numbers; None = module not running.
+            "crash_sms": _crash_sms_summary(_val(_crash_sms.TOPIC_STATE)),
             # Phone battery / signal / operator for the top bar
             # (src/multimedia/phone_status.py). Re-sanitised here: values come
             # from the phone; None = module not running (no cluster drawn).
@@ -1746,12 +1848,40 @@ class WebViewer:
             if not isinstance(mapping, dict):
                 from src.input.swc_remote import DEFAULT_MAPPING
                 mapping = DEFAULT_MAPPING
-            from src.input.swc_remote import ALL_BUTTONS, ACTIONS
+            from src.input.swc_remote import (ALL_BUTTONS, ACTIONS, OPTIONAL_ACTIONS,
+                                              action_available)
+            # Actions added later (crash_cancel) appear with empty slots, so
+            # they can be learned even with a mapping saved before them —
+            # but only while their module is on (production: crash_sms off,
+            # no "Anuluj SMS po stłuczce" row that would do nothing).
+            mapping = dict(mapping)
+            for action in OPTIONAL_ACTIONS:
+                if action_available(action, cfg):
+                    mapping.setdefault(action, ["", ""])
+                else:
+                    mapping.pop(action, None)
             return jsonify({
                 "mapping": mapping,
                 "all_buttons": ALL_BUTTONS,
-                "actions": [a for a in ACTIONS if a != "disabled"],
+                "actions": [a for a in ACTIONS
+                            if a != "disabled" and action_available(a, cfg)],
             })
+
+        def _swc_kiosk_only_refusal(what: str):
+            """Binding ``crash_cancel`` to a wheel button decides what may
+            cancel a crash SMS — as much "controlling the crash SMS" as the
+            /api/crash/* routes, so loopback only, whatever
+            dashboard.remote_access says."""
+            ip = _client_ip(request.remote_addr)
+            if ip is not None and ip.is_loopback:
+                return None
+            viewer._log_refusal(str(request.remote_addr)[:64], request.method,
+                                request.path, "loopback_only",
+                                f"{what} is only possible from the head unit's own screen",
+                                level=logging.WARNING)
+            return jsonify({"ok": False, "error": "forbidden",
+                            "reason": f"{what} is only possible from the head unit's "
+                                      f"own screen"}), 403
 
         @app.route("/api/config/swc", methods=["POST"])
         def api_swc_set():
@@ -1762,6 +1892,25 @@ class WebViewer:
             mapping = data.get("mapping")
             if not isinstance(mapping, dict):
                 return jsonify({"error": "mapping must be a dict"}), 400
+            from src.input.swc_remote import OPTIONAL_ACTIONS
+            saved = cfg.get("swc.mapping")
+            saved = saved if isinstance(saved, dict) else {}
+            mapping = dict(mapping)
+
+            def _bound(v):
+                # The buttons an entry really binds (["", ""] = none).
+                return sorted(b for b in (v if isinstance(v, list) else [v])
+                              if isinstance(b, str) and b)
+
+            for action in OPTIONAL_ACTIONS:
+                if action not in mapping and action in saved:
+                    # A table that does not list it (module off, older
+                    # page) keeps the saved binding instead of erasing it.
+                    mapping[action] = saved[action]
+                if _bound(mapping.get(action)) != _bound(saved.get(action)):
+                    refused = _swc_kiosk_only_refusal(f"changing the SWC button for {action}")
+                    if refused is not None:
+                        return refused
             cfg.set("swc.mapping", mapping)
             persisted = _save_config(cfg, "swc mapping")
             if viewer._event_bus:
@@ -1788,9 +1937,12 @@ class WebViewer:
             cfg = viewer._config
             if cfg and action:
                 from src.input.swc_remote import DEFAULT_MAPPING
+                from src.input.swc_remote import OPTIONAL_ACTIONS
                 mapping = cfg.get("swc.mapping")
                 if not isinstance(mapping, dict):
                     mapping = dict(DEFAULT_MAPPING)
+                if action in OPTIONAL_ACTIONS and not isinstance(mapping.get(action), list):
+                    mapping[action] = ["", ""]      # saved before the action existed
                 if action in mapping and isinstance(mapping[action], list):
                     mapping[action][min(pod, len(mapping[action]) - 1)] = button_name
                     cfg.set("swc.mapping", mapping)
@@ -1813,6 +1965,12 @@ class WebViewer:
         @app.route("/api/config/swc/learn", methods=["POST"])
         def api_swc_learn_start():
             data = request.get_json(silent=True) or {}
+            from src.input.swc_remote import OPTIONAL_ACTIONS
+            if data.get("action") in OPTIONAL_ACTIONS:
+                refused = _swc_kiosk_only_refusal(
+                    f"learning the SWC button for {data.get('action')}")
+                if refused is not None:
+                    return refused
             _swc_learn.update(
                 active=True, action=data.get("action", ""),
                 pod=data.get("pod", 0), result=None, ts=time.time())
@@ -2795,6 +2953,197 @@ class WebViewer:
             with viewer._agent_pair_lock:
                 viewer._agent_pair_last = now
             return jsonify({"ok": True})
+
+        # --- Crash SMS (src/safety/crash_sms.py) ---------------------------
+        # Every /api/crash/* route is for the driver at the head unit's own
+        # screen: loopback ONLY, whatever dashboard.remote_access says (also
+        # in "full"), rate-limited, and nothing from the body is used but a
+        # validated event id / a confirmation flag / the recipients.
+
+        def _crash_kiosk_only(what: str):
+            ip = _client_ip(request.remote_addr)
+            if ip is not None and ip.is_loopback:
+                return None
+            viewer._log_refusal(str(request.remote_addr)[:64], request.method,
+                                request.path, "loopback_only",
+                                f"{what} is only possible from the head unit's own screen",
+                                level=logging.WARNING)
+            return jsonify({"ok": False, "error": "forbidden",
+                            "reason": f"{what} is only possible from the head unit's "
+                                      f"own screen"}), 403
+
+        def _crash_body():
+            """The JSON object of a small body, or (None, error response)."""
+            if request.content_length is not None and request.content_length > _CRASH_MAX_BODY:
+                return None, (jsonify({"ok": False, "error": "too_large"}), 413)
+            data = request.get_json(silent=True)
+            if not isinstance(data, dict):
+                return None, (jsonify({"ok": False, "error": "bad_request"}), 400)
+            return data, None
+
+        def _crash_rate_limited(key: str, interval: float, now: float):
+            with viewer._crash_lock:
+                last = viewer._crash_last.get(key)
+            if last is not None and 0 <= now - last < interval:
+                wait = int(interval - (now - last)) + 1
+                res = jsonify({"ok": False, "error": "too many requests", "retry_after": wait})
+                res.headers["Retry-After"] = str(wait)
+                return res, 429
+            return None
+
+        def _crash_accepted(key: str, now: float) -> None:
+            with viewer._crash_lock:
+                viewer._crash_last[key] = now
+
+        def _crash_command(action: str):
+            refused = _crash_kiosk_only("controlling the crash SMS")
+            if refused is not None:
+                return refused
+            data, err = _crash_body()
+            if err is not None:
+                return err
+            eid = data.get("event_id")
+            if not isinstance(eid, str) or not _crash_sms.EVENT_ID_RE.fullmatch(eid):
+                return jsonify({"ok": False, "error": "bad_event_id"}), 400
+            module = _crash_sms.get_crash_sms()
+            if module is None:
+                return jsonify({"ok": False, "error": "not_running"}), 409
+            now = time.monotonic()
+            limited = _crash_rate_limited(action, _CRASH_CMD_MIN_INTERVAL_S, now)
+            if limited is not None:
+                return limited
+            result = module.command(action, eid, source="ui")
+            if not result.get("ok"):
+                return jsonify({"ok": False, "error": result.get("error") or "refused"}), 409
+            _crash_accepted(action, now)
+            return jsonify({"ok": True})
+
+        @app.route("/api/crash/cancel", methods=["POST"])
+        def api_crash_cancel():
+            """"ANULUJ – nic się nie stało": ``{"event_id": "<hex>"}`` — the
+            event the window shows; another id is a 409, never "the current
+            one". The worker tells the phone. After a sent SMS this is a 409
+            ``not_cancellable``: a late tap is never turned into a cancel
+            SMS (that is /api/crash/follow_up)."""
+            return _crash_command("cancel")
+
+        @app.route("/api/crash/follow_up", methods=["POST"])
+        def api_crash_follow_up():
+            """"Jestem OK – wyślij SMS odwołujący" in the result window after
+            a sent crash SMS: ``{"event_id": "<hex>"}``. The phone sends ONE
+            cancel SMS to every recipient who got the crash SMS (within its
+            15 min). Its own route and action, so nothing but this button
+            can trigger it."""
+            return _crash_command("follow_up")
+
+        @app.route("/api/crash/send_now", methods=["POST"])
+        def api_crash_send_now():
+            """"Wyślij teraz": ``{"event_id": "<hex>"}`` — the phone sends at
+            once instead of at the end of the countdown."""
+            return _crash_command("send_now")
+
+        @app.route("/api/crash/test", methods=["POST"])
+        def api_crash_test():
+            """"Wyślij testowy SMS" in Settings: ``{"confirm": true}`` (the
+            driver confirmed on screen that a REAL test SMS goes to every
+            recipient — it is what the safety gate needs before crash SMS
+            leave test mode). At most one per _CRASH_TEST_MIN_INTERVAL_S;
+            the phone allows one per 10 min on its own."""
+            refused = _crash_kiosk_only("sending a test SMS")
+            if refused is not None:
+                return refused
+            data, err = _crash_body()
+            if err is not None:
+                return err
+            if data.get("confirm") is not True:
+                return jsonify({"ok": False, "error": "confirm_required"}), 400
+            module = _crash_sms.get_crash_sms()
+            if module is None:
+                return jsonify({"ok": False, "error": "not_running"}), 409
+            now = time.monotonic()
+            limited = _crash_rate_limited("test", _CRASH_TEST_MIN_INTERVAL_S, now)
+            if limited is not None:
+                return limited
+            result = module.request_test()
+            if not result.get("ok"):
+                return jsonify({"ok": False, "error": result.get("error") or "refused"}), 409
+            _crash_accepted("test", now)
+            return jsonify({"ok": True})
+
+        @app.route("/api/crash/recipients", methods=["GET"])
+        def api_crash_recipients_get():
+            """The recipients for the Settings editor (kiosk only: personal
+            data). Only valid ones (E.164, at most 3) — what the phone gets."""
+            refused = _crash_kiosk_only("reading the crash SMS recipients")
+            if refused is not None:
+                return refused
+            return jsonify({"recipients": _crash_sms.configured_recipients(viewer._config),
+                            "max": _car_phone_agent.MAX_RECIPIENTS})
+
+        @app.route("/api/crash/recipients", methods=["POST"])
+        def api_crash_recipients_set():
+            """Save ``{"recipients": [...]}`` (at most 3; each E.164 after
+            spaces and dashes are removed; empty entries skipped, duplicates
+            dropped) to crash_detection.sms.recipients — persisted ONLY in
+            the local overlay (cfg.save(); the base YAML is never written).
+            All or nothing: one invalid entry = 400, nothing saved. The
+            numbers are never logged or published; car_phone_agent pushes
+            them to the phone at once (kick)."""
+            refused = _crash_kiosk_only("changing the crash SMS recipients")
+            if refused is not None:
+                return refused
+            data, err = _crash_body()
+            if err is not None:
+                return err
+            raw = data.get("recipients")
+            if not isinstance(raw, list) or len(raw) > _car_phone_agent.MAX_RECIPIENTS:
+                return jsonify({"ok": False, "error": "bad_recipients",
+                                "max": _car_phone_agent.MAX_RECIPIENTS}), 400
+            numbers: list[str] = []
+            for i, entry in enumerate(raw):
+                if not isinstance(entry, str) or (entry.strip()
+                                                  and not _CRASH_RCPT_TYPED_RE.fullmatch(entry)):
+                    return jsonify({"ok": False, "error": "bad_number", "index": i}), 400
+                num = re.sub(r"[ -]", "", entry)
+                if not num:
+                    continue
+                digits = num[1:] if num.startswith("+") else num
+                if digits.isdigit() and len(digits) == 9:
+                    # The editor prints the "+" (the on-screen keyboard has
+                    # none) and sends whatever digits were typed after it,
+                    # so a Polish number typed WITHOUT 48 ("601234567")
+                    # arrives as "+601234567" — Malaysia. Exactly 9 digits
+                    # is such a national number. The test SMS would not
+                    # catch it (it only checks the phone's "wysłane"). A
+                    # rare real 9-digit foreign number fits through
+                    # local.yaml.
+                    return jsonify({"ok": False, "error": "bad_number", "index": i,
+                                    "hint": "no_cc"}), 400
+                if not _car_phone_agent.E164_RE.fullmatch(num) \
+                        or (num.startswith("+48") and len(num) != 12):
+                    # (A Polish number has exactly 9 digits after 48.)
+                    return jsonify({"ok": False, "error": "bad_number", "index": i}), 400
+                if num not in numbers:
+                    numbers.append(num)
+            cfg = viewer._config
+            if cfg is None:
+                return jsonify({"ok": False, "error": "no_config"}), 503
+            now = time.monotonic()
+            limited = _crash_rate_limited("recipients", _CRASH_RECIPIENTS_MIN_INTERVAL_S, now)
+            if limited is not None:
+                return limited
+            _crash_accepted("recipients", now)
+            cfg.set("crash_detection.sms.recipients", numbers)
+            persisted = _save_config(cfg, "crash SMS recipients")
+            log.info("Crash SMS recipients changed: %d number(s)%s", len(numbers),
+                     "" if persisted else " (NOT persisted)")
+            agent = _car_phone_agent.get_agent()
+            if agent is not None:
+                try:
+                    agent.kick()
+                except Exception:
+                    log.debug("agent kick failed", exc_info=True)
+            return jsonify({"ok": True, "persisted": persisted, "recipients_n": len(numbers)})
 
         @app.route("/api/phone/answer", methods=["POST"])
         def api_phone_answer():

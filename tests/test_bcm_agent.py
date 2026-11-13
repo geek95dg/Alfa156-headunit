@@ -1340,6 +1340,53 @@ class TestTestSms:
         assert out["last_test"]["state"] == "sent" and out["last_test"]["verified"] is True
         assert out["last_verified_test_ts"] == int(clock.wall)
 
+    def _verified(self, agent, peer, clock):
+        peer.req("POST", "/v1/test", {})
+        run_steps(agent)
+        clock.advance(A.VERIFY_AFTER_S)
+        run_steps(agent)
+        out = peer.req("GET", "/v1/health")[1]
+        assert out["last_verified_test_ts"] == int(clock.wall)
+        return out
+
+    def test_a_new_recipient_needs_a_new_test(self, ready, runner, clock):
+        """The verified test covered NUM1+NUM2; replacing NUM2 (a typo
+        fixed, a new contact) means nobody tested the new number — the
+        gate on BCM must fall back to test mode until a new test."""
+        agent, peer = ready
+        self._verified(agent, peer, clock)
+        assert peer.req("PUT", "/v1/config", dict(CONFIG, recipients=[NUM1, "+48601234569"]))[0] \
+            == 200
+        out = peer.req("GET", "/v1/health")[1]
+        assert out["last_verified_test_ts"] is None
+        assert out["last_test"]["verified"] is False          # it was for the old list
+
+    def test_a_slot_change_needs_a_new_test(self, ready, runner, clock):
+        agent, peer = ready
+        self._verified(agent, peer, clock)
+        peer.req("PUT", "/v1/config", dict(CONFIG, sim_slot=1))
+        assert peer.req("GET", "/v1/health")[1]["last_verified_test_ts"] is None
+
+    def test_other_config_changes_keep_the_verified_test(self, ready, runner, clock):
+        agent, peer = ready
+        out = self._verified(agent, peer, clock)
+        for change in ({"dry_run": True}, {"vehicle_label": "ALFA"},
+                       {"recipients": [NUM2, NUM1]}, {}):     # order / a re-push
+            peer.req("PUT", "/v1/config", dict(CONFIG, **change))
+            again = peer.req("GET", "/v1/health")[1]
+            assert again["last_verified_test_ts"] == out["last_verified_test_ts"], change
+
+    def test_a_test_queued_for_the_old_list_does_not_count(self, ready, runner, clock):
+        agent, peer = ready
+        peer.req("POST", "/v1/test", {})                         # goes to NUM1 + NUM2
+        peer.req("PUT", "/v1/config", dict(CONFIG, recipients=["+48601234569"]))
+        run_steps(agent)
+        clock.advance(A.VERIFY_AFTER_S)
+        run_steps(agent)
+        out = peer.req("GET", "/v1/health")[1]
+        assert out["last_test"]["state"] == "sent"
+        assert out["last_test"]["verified"] is False and out["last_verified_test_ts"] is None
+
     def test_unverified_or_dry_test_is_not_verified(self, ready, runner, clock):
         agent, peer = ready
         runner.list_ok = False

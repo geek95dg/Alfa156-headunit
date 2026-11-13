@@ -302,7 +302,6 @@ tracking:
   geofence_lat: 0
   geofence_lon: 0
   geofence_radius_km: 0
-  sms_number: ''
 # Dostęp do dashboardu (port 5002) z SIECI. Bez sekcji `dashboard` obowiązuje
 # domyślne z kodu `remote_access: full`: każde urządzenie w LAN, na AP albo
 # w PAN może sterować wszystkim (wyjątek: /api/phone/dial z sieci przyjmuje
