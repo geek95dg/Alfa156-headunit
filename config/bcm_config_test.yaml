@@ -127,9 +127,10 @@ modules:
   # --- moduły dodatkowe (telefon w aucie, bezpieczeństwo, wybudzanie) ---
   # Każdy ma TYLKO ten jeden przełącznik (bez pod-kluczy „enabled” w blokach
   # niżej). Wszystkie wyłączone, bo wymagają nowego sprzętu. car_phone,
-  # car_phone_hotspot i phone_sensors mają już kod — włącz je w Ustawieniach
-  # → Moduły, gdy Redmi jest podłączony; reszta nie ma jeszcze kodu (Ustawienia
-  # pokazują je jako „niedostępny w tej wersji”). Zależności i potrzebny sprzęt:
+  # car_phone_hotspot, phone_sensors i car_phone_agent mają już kod — włącz je
+  # w Ustawieniach → Moduły, gdy Redmi jest podłączony; reszta nie ma jeszcze
+  # kodu (Ustawienia pokazują je jako „niedostępny w tej wersji”). Zależności
+  # i potrzebny sprzęt:
   # src/core/modules_catalog.py; moduł bez włączonych zależności nie startuje
   # (jedno ostrzeżenie w logu).
   car_phone: false         # telefon w aucie: Redmi na USB przez adb —
@@ -146,7 +147,12 @@ modules:
                            # (akcelerometr). W aplikacji: „Local Host”, port
                            # 8080, próbkowanie 10000 µs (100 Hz); blok
                            # sensors.phone niżej
-  car_phone_agent: false   # agent Termux w Redmi; wymaga car_phone
+  car_phone_agent: false   # agent Termux w Redmi (tools/car_phone/termux/
+                           # bcm_agent.py) przez adb forward car_phone;
+                           # wymaga car_phone i sekretu
+                           # BCM_CAR_PHONE_AGENT_SECRET w /etc/bcm/bcm.env.
+                           # Parowanie: kod z telefonu (bcm_agent.py --pair)
+                           # → Ustawienia → „Agent w telefonie”
   parking_guard: false     # pozycja i alarm na postoju; wymaga car_phone_agent
   cabin_watch: false       # czuwanie kabiny kamerą Redmi; wymaga
                            # car_phone_agent
@@ -591,6 +597,9 @@ network:
     sensors_local_port: 951
     agent_remote_port: 8765    # port agenta Termux w telefonie (plan F)
     agent_local_port: 952
+    # Sekret HMAC agenta (network.car_phone.agent.secret) TYLKO w
+    # /etc/bcm/bcm.env jako BCM_CAR_PHONE_AGENT_SECRET — nigdy tutaj ani
+    # w local.yaml.
     battery_sec: 60
     # Ostrzeżenie / alarm przy temperaturze baterii (°C); alarm gaśnie
     # dopiero poniżej warn_temp_c − 3.
@@ -696,6 +705,25 @@ crash_detection:
   g_h_threshold: 4.0
   min_rate_hz: 80
   confirm_stop_kmh: 5
+  # SMS po stłuczce — ustawienia, które BCM przy każdej zmianie wysyła do
+  # agenta w telefonie (modules.car_phone_agent; sam SMS-owy przebieg to
+  # kolejny moduł, crash_sms). Odbiorców NIE wpisuj tutaj: tylko
+  # config/local.yaml, numery E.164 (np. '+48601234567'), najwyżej 3:
+  #   crash_detection:
+  #     sms:
+  #       recipients: ['+48601234567']
+  # dry_run: true = SMS-y o wypadku i odwołujące agent tylko loguje (nic nie
+  # wysyła); wyjątek: testowy SMS na wyraźne „prawdziwy test” (real_test, z
+  # ekranu auta). Prawdziwe alarmy dopiero po sprawdzeniach na stole
+  # (docs/WDROZENIE_TESTOWE.md §5.9).
+  # vehicle_label: nazwa auta na początku SMS-a (A-Z a-z 0-9 spacja . -,
+  # najwyżej 20 znaków, bez polskich liter). follow_up_cancel: po „Jestem OK”
+  # jeden SMS odwołujący do tych, którzy dostali alarm (w ciągu 15 min).
+  sms:
+    dry_run: true
+    sim_slot: 0
+    vehicle_label: ALFA 156
+    follow_up_cancel: true
 # Czujniki telefonu w aucie (modules.phone_sensors; src/sensors/phone_sensors.py).
 # Kierunek grawitacji kalibruje się sam przy pierwszych ~10 s postoju
 # (zapis: data/phone_sensors.json); przesunięcie telefonu w uchwycie o > 10°

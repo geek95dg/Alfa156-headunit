@@ -752,7 +752,7 @@ Co robi moduł (co `check_sec`, wszystko listami argumentów, bez powłoki):
 | tethering | `adb shell svc usb getFunctions` / `setFunctions rndis` | wynik `getFunctions` jest na stderr; 3 nieudane próby = `tether_blocked` |
 | GPS | `adb forward tcp:950 tcp:50000` | sprawdzane w każdym przebiegu (restart BCM zabija serwer adb z forwardami); lokalny port 950 z `bcm_config_test.yaml` (`gps_local_port`, 0 = `hardware.gps.tcp.port`) |
 | czujniki | `adb forward tcp:951 tcp:8080` | tylko z `modules.phone_sensors` (§5.8); jedno `forward --list` na przebieg dla wszystkich forwardów |
-| agent | `adb forward tcp:952 tcp:8765` | tylko z `modules.car_phone_agent` (agent Termux — kolejny etap) |
+| agent | `adb forward tcp:952 tcp:8765` | tylko z `modules.car_phone_agent` (agent Termux, §5.9) |
 | bateria | `adb shell dumpsys battery` | co `battery_sec`; powyżej `warn_temp_c`/`critical_temp_c` powiadomienie, gaśnie poniżej `warn_temp_c − 3` |
 | zegar | `adb shell date +%s` → `timedatectl set-time @…` | tylko gdy `bcm-timesync` nie zadziałał w ostatnim okresie timera (1 h + 15 min zapasu; znacznik `/run/bcm-timesync.ok`) i dryf ≥ `time_sync_drift_s`; walidacja niżej |
 | hotspot | `adb shell dumpsys tethering` | tylko odczyt, z `car_phone_hotspot`; nieznany format = brak informacji |
@@ -954,6 +954,107 @@ ekranie telefonu (stale > 1 s = telefon buforuje czujniki), zakres
 akcelerometru (moduł przy starcie ostrzega, gdy progi są dla niego
 nieosiągalne), progi „postoju” kalibracji przy pracującym silniku
 (odchylenie < 0,35 m/s²), sztywność uchwytu (sekcja G planu).
+
+### 5.9 Agent w telefonie (Termux, `modules.car_phone_agent`)
+
+**Po co.** SMS po stłuczce musi wyjść także wtedy, gdy BCM po uderzeniu już
+nie działa. Dlatego BCM tylko „uzbraja” zdarzenie, a termin wysyłki, treść
+SMS-a (stałe szablony GSM-7, bez polskich liter) i limity (1 zdarzenie na
+10 min, 3 na dobę) pilnuje agent w Redmi: `tools/car_phone/termux/bcm_agent.py`
+(sam Python z biblioteką standardową). Ten sam agent obsłuży później alarm
+na postoju, „Zadzwoń 112” i czuwanie kabiny. Moduł w BCM
+(`src/network/car_phone_agent.py`, wymaga `car_phone`, domyślnie wyłączony
+wszędzie) sprawdza stan agenta co 30 s, wysyła mu ustawienia, gdy się
+zmienią, i paruje go. Sam przebieg SMS-owy (odliczanie na ekranie,
+ANULUJ) to kolejny moduł, `crash_sms`.
+
+**W telefonie** (pełny opis w nagłówku `bcm_agent.py`):
+
+1. Termux, **Termux:API** i **Termux:Boot** z F-Droid; Termux:Boot raz
+   otwórz ręcznie.
+2. W Termuxie: `pkg install python termux-api`, skopiuj `bcm_agent.py` do
+   `~/bcm_agent/`, a `boot_bcm_agent.sh` do `~/.termux/boot/`
+   (`chmod 700`). Skrypt bierze `termux-wake-lock` i restartuje agenta po
+   awarii.
+3. Uprawnienia Termux:API: **SMS** i **Telefon**; pierwsze
+   `termux-sms-send -n +48… ` ręcznie (okno zgody). Optymalizacja baterii
+   wyłączona dla Termux, Termux:API i Termux:Boot.
+4. **Xiaomi (MIUI/HyperOS)** — bez tego agent nie wstanie po restarcie
+   albo nie wyśle SMS-a bez człowieka:
+   - Ustawienia → Aplikacje → Termux i Termux:Boot → **Autostart: ON**
+     (inaczej Termux:Boot nie dostaje sygnału startu telefonu);
+   - Ustawienia → Aplikacje → Termux:API → Uprawnienia → **Wysyłanie SMS:
+     „Zezwalaj”**, nie „Pytaj” (przy „Pytaj” każdy SMS czeka na kliknięcie
+     na ekranie telefonu — alarm po stłuczce nigdy by nie wyszedł);
+   - Termux zablokowany w ostatnich aplikacjach (kłódka).
+5. Restart telefonu. Log: `~/.config/bcm_agent/agent.log` (rotowany).
+
+**W BCM:**
+
+1. Sekret (≥ 64 znaki hex): `python3 -c 'import secrets;print(secrets.token_hex(32))'`
+   → `/etc/bcm/bcm.env` jako `BCM_CAR_PHONE_AGENT_SECRET=…`
+   (`config/bcm.env.example`). Nigdy w YAML ani w `local.yaml` — BCM go
+   tam nie zapisze.
+2. Ustawienia → Moduły: `car_phone` i `car_phone_agent`, restart BCM.
+3. W Termuxie `python ~/bcm_agent/bcm_agent.py --pair` — wypisze
+   jednorazowy **kod parowania** (10 cyfr, zapisany w
+   `~/.config/bcm_agent/PAIRING`). W BCM Ustawienia → „Agent w telefonie”:
+   wpisz kod → **Sparuj** (działa tylko z ekranu samochodu, nie z sieci).
+   Agent przyjmuje parowanie wyłącznie przy pliku `PAIRING` i z podpisem
+   zrobionym tym kodem; potem sam usuwa plik (po 5 złych kodach też —
+   wtedy nowy kod: znowu `--pair`). Wiersz pokazuje: stan, wersję agenta,
+   kartę SIM i godzinę ostatniego kontaktu.
+4. Odbiorcy SMS tylko w `config/local.yaml` (`crash_detection.sms.recipients`,
+   najwyżej 3 numery `+48…`); `crash_detection.sms.dry_run: true` (domyślnie)
+   = SMS-y o wypadku i odwołujące agent tylko loguje. Testowy SMS idzie
+   naprawdę tylko na wyraźne żądanie „prawdziwy test” (`real_test`), mimo
+   `dry_run` — po to, żeby sprawdzić wysyłkę, zanim alarm wyjdzie z trybu
+   testowego; jego trasa w BCM (moduł `crash_sms`) ma działać tylko z
+   ekranu auta, z limitem i po potwierdzeniu kierowcy.
+
+**Bezpieczeństwo.** Agent słucha tylko na 127.0.0.1 telefonu; BCM łączy się
+przez forward adb na uprzywilejowanym porcie 952 (kiosk go nie ZAJMIE).
+Połączyć się z agentem może jednak każdy lokalny proces: każda aplikacja
+w telefonie (127.0.0.1:8765) i każdy użytkownik komputera BCM, także
+nieuprzywilejowany użytkownik kiosku (port 952). Dlatego:
+
+- każde żądanie i każda odpowiedź są podpisane HMAC-SHA256 (okno ±60 s,
+  rosnący nonce zapisywany po obu stronach, więc powtórka nie przejdzie ani
+  po restarcie);
+- parowanie wymaga kodu, który powstaje w telefonie i trafia do BCM tylko
+  z rąk kierowcy — proces, który czeka na okno parowania, nie sparuje się
+  pierwszy; odpowiedzi bez podpisu nie zdradzają, czy okno jest otwarte;
+- odpowiedź 2xx (albo nieznany błąd) bez ważnego podpisu = stan „obca
+  odpowiedź — nie ufam”. Niepodpisane 401/403 („niesparowany”, „inny
+  sekret”, zegar) są tylko informacją;
+- gdy agent, z którym BCM już raz potwierdził parowanie tym sekretem, nagle
+  „nie zna sekretu”, wiersz pokazuje ostrzeżenie (agent reinstalowany albo
+  na porcie 8765 odpowiada inna aplikacja po śmierci agenta), a parowanie
+  wymaga **„Sparuj mimo to”** — sekret jedzie przy parowaniu otwartym
+  tekstem przez forward i dostałby go każdy, kto zajął port;
+- do `termux-sms-send` trafia wyłącznie zwalidowany numer i slot karty;
+  tekst idzie na stdin.
+
+Ryzyko, które zostaje: przejęty użytkownik kiosku (ta sama sesja X) mógłby
+podejrzeć wpisywany kod; parowanie rób, gdy w telefonie nie ma obcych
+aplikacji.
+
+**Potwierdzanie wysyłki.** Agent czyta `termux-sms-list -t all` i patrzy na
+typ wiadomości: w „wysłanych” = wysłany; w „nieudanych” = ponowienie (do 3,
+po 30/60/120 s); w żadnej = jeszcze w drodze (Android zapisuje SMS dopiero,
+gdy radio skończy) — czeka do 5 min i uznaje „wysłany, niepotwierdzony”
+bez ponownej wysyłki. Odwołanie jest ostateczne: odbiorca, do którego SMS
+jeszcze nie wyszedł, już go nie dostanie (także po restarcie agenta w
+trakcie); każdy, do kogo alarm mógł wyjść, dostaje jeden SMS odwołujący.
+
+Do sprawdzenia na stole: czy `termux-sms-send` czyta tekst ze stdin na tym
+ROM-ie; czy wysłane SMS-y pojawiają się w `termux-sms-list -t all` z polem
+`type` (`sent` / `failed`) i po jakim czasie (bez odczytu agent uznaje
+„przekazany do Androida” za wysłany, niepotwierdzony); czy
+`sim_state`/`network_operator` z `termux-telephony-deviceinfo` są
+wypełnione; czy po restarcie telefonu wiersz sam wraca do „działa”
+(Autostart); czy Android nie zabija Termuxa w tle (phantom process killer);
+strefa czasowa godziny w SMS-ie.
 
 ---
 

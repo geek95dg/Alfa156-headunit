@@ -108,6 +108,17 @@ MODULES: dict[str, dict] = {
                     "requires": ("car_phone",),
                     "hardware": "Redmi z aplikacją SensorServer (Local Host, port 8080, "
                                 "próbkowanie 10000 µs), sztywny uchwyt"},
+    # Plan F (shared by D4, H, I): the Termux agent on the car phone, through
+    # car_phone's "agent" adb forward. HMAC-signed requests AND answers;
+    # the secret comes from /etc/bcm/bcm.env (BCM_CAR_PHONE_AGENT_SECRET).
+    # Health, config sync and pairing only — the SMS flow is crash_sms.
+    "car_phone_agent": {"part": 22, "description": "Agent w telefonie w aucie (Termux): SMS, alarm postojowy, budzenie",
+                    "entry": ("src.network.car_phone_agent", "start_car_phone_agent"),
+                    "default": False, "group": "telefon_w_aucie",
+                    "requires": ("car_phone",),
+                    "hardware": "Redmi: Termux, Termux:API, Termux:Boot i bcm_agent.py "
+                                "(tools/car_phone/termux); sekret BCM_CAR_PHONE_AGENT_SECRET "
+                                "w /etc/bcm/bcm.env"},
     "weather":     {"part": 14, "description": "Weather Data (OpenWeatherMap)",
                     "entry": ("src.weather.weather", "start_weather"), "default": False},
     "rain_sensor": {"part": 15, "description": "Rain Sensor + Auto Wipers",
@@ -165,10 +176,6 @@ MODULES: dict[str, dict] = {
                      "default": False, "group": "telefon_w_aucie",
                      "requires": ("car_phone",),
                      "hardware": "Redmi: hotspot skonfigurowany w telefonie"},
-    "car_phone_agent": {"part": 22, "description": "Agent w telefonie w aucie (Termux): SMS, alarm postojowy, budzenie",
-                     "default": False, "planned": True, "group": "telefon_w_aucie",
-                     "requires": ("car_phone",),
-                     "hardware": "Redmi: Termux, Termux:API, Termux:Boot"},
     "parking_guard": {"part": 22, "description": "Pozycja i alarm auta na postoju (działa w telefonie)",
                      "default": False, "planned": True, "group": "telefon_w_aucie",
                      "requires": ("car_phone_agent",),

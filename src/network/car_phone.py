@@ -66,8 +66,8 @@ One reconciliation step (:meth:`CarPhone.tick`)
    * ``sensors`` — only with ``modules.phone_sensors`` (SensorServer's
      WebSocket, ``sensors_remote_port`` → ``sensors_local_port``, plan D3);
    * ``agent`` — only with ``modules.car_phone_agent`` (the Termux agent,
-     ``agent_remote_port`` → ``agent_local_port``, plan F; the agent
-     client is a later module — the forward is reserved now).
+     ``agent_remote_port`` → ``agent_local_port``, plan F; its client is
+     ``src/network/car_phone_agent.py``).
 
    Both follow the CONFIG toggles read at start: ``main.py --modules
    car_phone,phone_sensors`` with the toggle off in the YAML starts

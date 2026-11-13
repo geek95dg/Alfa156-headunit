@@ -32,6 +32,11 @@ from src.network.car_phone import ADB_STATES as _CAR_PHONE_ADB_STATES
 from src.network.car_phone import HINTS as _CAR_PHONE_HINTS
 from src.network.car_phone import RETRY_TOPIC as _CAR_PHONE_RETRY_TOPIC
 from src.network.car_phone import STATES as _CAR_PHONE_STATES
+from src.network import car_phone_agent as _car_phone_agent
+from src.network.car_phone_agent import PAIR_CODE_RE as _AGENT_PAIR_CODE_RE
+from src.network.car_phone_agent import REASONS as _AGENT_REASONS
+from src.network.car_phone_agent import STATES as _AGENT_STATES
+from src.network.car_phone_agent import TOPIC as _AGENT_TOPIC
 from src.network.phone_tether import HINTS as _TETHER_HINTS
 from src.network.phone_tether import RETRY_TOPIC as _TETHER_RETRY_TOPIC
 from src.network.phone_tether import STATES as _TETHER_STATES
@@ -354,6 +359,57 @@ def _car_phone_summary(value: Any) -> Optional[dict]:
         "hotspot_clients": num("hotspot_clients", 0, 255, integer=True),
         "heat": pick("heat", ("warning", "danger"), None),
         "error": error[:200] if isinstance(error, str) else "",
+    }
+
+
+#: Minimum spacing of POST /api/car_phone_agent/pair (each one sends the
+#: secret to whatever answers on the agent forward — a click, not a loop;
+#: only attempts handed to the module count, a malformed body or a refusal
+#: such as "confirmation needed" costs nothing).
+_AGENT_PAIR_MIN_INTERVAL_S = 10.0
+#: The pair body is {"code": "<10 digits>", "confirm": bool} — tiny.
+_AGENT_PAIR_MAX_BODY = 256
+_AGENT_VERSION_RE = re.compile(r"^[0-9A-Za-z.+-]{1,16}$")
+
+
+def _car_phone_agent_summary(value: Any) -> Optional[dict]:
+    """``net.car_phone_agent`` → the Settings row "Agent w telefonie".
+
+    The module validated the agent's answers already; this is the second
+    line (whitelisted state/reason, flags only as booleans, timestamps only
+    as finite epoch numbers, version by pattern) because the payload also
+    reaches network clients in ``readonly`` mode. Never published = the
+    module is not running = None (no row).
+    """
+    if not isinstance(value, dict):
+        return None
+
+    def flag(key):
+        v = value.get(key)
+        return v if isinstance(v, bool) else None
+
+    def ts(key):
+        v = value.get(key)
+        if isinstance(v, bool) or not isinstance(v, (int, float)):
+            return None
+        return v if math.isfinite(v) and 0 < v < 4e9 else None
+
+    state = value.get("state")
+    version = value.get("version")
+    reason = value.get("reason")
+    error = value.get("error")
+    return {
+        "state": state if isinstance(state, str) and state in _AGENT_STATES else "unknown",
+        "paired": flag("paired"),
+        "pairing": flag("pairing"),
+        "version": version if isinstance(version, str) and _AGENT_VERSION_RE.fullmatch(version)
+        else None,
+        "sim_ready": flag("sim_ready"),
+        "last_ok_ts": ts("last_ok_ts"),
+        "last_sent_ts": ts("last_sent_ts"),
+        "reason": reason if isinstance(reason, str) and reason in _AGENT_REASONS else "",
+        "error": error[:200] if isinstance(error, str) else "",
+        "needs_confirm": value.get("needs_confirm") is True,
     }
 
 
@@ -835,6 +891,9 @@ class WebViewer:
         # POST /api/car_phone/retry rate limit (monotonic, as above).
         self._car_phone_retry_lock = threading.Lock()
         self._car_phone_retry_last: Optional[float] = None
+        # POST /api/car_phone_agent/pair rate limit (monotonic, as above).
+        self._agent_pair_lock = threading.Lock()
+        self._agent_pair_last: Optional[float] = None
 
         # POST /api/phone/dial rate limit: last accepted dial per bucket
         # ("kiosk" = loopback, "network" = everyone else), monotonic.
@@ -1030,6 +1089,9 @@ class WebViewer:
             # The phone mounted in the car (src/network/car_phone.py): USB
             # tethering, GPS forward, battery. None = module not running.
             "car_phone": _car_phone_summary(_val("net.car_phone")),
+            # The Termux agent on that phone (src/network/car_phone_agent.py):
+            # pairing / health for the Settings row. None = module not running.
+            "car_phone_agent": _car_phone_agent_summary(_val(_AGENT_TOPIC)),
             # Phone battery / signal / operator for the top bar
             # (src/multimedia/phone_status.py). Re-sanitised here: values come
             # from the phone; None = module not running (no cluster drawn).
@@ -2672,6 +2734,66 @@ class WebViewer:
                     return res, 429
                 viewer._car_phone_retry_last = now
             viewer._event_bus.publish(_CAR_PHONE_RETRY_TOPIC, True)
+            return jsonify({"ok": True})
+
+        @app.route("/api/car_phone_agent/pair", methods=["POST"])
+        def api_car_phone_agent_pair():
+            """"Sparuj" in the "Agent w telefonie" row: pair BCM with the
+            Termux agent on the car phone. Body: ``{"code": "<10 digits>",
+            "confirm": bool}`` — the one-time code ``bcm_agent.py --pair``
+            printed on the phone (``confirm``: "Sparuj mimo to" after the
+            module saw this pairing proven before, reason ``agent_reset``).
+
+            Loopback ONLY, whatever dashboard.remote_access says (also in
+            "full"): pairing hands the shared secret to the phone, so only
+            the driver at the head unit's own screen may start it. The code
+            is validated here and handed straight to the module's worker for
+            ONE attempt (CarPhoneAgent.request_pair) — never published on
+            the bus or logged; the secret itself comes from bcm.env, never
+            from the browser. 400 for a malformed body, 409 when the module
+            does not run, has no secret or no forward, something untrusted
+            answers on the forward, it is already paired, or a confirmation
+            is needed; at most one attempt that reaches the phone per
+            _AGENT_PAIR_MIN_INTERVAL_S (429 + Retry-After).
+            """
+            ip = _client_ip(request.remote_addr)
+            if ip is None or not ip.is_loopback:
+                viewer._log_refusal(str(request.remote_addr)[:64], request.method,
+                                    request.path, "loopback_only",
+                                    "pairing the car phone agent is only possible from the "
+                                    "head unit's own screen", level=logging.WARNING)
+                return jsonify({"ok": False, "error": "forbidden",
+                                "reason": "pairing is only possible from the head unit's "
+                                          "own screen"}), 403
+            if request.content_length is not None \
+                    and request.content_length > _AGENT_PAIR_MAX_BODY:
+                return jsonify({"ok": False, "error": "too_large"}), 413
+            data = request.get_json(silent=True)
+            code = data.get("code") if isinstance(data, dict) else None
+            confirm = data.get("confirm", False) if isinstance(data, dict) else False
+            if not isinstance(code, str) or not _AGENT_PAIR_CODE_RE.fullmatch(code) \
+                    or not isinstance(confirm, bool):
+                return jsonify({"ok": False, "error": "bad_code_format",
+                                "reason": "the 10-digit code from the phone"}), 400
+            agent = _car_phone_agent.get_agent()
+            if agent is None:
+                return jsonify({"ok": False, "error": "not_running"}), 409
+            now = time.monotonic()
+            with viewer._agent_pair_lock:
+                last_at = viewer._agent_pair_last
+                if last_at is not None and now - last_at < _AGENT_PAIR_MIN_INTERVAL_S:
+                    wait = int(_AGENT_PAIR_MIN_INTERVAL_S - (now - last_at)) + 1
+                    res = jsonify({"ok": False, "error": "too many requests",
+                                   "retry_after": wait})
+                    res.headers["Retry-After"] = str(wait)
+                    return res, 429
+            # Only an attempt that will reach the phone counts: a refusal here
+            # (e.g. confirm_needed) must not lock out "Sparuj mimo to".
+            result = agent.request_pair(code, confirm)
+            if not result.get("ok"):
+                return jsonify({"ok": False, "error": result.get("error") or "refused"}), 409
+            with viewer._agent_pair_lock:
+                viewer._agent_pair_last = now
             return jsonify({"ok": True})
 
         @app.route("/api/phone/answer", methods=["POST"])

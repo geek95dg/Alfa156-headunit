@@ -209,6 +209,159 @@ const Settings = {
         </div>`;
     },
 
+    // The Termux agent on the car phone (src/network/car_phone_agent.py).
+    // data.car_phone_agent = web_viewer._car_phone_agent_summary(...), or
+    // null while the module is not running (production config: no row).
+    _carPhoneAgentColors: {
+        ok: "#16a34a",
+        waiting_forward: "var(--color-primary)",
+        unpaired: "#d97706",                        // amber: user action needed
+        no_secret: "#d97706",
+        error: "#dc2626",
+        bad_signature: "#dc2626",
+    },
+    _carPhoneAgentPairAt: 0,
+    // Reasons after which a (re)pair can help — the code input is shown.
+    _carPhoneAgentPairReasons: ["secret_mismatch", "agent_reset", "pairing_closed", "bad_code"],
+
+    /** Is the pairing form shown for this payload? Unpaired, or an agent
+     *  that answers but does not know our secret. */
+    carPhoneAgentCanPair(ag) {
+        if (!ag || typeof ag !== "object") return false;
+        if (ag.state === "unpaired") return true;
+        return ag.state === "error" && typeof ag.reason === "string"
+            && Settings._carPhoneAgentPairReasons.indexOf(ag.reason) >= 0;
+    },
+
+    /** "Sparuj": the one-time code the phone printed (python
+     *  ~/bcm_agent/bcm_agent.py --pair) goes to POST /api/car_phone_agent/pair
+     *  (loopback only, rate-limited on the server). Only the code and the
+     *  confirmation flag travel — the secret never passes through the
+     *  browser. The button's data-confirm marks "Sparuj mimo to". Double
+     *  taps are swallowed; the outcome shows in the row via update(). */
+    async carPhoneAgentPair(btn) {
+        const t = (typeof App !== "undefined" && App.t) ? App.t.bind(App) : ((k, d) => d);
+        const input = document.querySelector("[data-car-phone-agent-code]");
+        const msg = document.querySelector("[data-car-phone-agent-msg]");
+        const say = (text) => { if (msg) msg.textContent = text; };
+        const code = input && typeof input.value === "string" ? input.value.replace(/\s+/g, "") : "";
+        if (!/^[0-9]{10}$/.test(code)) {
+            say(t("car_phone_agent_code_hint", "wpisz 10 cyfr kodu z telefonu"));
+            return;
+        }
+        const now = Date.now();
+        if (now - Settings._carPhoneAgentPairAt < 3000) return;
+        Settings._carPhoneAgentPairAt = now;
+        const confirm = !!(btn && btn.dataset && btn.dataset.confirm === "1");
+        try {
+            const res = await fetch("/api/car_phone_agent/pair", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ code, confirm }),
+            });
+            let out = {};
+            try { out = await res.json(); } catch (e) { /* not JSON */ }
+            if (res.ok) {
+                if (input) input.value = "";   // lets update() redraw the row again
+                say(t("car_phone_agent_pairing", "paruję…"));
+            } else {
+                const errors = {
+                    confirm_needed: t("car_phone_agent_err_confirm", "potwierdź: Sparuj mimo to"),
+                    already_paired: t("car_phone_agent_err_paired", "już sparowany"),
+                    no_forward: t("car_phone_agent_err_no_forward", "telefon niepodłączony"),
+                    untrusted: t("car_phone_agent_err_untrusted", "na porcie odpowiada coś innego"),
+                    "too many requests": t("car_phone_agent_err_wait", "chwilę — spróbuj za kilka sekund"),
+                };
+                const key = out && typeof out.error === "string" ? out.error : "";
+                say(Object.prototype.hasOwnProperty.call(errors, key)
+                    ? errors[key] : t("car_phone_agent_err", "nie udało się — spróbuj ponownie"));
+            }
+        } catch (e) { say(t("car_phone_agent_err", "nie udało się — spróbuj ponownie")); }
+    },
+
+    /** While the driver types the code, the row must not be redrawn (the
+     *  OSK writes into the very input element it attached to). */
+    carPhoneAgentTyping(slot) {
+        const input = slot && slot.querySelector ? slot.querySelector("[data-car-phone-agent-code]") : null;
+        if (!input) return false;
+        return document.activeElement === input || (typeof input.value === "string" && input.value !== "");
+    },
+
+    /** One info row "Agent w telefonie: <stan> · v1.0.0 · SIM · kontakt 14:03"
+     *  plus, for a known problem, what to do (never the raw error text) and
+     *  "Sparuj" only while the agent is unpaired. '' without a payload.
+     *  Inline styles only (Tailwind is precompiled); every value is escaped
+     *  and numbers are type-checked before they are drawn. */
+    carPhoneAgentRowHtml(ag, t) {
+        t = t || ((k, d) => d);
+        if (!ag || typeof ag !== "object") return "";
+        const esc = Settings._esc;
+        const state = typeof ag.state === "string" ? ag.state : "unknown";
+        const labels = {
+            disabled: t("car_phone_agent_disabled", "wyłączony"),
+            no_secret: t("car_phone_agent_no_secret", "brak sekretu"),
+            waiting_forward: t("car_phone_agent_waiting_forward", "czeka na telefon"),
+            unpaired: t("car_phone_agent_unpaired", "niesparowany"),
+            ok: t("car_phone_agent_ok", "działa"),
+            error: t("car_phone_agent_error", "błąd — ponowię"),
+            bad_signature: t("car_phone_agent_bad_signature", "obca odpowiedź — nie ufam"),
+        };
+        const label = Object.prototype.hasOwnProperty.call(labels, state) ? labels[state] : state;
+        const color = Settings._carPhoneAgentColors[state] || "var(--text-dim)";
+        const facts = [];
+        if (typeof ag.version === "string" && /^[0-9A-Za-z.+-]{1,16}$/.test(ag.version)) {
+            facts.push("v" + ag.version);
+        }
+        if (ag.sim_ready === true) facts.push(t("car_phone_agent_sim_ok", "SIM"));
+        else if (ag.sim_ready === false) facts.push(t("car_phone_agent_sim_missing", "brak SIM"));
+        if (typeof ag.last_ok_ts === "number" && isFinite(ag.last_ok_ts) && ag.last_ok_ts > 0) {
+            const d = new Date(ag.last_ok_ts * 1000);
+            const hm = String(d.getHours()).padStart(2, "0") + ":" + String(d.getMinutes()).padStart(2, "0");
+            facts.push(t("car_phone_agent_last", "kontakt") + " " + hm);
+        }
+        const factsHtml = facts.length
+            ? ` <span style="color:var(--text-mid)">${esc(facts.join(" · "))}</span>` : "";
+        // What to do: by the module's reason code first, then by state.
+        const hints = {
+            no_secret: t("car_phone_agent_hint_no_secret", "wpisz BCM_CAR_PHONE_AGENT_SECRET do /etc/bcm/bcm.env i zrestartuj BCM"),
+            unpaired: t("car_phone_agent_hint_unpaired", "w Termuxie: python ~/bcm_agent/bcm_agent.py --pair, wpisz kod i Sparuj"),
+            bad_signature: t("car_phone_agent_hint_bad_signature", "na porcie agenta odpowiada coś innego — sprawdź telefon"),
+            pairing_closed: t("car_phone_agent_hint_pairing_closed", "brak kodu w telefonie — wygeneruj nowy: python ~/bcm_agent/bcm_agent.py --pair"),
+            bad_code: t("car_phone_agent_hint_bad_code", "zły kod — sprawdź: cat ~/.config/bcm_agent/PAIRING"),
+            secret_mismatch: t("car_phone_agent_hint_secret_mismatch", "agent ma inny sekret — wygeneruj kod w telefonie (--pair) i sparuj ponownie"),
+            agent_reset: t("car_phone_agent_hint_agent_reset", "agent nie zna już sekretu — jeśli nie reinstalowałeś Termuxa, na porcie 8765 odpowiada inna aplikacja; sprawdź telefon"),
+            clock_skew: t("car_phone_agent_hint_clock_skew", "zegar telefonu i BCM różni się o ponad minutę"),
+            no_answer: t("car_phone_agent_hint_no_answer", "agent nie odpowiada — czy Termux z bcm_agent.py działa?"),
+            config_pending: t("car_phone_agent_hint_config_pending", "telefon ma starą konfigurację — ponowię"),
+            config_refused: t("car_phone_agent_hint_config_refused", "agent odrzucił konfigurację — sprawdź crash_detection.sms"),
+        };
+        const has = (k) => typeof k === "string" && k !== "" && Object.prototype.hasOwnProperty.call(hints, k);
+        let hintText = "";
+        if (has(ag.reason)) hintText = hints[ag.reason];
+        else if (state !== "error" && has(state)) hintText = hints[state];
+        const hint = hintText
+            ? `<span data-car-phone-agent-hint style="color:var(--text-mid);flex-basis:100%;padding-left:24px">${esc(hintText)}</span>` : "";
+        // The pairing form: code input + "Sparuj" ("Sparuj mimo to" after a
+        // proven pairing — needs_confirm). No data in the inline handler;
+        // the confirmation flag is a fixed data attribute.
+        let pair = "";
+        if (Settings.carPhoneAgentCanPair(ag)) {
+            const confirm = ag.needs_confirm === true;
+            const btnLabel = confirm ? t("car_phone_agent_pair_anyway", "Sparuj mimo to")
+                : t("car_phone_agent_pair", "Sparuj");
+            pair = `<span data-car-phone-agent-form style="flex-basis:100%;display:flex;flex-wrap:wrap;align-items:center;gap:6px;padding-left:24px">
+                <input data-car-phone-agent-code type="tel" inputmode="numeric" maxlength="10" autocomplete="off" placeholder="${esc(t("car_phone_agent_code", "kod z telefonu"))}" style="width:130px;padding:6px 8px;border-radius:8px;font-size:13px;letter-spacing:1px;background:var(--color-surface);color:var(--text-primary);border:1px solid var(--card-border)">
+                <button data-car-phone-agent-pair data-confirm="${confirm ? "1" : "0"}" onclick="Settings.carPhoneAgentPair(this)" style="padding:7px 14px;border-radius:8px;font-size:12px;font-weight:700;background:${confirm ? "#d97706" : "var(--card-border)"};color:${confirm ? "#fff" : "var(--text-mid)"};border:none">${esc(btnLabel)}</button>
+                <span data-car-phone-agent-msg style="color:var(--text-mid)"></span>
+            </span>`;
+        }
+        return `<div data-car-phone-agent-state="${esc(state)}" style="display:flex;flex-wrap:wrap;align-items:center;gap:4px 8px;padding:8px 12px;border-radius:12px;background:var(--card-bg);border:1px solid var(--card-border);font-size:11px;line-height:1.3">
+            <span class="material-symbols-outlined" style="font-size:16px;color:${color}">sms</span>
+            <span style="color:var(--text-dim);font-weight:700">${esc(t("car_phone_agent", "Agent w telefonie"))}:</span>
+            <span style="color:${color};font-weight:700">${esc(label)}</span>${factsHtml}${hint}${pair}
+        </div>`;
+    },
+
     /** One info row "GPS: <źródło> <stan> <nadawca>" from data.gps_state
      *  (web_viewer._gps_state_summary of gps.source_state), plus — while
      *  there is no fix — where the phone should send its NMEA: the head
@@ -1021,6 +1174,7 @@ App.registerScreen("settings", (() => {
     let _tetherKey = "null";
     let _gpsKey = "null";
     let _carPhoneKey = "null";
+    let _agentKey = "null";
 
     function _tetherKeyOf(data) {
         return JSON.stringify((data && data.phone_tether) || null);
@@ -1028,6 +1182,10 @@ App.registerScreen("settings", (() => {
 
     function _carPhoneKeyOf(data) {
         return JSON.stringify((data && data.car_phone) || null);
+    }
+
+    function _agentKeyOf(data) {
+        return JSON.stringify((data && data.car_phone_agent) || null);
     }
 
     /** What the GPS row shows: gps_state without last_ts (it changes with
@@ -1040,8 +1198,8 @@ App.registerScreen("settings", (() => {
             pt && pt.state === "connected" ? pt.ip : ""]);
     }
 
-    /** Live data while Settings is open: only the phone-internet, car phone
-     *  and GPS rows change here (state / IP appear while the driver watches). Never a full
+    /** Live data while Settings is open: only the phone-internet, car phone,
+     *  phone agent and GPS rows change here (state / IP appear while the driver watches). Never a full
      *  re-render — that would reset the scroll position and the OSK. */
     function update(data) {
         const t = App.t.bind(App);
@@ -1061,6 +1219,16 @@ App.registerScreen("settings", (() => {
                 slot.innerHTML = Settings.carPhoneRowHtml(data && data.car_phone, t);
             }
         }
+        const agentKey = _agentKeyOf(data);
+        if (agentKey !== _agentKey) {
+            const slot = document.querySelector("[data-car-phone-agent-slot]");
+            // Not while the driver types the pairing code (retried on the
+            // next update: _agentKey stays old).
+            if (slot && !Settings.carPhoneAgentTyping(slot)) {
+                _agentKey = agentKey;
+                slot.innerHTML = Settings.carPhoneAgentRowHtml(data && data.car_phone_agent, t);
+            }
+        }
         const gpsKey = _gpsKeyOf(data);
         if (gpsKey !== _gpsKey) {
             const slot = document.querySelector("[data-gps-slot]");
@@ -1078,6 +1246,7 @@ App.registerScreen("settings", (() => {
         _tetherKey = _tetherKeyOf(data);
         _gpsKey = _gpsKeyOf(data);
         _carPhoneKey = _carPhoneKeyOf(data);
+        _agentKey = _agentKeyOf(data);
         const paired = Settings._btPaired;
         const discovered = Settings._btDiscovered;
         const scanning = Settings._btScanning;
@@ -1140,6 +1309,8 @@ App.registerScreen("settings", (() => {
                         <div data-tether-slot style="display:contents">${Settings.tetherRowHtml(data && data.phone_tether, t)}</div>
                         <!-- The phone mounted in the car (USB, adb) — same slot idea. -->
                         <div data-car-phone-slot style="display:contents">${Settings.carPhoneRowHtml(data && data.car_phone, t)}</div>
+                        <!-- The Termux agent on that phone (pairing, health) — same slot idea. -->
+                        <div data-car-phone-agent-slot style="display:contents">${Settings.carPhoneAgentRowHtml(data && data.car_phone_agent, t)}</div>
                         <!-- GPS source / fix + where to send NMEA (same slot idea). -->
                         <div data-gps-slot style="display:contents">${Settings.gpsRowHtml(data && data.gps_state, data && data.phone_tether, t)}</div>
                         <!-- Wi-Fi Hotspot / ALFA-NET network access. The live

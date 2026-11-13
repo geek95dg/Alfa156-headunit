@@ -16,6 +16,11 @@
   row (data.car_phone: state label, IP only when connected, battery / °C /
   GPS / hotspot, heat colour from the module's own level, hints instead of
   raw adb errors, escaping, inline styles, "Ponów") and its update() slot;
+* settings_car_phone_agent_smoke.js: screens/settings.js — the "Agent w
+  telefonie" row (data.car_phone_agent: state label, version / SIM / last
+  contact type-checked, a hint by reason instead of the raw error, "Sparuj"
+  only while unpaired and posting no body, escaping, inline styles) and its
+  update() slot;
 * appbar_phone_smoke.js: components/appbar.js — the phone cluster (signal /
   operator / battery from data.phone_status): hidden without a phone, glyphs
   by level, the operator only ever via textContent, change-only updates;
@@ -223,7 +228,8 @@ def test_edge_tracker(name, ops, expected):
                                      "appbar_phone_smoke.js", "phone_escape_smoke.js",
                                      "gps_visibility_smoke.js", "dial_result_smoke.js",
                                      "settings_modules_smoke.js", "weather_escape_smoke.js",
-                                     "settings_car_phone_smoke.js"])
+                                     "settings_car_phone_smoke.js",
+                                     "settings_car_phone_agent_smoke.js"])
 def test_screen_harness(harness):
     res = subprocess.run([NODE, str(JS / harness)], capture_output=True, text=True,
                          timeout=60)
