@@ -592,8 +592,8 @@ tr:hover td{background:var(--bg-card)}
   <p>Implementacja: <code>src/power/battery.py</code> — monitorowanie napięcia baterii (Arduino ADC), progi: full 4.2V, nominal 3.7V, low 3.3V, krytyczny 3.0V.</p>
 
   <h3>Detekcja wypadku <span class="dt dt-new">NOWE</span></h3>
-  <p>Po wykryciu wypadku (GPS: spadek prędkości >30 km/h w <2s, lub akcelerometr >3G) — bateria backup zapewnia zasilanie DVR przez 60s. Nagrania wypadku chronione przed nadpisaniem.</p>
-  <p>Implementacja: <code>src/camera/crash_detect.py</code></p>
+  <p>Zdarzenie z akcelerometru telefonu w aucie (czujniki przez SensorServer): prędkość z GPS &ge;25 km/h, zmiana prędkości w poziomie &ge;15 km/h w 150 ms i &ge;4 g przez &ge;3 próbki; odrzucane dziury (gdy akcelerometr nie jest nasycony), upadek telefonu (także z obrotem, z żyroskopem), brak kalibracji, za wolny lub opóźniony strumień. Zdarzenie pokazuje powiadomienie na ekranie. Bez danych z telefonu tylko ścieżka &bdquo;sam GPS&rdquo; (spadek liczony na &ge;2 s) &mdash; log i ochrona nagrań, nigdy SMS. Nagrania wypadku chronione przed nadpisaniem.</p>
+  <p>Implementacja: <code>src/safety/crash_detect.py</code> (stara ścieżka <code>src/camera/crash_detect.py</code> to nakładka), czujniki: <code>src/sensors/phone_sensors.py</code></p>
 </section>
 
 <!-- ═══ S15 — RAIN SENSOR ═══ -->

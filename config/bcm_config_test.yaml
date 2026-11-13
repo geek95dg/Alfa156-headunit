@@ -72,6 +72,16 @@ modules:
                            # hardware.gps niżej
   tracking: true           # zapis tras do SQLite + lista tras i GPX:
                            # http://10.0.0.1:5002/trips w przeglądarce telefonu
+  crash_detect: true       # wykrywanie stłuczki (src/safety/crash_detect.py,
+                           # blok crash_detection niżej). Kamery NIE są
+                           # potrzebne. Wymaga location. Bez czujników
+                           # telefonu (phone_sensors) działa tylko ścieżka
+                           # „sam GPS”: duży spadek prędkości (≥ 0,6 g przez
+                           # ≥ 2 s) to zapis w data/crash_events i ochrona
+                           # nagrania — nigdy SMS. Mocne hamowanie do zera
+                           # też tu trafi, dlatego to tylko log. Włączone,
+                           # bo działa bez nowego sprzętu i zbiera dane do
+                           # strojenia progów przed SMS-ami (plan F).
 
   # --- WYŁĄCZONE: brak podłączonego sprzętu ---
   obd: false               # brak CP2102 + L9637D
@@ -89,7 +99,6 @@ modules:
   lighting: false
   performance: false       # zależy od OBD
   alarm: false
-  crash_detect: false      # zależy od kamer
   battery: false           # monitor banku 12 V (blok battery niżej) — wymaga
                            # sensor huba z FEATURE_BATT_*; patrz
                            # docs/ZASILANIE_BUFOROWANE.md § 13.4
@@ -117,10 +126,10 @@ modules:
 
   # --- moduły dodatkowe (telefon w aucie, bezpieczeństwo, wybudzanie) ---
   # Każdy ma TYLKO ten jeden przełącznik (bez pod-kluczy „enabled” w blokach
-  # niżej). Wszystkie wyłączone, bo wymagają nowego sprzętu. car_phone
-  # i car_phone_hotspot mają już kod — włącz je w Ustawieniach → Moduły, gdy
-  # Redmi jest podłączony; reszta nie ma jeszcze kodu (Ustawienia pokazują je
-  # jako „niedostępny w tej wersji”). Zależności i potrzebny sprzęt:
+  # niżej). Wszystkie wyłączone, bo wymagają nowego sprzętu. car_phone,
+  # car_phone_hotspot i phone_sensors mają już kod — włącz je w Ustawieniach
+  # → Moduły, gdy Redmi jest podłączony; reszta nie ma jeszcze kodu (Ustawienia
+  # pokazują je jako „niedostępny w tej wersji”). Zależności i potrzebny sprzęt:
   # src/core/modules_catalog.py; moduł bez włączonych zależności nie startuje
   # (jedno ostrzeżenie w logu).
   car_phone: false         # telefon w aucie: Redmi na USB przez adb —
@@ -131,8 +140,12 @@ modules:
                            # config/scripts/install-openauto.sh --force
   car_phone_hotspot: false # stan hotspotu Wi-Fi Redmi w Ustawieniach (tylko
                            # odczyt); wymaga car_phone
-  phone_sensors: false     # czujniki Redmi (światło, akcelerometr); wymaga
-                           # car_phone
+  phone_sensors: false     # czujniki Redmi (akcelerometr, światło) z aplikacji
+                           # SensorServer przez adb forward car_phone; wymaga
+                           # car_phone. Daje crash_detect pełne wykrywanie
+                           # (akcelerometr). W aplikacji: „Local Host”, port
+                           # 8080, próbkowanie 10000 µs (100 Hz); blok
+                           # sensors.phone niżej
   car_phone_agent: false   # agent Termux w Redmi; wymaga car_phone
   parking_guard: false     # pozycja i alarm na postoju; wymaga car_phone_agent
   cabin_watch: false       # czuwanie kabiny kamerą Redmi; wymaga
@@ -262,10 +275,13 @@ hardware:
       bind: 0.0.0.0
       port: 10110
       # Skąd przyjmować datagramy: sieć Wi-Fi Direct AA (telefon dostaje
-      # 10.0.0.x), lokalne testy (nc -u 127.0.0.1 10110) i „pan” = podsieć
-      # Bluetooth PAN z telefonem (interfejsy bnep*). Reszta jest ignorowana
-      # (jeden wpis w logu na minutę na nadawcę).
-      allowed_sources: ['10.0.0.0/24', '127.0.0.0/8', pan]
+      # 10.0.0.x) i „pan” = podsieć Bluetooth PAN z telefonem (interfejsy
+      # bnep*). Reszta jest ignorowana (jeden wpis w logu na minutę na
+      # nadawcę). Bez 127.0.0.0/8: prędkość z GPS decyduje o wykrywaniu
+      # stłuczki (crash_detect), a z 127.0.0.1 mógłby ją podać każdy lokalny
+      # proces, także kiosk. Do testów na stole (nc -u 127.0.0.1 10110)
+      # dopisz '127.0.0.0/8' w config/local.yaml.
+      allowed_sources: ['10.0.0.0/24', pan]
       # Największy przyjmowany datagram (bajty). Część aplikacji wysyła całą
       # epokę naraz — z kilkoma systemami GNSS to ponad 2 KiB zdań GSV.
       max_datagram: 8192
@@ -281,7 +297,8 @@ hardware:
       # dawać zdania).
       host: auto
       # Port ustawiony w aplikacji serwera NMEA w telefonie (i lokalny port
-      # forwardu adb, gdy network.car_phone.gps_local_port = 0).
+      # forwardu adb, gdy network.car_phone.gps_local_port = 0; tu forward
+      # ma własny port 950, a „auto” bierze go z net.car_phone).
       port: 50000
       connect_timeout: 5
       # Ponowne łączenie: 1 s, 2 s, 4 s … najwyżej co tyle sekund. Krótko,
@@ -558,7 +575,22 @@ network:
     settle_sec: 10
     gps_forward: true
     gps_remote_port: 50000   # port serwera NMEA TCP w telefonie
-    gps_local_port: 0        # 0 = hardware.gps.tcp.port
+    # Lokalny port forwardu GPS (0 = hardware.gps.tcp.port). Celowo < 1024,
+    # jak czujniki i agent niżej: prędkość z GPS decyduje o wykrywaniu
+    # stłuczki, więc kiosk nie może zająć tego portu przed adb i podawać
+    # fałszywej prędkości.
+    gps_local_port: 950
+    # Forward czujników (SensorServer) — tylko z modules.phone_sensors —
+    # i agenta Termux — tylko z modules.car_phone_agent. Porty lokalne
+    # celowo < 1024: nasłuch na nich może założyć tylko root (serwer adb),
+    # więc użytkownik kiosku nie podstawi fałszywego akcelerometru ani
+    # agenta. Każdy lokalny proces może się jednak z nimi POŁĄCZYĆ (SensorServer
+    # nie ma uwierzytelniania; agent musi mieć HMAC). Porty muszą się różnić
+    # od siebie, od portu GPS i od 5002/5003.
+    sensors_remote_port: 8080  # port SensorServer w telefonie
+    sensors_local_port: 951
+    agent_remote_port: 8765    # port agenta Termux w telefonie (plan F)
+    agent_local_port: 952
     battery_sec: 60
     # Ostrzeżenie / alarm przy temperaturze baterii (°C); alarm gaśnie
     # dopiero poniżej warn_temp_c − 3.
@@ -644,10 +676,38 @@ alarm:
     motion: true
     tilt: true
     shock: true
+# Wykrywanie stłuczki (modules.crash_detect; src/safety/crash_detect.py).
+# Zdarzenie z akcelerometru telefonu (phone_sensors), gdy: najwyższa prędkość
+# z GPS w ostatnich 10 s ≥ min_speed_kmh, zmiana prędkości w poziomie
+# ≥ dv_threshold_kmh w ciągu dv_window_ms i ≥ g_h_threshold g przez ≥ 3 kolejne
+# próbki. Odrzuca dziury (przewaga pionu, tylko gdy nic nie dobiło do zakresu
+# akcelerometru), upadek telefonu (swobodny spadek ≥ 80 ms, z żyroskopem też
+# z obrotem), brak kalibracji, strumień < min_rate_hz, odrzucone ramki i dane
+# starsze niż 1 s. Bez żadnej prędkości z GPS (tunel) — zapis i ochrona
+# nagrania, ale bez prawa do SMS. Jeśli auto jedzie dalej (> min_speed_kmh
+# przez 10 s) — odwołane; prędkość ≤ confirm_stop_kmh — potwierdzone
+# zatrzymanie. Zdarzenie pokazuje też powiadomienie na ekranie. Zapis:
+# data/crash_events (50 ostatnich). Stare klucze speed_drop_threshold /
+# g_force_threshold / post_crash_record_sec nie są już czytane.
 crash_detection:
-  speed_drop_threshold: 30
-  g_force_threshold: 3.0
-  post_crash_record_sec: 60
+  min_speed_kmh: 25
+  dv_threshold_kmh: 15
+  dv_window_ms: 150
+  g_h_threshold: 4.0
+  min_rate_hz: 80
+  confirm_stop_kmh: 5
+# Czujniki telefonu w aucie (modules.phone_sensors; src/sensors/phone_sensors.py).
+# Kierunek grawitacji kalibruje się sam przy pierwszych ~10 s postoju
+# (zapis: data/phone_sensors.json); przesunięcie telefonu w uchwycie o > 10°
+# na dłużej (albo o > 20° od razu) wyłącza calib_ok (wtedy brak wykrywania
+# z akcelerometru). Ponowna kalibracja po przełożeniu telefonu: usuń
+# data/phone_sensors.json i zrestartuj BCM. Progi crash_detection
+# nieosiągalne dla tego zakresu — jedno ostrzeżenie w logu przy starcie.
+sensors:
+  phone:
+    # Zakres akcelerometru telefonu w g (sprawdź: adb shell dumpsys
+    # sensorservice) — ≥ 98% zakresu oznacza nasycenie (pole sat).
+    accel_range_g: 8
 tracking:
   db_path: data/gps_tracks.db
   # Punkt trasy co 5 s (produkcja: 30 s) — dokładniejszy ślad w GPX.

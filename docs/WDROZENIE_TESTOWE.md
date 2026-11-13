@@ -750,7 +750,9 @@ Co robi moduł (co `check_sec`, wszystko listami argumentów, bez powłoki):
 | łącze | `nmcli … connection show --active` | profil `bcm-car-phone` aktywny = „połączono”, niezależnie od adb |
 | profil | `nmcli connection add type ethernet … match.driver "rndis_host cdc_ncm"` | metryka 650 (PAN 750, modem 700); **bez** `cdc_ether` — tego sterownika używa modem E3372 |
 | tethering | `adb shell svc usb getFunctions` / `setFunctions rndis` | wynik `getFunctions` jest na stderr; 3 nieudane próby = `tether_blocked` |
-| GPS | `adb forward tcp:50000 tcp:50000` | sprawdzane w każdym przebiegu (restart BCM zabija serwer adb z forwardami) |
+| GPS | `adb forward tcp:950 tcp:50000` | sprawdzane w każdym przebiegu (restart BCM zabija serwer adb z forwardami); lokalny port 950 z `bcm_config_test.yaml` (`gps_local_port`, 0 = `hardware.gps.tcp.port`) |
+| czujniki | `adb forward tcp:951 tcp:8080` | tylko z `modules.phone_sensors` (§5.8); jedno `forward --list` na przebieg dla wszystkich forwardów |
+| agent | `adb forward tcp:952 tcp:8765` | tylko z `modules.car_phone_agent` (agent Termux — kolejny etap) |
 | bateria | `adb shell dumpsys battery` | co `battery_sec`; powyżej `warn_temp_c`/`critical_temp_c` powiadomienie, gaśnie poniżej `warn_temp_c − 3` |
 | zegar | `adb shell date +%s` → `timedatectl set-time @…` | tylko gdy `bcm-timesync` nie zadziałał w ostatnim okresie timera (1 h + 15 min zapasu; znacznik `/run/bcm-timesync.ok`) i dryf ≥ `time_sync_drift_s`; walidacja niżej |
 | hotspot | `adb shell dumpsys tethering` | tylko odczyt, z `car_phone_hotspot`; nieznany format = brak informacji |
@@ -772,7 +774,8 @@ odcięcie prądu. Dlatego moduł:
   stosuje od razu.
 
 GPS: `hardware.gps.tcp.host: auto` łączy się z forwardem adb
-(`127.0.0.1:50000`), gdy moduł go zgłasza, a w przeciwnym razie — jak
+(`127.0.0.1:950` — port bierze z `net.car_phone`), gdy moduł go zgłasza,
+a w przeciwnym razie — jak
 dotąd — z głównym telefonem po Bluetooth PAN (`pan-gateway`). Sesja
 z `pan-gateway` co 5 s sprawdza, czy forward się pojawił, i wtedy od razu
 przechodzi na niego. Forward przyjmuje połączenie także wtedy, gdy
@@ -783,7 +786,11 @@ kolejną szansę co 5 min i wraca na pierwsze miejsce, gdy tylko poda zdania.
 przychodzi najpóźniej ~10 s po starcie aplikacji NMEA.
 `hardware.gps.priority: [tcp, udp]` sprawia, że pozycje z dwóch telefonów
 się nie przeplatają: UDP (główny telefon) jest brany dopiero wtedy, gdy TCP
-nie ma ważnej pozycji od `priority_hold_sec` (3 s).
+nie ma ważnej pozycji od `priority_hold_sec` (3 s). UDP przyjmuje datagramy
+tylko z `10.0.0.0/24` i PAN — **nie** z `127.0.0.1`: prędkość z GPS decyduje
+o wykrywaniu stłuczki (§5.8), a lokalnie mógłby ją podać każdy proces, także
+kiosk. Do testów na stole (`nc -u 127.0.0.1 10110`) dopisz `'127.0.0.0/8'`
+do `hardware.gps.udp.allowed_sources` w `config/local.yaml`.
 
 Bezpieczeństwo:
 
@@ -802,6 +809,34 @@ Bezpieczeństwo:
   gdy się nie da, adb w ogóle nie rusza (stan „błąd adb”). Do sprawdzenia
   na stole: `sudo ss -xlp | grep bcm-adb` pokazuje gniazdo, a
   `ss -ltn | grep 5037` — nic. Forward GPS słucha tylko na 127.0.0.1.
+- Forwardy czujników i agenta słuchają na portach **uprzywilejowanych**
+  (domyślnie 951 i 952, `network.car_phone.{sensors,agent}_local_port`),
+  a w `bcm_config_test.yaml` także forward GPS (950 — prędkość decyduje
+  o stłuczce; w kodzie domyślnie `hardware.gps.tcp.port`, czyli 50000).
+  BCM ufa temu, co odpowie na `127.0.0.1:<port>` — akcelerometr może
+  wywołać alarm stłuczki, agent wysyła SMS-y. Port ≥ 1024 mógłby zająć
+  wcześniej dowolny lokalny użytkownik (np. kiosk), gdy telefon jest
+  odłączony albo BCM się restartuje, i podszyć się pod telefon. Poniżej
+  `net.ipv4.ip_unprivileged_port_start` (1024 w Debianie; sprawdź `sysctl
+  net.ipv4.ip_unprivileged_port_start`) nasłuch może założyć tylko root,
+  czyli serwer adb. Inny port w configu jest przyjmowany, ale moduł loguje
+  ostrzeżenie; port zajęty przez GPS, drugi forward albo 5002/5003
+  wyłącza tylko ten jeden forward (błąd w `net.car_phone` → `forwards`).
+  Moduły czujników i agenta nigdy nie uruchamiają adb — port i gotowość
+  forwardu biorą z szyny (`net.car_phone`).
+- Port uprzywilejowany chroni tylko przed **zajęciem** go, nie przed
+  **połączeniem**: każdy lokalny proces (także JavaScript w kiosku) może
+  otworzyć `ws://127.0.0.1:951`. SensorServer nie ma uwierzytelniania —
+  obcy klient może czytać strumień, a wiele równoległych strumieni przez
+  USB może obciążyć telefon tak, że częstotliwość spadnie poniżej 80 Hz
+  i wykrywanie z akcelerometru odrzuca dane (nigdy nie wywoła przez to
+  alarmu). Agent na 952 (kolejny etap) musi więc traktować każdego klienta
+  jak wrogiego: HMAC na żądaniach i odpowiedziach, limity, których nie
+  zużyją żądania bez podpisu.
+- Forwardy wynikają z przełączników w **configu** czytanych przy starcie:
+  `main.py --modules car_phone,phone_sensors` przy `phone_sensors: false`
+  w YAML-u uruchamia czujniki bez forwardu (stan `waiting_forward` mówi
+  dlaczego).
 
 Na później (opisane, **nie** instalowane przez skrypty — do sprawdzenia
 w aucie):
@@ -828,6 +863,97 @@ wpięty z tetheringiem — już bez alarmu temperatury. Po wyłączeniu modułu:
 ```bash
 sudo nmcli connection delete bcm-car-phone
 ```
+
+### 5.8 Czujniki telefonu i wykrywanie stłuczki (`phone_sensors`, `crash_detect`)
+
+**Czujniki** (`src/sensors/phone_sensors.py`, `modules.phone_sensors`,
+wymaga `car_phone`, domyślnie wyłączony wszędzie). Aplikacja open-source
+**SensorServer** (umer0586, F-Droid) wysyła akcelerometr, żyroskop i czujnik
+światła jako JSON przez WebSocket; BCM łączy się z nią przez forward
+`sensors` z §5.7 (`127.0.0.1:951` → telefon `:8080`). Żyroskop służy tylko
+do rozpoznania telefonu, który spada, obracając się; gdy SensorServer go
+odmówi (zamknięcie z kodem 4xxx przed pierwszą ramką), BCM łączy się dalej
+bez niego i loguje to raz.
+
+W telefonie, w SensorServer:
+
+1. **Local Host** włączone (serwer słucha tylko na 127.0.0.1 telefonu —
+   dostępny przez adb, nie przez Wi-Fi), port **8080**
+   (`network.car_phone.sensors_remote_port`).
+2. **Częstotliwość próbkowania 10000 µs** (100 Hz). Domyślna w aplikacji
+   jest dużo wolniejsza, a poniżej 80 Hz (`crash_detection.min_rate_hz`)
+   wykrywanie stłuczki z akcelerometru jest wyłączone.
+3. Start serwera przy uruchomieniu telefonu, bateria bez ograniczeń.
+
+BCM publikuje `phone.g_force` (≤ 10 Hz: szczyty poziomo/pionowo w g, zmiana
+prędkości w poziomie w oknie 150 ms, swobodny spadek, nasycenie,
+częstotliwość, `calib_ok`, opóźnienie próbek `lag_ms`, `overrun` = ramki
+odrzucone przez limit 1000/s) i `phone.light_lux` (≤ 2 Hz, mediana; pod
+przyszłą automatyczną jasność). **Nigdy** `alarm.sensor.*` — alarm każdą
+wartość tam traktuje jak włamanie. Stan: `phone_sensors.state`
+(`waiting_forward` / `connecting` / `streaming` / `stale` / `error`; przy
+`waiting_forward` pole `error` mówi, czego brakuje).
+
+Połączenie: brak nasłuchu na `127.0.0.1:951` (forward właśnie odtwarzany
+po ponownym podłączeniu telefonu) = ponowienie najpóźniej co 3 s; inne
+błędy — 1 s, 2 s … do 60 s, a gdy forward wróci, od razu. Sesję
+podtrzymują tylko próbki akcelerometru (10 s bez nich = ponowne łączenie).
+Znaczniki czasu SensorServer muszą być w nanosekundach; jeśli po 5 s
+przyrastają za wolno, moduł loguje to raz i dla tego połączenia bierze
+czas odbioru.
+
+Kalibracja: przy pierwszych ~10 s postoju (silnik na wolnych obrotach
+wystarczy, jazda po drodze nie) moduł zapisuje kierunek grawitacji do
+`data/phone_sensors.json` — średnią z bloków postoju, które się ze sobą
+zgadzają (blok odbiegający o ponad 2,5°, np. łagodne hamowanie tuż przed
+zatrzymaniem, zaczyna zbieranie od nowa). Po restarcie wystarczą ~3 s
+postoju na potwierdzenie; postój na rampie po restarcie nie wyłącza
+kalibracji (liczy się kierunek długoterminowy, τ 60 s). Gdy telefon
+przesunie się w uchwycie o ponad 10° na dłużej, `calib_ok` gaśnie (wraca
+poniżej 7°); przełożenie o ponad 20° (np. gdy BCM był wyłączony) wyłącza
+ją już po kilku sekundach postoju. Po przełożeniu telefonu: usuń
+`data/phone_sensors.json` i zrestartuj BCM.
+Zakres akcelerometru (`sensors.phone.accel_range_g`, domyślnie 8 g):
+`bcm-adb shell dumpsys sensorservice`.
+
+**Wykrywanie stłuczki** (`src/safety/crash_detect.py`, `modules.crash_detect`,
+wymaga `location`; w `bcm_config_test.yaml` włączone, w produkcji nie).
+Kamery **nie** są potrzebne.
+
+- Z akcelerometrem (zdarzenie `source: accel`, jedyne, które w przyszłości
+  może wysłać SMS): prędkość z GPS ≥ 25 km/h w ostatnich 10 s, zmiana
+  prędkości w poziomie ≥ 15 km/h w 150 ms i ≥ 4 g przez ≥ 3 próbki.
+  Odrzucane: dziura (przewaga pionu — tylko gdy żadna próbka nie dobiła do
+  zakresu; przy nasyceniu oba szczyty są obcięte i o „przewadze” decyduje
+  znak, nie fizyka), upadek telefonu (swobodny spadek ≥ 80 ms tuż przed;
+  z żyroskopem także spadek z obrotem, przy którym telefon czyta 0,3–0,8 g),
+  brak kalibracji, < 80 Hz, odrzucone ramki (`overrun`), dane starsze niż
+  1 s (wiek wiadomości plus `lag_ms`). Bez żadnej prędkości z GPS (tunel,
+  garaż podziemny) uderzenie jest zapisywane i chroni nagranie, ale nie
+  kwalifikuje się do SMS.
+- Bez ważnych danych z telefonu — **sam GPS** (`source: gps`): spadek
+  prędkości liczony na ≥ 2 s, średnio ≥ 0,6 g, potwierdzony następną próbką.
+  Wykrywa uderzenia od ok. 45 km/h, ale tak samo wygląda gwałtowne
+  hamowanie do zera — dlatego tylko log, zapis zdarzenia i ochrona nagrania,
+  **nigdy SMS**.
+- Po zdarzeniu `crash.detected` (pozycja: ostatnia znana z jej wiekiem;
+  prędkość „przed” — z próbki sprzed uderzenia), `dvr.protect_segment`
+  i powiadomienie na ekranie; najwyżej jedno na 60 s, ale zdarzenie
+  z akcelerometru zastępuje wcześniejsze „tylko GPS”. `crash.outcome`:
+  `stopped` (prędkość ≤ 5 km/h), `cancelled` (auto jechało dalej > 25 km/h
+  przez 10 s), `unconfirmed` (brak danych przez 120 s).
+- Zapis: `data/crash_events/crash_<data UTC>_<id>.json` (atomowo, 50
+  ostatnich). Podgląd: `journalctl -u bcm-headunit | grep -i crash`.
+
+Do sprawdzenia na stole, zanim ktokolwiek zaufa tym danym: rzeczywista
+częstotliwość SensorServer (≥ 100 Hz) i czy przeżywa w tle, pole `type`
+w ramkach (README opisuje je tylko słownie), znaczniki czasu w ns, czy
+żyroskop przychodzi (w logu „gyroscope frames arriving”; ostrzeżenie
+„without the gyroscope” = telefon go nie podaje), `lag_ms` przy wygaszonym
+ekranie telefonu (stale > 1 s = telefon buforuje czujniki), zakres
+akcelerometru (moduł przy starcie ostrzega, gdy progi są dla niego
+nieosiągalne), progi „postoju” kalibracji przy pracującym silniku
+(odchylenie < 0,35 m/s²), sztywność uchwytu (sekcja G planu).
 
 ---
 
@@ -968,7 +1094,7 @@ i weryfikowalny osobno:
 | 4 | CP2102 + L9637D | `obd`, `obd.use_real_hardware: true` |
 | 5 | Nano #2 (sensor hub) | `environment`, `rain_sensor`, `blinker_monitor` |
 | 6 | Nano #1 + przekaźniki + MP1584 domeny A | `central_lock`, `lighting` — wtedy dopina się też **regulacja jasności** z §3.1c |
-| 7 | kamery + graber | `camera`, `crash_detect` |
+| 7 | kamery + graber | `camera` (`crash_detect` działa bez kamer — §5.8; z nimi chroni też nagranie) |
 | 8 | GPS | `location`, `tracking` |
 | 9 | ekran 6,86" | `small_display` (hotplug — wystarczy wpiąć) |
 | 10 | ładowarka B2B zamiast przekaźnika + boostu | bez zmian w configu — absorpcja 14,4 V z kompensacją, przewód 6 mm² |

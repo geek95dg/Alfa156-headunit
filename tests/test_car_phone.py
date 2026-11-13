@@ -161,6 +161,7 @@ class FakePhone:
         self.set_effect = "link"            # link | func | refuse
         self.forwards = set()
         self.forward_err = ""
+        self.forward_fail = {}              # "tcp:<local>" -> error of that forward only
         self.battery = battery()
         self.battery_rc = 0
         self.date = str(int(WALL0))
@@ -243,8 +244,9 @@ class FakePhone:
         if rest == ["forward", "--list"]:
             return self._res(argv, 0, "".join(f"{line}\n" for line in sorted(self.forwards)))
         if rest[:1] == ["forward"] and len(rest) == 3 and rest[1].startswith("tcp:"):
-            if self.forward_err:
-                return self._res(argv, 1, err=self.forward_err)
+            err = self.forward_fail.get(rest[1], self.forward_err)
+            if err:
+                return self._res(argv, 1, err=err)
             self.forwards.add(f"{serial} {rest[1]} {rest[2]}")
             return self._res(argv, 0, rest[1].split(":")[1] + "\n")
         if rest == ["shell", "dumpsys", "battery"]:
@@ -308,14 +310,19 @@ def env(tmp_path):
     adb_dir = tmp_path / "run" / "bcm-adb"      # created by the module
     made = []
 
+    sysctl = tmp_path / "ip_unprivileged_port_start"
+    sysctl.write_text("1024\n")
+
     def make(settings=None, *, hotspot=False, fake=None, clock=None, bus=None,
-             config_extra=None, real_notify=False):
+             config_extra=None, real_notify=False, modules=None):
         section = {"time_sync": False}
         section.update(settings or {})
         config = {"network": {"car_phone": section},
                   "hardware": {"gps": {"tcp": {"port": 50000}}}}
         if hotspot:
             config["modules"] = {"car_phone_hotspot": True}
+        if modules:
+            config.setdefault("modules", {}).update(modules)
         if config_extra:
             config.update(config_extra)
         fake = fake or FakePhone()
@@ -332,12 +339,13 @@ def env(tmp_path):
         phone = CarPhone(config, bus, runner=fake, clock=clock.mono, wall_clock=clock.wall,
                          boot_clock=clock.boot, usb_root=str(usb),
                          marker_path=str(tmp_path / "timesync.ok"),
-                         adb_socket_dir=str(adb_dir), **kwargs)
+                         adb_socket_dir=str(adb_dir), port_sysctl=str(sysctl), **kwargs)
         bus.subscribe(cp.RETRY_TOPIC, phone._on_retry_cmd)
         made.append(fake)
         return phone, fake, clock, bus, published, notes
 
     make.usb = usb
+    make.sysctl = sysctl
     make.marker = tmp_path / "timesync.ok"
     make.adb_dir = adb_dir
     yield make
@@ -988,6 +996,153 @@ class TestForward:
         assert phone.state["gps_forward"] is False
 
 
+SENS_FWD = adb(SER, "forward", "tcp:951", "tcp:8080")
+AGENT_FWD = adb(SER, "forward", "tcp:952", "tcp:8765")
+BOTH = {"phone_sensors": True, "car_phone_agent": True}
+
+
+class TestNamedForwards:
+    """Plan D3/F: ``sensors`` and ``agent`` forwards, each only while its
+    module toggle is on; car_phone stays the only adb user and publishes
+    port + readiness in ``net.car_phone``."""
+
+    def test_only_with_their_module_toggles(self, env):
+        phone, fake, clock, bus, published, notes = connect_fully(env)
+        fake.link = "activated"
+        phone.tick()
+        assert not fake.ran(SENS_FWD) and not fake.ran(AGENT_FWD)
+        assert phone.state["forwards"] == {}
+        phone2, fake2, *_ = connect_fully(env, modules={"phone_sensors": True})
+        fake2.link = "activated"
+        phone2.tick()
+        assert fake2.ran(SENS_FWD) and not fake2.ran(AGENT_FWD)
+        assert set(phone2.state["forwards"]) == {"sensors"}
+
+    @pytest.mark.parametrize("value", ["yes", 1, "true", None])
+    def test_toggle_must_be_strictly_true(self, env, value):
+        phone, fake, clock, bus, published, notes = connect_fully(
+            env, modules={"phone_sensors": value})
+        phone.tick()
+        assert not fake.ran(SENS_FWD) and phone.state["forwards"] == {}
+
+    def test_privileged_defaults_exact_argv_and_one_list_per_pass(self, env):
+        phone, fake, clock, bus, published, notes = connect_fully(env, modules=BOTH)
+        fake.link = "activated"
+        phone.tick()
+        assert fake.ran(FWD) and fake.ran(SENS_FWD) and fake.ran(AGENT_FWD)
+        assert fake.count(FWD_LIST) == 1
+        fwd = published[-1]["forwards"]
+        assert fwd == {"sensors": {"local": 951, "remote": 8080, "ok": True, "error": ""},
+                       "agent": {"local": 952, "remote": 8765, "ok": True, "error": ""}}
+        assert all(f["local"] < 1024 for f in fwd.values())   # kiosk user cannot squat
+        clock.advance(30)
+        phone.tick()
+        assert fake.count(SENS_FWD) == 1 and fake.count(FWD_LIST) == 2
+        fake.forwards.clear()                              # adb server restarted
+        clock.advance(30)
+        phone.tick()
+        assert fake.count(SENS_FWD) == 2 and fake.count(AGENT_FWD) == 2
+        never = {"--remove-all", "wait-for-usb-device", "tcpip", "su", "reboot"}
+        assert never.isdisjoint(fake.all_words())
+
+    def test_custom_ports(self, env):
+        phone, fake, clock, bus, published, notes = connect_fully(
+            env, modules=BOTH, settings={"sensors_local_port": 961, "sensors_remote_port": 8081,
+                                         "agent_local_port": 962, "agent_remote_port": 9000})
+        phone.tick()
+        assert fake.ran(adb(SER, "forward", "tcp:961", "tcp:8081"))
+        assert fake.ran(adb(SER, "forward", "tcp:962", "tcp:9000"))
+
+    @pytest.mark.parametrize("bad", [0, -1, 65536, "951", 951.0, True, None, [951]])
+    def test_invalid_port_falls_back_to_the_default(self, env, bad):
+        phone, fake, clock, bus, published, notes = connect_fully(
+            env, modules={"phone_sensors": True},
+            settings={"sensors_local_port": bad, "sensors_remote_port": bad})
+        phone.tick()
+        assert fake.ran(SENS_FWD)
+        words = fake.all_words()
+        assert not any(w in words for w in ("tcp:0", "tcp:-1", "tcp:65536", "tcp:951.0",
+                                            "tcp:True", "tcp:None"))
+
+    @pytest.mark.parametrize("port, what", [(50000, "GPS forward"), (5002, "dashboard"),
+                                            (5003, "small display")])
+    def test_clash_disables_that_forward_only(self, env, port, what):
+        phone, fake, clock, bus, published, notes = connect_fully(
+            env, modules=BOTH, settings={"sensors_local_port": port})
+        fake.link = "activated"
+        phone.tick()
+        sensors = published[-1]["forwards"]["sensors"]
+        assert sensors["ok"] is False and what in sensors["error"]
+        assert not any(c[3:] == ["forward", f"tcp:{port}", "tcp:8080"] for c in fake.calls)
+        assert fake.ran(AGENT_FWD) and fake.ran(FWD)       # the others still work
+        assert published[-1]["forwards"]["agent"]["ok"] is True
+
+    def test_two_named_forwards_on_one_port(self, env):
+        phone, fake, clock, bus, published, notes = connect_fully(
+            env, modules=BOTH, settings={"sensors_local_port": 960, "agent_local_port": 960})
+        phone.tick()
+        fwd = phone.state["forwards"]
+        assert fwd["sensors"]["error"] == "" and "sensors forward" in fwd["agent"]["error"]
+        assert fake.ran(adb(SER, "forward", "tcp:960", "tcp:8080"))
+        assert not fake.ran(adb(SER, "forward", "tcp:960", "tcp:8765"))
+
+    def test_unprivileged_port_is_warned_about(self, env, caplog):
+        with caplog.at_level("WARNING", logger="bcm.network.car_phone"):
+            phone, fake, *_ = connect_fully(env, modules={"phone_sensors": True},
+                                            settings={"sensors_local_port": 8081})
+        msgs = [r.getMessage() for r in caplog.records]
+        assert any("not a privileged port" in m and "8081" in m for m in msgs), msgs
+        phone.tick()
+        assert fake.ran(adb(SER, "forward", "tcp:8081", "tcp:8080"))   # still honoured
+
+    def test_lowered_sysctl_moves_the_limit(self, env, caplog):
+        env.sysctl.write_text("900\n")
+        with caplog.at_level("WARNING", logger="bcm.network.car_phone"):
+            connect_fully(env, modules={"phone_sensors": True})
+        assert any("not a privileged port (< 900)" in r.getMessage() for r in caplog.records)
+
+    def test_cannot_bind_is_per_forward(self, env, caplog):
+        phone, fake, clock, bus, published, notes = connect_fully(env, modules=BOTH)
+        fake.link = "activated"
+        fake.forward_fail = {"tcp:951": "error: cannot bind listener: Address already in use"}
+        with caplog.at_level("WARNING", logger="bcm.network.car_phone"):
+            phone.tick()
+            clock.advance(30)
+            phone.tick()
+        state = phone.state
+        assert state["forwards"]["sensors"]["ok"] is False
+        assert "in use" in state["forwards"]["sensors"]["error"]
+        assert state["forwards"]["agent"]["ok"] is True and state["gps_forward"] is True
+        assert state["error"] == ""                        # the GPS error field stays clean
+        assert len([r for r in caplog.records if "sensors forward" in r.getMessage()]) == 1
+        fake.forward_fail = {}
+        clock.advance(30)
+        phone.tick()
+        assert phone.state["forwards"]["sensors"] == {"local": 951, "remote": 8080,
+                                                      "ok": True, "error": ""}
+
+    def test_phone_gone_and_stop_clear_readiness(self, env):
+        phone, fake, clock, bus, published, notes = connect_fully(env, modules=BOTH)
+        fake.link = "activated"
+        phone.tick()
+        assert phone.state["forwards"]["sensors"]["ok"] is True
+        fake.devices = devices_text()
+        clock.advance(30)
+        phone.tick()
+        assert phone.state["forwards"]["sensors"]["ok"] is False
+        phone.stop()
+        assert published[-1]["state"] == "disabled"
+        assert published[-1]["forwards"]["sensors"]["ok"] is False
+
+    def test_published_copy_cannot_change_the_module_state(self, env):
+        phone, fake, clock, bus, published, notes = connect_fully(
+            env, modules={"phone_sensors": True})
+        fake.link = "activated"
+        phone.tick()
+        published[-1]["forwards"]["sensors"]["ok"] = "tampered"
+        assert phone.state["forwards"]["sensors"]["ok"] is True
+
+
 # ── battery and heat ──────────────────────────────────────────────────────
 
 class TestBattery:
@@ -1351,12 +1506,14 @@ class TestPublication:
         state = published[-1]
         assert set(state) == {
             "state", "adb", "serial", "iface", "ip", "prefix", "gateway", "gps_forward",
-            "gps_port", "battery_pct", "temp_c", "charging", "full", "plugged", "health",
+            "gps_port", "forwards", "battery_pct", "temp_c", "charging", "full", "plugged",
+            "health",
             "overridden", "hotspot_active", "hotspot_clients", "heat", "time_synced_at",
             "error", "hint", "since"}
         assert state["serial"] == "1a…4d" and SER not in str(state)
         assert state["state"] in cp.STATES and state["hint"] in cp.HINTS
         assert state["adb"] in cp.ADB_STATES
+        assert state["forwards"] == {}                     # no named-forward toggle on
 
     def test_errors_are_cleaned_and_cut(self, env):
         phone, fake, clock, bus, published, notes = connect_fully(env)
@@ -1450,13 +1607,16 @@ class TestRegistration:
         assert "car_phone" not in [n for n, _ in main.registry_to_start(states)]
 
     def test_entry_point_is_never_called_when_off(self, monkeypatch):
+        # Every entry point is a recorder — the other production modules
+        # (audio, multimedia, …) must not really start inside the tests.
         called = []
-        monkeypatch.setitem(main.MODULE_REGISTRY["car_phone"], "start",
-                            lambda **kw: called.append(kw))
+        registry = {name: dict(info, start=lambda _n=name, **kw: called.append(_n))
+                    for name, info in main.MODULE_REGISTRY.items()}
+        monkeypatch.setattr(main, "MODULE_REGISTRY", registry)
         cfg = BCMConfig(config_path=str(REPO / "config" / "bcm_config.yaml"),
                         platform_override="x86", local_path=None, env={})
         main.start_modules(main.registry_to_start(main.plan_modules(cfg)), cfg, EventBus(), None)
-        assert called == []
+        assert called and "car_phone" not in called
 
     def test_switched_on_it_starts(self, monkeypatch):
         called = []
@@ -1479,7 +1639,8 @@ class TestRegistration:
         assert phone._tether_method == "svc_usb" and phone._usb_function == "rndis"
         assert phone._check_sec == 30 and phone._retry_sec == 15
         assert phone._max_retry_sec == 300 and phone._settle_sec == 10
-        assert phone.gps_local_port == 50000 and phone._gps_remote == 50000
+        # privileged like the named forwards: GPS speed gates crash detection
+        assert phone.gps_local_port == 950 and phone._gps_remote == 50000
         assert phone._battery_sec == 60 and phone._warn_c == 45 and phone._crit_c == 50
         assert phone._time_sync is True and phone._drift_s == 30
         assert phone._hotspot is False

@@ -281,10 +281,17 @@ alarm:
     motion: true
     tilt: true
     shock: true
+# Wykrywanie stłuczki — tylko z modules.crash_detect (tu wyłączone); kamery
+# nie są potrzebne. Opis progów: config/bcm_config_test.yaml i
+# src/safety/crash_detect.py. Stare klucze speed_drop_threshold,
+# g_force_threshold i post_crash_record_sec nie są już czytane.
 crash_detection:
-  speed_drop_threshold: 30
-  g_force_threshold: 3.0
-  post_crash_record_sec: 60
+  min_speed_kmh: 25
+  dv_threshold_kmh: 15
+  dv_window_ms: 150
+  g_h_threshold: 4.0
+  min_rate_hz: 80
+  confirm_stop_kmh: 5
 tracking:
   db_path: data/gps_tracks.db
   interval_sec: 30

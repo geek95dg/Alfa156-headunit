@@ -34,7 +34,7 @@ Source priority — ``hardware.gps.priority``
 With two phones in the car (the driver's phone over Bluetooth PAN/UDP, the
 car phone over USB/TCP — plan section C) several inputs deliver fixes at
 once, and taking every one of them interleaves two slightly different
-positions and speeds (camera/crash_detect.py reads such a jump as a hard
+positions and speeds (safety/crash_detect.py could read such a jump as a hard
 braking). ``priority`` lists input names, best first (default: the order of
 ``source``; inputs it does not name come last, in ``source`` order). A
 sentence from an input is used only when every HIGHER-priority input has had
@@ -72,7 +72,7 @@ which put the car in the Gulf of Guinea for weather/trip/tracker)::
 carrying them (RMC/VTG resp. GGA resp. RMC) is missing or older than
 ``stale_sec``; ``gps.speed``/``gps.heading``/``gps.time_utc`` are then NOT
 published. Losing the fix publishes no speed at all — publishing 0 would
-look like an 80 → 0 km/h drop to camera/crash_detect.py. One nuance for
+look like an 80 → 0 km/h drop to safety/crash_detect.py. One nuance for
 ``heading``: an RMC/VTG with an EMPTY course field (stationary receivers
 often omit it) keeps the last course current — the car still points the
 same way — but only while the fix lasts. Losing the fix forgets the

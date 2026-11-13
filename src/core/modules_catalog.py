@@ -99,6 +99,15 @@ MODULES: dict[str, dict] = {
                     "hardware": "Redmi na USB (adb, debugowanie USB); autoapp z BCM_AA_USB=0. "
                                 "Po wyłączeniu usuń profil: sudo nmcli connection delete "
                                 "bcm-car-phone"},
+    # Plan D3: accelerometer + light of the car phone (SensorServer through
+    # car_phone's "sensors" adb forward — car_phone is the only adb user).
+    # Publishes phone.g_force / phone.light_lux, never alarm.sensor.*.
+    "phone_sensors": {"part": 22, "description": "Czujniki telefonu w aucie: światło i akcelerometr",
+                    "entry": ("src.sensors.phone_sensors", "start_phone_sensors"),
+                    "default": False, "group": "telefon_w_aucie",
+                    "requires": ("car_phone",),
+                    "hardware": "Redmi z aplikacją SensorServer (Local Host, port 8080, "
+                                "próbkowanie 10000 µs), sztywny uchwyt"},
     "weather":     {"part": 14, "description": "Weather Data (OpenWeatherMap)",
                     "entry": ("src.weather.weather", "start_weather"), "default": False},
     "rain_sensor": {"part": 15, "description": "Rain Sensor + Auto Wipers",
@@ -113,9 +122,16 @@ MODULES: dict[str, dict] = {
                     "entry": ("src.performance.timer", "start_performance"), "default": False},
     "alarm":       {"part": 19, "description": "Car Alarm (PIR, Tilt, Shock, Siren)",
                     "entry": ("src.vehicle.alarm", "start_alarm"), "default": False},
-    "crash_detect": {"part": 20, "description": "Crash Detection + DVR Protection",
-                    "entry": ("src.camera.crash_detect", "start_crash_detect"), "default": False,
-                    "group": "bezpieczenstwo"},
+    # Plan F: no camera needed (it never did). Speed comes from GPS only, so
+    # it requires location; the accelerometer path needs phone_sensors too,
+    # without it only the GPS fallback runs (logs + DVR, never an SMS).
+    "crash_detect": {"part": 20, "description": "Wykrywanie stłuczki (akcelerometr telefonu, "
+                                                "zapasowo sam GPS) + ochrona nagrań DVR",
+                    "entry": ("src.safety.crash_detect", "start_crash_detect"), "default": False,
+                    "group": "bezpieczenstwo",
+                    "requires": ("location",),
+                    "hardware": "GPS (moduł location); pełne wykrywanie z czujnikami telefonu "
+                                "(phone_sensors), sam GPS tylko zapisuje zdarzenie"},
     "battery":     {"part": 21, "description": "Battery Backup Monitor",
                     "entry": ("src.power.battery", "start_battery"), "default": False},
 
@@ -149,10 +165,6 @@ MODULES: dict[str, dict] = {
                      "default": False, "group": "telefon_w_aucie",
                      "requires": ("car_phone",),
                      "hardware": "Redmi: hotspot skonfigurowany w telefonie"},
-    "phone_sensors": {"part": 22, "description": "Czujniki telefonu w aucie: światło i akcelerometr",
-                     "default": False, "planned": True, "group": "telefon_w_aucie",
-                     "requires": ("car_phone",),
-                     "hardware": "Redmi z aplikacją SensorServer, sztywny uchwyt"},
     "car_phone_agent": {"part": 22, "description": "Agent w telefonie w aucie (Termux): SMS, alarm postojowy, budzenie",
                      "default": False, "planned": True, "group": "telefon_w_aucie",
                      "requires": ("car_phone",),

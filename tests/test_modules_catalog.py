@@ -31,8 +31,9 @@ REPO = Path(__file__).resolve().parent.parent
 NEW_TOGGLES = ("car_phone", "car_phone_hotspot", "phone_sensors", "auto_brightness",
                "crash_sms", "call112", "car_phone_agent", "parking_guard",
                "cabin_watch", "remote_session")
-#: ... of which these have code now (plan C + D1/D2: src/network/car_phone.py).
-IMPLEMENTED = ("car_phone", "car_phone_hotspot")
+#: ... of which these have code now (plan C + D1/D2: src/network/car_phone.py,
+#: D3: src/sensors/phone_sensors.py).
+IMPLEMENTED = ("car_phone", "car_phone_hotspot", "phone_sensors")
 #: ... and these are still planned (listed, never started).
 PLANNED = tuple(n for n in NEW_TOGGLES if n not in IMPLEMENTED)
 
@@ -76,6 +77,8 @@ class TestShippedCatalog:
         assert mc.MODULES["car_phone"]["entry"] == ("src.network.car_phone", "start_car_phone")
         # read inside car_phone, no start path of its own
         assert "entry" not in mc.MODULES["car_phone_hotspot"]
+        assert mc.MODULES["phone_sensors"]["entry"] == ("src.sensors.phone_sensors",
+                                                        "start_phone_sensors")
 
     @pytest.mark.parametrize("cfg_name", ["bcm_config.yaml", "bcm_config_test.yaml"])
     @pytest.mark.parametrize("name", NEW_TOGGLES)
@@ -85,8 +88,10 @@ class TestShippedCatalog:
         assert mc.module_states(cfg)[name].runs is False
 
     def test_existing_modules_keep_their_place(self):
-        assert mc.MODULES["crash_detect"]["entry"] == ("src.camera.crash_detect",
+        # moved to src/safety (plan F); src/camera/crash_detect.py is a wrapper
+        assert mc.MODULES["crash_detect"]["entry"] == ("src.safety.crash_detect",
                                                        "start_crash_detect")
+        assert mc.MODULES["crash_detect"]["requires"] == ("location",)
         assert mc.MODULES["phone_status"]["default"] is False
         for name in ("phonebook", "phone_status", "phone_tether"):
             assert mc.MODULES[name]["requires"] == ("bluetooth",), name
@@ -322,9 +327,9 @@ class TestMainStartPath:
             assert len(hits) == 1 and "missing dependency bluetooth" in hits[0], msgs
 
     def test_planned_module_switched_on_is_reported_not_started(self, spies, caplog):
-        cfg = _cfg(phone_sensors=True, crash_sms=True)
+        cfg = _cfg(car_phone_agent=True, crash_sms=True)
         states = _start(cfg)
-        assert not states["phone_sensors"].runs and not states["crash_sms"].runs
+        assert not states["car_phone_agent"].runs and not states["crash_sms"].runs
         log = logging.getLogger("bcm.main.test")
         with caplog.at_level(logging.WARNING, logger="bcm.main.test"):
             assert main.report_blocked_modules(states, log) == 2
@@ -399,9 +404,14 @@ class TestModulesApi:
         assert car["hardware"].startswith("Redmi")
         assert mods["car_phone_hotspot"]["kind"] == "subsystem"
         assert mods["car_phone_hotspot"]["needs"] == ["car_phone"]
-        assert mods["phone_sensors"]["available"] is False
-        assert mods["crash_sms"]["blocked_by"] == [["crash_detect"], ["phone_sensors"],
-                                                   ["car_phone_agent"]]
+        assert mods["car_phone_agent"]["available"] is False
+        sensors = mods["phone_sensors"]
+        assert sensors["available"] is True and sensors["kind"] == "module"
+        assert sensors["needs"] == ["car_phone"] and sensors["runs"] is False
+        assert mods["crash_detect"]["requires"] == ["location"]
+        # crash_detect runs in the test config (GPS-only path, plan F)
+        assert mods["crash_detect"]["runs"] is True
+        assert mods["crash_sms"]["blocked_by"] == [["phone_sensors"], ["car_phone_agent"]]
         assert mods["crash_sms"]["needs"] is None
         assert mods["auto_brightness"]["requires_any"] == [["phone_sensors", "input"]]
         assert mods["phone_status"]["requires"] == ["bluetooth"]
@@ -439,14 +449,14 @@ class TestModulesApi:
 
     def test_planned_module_cannot_be_switched_on(self):
         web = _web(_cfg())
-        res = web.client.post("/api/modules", json={"name": "phone_sensors", "enabled": True})
+        res = web.client.post("/api/modules", json={"name": "car_phone_agent", "enabled": True})
         assert res.status_code == 409 and res.get_json()["available"] is False
-        assert web.cfg.get("modules.phone_sensors") is None and web.saved == []
+        assert web.cfg.get("modules.car_phone_agent") is None and web.saved == []
         # ... but one switched on by hand can be switched off
-        web.cfg.set("modules.phone_sensors", True)
-        res = web.client.post("/api/modules", json={"name": "phone_sensors", "enabled": False})
+        web.cfg.set("modules.car_phone_agent", True)
+        res = web.client.post("/api/modules", json={"name": "car_phone_agent", "enabled": False})
         assert res.status_code == 200
-        assert web.cfg.get("modules.phone_sensors") is False
+        assert web.cfg.get("modules.car_phone_agent") is False
         assert res.get_json()["restart_required"] is False      # it never ran
 
     def test_car_phone_can_be_switched_on(self):
@@ -455,6 +465,14 @@ class TestModulesApi:
         assert res.status_code == 200 and res.get_json()["runs"] is True
         assert web.cfg.get("modules.car_phone") is True and web.saved == [True]
         assert res.get_json()["restart_required"] is True
+
+    def test_phone_sensors_can_be_switched_on_with_car_phone(self):
+        web = _web(_cfg())
+        body = web.client.post("/api/modules", json={"name": "phone_sensors", "enabled": True,
+                                                     "with_deps": True}).get_json()
+        assert body["enabled_also"] == ["car_phone"] and body["runs"] is True
+        assert web.cfg.get("modules.phone_sensors") is True
+        assert web.cfg.get("modules.car_phone") is True and web.saved == [True]
 
     def test_enable_without_dependencies_is_saved_alone(self):
         web = _web(_cfg("bcm_config_test.yaml", bluetooth=False))
@@ -479,7 +497,7 @@ class TestModulesApi:
     def test_with_deps_that_cannot_be_enabled_is_refused(self, monkeypatch):
         cat = dict(mc.MODULES)
         cat["needs_planned"] = {"part": 1, "description": "x", "default": False,
-                                "requires": ("phone_sensors",)}
+                                "requires": ("car_phone_agent",)}
         monkeypatch.setattr(mc, "MODULES", cat)
         web = _web(_cfg())
         res = web.client.post("/api/modules", json={"name": "needs_planned", "enabled": True,
@@ -488,7 +506,7 @@ class TestModulesApi:
         assert web.cfg.get("modules.needs_planned") is None and web.saved == []
         # without with_deps it is saved (and would log its one warning)
         res = web.client.post("/api/modules", json={"name": "needs_planned", "enabled": True})
-        assert res.status_code == 200 and res.get_json()["blocked_by"] == [["phone_sensors"]]
+        assert res.status_code == 200 and res.get_json()["blocked_by"] == [["car_phone_agent"]]
 
     def test_save_failure_is_reported_not_500(self):
         web = _web(_cfg())

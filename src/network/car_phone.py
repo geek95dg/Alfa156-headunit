@@ -54,11 +54,54 @@ One reconciliation step (:meth:`CarPhone.tick`)
    appearing => ``failed`` + hint ``tether_blocked``, with backoff. Function
    present but NetworkManager has no link after ``settle_sec`` => ONE
    ``nmcli --wait 30 connection up id <con>`` per backoff period.
-5. GPS forward, every pass (a BCM restart kills the adb server and every
-   forward with it): ``adb -s S forward --list``; the exact line
-   ``S tcp:L tcp:R`` missing => ``adb -s S forward tcp:L tcp:R``. Never
-   ``--remove-all`` (other forwards may belong to the agent of later plan
-   items) and never ``wait-for-usb-device`` (blocks forever).
+5. Forwards, every pass (a BCM restart kills the adb server and every
+   forward with it): ONE ``adb -s S forward --list``; for each wanted
+   forward whose exact line ``S tcp:L tcp:R`` is missing => ``adb -s S
+   forward tcp:L tcp:R``. Never ``--remove-all`` (a forward we do not know
+   about may belong to someone debugging by hand) and never
+   ``wait-for-usb-device`` (blocks forever). The wanted set is fixed at
+   start:
+
+   * ``gps`` — ``gps_forward`` (the NMEA TCP server app, plan C);
+   * ``sensors`` — only with ``modules.phone_sensors`` (SensorServer's
+     WebSocket, ``sensors_remote_port`` → ``sensors_local_port``, plan D3);
+   * ``agent`` — only with ``modules.car_phone_agent`` (the Termux agent,
+     ``agent_remote_port`` → ``agent_local_port``, plan F; the agent
+     client is a later module — the forward is reserved now).
+
+   Both follow the CONFIG toggles read at start: ``main.py --modules
+   car_phone,phone_sensors`` with the toggle off in the YAML starts
+   phone_sensors without its forward (its state then says so).
+
+   car_phone stays the ONLY adb user: the consumers learn the local port
+   and whether the forward is up from ``net.car_phone`` (``forwards``),
+   never by running adb themselves.
+
+   Why the named forwards default to PRIVILEGED local ports (951, 952):
+   ``adb forward`` makes the adb server (root) listen on 127.0.0.1:L, and
+   BCM then trusts whatever answers there — accelerometer data that can
+   raise a crash alarm, an agent that sends SMS. On a port >= 1024 any
+   local user, the kiosk browser's user too, could bind 127.0.0.1:L first
+   (while the phone is unplugged, or across a BCM restart) and answer in
+   the phone's place. Below ``net.ipv4.ip_unprivileged_port_start`` (1024
+   on Debian) only root can bind. A configured port at or above it is
+   accepted but logged as a warning. Ports are validated (int 1..65535)
+   and must differ from each other, from the GPS forward's local port and
+   from the dashboard (5002) / small display (5003) ports; a clash
+   disables that one forward (its ``error`` says why) — it never reaches
+   adb.
+
+   What privileged ports do NOT stop: any local process (the kiosk browser
+   and its JavaScript too) can still CONNECT to 127.0.0.1:L. SensorServer
+   has no authentication — a local client can read the stream and, with
+   many parallel streams over USB, load the phone until the measured rate
+   drops below ``crash_detection.min_rate_hz`` (the accelerometer path then
+   refuses the data; it never fires on it). The agent behind ``agent`` must
+   therefore treat every client as hostile (HMAC on requests and answers,
+   rate limits that unauthenticated requests cannot use up). The GPS
+   forward's local port defaults to ``hardware.gps.tcp.port`` (50000, not
+   privileged); the test config moves it to 950, because GPS speed gates
+   crash detection.
 6. Every ``battery_sec``: ``adb -s S shell dumpsys battery`` — anchored
    ``key: value`` regexes; level 0-100, temperature in tenths of °C, status
    2/5 charging/full, health 3 overheat. ``UPDATES STOPPED`` (someone ran
@@ -100,7 +143,7 @@ One reconciliation step (:meth:`CarPhone.tick`)
    (``cmd wifi start-softap``) is future work, unverified on this ROM.
 
 The only commands that change anything on the phone are ``svc usb
-setFunctions`` and the ``adb forward`` listener on 127.0.0.1; on the head
+setFunctions`` and the ``adb forward`` listeners on 127.0.0.1; on the head
 unit it is the NM profile, ``connection up``, ``timedatectl set-time`` and
 ``systemctl start --no-block bcm-timesync.service`` (once per edge into
 ``connected``). The module never runs ``su``.
@@ -108,8 +151,9 @@ unit it is the NM profile, ``connection up``, ``timedatectl set-time`` and
 Published on ``net.car_phone`` (only when something changed)::
 
     {state, adb, serial, iface, ip, prefix, gateway, gps_forward, gps_port,
-     battery_pct, temp_c, charging, full, plugged, health, overridden,
-     hotspot_active, hotspot_clients, heat, time_synced_at, error, hint, since}
+     forwards, battery_pct, temp_c, charging, full, plugged, health,
+     overridden, hotspot_active, hotspot_clients, heat, time_synced_at,
+     error, hint, since}
 
     state: disabled | no_adb | adb_error | no_device | unauthorized
            | tethering | connected | failed
@@ -120,6 +164,10 @@ Published on ``net.car_phone`` (only when something changed)::
     serial: masked (first and last two characters)
     heat:  None | warning | danger (the battery temperature alarm)
     gps_port: local port of the GPS forward while it works (else None)
+    forwards: {name: {local, remote, ok, error}} for each named forward
+           whose module toggle is on (``sensors``, ``agent``; ``{}`` when
+           none). ``ok`` is True only while the exact forward line was seen
+           or created in the last pass with the phone in the device state.
     since: wall-clock time (epoch s) the current state was entered
 
 ``net.car_phone.cmd.retry`` (Settings "Ponów", rate-limited by web_viewer)
@@ -221,6 +269,16 @@ DEFAULTS: dict[str, Any] = {
     "gps_remote_port": 50000,
     # 0 = hardware.gps.tcp.port, so `hardware.gps.tcp.host: auto` reaches it.
     "gps_local_port": 0,
+    # Plan D3: SensorServer (umer0586, F-Droid) on the phone, "Local Host"
+    # option on (it then listens on the phone's 127.0.0.1 only). Forwarded
+    # only with modules.phone_sensors. Local ports are privileged on
+    # purpose — see the module docstring, step 5.
+    "sensors_remote_port": 8080,
+    "sensors_local_port": 951,
+    # Plan F: the Termux agent (127.0.0.1:8765 on the phone). Forwarded
+    # only with modules.car_phone_agent.
+    "agent_remote_port": 8765,
+    "agent_local_port": 952,
     "battery_sec": 60,
     "warn_temp_c": 45,
     "critical_temp_c": 50,
@@ -248,6 +306,13 @@ USB_SYSFS_ROOT = "/sys/bus/usb/devices"
 USB_SYSFS_MAX = 256
 #: Root-only directory of the adb server's Unix socket (see "Security").
 ADB_SOCKET_DIR = "/run/bcm-adb"
+#: Named forwards (step 5): forward name -> the module toggle that wants it.
+NAMED_FORWARDS = (("sensors", "phone_sensors"), ("agent", "car_phone_agent"))
+#: Local TCP ports BCM itself listens on — a forward there would either
+#: fail to bind or, worse, shadow them.
+RESERVED_LOCAL_PORTS = {5002: "dashboard", 5003: "small display"}
+#: First port an unprivileged user may bind (Linux sysctl; 1024 if unreadable).
+UNPRIVILEGED_PORT_SYSCTL = "/proc/sys/net/ipv4/ip_unprivileged_port_start"
 ADB_SOCKET_NAME = "adb.sock"
 
 
@@ -574,6 +639,18 @@ def read_timesync_marker(path: str = TIMESYNC_MARKER) -> Optional[float]:
     return float(first)
 
 
+def unprivileged_port_start(path: str = UNPRIVILEGED_PORT_SYSCTL) -> int:
+    """``net.ipv4.ip_unprivileged_port_start`` (ports below it need root),
+    1024 — the kernel default — when the file is missing or unreadable."""
+    try:
+        text = Path(path).read_text(encoding="ascii", errors="replace")[:16].strip()
+    except OSError:
+        return 1024
+    if not re.fullmatch(r"\d{1,5}", text):
+        return 1024
+    return min(int(text), 65536)
+
+
 def _boottime() -> float:
     """CLOCK_BOOTTIME (counts S3), fallback monotonic — matches /proc/uptime."""
     try:
@@ -617,6 +694,8 @@ class CarPhone:
         notify: ``publish_notification`` compatible (tests).
         adb_socket_dir: root-only directory of the adb server's socket
             (tests: a temporary directory).
+        port_sysctl: ``ip_unprivileged_port_start`` (only read for the
+            warning about an unprivileged named-forward port).
     """
 
     def __init__(self, config: Any, event_bus: Any,
@@ -627,7 +706,8 @@ class CarPhone:
                  usb_root: str = USB_SYSFS_ROOT,
                  marker_path: str = TIMESYNC_MARKER,
                  notify: Optional[Callable[..., Any]] = None,
-                 adb_socket_dir: str = ADB_SOCKET_DIR) -> None:
+                 adb_socket_dir: str = ADB_SOCKET_DIR,
+                 port_sysctl: str = UNPRIVILEGED_PORT_SYSCTL) -> None:
         self._config = config
         self._bus = event_bus
         self._runner = runner
@@ -701,6 +781,7 @@ class CarPhone:
             local = tcp_port if isinstance(tcp_port, int) and not isinstance(tcp_port, bool) \
                 and 1 <= tcp_port <= 65535 else 50000
         self._gps_local = local
+        self._named_fwd = self._named_forwards(config, opt, port_sysctl)
         self._battery_sec = float(_number(opt("battery_sec"), DEFAULTS["battery_sec"],
                                           15, 3600, "battery_sec"))
         self._warn_c = float(_number(opt("warn_temp_c"), DEFAULTS["warn_temp_c"],
@@ -755,6 +836,8 @@ class CarPhone:
         self._battery_due = 0.0
         self._time_due = 0.0
         self._fwd_error = ""
+        # Last error of each named forward (cleaned; logged on change only).
+        self._named_err: dict[str, str] = {}
         self._time_warned = False
         self._time_synced_at: Optional[float] = None
         # Clock validation (plan D1): the phone's ROM build time (read once
@@ -775,9 +858,49 @@ class CarPhone:
 
     @staticmethod
     def _empty_device() -> dict[str, Any]:
-        return {"gps_forward": False, "battery_pct": None, "temp_c": None,
-                "charging": None, "full": None, "plugged": None, "health": None,
-                "overridden": False, "hotspot_active": None, "hotspot_clients": None}
+        # named_fwd: names of the named forwards seen/created in the last
+        # pass — empty = none is up (a new phone, no phone, stopped).
+        return {"gps_forward": False, "named_fwd": set(), "battery_pct": None,
+                "temp_c": None, "charging": None, "full": None, "plugged": None,
+                "health": None, "overridden": False, "hotspot_active": None,
+                "hotspot_clients": None}
+
+    def _named_forwards(self, config: Any, opt: Callable[[str], Any],
+                        port_sysctl: str) -> dict[str, dict[str, Any]]:
+        """The named forwards this run wants (step 5), validated once.
+
+        ``{name: {local, remote, error}}`` for each forward whose module
+        toggle is strictly True (a typo stays off); ``error`` non-empty =
+        a port clash — that forward is never sent to adb and is published
+        with ``ok: False``. Needs ``self._gps_local``."""
+        out: dict[str, dict[str, Any]] = {}
+        taken: dict[int, str] = dict(RESERVED_LOCAL_PORTS)
+        taken.setdefault(self._gps_local, "GPS forward")
+        first_unprivileged: Optional[int] = None
+        for name, module in NAMED_FORWARDS:
+            if _cfg_get(config, f"modules.{module}", False) is not True:
+                continue
+            remote = _port(opt(f"{name}_remote_port"), DEFAULTS[f"{name}_remote_port"],
+                           f"{name}_remote_port")
+            local = _port(opt(f"{name}_local_port"), DEFAULTS[f"{name}_local_port"],
+                          f"{name}_local_port")
+            error = ""
+            if local in taken:
+                error = (f"network.car_phone.{name}_local_port={local} is already the "
+                         f"{taken[local]} port — {name} forward disabled")
+                log.warning("Car phone: %s", error)
+            else:
+                taken[local] = f"{name} forward"
+                if first_unprivileged is None:
+                    first_unprivileged = unprivileged_port_start(port_sysctl)
+                if local >= first_unprivileged:
+                    log.warning("Car phone: network.car_phone.%s_local_port=%d is not a "
+                                "privileged port (< %d) — a local user (the kiosk too) could "
+                                "bind 127.0.0.1:%d before adb does and answer in the phone's "
+                                "place; keep the default", name, local, first_unprivileged,
+                                local)
+            out[name] = {"local": local, "remote": remote, "error": clean_error(error)}
+        return out
 
     # ── read-only views (UI / tests) ──────────────────────────────────────
 
@@ -786,7 +909,13 @@ class CarPhone:
         """Last published payload (copy) or None."""
         if self._payload is None:
             return None
-        return dict(self._payload, since=self._since)
+        return dict(self._payload, since=self._since, forwards={
+            k: dict(v) for k, v in self._payload["forwards"].items()})
+
+    @property
+    def named_forwards(self) -> dict[str, dict[str, Any]]:
+        """The named forwards of this run: ``{name: {local, remote, error}}``."""
+        return {k: dict(v) for k, v in self._named_fwd.items()}
 
     @property
     def retry_delay(self) -> float:
@@ -824,12 +953,16 @@ class CarPhone:
                 else "<invalid network.car_phone.serial>"
         else:
             serial_desc = "<the only phone on USB>"
+        named = ", ".join(f"{n} tcp:{f['local']}->tcp:{f['remote']}"
+                          + (" (disabled: port clash)" if f["error"] else "")
+                          for n, f in self._named_fwd.items()) or "none"
         log.info("Car phone started (serial=%s, profile=%s, metric=%d, tether=%s/%s, "
-                 "gps forward=%s tcp:%d->tcp:%d, check=%ds, battery=%ds, heat=%d/%d C, "
-                 "time sync=%s, hotspot status=%s)", serial_desc, self._con_name,
-                 self._metric, self._tether_method, self._usb_function, self._gps_forward,
-                 self._gps_local, self._gps_remote, self._check_sec, self._battery_sec,
-                 self._warn_c, self._crit_c, self._time_sync, self._hotspot)
+                 "gps forward=%s tcp:%d->tcp:%d, other forwards: %s, check=%ds, "
+                 "battery=%ds, heat=%d/%d C, time sync=%s, hotspot status=%s)", serial_desc,
+                 self._con_name, self._metric, self._tether_method, self._usb_function,
+                 self._gps_forward, self._gps_local, self._gps_remote, named, self._check_sec,
+                 self._battery_sec, self._warn_c, self._crit_c, self._time_sync,
+                 self._hotspot)
 
     def stop(self) -> None:
         """Stop the worker. Never waits for a pass in progress; the link and
@@ -1065,6 +1198,7 @@ class CarPhone:
         self._serial = serial
         self._device = self._empty_device()
         self._fwd_error = ""
+        self._named_err = {}
         self._clear_heat()
         # A phone that went and came back may have rebooted (and lost its
         # clock): its build time is read again, a pending backwards drift
@@ -1264,10 +1398,10 @@ class CarPhone:
     # ── steps 5-8: work with a ready phone ────────────────────────────────
 
     def _device_work(self, serial: str, now: float) -> None:
-        """GPS forward (every pass), battery + hotspot (every battery_sec),
+        """Forwards (every pass), battery + hotspot (every battery_sec),
         clock (TIME_CHECK_S). Each step is independent: one failing (or the
         phone vanishing in between) never stops the others' next pass."""
-        self._ensure_forward(serial)
+        self._ensure_forwards(serial)
         if now >= self._battery_due:
             self._battery_due = now + self._battery_sec
             self._read_battery(serial, now)
@@ -1277,33 +1411,69 @@ class CarPhone:
             self._time_due = now + TIME_CHECK_S
             self._check_clock(serial)
 
-    def _ensure_forward(self, serial: str) -> None:
-        if not self._gps_forward:
+    def _ensure_forwards(self, serial: str) -> None:
+        """Step 5: one ``forward --list``, then each wanted forward whose
+        exact line is missing is (re)created. A failing one never stops the
+        others; a clashing named forward (``error`` from the config check)
+        is never sent to adb."""
+        wanted: list[tuple[str, int, int]] = []
+        if self._gps_forward:
+            wanted.append(("gps", self._gps_local, self._gps_remote))
+        else:
             self._device["gps_forward"] = False
+        for name, spec in self._named_fwd.items():
+            if not spec["error"]:
+                wanted.append((name, spec["local"], spec["remote"]))
+        if not wanted:
             return
-        want = f"{serial} tcp:{self._gps_local} tcp:{self._gps_remote}"
-        rc, out, err = self._adb(["adb", "-s", serial, "forward", "--list"])
-        if rc == 0 and want in parse_forwards(out):
-            self._device["gps_forward"] = True
-            self._fwd_error = ""
-            return
-        rc, out, err = self._adb(["adb", "-s", serial, "forward",
-                                  f"tcp:{self._gps_local}", f"tcp:{self._gps_remote}"])
+        rc, out, _err = self._adb(["adb", "-s", serial, "forward", "--list"])
+        present = parse_forwards(out) if rc == 0 else set()
+        for name, local, remote in wanted:
+            ok, error = self._ensure_one_forward(serial, name, local, remote, present)
+            if name == "gps":
+                if ok and error == "created" and not self._device["gps_forward"]:
+                    log.info("Car phone: GPS forward 127.0.0.1:%d -> phone:%d", local, remote)
+                self._device["gps_forward"] = ok
+                if ok:
+                    self._fwd_error = ""
+                    continue
+                if error != self._fwd_error:
+                    log.warning("Car phone: %s", error)
+                self._fwd_error = error
+                continue
+            named = self._device["named_fwd"]
+            if ok:
+                if name not in named and error == "created":
+                    log.info("Car phone: %s forward 127.0.0.1:%d -> phone:%d", name, local,
+                             remote)
+                named.add(name)
+                self._named_err[name] = ""
+                continue
+            named.discard(name)
+            if error != self._named_err.get(name, ""):
+                log.warning("Car phone: %s", error)
+            self._named_err[name] = error
+
+    def _ensure_one_forward(self, serial: str, name: str, local: int, remote: int,
+                            present: set[str]) -> tuple[bool, str]:
+        """``(ok, detail)``: detail ``"listed"`` / ``"created"`` when ok, else
+        the cleaned error. Both ports are validated integers — the only
+        words besides fixed strings that reach adb."""
+        want = f"{serial} tcp:{local} tcp:{remote}"
+        if want in present:
+            return True, "listed"
+        rc, out, err = self._adb(["adb", "-s", serial, "forward", f"tcp:{local}",
+                                  f"tcp:{remote}"])
         if rc == 0:
-            if not self._device["gps_forward"]:
-                log.info("Car phone: GPS forward 127.0.0.1:%d -> phone:%d", self._gps_local,
-                         self._gps_remote)
-            self._device["gps_forward"] = True
-            self._fwd_error = ""
-            return
+            return True, "created"
         text = clean_error(err or out.strip() or f"adb forward: exit {rc}")
+        label = "GPS" if name == "gps" else name
         if "cannot bind" in text.lower():
-            text = clean_error(f"GPS forward: local port {self._gps_local} is in use "
-                               f"by another program ({text})")
-        if text != self._fwd_error:
-            log.warning("Car phone: %s", text)
-        self._fwd_error = text
-        self._device["gps_forward"] = False
+            text = clean_error(f"{label} forward: local port {local} is in use by another "
+                               f"program ({text})")
+        elif name != "gps":
+            text = clean_error(f"{label} forward: {text}")
+        return False, text
 
     def _read_battery(self, serial: str, now: float) -> None:
         rc, out, _err = self._adb(["adb", "-s", serial, "shell", "dumpsys", "battery"])
@@ -1490,6 +1660,18 @@ class CarPhone:
         else:
             dev = self._device
             serial = mask_serial(self._serial)
+        forwards = {}
+        for name, spec in self._named_fwd.items():
+            up = name in dev["named_fwd"]
+            forwards[name] = {
+                "local": spec["local"],
+                "remote": spec["remote"],
+                "ok": up,
+                # A clash (config) is always shown; a runtime error only
+                # while the phone is there.
+                "error": spec["error"] or ("" if up or state == "disabled"
+                                           else self._named_err.get(name, "")),
+            }
         if not error and state != "disabled" and self._fwd_error:
             error = self._fwd_error
         payload = {
@@ -1502,6 +1684,7 @@ class CarPhone:
             "gateway": gateway,
             "gps_forward": bool(dev["gps_forward"]),
             "gps_port": self._gps_local if dev["gps_forward"] else None,
+            "forwards": forwards,
             "battery_pct": dev["battery_pct"],
             "temp_c": dev["temp_c"],
             "charging": dev["charging"],
@@ -1530,7 +1713,10 @@ class CarPhone:
         self._payload = payload
         self._state_name = state
         try:
-            self._bus.publish(TOPIC, dict(payload, since=self._since))
+            # Fresh inner dicts: a subscriber that edits its copy must not
+            # change what the next comparison sees.
+            self._bus.publish(TOPIC, dict(payload, since=self._since, forwards={
+                k: dict(v) for k, v in forwards.items()}))
         except Exception:
             log.exception("Publishing %s failed", TOPIC)
         return True
