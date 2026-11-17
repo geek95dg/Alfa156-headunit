@@ -36,8 +36,20 @@ Instalacja (Termux z F-Droid, NIE ze Sklepu Play)
 4. Optymalizacja baterii **wyłączona** dla Termux, Termux:API i
    Termux:Boot (Ustawienia → Bateria → Bez ograniczeń). Skrypt startowy
    bierze ``termux-wake-lock``, żeby Android nie usypiał procesu.
-5. **Xiaomi (MIUI/HyperOS)** ma dwie własne blokady, bez których agent
-   nie wystartuje albo nie wyśle SMS-a bez człowieka:
+5. **crDroid / AOSP, Android 12–13** (zalecany ROM, docs/WDROZENIE_TESTOWE.md
+   §5.7a): wyłącz „phantom process killer”, który ubija procesy Termuxa
+   w tle (telefon zrootowany)::
+
+       su -c '/system/bin/device_config set_sync_disabled_for_tests persistent'
+       su -c '/system/bin/device_config put activity_manager max_phantom_processes 2147483647'
+
+   oraz, jeśli jest, Opcje programisty → Feature flags →
+   ``settings_enable_monitor_phantom_procs`` wyłączone. Na Androidzie 13
+   zezwól też na powiadomienia dla Termux i Termux:API. Termux i obie
+   wtyczki tylko z F-Droid (ten sam podpis).
+
+   **Tylko Xiaomi z MIUI/HyperOS** ma dodatkowo dwie własne blokady, bez
+   których agent nie wystartuje albo nie wyśle SMS-a bez człowieka:
 
    * Ustawienia → Aplikacje → Termux oraz Termux:Boot → **Autostart: ON**
      (bez tego Termux:Boot nie dostaje BOOT_COMPLETED i po restarcie

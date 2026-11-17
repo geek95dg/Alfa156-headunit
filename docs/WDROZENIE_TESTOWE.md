@@ -723,7 +723,11 @@ Kolejność:
    raportuje.
 3. W telefonie: opcje programisty → debugowanie USB, „Disable adb
    authorization timeout”; aplikacja serwera NMEA TCP (np. gpsdRelay) na
-   porcie 50000 (`network.car_phone.gps_remote_port`).
+   porcie 50000 (`network.car_phone.gps_remote_port`). Jeśli aplikacja
+   pozwala wybrać adres nasłuchu, ustaw **127.0.0.1** — BCM i tak czyta
+   pozycję przez `adb forward`, a przy włączonym hotspocie dla pasażerów
+   serwer na 0.0.0.0 pokazywałby pozycję auta każdemu podłączonemu
+   (ROM: §5.7a).
 4. Podłącz telefon i raz wywołaj adb **przez gniazdo BCM** (niżej,
    „Bezpieczeństwo”) — w telefonie „Zawsze zezwalaj z tego komputera”:
 
@@ -864,6 +868,59 @@ wpięty z tetheringiem — już bez alarmu temperatury. Po wyłączeniu modułu:
 sudo nmcli connection delete bcm-car-phone
 ```
 
+### 5.7a ROM telefonu: crDroid (Android 13) — co ustawić
+
+Kod BCM potrzebuje Androida **11 lub nowszego** (`svc usb setFunctions`,
+„Disable adb authorization timeout”, `dumpsys tethering`). Zalecany ROM to
+czysty Android bez MIUI, np. **crDroid na Androidzie 13** dla Redmi Note 8
+Pro (begonia), najlepiej bez usług Google (GPS działa bez nich, pierwszy
+fix bywa tylko wolniejszy). Androidy 14 i 15 nic tu nie dodają, a mocniej
+ograniczają pracę w tle i aplikacje spoza sklepu — nie były sprawdzane.
+
+Na Androidzie 13 (AOSP/crDroid) zrób raz:
+
+1. **Phantom process killer wyłączony** — inaczej Android potrafi ubić
+   procesy Termuxa (agent z §5.9) w tle. W Termuxie (telefon zrootowany):
+
+   ```bash
+   su -c '/system/bin/device_config set_sync_disabled_for_tests persistent'
+   su -c '/system/bin/device_config put activity_manager max_phantom_processes 2147483647'
+   ```
+
+   Jeśli w Opcjach programisty → Feature flags jest
+   `settings_enable_monitor_phantom_procs`, wyłącz go. Sprawdzenie:
+   `su -c '/system/bin/device_config get activity_manager max_phantom_processes'`.
+2. **Powiadomienia** (Android 13 pyta o nie osobno) i **bateria „Bez
+   ograniczeń”** dla: Termux, Termux:API, Termux:Boot, SensorServer i
+   aplikacji serwera NMEA.
+3. **Termux i wtyczki z jednego źródła** (F-Droid) — Termux, Termux:API i
+   Termux:Boot muszą mieć ten sam podpis; wersja ze Sklepu Play nie dogada
+   się z resztą.
+4. Kroki „Xiaomi (MIUI/HyperOS)” z §5.9 (Autostart, kłódka) na crDroid
+   **nie dotyczą** — ich odpowiednikiem jest punkt 1 i 2.
+5. **Hotspot dla pasażerów** (`car_phone_hotspot`): WPA2/WPA3 i mocne
+   hasło. SensorServer z **Local Host** (§5.8), serwer NMEA na 127.0.0.1
+   (§5.7 krok 3), agent BCM słucha tylko na 127.0.0.1 — klienci hotspotu
+   nie widzą wtedy ani pozycji, ani czujników.
+6. **Poprawki bezpieczeństwa:** crDroid 13 raczej ich już nie dostaje. Dla
+   telefonu tylko do auta to akceptowalne pod warunkiem: brak kont, BT i
+   NFC wyłączone, ADB tylko po kablu (nigdy `adb tcpip`, debugowanie
+   bezprzewodowe wyłączone), usługi tylko na 127.0.0.1.
+
+Do sprawdzenia na tym ROM-ie, zanim telefon trafi pod podsufitkę:
+
+- SMS i **zwykłe** połączenie z karty w Redmi (nigdy próbnie na 112).
+  Custom ROM-y na MediaTeku często nie mają VoLTE — rozmowy schodzą wtedy
+  na 2G; to działa, ale warto wiedzieć przed „Zadzwoń 112”;
+- SensorServer daje około 100 Hz (§5.8);
+- kamera przednia robi zdjęcie z Termuxa (czuwanie kabiny):
+  `termux-camera-info` pokaże jej id (zwykle 1), potem
+  `termux-camera-photo -c <id> test.jpg`;
+- tethering USB włącza się z BCM (`svc usb setFunctions rndis`, wiersz
+  „Telefon w aucie”);
+- nadajnik IR działa (`termux-infrared-frequencies` zwraca listę) —
+  potrzebny dopiero do wybudzania BCM z telefonu.
+
 ### 5.8 Czujniki telefonu i wykrywanie stłuczki (`phone_sensors`, `crash_detect`)
 
 **Czujniki** (`src/sensors/phone_sensors.py`, `modules.phone_sensors`,
@@ -979,8 +1036,9 @@ ANULUJ) to kolejny moduł, `crash_sms` (§5.10).
 3. Uprawnienia Termux:API: **SMS** i **Telefon**; pierwsze
    `termux-sms-send -n +48… ` ręcznie (okno zgody). Optymalizacja baterii
    wyłączona dla Termux, Termux:API i Termux:Boot.
-4. **Xiaomi (MIUI/HyperOS)** — bez tego agent nie wstanie po restarcie
-   albo nie wyśle SMS-a bez człowieka:
+4. **Tylko Xiaomi z MIUI/HyperOS** (na crDroid/AOSP zamiast tego §5.7a:
+   phantom process killer, powiadomienia, bateria) — bez tego agent nie
+   wstanie po restarcie albo nie wyśle SMS-a bez człowieka:
    - Ustawienia → Aplikacje → Termux i Termux:Boot → **Autostart: ON**
      (inaczej Termux:Boot nie dostaje sygnału startu telefonu);
    - Ustawienia → Aplikacje → Termux:API → Uprawnienia → **Wysyłanie SMS:
