@@ -6,8 +6,17 @@ Wszystko pozostałe wyłączone.
 
 Wdrożenie docelowe (pełne): [`WDROZENIE_M910Q.md`](WDROZENIE_M910Q.md).
 
+> **Instrukcja krok po kroku dla auta testowego** (co się zmieniło w
+> #126–#129, migracja ustawień, sekrety, BIOS, główny telefon, audio,
+> tabela przełączników, lista sprawdzeń, wycofanie zmian):
+> [`WDROZENIE_TESTOWE_TELEFON.md`](WDROZENIE_TESTOWE_TELEFON.md).
+> Przygotowanie telefonu w aucie:
+> [`PRZYGOTOWANIE_TELEFONU.md`](PRZYGOTOWANIE_TELEFONU.md). Ten dokument
+> zostaje opisem technicznym — tam, gdzie się pokrywają, kroki są w tamtych.
+
 > **To nie jest stanowisko biurkowe.** Zestaw jedzie w aucie, więc tor
-> zasilania jest kompletny: ładowanie banku, blokada przeładowania i LVD.
+> zasilania ma być kompletny: ładowanie banku, blokada przeładowania i LVD
+> (dziś auto testowe jeździ jeszcze bez bufora — §3).
 > Oszczędzamy na funkcjach BCM i na wariancie ładowarki — **nie na
 > zabezpieczeniach**.
 
@@ -36,7 +45,10 @@ Wdrożenie docelowe (pełne): [`WDROZENIE_M910Q.md`](WDROZENIE_M910Q.md).
 ## 1. Co uruchamiamy
 
 Pięć modułów zamiast dwudziestu ośmiu, plus dwa podsystemy potrzebne do
-Android Auto wireless:
+Android Auto wireless — to był punkt wyjścia. Od #127 config testowy włącza
+też internet i GPS z telefonu, trasy, pogodę, książkę telefoniczną i stan
+telefonu, a dodatki z telefonem w aucie czekają wyłączone; aktualna tabela
+przełączników: [`WDROZENIE_TESTOWE_TELEFON.md`](WDROZENIE_TESTOWE_TELEFON.md) §8.
 
 | Przełącznik | Po co | Czego wymaga |
 |-------------|-------|--------------|
@@ -89,6 +101,15 @@ przechodzi do STANDBY, co oznacza wygaszenie podświetlenia i
 ---
 
 ## 3. Zasilanie
+
+> **Stan auta testowego dziś: bufora jeszcze nie ma.** **Każde zgaszenie
+> silnika to twarde odcięcie prądu** M910q (a z nim zasilania USB telefonu
+> w aucie) w dowolnej chwili, także w trakcie zapisu na dysk. Przed
+> skutkami chronią atomowe zapisy BCM (`config/local.yaml`, dane w `data/`)
+> i `config/scripts/bcm-harden.sh` (fsck przy starcie, krótsze okno
+> niezapisanych danych) — kroki:
+> [`WDROZENIE_TESTOWE_TELEFON.md`](WDROZENIE_TESTOWE_TELEFON.md) §3. Ten
+> rozdział opisuje tor zasilania, który ma to zmienić.
 
 ### 3.1 Tor — co jedzie w aucie
 
@@ -164,10 +185,12 @@ Pięć rzeczy warto tu zauważyć:
 
 ### 3.1a Stałe zasilanie i S3 — co to kosztuje
 
-Zapłon nie odcina już komputera. Zamiast tego **Arduino wykrywa zmianę stanu
-zapłonu**, a M910q schodzi do **S3** i z niego wraca. Zysk jest realny:
-wybudzenie w ~3 s zamiast ~40 s zimnego startu, bez ryzyka ucięcia zapisu
-na dysk w połowie.
+Z buforem zapłon nie odcina już komputera. Zamiast tego **Arduino wykrywa
+zmianę stanu zapłonu**, a M910q schodzi do **S3** i z niego wraca. Zysk jest
+realny: wybudzenie w ~3 s zamiast ~40 s zimnego startu, a zgaszenie silnika
+przestaje ucinać zapis na dysk w połowie. Prąd nadal może zniknąć bez
+ostrzeżenia (LVD przy rozładowanym banku, wyłącznik główny, luźny styk), więc
+atomowe zapisy BCM i `bcm-harden.sh` zostają także w tej wersji.
 
 Cena też jest realna — i to jest najważniejsza liczba w tej zmianie:
 
@@ -564,9 +587,11 @@ Obowiązkowe sprawdzenia XL6019 i XH-M609 przed pierwszym załączeniem:
 
 ### 3.6 Wyłączanie — dopóki Arduino nie usypia, robisz to ręcznie
 
-Nic już nie tnie zasilania komputera, więc **nie ma ryzyka ucięcia zapisu
-na dysk** — to główny zysk z §3.1a. Dopóki jednak brakuje trzech elementów
-z tabeli w §3.1a, przejście do S3 wywołujesz sam:
+Gdy tor z §3.1 jest zamontowany, zgaszenie silnika nie tnie już zasilania
+komputera — to główny zysk z §3.1a. Ryzyko ucięcia zapisu maleje, ale nie
+znika: XH-M609 (LVD), wyłącznik główny albo luźny styk dalej odcinają prąd
+bez ostrzeżenia. Dopóki brakuje trzech elementów z tabeli w §3.1a, przejście
+do S3 wywołujesz sam:
 
 ```
 1. Zaparkuj.
@@ -575,8 +600,11 @@ z tabeli w §3.1a, przejście do S3 wywołujesz sam:
 4. Dłuższy postój? Wyłącznik główny — inaczej S3 zjada bank (§3.1a).
 ```
 
-Wybudzenie: przycisk zasilania albo dowolny klawisz z Pro Micro, o ile
-w BIOS-ie włączone jest **Wake on USB**. Wraca w ~3 s.
+Wybudzenie: przycisk zasilania — ręcznie albo przekaźnikiem z Arduino
+(§3.1a). Wraca w ~3 s. Klawisz z Pro Micro komputera **nie** obudzi: M910q
+w S3 odcina zasilanie portów USB, więc **Wake on USB** w BIOS-ie zostaw
+**wyłączone** — daje tylko fałszywe wybudzenia
+([`WDROZENIE_TESTOWE_TELEFON.md`](WDROZENIE_TESTOWE_TELEFON.md) §4).
 
 Zapomniany krok 2 nie jest groźny — maszyna po prostu pracuje dalej i szybciej
 zjada bank. Zapomniany krok 4 przy tygodniowym postoju kończy się odcięciem
@@ -636,13 +664,16 @@ BCM nie wymaga tu żadnej konfiguracji — bierze domyślny sink.
 
 ### 5.4 Konfiguracja wariantu testowego
 
-Repozytorium zawiera gotowy plik `config/bcm_config_test.yaml`: pięć
-modułów plus `bluetooth` i `wifi_ap` włączone, reszta wyłączona,
-ekran 1024×600.
+Repozytorium zawiera gotowy plik `config/bcm_config_test.yaml` (ekran
+1024×600, przełączniki modułów dla auta testowego). Usługa startuje z nim
+(`BCM_CONFIG` w unicie), nakłada `config/local.yaml` (zmiany z ekranu, poza
+gitem) i sekrety z `/etc/bcm/bcm.env`. Opis warstw, bezpieczna ręczna
+edycja `local.yaml` i migracja starego `bcm_config_temp.yaml`:
+[`WDROZENIE_TESTOWE_TELEFON.md`](WDROZENIE_TESTOWE_TELEFON.md) §2–§3.
 
-> `--config` **podmienia całą konfigurację**, nie nakłada się na
-> `bcm_config.yaml`. Dlatego jest to pełna kopia z pozmienianymi kluczami,
-> a nie krótka nakładka.
+> `--config` **podmienia całą konfigurację bazową**, nie nakłada się na
+> `bcm_config.yaml`. Dlatego jest to pełna kopia z pozmienianymi kluczami;
+> nakładką jest dopiero `config/local.yaml`.
 
 ### 5.5 Firmware Pro Micro
 
@@ -730,22 +761,19 @@ Kolejność:
 2. `adb` z pakietu Debiana — instalują go `setup-x86.sh` i `apply-fixes.sh`
    (głośne ostrzeżenie, gdy się nie uda); `bcm-harden.sh` krok 8 tylko
    raportuje.
-3. W telefonie: opcje programisty → debugowanie USB, „Disable adb
-   authorization timeout”; aplikacja serwera NMEA TCP (np. gpsdRelay) na
-   porcie 50000 (`network.car_phone.gps_remote_port`). Jeśli aplikacja
-   pozwala wybrać adres nasłuchu, ustaw **127.0.0.1** — BCM i tak czyta
-   pozycję przez `adb forward`, a przy włączonym hotspocie dla pasażerów
-   serwer na 0.0.0.0 pokazywałby pozycję auta każdemu podłączonemu
-   (ROM: §5.7a).
-4. Podłącz telefon i raz wywołaj adb **przez gniazdo BCM** (niżej,
-   „Bezpieczeństwo”) — w telefonie „Zawsze zezwalaj z tego komputera”:
-
-   ```bash
-   sudo install -d -m 0700 /run/bcm-adb     # moduł tworzy go sam; ręcznie tylko przed jego startem
-   sudo env ADB_SERVER_SOCKET=localfilesystem:/run/bcm-adb/adb.sock adb devices -l
-   ```
-
-   Klucz adb to `/root/.android/adbkey` (generuje go adb; nigdy w repo).
+3. Telefon przygotowany według
+   [`PRZYGOTOWANIE_TELEFONU.md`](PRZYGOTOWANIE_TELEFONU.md) §1–§6: opcje
+   programisty (debugowanie USB, „Disable adb authorization timeout”) i serwer NMEA TCP
+   na porcie 50000 (`network.car_phone.gps_remote_port`) z nasłuchem na
+   **127.0.0.1** — BCM i tak czyta pozycję przez `adb forward`, a przy
+   włączonym hotspocie dla pasażerów serwer na 0.0.0.0 pokazywałby pozycję
+   auta każdemu podłączonemu.
+4. Zgoda adb raz, **przez gniazdo BCM** (niżej, „Bezpieczeństwo”) —
+   polecenia: [`PRZYGOTOWANIE_TELEFONU.md`](PRZYGOTOWANIE_TELEFONU.md)
+   §8.2; w telefonie „Zawsze zezwalaj z tego komputera”.
+   Katalog `/run/bcm-adb` moduł tworzy sam; ręcznie tylko przed jego
+   startem. Klucz adb to `/root/.android/adbkey` (generuje go adb; nigdy
+   w repo).
    Zwykłe `sudo adb …` uruchamia **drugi** serwer adb na `127.0.0.1:5037`,
    który walczy z serwerem BCM o telefon na USB — jeśli to się zdarzyło:
    `sudo adb kill-server`. Wygodny alias:
@@ -886,49 +914,24 @@ Pro (begonia), najlepiej bez usług Google (GPS działa bez nich, pierwszy
 fix bywa tylko wolniejszy). Androidy 14 i 15 nic tu nie dodają, a mocniej
 ograniczają pracę w tle i aplikacje spoza sklepu — nie były sprawdzane.
 
-Na Androidzie 13 (AOSP/crDroid) zrób raz:
+Kroki na Androidzie 13 (AOSP/crDroid) są w
+[`PRZYGOTOWANIE_TELEFONU.md`](PRZYGOTOWANIE_TELEFONU.md):
 
-1. **Phantom process killer wyłączony** — inaczej Android potrafi ubić
-   procesy Termuxa (agent z §5.9) w tle. W Termuxie (telefon zrootowany):
-
-   ```bash
-   su -c '/system/bin/device_config set_sync_disabled_for_tests persistent'
-   su -c '/system/bin/device_config put activity_manager max_phantom_processes 2147483647'
-   ```
-
-   Jeśli w Opcjach programisty → Feature flags jest
-   `settings_enable_monitor_phantom_procs`, wyłącz go. Sprawdzenie:
-   `su -c '/system/bin/device_config get activity_manager max_phantom_processes'`.
-2. **Powiadomienia** (Android 13 pyta o nie osobno) i **bateria „Bez
-   ograniczeń”** dla: Termux, Termux:API, Termux:Boot, SensorServer i
-   aplikacji serwera NMEA.
-3. **Termux i wtyczki z jednego źródła** (F-Droid) — Termux, Termux:API i
-   Termux:Boot muszą mieć ten sam podpis; wersja ze Sklepu Play nie dogada
-   się z resztą.
-4. Kroki „Xiaomi (MIUI/HyperOS)” z §5.9 (Autostart, kłódka) na crDroid
-   **nie dotyczą** — ich odpowiednikiem jest punkt 1 i 2.
-5. **Hotspot dla pasażerów** (`car_phone_hotspot`): WPA2/WPA3 i mocne
-   hasło. SensorServer z **Local Host** (§5.8), serwer NMEA na 127.0.0.1
-   (§5.7 krok 3), agent BCM słucha tylko na 127.0.0.1 — klienci hotspotu
-   nie widzą wtedy ani pozycji, ani czujników.
-6. **Poprawki bezpieczeństwa:** crDroid 13 raczej ich już nie dostaje. Dla
-   telefonu tylko do auta to akceptowalne pod warunkiem: brak kont, BT i
-   NFC wyłączone, ADB tylko po kablu (nigdy `adb tcpip`, debugowanie
-   bezprzewodowe wyłączone), usługi tylko na 127.0.0.1.
-
-Do sprawdzenia na tym ROM-ie, zanim telefon trafi pod podsufitkę:
-
-- SMS i **zwykłe** połączenie z karty w Redmi (nigdy próbnie na 112).
-  Custom ROM-y na MediaTeku często nie mają VoLTE — rozmowy schodzą wtedy
-  na 2G; to działa, ale warto wiedzieć przed „Zadzwoń 112”;
-- SensorServer daje około 100 Hz (§5.8);
-- kamera przednia robi zdjęcie z Termuxa (czuwanie kabiny, §5.13):
-  `termux-camera-info` pokaże jej id (zwykle 1), potem
-  `termux-camera-photo -c <id> test.jpg`;
-- tethering USB włącza się z BCM (`svc usb setFunctions rndis`, wiersz
-  „Telefon w aucie”);
-- nadajnik IR działa (`termux-infrared-frequencies` zwraca listę) —
-  potrzebny dopiero do wybudzania BCM z telefonu.
+- **phantom process killer wyłączony** (inaczej Android ubija procesy
+  Termuxa — agenta z §5.9 — w tle), **powiadomienia** i **bateria „Bez
+  ograniczeń”** dla Termux, Termux:API, Termux:Boot, SensorServer
+  i aplikacji NMEA — §5 tamże;
+- **Termux i wtyczki z jednego źródła** (F-Droid, ten sam podpis) — §4;
+  kroki „Xiaomi (MIUI/HyperOS)” z nagłówka `bcm_agent.py` (Autostart,
+  kłódka) na crDroid **nie dotyczą**;
+- **hotspot dla pasażerów** (`car_phone_hotspot`): WPA2/WPA3, SensorServer
+  z Local Host, serwer NMEA i agent tylko na 127.0.0.1 — §17;
+- **poprawki bezpieczeństwa:** crDroid 13 raczej ich już nie dostaje; dla
+  telefonu tylko do auta akceptowalne przy braku kont, wyłączonych BT i NFC,
+  ADB tylko po kablu (nigdy `adb tcpip`) i usługach na 127.0.0.1 — §19;
+- **sprawdzenia na tym ROM-ie** przed montażem (SMS i zwykłe połączenie —
+  nigdy próbnie na 112; MediaTek bez VoLTE schodzi na 2G; SensorServer
+  ~100 Hz; kamera przednia; `svc usb setFunctions rndis`; nadajnik IR) — §15.
 
 ### 5.8 Czujniki telefonu i wykrywanie stłuczki (`phone_sensors`, `crash_detect`)
 
@@ -941,15 +944,13 @@ do rozpoznania telefonu, który spada, obracając się; gdy SensorServer go
 odmówi (zamknięcie z kodem 4xxx przed pierwszą ramką), BCM łączy się dalej
 bez niego i loguje to raz.
 
-W telefonie, w SensorServer:
-
-1. **Local Host** włączone (serwer słucha tylko na 127.0.0.1 telefonu —
-   dostępny przez adb, nie przez Wi-Fi), port **8080**
-   (`network.car_phone.sensors_remote_port`).
-2. **Częstotliwość próbkowania 10000 µs** (100 Hz). Domyślna w aplikacji
-   jest dużo wolniejsza, a poniżej 80 Hz (`crash_detection.min_rate_hz`)
-   wykrywanie stłuczki z akcelerometru jest wyłączone.
-3. Start serwera przy uruchomieniu telefonu, bateria bez ograniczeń.
+W telefonie, w SensorServer
+([`PRZYGOTOWANIE_TELEFONU.md`](PRZYGOTOWANIE_TELEFONU.md) §7): **Local
+Host** (tylko 127.0.0.1 telefonu — dostępny przez adb, nie przez Wi-Fi),
+port **8080** (`network.car_phone.sensors_remote_port`), **próbkowanie 10000
+µs** (100 Hz; domyślne jest dużo wolniejsze, a poniżej 80 Hz —
+`crash_detection.min_rate_hz` — wykrywanie stłuczki z akcelerometru jest
+wyłączone), start przy uruchomieniu telefonu, bateria bez ograniczeń.
 
 BCM publikuje `phone.g_force` (≤ 10 Hz: szczyty poziomo/pionowo w g, zmiana
 prędkości w poziomie w oknie 150 ms, swobodny spadek, nasycenie,
@@ -1034,27 +1035,15 @@ wszędzie) sprawdza stan agenta co 30 s, wysyła mu ustawienia, gdy się
 zmienią, i paruje go. Sam przebieg SMS-owy (odliczanie na ekranie,
 ANULUJ) to kolejny moduł, `crash_sms` (§5.10).
 
-**W telefonie** (pełny opis w nagłówku `bcm_agent.py`):
-
-1. Termux, **Termux:API** i **Termux:Boot** z F-Droid; Termux:Boot raz
-   otwórz ręcznie.
-2. W Termuxie: `pkg install python termux-api`, skopiuj `bcm_agent.py` do
-   `~/bcm_agent/`, a `boot_bcm_agent.sh` do `~/.termux/boot/`
-   (`chmod 700`). Skrypt bierze `termux-wake-lock` i restartuje agenta po
-   awarii.
-3. Uprawnienia Termux:API: **SMS** i **Telefon**; pierwsze
-   `termux-sms-send -n +48… ` ręcznie (okno zgody). Optymalizacja baterii
-   wyłączona dla Termux, Termux:API i Termux:Boot.
-4. **Tylko Xiaomi z MIUI/HyperOS** (na crDroid/AOSP zamiast tego §5.7a:
-   phantom process killer, powiadomienia, bateria) — bez tego agent nie
-   wstanie po restarcie albo nie wyśle SMS-a bez człowieka:
-   - Ustawienia → Aplikacje → Termux i Termux:Boot → **Autostart: ON**
-     (inaczej Termux:Boot nie dostaje sygnału startu telefonu);
-   - Ustawienia → Aplikacje → Termux:API → Uprawnienia → **Wysyłanie SMS:
-     „Zezwalaj”**, nie „Pytaj” (przy „Pytaj” każdy SMS czeka na kliknięcie
-     na ekranie telefonu — alarm po stłuczce nigdy by nie wyszedł);
-   - Termux zablokowany w ostatnich aplikacjach (kłódka).
-5. Restart telefonu. Log: `~/.config/bcm_agent/agent.log` (rotowany).
+**W telefonie:** [`PRZYGOTOWANIE_TELEFONU.md`](PRZYGOTOWANIE_TELEFONU.md) §9
+(Termux, Termux:API i Termux:Boot z F-Droid, `pkg install python
+termux-api`, `bcm_agent.py` w `~/bcm_agent/`, `boot_bcm_agent.sh` w
+`~/.termux/boot/` — bierze `termux-wake-lock` i restartuje agenta po awarii;
+uprawnienia Termux:API; log `~/.config/bcm_agent/agent.log`, rotowany).
+**Tylko Xiaomi z MIUI/HyperOS** ma dwie własne blokady — Autostart dla
+Termux i Termux:Boot oraz „Wysyłanie SMS: Zezwalaj”, nie „Pytaj” (przy
+„Pytaj” każdy SMS czeka na kliknięcie na ekranie, alarm po stłuczce nigdy by
+nie wyszedł); opis w nagłówku `bcm_agent.py`. Na crDroid zamiast tego §5.7a.
 
 **W BCM:**
 
@@ -1327,10 +1316,9 @@ i dozwolone drogi), `hold_ms: 2000`, `arm_delay_ms: 700`, `window_min: 30`.
 Przełącznik `modules.call112` jest jedynym włącznikiem (bez klucza
 `enabled`).
 
-**Telefon w aucie (droga „głośnik”):** w Magisku → Superużytkownik →
-**Termux: zezwól** (tylko Termux) i wyłącz tam powiadomienia/logi dla
-Termuxa (agent sprawdza `su` co 10 min, a w trakcie rozmowy co 2 s).
-Sprawdzenie w Termuxie: `su -c 'id -u'` musi wypisać `0`. Agent zgłasza
+**Telefon w aucie (droga „głośnik”):** Magisk `su` tylko dla Termuxa,
+z wyłączonymi powiadomieniami, sprawdzenie `su -c 'id -u'` = `0` —
+[`PRZYGOTOWANIE_TELEFONU.md`](PRZYGOTOWANIE_TELEFONU.md) §11. Agent zgłasza
 gotowość w `/v1/health` jako `call112_capable` (przełącznik `call112`
 włączony, `su` działa, w trybie testowym jest numer); wiersz „Agent
 w telefonie” w Ustawieniach pokazuje to jako „112: gotowy (test)” /
@@ -1533,36 +1521,24 @@ albo poniżej 30% wersja **„lekka”** (co 20 s paczka 10 próbek,
 bez SMS-a) — telefon ma mieć jeszcze siłę na SMS po stłuczce, a
 rozładowany trzeba włączać ręcznie.
 
-**W telefonie:**
-
-1. Agent **≥ 1.2.0**: skopiuj nowy `bcm_agent.py` do `~/bcm_agent/`
-   i `pkill -f bcm_agent.py` (wiersz „Agent w telefonie” pokazuje wersję;
-   starszy agent z włączonym `parking_guard` = „agent w telefonie jest
-   starszy niż BCM”).
-2. Uprawnienia Termux:API: **SMS** (wysyłanie i odczyt) i **Lokalizacja:
-   „Zezwalaj cały czas”** (Android 13 — inaczej `termux-location` w tle
-   nic nie zwraca). Bateria „Bez ograniczeń” jak w §5.7a.
-3. Sekret TOTP: `python ~/bcm_agent/bcm_agent.py --park-setup` — wypisze
-   adres `otpauth://…` i sam sekret (base32); dodaj go w aplikacji
-   „authenticator” na SWOIM telefonie (np. Aegis z F-Droid: wklej adres
-   albo wpisz sekret ręcznie — TOTP, SHA1, 6 cyfr, 30 s). Sekret leży w
-   `~/.config/bcm_agent/park_totp` (0600) i nie trafia do logu; drugi
-   `--park-setup` pokazuje ten sam, `--park-setup --new` tworzy nowy
-   (stary kod w aplikacji przestaje działać). Działający agent bierze go
-   bez restartu.
-4. (Opcjonalnie) numery ustawione w samym telefonie, gdy BCM nie wysyła
-   własnych: `python ~/bcm_agent/bcm_agent.py --park-numbers '+48601234567,+48601234568'`
-   (`''` czyści listę).
+**W telefonie:** [`PRZYGOTOWANIE_TELEFONU.md`](PRZYGOTOWANIE_TELEFONU.md)
+§12 — agent **≥ 1.2.0**, uprawnienia Termux:API **SMS** i **Lokalizacja:
+„Zezwalaj cały czas”** (Android 13 — inaczej `termux-location` w tle nic nie
+zwraca), sekret TOTP z `bcm_agent.py --park-setup` (plik
+`~/.config/bcm_agent/park_totp`, 0600, nigdy w logu; działający agent bierze
+go bez restartu; `--new` = nowy sekret) do aplikacji authenticator na SWOIM
+telefonie i opcjonalnie numery w samym telefonie (`--park-numbers`).
 
 **W BCM:**
 
 1. Ustawienia → Moduły: `car_phone`, `car_phone_agent`, `parking_guard`;
    restart BCM.
-2. W `config/local.yaml` (nigdy w repo — dane osobowe):
+2. W `config/local.yaml` (nigdy w repo — dane osobowe) — wpisz własne
+   numery w miejsce przykładowego:
 
    ```yaml
    parking_guard:
-     numbers: ['+48601234567']            # ≤ 3, E.164: alarm i polecenia SMS
+     numbers: ['+48XXXXXXXXX']            # wpisz własny; ≤ 3, E.164: alarm i polecenia SMS
      owner_macs: ['AA:BB:CC:DD:EE:FF']    # telefon(y) właściciela, ≤ 4
      home: {lat: 52.2297, lon: 21.0122, radius_m: 150}   # opcjonalnie, ≥ 50 m
    ```
@@ -1774,29 +1750,15 @@ pierwsze), sprawdzana co 10 min — także przy wyłączonym czuwaniu.
 - skradziony, odblokowany telefon (blokada ekranu „Brak”!) ujawnia zdjęcia
   z ostatnich 72 h i sekrety agenta.
 
-**W telefonie:**
-
-1. Agent **≥ 1.3.0** (skopiuj nowy `bcm_agent.py` do `~/bcm_agent/`,
-   `pkill -f bcm_agent.py`; starszy agent z włączonym `cabin_watch` = „agent
-   w telefonie jest za stary”).
-2. Uprawnienie Termux:API **Aparat** (Ustawienia → Aplikacje → Termux:API →
-   Uprawnienia); pierwsze `termux-camera-photo` wywołaj ręcznie.
-3. Magisk `su` dla Termuxa (jak przy „Zadzwoń 112”, §5.11) z wyłączonymi
-   powiadomieniami (Magisk → Superużytkownik → Termux).
-4. Blokada ekranu **Brak** (nie przesunięcie — §5.7a) i wygaszanie ekranu
-   po **15 s** (gdyby agent zginął w trakcie serii, ekran sam zgaśnie).
-4a. **Wyłącz każde inne budzenie ekranu** (Ustawienia crDroid → Wyświetlacz
-   i tam, gdzie ROM je trzyma — nazwy różnią się między wersjami):
-   wyświetlacz otoczenia (Ambient display / „zawsze włączony”), budzenie
-   ekranu przy nowych powiadomieniach, „podnieś, aby wybudzić”, dwukrotne
-   dotknięcie, budzenie po podłączeniu ładowarki. Czujnik światła jest po
-   stronie ekranu: każde takie zapalenie ekranu to dla agenta „skok
-   światła”, który z pierwszym ruchem auta da zdarzenie kabiny. Na postoju
-   ekran ma zapalać wyłącznie agent (na czas swoich zdjęć sam wycisza
-   czujnik).
-5. (Opcjonalnie) `pkg install python-pillow` — analiza zdjęć i przekodowanie
-   bez EXIF. Wiersz „Czuwanie kabiny” pokazuje „bez analizy zdjęć”, gdy go
-   nie ma.
+**W telefonie:** [`PRZYGOTOWANIE_TELEFONU.md`](PRZYGOTOWANIE_TELEFONU.md)
+§13 — agent **≥ 1.3.0**, uprawnienie Termux:API **Aparat**, Magisk `su` dla
+Termuxa (jak przy „Zadzwoń 112”), blokada ekranu **Brak** i wygaszanie po 15
+s, **wyłączone każde inne budzenie ekranu** (wyświetlacz otoczenia, budzenie
+przy powiadomieniach i po podłączeniu ładowarki itd. — czujnik światła jest
+po stronie ekranu, więc każde takie zapalenie to dla agenta „skok światła”;
+na postoju ekran ma zapalać wyłącznie agent) i opcjonalnie `pkg install
+python-pillow` (analiza zdjęć; bez niego wiersz „Czuwanie kabiny” pokazuje
+„bez analizy zdjęć”).
 
 **W BCM:**
 
@@ -1826,32 +1788,17 @@ pierwsze), sprawdzana co 10 min — także przy wyłączonym czuwaniu.
    wynik analizy, co się stało) i czego brakuje. Bez przycisków — rozbraja
    się w wierszu „Postój”.
 
-**Sprawdzenie na stole** (`parking_guard.log_only: true`, w Termuxie):
+**Sprawdzenie na stole** (`parking_guard.log_only: true`):
 
-1. **Id przedniej kamery:** `termux-camera-info` — wpis z
-   `"facing": "front"` (zwykle `"id": "1"`).
-2. **Zdjęcie przy wygaszonym ekranie, po restarcie telefonu:** zrestartuj
-   telefon, poczekaj, aż agent wstanie (Termux:Boot), otwórz Termux i wpisz
-   to, co robi agent, z minutą zwłoki na początku (`1` = id z kroku 1):
-
-   ```
-   sleep 60; su -c 'input keyevent KEYCODE_WAKEUP'; su -c 'am start -W -a android.intent.action.MAIN -c android.intent.category.LAUNCHER com.termux'; termux-camera-photo -c 1 ~/test.jpg; su -c 'input keyevent KEYCODE_SLEEP'
-   ```
-
-   Po Enterze naciśnij „Home” (Termux w tle, jak na postoju) i wygaś ekran
-   przyciskiem. Po ok. minucie ekran sam się zapali, Termux wyjdzie na
-   wierzch, a po zdjęciu ekran zgaśnie. Potem `ls -l ~/test.jpg` — plik
-   musi mieć ponad 0 bajtów. Obejrzyj go (np. `termux-open
-   ~/test.jpg`) — w tym kadrze ustalasz maskę okien — i usuń (`rm
-   ~/test.jpg`).
-3. **Czujnik światła przy wygaszonym ekranie:** `termux-sensor -l` (nazwa
-   z „Light”), potem przy wygaszonym ekranie
-   `termux-sensor -s '<nazwa>' -d 1000 -n 10` (po zakończeniu
-   `termux-sensor -c`) i zapal lampkę sufitową — wartości muszą skoczyć
-   (z kilku do kilkudziesięciu lux). Jeśli czujnik przy wygaszonym ekranie
-   milczy, zdjęcia dają już tylko przechył, drzwi (wersja docelowa)
-   i ok. 20 s kołysania (3 ruchy w 60 s) — krótkie wejście bez lampki ich
-   nie da, alarm na postoju i tak wyśle SMS „wstrząs”.
+1. **Id przedniej kamery** —
+   [`PRZYGOTOWANIE_TELEFONU.md`](PRZYGOTOWANIE_TELEFONU.md) §13, krok 6.
+2. **Zdjęcie przy wygaszonym ekranie, po restarcie telefonu** (te same
+   stałe polecenia, które wykonuje agent) — tamże, krok 7; w tym kadrze
+   ustalasz maskę okien.
+3. **Czujnik światła przy wygaszonym ekranie** — tamże, krok 8. Jeśli
+   czujnik przy wygaszonym ekranie milczy, zdjęcia dają już tylko przechył,
+   drzwi (wersja docelowa) i ok. 20 s kołysania (3 ruchy w 60 s) — krótkie
+   wejście bez lampki ich nie da, alarm na postoju i tak wyśle SMS „wstrząs”.
 4. **Cała ścieżka:** uzbrój — „Uzbrój” w wierszu „Postój” (uzbrojony po
    `parking_guard.arm_delay_min`, domyślnie 2 min) albo odłącz kabel USB
    (po `arm_after_min` + `arm_delay_min`, domyślnie 3 + 2 min bez prądu
@@ -2133,8 +2080,11 @@ Sprawdzenie bez startowania modułów:
 python3 main.py --platform x86 --config config/bcm_config_test.yaml --dry-run
 ```
 
-Powinno wypisać **5 modules would load** — `bluetooth` i `wifi_ap` to
-podsystemy startowane wprost w `main.py`, więc nie liczą się do tej sumy.
+Wypisuje każdy moduł jako `ENABLED`, `NOT STARTED (powód)` albo `disabled`
+i na końcu `N modules would load` — `N` zależy od przełączników (także
+z `config/local.yaml`, chyba że dodasz `--no-local-config`). Podsystemy bez
+własnego punktu startu (np. `bluetooth`, `wifi_ap`, `phonebook`,
+`phone_status`) uruchamia wprost `main.py`, więc nie liczą się do tej sumy.
 
 ### 6.2 Kiosk
 
@@ -2174,7 +2124,7 @@ Pełna procedura siedmioetapowa (z pomiarami na każdym kroku):
 **Software**
 
 ```
-[ ] python3 main.py --dry-run pokazuje 5 modułów
+[ ] python3 main.py --dry-run: żaden włączony moduł nie jest NOT STARTED
 [ ] curl http://localhost:5002 zwraca HTML
 [ ] Dashboard widoczny na ekranie 7", dotyk działa
 [ ] wpctl status pokazuje analogowe wyjście jako domyślny sink
@@ -2266,6 +2216,8 @@ przejdź na `bcm_config.yaml`, gdy większość będzie już podłączona.
 
 | Dokument | Zakres |
 |----------|--------|
+| [`WDROZENIE_TESTOWE_TELEFON.md`](WDROZENIE_TESTOWE_TELEFON.md) | **auto testowe krok po kroku**: migracja, sekrety, BIOS, telefony, audio, przełączniki, sprawdzenia |
+| [`PRZYGOTOWANIE_TELEFONU.md`](PRZYGOTOWANIE_TELEFONU.md) | **telefon w aucie** (Redmi, crDroid 13): ROM, Termux, agent, 112, postój, kabina |
 | [`LISTA_ZAKUPOWA.md`](LISTA_ZAKUPOWA.md) | **wszystko do kupienia w jednej tabeli** |
 | [`WDROZENIE_M910Q.md`](WDROZENIE_M910Q.md) | wdrożenie docelowe, pełne |
 | [`ZASILANIE_BUFOROWANE.md`](ZASILANIE_BUFOROWANE.md) | warianty ładowania, nastawy modułów, sprawdzenia przed załączeniem |

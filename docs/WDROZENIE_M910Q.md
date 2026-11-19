@@ -215,7 +215,8 @@ Wejście: **F1** przy starcie.
 | **Fast Boot** | Startup | Enabled | skraca POST |
 | **Secure Boot** | Security | Disabled | wymagane przez kernel i sterowniki |
 | **USB Legacy** | USB Setup | Disabled | skraca POST |
-| **Wake on USB** | Power | Enabled *(opcjonalne)* | wygodne, ale niekonieczne — wybudza impuls Arduina na przycisk zasilania |
+| **Wake on USB** | Power | **Disabled** | M910q w S3 odcina zasilanie portów USB, więc nic na USB (klawisze HID z Arduino, telefon w aucie) go nie obudzi — zostają tylko fałszywe wybudzenia. Budzi przekaźnik Nano #2 na przycisku zasilania |
+| **Wake on LAN** | Power | **Disabled** | port Ethernet nie jest używany |
 
 > ⚠ **After Power Loss = Power On to ustawienie krytyczne.** Przy „Last
 > State" albo „Power Off" M910q nie wstanie po chwilowym zaniku napięcia

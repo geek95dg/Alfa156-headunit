@@ -112,7 +112,7 @@ dlaczego:
 |---|---|---|
 | Postój (7 pakietów) | ~9,3 dnia | ~1,6–3,7 dnia w S3, ~5,0–14,9 po wyłączeniu |
 | Wybudzenie | zimny start ~40 s | **~3 s** z S3 |
-| Ryzyko ucięcia zapisu na dysk | **przy każdym przekręceniu kluczyka** | brak — maszyna schodzi do S3 sama |
+| Ryzyko ucięcia zapisu na dysk | **przy każdym przekręceniu kluczyka** | mniejsze — maszyna schodzi do S3 sama, ale LVD, wyłącznik główny i luźny styk nadal tną prąd |
 | Elementy w torze mocy | przekaźnik 30 A + okablowanie | **brak** |
 | Kod / firmware | brak | impuls z Arduino, po stronie hosta zero zmian |
 

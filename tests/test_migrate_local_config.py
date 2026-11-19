@@ -216,6 +216,56 @@ class TestMigrate:
         assert "interval_sec" not in plan["overlay"].get("tracking", {})
         assert "tracking.interval_sec" in {i["path"] for i in plan["skipped"]}
 
+    def test_old_crash_detect_false_does_not_switch_the_detector_off(self):
+        """The test base enables crash detection on purpose (#128); every
+        device temp file still says `false` (the old default) — that must not
+        turn it off on a migrated car. A device `true` over a base `false`
+        is a choice and migrated; --keep-source keeps a device `false`."""
+        base = {"modules": {"crash_detect": True}}
+        plan = tool.build_plan({"modules": {"crash_detect": False}}, base)
+        assert plan["overlay"] == {}
+        assert [i["path"] for i in plan["skipped"]] == ["modules.crash_detect"]
+        plan = tool.build_plan({"modules": {"crash_detect": True}},
+                               {"modules": {"crash_detect": False}})
+        assert plan["overlay"] == {"modules": {"crash_detect": True}}
+        plan = tool.build_plan({"modules": {"crash_detect": False}}, base,
+                               keep_source=["modules.crash_detect"])
+        assert plan["overlay"] == {"modules": {"crash_detect": False}}
+
+    def test_obsolete_crash_detector_keys_are_dropped(self):
+        """The old detector's thresholds are read by nothing — they are
+        reported as DROPPED, never copied into local.yaml."""
+        base = {"crash_detection": {"min_speed_kmh": 25}}
+        device = {"crash_detection": {"min_speed_kmh": 30, "speed_drop_threshold": 30,
+                                      "g_force_threshold": 3.0,
+                                      "post_crash_record_sec": 60}}
+        plan = tool.build_plan(device, base)
+        assert plan["overlay"] == {"crash_detection": {"min_speed_kmh": 30}}
+        dropped = {i["path"]: i["reason"] for i in plan["dropped"]}
+        assert set(dropped) == {"crash_detection.speed_drop_threshold",
+                                "crash_detection.g_force_threshold",
+                                "crash_detection.post_crash_record_sec"}
+        assert all("no longer read" in r for r in dropped.values())
+
+    def test_obsolete_keys_follow_the_detector(self):
+        from src.safety.crash_detect import LEGACY_KEYS
+        assert set(tool.DROP_OBSOLETE) == {f"crash_detection.{k}" for k in LEGACY_KEYS}
+
+    def test_real_device_file_keeps_crash_detection_on(self):
+        """The tracked temp file (shape of every car's file before #126:
+        `crash_detect: false` plus the old thresholds) against the tracked
+        test base: detection stays on, nothing obsolete lands in the overlay."""
+        source = yaml.safe_load((REPO / "config" / "bcm_config_temp.yaml").read_text())
+        base = yaml.safe_load((REPO / "config" / "bcm_config_test.yaml").read_text())
+        assert source["modules"]["crash_detect"] is False
+        assert base["modules"]["crash_detect"] is True
+        plan = tool.build_plan(source, base)
+        assert "crash_detect" not in plan["overlay"].get("modules", {})
+        assert "modules.crash_detect" in {i["path"] for i in plan["skipped"]}
+        obsolete = {"speed_drop_threshold", "g_force_threshold", "post_crash_record_sec"}
+        assert not set(plan["overlay"].get("crash_detection", {})) & obsolete
+        assert {f"crash_detection.{k}" for k in obsolete} <= {i["path"] for i in plan["dropped"]}
+
     def test_exclude(self, files, capsys):
         base, source, out = files
         _run(capsys, "--source", source, "--base", base, "--out", out,

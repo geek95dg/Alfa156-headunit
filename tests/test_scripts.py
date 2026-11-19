@@ -492,9 +492,19 @@ class TestBcmHarden:
         # bcm.env is only grep -q'ed, never printed.
         assert re.search(r'grep -Eq [^\n]*"\$ENV_FILE"', check)
         assert "MIGRATION_PENDING" in _function_body(self.text, "step_summary")
+        # A local.yaml BCM wrote under the old unit (# base: bcm_config_temp.yaml)
+        # is applied but never saved under the test base: warned about whatever
+        # unit is installed, and the hint merges it (its values win).
+        assert "MIGRATION_PENDING=2" in check
+        assert '$3 == "bcm_config_temp.yaml"' in check
+        assert 'merge=" --merge-existing"' in check
+        assert "--out config/local.yaml$merge" in check
+        assert check.index('[ -e "$overlay" ]') < check.index('grep -q \'bcm_config_temp\\.yaml\' "$unit"')
+        summary = _function_body(self.text, "step_summary")
+        assert '"$MIGRATION_PENDING" = 2' in summary and "--merge-existing" in summary
         # The flags the hint suggests are the tool's real ones.
         tool = (REPO / "tools" / "migrate_local_config.py").read_text(encoding="utf-8")
-        for flag in ("--source", "--base", "--out", "--write"):
+        for flag in ("--source", "--base", "--out", "--write", "--merge-existing"):
             assert f'"{flag}"' in tool, flag
 
     def test_header_says_cleanup_is_a_full_uninstall(self):

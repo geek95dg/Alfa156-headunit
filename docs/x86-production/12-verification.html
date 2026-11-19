@@ -665,8 +665,8 @@ echo "============================================"</code></pre>
                 <tr>
                   <td>Resume fails</td>
                   <td>System does not wake from S3 or hangs on resume</td>
-                  <td>USB wake not enabled or GPU driver issue</td>
-                  <td>Enable USB wake in BIOS; check <code>cat /proc/acpi/wakeup</code>; update Intel GPU firmware</td>
+                  <td>No power-button pulse (USB is unpowered in S3, so USB devices cannot wake it) or GPU driver issue</td>
+                  <td>Check the Nano #2 power-button relay (Wake on USB stays disabled in BIOS); check <code>cat /proc/acpi/wakeup</code>; update Intel GPU firmware</td>
                 </tr>
                 <tr>
                   <td>Splash not showing</td>
