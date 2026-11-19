@@ -123,8 +123,21 @@ local.yaml / Settings), ``sim_slot`` 0, ``vehicle_label`` "ALFA 156",
 ``follow_up_cancel`` go to the phone through ``car_phone_agent``'s config
 push; the phone enforces its own fixed limits (1 per 10 min, 3 a day) too.
 
+The manual "Zadzwoń 112" (src/safety/call112.py, plan H) never cancels the
+SMS. The phone marks the event ``called_112``: an SMS that has not gone out
+to anybody yet only gets "Z auta wybrano 112 o hh:mm" appended — the
+cancel budget STAYS ("Jestem OK" is still offered after it went out); one
+that already went out gets ONE follow-up SMS from the cancel budget, and
+then "Jestem OK" is no longer possible. The phone's ``follow_up_left`` is
+the only authority: when ``crash.call112_state`` says a REAL call for the
+event got through (``reached``) after the SMS was sent, BCM re-reads the
+phone's view once (:data:`C112_RECHECK_DELAY_S` later, so the phone's mark
+has landed) and hides "Jestem OK" only until that answer — and for good
+if the phone cannot be asked. During the countdown / sending the regular
+look-ups bring the phone's final word anyway.
+
 What this does NOT promise: delivery (no delivery reports), an SMS when the
-phone is dead or out of coverage, a call to 112 (manual, later batch).
+phone is dead or out of coverage, a call to 112 (that is manual: call112).
 """
 
 from __future__ import annotations
@@ -148,6 +161,8 @@ log = get_logger("safety.crash_sms")
 TOPIC_STATE = "crash.sms_state"
 TOPIC_DETECTED = "crash.detected"
 TOPIC_OUTCOME = "crash.outcome"
+#: src/safety/call112.py — read only (a real 112 call takes the follow-up).
+TOPIC_CALL112 = "crash.call112_state"
 CMD_CANCEL = "crash.cmd.cancel"
 CMD_SEND_NOW = "crash.cmd.send_now"
 SENSORS_TOPIC = "phone_sensors.state"
@@ -232,6 +247,10 @@ UNCONFIRMED_AFTER_S = 10.0
 G_FRESH_S = 2.0
 #: "Jestem OK" after a sent SMS: the agent sends one cancel SMS within 15 min.
 FOLLOW_UP_WINDOW_S = 900.0
+#: A real 112 call for a SENT event got through: re-read the phone's view
+#: (``follow_up_left``) this long after — path A's mark reaches the phone
+#: from call112's worker, path B's is set on ``am start``.
+C112_RECHECK_DELAY_S = 3.0
 #: Safety gate: a signed health answer at most this old ...
 AGENT_FRESH_S = 120.0
 #: ... and a verified real test SMS at most this old.
@@ -386,7 +405,10 @@ def parse_agent_view(view: Any, event_id: str) -> Optional[dict[str, Any]]:
     return {"state": state, "deadline_in_s": deadline,
             "dry_run": view.get("dry_run") is not False,
             "results": results, "cancel_sms": cancel_sms,
-            "error": "expired" if error == "expired" else ""}
+            "error": "expired" if error == "expired" else "",
+            # "Zadzwoń 112" (src/safety/call112.py) took the event's one
+            # follow-up SMS ("Z auta wybrano 112"): no "Jestem OK" any more.
+            "follow_up_left": view.get("follow_up_left") is not False}
 
 
 # ── the module ─────────────────────────────────────────────────────────────
@@ -440,6 +462,8 @@ class CrashSms:
         self._save_failed = False
         # Consecutive worker passes whose handler did not move next_try.
         self._spins = 0
+        # crash.call112_state "reached" already queued for this event id.
+        self._c112_seen: Optional[str] = None
         # What is on disk: a look-up every 2-3 s must not rewrite the same
         # JSON (SSD wear) — only a change is written.
         self._saved: Optional[dict[str, Any]] = None
@@ -464,6 +488,7 @@ class CrashSms:
                 (TOPIC_OUTCOME, self._on_outcome),
                 (CMD_CANCEL, self._on_cmd_cancel),
                 (CMD_SEND_NOW, self._on_cmd_send_now),
+                (TOPIC_CALL112, self._on_call112),
                 ("power.shutting_down", self._on_shutdown))
 
     def subscribe(self) -> None:
@@ -568,6 +593,22 @@ class CrashSms:
         eid = value.get("event_id")
         if isinstance(eid, str) and EVENT_ID_RE.fullmatch(eid):
             self.command("cancel", eid, source="auto")
+
+    def _on_call112(self, topic: str, value: Any, timestamp: float) -> None:
+        """``crash.call112_state``: a REAL 112 call of an event got through
+        (``reached``) — queued once per event; the worker decides whether
+        the phone's view must be re-read (:meth:`_c112_reached`)."""
+        if not isinstance(value, dict) or value.get("test_mode") is not False \
+                or value.get("reached") is not True:
+            return
+        eid = value.get("event_id")
+        if not isinstance(eid, str) or not EVENT_ID_RE.fullmatch(eid):
+            return
+        with self._lock:
+            if self._c112_seen == eid:
+                return
+            self._c112_seen = eid
+        self._enqueue(("c112", eid))
 
     def _cmd_args(self, value: Any) -> tuple[Optional[str], str]:
         eid, source = None, "bus"
@@ -696,6 +737,8 @@ class CrashSms:
             self._apply(kind, cmd[1], cmd[2])
         elif kind == "test":
             self._do_test()
+        elif kind == "c112":
+            self._c112_reached(cmd[1])
 
     def _new_event(self, det: dict, detected_at: float) -> None:
         now, wall = self._clock(), self._wall()
@@ -732,6 +775,7 @@ class CrashSms:
             "cancel_source": "", "cancel_mono": None, "send_now_pending": False,
             "final_ts": None, "final_mono": None, "phone_ok": False, "maybe_delivered": False,
             "confirmed": False, "went_out": False, "follow_up": cfg.follow_up_cancel,
+            "c112_recheck": False, "c112_recheck_at": None,
             "arm": {k: det[k] for k in ("lat", "lon", "fix_age_s", "speed_kmh", "dv_kmh")},
             "arm_until": created + self._arm_window(cfg.countdown_sec), "next_try": now,
             "retry": RETRY_MIN_S, "reconcile_until": None, "followed_until": now + ACTIVE_MAX_S,
@@ -854,12 +898,35 @@ class CrashSms:
 
     def _follow_up_ok(self, ev: dict) -> bool:
         """"Jestem OK" after a sent SMS: the phone sends ONE cancel SMS to
-        every recipient who got the crash SMS, within its 15 min."""
+        every recipient who got the crash SMS, within its 15 min — unless
+        the phone says that budget is gone (``follow_up``, from its
+        ``follow_up_left``), or a real 112 call after the SMS went out may
+        have used it and the phone was not asked yet (``c112_recheck``)."""
         if ev["cancel_pending"] or ev["state"] not in ("sent", "partial") \
-                or not ev["follow_up"] or not ev["went_out"]:
+                or not ev["follow_up"] or not ev["went_out"] or ev["c112_recheck"]:
             return False
         final = ev["final_ts"]
         return final is not None and abs(self._wall() - final) < FOLLOW_UP_WINDOW_S
+
+    def _c112_reached(self, eid: str) -> None:
+        """(worker) A REAL 112 call of ``eid`` got through. Only after a
+        SENT crash SMS can it have used the phone's one follow-up SMS ("Z
+        auta wybrano 112"): then the phone's view is re-read once, and
+        "Jestem OK" stays hidden until it answered. During the countdown
+        the phone only appends the note to the SMS (the cancel budget
+        stays); while sending, the regular look-ups bring its final word."""
+        now = self._clock()
+        with self._lock:
+            ev = self._ev
+            if ev is None or ev["id"] != eid or ev["c112_recheck"] \
+                    or ev["state"] not in ("sent", "partial") or not ev["follow_up"]:
+                return
+            ev["c112_recheck"] = True
+            ev["c112_recheck_at"] = now + C112_RECHECK_DELAY_S
+            ev["next_try"] = min(ev["next_try"], ev["c112_recheck_at"])
+        log.warning("Crash SMS: %s — 112 was called after the SMS went out; asking the phone "
+                    "whether the cancel SMS is still possible", eid)
+        self._save()
 
     def _do_test(self) -> None:
         with self._lock:
@@ -975,6 +1042,9 @@ class CrashSms:
     def _needs_lookup(self, ev: dict, now: float) -> bool:
         if now > ev["followed_until"]:
             return False
+        if ev["c112_recheck"] and (ev["c112_recheck_at"] is None
+                                   or now >= ev["c112_recheck_at"]):
+            return True
         if ev["state"] in ("pending", "sending"):
             return True
         if ev["state"] == "cancelled" and isinstance(ev["cancel_sms"], dict) \
@@ -1138,7 +1208,14 @@ class CrashSms:
                                 "(%s)", ev["id"], view["state"])
                 with self._lock:
                     ev["reconcile_until"] = None
+                    recheck = ev["c112_recheck"]
+                    ev["c112_recheck"] = False
                 self._adopt(ev, view, now)
+                if recheck:
+                    log.info("Crash SMS: %s — after the 112 call the phone %s", ev["id"],
+                             "still offers the cancel SMS" if ev["follow_up"]
+                             else "has no cancel SMS left (the 112 follow-up used it)")
+                    self._save()
                 return "found"
         unknown = res.get("status") == 404 and res.get("error") == "unknown_event"
         if final_try:
@@ -1148,6 +1225,10 @@ class CrashSms:
                 ev["phone_ok"] = True
                 reconciling = ev["reconcile_until"] is not None
                 ev["reconcile_until"] = None
+                if ev["c112_recheck"]:
+                    # It no longer knows the event: no cancel SMS from it.
+                    ev["c112_recheck"] = False
+                    ev["follow_up"] = False
             if ev["state"] in ("pending", "sending") and not reconciling:
                 # It held it and forgot it (agent reinstalled?): the outcome
                 # is unknown — say so, stop following.
@@ -1205,6 +1286,8 @@ class CrashSms:
             ev["went_out"] = ev["went_out"] or any(
                 r["state"] in RCPT_OUT or r["tries"] > 0 for r in view["results"])
             ev["cancel_sms"] = view["cancel_sms"]
+            if not view.get("follow_up_left", True):
+                ev["follow_up"] = False
             # The phone's word replaces a BCM-side guess ("no_phone" while it
             # did not answer): it answered, so that is no longer true.
             ev["error"] = view["error"]
@@ -1487,7 +1570,8 @@ class CrashSms:
     _SAVED_KEYS = ("id", "state", "created_ts", "event_ts", "countdown_s", "deadline_ts",
                    "dry_run", "forced_reason", "recipients_n", "results", "cancel_sms",
                    "error", "cancel_pending", "cancel_source", "send_now_pending", "final_ts",
-                   "maybe_delivered", "confirmed", "went_out", "follow_up", "arm")
+                   "maybe_delivered", "confirmed", "went_out", "follow_up", "arm",
+                   "c112_recheck")
 
     def _save(self) -> None:
         with self._lock:
@@ -1544,6 +1628,7 @@ class CrashSms:
         age = max(0.0, wall - saved["created_ts"])
         ev = dict(saved)
         ev.update(created_mono=now - age, deadline_mono=None, final_mono=None,
+                  c112_recheck_at=now,
                   phone_ok=False, next_try=now, retry=RETRY_MIN_S, reconcile_until=None,
                   arm_until=now, followed_until=now + max(0.0, ACTIVE_MAX_S - age),
                   cancel_mono=now if saved["cancel_pending"] else None)
@@ -1620,6 +1705,8 @@ def _valid_saved_event(raw: Any) -> Optional[dict]:
     if not isinstance(raw, dict):
         return None
     ev = {k: raw.get(k) for k in CrashSms._SAVED_KEYS}
+    # Added with "Zadzwoń 112": a file written before it has no such key.
+    ev["c112_recheck"] = raw.get("c112_recheck") is True
     if not isinstance(ev["id"], str) or not EVENT_ID_RE.fullmatch(ev["id"]) \
             or ev["state"] not in STATES or ev["state"] == "idle":
         return None

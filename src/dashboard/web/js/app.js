@@ -610,15 +610,17 @@ const App = (() => {
         }
     }
 
-    // --- Crash SMS window (crash.sms_state from src/safety/crash_sms.py) ---
+    // --- Crash window (crash.sms_state from src/safety/crash_sms.py and
+    // crash.call112_state from src/safety/call112.py) ---
     // Like calls, followed here on EVERY screen (A2/Android Auto included):
     // components/crash_modal.js draws #crash-modal on <body> (z-index 300,
-    // listed in GESTURE_OVERLAYS) from data.crash_sms — the countdown, ANULUJ
-    // / "Wyślij teraz" and the result. No navigation: the window covers
+    // listed in GESTURE_OVERLAYS) from data.crash_sms and data.call112 — the
+    // countdown, ANULUJ / "Wyślij teraz", the result, the 112 button, the
+    // call view and the dispatcher panel. No navigation: the window covers
     // whatever screen is up, so the driver does not lose their place.
     function _syncCrashState(data) {
         if (typeof CrashModal === "undefined" || !CrashModal) return;
-        CrashModal.sync(data ? data.crash_sms : null);
+        CrashModal.sync(data ? data.crash_sms : null, data ? data.call112 : null);
     }
 
     /** Update current screen with new data */

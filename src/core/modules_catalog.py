@@ -152,6 +152,19 @@ MODULES: dict[str, dict] = {
                     "group": "bezpieczenstwo",
                     "requires": ("crash_detect", "phone_sensors", "car_phone_agent"),
                     "hardware": "Redmi z kartą SIM, sztywny uchwyt; odbiorcy w Ustawieniach"},
+    # Plan H: the 112 button in the crash window (src/safety/call112.py) —
+    # ALWAYS manual (held 2 s, loopback-only route). Two paths, chosen at
+    # the press: the main phone over HFP (only with a microphone, oFono and
+    # network — checked at run time; main.py passes the shared
+    # BluetoothManager) or the car phone on its speaker (the agent).
+    "call112":      {"part": 20, "description": "Przycisk „Zadzwoń na 112” w oknie wypadku (zawsze ręcznie)",
+                     "entry": ("src.safety.call112", "start_call112"), "default": False,
+                     "group": "bezpieczenstwo",
+                     "requires": ("crash_detect",),
+                     "requires_any": (("car_phone_agent", "bluetooth"),),
+                     "hardware": "Redmi z rootem (głośnik) albo główny telefon przez HFP "
+                                 "+ mikrofon i phone_status; najpierw test_mode z numerem "
+                                 "testowym"},
     "battery":     {"part": 21, "description": "Battery Backup Monitor",
                     "entry": ("src.power.battery", "start_battery"), "default": False},
 
@@ -193,14 +206,6 @@ MODULES: dict[str, dict] = {
                      "default": False, "planned": True, "group": "telefon_w_aucie",
                      "requires": ("car_phone_agent",),
                      "hardware": "Redmi: przednia kamera, blokada ekranu „Brak”"},
-    # The 112 button lives in the crash window (crash_detect). Two paths:
-    # the car phone on speaker (agent) or the main phone over HFP — the
-    # latter only with a microphone, which is checked at run time.
-    "call112":      {"part": 20, "description": "Przycisk „Zadzwoń na 112” w oknie wypadku (zawsze ręcznie)",
-                     "default": False, "planned": True, "group": "bezpieczenstwo",
-                     "requires": ("crash_detect",),
-                     "requires_any": (("car_phone_agent", "bluetooth"),),
-                     "hardware": "Redmi (głośnik) albo główny telefon przez HFP + mikrofon"},
     # Light from the car phone OR the Arduino light sensor (LIGHT: lines,
     # read by arduino_serial, which the input module starts).
     "auto_brightness": {"part": 10, "description": "Automatyczna jasność ekranu z czujnika światła",

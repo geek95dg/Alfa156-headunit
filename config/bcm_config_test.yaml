@@ -161,9 +161,11 @@ modules:
                            # phone_sensors i car_phone_agent. Odbiorcy
                            # i testowy SMS: Ustawienia → „SMS po stłuczce”;
                            # blok crash_detection.sms niżej
-  call112: false           # „Zadzwoń na 112” w oknie wypadku; wymaga
-                           # crash_detect oraz car_phone_agent albo bluetooth
-                           # (+ mikrofon)
+  call112: false           # „Zadzwoń 112” w oknie wypadku (ZAWSZE ręcznie,
+                           # przytrzymanie 2 s); wymaga crash_detect oraz
+                           # car_phone_agent albo bluetooth (+ mikrofon
+                           # i phone_status dla telefonu głównego); blok
+                           # safety.call112 niżej — tryb testowy
   auto_brightness: false   # jasność ekranu z czujnika światła; wymaga
                            # phone_sensors albo input (Arduino)
   remote_session: false    # sesja po zdalnym wybudzeniu; wymaga input
@@ -737,6 +739,33 @@ crash_detection:
     cooldown_min: 10
     max_per_day: 3
     follow_up_cancel: true
+# „Zadzwoń 112” w oknie wypadku (modules.call112, src/safety/call112.py;
+# włącznikiem jest TYLKO ten przełącznik). Nic nie dzwoni samo: kierowca
+# przytrzymuje czerwony przycisk hold_ms (2 s); przez arm_delay_ms (0,7 s)
+# od pojawienia się przycisk nie reaguje. Numer nigdy nie przychodzi
+# z ekranu — to 112, a w trybie testowym WYŁĄCZNIE test_number.
+# paths: kolejność i dozwolone drogi — hfp (telefon główny przez Bluetooth:
+# tylko z mikrofonem, oFono, zasięgiem z phone_status i bez innej rozmowy)
+# i car_phone (Redmi na głośniku przez agenta i Magisk su). Gdy telefon
+# główny nie potwierdzi połączenia w 10 s, od razu można spróbować drogą
+# car_phone. window_min: przez tyle minut od zdarzenia okno pozwala dzwonić
+# (wraca też po restarcie BCM). Najwyżej jedno połączenie na 60 s.
+# test_mode: true (TU) = 112 NIE da się wybrać; przycisk mówi „TEST – dzwoni
+# na +48...567” i dzwoni tylko na test_number: numer E.164 (np.
+# '+48601234567') WYŁĄCZNIE w config/local.yaml — nigdy w repo. NIGDY nie
+# testuj prawdziwym 112. Prawdziwe 112 dopiero po sprawdzeniu na stole
+# (docs/WDROZENIE_TESTOWE.md §5.11): test_mode: false w local.yaml.
+# Opis auta dla dyspozytora (panel w oknie) — też tylko w local.yaml:
+#   safety:
+#     vehicle: {label: Alfa Romeo 156, colour: czerwona, plate: WX 12345}
+safety:
+  call112:
+    paths: [hfp, car_phone]
+    hold_ms: 2000
+    arm_delay_ms: 700
+    window_min: 30
+    test_mode: true
+    test_number: ''
 # Czujniki telefonu w aucie (modules.phone_sensors; src/sensors/phone_sensors.py).
 # Kierunek grawitacji kalibruje się sam przy pierwszych ~10 s postoju
 # (zapis: data/phone_sensors.json); przesunięcie telefonu w uchwycie o > 10°

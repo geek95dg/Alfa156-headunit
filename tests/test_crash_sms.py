@@ -96,7 +96,10 @@ class FakeAgent:
         return {"id": ev["id"], "state": ev["state"], "dry_run": ev["dry"],
                 "countdown_s": ev["countdown_s"], "deadline_in_s": left, "armed_ts": 0,
                 "error": "", "results": [dict(r) for r in ev["results"]],
-                "cancel_sms": ev.get("cancel_sms")}
+                "cancel_sms": ev.get("cancel_sms"),
+                # False once the phone spent the cancel budget (e.g. on the
+                # "Z auta wybrano 112" follow-up SMS).
+                "follow_up_left": ev.get("follow_up_left", True)}
 
     def _record(self, *call):
         self.calls.append(call)
@@ -1298,7 +1301,8 @@ class TestAgentClientFacts:
         assert out == {"last_verified_test_ts": WALL0, "dry_run": False, "recipients_n": 2,
                        "active_event": EID, "last_test": {"state": "sent", "ts": WALL0,
                                                           "dry_run": False, "verified": True},
-                       "config_hash": None}
+                       "config_hash": None, "call112_capable": None, "call112_mode": None,
+                       "call_state": None}
         assert cpa.parse_health_facts({"config_hash": "0123456789abcdef"})["config_hash"] \
             == "0123456789abcdef"
         assert cpa.parse_health_facts({"config_hash": "<b>"})["config_hash"] is None
@@ -1768,3 +1772,112 @@ class TestConfig:
         cfg = {"crash_detection": {"sms": {"recipients": [NUM1, "bad", NUM1, NUM2, "+48603456789",
                                                           "+48604567890"]}}}
         assert cs.configured_recipients(cfg) == [NUM1, NUM2, "+48603456789"]
+
+
+# ── "Zadzwoń 112" (src/safety/call112.py) and the follow-up SMS ───────────
+
+class TestCalled112:
+    """A real 112 call from the crash window never cancels the SMS. Only
+    after a SENT SMS does the phone spend the event's ONE follow-up SMS on
+    "Z auta wybrano 112" (then "Jestem OK – wyślij SMS odwołujący" is gone);
+    during the countdown it only appends the note. The phone's
+    follow_up_left decides — BCM re-reads it once after such a call."""
+
+    def test_the_agents_view_says_whether_a_follow_up_is_left(self):
+        view = {"id": EID, "state": "sent", "results": []}
+        assert cs.parse_agent_view(view, EID)["follow_up_left"] is True
+        assert cs.parse_agent_view(dict(view, follow_up_left=False), EID)["follow_up_left"] \
+            is False
+        assert cs.parse_agent_view(dict(view, follow_up_left="no"), EID)["follow_up_left"] \
+            is True
+
+    @pytest.mark.parametrize("c112", [
+        {"event_id": EID, "test_mode": True, "reached": True},        # a test call
+        {"event_id": EID, "test_mode": False, "reached": False},      # never got through
+        {"event_id": "f" * 32, "test_mode": False, "reached": True},  # another event
+        "junk",
+    ])
+    def test_what_is_not_a_real_112_call_changes_nothing(self, env, c112):
+        m = _arm(env)
+        _sent(env, m)
+        n = len(env.agent.calls)
+        env.bus.publish(cs.TOPIC_CALL112, c112)
+        _run(m, 5)
+        assert _last(env)["can_follow_up"] is True
+        assert env.agent.calls[n:] == []                     # nothing re-read
+        assert m.command("follow_up", EID, source="ui")["ok"] is True
+
+    def test_112_during_the_countdown_keeps_jestem_ok(self, env):
+        # The phone only appends "Z auta wybrano 112" to the unsent SMS: its
+        # cancel budget stays, so "Jestem OK" must stay too.
+        m = _arm(env)
+        env.bus.publish(cs.TOPIC_CALL112, {"event_id": EID, "test_mode": False,
+                                           "reached": True})
+        _run(m, 1)
+        _sent(env, m)
+        assert _last(env)["can_follow_up"] is True
+        assert m.command("follow_up", EID, source="ui")["ok"] is True
+
+    @pytest.mark.parametrize("left", [False, True])
+    def test_112_after_the_sms_went_out_asks_the_phone(self, env, left):
+        m = _arm(env)
+        _sent(env, m)
+        env.agent.events[EID]["follow_up_left"] = left   # what the phone's mark did
+        n = len(env.agent.calls)
+        env.bus.publish(cs.TOPIC_CALL112, {"event_id": EID, "test_mode": False,
+                                           "reached": True})
+        _run(m, 0.5)
+        # hidden until the phone answered (its mark may still be on the way)
+        assert _last(env)["can_follow_up"] is False
+        assert m.command("follow_up", EID, source="ui")["error"] == "not_cancellable"
+        _run(m, cs.C112_RECHECK_DELAY_S + 1)
+        assert [c for c in env.agent.calls[n:] if c[0] == "get"] == [("get", EID)]   # once
+        assert _last(env)["can_follow_up"] is left
+        _run(m, 30)
+        assert len([c for c in env.agent.calls[n:] if c[0] == "get"]) == 1
+        res = m.command("follow_up", EID, source="ui")
+        assert res["ok"] is left
+        if not left:
+            assert res["error"] == "not_cancellable"
+
+    def test_112_after_the_sms_with_the_phone_unreachable_stays_hidden(self, env):
+        m = _arm(env)
+        _sent(env, m)
+        env.agent.fail = "connect"
+        env.bus.publish(cs.TOPIC_CALL112, {"event_id": EID, "test_mode": False,
+                                           "reached": True})
+        _run(m, 60)
+        assert _last(env)["can_follow_up"] is False
+        # it answers again: the re-read happens, the phone decides
+        env.agent.fail = None
+        _run(m, 70)
+        assert _last(env)["can_follow_up"] is True
+
+    def test_the_pending_re_read_survives_a_restart(self, env):
+        m = _arm(env)
+        _sent(env, m)
+        env.agent.fail = "connect"
+        env.bus.publish(cs.TOPIC_CALL112, {"event_id": EID, "test_mode": False,
+                                           "reached": True})
+        _run(m, 1)
+        m.stop()
+        assert json.loads(env.path.read_text())["event"]["c112_recheck"] is True
+        env.agent.fail = None
+        env.agent.events[EID]["follow_up_left"] = False
+        again = env.make()
+        again.run_once()
+        assert _last(env)["can_follow_up"] is False
+        _run(again, 3)
+        assert _last(env)["can_follow_up"] is False and \
+            json.loads(env.path.read_text())["event"]["c112_recheck"] is False
+
+    def test_a_file_from_before_112_still_loads(self, env):
+        m = _arm(env)
+        _sent(env, m)
+        m.stop()
+        data = json.loads(env.path.read_text())
+        del data["event"]["c112_recheck"]
+        env.path.write_text(json.dumps(data))
+        again = env.make()
+        again.run_once()
+        assert _last(env)["state"] == "sent" and _last(env)["can_follow_up"] is True

@@ -62,6 +62,14 @@ Instalacja (Termux z F-Droid, NIE ze Sklepu Play)
 6. Restart telefonu → agent działa (log: ``~/.config/bcm_agent/agent.log``).
    Ręcznie: ``python ~/bcm_agent/bcm_agent.py`` (``-v`` = log także na ekran).
 
+Aktualizacja (po każdej aktualizacji BCM, która zmienia ten plik): skopiuj
+nowy ``bcm_agent.py`` do ``~/bcm_agent/`` i zrestartuj agenta —
+``pkill -f bcm_agent.py`` (pętla w ``boot_bcm_agent.sh`` uruchomi go po
+10 s) albo restart telefonu. Wiersz „Agent w telefonie” w Ustawieniach BCM
+pokazuje wersję (``VERSION``); stan, sekret, nonce i zdarzenia w
+``~/.config/bcm_agent`` zostają. „Zadzwoń 112” z telefonu w aucie wymaga
+wersji ≥ 1.1.0 (starszą BCM pokazuje jako „zaktualizuj bcm_agent.py”).
+
 Parowanie z BCM
 ---------------
 Wspólny sekret (≥ 32 bajty, 64+ znaków hex) wygeneruj na komputerze BCM::
@@ -127,8 +135,10 @@ Endpointy (JSON)
 ----------------
 ``GET /v1/health``, ``PUT /v1/config``, ``POST /v1/crash``,
 ``POST /v1/crash/<id>/cancel``, ``POST /v1/crash/<id>/send_now``,
-``GET /v1/crash/<id>``, ``POST /v1/test``, ``POST /v1/pair`` — opis przy
-metodach :class:`Agent`. Bateria i SIM w ``/v1/health`` są odświeżane w tle
+``GET /v1/crash/<id>``, ``POST /v1/test``, ``POST /v1/pair``,
+``POST /v1/call112``, ``GET /v1/call112``, ``POST /v1/call112/hangup``,
+``POST /v1/call112/mark`` —
+opis przy metodach :class:`Agent`. Bateria i SIM w ``/v1/health`` są odświeżane w tle
 tylko wtedy, gdy BCM o nie pyta (auto na postoju nie budzi Termux:API co
 minutę).
 
@@ -174,9 +184,69 @@ idzie naprawdę tylko na wyraźne ``real_test: true`` w ``POST /v1/test``
 potwierdzeniu kierowcy — to wymaganie dla trasy testowego SMS-a w
 module ``crash_sms``).
 
+„Zadzwoń 112” z telefonu w aucie (plan H, ścieżka B)
+-----------------------------------------------------
+ZAWSZE ręcznie: kierowca przytrzymuje przycisk w oknie wypadku na ekranie
+auta, BCM wysyła podpisane ``POST /v1/call112`` z polami
+``{"mode": "real"|"test", "event_id": "<hex>"}`` (``mode`` to strażnik:
+agent odmawia, gdy jego własny tryb jest inny — nigdy prawdziwe 112 przy
+teście ani odwrotnie; ``event_id`` to zdarzenie z okna wypadku w BCM — tylko
+jego SMS dostaje dopisek o 112). **Numeru nigdy nie ma w żądaniu**: ``112`` jest stałą w tym pliku, a w trybie testowym
+(``call112_test_mode``) agent dzwoni na SWÓJ ``call112_test_number``
+(E.164, przysłany wcześniej w ``PUT /v1/config`` i sprawdzony po obu
+stronach). Bez przełącznika ``toggles.call112`` agent odmawia. Najwyżej
+jedno połączenie na :data:`CALL112_COOLDOWN_S` (zapisane na dysku; próba,
+której ``am start`` się nie udał, się nie liczy).
+
+Wykonanie: Magisk ``su`` (nadany WYŁĄCZNIE aplikacji Termux; NIE ``adb
+shell`` — serwer adb na komputerze BCM jest dostępny lokalnie). ``su -c``
+bierze JEDEN ciąg dla powłoki roota, więc każdy taki ciąg jest składany
+tylko ze stałych tekstów i zwalidowanych cyfr (:func:`call_command`,
+:func:`volume_set_command`) i przed uruchomieniem jeszcze raz sprawdzany
+wyrażeniem :data:`SU_SAFE_RE` (litery, cyfry, spacja i ``._:+-``)::
+
+    am start -a android.intent.action.CALL_PRIVILEGED -d tel:112 \\
+        --ez android.telecom.extra.START_CALL_WITH_SPEAKERPHONE true
+    (test: android.intent.action.CALL i tel:<numer testowy>)
+    cmd media_session volume --stream 0 --get      → „... in range [a..b]”
+    cmd media_session volume --stream 0 --set <b>  (głośność rozmowy na max)
+    dumpsys telephony.registry                     → mCallState=0|1|2
+    input keyevent KEYCODE_ENDCALL                 (Rozłącz z ekranu auta)
+
+NIESPRAWDZONE na crDroid 13 (do sprawdzenia na stole — numerem testowym,
+NIGDY prawdziwym 112): że ``START_CALL_WITH_SPEAKERPHONE`` z intencji
+włącza głośnik, format wyjścia ``cmd media_session volume`` i że strumień 0
+to głośność rozmowy, że ``mCallState`` w ``dumpsys telephony.registry``
+odzwierciedla połączenie alarmowe (OFFHOOK = wybieranie LUB rozmowa — agent
+nie odróżni „łączy” od „rozmawia”), że ``KEYCODE_ENDCALL`` kończy rozmowę.
+Magisk pokazuje komunikat przy każdym użyciu ``su`` — w aplikacji Magisk →
+Superużytkownik → Termux wyłącz powiadomienia (agent sprawdza ``su`` co
+10 min i co 2 s w trakcie rozmowy).
+
+``GET /v1/health`` mówi ``call112_capable`` (przełącznik włączony, ``su``
+działa — sprawdzane ``su -c 'id -u'`` w wątku stanu — i w teście jest
+numer), ``call112_mode`` i ``call_state`` (ostatni odczyt ``mCallState``
+albo None). ``GET /v1/call112`` — stan bieżącego połączenia (``queued`` →
+``placed`` → ``offhook`` → ``ended``, albo ``failed``); ``POST
+/v1/call112/hangup`` — rozłączenie. Połączenie prowadzi osobny wątek
+(nigdy za wysyłką SMS-a, która potrafi trwać minutę).
+
+Powiązanie z SMS-em o wypadku (nie w trybie testowym): zdarzenie
+``event_id`` (to z żądania, nie „najnowsze” — okno BCM mogło otworzyć inne,
+np. samo-GPS-owe zdarzenie, którego telefon w ogóle nie zna; wtedy nic się
+nie oznacza) dostaje znacznik ``called_112`` — po udanym ``am start`` z tego
+telefonu albo na ``POST /v1/call112/mark {"event_id"}`` (BCM wybrał
+prawdziwe 112 przez GŁÓWNY telefon, HFP). Jeśli SMS jeszcze do nikogo nie
+wyszedł, do treści
+dochodzi „Z auta wybrano 112 o hh:mm.”; jeśli już wyszedł — po zakończeniu
+wysyłki idzie JEDEN SMS uzupełniający do tych, do których wyszedł, i
+zużywa to budżet SMS-a odwołującego (potem SMS-a „ODWOLANE” już nie ma).
+112 nigdy nie odwołuje SMS-a.
+
 Czego agent nie obiecuje: doręczenia (brak raportów doręczenia, zasięg,
 środki na karcie), działania przy wyłączonym lub przegrzanym telefonie,
-działania, gdy Android zabije Termux (phantom process killer).
+działania, gdy Android zabije Termux (phantom process killer), zestawienia
+połączenia z 112 ani jakości głośnika pod podsufitką. To nie eCall.
 """
 
 from __future__ import annotations
@@ -199,7 +269,10 @@ import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any, Callable, Mapping, Optional
 
-VERSION = "1.0.0"
+#: 1.1.0 — „Zadzwoń 112” (plan H): ``/v1/call112*``, pola ``call112_*`` w
+#: konfiguracji. BCM z włączonym ``modules.call112`` wymaga co najmniej tej
+#: wersji (starszą pokazuje w Ustawieniach jako „zaktualizuj bcm_agent.py”).
+VERSION = "1.1.0"
 
 log = logging.getLogger("bcm_agent")
 
@@ -289,6 +362,45 @@ LOG_BACKUPS = 2
 RC_MISSING = 127
 RC_TIMEOUT = 124
 
+# ── „Zadzwoń 112” (plan H) ────────────────────────────────────────────────
+#: Jedyny numer alarmowy, jaki agent wybiera. Stała — nigdy z żądania.
+CALL112_NUMBER = "112"
+#: Najwyżej jedno połączenie na tyle sekund (próba z nieudanym ``am start``
+#: się nie liczy — kolejna może pójść od razu).
+CALL112_COOLDOWN_S = 60
+CALL_MODES = ("real", "test")
+#: Stany połączenia: przyjęte → ``am start`` wykonany → telefon w rozmowie
+#: (OFFHOOK) → zakończone; albo nieudane.
+CALL_STATES = ("queued", "placed", "offhook", "ended", "failed")
+CALL_ACTIVE = ("queued", "placed", "offhook")
+CALL_ERRORS = ("", "su_missing", "su_denied", "am_failed", "no_call")
+#: Odczyt ``mCallState`` w trakcie połączenia co tyle sekund.
+CALL_POLL_S = 2.0
+#: Połączenie śledzę najdłużej tyle.
+CALL_FOLLOW_MAX_S = 3600.0
+#: Stanu rozmowy nie da się odczytać: po tylu sekundach przestaję pytać
+#: (połączenie zostaje „placed”, ``final``).
+CALL_NO_STATE_S = 120.0
+#: Stan da się odczytać, a telefon nie wszedł w rozmowę po ``am start``
+#: przez tyle sekund: połączenie się nie zaczęło (``no_call``).
+CALL_IDLE_FAIL_S = 20.0
+#: Tyle kolejnych odczytów „idle” po OFFHOOK = rozmowa zakończona.
+CALL_IDLE_ENDS = 2
+SU_TIMEOUT_S = 15.0
+#: ``su -c 'id -u'`` co tyle sekund (gdy BCM pyta o health i 112 włączone);
+#: po porażce częściej.
+SU_PROBE_OK_S = 600.0
+SU_PROBE_FAIL_S = 60.0
+#: Górna granica indeksu głośności, którą przyjmę z ``--get``.
+CALL_VOLUME_MAX = 100
+#: Co wolno w ciągu przekazanym ``su -c`` (powłoka roota). Wszystko inne —
+#: cudzysłów, ``;``, ``$``, ``|``, ``&``, ``/``, ``\\``, nowa linia — odpada.
+SU_SAFE_RE = re.compile(r"^[A-Za-z0-9 ._:+-]{1,200}$")
+_VOLUME_RANGE_RE = re.compile(r"range \[([0-9]{1,3})\.\.([0-9]{1,3})\]")
+_CALL_STATE_RE = re.compile(r"mCallState=([0-9])")
+#: Wyjście ``dumpsys``, które w ogóle czytam.
+DUMPSYS_MAX_CHARS = 512 * 1024
+
 #: Stany odbiorcy, które kończą jego wysyłkę.
 RCPT_FINAL = ("sent", "sent_dry", "failed", "skipped")
 RCPT_OK = ("sent", "sent_dry")
@@ -337,8 +449,19 @@ def canonical_json(obj: Any) -> str:
 
 def config_hash(cfg: Mapping[str, Any]) -> str:
     """Skrót konfiguracji (16 znaków hex): BCM porównuje go ze swoim i wysyła
-    ``PUT /v1/config`` tylko przy różnicy — także po wymianie agenta."""
-    return sha256_hex(canonical_json(cfg).encode("ascii"))[:16]
+    ``PUT /v1/config`` tylko przy różnicy — także po wymianie agenta.
+
+    Pola ``call112_*`` liczą się do skrótu TYLKO przy włączonym
+    przełączniku ``call112``. Dlaczego: BCM wysyła je wyłącznie przy
+    włączonym ``modules.call112``, a agent z #128 (1.0.0) pomija nieznane
+    klucze. Dzięki temu przy wyłączonym 112 stary agent z nowym BCM i nowy
+    agent ze starym BCM liczą ten sam skrót — sama aktualizacja jednej
+    strony nie kończy się „config_refused” (a ten wymusza tryb testowy
+    SMS-a po stłuczce)."""
+    toggles = cfg.get("toggles")
+    on = isinstance(toggles, Mapping) and toggles.get("call112") is True
+    view = {k: v for k, v in cfg.items() if on or not k.startswith("call112_")}
+    return sha256_hex(canonical_json(view).encode("ascii"))[:16]
 
 
 def is_gsm7(text: str) -> bool:
@@ -489,6 +612,86 @@ def cancel_text(label: str, event_ts: int,
 
 def test_text(label: str) -> str:
     return f"{label}: TEST powiadomien o wypadku. Nic sie nie stalo, nie reaguj."
+
+
+def called_112_suffix(call_wall: float,
+                      localtime: Callable[[float], time.struct_time] = time.localtime) -> str:
+    """Dopisek do SMS-a o wypadku, który jeszcze nie wyszedł (GSM-7)."""
+    return f"Z auta wybrano 112 o {time.strftime('%H:%M', localtime(call_wall))}."
+
+
+def call112_text(label: str, call_wall: float, event_ts: int,
+                 localtime: Callable[[float], time.struct_time] = time.localtime) -> str:
+    """SMS uzupełniający, gdy SMS o wypadku już wyszedł (GSM-7, 1 część)."""
+    hm = time.strftime("%H:%M", localtime(call_wall))
+    ev = time.strftime("%H:%M", localtime(event_ts))
+    return f"{label}: Z auta wybrano 112 o {hm} (alarm o wypadku z {ev})."
+
+
+# ── polecenia „Zadzwoń 112” (stałe ciągi dla ``su -c``) ──────────────────
+
+def su_argv(command: str) -> list:
+    """``["su", "-c", command]`` — ``su -c`` przekazuje ``command`` powłoce
+    roota JAKO JEDEN CIĄG, więc wolno tu podać wyłącznie ciąg zbudowany
+    przez funkcje poniżej (stałe + zwalidowane cyfry). Sprawdzam go jeszcze
+    raz (:data:`SU_SAFE_RE`): ValueError zamiast uruchomienia czegokolwiek
+    innego. ``su`` z PATH Termuxa (termux-tools ma nakładkę, która szuka
+    prawdziwego ``su`` Magiska)."""
+    if not isinstance(command, str) or not SU_SAFE_RE.fullmatch(command):
+        raise ValueError("refusing to pass this string to su")
+    return ["su", "-c", command]
+
+
+def call_command(test_number: Optional[str] = None) -> str:
+    """``am start`` dla 112 (``test_number`` None) albo dla numeru
+    testowego (zwalidowany E.164 — w ciągu dla powłoki to tylko ``+`` i
+    cyfry). CALL_PRIVILEGED: numer alarmowy idzie bez potwierdzenia, także
+    bez karty SIM; numer testowy zwykłym CALL — CALL_PRIVILEGED dla
+    zwykłego numeru też by zadzwonił, ale test ma zachowywać się jak
+    zwykła rozmowa."""
+    speaker = "--ez android.telecom.extra.START_CALL_WITH_SPEAKERPHONE true"
+    if test_number is None:
+        return f"am start -a android.intent.action.CALL_PRIVILEGED -d tel:{CALL112_NUMBER} {speaker}"
+    if not isinstance(test_number, str) or not E164_RE.fullmatch(test_number):
+        raise ValueError("test number must be E.164")
+    return f"am start -a android.intent.action.CALL -d tel:{test_number} {speaker}"
+
+
+VOLUME_GET_COMMAND = "cmd media_session volume --stream 0 --get"
+CALL_STATE_COMMAND = "dumpsys telephony.registry"
+HANGUP_COMMAND = "input keyevent KEYCODE_ENDCALL"
+SU_PROBE_COMMAND = "id -u"
+
+
+def volume_set_command(index: Any) -> str:
+    """Głośność strumienia rozmowy (0 = STREAM_VOICE_CALL) na ``index`` —
+    liczba całkowita 0..:data:`CALL_VOLUME_MAX`, nic innego."""
+    if isinstance(index, bool) or not isinstance(index, int) \
+            or not 0 <= index <= CALL_VOLUME_MAX:
+        raise ValueError("volume index out of range")
+    return f"cmd media_session volume --stream 0 --set {index}"
+
+
+def parse_volume_max(text: Any) -> Optional[int]:
+    """``volume is 4 in range [1..7]`` → 7 (None, gdy nie pasuje)."""
+    if not isinstance(text, str):
+        return None
+    m = _VOLUME_RANGE_RE.search(text[:4096])
+    if m is None:
+        return None
+    lo, hi = int(m.group(1)), int(m.group(2))
+    return hi if lo <= hi <= CALL_VOLUME_MAX else None
+
+
+def parse_call_state(text: Any) -> Optional[int]:
+    """``mCallState=N`` z ``dumpsys telephony.registry`` → 0 (idle),
+    1 (dzwoni), 2 (OFFHOOK: wybieranie albo rozmowa); przy kilku
+    telefonach/kartach — najwyższy. None = nie da się odczytać."""
+    if not isinstance(text, str):
+        return None
+    values = [int(v) for v in _CALL_STATE_RE.findall(text[:DUMPSYS_MAX_CHARS])
+              if v in ("0", "1", "2")]
+    return max(values) if values else None
 
 
 # ── polecenia w telefonie ─────────────────────────────────────────────────
@@ -647,6 +850,15 @@ class Phone:
         self.sms_permission = True
         return True, "", True
 
+    def su(self, command: str, timeout: float = SU_TIMEOUT_S) -> tuple[int, str, str]:
+        """Jedno polecenie przez Magisk ``su -c`` (patrz :func:`su_argv`:
+        tylko ciągi zbudowane z naszych stałych). Nigdy nie rzuca."""
+        try:
+            argv = su_argv(command)
+        except ValueError:
+            return 2, "", "refused: not a fixed command"
+        return self._run(argv, None, timeout)
+
 
 # ── wysyłka do listy odbiorców ────────────────────────────────────────────
 
@@ -727,7 +939,7 @@ _RCPT_STATES = ("queued", "wait", "retry", "sending", "submitted", "verifying",
 
 def valid_delivery(d: Any) -> bool:
     """Kształt zapisanej wysyłki (plik mógł zostać uszkodzony albo podmieniony)."""
-    if not isinstance(d, dict) or d.get("kind") not in ("crash", "cancel", "test"):
+    if not isinstance(d, dict) or d.get("kind") not in ("crash", "cancel", "test", "call112"):
         return False
     if not isinstance(d.get("text"), str) or not isinstance(d.get("dry"), bool) \
             or d.get("slot") not in (0, 1) or isinstance(d.get("slot"), bool) \
@@ -775,6 +987,16 @@ def valid_event(ev: Any) -> bool:
         return False
     if ev.get("cancelled_wall") is not None \
             and _number(ev["cancelled_wall"], 0, EVENT_TS_MAX) is None:
+        return False
+    # Pola „Zadzwoń 112” (opcjonalne — starszy events.json ich nie ma).
+    if ev.get("called_112_wall") is not None \
+            and _number(ev["called_112_wall"], 0, EVENT_TS_MAX) is None:
+        return False
+    for key in ("c112_pending", "follow_up_used"):
+        if not isinstance(ev.get(key, False), bool):
+            return False
+    if ev.get("c112") is not None and (not valid_delivery(ev["c112"])
+                                       or ev["c112"]["kind"] != "call112"):
         return False
     label = ev.get("label")
     return label is None or (isinstance(label, str) and bool(LABEL_RE.fullmatch(label)))
@@ -835,17 +1057,28 @@ class Agent:
         self._nonce = self._load_nonce()
         self.config = self._load_config()
         self.meta = self._load_json("meta.json", {"last_test_wall": None, "last_sent_ts": None,
-                                                  "last_verified_test_ts": None, "test": None})
+                                                  "last_verified_test_ts": None, "test": None,
+                                                  "call112_wall": None})
         test = self.meta.get("test")
         if test is not None and not (isinstance(test, dict)
                                      and valid_delivery(test.get("delivery"))):
             self.meta["test"] = None
         elif test is not None:
             fill_delivery_defaults(test["delivery"])
-        for key in ("last_test_wall", "last_sent_ts", "last_verified_test_ts"):
+        for key in ("last_test_wall", "last_sent_ts", "last_verified_test_ts", "call112_wall"):
             if _number(self.meta.get(key), 0, EVENT_TS_MAX) is None:
                 self.meta[key] = None
         self.events: list[dict] = self._load_events()
+        # „Zadzwoń 112”: bieżące (albo ostatnie) połączenie — tylko w
+        # pamięci (po restarcie agenta stan rozmowy i tak jest nieznany;
+        # limit 1 na minutę jest w meta.json). ``su`` sprawdzany w wątku
+        # stanu: None = jeszcze nie wiadomo.
+        self.call: Optional[dict] = None
+        self._call_seq = 0
+        self.call_wake = threading.Event()
+        self._su_ok: Optional[bool] = None
+        self._su_checked: Optional[float] = None
+        self._call_state: Optional[int] = None
         self._resume()
 
     # ── pliki ────────────────────────────────────────────────────────────
@@ -901,7 +1134,7 @@ class Agent:
         out = []
         for ev in events if isinstance(events, list) else []:
             if valid_event(ev):
-                for key in ("crash", "cancel"):
+                for key in ("crash", "cancel", "c112"):
                     if isinstance(ev.get(key), dict):
                         fill_delivery_defaults(ev[key])
                 out.append(ev)
@@ -963,10 +1196,12 @@ class Agent:
         changed = False
         for ev in self.events:
             interrupted: list = []
-            for key in ("crash", "cancel"):
+            for key in ("crash", "cancel", "c112"):
                 d = ev.get(key)
                 if isinstance(d, dict):
-                    interrupted += self._reset_runtime(d, now)
+                    found = self._reset_runtime(d, now)
+                    if key == "crash":
+                        interrupted += found
             state = ev["state"]
             if state == "armed":
                 rem = float(ev.get("deadline_wall", 0)) - wall
@@ -1107,6 +1342,13 @@ class Agent:
             return "test", None, method == "POST"
         if path == "/v1/pair":
             return "pair", None, method == "POST"
+        if path == "/v1/call112":
+            return ("call112_get" if method == "GET" else "call112"), None, \
+                method in ("GET", "POST")
+        if path == "/v1/call112/hangup":
+            return "call112_hangup", None, method == "POST"
+        if path == "/v1/call112/mark":
+            return "call112_mark", None, method == "POST"
         parts = path.split("/")
         if len(parts) in (4, 5) and parts[0] == "" and parts[1] == "v1" and parts[2] == "crash" \
                 and EVENT_ID_RE.fullmatch(parts[3]):
@@ -1161,6 +1403,14 @@ class Agent:
             status, out = self.get_event(event_id)
         elif name == "cancel":
             status, out = self.cancel(event_id)
+        elif name == "call112":
+            status, out = self.call112(obj)
+        elif name == "call112_get":
+            status, out = self.call112_view()
+        elif name == "call112_hangup":
+            status, out = self.call112_hangup(obj)
+        elif name == "call112_mark":
+            status, out = self.call112_mark(obj)
         else:
             status, out = self.send_now(event_id)
         return self._reply(status, out, nonce)
@@ -1341,10 +1591,30 @@ class Agent:
                 "last_test": last_test,
                 "last_verified_test_ts": self.meta.get("last_verified_test_ts"),
                 "time": int(self._wall()),
+                # „Zadzwoń 112” (plan H): gotowość, tryb, stan rozmowy.
+                "call112_capable": self._call112_capable(),
+                "call112_mode": "test" if self.config["call112_test_mode"] else "real",
+                "call_state": self._call_state,
+                "call112_call": self._call_view_locked(),
             }
-        if stale:
+            su_due = self.config["toggles"]["call112"] and self._su_probe_due(now)
+        if stale or su_due:
             self.status_kick.set()
         return out
+
+    def _call112_capable(self) -> bool:
+        """(pod blokadą) Przełącznik włączony, ``su`` działa, a w trybie
+        testowym jest numer testowy — tylko wtedy BCM pokaże ścieżkę B."""
+        cfg = self.config
+        if not cfg["toggles"]["call112"] or self._su_ok is not True:
+            return False
+        return not cfg["call112_test_mode"] or bool(E164_RE.fullmatch(cfg["call112_test_number"]))
+
+    def _su_probe_due(self, now: float) -> bool:
+        if self._su_checked is None:
+            return True
+        every = SU_PROBE_OK_S if self._su_ok else SU_PROBE_FAIL_S
+        return now - self._su_checked >= every
 
     def put_config(self, obj: dict) -> tuple[int, dict]:
         """``PUT /v1/config`` — pełna konfiguracja (patrz
@@ -1376,10 +1646,16 @@ class Agent:
             log.warning("Recipients or SIM slot changed — the verified test no longer counts; "
                         "send a new test SMS")
         if changed:
-            log.info("Config updated: %d recipient(s), slot %d, toggles %s, dry_run=%s",
-                     len(norm["recipients"]), norm["sim_slot"],
+            log.info("Config updated: %d recipient(s), slot %d, toggles %s, dry_run=%s, "
+                     "112: %s", len(norm["recipients"]), norm["sim_slot"],
                      ",".join(k for k, v in norm["toggles"].items() if v) or "-",
-                     norm["dry_run"])
+                     norm["dry_run"],
+                     ("TEST -> " + mask_number(norm["call112_test_number"])
+                      if norm["call112_test_number"] else "TEST (no number)")
+                     if norm["call112_test_mode"] else "real")
+        if norm["toggles"]["call112"]:
+            # ``su`` sprawdzony od razu, nie przy następnym odświeżeniu stanu.
+            self.status_kick.set()
         return 200, {"ok": True, "config_hash": config_hash(norm)}
 
     def arm(self, obj: dict) -> tuple[int, dict]:
@@ -1476,6 +1752,12 @@ class Agent:
         d = ev["crash"]
         if not went or not ev.get("follow_up_cancel", True) or ev.get("cancel") is not None:
             return
+        if ev.get("follow_up_used"):
+            # Jedyny SMS uzupełniający tego zdarzenia poszedł (albo pójdzie)
+            # jako „Z auta wybrano 112” — budżet SMS-a odwołującego zużyty.
+            log.info("Event %s: the follow-up SMS budget went to the 112 notice — no cancel "
+                     "SMS", ev["id"])
+            return
         # Okno 15 min od wyjścia SMS-a o wypadku; gdy nic nie zostało
         # potwierdzone jako przekazane (wysyłka przerwana restartem) — od
         # odwołania.
@@ -1554,6 +1836,323 @@ class Agent:
                  " (dry run)" if dry else "")
         return 200, {"ok": True, "state": "pending", "dry_run": dry}
 
+    # ── „Zadzwoń 112” (plan H, ścieżka B) ─────────────────────────────────
+
+    def call112(self, obj: dict) -> tuple[int, dict]:
+        """``POST /v1/call112 {"mode": "real"|"test"}`` — połączenie
+        z głośnikiem z TEGO telefonu. Numer nigdy nie przychodzi z żądania
+        (112 to stała; w teście numer z konfiguracji agenta). ``mode`` to
+        tylko strażnik: musi zgadzać się z trybem agenta, inaczej 409 — po
+        zmianie konfiguracji w BCM, której telefon jeszcze nie dostał, nic
+        nie wybierze „nie tego” numeru. Samo połączenie robi wątek
+        połączeń (:meth:`call_step`); odpowiedź wraca od razu."""
+        mode = obj.get("mode")
+        eid = obj.get("event_id")
+        if set(obj) != {"mode", "event_id"} or mode not in CALL_MODES \
+                or not isinstance(eid, str) or not EVENT_ID_RE.fullmatch(eid):
+            return 400, {"error": "bad_request",
+                         "detail": 'body: {"mode": "real"|"test", "event_id": "<hex>"}'}
+        with self._lock:
+            cfg = self.config
+            if not cfg["toggles"]["call112"]:
+                return 409, {"error": "call112_off"}
+            mine = "test" if cfg["call112_test_mode"] else "real"
+            if mode != mine:
+                log.warning("112 call refused: BCM expects %s mode, the agent is in %s mode "
+                            "(config not synced yet?)", mode, mine)
+                return 409, {"error": "mode_mismatch", "mode": mine}
+            number = cfg["call112_test_number"] if mine == "test" else None
+            if mine == "test" and not E164_RE.fullmatch(number or ""):
+                return 409, {"error": "no_test_number"}
+            if self._su_ok is False:
+                return 409, {"error": "no_root"}
+            if self.call is not None and self.call["state"] in CALL_ACTIVE \
+                    and not self.call["final"]:
+                # Połączenie „final” w stanie placed (stanu rozmowy nie da się
+                # odczytać) już nie blokuje — inaczej po takim jednym 112
+                # kolejne byłoby niemożliwe aż do restartu agenta.
+                return 409, dict(self._call_view_locked() or {}, error="busy")
+            wall = self._wall()
+            last = self.meta.get("call112_wall")
+            if isinstance(last, (int, float)) and abs(wall - last) < CALL112_COOLDOWN_S:
+                return 429, {"error": "rate_limited",
+                             "retry_after": _wait_s(CALL112_COOLDOWN_S - abs(wall - last))}
+            self._call_seq += 1
+            self.call = {"seq": self._call_seq, "state": "queued", "mode": mine,
+                         "number": number, "error": "", "requested_wall": wall,
+                         "event_id": eid,
+                         "placed_wall": None, "offhook_wall": None, "ended_wall": None,
+                         "final": False, "hangup": False, "_prev_wall": last,
+                         "_placed": None, "_idle": 0, "_seen_state": False}
+            self.meta["call112_wall"] = wall
+            try:
+                self._save_meta()
+            except OSError as e:
+                # Połączenie i tak idzie — limit zostaje w pamięci.
+                log.error("Cannot save the 112 call time: %s", _clean(e))
+            # Znacznik called_112 na zdarzeniu dopiero po udanym ``am start``
+            # (:meth:`_place_call`): odmowa ``su`` nie może dopisać do SMS-a
+            # „Z auta wybrano 112”.
+            view = self._call_view_locked()
+        self.call_wake.set()
+        log.critical("112 CALL requested by BCM (%s)",
+                     "TEST -> " + mask_number(number) if number else "REAL 112, speaker")
+        return 200, view
+
+    def call112_view(self) -> tuple[int, dict]:
+        """``GET /v1/call112`` — bieżące albo ostatnie połączenie."""
+        with self._lock:
+            view = self._call_view_locked()
+        return 200, {"call": view, "call_state": self._call_state}
+
+    def call112_hangup(self, obj: dict) -> tuple[int, dict]:
+        """``POST /v1/call112/hangup`` (treść ``{}``) — „Rozłącz” z ekranu
+        auta; wątek połączeń wysyła KEYCODE_ENDCALL."""
+        if obj:
+            return 400, {"error": "bad_request"}
+        with self._lock:
+            call = self.call
+            # Także połączenie „final” w stanie placed: stanu rozmowy nie da
+            # się odczytać, ale KEYCODE_ENDCALL nadal może ją zakończyć.
+            if call is None or call["state"] not in CALL_ACTIVE:
+                return 409, {"error": "no_call"}
+            call["hangup"] = True
+            view = self._call_view_locked()
+        self.call_wake.set()
+        log.warning("112 call: hang-up requested by BCM")
+        return 200, view
+
+    def call112_mark(self, obj: dict) -> tuple[int, dict]:
+        """``POST /v1/call112/mark {"event_id": "<hex>"}`` — BCM wybrał 112
+        przez GŁÓWNY telefon (HFP, ścieżka A) i oFono przyjęło połączenie.
+        TO zdarzenie wypadku dostaje znacznik ``called_112`` tak samo jak po
+        połączeniu z tego telefonu (:meth:`_flag_called_112`); nieznane —
+        nic. BCM wysyła to tylko dla prawdziwego 112 — nigdy w trybie
+        testowym."""
+        req = obj.get("event_id")
+        if set(obj) != {"event_id"} or not isinstance(req, str) \
+                or not EVENT_ID_RE.fullmatch(req):
+            return 400, {"error": "bad_request", "detail": 'body: {"event_id": "<hex>"}'}
+        with self._lock:
+            if not self.config["toggles"]["call112"]:
+                return 409, {"error": "call112_off"}
+            eid = self._flag_called_112(self._wall(), req)
+        log.warning("112 called from the main phone (BCM) — event %s", eid or "unknown here")
+        return 200, {"ok": True, "event_id": eid}
+
+    def _call_view_locked(self) -> Optional[dict]:
+        call = self.call
+        if call is None:
+            return None
+
+        def ts(key: str) -> Optional[int]:
+            v = call.get(key)
+            return None if v is None else int(v)
+
+        return {"seq": call["seq"], "state": call["state"], "mode": call["mode"],
+                "number": mask_number(call["number"]) if call["number"] else CALL112_NUMBER,
+                "error": call["error"], "final": bool(call["final"]),
+                "requested_ts": ts("requested_wall"), "placed_ts": ts("placed_wall"),
+                "offhook_ts": ts("offhook_wall"), "ended_ts": ts("ended_wall")}
+
+    def _flag_called_112(self, wall: float, event_id: str) -> Optional[str]:
+        """(pod blokadą) Zdarzenie ``event_id`` dostaje znacznik
+        ``called_112`` — tylko gdy agent je zna, nie jest odwołane i ma
+        najwyżej 30 min (nigdy „najnowsze inne”: SMS starego zdarzenia nie
+        może stracić budżetu odwołania przez 112 do innego). SMS jeszcze nie
+        wyszedł do nikogo → dopisek w jego treści (budżet odwołania zostaje);
+        już wyszedł → jeden SMS uzupełniający po zakończeniu wysyłki
+        (z budżetu SMS-a odwołującego)."""
+        cands = [e for e in self.events
+                 if e["id"] == event_id
+                 and e["state"] in ("armed", "pending", "sending", "sent", "partial")
+                 and 0 <= wall - float(e["created_wall"]) <= RESUME_MAX_LATE_S]
+        if not cands:
+            return None
+        ev = cands[0]
+        if ev.get("called_112_wall") is not None:
+            return ev["id"]
+        ev["called_112_wall"] = wall
+        d = ev["crash"]
+        untouched = d.get("out_wall") is None and all(
+            r["tries"] == 0 and not r.get("handed") and r["st"] in ("queued", "wait")
+            for r in d["rcpt"])
+        if untouched:
+            d["text"] = f"{d['text']} {called_112_suffix(wall, self._localtime)}"
+            log.warning("Event %s: the crash SMS will say that 112 was called", ev["id"])
+        else:
+            ev["c112_pending"] = True
+            ev["follow_up_used"] = True
+            log.warning("Event %s: the crash SMS already went out — one follow-up SMS about "
+                        "the 112 call goes after it", ev["id"])
+        self._try_save_events()
+        self.wake.set()
+        return ev["id"]
+
+    def _start_c112_sms(self, ev: dict, now: float) -> None:
+        """(pod blokadą) SMS uzupełniający „Z auta wybrano 112” do tych,
+        do których SMS o wypadku wyszedł (albo mógł wyjść)."""
+        ev["c112_pending"] = False
+        d = ev["crash"]
+        went = [r["num"] for r in d["rcpt"]
+                if r.get("handed") or r["st"] in ("submitted", "verifying", "sent", "sent_dry")]
+        if not went or ev.get("c112") is not None:
+            return
+        text = call112_text(ev.get("label") or DEFAULT_LABEL, float(ev["called_112_wall"]),
+                            int(ev["event_ts"]), self._localtime)
+        ev["c112"] = new_delivery("call112", text, went, d["dry"], d["slot"], self._wall(), now)
+        log.warning("Event %s: 112 follow-up SMS queued for %d recipient(s)", ev["id"],
+                    len(went))
+
+    def run_calls(self, stop: threading.Event) -> None:
+        """Wątek połączeń 112 — osobny, żeby rozmowa nigdy nie czekała za
+        wysyłką SMS-a (``termux-sms-send`` potrafi trwać minutę)."""
+        while not stop.is_set():
+            self.call_wake.clear()
+            try:
+                wait = self.call_step()
+            except Exception:
+                log.exception("112 call step failed")
+                wait = CALL_POLL_S
+            if wait > 0:
+                self.call_wake.wait(wait)
+
+    def call_step(self) -> float:
+        """Jeden krok połączenia (polecenia ``su`` POZA blokadą). Zwraca, za
+        ile sekund następny krok."""
+        with self._lock:
+            call = self.call
+            if call is None or call["state"] not in CALL_ACTIVE:
+                return 60.0
+            state, number, hangup = call["state"], call["number"], call["hangup"]
+            if hangup:
+                call["hangup"] = False
+            if state == "queued" and hangup:
+                # „Rozłącz”, zanim ``am start`` w ogóle poszedł: nic nie
+                # wybieram, a limit 1 na minutę wraca (nic nie wybrano).
+                call.update(state="ended", ended_wall=self._wall(), final=True)
+                self.meta["call112_wall"] = call.get("_prev_wall")
+                self._persist_quietly()
+                log.warning("112 call: hung up before it was placed — nothing dialled")
+                return 60.0
+            if call["final"] and not hangup:
+                return 60.0
+        if state == "queued":
+            self._place_call(call, number)
+            return 0.5
+        if hangup:
+            rc, _out, err = self.phone.su(HANGUP_COMMAND)
+            if rc != 0:
+                log.error("112 call: hang-up failed (rc %d: %s)", rc, _clean(err, 80))
+            with self._lock:
+                if self.call is call and call["final"] and call["state"] in CALL_ACTIVE \
+                        and rc == 0:
+                    # Stanu rozmowy nie da się odczytać: po wysłanym
+                    # KEYCODE_ENDCALL uznaję ją za zakończoną.
+                    call.update(state="ended", ended_wall=self._wall())
+                    return 60.0
+        rc, out, _err = self.phone.su(CALL_STATE_COMMAND)
+        cs = parse_call_state(out) if rc == 0 else None
+        now, wall = self._clock(), self._wall()
+        with self._lock:
+            self._call_state = cs
+            if self.call is not call or call["state"] not in ("placed", "offhook"):
+                return CALL_POLL_S
+            placed = call["_placed"] if call["_placed"] is not None else now
+            if cs is not None:
+                call["_seen_state"] = True
+            if cs == 2:
+                call["_idle"] = 0
+                if call["state"] != "offhook":
+                    call["state"] = "offhook"
+                    call["offhook_wall"] = wall
+                    log.warning("112 call: the phone is in the call (OFFHOOK)")
+            elif cs == 0 and call["state"] == "offhook":
+                call["_idle"] += 1
+                if call["_idle"] >= CALL_IDLE_ENDS:
+                    call.update(state="ended", ended_wall=wall, final=True)
+                    log.warning("112 call ended")
+            elif cs == 0 and call["state"] == "placed" and now - placed >= CALL_IDLE_FAIL_S:
+                call.update(state="failed", error="no_call", ended_wall=wall, final=True)
+                log.error("112 call: the phone never went into the call after am start")
+            elif cs is None and not call["_seen_state"] and now - placed >= CALL_NO_STATE_S:
+                # Stanu nie da się odczytać: połączenie wysłane, dalej nie wiem.
+                call["final"] = True
+                log.warning("112 call: the call state is not readable (dumpsys "
+                            "telephony.registry) — no longer followed")
+            if call["state"] in CALL_ACTIVE and now - placed >= CALL_FOLLOW_MAX_S:
+                call.update(state="ended", ended_wall=wall, final=True)
+            return CALL_POLL_S
+
+    def _place_call(self, call: dict, number: Optional[str]) -> None:
+        """``am start`` przez ``su`` i głośność rozmowy na maksimum."""
+        command = call_command(number)
+        rc, out, err = self.phone.su(command)
+        text = f"{out}\n{err}"
+        low = text.lower()
+        now, wall = self._clock(), self._wall()
+        if rc == RC_MISSING:
+            error = "su_missing"
+        elif "denied" in low or "not allowed" in low or rc == RC_TIMEOUT:
+            # Odmowa Magiska; przekroczony czas = okno „Zezwolić?” na ekranie
+            # telefonu, na które nikt nie odpowie.
+            error = "su_denied"
+        elif rc != 0 or "Error" in text or "Exception" in text:
+            error = "am_failed"
+        else:
+            error = ""
+        with self._lock:
+            if error in ("su_missing", "su_denied"):
+                self._su_ok = False
+                self._su_checked = now
+            if self.call is not call:
+                return
+            if error:
+                # Próba, która nie wybrała, nie zużywa limitu 1 na minutę.
+                call.update(state="failed", error=error, ended_wall=wall, final=True)
+                self.meta["call112_wall"] = call.get("_prev_wall")
+                self._persist_quietly()
+            else:
+                call.update(state="placed", placed_wall=wall, _placed=now)
+                if call["mode"] == "real":
+                    # Dopiero teraz (``am start`` przeszedł): SMS o wypadku
+                    # z okna, z którego dzwoniono, powie „Z auta wybrano 112”.
+                    self._flag_called_112(wall, call["event_id"])
+        if error:
+            log.error("112 call FAILED (%s, rc %d): %s", error, rc, _clean(text, 160))
+            return
+        log.critical("112 call placed (%s)", "TEST" if number else "REAL 112")
+        self._raise_call_volume()
+
+    def _raise_call_volume(self) -> None:
+        """Głośność rozmowy na maksimum strumienia (zakres z ``--get``).
+        Porażka tylko w logu — rozmowa trwa i bez tego."""
+        rc, out, err = self.phone.su(VOLUME_GET_COMMAND)
+        top = parse_volume_max(f"{out}\n{err}") if rc == 0 else None
+        if top is None:
+            log.warning("112 call: cannot read the call volume range (rc %d) — volume "
+                        "unchanged", rc)
+            return
+        rc, _out, err = self.phone.su(volume_set_command(top))
+        if rc != 0:
+            log.warning("112 call: setting the call volume failed (rc %d: %s)", rc,
+                        _clean(err, 80))
+        else:
+            log.info("112 call: call volume set to %d", top)
+
+    def probe_su(self) -> None:
+        """``su -c 'id -u'`` → ``0`` (wątek stanu; tylko z włączonym 112)."""
+        rc, out, _err = self.phone.su(SU_PROBE_COMMAND, timeout=SU_TIMEOUT_S)
+        ok = rc == 0 and out.strip() == "0"
+        with self._lock:
+            changed = ok != self._su_ok
+            self._su_ok = ok
+            self._su_checked = self._clock()
+        if changed:
+            (log.info if ok else log.warning)(
+                "Root (Magisk su) %s — 112 from this phone %s", "works" if ok else
+                f"NOT available (rc {rc})", "possible" if ok else "impossible")
+
     # ── pomocnicze (pod self._lock) ───────────────────────────────────────
 
     def _find(self, eid: str) -> Optional[dict]:
@@ -1572,6 +2171,8 @@ class Agent:
         if ev["state"] == "armed":
             deadline_in = max(0, int(math.ceil(ev.get("_deadline", 0) - self._clock())))
         cancel = ev.get("cancel")
+        c112 = ev.get("c112")
+        called = ev.get("called_112_wall")
         return {
             "id": ev["id"], "state": ev["state"], "dry_run": ev["dry"],
             "countdown_s": ev["countdown_s"], "deadline_in_s": deadline_in,
@@ -1580,6 +2181,12 @@ class Agent:
             "cancel_sms": None if not isinstance(cancel, dict) else {
                 "state": delivery_outcome(cancel) if delivery_done(cancel) else "sending",
                 "results": delivery_view(cancel)},
+            # „Zadzwoń 112”: kiedy wybrano, SMS uzupełniający i czy zostało
+            # coś z budżetu SMS-a odwołującego (BCM chowa wtedy „Jestem OK”).
+            "called_112_ts": None if called is None else int(called),
+            "c112_sms": None if not isinstance(c112, dict) else {
+                "state": delivery_outcome(c112) if delivery_done(c112) else "sending"},
+            "follow_up_left": not ev.get("follow_up_used", False),
         }
 
     def _counted(self, ev: dict) -> bool:
@@ -1619,7 +2226,9 @@ class Agent:
         keep = [e for e in self.events
                 if e["state"] in EVENT_ACTIVE
                 or abs(wall - float(e["created_wall"])) < KEEP_EVENTS_S
-                or (isinstance(e.get("cancel"), dict) and not delivery_done(e["cancel"]))]
+                or e.get("c112_pending")
+                or any(isinstance(e.get(k), dict) and not delivery_done(e[k])
+                       for k in ("cancel", "c112"))]
         # ">=": zostaw miejsce na nowe zdarzenie (wołane z arm()), inaczej
         # 64 odwołane fałszywe alarmy zablokowałyby prawdziwy.
         while len(keep) >= MAX_EVENTS:
@@ -1656,6 +2265,9 @@ class Agent:
                         changed = True
                     else:
                         next_due = min(next_due, ev["_deadline"])
+                if ev.get("c112_pending") and delivery_done(ev["crash"]):
+                    self._start_c112_sms(ev, now)
+                    changed = True
             for d, ev in self._deliveries():
                 if d.get("no_retry"):
                     # Odwołane: to, co jeszcze nie wyszło, już nie wyjdzie.
@@ -1695,13 +2307,17 @@ class Agent:
 
     def _deliveries(self):
         """``(dostawa, zdarzenie|None)`` w kolejności pilności: wypadek,
-        odwołanie, test."""
+        odwołanie, „wybrano 112”, test."""
         for ev in self.events:
             if ev["state"] in ("pending", "sending") or (
                     ev["state"] == "cancelled" and not delivery_done(ev["crash"])):
                 yield ev["crash"], ev
         for ev in self.events:
             c = ev.get("cancel")
+            if isinstance(c, dict) and not delivery_done(c):
+                yield c, ev
+        for ev in self.events:
+            c = ev.get("c112")
             if isinstance(c, dict) and not delivery_done(c):
                 yield c, ev
         test = self.meta.get("test")
@@ -1931,7 +2547,16 @@ class Agent:
                 self.wake.wait(min(wait, SCHED_MAX_WAIT_S))
 
     def refresh_status(self) -> None:
-        """Bateria i karta SIM do ``/v1/health`` (wątek w tle)."""
+        """Bateria i karta SIM do ``/v1/health`` (wątek w tle); przy
+        włączonym 112 także ``su`` (co :data:`SU_PROBE_OK_S`)."""
+        with self._lock:
+            now = self._clock()
+            stale = self._status_ts is None or now - self._status_ts >= STATUS_REFRESH_S
+            su_due = self.config["toggles"]["call112"] and self._su_probe_due(now)
+        if su_due:
+            self.probe_su()
+        if not stale and su_due:
+            return
         battery = self.phone.battery()
         sim = self.phone.sim_ready()
         with self._lock:
@@ -1965,15 +2590,20 @@ def default_config() -> dict:
     """Konfiguracja przed pierwszym ``PUT /v1/config``: bez odbiorców, tryb
     testowy, wszystkie przełączniki wyłączone."""
     return {"recipients": [], "sim_slot": 0, "vehicle_label": DEFAULT_LABEL,
-            "toggles": {k: False for k in TOGGLES}, "dry_run": True, "follow_up_cancel": True}
+            "toggles": {k: False for k in TOGGLES}, "dry_run": True, "follow_up_cancel": True,
+            # Bez konfiguracji z BCM: 112 w trybie TESTOWYM bez numeru = nic
+            # nie da się wybrać (i tak przełącznik call112 jest wyłączony).
+            "call112_test_mode": True, "call112_test_number": ""}
 
 
 def normalize_config(obj: Any, strict: bool = False) -> tuple[Optional[dict], str]:
     """``{recipients ≤ 3 × E.164, sim_slot 0|1, vehicle_label, toggles,
-    dry_run, follow_up_cancel}`` → postać kanoniczna (ta sama co w BCM,
-    bo skrót musi się zgadzać). Nieznane klucze są pomijane. ``strict`` =
-    brakujące pola to błąd (``PUT``); bez niego — wartości domyślne
-    (wczytanie zapisanego pliku)."""
+    dry_run, follow_up_cancel, call112_test_mode, call112_test_number}`` →
+    postać kanoniczna (ta sama co w BCM, bo skrót musi się zgadzać).
+    Nieznane klucze są pomijane. ``strict`` = brakujące pola to błąd
+    (``PUT``); bez niego — wartości domyślne (wczytanie zapisanego pliku).
+    Pola 112 są opcjonalne także w ``PUT`` (domyślnie tryb TESTOWY bez
+    numeru — nic nie da się wybrać), a numer testowy to "" albo E.164."""
     if not isinstance(obj, dict):
         return None, "expected an object"
     base = default_config()
@@ -2008,11 +2638,15 @@ def normalize_config(obj: Any, strict: bool = False) -> tuple[Optional[dict], st
         if not isinstance(v, bool):
             return None, f"toggles.{k} must be a boolean"
         out["toggles"][k] = v
-    for key in ("dry_run", "follow_up_cancel"):
+    for key in ("dry_run", "follow_up_cancel", "call112_test_mode"):
         v = obj.get(key, base[key])
         if not isinstance(v, bool):
             return None, f"{key} must be a boolean"
         out[key] = v
+    num = obj.get("call112_test_number", base["call112_test_number"])
+    if not isinstance(num, str) or (num and not E164_RE.fullmatch(num)):
+        return None, "call112_test_number must be '' or match ^\\+[1-9][0-9]{7,14}$"
+    out["call112_test_number"] = num
     return out, ""
 
 
@@ -2222,7 +2856,9 @@ def main(argv: Optional[list] = None) -> int:
     threads = [threading.Thread(target=agent.run_scheduler, args=(stop,), daemon=True,
                                 name="scheduler"),
                threading.Thread(target=agent.run_status, args=(stop,), daemon=True,
-                                name="status")]
+                                name="status"),
+               threading.Thread(target=agent.run_calls, args=(stop,), daemon=True,
+                                name="call112")]
     for t in threads:
         t.start()
 
@@ -2230,6 +2866,7 @@ def main(argv: Optional[list] = None) -> int:
         stop.set()
         agent.wake.set()
         agent.status_kick.set()
+        agent.call_wake.set()
         threading.Thread(target=server.shutdown, daemon=True).start()
 
     signal.signal(signal.SIGTERM, _stop)

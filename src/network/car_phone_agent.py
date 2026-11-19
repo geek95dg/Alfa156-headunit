@@ -88,7 +88,19 @@ differs from the desired configuration:
   ``follow_up_cancel`` (default True) — all from ``crash_detection.sms``,
 * ``toggles`` mirrored from ``modules.{crash_sms, parking_guard,
   cabin_watch, call112}`` — True only for a module that has code in this
-  version (a planned module is never "on" on the phone).
+  version (a planned module is never "on" on the phone),
+* ``call112_test_mode`` / ``call112_test_number`` ← ``safety.call112``
+  (:func:`call112_settings`; the number only from local.yaml, "" or E.164):
+  the agent dials 112 — a constant on the phone — or, in test mode, ONLY
+  this number; the request to call carries no number at all. Sent ONLY
+  while ``modules.call112`` is on: with the toggle off the config keeps
+  the #128 shape (6 keys), and the agent (≥ 1.1.0) leaves both keys out of
+  its hash while its own toggle is off — so an agent from #128 (1.0.0,
+  which drops unknown keys) and a newer one hash the same config the same
+  way, and a BCM update alone never stops the crash SMS
+  (``config_refused`` would force crash_sms into dry-run). With the toggle
+  on, an agent older than :data:`MIN_AGENT_VERSION` cannot match the hash:
+  the reason is then ``agent_outdated`` ("skopiuj nowy bcm_agent.py").
 
 A config the agent refused (400 ``bad_config``, or a hash that does not
 match after a 200) is not re-sent until it changes (reason
@@ -100,7 +112,7 @@ Published on ``net.car_phone_agent`` (on change; ``last_ok_ts`` alone at
 most every 60 s)::
 
     {state, paired, pairing, version, sim_ready, last_ok_ts, last_sent_ts,
-     reason, error, needs_confirm, since}
+     call112_capable, call112_mode, reason, error, needs_confirm, since}
 
     state:  disabled | no_secret | waiting_forward | unpaired | ok | error
             | bad_signature
@@ -109,8 +121,12 @@ most every 60 s)::
     pairing: the PAIRING file exists on the phone (signed health only)
     reason: '' | pairing_closed | bad_code | secret_mismatch | agent_reset
             | clock_skew | no_answer | storage | http | config_pending
-            | config_refused   (what the Settings row explains)
+            | config_refused | agent_outdated  (what the Settings row explains)
     needs_confirm: a re-pair needs "Sparuj mimo to" (proven pairing)
+    call112_capable / call112_mode: what the last signed health answer said
+            about "Zadzwoń 112" on the car phone (plan H, path B: toggle on,
+            ``su`` works, a test number in test mode) — the Settings row
+            shows it, so root problems are visible before a crash
 
 Pairing is started by web_viewer's loopback-only, rate-limited
 ``POST /api/car_phone_agent/pair {code, confirm}`` through
@@ -126,7 +142,11 @@ call it from YOUR OWN worker thread — each call may take a few seconds;
 thread-safe, each returns ``{"ok", "status", "data", "error", "detail"}``
 and never raises: :meth:`~CarPhoneAgent.arm_crash`,
 :meth:`~CarPhoneAgent.cancel`, :meth:`~CarPhoneAgent.send_now`,
-:meth:`~CarPhoneAgent.get`, :meth:`~CarPhoneAgent.test_sms`. Without I/O
+:meth:`~CarPhoneAgent.get`, :meth:`~CarPhoneAgent.test_sms`,
+:meth:`~CarPhoneAgent.call112` / :meth:`~CarPhoneAgent.call112_status` /
+:meth:`~CarPhoneAgent.call112_hangup` / :meth:`~CarPhoneAgent.call112_mark`
+(plan H, used by src/safety/call112.py only, after the driver held the
+button in the crash window — the loopback-only route). Without I/O
 (any thread): :attr:`~CarPhoneAgent.state` (the published payload),
 :meth:`~CarPhoneAgent.health_facts` (what the last signed health answer
 said beyond the Settings row: the last verified real test SMS, the
@@ -164,9 +184,13 @@ FORWARD_NAME = "agent"
 STATES = ("disabled", "no_secret", "waiting_forward", "unpaired", "ok", "error",
           "bad_signature")
 REASONS = ("", "pairing_closed", "bad_code", "secret_mismatch", "agent_reset", "clock_skew",
-           "no_answer", "storage", "http", "config_pending", "config_refused")
+           "no_answer", "storage", "http", "config_pending", "config_refused",
+           "agent_outdated")
 #: Reasons that may accompany state "ok" (the agent works, its config lags).
-OK_REASONS = ("config_pending", "config_refused")
+OK_REASONS = ("config_pending", "config_refused", "agent_outdated")
+#: The first agent version that knows the 112 config keys (plan H). An older
+#: agent drops them, so with ``modules.call112`` on its hash never matches.
+MIN_AGENT_VERSION = (1, 1, 0)
 SECRET_PATH = "network.car_phone.agent.secret"
 SECRET_ENV = "BCM_CAR_PHONE_AGENT_SECRET"
 STATE_FILE = "data/car_phone_agent.json"
@@ -211,6 +235,12 @@ EVENT_ID_RE = re.compile(r"^[0-9a-f]{1,32}$")
 SIG_RE = re.compile(r"^[0-9a-f]{64}$")
 VERSION_RE = re.compile(r"^[0-9A-Za-z.+-]{1,16}$")
 HASH_RE = re.compile(r"^[0-9a-f]{16}$")
+#: What call112 may ask the agent for (the agent refuses a mismatch with its
+#: own mode — a config not synced yet never dials the wrong number).
+CALL112_MODES = ("real", "test")
+#: The agent's call states (``GET /v1/call112``).
+CALL112_STATES = ("queued", "placed", "offhook", "ended", "failed")
+CALL112_ERRORS = ("", "su_missing", "su_denied", "am_failed", "no_call")
 
 #: Error codes the agent sends WITHOUT a signature (it cannot sign for a
 #: client it did not authenticate) — informational only.
@@ -286,6 +316,25 @@ def _module_on(config: Any, name: str) -> bool:
     return _cfg_get(config, f"modules.{name}", False) is True
 
 
+def call112_settings(config: Any) -> tuple[bool, str]:
+    """``(test_mode, test_number)`` from ``safety.call112`` — the one place
+    both the call112 module and the config push read them.
+
+    ``test_mode``: False only when missing or an explicit false (the code
+    default is the real 112); any other non-bool value (a typo such as
+    ``"yes"``) means TEST — an unclear setting never dials 112.
+    ``test_number``: the E.164 number (``^\\+[1-9][0-9]{7,14}$``) or "" —
+    in test mode without one, nothing can be dialled at all."""
+    block = _cfg_get(config, "safety.call112", {})
+    if not isinstance(block, dict):
+        block = {}
+    raw = block.get("test_mode", False)
+    test_mode = raw is not False and raw is not None
+    num = block.get("test_number", "")
+    num = num.strip() if isinstance(num, str) else ""
+    return test_mode, num if E164_RE.fullmatch(num) else ""
+
+
 def desired_config(config: Any, warn: Optional[Callable[[str, str], None]] = None) -> dict:
     """What the agent should hold (``PUT /v1/config``), in the agent's
     canonical form — the hash must match the agent's ``config_hash``.
@@ -323,26 +372,45 @@ def desired_config(config: Any, warn: Optional[Callable[[str, str], None]] = Non
     if isinstance(slot, bool) or slot not in (0, 1):
         _warn("sim_slot", f"crash_detection.sms.sim_slot={slot!r} — using 0")
         slot = 0
+    test_mode, test_number = call112_settings(config)
     label = sms.get("vehicle_label", DEFAULT_LABEL)
     if not isinstance(label, str) or not LABEL_RE.fullmatch(label) or label != label.strip():
         _warn("vehicle_label", f"crash_detection.sms.vehicle_label is not 1-20 characters "
                                f"A-Z a-z 0-9 space . - — using {DEFAULT_LABEL!r}")
         label = DEFAULT_LABEL
-    return {
+    toggles = {name: _module_on(config, name) for name in AGENT_TOGGLES}
+    out = {
         "recipients": recipients,
         "sim_slot": int(slot),
         "vehicle_label": label,
-        "toggles": {name: _module_on(config, name) for name in AGENT_TOGGLES},
+        "toggles": toggles,
         # Only an explicit false sends real SMS (a typo stays in test mode).
         "dry_run": sms.get("dry_run", True) is not False,
         "follow_up_cancel": sms.get("follow_up_cancel", True) is not False,
     }
+    if toggles["call112"]:
+        # Only with the toggle on (see the module docstring): the #128 agent
+        # drops unknown keys and hashes its 6-key form — sending these with
+        # 112 off would make every BCM update look like a refused config.
+        out["call112_test_mode"] = test_mode
+        out["call112_test_number"] = test_number
+    return out
+
+
+def parse_version(value: Any) -> Optional[tuple[int, int, int]]:
+    """``"1.1.0"`` → ``(1, 1, 0)``; None for anything else (a suffix such
+    as ``1.1.0+dev`` is ignored)."""
+    if not isinstance(value, str):
+        return None
+    m = re.match(r"^([0-9]{1,4})\.([0-9]{1,4})\.([0-9]{1,4})", value)
+    return (int(m.group(1)), int(m.group(2)), int(m.group(3))) if m else None
 
 
 #: health_facts() before the first signed health answer.
 _EMPTY_FACTS: dict[str, Any] = {"last_verified_test_ts": None, "last_test": None,
                                 "dry_run": None, "recipients_n": None, "active_event": None,
-                                "config_hash": None}
+                                "config_hash": None, "call112_capable": None,
+                                "call112_mode": None, "call_state": None}
 _HASH_RE = re.compile(r"^[0-9a-f]{16}$")
 #: States of the agent's last test SMS (``last_test.state``).
 TEST_STATES = ("pending", "sent", "partial", "failed")
@@ -375,7 +443,39 @@ def parse_health_facts(obj: Any) -> dict[str, Any]:
         and EVENT_ID_RE.fullmatch(active) else None
     h = obj.get("config_hash")
     out["config_hash"] = h if isinstance(h, str) and _HASH_RE.fullmatch(h) else None
+    cap = obj.get("call112_capable")
+    out["call112_capable"] = cap if isinstance(cap, bool) else None
+    mode = obj.get("call112_mode")
+    out["call112_mode"] = mode if mode in CALL112_MODES else None
+    cs = obj.get("call_state")
+    out["call_state"] = cs if cs in (0, 1, 2) and not isinstance(cs, bool) else None
     return out
+
+
+def parse_call112_view(obj: Any) -> Optional[dict[str, Any]]:
+    """The agent's call view (``POST``/``GET /v1/call112``), checked: a
+    known state and error, epoch timestamps, the masked number as at most
+    16 characters of ``+0-9.``. None for anything else."""
+    if not isinstance(obj, dict) or obj.get("state") not in CALL112_STATES:
+        return None
+    seq = obj.get("seq")
+
+    def ts(key: str) -> Optional[int]:
+        v = _num(obj.get(key), EVENT_TS_MIN, EVENT_TS_MAX)
+        return None if v is None else int(v)
+
+    number = obj.get("number")
+    return {
+        "seq": seq if isinstance(seq, int) and not isinstance(seq, bool) and seq >= 0 else 0,
+        "state": obj["state"],
+        "mode": obj.get("mode") if obj.get("mode") in CALL112_MODES else None,
+        "error": obj.get("error") if obj.get("error") in CALL112_ERRORS else "",
+        "final": obj.get("final") is True,
+        "number": number if isinstance(number, str) and re.fullmatch(r"[+0-9.]{1,16}", number)
+        else "",
+        "requested_ts": ts("requested_ts"), "placed_ts": ts("placed_ts"),
+        "offhook_ts": ts("offhook_ts"), "ended_ts": ts("ended_ts"),
+    }
 
 
 # ── transport ─────────────────────────────────────────────────────────────
@@ -694,7 +794,8 @@ class CarPhoneAgent:
         # Last known agent facts (published with every state).
         self._info: dict[str, Any] = {"paired": None, "pairing": None, "version": None,
                                       "sim_ready": None, "last_ok_ts": None,
-                                      "last_sent_ts": None}
+                                      "last_sent_ts": None, "call112_capable": None,
+                                      "call112_mode": None}
         # More facts from the last signed health answer, NOT published (the
         # Settings row does not show them): see health_facts().
         self._facts: dict[str, Any] = dict(_EMPTY_FACTS)
@@ -955,7 +1056,9 @@ class CarPhoneAgent:
                 else None,
                 sim_ready=sim if isinstance(sim, bool) else None,
                 last_ok_ts=self._wall(),
-                last_sent_ts=sent)
+                last_sent_ts=sent,
+                call112_capable=facts["call112_capable"],
+                call112_mode=facts["call112_mode"])
         self._delay = BACKOFF_MIN_S
         self._next_poll = self._clock() + POLL_OK_S
         self._logged_error = ""
@@ -1043,7 +1146,8 @@ class CarPhoneAgent:
             self._push_logged = ""
             return ""
         if want == self._push_failed:
-            return "config_refused"     # the agent refused exactly this — wait for a change
+            # The agent refused exactly this — wait for a change.
+            return self._refused_reason(desired)
         try:
             status, obj = self._client.request(port, "PUT", "/v1/config", desired)
         except AgentError as e:
@@ -1066,11 +1170,34 @@ class CarPhoneAgent:
         detail = clean_error(obj.get("detail") or obj.get("error") or "")
         if status == 200 or (status == 400 and obj.get("error") == "bad_config"):
             self._push_failed = want
-            log.warning("Car phone agent: the agent refused the config (HTTP %d: %s) — not "
-                        "retried until it changes", status, detail or "hash mismatch")
-            return "config_refused"
+            reason = self._refused_reason(desired)
+            if reason == "agent_outdated":
+                log.warning("Car phone agent: the agent on the phone (%s) is older than this "
+                            "BCM and cannot hold the 112 settings — copy the new "
+                            "tools/car_phone/termux/bcm_agent.py to ~/bcm_agent/ and restart "
+                            "it (docs §5.11)", self._info.get("version") or "?")
+            else:
+                log.warning("Car phone agent: the agent refused the config (HTTP %d: %s) — "
+                            "not retried until it changes", status, detail or "hash mismatch")
+            return reason
         self._log_push(f"config push failed (HTTP {status}: {detail}) — the next poll retries")
         return "config_pending"
+
+    def _refused_reason(self, desired: dict) -> str:
+        """``agent_outdated`` when the refusal is explained by an agent
+        older than :data:`MIN_AGENT_VERSION` while ``modules.call112`` is on
+        (it drops the 112 keys, so its hash never matches) — the Settings
+        row then says "copy the new bcm_agent.py", not "check
+        crash_detection.sms"; otherwise ``config_refused``."""
+        if not desired.get("toggles", {}).get("call112"):
+            return "config_refused"
+        with self._state_lock:
+            version = parse_version(self._info.get("version"))
+            capable = self._facts.get("call112_capable")
+        if (version is not None and version < MIN_AGENT_VERSION) or (
+                version is None and capable is None):
+            return "agent_outdated"
+        return "config_refused"
 
     def _log_push(self, message: str) -> None:
         """One warning per distinct failure, not one every 30 s."""
@@ -1184,6 +1311,40 @@ class CarPhoneAgent:
             body["real_test"] = True
         return self._call("POST", "/v1/test", body)
 
+    def call112(self, mode: str, event_id: str) -> dict:
+        """``POST /v1/call112 {"mode": "real"|"test", "event_id": "<hex>"}``
+        — the car phone dials on its speaker (plan H, path B). NEVER a
+        number: the agent dials its constant 112, or in test mode its own
+        configured test number, and refuses (409 ``mode_mismatch``) when its
+        mode is not ``mode``. ``event_id`` = the crash event of the window:
+        only THAT event's crash SMS gets "Z auta wybrano 112" (nothing when
+        the phone does not hold it, e.g. a GPS-only event). Only
+        src/safety/call112.py calls this, from its worker after the driver
+        held the button on the head unit's screen."""
+        if mode not in CALL112_MODES:
+            return _result(False, error="bad_request", detail="mode: real|test")
+        if not isinstance(event_id, str) or not EVENT_ID_RE.fullmatch(event_id):
+            return _result(False, error="bad_request", detail="event_id: 1-32 lowercase hex")
+        return self._call("POST", "/v1/call112", {"mode": mode, "event_id": event_id})
+
+    def call112_status(self) -> dict:
+        """``GET /v1/call112`` — the agent's current / last 112 call."""
+        return self._call("GET", "/v1/call112")
+
+    def call112_hangup(self) -> dict:
+        """``POST /v1/call112/hangup`` — "Rozłącz" in the crash window."""
+        return self._call("POST", "/v1/call112/hangup", {})
+
+    def call112_mark(self, event_id: str) -> dict:
+        """``POST /v1/call112/mark {"event_id": "<hex>"}`` — the MAIN phone
+        (HFP, path A) dialled the real 112 for this crash event: the phone
+        marks THAT event ``called_112`` (the crash SMS says "Z auta wybrano
+        112", or one follow-up SMS goes after a sent one) — nothing if it
+        does not hold the event. Never sent in test mode (call112 checks)."""
+        if not isinstance(event_id, str) or not EVENT_ID_RE.fullmatch(event_id):
+            return _result(False, error="bad_request", detail="event_id: 1-32 lowercase hex")
+        return self._call("POST", "/v1/call112/mark", {"event_id": event_id})
+
     def pair(self, code: str, confirm: bool = False) -> dict:
         """``POST /v1/pair {secret}`` signed with the one-time ``code``; the
         answer must be signed with OUR secret. Worker thread only (through
@@ -1257,7 +1418,7 @@ class CarPhoneAgent:
                 ok_reason = state != "ok" or reason in OK_REASONS
                 payload = {"state": state, **{k: info[k] for k in (
                     "paired", "pairing", "version", "sim_ready", "last_ok_ts",
-                    "last_sent_ts")},
+                    "last_sent_ts", "call112_capable", "call112_mode")},
                     "reason": reason if reason in REASONS and ok_reason else "",
                     "error": clean_error(error) if state not in ("ok", "disabled") else "",
                     "needs_confirm": bool(state not in ("ok", "disabled", "no_secret")

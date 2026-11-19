@@ -845,6 +845,13 @@ _DIAL_ERROR_TEXT = {
     "netdown": ("Nie można zadzwonić", "Telefon nie ma zasięgu sieci komórkowej."),
     "invalid": ("Nie można zadzwonić", "Nieprawidłowy numer."),
 }
+#: "Zadzwoń 112" (src/safety/call112.py, plan H, path A) dials over HFP only
+#: through :meth:`BluetoothManager.dial_call112`: exactly this number, or — in
+#: its test mode — an E.164 test number from local.yaml. ``bt.dial_result``
+#: of such a dial carries ``origin: "call112"``.
+CALL112_NUMBER = "112"
+CALL112_ORIGIN = "call112"
+_E164_RE = re.compile(r"^\+[1-9][0-9]{7,14}$")
 #: bt.phone_status registration states meaning "no cellular network".
 _NO_NETWORK_STATES = ("searching", "denied", "unregistered")
 #: D-Bus errors meaning "no answer in time" — not "refused".
@@ -2057,28 +2064,78 @@ class BluetoothManager:
         subscriber for up to ~10 s. One dial at a time — a second one while
         the first is queued or in flight is refused (``bt.dial_result`` busy).
         """
+        self._begin_dial(value)
+
+    def _begin_dial(self, value: Any, origin: str = "") -> bool:
+        """Validate, publish the provisional "ringing" and queue the D-Bus
+        dial for the bt-call worker (never blocks). ``origin`` ("" for the
+        bus, :data:`CALL112_ORIGIN` for :meth:`dial_call112`) goes into
+        ``bt.dial_result``. True when the dial was queued."""
         number = normalize_dial_number(value)
         if not number:
             log.warning("HFP dial refused: not a phone number (%r)",
                         sanitize_call_text(value, _CALL_NUMBER_MAX))
-            self._dial_failed("", "invalid", revert=False)
-            return
+            self._dial_failed("", "invalid", revert=False, origin=origin)
+            return False
         with self._dial_lock:
             busy = self._dial_busy
             self._dial_busy = True
         if busy:
             log.warning("HFP dial refused: the previous dial is still in progress")
-            self._dial_failed(number, "busy", revert=False)
-            return
-        log.info("HFP dial request: %s", number)
+            self._dial_failed(number, "busy", revert=False, origin=origin)
+            return False
+        log.info("HFP dial request%s: %s", " (112 button)" if origin else "", number)
         self._hfp_active = True
         self._event_bus.publish("bt.hfp_active", True)
         self._event_bus.publish("bt.call_state", "ringing")
         self._event_bus.publish("bt.call_info", {"number": number, "name": ""})
-        if not self._submit_call("dial", number):
+        if not self._submit_call("dial", (number, origin)):
             # Never stay "busy" when the dial cannot even be queued.
             self._dial_done()
-            self._dial_failed(number, "dbus")
+            self._dial_failed(number, "dbus", origin=origin)
+            return False
+        return True
+
+    # ── "Zadzwoń 112" (src/safety/call112.py, plan H, path A) ─────────────
+
+    def dial_call112(self, number: str) -> bool:
+        """The 112 button's way to dial over HFP — an internal entry point,
+        deliberately NOT an event-bus topic: nothing that can publish
+        ``bt.cmd.dial`` (the /api/phone/dial route with its block of
+        emergency numbers from the network, the IPC socket) reaches it. Only
+        call112 calls it, from its own worker, after the driver held the
+        button in the crash window (loopback-only route).
+
+        Accepts exactly :data:`CALL112_NUMBER` or, in call112's test mode,
+        an E.164 test number; anything else is refused (False, logged). The
+        dial runs on the bt-call worker like any other (one at a time);
+        its ``bt.dial_result`` carries ``origin: "call112"``. Never blocks.
+        True when the dial was queued."""
+        if not isinstance(number, str) or (number != CALL112_NUMBER
+                                           and not _E164_RE.fullmatch(number)):
+            log.error("112 button: refusing to dial %r over HFP (only 112 or an E.164 "
+                      "test number)", sanitize_call_text(number, _CALL_NUMBER_MAX))
+            return False
+        return self._begin_dial(number, origin=CALL112_ORIGIN)
+
+    def hangup_call112(self) -> bool:
+        """"Rozłącz" (held 1 s) in the crash window during a 112 call over
+        HFP: the same HangupAll as bt.cmd.hangup, queued behind a dial that
+        is still in flight (so it ends that call too). Never blocks."""
+        self._on_cmd_hangup("bt.cmd.hangup", True, time.time())
+        return True
+
+    def call112_facts(self) -> dict:
+        """What path A needs to be offered, without I/O (any thread):
+        ``connected`` (a phone is connected over Bluetooth), ``voice_modem``
+        (oFono has a modem with a VoiceCallManager — only known while the
+        oFono monitor is live) and ``call_state`` (oFono's REAL call state,
+        not the provisional one on the bus; None without a live monitor)."""
+        tracker = self._call_tracker
+        live = bool(tracker is not None and tracker.live)
+        return {"connected": bool(self.connected),
+                "voice_modem": bool(live and tracker.has_voice_modem()),
+                "call_state": tracker.state if live else None}
 
     # ── bt-call worker ────────────────────────────────────────────────────
 
@@ -2133,8 +2190,10 @@ class BluetoothManager:
         with self._dial_lock:
             self._dial_busy = False
 
-    def _run_dial(self, number: str) -> None:
-        """The D-Bus half of _on_cmd_dial (bt-call worker). Never raises."""
+    def _run_dial(self, arg: Any) -> None:
+        """The D-Bus half of _begin_dial (bt-call worker). Never raises.
+        ``arg``: the number, or ``(number, origin)``."""
+        number, origin = arg if isinstance(arg, tuple) else (arg, "")
         error: Optional[str] = "dbus"
         try:
             if HAS_DBUS:
@@ -2149,7 +2208,7 @@ class BluetoothManager:
             # must not be refused as "busy".
             self._dial_done()
         if error is None:
-            self._publish_dial_result(True, None)
+            self._publish_dial_result(True, None, origin)
             self._schedule_call_reconcile()
         elif error == "unknown":
             # No reply in time, but the phone may be dialling: no toast ("try
@@ -2157,10 +2216,10 @@ class BluetoothManager:
             # "ringing" — oFono's call state (monitor / reconcile) decides.
             log.warning("HFP dial: oFono did not answer in %.0f s — the call may "
                         "still be going out: %s", _DIAL_TIMEOUT_S, number)
-            self._publish_dial_result(None, "unknown")
+            self._publish_dial_result(None, "unknown", origin)
             self._schedule_call_reconcile()
         else:
-            self._dial_failed(number, error)
+            self._dial_failed(number, error, origin=origin)
 
     def _run_answer(self, _arg: Any = None) -> None:
         if HAS_DBUS:
@@ -2178,17 +2237,23 @@ class BluetoothManager:
                 log.warning("HFP D-Bus hangup failed: %s", e)
         self._schedule_call_reconcile()
 
-    def _publish_dial_result(self, ok: Optional[bool], error: Optional[str]) -> None:
-        """``bt.dial_result {ok, path, error, ts}``; ok None = outcome unknown."""
+    def _publish_dial_result(self, ok: Optional[bool], error: Optional[str],
+                             origin: str = "") -> None:
+        """``bt.dial_result {ok, path, error, ts}`` (+ ``origin`` for the 112
+        button's dials); ok None = outcome unknown."""
         if ok is None:
             error = "unknown"
-        self._event_bus.publish("bt.dial_result", {
+        result = {
             "ok": None if ok is None else bool(ok), "path": "hfp",
             "error": error if error in DIAL_ERRORS else (None if ok else "dbus"),
             "ts": time.time(),
-        })
+        }
+        if origin:
+            result["origin"] = origin
+        self._event_bus.publish("bt.dial_result", result)
 
-    def _dial_failed(self, number: str, error: str, revert: bool = True) -> None:
+    def _dial_failed(self, number: str, error: str, revert: bool = True,
+                     origin: str = "") -> None:
         """A dial did not happen: bt.dial_result, a toast, and no fake call.
 
         ``revert``: the provisional "ringing" was published for ``number``;
@@ -2198,7 +2263,7 @@ class BluetoothManager:
         """
         from src.core.notifications import publish_notification
         bus = self._event_bus
-        self._publish_dial_result(False, error)
+        self._publish_dial_result(False, error, origin)
         title, desc = _DIAL_ERROR_TEXT.get(error, _DIAL_ERROR_TEXT["dbus"])
         publish_notification(bus, title, desc, severity="warning", icon="call_end",
                              key="dial_result")

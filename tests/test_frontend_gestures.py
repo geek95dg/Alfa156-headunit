@@ -57,6 +57,15 @@
   navigating, nothing off-screen, ANULUJ >= 1/3 and on top, an edge pull
   does not navigate, beeps while pending, one POST {event_id} per tap, the
   result closes on a tap. Skipped without the playwright package/Chromium;
+* hold_eval.js: components/hold.js — the hold-to-confirm of the 112 and
+  "Rozłącz" buttons on a fake clock: too short, finger left, pointercancel,
+  the arm delay, a second finger, a late or early timer, rearm, destroy;
+* call112_browser_smoke.js: "Zadzwoń 112" in the crash window on the real
+  dashboard in headless Chromium at 1024x600 (mouse and a real touch): the
+  red button >= 15% away from ANULUJ / Zamknij, naming the path, hold
+  rules, one POST with an empty body, the call view, "Rozłącz" held 1 s,
+  "Odbierz", the dispatcher panel >= 48 px that fits, test-mode label, no
+  button without the module or off the kiosk. Skipped without playwright;
 * weather_escape_smoke.js: screens/weather.js — geocoder place names and
   the weather city / condition never become markup, results are picked via
   data-weather-idx + one delegated listener, and only valid coordinates reach
@@ -233,6 +242,100 @@ SCRIPTS = [
 def test_edge_tracker(name, ops, expected):
     events = _eval(scripts=[ops])["scripts"][0]
     assert events == expected
+
+
+def _hold(scripts):
+    res = subprocess.run(
+        [NODE, str(JS / "hold_eval.js")],
+        input=json.dumps({"scripts": scripts}), capture_output=True, text=True, timeout=60,
+    )
+    assert res.returncode == 0, res.stderr
+    return json.loads(res.stdout)["scripts"]
+
+
+ARMED = ["advance", 800]          # past the 700 ms arm delay
+# (name, opts, ops, expected events) — see tests/js/hold_eval.js
+HOLD_SCRIPTS = [
+    ("2 s hold fires once", {}, [
+        ARMED, ["press", 1], ["advance", 1999], ["state"], ["advance", 1], ["state"],
+        ["advance", 5000]],
+     [["press", "holding"], ["state", "holding"], ["fire"], ["state", "fired"]]),
+    ("too short", {}, [
+        ARMED, ["press", 1], ["advance", 1500], ["release", 1], ["advance", 3000], ["state"]],
+     [["press", "holding"], ["reset", "released"], ["state", "idle"]]),
+    ("finger slid off the button", {}, [
+        ARMED, ["press", 1], ["advance", 1000], ["leave", 1], ["advance", 3000]],
+     [["press", "holding"], ["reset", "left"]]),
+    ("pointercancel (browser took the touch)", {}, [
+        ARMED, ["press", 1], ["advance", 1900], ["cancel", 1], ["advance", 3000]],
+     [["press", "holding"], ["reset", "cancelled"]]),
+    ("inactive during the arm delay", {}, [
+        ["advance", 699], ["press", 1], ["advance", 5000], ["state"]],
+     [["press", "not_armed"], ["state", "idle"]]),
+    ("armed right after the delay", {}, [
+        ["advance", 700], ["press", 1], ["advance", 2000]],
+     [["press", "holding"], ["fire"]]),
+    ("a second finger neither restarts nor fires twice", {}, [
+        ARMED, ["press", 1], ["advance", 1000], ["press", 2], ["release", 2],
+        ["advance", 1000], ["press", 1], ["advance", 5000]],
+     [["press", "holding"], ["press", "busy"], ["fire"], ["press", "fired"]]),
+    ("double trigger: fired stays fired until rearm", {}, [
+        ARMED, ["press", 1], ["advance", 2000], ["release", 1], ["press", 1],
+        ["advance", 3000], ["rearm", 700], ["press", 1], ["advance", 700], ["press", 1],
+        ["advance", 2000]],
+     [["press", "holding"], ["fire"], ["press", "fired"], ["press", "not_armed"],
+      ["press", "holding"], ["fire"]]),
+    ("a late timer after the release does nothing", {}, [
+        ARMED, ["press", 1], ["advance", 1000], ["snap"], ["release", 1], ["advance", 1500],
+        ["late"], ["state"]],
+     [["press", "holding"], ["reset", "released"], ["state", "idle"]]),
+    ("a timer that fires early waits for the rest", {}, [
+        ARMED, ["press", 1], ["snap"], ["advance", 500], ["late"], ["state"],
+        ["advance", 1500], ["state"], ["advance", 5000]],
+     [["press", "holding"], ["state", "holding"], ["fire"], ["state", "fired"]]),
+    ("progress follows the hold", {}, [
+        ARMED, ["press", 1], ["advance", 500], ["progress"], ["advance", 500], ["progress"]],
+     [["press", "holding"], ["progress", 0.25], ["progress", 0.5]]),
+    ("Rozłącz: 1 s", {"holdMs": 1000, "armDelayMs": 0}, [
+        ["press", 1], ["advance", 999], ["state"], ["advance", 1]],
+     [["press", "holding"], ["state", "holding"], ["fire"]]),
+    ("destroyed: nothing fires", {}, [
+        ARMED, ["press", 1], ["advance", 1000], ["destroy"], ["advance", 3000], ["press", 1]],
+     [["press", "holding"], ["press", "dead"]]),
+    ("nonsense options fall back to 2 s / 0.7 s", {"holdMs": "x", "armDelayMs": -5}, [
+        ["advance", 600], ["press", 1], ["advance", 200], ["press", 1], ["advance", 1999],
+        ["state"], ["advance", 1]],
+     [["press", "not_armed"], ["press", "holding"], ["state", "holding"], ["fire"]]),
+]
+
+
+@pytest.mark.parametrize("name, opts, ops, expected", HOLD_SCRIPTS,
+                         ids=[s[0] for s in HOLD_SCRIPTS])
+def test_hold_to_confirm(name, opts, ops, expected):
+    assert _hold([{"opts": opts, "ops": ops}])[0] == expected
+
+
+def test_hold_js_has_no_dom_at_load_and_blocks_the_long_press_menu():
+    src = (ROOT / "src/dashboard/web/js/components/hold.js").read_text(encoding="utf-8")
+    for needle in ('"contextmenu"', "setPointerCapture", 'touchAction = "none"',
+                   '"pointercancel"', '"lostpointercapture"', "passive: false"):
+        assert needle in src, needle
+    html = (ROOT / "src/dashboard/web/index.html").read_text(encoding="utf-8")
+    assert html.index("components/hold.js") < html.index("components/crash_modal.js")
+
+
+@pytest.mark.timeout(200)
+def test_call112_in_chromium():
+    """The 112 button, call view and dispatcher panel at 1024x600 in
+    headless Chromium (see the harness). Nothing can dial: every request is
+    answered by the harness."""
+    res = subprocess.run([NODE, str(JS / "call112_browser_smoke.js")],
+                         capture_output=True, text=True, timeout=180)
+    out = res.stdout.strip()
+    if res.returncode == 0 and out.startswith("SKIP:"):
+        pytest.skip(out[5:].strip())
+    assert res.returncode == 0, res.stderr or res.stdout
+    assert out.endswith("ok"), out
 
 
 @pytest.mark.parametrize("harness", ["app_smoke.js", "aa_screen_smoke.js",

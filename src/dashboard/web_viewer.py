@@ -40,6 +40,7 @@ from src.network.car_phone_agent import TOPIC as _AGENT_TOPIC
 from src.network.phone_tether import HINTS as _TETHER_HINTS
 from src.network.phone_tether import RETRY_TOPIC as _TETHER_RETRY_TOPIC
 from src.network.phone_tether import STATES as _TETHER_STATES
+from src.safety import call112 as _call112
 from src.safety import crash_sms as _crash_sms
 from src.weather.weather import valid_coords
 
@@ -373,8 +374,12 @@ _AGENT_PAIR_MAX_BODY = 256
 _AGENT_VERSION_RE = re.compile(r"^[0-9A-Za-z.+-]{1,16}$")
 
 
-def _car_phone_agent_summary(value: Any) -> Optional[dict]:
+def _car_phone_agent_summary(value: Any, call112_on: bool = False) -> Optional[dict]:
     """``net.car_phone_agent`` → the Settings row "Agent w telefonie".
+
+    ``call112_on`` (``modules.call112``): the row says "112: niegotowy"
+    only then — with the toggle off the agent reports "not capable" by
+    design, which is not a problem to show.
 
     The module validated the agent's answers already; this is the second
     line (whitelisted state/reason, flags only as booleans, timestamps only
@@ -411,6 +416,11 @@ def _car_phone_agent_summary(value: Any) -> Optional[dict]:
         "reason": reason if isinstance(reason, str) and reason in _AGENT_REASONS else "",
         "error": error[:200] if isinstance(error, str) else "",
         "needs_confirm": value.get("needs_confirm") is True,
+        # „Zadzwoń 112” from the car phone (plan H, path B) — whitelisted.
+        "call112_capable": flag("call112_capable"),
+        "call112_mode": value.get("call112_mode")
+        if value.get("call112_mode") in _car_phone_agent.CALL112_MODES else None,
+        "call112_enabled": call112_on is True,
     }
 
 
@@ -502,6 +512,99 @@ def _crash_sms_summary(value: Any) -> Optional[dict]:
             "verified": test.get("verified") is True,
             "last_verified_ts": epoch(test.get("last_verified_ts")),
         },
+    }
+
+
+#: "Zadzwoń 112" routes (src/safety/call112.py): minimum spacing of accepted
+#: requests per route — only a loop guard; the module itself allows one dial
+#: per 60 s (429 with retry_after) except the one fallback to the other
+#: path after a failed attempt.
+_CALL112_MIN_INTERVAL_S = 1.0
+#: The bench-test window (test mode only): one per this many seconds.
+_CALL112_TEST_MIN_INTERVAL_S = 10.0
+#: The vehicle description in the dispatcher panel (local.yaml text).
+_CALL112_VEHICLE_LIMITS = {"label": 32, "colour": 20, "plate": 12}
+
+
+def _call112_summary(value: Any) -> Optional[dict]:
+    """``crash.call112_state`` → the 112 part of the crash window.
+
+    A whitelist with types and ranges (the payload also reaches network
+    clients in ``readonly`` mode — which see the window without buttons).
+    The test number is already masked by the module (``+48...567``); the
+    vehicle texts are capped here and escaped by the UI. None = the module
+    does not run (no button, no panel)."""
+    if not isinstance(value, dict):
+        return None
+
+    def epoch(v):
+        if isinstance(v, bool) or not isinstance(v, (int, float)):
+            return None
+        return float(v) if math.isfinite(v) and 0 < v < 4.1e9 else None
+
+    def num(v, lo, hi):
+        if isinstance(v, bool) or not isinstance(v, (int, float)):
+            return None
+        return v if math.isfinite(v) and lo <= v <= hi else None
+
+    def small_int(v, hi):
+        if isinstance(v, bool) or not isinstance(v, int) or not 0 <= v <= hi:
+            return None
+        return v
+
+    def pick(v, allowed, default=""):
+        return v if isinstance(v, str) and v in allowed else default
+
+    eid = value.get("event_id")
+    reasons = value.get("reasons") if isinstance(value.get("reasons"), dict) else {}
+    disp = value.get("dispatcher")
+    dispatcher = None
+    if isinstance(disp, dict):
+        lat, lon = num(disp.get("lat"), -90, 90), num(disp.get("lon"), -180, 180)
+        if lat is None or lon is None:
+            lat = lon = None
+        veh = disp.get("vehicle") if isinstance(disp.get("vehicle"), dict) else {}
+        dispatcher = {
+            "lat": lat, "lon": lon,
+            "fix_age_s": small_int(disp.get("fix_age_s"), 10 ** 7) if lat is not None else None,
+            "sats": small_int(disp.get("sats"), 255) if lat is not None else None,
+            "heading": small_int(disp.get("heading"), 359),
+            "speed_kmh": small_int(disp.get("speed_kmh"), 400),
+            "event_ts": epoch(disp.get("event_ts")),
+            "vehicle": {k: veh.get(k)[:n] if isinstance(veh.get(k), str) else ""
+                        for k, n in _CALL112_VEHICLE_LIMITS.items()},
+        }
+    number = value.get("test_number")
+    return {
+        "window": value.get("window") is True,
+        "event_id": eid if isinstance(eid, str) and _call112.EVENT_ID_RE.fullmatch(eid)
+        else None,
+        "event_ts": epoch(value.get("event_ts")),
+        "window_until_ts": epoch(value.get("window_until_ts")),
+        "state": pick(value.get("state"), _call112.CALL_STATES, "idle"),
+        "path": pick(value.get("path"), _call112.PATHS),
+        "error": pick(value.get("error"), _call112.ERRORS),
+        "started_ts": epoch(value.get("started_ts")),
+        "active_ts": epoch(value.get("active_ts")),
+        "ended_ts": epoch(value.get("ended_ts")),
+        "duration_s": small_int(value.get("duration_s"), 86400),
+        "unverified": value.get("unverified") is True,
+        # Path A: "missing" = no microphone uplink to the dispatcher (the
+        # window warns and offers the car phone).
+        "uplink": pick(value.get("uplink"), _call112.UPLINK_STATES, "unknown"),
+        "hangup_pending": value.get("hangup_pending") is True,
+        "offer": pick(value.get("offer"), _call112.PATHS + ("none",), "none"),
+        "fallback": value.get("fallback") is True,
+        "reasons": {p: pick(reasons.get(p), _call112.REASONS) for p in _call112.PATHS},
+        "retry_after_s": small_int(value.get("retry_after_s"), 3600) or 0,
+        # Anything but an explicit false is shown as TEST (never "real 112").
+        "test_mode": value.get("test_mode") is not False,
+        "test_number": number if isinstance(number, str)
+        and re.fullmatch(r"\+[0-9]{2}\.\.\.[0-9]{3}", number) else "",
+        "hold_ms": small_int(value.get("hold_ms"), 5000) or 2000,
+        "arm_delay_ms": small_int(value.get("arm_delay_ms"), 3000) or 700,
+        "incoming": value.get("incoming") is True,
+        "dispatcher": dispatcher,
     }
 
 
@@ -1189,11 +1292,17 @@ class WebViewer:
             "car_phone": _car_phone_summary(_val("net.car_phone")),
             # The Termux agent on that phone (src/network/car_phone_agent.py):
             # pairing / health for the Settings row. None = module not running.
-            "car_phone_agent": _car_phone_agent_summary(_val(_AGENT_TOPIC)),
+            "car_phone_agent": _car_phone_agent_summary(
+                _val(_AGENT_TOPIC),
+                bool(self._config and self._config.get("modules.call112", False) is True)),
             # The crash SMS window (src/safety/crash_sms.py, crash.sms_state):
             # app.js shows #crash-modal on every screen from it. Whitelisted,
             # no phone numbers; None = module not running.
             "crash_sms": _crash_sms_summary(_val(_crash_sms.TOPIC_STATE)),
+            # "Zadzwoń 112" in the same window (src/safety/call112.py,
+            # crash.call112_state): the button's path, the call, the
+            # dispatcher panel. None = module not running (no button).
+            "call112": _call112_summary(_val(_call112.TOPIC_STATE)),
             # Phone battery / signal / operator for the top bar
             # (src/multimedia/phone_status.py). Re-sanitised here: values come
             # from the phone; None = module not running (no cluster drawn).
@@ -3068,6 +3177,129 @@ class WebViewer:
             if not result.get("ok"):
                 return jsonify({"ok": False, "error": result.get("error") or "refused"}), 409
             _crash_accepted("test", now)
+            return jsonify({"ok": True})
+
+        # --- "Zadzwoń 112" (src/safety/call112.py) --------------------------
+        # Same rules as the crash SMS routes: loopback ONLY (also with
+        # remote_access "full"), rate-limited, and NOTHING from the body is
+        # used to dial — the number is 112 (or, in test mode, the test
+        # number from local.yaml), chosen in the module. The body must still
+        # be a small JSON object (crash_modal.js sends {}): a JSON
+        # Content-Type cannot be sent cross-origin without a CORS preflight
+        # (which this app never answers), so a page from elsewhere rendered
+        # by a browser on the head unit — loopback too — cannot fire a
+        # "simple" text/plain or form POST at these routes.
+
+        def _call112_module():
+            module = _call112.get_call112()
+            if module is None:
+                return None, (jsonify({"ok": False, "error": "not_running"}), 409)
+            return module, None
+
+        def _call112_guard(what: str, key: str):
+            """Loopback, a small body, the module, the loop guard; returns
+            (module, now, None) or (None, None, error response)."""
+            refused = _crash_kiosk_only(what)
+            if refused is not None:
+                return None, None, refused
+            _data, err = _crash_body()
+            if err is not None:
+                return None, None, err
+            module, err = _call112_module()
+            if err is not None:
+                return None, None, err
+            now = time.monotonic()
+            limited = _crash_rate_limited(key, _CALL112_MIN_INTERVAL_S, now)
+            if limited is not None:
+                return None, None, limited
+            return module, now, None
+
+        @app.route("/api/crash/call112", methods=["POST"])
+        def api_crash_call112():
+            """"PRZYTRZYMAJ 2 s – ZADZWOŃ 112" was held in the crash window.
+            The body must be a JSON object (see above) and is otherwise
+            ignored on purpose (whatever number it carries is never
+            dialled); the module picks the path (main phone over HFP
+            or the car phone on speaker) and dials on its worker. 429 with
+            ``retry_after`` within 60 s of the previous dial (except the
+            one fallback after a failed attempt); 409 ``no_window`` outside
+            the window of a crash event, ``no_path`` when neither phone can
+            call (the window says "Zadzwoń 112 ze swojego telefonu")."""
+            module, now, err = _call112_guard("calling 112", "call112")
+            if err is not None:
+                return err
+            result = module.request_call(source="ui")
+            if not result.get("ok"):
+                if result.get("error") == "rate_limited":
+                    wait = int(result.get("retry_after") or 1)
+                    res = jsonify({"ok": False, "error": "too many requests",
+                                   "retry_after": wait})
+                    res.headers["Retry-After"] = str(wait)
+                    return res, 429
+                return jsonify({"ok": False, "error": result.get("error") or "refused",
+                                "path": result.get("path") or ""}), 409
+            _crash_accepted("call112", now)
+            return jsonify({"ok": True, "path": result.get("path")})
+
+        @app.route("/api/crash/call112/hangup", methods=["POST"])
+        def api_crash_call112_hangup():
+            """"Rozłącz" held 1 s in the call view: ends the 112 call (HFP
+            HangupAll, or the car phone's KEYCODE_ENDCALL). Body: a JSON
+            object, ignored."""
+            module, now, err = _call112_guard("ending the 112 call", "call112_hangup")
+            if err is not None:
+                return err
+            result = module.request_hangup()
+            if not result.get("ok"):
+                return jsonify({"ok": False, "error": result.get("error") or "refused"}), 409
+            _crash_accepted("call112_hangup", now)
+            return jsonify({"ok": True})
+
+        @app.route("/api/crash/call112/test", methods=["POST"])
+        def api_crash_call112_test():
+            """Bench test: open the 112 window without a crash. Only in
+            ``safety.call112.test_mode`` with a ``test_number`` (409
+            otherwise) — the button then calls ONLY that number. No SMS,
+            no crash record. At most one per _CALL112_TEST_MIN_INTERVAL_S."""
+            refused = _crash_kiosk_only("opening the 112 test window")
+            if refused is not None:
+                return refused
+            _data, err = _crash_body()
+            if err is not None:
+                return err
+            module, err = _call112_module()
+            if err is not None:
+                return err
+            now = time.monotonic()
+            limited = _crash_rate_limited("call112_test", _CALL112_TEST_MIN_INTERVAL_S, now)
+            if limited is not None:
+                return limited
+            result = module.open_test_window()
+            if not result.get("ok"):
+                return jsonify({"ok": False, "error": result.get("error") or "refused"}), 409
+            _crash_accepted("call112_test", now)
+            return jsonify({"ok": True})
+
+        @app.route("/api/crash/call112/close", methods=["POST"])
+        def api_crash_call112_close():
+            """"Zamknij" — close the 112 view of ``{"event_id": "<hex>"}``
+            (not during a call; the countdown of a crash SMS, if any, is
+            not touched)."""
+            refused = _crash_kiosk_only("closing the crash window")
+            if refused is not None:
+                return refused
+            data, err = _crash_body()
+            if err is not None:
+                return err
+            eid = data.get("event_id")
+            if not isinstance(eid, str) or not _call112.EVENT_ID_RE.fullmatch(eid):
+                return jsonify({"ok": False, "error": "bad_event_id"}), 400
+            module, err = _call112_module()
+            if err is not None:
+                return err
+            result = module.dismiss(eid)
+            if not result.get("ok"):
+                return jsonify({"ok": False, "error": result.get("error") or "refused"}), 409
             return jsonify({"ok": True})
 
         @app.route("/api/crash/recipients", methods=["GET"])

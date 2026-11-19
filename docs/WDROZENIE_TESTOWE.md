@@ -1018,8 +1018,8 @@ nieosiągalne), progi „postoju” kalibracji przy pracującym silniku
 nie działa. Dlatego BCM tylko „uzbraja” zdarzenie, a termin wysyłki, treść
 SMS-a (stałe szablony GSM-7, bez polskich liter) i limity (1 zdarzenie na
 10 min, 3 na dobę) pilnuje agent w Redmi: `tools/car_phone/termux/bcm_agent.py`
-(sam Python z biblioteką standardową). Ten sam agent obsłuży później alarm
-na postoju, „Zadzwoń 112” i czuwanie kabiny. Moduł w BCM
+(sam Python z biblioteką standardową). Ten sam agent obsługuje też
+„Zadzwoń 112” (§5.11), a później alarm na postoju i czuwanie kabiny. Moduł w BCM
 (`src/network/car_phone_agent.py`, wymaga `car_phone`, domyślnie wyłączony
 wszędzie) sprawdza stan agenta co 30 s, wysyła mu ustawienia, gdy się
 zmienią, i paruje go. Sam przebieg SMS-owy (odliczanie na ekranie,
@@ -1097,6 +1097,18 @@ nieuprzywilejowany użytkownik kiosku (port 952). Dlatego:
 Ryzyko, które zostaje: przejęty użytkownik kiosku (ta sama sesja X) mógłby
 podejrzeć wpisywany kod; parowanie rób, gdy w telefonie nie ma obcych
 aplikacji.
+
+**Aktualizacja agenta.** Po każdej aktualizacji BCM, która zmienia
+`tools/car_phone/termux/bcm_agent.py`, skopiuj nowy plik do
+`~/bcm_agent/` w telefonie i zrestartuj agenta: `pkill -f bcm_agent.py`
+(pętla w `boot_bcm_agent.sh` uruchomi go po 10 s) albo restart telefonu.
+Sekret, nonce, zdarzenia i parowanie w `~/.config/bcm_agent` zostają.
+Wiersz „Agent w telefonie” pokazuje wersję — po tej aktualizacji **1.1.0**.
+Stary agent (1.0.0) z nowym BCM działa dalej, dopóki `modules.call112` jest
+wyłączony (pola 112 nie liczą się wtedy do skrótu konfiguracji); przy
+włączonym `call112` wiersz pokaże „agent w telefonie jest starszy niż BCM —
+skopiuj nowy … bcm_agent.py”, a SMS po stłuczce przejdzie w tryb testowy,
+dopóki agent nie zostanie zaktualizowany.
 
 **Potwierdzanie wysyłki.** Agent czyta `termux-sms-list -t all` i patrzy na
 typ wiadomości: w „wysłanych” = wysłany; w „nieudanych” = ponowienie (do 3,
@@ -1191,8 +1203,175 @@ Przypisać go można tylko z ekranu auta.
 
 Trasy `/api/crash/{cancel,send_now,follow_up,test,recipients}` działają
 **wyłącznie z ekranu auta** (loopback), także przy `remote_access: full`,
-i mają limit żądań; telefon pasażera widzi okno bez przycisków. Miejsce na
-przycisk „Zadzwoń 112” w oknie jest zarezerwowane (kolejna partia, plan H).
+i mają limit żądań; telefon pasażera widzi okno bez przycisków. Przycisk
+„Zadzwoń 112” w tym samym oknie opisuje §5.11.
+
+### 5.11 „Zadzwoń 112” w oknie wypadku (`modules.call112`)
+
+**Co robi.** W oknie wypadku (to samo okno co w §5.10; działa też bez
+`crash_sms`) pojawia się czerwony przycisk **„PRZYTRZYMAJ 2 s – ZADZWOŃ
+112”** — po przeciwnej stronie niż ANULUJ / Zamknij, z odstępem ≥ 15%
+szerokości ekranu. **Zawsze ręcznie:** nic nie dzwoni samo, odliczanie
+dotyczy tylko SMS-a, żadna akcja kierownicy nie dzwoni na 112. Przycisk
+trzeba **przytrzymać** 2 s (pierścień się zapełnia); przez pierwsze 0,7 s
+po pojawieniu się nie reaguje wcale, puszczenie albo zjechanie palcem
+z przycisku zeruje odliczanie. Numer nigdy nie przychodzi z ekranu: to
+stałe 112 (w trybie testowym — wyłącznie numer testowy). Okno otwiera
+każde zdarzenie `crash.detected` (także „sam GPS”) i pozwala dzwonić przez
+`window_min` (30) minut. Zamyka je (nigdy w trakcie rozmowy):
+
+- „Zamknij”;
+- jazda dalej: prędkość z `gps.speed` powyżej
+  `crash_detection.min_speed_kmh` (25 km/h) przez 10 s bez przerwy dłuższej
+  niż 2,5 s między próbkami — liczona od zdarzenia, także po zatrzymaniu
+  (moduł `crash_detect` po „zatrzymał się” nie mówi już nic więcej, więc
+  okno 112 liczy to samo);
+- SMS do bliskich odwołany (ANULUJ / kierownica / jazda dalej), gdy dla
+  tego zdarzenia nic nie wybierano — 60 s później, kiedy znika wynik
+  z kolumną 112. Okno nie wraca wtedy samo na cały ekran.
+
+Zdarzenie zapisuje się w `data/call112.json` — po zaniku prądu
+i ponownym przekręceniu kluczyka okno wraca, jeśli nie minęło 30 min.
+
+**Którędy dzwoni** (wybór w chwili przytrzymania; napis na przycisku mówi
+którędy):
+
+- **„telefon główny”** — przez Bluetooth (HFP). Tylko gdy telefon jest
+  połączony, oFono ma modem z VoiceCallManager, `phone_status` pokazuje
+  zasięg (`registered`/`roaming` — potrzebny `modules.phone_status`), nie
+  trwa inna rozmowa i **jest mikrofon** (`audio.mic_state: ok`; bez
+  mikrofonu dyspozytor słyszałby ciszę, więc ta droga nie jest wtedy
+  proponowana). Gdy telefon nie potwierdzi połączenia w 10 s albo zgłosi
+  błąd, przycisk od razu proponuje drugą drogę (jedno dodatkowe
+  przytrzymanie, bez czekania na limit). To samo, gdy rozmowa trwa, ale
+  `audio.call_route` (kilka sekund po „active”) pokazuje, że mikrofon nie
+  jest podpięty do rozmowy (brak wejścia SCO albo tylko cichy
+  `bcm_null_mic`): okno mówi „Dyspozytor może Cię nie słyszeć”, a przycisk
+  112 wraca W TRAKCIE rozmowy z drogą „telefon w aucie” — BCM najpierw
+  rozłącza rozmowę przez telefon główny, potem dzwoni Redmi (nigdy dwa
+  połączenia z 112 naraz). Po takiej rozmowie przycisk proponuje dalej
+  telefon w aucie, nie główny (ten sam mikrofon by nie działał).
+- **„telefon w aucie, głośnik”** — Redmi przez agenta (§5.9): BCM wysyła
+  podpisane `POST /v1/call112` (bez numeru), agent przez Magisk `su`
+  uruchamia stałe polecenie
+  `am start -a android.intent.action.CALL_PRIVILEGED -d tel:112 --ez android.telecom.extra.START_CALL_WITH_SPEAKERPHONE true`
+  i podnosi głośność rozmowy. BCM na czas rozmowy wycisza swoje media.
+- **żadna** — napis „Zadzwoń 112 ze swojego telefonu” i powód (np. „telefon
+  główny: brak mikrofonu; telefon w aucie: agent niegotowy”).
+
+Najwyżej jedno połączenie na 60 s (wyjątek: jedna próba drugą drogą po
+nieudanej); telefon ma ten sam limit u siebie. Telefon główny NIE jest
+proponowany od razu, gdy Redmi może właśnie dzwonić: agent odpowiedział
+„zajęty” (BCM śledzi wtedy jego trwającą rozmowę) albo „limit”, albo
+odpowiedź zginęła i rozmowy nie widać przez 20 s — po minucie zwykły wybór
+drogi wraca.
+
+**Widok rozmowy i panel dla dyspozytora.** W trakcie rozmowy okno pokazuje
+„Łączenie z 112…” / „Rozmowa mm:ss”, drogę, „PRZYTRZYMAJ 1 s – ROZŁĄCZ”
+i tekst „Jeśli połączenie było przypadkowe – nie rozłączaj się, powiedz
+dyspozytorowi, że to pomyłka.” Pisk odliczania milknie. Gdy dyspozytor
+oddzwania na telefon główny — „Odbierz”. Przycisk „rozłącz” na
+kierownicy jest w trakcie rozmowy z 112 **ignorowany** (jedna linia
+w logu). Trwające odliczanie SMS-a zostaje widoczne w wierszu stanu („·
+SMS do bliskich za X s”), a po prawej jest stuknięciowe **„ANULUJ SMS –
+nic się nie stało”** (≥ 15% szerokości od „Rozłącz”). Jeśli „Rozłącz” nie
+zadziała (rozmowa trwa 10 s po rozłączeniu), przycisk znów daje się
+przytrzymać. Gdy stanu rozmowy nie widać (Redmi nie odczytuje stanu,
+przestał odpowiadać albo agent się zrestartował), BCM śledzi ją najwyżej
+5 min, potem uznaje za zakończoną („stanu rozmowy nie widać – jeśli trwa,
+zakończ ją w telefonie”): okno da się zamknąć, wracają media BCM i
+przycisk „rozłącz” na kierownicy. Panel (od otwarcia okna: „Pozycja dla 112”, w trakcie rozmowy
+sam) pokazuje czcionką ≥ 48 px: pozycję „52,22968 N  21,01223 E” i w
+stopniach/minutach/sekundach, wiek fixa i satelity (albo „ostatnia znana
+pozycja sprzed X min”), kierunek i prędkość przed uderzeniem, godzinę,
+opis auta oraz gotowe zdanie do przeczytania. Bez odwrotnego geokodowania.
+
+**SMS do bliskich** (§5.10) nie jest odwoływany. Gdy połączenie z 112
+przeszło (telefon główny je przyjął albo Redmi je wybrał), SMS TEGO
+zdarzenia (BCM podaje telefonowi jego `event_id`; zdarzenia, którego
+telefon nie zna — np. „sam GPS” — nic nie oznacza), który jeszcze nie
+wyszedł, dostaje dopisek „Z auta wybrano 112 o hh:mm.” (może mieć wtedy 3
+części) — „Jestem OK” po jego wysłaniu zostaje. Jeśli SMS już wyszedł —
+idzie JEDEN SMS uzupełniający „ALFA 156: Z auta wybrano 112 o hh:mm
+(alarm o wypadku z hh:mm).” z budżetu SMS-a odwołującego; BCM pyta wtedy
+telefon (`follow_up_left`) i do jego odpowiedzi „Jestem OK” jest ukryte.
+W trybie testowym SMS-ów to nie dotyczy.
+
+**Włączenie:** Ustawienia → Moduły → `call112` (wymaga `crash_detect` oraz
+`car_phone_agent` albo `bluetooth`), restart BCM. W `config/bcm_config_test.yaml`
+blok `safety.call112` ma **`test_mode: true`** — 112 nie da się wtedy
+wybrać. Numer testowy (zaufana osoba, która wie o teście) i opis auta
+wpisz TYLKO do `config/local.yaml`, nigdy do repo:
+
+```yaml
+safety:
+  call112:
+    test_number: '+48…'        # E.164: '+', kierunkowy, 8–15 cyfr
+  vehicle:
+    label: Alfa Romeo 156      # do 32 znaków
+    colour: czerwona           # do 20 znaków
+    plate: WX 12345            # litery, cyfry, spacja, '-', do 12 znaków
+```
+
+Pozostałe klucze `safety.call112`: `paths: [hfp, car_phone]` (kolejność
+i dozwolone drogi), `hold_ms: 2000`, `arm_delay_ms: 700`, `window_min: 30`.
+Przełącznik `modules.call112` jest jedynym włącznikiem (bez klucza
+`enabled`).
+
+**Telefon w aucie (droga „głośnik”):** w Magisku → Superużytkownik →
+**Termux: zezwól** (tylko Termux) i wyłącz tam powiadomienia/logi dla
+Termuxa (agent sprawdza `su` co 10 min, a w trakcie rozmowy co 2 s).
+Sprawdzenie w Termuxie: `su -c 'id -u'` musi wypisać `0`. Agent zgłasza
+gotowość w `/v1/health` jako `call112_capable` (przełącznik `call112`
+włączony, `su` działa, w trybie testowym jest numer); wiersz „Agent
+w telefonie” w Ustawieniach pokazuje to jako „112: gotowy (test)” /
+„112: gotowy” albo „112: niegotowy (su / numer testowy)”. Ta droga wymaga
+agenta **≥ 1.1.0** — po aktualizacji BCM skopiuj nowy
+`tools/car_phone/termux/bcm_agent.py` do `~/bcm_agent/` i zrestartuj go
+(`pkill -f bcm_agent.py`, patrz „Aktualizacja agenta” w §5.9); starszy
+agent przy włączonym `call112` daje w wierszu „agent w telefonie jest
+starszy niż BCM”.
+
+**Test na stole — TYLKO numerem testowym, NIGDY prawdziwym 112:**
+
+1. W `config/local.yaml` numer testowy (wyżej); `test_mode: true` zostaje.
+2. Ustawienia → Moduły: `call112` (i jego zależności), restart BCM.
+3. Okno bez wypadku, na samym komputerze BCM:
+   `curl -s -X POST -H 'Content-Type: application/json' -d '{}' http://127.0.0.1:5002/api/crash/call112/test`
+   — działa tylko w trybie testowym z numerem testowym (inaczej 409),
+   najwyżej raz na 10 s; nie wysyła SMS-a i nie zapisuje zdarzenia stłuczki.
+   Treść musi być obiektem JSON (bez nagłówka `Content-Type:
+   application/json` — 400): takiego żądania obca strona otwarta
+   w przeglądarce na komputerze BCM nie wyśle bez zgody CORS.
+4. Przycisk mówi „PRZYTRZYMAJ 2 s – TEST” i „TEST – dzwoni na +48...xyz”.
+   Sprawdź: za krótko / zjechanie palcem — nic; 2 s — dzwoni numer testowy;
+   „Rozłącz” 1 s; drogę „telefon główny” (z mikrofonem) i „telefon
+   w aucie” (np. odłącz Bluetooth); głośnik i głośność w Redmi; czy BCM
+   ścisza muzykę; „Odbierz”, gdy numer testowy oddzwoni.
+5. Do sprawdzenia na tym ROM-ie (crDroid 13) — **niesprawdzone**: czy
+   `START_CALL_WITH_SPEAKERPHONE` z `am start` włącza głośnik, format
+   wyjścia `cmd media_session volume --stream 0 --get` (strumień 0 =
+   rozmowa), czy `mCallState` w `dumpsys telephony.registry` pokazuje
+   rozmowę (agent nie odróżnia „łączy” od „rozmawia”; gdy stanu nie widać,
+   okno mówi „stanu rozmowy nie widać”) i czy `input keyevent
+   KEYCODE_ENDCALL` kończy rozmowę. Custom ROM na MediaTeku często nie ma
+   VoLTE — rozmowa idzie wtedy przez 2G.
+6. Prawdziwe 112 dopiero po tych sprawdzeniach: `test_mode: false`
+   w `config/local.yaml` (numer testowy może zostać — w trybie
+   prawdziwym nie jest używany).
+
+Trasy `/api/crash/call112`, `/api/crash/call112/hangup`,
+`/api/crash/call112/close` i `/api/crash/call112/test` działają
+**wyłącznie z ekranu auta** (loopback), także przy `remote_access: full`,
+i wymagają treści JSON (obiekt; `Content-Type: application/json`) — obca
+strona w przeglądarce na komputerze BCM nie wyśle takiego żądania bez
+zgody CORS; treść żądania nigdy nie wybiera numeru. `/api/phone/dial` z sieci dalej
+odrzuca numery alarmowe (403). Telefon pasażera widzi okno i panel bez
+przycisków.
+
+**Czego nie obiecujemy:** zestawienia połączenia, automatycznego
+przekazania pozycji dyspozytorowi, jakości głośnika Redmi pod podsufitką.
+To nie eCall.
 
 ---
 

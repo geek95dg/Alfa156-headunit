@@ -54,10 +54,13 @@
          first paint. splash.js must precede app.js — App.init checks
          typeof Splash to arm the wake overlay — and so must gestures.js
          (window.BCMGestures, used by the touch handlers set up in
-         App.init and by the A2 overlay). -->
+         App.init and by the A2 overlay); hold.js (window.BCMHold, the
+         hold-to-confirm 112 / "Rozłącz" buttons) must precede
+         crash_modal.js. -->
     <script defer src="/js/websocket.js"></script>
     <script defer src="/js/components/splash.js"></script>
     <script defer src="/js/components/gestures.js"></script>
+    <script defer src="/js/components/hold.js"></script>
     <script defer src="/js/components/crash_modal.js"></script>
     <script defer src="/js/app.js"></script>
     <script defer src="/js/components/appbar.js"></script>

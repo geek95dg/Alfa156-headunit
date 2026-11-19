@@ -314,6 +314,16 @@ const Settings = {
         }
         if (ag.sim_ready === true) facts.push(t("car_phone_agent_sim_ok", "SIM"));
         else if (ag.sim_ready === false) facts.push(t("car_phone_agent_sim_missing", "brak SIM"));
+        // „Zadzwoń 112” from the car phone (plan H, path B): ready only with
+        // the toggle on, a working su and (test mode) a test number. Shown
+        // only when the phone was told about 112 (call112_mode known) — with
+        // modules.call112 off the agent says "not capable" by design.
+        if (ag.call112_capable === true) {
+            facts.push(ag.call112_mode === "test" ? t("car_phone_agent_112_ok_test", "112: gotowy (test)")
+                : t("car_phone_agent_112_ok", "112: gotowy"));
+        } else if (ag.call112_capable === false && ag.call112_enabled === true) {
+            facts.push(t("car_phone_agent_112_no", "112: niegotowy (su / numer testowy)"));
+        }
         if (typeof ag.last_ok_ts === "number" && isFinite(ag.last_ok_ts) && ag.last_ok_ts > 0) {
             const d = new Date(ag.last_ok_ts * 1000);
             const hm = String(d.getHours()).padStart(2, "0") + ":" + String(d.getMinutes()).padStart(2, "0");
@@ -334,6 +344,7 @@ const Settings = {
             no_answer: t("car_phone_agent_hint_no_answer", "agent nie odpowiada — czy Termux z bcm_agent.py działa?"),
             config_pending: t("car_phone_agent_hint_config_pending", "telefon ma starą konfigurację — ponowię"),
             config_refused: t("car_phone_agent_hint_config_refused", "agent odrzucił konfigurację — sprawdź crash_detection.sms"),
+            agent_outdated: t("car_phone_agent_hint_agent_outdated", "agent w telefonie jest starszy niż BCM — skopiuj nowy tools/car_phone/termux/bcm_agent.py do ~/bcm_agent/ i zrestartuj go (pkill -f bcm_agent.py)"),
         };
         const has = (k) => typeof k === "string" && k !== "" && Object.prototype.hasOwnProperty.call(hints, k);
         let hintText = "";

@@ -33,9 +33,9 @@ NEW_TOGGLES = ("car_phone", "car_phone_hotspot", "phone_sensors", "auto_brightne
                "cabin_watch", "remote_session")
 #: ... of which these have code now (plan C + D1/D2: src/network/car_phone.py,
 #: D3: src/sensors/phone_sensors.py, F: src/network/car_phone_agent.py and
-#: src/safety/crash_sms.py).
+#: src/safety/crash_sms.py, H: src/safety/call112.py).
 IMPLEMENTED = ("car_phone", "car_phone_hotspot", "phone_sensors", "car_phone_agent",
-               "crash_sms")
+               "crash_sms", "call112")
 #: ... and these are still planned (listed, never started).
 PLANNED = tuple(n for n in NEW_TOGGLES if n not in IMPLEMENTED)
 
@@ -213,8 +213,12 @@ class TestEnablePlan:
         # crash_sms has code: everything it needs, dependencies first
         assert mc.enable_plan(mc.MODULES, mc.enabled_map(cfg), "crash_sms") == [
             "location", "crash_detect", "car_phone", "phone_sensors", "car_phone_agent"]
-        # call112 is still planned: nothing to offer yet
-        assert mc.enable_plan(mc.MODULES, mc.enabled_map(cfg), "call112") is None
+        # call112 has code: crash_detect (with location) and ONE of the
+        # alternatives — bluetooth is off here, so the car phone's agent
+        assert mc.enable_plan(mc.MODULES, mc.enabled_map(cfg), "call112") == [
+            "location", "crash_detect", "car_phone", "car_phone_agent"]
+        # still planned: nothing to offer
+        assert mc.enable_plan(mc.MODULES, mc.enabled_map(cfg), "cabin_watch") is None
 
     def test_would_stop(self):
         cat = _cat(bt=None, pb=("bt",), ps=("pb",), other=None)
@@ -335,9 +339,9 @@ class TestMainStartPath:
             assert len(hits) == 1 and "missing dependency bluetooth" in hits[0], msgs
 
     def test_planned_module_switched_on_is_reported_not_started(self, spies, caplog):
-        cfg = _cfg(cabin_watch=True, call112=True)
+        cfg = _cfg(cabin_watch=True, parking_guard=True)
         states = _start(cfg)
-        assert not states["cabin_watch"].runs and not states["call112"].runs
+        assert not states["cabin_watch"].runs and not states["parking_guard"].runs
         log = logging.getLogger("bcm.main.test")
         with caplog.at_level(logging.WARNING, logger="bcm.main.test"):
             assert main.report_blocked_modules(states, log) == 2
@@ -452,7 +456,12 @@ class TestModulesApi:
         assert mods["crash_sms"]["blocked_by"] == [["phone_sensors"], ["car_phone_agent"]]
         assert mods["crash_sms"]["needs"] == ["car_phone", "phone_sensors", "car_phone_agent"]
         assert mods["crash_sms"]["available"] is True and mods["crash_sms"]["kind"] == "module"
-        assert mods["call112"]["available"] is False and mods["call112"]["needs"] is None
+        c112 = mods["call112"]
+        assert c112["available"] is True and c112["kind"] == "module"
+        # bluetooth runs in the test config: one alternative is enough
+        assert c112["needs"] == [] and c112["runs"] is False
+        assert c112["requires_any"] == [["car_phone_agent", "bluetooth"]]
+        assert mods["cabin_watch"]["available"] is False and mods["cabin_watch"]["needs"] is None
         assert mods["auto_brightness"]["requires_any"] == [["phone_sensors", "input"]]
         assert mods["phone_status"]["requires"] == ["bluetooth"]
         assert mods["phone_status"]["runs"] is True

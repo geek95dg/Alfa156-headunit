@@ -112,6 +112,23 @@ for (const [reason, text] of Object.entries(HINTS)) {
 // The agent works, but its config lags: said so even with state ok.
 assert.ok(Settings.carPhoneAgentRowHtml(Object.assign({}, OK, { reason: "config_pending" }), t).includes("starą konfigurację"));
 assert.ok(Settings.carPhoneAgentRowHtml(Object.assign({}, OK, { reason: "config_refused" }), t).includes("odrzucił konfigurację"));
+// An agent older than BCM (112 on): "copy the new bcm_agent.py", not the
+// crash_detection.sms hint.
+html = Settings.carPhoneAgentRowHtml(Object.assign({}, OK, { reason: "agent_outdated" }), t);
+assert.ok(html.includes("starszy niż BCM") && html.includes("bcm_agent.py"), html);
+assert.ok(!html.includes("crash_detection.sms"), html);
+// „Zadzwoń 112” readiness of the car phone (plan H, path B).
+html = Settings.carPhoneAgentRowHtml(Object.assign({}, OK, { call112_capable: true, call112_mode: "test" }), t);
+assert.ok(html.includes("112: gotowy (test)"), html);
+html = Settings.carPhoneAgentRowHtml(Object.assign({}, OK, { call112_capable: true, call112_mode: "real" }), t);
+assert.ok(html.includes("112: gotowy") && !html.includes("(test)"), html);
+// not capable: shown only while modules.call112 is on (off = by design)
+html = Settings.carPhoneAgentRowHtml(Object.assign({}, OK, { call112_capable: false, call112_enabled: true }), t);
+assert.ok(html.includes("112: niegotowy"), html);
+html = Settings.carPhoneAgentRowHtml(Object.assign({}, OK, { call112_capable: false, call112_enabled: false }), t);
+assert.ok(!html.includes("112:"), html);
+html = Settings.carPhoneAgentRowHtml(Object.assign({}, OK, { call112_capable: "yes", call112_mode: "<img>" }), t);
+assert.ok(!html.includes("112:") && !html.includes("<img>"), html);
 assert.ok(Settings.carPhoneAgentRowHtml({ state: "unpaired" }, t).includes("bcm_agent.py --pair"));
 assert.ok(Settings.carPhoneAgentRowHtml({ state: "no_secret" }, t).includes("BCM_CAR_PHONE_AGENT_SECRET"));
 assert.ok(Settings.carPhoneAgentRowHtml({ state: "bad_signature" }, t).includes("odpowiada coś innego"));

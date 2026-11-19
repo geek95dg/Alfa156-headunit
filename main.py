@@ -113,6 +113,10 @@ def report_blocked_modules(module_states, log) -> int:
     return count
 
 
+#: Registry modules whose entry point takes the shared BluetoothManager.
+_NEEDS_BT_MANAGER = ("multimedia", "call112")
+
+
 def start_modules(started_modules, config, event_bus, hal, bt_manager=None) -> None:
     """Start the registry modules main() selected (non-blocking ones; the
     dashboard comes last). One failing module never stops the others."""
@@ -120,8 +124,9 @@ def start_modules(started_modules, config, event_bus, hal, bt_manager=None) -> N
     for name, info in started_modules:
         log.info("Starting module: %s", name)
         try:
-            # Pass existing bt_manager to multimedia to avoid double registration
-            if name == "multimedia" and bt_manager is not None:
+            # Pass the existing bt_manager to multimedia (no double
+            # registration) and to call112 (its HFP path dials through it).
+            if name in _NEEDS_BT_MANAGER and bt_manager is not None:
                 info["start"](config=config, event_bus=event_bus, hal=hal,
                               bt_manager=bt_manager)
             else:
