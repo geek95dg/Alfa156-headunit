@@ -27,6 +27,11 @@
   hints, the command outcome, escaping, inline styles, one delegated
   listener, the code only in the POST body and cleared after) and its
   update() slot, not redrawn while typing;
+* settings_cabin_watch_smoke.js: screens/settings.js — the "Czuwanie
+  kabiny" row (data.cabin_watch: state labels, why the camera is off, the
+  last event with reasons / photos / analysis / outcome, hints, escaping,
+  inline styles, read-only — no buttons) and its update() slot; the park
+  row's "ruch w kabinie" event;
 * appbar_phone_smoke.js: components/appbar.js — the phone cluster (signal /
   operator / battery from data.phone_status): hidden without a phone, glyphs
   by level, the operator only ever via textContent, change-only updates;
@@ -352,6 +357,7 @@ def test_call112_in_chromium():
                                      "settings_car_phone_smoke.js",
                                      "settings_car_phone_agent_smoke.js",
                                      "settings_parking_guard_smoke.js",
+                                     "settings_cabin_watch_smoke.js",
                                      "crash_modal_smoke.js"])
 def test_screen_harness(harness):
     res = subprocess.run([NODE, str(JS / harness)], capture_output=True, text=True,

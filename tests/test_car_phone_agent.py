@@ -1084,14 +1084,18 @@ class TestDesiredConfig:
     def test_fields(self, sms, key, expected):
         assert cpa.desired_config(_config(**sms))[key] == expected
 
-    def test_toggles_mirror_only_modules_with_code(self, crash_sms_has_code):
+    def test_toggles_mirror_only_modules_with_code(self, crash_sms_has_code, monkeypatch):
         cfg = _config()
         cfg["modules"].update(crash_sms=True, parking_guard=True, cabin_watch=True,
                               call112="yes")
         toggles = cpa.desired_config(cfg)["toggles"]
-        # crash_sms and parking_guard have code; cabin_watch is planned; "yes" is not True
-        assert toggles == {"crash_sms": True, "parking_guard": True, "cabin_watch": False,
+        # all four have code now; "yes" is not True
+        assert toggles == {"crash_sms": True, "parking_guard": True, "cabin_watch": True,
                            "call112": False}
+        # a planned module is never "on" on the phone, whatever the toggle says
+        monkeypatch.setitem(mc.MODULES, "cabin_watch",
+                            dict(mc.MODULES["cabin_watch"], planned=True))
+        assert cpa.desired_config(cfg)["toggles"]["cabin_watch"] is False
 
 
 # ── the secret's place in the config ─────────────────────────────────────

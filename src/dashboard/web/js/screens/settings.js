@@ -647,6 +647,7 @@ const Settings = {
             power: t("park_ev_power", "zasilanie bez telefonu właściciela"),
             low_battery: t("park_ev_low_battery", "niska bateria — rozbrojony"),
             home: t("park_ev_home", "dom — bez uzbrojenia"),
+            cabin: t("park_ev_cabin", "ruch w kabinie"),
         };
         const ev = pg.last_event;
         let evHtml = "";
@@ -775,6 +776,122 @@ const Settings = {
             if (!el) return;
             Settings.parkSend(el.hasAttribute("data-park-arm") ? "arm" : "disarm");
         });
+    },
+
+    // Czuwanie kabiny (src/safety/cabin_watch.py). data.cabin_watch =
+    // web_viewer._cabin_watch_summary(park.cabin_state), or null while the
+    // module is not running (production config: no row). The watch runs ON
+    // THE CAR PHONE (front camera, photos stay there); this row only shows
+    // its state and the last event — read-only, no buttons, never a photo.
+    _cabinColors: {
+        watching: "#16a34a", pending: "#dc2626", idle: "var(--text-mid)",
+        off: "var(--text-dim)", unknown: "var(--text-dim)",
+    },
+
+    /** The row "Czuwanie kabiny: czuwa · kamera gotowa · zdjęcia 3 (2.1 MB)"
+     *  plus the last event and what is missing. '' without a payload.
+     *  Inline styles only; every value escaped / type-checked. */
+    cabinWatchRowHtml(cw, t) {
+        t = t || ((k, d) => d);
+        if (!cw || typeof cw !== "object") return "";
+        const esc = Settings._esc;
+        const has = (obj, k) => typeof k === "string" && Object.prototype.hasOwnProperty.call(obj, k);
+        const labels = {
+            unknown: t("cabin_unknown", "brak danych z telefonu"),
+            off: t("cabin_off", "wyłączone w telefonie"),
+            idle: t("cabin_idle", "czeka na uzbrojenie postoju"),
+            watching: t("cabin_watching", "czuwa"),
+            pending: t("cabin_pending", "ruch w kabinie"),
+        };
+        const state = has(labels, cw.state) ? cw.state : "unknown";
+        const color = Settings._cabinColors[state] || "var(--text-dim)";
+        const cameraLabels = {
+            ok: t("cabin_cam_ok", "kamera gotowa"),
+            light_mode: t("cabin_cam_light_mode", "kamera wyłączona: oszczędzanie baterii"),
+            low_battery: t("cabin_cam_low_battery", "kamera wyłączona: bateria poniżej 30%"),
+            no_temp: t("cabin_cam_no_temp", "kamera wyłączona: brak temperatury baterii"),
+            cold: t("cabin_cam_cold", "kamera wyłączona: za zimno (< 0 °C)"),
+            hot: t("cabin_cam_hot", "kamera wyłączona: za gorąco (> 45 °C)"),
+            charging_hot: t("cabin_cam_charging_hot", "kamera wyłączona: ładowanie przy ≥ 40 °C"),
+            no_space: t("cabin_cam_no_space", "kamera wyłączona: mało miejsca w telefonie"),
+            no_front_camera: t("cabin_cam_no_front", "brak przedniej kamery — uprawnienie Aparat dla Termux:API?"),
+            bad_path: t("cabin_cam_bad_path", "kamera wyłączona: zły katalog zdjęć"),
+        };
+        const facts = [];
+        if (state === "pending") {
+            const until = Settings._crashFmtTime(cw.entry_until);
+            if (until) facts.push(t("cabin_until", "alarm bez rozbrojenia o") + " " + until.slice(-5));
+        }
+        if ((state === "watching" || state === "pending") && has(cameraLabels, cw.camera)) facts.push(cameraLabels[cw.camera]);
+        if (Number.isInteger(cw.photos_n) && cw.photos_n >= 0) {
+            const mb = typeof cw.photos_mb === "number" && isFinite(cw.photos_mb) && cw.photos_mb >= 0
+                ? " (" + cw.photos_mb.toFixed(1) + " MB)" : "";
+            facts.push(t("cabin_photos", "zdjęcia w telefonie") + ": " + cw.photos_n + mb);
+        }
+        if (Number.isInteger(cw.events_today) && cw.events_today > 0) facts.push(t("cabin_today", "dziś") + ": " + cw.events_today);
+        if (cw.log_only === true && state !== "off" && state !== "unknown") facts.push(t("cabin_log_only", "tylko log, bez SMS"));
+        // The last event: when, why, photos, the analysis, what happened.
+        const reasonLabels = {
+            door: t("cabin_r_door", "drzwi"), light: t("cabin_r_light", "światło"),
+            shake: t("cabin_r_shake", "ruch"), tilt: t("cabin_r_tilt", "przechył"),
+            power: t("cabin_r_power", "zapłon"),
+        };
+        const outcomeLabels = {
+            pending: t("cabin_o_pending", "czeka na dowód właściciela"),
+            alarm: t("cabin_o_alarm", "alarm — SMS do numerów alarmu"),
+            owner: t("cabin_o_owner", "właściciel — zdjęcia usunięte"),
+            off: t("cabin_o_off", "wyłączone — zdjęcia usunięte"),
+            logged: t("cabin_o_logged", "tylko log"),
+            limited: t("cabin_o_limited", "limit SMS — tylko log"),
+            no_numbers: t("cabin_o_no_numbers", "brak numerów — bez SMS"),
+            expired: t("cabin_o_expired", "agent nie działał — bez SMS"),
+        };
+        const verdictLabels = {
+            change: t("cabin_v_change", "zmiana w kabinie"),
+            no_change: t("cabin_v_no_change", "bez zmian na zdjęciach"),
+            dark: t("cabin_v_dark", "zdjęcia ciemne"),
+            skipped: t("cabin_v_skipped", "bez analizy"),
+            error: t("cabin_v_error", "błąd analizy"),
+        };
+        const ev = cw.last_event;
+        let evHtml = "";
+        if (ev && typeof ev === "object" && has(outcomeLabels, ev.outcome)) {
+            const parts = [];
+            const when = Settings._crashFmtTime(ev.ts);
+            const reasons = Array.isArray(ev.reasons) ? ev.reasons.filter((r) => has(reasonLabels, r)).map((r) => reasonLabels[r]) : [];
+            if (reasons.length) parts.push(reasons.join(" + "));
+            if (Number.isInteger(ev.photos) && ev.photos >= 0 && ev.photos <= 3) parts.push(t("cabin_ev_photos", "zdjęcia") + " " + ev.photos);
+            if (has(verdictLabels, ev.verdict)) {
+                const pct = typeof ev.changed_pct === "number" && isFinite(ev.changed_pct) ? " " + ev.changed_pct.toFixed(1) + "%" : "";
+                parts.push(verdictLabels[ev.verdict] + (ev.verdict === "change" ? pct : ""));
+            }
+            if (has(cameraLabels, ev.camera) && ev.camera !== "ok") parts.push(cameraLabels[ev.camera]);
+            parts.push(outcomeLabels[ev.outcome]);
+            const evColor = ev.outcome === "alarm" || ev.outcome === "pending" ? "#dc2626"
+                : (ev.outcome === "logged" || ev.outcome === "limited" ? "#d97706" : "var(--text-mid)");
+            evHtml = `<span data-cabin-event="${esc(ev.outcome)}" style="color:${evColor};flex-basis:100%;padding-left:24px">${esc(t("cabin_last_event", "Ostatnie zdarzenie") + ": " + (when ? when + " — " : "") + parts.join(", "))}</span>`;
+        }
+        // What is missing / wrong — what to do, never raw error text.
+        const hints = [];
+        const errHints = {
+            no_agent: t("cabin_hint_no_agent", "agent w telefonie nie działa — patrz wiersz „Agent w telefonie”"),
+            agent_outdated: t("cabin_hint_outdated", "agent w telefonie jest za stary — skopiuj nowy tools/car_phone/termux/bcm_agent.py (≥ 1.3.0)"),
+            no_answer: t("cabin_hint_no_answer", "telefon nie odpowiada"),
+            agent_error: t("cabin_hint_agent_error", "telefon nie podał stanu — ponowię"),
+        };
+        if (has(errHints, cw.error)) hints.push(errHints[cw.error]);
+        if (state !== "unknown" && state !== "off") {
+            if (cw.pillow === false) hints.push(t("cabin_hint_pillow", "bez analizy zdjęć — w Termuxie: pkg install python-pillow"));
+            if (cw.light_sensor === "none") hints.push(t("cabin_hint_light", "brak czujnika światła — tylko ruch, przechył i drzwi"));
+        }
+        const hintHtml = hints.length
+            ? `<span data-cabin-hint style="color:var(--text-mid);flex-basis:100%;padding-left:24px">${esc(hints.join(" · "))}</span>` : "";
+        const factsHtml = facts.length ? ` <span style="color:var(--text-mid)">· ${esc(facts.join(" · "))}</span>` : "";
+        return `<div data-cabin-state="${esc(state)}" style="display:flex;flex-wrap:wrap;align-items:center;gap:4px 8px;padding:8px 12px;border-radius:12px;background:var(--card-bg);border:1px solid var(--card-border);font-size:11px;line-height:1.3">
+            <span class="material-symbols-outlined" style="font-size:16px;color:${color}">photo_camera</span>
+            <span style="color:var(--text-dim);font-weight:700">${esc(t("cabin_title", "Czuwanie kabiny"))}:</span>
+            <span style="color:${color};font-weight:700">${esc(labels[state])}</span>${factsHtml}${evHtml}${hintHtml}
+        </div>`;
     },
 
     _crashFmtTime(ts) {
@@ -1702,6 +1819,12 @@ App.registerScreen("settings", (() => {
         return JSON.stringify((data && data.parking_guard) || null) + "|" + Settings._park.msg;
     }
 
+    /** The "Czuwanie kabiny" row as drawn (the whole summary). */
+    let _cabinKey = "null";
+    function _cabinKeyOf(data) {
+        return JSON.stringify((data && data.cabin_watch) || null);
+    }
+
     /** What the GPS row shows: gps_state without last_ts (it changes with
      *  every fix, the row does not show it) + the bnep0 IP of the hint. */
     function _gpsKeyOf(data) {
@@ -1765,6 +1888,14 @@ App.registerScreen("settings", (() => {
                 if (field) field.value = typed;
             }
         }
+        const cabinKey = _cabinKeyOf(data);
+        if (cabinKey !== _cabinKey) {
+            const slot = document.querySelector("[data-cabin-watch-slot]");
+            if (slot) {
+                _cabinKey = cabinKey;
+                slot.innerHTML = Settings.cabinWatchRowHtml(data && data.cabin_watch, t);
+            }
+        }
         const gpsKey = _gpsKeyOf(data);
         if (gpsKey !== _gpsKey) {
             const slot = document.querySelector("[data-gps-slot]");
@@ -1785,6 +1916,7 @@ App.registerScreen("settings", (() => {
         _agentKey = _agentKeyOf(data);
         _crashKey = _crashKeyOf(data);
         _parkKey = _parkKeyOf(data);
+        _cabinKey = _cabinKeyOf(data);
         const paired = Settings._btPaired;
         const discovered = Settings._btDiscovered;
         const scanning = Settings._btScanning;
@@ -1862,6 +1994,8 @@ App.registerScreen("settings", (() => {
                         <div data-crash-editor-slot style="display:contents">${Settings.crashEditorHtml(data && data.crash_sms, t)}</div>
                         <!-- Alarm na postoju (the phone runs it): state + Uzbrój / Rozbrój. -->
                         <div data-parking-guard-slot style="display:contents">${Settings.parkingGuardRowHtml(data && data.parking_guard, t)}</div>
+                        <!-- Czuwanie kabiny (the phone runs it): state + last event, read-only. -->
+                        <div data-cabin-watch-slot style="display:contents">${Settings.cabinWatchRowHtml(data && data.cabin_watch, t)}</div>
                         <!-- GPS source / fix + where to send NMEA (same slot idea). -->
                         <div data-gps-slot style="display:contents">${Settings.gpsRowHtml(data && data.gps_state, data && data.phone_tether, t)}</div>
                         <!-- Wi-Fi Hotspot / ALFA-NET network access. The live

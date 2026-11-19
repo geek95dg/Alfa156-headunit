@@ -40,6 +40,7 @@ from src.network.car_phone_agent import TOPIC as _AGENT_TOPIC
 from src.network.phone_tether import HINTS as _TETHER_HINTS
 from src.network.phone_tether import RETRY_TOPIC as _TETHER_RETRY_TOPIC
 from src.network.phone_tether import STATES as _TETHER_STATES
+from src.safety import cabin_watch as _cabin_watch
 from src.safety import call112 as _call112
 from src.safety import crash_sms as _crash_sms
 from src.safety import parking_guard as _parking_guard
@@ -589,6 +590,66 @@ def _parking_guard_summary(value: Any) -> Optional[dict]:
         "disarm_pending": value.get("disarm_pending") is True,
         "error": error if error in _parking_guard.ERRORS else "",
         "cmd": command,
+    }
+
+
+def _cabin_watch_summary(value: Any) -> Optional[dict]:
+    """``park.cabin_state`` → the Settings row "Czuwanie kabiny". The module
+    validated the phone's answer already; this is the second line
+    (whitelists, numbers by type and range) because the payload also reaches
+    network clients in ``readonly`` mode. Never a photo or a path — there are
+    none in the state. Never published = module not running = None."""
+    if not isinstance(value, dict):
+        return None
+
+    def ts(v: Any) -> Optional[float]:
+        if isinstance(v, bool) or not isinstance(v, (int, float)):
+            return None
+        return v if math.isfinite(v) and 1e9 < v < 4e9 else None
+
+    def small_int(v: Any, hi: int) -> Optional[int]:
+        return v if isinstance(v, int) and not isinstance(v, bool) and 0 <= v <= hi else None
+
+    def num(v: Any, hi: float) -> Optional[float]:
+        if isinstance(v, bool) or not isinstance(v, (int, float)) or not math.isfinite(v):
+            return None
+        return float(v) if 0 <= v <= hi else None
+
+    ev = value.get("last_event")
+    event = None
+    if isinstance(ev, dict) and ev.get("outcome") in _car_phone_agent.CABIN_OUTCOMES \
+            and ts(ev.get("ts")) is not None:
+        reasons = ev.get("reasons")
+        event = {
+            "ts": ts(ev.get("ts")),
+            "reasons": [k for k in _car_phone_agent.CABIN_SIGNALS
+                        if isinstance(reasons, list) and k in reasons],
+            "weak": ev.get("weak") is True,
+            "photos": small_int(ev.get("photos"), 3) or 0,
+            "outcome": ev["outcome"],
+            "verdict": ev.get("verdict") if ev.get("verdict") in _car_phone_agent.CABIN_VERDICTS
+            else None,
+            "changed_pct": num(ev.get("changed_pct"), 100.0),
+            "ref": ev.get("ref") if ev.get("ref") in _car_phone_agent.CABIN_REF_MODES else None,
+            "camera": ev.get("camera") if ev.get("camera") in _car_phone_agent.CABIN_CAMERA
+            else "",
+        }
+    state, camera = value.get("state"), value.get("camera")
+    light, error = value.get("light_sensor"), value.get("error")
+    pillow, log_only = value.get("pillow"), value.get("log_only")
+    return {
+        "state": state if state in _cabin_watch.STATES else "unknown",
+        "camera": camera if camera in _car_phone_agent.CABIN_CAMERA else "unknown",
+        "light_sensor": light if light in _car_phone_agent.CABIN_LIGHT_SENSOR else "unknown",
+        "lux": num(value.get("lux"), 200000.0),
+        "pillow": pillow if isinstance(pillow, bool) else None,
+        "log_only": log_only if isinstance(log_only, bool) else None,
+        "entry_until": ts(value.get("entry_until")),
+        "photos_n": small_int(value.get("photos_n"), 10000) or 0,
+        "photos_mb": num(value.get("photos_mb"), 100000.0),
+        "events_today": small_int(value.get("events_today"), 1000) or 0,
+        "last_event": event,
+        "error": error if error in _cabin_watch.ERRORS else "",
     }
 
 
@@ -1373,6 +1434,11 @@ class WebViewer:
             # (src/safety/parking_guard.py, park.state): the Settings row
             # "Postój". None = module not running (no row).
             "parking_guard": _parking_guard_summary(_val(_parking_guard.TOPIC_STATE)),
+            # The cabin watch on top of it, also run by the phone
+            # (src/safety/cabin_watch.py, park.cabin_state): the Settings
+            # row "Czuwanie kabiny" — state and the last event, never a
+            # photo. None = module not running (no row).
+            "cabin_watch": _cabin_watch_summary(_val(_cabin_watch.TOPIC_STATE)),
             # Phone battery / signal / operator for the top bar
             # (src/multimedia/phone_status.py). Re-sanitised here: values come
             # from the phone; None = module not running (no cluster drawn).

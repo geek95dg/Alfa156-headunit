@@ -1,7 +1,7 @@
 #!/data/data/com.termux/files/usr/bin/env python3
 """Agent BCM w telefonie w aucie (Termux) — SMS po stłuczce, alarm na postoju
-(D4), „Zadzwoń 112” (H) i wspólny kanał dla kolejnych funkcji (czuwanie
-kabiny I).
+(D4), „Zadzwoń 112” (H), czuwanie kabiny przednią kamerą (I) i wspólny kanał
+dla kolejnych funkcji.
 
 Po co to jest
 -------------
@@ -15,6 +15,9 @@ tylko zwalidowane liczby — żaden tekst z zewnątrz nie trafia do SMS-a ani do
 wiersza polecenia.
 
 Wymagania: sam Python 3 z biblioteką standardową (bez pip), jeden plik.
+Opcjonalnie Pillow (``pkg install python-pillow`` — pakiet Termuxa, nie
+pip): tylko czuwanie kabiny używa go do analizy zdjęć i do ich przekodowania
+bez EXIF; bez niego agent działa tak samo, a analiza zdjęć jest pomijana.
 
 Instalacja (Termux z F-Droid, NIE ze Sklepu Play)
 -------------------------------------------------
@@ -69,7 +72,8 @@ nowy ``bcm_agent.py`` do ``~/bcm_agent/`` i zrestartuj agenta —
 10 s) albo restart telefonu. Wiersz „Agent w telefonie” w Ustawieniach BCM
 pokazuje wersję (``VERSION``); stan, sekret, nonce i zdarzenia w
 ``~/.config/bcm_agent`` zostają. „Zadzwoń 112” z telefonu w aucie wymaga
-wersji ≥ 1.1.0 (starszą BCM pokazuje jako „zaktualizuj bcm_agent.py”).
+wersji ≥ 1.1.0 (starszą BCM pokazuje jako „zaktualizuj bcm_agent.py”),
+alarm na postoju ≥ 1.2.0, czuwanie kabiny ≥ 1.3.0.
 
 Parowanie z BCM
 ---------------
@@ -139,8 +143,9 @@ Endpointy (JSON)
 ``GET /v1/crash/<id>``, ``POST /v1/test``, ``POST /v1/pair``,
 ``POST /v1/call112``, ``GET /v1/call112``, ``POST /v1/call112/hangup``,
 ``POST /v1/call112/mark``, ``GET /v1/park``, ``POST /v1/park/arm``,
-``POST /v1/park/disarm`` —
-opis przy metodach :class:`Agent` i :class:`ParkGuard`. Bateria i SIM w ``/v1/health`` są odświeżane w tle
+``POST /v1/park/disarm``, ``POST /v1/park/event``, ``GET /v1/cabin`` —
+opis przy metodach :class:`Agent`, :class:`ParkGuard` i :class:`CabinWatch`.
+Bateria i SIM w ``/v1/health`` są odświeżane w tle
 tylko wtedy, gdy BCM o nie pyta (auto na postoju nie budzi Termux:API co
 minutę).
 
@@ -321,8 +326,8 @@ prąd komputerowi i USB telefonu), więc wszystko dzieje się TU, w telefonie.
   numer na 2 min, 10 na dobę.
 * **SMS alarmowy** ``ALFA 156: ALARM <powód> <dd.mm hh:mm>. Pozycja:
   <link>`` (GSM-7) do numerów z listy: najwyżej 1 na 10 min i 6 na dobę,
-  budżet osobny od SMS-a o wypadku; kolejka wysyłki zawsze najpierw
-  obsługuje wypadek.
+  budżet osobny od SMS-a o wypadku (wspólny z czuwaniem kabiny — jeden
+  alarm auta); kolejka wysyłki zawsze najpierw obsługuje wypadek.
 * **Bateria:** po dobie uzbrojenia albo poniżej 30% wersja „lekka” (co
   20 s paczka 10 próbek ``termux-sensor -n 10`` zamiast strumienia);
   poniżej 15% rozbrojenie z jednym SMS-em (poza ``log_only``). Szacunkowe
@@ -343,10 +348,101 @@ czas”, inaczej ``termux-location`` w tle nic nie zwraca) — NIESPRAWDZONE na
 crDroid 13, tak jak to, że ``termux-sensor`` działa przy wygaszonym
 ekranie, a ``-n`` po paczce zwalnia czujnik.
 
+Czuwanie kabiny (plan I, przełącznik ``toggles.cabin_watch``)
+--------------------------------------------------------------
+Warstwa NAD alarmem na postoju (działa tylko z ``toggles.parking_guard``
+i tylko przy uzbrojonym — kamera NIGDY poza uzbrojeniem, NIGDY dźwięk).
+Klasa :class:`CabinWatch`; zdjęcia robi osobny wątek (``cabin``), żeby
+wątek postoju (skrzynka SMS, bateria, terminy) nie czekał na aparat.
+
+* **T0, sygnały** — ten sam strumień ``termux-sensor`` co alarm na postoju,
+  z dopisanym czujnikiem światła: ``termux-sensor -s <akcelerometr>,<światło>
+  -d 100`` (obie nazwy raz z ``termux-sensor -l``; czujnik światła jest po
+  stronie ekranu, a telefon wisi ekranem w dół — patrzy w kabinę). Sygnały:
+  **skok światła** ×5 i +5 lux w ciągu 2 s (lampka sufitowa; powolna
+  zmiana — chmura, zmierzch — się nie liczy), **ruch** i **przechył**
+  z detektora alarmu na postoju, **drzwi** (podpisane ``POST /v1/park/event
+  {"kind": "door"}`` od BCM — wersja docelowa z wybudzaniem E; sam sygnał
+  drzwi NIGDY nie rozbraja). Ruch dla kabiny ma własny rytm: najwyżej raz na
+  10 s (alarm na postoju — raz na 30 s, bez zmian). Zdarzenie kabiny:
+  (światło I ruch w ciągu 10 s) ALBO przechył ALBO drzwi ALBO 3 słabe
+  sygnały w 60 s, w tym co najmniej dwa ruchy (wszystkie skoki światła
+  z okna liczą się jak jeden — powtarzające się błyski: awaryjne auta obok,
+  koguty, burza, kolejne auta; ok. 20 s ciągłego kołysania wystarczy też
+  w jasnej kabinie, gdzie lampka nie daje skoku ×5). Progi światła:
+  ``cabin_light_ratio`` / ``cabin_light_lux`` z BCM (kalibracja w tygodniu
+  ``park_log_only``; nowe działają od razu). Na czas zdjęć
+  (ekran się włącza — czujnik światła widzi własny ekran) i 5 s po nich
+  skoki światła się nie liczą. W wersji „lekkiej” alarmu na postoju
+  (paczki próbek, bez czujnika światła i aparatu) przechył i ruch obsługuje
+  sam alarm na postoju, do kabiny trafia tylko sygnał drzwi.
+* **T1, zdjęcia — od razu:** przez Magisk ``su`` stałe ciągi ``input
+  keyevent KEYCODE_WAKEUP`` i ``am start -W -a android.intent.action.MAIN -c
+  android.intent.category.LAUNCHER com.termux`` (Termux na pierwszym planie
+  — Android 11+ daje aparat tylko aplikacji „w użyciu”, a Termux:API ma ten
+  sam UID co Termux; ``-W`` czeka, aż aktywność się wyświetli; blokada
+  ekranu musi być „Brak”), potem 3 ×
+  ``termux-camera-photo -c <id> <ścieżka>`` w 0/3/6 s i ``input keyevent
+  KEYCODE_SLEEP``. ``<id>`` przedniej kamery raz z ``termux-camera-info``
+  (liczba 0–99, w pamięci), ścieżka tylko z naszego katalogu i
+  zwalidowanych znaków. Kamera wyłączona: bateria telefonu < 0 °C albo
+  > 45 °C, ładowanie przy ≥ 40 °C, bateria < 30%, wersja „lekka” alarmu
+  na postoju, brak odczytu temperatury, < 100 MB wolnego miejsca.
+* **T2, analiza w telefonie** (tylko z Pillow; SMS NIGDY na nią nie
+  czeka): 320×240 w odcieniach szarości, rozmycie, wyrównanie jasności,
+  różnica względem zdjęcia odniesienia z tej samej klasy światła (ciemno
+  < 10 lux, półmrok < 200, jasno; odniesienie: jedno zdjęcie 30 s po
+  uzbrojeniu, w pliku tylko przetworzone 320×240) — bez odniesienia:
+  względem pierwszego zdjęcia z serii; ≥ ``cabin_diff_pct`` (3%) zmienionych
+  pikseli poza maską okien (``cabin_mask``, prostokąty w % kadru) =
+  „zmiana”. Ciemne klatki (noc bez lampki) = „ciemno”. Bez Pillow:
+  „pominięta”, alarm i tak idzie z czujników.
+* **T3, alarm — najpierw SMS** (GSM-7) do numerów alarmu na postoju, po
+  oknie wejścia ``cabin_entry_s`` (45–60 s; zapłon w tym czasie przesuwa
+  termin do końca ``park_grace_min`` jak w alarmie na postoju):
+  ``ALFA 156: RUCH W KABINIE 19.11 03:12 (swiatlo+ruch). Zdjecia: 3.
+  Pozycja: <link>``; zdarzenie bez światła i drzwi (sam przechył albo ruch)
+  ma treść alarmu na postoju, np. ``ALFA 156: ALARM przechyl (podnosnik
+  albo holowanie) 19.11 03:12. Zdjecia: 3. Pozycja: <link>``. Krótsze
+  ``park_entry_s`` czekającego alarmu postoju skraca okno kabiny do jego
+  terminu (jeden SMS). Budżet SMS-ów WSPÓLNY z alarmem na postoju (jeden
+  alarm auta na 10 min, 6 na dobę — jedno wejście do auta = jeden SMS:
+  czekający alarm postoju i powrót prądu są objęte tym SMS-em), osobny od
+  SMS-ów o wypadku (te i tak idą pierwsze). Zdarzeń kabiny (serii zdjęć)
+  najwyżej 1 na 10 min i 6 na dobę, 3 zdjęcia na zdarzenie. ``park_log_only``
+  obowiązuje także tu: zdarzenie i zdjęcia tak, SMS nie. Wysyłka zdjęć
+  (ntfy, szyfrowanie ``age``) — NIE w tej wersji: zdjęcia zostają
+  w telefonie.
+* **Dowód właściciela w oknie wejścia** (telefon właściciela połączony z BCM,
+  ``PARK OFF <kod>``, kod TOTP z ekranu auta) odwołuje alarm kabiny
+  i USUWA zdjęcia tego zdarzenia (to był właściciel). Zdjęcia zdarzeń,
+  po których poszedł alarm, zostają.
+* **Zdjęcia:** ``~/.config/bcm_agent/cabin`` (0700, pliki 0600), bez EXIF
+  (z Pillow — przekodowane do ≤ 1280 px; bez Pillow — usunięte segmenty
+  APP1–APP15 i COM pliku JPEG), retencja 72 h i 200 MB (najstarsze
+  pierwsze). Przez API NIGDY: ``GET /v1/cabin`` daje stan, zdarzenia
+  i liczbę zdjęć — ``{state (off | idle | watching | pending), camera,
+  light_sensor, lux, pillow, log_only, entry_until, photos_n, photos_mb,
+  events_today, last_event, events}``.
+
+Uprawnienia: Termux:API **Aparat** (Camera), Magisk ``su`` dla Termuxa
+(jak przy 112), blokada ekranu **Brak**, wygaszanie ekranu po 15 s.
+W crDroid WYŁĄCZ każde inne budzenie ekranu (wyświetlacz otoczenia /
+Ambient display, budzenie ekranu przy powiadomieniach, podnieś, aby
+wybudzić, dwukrotne dotknięcie, budzenie po podłączeniu ładowarki):
+czujnik światła jest po stronie ekranu, więc każde takie zapalenie ekranu
+to „skok światła” — na postoju ekran ma zapalać wyłącznie agent.
+NIESPRAWDZONE na crDroid 13: zdjęcie przy wygaszonym ekranie po
+``KEYCODE_WAKEUP`` i ``am start`` (Termux na pierwszym planie), czy
+``termux-camera-photo`` kończy się po zapisaniu pliku, raportowanie
+czujnika światła przy wygaszonym ekranie, prąd w mA na warstwę.
+
 Czego agent nie obiecuje: doręczenia (brak raportów doręczenia, zasięg,
 środki na karcie), działania przy wyłączonym lub przegrzanym telefonie,
 działania, gdy Android zabije Termux (phantom process killer), zestawienia
 połączenia z 112 ani jakości głośnika pod podsufitką. To nie eCall.
+Czuwanie kabiny nie rozpozna człowieka (sama różnica klatek), a w nocy
+bez lampki zdjęcia są czarne (kamera przednia ma filtr IR).
 """
 
 from __future__ import annotations
@@ -364,6 +460,7 @@ import queue
 import re
 import secrets
 import signal
+import stat
 import struct
 import subprocess
 import sys
@@ -379,7 +476,10 @@ from typing import Any, Callable, Mapping, Optional
 #: wersji (starszą pokazuje w Ustawieniach jako „zaktualizuj bcm_agent.py”).
 #: 1.2.0 — alarm na postoju (plan D4): ``/v1/park*``, pola ``park_*``
 #: (wymagane przez BCM z włączonym ``modules.parking_guard``).
-VERSION = "1.2.0"
+#: 1.3.0 — czuwanie kabiny (plan I): ``GET /v1/cabin``, ``POST
+#: /v1/park/event``, pola ``cabin_*`` (wymagane przez BCM z włączonym
+#: ``modules.cabin_watch``).
+VERSION = "1.3.0"
 
 log = logging.getLogger("bcm_agent")
 
@@ -518,7 +618,8 @@ PARK_SAVED_STATES = ("disarmed", "arming", "armed", "alarm")
 #: Kto/co ustawiło bieżący stan (``by`` w widoku i w park.json).
 PARK_BY = ("", "power", "bcm", "sms", "owner_bt", "owner_sms", "owner_code", "low_battery",
            "home", "off", "power_back")
-PARK_EVENT_KINDS = ("tilt", "shake", "power", "low_battery", "home")
+#: ``cabin`` = alarm czuwania kabiny (plan I) — ten sam „alarm auta”.
+PARK_EVENT_KINDS = ("tilt", "shake", "power", "low_battery", "home", "cabin")
 #: Konfiguracja z BCM (``PUT /v1/config``), wartości domyślne. Klucze
 #: ``park_*`` liczą się do skrótu konfiguracji TYLKO przy włączonym
 #: przełączniku ``parking_guard`` (zgodność wersji — jak ``call112_*``).
@@ -636,6 +737,142 @@ _PARK_CODE_RE = re.compile(r"^[0-9]{6}$")
 PARK_COMMANDS = {"POZYCJA": "position", "GDZIE": "position", "PARKON": "on",
                  "PARKOFF": "off", "PARKSTATUS": "status"}
 
+# ── czuwanie kabiny (plan I) ──────────────────────────────────────────────
+#: Stany ``GET /v1/cabin``: ``off`` = przełącznik ``cabin_watch`` albo
+#: ``parking_guard`` wyłączony; ``idle`` = alarm na postoju NIE jest
+#: uzbrojony (kamera nigdy poza uzbrojeniem); ``watching`` = czuwa;
+#: ``pending`` = zdarzenie czeka w oknie wejścia na dowód właściciela.
+CABIN_STATES = ("off", "idle", "watching", "pending")
+#: Stan warstwy kamery: ``ok`` albo powód, dla którego jest wyłączona.
+CABIN_CAMERA = ("ok", "unknown", "light_mode", "low_battery", "no_temp", "cold", "hot",
+                "charging_hot", "no_space", "no_front_camera", "bad_path")
+#: Wynik zdarzenia: ``pending`` (okno wejścia) → ``alarm`` (SMS w kolejce) |
+#: ``owner`` (dowód właściciela: odwołane, zdjęcia usunięte) | ``off``
+#: (przełącznik wyłączony z BCM — jak dowód właściciela) | ``logged``
+#: (``park_log_only``: bez SMS-a) | ``limited`` (budżet SMS-ów alarmu auta
+#: wyczerpany) | ``no_numbers`` | ``expired`` (agent nie działał w chwili
+#: terminu, ponad 30 min temu).
+CABIN_OUTCOMES = ("pending", "alarm", "owner", "off", "logged", "limited", "no_numbers",
+                  "expired")
+#: Sygnały w kolejności, w jakiej trafiają do treści SMS-a. ``power`` =
+#: prąd wrócił (zapłon) bez dowodu właściciela — tylko dopisek do alarmu.
+CABIN_SIGNALS = ("door", "light", "shake", "tilt", "power")
+CABIN_SIGNAL_TEXT = {"door": "drzwi", "light": "swiatlo", "shake": "ruch", "tilt": "przechyl",
+                     "power": "zasilanie"}
+#: Silne sygnały (każdy sam = zdarzenie) i słabe (para światło + ruch w
+#: :data:`CABIN_PAIR_S` albo :data:`CABIN_WEAK_N` słabych w
+#: :data:`CABIN_WEAK_WINDOW_S`, w tym co najmniej dwa ruchy — skoki światła
+#: liczą się razem jak JEDEN słaby sygnał: powtarzające się błyski
+#: (światła awaryjne auta obok, koguty lawety, burza, kolejne auta) to
+#: wciąż jedno źródło, a nikt nie wejdzie do auta, nie kołysząc nim).
+CABIN_STRONG = ("tilt", "door")
+CABIN_WEAK = ("light", "shake")
+CABIN_PAIR_S = 10.0
+CABIN_WEAK_WINDOW_S = 60.0
+CABIN_WEAK_N = 3
+#: Ruch dla kabiny co najwyżej raz na tyle sekund (własny rytm, niezależny
+#: od 30 s przerwy alarmu na postoju — :attr:`MotionDetector.COOLDOWN_S`):
+#: inaczej w 60 s zmieszczą się tylko dwa ruchy i samo kołysanie (dzień,
+#: jasna kabina, lampka bez skoku ×5) nigdy nie da 3 słabych sygnałów. Przy
+#: 10 s ok. 20 s ciągłego kołysania = zdarzenie (zdjęcia); SMS-ów nie
+#: przybywa — alarm postoju i tak alarmuje już pojedynczym wstrząsem.
+CABIN_SHAKE_COOLDOWN_S = 10.0
+#: Sygnały z zewnątrz (``POST /v1/park/event``).
+CABIN_EXT_SIGNALS = ("door",)
+#: Skok światła (lampka sufitowa): co najmniej ×5 i +5 lux względem
+#: najciemniejszej próbki z ostatnich 2 s; potem 10 s przerwy. ×5 i +5 lux
+#: to wartości domyślne — BCM może je zmienić (``cabin_light_ratio``,
+#: ``cabin_light_lux``) po tygodniu kalibracji w trybie ``park_log_only``.
+LIGHT_RATIO = 5.0
+LIGHT_DELTA_LUX = 5.0
+LIGHT_WINDOW_S = 2.0
+LIGHT_COOLDOWN_S = 10.0
+LIGHT_MAX_LUX = 200000.0
+#: Ostatni odczyt światła jest „świeży” tyle sekund (widok, klasa światła).
+LIGHT_FRESH_S = 60.0
+#: Po sesji aparatu skoki światła się nie liczą jeszcze tyle sekund (ekran
+#: był włączony, a czujnik światła jest po stronie ekranu).
+CABIN_LIGHT_MUTE_S = 5.0
+#: Górna granica wyciszenia na czas samej sesji (sesja trwa ok. 10 s).
+CABIN_SESSION_MUTE_S = 120.0
+CABIN_PHOTOS = 3
+CABIN_PHOTO_GAP_S = 3.0
+#: Po ostatnim zdjęciu tyle sekund na zapis pliku przez Termux:API.
+CABIN_SETTLE_S = 2.0
+CABIN_PHOTO_TIMEOUT_S = 20.0
+CABIN_PHOTO_MAX_BYTES = 15 * 1024 * 1024
+#: Zdarzeń kabiny (serii zdjęć): najwyżej 1 na 10 min i 6 na dobę (odwołane
+#: przez właściciela się nie liczą).
+CABIN_EVENT_COOLDOWN_S = 600
+CABIN_EVENT_MAX_PER_DAY = 6
+#: Bez aparatu: bateria telefonu poniżej 0 °C albo powyżej 45 °C, przy
+#: ładowaniu już od 40 °C, bateria poniżej 30%.
+CABIN_TEMP_MIN_C = 0.0
+CABIN_TEMP_MAX_C = 45.0
+CABIN_CHARGING_HOT_C = 40.0
+CABIN_MIN_PCT = 30
+#: Odczyt baterii starszy niż tyle — nowy przed sesją aparatu.
+CABIN_BATTERY_FRESH_S = 60.0
+#: Retencja zdjęć: 72 h i 200 MB (najstarsze pierwsze), sprawdzana co 10 min;
+#: bez 100 MB wolnego miejsca aparat się nie włącza.
+CABIN_KEEP_S = 72 * 3600.0
+CABIN_MAX_BYTES = 200 * 1024 * 1024
+CABIN_MIN_FREE_BYTES = 100 * 1024 * 1024
+CABIN_CLEANUP_EVERY_S = 600.0
+#: Pliki tymczasowe (przerwany zapis) starsze niż tyle — usuwane.
+CABIN_TMP_KEEP_S = 3600.0
+CABIN_CAMERA_RETRY_S = 3600.0
+#: Zdjęcie odniesienia tyle sekund po uzbrojeniu (tylko z Pillow).
+CABIN_REF_DELAY_S = 30.0
+CABIN_MAX_EVENTS = 32
+CABIN_VIEW_EVENTS = 5
+CABIN_MAX_WAIT_S = 30.0
+CABIN_DIR = "cabin"
+CABIN_FILE = "cabin.json"
+CABIN_REF_RAW = "ref_raw.jpg"
+#: Konfiguracja z BCM (``PUT /v1/config``) — w skrócie konfiguracji TYLKO
+#: przy włączonym przełączniku ``cabin_watch`` (zgodność wersji jak
+#: ``park_*``). ``cabin_mask``: prostokąty ``[x0, y0, x1, y1]`` w % kadru
+#: (okna), których analiza nie liczy.
+#: ``cabin_light_ratio`` / ``cabin_light_lux``: progi skoku światła
+#: (:class:`LightDetector`) — do kalibracji w aucie bez zmiany kodu.
+CABIN_DEFAULTS: dict[str, Any] = {"cabin_entry_s": 60, "cabin_diff_pct": 3.0, "cabin_mask": [],
+                                  "cabin_light_ratio": LIGHT_RATIO,
+                                  "cabin_light_lux": LIGHT_DELTA_LUX}
+CABIN_ENTRY_RANGE = (45, 60)
+CABIN_DIFF_RANGE = (0.5, 50.0)
+CABIN_LIGHT_RATIO_RANGE = (2.0, 50.0)
+CABIN_LIGHT_LUX_RANGE = (1.0, 1000.0)
+CABIN_MASK_MAX = 4
+#: Analiza (Pillow): kadr, rozmycie, próg różnicy jasności piksela, średnia
+#: jasność, poniżej której klatka jest „ciemna” (noc bez lampki).
+CABIN_FRAME = (320, 240)
+CABIN_BLUR = 2
+CABIN_PIXEL_DELTA = 25
+CABIN_DARK_MEAN = 12.0
+CABIN_REENCODE_SIDE = 1280
+CABIN_JPEG_QUALITY = 85
+#: Klasy światła (lux, górna granica) — odniesienie tylko z tej samej klasy.
+LIGHT_CLASSES = (("dark", 10.0), ("dim", 200.0), ("bright", math.inf))
+CABIN_VERDICTS = ("change", "no_change", "dark", "skipped", "error")
+CABIN_REF_MODES = ("ref", "burst")
+CAMERA_ID_RE = re.compile(r"^[0-9]{1,2}$")
+#: Ścieżka dla ``termux-camera-photo`` (skrypt wkleja ją bez cudzysłowu do
+#: ``am broadcast`` — tylko te znaki, bez spacji).
+CABIN_PATH_RE = re.compile(r"^/[A-Za-z0-9/._-]{1,240}$")
+_CABIN_ID_RE = re.compile(r"^[0-9a-f]{16}$")
+_CABIN_PHOTO_RE = re.compile(r"^cab_([0-9a-f]{16})_([0-2])\.jpg$")
+_CABIN_REF_RE = re.compile(r"^ref_(dark|dim|bright)\.png$")
+#: Stałe ciągi dla ``su -c`` (sprawdzane jeszcze raz przez :data:`SU_SAFE_RE`).
+WAKE_COMMAND = "input keyevent KEYCODE_WAKEUP"
+SLEEP_COMMAND = "input keyevent KEYCODE_SLEEP"
+#: ``-W``: ``am start`` czeka, aż aktywność Termuxa się wyświetli — Android
+#: 11+ daje aparat dopiero aplikacji na pierwszym planie, a bez ``-W``
+#: pierwsze zdjęcie szłoby, gdy start aktywności jest jeszcze w toku.
+FOREGROUND_COMMAND = ("am start -W -a android.intent.action.MAIN "
+                      "-c android.intent.category.LAUNCHER com.termux")
+CABIN_SU_COMMANDS = (WAKE_COMMAND, FOREGROUND_COMMAND, SLEEP_COMMAND)
+
 #: Stany odbiorcy, które kończą jego wysyłkę.
 RCPT_FINAL = ("sent", "sent_dry", "failed", "skipped")
 RCPT_OK = ("sent", "sent_dry")
@@ -693,12 +930,15 @@ def config_hash(cfg: Mapping[str, Any]) -> str:
     agent ze starym BCM liczą ten sam skrót — sama aktualizacja jednej
     strony nie kończy się „config_refused” (a ten wymusza tryb testowy
     SMS-a po stłuczce). Tak samo pola ``park_*`` (alarm na postoju, 1.2.0)
-    — tylko przy włączonym ``parking_guard``."""
+    — tylko przy włączonym ``parking_guard``, a ``cabin_*`` (czuwanie
+    kabiny, 1.3.0) — tylko przy włączonym ``cabin_watch``."""
     toggles = cfg.get("toggles")
     on = isinstance(toggles, Mapping) and toggles.get("call112") is True
     park = isinstance(toggles, Mapping) and toggles.get("parking_guard") is True
+    cabin = isinstance(toggles, Mapping) and toggles.get("cabin_watch") is True
     view = {k: v for k, v in cfg.items()
-            if (on or not k.startswith("call112_")) and (park or not k.startswith("park_"))}
+            if (on or not k.startswith("call112_")) and (park or not k.startswith("park_"))
+            and (cabin or not k.startswith("cabin_"))}
     return sha256_hex(canonical_json(view).encode("ascii"))[:16]
 
 
@@ -1213,6 +1453,28 @@ class Phone:
         pracowałby dalej: bateria)."""
         self._run(["termux-sensor", "-c"], None, 10.0)
 
+    # ── czuwanie kabiny (plan I) ──────────────────────────────────────────
+
+    def camera_info(self) -> Optional[str]:
+        """Surowe wyjście ``termux-camera-info`` (None = błąd) — sprawdza je
+        :func:`parse_camera_info`."""
+        rc, out, _err = self._run(["termux-camera-info"], None, API_TIMEOUT_S)
+        return out if rc == 0 and len(out) <= 262144 else None
+
+    def camera_photo(self, camera_id: str, path: str) -> tuple[bool, str]:
+        """Jedno ``termux-camera-photo -c <id> <ścieżka>``: id (1–2 cyfry)
+        i ścieżka (:func:`valid_photo_path`) sprawdzone TUTAJ jeszcze raz —
+        nic innego nie trafia do argumentów. ``(ok, błąd)``."""
+        if not isinstance(camera_id, str) or not CAMERA_ID_RE.fullmatch(camera_id) \
+                or not valid_photo_path(path):
+            return False, "refused: invalid camera id or path"
+        rc, out, err = self._run(["termux-camera-photo", "-c", camera_id, path], None,
+                                 CABIN_PHOTO_TIMEOUT_S)
+        detail = _clean(err or out)
+        if rc != 0 or any(w in detail.lower() for w in ("error", "exception", "permission")):
+            return False, detail or f"termux-camera-photo exit {rc}"
+        return True, ""
+
 
 # ── wysyłka do listy odbiorców ────────────────────────────────────────────
 
@@ -1384,6 +1646,8 @@ class Agent:
         localtime: ``time.localtime`` (godzina w SMS-ie).
         spawn: długo żyjący proces (strumień ``termux-sensor``; testy).
         mktime: odwrotność ``localtime`` (czas SMS-a z ``termux-sms-list``).
+        pillow: czuwanie kabiny — ``"auto"`` (import PIL, jeśli jest), None
+            (bez Pillow) albo obiekt z :func:`load_pillow` (testy).
     """
 
     def __init__(self, state_dir: str = DEFAULT_STATE_DIR, runner: Runner = default_runner,
@@ -1391,7 +1655,8 @@ class Agent:
                  wall: Callable[[], float] = time.time,
                  localtime: Callable[[float], time.struct_time] = time.localtime,
                  spawn: Optional[Spawner] = None,
-                 mktime: Callable[[time.struct_time], float] = time.mktime) -> None:
+                 mktime: Callable[[time.struct_time], float] = time.mktime,
+                 pillow: Any = "auto") -> None:
         self.dir = state_dir
         self._clock = clock
         self._wall = wall
@@ -1450,7 +1715,8 @@ class Agent:
         self._su_checked: Optional[float] = None
         self._call_state: Optional[int] = None
         # Alarm na postoju (plan D4): stan z park.json, wątek :meth:`run_park`.
-        self.park = ParkGuard(self, spawn if spawn is not None else default_spawn, mktime)
+        self.park = ParkGuard(self, spawn if spawn is not None else default_spawn, mktime,
+                              pillow)
         self._resume()
 
     # ── pliki ────────────────────────────────────────────────────────────
@@ -1734,6 +2000,10 @@ class Agent:
             return "park_arm", None, method == "POST"
         if path == "/v1/park/disarm":
             return "park_disarm", None, method == "POST"
+        if path == "/v1/park/event":
+            return "park_event", None, method == "POST"
+        if path == "/v1/cabin":
+            return "cabin_get", None, method == "GET"
         parts = path.split("/")
         if len(parts) in (4, 5) and parts[0] == "" and parts[1] == "v1" and parts[2] == "crash" \
                 and EVENT_ID_RE.fullmatch(parts[3]):
@@ -1804,6 +2074,10 @@ class Agent:
             status, out = self.park.http_arm(obj)
         elif name == "park_disarm":
             status, out = self.park.http_disarm(obj)
+        elif name == "park_event":
+            status, out = self.park.http_event(obj)
+        elif name == "cabin_get":
+            status, out = 200, self.park.cabin.view()
         else:
             status, out = self.send_now(event_id)
         return self._reply(status, out, nonce)
@@ -2056,7 +2330,15 @@ class Agent:
                          "LOG ONLY" if norm["park_log_only"] else "alarm SMS",
                          norm["park_arm_after_min"], norm["park_arm_delay_min"],
                          "set" if norm["park_home"] else "-")
+            if norm["toggles"]["cabin_watch"]:
+                log.info("Cabin watch config: entry window %d s, change >= %.2f%%, %d mask "
+                         "rectangle(s), light jump x%.2f and +%.2f lux%s",
+                         norm["cabin_entry_s"], norm["cabin_diff_pct"], len(norm["cabin_mask"]),
+                         norm["cabin_light_ratio"], norm["cabin_light_lux"],
+                         "" if norm["toggles"]["parking_guard"] else " — needs parking_guard")
+            self.park.cabin.config_changed()
             self.park.wake.set()
+            self.park.cabin.wake.set()
         return 200, {"ok": True, "config_hash": config_hash(norm)}
 
     def arm(self, obj: dict) -> tuple[int, dict]:
@@ -3007,6 +3289,25 @@ class Agent:
         except Exception:
             log.exception("Parking guard shutdown failed")
 
+    def run_cabin(self, stop: threading.Event) -> None:
+        """Wątek czuwania kabiny (:meth:`CabinWatch.step`): aparat, analiza,
+        EXIF, retencja — nigdy w wątku postoju ani pod blokadą agenta.
+        Przy wyłączonym czuwaniu tylko retencja co 10 min."""
+        cabin = self.park.cabin
+        while not stop.is_set():
+            cabin.wake.clear()
+            try:
+                wait = cabin.step()
+            except Exception:
+                log.exception("Cabin watch step failed")
+                wait = 5.0
+            if wait > 0:
+                cabin.wake.wait(min(wait, CABIN_MAX_WAIT_S))
+        try:
+            cabin.shutdown()
+        except Exception:
+            log.exception("Cabin watch shutdown failed")
+
 
 # ── alarm na postoju (plan D4): czyste funkcje ────────────────────────────
 
@@ -3202,16 +3503,20 @@ def _vec3(values: Any) -> Optional[tuple[float, float, float]]:
     return out[0], out[1], out[2]
 
 
-def sensor_vectors(obj: Any, name: Optional[str] = None) -> list:
+def sensor_vectors(obj: Any, name: Optional[str] = None,
+                   exclude: Optional[str] = None) -> list:
     """Obiekt ``termux-sensor`` (``{"<nazwa>": {"values": [x, y, z]}}``) →
     ``[(x, y, z)]`` — wpis o dokładnie tej nazwie (``-s`` dopasowuje też
     fragment nazwy, więc w strumieniu bywa np. wersja „Uncalibrated”),
-    a bez niej pierwszy. Wszystko inne — pusta lista."""
+    a bez niej pierwszy, który nie jest ``exclude`` (czujnik światła w tym
+    samym strumieniu: jego ``[lux, 0, 0]`` nie może udawać przyspieszenia).
+    Wszystko inne — pusta lista."""
     if not isinstance(obj, dict) or not obj:
         return []
     items = list(obj.items())[:8]
     chosen = [v for k, v in items if k == name] if name is not None else []
-    for item in chosen or [items[0][1]]:
+    rest = [v for k, v in items if k != exclude][:1]
+    for item in chosen or rest:
         if isinstance(item, dict):
             vec = _vec3(item.get("values"))
             if vec is not None:
@@ -3219,16 +3524,47 @@ def sensor_vectors(obj: Any, name: Optional[str] = None) -> list:
     return []
 
 
+def sensor_lux(obj: Any, name: Optional[str]) -> Optional[float]:
+    """Natężenie światła (lux) z wpisu ``name`` obiektu ``termux-sensor``
+    (``{"<nazwa>": {"values": [lux, …]}}``): skończona liczba
+    0..:data:`LIGHT_MAX_LUX`, inaczej None."""
+    if not name or not isinstance(obj, dict):
+        return None
+    item = obj.get(name)
+    values = item.get("values") if isinstance(item, dict) else None
+    if not isinstance(values, list) or not values:
+        return None
+    lux = _number(values[0], 0.0, LIGHT_MAX_LUX)
+    return None if lux is None else float(lux)
+
+
+def pick_light(names: Any) -> Optional[str]:
+    """Nazwa czujnika światła z ``termux-sensor -l``: zawiera „light”, nie
+    „uncalibrated” ani „flicker” (inne czujniki); najpierw taka bez
+    „proximity” (czujnik łączony podaje czasem tylko zbliżenie). Te same
+    zasady znaków co :func:`pick_accelerometer` (bez przecinka)."""
+    if not isinstance(names, list):
+        return None
+    ok = [n for n in names if isinstance(n, str) and SENSOR_NAME_RE.fullmatch(n)
+          and "light" in n.lower() and not any(w in n.lower()
+                                               for w in ("uncalibrated", "flicker"))]
+    pure = [n for n in ok if "proximity" not in n.lower()]
+    return (pure or ok or [None])[0]
+
+
 class SensorParser:
-    """Wyjście ``termux-sensor`` linia po linii → wektory przyspieszenia.
+    """Wyjście ``termux-sensor`` linia po linii → wektory przyspieszenia
+    (:meth:`feed_line`) albo próbki ``("a", (x, y, z))`` / ``("l", lux)``
+    (:meth:`feed_items`, strumień z czujnikiem światła ``light``).
 
     termux-sensor wypisuje obiekty JSON jeden po drugim, sformatowane
     w wielu liniach (``{`` i ``}`` w pierwszej kolumnie); bywa też jeden
     obiekt w linii. Śmieci, urwane obiekty i za długie linie są pomijane
     (licznik ``garbage``) — parser nigdy nie rzuca i nie rośnie bez końca."""
 
-    def __init__(self, name: Optional[str] = None) -> None:
+    def __init__(self, name: Optional[str] = None, light: Optional[str] = None) -> None:
         self._name = name
+        self._light = light
         self._buf: Optional[list] = None
         self._size = 0
         self.garbage = 0
@@ -3238,9 +3574,19 @@ class SensorParser:
             obj = json.loads(text, parse_constant=_reject_constant)
         except (ValueError, RecursionError):
             return None
-        return sensor_vectors(obj, self._name) if isinstance(obj, dict) else None
+        if not isinstance(obj, dict):
+            return None
+        out: list = [("a", v) for v in sensor_vectors(obj, self._name, self._light)]
+        lux = sensor_lux(obj, self._light)
+        if lux is not None:
+            out.append(("l", lux))
+        return out
 
     def feed_line(self, line: Any) -> list:
+        """Jedna linia → wektory przyspieszenia (bez światła)."""
+        return [v for k, v in self.feed_items(line) if k == "a"]
+
+    def feed_items(self, line: Any) -> list:
         if not isinstance(line, str):
             return []
         if len(line) > SENSOR_LINE_MAX:
@@ -3282,6 +3628,7 @@ class SensorParser:
         return []
 
     def feed_text(self, text: Any) -> list:
+        """Całe wyjście (paczka ``-n``) → wektory przyspieszenia."""
         out: list = []
         for line in (text if isinstance(text, str) else "").splitlines()[:4000]:
             out.extend(self.feed_line(line))
@@ -3348,6 +3695,11 @@ class MotionDetector:
       nie wystarczy). Szum uczy się powoli, tylko w spokoju, z dolną granicą
       (idealnie cichy czujnik nie może dać progu ≈ 0).
     * Po każdym wykryciu :data:`COOLDOWN_S` przerwy dla tego rodzaju.
+    * **Ruch dla czuwania kabiny** — te same kołysania, ale z własną,
+      krótszą przerwą :data:`CABIN_SHAKE_COOLDOWN_S` i osobno od wyniku
+      :meth:`feed`: po każdej próbce :attr:`cabin_shake` = krotność szumu
+      albo None. Alarm na postoju (wynik :meth:`feed`) widzi dokładnie te same
+      wstrząsy co bez kabiny (jego przerwa 30 s nie jest tym zużywana).
     """
 
     CALIB_S = 5.0
@@ -3383,6 +3735,9 @@ class MotionDetector:
         self._shake_peak = 0.0
         self._cool: dict[str, float] = {}
         self._burst_tilt: Optional[float] = None
+        #: Ruch dla czuwania kabiny z OSTATNIEJ próbki :meth:`feed` (krotność
+        #: szumu) albo None — rytm co najwyżej 1 na CABIN_SHAKE_COOLDOWN_S.
+        self.cabin_shake: Optional[float] = None
 
     @property
     def calibrated(self) -> bool:
@@ -3396,16 +3751,19 @@ class MotionDetector:
         m = _norm(v)
         return math.isfinite(m) and self.MIN_G <= m <= self.MAX_G
 
-    def _cooled(self, kind: str, t: float) -> bool:
+    def _cooled(self, kind: str, t: float, cooldown: Optional[float] = None) -> bool:
         last = self._cool.get(kind)
-        if last is not None and 0 <= t - last < self.COOLDOWN_S:
+        if last is not None and 0 <= t - last < (self.COOLDOWN_S if cooldown is None
+                                                 else cooldown):
             return False
         self._cool[kind] = t
         return True
 
     def feed(self, t: float, x: float, y: float, z: float) -> Optional[tuple[str, float]]:
         """Jedna próbka strumienia → ``("tilt", stopnie)`` /
-        ``("shake", krotność szumu)`` albo None."""
+        ``("shake", krotność szumu)`` albo None (alarm na postoju); ruch dla
+        czuwania kabiny osobno w :attr:`cabin_shake`."""
+        self.cabin_shake = None
         v = (float(x), float(y), float(z))
         if not self._valid(v):
             return None
@@ -3462,6 +3820,8 @@ class MotionDetector:
             if t - self._shake_since >= SHAKE_HOLD_S:
                 peak = self._shake_peak
                 self._shake_since = None
+                if self._cooled("cabin_shake", t, CABIN_SHAKE_COOLDOWN_S):
+                    self.cabin_shake = peak
                 if event is None and self._cooled("shake", t):
                     event = ("shake", peak)
         elif self._shake_last is None or t - self._shake_last > self.SHAKE_GAP_S:
@@ -3476,7 +3836,10 @@ class MotionDetector:
         """Paczka próbek z trybu „lekkiego” (``termux-sensor -n``, co
         :data:`PARK_LIGHT_EVERY_S`). Przechył: średnia paczki względem
         odniesienia w DWÓCH kolejnych paczkach (≥ :data:`TILT_HOLD_S`);
-        kołysanie: ≥ 0,5 s kolejnych próbek ponad progiem w jednej paczce."""
+        kołysanie: ≥ 0,5 s kolejnych próbek ponad progiem w jednej paczce.
+        Bez osobnego ruchu dla kabiny (w wersji lekkiej kabina nie robi zdjęć
+        ruchu ani przechyłu)."""
+        self.cabin_shake = None
         vs = [tuple(float(c) for c in s) for s in samples if len(s) >= 3]
         vs = [v for v in vs if self._valid(v)]
         if len(vs) < 3:
@@ -3533,7 +3896,8 @@ PARK_REASON_TEXT = {"tilt": "przechyl (podnosnik albo holowanie)",
 PARK_STATE_TEXT = {"off": "wylaczony", "disarmed": "rozbrojony", "arming": "uzbrajanie",
                    "armed": "uzbrojony", "alarm": "ALARM", "log_only": "uzbrojony (tylko log)"}
 PARK_EVENT_TEXT = {"tilt": "przechyl", "shake": "wstrzas", "power": "zasilanie bez wlasciciela",
-                   "low_battery": "niska bateria", "home": "dom, bez uzbrojenia"}
+                   "low_battery": "niska bateria", "home": "dom, bez uzbrojenia",
+                   "cabin": "ruch w kabinie"}
 
 
 def _dm_hm(wall: float, localtime: Callable[[float], time.struct_time]) -> str:
@@ -3678,6 +4042,380 @@ def normalize_park_state(obj: Any) -> dict:
     return st
 
 
+# ── czuwanie kabiny (plan I): czyste funkcje ─────────────────────────────
+
+class LightDetector:
+    """Skok światła (lampka sufitowa po otwarciu drzwi): odczyt co najmniej
+    ``ratio`` (domyślnie :data:`LIGHT_RATIO`) razy jaśniejszy I o ``delta``
+    (:data:`LIGHT_DELTA_LUX`) lux jaśniejszy niż najciemniejsza próbka
+    z ostatnich :data:`LIGHT_WINDOW_S` s.
+    Chmura, zmierzch, latarnia, która się rozgrzewa — zmieniają światło
+    wolniej, więc w oknie 2 s nie przechodzą. Spadek światła (lampka gaśnie)
+    nie jest sygnałem. Po wykryciu :data:`LIGHT_COOLDOWN_S` przerwy (jedna
+    lampka = jeden sygnał). Czysta logika, czas podaje wywołujący.
+
+    ``mute(until)``: do tej chwili próbki tylko trafiają do historii (bez
+    sygnału) — na czas zdjęć ekran telefonu świeci w czujnik światła."""
+
+    def __init__(self, ratio: float = LIGHT_RATIO, delta: float = LIGHT_DELTA_LUX) -> None:
+        self._hist: deque = deque(maxlen=256)
+        self._cool_until = -math.inf
+        self._mute_until = -math.inf
+        self.ratio = float(ratio)
+        self.delta = float(delta)
+
+    def set_thresholds(self, ratio: float, delta: float) -> None:
+        """Progi z konfiguracji (``cabin_light_ratio``, ``cabin_light_lux``,
+        już sprawdzone przez :func:`normalize_cabin_config`)."""
+        self.ratio = float(ratio)
+        self.delta = float(delta)
+
+    def reset(self) -> None:
+        self._hist.clear()
+        self._cool_until = -math.inf
+
+    def mute(self, until: float) -> None:
+        self._mute_until = float(until)
+
+    def feed(self, t: float, lux: Any) -> Optional[tuple[str, float]]:
+        """Jedna próbka → ``("light", lux)`` albo None."""
+        value = _number(lux, 0.0, LIGHT_MAX_LUX)
+        if value is None or not math.isfinite(t):
+            return None
+        value = float(value)
+        while self._hist and (t - self._hist[0][0] > LIGHT_WINDOW_S or self._hist[0][0] > t):
+            self._hist.popleft()
+        low = min((v for _t, v in self._hist), default=None)
+        self._hist.append((t, value))
+        if low is None or t < self._mute_until or t < self._cool_until:
+            return None
+        if value >= self.ratio * low and value - low >= self.delta:
+            self._cool_until = t + LIGHT_COOLDOWN_S
+            return ("light", round(value, 1))
+        return None
+
+
+class CabinCombiner:
+    """Reguła zdarzenia kabiny z sygnałów T0: przechył albo drzwi (silne)
+    od razu; światło I ruch w ciągu :data:`CABIN_PAIR_S`; albo
+    :data:`CABIN_WEAK_N` słabych sygnałów w :data:`CABIN_WEAK_WINDOW_S`,
+    przy czym wszystkie skoki światła z okna liczą się jak JEDEN (3 ruchy
+    albo światło + 2 ruchy). Pojedynczy wstrząs (ciężarówka, wiatr) albo same
+    światła — przejeżdżające auta, awaryjne auta obok, koguty, błyskawice,
+    choćby co 10 s — to za mało: bez ruchu auta zdjęć nie ma. Czas = chwila
+    WYKRYCIA (zegar od startu telefonu), nie chwila obsługi kolejki."""
+
+    def __init__(self) -> None:
+        self._sig: deque = deque(maxlen=64)
+
+    def reset(self) -> None:
+        self._sig.clear()
+
+    def feed(self, kind: str, t: float) -> Optional[tuple[list, bool]]:
+        """Sygnał → ``(rodzaje z okna 60 s w kolejności CABIN_SIGNALS,
+        słabe)`` dla zdarzenia albo None."""
+        if kind not in CABIN_SIGNALS or kind == "power":
+            return None
+        self._sig = deque(((tt, k) for tt, k in self._sig
+                           if abs(t - tt) <= CABIN_WEAK_WINDOW_S), maxlen=64)
+        other = {"light": "shake", "shake": "light"}.get(kind)
+        pair = other is not None and any(k == other and abs(t - tt) <= CABIN_PAIR_S
+                                         for tt, k in self._sig)
+        self._sig.append((t, kind))
+        # Światła zostają w oknie (trafią do powodów późniejszego zdarzenia),
+        # ale do progu słabych sygnałów liczą się najwyżej raz.
+        shakes = sum(1 for _tt, k in self._sig if k == "shake")
+        weak_n = shakes + (1 if any(k == "light" for _tt, k in self._sig) else 0)
+        if kind in CABIN_STRONG or pair or weak_n >= CABIN_WEAK_N:
+            seen = {k for _tt, k in self._sig}
+            kinds = [k for k in CABIN_SIGNALS if k in seen]
+            self._sig.clear()
+            return kinds, not (kind in CABIN_STRONG or pair)
+        return None
+
+
+def light_class(lux: Optional[float]) -> Optional[str]:
+    """Klasa światła (odniesienie analizy tylko z tej samej): ``dark`` /
+    ``dim`` / ``bright``; None bez odczytu."""
+    if lux is None or not isinstance(lux, (int, float)) or isinstance(lux, bool) \
+            or not math.isfinite(lux) or lux < 0:
+        return None
+    for name, upper in LIGHT_CLASSES:
+        if lux < upper:
+            return name
+    return None
+
+
+def parse_camera_info(text: Any) -> Optional[str]:
+    """Wyjście ``termux-camera-info`` (lista ``{"id": "1", "facing":
+    "front", …}``) → id przedniej kamery jako ciąg 1–2 cyfr albo None.
+    Id trafia jako argument do ``termux-camera-photo -c``, więc tylko cyfry
+    (``"1; rm"`` albo ``"../x"`` — odrzucone)."""
+    if not isinstance(text, str) or not text.strip() or len(text) > 262144:
+        return None
+    try:
+        obj = json.loads(text, parse_constant=_reject_constant)
+    except (ValueError, RecursionError):
+        return None
+    if not isinstance(obj, list):
+        return None
+    for item in obj[:16]:
+        if not isinstance(item, dict) or not isinstance(item.get("facing"), str) \
+                or item["facing"].strip().lower() != "front":
+            continue
+        cid = item.get("id")
+        if isinstance(cid, int) and not isinstance(cid, bool) and 0 <= cid <= 99:
+            return str(cid)
+        if isinstance(cid, str) and CAMERA_ID_RE.fullmatch(cid):
+            return cid
+    return None
+
+
+def valid_photo_path(path: Any) -> bool:
+    """Ścieżka zdjęcia dla ``termux-camera-photo``: bezwzględna, tylko
+    :data:`CABIN_PATH_RE`, bez ``..`` i pustych członów — skrypt przekazuje
+    ją dalej bez cudzysłowu."""
+    return isinstance(path, str) and bool(CABIN_PATH_RE.fullmatch(path)) \
+        and all(part not in ("", ".", "..") for part in path.split("/")[1:])
+
+
+def cabin_reason_text(reasons: Any, weak: bool) -> str:
+    """``["light", "shake"]`` → ``swiatlo+ruch`` (GSM-7); ``weak`` dopisuje,
+    że zdarzenie dały 3 słabe sygnały."""
+    words = [CABIN_SIGNAL_TEXT[k] for k in CABIN_SIGNALS
+             if isinstance(reasons, list) and k in reasons] or ["czujnik"]
+    return "+".join(words) + (", 3 slabe sygnaly" if weak else "")
+
+
+def cabin_inside(reasons: Any) -> bool:
+    """Czy zdarzenie ma sygnał, który daje TYLKO kabina (lampka, drzwi).
+    Sam przechył i ruch przychodzą z detektora alarmu na postoju i nie
+    odróżniają człowieka w środku od podnośnika czy lawety."""
+    return isinstance(reasons, list) and ("light" in reasons or "door" in reasons)
+
+
+def cabin_alarm_text(label: str, reasons: Any, weak: bool, wall: float, photos: int,
+                     fix: Optional[dict],
+                     localtime: Callable[[float], time.struct_time] = time.localtime) -> str:
+    """SMS alarmu kabiny (plan I, T3) — stałe słowa, liczby i link.
+
+    Nagłówek według sygnałów: ze światłem albo drzwiami — ``RUCH W
+    KABINIE (…)``; bez nich (sam przechył / ruch, ewentualnie zasilanie)
+    — treść alarmu na postoju dla najważniejszego powodu (przechył, potem
+    wstrząs, potem zasilanie), np. ``ALARM przechyl (podnosnik albo
+    holowanie)``: właściciel, którego auto jest właśnie holowane, nie może
+    przeczytać, że ktoś siedzi w środku. Liczba zdjęć — zawsze."""
+    when = _dm_hm(wall, localtime)
+    if not cabin_inside(reasons):
+        main = next((k for k in ("tilt", "shake", "power")
+                     if isinstance(reasons, list) and k in reasons), "shake")
+        return (f"{label}: ALARM {PARK_REASON_TEXT[main]} {when}. Zdjecia: {int(photos)}. "
+                f"Pozycja: {fix_text(fix)}")
+    return (f"{label}: RUCH W KABINIE {when} "
+            f"({cabin_reason_text(reasons, weak)}). Zdjecia: {int(photos)}. "
+            f"Pozycja: {fix_text(fix)}")
+
+
+def strip_jpeg_metadata(data: Any) -> Optional[bytes]:
+    """JPEG bez segmentów APP1–APP15 (EXIF, XMP, miniatura z EXIF, dane
+    producenta) i COM — sama biblioteka standardowa, bez przekodowania
+    (obraz bit w bit ten sam). APP0 (JFIF) zostaje. None = to nie jest
+    poprawny JPEG (wtedy wołający zostawia plik bez zmian i to loguje).
+    Ostrożnie: każda długość segmentu sprawdzona, nic poza buforem."""
+    if not isinstance(data, (bytes, bytearray)) or len(data) < 4 or data[:2] != b"\xff\xd8":
+        return None
+    out = bytearray(b"\xff\xd8")
+    i, n = 2, len(data)
+    while i < n:
+        if data[i] != 0xFF:
+            return None
+        while i < n and data[i] == 0xFF:          # bajty wypełnienia
+            i += 1
+        if i >= n:
+            return None
+        marker = data[i]
+        i += 1
+        if marker == 0xD9:                        # EOI bez SOS — ale poprawny koniec
+            out += b"\xff\xd9"
+            return bytes(out)
+        if marker == 0x01 or 0xD0 <= marker <= 0xD7:
+            out += bytes((0xFF, marker))
+            continue
+        if i + 2 > n:
+            return None
+        length = (data[i] << 8) | data[i + 1]
+        if length < 2 or i + length > n:
+            return None
+        segment = bytes(data[i:i + length])
+        i += length
+        if marker == 0xDA:                        # SOS: dalej dane obrazu
+            out += bytes((0xFF, marker)) + segment + bytes(data[i:])
+            return bytes(out)
+        if 0xE1 <= marker <= 0xEF or marker == 0xFE:
+            continue                              # metadane — pomijam
+        out += bytes((0xFF, marker)) + segment
+    return None
+
+
+def load_pillow() -> Any:
+    """Pillow (``pkg install python-pillow``) albo None — opcjonalny:
+    agent bez niego działa, tylko analiza zdjęć jest pomijana, a EXIF
+    usuwa :func:`strip_jpeg_metadata`."""
+    try:
+        from PIL import Image, ImageChops, ImageDraw, ImageFilter, ImageOps, ImageStat
+    except Exception:
+        return None
+
+    class _Pil:
+        pass
+
+    pil = _Pil()
+    pil.Image, pil.ImageChops, pil.ImageDraw = Image, ImageChops, ImageDraw
+    pil.ImageFilter, pil.ImageOps, pil.ImageStat = ImageFilter, ImageOps, ImageStat
+    return pil
+
+
+def pil_reencode(pil: Any, src: str, dst: str) -> None:
+    """Przekodowanie zdjęcia (≤ :data:`CABIN_REENCODE_SIDE` px, JPEG
+    jakość :data:`CABIN_JPEG_QUALITY`) do NOWEGO obrazu bez żadnych metadanych
+    (EXIF, ICC, komentarz) — obrót z EXIF przeniesiony na piksele."""
+    with pil.Image.open(src) as im:
+        im.draft("RGB", (CABIN_REENCODE_SIDE, CABIN_REENCODE_SIDE))
+        im = pil.ImageOps.exif_transpose(im).convert("RGB")
+        im.thumbnail((CABIN_REENCODE_SIDE, CABIN_REENCODE_SIDE))
+        clean = pil.Image.new("RGB", im.size)
+        clean.paste(im)
+    clean.save(dst, "JPEG", quality=CABIN_JPEG_QUALITY)
+
+
+def pil_prepare(pil: Any, path: str) -> Any:
+    """Klatka do analizy: odcienie szarości, :data:`CABIN_FRAME`, rozmycie
+    (szum matrycy i drobne drgania nie liczą się jako zmiana)."""
+    with pil.Image.open(path) as im:
+        im.draft("L", (CABIN_FRAME[0] * 2, CABIN_FRAME[1] * 2))
+        frame = im.convert("L").resize(CABIN_FRAME)
+    return frame.filter(pil.ImageFilter.GaussianBlur(CABIN_BLUR))
+
+
+def pil_mean(pil: Any, frame: Any) -> float:
+    return float(pil.ImageStat.Stat(frame).mean[0])
+
+
+def pil_change_pct(pil: Any, ref: Any, frame: Any, mask: Any) -> float:
+    """Ile % pikseli poza maską okien (prostokąty w % kadru) różni się
+    o więcej niż :data:`CABIN_PIXEL_DELTA` po wyrównaniu średniej jasności
+    (automatyka ekspozycji nie udaje zmiany)."""
+    w, h = CABIN_FRAME
+    if ref.size != (w, h):
+        ref = ref.convert("L").resize((w, h))
+    m_ref, m_frame = pil_mean(pil, ref), pil_mean(pil, frame)
+    if m_frame > 1.0:
+        k = m_ref / m_frame
+        frame = frame.point([min(255, int(round(v * k))) for v in range(256)])
+    diff = pil.ImageChops.difference(ref, frame).point(
+        [255 if v > CABIN_PIXEL_DELTA else 0 for v in range(256)])
+    keep = pil.Image.new("L", (w, h), 255)
+    draw = pil.ImageDraw.Draw(keep)
+    for x0, y0, x1, y1 in mask or []:
+        draw.rectangle([x0 * w // 100, y0 * h // 100, max(0, x1 * w // 100 - 1),
+                        max(0, y1 * h // 100 - 1)], fill=0)
+    total = keep.histogram()[255]
+    if total <= 0:
+        return 0.0
+    changed = pil.ImageChops.multiply(diff, keep).histogram()[255]
+    return 100.0 * changed / total
+
+
+def normalize_cabin_mask(raw: Any) -> Optional[list]:
+    """≤ :data:`CABIN_MASK_MAX` prostokątów ``[x0, y0, x1, y1]`` (liczby
+    całkowite 0–100, x0 < x1, y0 < y1); None = zły kształt."""
+    if not isinstance(raw, list) or len(raw) > CABIN_MASK_MAX:
+        return None
+    out = []
+    for rect in raw:
+        if not isinstance(rect, list) or len(rect) != 4:
+            return None
+        vals = [_number(v, 0, 100, integer=True) for v in rect]
+        if any(v is None for v in vals):
+            return None
+        x0, y0, x1, y1 = (int(v) for v in vals)
+        if x0 >= x1 or y0 >= y1:
+            return None
+        out.append([x0, y0, x1, y1])
+    return out
+
+
+def normalize_cabin_config(obj: dict, base: dict) -> tuple[Optional[dict], str]:
+    """Pola ``cabin_*`` — opcjonalne (BCM wysyła je tylko z włączonym
+    ``modules.cabin_watch``), ale podane muszą być poprawne. Postać
+    kanoniczna jak w BCM (skrót): liczba całkowita, ułamek do 0,01, maska
+    jako lista list liczb całkowitych."""
+    out: dict[str, Any] = {}
+    lo, hi = CABIN_ENTRY_RANGE
+    entry = _number(obj.get("cabin_entry_s", base["cabin_entry_s"]), lo, hi, integer=True)
+    if entry is None:
+        return None, f"cabin_entry_s: integer {lo}..{hi}"
+    out["cabin_entry_s"] = int(entry)
+    flo, fhi = CABIN_DIFF_RANGE
+    diff = _number(obj.get("cabin_diff_pct", base["cabin_diff_pct"]), flo, fhi)
+    if diff is None:
+        return None, f"cabin_diff_pct: number {flo}..{fhi}"
+    out["cabin_diff_pct"] = round(float(diff), 2)
+    mask = normalize_cabin_mask(obj.get("cabin_mask", base["cabin_mask"]))
+    if mask is None:
+        return None, (f"cabin_mask: at most {CABIN_MASK_MAX} rectangles [x0, y0, x1, y1] "
+                      f"in % (0..100, x0 < x1, y0 < y1)")
+    out["cabin_mask"] = mask
+    for key, (flo, fhi) in (("cabin_light_ratio", CABIN_LIGHT_RATIO_RANGE),
+                            ("cabin_light_lux", CABIN_LIGHT_LUX_RANGE)):
+        val = _number(obj.get(key, base[key]), flo, fhi)
+        if val is None:
+            return None, f"{key}: number {flo}..{fhi}"
+        out[key] = round(float(val), 2)
+    return out, ""
+
+
+def _cabin_analysis(raw: Any) -> Optional[dict]:
+    if not isinstance(raw, dict) or raw.get("verdict") not in CABIN_VERDICTS:
+        return None
+    pct = _number(raw.get("changed_pct"), 0.0, 100.0)
+    return {"verdict": raw["verdict"], "changed_pct": None if pct is None else round(float(pct), 1),
+            "ref": raw.get("ref") if raw.get("ref") in CABIN_REF_MODES else None}
+
+
+def normalize_cabin_state(obj: Any) -> dict:
+    """``cabin.json`` → ``{"events": [...]}``; uszkodzony wpis (plik mógł
+    zostać podmieniony) jest pomijany, nazwy zdjęć tylko według wzorca
+    tego zdarzenia (nic spoza katalogu zdjęć nigdy nie zostanie usunięte)."""
+    out: dict[str, Any] = {"events": []}
+    events = obj.get("events") if isinstance(obj, dict) else None
+    for ev in events[-CABIN_MAX_EVENTS:] if isinstance(events, list) else []:
+        if not isinstance(ev, dict) or not isinstance(ev.get("id"), str) \
+                or not _CABIN_ID_RE.fullmatch(ev["id"]) \
+                or ev.get("outcome") not in CABIN_OUTCOMES \
+                or _number(ev.get("wall"), 0, EVENT_TS_MAX) is None \
+                or _number(ev.get("deadline"), 0, EVENT_TS_MAX) is None:
+            continue
+        reasons = ev.get("reasons")
+        reasons = [k for k in CABIN_SIGNALS if isinstance(reasons, list) and k in reasons]
+        photos = ev.get("photos")
+        photos = [p for p in photos[:CABIN_PHOTOS] if isinstance(p, str)
+                  and (m := _CABIN_PHOTO_RE.fullmatch(p)) and m.group(1) == ev["id"]] \
+            if isinstance(photos, list) else []
+        lux = _number(ev.get("lux"), 0.0, LIGHT_MAX_LUX)
+        camera = ev.get("camera")
+        out["events"].append({
+            "id": ev["id"], "wall": float(ev["wall"]), "deadline": float(ev["deadline"]),
+            "reasons": reasons, "weak": ev.get("weak") is True,
+            "lux": None if lux is None else float(lux), "photos": photos,
+            "clean": ev.get("clean") is True, "outcome": ev["outcome"],
+            "log_only": ev.get("log_only") is True,
+            "analysis": _cabin_analysis(ev.get("analysis")),
+            "camera": camera if camera in CABIN_CAMERA else "",
+        })
+    return out
+
+
 Spawner = Callable[[list], Any]
 
 
@@ -3708,7 +4446,7 @@ class ParkGuard:
     i wrzuca wykrycia do ograniczonej kolejki."""
 
     def __init__(self, agent: "Agent", spawn: Spawner,
-                 mktime: Callable[[time.struct_time], float]) -> None:
+                 mktime: Callable[[time.struct_time], float], pillow: Any = "auto") -> None:
         self.a = agent
         self._spawn = spawn
         self._mktime = mktime
@@ -3718,6 +4456,8 @@ class ParkGuard:
         self._start_wall = agent._wall()
         self._power: Optional[str] = self.st["power"]
         self._pct: Optional[int] = None
+        #: Temperatura baterii (°C) z ostatniego odczytu — strażnik aparatu.
+        self._temp: Optional[float] = None
         self._battery_at: Optional[float] = None
         self._kick = False
         self._kick_at: Optional[float] = None
@@ -3736,10 +4476,18 @@ class ParkGuard:
         # Czujnik (wątek postoju; ``_det`` i ``_last_sample`` pod _det_lock).
         self._det_lock = threading.Lock()
         self._det = MotionDetector()
+        #: Wykrycia ``(rodzaj, wartość, chwila wykrycia, do alarmu postoju,
+        #: do czuwania kabiny)`` — ograniczona, pełna = wykrycie pominięte.
         self._det_q: queue.Queue = queue.Queue(maxsize=32)
         self._last_sample: Optional[float] = None
         self._sensor_name: Optional[str] = None
+        #: Czujnik światła (czuwanie kabiny) z tej samej listy ``-l``;
+        #: ``_sensor_listed`` = lista już przeczytana (None = brak czujnika).
+        self._light_name: Optional[str] = None
+        self._sensor_listed = False
         self._sensor_list_at: Optional[float] = None
+        #: (akcelerometr, światło|None) działającego strumienia.
+        self._stream_names: Optional[tuple] = None
         self._proc: Any = None
         self._reader: Optional[threading.Thread] = None
         # Pokolenie strumienia (pod _det_lock): wątek czytający starego
@@ -3751,6 +4499,8 @@ class ParkGuard:
         self._light_next = 0.0
         self._cleanup_due = False
         self.sensor_state = "off"
+        # Czuwanie kabiny (plan I): warstwa nad tym alarmem.
+        self.cabin = CabinWatch(self, pillow)
 
     # ── pomocnicze ───────────────────────────────────────────────────────
 
@@ -3834,6 +4584,9 @@ class ParkGuard:
         elif state == "armed" and cfg["park_log_only"]:
             state = "log_only"
         ev = st["last_event"]
+        entries = [d for d in (self._entry_deadline_locked(), self.cabin.next_deadline_locked())
+                   if d is not None]
+        entry = min(entries) if entries else None
         return {
             "state": state,
             "since": None if st["since"] is None else int(st["since"]),
@@ -3849,9 +4602,9 @@ class ParkGuard:
             "home_set": cfg["park_home"] is not None,
             "alarms_today": sum(1 for w in st["alarm_walls"] if abs(wall - w) < DAY_S),
             # Okno wejścia: wykryto ruch, alarm o tej godzinie bez dowodu
-            # właściciela (None = nic nie czeka).
-            "entry_until": None if self._entry_deadline_locked() is None
-            else int(self._entry_deadline_locked()),
+            # właściciela (None = nic nie czeka). Czekające zdarzenie kabiny
+            # liczy się też: jego SMS (wcześniejszy) obejmuje alarm postoju.
+            "entry_until": None if entry is None else int(entry),
         }
 
     def _entry_deadline_locked(self) -> Optional[float]:
@@ -3926,6 +4679,28 @@ class ParkGuard:
         self.wake.set()
         return 200, view
 
+    def http_event(self, obj: dict) -> tuple[int, dict]:
+        """``POST /v1/park/event {"kind": "door"}`` — sygnał drzwi od BCM
+        (wersja docelowa: Nano #2 budzi BCM otwarciem drzwi, plan E). To
+        TYLKO sygnał dla czuwania kabiny: nigdy nie rozbraja (złodziej też
+        otwiera drzwi) i nie zmienia stanu alarmu na postoju. Odpowiedź:
+        widok kabiny + ``accepted`` (False = nie czuwa, np. nie uzbrojony)."""
+        if set(obj) - {"kind"} or obj.get("kind") not in CABIN_EXT_SIGNALS:
+            return 400, {"error": "bad_request", "detail": 'body: {"kind": "door"}'}
+        with self.a._lock:
+            if not self._on():
+                return 409, {"error": "parking_guard_off"}
+            if not self.cabin.enabled_locked():
+                return 409, {"error": "cabin_watch_off"}
+            wall, now = self.a._wall(), self.a._clock()
+            accepted = self.cabin.active_locked()
+            if accepted:
+                log.warning("CABIN: %s signal from BCM", obj["kind"])
+                self.cabin.signal_locked(obj["kind"], None, now, wall)
+            view = self.cabin.view_locked(wall)
+        self.wake.set()
+        return 200, dict(view, accepted=accepted)
+
     # ── przejścia stanu (pod blokadą agenta) ──────────────────────────────
 
     def _arm_locked(self, by: str, delay_min: int, check_home: bool, wall: float) -> str:
@@ -3963,6 +4738,7 @@ class ParkGuard:
         log.warning("PARK: ARMED (%s)%s", st["by"],
                     " — LOG ONLY, no SMS" if cfg["park_log_only"] else "")
         self._save_locked()
+        self.cabin.armed_locked(wall)
         self.wake.set()
 
     def _disarm_locked(self, by: str, wall: float) -> None:
@@ -3977,8 +4753,13 @@ class ParkGuard:
         bateria) NIE: czekający alarm wychodzi od razu, bo mógł to być
         złodziej, a telefon zaraz przestanie pilnować."""
         st = self.st
+        # Najpierw kabina: jej czekające zdarzenie odwołuje dowód właściciela,
+        # a inne rozbrojenie wysyła jego alarm (obejmuje też czekający alarm
+        # postoju — jeden SMS na wejście).
+        self.cabin.disarmed_locked(by, wall)
         if by in PARK_OWNER_BY:
-            self._jobs = [j for j in self._jobs if j["kind"] not in ("alarm", "arm_check")]
+            self._jobs = [j for j in self._jobs
+                          if j["kind"] not in ("alarm", "cabin_alarm", "arm_check")]
             self._cancel_alarm_sms_locked()
         else:
             self._jobs = [j for j in self._jobs if j["kind"] != "arm_check"]
@@ -4177,7 +4958,7 @@ class ParkGuard:
     def _battery_every_locked(self) -> float:
         """Co ile bateria: w oknie wejścia często (prąd wrócił = właściciel
         zapalił silnik?), przy uzbrojonym rzadko, poza nim co minutę."""
-        if self.st["pending"] is not None:
+        if self.st["pending"] is not None or self.cabin.next_deadline_locked() is not None:
             return PARK_ENTRY_BATTERY_S
         return PARK_BATTERY_ARMED_S if self.st["state"] in ("armed", "alarm") \
             else PARK_BATTERY_IDLE_S
@@ -4207,6 +4988,9 @@ class ParkGuard:
         pct = battery.get("pct")
         if isinstance(pct, int) and not isinstance(pct, bool):
             self._pct = pct
+        temp = battery.get("temp_c")
+        self._temp = float(temp) if isinstance(temp, (int, float)) \
+            and not isinstance(temp, bool) and math.isfinite(temp) else None
         power = power_of(battery)
         st = self.st
         changed = False
@@ -4267,13 +5051,33 @@ class ParkGuard:
                 return out
 
     def _handle_detections(self) -> None:
+        """Wykrycia z kolejki ``(rodzaj, wartość, chwila wykrycia, do
+        postoju, do kabiny)``: przechył i wstrząs z rytmem alarmu na postoju
+        → alarm na postoju; przechył, ruch z rytmem kabiny i skok światła →
+        czuwanie kabiny, które łączy sygnały po chwili WYKRYCIA."""
         events = self._drain_detections()
         if not events:
             return
         with self.a._lock:
             wall = self.a._wall()
-            for kind, value in events:
-                self._trigger_locked(kind, value, wall)
+            for kind, value, t, to_park, to_cabin in events:
+                if to_park:
+                    self._trigger_locked(kind, value, wall)
+                if to_cabin:
+                    self.cabin.signal_locked(kind, value, t, wall)
+
+    @staticmethod
+    def _motion_items(ev: Optional[tuple], cabin_shake: Optional[float], t: float) -> list:
+        """Wynik :meth:`MotionDetector.feed` → wpisy kolejki wykryć. Przechył
+        idzie do obu; wstrząs alarmu postoju — do kabiny tylko, gdy minął też
+        jej rytm (:attr:`MotionDetector.cabin_shake`); ruch tylko w rytmie
+        kabiny — osobny wpis wyłącznie dla kabiny."""
+        out = []
+        if ev is not None:
+            out.append((ev[0], ev[1], t, True, ev[0] != "shake" or cabin_shake is not None))
+        if cabin_shake is not None and (ev is None or ev[0] != "shake"):
+            out.append(("shake", cabin_shake, t, False, True))
+        return out
 
     def _timers(self) -> None:
         a = self.a
@@ -4296,7 +5100,10 @@ class ParkGuard:
                         self._jobs.append({"kind": "arm_check", "wall": wall})
                 else:
                     self._arm_now_locked(wall)
-            entry_wait = self._entry_timer_locked(now, wall)
+            # Kabina PRZED oknem wejścia postoju: jej SMS (zdjęcia, powody)
+            # obejmuje czekający alarm postoju — jeden SMS na wejście.
+            cabin_wait = self.cabin.timers_locked(now, wall)
+            entry_wait = self._entry_timer_locked(now, wall) or cabin_wait
             if not entry_wait and st["state"] in ("armed", "alarm") \
                     and st["restored_wall"] is not None \
                     and wall - st["restored_wall"] >= 60.0 * cfg["park_grace_min"]:
@@ -4487,7 +5294,7 @@ class ParkGuard:
             return
         moving = self._moving_now() if want_motion else None
         postpone = bool(moving) and may_postpone
-        need_fix = any(j["kind"] in ("alarm", "position") for j in jobs) \
+        need_fix = any(j["kind"] in ("alarm", "cabin_alarm", "position") for j in jobs) \
             or (check_home and not postpone)
         fix = self._fix if self._fix_at is not None \
             and a._clock() - self._fix_at < PARK_FIX_REUSE_S else None
@@ -4495,7 +5302,8 @@ class ParkGuard:
             gps_failed = a.phone.gps_failed_at
             # GPS zawsze przy alarmie; dla poleceń i strefy „dom” nie po
             # świeżej porażce (garaż — patrz PARK_GPS_SKIP_S).
-            try_gps = any(j["kind"] == "alarm" for j in jobs) or gps_failed is None \
+            try_gps = any(j["kind"] in ("alarm", "cabin_alarm") for j in jobs) \
+                or gps_failed is None \
                 or a._clock() - gps_failed >= PARK_GPS_SKIP_S
             fix = a.phone.location(try_gps=try_gps)
             if fix is not None:
@@ -4513,6 +5321,14 @@ class ParkGuard:
                     self._queue_sms_locked("park_alarm", park_alarm_text(
                         label, job["reason"], job["wall"], fix, a._localtime),
                         self.numbers_locked(), wall)
+                elif job["kind"] == "cabin_alarm":
+                    # Ten sam rodzaj wysyłki co alarm postoju: dowód
+                    # właściciela kasuje go z kolejki (_cancel_alarm_sms_locked).
+                    ev = self.cabin.find_locked(job["id"])
+                    if ev is not None and ev["outcome"] == "alarm":
+                        self._queue_sms_locked("park_alarm", cabin_alarm_text(
+                            label, ev["reasons"], ev["weak"], ev["wall"], len(ev["photos"]),
+                            fix, a._localtime), self.numbers_locked(), wall)
                 elif job["kind"] == "position":
                     self._queue_sms_locked("park_reply", park_position_text(label, fix),
                                            [job["num"]], wall)
@@ -4578,7 +5394,13 @@ class ParkGuard:
         if self._sensor_list_at is not None and now - self._sensor_list_at < SENSOR_LIST_RETRY_S:
             return None
         self._sensor_list_at = now
-        name = pick_accelerometer(self.a.phone.sensor_names())
+        names = self.a.phone.sensor_names()
+        name = pick_accelerometer(names)
+        if names is not None:
+            self._sensor_listed = True
+            self._light_name = pick_light(names)
+            if self._light_name is not None:
+                log.info("PARK: light sensor '%s'", self._light_name)
         if name is None:
             log.error("PARK: no accelerometer in 'termux-sensor -l' — only the power trigger "
                       "works (retry in %d min)", SENSOR_LIST_RETRY_S // 60)
@@ -4587,8 +5409,30 @@ class ParkGuard:
         log.info("PARK: accelerometer '%s'", name)
         return name
 
+    def _wanted_names(self) -> Optional[tuple]:
+        """``(akcelerometr, światło|None)`` strumienia: światło tylko przy
+        włączonym czuwaniu kabiny (inaczej ten sam strumień co w D4 —
+        czujnik światła to dodatkowe mA)."""
+        name = self._sensor()
+        if name is None:
+            return None
+        with self.a._lock:
+            cabin = self.cabin.enabled_locked()
+        return name, (self._light_name if cabin else None)
+
     def _ensure_stream(self, now: float) -> None:
         proc = self._proc
+        wanted = self._wanted_names() if proc is not None and self._sensor_name is not None \
+            else None
+        if wanted is not None and self._stream_names is not None and wanted != self._stream_names:
+            # Czuwanie kabiny włączone/wyłączone w trakcie: nowy zestaw
+            # czujników od razu (bez backoffu — to nie awaria).
+            log.info("PARK: sensor stream restarted for %s",
+                     "the cabin watch (light)" if wanted[1] else "the accelerometer only")
+            self._stop_stream()
+            self._release_sensor()
+            self._sensor_next = 0.0
+            proc = None
         if proc is not None:
             with self._det_lock:
                 last = self._last_sample
@@ -4611,12 +5455,17 @@ class ParkGuard:
             return
         if now < self._sensor_next:
             return
-        name = self._sensor()
-        if name is None:
+        names = self._wanted_names()
+        if names is None:
             self.sensor_state = "no_sensor"
             return
+        name, light = names
+        # Jeden argument ``-s`` z listą rozdzieloną przecinkiem (obie nazwy
+        # sprawdzone SENSOR_NAME_RE — bez przecinka); lista argumentów, nie
+        # powłoka.
+        sensors = name if light is None else f"{name},{light}"
         try:
-            proc = self._spawn(["termux-sensor", "-s", name, "-d", str(SENSOR_DELAY_MS)])
+            proc = self._spawn(["termux-sensor", "-s", sensors, "-d", str(SENSOR_DELAY_MS)])
         except (OSError, ValueError) as e:
             log.error("PARK: cannot start termux-sensor (%s) — retry in %.0f s", _clean(e),
                       self._backoff)
@@ -4625,42 +5474,53 @@ class ParkGuard:
             self.sensor_state = "error"
             return
         self._proc = proc
+        self._stream_names = names
         self._proc_started = now
         self._cleanup_due = True
         with self._det_lock:
             self._last_sample = None
             self._det.gap()
             gen = self._gen
-        self._reader = threading.Thread(target=self._read, args=(proc, name, gen), daemon=True,
-                                        name="park-sensor")
+        self._reader = threading.Thread(target=self._read, args=(proc, name, gen, light),
+                                        daemon=True, name="park-sensor")
         self._reader.start()
         self.sensor_state = "starting"
 
-    def _read(self, proc: Any, name: str, gen: int) -> None:
-        """Wątek czytający strumień: parser → detektor → kolejka wykryć.
+    def _read(self, proc: Any, name: str, gen: int, light: Optional[str] = None) -> None:
+        """Wątek czytający strumień: parser → detektor ruchu (i detektor
+        światła czuwania kabiny) → kolejka wykryć (patrz :attr:`_det_q`).
         Kończy się sam na EOF (koniec procesu) albo przy pierwszej próbce po
-        zatrzymaniu strumienia (inne pokolenie — patrz :meth:`_stop_stream`)."""
-        parser = SensorParser(name)
+        zatrzymaniu strumienia (inne pokolenie — patrz
+        :meth:`_stop_stream`)."""
+        parser = SensorParser(name, light)
         stdout = getattr(proc, "stdout", None)
         if stdout is None:
             return
+        cabin = self.cabin
         try:
             for line in stdout:
-                vecs = parser.feed_line(line)
-                if not vecs:
+                items = parser.feed_items(line)
+                if not items:
                     continue
                 t = self.a._clock()
-                for vec in vecs:
+                for kind, value in items:
                     with self._det_lock:
                         if gen != self._gen:
                             return          # zatrzymany: nic już nie karmię
-                        self._last_sample = t
-                        ev = self._det.feed(t, *vec)
-                    if ev is not None:
+                        if kind == "a":
+                            self._last_sample = t
+                            ev = self._det.feed(t, *value)
+                            found = self._motion_items(ev, self._det.cabin_shake, t)
+                        else:
+                            cabin.lux, cabin.lux_at = value, t
+                            ev = cabin.light.feed(t, value)
+                            found = [] if ev is None else [(ev[0], ev[1], t, False, True)]
+                    for item in found:
                         try:
-                            self._det_q.put_nowait(ev)
+                            self._det_q.put_nowait(item)
                         except queue.Full:
                             pass
+                    if found:
                         self.wake.set()
         except (OSError, ValueError):
             pass
@@ -4673,6 +5533,7 @@ class ParkGuard:
         = EOF dla wątku czytającego). Zwolnienie czujnika (``-c``) — osobno,
         :meth:`_release_sensor`, po KAŻDYM zatrzymaniu."""
         proc, self._proc = self._proc, None
+        self._stream_names = None
         if proc is None:
             return
         with self._det_lock:
@@ -4741,7 +5602,8 @@ class ParkGuard:
         self.sensor_state = "light"
         if ev is not None:
             try:
-                self._det_q.put_nowait(ev)
+                # Kabina i tak pomija przechył i ruch w wersji lekkiej.
+                self._det_q.put_nowait((ev[0], ev[1], t, True, True))
             except queue.Full:
                 pass
             self.wake.set()
@@ -4762,6 +5624,9 @@ class ParkGuard:
             entry = self._entry_deadline_locked()
             if entry is not None:
                 waits.append(entry - wall)
+            cabin = self.cabin.next_deadline_locked()
+            if cabin is not None:
+                waits.append(cabin - wall)
             if st["state"] == "disarmed" and self._power == "unplugged" and not st["await_plug"]:
                 base = self._contact_at if self._contact_at is not None else self._started
                 waits.append(base + 60.0 * cfg["park_arm_after_min"] - now)
@@ -4780,6 +5645,850 @@ class ParkGuard:
         return min(PARK_MAX_WAIT_S, max(0.2, min(waits)))
 
 
+# ── czuwanie kabiny (plan I): stan, aparat, analiza, retencja ─────────────
+
+class CabinWatch:
+    """Czuwanie kabiny (opis w nagłówku pliku, „Czuwanie kabiny”).
+
+    Warstwa nad :class:`ParkGuard`: ten sam strumień czujników, ten sam stan
+    uzbrojenia, ta sama kolejka SMS-ów i ten sam budżet alarmów auta.
+    Zdarzenia (``self.st``, zapis atomowy w ``cabin.json``) zmieniają się
+    WYŁĄCZNIE pod blokadą agenta — metody ``*_locked`` woła ParkGuard (wątek
+    postoju, obsługa HTTP) pod tą blokadą i nie robią tam nic poza zapisem
+    małego pliku stanu. Aparat, analiza, usuwanie EXIF i retencja idą
+    w osobnym wątku kabiny (:meth:`step`, :meth:`Agent.run_cabin`) POZA
+    blokadą: seria zdjęć trwa ok. 10 s i nie może wstrzymać skrzynki SMS ani
+    terminów alarmu. Detektor światła (:attr:`light`) karmi wątek czytający
+    strumień czujników, pod ``guard._det_lock`` (kolejność blokad: agent →
+    detektor, nigdy odwrotnie).
+
+    Args:
+        guard: alarm na postoju, nad którym działa ta warstwa.
+        pillow: ``"auto"`` (spróbuj ``import PIL`` przy pierwszej potrzebie),
+            None (bez Pillow — testy) albo gotowy obiekt z :func:`load_pillow`.
+    """
+
+    def __init__(self, guard: "ParkGuard", pillow: Any = "auto") -> None:
+        self.g = guard
+        self.a = guard.a
+        self.wake = threading.Event()
+        self.dir = self.a._path(CABIN_DIR)
+        self.st = normalize_cabin_state(self.a._load_json(CABIN_FILE, {}))
+        self._pil_arg = pillow
+        #: Czy jest Pillow (None = jeszcze nie sprawdzone) — do widoku.
+        self.pillow: Optional[bool] = None if pillow == "auto" else pillow is not None
+        # Pod guard._det_lock (wątek czytający strumień).
+        self.light = LightDetector(self.a.config["cabin_light_ratio"],
+                                   self.a.config["cabin_light_lux"])
+        self.lux: Optional[float] = None
+        self.lux_at: Optional[float] = None
+        # Pod blokadą agenta.
+        self._comb = CabinCombiner()
+        self._todo: list = []
+        self._purge: list = []
+        self.camera = "unknown"
+        self._limit_logged_at: Optional[float] = None
+        # Tylko wątek kabiny.
+        self._session: Optional[dict] = None
+        self._front: Optional[str] = None
+        self._front_at: Optional[float] = None
+        self._cleanup_at: Optional[float] = None
+        self._disk = (0, 0)
+        self._warned: set = set()
+
+    # ── pomocnicze ───────────────────────────────────────────────────────
+
+    def _warn_once(self, key: str, msg: str, *args: Any) -> None:
+        if key not in self._warned:
+            self._warned.add(key)
+            log.warning(msg, *args)
+
+    def _save_locked(self) -> None:
+        try:
+            self.a._save_json(CABIN_FILE, self.st)
+        except OSError as e:
+            log.error("Cannot save the cabin watch state: %s", _clean(e))
+
+    def _pillow(self) -> Any:
+        """Pillow albo None; ``import`` dopiero przy pierwszej potrzebie
+        (włączone czuwanie) — przy wyłączonym agent nie płaci pamięcią."""
+        if self._pil_arg == "auto":
+            self._pil_arg = load_pillow()
+            self.pillow = self._pil_arg is not None
+            if self._pil_arg is None:
+                log.info("CABIN: no Pillow (pkg install python-pillow) — photos are kept "
+                         "without analysis, EXIF removed without re-encoding")
+        return self._pil_arg
+
+    def _path(self, name: str) -> str:
+        return os.path.join(self.dir, name)
+
+    def enabled_locked(self) -> bool:
+        """Przełączniki ``cabin_watch`` I ``parking_guard`` (warstwa nad
+        alarmem na postoju — sama nie działa)."""
+        toggles = self.a.config["toggles"]
+        return bool(toggles["cabin_watch"] and toggles["parking_guard"])
+
+    def active_locked(self) -> bool:
+        """Czuwa: włączone i alarm na postoju uzbrojony (albo w alarmie)."""
+        return self.enabled_locked() and self.g.st["state"] in ("armed", "alarm")
+
+    def find_locked(self, eid: Any) -> Optional[dict]:
+        return next((e for e in self.st["events"] if e["id"] == eid), None)
+
+    def _pending_locked(self) -> Optional[dict]:
+        return next((e for e in self.st["events"] if e["outcome"] == "pending"), None)
+
+    def _deadline_locked(self, ev: dict) -> float:
+        """Koniec okna wejścia; prąd, który wrócił (zapłon), przesuwa go do
+        końca ``park_grace_min`` — tak samo jak w alarmie na postoju (start
+        BCM i połączenie telefonu właściciela trwają dłużej niż 60 s).
+        Czekający alarm postoju z WCZEŚNIEJSZYM terminem (``park_entry_s``
+        krótsze niż ``cabin_entry_s``) skraca okno kabiny do swojego
+        terminu: jedno wejście = jeden SMS, z liczbą zdjęć, o czasie, który
+        wybrał właściciel — inaczej poszedłby SMS postoju, a alarm kabiny
+        skończyłby się na limicie."""
+        deadline = float(ev["deadline"])
+        restored = self.g.st["restored_wall"]
+        if restored is not None:
+            deadline = max(deadline, restored + 60.0 * self.a.config["park_grace_min"])
+        park = self.g._entry_deadline_locked()
+        return deadline if park is None else min(deadline, park)
+
+    def next_deadline_locked(self) -> Optional[float]:
+        ev = self._pending_locked()
+        return None if ev is None else self._deadline_locked(ev)
+
+    def _lux_locked(self) -> Optional[float]:
+        with self.g._det_lock:
+            fresh = self.lux_at is not None and 0 <= self.a._clock() - self.lux_at < LIGHT_FRESH_S
+            return self.lux if fresh else None
+
+    # ── sygnały i zdarzenia (pod blokadą agenta) ──────────────────────────
+
+    def signal_locked(self, kind: str, value: Optional[float], t: float, wall: float) -> None:
+        """Sygnał T0 (``t`` = chwila wykrycia, zegar od startu telefonu).
+        Przy czekającym zdarzeniu tylko dopisuje rodzaj do jego powodów
+        (pełniejszy SMS: „swiatlo+ruch+przechyl”).
+
+        W wersji „lekkiej” alarmu na postoju (po dobie albo < 30% baterii)
+        nie ma aparatu ani czujnika światła: przechył i ruch zostają wtedy
+        WYŁĄCZNIE alarmowi na postoju (jego treść SMS-a; nie zużywają też
+        limitu serii zdjęć). Drzwi przyjmuje nadal — tylko kabina je obsługuje."""
+        if kind not in CABIN_SIGNALS or not self.active_locked():
+            return
+        if kind in PARK_ENTRY_KINDS and self.g._light:
+            return
+        pend = self._pending_locked()
+        if pend is not None:
+            if kind not in pend["reasons"]:
+                pend["reasons"] = [k for k in CABIN_SIGNALS if k in pend["reasons"] or k == kind]
+                self._save_locked()
+            return
+        res = self._comb.feed(kind, t)
+        if res is None:
+            log.info("CABIN: weak signal %s%s", kind, "" if value is None else f" ({value:.2f})")
+            return
+        self._new_event_locked(res[0], res[1], wall)
+
+    def _counted_walls_locked(self, wall: float) -> list:
+        """Zdarzenia, które liczą się do limitu serii zdjęć: odwołane przez
+        właściciela — nie (jego wejścia nie mogą zużyć budżetu na złodzieja)."""
+        return sorted(abs(wall - e["wall"]) for e in self.st["events"]
+                      if e["outcome"] not in ("owner", "off") and abs(wall - e["wall"]) < DAY_S)
+
+    def _event_wait_locked(self, wall: float) -> Optional[int]:
+        ages = self._counted_walls_locked(wall)
+        if ages and ages[0] < CABIN_EVENT_COOLDOWN_S:
+            return _wait_s(CABIN_EVENT_COOLDOWN_S - ages[0])
+        if len(ages) >= CABIN_EVENT_MAX_PER_DAY:
+            return _wait_s(DAY_S - ages[CABIN_EVENT_MAX_PER_DAY - 1])
+        return None
+
+    def _new_event_locked(self, reasons: list, weak: bool, wall: float) -> None:
+        wait = self._event_wait_locked(wall)
+        if wait is not None:
+            now = self.a._clock()
+            if self._limit_logged_at is None or now - self._limit_logged_at >= 60.0:
+                self._limit_logged_at = now
+                log.warning("CABIN: motion in the cabin (%s), but the limit of photo series "
+                            "(1 per %d min, %d per day) — next possible in %d s",
+                            cabin_reason_text(reasons, weak), CABIN_EVENT_COOLDOWN_S // 60,
+                            CABIN_EVENT_MAX_PER_DAY, wait)
+            return
+        cfg = self.a.config
+        ev = {"id": secrets.token_hex(8), "wall": wall, "deadline": wall + cfg["cabin_entry_s"],
+              "reasons": list(reasons), "weak": bool(weak), "lux": self._lux_locked(),
+              "photos": [], "clean": True, "outcome": "pending",
+              "log_only": bool(cfg["park_log_only"]), "analysis": None, "camera": ""}
+        self.st["events"].append(ev)
+        while len(self.st["events"]) > CABIN_MAX_EVENTS:
+            victim = next((e for e in self.st["events"] if e["outcome"] != "pending"), None)
+            if victim is None:
+                break
+            self.st["events"].remove(victim)
+        # Seria zdjęć zdarzenia ma pierwszeństwo przed zdjęciem odniesienia.
+        self._todo = [t for t in self._todo if t["kind"] != "ref"]
+        self._todo.append({"kind": "event", "id": ev["id"]})
+        log.warning("CABIN: motion in the cabin (%s) — photos now, alarm in %d s unless the "
+                    "owner disarms%s", cabin_reason_text(reasons, weak), cfg["cabin_entry_s"],
+                    " (log only, no SMS)" if ev["log_only"] else "")
+        self._save_locked()
+        self.wake.set()
+        self.g.wake.set()
+
+    def timers_locked(self, now: float, wall: float) -> bool:
+        """Termin okna wejścia (wątek postoju, PRZED terminem alarmu na
+        postoju — jeden SMS na wejście). True = alarm czeka na świeży odczyt
+        baterii albo właśnie poszedł."""
+        ev = self._pending_locked()
+        if ev is None:
+            return False
+        if not self.enabled_locked():
+            self._cancel_locked(ev, "off")
+            return False
+        if self.g.st["state"] not in ("armed", "alarm"):
+            # Rozbrojone bez przejścia przez disarmed_locked (np. stan
+            # wczytany po restarcie) — nie wiadomo, kto rozbroił: bez SMS-a.
+            ev["outcome"] = "expired"
+            self._save_locked()
+            return False
+        deadline = self._deadline_locked(ev)
+        if wall < deadline:
+            return False
+        if wall - deadline > RESUME_MAX_LATE_S:
+            ev["outcome"] = "expired"
+            log.warning("CABIN: the entry window of event %s ended while the agent was down "
+                        "— no SMS", ev["id"])
+            self._save_locked()
+            return False
+        g = self.g
+        if g._battery_at is None or now - g._battery_at > PARK_ENTRY_FRESH_S:
+            # Najpierw świeży odczyt: prąd, który wrócił przed chwilą (zapłon),
+            # przesuwa termin o park_grace_min.
+            g._kick = True
+            return True
+        log.warning("CABIN: entry window over without the owner's proof — alarm")
+        self._fire_locked(ev, wall)
+        return True
+
+    def _fire_locked(self, ev: dict, wall: float) -> None:
+        """Alarm kabiny: stan alarmu auta i SMS (zadanie z pozycją w wątku
+        postoju) w ramach budżetu alarmu na postoju — wspólnego, bo to jeden
+        alarm auta: czekający alarm postoju (okno wejścia) i powrót prądu
+        obejmuje ten sam SMS."""
+        g, cfg = self.g, self.a.config
+        if g.st["restored_wall"] is not None and "power" not in ev["reasons"]:
+            ev["reasons"] = [k for k in CABIN_SIGNALS if k in ev["reasons"] or k == "power"]
+        log_only = bool(ev["log_only"] or cfg["park_log_only"])
+        if cabin_inside(ev["reasons"]):
+            g.st["last_event"] = {"kind": "cabin", "ts": int(ev["wall"]),
+                                  "value": float(len(ev["photos"])), "logged_only": log_only}
+        # Sam przechył / ruch: zdarzenie postoju (przechył, wstrząs) zapisał
+        # już jego detektor — zostaje, jak treść SMS-a (cabin_alarm_text).
+        why = cabin_reason_text(ev["reasons"], ev["weak"])
+        if log_only:
+            ev["outcome"] = "logged"
+            log.warning("CABIN (log only, no SMS): %s, %d photo(s)", why, len(ev["photos"]))
+        elif not g.numbers_locked():
+            ev["outcome"] = "no_numbers"
+            g._warn_once("no_numbers", "PARK: no numbers for the alarm SMS (park_numbers "
+                                       "from BCM, or --park-numbers on the phone)")
+        elif g._alarm_wait_locked(wall) is not None:
+            ev["outcome"] = "limited"
+            log.warning("CABIN: alarm SMS limit of the parked car (1 per %d min, %d per day) "
+                        "— %s only logged", PARK_ALARM_COOLDOWN_S // 60, PARK_ALARM_MAX_PER_DAY,
+                        why)
+        else:
+            ev["outcome"] = "alarm"
+            g.st["alarm_walls"].append(wall)
+            pend = g.st["pending"]
+            if pend is not None:
+                log.warning("PARK: the waiting %s alarm is covered by the cabin alarm (one SMS "
+                            "per entry)", pend["kind"])
+                g.st["pending"] = None
+            g.st["restored_wall"] = None
+            if g.st["state"] != "alarm":
+                g.st["state"] = "alarm"
+                g.st["since"] = wall
+            if len(g._jobs) < PARK_MAX_JOBS:
+                g._jobs.append({"kind": "cabin_alarm", "id": ev["id"], "wall": ev["wall"]})
+            else:
+                log.error("PARK: too many pending jobs — the cabin alarm SMS is dropped")
+            log.critical("CABIN ALARM: %s, %d photo(s)", why, len(ev["photos"]))
+            g.wake.set()
+        g._save_locked()
+        self._save_locked()
+
+    def _cancel_locked(self, ev: dict, outcome: str) -> None:
+        """Dowód właściciela (albo wyłączenie z BCM) w oknie wejścia: alarm
+        odwołany, zdjęcia tego zdarzenia do usunięcia (wątek kabiny)."""
+        ev["outcome"] = outcome
+        self._todo = [t for t in self._todo if t.get("id") != ev["id"]]
+        if ev["id"] not in self._purge:
+            self._purge.append(ev["id"])
+        log.warning("CABIN: %s within the entry window — cabin alarm cancelled, its photos "
+                    "are deleted", "the owner disarmed" if outcome == "owner" else "switched off")
+        self._save_locked()
+        self.wake.set()
+
+    def disarmed_locked(self, by: str, wall: float) -> None:
+        """Alarm na postoju rozbrojony (woła :meth:`ParkGuard._disarm_locked`
+        NA POCZĄTKU, zanim obsłuży własny czekający alarm). Dowód właściciela
+        (:data:`PARK_OWNER_BY`) odwołuje zdarzenie i kasuje jego zdjęcia;
+        inne rozbrojenie (niska bateria, dom) wysyła alarm od razu — to mógł
+        być złodziej, a telefon zaraz przestanie pilnować."""
+        self._todo = [t for t in self._todo if t["kind"] != "ref"]
+        self._comb.reset()
+        ev = self._pending_locked()
+        if ev is None:
+            return
+        if by in PARK_OWNER_BY:
+            self._cancel_locked(ev, "off" if by == "off" else "owner")
+        else:
+            log.warning("CABIN: disarmed (%s) during the entry window — the cabin alarm goes "
+                        "now", by)
+            self._fire_locked(ev, wall)
+
+    def config_changed(self) -> None:
+        """Nowa konfiguracja z BCM (wołane po podmianie ``Agent.config``, bez
+        blokady agenta — tu tylko ``_det_lock``): progi skoku światła działają
+        od razu (kalibracja w tygodniu ``park_log_only`` bez restartu
+        agenta)."""
+        cfg = self.a.config
+        with self.g._det_lock:
+            self.light.set_thresholds(cfg["cabin_light_ratio"], cfg["cabin_light_lux"])
+
+    def armed_locked(self, wall: float) -> None:
+        """Świeże uzbrojenie: nowe filtry i zdjęcie odniesienia (pusta kabina,
+        właściciel wyszedł w oknie wyjścia) po :data:`CABIN_REF_DELAY_S`."""
+        self._comb.reset()
+        with self.g._det_lock:
+            self.light.reset()
+        self._todo = [t for t in self._todo if t["kind"] != "ref"]
+        if self.enabled_locked():
+            self._todo.append({"kind": "ref", "due": self.a._clock() + CABIN_REF_DELAY_S})
+            self.wake.set()
+
+    # ── widok ────────────────────────────────────────────────────────────
+
+    @staticmethod
+    def _event_view(ev: dict) -> dict:
+        a = ev.get("analysis") or {}
+        return {"id": ev["id"], "ts": int(ev["wall"]), "reasons": list(ev["reasons"]),
+                "weak": ev["weak"], "photos": len(ev["photos"]), "outcome": ev["outcome"],
+                "verdict": a.get("verdict"), "changed_pct": a.get("changed_pct"),
+                "ref": a.get("ref"), "camera": ev["camera"]}
+
+    def view(self) -> dict:
+        """``GET /v1/cabin`` — stan i zdarzenia, NIGDY zdjęcia."""
+        with self.a._lock:
+            return self.view_locked(self.a._wall())
+
+    def view_locked(self, wall: float) -> dict:
+        cfg, g = self.a.config, self.g
+        enabled = self.enabled_locked()
+        armed = g.st["state"] in ("armed", "alarm")
+        pend = self._pending_locked()
+        state = "off" if not enabled else "idle" if not armed else \
+            "pending" if pend is not None else "watching"
+        lux = self._lux_locked()
+        light_sensor = "ok" if lux is not None else \
+            "none" if g._sensor_listed and g._light_name is None else "unknown"
+        events = self.st["events"]
+        n, size = self._disk
+        return {
+            "state": state,
+            "camera": self.camera if enabled and armed else "unknown",
+            "light_sensor": light_sensor,
+            "lux": None if lux is None else round(lux, 1),
+            "pillow": self.pillow,
+            "log_only": bool(cfg["park_log_only"]),
+            "entry_until": None if pend is None else int(self._deadline_locked(pend)),
+            "photos_n": int(n),
+            "photos_mb": round(size / (1024 * 1024), 1),
+            "events_today": len(self._counted_walls_locked(wall)),
+            "last_event": self._event_view(events[-1]) if events else None,
+            "events": [self._event_view(e) for e in events[-CABIN_VIEW_EVENTS:]],
+        }
+
+    # ── wątek kabiny ─────────────────────────────────────────────────────
+
+    def step(self) -> float:
+        """Jeden krok wątku kabiny: retencja (co 10 min), usuwanie zdjęć
+        odwołanych zdarzeń, jedna czynność serii zdjęć albo start następnej.
+        Przy wyłączonym czuwaniu — zero wywołań Termux:API. Zwraca, za ile
+        sekund następny krok."""
+        a = self.a
+        now = a._clock()
+        if self._cleanup_at is None or now - self._cleanup_at >= CABIN_CLEANUP_EVERY_S:
+            self._cleanup_at = now
+            self.cleanup()
+        with a._lock:
+            purge, self._purge = list(self._purge), []
+            enabled, active = self.enabled_locked(), self.active_locked()
+            dirty = [(e["id"], list(e["photos"])) for e in self.st["events"]
+                     if e["photos"] and not e["clean"] and e["outcome"] not in ("owner", "off")]
+        for eid in purge:
+            self._purge_event(eid)
+        if self._session is not None:
+            return self._session_step(a._clock())
+        if enabled:
+            self._pillow()
+        for eid, names in dirty:
+            self._clean_event(eid, names)       # przerwana seria (restart agenta)
+        if not active:
+            with a._lock:
+                self._todo = []
+            return CABIN_MAX_WAIT_S
+        block = self._camera_block(now, fresh=False)
+        with a._lock:
+            self.camera = block or "ok"
+            todo = next((t for t in self._todo if t["kind"] == "event"), None) or next(
+                (t for t in self._todo if t["kind"] == "ref" and now >= t["due"]), None)
+            if todo is not None:
+                self._todo.remove(todo)
+            refs = [t["due"] for t in self._todo if t["kind"] == "ref"]
+        if todo is None:
+            return min(CABIN_MAX_WAIT_S, max(0.2, min(refs) - now)) if refs else CABIN_MAX_WAIT_S
+        if todo["kind"] == "ref":
+            # Bez Pillow nie ma analizy — po co aparat; bez odczytu światła
+            # nie wiadomo, do której klasy światła należy odniesienie;
+            # w ciemności (< 10 lux) klatka i tak wyszłaby czarna — a ekran,
+            # Termux na wierzchu i aparat w pustym aucie nocą tylko świecą
+            # pod podsufitką i kosztują baterię.
+            lux = self._lux_now()
+            why = "no Pillow" if self._pillow() is None else \
+                "no light reading" if lux is None else \
+                f"dark cabin, {lux:.1f} lux" if light_class(lux) == "dark" else ""
+            if why:
+                log.info("CABIN: no reference photo (%s)", why)
+                return 0.0
+        block = self._camera_block(now, fresh=True)
+        with a._lock:
+            self.camera = block or "ok"
+            ev = self.find_locked(todo.get("id")) if todo["kind"] == "event" else None
+            if todo["kind"] == "event" and (ev is None or ev["outcome"] != "pending"):
+                return 0.0
+            if ev is not None and block:
+                ev["camera"] = block
+                self._save_locked()
+        if block:
+            if todo["kind"] == "event":
+                log.warning("CABIN: no photos (%s) — the alarm still goes on the sensors", block)
+            return 0.0
+        self._start(todo)
+        return 0.0
+
+    def _lux_now(self) -> Optional[float]:
+        with self.a._lock:
+            return self._lux_locked()
+
+    def shutdown(self) -> None:
+        """Koniec agenta w trakcie serii: ekran wygaszony, seria porzucona
+        (zrobione zdjęcia zostają; EXIF usunie następny start)."""
+        s, self._session = self._session, None
+        if s is not None and s["woke"]:
+            self._su(SLEEP_COMMAND)
+
+    def _su(self, command: str) -> bool:
+        rc, _out, err = self.a.phone.su(command)
+        if rc != 0:
+            self._warn_once("su:" + command, "CABIN: su '%s' failed (%s) — the screen or "
+                            "Termux in the foreground may be missing, photos may fail "
+                            "(Magisk: su for Termux)", command, _clean(err) or f"exit {rc}")
+        return rc == 0
+
+    def _ensure_dir(self) -> bool:
+        """Katalog zdjęć 0700, NIE dowiązanie symboliczne (nic nie trafi poza
+        prywatny katalog Termuxa), a ścieżka nadaje się dla aparatu."""
+        try:
+            os.makedirs(self.dir, mode=0o700, exist_ok=True)
+            st = os.lstat(self.dir)
+            if not stat.S_ISDIR(st.st_mode):
+                return False
+            if stat.S_IMODE(st.st_mode) != 0o700:
+                os.chmod(self.dir, 0o700)
+        except OSError:
+            return False
+        return valid_photo_path(self._path(f"cab_{'0' * 16}_0.jpg"))
+
+    def _camera_block(self, now: float, fresh: bool) -> str:
+        """Powód, dla którego aparat ma nie działać, albo "" (działa).
+        ``fresh`` = przed serią: bateria nie starsza niż
+        :data:`CABIN_BATTERY_FRESH_S` (temperatura!) i id przedniej kamery."""
+        g, a = self.g, self.a
+        if fresh:
+            with a._lock:
+                at = g._battery_at
+            if at is None or now - at > CABIN_BATTERY_FRESH_S:
+                g._poll_battery(now)
+        with a._lock:
+            light, pct, temp, power = g._light, g._pct, g._temp, g._power
+        if light:
+            return "light_mode"
+        if pct is not None and pct < CABIN_MIN_PCT:
+            return "low_battery"
+        if temp is None:
+            return "no_temp"
+        if temp < CABIN_TEMP_MIN_C:
+            return "cold"
+        if temp > CABIN_TEMP_MAX_C:
+            return "hot"
+        if power == "plugged" and temp >= CABIN_CHARGING_HOT_C:
+            return "charging_hot"
+        if not self._ensure_dir():
+            self._warn_once("dir", "CABIN: the photo directory %s is not a private directory "
+                                   "with a plain path — no photos", self.dir)
+            return "bad_path"
+        try:
+            vfs = os.statvfs(self.dir)
+            if vfs.f_bavail * vfs.f_frsize < CABIN_MIN_FREE_BYTES:
+                return "no_space"
+        except OSError:
+            return "bad_path"
+        if not fresh:
+            return "" if self._front is not None or self._front_at is None else "no_front_camera"
+        return "" if self._front_camera(now) is not None else "no_front_camera"
+
+    def _front_camera(self, now: float) -> Optional[str]:
+        """Id przedniej kamery: ``termux-camera-info`` raz (w pamięci), po
+        porażce najwcześniej za :data:`CABIN_CAMERA_RETRY_S`."""
+        if self._front is not None:
+            return self._front
+        if self._front_at is not None and now - self._front_at < CABIN_CAMERA_RETRY_S:
+            return None
+        self._front_at = now
+        front = parse_camera_info(self.a.phone.camera_info())
+        if front is None:
+            log.error("CABIN: no front camera in 'termux-camera-info' (Termux:API camera "
+                      "permission?) — no photos, retry in %d min", CABIN_CAMERA_RETRY_S // 60)
+            return None
+        self._front = front
+        log.info("CABIN: front camera id %s", front)
+        return front
+
+    # ── seria zdjęć (maszyna stanów, jedna czynność na krok) ──────────────
+
+    def _start(self, todo: dict) -> None:
+        now = self.a._clock()
+        with self.a._lock:
+            ev = self.find_locked(todo.get("id")) if todo["kind"] == "event" else None
+            lux = ev["lux"] if ev is not None else self._lux_locked()
+            if lux is None:
+                lux = self._lux_locked()
+        self._session = {"kind": todo["kind"], "id": todo.get("id"),
+                         "n": CABIN_PHOTOS if todo["kind"] == "event" else 1, "i": 0,
+                         "t0": now, "next": now, "files": [], "woke": False, "finish": False,
+                         "lux": lux}
+        with self.g._det_lock:
+            # Ekran zaraz się włączy — czujnik światła patrzy w ekran.
+            self.light.mute(now + CABIN_SESSION_MUTE_S)
+        log.info("CABIN: photo series started (%s)", todo["kind"])
+
+    def _session_stop(self, s: dict) -> tuple[bool, bool]:
+        """``(przerwać, usunąć zdjęcia)``: rozbrojone / wyłączone — koniec
+        serii; dowód właściciela — także usunięcie zdjęć."""
+        with self.a._lock:
+            stop = not self.active_locked()
+            purge = False
+            if s["kind"] == "event":
+                ev = self.find_locked(s["id"])
+                purge = ev is None or ev["outcome"] in ("owner", "off")
+            return stop or purge, purge
+
+    def _session_step(self, now: float) -> float:
+        s = self._session
+        assert s is not None
+        stop, purge = self._session_stop(s)
+        if stop and not s["finish"]:
+            s["finish"], s["next"] = True, now
+        if now < s["next"]:
+            return s["next"] - now
+        if s["finish"]:
+            self._finish(s, purge)
+            return 0.0
+        if not s["woke"]:
+            s["woke"] = True
+            self._su(WAKE_COMMAND)
+            self._su(FOREGROUND_COMMAND)
+        i = s["i"]
+        name = f"cab_{s['id']}_{i}.jpg" if s["kind"] == "event" else CABIN_REF_RAW
+        ok, err = self.a.phone.camera_photo(self._front or "", self._path(name))
+        if ok:
+            s["files"].append(name)
+            if s["kind"] == "event":
+                with self.a._lock:
+                    ev = self.find_locked(s["id"])
+                    if ev is not None and name not in ev["photos"]:
+                        ev["photos"].append(name)
+                        ev["clean"] = False
+                        self._save_locked()
+        else:
+            log.warning("CABIN: photo %d/%d failed: %s", i + 1, s["n"], err)
+            self._unlink(name)          # termux-camera-photo zakłada pusty plik
+        s["i"] += 1
+        now = self.a._clock()
+        if s["i"] < s["n"]:
+            s["next"] = max(now, s["t0"] + CABIN_PHOTO_GAP_S * s["i"])
+        else:
+            s["finish"], s["next"] = True, now + CABIN_SETTLE_S
+        return max(0.0, s["next"] - now)
+
+    def _finish(self, s: dict, purge: bool) -> None:
+        """Koniec serii: ekran wygaszony, pliki sprawdzone, EXIF usunięty,
+        analiza (jeśli jest Pillow) — albo usunięcie, gdy właściciel zdążył
+        w międzyczasie rozbroić."""
+        self._session = None
+        if s["woke"]:
+            self._su(SLEEP_COMMAND)
+        with self.g._det_lock:
+            self.light.mute(self.a._clock() + CABIN_LIGHT_MUTE_S)
+        names = [n for n in s["files"] if self._verify(n)]
+        if s["kind"] == "ref":
+            if names and not purge:
+                self._make_ref(names[0], s["lux"])
+            self._unlink(CABIN_REF_RAW)
+            self.cleanup()
+            return
+        if purge:
+            self._purge_event(s["id"])
+            return
+        for n in names:
+            self._strip(n)
+        with self.a._lock:
+            diff_pct = float(self.a.config["cabin_diff_pct"])
+            mask = [list(r) for r in self.a.config["cabin_mask"]]
+        analysis = self._analyse(names, s["lux"], diff_pct, mask)
+        with self.a._lock:
+            ev = self.find_locked(s["id"])
+            purge = ev is None or ev["outcome"] in ("owner", "off")
+            if not purge:
+                ev["photos"] = [n for n in ev["photos"] if n in names]
+                ev["clean"] = True
+                ev["analysis"] = analysis
+                self._save_locked()
+        if purge:
+            self._purge_event(s["id"])
+            return
+        log.info("CABIN: %d photo(s) kept, analysis: %s%s", len(names), analysis["verdict"],
+                 "" if analysis.get("changed_pct") is None
+                 else f" ({analysis['changed_pct']}% changed, vs {analysis['ref']})")
+        self.cleanup()
+
+    def _clean_event(self, eid: str, names: list) -> None:
+        """Zdjęcia serii przerwanej restartem agenta: sprawdzone i bez EXIF."""
+        kept = [n for n in names if self._verify(n)]
+        for n in kept:
+            self._strip(n)
+        with self.a._lock:
+            ev = self.find_locked(eid)
+            if ev is not None:
+                ev["photos"] = [n for n in ev["photos"] if n in kept]
+                ev["clean"] = True
+                self._save_locked()
+
+    # ── pliki ─────────────────────────────────────────────────────────────
+
+    def _unlink(self, name: str) -> bool:
+        """Usuń plik z katalogu zdjęć — tylko zwykły plik (dowiązania i
+        katalogi nie), tylko nazwę według naszych wzorców."""
+        if not (_CABIN_PHOTO_RE.fullmatch(name) or _CABIN_REF_RE.fullmatch(name)
+                or name == CABIN_REF_RAW or (name.startswith(".") and name.endswith(".tmp")
+                                             and "/" not in name)):
+            return False
+        path = self._path(name)
+        try:
+            if not stat.S_ISREG(os.lstat(path).st_mode):
+                return False
+            os.unlink(path)
+            return True
+        except OSError:
+            return False
+
+    def _verify(self, name: str) -> bool:
+        """Zdjęcie jest: zwykły plik, niepusty, nie większy niż
+        :data:`CABIN_PHOTO_MAX_BYTES`; prawa 0600. Inaczej usunięte."""
+        path = self._path(name)
+        try:
+            st = os.lstat(path)
+        except OSError:
+            return False
+        if not stat.S_ISREG(st.st_mode):
+            return False
+        if not 0 < st.st_size <= CABIN_PHOTO_MAX_BYTES:
+            self._unlink(name)
+            return False
+        try:
+            os.chmod(path, 0o600)
+        except OSError:
+            pass
+        return True
+
+    def _strip(self, name: str) -> bool:
+        """EXIF precz: z Pillow — przekodowanie do nowego obrazu (≤ 1280 px);
+        bez Pillow (albo gdy przekodowanie zawiedzie) — wycięcie segmentów
+        metadanych JPEG. False = plik zostaje, jaki był (log)."""
+        path, tmp = self._path(name), self._path(f".{name}.tmp")
+        pil = self._pillow()
+        if pil is not None:
+            try:
+                pil_reencode(pil, path, tmp)
+                os.chmod(tmp, 0o600)
+                os.replace(tmp, path)
+                return True
+            except Exception as e:
+                self._unlink(f".{name}.tmp")
+                log.warning("CABIN: re-encoding %s failed (%s) — removing the metadata "
+                            "without Pillow", name, _clean(e))
+        try:
+            data = read_small(path, CABIN_PHOTO_MAX_BYTES)
+        except (OSError, ValueError):
+            return False
+        clean = strip_jpeg_metadata(data) if data else None
+        if clean is None:
+            log.warning("CABIN: %s is not a JPEG whose metadata I can remove — kept as it is "
+                        "(EXIF may remain)", name)
+            return False
+        if clean != data:
+            try:
+                atomic_write(path, clean)
+            except OSError as e:
+                log.warning("CABIN: cannot rewrite %s without EXIF (%s)", name, _clean(e))
+                return False
+        return True
+
+    def _analyse(self, names: list, lux: Optional[float], diff_pct: float,
+                 mask: list) -> dict:
+        """T2: różnica klatek względem odniesienia z tej samej klasy światła
+        (bez niego — względem pierwszego zdjęcia serii). SMS nigdy na to nie
+        czeka (alarm idzie z terminu okna wejścia)."""
+        skipped = {"verdict": "skipped", "changed_pct": None, "ref": None}
+        pil = self._pillow()
+        if pil is None or not names:
+            return skipped
+        try:
+            frames = [pil_prepare(pil, self._path(n)) for n in names]
+            if max(pil_mean(pil, f) for f in frames) < CABIN_DARK_MEAN:
+                return {"verdict": "dark", "changed_pct": None, "ref": None}
+            ref = None
+            cls = light_class(lux)
+            ref_name = f"ref_{cls}.png" if cls else None
+            if ref_name and self._verify(ref_name):
+                with pil.Image.open(self._path(ref_name)) as im:
+                    ref = im.convert("L").resize(CABIN_FRAME)
+            if ref is not None:
+                pcts, mode = [pil_change_pct(pil, ref, f, mask) for f in frames], "ref"
+            elif len(frames) >= 2:
+                pcts = [pil_change_pct(pil, frames[0], f, mask) for f in frames[1:]]
+                mode = "burst"
+            else:
+                return skipped
+        except Exception as e:
+            log.warning("CABIN: photo analysis failed (%s)", _clean(e))
+            return {"verdict": "error", "changed_pct": None, "ref": None}
+        best = max(pcts)
+        return {"verdict": "change" if best >= diff_pct else "no_change",
+                "changed_pct": round(min(100.0, best), 1), "ref": mode}
+
+    def _make_ref(self, name: str, lux: Optional[float]) -> None:
+        """Odniesienie klasy światła: TYLKO przetworzona klatka 320×240
+        w odcieniach szarości (PNG, 0600) — surowe zdjęcie jest usuwane."""
+        pil, cls = self._pillow(), light_class(lux)
+        if pil is None or cls is None:
+            return
+        tmp = f".ref_{cls}.png.tmp"
+        try:
+            frame = pil_prepare(pil, self._path(name))
+            if pil_mean(pil, frame) < CABIN_DARK_MEAN:
+                log.info("CABIN: the reference photo is dark (%s) — not stored", cls)
+                return
+            frame.save(self._path(tmp), "PNG")
+            os.chmod(self._path(tmp), 0o600)
+            os.replace(self._path(tmp), self._path(f"ref_{cls}.png"))
+            log.info("CABIN: reference photo for light class %s stored (320x240 grey)", cls)
+        except Exception as e:
+            self._unlink(tmp)
+            log.warning("CABIN: cannot store the reference photo (%s)", _clean(e))
+
+    def _purge_event(self, eid: str) -> None:
+        """Zdjęcia odwołanego zdarzenia (dowód właściciela) — usunięte."""
+        if not isinstance(eid, str) or not _CABIN_ID_RE.fullmatch(eid):
+            return
+        n = 0
+        for i in range(CABIN_PHOTOS):
+            n += self._unlink(f"cab_{eid}_{i}.jpg")
+            self._unlink(f".cab_{eid}_{i}.jpg.tmp")
+        with self.a._lock:
+            ev = self.find_locked(eid)
+            if ev is not None:
+                ev["photos"] = []
+                ev["clean"] = True
+                self._save_locked()
+        if n:
+            log.warning("CABIN: %d photo(s) of the cancelled event deleted", n)
+        self.cleanup()
+
+    def cleanup(self) -> None:
+        """Retencja: zdjęcia (i odniesienia) starsze niż 72 h precz, potem
+        najstarsze, dopóki wszystko razem przekracza 200 MB; porzucone pliki
+        tymczasowe po godzinie. Tylko zwykłe pliki o naszych nazwach —
+        nic innego w katalogu nie jest ruszane."""
+        wall = self.a._wall()
+        busy = set(self._session["files"]) if self._session is not None else set()
+        try:
+            with os.scandir(self.dir) as it:
+                entries = [e for _i, e in zip(range(4096), it)]
+        except FileNotFoundError:
+            self._disk = (0, 0)
+            return
+        except OSError as e:
+            self._warn_once("scandir", "CABIN: cannot list %s (%s)", self.dir, _clean(e))
+            return
+        files = []
+        for e in entries:
+            name = e.name
+            photo = bool(_CABIN_PHOTO_RE.fullmatch(name) or _CABIN_REF_RE.fullmatch(name))
+            temp = name == CABIN_REF_RAW or (name.startswith(".") and name.endswith(".tmp"))
+            if not (photo or temp) or name in busy:
+                continue
+            try:
+                st = e.stat(follow_symlinks=False)
+            except OSError:
+                continue
+            if not stat.S_ISREG(st.st_mode):
+                continue
+            age = wall - st.st_mtime
+            if (temp and age > CABIN_TMP_KEEP_S) or (photo and age > CABIN_KEEP_S):
+                self._unlink(name)
+            elif photo:
+                files.append((st.st_mtime, name, st.st_size))
+        files.sort()
+        total = sum(f[2] for f in files)
+        for n in busy:
+            try:
+                total += os.lstat(self._path(n)).st_size
+            except OSError:
+                pass
+        while files and total > CABIN_MAX_BYTES:
+            _mtime, name, size = files.pop(0)
+            if self._unlink(name):
+                total -= size
+                log.warning("CABIN: %s deleted — photos over %d MB", name,
+                            CABIN_MAX_BYTES // (1024 * 1024))
+        left = {f[1] for f in files} | busy
+        with self.a._lock:
+            changed = False
+            for ev in self.st["events"]:
+                kept = [n for n in ev["photos"] if n in left]
+                if kept != ev["photos"]:
+                    ev["photos"] = kept
+                    changed = True
+            if changed:
+                self._save_locked()
+        self._disk = (sum(1 for n in left if _CABIN_PHOTO_RE.fullmatch(n)), max(0, total))
+
+
 # ── walidacja danych od BCM ───────────────────────────────────────────────
 
 def default_config() -> dict:
@@ -4791,7 +6500,9 @@ def default_config() -> dict:
             # nie da się wybrać (i tak przełącznik call112 jest wyłączony).
             "call112_test_mode": True, "call112_test_number": "",
             # Alarm na postoju: bez numerów, tylko log (przełącznik i tak off).
-            **{k: (list(v) if isinstance(v, list) else v) for k, v in PARK_DEFAULTS.items()}}
+            **{k: (list(v) if isinstance(v, list) else v) for k, v in PARK_DEFAULTS.items()},
+            # Czuwanie kabiny: okno wejścia 60 s, próg 3%, bez maski, skok światła ×5 i +5 lux.
+            **{k: (list(v) if isinstance(v, list) else v) for k, v in CABIN_DEFAULTS.items()}}
 
 
 def normalize_config(obj: Any, strict: bool = False) -> tuple[Optional[dict], str]:
@@ -4849,6 +6560,10 @@ def normalize_config(obj: Any, strict: bool = False) -> tuple[Optional[dict], st
     if park is None:
         return None, err
     out.update(park)
+    cabin, err = normalize_cabin_config(obj, base)
+    if cabin is None:
+        return None, err
+    out.update(cabin)
     return out, ""
 
 
@@ -5175,7 +6890,9 @@ def main(argv: Optional[list] = None) -> int:
                threading.Thread(target=agent.run_calls, args=(stop,), daemon=True,
                                 name="call112"),
                threading.Thread(target=agent.run_park, args=(stop,), daemon=True,
-                                name="park")]
+                                name="park"),
+               threading.Thread(target=agent.run_cabin, args=(stop,), daemon=True,
+                                name="cabin")]
     for t in threads:
         t.start()
 
@@ -5185,6 +6902,7 @@ def main(argv: Optional[list] = None) -> int:
         agent.status_kick.set()
         agent.call_wake.set()
         agent.park.wake.set()
+        agent.park.cabin.wake.set()
         threading.Thread(target=server.shutdown, daemon=True).start()
 
     signal.signal(signal.SIGTERM, _stop)
@@ -5196,9 +6914,12 @@ def main(argv: Optional[list] = None) -> int:
     finally:
         stop.set()
         agent.park.wake.set()
+        agent.park.cabin.wake.set()
         server.server_close()
-        # Wątek postoju zatrzymuje strumień czujnika (termux-sensor -c).
-        threads[-1].join(timeout=8)
+        # Wątek postoju zatrzymuje strumień czujnika (termux-sensor -c),
+        # wątek kabiny wygasza ekran po przerwanej serii zdjęć.
+        threads[-2].join(timeout=8)
+        threads[-1].join(timeout=5)
     log.info("BCM agent stopped")
     return 0
 

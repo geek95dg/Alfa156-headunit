@@ -913,7 +913,7 @@ Do sprawdzenia na tym ROM-ie, zanim telefon trafi pod podsufitkę:
   Custom ROM-y na MediaTeku często nie mają VoLTE — rozmowy schodzą wtedy
   na 2G; to działa, ale warto wiedzieć przed „Zadzwoń 112”;
 - SensorServer daje około 100 Hz (§5.8);
-- kamera przednia robi zdjęcie z Termuxa (czuwanie kabiny):
+- kamera przednia robi zdjęcie z Termuxa (czuwanie kabiny, §5.13):
   `termux-camera-info` pokaże jej id (zwykle 1), potem
   `termux-camera-photo -c <id> test.jpg`;
 - tethering USB włącza się z BCM (`svc usb setFunctions rndis`, wiersz
@@ -1019,7 +1019,7 @@ nie działa. Dlatego BCM tylko „uzbraja” zdarzenie, a termin wysyłki, treś
 SMS-a (stałe szablony GSM-7, bez polskich liter) i limity (1 zdarzenie na
 10 min, 3 na dobę) pilnuje agent w Redmi: `tools/car_phone/termux/bcm_agent.py`
 (sam Python z biblioteką standardową). Ten sam agent obsługuje też
-„Zadzwoń 112” (§5.11) i alarm na postoju (§5.12), a później czuwanie kabiny. Moduł w BCM
+„Zadzwoń 112” (§5.11), alarm na postoju (§5.12) i czuwanie kabiny (§5.13). Moduł w BCM
 (`src/network/car_phone_agent.py`, wymaga `car_phone`, domyślnie wyłączony
 wszędzie) sprawdza stan agenta co 30 s, wysyła mu ustawienia, gdy się
 zmienią, i paruje go. Sam przebieg SMS-owy (odliczanie na ekranie,
@@ -1507,7 +1507,9 @@ i 10 na dobę.
 `ALFA 156: ALARM przechyl (podnosnik albo holowanie) 19.11 03:12. Pozycja: https://maps.google.com/?q=…`
 (albo `wstrzas albo kolysanie`, `zasilanie wrocilo bez telefonu wlasciciela`).
 Najwyżej 1 na 10 min i 6 na dobę — budżet osobny od SMS-a po stłuczce,
-a kolejka wysyłki zawsze najpierw obsługuje wypadek. Stan zostaje
+a kolejka wysyłki zawsze najpierw obsługuje wypadek. Z czuwaniem kabiny
+(§5.13) ten budżet jest wspólny: wejście do auta daje jeden SMS („RUCH
+W KABINIE”), który obejmuje też czekający alarm „wstrząs”. Stan zostaje
 „ALARM” do rozbrojenia; po starcie BCM pokazuje jedno powiadomienie
 „Alarm na postoju”.
 
@@ -1612,6 +1614,273 @@ który w oknie wejścia zapali auto, a nie połączy telefonu właściciela,
 wywoła alarm dopiero po `grace_min` od zapłonu (razem do ok. 4–5 min od
 otwarcia drzwi) — to cena za brak fałszywego alarmu przy każdym powrocie
 właściciela.
+
+### 5.13 Czuwanie kabiny przednią kamerą telefonu (`modules.cabin_watch`)
+
+**Po co i gdzie działa.** Warstwa nad alarmem na postoju (§5.12): gdy
+telefon jest uzbrojony, patrzy przednią kamerą w kabinę (wisi ekranem
+w dół, więc przednia kamera i czujnik światła są po stronie kabiny) i przy
+wejściu do auta robi 3 zdjęcia. Tak jak alarm na postoju działa **w
+telefonie**, w tym samym agencie (`tools/car_phone/termux/bcm_agent.py`,
+klasa `CabinWatch`, opis w nagłówku pliku), bo BCM na postoju nie ma prądu.
+Moduł w BCM (`src/safety/cabin_watch.py`; wymaga `car_phone_agent`
+i `parking_guard`, domyślnie wyłączony w kodzie i w obu configach) niczego
+nie uzbraja i nie robi zdjęć: wysyła telefonowi ustawienia, co 30 s pyta
+o stan (`GET /v1/cabin`) i pokazuje go w Ustawieniach → wiersz **„Czuwanie
+kabiny”**; każde zdarzenie (także te z czasu, gdy BCM był wyłączony)
+publikuje raz w historii na szynie (`park.cabin_event`). Tematu
+`alarm.sensor.*` (syrena) nigdy nie używa. **Zdjęcia nigdy nie trafiają do
+BCM** — ani przez API, ani do Ustawień.
+
+**Kamera działa tylko przy uzbrojonym alarmie na postoju** (stan
+„uzbrojony”, także „tylko log”) — nigdy przy rozbrojonym, nigdy dźwięk.
+
+**Kiedy robi zdjęcia (T0 — sygnały).** Ten sam strumień `termux-sensor` co
+alarm na postoju, z dopisanym czujnikiem światła:
+`termux-sensor -s <akcelerometr>,<światło> -d 100` (nazwy agent bierze raz
+z `termux-sensor -l`; bez czujnika światła strumień zostaje sam
+akcelerometr, a wiersz mówi „brak czujnika światła”). Sygnały:
+
+- **światło** — skok ×5 **i** +5 lux (domyślnie; `light_ratio`,
+  `light_lux` niżej) względem najciemniejszej próbki z ostatnich 2 s
+  (lampka sufitowa po otwarciu drzwi); chmura, zmierzch czy powolna zmiana
+  się nie liczą, zgaśnięcie lampki też nie;
+- **ruch** i **przechył** — z detektora alarmu na postoju (§5.12:
+  `shake_k`, `tilt_deg`); ruch liczy się dla kabiny najwyżej **raz na
+  10 s** (alarm na postoju dalej raz na 30 s), więc ok. 20 s ciągłego
+  kołysania to 3 ruchy;
+- **drzwi** — podpisane `POST /v1/park/event {"kind": "door"}` od BCM
+  (wersja docelowa, gdy Nano #2 obudzi BCM otwarciem drzwi — plan E; dziś
+  nikt go nie wysyła). Sam sygnał drzwi **nigdy nie rozbraja**.
+
+Zdarzenie kabiny: **światło i ruch w ciągu 10 s** albo **przechył** albo
+**drzwi** albo **3 słabe sygnały w 60 s, w tym co najmniej dwa ruchy** —
+wszystkie skoki światła z tej minuty liczą się jak jeden sygnał
+(powtarzające się błyski: światła awaryjne auta obok, koguty lawety, burza,
+kolejne przejeżdżające auta). Pojedynczy wstrząs (ciężarówka, wiatr), sama
+chmura albo same światła bez ruchu auta to za mało — zdjęć nie ma. Za to
+ok. 20 s kołysania (ktoś wsiada w dzień, kiedy w jasnej kabinie lampka nie
+daje skoku ×5) wystarcza. Na czas zdjęć (ekran się włącza, a czujnik
+światła patrzy w ekran) i 5 s po nich skoki światła się nie liczą.
+W wersji „lekkiej” alarmu na postoju (po dobie albo przy < 30% baterii —
+bez aparatu i bez czujnika światła) przechył i ruch obsługuje sam alarm na
+postoju (jego treść SMS-a), a do kabiny trafia tylko sygnał drzwi.
+
+**Zdjęcia (T1) — od razu,** w osobnym wątku agenta (`cabin`), żeby wątek
+postoju nie czekał na aparat: przez Magisk `su` stałe ciągi
+`input keyevent KEYCODE_WAKEUP` i
+`am start -W -a android.intent.action.MAIN -c android.intent.category.LAUNCHER com.termux`
+(Termux na pierwszym planie — Android 11+ daje aparat tylko aplikacji
+„w użyciu”, a Termux:API ma ten sam UID co Termux; `-W` czeka, aż ekran
+Termuxa się wyświetli, zanim pójdzie pierwsze zdjęcie), potem 3 ×
+`termux-camera-photo -c <id> <ścieżka>` w 0/3/6 s i
+`input keyevent KEYCODE_SLEEP`. Id przedniej kamery agent bierze raz
+z `termux-camera-info` (tylko liczba 0–99), ścieżka jest zawsze w jego
+katalogu. Do `su` trafiają wyłącznie te trzy stałe ciągi. **Bez aparatu**
+(alarm SMS i tak idzie z czujników): temperatura baterii telefonu poniżej
+0 °C albo powyżej 45 °C, ładowanie przy ≥ 40 °C, bateria poniżej 30%,
+wersja „lekka” alarmu na postoju (po dobie albo < 30% — wtedy nie ma też
+czujnika światła), brak odczytu temperatury, mniej niż 100 MB wolnego
+miejsca, brak przedniej kamery. Wiersz w Ustawieniach mówi, dlaczego
+(„kamera wyłączona: za zimno (< 0 °C)” itd.).
+
+**Analiza w telefonie (T2)** — tylko z Pillow (`pkg install
+python-pillow`; pakiet Termuxa, nie pip; bez niego wszystko działa, analiza
+jest pomijana: „bez analizy”). Klatki 320×240 w odcieniach szarości,
+rozmycie, wyrównanie średniej jasności (automatyka ekspozycji nie udaje
+zmiany), porównanie ze zdjęciem odniesienia **z tej samej klasy światła**
+(ciemno < 10 lux, półmrok < 200 lux, jasno). Odniesienie: jedno zdjęcie 30 s
+po uzbrojeniu (pusta kabina — właściciel wyszedł w oknie wyjścia); w pliku
+zostaje tylko przetworzona klatka 320×240 (`ref_<klasa>.png`), surowe zdjęcie
+jest usuwane. W ciemnej kabinie (< 10 lux) odniesienia nie ma wcale — klatka
+byłaby czarna, a zapalony ekran pod podsufitką pustego auta nocą tylko
+kosztuje baterię (w logu `CABIN: no reference photo (dark cabin, …)`).
+Bez odniesienia z tej klasy (typowo: noc, lampka zapalona przy wejściu) —
+porównanie z pierwszym zdjęciem serii. Zmiana ≥ `diff_pct` (3%) pikseli poza maską okien =
+„zmiana w kabinie”; klatki średnio ciemniejsze niż próg = „zdjęcia ciemne”
+(noc bez lampki — przednia kamera ma filtr IR, więc w ciemności nic nie
+widać). **SMS nigdy nie czeka na analizę** — jej wynik widać w wierszu
+„Czuwanie kabiny” i w historii.
+
+**Alarm (T3) — najpierw SMS** (GSM-7, do numerów z `parking_guard.numbers`)
+po oknie wejścia `entry_s` (45–60 s, domyślnie 60; zapłon w tym czasie
+przesuwa termin do końca `parking_guard.grace_min`, tak jak w alarmie na
+postoju):
+
+    ALFA 156: RUCH W KABINIE 19.11 03:12 (swiatlo+ruch). Zdjecia: 3. Pozycja: https://maps.google.com/?q=…
+
+(w nawiasie wszystkie sygnały z ostatniej minuty: `drzwi`, `swiatlo`,
+`ruch`, `przechyl`, `zasilanie` = prąd wrócił bez dowodu właściciela;
+dopisek `3 slabe sygnaly`, gdy zdarzenie dały trzy słabe sygnały).
+„RUCH W KABINIE” jest tylko wtedy, gdy wśród sygnałów jest światło albo
+drzwi. Zdarzenie z samego przechyłu albo ruchu (podnośnik, laweta, ktoś
+kołysze autem — czujnik nie odróżni tego od wsiadania) ma treść alarmu na
+postoju dla najważniejszego powodu (przechył, potem wstrząs), z liczbą
+zdjęć:
+
+    ALFA 156: ALARM przechyl (podnosnik albo holowanie) 19.11 03:12. Zdjecia: 3. Pozycja: https://maps.google.com/?q=…
+
+Budżet SMS-ów jest **wspólny z alarmem na postoju** — jeden alarm auta na
+10 min i 6 na dobę: jedno wejście do auta = jeden SMS (czekający alarm
+postoju — „wstrząs” albo „przechył” — z tego samego wejścia i powrót prądu
+obejmuje SMS kabiny), osobny od SMS-ów o wypadku, które w kolejce zawsze
+idą pierwsze. Gdy `parking_guard.entry_s` jest krótsze niż `entry_s`
+kabiny, czekający alarm postoju skraca okno kabiny do swojego terminu —
+dalej jeden SMS, o czasie z `parking_guard.entry_s` (wiersz „Postój”
+pokazuje ten wcześniejszy termin). Przy `parking_guard.entry_s: 0` alarm
+postoju idzie od razu osobnym SMS-em, a zdarzenie kabiny z tego samego
+wejścia kończy się na limicie („limit SMS — tylko log”, zdjęcia zostają).
+Serii zdjęć najwyżej 1 na 10 min i 6 na dobę, 3 zdjęcia na serię (serie
+odwołane przez właściciela się nie liczą). `parking_guard.log_only: true`
+(pierwszy tydzień) obowiązuje także tu: zdarzenia i zdjęcia tak, SMS-a
+nie (wiersz: „tylko log”). Wysyłki zdjęć (ntfy, szyfrowanie `age`) w tej
+wersji nie ma — zdjęcia zostają w telefonie.
+
+**Dowód właściciela w oknie wejścia** — telefon właściciela połączony
+z BCM (Bluetooth/HFP/AA), SMS `PARK OFF <kod>`, kod TOTP w wierszu
+„Postój” — rozbraja alarm na postoju, **odwołuje alarm kabiny i usuwa
+zdjęcia tego zdarzenia** (to był właściciel; wiersz: „właściciel — zdjęcia
+usunięte”), także w trakcie serii (seria się przerywa, ekran gaśnie).
+Zdjęcia zdarzeń, po których poszedł alarm, zostają. Rozbrojenie z powodu
+niskiej baterii wysyła czekający alarm kabiny od razu.
+
+**Zdjęcia w telefonie:** `~/.config/bcm_agent/cabin/` (katalog 0700, pliki
+0600; dowiązanie symboliczne w tym miejscu wyłącza aparat), nazwy
+`cab_<id zdarzenia>_<0..2>.jpg`, **bez EXIF** (z Pillow — przekodowane do
+najwyżej 1280 px bez metadanych; bez Pillow — wycięte segmenty APP1–APP15
+i komentarz, obraz bit w bit ten sam; plik, który nie jest poprawnym JPEG-iem,
+zostaje bez zmian i trafia do logu). **Retencja: 72 h i 200 MB** (najstarsze
+pierwsze), sprawdzana co 10 min — także przy wyłączonym czuwaniu.
+
+**Prywatność i prawo** (to nie jest porada prawna):
+
+- kamera tylko po uzbrojeniu, nigdy przy właścicielu (jego dowód kasuje
+  zdjęcia), nigdy dźwięk; maska okien (`mask`) — analiza nie patrzy na
+  szyby, a zdjęcia nie opuszczają telefonu;
+- **naklejka informacyjna** na szybie (np. „Pojazd monitorowany — kamera
+  w kabinie”) i **poinformuj domowników**, że auto robi zdjęcia kabiny;
+- wyjątek RODO dla celów czysto osobistych/domowych jest prawdopodobny, ale
+  wąski (wyroki TSUE Ryneš C-212/13, Buivids C-345/17); art. 267 §3
+  i art. 191a k.k. to realne ryzyko przy zdjęciach bliskich;
+- skradziony, odblokowany telefon (blokada ekranu „Brak”!) ujawnia zdjęcia
+  z ostatnich 72 h i sekrety agenta.
+
+**W telefonie:**
+
+1. Agent **≥ 1.3.0** (skopiuj nowy `bcm_agent.py` do `~/bcm_agent/`,
+   `pkill -f bcm_agent.py`; starszy agent z włączonym `cabin_watch` = „agent
+   w telefonie jest za stary”).
+2. Uprawnienie Termux:API **Aparat** (Ustawienia → Aplikacje → Termux:API →
+   Uprawnienia); pierwsze `termux-camera-photo` wywołaj ręcznie.
+3. Magisk `su` dla Termuxa (jak przy „Zadzwoń 112”, §5.11) z wyłączonymi
+   powiadomieniami (Magisk → Superużytkownik → Termux).
+4. Blokada ekranu **Brak** (nie przesunięcie — §5.7a) i wygaszanie ekranu
+   po **15 s** (gdyby agent zginął w trakcie serii, ekran sam zgaśnie).
+4a. **Wyłącz każde inne budzenie ekranu** (Ustawienia crDroid → Wyświetlacz
+   i tam, gdzie ROM je trzyma — nazwy różnią się między wersjami):
+   wyświetlacz otoczenia (Ambient display / „zawsze włączony”), budzenie
+   ekranu przy nowych powiadomieniach, „podnieś, aby wybudzić”, dwukrotne
+   dotknięcie, budzenie po podłączeniu ładowarki. Czujnik światła jest po
+   stronie ekranu: każde takie zapalenie ekranu to dla agenta „skok
+   światła”, który z pierwszym ruchem auta da zdarzenie kabiny. Na postoju
+   ekran ma zapalać wyłącznie agent (na czas swoich zdjęć sam wycisza
+   czujnik).
+5. (Opcjonalnie) `pkg install python-pillow` — analiza zdjęć i przekodowanie
+   bez EXIF. Wiersz „Czuwanie kabiny” pokazuje „bez analizy zdjęć”, gdy go
+   nie ma.
+
+**W BCM:**
+
+1. Ustawienia → Moduły: `car_phone`, `car_phone_agent`, `parking_guard`,
+   `cabin_watch`; restart BCM.
+2. W `config/local.yaml` (opcjonalnie):
+
+   ```yaml
+   cabin_watch:
+     entry_s: 60                                  # 45–60 s
+     diff_pct: 3.0                                # 0,5–50 (% pikseli)
+     mask: [[0, 0, 15, 100], [85, 0, 100, 100]]   # ≤ 4 prostokąty w % kadru
+     light_ratio: 5.0                             # 2–50: skok światła ×…
+     light_lux: 5.0                               # 1–1000: … i o tyle lux
+   ```
+
+   Wartości spoza zakresu BCM przycina (jedno ostrzeżenie w logu), zła
+   maska = bez maski. BCM wysyła je telefonowi tylko z włączonym
+   `modules.cabin_watch`. Maskę wpisz dopiero po obejrzeniu zdjęcia
+   testowego (krok 2 sprawdzenia niżej): układ kadru zależy od tego, jak
+   telefon wisi. `light_ratio` / `light_lux` stroisz w tygodniu `log_only`
+   z logu agenta (`CABIN: weak signal light (…)` przy lampce, przy
+   fałszywych skokach — za nisko); telefon stosuje nowe progi od razu.
+3. Wiersz „Czuwanie kabiny”: stan („czuwa”, „ruch w kabinie — alarm bez
+   rozbrojenia o hh:mm”, „czeka na uzbrojenie postoju”), stan kamery,
+   liczba i rozmiar zdjęć w telefonie, ostatnie zdarzenie (sygnały, zdjęcia,
+   wynik analizy, co się stało) i czego brakuje. Bez przycisków — rozbraja
+   się w wierszu „Postój”.
+
+**Sprawdzenie na stole** (`parking_guard.log_only: true`, w Termuxie):
+
+1. **Id przedniej kamery:** `termux-camera-info` — wpis z
+   `"facing": "front"` (zwykle `"id": "1"`).
+2. **Zdjęcie przy wygaszonym ekranie, po restarcie telefonu:** zrestartuj
+   telefon, poczekaj, aż agent wstanie (Termux:Boot), otwórz Termux i wpisz
+   to, co robi agent, z minutą zwłoki na początku (`1` = id z kroku 1):
+
+   ```
+   sleep 60; su -c 'input keyevent KEYCODE_WAKEUP'; su -c 'am start -W -a android.intent.action.MAIN -c android.intent.category.LAUNCHER com.termux'; termux-camera-photo -c 1 ~/test.jpg; su -c 'input keyevent KEYCODE_SLEEP'
+   ```
+
+   Po Enterze naciśnij „Home” (Termux w tle, jak na postoju) i wygaś ekran
+   przyciskiem. Po ok. minucie ekran sam się zapali, Termux wyjdzie na
+   wierzch, a po zdjęciu ekran zgaśnie. Potem `ls -l ~/test.jpg` — plik
+   musi mieć ponad 0 bajtów. Obejrzyj go (np. `termux-open
+   ~/test.jpg`) — w tym kadrze ustalasz maskę okien — i usuń (`rm
+   ~/test.jpg`).
+3. **Czujnik światła przy wygaszonym ekranie:** `termux-sensor -l` (nazwa
+   z „Light”), potem przy wygaszonym ekranie
+   `termux-sensor -s '<nazwa>' -d 1000 -n 10` (po zakończeniu
+   `termux-sensor -c`) i zapal lampkę sufitową — wartości muszą skoczyć
+   (z kilku do kilkudziesięciu lux). Jeśli czujnik przy wygaszonym ekranie
+   milczy, zdjęcia dają już tylko przechył, drzwi (wersja docelowa)
+   i ok. 20 s kołysania (3 ruchy w 60 s) — krótkie wejście bez lampki ich
+   nie da, alarm na postoju i tak wyśle SMS „wstrząs”.
+4. **Cała ścieżka:** uzbrój — „Uzbrój” w wierszu „Postój” (uzbrojony po
+   `parking_guard.arm_delay_min`, domyślnie 2 min) albo odłącz kabel USB
+   (po `arm_after_min` + `arm_delay_min`, domyślnie 3 + 2 min bez prądu
+   i bez kontaktu z BCM) — i poczekaj, aż wiersz „Postój” pokaże
+   „uzbrojony — tylko log, bez SMS”. Po kolejnych 30 s agent robi zdjęcie
+   odniesienia — tylko z Pillow i przy świeżym odczycie światła, a w
+   ciemnej kabinie (< 10 lux) wcale (w logu `CABIN: no reference photo
+   (…)`). Potem zgaś światło, otwórz drzwi i usiądź → w logu agenta
+   (`~/.config/bcm_agent/agent.log`) `CABIN: motion in the cabin
+   (swiatlo+ruch) — photos now …`, w `~/.config/bcm_agent/cabin/` 3 pliki,
+   po 60 s `CABIN (log only, no SMS)`; wiersz „Czuwanie kabiny” pokazuje
+   zdarzenie. Potem połącz telefon właściciela z BCM w ciągu okna — zdjęcia
+   nowego zdarzenia znikają.
+5. **Prąd w mA na warstwę** (telefon bez kabla, po 5 min w każdym stanie):
+   `su -c 'cat /sys/class/power_supply/battery/current_now'` (µA; znak
+   zależy od ROM-u) albo pole `current` z `termux-battery-status`, jeśli
+   jest. Stany: sam agent (rozbrojony), uzbrojony bez czuwania kabiny
+   (akcelerometr), uzbrojony z czuwaniem (akcelerometr + światło), w trakcie
+   serii zdjęć. Szacunek bez pomiaru: czujnik światła ułamek mA, seria
+   zdjęć z ekranem ok. 10 s po kilkaset mA.
+
+**NIESPRAWDZONE na crDroid 13 / Redmi Note 8 Pro:** zdjęcie przy
+wygaszonym ekranie po `KEYCODE_WAKEUP` i `am start` (czy ROM daje aparat
+Termux:API, gdy Termux jest na pierwszym planie); czy `termux-camera-photo`
+kończy się dopiero po zapisaniu pliku (agent sprawdza pliki 2 s po
+ostatnim zdjęciu); czy `am start -W` wraca szybko także wtedy, gdy Termux
+już jest na wierzchu (agent czeka najwyżej 15 s, potem i tak robi
+zdjęcie); format wpisu czujnika światła w `termux-sensor` (agent czyta
+pierwszą wartość `values`) i to, czy czujnik raportuje przy wygaszonym
+ekranie; progi światła (×5, +5 lux — do strojenia `light_ratio`,
+`light_lux`), rytm ruchu 10 s (czy wiatr w nocy nie daje 3 ruchów w 60 s)
+i `diff_pct` w prawdziwym aucie; realny prąd.
+
+**Czego nie obiecujemy:** rozpoznania człowieka (to tylko różnica klatek),
+zdjęć w nocy bez lampki (czarne klatki), zdjęć wybitej szyby bez wejścia,
+działania aparatu, gdy Android go odmówi (ROM, temperatura), ani tego, że
+zdjęcia przetrwają kradzież telefonu. Do połączenia telefonu właściciela
+z BCM właściciel i złodziej wyglądają tak samo — stąd okno wejścia.
 
 ---
 

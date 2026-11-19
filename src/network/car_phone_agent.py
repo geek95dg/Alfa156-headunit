@@ -116,6 +116,20 @@ differs from the desired configuration:
   is ``agent_outdated``. Values are clamped HERE into the agent's ranges
   and canonical types (ints, floats rounded to 0.01, coordinates to 6
   places), so the hashes on both sides match.
+* ``cabin_*`` ← ``cabin_watch.*`` (:func:`cabin_settings`; plan I, the
+  cabin watch with the phone's front camera, a layer on top of the parking
+  guard that also runs on the phone): ``cabin_entry_s`` (45–60, default
+  60: the entry window before the cabin alarm SMS — owner proof in it
+  cancels the alarm and deletes the photos), ``cabin_diff_pct`` (0.5–50,
+  default 3.0: changed pixels that count as "change" in the photo
+  analysis), ``cabin_mask`` (up to 4 window rectangles ``[x0, y0, x1, y1]``
+  in % of the frame that the analysis ignores), ``cabin_light_ratio``
+  (2–50, default 5.0) and ``cabin_light_lux`` (1–1000, default 5.0): the
+  light jump that counts as the interior lamp (×ratio AND +lux within 2 s)
+  — tuned in the car during the ``log_only`` week without editing the
+  agent; the phone applies them at once. The same rule again: sent
+  ONLY while ``modules.cabin_watch`` is on; with it on, an agent older than
+  :data:`MIN_AGENT_VERSION_CABIN` is ``agent_outdated``.
 
 A config the agent refused (400 ``bad_config``, or a hash that does not
 match after a 200) is not re-sent until it changes (reason
@@ -163,7 +177,12 @@ and never raises: :meth:`~CarPhoneAgent.arm_crash`,
 (plan H, used by src/safety/call112.py only, after the driver held the
 button in the crash window — the loopback-only route),
 :meth:`~CarPhoneAgent.park_status` / :meth:`~CarPhoneAgent.park_arm` /
-:meth:`~CarPhoneAgent.park_disarm` (plan D4, src/safety/parking_guard.py). Without I/O
+:meth:`~CarPhoneAgent.park_disarm` (plan D4, src/safety/parking_guard.py),
+:meth:`~CarPhoneAgent.cabin_status` (plan I, src/safety/cabin_watch.py —
+the cabin watch's state and events, never a photo) and
+:meth:`~CarPhoneAgent.park_event` (a door signal for the cabin watch —
+the target variant with the door wake-up of plan E; nothing sends it yet).
+Without I/O
 (any thread): :attr:`~CarPhoneAgent.state` (the published payload),
 :meth:`~CarPhoneAgent.health_facts` (what the last signed health answer
 said beyond the Settings row: the last verified real test SMS, the
@@ -210,6 +229,8 @@ OK_REASONS = ("config_pending", "config_refused", "agent_outdated")
 MIN_AGENT_VERSION = (1, 1, 0)
 #: The same for the parking guard keys (plan D4, ``park_*``, ``/v1/park*``).
 MIN_AGENT_VERSION_PARK = (1, 2, 0)
+#: The same for the cabin watch keys (plan I, ``cabin_*``, ``/v1/cabin``).
+MIN_AGENT_VERSION_CABIN = (1, 3, 0)
 SECRET_PATH = "network.car_phone.agent.secret"
 SECRET_ENV = "BCM_CAR_PHONE_AGENT_SECRET"
 STATE_FILE = "data/car_phone_agent.json"
@@ -265,7 +286,8 @@ CALL112_ERRORS = ("", "su_missing", "su_denied", "am_failed", "no_call")
 PARK_STATES = ("off", "disarmed", "arming", "armed", "alarm", "log_only")
 PARK_BY = ("", "power", "bcm", "sms", "owner_bt", "owner_sms", "owner_code", "low_battery",
            "home", "off", "power_back")
-PARK_EVENT_KINDS = ("tilt", "shake", "power", "low_battery", "home")
+#: ``cabin`` = the cabin watch's alarm (plan I) — the same car alarm.
+PARK_EVENT_KINDS = ("tilt", "shake", "power", "low_battery", "home", "cabin")
 PARK_SENSOR_STATES = ("off", "starting", "ok", "error", "no_sensor", "light")
 #: (default, lo, hi) of the ``parking_guard.*`` numbers — the agent's ranges.
 PARK_INTS = {"arm_after_min": (3, 1, 60), "arm_delay_min": (2, 0, 30), "grace_min": (3, 1, 15),
@@ -273,6 +295,26 @@ PARK_INTS = {"arm_after_min": (3, 1, 60), "arm_delay_min": (2, 0, 30), "grace_mi
 PARK_FLOATS = {"tilt_deg": (0.5, 0.2, 10.0), "shake_k": (6.0, 2.0, 50.0)}
 PARK_HOME_RADIUS_M = (50, 5000)
 PARK_CODE_RE = re.compile(r"^[0-9]{6}$")
+
+#: The cabin watch on the phone (``GET /v1/cabin``), see bcm_agent.py.
+CABIN_STATES = ("off", "idle", "watching", "pending")
+CABIN_CAMERA = ("ok", "unknown", "light_mode", "low_battery", "no_temp", "cold", "hot",
+                "charging_hot", "no_space", "no_front_camera", "bad_path")
+CABIN_LIGHT_SENSOR = ("ok", "none", "unknown")
+CABIN_OUTCOMES = ("pending", "alarm", "owner", "off", "logged", "limited", "no_numbers",
+                  "expired")
+CABIN_SIGNALS = ("door", "light", "shake", "tilt", "power")
+CABIN_VERDICTS = ("change", "no_change", "dark", "skipped", "error")
+CABIN_REF_MODES = ("ref", "burst")
+#: (default, lo, hi) of ``cabin_watch.*`` — the agent's ranges.
+CABIN_ENTRY_S = (60, 45, 60)
+CABIN_DIFF_PCT = (3.0, 0.5, 50.0)
+CABIN_LIGHT_RATIO = (5.0, 2.0, 50.0)
+CABIN_LIGHT_LUX = (5.0, 1.0, 1000.0)
+CABIN_MASK_MAX = 4
+CABIN_EVENT_ID_RE = re.compile(r"^[0-9a-f]{16}$")
+#: What a door signal may say (``POST /v1/park/event``).
+CABIN_EXT_SIGNALS = ("door",)
 
 #: Error codes the agent sends WITHOUT a signature (it cannot sign for a
 #: client it did not authenticate) — informational only.
@@ -446,6 +488,53 @@ def park_settings(config: Any, warn: Optional[Callable[[str, str], None]] = None
     return out
 
 
+def cabin_settings(config: Any, warn: Optional[Callable[[str, str], None]] = None) -> dict:
+    """``cabin_watch.*`` → the agent's ``cabin_*`` keys in its canonical
+    form (int, float rounded to 0.01, the mask as lists of 4 ints).
+    ``warn(key, message)`` for every value that was dropped or clamped."""
+    def _warn(key: str, msg: str) -> None:
+        if warn is not None:
+            warn(key, msg)
+
+    block = _cfg_get(config, "cabin_watch", {})
+    if not isinstance(block, dict):
+        block = {}
+    default, lo, hi = CABIN_ENTRY_S
+    entry, ok = _clamp_num(block.get("entry_s"), default, lo, hi, True)
+    if not ok:
+        _warn("cabin_entry_s", f"cabin_watch.entry_s={block.get('entry_s')!r} — using {entry}")
+    default, lo, hi = CABIN_DIFF_PCT
+    diff, ok = _clamp_num(block.get("diff_pct"), default, lo, hi, False)
+    if not ok:
+        _warn("cabin_diff_pct", f"cabin_watch.diff_pct={block.get('diff_pct')!r} — using {diff}")
+    raw = block.get("mask")
+    mask: list = []
+    if raw not in (None, []):
+        good = isinstance(raw, list) and len(raw) <= CABIN_MASK_MAX
+        for rect in raw if good else []:
+            vals = rect if isinstance(rect, list) and len(rect) == 4 else []
+            nums = [v for v in vals if isinstance(v, int) and not isinstance(v, bool)
+                    and 0 <= v <= 100]
+            if len(nums) != 4 or nums[0] >= nums[2] or nums[1] >= nums[3]:
+                good = False
+                break
+            mask.append([int(v) for v in nums])
+        if not good:
+            _warn("cabin_mask", f"cabin_watch.mask: at most {CABIN_MASK_MAX} rectangles "
+                                "[x0, y0, x1, y1] of whole percent (0..100, x0 < x1, y0 < y1) "
+                                "— no mask")
+            mask = []
+    out = {"cabin_entry_s": int(entry), "cabin_diff_pct": float(diff), "cabin_mask": mask}
+    for key, name, limits in (("cabin_light_ratio", "light_ratio", CABIN_LIGHT_RATIO),
+                              ("cabin_light_lux", "light_lux", CABIN_LIGHT_LUX)):
+        default, lo, hi = limits
+        val, ok = _clamp_num(block.get(name), default, lo, hi, False)
+        if not ok:
+            _warn(key, f"cabin_watch.{name}={block.get(name)!r} — using {val}")
+        out[key] = float(val)
+    return out
+
+
 def desired_config(config: Any, warn: Optional[Callable[[str, str], None]] = None) -> dict:
     """What the agent should hold (``PUT /v1/config``), in the agent's
     canonical form — the hash must match the agent's ``config_hash``.
@@ -508,6 +597,9 @@ def desired_config(config: Any, warn: Optional[Callable[[str, str], None]] = Non
     if toggles["parking_guard"]:
         # The same rule for the parking guard (agent >= 1.2.0).
         out.update(park_settings(config, warn))
+    if toggles["cabin_watch"]:
+        # ... and for the cabin watch (agent >= 1.3.0).
+        out.update(cabin_settings(config, warn))
     return out
 
 
@@ -608,6 +700,64 @@ def parse_park_view(obj: Any) -> Optional[dict[str, Any]]:
         # The entry window: motion seen, the alarm goes out at this time
         # without the owner's proof (None = nothing pending).
         "entry_until": ts(obj.get("entry_until")),
+    }
+
+
+def _cabin_event(ev: Any) -> Optional[dict[str, Any]]:
+    if not isinstance(ev, dict) or not isinstance(ev.get("id"), str) \
+            or not CABIN_EVENT_ID_RE.fullmatch(ev["id"]) or ev.get("outcome") not in CABIN_OUTCOMES:
+        return None
+    ts = _num(ev.get("ts"), EVENT_TS_MIN, EVENT_TS_MAX)
+    if ts is None:
+        return None
+    reasons = ev.get("reasons")
+    photos = ev.get("photos")
+    pct = _num(ev.get("changed_pct"), 0.0, 100.0)
+    return {
+        "id": ev["id"], "ts": int(ts),
+        "reasons": [k for k in CABIN_SIGNALS if isinstance(reasons, list) and k in reasons],
+        "weak": ev.get("weak") is True,
+        "photos": photos if isinstance(photos, int) and not isinstance(photos, bool)
+        and 0 <= photos <= 3 else 0,
+        "outcome": ev["outcome"],
+        "verdict": ev.get("verdict") if ev.get("verdict") in CABIN_VERDICTS else None,
+        "changed_pct": None if pct is None else round(float(pct), 1),
+        "ref": ev.get("ref") if ev.get("ref") in CABIN_REF_MODES else None,
+        "camera": ev.get("camera") if ev.get("camera") in CABIN_CAMERA else "",
+    }
+
+
+def parse_cabin_view(obj: Any) -> Optional[dict[str, Any]]:
+    """The agent's cabin watch view (``GET /v1/cabin``), type- and
+    range-checked field by field (there are never photos in it; anything
+    unexpected is dropped). None when it is not one (no known state)."""
+    if not isinstance(obj, dict) or obj.get("state") not in CABIN_STATES:
+        return None
+    lux = _num(obj.get("lux"), 0.0, 200000.0)
+    mb = _num(obj.get("photos_mb"), 0.0, 100000.0)
+    events = obj.get("events")
+    parsed = [e for e in (_cabin_event(x) for x in (events[-5:] if isinstance(events, list)
+                                                     else [])) if e is not None]
+    pillow = obj.get("pillow")
+    n = obj.get("photos_n")
+    today = obj.get("events_today")
+    until = _num(obj.get("entry_until"), EVENT_TS_MIN, EVENT_TS_MAX)
+    return {
+        "state": obj["state"],
+        "camera": obj.get("camera") if obj.get("camera") in CABIN_CAMERA else "unknown",
+        "light_sensor": obj.get("light_sensor") if obj.get("light_sensor") in CABIN_LIGHT_SENSOR
+        else "unknown",
+        "lux": None if lux is None else round(float(lux), 1),
+        "pillow": pillow if isinstance(pillow, bool) else None,
+        "log_only": obj.get("log_only") is True,
+        "entry_until": None if until is None else int(until),
+        "photos_n": n if isinstance(n, int) and not isinstance(n, bool) and 0 <= n <= 10000
+        else 0,
+        "photos_mb": None if mb is None else round(float(mb), 1),
+        "events_today": today if isinstance(today, int) and not isinstance(today, bool)
+        and 0 <= today <= 1000 else 0,
+        "last_event": _cabin_event(obj.get("last_event")),
+        "events": parsed,
     }
 
 
@@ -1332,9 +1482,10 @@ class CarPhoneAgent:
             reason = self._refused_reason(desired)
             if reason == "agent_outdated":
                 log.warning("Car phone agent: the agent on the phone (%s) is older than this "
-                            "BCM and cannot hold the 112 / parking guard settings — copy the "
-                            "new tools/car_phone/termux/bcm_agent.py to ~/bcm_agent/ and "
-                            "restart it (docs §5.11, §5.12)", self._info.get("version") or "?")
+                            "BCM and cannot hold the 112 / parking guard / cabin watch "
+                            "settings — copy the new tools/car_phone/termux/bcm_agent.py to "
+                            "~/bcm_agent/ and restart it (docs §5.11–§5.13)",
+                            self._info.get("version") or "?")
             else:
                 log.warning("Car phone agent: the agent refused the config (HTTP %d: %s) — "
                             "not retried until it changes", status, detail or "hash mismatch")
@@ -1347,7 +1498,9 @@ class CarPhoneAgent:
         older than :data:`MIN_AGENT_VERSION` while ``modules.call112`` is on
         (it drops the 112 keys, so its hash never matches) or older than
         :data:`MIN_AGENT_VERSION_PARK` while ``modules.parking_guard`` is
-        on (the same for the ``park_*`` keys) — the Settings row then says
+        on (the same for the ``park_*`` keys), or older than
+        :data:`MIN_AGENT_VERSION_CABIN` while ``modules.cabin_watch`` is on
+        (``cabin_*``) — the Settings row then says
         "copy the new bcm_agent.py", not "check crash_detection.sms";
         otherwise ``config_refused``."""
         toggles = desired.get("toggles", {})
@@ -1359,6 +1512,9 @@ class CarPhoneAgent:
             return "agent_outdated"
         if toggles.get("parking_guard") and (version is None
                                              or version < MIN_AGENT_VERSION_PARK):
+            return "agent_outdated"
+        if toggles.get("cabin_watch") and (version is None
+                                           or version < MIN_AGENT_VERSION_CABIN):
             return "agent_outdated"
         return "config_refused"
 
@@ -1534,6 +1690,21 @@ class CarPhoneAgent:
         if not isinstance(code, str) or not PARK_CODE_RE.fullmatch(code):
             return _result(False, error="bad_request", detail="code: 6 digits")
         return self._call("POST", "/v1/park/disarm", {"code": code})
+
+    def cabin_status(self) -> dict:
+        """``GET /v1/cabin`` — the cabin watch on the phone (plan I): state,
+        events, photo count — never a photo. :func:`parse_cabin_view`
+        checks ``data``."""
+        return self._call("GET", "/v1/cabin")
+
+    def park_event(self, kind: str) -> dict:
+        """``POST /v1/park/event {"kind": "door"}`` — a SIGNAL for the cabin
+        watch (the door opened while the car is parked; plan E's door
+        wake-up will send it). Never a disarm: the phone treats it as a
+        possible intruder."""
+        if kind not in CABIN_EXT_SIGNALS:
+            return _result(False, error="bad_request", detail="kind: door")
+        return self._call("POST", "/v1/park/event", {"kind": kind})
 
     def pair(self, code: str, confirm: bool = False) -> dict:
         """``POST /v1/pair {secret}`` signed with the one-time ``code``; the

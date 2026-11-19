@@ -178,6 +178,19 @@ MODULES: dict[str, dict] = {
                      "hardware": "Redmi z kartą SIM (SMS), agent ≥ 1.2.0; sekret TOTP: "
                                  "bcm_agent.py --park-setup; numery i dom w local.yaml "
                                  "(parking_guard)"},
+    # Plan I: the cabin watch is a layer ON TOP of the parking guard and
+    # runs on the phone too (bcm_agent.py, CabinWatch: light + motion → 3
+    # photos with the front camera, analysed on the phone, alarm SMS after the
+    # entry window). BCM only shows it (src/safety/cabin_watch.py: GET
+    # /v1/cabin → park.cabin_state / park.cabin_event history, Settings row
+    # "Czuwanie kabiny") — never a photo, never alarm.sensor.*.
+    "cabin_watch":  {"part": 22, "description": "Czuwanie kabiny na postoju: zdjęcia przednią kamerą telefonu",
+                     "entry": ("src.safety.cabin_watch", "start_cabin_watch"),
+                     "default": False, "group": "telefon_w_aucie",
+                     "requires": ("car_phone_agent", "parking_guard"),
+                     "hardware": "Redmi z rootem: przednia kamera, blokada ekranu „Brak”, "
+                                 "agent ≥ 1.3.0; analiza zdjęć z Pillow "
+                                 "(pkg install python-pillow)"},
     "battery":     {"part": 21, "description": "Battery Backup Monitor",
                     "entry": ("src.power.battery", "start_battery"), "default": False},
 
@@ -211,10 +224,6 @@ MODULES: dict[str, dict] = {
                      "default": False, "group": "telefon_w_aucie",
                      "requires": ("car_phone",),
                      "hardware": "Redmi: hotspot skonfigurowany w telefonie"},
-    "cabin_watch":  {"part": 22, "description": "Czuwanie kabiny na postoju: zdjęcia przednią kamerą telefonu",
-                     "default": False, "planned": True, "group": "telefon_w_aucie",
-                     "requires": ("car_phone_agent",),
-                     "hardware": "Redmi: przednia kamera, blokada ekranu „Brak”"},
     # Light from the car phone OR the Arduino light sensor (LIGHT: lines,
     # read by arduino_serial, which the input module starts).
     "auto_brightness": {"part": 10, "description": "Automatyczna jasność ekranu z czujnika światła",

@@ -514,7 +514,9 @@ class ParkingGuard:
             return
         self._alarm_seen = ts
         what = {"tilt": "przechył (podnośnik / holowanie)", "shake": "wstrząs / kołysanie",
-                "power": "zasilanie bez telefonu właściciela"}.get(ev.get("kind"), "czujnik")
+                "power": "zasilanie bez telefonu właściciela",
+                "cabin": "ruch w kabinie (czuwanie kabiny, zdjęcia w telefonie)"}.get(
+            ev.get("kind"), "czujnik")
         when = time.strftime("%d.%m %H:%M", time.localtime(ts)) if ts else ""
         try:
             self._notify(self._bus, "Alarm na postoju", f"{what} {when}".strip(),

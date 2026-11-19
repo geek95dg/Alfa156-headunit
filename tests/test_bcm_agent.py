@@ -243,13 +243,29 @@ class TestFile:
         py_compile.compile(str(AGENT_PATH), cfile=str(tmp_path / "agent.pyc"), doraise=True)
 
     def test_stdlib_only(self):
+        """Only the standard library — except Pillow, and Pillow only as the
+        optional import inside load_pillow() behind try/except (the cabin
+        watch analysis; 'pkg install python-pillow' in Termux)."""
         tree = ast.parse(AGENT_PATH.read_text(encoding="utf-8"))
         names = set()
+        optional = set()
+        for fn in ast.walk(tree):
+            if isinstance(fn, ast.FunctionDef) and fn.name == "load_pillow":
+                for t in ast.walk(fn):
+                    if isinstance(t, ast.Try) and any(
+                            isinstance(h.type, ast.Name) and h.type.id == "Exception"
+                            for h in t.handlers):
+                        optional.update(id(n) for n in ast.walk(t)
+                                        if isinstance(n, ast.ImportFrom))
         for node in ast.walk(tree):
             if isinstance(node, ast.Import):
                 names.update(a.name.split(".")[0] for a in node.names)
             elif isinstance(node, ast.ImportFrom) and node.level == 0:
-                names.add(node.module.split(".")[0])
+                root = node.module.split(".")[0]
+                if root == "PIL":
+                    assert id(node) in optional, "PIL may only be imported in load_pillow()"
+                    continue
+                names.add(root)
         assert names <= set(sys.stdlib_module_names) | {"__future__"}, names
 
     def test_no_shell_anywhere(self):
@@ -645,7 +661,12 @@ class TestConfig:
                                 "park_arm_after_min": 3, "park_arm_delay_min": 2,
                                 "park_grace_min": 3, "park_home": None,
                                 "park_tilt_deg": 0.5, "park_shake_k": 6.0,
-                                "park_entry_s": 90}
+                                "park_entry_s": 90,
+                                # czuwanie kabiny: okno 60 s, próg 3%, bez maski,
+                                # skok światła ×5 i +5 lux
+                                "cabin_entry_s": 60, "cabin_diff_pct": 3.0,
+                                "cabin_mask": [], "cabin_light_ratio": 5.0,
+                                "cabin_light_lux": 5.0}
 
     def test_put_is_persisted(self, ready, state_dir, runner, clock):
         agent, peer = ready

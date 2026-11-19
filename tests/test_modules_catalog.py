@@ -34,9 +34,10 @@ NEW_TOGGLES = ("car_phone", "car_phone_hotspot", "phone_sensors", "auto_brightne
 #: ... of which these have code now (plan C + D1/D2: src/network/car_phone.py,
 #: D3: src/sensors/phone_sensors.py, F: src/network/car_phone_agent.py and
 #: src/safety/crash_sms.py, H: src/safety/call112.py, D4:
-#: src/safety/parking_guard.py + the agent's ParkGuard).
+#: src/safety/parking_guard.py + the agent's ParkGuard, I:
+#: src/safety/cabin_watch.py + the agent's CabinWatch).
 IMPLEMENTED = ("car_phone", "car_phone_hotspot", "phone_sensors", "car_phone_agent",
-               "crash_sms", "call112", "parking_guard")
+               "crash_sms", "call112", "parking_guard", "cabin_watch")
 #: ... and these are still planned (listed, never started).
 PLANNED = tuple(n for n in NEW_TOGGLES if n not in IMPLEMENTED)
 
@@ -87,6 +88,8 @@ class TestShippedCatalog:
         assert mc.MODULES["crash_sms"]["entry"] == ("src.safety.crash_sms", "start_crash_sms")
         assert mc.MODULES["parking_guard"]["entry"] == ("src.safety.parking_guard",
                                                         "start_parking_guard")
+        assert mc.MODULES["cabin_watch"]["entry"] == ("src.safety.cabin_watch",
+                                                      "start_cabin_watch")
 
     @pytest.mark.parametrize("cfg_name", ["bcm_config.yaml", "bcm_config_test.yaml"])
     @pytest.mark.parametrize("name", NEW_TOGGLES)
@@ -117,8 +120,9 @@ class TestShippedCatalog:
         assert groups["car_phone"] == ()
         for name in ("car_phone_hotspot", "phone_sensors", "car_phone_agent"):
             assert groups[name] == (("car_phone",),)
-        for name in ("parking_guard", "cabin_watch"):
-            assert groups[name] == (("car_phone_agent",),)
+        assert groups["parking_guard"] == (("car_phone_agent",),)
+        # plan I: a layer on top of the parking guard (same arming, same SMS)
+        assert groups["cabin_watch"] == (("car_phone_agent",), ("parking_guard",))
         assert set(groups["crash_sms"]) == {("crash_detect",), ("phone_sensors",),
                                             ("car_phone_agent",)}
         assert ("car_phone_agent", "bluetooth") in groups["call112"]
@@ -220,8 +224,11 @@ class TestEnablePlan:
         # alternatives — bluetooth is off here, so the car phone's agent
         assert mc.enable_plan(mc.MODULES, mc.enabled_map(cfg), "call112") == [
             "location", "crash_detect", "car_phone", "car_phone_agent"]
+        # cabin_watch has code: the agent chain and the parking guard under it
+        assert mc.enable_plan(mc.MODULES, mc.enabled_map(cfg), "cabin_watch") == [
+            "car_phone", "car_phone_agent", "parking_guard"]
         # still planned: nothing to offer
-        assert mc.enable_plan(mc.MODULES, mc.enabled_map(cfg), "cabin_watch") is None
+        assert mc.enable_plan(mc.MODULES, mc.enabled_map(cfg), "auto_brightness") is None
 
     def test_would_stop(self):
         cat = _cat(bt=None, pb=("bt",), ps=("pb",), other=None)
@@ -342,9 +349,9 @@ class TestMainStartPath:
             assert len(hits) == 1 and "missing dependency bluetooth" in hits[0], msgs
 
     def test_planned_module_switched_on_is_reported_not_started(self, spies, caplog):
-        cfg = _cfg(cabin_watch=True, remote_session=True)
+        cfg = _cfg(auto_brightness=True, remote_session=True)
         states = _start(cfg)
-        assert not states["cabin_watch"].runs and not states["remote_session"].runs
+        assert not states["auto_brightness"].runs and not states["remote_session"].runs
         log = logging.getLogger("bcm.main.test")
         with caplog.at_level(logging.WARNING, logger="bcm.main.test"):
             assert main.report_blocked_modules(states, log) == 2
@@ -360,6 +367,20 @@ class TestMainStartPath:
             assert main.report_blocked_modules(states, log) == 1
         recs = [r.getMessage() for r in caplog.records if r.name == "bcm.main.test"]
         assert "missing dependency car_phone_agent" in recs[0], recs
+
+    def test_cabin_watch_starts_only_on_top_of_the_parking_guard(self, spies, caplog):
+        chain = {"car_phone": True, "car_phone_agent": True}
+        states = _start(_cfg(cabin_watch=True, **chain))
+        assert not states["cabin_watch"].runs and "cabin_watch" not in spies
+        log = logging.getLogger("bcm.main.test")
+        with caplog.at_level(logging.WARNING, logger="bcm.main.test"):
+            assert main.report_blocked_modules(states, log) == 1
+        recs = [r.getMessage() for r in caplog.records if r.name == "bcm.main.test"]
+        assert "missing dependency parking_guard" in recs[0], recs
+        spies.clear()
+        states = _start(_cfg(cabin_watch=True, parking_guard=True, **chain))
+        assert states["cabin_watch"].runs is True
+        assert {"car_phone", "car_phone_agent", "parking_guard", "cabin_watch"} <= set(spies)
 
     def test_car_phone_switched_on_starts_and_hotspot_follows_it(self, spies):
         states = _start(_cfg(car_phone=True, car_phone_hotspot=True))
@@ -475,7 +496,12 @@ class TestModulesApi:
         # bluetooth runs in the test config: one alternative is enough
         assert c112["needs"] == [] and c112["runs"] is False
         assert c112["requires_any"] == [["car_phone_agent", "bluetooth"]]
-        assert mods["cabin_watch"]["available"] is False and mods["cabin_watch"]["needs"] is None
+        assert mods["remote_session"]["available"] is False
+        assert mods["remote_session"]["needs"] is None
+        cw = mods["cabin_watch"]
+        assert cw["available"] is True and cw["kind"] == "module" and cw["runs"] is False
+        assert cw["requires"] == ["car_phone_agent", "parking_guard"]
+        assert cw["needs"] == ["car_phone", "car_phone_agent", "parking_guard"]
         assert mods["auto_brightness"]["requires_any"] == [["phone_sensors", "input"]]
         assert mods["phone_status"]["requires"] == ["bluetooth"]
         assert mods["phone_status"]["runs"] is True
@@ -512,14 +538,14 @@ class TestModulesApi:
 
     def test_planned_module_cannot_be_switched_on(self):
         web = _web(_cfg())
-        res = web.client.post("/api/modules", json={"name": "cabin_watch", "enabled": True})
+        res = web.client.post("/api/modules", json={"name": "remote_session", "enabled": True})
         assert res.status_code == 409 and res.get_json()["available"] is False
-        assert web.cfg.get("modules.cabin_watch") is None and web.saved == []
+        assert web.cfg.get("modules.remote_session") is None and web.saved == []
         # ... but one switched on by hand can be switched off
-        web.cfg.set("modules.cabin_watch", True)
-        res = web.client.post("/api/modules", json={"name": "cabin_watch", "enabled": False})
+        web.cfg.set("modules.remote_session", True)
+        res = web.client.post("/api/modules", json={"name": "remote_session", "enabled": False})
         assert res.status_code == 200
-        assert web.cfg.get("modules.cabin_watch") is False
+        assert web.cfg.get("modules.remote_session") is False
         assert res.get_json()["restart_required"] is False      # it never ran
 
     def test_car_phone_can_be_switched_on(self):
@@ -560,7 +586,7 @@ class TestModulesApi:
     def test_with_deps_that_cannot_be_enabled_is_refused(self, monkeypatch):
         cat = dict(mc.MODULES)
         cat["needs_planned"] = {"part": 1, "description": "x", "default": False,
-                                "requires": ("cabin_watch",)}
+                                "requires": ("remote_session",)}
         monkeypatch.setattr(mc, "MODULES", cat)
         web = _web(_cfg())
         res = web.client.post("/api/modules", json={"name": "needs_planned", "enabled": True,
@@ -569,7 +595,7 @@ class TestModulesApi:
         assert web.cfg.get("modules.needs_planned") is None and web.saved == []
         # without with_deps it is saved (and would log its one warning)
         res = web.client.post("/api/modules", json={"name": "needs_planned", "enabled": True})
-        assert res.status_code == 200 and res.get_json()["blocked_by"] == [["cabin_watch"]]
+        assert res.status_code == 200 and res.get_json()["blocked_by"] == [["remote_session"]]
 
     def test_save_failure_is_reported_not_500(self):
         web = _web(_cfg())
