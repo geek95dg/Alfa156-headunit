@@ -239,11 +239,18 @@ MODULES: dict[str, dict] = {
                      "default": False, "group": "telefon_w_aucie",
                      "requires": ("car_phone",),
                      "hardware": "Redmi: hotspot skonfigurowany w telefonie"},
-    # WAKE:/LEASE: lines come from Nano #2 through arduino_serial (input).
+    # Plan E (the buffered build only): the session after Nano #2 woke the
+    # computer (driver's door, IR from the car phone, EXT pulse) —
+    # src/power/remote_session.py. WAKE:/LEASE: lines come through
+    # arduino_serial (started by input); HOLD/RELEASE go back the same way.
+    # Nothing here can wake the computer; the firmware owns the rules.
     "remote_session": {"part": 10, "description": "Sesja po zdalnym wybudzeniu (drzwi, telefon): baner i auto-uśpienie",
-                     "default": False, "planned": True, "group": "zasilanie",
+                     "entry": ("src.power.remote_session", "start_remote_session"),
+                     "default": False, "group": "zasilanie",
                      "requires": ("input",),
-                     "hardware": "Nano #2 (sensor_hub) z FEATURE_WAKE_* i przekaźnikiem przycisku zasilania"},
+                     "hardware": "wersja z buforem: Nano #2 (sensor_hub) z FEATURE_WAKE_* "
+                                 "i FEATURE_PWRLED, przekaźnik przycisku zasilania; IR — "
+                                 "odbiornik TSOP na A3 i telefon w aucie z nadajnikiem IR"},
 }
 
 

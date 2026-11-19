@@ -9,7 +9,19 @@ but also sends plain-text serial data for sensors and vehicle status:
         HBRAKE:1           — handbrake engaged (1) or released (0)
         IGN:1              — ignition/ACC 12V detected
         PWR:RUNNING        — M910q state as seen by sensor_hub
-        PWRACT:SHORT       — power-button pulse just sent
+        PWRACT:SHORT       — power-button pulse just sent (logged at INFO,
+                             rate-limited; never an event)
+        WAKE:IR            — external wake accepted (sensor_hub
+                             FEATURE_WAKE_*, buffered build): IR | DOOR |
+                             EXT; repeated with the full state every 2 s
+                             while the lease lasts (BCM starts AFTER the
+                             wake, so the first line never reaches it)
+        WAKE_DENIED:RATE   — wake request refused: RATE | LOWBATT |
+                             HOLDOFF | STATE
+        LEASE:600          — seconds left of the wake lease (0 = none),
+                             every 2 s and on every change
+        WAKESTAT:3,RATE    — refusals since the Nano lost power, the last
+                             one (NONE = none yet)
         RAIN:1             — rain sensor triggered
         TEMP:23.5          — DS18B20 external temperature
         PARK:FL=123,FR=45,RL=200,RR=180  — parking sensor distances (cm)
@@ -57,6 +69,18 @@ seconds after each open. The probed port is NOT re-probed on reconnect:
 re-probing every 30 s would keep resetting the other Nanos through DTR. For a
 port that survives re-plugging, use the udev symlink.
 
+Writing (plan E)
+----------------
+:meth:`ArduinoSerialListener.send_line` is the only way anything goes TO the
+Nano, and it sends exactly two commands, both checked against a strict
+pattern here (the firmware checks them again): ``HOLD:<1-60>`` (extend the
+wake lease) and ``RELEASE`` (end it now — the Nano then presses SHORT). It is
+thread-safe (one lock around the open port; the reader thread clears the
+port under the same lock before closing it), bounded by a write timeout,
+never raises and never blocks longer than :data:`WRITE_LOCK_S` +
+:data:`WRITE_TIMEOUT_S`. Callers (src/power/remote_session.py) call it from
+their own worker thread, never from the event-bus dispatcher.
+
 Security: everything from the serial line is untrusted. Lines are length
 capped, numeric fields are parsed with strict patterns and range-checked, and
 serial text reaches the log only as a truncated ``repr`` (no control
@@ -98,6 +122,22 @@ STABLE_SESSION_S = 60.0     # a session at least this long resets the backoff
 LOST_LOG_S = 300.0          # at most one "lost" / "connected" line per 5 min each
 NOISE_LOG_S = 60.0          # unknown / unparsable lines: one debug line per minute
 LOG_TEXT_MAX = 64           # serial text in the log: repr of at most this many chars
+PWRACT_LOG_S = 10.0         # PWRACT: at INFO, at most one line per 10 s
+WAKE_LOG_S = 60.0           # WAKE_DENIED: at INFO, at most one line per minute
+WRITE_TIMEOUT_S = 1.0       # send_line(): pyserial write_timeout
+WRITE_LOCK_S = 2.0          # send_line(): waiting for the port lock
+
+# Plan E (sensor_hub FEATURE_WAKE_*): the only values these lines may carry.
+WAKE_REASONS = {"IR": "ir", "DOOR": "door", "EXT": "ext"}
+WAKE_DENIALS = {"RATE": "rate", "LOWBATT": "lowbatt", "HOLDOFF": "holdoff",
+                "STATE": "state"}
+#: The firmware caps a session at 90 min (WAKE_SESSION_MAX_MS) — a longer
+#: lease is line noise, not a value to show.
+WAKE_LEASE_MAX_S = 5400
+_LEASE_RE = re.compile(r"(0|[1-9][0-9]{0,3})")
+_WAKESTAT_RE = re.compile(r"(0|[1-9][0-9]{0,4}),(NONE|RATE|LOWBATT|HOLDOFF|STATE)")
+#: What send_line() may write — nothing else ever reaches the Nano.
+_COMMAND_RE = re.compile(r"HOLD:(?:[1-9]|[1-5][0-9]|60)|RELEASE")
 
 # BATT: plausibility. A 12 V bank outside 5-20 V, or more than 100 A through
 # the shunt, is a broken divider, a floating pin or line noise — not a value
@@ -346,6 +386,10 @@ class ArduinoSerialListener:
         vehicle.airbag_ok    — bool
         vehicle.fuel_raw     — int
         vehicle.power_state  — str (RUNNING / SLEEP / OFF / UNKNOWN)
+        vehicle.wake_reason  — str ir | door | ext (WAKE:, plan E)
+        vehicle.wake_denied  — str rate | lowbatt | holdoff | state
+        vehicle.wake_lease_s — int 0..5400 (LEASE:)
+        vehicle.wake_stats   — {denied: int, last: str | ""} (WAKESTAT:)
     """
 
     def __init__(self, event_bus: EventBus, config: Any = None, *,
@@ -381,6 +425,12 @@ class ArduinoSerialListener:
         # Separate limiter: a burst of INFO "connected" lines must not use up
         # the window of the "lost" WARNING (or the other way round).
         self._connected_log = _LogLimiter(clock, LOST_LOG_S)
+        self._pwract_log = _LogLimiter(clock, PWRACT_LOG_S)
+        self._wake_log = _LogLimiter(clock, WAKE_LOG_S)
+        # The open port for send_line(): set and cleared by the reader thread
+        # under this lock, so a write never hits a port being closed.
+        self._ser_lock = threading.Lock()
+        self._ser: Any = None
 
         if port is None:
             port = _cfg_get(config, "arduino.sensor_hub_port", "")
@@ -448,6 +498,75 @@ class ArduinoSerialListener:
             self._thread.join(timeout=READ_TIMEOUT_S + 1.0)
             self._thread = None
 
+    # ── writer (plan E) ────────────────────────────────────────────────────
+
+    def send_line(self, line: str) -> bool:
+        """Write ONE command to the sensor_hub; True when it was written.
+
+        Only ``HOLD:<1-60>`` and ``RELEASE`` (:data:`_COMMAND_RE`) — anything
+        else is refused here and logged as a cut ``repr`` (a bug in the
+        caller, never data from outside: the payload is built by
+        src/power/remote_session.py from fixed text and validated ints).
+        False when the port is not open (BCM started without the Nano, the
+        cable is out), when the port lock is busy for :data:`WRITE_LOCK_S`
+        or the write times out (:data:`WRITE_TIMEOUT_S`) — the caller retries
+        on its own schedule. Never raises; safe from any thread except that
+        it may block for up to ~3 s, so not from the bus dispatcher.
+        """
+        if not isinstance(line, str) or not _COMMAND_RE.fullmatch(line):
+            log.warning("Arduino serial: refused to send %r (only HOLD:<1-60> / RELEASE)",
+                        str(line)[:LOG_TEXT_MAX])
+            return False
+        data = (line + "\n").encode("ascii")
+        if not self._ser_lock.acquire(timeout=WRITE_LOCK_S):
+            log.debug("Arduino serial: port busy — %s not sent", line)
+            return False
+        try:
+            ser = self._ser
+            if ser is None:
+                log.debug("Arduino serial: port not open — %s not sent", line)
+                return False
+            try:
+                # write() alone, NO flush(): pyserial's flush() is tcdrain(),
+                # which write_timeout does not bound — a USB-serial adapter
+                # that stalls without disconnecting would hang this thread
+                # with the lock held, and with it the reader's _detach()
+                # (IGN/PWR/BATT would stop). The 8-byte command is in the
+                # kernel's buffer once write() returns; the Nano answers
+                # LEASE:, which is what the caller checks anyway.
+                ser.write(data)
+            except Exception as e:      # SerialTimeoutException, OSError, a fake
+                log.warning("Arduino serial: %s not sent: %s", line, type(e).__name__)
+                return False
+            return True
+        finally:
+            self._ser_lock.release()
+
+    def _attach(self, ser: Any) -> None:
+        """The reader opened ``ser``: bound its writes, offer it to send_line()."""
+        try:
+            ser.write_timeout = WRITE_TIMEOUT_S     # pyserial: a property
+        except Exception:
+            pass
+        with self._ser_lock:
+            self._ser = ser
+
+    def _detach(self) -> None:
+        """The reader is about to close the port: no write may start on it.
+
+        Bounded like send_line(): a writer stuck in the driver must not
+        freeze the reader (and with it every sensor_hub line). Without the
+        lock ``_ser`` is cleared anyway (one reference assignment) — the
+        reader closes the port right after, which fails the stuck write."""
+        got = self._ser_lock.acquire(timeout=WRITE_LOCK_S + WRITE_TIMEOUT_S)
+        try:
+            self._ser = None
+        finally:
+            if got:
+                self._ser_lock.release()
+        if not got:
+            log.warning("Arduino serial: a write is stuck on the port — closing it anyway")
+
     # ── reader ─────────────────────────────────────────────────────────────
 
     def _open(self) -> Any:
@@ -502,6 +621,7 @@ class ArduinoSerialListener:
                 delay = min(delay * 2, RECONNECT_MAX_S)
                 continue
 
+            self._attach(ser)
             self._set_connected(True)
             if failures:
                 # Every short session counts as a failure now, so a flapping
@@ -522,6 +642,7 @@ class ArduinoSerialListener:
                 self._lost_log(log.warning, "Arduino serial %s lost: %s — reconnecting",
                                self._port, e)
             finally:
+                self._detach()          # no write may hit a closing port
                 try:
                     ser.close()
                 except Exception:
@@ -591,7 +712,16 @@ class ArduinoSerialListener:
                 # RUNNING / SLEEP / OFF / UNKNOWN.
                 self._bus.publish("vehicle.power_state", line[4:])
 
-            elif line.startswith(("SWC:", "MUSIC:", "STALK:", "PWRACT:")):
+            elif line.startswith("PWRACT:"):
+                # A press on the power button: rare and worth seeing in the
+                # journal (who put the computer to sleep?), but never an event.
+                self._pwract_log(log.info, "Arduino: power button pulse %r",
+                                 line[7:][:LOG_TEXT_MAX])
+
+            elif line.startswith(("WAKE:", "WAKE_DENIED:", "LEASE:", "WAKESTAT:")):
+                self._parse_wake(line)
+
+            elif line.startswith(("SWC:", "MUSIC:", "STALK:")):
                 log.debug("Arduino: %r", line[:LOG_TEXT_MAX])
 
             else:
@@ -603,6 +733,34 @@ class ArduinoSerialListener:
             # type name is enough next to our own cut repr.
             self._noise_log(log.debug, "Arduino parse error (%s): %r",
                             type(e).__name__, line[:LOG_TEXT_MAX])
+
+    def _parse_wake(self, line: str) -> None:
+        """Plan E lines (sensor_hub FEATURE_WAKE_*), strictly whitelisted.
+
+        ``WAKE:`` repeats every 2 s while the lease lasts and ``LEASE:``
+        every 2 s always — consumers (src/power/remote_session.py) treat
+        them as state, not as one-off events. Nothing is logged per line
+        except a rate-limited INFO for a refusal; anything that does not
+        match exactly publishes NOTHING (noise limiter).
+        """
+        head, _, payload = line.partition(":")
+        if head == "WAKE" and payload in WAKE_REASONS:
+            self._bus.publish("vehicle.wake_reason", WAKE_REASONS[payload])
+        elif head == "WAKE_DENIED" and payload in WAKE_DENIALS:
+            self._wake_log(log.info, "Arduino: wake request refused (%s)",
+                           WAKE_DENIALS[payload])
+            self._bus.publish("vehicle.wake_denied", WAKE_DENIALS[payload])
+        elif head == "LEASE" and _LEASE_RE.fullmatch(payload) \
+                and int(payload) <= WAKE_LEASE_MAX_S:
+            self._bus.publish("vehicle.wake_lease_s", int(payload))
+        elif head == "WAKESTAT" and _WAKESTAT_RE.fullmatch(payload):
+            count, last = payload.split(",", 1)
+            if int(count) > 0xFFFF:
+                raise ValueError("WAKESTAT count above 65535")
+            self._bus.publish("vehicle.wake_stats",
+                              {"denied": int(count), "last": WAKE_DENIALS.get(last, "")})
+        else:
+            raise ValueError("not a wake line")
 
     def _parse_batt(self, line: str) -> None:
         """BATT:<mV>[,<mA>] (or BATT:<V>) → arduino.battery_voltage/_current.

@@ -894,6 +894,105 @@ const Settings = {
         </div>`;
     },
 
+    // Wybudzanie (src/power/remote_session.py, modules.remote_session — plan
+    // E, wersja z buforem). data.remote_session =
+    // web_viewer._remote_session_summary(power.remote_session), or null while
+    // the module is not running (production: no row). Read-only: the
+    // buttons live in the global banner (components/wake_banner.js); the
+    // row says what woke the computer last, how many requests Nano #2
+    // refused (and why) and whether the Nano is connected. The countdown
+    // (lease_left_s) is NOT part of the row, so it is not redrawn every
+    // second.
+    _remoteColors: {
+        session: "#f59e0b", ending: "var(--text-mid)", idle: "var(--text-mid)",
+    },
+
+    /** The row "Wybudzanie: czeka · ostatnie: drzwi 19.11 03:12 · odmowy
+     *  Nano: 3 (ostatnio: limit)". '' without a payload. Inline styles only;
+     *  every value whitelisted or type-checked, then escaped. */
+    remoteSessionRowHtml(rs, t) {
+        t = t || ((k, d) => d);
+        if (!rs || typeof rs !== "object") return "";
+        const esc = Settings._esc;
+        const has = (obj, k) => typeof k === "string" && Object.prototype.hasOwnProperty.call(obj, k);
+        const reasons = {
+            ir: t("wake_r_ir", "telefon"), door: t("wake_r_door", "drzwi"),
+            ext: t("wake_r_ext", "wejście EXT"),
+        };
+        const denials = {
+            rate: t("wake_d_rate", "limit pobudek"), lowbatt: t("wake_d_lowbatt", "słaby bank"),
+            holdoff: t("wake_d_holdoff", "zaraz po zgaszeniu"),
+            state: t("wake_d_state", "komputer nie spał"),
+        };
+        const ended = {
+            lease_end: t("wake_e_lease", "koniec dzierżawy"),
+            released: t("wake_e_released", "uśpiony z ekranu"),
+            idle: t("wake_e_idle", "bezczynność"),
+            ignition: t("wake_e_ignition", "zapłon"),
+            lost: t("wake_e_lost", "Nano przestał odpowiadać"),
+        };
+        const state = has(Settings._remoteColors, rs.state) ? rs.state : "idle";
+        const color = Settings._remoteColors[state];
+        let label;
+        if (state === "session") {
+            label = t("wake_state_session", "sesja") + ": " + (reasons[rs.reason] || "?");
+        } else if (state === "ending") {
+            label = t("wake_state_ending", "usypianie");
+        } else {
+            label = t("wake_state_idle", "czeka");
+        }
+        const facts = [];
+        if (state === "session" && Number.isInteger(rs.hold_max_min) && rs.hold_max_min > 0) {
+            const used = Number.isInteger(rs.holds_used_min) ? rs.holds_used_min : 0;
+            facts.push(t("wake_holds", "przedłużenia") + ": " + used + "/" + rs.hold_max_min + " min");
+        }
+        if (state === "session" && Number.isInteger(rs.idle_suspend_min) && rs.idle_suspend_min > 0) {
+            facts.push(t("wake_idle_after", "uśpienie po bezczynności") + " " + rs.idle_suspend_min + " min");
+        }
+        const last = rs.last_wake;
+        if (last && typeof last === "object" && has(reasons, last.reason)) {
+            const when = Settings._crashFmtTime(last.ts);
+            facts.push(t("wake_last", "ostatnie") + ": " + reasons[last.reason] + (when ? " " + when : ""));
+        }
+        if (state !== "session" && has(ended, rs.ended)) {
+            facts.push(t("wake_ended", "koniec sesji") + ": " + ended[rs.ended]);
+        }
+        const total = Number.isInteger(rs.denied_total) ? rs.denied_total : null;
+        const lastNano = has(denials, rs.last_denied_nano) ? denials[rs.last_denied_nano] : "";
+        if (total !== null) {
+            facts.push(t("wake_denied", "odmowy Nano") + ": " + total + (total > 0 && lastNano ? " (" + t("wake_denied_last", "ostatnio") + ": " + lastNano + ")" : ""));
+        } else if (Number.isInteger(rs.denied_seen) && rs.denied_seen > 0) {
+            facts.push(t("wake_denied", "odmowy Nano") + ": " + rs.denied_seen);
+        }
+        const hints = [];
+        if (rs.link === false) hints.push(t("wake_hint_link", "Nano #2 (sensor_hub) niepodłączony — port szeregowy"));
+        const cmd = rs.cmd;
+        if (cmd && typeof cmd === "object" && cmd.ok === false) {
+            const errs = {
+                not_sent: t("wake_cmd_not_sent", "polecenie nie dotarło do Nano"),
+                not_confirmed: t("wake_cmd_not_confirmed", "Nano nie potwierdził uśpienia"),
+                hold_limit: t("wake_cmd_hold_limit", "wykorzystano limit przedłużeń"),
+            };
+            if (has(errs, cmd.error)) hints.push(errs[cmd.error]);
+        }
+        const hintHtml = hints.length
+            ? `<span data-wake-hint style="color:#d97706;flex-basis:100%;padding-left:24px">${esc(hints.join(" · "))}</span>` : "";
+        const factsHtml = facts.length ? ` <span style="color:var(--text-mid)">· ${esc(facts.join(" · "))}</span>` : "";
+        return `<div data-wake-state="${esc(state)}" style="display:flex;flex-wrap:wrap;align-items:center;gap:4px 8px;padding:8px 12px;border-radius:12px;background:var(--card-bg);border:1px solid var(--card-border);font-size:11px;line-height:1.3">
+            <span class="material-symbols-outlined" style="font-size:16px;color:${color}">power_settings_new</span>
+            <span style="color:var(--text-dim);font-weight:700">${esc(t("wake_row_title", "Wybudzanie"))}:</span>
+            <span style="color:${color};font-weight:700">${esc(label)}</span>${factsHtml}${hintHtml}
+        </div>`;
+    },
+
+    /** What the row shows — the summary without the countdown. */
+    remoteSessionRowKey(rs) {
+        if (!rs || typeof rs !== "object") return "null";
+        const copy = Object.assign({}, rs);
+        delete copy.lease_left_s;
+        return JSON.stringify(copy);
+    },
+
     // Jasność ekranu (src/power/brightness.py, modules.auto_brightness).
     // data.auto_brightness = web_viewer._auto_brightness_summary(
     // display.brightness_state), or null while the module is not running
@@ -2038,6 +2137,12 @@ App.registerScreen("settings", (() => {
         return JSON.stringify((data && data.cabin_watch) || null);
     }
 
+    /** The "Wybudzanie" row as drawn (without the countdown). */
+    let _remoteKey = "null";
+    function _remoteKeyOf(data) {
+        return Settings.remoteSessionRowKey(data && data.remote_session);
+    }
+
     /** The "Jasność ekranu" row as drawn — without the live numbers (lux,
      *  %, minutes left), which brightnessLive() writes in place. */
     let _brightKey = "null";
@@ -2116,6 +2221,14 @@ App.registerScreen("settings", (() => {
                 slot.innerHTML = Settings.cabinWatchRowHtml(data && data.cabin_watch, t);
             }
         }
+        const remoteKey = _remoteKeyOf(data);
+        if (remoteKey !== _remoteKey) {
+            const slot = document.querySelector("[data-remote-session-slot]");
+            if (slot) {
+                _remoteKey = remoteKey;
+                slot.innerHTML = Settings.remoteSessionRowHtml(data && data.remote_session, t);
+            }
+        }
         const brightKey = _brightKeyOf(data);
         const brightSlot = document.querySelector("[data-brightness-slot]");
         if (brightSlot) {
@@ -2153,6 +2266,7 @@ App.registerScreen("settings", (() => {
         _crashKey = _crashKeyOf(data);
         _parkKey = _parkKeyOf(data);
         _cabinKey = _cabinKeyOf(data);
+        _remoteKey = _remoteKeyOf(data);
         _brightKey = _brightKeyOf(data);
         const paired = Settings._btPaired;
         const discovered = Settings._btDiscovered;
@@ -2222,6 +2336,10 @@ App.registerScreen("settings", (() => {
                              slider, Programowe / Sprzętowe (DDC/CI). Empty
                              slot = module off; update() swaps it. -->
                         <div data-brightness-slot style="display:contents">${Settings.brightnessRowHtml(data && data.auto_brightness, t)}</div>
+                        <!-- Wybudzanie (modules.remote_session, buffered build):
+                             last wake, refusals, Nano link — read-only; the
+                             buttons are in the global banner. -->
+                        <div data-remote-session-slot style="display:contents">${Settings.remoteSessionRowHtml(data && data.remote_session, t)}</div>
                         <!-- Internet from the phone (BT PAN). display:contents: an
                              empty slot (module off) adds no flex gap; update()
                              swaps its content. -->

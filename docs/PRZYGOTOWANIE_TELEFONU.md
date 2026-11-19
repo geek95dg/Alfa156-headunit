@@ -365,8 +365,9 @@ pkill -f bcm_agent.py
 Pętla w `boot_bcm_agent.sh` uruchomi nowego agenta po 10 s. Sekret, nonce,
 zdarzenia, parowanie i sekret TOTP w `~/.config/bcm_agent` zostają. Wiersz
 „Agent w telefonie” w Ustawieniach pokazuje wersję. Wymagane wersje:
-„Zadzwoń 112” ≥ 1.1.0, alarm na postoju ≥ 1.2.0, czuwanie kabiny ≥ 1.3.0
-(obecna: 1.3.0). Starszy agent przy włączonym module = „agent w telefonie
+„Zadzwoń 112” ≥ 1.1.0, alarm na postoju ≥ 1.2.0, czuwanie kabiny ≥ 1.3.0,
+budzenie podczerwienią (wersja z buforem) ≥ 1.4.0
+(obecna: 1.4.0). Starszy agent przy włączonym module = „agent w telefonie
 jest starszy niż BCM” albo „agent w telefonie jest za stary”.
 
 ## 10. Agent i BCM: sekret, moduły, parowanie, SMS
@@ -533,7 +534,9 @@ W telefonie:
    ```
 
 4. (Opcjonalnie) numery ustawione w samym telefonie, gdy BCM nie wysyła
-   własnych (BCM ma pierwszeństwo; `''` czyści listę). **Wpisz własne
+   własnych (BCM ma pierwszeństwo; `''` czyści listę). **Wymagane** dla
+   SMS `WAKE` w wersji z buforem, gdy alarm na postoju jest wyłączony — BCM
+   wysyła numery tylko z `modules.parking_guard`. **Wpisz własne
    numery** (do 3, po przecinku) — z wartością przykładową agent odmówi:
 
    ```bash
@@ -751,7 +754,10 @@ Zanim telefon trafi pod podsufitkę:
 - [ ] **Kamera przednia** przy wygaszonym ekranie (§13, krok 7) i czujnik
       światła (krok 8).
 - [ ] **Nadajnik IR** (przyda się do wybudzania BCM w wersji z buforem):
-      `termux-infrared-frequencies` zwraca listę.
+      `termux-infrared-frequencies` zwraca listę (z 38000 w zakresie).
+      Samo wybudzanie — SMS `WAKE <kod>` albo skrót Termux:Widget
+      `wake.sh` — opisuje `ZASILANIE_BUFOROWANE.md` §14.6; w aucie
+      testowym bez bufora nie ma czego budzić.
 - [ ] **Prąd ładowania** z portu M910q (port daje tylko ~500 mA, §18):
 
       ```bash

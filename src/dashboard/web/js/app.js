@@ -634,12 +634,25 @@ const App = (() => {
         DimOverlay.sync(data ? data.display_dim : null);
     }
 
+    // --- Remote wake session (modules.remote_session, power.remote_session
+    // from src/power/remote_session.py; plan E, the buffered build) ---
+    // components/wake_banner.js draws ONE non-modal bar on <body> (z-index
+    // 250: under #crash-modal 300 and the notifications 400; NOT in
+    // GESTURE_OVERLAYS — the screen under it keeps working): "Wybudzono:
+    // telefon — uśpienie za mm:ss [Nie usypiaj 30 min] [Uśpij teraz]".
+    // No data.remote_session (module off — production) = no banner.
+    function _syncWakeBanner(data) {
+        if (typeof WakeBanner === "undefined" || !WakeBanner) return;
+        WakeBanner.sync(data ? data.remote_session : null);
+    }
+
     /** Update current screen with new data */
     function onDataUpdate(data) {
         // The crash window first: it must appear even if a screen's update()
         // throws further down.
         try { _syncCrashState(data); } catch (e) { /* never break the data loop */ }
         try { _syncDim(data); } catch (e) { /* never break the data loop */ }
+        try { _syncWakeBanner(data); } catch (e) { /* never break the data loop */ }
         // Calls first: may switch to A8, whose update() then sees fresh state.
         try { _syncCallState(data); } catch (e) { /* never break the data loop */ }
         if (_renderers[_currentScreen] && _renderers[_currentScreen].update) {

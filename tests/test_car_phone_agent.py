@@ -155,7 +155,12 @@ class TestProtocol:
         norm, err = A.normalize_config(desired, strict=True)
         # The agent stores the 112 fields with safe defaults; they do not
         # count while its call112 toggle is off (see TestAgentVersionSkew).
-        assert err == "" and {k: norm[k] for k in desired} == desired
+        # The same for a false remote_session toggle (sent only while on).
+        assert err == "" and norm["toggles"]["remote_session"] is False
+        assert "remote_session" not in desired["toggles"]
+        seen = {k: norm[k] for k in desired}
+        seen["toggles"] = {k: v for k, v in seen["toggles"].items() if k in desired["toggles"]}
+        assert seen == desired
         assert (norm["call112_test_mode"], norm["call112_test_number"]) == (True, "")
         assert cpa.config_hash(desired) == A.config_hash(norm)
 

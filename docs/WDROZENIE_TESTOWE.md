@@ -2060,6 +2060,43 @@ na ostatniej wartości i nakładka ściemnia dodatkowo.
 - `xrandr --brightness` z `XAUTHORITY` kiosku;
 - czy LDR Arduino jest w aucie podłączony.
 
+### 5.15 Wybudzanie od drzwi i z telefonu (`modules.remote_session`, wersja z buforem)
+
+**W tym aucie (bez bufora) zostaje wyłączone.** Komputer na postoju nie śpi,
+tylko traci prąd razem z zapłonem, więc nie ma czego budzić — moduł,
+flagi firmware i przełącznik w agencie telefonu są gotowe na wersję
+z buforem i domyślnie wyłączone (`modules.remote_session: false` w obu
+configach, flagi `FEATURE_WAKE_*` w `arduino/sensor_hub/sensor_hub.ino`
+zakomentowane, agent przyjmuje SMS `WAKE` dopiero z przełącznikiem od BCM).
+
+Co robi w wersji z buforem:
+
+- **Nano #2** (sensor_hub) budzi komputer przyciskiem zasilania na prośbę:
+  otwarcie drzwi kierowcy (nie przy wysiadaniu i najwcześniej 2 min po
+  zgaszeniu zapłonu), kod
+  podczerwieni z telefonu w aucie (odbiornik TSOP na A3) albo impuls na
+  wejściu EXT (PC817 na A2). Tylko przy zgaszonym zapłonie i stabilnym S3
+  albo wyłączeniu, najwyżej 3 razy na godzinę i 6 na dobę, z pomiarem banku
+  powyżej 12,2 V. Po dzierżawie (drzwi 5 min, telefon 10 min) Nano usypia
+  komputer z powrotem; zapłon ją kasuje.
+- **BCM** (`src/power/remote_session.py`) pokazuje baner „Wybudzono: … —
+  uśpienie za mm:ss [Nie usypiaj 30 min] [Uśpij teraz]” i wysyła do Nano
+  `HOLD:<min>` albo `RELEASE`; po `power.remote_session.idle_suspend_min`
+  bez użycia (dotyk ekranu lub Android Auto, przycisk na kierownicy; rozmowa
+  i grająca muzyka wstrzymują odliczanie) usypia wcześniej, a baner odlicza
+  wtedy do tej chwili. Wiersz „Wybudzanie” w Ustawieniach: ostatnia pobudka
+  i odmowy.
+- **Telefon w aucie** (agent ≥ 1.4.0) nadaje kod IR na SMS `WAKE <kod>`
+  (biała lista i kod TOTP alarmu na postoju) albo ze skrótu
+  `tools/car_phone/termux/wake.sh`. Kod TOTP tworzy `--park-setup`; bez
+  `modules.parking_guard` BCM nie wysyła białej listy — wtedy numery
+  ustawia się w telefonie (`--park-numbers`), inaczej agent pomija SMS
+  i raz ostrzega w logu (`ZASILANIE_BUFOROWANE.md` §14.6).
+
+Okablowanie, flagi (`make -C arduino sensor_hub-upload … SENSOR_HUB_FEATURES="…
+WAKE_IR WAKE_DOOR"`), protokół, BIOS i kolejność sprawdzeń na stole:
+`docs/ZASILANIE_BUFOROWANE.md` §14.
+
 ---
 
 ## 6. Uruchomienie

@@ -130,6 +130,18 @@ differs from the desired configuration:
   agent; the phone applies them at once. The same rule again: sent
   ONLY while ``modules.cabin_watch`` is on; with it on, an agent older than
   :data:`MIN_AGENT_VERSION_CABIN` is ``agent_outdated``.
+* ``toggles.remote_session`` and ``wake_*`` ← ``modules.remote_session`` and
+  ``power.remote_session.{ir_address, ir_command}`` (plan E, the buffered
+  build: the phone sends the private NEC code to Nano #2's IR receiver on a
+  ``WAKE <code>`` SMS or the wake.sh shortcut). This one goes further than
+  the keys above: the TOGGLE itself is sent only while on (the agents up to
+  1.3.0 know four toggles and normalise ``toggles`` to exactly those, and the
+  1.4.0 agent leaves a false ``remote_session`` out of its hash), so with
+  the module off the config — and its hash — is exactly what it was before.
+  With it on, an agent older than :data:`MIN_AGENT_VERSION_WAKE` is
+  ``agent_outdated``. The IR code is whole numbers only (address 0..65535,
+  command 0..255) — the phone builds the ``termux-infrared-transmit`` pattern
+  from nothing else.
 
 A config the agent refused (400 ``bad_config``, or a hash that does not
 match after a 200) is not re-sent until it changes (reason
@@ -211,6 +223,7 @@ from src.core import modules_catalog
 from src.core.fsutil import atomic_write_json
 from src.core.logger import get_logger
 from src.network._proc import _cfg_get, clean_error
+from src.power import remote_session as _remote_session
 
 log = get_logger("network.car_phone_agent")
 
@@ -231,6 +244,8 @@ MIN_AGENT_VERSION = (1, 1, 0)
 MIN_AGENT_VERSION_PARK = (1, 2, 0)
 #: The same for the cabin watch keys (plan I, ``cabin_*``, ``/v1/cabin``).
 MIN_AGENT_VERSION_CABIN = (1, 3, 0)
+#: The same for the IR wake (plan E, ``toggles.remote_session``, ``wake_*``).
+MIN_AGENT_VERSION_WAKE = (1, 4, 0)
 SECRET_PATH = "network.car_phone.agent.secret"
 SECRET_ENV = "BCM_CAR_PHONE_AGENT_SECRET"
 STATE_FILE = "data/car_phone_agent.json"
@@ -258,6 +273,9 @@ NONCE_MAX = 10**18
 LAST_OK_REPUBLISH_S = 60.0
 
 AGENT_TOGGLES = ("crash_sms", "parking_guard", "cabin_watch", "call112")
+#: Toggles sent ONLY while on (an older agent does not know them — see the
+#: module docstring, ``toggles.remote_session``).
+AGENT_TOGGLES_WHEN_ON = ("remote_session",)
 DEFAULT_LABEL = "ALFA 156"
 MAX_RECIPIENTS = 3
 COUNTDOWN_MIN_S = 15
@@ -579,6 +597,9 @@ def desired_config(config: Any, warn: Optional[Callable[[str, str], None]] = Non
                                f"A-Z a-z 0-9 space . - — using {DEFAULT_LABEL!r}")
         label = DEFAULT_LABEL
     toggles = {name: _module_on(config, name) for name in AGENT_TOGGLES}
+    for name in AGENT_TOGGLES_WHEN_ON:
+        if _module_on(config, name):
+            toggles[name] = True
     out = {
         "recipients": recipients,
         "sim_slot": int(slot),
@@ -600,6 +621,11 @@ def desired_config(config: Any, warn: Optional[Callable[[str, str], None]] = Non
     if toggles["cabin_watch"]:
         # ... and for the cabin watch (agent >= 1.3.0).
         out.update(cabin_settings(config, warn))
+    if toggles.get("remote_session"):
+        # ... and for the IR wake (agent >= 1.4.0), toggle included.
+        address, command = _remote_session.ir_settings(config, warn)
+        out["wake_ir_address"] = address
+        out["wake_ir_command"] = command
     return out
 
 
@@ -1500,7 +1526,8 @@ class CarPhoneAgent:
         :data:`MIN_AGENT_VERSION_PARK` while ``modules.parking_guard`` is
         on (the same for the ``park_*`` keys), or older than
         :data:`MIN_AGENT_VERSION_CABIN` while ``modules.cabin_watch`` is on
-        (``cabin_*``) — the Settings row then says
+        (``cabin_*``), or older than :data:`MIN_AGENT_VERSION_WAKE` while
+        ``modules.remote_session`` is on (``wake_*``) — the Settings row then says
         "copy the new bcm_agent.py", not "check crash_detection.sms";
         otherwise ``config_refused``."""
         toggles = desired.get("toggles", {})
@@ -1515,6 +1542,9 @@ class CarPhoneAgent:
             return "agent_outdated"
         if toggles.get("cabin_watch") and (version is None
                                            or version < MIN_AGENT_VERSION_CABIN):
+            return "agent_outdated"
+        if toggles.get("remote_session") and (version is None
+                                              or version < MIN_AGENT_VERSION_WAKE):
             return "agent_outdated"
         return "config_refused"
 

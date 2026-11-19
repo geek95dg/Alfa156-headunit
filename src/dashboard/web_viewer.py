@@ -41,6 +41,7 @@ from src.network.phone_tether import HINTS as _TETHER_HINTS
 from src.network.phone_tether import RETRY_TOPIC as _TETHER_RETRY_TOPIC
 from src.network.phone_tether import STATES as _TETHER_STATES
 from src.power import brightness as _brightness
+from src.power import remote_session as _remote_session
 from src.safety import cabin_watch as _cabin_watch
 from src.safety import call112 as _call112
 from src.safety import crash_sms as _crash_sms
@@ -96,6 +97,13 @@ _MAX_INPUT_MESSAGE = 4096
 _MAX_KEY_NAME = 32
 #: Actions accepted by the HTTP fallback POST /aa/touch (no "move": see there).
 _AA_HTTP_TOUCH_ACTIONS = ("tap", "down", "up", "cancel")
+#: ``ui.activity`` (someone is using the kiosk: a key, an AA touch, a tap on
+#: a BCM screen) is published at most once per this many seconds — the
+#: subscriber (src/power/remote_session.py, idle suspend after a remote
+#: wake) only needs "used within the last minutes", not every AA move frame.
+_UI_ACTIVITY_MIN_INTERVAL_S = 5.0
+#: Values of ``ui.activity``: what the kiosk did (whitelisted, no client text).
+_UI_ACTIVITY_KINDS = ("key", "touch")
 
 
 def _ws_origin_allowed(origin: Optional[str], host: Optional[str]) -> bool:
@@ -663,6 +671,83 @@ def _cabin_watch_summary(value: Any) -> Optional[dict]:
         "events_today": small_int(value.get("events_today"), 1000) or 0,
         "last_event": event,
         "error": error if error in _cabin_watch.ERRORS else "",
+    }
+
+
+#: "Wybudzono" banner routes (src/power/remote_session.py): at most one
+#: accepted request per this many seconds per route (a loop guard — the
+#: module allows hold_max_min minutes of holds per session itself).
+_REMOTE_SESSION_MIN_INTERVAL_S = 2.0
+
+
+def _remote_session_summary(value: Any) -> Optional[dict]:
+    """``power.remote_session`` → the global banner (app.js →
+    components/wake_banner.js) and the Settings row "Wybudzanie". The module
+    built it from whitelisted serial lines already; this is the second line
+    (whitelists, numbers by type and range) because the payload also reaches
+    network clients in ``readonly`` mode. ``lease_left_s`` is computed HERE,
+    at payload time, from the published end of the lease (epoch seconds);
+    ``idle_left_s`` likewise from ``idle_at`` — set only while idle suspend
+    would end the session before the lease, never above ``lease_left_s``.
+    Never published = module not running = None (no banner, no row)."""
+    if not isinstance(value, dict):
+        return None
+
+    def ts(v: Any) -> Optional[float]:
+        if isinstance(v, bool) or not isinstance(v, (int, float)):
+            return None
+        return v if math.isfinite(v) and 1e9 < v < 4e9 else None
+
+    def small_int(v: Any, hi: int) -> Optional[int]:
+        return v if isinstance(v, int) and not isinstance(v, bool) and 0 <= v <= hi else None
+
+    def word(v: Any, allowed: tuple) -> str:
+        return v if isinstance(v, str) and v in allowed else ""
+
+    def stamped(v: Any, allowed: tuple) -> Optional[dict]:
+        if not isinstance(v, dict) or v.get("reason") not in allowed or ts(v.get("ts")) is None:
+            return None
+        return {"reason": v["reason"], "ts": ts(v["ts"])}
+
+    state = value.get("state")
+    state = state if state in _remote_session.STATES else "idle"
+    until = ts(value.get("lease_until"))
+    left = None
+    idle_left = None
+    if state == "session" and until is not None:
+        left = int(max(0.0, min(until - time.time(), float(_remote_session.LEASE_MAX_S))))
+        idle_at = ts(value.get("idle_at"))
+        if idle_at is not None:
+            # Idle suspend comes first (the module publishes idle_at only
+            # then): the banner counts down to it instead of the lease.
+            idle_left = int(max(0.0, min(idle_at - time.time(), float(left))))
+    cmd = value.get("cmd")
+    command = None
+    if isinstance(cmd, dict) and cmd.get("action") in _remote_session.CMD_ACTIONS:
+        command = {"action": cmd["action"], "ok": cmd.get("ok") is True,
+                   "error": word(cmd.get("error"), _remote_session.CMD_ERRORS),
+                   "ts": ts(cmd.get("ts"))}
+    link = value.get("link")
+    return {
+        "state": state,
+        "reason": word(value.get("reason"), _remote_session.REASONS),
+        "since": ts(value.get("since")),
+        "lease_left_s": left,
+        "idle_left_s": idle_left,
+        "sleep_pending": value.get("sleep_pending") is True,
+        "holds_used_min": small_int(value.get("holds_used_min"), 60) or 0,
+        "hold_step_min": small_int(value.get("hold_step_min"), 60) or 0,
+        "hold_max_min": small_int(value.get("hold_max_min"), 60) or 0,
+        "can_hold": value.get("can_hold") is True,
+        "idle_suspend_min": small_int(value.get("idle_suspend_min"), 60) or 0,
+        "link": link if isinstance(link, bool) else None,
+        "ended": word(value.get("ended"), _remote_session.ENDED),
+        "last_wake": stamped(value.get("last_wake"), _remote_session.REASONS),
+        "denied_seen": small_int(value.get("denied_seen"), 1_000_000) or 0,
+        "denied_total": small_int(value.get("denied_total"), 0xFFFF),
+        "last_denied": stamped(value.get("last_denied"), _remote_session.DENIALS),
+        "last_denied_nano": word(value.get("last_denied_nano"), _remote_session.DENIALS),
+        "cmd": command,
     }
 
 
@@ -1277,6 +1362,10 @@ class WebViewer:
         # so a dashboard without AA never starts the worker thread.
         self._aa_injector = None
         self._aa_injector_lock = threading.Lock()
+        # ui.activity throttle (monotonic of the last publication; several
+        # /ws/input threads share it).
+        self._ui_activity_lock = threading.Lock()
+        self._ui_activity_at: Optional[float] = None
 
         # Network access policy: last "refused" log time per client address
         # (monotonic; bounded — see _log_refusal).
@@ -1520,6 +1609,11 @@ class WebViewer:
             # module not running = no row and no overlay (production).
             "auto_brightness": _auto_brightness_summary(_val(_brightness.TOPIC_STATE)),
             "display_dim": _display_dim_summary(_val(_brightness.TOPIC_DIM)),
+            # The session after a remote wake (src/power/remote_session.py,
+            # plan E, the buffered build): the global "Wybudzono" banner
+            # (app.js → components/wake_banner.js) and the Settings row.
+            # None = module not running (no banner, no row — production).
+            "remote_session": _remote_session_summary(_val(_remote_session.TOPIC_STATE)),
             # Phone battery / signal / operator for the top bar
             # (src/multimedia/phone_status.py). Re-sanitised here: values come
             # from the phone; None = module not running (no cluster drawn).
@@ -1717,7 +1811,33 @@ class WebViewer:
             if injector is not None:
                 injector.reset()
 
-    def _handle_input_message(self, msg: Any, client_key: Hashable = None) -> bool:
+    def _note_ui_activity(self, kind: str, local: bool) -> None:
+        """Publish ``ui.activity`` (throttled) when the KIOSK was used.
+
+        Why: after a remote wake (src/power/remote_session.py) the computer
+        is put back to sleep after ``idle_suspend_min`` without use — and a
+        driver who is touching the screen or Android Auto is using it, even
+        without a steering-wheel button. Only loopback clients count (the
+        kiosk on this machine), like the loopback-only hold route: a phone
+        on the car's network must not keep the computer awake on the bank.
+        Never raises; at most one publication per
+        :data:`_UI_ACTIVITY_MIN_INTERVAL_S`.
+        """
+        if not local or self._event_bus is None or kind not in _UI_ACTIVITY_KINDS:
+            return
+        now = time.monotonic()
+        with self._ui_activity_lock:
+            last = self._ui_activity_at
+            if last is not None and 0.0 <= now - last < _UI_ACTIVITY_MIN_INTERVAL_S:
+                return
+            self._ui_activity_at = now
+        try:
+            self._event_bus.publish("ui.activity", kind)
+        except Exception:
+            log.debug("Publishing ui.activity failed", exc_info=True)
+
+    def _handle_input_message(self, msg: Any, client_key: Hashable = None,
+                              local: bool = False) -> bool:
         """Dispatch one /ws/input message. Never raises; True if acted on.
 
         Accepts the raw WebSocket payload (str/bytes) or an already decoded
@@ -1725,7 +1845,12 @@ class WebViewer:
           ``{"type": "keydown", "key": "<KeyboardEvent.key>"}``
           ``{"type": "aa_touch", "action": "down|move|up|cancel|tap",
              "x": 0..1, "y": 0..1}``
+          ``{"type": "activity"}`` — the kiosk was touched (sent by
+             components/wake_banner.js, throttled, only during a session
+             after a remote wake); nothing but :meth:`_note_ui_activity`.
         Anything else — oversized, not JSON, wrong types — is dropped.
+        ``local``: the connection comes from loopback (the kiosk) — only
+        then does any of this count as ``ui.activity``.
         """
         try:
             if isinstance(msg, (bytes, bytearray)):
@@ -1746,25 +1871,34 @@ class WebViewer:
                 if not isinstance(key, str) or not key or len(key) > _MAX_KEY_NAME:
                     return False
                 self._handle_browser_key(key)
+                self._note_ui_activity("key", local)
                 return True
             if kind == "aa_touch":
                 injector = self._get_aa_injector()
                 if injector is None:
                     return False
-                return injector.submit(data.get("action"), data.get("x"),
-                                       data.get("y"), client=client_key)
+                ok = injector.submit(data.get("action"), data.get("x"),
+                                     data.get("y"), client=client_key)
+                if ok:
+                    self._note_ui_activity("touch", local)
+                return ok
+            if kind == "activity":
+                self._note_ui_activity("touch", local)
+                return local
             return False
         except Exception:
             log.debug("Dropped malformed /ws/input message", exc_info=True)
             return False
 
-    def _serve_input_ws(self, ws: Any) -> None:
+    def _serve_input_ws(self, ws: Any, local: bool = False) -> None:
         """Read loop of one /ws/input connection.
 
         Keyboard (SWC pod, OSK) and AA touch share this socket. Message
         handling lives in _handle_input_message(), which never raises: this
         loop used to break on ANY exception, so one malformed message
         silently killed keyboard input until the page was reloaded.
+        ``local``: the client is on loopback (the kiosk) — see
+        :meth:`_note_ui_activity`.
         """
         client_key = id(ws)
         log.info("WebSocket client connected (input)")
@@ -1776,7 +1910,7 @@ class WebViewer:
                     break  # connection closed
                 if msg is None:
                     continue
-                self._handle_input_message(msg, client_key)
+                self._handle_input_message(msg, client_key, local=local)
         finally:
             # A finger still down when the socket drops would leave the AA
             # button pressed — release whatever this client holds.
@@ -2579,6 +2713,8 @@ class WebViewer:
             if not injector.submit(action, data.get("x", 0.5), data.get("y", 0.5),
                                    client="http"):
                 return jsonify({"ok": False, "error": "touch injection unavailable"}), 503
+            ip = _client_ip(request.remote_addr)
+            viewer._note_ui_activity("touch", ip is not None and ip.is_loopback)
             return jsonify({"ok": True, "action": action, "x": px, "y": py})
 
         def _get_openauto():
@@ -3596,6 +3732,58 @@ class WebViewer:
             _crash_accepted("park_disarm", now)
             return jsonify({"ok": True})
 
+        # --- Wybudzanie (src/power/remote_session.py, plan E) ---------------
+        # "Nie usypiaj 30 min" / "Uśpij teraz" in the global banner: loopback
+        # ONLY (also with remote_access "full" — a phone in the car's network
+        # must not keep the parked car's computer awake or put it to sleep),
+        # a small JSON object body (no "simple" cross-origin POST), rate-
+        # limited. The body is ignored: the step and the budget are the
+        # module's (power.remote_session.*), never the client's.
+
+        def _remote_session_guard(what: str, key: str):
+            refused = _crash_kiosk_only(what)
+            if refused is not None:
+                return None, None, refused
+            _data, err = _crash_body()
+            if err is not None:
+                return None, None, err
+            module = _remote_session.get_remote_session()
+            if module is None:
+                return None, None, (jsonify({"ok": False, "error": "not_running"}), 409)
+            now = time.monotonic()
+            limited = _crash_rate_limited(key, _REMOTE_SESSION_MIN_INTERVAL_S, now)
+            if limited is not None:
+                return None, None, limited
+            return module, now, None
+
+        @app.route("/api/remote_session/hold", methods=["POST"])
+        def api_remote_session_hold():
+            """"Nie usypiaj": HOLD:<hold_step_min> to the sensor_hub (on the
+            module's worker). 409 ``no_session`` / ``hold_limit``."""
+            module, now, err = _remote_session_guard("keeping the computer awake",
+                                                     "remote_hold")
+            if err is not None:
+                return err
+            result = module.request_hold()
+            if not result.get("ok"):
+                return jsonify({"ok": False, "error": result.get("error") or "refused"}), 409
+            _crash_accepted("remote_hold", now)
+            return jsonify({"ok": True})
+
+        @app.route("/api/remote_session/sleep", methods=["POST"])
+        def api_remote_session_sleep():
+            """"Uśpij teraz": RELEASE to the sensor_hub — the Nano presses
+            SHORT (the usual way to S3). 409 ``no_session``."""
+            module, now, err = _remote_session_guard("putting the computer to sleep",
+                                                     "remote_sleep")
+            if err is not None:
+                return err
+            result = module.request_sleep()
+            if not result.get("ok"):
+                return jsonify({"ok": False, "error": result.get("error") or "refused"}), 409
+            _crash_accepted("remote_sleep", now)
+            return jsonify({"ok": True})
+
         @app.route("/api/crash/recipients", methods=["GET"])
         def api_crash_recipients_get():
             """The recipients for the Settings editor (kiosk only: personal
@@ -4130,6 +4318,7 @@ class WebViewer:
                 log.debug("Rejected /ws/input from foreign Origin %r (host %r)",
                           origin, request.host)
                 return
-            viewer._serve_input_ws(ws)
+            ip = _client_ip(request.remote_addr)
+            viewer._serve_input_ws(ws, local=ip is not None and ip.is_loopback)
 
         return app

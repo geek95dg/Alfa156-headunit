@@ -104,8 +104,9 @@ nowe moduły są tam wyłączone; pełna tabela: §8.
 - Pozycja i alarm auta na postoju (działa w telefonie): `modules.parking_guard`.
 - Czuwanie kabiny przednią kamerą telefonu: `modules.cabin_watch`.
 - Automatyczna jasność ekranu: `modules.auto_brightness`.
-- Wybudzanie BCM z telefonu (`modules.remote_session`) — tylko zapowiedź,
-  „niedostępny w tej wersji”.
+- Wybudzanie BCM z telefonu i od drzwi (`modules.remote_session`) — kod
+  gotowy, ale TYLKO dla wersji z buforem; w aucie testowym zostaje
+  wyłączony (§7.1).
 
 ---
 
@@ -668,6 +669,31 @@ dalej kieruje ruch przez każdy telefon z włączonym tetheringiem USB:
 sudo nmcli connection delete bcm-car-phone
 ```
 
+### 7.1 Wybudzanie (wersja z buforem)
+
+**W aucie testowym nic tu nie włączaj.** Bez bufora komputer na postoju nie
+śpi, tylko traci prąd razem z zapłonem — nie ma czego budzić.
+`modules.remote_session` zostaje `false` (tak jest w obu configach).
+
+W wersji z buforem komputer śpi w S3, a budzi go Nano #2 przyciskiem
+zasilania: po otwarciu drzwi kierowcy (nie przy wysiadaniu — pierwsze
+otwarcie po jeździe nie budzi — i najwcześniej 2 min po zgaszeniu zapłonu), po kodzie podczerwieni z telefonu w aucie (SMS `WAKE <kod>` albo
+skrót Termux:Widget `tools/car_phone/termux/wake.sh`) albo po impulsie na
+wejściu EXT — najwyżej 3 razy na godzinę i 6 na dobę. Po pobudce BCM pokazuje
+baner „Wybudzono: … — uśpienie za mm:ss [Nie usypiaj 30 min] [Uśpij teraz]”,
+a po dzierżawie (drzwi 5 min, telefon 10 min) Nano usypia komputer z
+powrotem. Stan i odmowy: Ustawienia, wiersz „Wybudzanie”.
+
+Całość — okablowanie odbiornika IR (TSOP na A3, filtr 100 Ω / 4,7 µF),
+transoptora na A2, flagi firmware, protokół, BIOS i kolejność sprawdzeń na
+stole: [`ZASILANIE_BUFOROWANE.md`](ZASILANIE_BUFOROWANE.md) §14. Czy
+telefon ma działający nadajnik IR, sprawdzisz już teraz
+(`PRZYGOTOWANIE_TELEFONU.md` §15):
+
+```bash
+termux-infrared-frequencies
+```
+
 ---
 
 ## 8. Przełączniki modułów
@@ -705,7 +731,7 @@ loguje jedno ostrzeżenie, a Ustawienia proponują włączenie zależności.
 | `cabin_watch` | zdjęcia kabiny przednią kamerą przy alarmie | `car_phone_agent`, `parking_guard` | Redmi z rootem, blokada „Brak”, agent ≥ 1.3.0 | wył. | wył. |
 | `auto_brightness` | jasność ekranu z czujnika światła | `phone_sensors` lub `input` | czujnik w telefonie albo LDR Arduino | wył. | wył. |
 | `battery` | pomiar banku buforowego (BATT) | — | bufor, Nano #2 z `FEATURE_BATT_*` | wył. | wył. |
-| `remote_session` | wybudzanie BCM z telefonu — niedostępny w tej wersji | `input` | Nano #2 z `FEATURE_WAKE_*`, przekaźnik | wył. | wył. |
+| `remote_session` | sesja po wybudzeniu od drzwi albo z telefonu (IR) — tylko wersja z buforem (§7.1) | `input` | Nano #2 z `FEATURE_WAKE_*` i `FEATURE_PWRLED`, przekaźnik, odbiornik TSOP | wył. | wył. |
 | `wifi_hotspot` | dodatkowy AP ALFA-NET — w aucie testowym musi zostać wyłączony (MT7921 obsługuje AA) | — | osobny dongiel Wi-Fi | wył. | wył. |
 
 Pozostałe moduły (OBD, kamery, czujniki parkowania, Nano #1, alarm, ekran
@@ -963,4 +989,7 @@ wszystkie unity BCM, kiosk, autologin, konfigurację AP i venv (zostawia
   (`PRZYGOTOWANIE_TELEFONU.md` — punkty NIESPRAWDZONE);
 - progi wykrywania stłuczki, alarmu na postoju i kabiny w prawdziwym aucie;
 - krzywa jasności i DDC/CI na ekranie zasilanym z USB;
-- menu „Wake on LAN” w BIOS-ie tej sztuki M910q.
+- menu „Wake on LAN” w BIOS-ie tej sztuki M910q;
+- wybudzanie (wersja z buforem): dekoder NEC z prawdziwym odbiornikiem
+  TSOP, nadajnik IR Redmi przez Termux:API na crDroid 13, przetrwanie stanu
+  Nano przez reset przy otwarciu portu (`ZASILANIE_BUFOROWANE.md` §14.8).

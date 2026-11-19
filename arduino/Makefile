@@ -17,12 +17,16 @@
 #   make sensor_hub-upload PORT=/dev/ttyUSB0
 #   make sensor_hub-upload PORT=/dev/ttyUSB0 SENSOR_HUB_FEATURES=BATT_ADC
 #                             # + funkcje zakomentowane w sketchu (flagą -D)
+#   make sensor_hub-upload PORT=/dev/ttyUSB0 \
+#        SENSOR_HUB_FEATURES="BATT_INA226 WAKE_IR WAKE_DOOR"
+#                             # wersja z buforem: pobudka IR i drzwiami
 #   make output_controller-upload PORT=/dev/ttyUSB1
 #   make esp32_display-upload PORT=/dev/ttyACM_display
 #   make esp32_display-test   # testy hosta (g++), bez płytki i bez arduino-cli
-#   make sensor_hub-test      # testy hosta logiki przycisku zasilania (g++)
+#   make sensor_hub-test      # testy hosta: przycisk zasilania i wybudzanie (g++)
 #   make test                 # oba powyższe
 #   make sensor_hub-variants  # sensor_hub z każdą opcjonalną funkcją osobno
+#                             # i z zestawami (WAKE_* razem z BATT_*)
 #
 # Wersje płytek i bibliotek są przypięte w sketch.yaml każdego sketcha
 # (profile arduino-cli) — kompilacja jest powtarzalna bez globalnego
@@ -55,16 +59,23 @@ ESP32_TEST_BIN := $(CURDIR)/esp32_display/build/test_host
 # Opcjonalne funkcje sensor_hub, które w sketchu są domyślnie wyłączone
 # (zakomentowane #define). Zwykłe `make` ich nie kompiluje, więc bez tego celu
 # nikt by nie zauważył, że się zepsuły. Każdy wariant to osobna kompilacja
-# z flagą -DFEATURE_<nazwa> i WŁASNYM katalogiem build: arduino-cli trzyma
+# z flagami -DFEATURE_<nazwa> i WŁASNYM katalogiem build: arduino-cli trzyma
 # w nim skompilowany rdzeń i obiekty, a flagi różnią się między wariantami.
-# Katalogi leżą w arduino/build/ — poza folderem sketcha (arduino-cli nie
-# zbiera z niego plików) i pod regułą `build/` z .gitignore.
-SENSOR_HUB_VARIANTS ?= BATT_ADC BATT_INA226
+# Wariant z kilkoma funkcjami łączy nazwy plusem (WAKE_IR+BATT_ADC →
+# -DFEATURE_WAKE_IR -DFEATURE_BATT_ADC): wybudzanie sprawdza napięcie banku
+# tylko z BATT_*, więc CI kompiluje oba zestawienia. Katalogi leżą
+# w arduino/build/ — poza folderem sketcha (arduino-cli nie zbiera z niego
+# plików) i pod regułą `build/` z .gitignore.
+SENSOR_HUB_VARIANTS ?= BATT_ADC BATT_INA226 WAKE_DOOR WAKE_EXT WAKE_IR \
+                       WAKE_DOOR+WAKE_EXT+WAKE_IR+BATT_ADC WAKE_IR+WAKE_DOOR+BATT_INA226
 VARIANTS_BUILD_DIR := $(CURDIR)/build
 
 # Funkcje sensor_hub do włączenia w ZWYKŁEJ kompilacji i wgraniu, np.
 #   make sensor_hub-upload PORT=/dev/ttyUSB0 SENSOR_HUB_FEATURES=BATT_ADC
-# Kilka: SENSOR_HUB_FEATURES="BATT_INA226 AIRBAG". Pusta (domyślnie) = sketch
+# Kilka: SENSOR_HUB_FEATURES="BATT_INA226 AIRBAG", wersja z buforem
+# i wybudzaniem: SENSOR_HUB_FEATURES="BATT_INA226 WAKE_IR WAKE_DOOR"
+# (WAKE_DOOR / WAKE_EXT / WAKE_IR — ZASILANIE_BUFOROWANE.md, „Wybudzanie”).
+# Pusta (domyślnie) = sketch
 # jak w repo. Flaga zamiast odkomentowania #define: repo zostaje czyste
 # (git pull bez konfliktów), a BATT_* muszą zostać zakomentowane, bo tak je
 # sprawdzają testy i kompiluje CI. Dozwolone są tylko nazwy zakomentowanych
@@ -77,6 +88,7 @@ SENSOR_HUB_UNKNOWN = $(filter-out $(SENSOR_HUB_OPTIONAL),$(SENSOR_HUB_FEATURES))
 SENSOR_HUB_FLAGS = $(if $(strip $(SENSOR_HUB_FEATURES)),--build-property \
                      "compiler.cpp.extra_flags=$(addprefix -DFEATURE_,$(SENSOR_HUB_FEATURES))")
 SENSOR_HUB_TEST_BIN := $(VARIANTS_BUILD_DIR)/sensor_hub-test/test_power_logic
+SENSOR_HUB_WAKE_TEST_BIN := $(VARIANTS_BUILD_DIR)/sensor_hub-test/test_wake_logic
 
 .PHONY: all $(SKETCHES) $(addsuffix -upload,$(SKETCHES)) esp32_display-test test clean \
         sensor_hub-variants sensor_hub-test
@@ -103,13 +115,38 @@ esp32_display:
 		--build-property "compiler.cpp.extra_flags=$(TFT_ESPI_FLAGS)" \
 		$(CURDIR)/esp32_display
 
+# Budżet RAM wariantów. Nano (ATmega328P) ma 2048 B RAM; arduino-cli przy
+# zbyt dużym programie przerywa kompilację (flash pilnuje sam), ale przy RAM
+# tylko OSTRZEGA („Low memory available” od 75 %). Stos (przerwania, Serial,
+# zmienne lokalne) rośnie w dół na zmienne globalne — przepełnienie to
+# losowe resety w aucie, nie błąd kompilacji. Dlatego każdy wariant musi
+# zmieścić zmienne globalne w SENSOR_HUB_RAM_MAX (domyślnie 75 % = 1536 B,
+# reszta na stos); brak podsumowania w wyjściu arduino-cli też jest błędem
+# (inaczej sprawdzenie po cichu by nie działało). LC_ALL=C: komunikat po
+# angielsku niezależnie od języka systemu.
+SENSOR_HUB_RAM_MAX ?= 1536
+
 sensor_hub-variants:
-	@for v in $(SENSOR_HUB_VARIANTS); do \
-		echo "== sensor_hub + FEATURE_$$v"; \
-		$(ARDUINO_CLI) compile --profile default --warnings default \
+	@mkdir -p $(VARIANTS_BUILD_DIR); \
+	for v in $(SENSOR_HUB_VARIANTS); do \
+		flags="-DFEATURE_$$(echo $$v | sed 's/+/ -DFEATURE_/g')"; \
+		log="$(VARIANTS_BUILD_DIR)/sensor_hub-$$v.log"; \
+		echo "== sensor_hub + $$flags"; \
+		LC_ALL=C $(ARDUINO_CLI) compile --profile default --warnings default \
 			--build-path $(VARIANTS_BUILD_DIR)/sensor_hub-$$v \
-			--build-property "compiler.cpp.extra_flags=-DFEATURE_$$v" \
-			$(CURDIR)/sensor_hub || exit 1; \
+			--build-property "compiler.cpp.extra_flags=$$flags" \
+			$(CURDIR)/sensor_hub > "$$log" 2>&1; rc=$$?; \
+		cat "$$log"; \
+		[ $$rc -eq 0 ] || exit 1; \
+		ram=$$(sed -n 's/^Global variables use \([0-9][0-9]*\) bytes.*/\1/p' "$$log" | head -n 1); \
+		if [ -z "$$ram" ]; then \
+			echo "!! sensor_hub + $$v: brak podsumowania RAM w wyjściu arduino-cli"; exit 1; \
+		fi; \
+		if [ "$$ram" -gt $(SENSOR_HUB_RAM_MAX) ]; then \
+			echo "!! sensor_hub + $$v: zmienne globalne $$ram B > SENSOR_HUB_RAM_MAX $(SENSOR_HUB_RAM_MAX) B (z 2048 B)"; \
+			exit 1; \
+		fi; \
+		echo "   RAM: $$ram B z 2048 B (limit $(SENSOR_HUB_RAM_MAX) B)"; \
 	done
 
 esp32_display-test:
@@ -118,13 +155,17 @@ esp32_display-test:
 		$(CURDIR)/esp32_display/test/test_host.cpp
 	$(ESP32_TEST_BIN)
 
-# power_logic.h to czysty C++ (decyzje przycisku zasilania M910q, bez I/O).
-# Binarka w arduino/build/, poza folderem sketcha.
+# power_logic.h i wake_logic.h to czysty C++ (decyzje przycisku zasilania
+# M910q, wybudzanie z zewnątrz, dekoder NEC, czytnik linii — bez I/O).
+# Binarki w arduino/build/, poza folderem sketcha.
 sensor_hub-test:
 	@mkdir -p $(dir $(SENSOR_HUB_TEST_BIN))
 	$(CXX) $(HOST_CXXFLAGS) -o $(SENSOR_HUB_TEST_BIN) \
 		$(CURDIR)/sensor_hub/test/test_power_logic.cpp
 	$(SENSOR_HUB_TEST_BIN)
+	$(CXX) $(HOST_CXXFLAGS) -o $(SENSOR_HUB_WAKE_TEST_BIN) \
+		$(CURDIR)/sensor_hub/test/test_wake_logic.cpp
+	$(SENSOR_HUB_WAKE_TEST_BIN)
 
 # Statyczna reguła wzorcowa, nie zwykłe „%-upload: %”: cele *-upload są w
 # .PHONY, a dla celów .PHONY make w ogóle nie szuka reguł wzorcowych — zwykły

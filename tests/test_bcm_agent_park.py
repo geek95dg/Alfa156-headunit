@@ -1728,6 +1728,10 @@ class TestConfigAndApi:
             strict=True)
         six = {k: base[k] for k in ("recipients", "sim_slot", "vehicle_label", "toggles",
                                     "dry_run", "follow_up_cancel")}
+        # A false remote_session (1.4.0) is not part of the hash either: the
+        # #128 form had four toggles.
+        assert base["toggles"]["remote_session"] is False
+        six["toggles"] = {k: v for k, v in six["toggles"].items() if k != "remote_session"}
         assert A.config_hash(base) == A.sha256_hex(A.canonical_json(six).encode())[:16]
         on, _ = A.normalize_config(park_config(), strict=True)
         changed, _ = A.normalize_config(park_config(park_tilt_deg=0.8), strict=True)

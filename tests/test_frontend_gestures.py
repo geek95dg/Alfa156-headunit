@@ -372,7 +372,7 @@ def test_call112_in_chromium():
                                      "settings_parking_guard_smoke.js",
                                      "settings_cabin_watch_smoke.js",
                                      "settings_brightness_smoke.js",
-                                     "crash_modal_smoke.js"])
+                                     "crash_modal_smoke.js", "wake_banner_smoke.js"])
 def test_screen_harness(harness):
     res = subprocess.run([NODE, str(JS / harness)], capture_output=True, text=True,
                          timeout=60)
@@ -562,3 +562,47 @@ def test_phone_cluster_glyphs_exist_in_the_bundled_font():
     assert len(glyphs) == 14
     missing = sorted(glyphs - ligatures)
     assert not missing, f"not in {FONT.name}: {missing}"
+
+
+@pytest.mark.timeout(150)
+def test_wake_banner_in_chromium():
+    """modules.remote_session (plan E): the non-modal "Wybudzono" banner and
+    the "Wybudzanie" row at 1024x600 (see the harness)."""
+    res = subprocess.run([NODE, str(JS / "wake_banner_browser_smoke.js")],
+                         capture_output=True, text=True, timeout=120)
+    out = res.stdout.strip()
+    if res.returncode == 0 and out.startswith("SKIP:"):
+        pytest.skip(out[5:].strip())
+    assert res.returncode == 0, res.stderr or res.stdout
+    assert out.endswith("ok"), out
+
+
+def test_wake_banner_layering_and_wiring():
+    """The banner sits above the dimming overlay and the reverse camera /
+    keyboard (200), below the crash window (300) and the notifications
+    (400); it is loaded before app.js and is NOT a gesture overlay (the
+    screen under it keeps working)."""
+    banner = (ROOT / "src/dashboard/web/js/components/wake_banner.js").read_text(encoding="utf-8")
+    z = int(re.search(r"const Z_INDEX = (\d+);", banner).group(1))
+    dim = (ROOT / "src/dashboard/web/js/components/dim_overlay.js").read_text(encoding="utf-8")
+    dim_z = int(re.search(r"const Z_INDEX = (\d+);", dim).group(1))
+    crash = (ROOT / "src/dashboard/web/js/components/crash_modal.js").read_text(encoding="utf-8")
+    modal = int(re.search(r'_el\.style\.cssText = "position:fixed;inset:0;z-index:(\d+);', crash).group(1))
+    assert dim_z < 200 < z < modal < 400, (dim_z, z, modal)
+    app = (ROOT / "src/dashboard/web/js/app.js").read_text(encoding="utf-8")
+    overlays = re.search(r"const GESTURE_OVERLAYS = ([^;]+);", app).group(1)
+    assert "wake-banner" not in overlays
+    assert "try { _syncWakeBanner(data); } catch (e)" in app
+    html = (ROOT / "src/dashboard/web/index.html").read_text(encoding="utf-8")
+    assert html.index("components/wake_banner.js") < html.index("/js/app.js")
+    # buttons by data-* and one delegated listener; texts never as HTML
+    assert "onclick" not in banner and "data-wake-action" in banner
+    assert 'body: "{}"' in banner                  # the step is the server's, never the client's
+    # Above the autohiding NavBar (h-14 = 56 px) and out of the bottom
+    # gesture strip, and it never swallows a touch: the bar's buttons and
+    # the swipe up from the bottom edge keep working during a session.
+    bottom = int(re.search(r"const BOTTOM_PX = (\d+);", banner).group(1))
+    gestures = (ROOT / "src/dashboard/web/js/components/gestures.js").read_text(encoding="utf-8")
+    edge = int(re.search(r"const EDGE_PX = (\d+);", gestures).group(1))
+    assert bottom >= 56 + 12 and bottom > edge, (bottom, edge)
+    assert ".stopPropagation(" not in banner

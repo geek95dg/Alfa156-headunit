@@ -176,8 +176,12 @@ modules:
                            # bez sterowania jasnością — przyciemnia OBRAZ
                            # nakładką w kiosku; Ustawienia → „Jasność
                            # ekranu”; blok display.auto_brightness niżej
-  remote_session: false    # sesja po zdalnym wybudzeniu; wymaga input
-                           # (Nano #2 z FEATURE_WAKE_*)
+  remote_session: false    # sesja po zdalnym wybudzeniu (drzwi, IR
+                           # z telefonu): baner „Wybudzono…”, HOLD/RELEASE
+                           # do Nano; wymaga input. TYLKO wersja z buforem
+                           # (Nano #2 z FEATURE_WAKE_*) — w aucie testowym
+                           # bez bufora zostaje false; blok
+                           # power.remote_session niżej
 dashboard:
   # Kto z SIECI może korzystać z dashboardu na porcie 5002 (kiosk na tym
   # komputerze — 127.0.0.1 — ma zawsze pełny dostęp):
@@ -664,6 +668,19 @@ power:
     autostart: true
     suspend_on_stop: true
     suspend_delay_seconds: 5
+  # Sesja po zdalnym wybudzeniu (src/power/remote_session.py, plan E) —
+  # działa tylko z modules.remote_session (wyżej false). Minuty 1..60.
+  remote_session:
+    idle_suspend_min: 10   # tyle minut bez użycia → RELEASE (uśpij); użycie =
+                           # dotyk ekranu w aucie, dotyk AA, przycisk kierownicy,
+                           # baner; rozmowa i grająca muzyka wstrzymują odliczanie
+    hold_step_min: 30      # „Nie usypiaj” = HOLD:<tyle> do Nano
+    hold_max_min: 60       # razem przedłużeń w jednej sesji
+    # Prywatny kod IR (NEC) — te same wartości co WAKE_IR_ADDRESS /
+    # WAKE_IR_COMMAND w arduino/sensor_hub/wake_logic.h; telefon w aucie
+    # dostaje je przez agenta (tylko przy włączonym module).
+    ir_address: 0x7A15
+    ir_command: 0x56
 arduino:
   # Port sensor huba (Nano z arduino/sensor_hub: drzwi, zapłon, PWR:, BATT:).
   # '' = brak stałej ścieżki. Docelowo /dev/ttyBCM_SENSOR z reguły

@@ -19,6 +19,19 @@
  *                                                prąd [mA] (+ ładowanie,
  *                                                - rozładowanie). Bez INA226
  *                                                tylko napięcie: BATT:12650
+ *   WAKE:IR|DOOR|EXT                             pobudka z zewnątrz przyjęta
+ *                                                (FEATURE_WAKE_*); w trakcie
+ *                                                dzierżawy powtarzane co 2 s
+ *   WAKE_DENIED:RATE|LOWBATT|HOLDOFF|STATE       prośba o pobudkę odrzucona
+ *   LEASE:600                                    dzierżawa: zostało [s]
+ *                                                (0 = brak); co 2 s i przy
+ *                                                każdej zmianie
+ *   WAKESTAT:3,RATE                              odmowy od zaniku zasilania,
+ *                                                ostatnia (NONE = żadnej)
+ *
+ * Host → Nano (tylko z FEATURE_WAKE_*; bez nich sketch nie czyta Serial):
+ *   HOLD:<min>   przedłuż dzierżawę (1..60 min)  → LEASE:<s>
+ *   RELEASE      zakończ dzierżawę (SHORT → S3)  → LEASE:0
  *
  * ================= WŁĄCZANIE / WYŁĄCZANIE FUNKCJI =================
  * Każda funkcja ma własny przełącznik kompilacji. Zakomentuj
@@ -55,6 +68,21 @@
                                // odróżnia ładowanie od postoju i pozwala
                                // liczyć stan naładowania. Wyklucza się
                                // z FEATURE_CRUISE/IMMO i FEATURE_BATT_ADC.
+// #define FEATURE_WAKE_DOOR   // pobudka komputera otwarciem drzwi kierowcy
+                               // (D2) przy zgaszonym zapłonie; pierwsze
+                               // otwarcie po jeździe (wysiadanie) nie budzi,
+                               // kolejne nie wcześniej niż 2 min po
+                               // zgaszeniu. Wymaga FEATURE_DOORS
+                               // i FEATURE_PWRLED. Tylko wersja z buforem.
+// #define FEATURE_WAKE_EXT    // pobudka impulsem ≥ 50 ms na A2 (PC817; np.
+                               // „odblokuj” z centralnego zamka). Wymaga
+                               // FEATURE_PWRLED. Wyklucza się z FEATURE_PARK.
+// #define FEATURE_WAKE_IR     // pobudka pilotem IR (NEC, prywatny adres) —
+                               // TSOP na A3, nadaje telefon w aucie. Wymaga
+                               // FEATURE_PWRLED. Wyklucza się z FEATURE_PARK.
+                               // Wszystkie WAKE_* WYŁĄCZNIE flagą:
+                               // SENSOR_HUB_FEATURES="WAKE_IR WAKE_DOOR"
+                               // (ZASILANIE_BUFOROWANE.md, „Wybudzanie”).
 /* ================================================================== */
 
 /*
@@ -75,6 +103,10 @@
  *   A1  Dioda zasilania panelu przedniego     (FEATURE_PWRLED)
  *   A0-A3 HC-SR04 ECHO FL/FR/RL/RR — TYLKO z FEATURE_PARK, które
  *         wyklucza się z FEATURE_PWRBTN (patrz #error niżej)
+ *   A2  Wejście pobudki EXT (PC817: kolektor → A2, INPUT_PULLUP; LOW =
+ *       impuls aktywny)                    (FEATURE_WAKE_EXT)
+ *   A3  Odbiornik IR TSOP (OUT → A3, zasilanie przez 100 Ω z 4,7 µF do GND;
+ *       LOW = nośna 38 kHz)                 (FEATURE_WAKE_IR)
  *   A4  Tempomat, A5 Immo (opcje), D13 Airbag (opcja)
  *   A4/A5 I2C SDA/SCL do INA226        (FEATURE_BATT_INA226)
  *   A6  Dzielnik napięcia banku        (FEATURE_BATT_ADC; wejście tylko
@@ -122,6 +154,20 @@
  * czasie, a maszyna jednak zaśnie, dostaje SHORT i wstaje.
  * Sama logika (bez I/O) siedzi w power_logic.h i ma testy na PC, także
  * dla przepełnienia millis() po ~49,7 dnia: make -C arduino sensor_hub-test
+ *
+ * --- Wybudzanie z zewnątrz (FEATURE_WAKE_DOOR / _EXT / _IR) ---
+ * Tylko wersja z buforem: każdy wyzwalacz (drzwi kierowcy, impuls na A2,
+ * ramka IR z telefonu) to PROŚBA do logiki przycisku — naciska zawsze ta
+ * sama logika co przy zapłonie. Prośba przechodzi tylko przy zgaszonym
+ * zapłonie, stabilnym S3/OFF, w limicie 3/h i 6/dobę, drzwi nie przy
+ * wysiadaniu (pierwsze otwarcie po jeździe) i nie wcześniej niż 2 min po
+ * zgaszeniu, a z pomiarem banku (BATT_*) przy > 12,2 V.
+ * Pobudka daje dzierżawę (drzwi 5 min, IR/EXT 10 min); po niej, przy
+ * zgaszonym zapłonie, SHORT usypia komputer z powrotem. BCM może ją
+ * przedłużyć (HOLD:<min>) albo skończyć (RELEASE) —
+ * src/power/remote_session.py. Stan pobudek leży w RAM .noinit z sumą
+ * kontrolną: reset przy otwarciu portu (DTR) go nie gubi. Logika, dekoder
+ * NEC i czytnik linii: wake_logic.h (testy na PC jak wyżej).
  */
 
 #include <avr/wdt.h>
@@ -132,6 +178,11 @@
 
 #ifdef FEATURE_PWRBTN
 #include "power_logic.h"
+#endif
+
+#if defined(FEATURE_WAKE_DOOR) || defined(FEATURE_WAKE_EXT) || defined(FEATURE_WAKE_IR)
+#define SENSOR_HUB_WAKE 1               // którakolwiek pobudka z zewnątrz
+#include "wake_logic.h"
 #endif
 
 #ifdef FEATURE_TEMP
@@ -156,6 +207,8 @@
 #define PIN_AIRBAG    13
 #define PIN_PWR_RELAY A0
 #define PIN_PWR_LED   A1
+#define PIN_WAKE_EXT  A2
+#define PIN_WAKE_IR   A3    // PCINT11 (PCMSK1) — przerwanie zmiany stanu
 
 #if defined(FEATURE_PWRBTN) && !defined(FEATURE_IGN)
 #error "FEATURE_PWRBTN wymaga FEATURE_IGN - to zaplon steruje maszyna"
@@ -171,6 +224,20 @@
 #endif
 #if defined(FEATURE_PWRLED) && !defined(FEATURE_PWRBTN)
 #error "FEATURE_PWRLED bez FEATURE_PWRBTN nie ma czego synchronizowac"
+#endif
+// Pobudka bez diody panelu nie wie, czy komputer spi - nacisnelaby na slepo
+// (moglaby uspic pracujacy). Dioda wymaga przycisku, przycisk zaplonu.
+#if defined(SENSOR_HUB_WAKE) && !defined(FEATURE_PWRLED)
+#error "FEATURE_WAKE_* wymaga FEATURE_PWRLED (stan komputera z diody panelu)"
+#endif
+#if defined(FEATURE_WAKE_DOOR) && !defined(FEATURE_DOORS)
+#error "FEATURE_WAKE_DOOR wymaga FEATURE_DOORS (drzwi kierowcy na D2)"
+#endif
+#if defined(FEATURE_WAKE_IR) && defined(FEATURE_PARK)
+#error "Konflikt pinow: FEATURE_PARK uzywa A3 na ECHO HC-SR04, FEATURE_WAKE_IR na TSOP"
+#endif
+#if defined(FEATURE_WAKE_EXT) && defined(FEATURE_PARK)
+#error "Konflikt pinow: FEATURE_PARK uzywa A2 na ECHO HC-SR04, FEATURE_WAKE_EXT na PC817"
 #endif
 
 // --- Cadence ---
@@ -199,6 +266,9 @@ const uint8_t DOOR_PINS[6]  = {PIN_DOOR_FL, PIN_DOOR_FR, PIN_DOOR_RL,
                                PIN_DOOR_RR, PIN_BONNET, PIN_TRUNK};
 const char*   DOOR_KEYS[6]  = {"FL", "FR", "RL", "RR", "BONNET", "TRUNK"};
 bool doorState[6]        = {false, false, false, false, false, false};
+// FEATURE_WAKE_DOOR: które drzwi budzą — 0 = FL, drzwi kierowcy w aucie
+// z kierownicą po lewej (D2). Kierownica po prawej: 1 (FR, D3).
+#define WAKE_DOOR_INDEX 0
 bool doorRaw[6]          = {false, false, false, false, false, false};
 unsigned long doorChangeAt[6] = {0};
 #endif
@@ -270,6 +340,31 @@ unsigned long pwrPulseUntil = 0;         // koniec trwającego impulsu
 PwrLed        pwrLed;                    // zbocza diody → stan: power_logic.h
 #endif
 
+#ifdef SENSOR_HUB_WAKE
+// .noinit: RAM, którego start programu NIE zeruje — przeżywa reset (DTR przy
+// otwarciu portu przez BCM, watchdog), nie przeżywa zaniku zasilania.
+// wakeBoot() sprawdza znacznik i sumę kontrolną; wakeSeal() po każdym
+// obiegu. Bez tego BCM, który otwiera port zaraz po pobudce, kasowałby
+// dzierżawę, limity i blokadę drzwi.
+WakeLogic     wake __attribute__((section(".noinit")));
+uint32_t      wakeBase = 0;              // zegar budzenia = wakeBase + millis()
+WakeLine      wakeRx;                    // HOLD:/RELEASE z hosta
+#ifdef FEATURE_WAKE_IR
+NecDecoder    irDec;                     // pisze przerwanie, czyta pętla
+#endif
+#endif
+
+#if defined(SENSOR_HUB_WAKE) && (defined(FEATURE_BATT_ADC) || defined(FEATURE_BATT_INA226))
+// Ostatni odczyt banku dla warunku „> 12,2 V” (battReport co 2 s).
+#define WAKE_BATT_FRESH_MS 10000UL
+bool          battHave = false;
+long          battLastMv = 0;
+unsigned long battLastAt = 0;
+#define BATT_REMEMBER(mv) do { battHave = true; battLastMv = (mv); battLastAt = millis(); } while (0)
+#else
+#define BATT_REMEMBER(mv) do { } while (0)
+#endif
+
 unsigned long lastStateRefresh = 0;
 
 // =============================================================================
@@ -337,6 +432,7 @@ void battReport() {
   long mv  = adc * BATT_ADC_VREF_MV * (BATT_ADC_R1_K + BATT_ADC_R2_K)
              / (1023L * BATT_ADC_R2_K);
   mv = (long)(mv * BATT_ADC_CAL);
+  BATT_REMEMBER(mv);
   Serial.print(F("BATT:"));
   Serial.println(mv);
 }
@@ -403,6 +499,7 @@ void battReport() {
   long mv = ((long)rawBus * 125L) / 100L;                 // 1,25 mV/LSB
   // µV / mΩ = mA
   long ma = (long)((int16_t)rawShunt * 2.5f / BATT_SHUNT_MOHM) * BATT_INA_SIGN;
+  BATT_REMEMBER(mv);
   Serial.print(F("BATT:"));
   Serial.print(mv);
   Serial.print(',');
@@ -428,6 +525,24 @@ void setup() {
 #ifdef FEATURE_PWRLED
   pinMode(PIN_PWR_LED, INPUT_PULLUP);
   pwrLedInit(pwrLed, millis());
+#endif
+#ifdef SENSOR_HUB_WAKE
+  {
+    // Po resecie z ważnym stanem w .noinit zegar budzenia ciągnie dalej
+    // (dzierżawa, limity), po zaniku zasilania startuje od millis().
+    const uint32_t m = millis();
+    wakeBase = wakeBoot(wake, m) - m;
+  }
+#endif
+#ifdef FEATURE_WAKE_EXT
+  pinMode(PIN_WAKE_EXT, INPUT_PULLUP);
+#endif
+#ifdef FEATURE_WAKE_IR
+  pinMode(PIN_WAKE_IR, INPUT_PULLUP);   // TSOP ma własny pull-up; ten nie szkodzi
+  necInit(irDec);
+  PCMSK1 |= _BV(PCINT11);               // tylko A3 w grupie PCINT8..14
+  PCIFR = _BV(PCIF1);                   // skasuj zaległe zgłoszenie
+  PCICR |= _BV(PCIE1);
 #endif
 
 #ifdef FEATURE_DOORS
@@ -637,6 +752,131 @@ void handlePwrButton(unsigned long now) {
 }
 #endif
 
+#ifdef FEATURE_WAKE_IR
+// Każde zbocze wyjścia TSOP (A3 = PC3). Krótko: jedno porównanie długości
+// odcinka w dekoderze (wake_logic.h). Nie używamy SoftwareSerial — ta
+// biblioteka zajmuje wszystkie wektory PCINT.
+ISR(PCINT1_vect) {
+  necEdge(irDec, (PINC & _BV(PINC3)) == 0, micros());
+}
+#endif
+
+#ifdef SENSOR_HUB_WAKE
+uint32_t wakeNow() { return wakeBase + (uint32_t)millis(); }
+
+void wakePrintSrc(uint8_t src) {
+  switch (src) {
+    case WAKE_SRC_IR:   Serial.println(F("IR")); break;
+    case WAKE_SRC_DOOR: Serial.println(F("DOOR")); break;
+    default:            Serial.println(F("EXT")); break;
+  }
+}
+
+void wakePrintDeny(uint8_t why) {
+  switch (why) {
+    case WAKE_DENY_RATE:    Serial.println(F("RATE")); break;
+    case WAKE_DENY_LOWBATT: Serial.println(F("LOWBATT")); break;
+    case WAKE_DENY_HOLDOFF: Serial.println(F("HOLDOFF")); break;
+    case WAKE_DENY_STATE:   Serial.println(F("STATE")); break;
+    default:                Serial.println(F("NONE")); break;
+  }
+}
+
+void wakeReportLease(uint32_t wnow) {
+  Serial.print(F("LEASE:"));
+  Serial.println(wakeLeaseLeft(wake, wnow));
+}
+
+void wakeOutput(const WakeOut& out, uint32_t wnow) {
+  if (out.denied) {
+    Serial.print(F("WAKE_DENIED:"));
+    wakePrintDeny(out.denied);
+  }
+  if (out.wake) {
+    Serial.print(F("WAKE:"));
+    wakePrintSrc(out.wake);
+  }
+  if (out.lease) wakeReportLease(wnow);
+}
+
+// Polecenia z BCM: najwyżej 32 znaki na obieg (bufor RX ma 64), ograniczony
+// czytnik linii i dwa polecenia (wake_logic.h). Obce linie — bez odpowiedzi.
+void handleWakeSerial(uint32_t wnow, unsigned long now) {
+  for (uint8_t n = 0; n < 32 && Serial.available() > 0; n++) {
+    const int c = Serial.read();
+    if (c < 0) break;
+    if (!wakeLineFeed(wakeRx, (char)c)) continue;
+    uint8_t minutes = 0;
+    WakeOut out = WakeOut();
+    switch (wakeParseCmd(wakeRx.buf, minutes)) {
+      case WAKE_CMD_HOLD:
+        wakeHold(wake, minutes, wnow);
+        break;
+      case WAKE_CMD_RELEASE:
+        wakeRelease(wake, pwr, wnow, now, out);
+        break;
+      default:
+        continue;
+    }
+    wakeReportLease(wnow);     // odpowiedź: ile dzierżawy zostało (0 = brak)
+  }
+}
+
+void handleWake(unsigned long now) {
+  const uint32_t wnow = wakeNow();
+  WakeIn in = WakeIn();
+#ifdef FEATURE_WAKE_DOOR
+  in.doorOpen = doorState[WAKE_DOOR_INDEX];
+#endif
+#ifdef FEATURE_WAKE_EXT
+  in.extActive = digitalRead(PIN_WAKE_EXT) == LOW;    // PC817 przewodzi
+#endif
+#ifdef FEATURE_WAKE_IR
+  uint16_t irAddr = 0;
+  uint8_t irCmd = 0;
+  noInterrupts();                      // też bariera pamięci dla irDec
+  const bool irGot = irDec.ready;
+  if (irGot) {
+    irAddr = irDec.addr;
+    irCmd = irDec.cmd;
+    irDec.ready = false;
+  }
+  interrupts();
+  if (irGot) in.irPair = wakeIrFrame(wake, irAddr, irCmd, wnow);
+#endif
+  in.pulsing = pwrPulsing;
+  in.battMv = -1;
+#if defined(FEATURE_BATT_ADC) || defined(FEATURE_BATT_INA226)
+  in.battCheck = true;
+  if (battHave && (unsigned long)(now - battLastAt) < WAKE_BATT_FRESH_MS) {
+    in.battMv = (int32_t)battLastMv;
+  }
+#endif
+  WakeOut out;
+  wakeStep(wake, pwr, wnow, now, in, out);
+  wakeOutput(out, wnow);
+  handleWakeSerial(wnow, now);
+  wakeSeal(wake);
+}
+
+// Pełny stan co 2 s: BCM, który właśnie wstał (komputer spał, gdy padło
+// WAKE:), dowiaduje się o pobudce i dzierżawie najpóźniej po 2 s.
+void wakeReportFull() {
+  const uint32_t wnow = wakeNow();
+  // WAKE: tylko póki dzierżawa trwa (nie w ~2 s, gdy RELEASE czeka na
+  // potwierdzenie zapłonu po resecie — dla BCM sesja już się skończyła).
+  if (wake.lease && wake.reason != WAKE_SRC_NONE && wakeLeaseLeft(wake, wnow) > 0) {
+    Serial.print(F("WAKE:"));
+    wakePrintSrc(wake.reason);
+  }
+  wakeReportLease(wnow);
+  Serial.print(F("WAKESTAT:"));
+  Serial.print(wake.denied);
+  Serial.print(',');
+  wakePrintDeny(wake.lastDenied);
+}
+#endif
+
 void reportFullState() {
 #ifdef FEATURE_DOORS
   reportDoors();
@@ -665,6 +905,9 @@ void reportFullState() {
 #endif
 #if defined(FEATURE_BATT_ADC) || defined(FEATURE_BATT_INA226)
   battReport();
+#endif
+#ifdef SENSOR_HUB_WAKE
+  wakeReportFull();
 #endif
 }
 
@@ -703,6 +946,9 @@ void loop() {
 #endif
 #ifdef FEATURE_PWRBTN
   handlePwrButton(now);
+#endif
+#ifdef SENSOR_HUB_WAKE
+  handleWake(now);                     // po przycisku: zamiar idzie w następnym obiegu
 #endif
 
   // Okresowe odświeżenie pełnego stanu — BCM po restarcie dostaje

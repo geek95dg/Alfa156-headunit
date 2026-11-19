@@ -1,7 +1,8 @@
 #!/data/data/com.termux/files/usr/bin/env python3
 """Agent BCM w telefonie w aucie (Termux) — SMS po stłuczce, alarm na postoju
-(D4), „Zadzwoń 112” (H), czuwanie kabiny przednią kamerą (I) i wspólny kanał
-dla kolejnych funkcji.
+(D4), „Zadzwoń 112” (H), czuwanie kabiny przednią kamerą (I), budzenie
+komputera w aucie podczerwienią (E, wersja z buforem) i wspólny kanał dla
+kolejnych funkcji.
 
 Po co to jest
 -------------
@@ -73,7 +74,7 @@ nowy ``bcm_agent.py`` do ``~/bcm_agent/`` i zrestartuj agenta —
 pokazuje wersję (``VERSION``); stan, sekret, nonce i zdarzenia w
 ``~/.config/bcm_agent`` zostają. „Zadzwoń 112” z telefonu w aucie wymaga
 wersji ≥ 1.1.0 (starszą BCM pokazuje jako „zaktualizuj bcm_agent.py”),
-alarm na postoju ≥ 1.2.0, czuwanie kabiny ≥ 1.3.0.
+alarm na postoju ≥ 1.2.0, czuwanie kabiny ≥ 1.3.0, budzenie IR ≥ 1.4.0.
 
 Parowanie z BCM
 ---------------
@@ -437,6 +438,51 @@ NIESPRAWDZONE na crDroid 13: zdjęcie przy wygaszonym ekranie po
 ``termux-camera-photo`` kończy się po zapisaniu pliku, raportowanie
 czujnika światła przy wygaszonym ekranie, prąd w mA na warstwę.
 
+Budzenie komputera w aucie (plan E, przełącznik ``toggles.remote_session``)
+--------------------------------------------------------------------------
+Tylko WERSJA Z BUFOREM: komputer śpi w S3 (albo jest wyłączony), a budzi go
+wyłącznie Nano #2 przyciskiem zasilania (arduino/sensor_hub,
+``FEATURE_WAKE_IR``). Ten telefon jest „pilotem”: nadaje przez swoją diodę
+IR ramkę NEC z prywatnym kodem do odbiornika TSOP przy Nano. Nano sam
+pilnuje reguł (zapłon zgaszony, komputer śpi, 3 na godzinę / 6 na dobę,
+bank > 12,2 V) — telefon może tylko poprosić. W aucie testowym bez bufora
+nie ma czego budzić: przełącznik zostaje wyłączony.
+
+* **Wyzwalacze:** SMS ``WAKE <kod>`` z numeru z białej listy alarmu na
+  postoju (ten sam sekret TOTP co ``PARK OFF`` — tworzy go ``--park-setup``,
+  ta sama ochrona przed powtórką i blokada po 5 złych kodach) — skrzynka
+  jest czytana także wtedy, gdy sam alarm na postoju jest wyłączony, ale
+  wtedy przyjmowane jest tylko ``WAKE``. Biała lista: ``park_numbers`` z BCM
+  przychodzi TYLKO przy włączonym ``modules.parking_guard``; bez alarmu
+  trzeba ją ustawić w telefonie (``--park-numbers``), inaczej agent raz
+  ostrzega w logu („no numbers for SMS commands”) i skrzynki nie czyta.
+  Albo lokalnie
+  ``python ~/bcm_agent/bcm_agent.py --wake`` — skrót Termux:Widget
+  ``wake.sh`` (tools/car_phone/termux), bez sieci i bez kodu (kto ma
+  w ręku ten telefon, i tak siedzi w aucie).
+* **Nadawanie:** ``termux-infrared-transmit -f 38000 <wzorzec>`` — stała
+  lista argumentów, wzorzec (czasy w µs) zbudowany WYŁĄCZNIE z dwóch liczb
+  z konfiguracji: ``wake_ir_address`` (0..65535) i ``wake_ir_command``
+  (0..255), przysłanych przez BCM (``power.remote_session.ir_address`` /
+  ``ir_command``, tylko przy włączonym przełączniku; muszą być takie same
+  jak ``WAKE_IR_ADDRESS`` / ``WAKE_IR_COMMAND`` w firmware). Jedno
+  wywołanie = 3 ramki co 108 ms (Nano przyjmuje 2 identyczne w ciągu 1 s).
+  Wywołanie bez błędu = wyjście puste; tekst na wyjściu (np. brak nadajnika
+  IR) = porażka.
+* **Limit w telefonie** (niezależnie od Nano, zapisany w ``wake.json`` pod
+  blokadą pliku ``wake.lock`` — agent i ``--wake`` to dwa procesy):
+  najwyżej 1 próba na :data:`WAKE_COOLDOWN_S` s, 3 udane na godzinę i 6 na
+  dobę.
+* **Odpowiedź SMS** (tylko na polecenie SMS, w budżecie odpowiedzi alarmu na
+  postoju, GSM-7): ``ALFA 156: BUDZENIE wyslane`` albo powód odmowy
+  (wyłączone, limit, nieudane). „Wysłane” znaczy: dioda nadała — czy
+  komputer wstał, decyduje Nano (BCM po starcie pokaże baner „Wybudzono”).
+* NIESPRAWDZONE na crDroid 13: że Termux:API obsługuje nadajnik IR tego
+  telefonu (``termux-infrared-frequencies`` powinno pokazać zakres z 38 kHz)
+  i że wzorzec 3 ramek mieści się w limicie długości ConsumerIrManager.
+* Na przyszłość (nie w tej wersji): budzenie z głównego telefonu przez
+  prywatny temat ntfy/MQTT z HMAC — dziś zapasem jest SMS ``WAKE <kod>``.
+
 Czego agent nie obiecuje: doręczenia (brak raportów doręczenia, zasięg,
 środki na karcie), działania przy wyłączonym lub przegrzanym telefonie,
 działania, gdy Android zabije Termux (phantom process killer), zestawienia
@@ -471,6 +517,11 @@ from collections import deque
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any, Callable, Mapping, Optional
 
+try:                                # Termux (Linux) ma fcntl; inne systemy nie
+    import fcntl
+except ImportError:                 # pragma: no cover
+    fcntl = None  # type: ignore[assignment]
+
 #: 1.1.0 — „Zadzwoń 112” (plan H): ``/v1/call112*``, pola ``call112_*`` w
 #: konfiguracji. BCM z włączonym ``modules.call112`` wymaga co najmniej tej
 #: wersji (starszą pokazuje w Ustawieniach jako „zaktualizuj bcm_agent.py”).
@@ -479,7 +530,10 @@ from typing import Any, Callable, Mapping, Optional
 #: 1.3.0 — czuwanie kabiny (plan I): ``GET /v1/cabin``, ``POST
 #: /v1/park/event``, pola ``cabin_*`` (wymagane przez BCM z włączonym
 #: ``modules.cabin_watch``).
-VERSION = "1.3.0"
+#: 1.4.0 — budzenie komputera podczerwienią (plan E): przełącznik
+#: ``toggles.remote_session``, pola ``wake_*``, SMS ``WAKE <kod>``,
+#: ``--wake`` (wymagane przez BCM z włączonym ``modules.remote_session``).
+VERSION = "1.4.0"
 
 log = logging.getLogger("bcm_agent")
 
@@ -518,7 +572,7 @@ SIG_RE = re.compile(r"^[0-9a-f]{64}$")
 DIGITS_RE = re.compile(r"^[0-9]{1,%d}$" % NONCE_MAX_DIGITS)
 
 MAX_RECIPIENTS = 3
-TOGGLES = ("crash_sms", "parking_guard", "cabin_watch", "call112")
+TOGGLES = ("crash_sms", "parking_guard", "cabin_watch", "call112", "remote_session")
 DEFAULT_LABEL = "ALFA 156"
 COUNTDOWN_MIN_S = 15
 COUNTDOWN_MAX_S = 120
@@ -732,10 +786,41 @@ TOTP_SECRET_BYTES = 20
 TOTP_FILE = "park_totp"
 PARK_LOCAL_FILE = "park_local.json"
 _B32_RE = re.compile(r"^[A-Z2-7]{16,64}$")
-_PARK_CMD_RE = re.compile(r"^(POZYCJA|GDZIE|PARKON|PARKOFF|PARKSTATUS)([0-9]{6})$")
+_PARK_CMD_RE = re.compile(r"^(POZYCJA|GDZIE|PARKON|PARKOFF|PARKSTATUS|WAKE)([0-9]{6})$")
 _PARK_CODE_RE = re.compile(r"^[0-9]{6}$")
 PARK_COMMANDS = {"POZYCJA": "position", "GDZIE": "position", "PARKON": "on",
-                 "PARKOFF": "off", "PARKSTATUS": "status"}
+                 "PARKOFF": "off", "PARKSTATUS": "status", "WAKE": "wake"}
+
+# ── budzenie komputera podczerwienią (plan E) ─────────────────────────────
+#: Konfiguracja z BCM (``power.remote_session.ir_address`` / ``ir_command``),
+#: wartości domyślne = WAKE_IR_ADDRESS / WAKE_IR_COMMAND w wake_logic.h.
+#: Klucze ``wake_*`` (i sam przełącznik ``remote_session``) liczą się do
+#: skrótu konfiguracji TYLKO przy włączonym przełączniku (zgodność wersji —
+#: jak ``call112_*``).
+WAKE_DEFAULTS: dict[str, Any] = {"wake_ir_address": 0x7A15, "wake_ir_command": 0x56}
+IR_CARRIER_HZ = 38000
+#: NEC: znacznik prowadzący, przerwa, znacznik bitu, przerwa „0” / „1” [µs].
+NEC_LEAD_MARK_US = 9000
+NEC_LEAD_SPACE_US = 4500
+NEC_BIT_MARK_US = 562
+NEC_ZERO_US = 562
+NEC_ONE_US = 1687
+#: Ramki w jednym nadaniu i odstęp początków ramek (jak pilot NEC).
+NEC_FRAMES = 3
+NEC_PERIOD_US = 108000
+#: Limit w telefonie (Nano ma własny: 3/h, 6/dobę przyjętych pobudek).
+WAKE_COOLDOWN_S = 60
+WAKE_MAX_PER_HOUR = 3
+WAKE_MAX_PER_DAY = 6
+WAKE_FILE = "wake.json"
+WAKE_LOCK_FILE = "wake.lock"
+WAKE_LOCK_WAIT_S = 30.0          # ``--wake`` (wake.sh) czeka dłużej
+WAKE_LOCK_WAIT_SMS_S = 5.0       # wątek postoju — krótko
+IR_TIMEOUT_S = 15.0
+#: Wynik jednej próby: ``sent`` (dioda nadała), ``off`` (przełącznik
+#: ``remote_session`` wyłączony), ``rate`` (limit), ``busy`` (inna próba
+#: trwa), ``no_ir`` (brak termux-infrared-transmit / nadajnika), ``failed``.
+WAKE_RESULTS = ("sent", "off", "rate", "busy", "no_ir", "failed")
 
 # ── czuwanie kabiny (plan I) ──────────────────────────────────────────────
 #: Stany ``GET /v1/cabin``: ``off`` = przełącznik ``cabin_watch`` albo
@@ -931,14 +1016,22 @@ def config_hash(cfg: Mapping[str, Any]) -> str:
     strony nie kończy się „config_refused” (a ten wymusza tryb testowy
     SMS-a po stłuczce). Tak samo pola ``park_*`` (alarm na postoju, 1.2.0)
     — tylko przy włączonym ``parking_guard``, a ``cabin_*`` (czuwanie
-    kabiny, 1.3.0) — tylko przy włączonym ``cabin_watch``."""
+    kabiny, 1.3.0) — tylko przy włączonym ``cabin_watch``.
+
+    Budzenie IR (1.4.0) idzie dalej, bo dokłada też PRZEŁĄCZNIK: wyłączony
+    ``toggles.remote_session`` nie liczy się do skrótu wcale (BCM wysyła go
+    tylko włączony, a agent ≤ 1.3.0 zna cztery przełączniki), a pola
+    ``wake_*`` — tylko przy włączonym."""
     toggles = cfg.get("toggles")
     on = isinstance(toggles, Mapping) and toggles.get("call112") is True
     park = isinstance(toggles, Mapping) and toggles.get("parking_guard") is True
     cabin = isinstance(toggles, Mapping) and toggles.get("cabin_watch") is True
+    wake = isinstance(toggles, Mapping) and toggles.get("remote_session") is True
     view = {k: v for k, v in cfg.items()
             if (on or not k.startswith("call112_")) and (park or not k.startswith("park_"))
-            and (cabin or not k.startswith("cabin_"))}
+            and (cabin or not k.startswith("cabin_")) and (wake or not k.startswith("wake_"))}
+    if isinstance(toggles, Mapping) and not wake:
+        view["toggles"] = {k: v for k, v in toggles.items() if k != "remote_session"}
     return sha256_hex(canonical_json(view).encode("ascii"))[:16]
 
 
@@ -1258,6 +1351,155 @@ def _digits(num: Any) -> str:
     return re.sub(r"[^0-9]", "", num) if isinstance(num, str) else ""
 
 
+# ── budzenie IR (plan E): czyste funkcje ──────────────────────────────────
+
+def nec_frame(address: int, command: int) -> list:
+    """Jedna ramka NEC jako czasy znacznik/przerwa w µs (zaczyna i kończy
+    się znacznikiem): prowadzący 9 ms + 4,5 ms, 32 bity od najmłodszego —
+    adres 16 bitów (młodszy bajt pierwszy), polecenie, negacja polecenia —
+    i znacznik końcowy. Ten sam układ dekoduje wake_logic.h."""
+    data = (address & 0xFFFF) | ((command & 0xFF) << 16) | (((~command) & 0xFF) << 24)
+    out = [NEC_LEAD_MARK_US, NEC_LEAD_SPACE_US]
+    for i in range(32):
+        out.append(NEC_BIT_MARK_US)
+        out.append(NEC_ONE_US if (data >> i) & 1 else NEC_ZERO_US)
+    out.append(NEC_BIT_MARK_US)
+    return out
+
+
+def nec_pattern(address: Any, command: Any, frames: int = NEC_FRAMES) -> Optional[list]:
+    """Wzorzec ``termux-infrared-transmit``: ``frames`` ramek co
+    :data:`NEC_PERIOD_US` (przerwa dopełnia okres). None dla czegokolwiek
+    poza liczbą całkowitą adresu 0..65535 i polecenia 0..255 — nic innego
+    nie trafia do wiersza polecenia."""
+    for v, hi in ((address, 0xFFFF), (command, 0xFF)):
+        if isinstance(v, bool) or not isinstance(v, int) or not 0 <= v <= hi:
+            return None
+    if isinstance(frames, bool) or not isinstance(frames, int) or not 1 <= frames <= 5:
+        return None
+    frame = nec_frame(address, command)
+    out: list = []
+    for i in range(frames):
+        if i:
+            out.append(NEC_PERIOD_US - sum(frame))     # przerwa (po znaczniku)
+        out.extend(frame)
+    return out
+
+
+def ir_argv(pattern: list) -> list:
+    """Stała lista argumentów: program, ``-f 38000`` i wzorzec z liczb."""
+    if not isinstance(pattern, list) or not pattern or len(pattern) > 400 or not all(
+            isinstance(v, int) and not isinstance(v, bool) and 1 <= v <= 200000 for v in pattern):
+        raise ValueError("bad IR pattern")
+    return ["termux-infrared-transmit", "-f", str(IR_CARRIER_HZ),
+            ",".join(str(int(v)) for v in pattern)]
+
+
+def wake_reply_text(label: str, result: str) -> str:
+    """Odpowiedź na SMS ``WAKE <kod>`` (GSM-7, bez polskich liter)."""
+    return {
+        "sent": f"{label}: BUDZENIE wyslane",
+        "off": f"{label}: BUDZENIE wylaczone w telefonie",
+        "rate": (f"{label}: BUDZENIE odrzucone - limit (1 na minute, {WAKE_MAX_PER_HOUR} na "
+                 f"godzine, {WAKE_MAX_PER_DAY} na dobe)"),
+        "busy": f"{label}: BUDZENIE odrzucone - trwa inne budzenie",
+    }.get(result, f"{label}: BUDZENIE nieudane - brak nadajnika IR albo blad Termux:API")
+
+
+def _wake_lock(path: str, wait_s: float) -> Optional[int]:
+    """Wyłączna blokada pliku (agent i ``--wake`` to dwa procesy) albo None
+    po ``wait_s`` (inna próba trwa). Bez fcntl — bez blokady (nie Termux)."""
+    fd = os.open(path, os.O_RDWR | os.O_CREAT, 0o600)
+    if fcntl is None:               # pragma: no cover
+        return fd
+    deadline = time.monotonic() + wait_s
+    while True:
+        try:
+            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            return fd
+        except OSError:
+            if time.monotonic() >= deadline:
+                os.close(fd)
+                return None
+            time.sleep(0.1)
+
+
+def _wake_walls(raw: Any, wall: float) -> list:
+    """Znaczniki z ``wake.json`` z ostatniej doby (bez śmieci, najwyżej 32)."""
+    out = [float(w) for w in raw if _number(w, EVENT_TS_MIN, EVENT_TS_MAX) is not None] \
+        if isinstance(raw, list) else []
+    return sorted(w for w in out if abs(wall - w) < DAY_S)[-32:]
+
+
+def wake_ir(state_dir: str, transmit: Callable[[list], "tuple[bool, str]"],
+            cfg: Mapping[str, Any], wall: float, source: str,
+            lock_wait_s: float = WAKE_LOCK_WAIT_S) -> str:
+    """Jedna próba budzenia: przełącznik, limit, nadanie, zapis — pod
+    blokadą pliku. Zwraca jeden z :data:`WAKE_RESULTS`. Nigdy nie rzuca.
+
+    ``transmit(pattern) -> (ok, powód)`` to :meth:`Phone.ir_transmit`
+    (testy: atrapa). Limit: najwyżej 1 próba na :data:`WAKE_COOLDOWN_S`
+    (także nieudana — zepsuty nadajnik nie jest męczony co SMS), 3 udane na
+    godzinę i 6 na dobę. ``source``: ``sms`` / ``local`` (tylko do logu)."""
+    toggles = cfg.get("toggles") if isinstance(cfg, Mapping) else None
+    if not (isinstance(toggles, Mapping) and toggles.get("remote_session") is True):
+        log.warning("WAKE (%s): refused — remote_session is off on the phone", source)
+        return "off"
+    pattern = nec_pattern(cfg.get("wake_ir_address"), cfg.get("wake_ir_command"))
+    if pattern is None:
+        log.error("WAKE (%s): bad IR code in the config — not sent", source)
+        return "failed"
+    try:
+        fd = _wake_lock(os.path.join(state_dir, WAKE_LOCK_FILE), lock_wait_s)
+    except OSError as e:
+        log.error("WAKE (%s): cannot open the lock file: %s", source, _clean(e))
+        return "failed"
+    if fd is None:
+        log.warning("WAKE (%s): another wake is in progress", source)
+        return "busy"
+    try:
+        path = os.path.join(state_dir, WAKE_FILE)
+        try:
+            raw = read_small(path, 16384)
+            st = json.loads(raw.decode("utf-8"), parse_constant=_reject_constant) if raw else {}
+        except (OSError, ValueError, UnicodeDecodeError, RecursionError):
+            st = {}
+        if not isinstance(st, dict):
+            st = {}
+        tries, sent = _wake_walls(st.get("tries"), wall), _wake_walls(st.get("sent"), wall)
+        if (tries and abs(wall - tries[-1]) < WAKE_COOLDOWN_S) or len(sent) >= WAKE_MAX_PER_DAY \
+                or len([w for w in sent if abs(wall - w) < 3600]) >= WAKE_MAX_PER_HOUR:
+            log.warning("WAKE (%s): refused — limit (1 per %d s, %d per hour, %d per day)",
+                        source, WAKE_COOLDOWN_S, WAKE_MAX_PER_HOUR, WAKE_MAX_PER_DAY)
+            return "rate"
+        tries.append(wall)
+        try:
+            ok, why = transmit(pattern)
+        except Exception as e:          # atrapa / nieprzewidziany błąd — nie wywracaj wątku
+            ok, why = False, _clean(e)
+        if ok:
+            sent.append(wall)
+        result = "sent" if ok else ("no_ir" if why == "no_ir" else "failed")
+        st = {"tries": tries[-32:], "sent": sent[-32:],
+              "last": {"wall": int(wall), "result": result,
+                       "source": source if source in ("sms", "local") else "local"}}
+        try:
+            atomic_write(path, canonical_json(st).encode("ascii"))
+        except OSError as e:
+            log.error("WAKE: cannot save %s: %s", WAKE_FILE, _clean(e))
+        if ok:
+            log.warning("WAKE (%s): IR frame sent (3 frames, NEC %#06x/%#04x)", source,
+                        cfg.get("wake_ir_address"), cfg.get("wake_ir_command"))
+        else:
+            log.warning("WAKE (%s): IR transmit failed (%s)", source, why or "?")
+        return result
+    finally:
+        try:
+            os.close(fd)                # zamknięcie zwalnia blokadę flock
+        except OSError:
+            pass
+
+
 class Phone:
     """Termux:API przez ``runner``. Każda metoda nigdy nie rzuca."""
 
@@ -1383,6 +1625,23 @@ class Phone:
             return False, detail or f"termux-sms-send exit {rc}", rc == RC_TIMEOUT
         self.sms_permission = True
         return True, "", True
+
+    def ir_transmit(self, pattern: list) -> tuple[bool, str]:
+        """``termux-infrared-transmit -f 38000 <wzorzec>`` (budzenie, plan E):
+        ``(True, "")`` albo ``(False, powód)``. Powodzenie = kod 0 i puste
+        wyjście — Termux:API pisze tekst, gdy nie ma nadajnika albo
+        parametry są złe (NIESPRAWDZONE na crDroid 13). Nigdy nie rzuca."""
+        try:
+            argv = ir_argv(pattern)
+        except ValueError:
+            return False, "bad_pattern"
+        rc, out, err = self._run(argv, None, IR_TIMEOUT_S)
+        if rc == RC_MISSING:
+            return False, "no_ir"
+        text = ((out or "") + (err or "")).strip()
+        if rc != 0 or text:
+            return False, _clean(text or f"rc {rc}", 80)
+        return True, ""
 
     def su(self, command: str, timeout: float = SU_TIMEOUT_S) -> tuple[int, str, str]:
         """Jedno polecenie przez Magisk ``su -c`` (patrz :func:`su_argv`:
@@ -3450,7 +3709,8 @@ def parse_park_command(body: Any) -> Optional[tuple[str, str]]:
     """Treść SMS-a → ``(polecenie, kod)``: wielkość liter i spacje bez
     znaczenia (``park off 123 456`` = ``PARKOFF123456``). Polecenia:
     POZYCJA / GDZIE → ``position``, PARK ON / OFF / STATUS → ``on`` /
-    ``off`` / ``status``. Zawsze z 6-cyfrowym kodem TOTP."""
+    ``off`` / ``status``, WAKE → ``wake`` (budzenie komputera IR, plan E).
+    Zawsze z 6-cyfrowym kodem TOTP."""
     if not isinstance(body, str) or len(body) > PARK_SMS_MAX_BODY:
         return None
     m = _PARK_CMD_RE.fullmatch(re.sub(r"\s+", "", body).upper())
@@ -4518,6 +4778,10 @@ class ParkGuard:
     def _on(self) -> bool:
         return bool(self.a.config["toggles"]["parking_guard"])
 
+    def _wake_on(self) -> bool:
+        """Budzenie IR (plan E) — przełącznik ``remote_session`` z BCM."""
+        return bool(self.a.config["toggles"].get("remote_session"))
+
     def _local_numbers(self) -> list:
         """Numery ustawione w telefonie (``--park-numbers``), czytane
         ponownie tylko po zmianie pliku."""
@@ -4935,11 +5199,17 @@ class ParkGuard:
         a = self.a
         with a._lock:
             on = self._on()
+            wake = self._wake_on()
             if not on:
                 self._disarm_locked("off", a._wall())
         if not on:
             self._sensor_off()
             self._drain_detections()
+            # Budzenie IR działa też bez alarmu na postoju: skrzynka SMS
+            # tylko dla ``WAKE <kod>`` (pozostałe polecenia są wtedy pomijane).
+            if wake and self._inbox_due(a._clock()):
+                self._poll_inbox()
+            self._run_wake_jobs()
             return PARK_MAX_WAIT_S
         now = a._clock()
         if self._battery_due(now):
@@ -5158,6 +5428,15 @@ class ParkGuard:
         with self.a._lock:
             nums = self.numbers_locked()
         if not nums:
+            self._inbox_at = now
+            if self._wake_on():
+                # Bez alarmu na postoju BCM nie przysyła park_numbers (są
+                # tylko w jego konfiguracji alarmu) — WAKE nie zadziałałby
+                # wtedy po cichu. Raz w logu, z poleceniem naprawy.
+                self._warn_once("no_numbers_cmd",
+                                "PARK: no numbers for SMS commands (WAKE) — park_numbers come "
+                                "from BCM only with modules.parking_guard on; otherwise run: "
+                                "python ~/bcm_agent/bcm_agent.py --park-numbers '+48...'")
             return False
         if self.totp_key() is None:
             self._inbox_at = now
@@ -5219,6 +5498,13 @@ class ParkGuard:
         if cmd is None:
             log.info("PARK: an SMS from %s is not a command — ignored", mask_number(owner))
             return None
+        with self.a._lock:
+            allowed = self._wake_on() if cmd[0] == "wake" else self._on()
+        if not allowed:
+            # Kod NIE jest zużywany: polecenie wyłączonej funkcji to nie próba.
+            log.info("PARK: SMS command %s from %s ignored — that function is off on the phone",
+                     cmd[0], mask_number(owner))
+            return None
         return rwall, owner, cmd[0], cmd[1]
 
     def _command(self, num: str, cmd: str, code: str, rwall: float) -> None:
@@ -5263,6 +5549,14 @@ class ParkGuard:
                     self.wake.set()
                 self._save_locked()
                 return
+            if cmd == "wake":
+                # Nadanie IR poza blokadą (wątek postoju, _run_wake_jobs);
+                # odpowiedź SMS dopiero z wynikiem.
+                if len(self._jobs) < PARK_MAX_JOBS:
+                    self._jobs.append({"kind": "wake", "num": num, "wall": wall})
+                    self.wake.set()
+                self._save_locked()
+                return
             if cmd == "on":
                 delay = cfg["park_arm_delay_min"]
                 res = self._arm_locked("sms", delay, False, wall)
@@ -5278,10 +5572,35 @@ class ParkGuard:
 
     # ── zadania z pozycją (GPS na żądanie) ────────────────────────────────
 
+    def _run_wake_jobs(self) -> None:
+        """``WAKE <kod>`` (plan E): nadanie IR poza blokadą agenta
+        (:func:`wake_ir` — przełącznik, limit, blokada pliku), potem
+        odpowiedź SMS z wynikiem do numeru z LISTY, w budżecie odpowiedzi."""
+        a = self.a
+        with a._lock:
+            jobs = [j for j in self._jobs if j["kind"] == "wake"]
+            if not jobs:
+                return
+            self._jobs = [j for j in self._jobs if j["kind"] != "wake"]
+            cfg = dict(a.config)
+            label = cfg["vehicle_label"]
+        for job in jobs:
+            # Krótkie czekanie na blokadę: to wątek postoju (bateria,
+            # skrzynka, czujnik) — trwające ``--wake`` = odpowiedź „busy”.
+            result = wake_ir(a.dir, a.phone.ir_transmit, cfg, a._wall(), "sms",
+                             lock_wait_s=WAKE_LOCK_WAIT_SMS_S)
+            with a._lock:
+                wall = a._wall()
+                if self._reply_ok_locked(job["num"], wall):
+                    self._queue_sms_locked("park_reply", wake_reply_text(label, result),
+                                           [job["num"]], wall)
+                self._save_locked()
+
     def _run_jobs(self) -> None:
-        """Zadania wymagające poleceń w telefonie — poza blokadą: pozycja
-        (POZYCJA, alarm, strefa „dom”) i paczka próbek przed samym
+        """Zadania wymagające poleceń w telefonie — poza blokadą: budzenie IR,
+        pozycja (POZYCJA, alarm, strefa „dom”) i paczka próbek przed samym
         uzbrojeniem („czy auto jedzie”)."""
+        self._run_wake_jobs()
         a = self.a
         with a._lock:
             jobs = list(self._jobs)
@@ -6502,7 +6821,9 @@ def default_config() -> dict:
             # Alarm na postoju: bez numerów, tylko log (przełącznik i tak off).
             **{k: (list(v) if isinstance(v, list) else v) for k, v in PARK_DEFAULTS.items()},
             # Czuwanie kabiny: okno wejścia 60 s, próg 3%, bez maski, skok światła ×5 i +5 lux.
-            **{k: (list(v) if isinstance(v, list) else v) for k, v in CABIN_DEFAULTS.items()}}
+            **{k: (list(v) if isinstance(v, list) else v) for k, v in CABIN_DEFAULTS.items()},
+            # Budzenie IR: kod domyślny z firmware (przełącznik i tak off).
+            **WAKE_DEFAULTS}
 
 
 def normalize_config(obj: Any, strict: bool = False) -> tuple[Optional[dict], str]:
@@ -6564,6 +6885,24 @@ def normalize_config(obj: Any, strict: bool = False) -> tuple[Optional[dict], st
     if cabin is None:
         return None, err
     out.update(cabin)
+    wake, err = normalize_wake_config(obj, base)
+    if wake is None:
+        return None, err
+    out.update(wake)
+    return out, ""
+
+
+def normalize_wake_config(obj: dict, base: dict) -> tuple[Optional[dict], str]:
+    """Pola ``wake_*`` (budzenie IR) — opcjonalne (BCM wysyła je tylko
+    z włączonym ``modules.remote_session``), ale podane muszą być liczbami
+    całkowitymi w zakresie: to z nich (i tylko z nich) powstaje wzorzec
+    ``termux-infrared-transmit``."""
+    out: dict[str, Any] = {}
+    for key, hi in (("wake_ir_address", 0xFFFF), ("wake_ir_command", 0xFF)):
+        v = obj.get(key, base[key])
+        if isinstance(v, bool) or not isinstance(v, int) or not 0 <= v <= hi:
+            return None, f"{key}: integer 0..{hi}"
+        out[key] = int(v)
     return out, ""
 
 
@@ -6855,6 +7194,42 @@ def write_park_numbers(state_dir: str, text: str, out: Any = None) -> int:
     return 0
 
 
+#: ``--wake``: kod wyjścia dla wake.sh (komunikat w Termux:Widget).
+WAKE_EXIT = {"sent": 0, "off": 3, "rate": 4, "busy": 5, "no_ir": 6, "failed": 6}
+
+
+def run_wake(state_dir: str, out: Any = None,
+             transmit: Optional[Callable[[list], "tuple[bool, str]"]] = None,
+             wall: Callable[[], float] = time.time) -> int:
+    """``--wake``: jedna próba budzenia komputera w aucie (plan E) bez
+    serwera — ten sam limit i ta sama blokada pliku co ``WAKE <kod>``
+    w działającym agencie. Konfiguracja (przełącznik ``remote_session``,
+    kod IR) z ``config.json`` zapisanego przez agenta. Kod wyjścia:
+    :data:`WAKE_EXIT`."""
+    out = out if out is not None else sys.stdout
+    raw = None
+    try:
+        raw = read_small(os.path.join(state_dir, "config.json"))
+        obj = json.loads(raw.decode("utf-8"), parse_constant=_reject_constant) if raw else {}
+    except (OSError, ValueError, UnicodeDecodeError, RecursionError):
+        obj = {}
+    cfg, _err = normalize_config(obj if isinstance(obj, dict) else {})
+    if cfg is None:
+        cfg = default_config()
+    if transmit is None:
+        transmit = Phone(default_runner, boot_clock).ir_transmit
+    result = wake_ir(state_dir, transmit, cfg, wall(), "local")
+    print({"sent": "Budzenie wyslane (3 ramki IR).",
+           "off": "Budzenie wylaczone - wlacz modules.remote_session w BCM (konfiguracja "
+                  "przychodzi z BCM).",
+           "rate": f"Limit budzenia: 1 na minute, {WAKE_MAX_PER_HOUR} na godzine, "
+                   f"{WAKE_MAX_PER_DAY} na dobe.",
+           "busy": "Trwa inne budzenie - sprobuj za chwile.",
+           }.get(result, "Budzenie nieudane - brak nadajnika IR albo blad Termux:API "
+                         "(termux-infrared-frequencies)."), file=out)
+    return WAKE_EXIT.get(result, 6)
+
+
 def main(argv: Optional[list] = None) -> int:
     parser = argparse.ArgumentParser(description="BCM agent for the car phone (Termux)")
     parser.add_argument("--port", type=int, default=DEFAULT_PORT,
@@ -6871,6 +7246,9 @@ def main(argv: Optional[list] = None) -> int:
     parser.add_argument("--park-numbers", metavar="LIST", default=None,
                         help="parking guard: allowed numbers set on the phone (comma "
                              "separated E.164, '' clears), exit")
+    parser.add_argument("--wake", action="store_true",
+                        help="wake the car computer: send the IR code once (rate-limited; "
+                             "needs remote_session from BCM), exit — wake.sh")
     args = parser.parse_args(argv)
     os.makedirs(args.state_dir, mode=0o700, exist_ok=True)
     if args.pair:
@@ -6879,6 +7257,8 @@ def main(argv: Optional[list] = None) -> int:
         return write_park_setup(args.state_dir, args.new)
     if args.park_numbers is not None:
         return write_park_numbers(args.state_dir, args.park_numbers)
+    if args.wake:
+        return run_wake(args.state_dir)
     setup_logging(args.state_dir, args.verbose)
     agent = Agent(args.state_dir)
     server = make_server(agent, args.port)

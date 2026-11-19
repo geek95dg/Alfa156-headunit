@@ -666,7 +666,9 @@ class TestConfig:
                                 # skok światła ×5 i +5 lux
                                 "cabin_entry_s": 60, "cabin_diff_pct": 3.0,
                                 "cabin_mask": [], "cabin_light_ratio": 5.0,
-                                "cabin_light_lux": 5.0}
+                                "cabin_light_lux": 5.0,
+                                # budzenie IR (plan E): kod z firmware
+                                "wake_ir_address": 0x7A15, "wake_ir_command": 0x56}
 
     def test_put_is_persisted(self, ready, state_dir, runner, clock):
         agent, peer = ready
@@ -698,7 +700,8 @@ class TestConfig:
                                                          toggles={"crash_sms": True, "x": 1}))
         assert status == 200
         assert agent.config["toggles"] == {"crash_sms": True, "parking_guard": False,
-                                           "cabin_watch": False, "call112": False}
+                                           "cabin_watch": False, "call112": False,
+                                           "remote_session": False}
 
 
 # ── crash events ─────────────────────────────────────────────────────────
