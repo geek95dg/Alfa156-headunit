@@ -40,6 +40,7 @@ from src.network.car_phone_agent import TOPIC as _AGENT_TOPIC
 from src.network.phone_tether import HINTS as _TETHER_HINTS
 from src.network.phone_tether import RETRY_TOPIC as _TETHER_RETRY_TOPIC
 from src.network.phone_tether import STATES as _TETHER_STATES
+from src.power import brightness as _brightness
 from src.safety import cabin_watch as _cabin_watch
 from src.safety import call112 as _call112
 from src.safety import crash_sms as _crash_sms
@@ -166,6 +167,12 @@ _CONFIG_FIELDS = (
     ("temp_unit", "units.temperature"),
     ("brightness", "display.dashboard.brightness"),
     ("aa_auto_restart", "multimedia.aa_auto_restart"),
+    # Settings → "Jasność ekranu" (modules.auto_brightness): the dimming
+    # backend — only the two the switch offers (xrandr / auto stay
+    # config-only) — and Auto / Ręczna. src/power/brightness.py applies
+    # both live through config.changed.
+    ("brightness_backend", "display.auto_brightness.backend"),
+    ("brightness_mode", "display.auto_brightness.mode"),
 )
 
 
@@ -212,6 +219,12 @@ def _validate_config_update(data: Any) -> tuple[list[tuple[str, str, Any]], Opti
         elif key == "aa_auto_restart":
             if not isinstance(value, bool):
                 return [], (key, "aa_auto_restart must be true or false")
+        elif key == "brightness_backend":
+            if not isinstance(value, str) or value not in _brightness.UI_BACKENDS:
+                return [], (key, f"brightness_backend must be one of {list(_brightness.UI_BACKENDS)}")
+        elif key == "brightness_mode":
+            if not isinstance(value, str) or value not in _brightness.MODES:
+                return [], (key, f"brightness_mode must be one of {list(_brightness.MODES)}")
         updates.append((key, config_key, value))
     return updates, None
 
@@ -651,6 +664,67 @@ def _cabin_watch_summary(value: Any) -> Optional[dict]:
         "last_event": event,
         "error": error if error in _cabin_watch.ERRORS else "",
     }
+
+
+def _auto_brightness_summary(value: Any) -> Optional[dict]:
+    """``display.brightness_state`` → the Settings row "Jasność ekranu".
+    Second line after src/power/brightness.py: whitelists for every word,
+    numbers by type and range (the payload also reaches network clients in
+    ``readonly`` mode). Never published = module not running = None, and
+    Settings shows no row."""
+    if not isinstance(value, dict):
+        return None
+
+    def pct(v: Any) -> Optional[int]:
+        return v if isinstance(v, int) and not isinstance(v, bool) and 0 <= v <= 100 else None
+
+    def word(v: Any, allowed: tuple, default: str) -> str:
+        return v if isinstance(v, str) and v in allowed else default
+
+    lux = value.get("lux")
+    if isinstance(lux, bool) or not isinstance(lux, (int, float)) or not math.isfinite(lux) \
+            or not 0 <= lux <= _brightness.LUX_MAX:
+        lux = None
+    adc = value.get("adc")
+    if isinstance(adc, bool) or not isinstance(adc, int) or not 0 <= adc <= _brightness.ADC_MAX:
+        adc = None
+    hold = value.get("hold_left_min")
+    if isinstance(hold, bool) or not isinstance(hold, int) or not 0 < hold <= 1440:
+        hold = None
+    return {
+        "mode": word(value.get("mode"), _brightness.MODES, "auto"),
+        "effective": word(value.get("effective"), _brightness.EFFECTIVE, "no_source"),
+        "source": word(value.get("source"), _brightness.SOURCES, ""),
+        "lux": lux,
+        "adc": adc,
+        "pct": pct(value.get("pct")),
+        "target_pct": pct(value.get("target_pct")),
+        "manual_pct": pct(value.get("manual_pct")),
+        "hold_left_min": hold,
+        "min_pct": pct(value.get("min_pct")),
+        "max_pct": pct(value.get("max_pct")),
+        "backend": word(value.get("backend"), _brightness.BACKENDS, "auto"),
+        "active": word(value.get("active"), _brightness.ACTIVE_BACKENDS, "css"),
+        "probe": word(value.get("probe"), _brightness.PROBE_STATES, "idle"),
+        "reason": word(value.get("reason"), _brightness.REASONS, ""),
+    }
+
+
+def _display_dim_summary(value: Any) -> Optional[dict]:
+    """``display.dim`` → ``{level, brightness_pct}`` for the kiosk's ONE
+    dimming overlay (components/dim_overlay.js). ``level`` is the overlay's
+    opacity, capped at :data:`src.power.brightness.CSS_MAX_DIM_LIMIT` — a
+    bad value may dim the screen, never black it out. Anything malformed or
+    never published (module off) = None = no overlay at all."""
+    if not isinstance(value, dict):
+        return None
+    level, pct = value.get("level"), value.get("brightness_pct")
+    if isinstance(level, bool) or not isinstance(level, (int, float)) or not math.isfinite(level) \
+            or not 0 <= level <= _brightness.CSS_MAX_DIM_LIMIT:
+        return None
+    if isinstance(pct, bool) or not isinstance(pct, int) or not 0 <= pct <= 100:
+        pct = None
+    return {"level": round(float(level), 3), "brightness_pct": pct}
 
 
 def _call112_summary(value: Any) -> Optional[dict]:
@@ -1439,6 +1513,13 @@ class WebViewer:
             # row "Czuwanie kabiny" — state and the last event, never a
             # photo. None = module not running (no row).
             "cabin_watch": _cabin_watch_summary(_val(_cabin_watch.TOPIC_STATE)),
+            # Automatic brightness (src/power/brightness.py, modules.
+            # auto_brightness): the Settings row "Jasność ekranu" and the
+            # kiosk's dimming overlay (app.js → components/dim_overlay.js,
+            # below the crash window and the reverse camera). Both None =
+            # module not running = no row and no overlay (production).
+            "auto_brightness": _auto_brightness_summary(_val(_brightness.TOPIC_STATE)),
+            "display_dim": _display_dim_summary(_val(_brightness.TOPIC_DIM)),
             # Phone battery / signal / operator for the top bar
             # (src/multimedia/phone_status.py). Re-sanitised here: values come
             # from the phone; None = module not running (no cluster drawn).
@@ -1971,6 +2052,8 @@ class WebViewer:
                 "temp_unit": cfg.get("units.temperature", "C"),
                 "brightness": cfg.get("display.dashboard.brightness", 70),
                 "aa_auto_restart": cfg.get("multimedia.aa_auto_restart", True),
+                "brightness_backend": cfg.get("display.auto_brightness.backend", "auto"),
+                "brightness_mode": cfg.get("display.auto_brightness.mode", "auto"),
             })
 
         @app.route("/api/config", methods=["POST"])
@@ -1990,6 +2073,19 @@ class WebViewer:
             for _key, config_key, value in updates:
                 cfg.set(config_key, value)
             applied = {key: value for key, _ck, value in updates}
+
+            # "Ręczna" (modules.auto_brightness) freezes what is on screen
+            # now: the running controller's level is saved as the slider
+            # value too, so neither this change nor the next boot (every
+            # drive of the test car is one) jumps to an older, maybe much
+            # brighter slider value in a dark cabin. A slider value sent in
+            # the same request wins. Module not running: nothing to freeze.
+            if applied.get("brightness_mode") == "manual" and "brightness" not in applied:
+                ctrl = _brightness.get_brightness_controller()
+                level = ctrl.brightness if ctrl is not None else None
+                if isinstance(level, int) and not isinstance(level, bool) and 0 <= level <= 100:
+                    cfg.set("display.dashboard.brightness", level)
+                    applied["brightness"] = level
 
             if "aa_auto_restart" in applied:
                 openauto = _get_openauto()

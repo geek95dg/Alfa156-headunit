@@ -258,7 +258,7 @@ fi
 # ignition watcher) stays stopped.
 systemctl try-restart bcm-headunit.service 2>/dev/null || true
 
-echo "==> 6/8  Car phone tools (adb for modules.car_phone)"
+echo "==> 6/8  Car phone and screen tools (adb for modules.car_phone, ddcutil + i2c-dev for modules.auto_brightness)"
 # adb = the car phone module (src/network/car_phone.py): USB tethering, GPS
 # forward, battery. Checked like ofono above — a missing adb is said
 # loudly, the module then only shows "brak adb". Debian package only.
@@ -269,6 +269,23 @@ else
     echo "    WARNING: adb is NOT installed — the car phone (modules.car_phone) will NOT work."
     echo "             Fix: sudo apt-get install adb, then re-run this script."
 fi
+# ddcutil = OPTIONAL hardware dimming over DDC/CI (Settings → "Jasność
+# ekranu" → "Sprzętowe (DDC/CI)"; BCM probes the monitor itself). Missing =
+# BCM keeps the software dimming, so only a warning. i2c-dev gives ddcutil
+# its /dev/i2c-*; loaded at every boot from the file below (cleanup-x86.sh
+# removes it) and now.
+apt-get install -y ddcutil || true
+if command -v ddcutil >/dev/null 2>&1; then
+    echo "    ddcutil: $(command -v ddcutil)"
+else
+    echo "    WARNING: ddcutil is NOT installed — hardware dimming (DDC/CI) will NOT work; BCM keeps software dimming."
+    echo "             Fix: sudo apt-get install ddcutil, then re-run this script."
+fi
+cat > /etc/modules-load.d/bcm-i2c.conf <<'EOF'
+# BCM: /dev/i2c-* for ddcutil (DDC/CI dimming, modules.auto_brightness)
+i2c-dev
+EOF
+modprobe i2c-dev 2>/dev/null || echo "    WARNING: modprobe i2c-dev failed — DDC/CI needs it (it loads at the next boot)."
 # bcm-timesync.sh now leaves /run/bcm-timesync.ok on success; car_phone
 # reads it to decide whether the phone's clock may be used (plan D1).
 if [ -f /usr/local/bin/bcm-timesync.sh ]; then

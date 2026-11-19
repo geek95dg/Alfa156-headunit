@@ -35,9 +35,10 @@ NEW_TOGGLES = ("car_phone", "car_phone_hotspot", "phone_sensors", "auto_brightne
 #: D3: src/sensors/phone_sensors.py, F: src/network/car_phone_agent.py and
 #: src/safety/crash_sms.py, H: src/safety/call112.py, D4:
 #: src/safety/parking_guard.py + the agent's ParkGuard, I:
-#: src/safety/cabin_watch.py + the agent's CabinWatch).
+#: src/safety/cabin_watch.py + the agent's CabinWatch, D3 light:
+#: src/power/brightness.py).
 IMPLEMENTED = ("car_phone", "car_phone_hotspot", "phone_sensors", "car_phone_agent",
-               "crash_sms", "call112", "parking_guard", "cabin_watch")
+               "crash_sms", "call112", "parking_guard", "cabin_watch", "auto_brightness")
 #: ... and these are still planned (listed, never started).
 PLANNED = tuple(n for n in NEW_TOGGLES if n not in IMPLEMENTED)
 
@@ -90,6 +91,8 @@ class TestShippedCatalog:
                                                         "start_parking_guard")
         assert mc.MODULES["cabin_watch"]["entry"] == ("src.safety.cabin_watch",
                                                       "start_cabin_watch")
+        assert mc.MODULES["auto_brightness"]["entry"] == ("src.power.brightness",
+                                                          "start_auto_brightness")
 
     @pytest.mark.parametrize("cfg_name", ["bcm_config.yaml", "bcm_config_test.yaml"])
     @pytest.mark.parametrize("name", NEW_TOGGLES)
@@ -227,8 +230,11 @@ class TestEnablePlan:
         # cabin_watch has code: the agent chain and the parking guard under it
         assert mc.enable_plan(mc.MODULES, mc.enabled_map(cfg), "cabin_watch") == [
             "car_phone", "car_phone_agent", "parking_guard"]
+        # auto_brightness has code: production runs input, one light source
+        # of the requires_any group is enough
+        assert mc.enable_plan(mc.MODULES, mc.enabled_map(cfg), "auto_brightness") == []
         # still planned: nothing to offer
-        assert mc.enable_plan(mc.MODULES, mc.enabled_map(cfg), "auto_brightness") is None
+        assert mc.enable_plan(mc.MODULES, mc.enabled_map(cfg), "remote_session") is None
 
     def test_would_stop(self):
         cat = _cat(bt=None, pb=("bt",), ps=("pb",), other=None)
@@ -349,15 +355,34 @@ class TestMainStartPath:
             assert len(hits) == 1 and "missing dependency bluetooth" in hits[0], msgs
 
     def test_planned_module_switched_on_is_reported_not_started(self, spies, caplog):
-        cfg = _cfg(auto_brightness=True, remote_session=True)
+        cfg = _cfg(remote_session=True)
         states = _start(cfg)
-        assert not states["auto_brightness"].runs and not states["remote_session"].runs
+        assert not states["remote_session"].runs
         log = logging.getLogger("bcm.main.test")
         with caplog.at_level(logging.WARNING, logger="bcm.main.test"):
-            assert main.report_blocked_modules(states, log) == 2
+            assert main.report_blocked_modules(states, log) == 1
         recs = [r.getMessage() for r in caplog.records if r.name == "bcm.main.test"]
-        assert len(recs) == 2 and all("not available in this version" in m for m in recs), recs
+        assert len(recs) == 1 and all("not available in this version" in m for m in recs), recs
         assert not any(n in spies for n in NEW_TOGGLES)
+
+    def test_auto_brightness_needs_one_light_source(self, spies, caplog):
+        # neither the car phone's sensors nor the input module (Arduino LDR)
+        states = _start(_cfg(auto_brightness=True, input=False))
+        assert not states["auto_brightness"].runs and "auto_brightness" not in spies
+        assert states["auto_brightness"].blocked_by == (("phone_sensors", "input"),)
+        log = logging.getLogger("bcm.main.test")
+        with caplog.at_level(logging.WARNING, logger="bcm.main.test"):
+            assert main.report_blocked_modules(states, log) == 1
+        recs = [r.getMessage() for r in caplog.records if r.name == "bcm.main.test"]
+        assert recs[0].startswith("Module auto_brightness not started"), recs
+        # either source is enough
+        spies.clear()
+        assert _start(_cfg(auto_brightness=True))["auto_brightness"].runs is True
+        assert "auto_brightness" in spies
+        spies.clear()
+        states = _start(_cfg(auto_brightness=True, input=False, car_phone=True,
+                             phone_sensors=True))
+        assert states["auto_brightness"].runs is True and "auto_brightness" in spies
 
     def test_parking_guard_without_the_agent_is_reported_not_started(self, spies, caplog):
         states = _start(_cfg(parking_guard=True))

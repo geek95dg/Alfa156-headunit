@@ -623,11 +623,23 @@ const App = (() => {
         CrashModal.sync(data ? data.crash_sms : null, data ? data.call112 : null);
     }
 
+    // --- Software dimming (modules.auto_brightness, display.dim from
+    // src/power/brightness.py) ---
+    // components/dim_overlay.js draws ONE black overlay on <body> (z-index
+    // 190: under #reverse-overlay 200 and #crash-modal 300, which stay fully
+    // bright; pointer-events:none). No data.display_dim (module off) = no
+    // overlay.
+    function _syncDim(data) {
+        if (typeof DimOverlay === "undefined" || !DimOverlay) return;
+        DimOverlay.sync(data ? data.display_dim : null);
+    }
+
     /** Update current screen with new data */
     function onDataUpdate(data) {
         // The crash window first: it must appear even if a screen's update()
         // throws further down.
         try { _syncCrashState(data); } catch (e) { /* never break the data loop */ }
+        try { _syncDim(data); } catch (e) { /* never break the data loop */ }
         // Calls first: may switch to A8, whose update() then sees fresh state.
         try { _syncCallState(data); } catch (e) { /* never break the data loop */ }
         if (_renderers[_currentScreen] && _renderers[_currentScreen].update) {

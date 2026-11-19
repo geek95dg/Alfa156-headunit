@@ -894,6 +894,219 @@ const Settings = {
         </div>`;
     },
 
+    // Jasność ekranu (src/power/brightness.py, modules.auto_brightness).
+    // data.auto_brightness = web_viewer._auto_brightness_summary(
+    // display.brightness_state), or null while the module is not running
+    // (production: no row). Auto / Ręczna, the slider
+    // (display.dashboard.brightness) and "Ściemnianie: Programowe /
+    // Sprzętowe (DDC/CI)" all go through the whitelisted POST /api/config
+    // into local.yaml; the module applies them live (config.changed). The
+    // DDC probe runs in BCM — the driver cannot run ddcutil from a terminal
+    // in the car — and the row says why hardware dimming is unavailable.
+    // data-* + ONE delegated listener (brightListen); the slider is never
+    // redrawn under the finger.
+    _bright: { listening: false, down: false, inputAt: 0, sentAt: 0, msg: "" },
+    _brightColors: {
+        auto: "var(--color-primary)", hold: "var(--text-mid)", manual: "var(--text-mid)",
+        stale: "#d97706", no_source: "#d97706",
+    },
+
+    /** True while the driver drags the slider (pointer down, or an input
+     *  event in the last 1.5 s). */
+    brightDragging() {
+        return Settings._bright.down || Date.now() - Settings._bright.inputAt < 1500;
+    },
+
+    _brightHas(obj, k) {
+        return typeof k === "string" && Object.prototype.hasOwnProperty.call(obj, k);
+    },
+
+    _brightPct(v) {
+        return Number.isInteger(v) && v >= 0 && v <= 100 ? v : null;
+    },
+
+    /** "Auto · 120 lx · 45%", "Ręczna — wraca do auto za 8 min · 70%", …
+     *  Plain text (goes through textContent or _esc). */
+    brightnessStatusText(ab, t) {
+        t = t || ((k, d) => d);
+        if (!ab || typeof ab !== "object") return "";
+        const parts = [];
+        const eff = ab.effective;
+        if (eff === "auto") {
+            parts.push(t("bright_auto", "Auto") + (ab.source === "arduino"
+                ? " (" + t("bright_src_arduino", "czujnik Arduino") + ")"
+                : (ab.source === "phone" ? " (" + t("bright_src_phone", "telefon") + ")" : "")));
+        } else if (eff === "hold") {
+            const n = Number.isInteger(ab.hold_left_min) && ab.hold_left_min > 0 ? ab.hold_left_min : null;
+            parts.push(t("bright_hold", "Ręczna — wraca do auto za") + (n ? " " + n + " min" : ""));
+        } else if (eff === "manual") {
+            parts.push(t("bright_manual", "Ręczna"));
+        } else if (eff === "stale") {
+            parts.push(t("bright_stale", "czujnik światła nie odpowiada — trzymam ostatnią jasność"));
+        } else {
+            parts.push(t("bright_no_source", "brak czujnika światła — jasność ręczna"));
+        }
+        if (typeof ab.lux === "number" && isFinite(ab.lux) && ab.lux >= 0) {
+            parts.push((ab.lux < 10 ? ab.lux.toFixed(1) : String(Math.round(ab.lux))) + " lx");
+        }
+        const pct = Settings._brightPct(ab.pct);
+        if (pct !== null) parts.push(pct + "%");
+        return parts.join(" · ");
+    },
+
+    /** The line under the dimming switch: probing / works / why not. */
+    brightnessBackendText(ab, t) {
+        t = t || ((k, d) => d);
+        if (!ab || typeof ab !== "object") return "";
+        const reasons = {
+            no_ddcutil: t("bright_r_no_ddcutil", "brak programu ddcutil (sudo apt install ddcutil)"),
+            no_i2c: t("bright_r_no_i2c", "brak /dev/i2c-* (sudo modprobe i2c-dev)"),
+            no_display: t("bright_r_no_display", "monitor nie odpowiada przez DDC/CI"),
+            no_vcp: t("bright_r_no_vcp", "monitor nie podaje jasności (VCP 10)"),
+            timeout: t("bright_r_timeout", "ddcutil nie odpowiedział na czas"),
+            write_failed: t("bright_r_write_failed", "monitor przestał przyjmować jasność"),
+            no_xrandr: t("bright_r_no_xrandr", "brak programu xrandr"),
+            xrandr_config: t("bright_r_xrandr_config", "zła konfiguracja display.auto_brightness.xrandr"),
+            xrandr_failed: t("bright_r_xrandr_failed", "xrandr odmówił"),
+        };
+        if (ab.probe === "probing") return t("bright_probing", "sprawdzam monitor (DDC/CI)…");
+        if (ab.probe === "failed") {
+            const why = Settings._brightHas(reasons, ab.reason) ? reasons[ab.reason] : t("bright_r_error", "nieznany błąd");
+            const head = ab.backend === "xrandr" ? t("bright_xrandr_fail", "xrandr niedostępny")
+                : t("bright_ddc_fail", "Sprzętowe niedostępne");
+            return head + ": " + why + " — " + t("bright_use_css", "używam programowego");
+        }
+        if (ab.active === "ddc") return t("bright_ddc_ok", "Sprzętowe: DDC/CI działa");
+        if (ab.active === "xrandr") return t("bright_xrandr_ok", "xrandr (z config/local.yaml)");
+        return "";
+    },
+
+    /** Everything the row draws except the live numbers (status text, the
+     *  slider position): a change of this key redraws the row. */
+    brightnessRowKey(ab) {
+        if (!ab || typeof ab !== "object") return "null";
+        return JSON.stringify([ab.mode, ab.effective, ab.source, ab.min_pct, ab.backend,
+            ab.active, ab.probe, ab.reason, Settings._bright.msg]);
+    },
+
+    /** The row "Jasność ekranu: Auto (telefon) · 120 lx · 45%", Auto /
+     *  Ręczna, the slider and the dimming switch. '' without a payload.
+     *  Inline styles only; every value escaped / type-checked. */
+    brightnessRowHtml(ab, t) {
+        t = t || ((k, d) => d);
+        if (!ab || typeof ab !== "object") return "";
+        const esc = Settings._esc;
+        const has = Settings._brightHas;
+        const eff = has(Settings._brightColors, ab.effective) ? ab.effective : "no_source";
+        const color = Settings._brightColors[eff];
+        const pct = Settings._brightPct(ab.pct);
+        const lo = Settings._brightPct(ab.min_pct);
+        const sel = (on) => on
+            ? "background:var(--color-primary);color:#fff;border:1px solid var(--color-primary)"
+            : "background:var(--card-bg);color:var(--text-mid);border:1px solid var(--card-border)";
+        const btn = (attr, label, on) => `<button ${attr} aria-pressed="${on ? "true" : "false"}" style="padding:6px 12px;border-radius:8px;font-size:12px;font-weight:700;${sel(on)}">${esc(label)}</button>`;
+        const manual = ab.mode === "manual";
+        const modeHtml = btn('data-bright-mode="auto"', t("bright_auto", "Auto"), !manual)
+            + btn('data-bright-mode="manual"', t("bright_manual", "Ręczna"), manual);
+        const slider = `<input data-bright-slider type="range" min="${lo !== null ? lo : 5}" max="100" step="1" value="${pct !== null ? pct : 100}" aria-label="${esc(t("bright_title", "Jasność ekranu"))}" style="flex:1 1 160px;min-width:120px;height:28px;accent-color:var(--color-primary)">`;
+        const pctHtml = `<span data-bright-pct style="min-width:40px;text-align:right;color:var(--text-primary);font-weight:700">${pct !== null ? pct + "%" : ""}</span>`;
+        const soft = ab.backend === "css" || ab.backend === "auto";
+        const backendHtml = btn('data-bright-backend="css"', t("bright_css", "Programowe"), soft)
+            + btn('data-bright-backend="ddc"', t("bright_ddc", "Sprzętowe (DDC/CI)"), ab.backend === "ddc");
+        const backText = Settings.brightnessBackendText(ab, t);
+        const backColor = ab.probe === "failed" ? "#d97706" : "var(--text-mid)";
+        const msg = Settings._bright.msg;
+        return `<div data-bright-row data-bright-effective="${esc(eff)}" style="display:flex;flex-wrap:wrap;align-items:center;gap:6px 8px;padding:8px 12px;border-radius:12px;background:var(--card-bg);border:1px solid var(--card-border);font-size:11px;line-height:1.3">
+            <span class="material-symbols-outlined" style="font-size:16px;color:${color}">brightness_6</span>
+            <span style="color:var(--text-dim);font-weight:700">${esc(t("bright_title", "Jasność ekranu"))}:</span>
+            <span data-bright-status style="color:${color};font-weight:700">${esc(Settings.brightnessStatusText(ab, t))}</span>
+            <span style="flex-basis:100%;display:flex;flex-wrap:wrap;align-items:center;gap:6px;padding-left:24px">${modeHtml}${slider}${pctHtml}</span>
+            <span style="flex-basis:100%;display:flex;flex-wrap:wrap;align-items:center;gap:6px;padding-left:24px"><span style="color:var(--text-dim);font-weight:700">${esc(t("bright_dimming", "Ściemnianie"))}:</span>${backendHtml}</span>
+            <span data-bright-backend-msg style="flex-basis:100%;padding-left:24px;color:${backColor}">${esc(backText)}</span>
+            <span data-bright-msg style="flex-basis:100%;padding-left:24px;color:var(--text-mid)">${esc(msg)}</span>
+        </div>`;
+    },
+
+    /** Same key, new numbers: only text and the slider position change —
+     *  never the slider while the finger is on it. */
+    brightnessLive(slot, ab, t) {
+        if (!slot || !slot.querySelector || !ab || typeof ab !== "object") return;
+        const status = slot.querySelector("[data-bright-status]");
+        if (status) status.textContent = Settings.brightnessStatusText(ab, t);
+        if (Settings.brightDragging()) return;
+        const pct = Settings._brightPct(ab.pct);
+        if (pct === null) return;
+        const label = slot.querySelector("[data-bright-pct]");
+        if (label) label.textContent = pct + "%";
+        const slider = slot.querySelector("[data-bright-slider]");
+        if (slider) slider.value = String(pct);
+    },
+
+    _brightSay(text) {
+        Settings._bright.msg = text;
+        const node = typeof document !== "undefined" ? document.querySelector("[data-bright-msg]") : null;
+        if (node) node.textContent = text;
+    },
+
+    /** POST one whitelisted change to /api/config; the module's new state
+     *  arrives with the next payload. */
+    async brightSend(body) {
+        const t = (typeof App !== "undefined" && App.t) ? App.t.bind(App) : ((k, d) => d);
+        try {
+            const res = await fetch("/api/config", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify(body),
+            });
+            if (res.ok) Settings._brightSay("");
+            else if (res.status === 403) Settings._brightSay(t("bright_err_forbidden", "zmiana tylko z ekranu w aucie"));
+            else Settings._brightSay(t("bright_err", "nie udało się zapisać"));
+        } catch (e) {
+            Settings._brightSay(t("bright_err", "nie udało się zapisać"));
+        }
+    },
+
+    /** One delegated listener set for the row (installed once). */
+    brightListen() {
+        const b = Settings._bright;
+        if (b.listening || typeof document === "undefined" || !document.addEventListener) return;
+        b.listening = true;
+        document.addEventListener("click", (e) => {
+            const el = e.target && e.target.closest ? e.target.closest("[data-bright-mode],[data-bright-backend]") : null;
+            if (!el || typeof el.getAttribute !== "function") return;
+            // Only the two whitelisted values of each — never text from the page.
+            const mode = el.getAttribute("data-bright-mode");
+            const backend = el.getAttribute("data-bright-backend");
+            let body = null;
+            if (mode === "auto" || mode === "manual") body = { brightness_mode: mode };
+            else if (backend === "css" || backend === "ddc") body = { brightness_backend: backend };
+            if (!body) return;
+            const now = Date.now();
+            if (now - b.sentAt < 500) return;          // double tap
+            b.sentAt = now;
+            Settings.brightSend(body);
+        });
+        const isSlider = (el) => !!(el && el.hasAttribute && el.hasAttribute("data-bright-slider"));
+        document.addEventListener("pointerdown", (e) => { if (isSlider(e.target)) b.down = true; });
+        const up = () => { b.down = false; };
+        document.addEventListener("pointerup", up);
+        document.addEventListener("pointercancel", up);
+        document.addEventListener("input", (e) => {
+            if (!isSlider(e.target)) return;
+            b.inputAt = Date.now();
+            const v = Number(e.target.value);
+            const label = document.querySelector("[data-bright-pct]");
+            if (label && Number.isInteger(v)) label.textContent = v + "%";
+        });
+        document.addEventListener("change", (e) => {
+            if (!isSlider(e.target)) return;
+            b.down = false;
+            b.inputAt = Date.now();
+            const v = Number(e.target.value);
+            if (Number.isInteger(v) && v >= 0 && v <= 100) Settings.brightSend({ brightness: v });
+        });
+    },
+
     _crashFmtTime(ts) {
         if (typeof ts !== "number" || !isFinite(ts) || ts <= 0) return "";
         const d = new Date(ts * 1000);
@@ -1825,6 +2038,13 @@ App.registerScreen("settings", (() => {
         return JSON.stringify((data && data.cabin_watch) || null);
     }
 
+    /** The "Jasność ekranu" row as drawn — without the live numbers (lux,
+     *  %, minutes left), which brightnessLive() writes in place. */
+    let _brightKey = "null";
+    function _brightKeyOf(data) {
+        return Settings.brightnessRowKey(data && data.auto_brightness);
+    }
+
     /** What the GPS row shows: gps_state without last_ts (it changes with
      *  every fix, the row does not show it) + the bnep0 IP of the hint. */
     function _gpsKeyOf(data) {
@@ -1896,6 +2116,22 @@ App.registerScreen("settings", (() => {
                 slot.innerHTML = Settings.cabinWatchRowHtml(data && data.cabin_watch, t);
             }
         }
+        const brightKey = _brightKeyOf(data);
+        const brightSlot = document.querySelector("[data-brightness-slot]");
+        if (brightSlot) {
+            if (brightKey !== _brightKey) {
+                // Not under the finger (retried on the next update).
+                if (!Settings.brightDragging()) {
+                    _brightKey = brightKey;
+                    // The row may first appear here (module published after
+                    // render): its listener comes with it (installed once).
+                    if (data && data.auto_brightness) Settings.brightListen();
+                    brightSlot.innerHTML = Settings.brightnessRowHtml(data && data.auto_brightness, t);
+                }
+            } else if (data && data.auto_brightness) {
+                Settings.brightnessLive(brightSlot, data.auto_brightness, t);
+            }
+        }
         const gpsKey = _gpsKeyOf(data);
         if (gpsKey !== _gpsKey) {
             const slot = document.querySelector("[data-gps-slot]");
@@ -1917,6 +2153,7 @@ App.registerScreen("settings", (() => {
         _crashKey = _crashKeyOf(data);
         _parkKey = _parkKeyOf(data);
         _cabinKey = _cabinKeyOf(data);
+        _brightKey = _brightKeyOf(data);
         const paired = Settings._btPaired;
         const discovered = Settings._btDiscovered;
         const scanning = Settings._btScanning;
@@ -1940,6 +2177,7 @@ App.registerScreen("settings", (() => {
         // Always (idempotent, one listener): the row may first appear through
         // update() when the module publishes after this render.
         Settings.parkListen();
+        if (data && data.auto_brightness) Settings.brightListen();
 
         container.innerHTML = `<div class="screen-container" style="background:var(--color-surface);color:var(--color-on-surface)">
             ${AppBar.render(theme, data)}
@@ -1980,6 +2218,10 @@ App.registerScreen("settings", (() => {
                                 </div>
                             </div>
                         </div>
+                        <!-- Jasność ekranu (modules.auto_brightness): Auto / Ręczna,
+                             slider, Programowe / Sprzętowe (DDC/CI). Empty
+                             slot = module off; update() swaps it. -->
+                        <div data-brightness-slot style="display:contents">${Settings.brightnessRowHtml(data && data.auto_brightness, t)}</div>
                         <!-- Internet from the phone (BT PAN). display:contents: an
                              empty slot (module off) adds no flex gap; update()
                              swaps its content. -->

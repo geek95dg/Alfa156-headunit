@@ -128,9 +128,9 @@ modules:
   # Każdy ma TYLKO ten jeden przełącznik (bez pod-kluczy „enabled” w blokach
   # niżej). Wszystkie wyłączone, bo wymagają nowego sprzętu. car_phone,
   # car_phone_hotspot, phone_sensors, car_phone_agent, crash_sms, call112,
-  # parking_guard i cabin_watch mają już kod — włącz je w Ustawieniach → Moduły, gdy
-  # Redmi jest podłączony; reszta nie ma jeszcze kodu (Ustawienia pokazują je
-  # jako „niedostępny w tej wersji”). Zależności i potrzebny sprzęt:
+  # parking_guard, cabin_watch i auto_brightness mają już kod — włącz je
+  # w Ustawieniach → Moduły, gdy Redmi jest podłączony; reszta nie ma jeszcze
+  # kodu (Ustawienia pokazują je jako „niedostępny w tej wersji”). Zależności i potrzebny sprzęt:
   # src/core/modules_catalog.py; moduł bez włączonych zależności nie startuje
   # (jedno ostrzeżenie w logu).
   car_phone: false         # telefon w aucie: Redmi na USB przez adb —
@@ -171,8 +171,11 @@ modules:
                            # car_phone_agent albo bluetooth (+ mikrofon
                            # i phone_status dla telefonu głównego); blok
                            # safety.call112 niżej — tryb testowy
-  auto_brightness: false   # jasność ekranu z czujnika światła; wymaga
-                           # phone_sensors albo input (Arduino)
+  auto_brightness: false   # jasność ekranu z czujnika światła telefonu
+                           # (phone_sensors) albo LDR Arduino (input); ekran
+                           # bez sterowania jasnością — przyciemnia OBRAZ
+                           # nakładką w kiosku; Ustawienia → „Jasność
+                           # ekranu”; blok display.auto_brightness niżej
   remote_session: false    # sesja po zdalnym wybudzeniu; wymaga input
                            # (Nano #2 z FEATURE_WAKE_*)
 dashboard:
@@ -211,6 +214,26 @@ display:
     height: 480
   appbar_px: 48
   navbar_px: 48
+  # Automatyczna jasność (modules.auto_brightness, src/power/brightness.py;
+  # bez modułu ten blok nic nie robi). Ekran w aucie jest zasilany z USB
+  # i NIE ma podpiętego sterowania jasnością, więc backend css: czarna
+  # nakładka w kiosku przyciemnia obraz (mniej oślepia w nocy, nie oszczędza
+  # prądu). Okno wypadku, rozmowa z 112 i kamera cofania są nad nakładką.
+  # „Sprzętowe (DDC/CI)” w Ustawieniach → „Jasność ekranu” zapisuje
+  # backend: ddc do config/local.yaml i najpierw sprawdza monitor
+  # (ddcutil); gdy nie odpowiada, zostaje css z powodem w wierszu.
+  auto_brightness:
+    backend: css           # css | ddc | xrandr | auto (= css)
+    mode: auto             # auto | manual (Ręczna: tylko suwak i dźwigienka)
+    # lux → % jasności, interpolacja w skali log10(1 + lux)
+    curve: [[0, 15], [10, 25], [100, 45], [1000, 70], [10000, 100]]
+    min_pct: 15            # nigdy ciemniej (także ręcznie)
+    max_pct: 100
+    smoothing_s: 3         # wygładzanie (EMA), tak samo w obie strony
+    stale_s: 10            # starszy odczyt = trzymam ostatnią jasność
+    manual_hold_min: 10    # dźwigienka / suwak wstrzymują auto na tyle minut
+    hysteresis_pct: 10     # zmiana lux potrzebna do nowego celu
+    hysteresis_pp: 5       # najmniejszy krok jasności
 units:
   speed: km/h
   temperature: C
@@ -423,6 +446,9 @@ swc:
     menu_down:
     - SWC_DOWN
     - SWC2_DOWN
+# Nieużywane przez kod (zostaje dla zgodności): jasność ustawia
+# display.auto_brightness (modules.auto_brightness), a stopnie dźwigienki
+# są stałe w src/power/brightness.py (BRIGHTNESS_STEPS).
 brightness:
   mode: auto
   steps:

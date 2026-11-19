@@ -77,6 +77,10 @@ rm -f /etc/chromium/policies/managed/bcm.json
 # 7. Remove X11 wrapper override
 echo "[7/9] Removing X11 wrapper..."
 rm -f /etc/X11/Xwrapper.config
+# setup-x86.sh / apply-fixes.sh load i2c-dev at boot for ddcutil (DDC/CI
+# dimming, modules.auto_brightness). The ddcutil package itself stays, like
+# adb (both are plain Debian packages).
+rm -f /etc/modules-load.d/bcm-i2c.conf
 
 # 8. Revert bcm-harden.sh
 echo "[8/9] Reverting bcm-harden.sh (journald, sysctl, boot units)..."

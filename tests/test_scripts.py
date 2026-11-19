@@ -1026,6 +1026,42 @@ class TestAdbInstall:
         assert "no-auto-default" not in code
 
 
+@pytest.mark.parametrize("name", ["setup-x86.sh", "apply-fixes.sh"])
+class TestDdcutilInstall:
+    """Plan D3: ddcutil (DDC/CI dimming, optional) + i2c-dev at boot."""
+
+    def test_single_checked_package_with_a_warning(self, name):
+        code = "\n".join(_code_lines(_read(name)))
+        assert "apt-get install -y ddcutil || true" in code
+        assert "command -v ddcutil >/dev/null 2>&1" in code
+        assert re.search(r"ddcutil is NOT installed — hardware dimming \(DDC/CI\) will NOT work; "
+                         r"BCM keeps software dimming", code)
+        # never hidden in a bulk list or silenced
+        for line in code.splitlines():
+            if line.strip().startswith("apt-get") and re.search(r"\bddcutil\b", line):
+                assert line.strip() == "apt-get install -y ddcutil || true", line
+
+    def test_i2c_dev_loaded_at_boot_and_now(self, name):
+        text = _read(name)
+        m = re.search(r"^cat > /etc/modules-load\.d/bcm-i2c\.conf <<'EOF'\n(.*?)^EOF$", text,
+                      flags=re.M | re.S)
+        assert m, "bcm-i2c.conf not written with a quoted heredoc"
+        body = [line for line in m.group(1).splitlines() if line and not line.startswith("#")]
+        assert body == ["i2c-dev"]
+        # a failing modprobe (e.g. in a container) must not abort the script
+        assert re.search(r"^modprobe i2c-dev 2>/dev/null \|\| ", text, flags=re.M)
+
+
+def test_cleanup_removes_every_modules_load_file_setup_writes():
+    written = set()
+    for name in ("setup-x86.sh", "apply-fixes.sh"):
+        written |= set(re.findall(r"cat > (/etc/modules-load\.d/\S+)", _read(name)))
+    assert written == {"/etc/modules-load.d/bcm-i2c.conf"}
+    cleanup = _code_lines(_read("cleanup-x86.sh"))
+    for path in written:
+        assert f"rm -f {path}" in cleanup, path
+
+
 def test_harden_only_reports_adb():
     text = _read("bcm-harden.sh")
     body = _function_body(text, "step_nm_bluetooth")

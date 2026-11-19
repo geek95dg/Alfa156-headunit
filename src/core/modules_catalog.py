@@ -191,6 +191,21 @@ MODULES: dict[str, dict] = {
                      "hardware": "Redmi z rootem: przednia kamera, blokada ekranu „Brak”, "
                                  "agent ≥ 1.3.0; analiza zdjęć z Pillow "
                                  "(pkg install python-pillow)"},
+    # Plan D3 "Światło (lux)": the old BrightnessController (src/power/
+    # brightness.py), finally started — light from the car phone
+    # (phone.light_lux) OR the Arduino LDR (LIGHT: lines, read by
+    # arduino_serial, which the input module starts); the phone wins when
+    # both are fresh. The screen in the test car has no brightness control
+    # wired, so the default backend dims the IMAGE (an overlay in the
+    # kiosk); DDC/CI (ddcutil) is optional, chosen and probed in Settings →
+    # "Jasność ekranu". Without the module nothing is dimmed (production).
+    "auto_brightness": {"part": 10, "description": "Automatyczna jasność ekranu z czujnika światła",
+                     "entry": ("src.power.brightness", "start_auto_brightness"),
+                     "default": False, "group": "zasilanie",
+                     "requires_any": (("phone_sensors", "input"),),
+                     "hardware": "czujnik światła: telefon w aucie (phone_sensors) albo LDR "
+                                 "Arduino (input); ściemnianie programowe (nakładka), "
+                                 "sprzętowe DDC/CI opcjonalnie (ddcutil)"},
     "battery":     {"part": 21, "description": "Battery Backup Monitor",
                     "entry": ("src.power.battery", "start_battery"), "default": False},
 
@@ -224,12 +239,6 @@ MODULES: dict[str, dict] = {
                      "default": False, "group": "telefon_w_aucie",
                      "requires": ("car_phone",),
                      "hardware": "Redmi: hotspot skonfigurowany w telefonie"},
-    # Light from the car phone OR the Arduino light sensor (LIGHT: lines,
-    # read by arduino_serial, which the input module starts).
-    "auto_brightness": {"part": 10, "description": "Automatyczna jasność ekranu z czujnika światła",
-                     "default": False, "planned": True, "group": "zasilanie",
-                     "requires_any": (("phone_sensors", "input"),),
-                     "hardware": "czujnik światła: telefon w aucie albo Arduino; DDC/CI lub xrandr"},
     # WAKE:/LEASE: lines come from Nano #2 through arduino_serial (input).
     "remote_session": {"part": 10, "description": "Sesja po zdalnym wybudzeniu (drzwi, telefon): baner i auto-uśpienie",
                      "default": False, "planned": True, "group": "zasilanie",

@@ -367,6 +367,15 @@ ani przycisk SWC nic dziś nie robią.
 switchami i to w zupełności wystarcza na czas testów. Domknięcie tego
 łańcucha to zadanie na krok 6 roadmapy (§9), razem z Nano #1.
 
+> **Aktualizacja (plan D3, `modules.auto_brightness`, §5.14).** Moduł
+> tworzy wreszcie `BrightnessController`: czyta światło z telefonu w aucie
+> albo z tego LDR (`LIGHT:`), słucha dźwigienki i nowego suwaka w wierszu
+> „Jasność ekranu”, a `POST /api/config` z kluczem `brightness` ma już
+> odbiorcę. Ekran w aucie (zasilany z USB) nie ma żadnego sterowania
+> jasnością, więc moduł przyciemnia **obraz** nakładką w kiosku (opcjonalnie
+> DDC/CI przez `ddcutil`). PWM podświetlenia z tabeli wyżej dalej wymaga
+> Nano #1 — bez zmian. Moduł jest domyślnie wyłączony.
+
 ### 3.2 Ładowanie — wariant B, i dlaczego akurat on
 
 [`ZASILANIE_BUFOROWANE.md`](ZASILANIE_BUFOROWANE.md) §5 opisuje dwa warianty:
@@ -1882,6 +1891,228 @@ działania aparatu, gdy Android go odmówi (ROM, temperatura), ani tego, że
 zdjęcia przetrwają kradzież telefonu. Do połączenia telefonu właściciela
 z BCM właściciel i złodziej wyglądają tak samo — stąd okno wejścia.
 
+### 5.14 Automatyczna jasność ekranu (`modules.auto_brightness`)
+
+**Po co i jak działa.** Jasność ekranu dopasowuje się do światła w aucie:
+w nocy ekran nie oślepia, w słońcu jest czytelny. Moduł to dokończony stary
+`BrightnessController` (`src/power/brightness.py`, opis w nagłówku pliku),
+który do tej pory nikt nie uruchamiał. Wymaga `phone_sensors` **albo**
+`input` (źródło światła, niżej); domyślnie wyłączony w kodzie i w obu
+configach. Bez modułu nic się nie zmienia (produkcja bez zmian, brak
+nakładki).
+
+**Sprzęt w aucie: ekran bez sterowania jasnością.** Ekran jest zasilany
+z USB i nie ma podpiętego żadnego sterowania jasnością, więc domyślne
+ściemnianie jest **programowe** (`backend: css`): kiosk kładzie na cały
+ekran jedną czarną, półprzezroczystą nakładkę. To przyciemnia **obraz**, nie
+podświetlenie: mniej oślepia w nocy, ale nie oszczędza prądu i nie daje
+głębokiej czerni. Przy 100 % nakładki nie ma, a nawet przy 0 % ekran nie
+robi się czarny (krycie najwyżej `css_max_dim`, domyślnie 0,85).
+Ściemniane są ekrany i obraz Android Auto. **Nad nakładką, zawsze w pełnej
+jasności:** okno wypadku z przyciskiem 112, widokiem rozmowy i panelem dla
+dyspozytora (§5.10, §5.11) oraz kamera cofania; także klawiatura ekranowa,
+okna potwierdzeń i powiadomienia. Nakładka nie przechwytuje dotyku.
+
+**Źródła światła.**
+
+- **Telefon w aucie:** `phone.light_lux` z SensorServer (§5.8). Czujnik
+  światła już jest w strumieniu, w telefonie nic więcej nie trzeba
+  ustawiać.
+- **LDR Arduino:** linie `LIGHT:<0-1023>` czytane przez `arduino_serial`
+  (moduł `input`), przeliczane starą tabelą progów (niski odczyt ADC =
+  jasno).
+- **Oba świeże → telefon.** Telefon podaje skalibrowane luksy, pod które
+  napisana jest krzywa; LDR to surowy odczyt ADC zależny od dzielnika.
+- Odczyt jest świeży przez `stale_s` (10 s) od nadejścia. Starszy: BCM
+  trzyma ostatnią jasność (wiersz: „czujnik światła nie odpowiada — trzymam
+  ostatnią jasność”). Bez żadnego odczytu od startu obowiązuje wartość
+  z suwaka (`display.dashboard.brightness`): „brak czujnika światła —
+  jasność ręczna”.
+
+**Krzywa i spokojny obraz.** Klucze w `display.auto_brightness`
+(`config/bcm_config_test.yaml`, zmiany w `config/local.yaml`). Stary blok
+`brightness:` (`mode`, `steps`) na najwyższym poziomie configów nie jest
+czytany przez kod: tryb to `display.auto_brightness.mode`, a stopnie
+dźwigienki są stałe w `src/power/brightness.py`.
+
+| Klucz | Domyślnie | Co robi |
+|-------|-----------|---------|
+| `curve` | `[[0,15],[10,25],[100,45],[1000,70],[10000,100]]` | lux → %: liniowo w skali `log10(1 + lux)`, poniżej pierwszego punktu pierwszy %, powyżej ostatniego ostatni; 2–16 punktów, lux rosnąco |
+| `min_pct` | 15 | podłoga: nigdy ciemniej, także ręcznie (nie mniej niż 5) |
+| `max_pct` | 100 | sufit automatu |
+| `hysteresis_pct` | 10 | nowy cel dopiero przy zmianie o > 10 % lux (co najmniej 0,5 lux); dla LDR: > 30 jednostek ADC |
+| `hysteresis_pp` | 5 | w trakcie przejścia jasność zmienia się krokami ≥ 5 pp; po ustaleniu jeden mniejszy krok dokładnie na cel |
+| `smoothing_s` | 3 | wygładzanie (EMA, stała czasowa w sekundach); 0 = bez wygładzania |
+| `stale_s` | 10 | po tylu sekundach bez odczytu BCM trzyma ostatnią jasność |
+| `manual_hold_min` | 10 | na tyle minut dźwigienka lub suwak wstrzymują automat |
+| `mode` | `auto` | `auto` albo `manual` („Ręczna”) |
+| `backend` | `auto` (= `css`) | `css`, `ddc` albo `xrandr` (niżej); config testowy: `css` |
+| `css_max_dim` | 0,85 | krycie nakładki przy 0 % (0,3–0,9) |
+| `ddc_display` | brak | numer monitora dla `ddcutil --display N` (1–16), gdy jest ich kilka |
+| `xrandr.output` / `xrandr.display` / `xrandr.xauthority` | `""` / `:0` / `""` | tylko `backend: xrandr` |
+
+Wygładzanie działa **tak samo w obie strony**. Przy wjeździe do tunelu
+ekran ciemnieje w kilka sekund; oczy są jeszcze przyzwyczajone do dnia,
+więc jasny ekran przez 3 s nie oślepia. Przy wyjeździe ekran jest przez
+kilka sekund za ciemny w słońcu. To świadomy kompromis na rzecz jednej,
+przewidywalnej reguły. Pierwszy odczyt po starcie działa od razu, bez
+przejścia.
+
+**Ręcznie.**
+
+- **Dźwigienka** (akcja SWC „Brightness”, klawisz F9 →
+  `input.brightness_cycle`): 6 stopni 15 / 30 / 45 / 60 / 80 / 100 %.
+  Pierwsze naciśnięcie wybiera stopień najbliższy obecnej jasności.
+- **Suwak** w Ustawieniach → „Jasność ekranu” (zapis
+  `display.dashboard.brightness`).
+- Dźwigienka i suwak **wstrzymują automat na `manual_hold_min`** (10 min).
+  Wiersz pokazuje wtedy „Ręczna — wraca do auto za N min”, a potem automat
+  płynnie wraca od wartości ręcznej.
+- **„Ręczna”** (`mode: manual`) wyłącza automat do czasu wybrania „Auto”;
+  obowiązuje suwak i dźwigienka. „Ręczna” **zamraża jasność, która jest
+  teraz na ekranie**: BCM zapisuje ją też jako wartość suwaka
+  (`display.dashboard.brightness`), więc ani w tej chwili, ani po
+  następnym starcie ekran nie skacze do starszej, może dużo jaśniejszej
+  wartości suwaka w ciemnej kabinie.
+- `power.ignition_off` kończy pauzę (stare zachowanie). W wariancie
+  testowym prąd po prostu znika, więc to nie ma znaczenia.
+
+Każda wartość, automatyczna i ręczna, idzie przez wybrany backend. Dziś
+na x86 tylko w ten sposób suwak i dźwigienka cokolwiek zmieniają
+(podświetlenie jest symulowane, §3.1c).
+
+**Wiersz „Jasność ekranu” w Ustawieniach** (tylko przy działającym
+module). Pokazuje tryb, źródło, aktualne lux i %, np. „Auto (telefon) ·
+120 lx · 47%”. Pod spodem są przyciski Auto / Ręczna, suwak oraz
+„Ściemnianie: Programowe / Sprzętowe (DDC/CI)”. Zmiany idą przez
+`POST /api/config` (biała lista: `brightness` 0–100, `brightness_mode`
+`auto|manual`, `brightness_backend` `css|ddc`) do `config/local.yaml`
+i działają od razu, bez restartu BCM.
+
+**Sprzętowe ściemnianie (DDC/CI) — opcjonalne.** DDC/CI to kanał
+sterowania monitorem w kablu wideo (HDMI/DP), niezależny od tego, skąd
+monitor ma prąd, więc część monitorów zasilanych z USB go obsługuje.
+Sprawdzenie robi BCM, terminal nie jest potrzebny:
+
+1. Ustawienia → „Jasność ekranu” → **„Sprzętowe (DDC/CI)”**. W tle BCM
+   uruchamia `ddcutil detect --brief`, a potem `ddcutil getvcp 10 --brief`
+   (osobny wątek, limity czasu 15 s i 5 s). Do tego czasu wiersz pokazuje
+   „sprawdzam monitor (DDC/CI)…”, a nakładka zostaje.
+2. **Działa:** „Sprzętowe: DDC/CI działa”, nakładka znika. Jasność ustawia
+   monitor (`ddcutil setvcp 10 <wartość>`, przeliczone na maksimum
+   z `getvcp`).
+3. **Nie działa:** „Sprzętowe niedostępne: <powód> — używam
+   programowego”. Możliwe powody:
+   - brak programu ddcutil;
+   - brak `/dev/i2c-*`;
+   - monitor nie odpowiada przez DDC/CI;
+   - monitor nie podaje jasności (VCP 10);
+   - ddcutil nie odpowiedział na czas;
+   - monitor przestał przyjmować jasność (3 nieudane zapisy z rzędu).
+
+   Przy błędzie przejściowym (ddcutil nie odpowiedział na czas, monitor
+   nie odpowiada, monitor nie podaje jasności) BCM sam sprawdza monitor
+   jeszcze najwyżej 3 razy: po 20 s, 60 s i 180 s. Pomaga to zaraz po
+   starcie, gdy monitor zasilany z USB jeszcze się budzi (w aucie testowym
+   każda jazda to zimny start). Wiersz pokazuje wtedy znowu „sprawdzam
+   monitor (DDC/CI)…”. Brak programu ddcutil albo `/dev/i2c-*` jest
+   ostateczny, tak samo 3 nieudane zapisy z rzędu po udanym sprawdzeniu.
+   Potem kolejna próba tylko po ponownym stuknięciu „Sprzętowe” albo po
+   restarcie BCM, żeby nie męczyć szyny I2C bez końca.
+
+Wybór zostaje w `config/local.yaml` (`backend: ddc`), więc po restarcie
+BCM znów sprawdza monitor. „Programowe” wraca do nakładki, a BCM ustawia
+monitor na 100 %, żeby nakładka nie przyciemniała już przyciemnionego
+obrazu. Robi to dopiero po 1,5 s, gdy nakładka zdąży się pojawić (płynnie
+przez 1 s), żeby w nocy ekran nie błysnął pełną jasnością. Ochrona I2C
+i pamięci EEPROM monitora: zapis tylko
+przy zmianie o ≥ 5 pp (wartość ręczna zawsze) i nie częściej niż co 5 s.
+Wartości pośrednie przepadają, monitor dostaje ostatnią.
+
+Jednorazowe sprawdzenie z terminala, dla chętnych (przycisk robi to samo):
+
+```bash
+sudo apt install ddcutil
+sudo modprobe i2c-dev
+sudo ddcutil detect
+sudo ddcutil getvcp 10
+```
+
+Jeśli `detect` pokazuje „Display 1”, a `getvcp 10` zwraca jasność
+z wartością bieżącą i maksymalną, DDC/CI działa. Wtedy wystarczy przycisk
+albo wpis w `config/local.yaml`:
+
+```yaml
+display:
+  auto_brightness:
+    backend: ddc
+    # ddc_display: 2   # tylko gdy detect pokazał kilka monitorów
+```
+
+**Instalacja.** `setup-x86.sh` i `apply-fixes.sh` instalują `ddcutil`
+jako osobny, sprawdzany pakiet. Brak pakietu to tylko ostrzeżenie, a BCM
+zostaje przy ściemnianiu programowym. Oba skrypty ładują też `i2c-dev` od
+razu i przy każdym starcie (`/etc/modules-load.d/bcm-i2c.conf`), więc po
+`apply-fixes.sh` reboot nie jest potrzebny. `cleanup-x86.sh` usuwa ten
+plik; pakiet `ddcutil` zostaje, tak jak `adb`.
+
+**xrandr (tylko z configu, NIESPRAWDZONE).** `backend: xrandr` ustawia
+`xrandr --output <wyjście> --brightness <0.20-1.00>`. To korekta gammy
+całego ekranu X `:0`, niezależna od strony kiosku: obejmuje też splash
+startowy, kursor i okna X poza kioskiem. Android Auto nie jest powodem do
+wyboru xrandr: na x86 jego obraz jest w kiosku elementem `<img>`, więc
+nakładka przyciemnia go tak samo. BCM działa jako root, a serwer X należy do użytkownika kiosku, więc
+potrzebne są jego `DISPLAY` i `XAUTHORITY`:
+
+```yaml
+display:
+  auto_brightness:
+    backend: xrandr
+    xrandr:
+      output: HDMI-1                         # z: xrandr --query
+      display: ":0"
+      xauthority: /home/<użytkownik kiosku>/.Xauthority
+```
+
+Nazwa wyjścia, `DISPLAY` i ścieżka są sprawdzane (litery, cyfry, `-_.`,
+`:N`, ścieżka bezwzględna bez `..`). Zły config albo błąd xrandr przełącza
+na ściemnianie programowe z powodem w wierszu. Tego trybu nie ma
+w przełączniku w Ustawieniach.
+
+**Włączenie.**
+
+1. Źródło światła: `phone_sensors` (§5.8) albo LDR Arduino (moduł
+   `input`).
+2. Ustawienia → Moduły → `auto_brightness` (wymaga `phone_sensors` albo
+   `input`), potem restart BCM.
+3. Po starcie pojawia się wiersz „Jasność ekranu”. Zasłoń czujnik telefonu
+   dłonią: po kilku sekundach ekran ciemnieje.
+
+Log: `journalctl -u bcm-headunit | grep -i brightness`.
+
+**Wyłączenie.** `modules.auto_brightness: false` i restart: nakładka
+znika, ekran wraca do stanu sprzed modułu. Wyłączenie w Ustawieniach →
+Moduły (także wyłączenie jedynego źródła światła, `phone_sensors` albo
+`input`, gdy moduł przez to nie wystartuje) od razu oddaje sprzęt: BCM
+ustawia monitor DDC/CI albo gammę xrandr na 100 %, a do restartu
+ściemnia nakładka. Bez tego monitor zostałby na ostatniej wartości
+(trzyma ją w EEPROM), a po restarcie nic by jej nie cofnęło. Przy ręcznej
+zmianie `config/local.yaml` (bez Ustawień) najpierw wybierz
+„Programowe”. Gdy DDC/CI albo xrandr padnie w trakcie jazdy, BCM raz
+próbuje ustawić 100 %, a jeśli to się nie uda, monitor lub gamma zostają
+na ostatniej wartości i nakładka ściemnia dodatkowo.
+
+**NIESPRAWDZONE w aucie:**
+
+- krzywa i progi w prawdziwym aucie: czujnik telefonu pod podsufitką
+  patrzy w kabinę, nie na drogę, więc pod latarniami i w tunelu może
+  reagować inaczej niż oczy kierowcy;
+- czytelność nakładki w pełnym słońcu;
+- DDC/CI na tym konkretnym ekranie USB;
+- czy monitor zapisuje jasność w EEPROM przy każdej zmianie;
+- `xrandr --brightness` z `XAUTHORITY` kiosku;
+- czy LDR Arduino jest w aucie podłączony.
+
 ---
 
 ## 6. Uruchomienie
@@ -1999,7 +2230,7 @@ razem pamiętać o wyłączniku głównym (§3.1a).
 | Kompensacji temperaturowej ładowania | ładowarce B2B (wariant A, §5.2 `ZASILANIE_BUFOROWANE.md`) |
 | Automatycznego S3 na zapłon | wejściu zapłonu w Pro Micro + hakowi po stronie hosta — §3.1a |
 | Sprzężenia zwrotnego o stanie maszyny | wejściu z diody zasilania panelu przedniego — §3.1a |
-| Regulacji jasności z BCM | instancji `BrightnessController` **i** Nano #1 — §3.1c |
+| Regulacji podświetlenia (PWM) z BCM | Nano #1 — §3.1c; przyciemnianie obrazu (nakładka, opcjonalnie DDC/CI) daje już `modules.auto_brightness` — §5.14 |
 | Drugiego ekranu | panelu 6,86" — hot-plug, ale **nie na USB M910q**: dwa panele nie zmieszczą się w zapasie XL6019 (§3.1) |
 | OBD / K-Line | CP2102 + L9637D |
 | Kamer, parkowania, czujników | grabera, HC-SR04, DS18B20, obu Nano |

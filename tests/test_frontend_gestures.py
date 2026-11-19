@@ -32,6 +32,19 @@
   last event with reasons / photos / analysis / outcome, hints, escaping,
   inline styles, read-only — no buttons) and its update() slot; the park
   row's "ruch w kabinie" event;
+* settings_brightness_smoke.js: screens/settings.js — the "Jasność ekranu"
+  row (data.auto_brightness: status per mode with the current lux, Auto /
+  Ręczna, the slider, "Programowe / Sprzętowe (DDC/CI)" with the probe's
+  verdict and reason, escaping, inline styles, no inline handlers, only the
+  whitelisted /api/config bodies from the delegated listeners) and its
+  update() slot — numbers in place, nothing under the finger; plus
+  components/dim_overlay.js's level rules;
+* dim_overlay_browser_smoke.js: the software dimming overlay on the real
+  dashboard in headless Chromium at 1024x600 (mouse and touch): one fixed
+  black layer, z-index 190, pointer-events none, over A1 and Android Auto
+  but UNDER the reverse camera view and the crash window (paint order), taps
+  go through it, removed for level 0 / no payload; the Settings row posts
+  the switch, the mode and the slider value. Skipped without playwright;
 * appbar_phone_smoke.js: components/appbar.js — the phone cluster (signal /
   operator / battery from data.phone_status): hidden without a phone, glyphs
   by level, the operator only ever via textContent, change-only updates;
@@ -358,6 +371,7 @@ def test_call112_in_chromium():
                                      "settings_car_phone_agent_smoke.js",
                                      "settings_parking_guard_smoke.js",
                                      "settings_cabin_watch_smoke.js",
+                                     "settings_brightness_smoke.js",
                                      "crash_modal_smoke.js"])
 def test_screen_harness(harness):
     res = subprocess.run([NODE, str(JS / harness)], capture_output=True, text=True,
@@ -412,6 +426,42 @@ def test_crash_modal_in_chromium():
         pytest.skip(out[5:].strip())
     assert res.returncode == 0, res.stderr or res.stdout
     assert out.endswith("ok"), out
+
+
+@pytest.mark.timeout(150)
+def test_dim_overlay_in_chromium():
+    """modules.auto_brightness: the dimming overlay under the safety views
+    and the "Jasność ekranu" row at 1024x600 (see the harness)."""
+    res = subprocess.run([NODE, str(JS / "dim_overlay_browser_smoke.js")],
+                         capture_output=True, text=True, timeout=120)
+    out = res.stdout.strip()
+    if res.returncode == 0 and out.startswith("SKIP:"):
+        pytest.skip(out[5:].strip())
+    assert res.returncode == 0, res.stderr or res.stdout
+    assert out.endswith("ok"), out
+
+
+def test_dim_overlay_sits_below_every_safety_layer():
+    """The z-index the overlay uses is below the reverse camera view and the
+    crash window as their code sets them (the browser test checks the paint
+    order; this pins the numbers the comments promise)."""
+    dim = (ROOT / "src/dashboard/web/js/components/dim_overlay.js").read_text(encoding="utf-8")
+    z = int(re.search(r"const Z_INDEX = (\d+);", dim).group(1))
+    app = (ROOT / "src/dashboard/web/js/app.js").read_text(encoding="utf-8")
+    reverse = int(re.search(r'overlay\.id = "reverse-overlay";\s*overlay\.className = "[^"]*z-\[(\d+)\]',
+                            app).group(1))
+    crash = (ROOT / "src/dashboard/web/js/components/crash_modal.js").read_text(encoding="utf-8")
+    modal = int(re.search(r'_el\.style\.cssText = "position:fixed;inset:0;z-index:(\d+);', crash).group(1))
+    assert 0 < z < reverse < modal, (z, reverse, modal)
+    assert "pointer-events:none" in dim and "MAX_LEVEL = 0.9" in dim
+    html = (ROOT / "src/dashboard/web/index.html").read_text(encoding="utf-8")
+    assert html.index("components/dim_overlay.js") < html.index("/js/app.js")
+
+
+def test_brightness_row_glyph_exists_in_the_bundled_font():
+    src = (ROOT / "src/dashboard/web/js/screens/settings.js").read_text(encoding="utf-8")
+    assert ">brightness_6</span>" in src
+    assert "brightness_6" in _font_ligatures(FONT)
 
 
 def test_crash_window_glyphs_exist_in_the_bundled_font():
