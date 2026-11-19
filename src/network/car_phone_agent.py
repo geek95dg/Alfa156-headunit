@@ -101,6 +101,21 @@ differs from the desired configuration:
   (``config_refused`` would force crash_sms into dry-run). With the toggle
   on, an agent older than :data:`MIN_AGENT_VERSION` cannot match the hash:
   the reason is then ``agent_outdated`` ("skopiuj nowy bcm_agent.py").
+* ``park_*`` ← ``parking_guard.*`` (:func:`park_settings`; plan D4, the
+  alarm on the parked car that runs on the phone): ``park_numbers`` (≤ 3
+  E.164 — local.yaml only), ``park_log_only`` (default True: the first
+  week only logs, for tuning), ``park_arm_after_min`` (3),
+  ``park_arm_delay_min`` (2), ``park_grace_min`` (3), ``park_home``
+  ({lat, lon, radius_m ≥ 50} or None — local.yaml only), ``park_tilt_deg``
+  (0.5), ``park_shake_k`` (6.0), ``park_entry_s`` (90: the entry window —
+  a tilt or jolt waits this long for the owner's proof before it alarms,
+  0 = at once). Same rule as the 112 keys: sent ONLY
+  while ``modules.parking_guard`` is on (the agent ≥ 1.2.0 leaves them out
+  of its hash while its toggle is off), so an agent from before D4 and a
+  BCM update agree as long as the alarm is off; with it on, an older agent
+  is ``agent_outdated``. Values are clamped HERE into the agent's ranges
+  and canonical types (ints, floats rounded to 0.01, coordinates to 6
+  places), so the hashes on both sides match.
 
 A config the agent refused (400 ``bad_config``, or a hash that does not
 match after a 200) is not re-sent until it changes (reason
@@ -146,7 +161,9 @@ and never raises: :meth:`~CarPhoneAgent.arm_crash`,
 :meth:`~CarPhoneAgent.call112` / :meth:`~CarPhoneAgent.call112_status` /
 :meth:`~CarPhoneAgent.call112_hangup` / :meth:`~CarPhoneAgent.call112_mark`
 (plan H, used by src/safety/call112.py only, after the driver held the
-button in the crash window — the loopback-only route). Without I/O
+button in the crash window — the loopback-only route),
+:meth:`~CarPhoneAgent.park_status` / :meth:`~CarPhoneAgent.park_arm` /
+:meth:`~CarPhoneAgent.park_disarm` (plan D4, src/safety/parking_guard.py). Without I/O
 (any thread): :attr:`~CarPhoneAgent.state` (the published payload),
 :meth:`~CarPhoneAgent.health_facts` (what the last signed health answer
 said beyond the Settings row: the last verified real test SMS, the
@@ -191,6 +208,8 @@ OK_REASONS = ("config_pending", "config_refused", "agent_outdated")
 #: The first agent version that knows the 112 config keys (plan H). An older
 #: agent drops them, so with ``modules.call112`` on its hash never matches.
 MIN_AGENT_VERSION = (1, 1, 0)
+#: The same for the parking guard keys (plan D4, ``park_*``, ``/v1/park*``).
+MIN_AGENT_VERSION_PARK = (1, 2, 0)
 SECRET_PATH = "network.car_phone.agent.secret"
 SECRET_ENV = "BCM_CAR_PHONE_AGENT_SECRET"
 STATE_FILE = "data/car_phone_agent.json"
@@ -241,6 +260,19 @@ CALL112_MODES = ("real", "test")
 #: The agent's call states (``GET /v1/call112``).
 CALL112_STATES = ("queued", "placed", "offhook", "ended", "failed")
 CALL112_ERRORS = ("", "su_missing", "su_denied", "am_failed", "no_call")
+
+#: The parking guard on the phone (``GET /v1/park``), see bcm_agent.py.
+PARK_STATES = ("off", "disarmed", "arming", "armed", "alarm", "log_only")
+PARK_BY = ("", "power", "bcm", "sms", "owner_bt", "owner_sms", "owner_code", "low_battery",
+           "home", "off", "power_back")
+PARK_EVENT_KINDS = ("tilt", "shake", "power", "low_battery", "home")
+PARK_SENSOR_STATES = ("off", "starting", "ok", "error", "no_sensor", "light")
+#: (default, lo, hi) of the ``parking_guard.*`` numbers — the agent's ranges.
+PARK_INTS = {"arm_after_min": (3, 1, 60), "arm_delay_min": (2, 0, 30), "grace_min": (3, 1, 15),
+             "entry_s": (90, 0, 300)}
+PARK_FLOATS = {"tilt_deg": (0.5, 0.2, 10.0), "shake_k": (6.0, 2.0, 50.0)}
+PARK_HOME_RADIUS_M = (50, 5000)
+PARK_CODE_RE = re.compile(r"^[0-9]{6}$")
 
 #: Error codes the agent sends WITHOUT a signature (it cannot sign for a
 #: client it did not authenticate) — informational only.
@@ -335,6 +367,85 @@ def call112_settings(config: Any) -> tuple[bool, str]:
     return test_mode, num if E164_RE.fullmatch(num) else ""
 
 
+def _clamp_num(raw: Any, default: float, lo: float, hi: float, integer: bool) -> tuple[Any, bool]:
+    """``(value, ok)``: a number clamped into ``[lo, hi]`` (``ok`` False when
+    it had to be clamped or replaced by the default)."""
+    if isinstance(raw, bool) or not isinstance(raw, (int, float)) \
+            or (isinstance(raw, float) and not math.isfinite(raw)):
+        return default, raw is None
+    value = min(max(raw, lo), hi)
+    final = int(round(value)) if integer else round(float(value), 2)
+    return final, final == raw
+
+
+def park_settings(config: Any, warn: Optional[Callable[[str, str], None]] = None) -> dict:
+    """``parking_guard.*`` → the agent's ``park_*`` keys in its canonical
+    form (see the module docstring). ``warn(key, message)`` for every value
+    that was dropped or clamped; personal data (numbers, home) is never in
+    a message."""
+    def _warn(key: str, msg: str) -> None:
+        if warn is not None:
+            warn(key, msg)
+
+    block = _cfg_get(config, "parking_guard", {})
+    if not isinstance(block, dict):
+        block = {}
+    raw = block.get("numbers", [])
+    if raw is None:
+        raw = []
+    if not isinstance(raw, list):
+        _warn("park_numbers", "parking_guard.numbers is not a list — no numbers")
+        raw = []
+    numbers: list[str] = []
+    for n in raw:
+        if not isinstance(n, str) or not E164_RE.fullmatch(n.strip()):
+            _warn(f"park_number:{len(numbers)}", "parking_guard.numbers: an entry is not an "
+                                                 "E.164 number — ignored")
+            continue
+        n = n.strip()
+        if n in numbers:
+            continue
+        if len(numbers) >= MAX_RECIPIENTS:
+            _warn("park_numbers_max", f"parking_guard.numbers: more than {MAX_RECIPIENTS} — "
+                                      f"only the first {MAX_RECIPIENTS} used")
+            break
+        numbers.append(n)
+    out: dict[str, Any] = {
+        "park_numbers": numbers,
+        # Only an explicit false sends alarm SMS (a typo stays log-only).
+        "park_log_only": block.get("log_only", True) is not False,
+    }
+    for key, (default, lo, hi) in PARK_INTS.items():
+        value, ok = _clamp_num(block.get(key), default, lo, hi, True)
+        if not ok:
+            _warn(f"park_{key}", f"parking_guard.{key}={block.get(key)!r} — using {value}")
+        out[f"park_{key}"] = value
+    for key, (default, lo, hi) in PARK_FLOATS.items():
+        value, ok = _clamp_num(block.get(key), default, lo, hi, False)
+        if not ok:
+            _warn(f"park_{key}", f"parking_guard.{key}={block.get(key)!r} — using {value}")
+        out[f"park_{key}"] = float(value)
+    home = block.get("home")
+    out["park_home"] = None
+    if isinstance(home, dict) and home:
+        lat, lon = _num(home.get("lat"), -90, 90), _num(home.get("lon"), -180, 180)
+        radius = home.get("radius_m")
+        if lat is None or lon is None or isinstance(radius, bool) \
+                or not isinstance(radius, (int, float)) or not math.isfinite(radius):
+            _warn("park_home", "parking_guard.home needs lat, lon and radius_m — ignored "
+                               "(the phone arms everywhere)")
+        else:
+            r = int(round(min(max(radius, PARK_HOME_RADIUS_M[0]), PARK_HOME_RADIUS_M[1])))
+            if r != radius:
+                _warn("park_home_radius", f"parking_guard.home.radius_m clamped to {r} m "
+                                          f"({PARK_HOME_RADIUS_M[0]}..{PARK_HOME_RADIUS_M[1]})")
+            out["park_home"] = {"lat": round(float(lat), 6), "lon": round(float(lon), 6),
+                                "radius_m": r}
+    elif home not in (None, {}):
+        _warn("park_home", "parking_guard.home is not {lat, lon, radius_m} — ignored")
+    return out
+
+
 def desired_config(config: Any, warn: Optional[Callable[[str, str], None]] = None) -> dict:
     """What the agent should hold (``PUT /v1/config``), in the agent's
     canonical form — the hash must match the agent's ``config_hash``.
@@ -394,6 +505,9 @@ def desired_config(config: Any, warn: Optional[Callable[[str, str], None]] = Non
         # 112 off would make every BCM update look like a refused config.
         out["call112_test_mode"] = test_mode
         out["call112_test_number"] = test_number
+    if toggles["parking_guard"]:
+        # The same rule for the parking guard (agent >= 1.2.0).
+        out.update(park_settings(config, warn))
     return out
 
 
@@ -450,6 +564,51 @@ def parse_health_facts(obj: Any) -> dict[str, Any]:
     cs = obj.get("call_state")
     out["call_state"] = cs if cs in (0, 1, 2) and not isinstance(cs, bool) else None
     return out
+
+
+def parse_park_view(obj: Any) -> Optional[dict[str, Any]]:
+    """The agent's parking guard view (``GET /v1/park``, also the answer to
+    ``POST /v1/park/arm|disarm``), type- and range-checked field by field.
+    None when it is not one (no known state)."""
+    if not isinstance(obj, dict) or obj.get("state") not in PARK_STATES:
+        return None
+
+    def ts(value: Any) -> Optional[int]:
+        v = _num(value, EVENT_TS_MIN, EVENT_TS_MAX)
+        return None if v is None else int(v)
+
+    def small_int(value: Any, hi: int) -> Optional[int]:
+        return value if isinstance(value, int) and not isinstance(value, bool) \
+            and 0 <= value <= hi else None
+
+    ev = obj.get("last_event")
+    event = None
+    if isinstance(ev, dict) and ev.get("kind") in PARK_EVENT_KINDS and ts(ev.get("ts")):
+        value = _num(ev.get("value"), -1e6, 1e6)
+        event = {"kind": ev["kind"], "ts": ts(ev.get("ts")),
+                 "value": None if value is None else round(float(value), 2),
+                 "logged_only": ev.get("logged_only") is True}
+    battery = obj.get("battery") if isinstance(obj.get("battery"), dict) else {}
+    power = battery.get("power")
+    return {
+        "state": obj["state"],
+        "since": ts(obj.get("since")),
+        "by": obj.get("by") if obj.get("by") in PARK_BY else "",
+        "arm_at": ts(obj.get("arm_at")),
+        "last_event": event,
+        "battery_pct": small_int(battery.get("pct"), 100),
+        "power": power if power in ("plugged", "unplugged") else None,
+        "log_only": obj.get("log_only") is True,
+        "light": obj.get("light") is True,
+        "sensor": obj.get("sensor") if obj.get("sensor") in PARK_SENSOR_STATES else "off",
+        "totp_ready": obj.get("totp_ready") is True,
+        "numbers_n": small_int(obj.get("numbers_n"), MAX_RECIPIENTS) or 0,
+        "home_set": obj.get("home_set") is True,
+        "alarms_today": small_int(obj.get("alarms_today"), 1000) or 0,
+        # The entry window: motion seen, the alarm goes out at this time
+        # without the owner's proof (None = nothing pending).
+        "entry_until": ts(obj.get("entry_until")),
+    }
 
 
 def parse_call112_view(obj: Any) -> Optional[dict[str, Any]]:
@@ -1173,9 +1332,9 @@ class CarPhoneAgent:
             reason = self._refused_reason(desired)
             if reason == "agent_outdated":
                 log.warning("Car phone agent: the agent on the phone (%s) is older than this "
-                            "BCM and cannot hold the 112 settings — copy the new "
-                            "tools/car_phone/termux/bcm_agent.py to ~/bcm_agent/ and restart "
-                            "it (docs §5.11)", self._info.get("version") or "?")
+                            "BCM and cannot hold the 112 / parking guard settings — copy the "
+                            "new tools/car_phone/termux/bcm_agent.py to ~/bcm_agent/ and "
+                            "restart it (docs §5.11, §5.12)", self._info.get("version") or "?")
             else:
                 log.warning("Car phone agent: the agent refused the config (HTTP %d: %s) — "
                             "not retried until it changes", status, detail or "hash mismatch")
@@ -1186,16 +1345,20 @@ class CarPhoneAgent:
     def _refused_reason(self, desired: dict) -> str:
         """``agent_outdated`` when the refusal is explained by an agent
         older than :data:`MIN_AGENT_VERSION` while ``modules.call112`` is on
-        (it drops the 112 keys, so its hash never matches) — the Settings
-        row then says "copy the new bcm_agent.py", not "check
-        crash_detection.sms"; otherwise ``config_refused``."""
-        if not desired.get("toggles", {}).get("call112"):
-            return "config_refused"
+        (it drops the 112 keys, so its hash never matches) or older than
+        :data:`MIN_AGENT_VERSION_PARK` while ``modules.parking_guard`` is
+        on (the same for the ``park_*`` keys) — the Settings row then says
+        "copy the new bcm_agent.py", not "check crash_detection.sms";
+        otherwise ``config_refused``."""
+        toggles = desired.get("toggles", {})
         with self._state_lock:
             version = parse_version(self._info.get("version"))
             capable = self._facts.get("call112_capable")
-        if (version is not None and version < MIN_AGENT_VERSION) or (
-                version is None and capable is None):
+        if toggles.get("call112") and ((version is not None and version < MIN_AGENT_VERSION)
+                                       or (version is None and capable is None)):
+            return "agent_outdated"
+        if toggles.get("parking_guard") and (version is None
+                                             or version < MIN_AGENT_VERSION_PARK):
             return "agent_outdated"
         return "config_refused"
 
@@ -1344,6 +1507,33 @@ class CarPhoneAgent:
         if not isinstance(event_id, str) or not EVENT_ID_RE.fullmatch(event_id):
             return _result(False, error="bad_request", detail="event_id: 1-32 lowercase hex")
         return self._call("POST", "/v1/call112/mark", {"event_id": event_id})
+
+    def park_status(self) -> dict:
+        """``GET /v1/park`` — the parking guard on the phone (plan D4);
+        ``data`` is the raw view, :func:`parse_park_view` checks it."""
+        return self._call("GET", "/v1/park")
+
+    def park_arm(self, delay_min: Optional[int] = None) -> dict:
+        """``POST /v1/park/arm {"delay_min": 0..30}`` (no body field = the
+        phone's configured exit window). Arming needs no owner proof."""
+        if delay_min is None:
+            return self._call("POST", "/v1/park/arm", {})
+        if isinstance(delay_min, bool) or not isinstance(delay_min, int) \
+                or not 0 <= delay_min <= 30:
+            return _result(False, error="bad_request", detail="delay_min: 0..30")
+        return self._call("POST", "/v1/park/arm", {"delay_min": delay_min})
+
+    def park_disarm(self, code: Optional[str] = None) -> dict:
+        """``POST /v1/park/disarm`` — OWNER PROOF only: without ``code``
+        it tells the phone "the owner's phone is connected to BCM"
+        (src/safety/parking_guard.py sends that only on such a connection
+        edge); with ``code`` (6 digits typed on the car's screen) the PHONE
+        checks the TOTP code — BCM never knows the TOTP secret."""
+        if code is None:
+            return self._call("POST", "/v1/park/disarm", {})
+        if not isinstance(code, str) or not PARK_CODE_RE.fullmatch(code):
+            return _result(False, error="bad_request", detail="code: 6 digits")
+        return self._call("POST", "/v1/park/disarm", {"code": code})
 
     def pair(self, code: str, confirm: bool = False) -> dict:
         """``POST /v1/pair {secret}`` signed with the one-time ``code``; the

@@ -1019,7 +1019,7 @@ nie działa. Dlatego BCM tylko „uzbraja” zdarzenie, a termin wysyłki, treś
 SMS-a (stałe szablony GSM-7, bez polskich liter) i limity (1 zdarzenie na
 10 min, 3 na dobę) pilnuje agent w Redmi: `tools/car_phone/termux/bcm_agent.py`
 (sam Python z biblioteką standardową). Ten sam agent obsługuje też
-„Zadzwoń 112” (§5.11), a później alarm na postoju i czuwanie kabiny. Moduł w BCM
+„Zadzwoń 112” (§5.11) i alarm na postoju (§5.12), a później czuwanie kabiny. Moduł w BCM
 (`src/network/car_phone_agent.py`, wymaga `car_phone`, domyślnie wyłączony
 wszędzie) sprawdza stan agenta co 30 s, wysyła mu ustawienia, gdy się
 zmienią, i paruje go. Sam przebieg SMS-owy (odliczanie na ekranie,
@@ -1372,6 +1372,246 @@ przycisków.
 **Czego nie obiecujemy:** zestawienia połączenia, automatycznego
 przekazania pozycji dyspozytorowi, jakości głośnika Redmi pod podsufitką.
 To nie eCall.
+
+### 5.12 Pozycja i alarm auta na postoju (`modules.parking_guard`)
+
+**Po co i gdzie działa.** Na postoju BCM nie działa — w wariancie testowym
+każde zgaszenie silnika odcina prąd M910q, a razem z nim zasilanie USB
+telefonu. Dlatego cały alarm działa **w telefonie**, w tym samym agencie
+co SMS po stłuczce (§5.9; `tools/car_phone/termux/bcm_agent.py`, klasa
+`ParkGuard`, opis w nagłówku pliku). BCM (moduł
+`src/safety/parking_guard.py`, wymaga `car_phone_agent`, domyślnie
+wyłączony w kodzie i w obu configach) robi tylko trzy rzeczy, gdy działa:
+wysyła telefonowi ustawienia, rozbraja go, gdy połączy się telefon
+właściciela, i pokazuje stan w Ustawieniach → wiersz **„Postój”**.
+Tematu `alarm.sensor.*` (syrena) moduł nigdy nie publikuje.
+
+**Jak telefon się uzbraja** (sam, bez BCM):
+
+1. Zgaszenie silnika → brak zasilania USB (`termux-battery-status`,
+   pole `plugged` = `UNPLUGGED`; telefon sprawdza baterię co 60 s);
+2. przez `arm_after_min` (3) min żadnego podpisanego żądania od BCM
+   (BCM pyta agenta co 30 s, więc dopóki działa, alarm się nie uzbroi);
+3. stan **„uzbrajanie”** i jeszcze `arm_delay_min` (2) min na wyjście
+   z auta (wysiadanie nie alarmuje); prąd, który wróci w tym czasie,
+   przerywa uzbrajanie;
+4. **„uzbrojony”** — razem ok. 5 min po zgaszeniu. Tuż przed tym telefon
+   bierze jedną paczkę próbek akcelerometru (1 s): ruch jak w jeździe
+   (rozrzut > 0,25 m/s²) przesuwa uzbrojenie o minutę, najwyżej 30 razy
+   (potem uzbraja mimo to) — kabel USB, który odpadnie w czasie jazdy,
+   nie uzbraja telefonu w jadącym aucie.
+
+Do tego „Uzbrój” w wierszu „Postój” (od razu po oknie wyjścia; BCM
+odmawia — „auto jedzie” — gdy świeże `gps.speed`, nie starsze niż 10 s,
+przekracza 5 km/h), SMS
+`PARK ON <kod>` i — w wersji docelowej z buforem — podpisane
+`POST /v1/park/arm` od BCM. Opcjonalna strefa **„dom”** (`home`): przy
+uzbrajaniu samym i przez BCM telefon sprawdza pozycję i w strefie się nie
+uzbraja (w wierszu: „dom — bez uzbrojenia”); pozycja nieznana albo
+z dokładnością gorszą niż 500 m niczego nie rozstrzyga — wtedy telefon się
+uzbraja. Po rozbrojeniu bez prądu
+(np. `PARK OFF` z daleka albo strefa „dom”) samo uzbrojenie czeka na
+następne odcięcie zasilania (najpierw jazda).
+
+**Jak się rozbraja — tylko dowodem właściciela,** nigdy samym prądem ani
+zapłonem (złodziej też przekręca kluczyk):
+
+- **telefon właściciela połączony z BCM** przez Bluetooth (HFP/A2DP;
+  bezprzewodowe Android Auto też zaczyna od Bluetooth): na zboczu
+  połączenia BCM wysyła JEDNO podpisane `POST /v1/park/disarm` (ponawia,
+  aż telefon potwierdzi — BCM startuje szybciej niż forward agenta —
+  najdłużej 15 min). Telefon właściciela: `parking_guard.owner_macs`
+  (gdy podane — tylko te), inaczej telefon połączony ostatnio PRZED
+  startem BCM (`multimedia.last_bt_device` odczytany raz przy starcie
+  modułu: nowo sparowany telefon staje się „właściciela” dopiero od
+  następnej jazdy);
+- **SMS `PARK OFF <kod>`** z numeru z listy;
+- **kod TOTP wpisany w wierszu „Postój”** (pole „kod TOTP” + Rozbrój) —
+  sprawdza go TELEFON, BCM sekretu nie zna; gdy telefon właściciela jest
+  połączony, wystarczy „Rozbrój”.
+
+Prąd, który wróci przy uzbrojonym, daje `grace_min` (3) min na dowód;
+potem **alarm „zasilanie wrocilo bez telefonu wlasciciela”**.
+
+**Okno wejścia (`entry_s`, 90 s; 0 = alarm od razu).** Właściciel, który
+otwiera drzwi i siada, porusza autem tak samo jak złodziej, a jego dowód
+(telefon połączony z BCM) przychodzi dopiero po zapłonie, starcie M910q,
+przekierowaniu adb i połączeniu Bluetooth — zwykle 1–2 min po otwarciu
+drzwi. Dlatego przechył i wstrząs przy uzbrojonym nie alarmują od razu:
+telefon czeka `entry_s` (kolejne wstrząsy nie przesuwają terminu; wiersz
+„Postój” pokazuje „wykryto ruch — alarm bez rozbrojenia o hh:mm”,
+odpowiedź na `PARK STATUS` — „ruch - alarm o hh:mm bez rozbrojenia”). W tym czasie bateria jest czytana co 15 s, a tuż przed
+terminem jeszcze raz. Prąd, który wróci w oknie (zapłon), przesuwa termin
+do końca `grace_min` od powrotu prądu; dowód właściciela kasuje czekający
+alarm i SMS-y alarmowe, które jeszcze czekają w kolejce (na zasięg, na
+ponowienie). Nie da się cofnąć tylko SMS-a, który już jest w
+`termux-sms-send`. Rozbrojenie z powodu niskiej baterii alarmu NIE kasuje.
+
+Co robi właściciel po powrocie do auta: **zapala silnik w ciągu
+`entry_s`** (prąd wraca → `grace_min` na połączenie telefonu z BCM →
+„rozbrojony”, `by owner_bt`) albo **wcześniej wysyła `PARK OFF <kod>`**.
+Otwarcie auta bez zapalania (np. tylko po coś z bagażnika) = alarm po
+`entry_s`. Podnośnik i holowanie prądu nie przywracają, więc alarmują po
+`entry_s`.
+
+**Czujniki (tylko przy uzbrojonym, oszczędnie):** jeden długo żyjący
+`termux-sensor -s <akcelerometr> -d 100` (nazwę agent bierze raz z
+`termux-sensor -l`), bateria co 3 min. Każde zatrzymanie strumienia
+(rozbrojenie, restart po zawieszeniu, przejście na wersję lekką): SIGTERM
+do całej grupy procesów (skrypt `termux-sensor` i jego pomocnik
+`termux-api`), po 3 s SIGKILL, potem `termux-sensor -c` — Termux:API
+inaczej dalej próbkuje, a następny strumień i paczki `-n` nie dostają
+nic. Wyzwalacze: **przechył** ≥ `tilt_deg`
+(0,5°) przez ≥ 3 s względem wolnego odniesienia (podnośnik, holowanie;
+powolny dryf, np. siadające koło, się nie liczy), **kołysanie/wstrząs**
+ponad `shake_k` (6) × szum czujnika przez ≥ 0,5 s (pojedynczy pik — nie),
+**zasilanie bez właściciela**. GPS tylko na żądanie albo przy alarmie:
+`termux-location -p gps -r once` (do 60 s), potem `-p network`, potem
+ostatnia znana pozycja. Po nieudanym GPS (garaż) polecenia SMS i strefa
+„dom” przez 10 min pytają od razu sieć; alarm zawsze próbuje GPS (auto
+mogło właśnie zostać wywiezione spod dachu).
+
+**Pierwszy tydzień: `log_only: true`** (tak jest w kodzie i w
+`bcm_config_test.yaml`) — wyzwalacze trafiają tylko do logu telefonu
+(`~/.config/bcm_agent/agent.log`, linie `PARK (log only, no SMS): tilt (0.80)`
+itp.; wiersz „Postój” pokazuje „uzbrojony — tylko log, bez SMS” i ostatnie
+zdarzenie na pomarańczowo). Żaden automatyczny SMS (alarm, bateria) nie
+wychodzi. Po tygodniu porównaj zdarzenia z tym, co się działo (wiatr,
+ciężarówki, ktoś oparty o auto), dostrój `tilt_deg` / `shake_k`
+w `config/local.yaml` i dopiero wtedy `log_only: false`. Odpowiedzi na
+polecenia SMS idą zawsze (o nie prosi właściciel).
+
+**Polecenia SMS** — z numerów z listy, zawsze z 6-cyfrowym kodem TOTP
+(wielkość liter i spacje bez znaczenia, np. `park off 123 456`):
+
+| SMS | Odpowiedź |
+|---|---|
+| `POZYCJA <kod>` albo `GDZIE <kod>` | `ALFA 156: POZYCJA https://maps.google.com/?q=52.22968,21.01223 (GPS sprzed 4 s, dokladnosc 12 m)` |
+| `PARK ON <kod>` | `ALFA 156: POSTOJ uzbrajanie za 2 min.` |
+| `PARK OFF <kod>` | `ALFA 156: POSTOJ rozbrojony.` |
+| `PARK STATUS <kod>` | `ALFA 156: POSTOJ uzbrojony od 19.11 03:12, bateria 64%, ostatnie: przechyl 19.11 04:12.` |
+
+Agent czyta skrzynkę odbiorczą co 30 s (`termux-sms-list -t inbox -l 10`;
+tylko z włączonym alarmem, numerami i sekretem TOTP). Kod liczy się
+względem czasu, w którym SMS dotarł do telefonu w aucie (pole `received`),
+a nie chwili odczytu skrzynki — odczyt co 30 s albo trwające szukanie
+pozycji nie unieważniają dobrego kodu (okno ±30 s wokół odbioru). Pomija wiadomości
+już przeczytane, starsze niż 10 min i sprzed startu agenta; obcy numer —
+po cichu (bez odpowiedzi). Zły albo już użyty kod: odpowiedź
+`ALFA 156: POSTOJ zly albo zuzyty kod.`; 5 złych kodów w godzinie z
+jednego numeru = ten numer ignorowany do końca godziny. Odpowiedź idzie na
+numer z LISTY (nigdy na tekst z SMS-a), najwyżej 1 na numer na 2 min
+i 10 na dobę.
+
+**SMS alarmowy** (GSM-7, do wszystkich numerów z listy):
+`ALFA 156: ALARM przechyl (podnosnik albo holowanie) 19.11 03:12. Pozycja: https://maps.google.com/?q=…`
+(albo `wstrzas albo kolysanie`, `zasilanie wrocilo bez telefonu wlasciciela`).
+Najwyżej 1 na 10 min i 6 na dobę — budżet osobny od SMS-a po stłuczce,
+a kolejka wysyłki zawsze najpierw obsługuje wypadek. Stan zostaje
+„ALARM” do rozbrojenia; po starcie BCM pokazuje jedno powiadomienie
+„Alarm na postoju”.
+
+**Bateria telefonu na postoju** (szacunek, niesprawdzone na tym
+telefonie): blokada uśpienia Termuxa 30–80 mA, strumień akcelerometru kilka
+mA, skrzynka co 30 s i bateria co 3 min po ułamku sekundy — razem ok.
+1–2% na godzinę; przy ACC 40–60% to ok. 1–2,5 doby. Po dobie uzbrojenia
+albo poniżej 30% wersja **„lekka”** (co 20 s paczka 10 próbek,
+`termux-sensor -n 10`, zamiast ciągłego strumienia; w wierszu
+„oszczędzanie baterii”); poniżej 15% **rozbrojenie z jednym SMS-em**
+(`ALFA 156: POSTOJ rozbrojony - bateria telefonu 14%. …`; w `log_only`
+bez SMS-a) — telefon ma mieć jeszcze siłę na SMS po stłuczce, a
+rozładowany trzeba włączać ręcznie.
+
+**W telefonie:**
+
+1. Agent **≥ 1.2.0**: skopiuj nowy `bcm_agent.py` do `~/bcm_agent/`
+   i `pkill -f bcm_agent.py` (wiersz „Agent w telefonie” pokazuje wersję;
+   starszy agent z włączonym `parking_guard` = „agent w telefonie jest
+   starszy niż BCM”).
+2. Uprawnienia Termux:API: **SMS** (wysyłanie i odczyt) i **Lokalizacja:
+   „Zezwalaj cały czas”** (Android 13 — inaczej `termux-location` w tle
+   nic nie zwraca). Bateria „Bez ograniczeń” jak w §5.7a.
+3. Sekret TOTP: `python ~/bcm_agent/bcm_agent.py --park-setup` — wypisze
+   adres `otpauth://…` i sam sekret (base32); dodaj go w aplikacji
+   „authenticator” na SWOIM telefonie (np. Aegis z F-Droid: wklej adres
+   albo wpisz sekret ręcznie — TOTP, SHA1, 6 cyfr, 30 s). Sekret leży w
+   `~/.config/bcm_agent/park_totp` (0600) i nie trafia do logu; drugi
+   `--park-setup` pokazuje ten sam, `--park-setup --new` tworzy nowy
+   (stary kod w aplikacji przestaje działać). Działający agent bierze go
+   bez restartu.
+4. (Opcjonalnie) numery ustawione w samym telefonie, gdy BCM nie wysyła
+   własnych: `python ~/bcm_agent/bcm_agent.py --park-numbers '+48601234567,+48601234568'`
+   (`''` czyści listę).
+
+**W BCM:**
+
+1. Ustawienia → Moduły: `car_phone`, `car_phone_agent`, `parking_guard`;
+   restart BCM.
+2. W `config/local.yaml` (nigdy w repo — dane osobowe):
+
+   ```yaml
+   parking_guard:
+     numbers: ['+48601234567']            # ≤ 3, E.164: alarm i polecenia SMS
+     owner_macs: ['AA:BB:CC:DD:EE:FF']    # telefon(y) właściciela, ≤ 4
+     home: {lat: 52.2297, lon: 21.0122, radius_m: 150}   # opcjonalnie, ≥ 50 m
+   ```
+
+   Reszta (`log_only`, `arm_after_min` 1–60, `arm_delay_min` 0–30,
+   `grace_min` 1–15, `entry_s` 0–300 (domyślnie 90), `tilt_deg` 0,2–10,
+   `shake_k` 2–50) ma wartości domyślne; wartość spoza zakresu BCM przycina (jedno ostrzeżenie
+   w logu). BCM wysyła je telefonowi tylko z włączonym
+   `modules.parking_guard`.
+3. Wiersz „Postój” w Ustawieniach: stan (od kiedy, bateria telefonu,
+   ostatnie zdarzenie), czego brakuje (kod TOTP, numery, telefon
+   właściciela) i przyciski **Uzbrój** / **Rozbrój**. Trasy
+   `/api/parking_guard/arm` i `/api/parking_guard/disarm` działają
+   **wyłącznie z ekranu auta** (loopback), także przy `remote_access:
+   full`, z treścią JSON; kod TOTP idzie tylko w treści jednego żądania
+   (nie do logu ani na szynę).
+
+**Sprawdzenie na stole** (`log_only: true`, bez prawdziwych alarmów):
+
+1. Redmi na kablu, BCM działa: wiersz „Postój: rozbrojony”.
+2. `PARK STATUS <kod>` ze swojego numeru → odpowiedź w ciągu ~1 min; ten
+   sam kod drugi raz → „zly albo zuzyty kod”.
+3. Odłącz kabel USB od telefonu (BCM traci wtedy kontakt z agentem):
+   po ~3 min „uzbrajanie”, po kolejnych 2 min w logu agenta
+   `PARK: ARMED (power) — LOG ONLY, no SMS`.
+4. Przechyl uchwyt / pobujaj telefonem → w logu `PARK (log only, no SMS):
+   tilt …` / `shake …`; SMS-a brak.
+5. Podłącz kabel z powrotem, telefon właściciela bez Bluetooth → po 3 min
+   w logu `PARK (log only, no SMS): power`. Telefon dalej jest uzbrojony
+   (`log_only` niczego nie zmienia, wiersz: „uzbrojony — tylko log, bez
+   SMS”).
+   Wyłącz i włącz Bluetooth w swoim telefonie (rozbraja NOWE połączenie,
+   nie to, które trwało cały czas) → „rozbrojony” (`by owner_bt`). Żeby
+   powtórzyć, odłącz kabel jeszcze raz (krok 3).
+6. `POZYCJA <kod>` → link do mapy.
+
+Okna wejścia nie da się sprawdzić przy `log_only: true` (wyzwalacz idzie
+wtedy tylko do logu). Po tygodniu, z `log_only: false` i własnym numerem
+na liście: uzbrojony telefon, otwórz drzwi i usiądź → w logu `PARK: tilt
+… — alarm in 90 s unless the owner disarms (entry window)`; zapal silnik
+→ po połączeniu telefonu z BCM „rozbrojony”, SMS-a brak. Bez zapalania →
+SMS alarmowy po 90 s.
+
+**NIESPRAWDZONE na crDroid 13 / Redmi Note 8 Pro:** format wyjścia
+`termux-sensor` (agent czyta obiekty JSON wielo- i jednoliniowe) i czy
+strumień działa przy wygaszonym ekranie; czy `-n 10` po paczce zwalnia
+czujnik; pole `plugged` w `termux-battery-status` przy ograniczniku
+ładowania ACC (agent nie patrzy na `status`); format pola `received`
+w `termux-sms-list` (`RRRR-MM-DD GG:MM:SS`, czas lokalny); `termux-location`
+w tle przy uprawnieniu „cały czas”; realne zużycie baterii.
+
+**Czego nie obiecujemy:** zatrzymania złodzieja, alarmu przy martwym,
+wyłączonym albo zabitym przez Androida telefonie, doręczenia SMS-a (zasięg
+na parkingu podziemnym), dokładnej pozycji w garażu. Dopóki telefon
+właściciela się nie połączy, właściciel i złodziej wyglądają dla auta tak
+samo — stąd okno wejścia `entry_s`, okno `grace_min` i kod TOTP. Złodziej,
+który w oknie wejścia zapali auto, a nie połączy telefonu właściciela,
+wywoła alarm dopiero po `grace_min` od zapłonu (razem do ok. 4–5 min od
+otwarcia drzwi) — to cena za brak fałszywego alarmu przy każdym powrocie
+właściciela.
 
 ---
 

@@ -639,7 +639,13 @@ class TestConfig:
         assert agent.config == {"recipients": [], "sim_slot": 0, "vehicle_label": "ALFA 156",
                                 "toggles": dict.fromkeys(A.TOGGLES, False), "dry_run": True,
                                 "follow_up_cancel": True, "call112_test_mode": True,
-                                "call112_test_number": ""}
+                                "call112_test_number": "",
+                                # alarm na postoju: bez numerów, tylko log
+                                "park_numbers": [], "park_log_only": True,
+                                "park_arm_after_min": 3, "park_arm_delay_min": 2,
+                                "park_grace_min": 3, "park_home": None,
+                                "park_tilt_deg": 0.5, "park_shake_k": 6.0,
+                                "park_entry_s": 90}
 
     def test_put_is_persisted(self, ready, state_dir, runner, clock):
         agent, peer = ready

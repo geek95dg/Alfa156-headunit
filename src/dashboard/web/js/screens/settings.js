@@ -578,6 +578,205 @@ const Settings = {
         });
     },
 
+    // Alarm na postoju (src/safety/parking_guard.py). data.parking_guard =
+    // web_viewer._parking_guard_summary(park.state), or null while the module
+    // is not running (production config: no row). The alarm itself runs ON
+    // THE CAR PHONE (the Termux agent); this row shows its state and sends
+    // "Uzbrój" / "Rozbrój" to the loopback-only /api/parking_guard/* routes.
+    // Disarming needs owner proof: the owner's phone connected to BCM, or the
+    // 6-digit TOTP code from the owner's authenticator app (checked by the
+    // phone — never stored, logged or kept in the page after the request).
+    _park: { listening: false, sentAt: 0, msg: "" },
+    _parkColors: {
+        armed: "#16a34a", log_only: "#d97706", arming: "var(--color-primary)",
+        alarm: "#dc2626", disarmed: "var(--text-mid)",
+    },
+    _parkArmable: ["disarmed"],
+    _parkDisarmable: ["arming", "armed", "alarm", "log_only"],
+
+    /** While the driver types the code (the field has focus), the row must
+     *  not be redrawn: the OSK writes into the very input element it
+     *  attached to. Only focus counts — a half-typed code left in an
+     *  unfocused field must not freeze the row on a stale state (e.g.
+     *  still "ALARM" after the phone disarmed); update() carries the typed
+     *  digits over into the redrawn field instead. */
+    parkingGuardTyping(slot) {
+        const input = slot && slot.querySelector ? slot.querySelector("[data-park-code]") : null;
+        if (!input) return false;
+        return typeof document !== "undefined" && document.activeElement === input;
+    },
+
+    /** The row "Postój: uzbrojony · od 19.11 03:12 · bateria 64%" plus the
+     *  last event, what is missing (TOTP, numbers, owner phone), the outcome
+     *  of the last command, and Uzbrój / Rozbrój. '' without a payload.
+     *  Inline styles only; every value escaped / type-checked. */
+    parkingGuardRowHtml(pg, t) {
+        t = t || ((k, d) => d);
+        if (!pg || typeof pg !== "object") return "";
+        const esc = Settings._esc;
+        const has = (obj, k) => typeof k === "string" && Object.prototype.hasOwnProperty.call(obj, k);
+        const labels = {
+            unknown: t("park_unknown", "brak danych z telefonu"),
+            off: t("park_off", "wyłączony w telefonie"),
+            disarmed: t("park_disarmed", "rozbrojony"),
+            arming: t("park_arming", "uzbrajanie"),
+            armed: t("park_armed", "uzbrojony"),
+            alarm: t("park_alarm", "ALARM"),
+            log_only: t("park_log_only", "uzbrojony — tylko log, bez SMS"),
+        };
+        const state = has(labels, pg.state) ? pg.state : "unknown";
+        const color = Settings._parkColors[state] || "var(--text-dim)";
+        const facts = [];
+        const since = Settings._crashFmtTime(pg.since);
+        if (since && state !== "unknown" && state !== "off") facts.push(t("park_since", "od") + " " + since);
+        if (state === "arming") {
+            const at = Settings._crashFmtTime(pg.arm_at);
+            if (at) facts.push(t("park_arm_at", "uzbroi się o") + " " + at.slice(-5));
+        }
+        // The entry window: the phone saw motion and alarms at this time
+        // unless the owner's phone connects or the code is typed.
+        const entry = Settings._crashFmtTime(pg.entry_until);
+        if (entry && state === "armed") facts.push(t("park_entry", "wykryto ruch — alarm bez rozbrojenia o") + " " + entry.slice(-5));
+        if (Number.isInteger(pg.battery_pct) && pg.battery_pct >= 0 && pg.battery_pct <= 100) {
+            facts.push(t("park_battery", "bateria") + " " + pg.battery_pct + "%");
+        }
+        if (pg.light === true) facts.push(t("park_light", "oszczędzanie baterii"));
+        const evLabels = {
+            tilt: t("park_ev_tilt", "przechył"),
+            shake: t("park_ev_shake", "wstrząs"),
+            power: t("park_ev_power", "zasilanie bez telefonu właściciela"),
+            low_battery: t("park_ev_low_battery", "niska bateria — rozbrojony"),
+            home: t("park_ev_home", "dom — bez uzbrojenia"),
+        };
+        const ev = pg.last_event;
+        let evHtml = "";
+        if (ev && typeof ev === "object" && has(evLabels, ev.kind)) {
+            const when = Settings._crashFmtTime(ev.ts);
+            const logged = ev.logged_only === true ? " (" + t("park_logged_only", "tylko log") + ")" : "";
+            // red = a real alarm; amber = only logged (log_only week); grey = home
+            const evColor = ev.kind === "home" ? "var(--text-mid)" : (ev.logged_only === true ? "#d97706" : "#dc2626");
+            evHtml = `<span data-park-event="${esc(ev.kind)}" style="color:${evColor};flex-basis:100%;padding-left:24px">${esc(t("park_last_event", "Ostatnie zdarzenie") + ": " + evLabels[ev.kind] + (when ? " " + when : "") + logged)}</span>`;
+        }
+        // What is missing / wrong — what to do, never raw error text.
+        const hints = [];
+        const errHints = {
+            no_agent: t("park_hint_no_agent", "agent w telefonie nie działa — patrz wiersz „Agent w telefonie”"),
+            agent_outdated: t("park_hint_outdated", "agent w telefonie jest za stary — skopiuj nowy tools/car_phone/termux/bcm_agent.py (≥ 1.2.0)"),
+            no_answer: t("park_hint_no_answer", "telefon nie odpowiada"),
+            agent_error: t("park_hint_agent_error", "telefon nie podał stanu — ponowię"),
+        };
+        if (has(errHints, pg.error)) hints.push(errHints[pg.error]);
+        if (state !== "unknown" && state !== "off") {
+            if (pg.totp_ready === false) hints.push(t("park_hint_totp", "brak kodu TOTP — w Termuxie: python ~/bcm_agent/bcm_agent.py --park-setup"));
+            if (pg.numbers_n === 0) hints.push(t("park_hint_numbers", "brak numerów do SMS — parking_guard.numbers w config/local.yaml"));
+        }
+        if (pg.owner_known === false) hints.push(t("park_hint_owner", "telefon właściciela nieznany — parking_guard.owner_macs w config/local.yaml"));
+        const hintHtml = hints.length
+            ? `<span data-park-hint style="color:var(--text-mid);flex-basis:100%;padding-left:24px">${esc(hints.join(" · "))}</span>` : "";
+        // The outcome of the last Uzbrój / Rozbrój (from the module).
+        const cmdErrors = {
+            bad_code: t("park_err_bad_code", "zły kod"),
+            code_used: t("park_err_code_used", "kod już użyty — poczekaj na następny"),
+            rate_limited: t("park_err_rate", "za dużo złych kodów — spróbuj za godzinę"),
+            no_totp: t("park_err_no_totp", "w telefonie nie ma sekretu TOTP"),
+            low_battery: t("park_err_low_battery", "bateria telefonu za niska"),
+            parking_guard_off: t("park_err_off", "alarm wyłączony w telefonie"),
+            no_agent: t("park_err_no_agent", "agent w telefonie nie działa"),
+            agent_outdated: t("park_err_outdated", "agent w telefonie jest za stary"),
+            no_answer: t("park_err_no_answer", "telefon nie odpowiada"),
+            owner_required: t("park_err_owner", "połącz telefon właściciela albo wpisz kod"),
+        };
+        let cmdText = Settings._park.msg || "";
+        const cmd = pg.cmd;
+        if (!cmdText && cmd && typeof cmd === "object" && (cmd.action === "arm" || cmd.action === "disarm")) {
+            if (cmd.ok === true) cmdText = cmd.action === "arm" ? t("park_cmd_armed", "uzbrajanie przyjęte") : t("park_cmd_disarmed", "rozbrojono");
+            else cmdText = has(cmdErrors, cmd.error) ? cmdErrors[cmd.error] : t("park_err", "nie udało się");
+        }
+        // Buttons (data-* + one delegated listener, parkListen()).
+        const btn = (attr, label, bg, fg) => `<button ${attr} style="padding:7px 14px;border-radius:8px;font-size:12px;font-weight:700;background:${bg};color:${fg};border:none">${esc(label)}</button>`;
+        let actions = "";
+        if (Settings._parkArmable.indexOf(state) >= 0) {
+            actions = btn("data-park-arm", t("park_arm", "Uzbrój"), "var(--card-border)", "var(--text-mid)");
+        } else if (Settings._parkDisarmable.indexOf(state) >= 0) {
+            const code = pg.owner_connected === true ? ""
+                : `<input data-park-code type="tel" inputmode="numeric" maxlength="6" autocomplete="off" placeholder="${esc(t("park_code", "kod TOTP"))}" style="width:96px;padding:6px 8px;border-radius:8px;font-size:13px;letter-spacing:1px;background:var(--color-surface);color:var(--text-primary);border:1px solid var(--card-border)">`;
+            actions = code + btn("data-park-disarm", t("park_disarm", "Rozbrój"), "#d97706", "#fff");
+        }
+        const actionsHtml = actions || cmdText
+            ? `<span data-park-actions style="flex-basis:100%;display:flex;flex-wrap:wrap;align-items:center;gap:6px;padding-left:24px">${actions}<span data-park-msg style="color:var(--text-mid)">${esc(cmdText)}</span></span>` : "";
+        const factsHtml = facts.length ? ` <span style="color:var(--text-mid)">· ${esc(facts.join(" · "))}</span>` : "";
+        return `<div data-park-state="${esc(state)}" style="display:flex;flex-wrap:wrap;align-items:center;gap:4px 8px;padding:8px 12px;border-radius:12px;background:var(--card-bg);border:1px solid var(--card-border);font-size:11px;line-height:1.3">
+            <span class="material-symbols-outlined" style="font-size:16px;color:${color}">local_parking</span>
+            <span style="color:var(--text-dim);font-weight:700">${esc(t("park_title", "Postój"))}:</span>
+            <span style="color:${color};font-weight:700">${esc(labels[state])}</span>${factsHtml}${evHtml}${hintHtml}${actionsHtml}
+        </div>`;
+    },
+
+    _parkSay(text) {
+        Settings._park.msg = text;
+        const node = typeof document !== "undefined" ? document.querySelector("[data-park-msg]") : null;
+        if (node) node.textContent = text;
+    },
+
+    /** POST one command; the answer only says "handed to the module" — the
+     *  phone's verdict arrives with the next payload (cmd). */
+    async parkSend(action) {
+        const t = (typeof App !== "undefined" && App.t) ? App.t.bind(App) : ((k, d) => d);
+        const now = Date.now();
+        if (now - Settings._park.sentAt < 1500) return;
+        const body = {};
+        if (action === "disarm") {
+            const input = typeof document !== "undefined" ? document.querySelector("[data-park-code]") : null;
+            if (input) {
+                const code = typeof input.value === "string" ? input.value.replace(/\s+/g, "") : "";
+                if (!/^[0-9]{6}$/.test(code)) {
+                    Settings._parkSay(t("park_code_hint", "wpisz 6 cyfr kodu z aplikacji"));
+                    return;
+                }
+                body.code = code;
+                input.value = "";       // the code is not kept in the page
+            }
+        }
+        Settings._park.sentAt = now;
+        try {
+            const res = await fetch(`/api/parking_guard/${action === "arm" ? "arm" : "disarm"}`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify(body),
+            });
+            let out = {};
+            try { out = await res.json(); } catch (e) { /* not JSON */ }
+            const errors = {
+                owner_required: t("park_err_owner", "połącz telefon właściciela albo wpisz kod"),
+                not_running: t("park_err_not_running", "moduł nie działa"),
+                moving: t("park_err_moving", "auto jedzie — uzbrój na postoju"),
+                bad_code_format: t("park_code_hint", "wpisz 6 cyfr kodu z aplikacji"),
+                "too many requests": t("park_err_wait", "chwilę — spróbuj za kilka sekund"),
+            };
+            const key = out && typeof out.error === "string" ? out.error : "";
+            if (res.ok) Settings._parkSay(t("park_sent", "przekazano do telefonu…"));
+            else if (res.status === 403) Settings._parkSay(t("crash_kiosk_only", "Tylko z ekranu w aucie"));
+            else Settings._parkSay(Object.prototype.hasOwnProperty.call(errors, key)
+                ? errors[key] : t("park_err", "nie udało się"));
+        } catch (e) {
+            Settings._parkSay(t("park_err", "nie udało się"));
+        }
+        // The module's verdict (cmd) replaces the local message on the next redraw.
+        setTimeout(() => { Settings._park.msg = ""; }, 4000);
+    },
+
+    /** One delegated click listener for the row (installed once). */
+    parkListen() {
+        const p = Settings._park;
+        if (p.listening || typeof document === "undefined" || !document.addEventListener) return;
+        p.listening = true;
+        document.addEventListener("click", (e) => {
+            const el = e.target && e.target.closest ? e.target.closest("[data-park-arm],[data-park-disarm]") : null;
+            if (!el) return;
+            Settings.parkSend(el.hasAttribute("data-park-arm") ? "arm" : "disarm");
+        });
+    },
+
     _crashFmtTime(ts) {
         if (typeof ts !== "number" || !isFinite(ts) || ts <= 0) return "";
         const d = new Date(ts * 1000);
@@ -1497,6 +1696,12 @@ App.registerScreen("settings", (() => {
         return JSON.stringify([cs.dry_run, cs.forced_dry_run_reason, cs.recipients_n, cs.test]);
     }
 
+    /** The "Postój" row as drawn (the whole summary — it changes rarely). */
+    let _parkKey = "null";
+    function _parkKeyOf(data) {
+        return JSON.stringify((data && data.parking_guard) || null) + "|" + Settings._park.msg;
+    }
+
     /** What the GPS row shows: gps_state without last_ts (it changes with
      *  every fix, the row does not show it) + the bnep0 IP of the hint. */
     function _gpsKeyOf(data) {
@@ -1546,6 +1751,20 @@ App.registerScreen("settings", (() => {
                 slot.innerHTML = Settings.crashSmsRowHtml(data && data.crash_sms, t);
             }
         }
+        const parkKey = _parkKeyOf(data);
+        if (parkKey !== _parkKey) {
+            const slot = document.querySelector("[data-parking-guard-slot]");
+            // Not while the driver types the TOTP code (retried next update).
+            if (slot && !Settings.parkingGuardTyping(slot)) {
+                _parkKey = parkKey;
+                // Digits typed into an unfocused field survive the redraw.
+                const old = slot.querySelector ? slot.querySelector("[data-park-code]") : null;
+                const typed = old && typeof old.value === "string" ? old.value : "";
+                slot.innerHTML = Settings.parkingGuardRowHtml(data && data.parking_guard, t);
+                const field = typed && slot.querySelector ? slot.querySelector("[data-park-code]") : null;
+                if (field) field.value = typed;
+            }
+        }
         const gpsKey = _gpsKeyOf(data);
         if (gpsKey !== _gpsKey) {
             const slot = document.querySelector("[data-gps-slot]");
@@ -1565,6 +1784,7 @@ App.registerScreen("settings", (() => {
         _carPhoneKey = _carPhoneKeyOf(data);
         _agentKey = _agentKeyOf(data);
         _crashKey = _crashKeyOf(data);
+        _parkKey = _parkKeyOf(data);
         const paired = Settings._btPaired;
         const discovered = Settings._btDiscovered;
         const scanning = Settings._btScanning;
@@ -1585,6 +1805,9 @@ App.registerScreen("settings", (() => {
             Settings.crashListen();
             Settings.crashLoad();
         }
+        // Always (idempotent, one listener): the row may first appear through
+        // update() when the module publishes after this render.
+        Settings.parkListen();
 
         container.innerHTML = `<div class="screen-container" style="background:var(--color-surface);color:var(--color-on-surface)">
             ${AppBar.render(theme, data)}
@@ -1637,6 +1860,8 @@ App.registerScreen("settings", (() => {
                              and the recipients editor (render() only). -->
                         <div data-crash-sms-slot style="display:contents">${Settings.crashSmsRowHtml(data && data.crash_sms, t)}</div>
                         <div data-crash-editor-slot style="display:contents">${Settings.crashEditorHtml(data && data.crash_sms, t)}</div>
+                        <!-- Alarm na postoju (the phone runs it): state + Uzbrój / Rozbrój. -->
+                        <div data-parking-guard-slot style="display:contents">${Settings.parkingGuardRowHtml(data && data.parking_guard, t)}</div>
                         <!-- GPS source / fix + where to send NMEA (same slot idea). -->
                         <div data-gps-slot style="display:contents">${Settings.gpsRowHtml(data && data.gps_state, data && data.phone_tether, t)}</div>
                         <!-- Wi-Fi Hotspot / ALFA-NET network access. The live

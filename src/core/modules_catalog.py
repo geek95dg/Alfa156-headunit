@@ -165,6 +165,19 @@ MODULES: dict[str, dict] = {
                      "hardware": "Redmi z rootem (głośnik) albo główny telefon przez HFP "
                                  "+ mikrofon i phone_status; najpierw test_mode z numerem "
                                  "testowym"},
+    # Plan D4: the alarm on the parked car runs ON THE PHONE (bcm_agent.py,
+    # ParkGuard) — BCM is off when the car is parked. BCM's part
+    # (src/safety/parking_guard.py): the owner proof on the phone's
+    # Bluetooth connection edge (disarm), the phone's park state on
+    # park.state and the Settings row "Postój" (Uzbrój / Rozbrój, loopback
+    # only). Never alarm.sensor.* (that is the siren alarm module).
+    "parking_guard": {"part": 22, "description": "Pozycja i alarm auta na postoju (działa w telefonie)",
+                     "entry": ("src.safety.parking_guard", "start_parking_guard"),
+                     "default": False, "group": "telefon_w_aucie",
+                     "requires": ("car_phone_agent",),
+                     "hardware": "Redmi z kartą SIM (SMS), agent ≥ 1.2.0; sekret TOTP: "
+                                 "bcm_agent.py --park-setup; numery i dom w local.yaml "
+                                 "(parking_guard)"},
     "battery":     {"part": 21, "description": "Battery Backup Monitor",
                     "entry": ("src.power.battery", "start_battery"), "default": False},
 
@@ -198,10 +211,6 @@ MODULES: dict[str, dict] = {
                      "default": False, "group": "telefon_w_aucie",
                      "requires": ("car_phone",),
                      "hardware": "Redmi: hotspot skonfigurowany w telefonie"},
-    "parking_guard": {"part": 22, "description": "Pozycja i alarm auta na postoju (działa w telefonie)",
-                     "default": False, "planned": True, "group": "telefon_w_aucie",
-                     "requires": ("car_phone_agent",),
-                     "hardware": "Redmi z kartą SIM (SMS)"},
     "cabin_watch":  {"part": 22, "description": "Czuwanie kabiny na postoju: zdjęcia przednią kamerą telefonu",
                      "default": False, "planned": True, "group": "telefon_w_aucie",
                      "requires": ("car_phone_agent",),

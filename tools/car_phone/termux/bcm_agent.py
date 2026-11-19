@@ -1,6 +1,7 @@
 #!/data/data/com.termux/files/usr/bin/env python3
-"""Agent BCM w telefonie w aucie (Termux) — SMS po stłuczce i wspólny kanał
-dla kolejnych funkcji (alarm postojowy D4, „Zadzwoń 112” H, czuwanie kabiny I).
+"""Agent BCM w telefonie w aucie (Termux) — SMS po stłuczce, alarm na postoju
+(D4), „Zadzwoń 112” (H) i wspólny kanał dla kolejnych funkcji (czuwanie
+kabiny I).
 
 Po co to jest
 -------------
@@ -137,8 +138,9 @@ Endpointy (JSON)
 ``POST /v1/crash/<id>/cancel``, ``POST /v1/crash/<id>/send_now``,
 ``GET /v1/crash/<id>``, ``POST /v1/test``, ``POST /v1/pair``,
 ``POST /v1/call112``, ``GET /v1/call112``, ``POST /v1/call112/hangup``,
-``POST /v1/call112/mark`` —
-opis przy metodach :class:`Agent`. Bateria i SIM w ``/v1/health`` są odświeżane w tle
+``POST /v1/call112/mark``, ``GET /v1/park``, ``POST /v1/park/arm``,
+``POST /v1/park/disarm`` —
+opis przy metodach :class:`Agent` i :class:`ParkGuard`. Bateria i SIM w ``/v1/health`` są odświeżane w tle
 tylko wtedy, gdy BCM o nie pyta (auto na postoju nie budzi Termux:API co
 minutę).
 
@@ -243,6 +245,104 @@ wysyłki idzie JEDEN SMS uzupełniający do tych, do których wyszedł, i
 zużywa to budżet SMS-a odwołującego (potem SMS-a „ODWOLANE” już nie ma).
 112 nigdy nie odwołuje SMS-a.
 
+Alarm na postoju (plan D4, przełącznik ``toggles.parking_guard``)
+-----------------------------------------------------------------
+BCM na postoju nie działa (wersja testowa: każde zgaszenie silnika odcina
+prąd komputerowi i USB telefonu), więc wszystko dzieje się TU, w telefonie.
+
+* **Uzbrajanie samo:** brak zasilania USB (``termux-battery-status``:
+  ``plugged`` = ``UNPLUGGED``) ORAZ żadnego podpisanego żądania BCM przez
+  ``park_arm_after_min`` (3) min → ``arming``, a po kolejnych
+  ``park_arm_delay_min`` (2) min (okno wyjścia: wysiadanie nie alarmuje)
+  → ``armed``; razem ok. 5 min po zgaszeniu. Prąd, który wróci w oknie
+  wyjścia, przerywa uzbrajanie. Albo podpisane ``POST /v1/park/arm
+  {"delay_min": n}`` od BCM (wersja z buforem: BCM wie o zgaszeniu), albo
+  SMS ``PARK ON <kod>``. Opcjonalna strefa „dom” (``park_home``: lat, lon,
+  ``radius_m`` ≥ 50): samo uzbrajanie i to od BCM sprawdzają pozycję
+  i w domu nie uzbrajają (pozycja nieznana albo niedokładna > 500 m →
+  uzbrajam). Po rozbrojeniu bez prądu (np. ``PARK OFF`` z daleka) samo
+  uzbrojenie czeka na następne odcięcie zasilania.
+* **Rozbrajanie TYLKO dowodem właściciela** — nigdy samym prądem ani
+  zapłonem: podpisane ``POST /v1/park/disarm {}`` od BCM (BCM wysyła je
+  wyłącznie, gdy połączy się telefon właściciela przez Bluetooth/HFP/AA);
+  ``POST /v1/park/disarm {"code": "<6 cyfr>"}`` (kod TOTP wpisany na
+  ekranie auta, sprawdzany tutaj); SMS ``PARK OFF <kod>`` z numeru z białej
+  listy. Prąd, który wraca przy uzbrojonym, daje ``park_grace_min`` (3) min
+  na dowód; potem alarm „zasilanie wrocilo bez telefonu wlasciciela”.
+* **Okno wejścia** (``park_entry_s``, 90 s; 0 = alarm od razu): przechył
+  albo wstrząs przy uzbrojonym nie alarmuje od razu — właściciel, który
+  otwiera drzwi i siada, wygląda dla czujnika tak samo jak złodziej, a jego
+  dowód (telefon połączony z BCM) przychodzi dopiero po zapłonie, starcie
+  komputera i połączeniu Bluetooth. Alarm czeka ``park_entry_s`` (kolejne
+  wstrząsy nie przesuwają terminu); prąd, który w tym czasie wróci
+  (zapłon), przesuwa termin do końca ``park_grace_min``; dowód właściciela
+  kasuje alarm i SMS-y alarmowe, które jeszcze nie wyszły. Podnośnik
+  i holowanie prądu nie przywracają — alarm po ``park_entry_s``. W oknie
+  bateria co 15 s, a tuż przed terminem świeży odczyt.
+* **Kod TOTP** (RFC 6238: SHA1, 6 cyfr, 30 s, ±1 krok): sekret tworzy
+  ``python ~/bcm_agent/bcm_agent.py --park-setup`` (plik ``park_totp``,
+  0600; wypisuje adres ``otpauth://`` dla aplikacji „authenticator”, np.
+  Aegis z F-Droid; nigdy do logu; ``--new`` = nowy sekret). Użyty kod nie
+  przechodzi drugi raz (zapisany krok, także po restarcie); 5 złych kodów
+  w godzinie z jednego numeru = ten numer ignorowany do końca godziny.
+* **Czujniki (oszczędnie):** tylko przy uzbrojonym jeden długo żyjący
+  ``termux-sensor -s <akcelerometr> -d 100`` (nazwa raz z ``termux-sensor
+  -l``; strumień JSON czytany ostrożnie, restart z backoffem 5 s → 5 min).
+  Każde zatrzymanie (rozbrojenie, restart, przejście na wersję lekką):
+  SIGTERM do całej grupy procesów (skrypt i pomocnik ``termux-api``), po
+  3 s SIGKILL, potem ``termux-sensor -c`` — bez tego Termux:API próbkuje
+  dalej, a następny strumień i paczki ``-n`` nie dostają nic. Polecenia
+  Termux:API po przekroczeniu czasu też kończą się z całą grupą. Bateria
+  co 3 min. Tuż przed SAMYM uzbrojeniem i tym od BCM jedna paczka próbek:
+  ruch jak w jeździe (rozrzut > 0,25 m/s²) przesuwa uzbrojenie o minutę,
+  najwyżej 30 razy — kabel USB, który odpadnie w czasie jazdy, nie uzbraja
+  telefonu w ruchu. Wyzwalacze:
+  przechył ≥ ``park_tilt_deg`` (0,5°) przez ≥ 3 s względem wolnego
+  odniesienia (podnośnik, holowanie), kołysanie powyżej ``park_shake_k``
+  (6) × szum przez ≥ 0,5 s, zasilanie bez właściciela. GPS tylko na
+  żądanie albo przy alarmie (``termux-location -p gps -r once`` do 60 s,
+  potem sieć, potem ostatnia znana); po nieudanym GPS polecenia i strefa
+  „dom” przez 10 min od razu pytają sieć (garaż), alarm — zawsze GPS.
+* **Pierwszy tydzień ``park_log_only: true``** (domyślnie): wyzwalacze
+  tylko w logu (``PARK (log only, no SMS)``) do strojenia progów — żaden
+  automatyczny SMS (alarm, bateria). Odpowiedzi na polecenia SMS idą zawsze
+  (o nie prosił właściciel).
+* **Polecenia SMS** z numerów z listy (``park_numbers`` z BCM, ≤ 3 E.164;
+  gdy BCM nie wysyła żadnych — ``--park-numbers`` w telefonie):
+  ``POZYCJA <kod>`` / ``GDZIE <kod>`` → ``ALFA 156: POZYCJA
+  https://maps.google.com/?q=lat,lon (GPS sprzed N s, dokladnosc M m)``;
+  ``PARK ON|OFF|STATUS <kod>``. Wielkość liter i spacje bez znaczenia.
+  Kod liczy się względem czasu ODEBRANIA SMS-a przez telefon (nie chwili
+  przeczytania skrzynki), więc odczyt co 30 s go nie unieważnia.
+  Skrzynka odbiorcza co 30 s (``termux-sms-list -t inbox -l 10``, tylko
+  z przełącznikiem, numerami i sekretem TOTP); powtórki, wiadomości
+  sprzed startu agenta i starsze niż 10 min są pomijane, obcy nadawca —
+  po cichu. Odpowiedź do numeru z LISTY (nigdy do tekstu z SMS-a), 1 na
+  numer na 2 min, 10 na dobę.
+* **SMS alarmowy** ``ALFA 156: ALARM <powód> <dd.mm hh:mm>. Pozycja:
+  <link>`` (GSM-7) do numerów z listy: najwyżej 1 na 10 min i 6 na dobę,
+  budżet osobny od SMS-a o wypadku; kolejka wysyłki zawsze najpierw
+  obsługuje wypadek.
+* **Bateria:** po dobie uzbrojenia albo poniżej 30% wersja „lekka” (co
+  20 s paczka 10 próbek ``termux-sensor -n 10`` zamiast strumienia);
+  poniżej 15% rozbrojenie z jednym SMS-em (poza ``log_only``). Szacunkowe
+  zużycie: blokada uśpienia Termuxa 30–80 mA, strumień akcelerometru kilka
+  mA, skrzynka co 30 s i bateria co 3 min po ułamku sekundy — razem ok.
+  1–2% baterii na godzinę (niesprawdzone na tym telefonie; ``PARK STATUS``
+  pokazuje procent).
+* Stan (``park.json``) zapisywany atomowo przy każdej zmianie — restart
+  agenta albo telefonu go nie gubi. ``GET /v1/park``: ``{state (off |
+  disarmed | arming | armed | alarm | log_only), since, by, arm_at,
+  last_event, battery {pct, power}, log_only, light, sensor, totp_ready,
+  numbers_n, home_set, alarms_today, entry_until}`` (``entry_until`` =
+  termin czekającego alarmu okna wejścia albo null).
+
+Uprawnienia Termux:API dla alarmu na postoju: **SMS** (odczyt skrzynki
+odbiorczej i wysyłka), **Lokalizacja: zawsze** (Android 13: „Zezwalaj cały
+czas”, inaczej ``termux-location`` w tle nic nie zwraca) — NIESPRAWDZONE na
+crDroid 13, tak jak to, że ``termux-sensor`` działa przy wygaszonym
+ekranie, a ``-n`` po paczce zwalnia czujnik.
+
 Czego agent nie obiecuje: doręczenia (brak raportów doręczenia, zasięg,
 środki na karcie), działania przy wyłączonym lub przegrzanym telefonie,
 działania, gdy Android zabije Termux (phantom process killer), zestawienia
@@ -252,6 +352,7 @@ połączenia z 112 ani jakości głośnika pod podsufitką. To nie eCall.
 from __future__ import annotations
 
 import argparse
+import base64
 import hashlib
 import hmac
 import json
@@ -259,20 +360,26 @@ import logging
 import logging.handlers
 import math
 import os
+import queue
 import re
 import secrets
 import signal
+import struct
 import subprocess
 import sys
 import threading
 import time
+import urllib.parse
+from collections import deque
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any, Callable, Mapping, Optional
 
 #: 1.1.0 — „Zadzwoń 112” (plan H): ``/v1/call112*``, pola ``call112_*`` w
 #: konfiguracji. BCM z włączonym ``modules.call112`` wymaga co najmniej tej
 #: wersji (starszą pokazuje w Ustawieniach jako „zaktualizuj bcm_agent.py”).
-VERSION = "1.1.0"
+#: 1.2.0 — alarm na postoju (plan D4): ``/v1/park*``, pola ``park_*``
+#: (wymagane przez BCM z włączonym ``modules.parking_guard``).
+VERSION = "1.2.0"
 
 log = logging.getLogger("bcm_agent")
 
@@ -401,6 +508,134 @@ _CALL_STATE_RE = re.compile(r"mCallState=([0-9])")
 #: Wyjście ``dumpsys``, które w ogóle czytam.
 DUMPSYS_MAX_CHARS = 512 * 1024
 
+# ── alarm na postoju (plan D4) ────────────────────────────────────────────
+#: Stany ``GET /v1/park``: ``off`` = przełącznik ``parking_guard`` wyłączony;
+#: ``log_only`` = uzbrojony w trybie „tylko log” (pierwszy tydzień —
+#: strojenie progów, żadnych automatycznych SMS-ów).
+PARK_STATES = ("off", "disarmed", "arming", "armed", "alarm", "log_only")
+#: Stany zapisywane na dysku (``off`` i ``log_only`` są tylko widokiem).
+PARK_SAVED_STATES = ("disarmed", "arming", "armed", "alarm")
+#: Kto/co ustawiło bieżący stan (``by`` w widoku i w park.json).
+PARK_BY = ("", "power", "bcm", "sms", "owner_bt", "owner_sms", "owner_code", "low_battery",
+           "home", "off", "power_back")
+PARK_EVENT_KINDS = ("tilt", "shake", "power", "low_battery", "home")
+#: Konfiguracja z BCM (``PUT /v1/config``), wartości domyślne. Klucze
+#: ``park_*`` liczą się do skrótu konfiguracji TYLKO przy włączonym
+#: przełączniku ``parking_guard`` (zgodność wersji — jak ``call112_*``).
+PARK_DEFAULTS: dict[str, Any] = {
+    "park_numbers": [], "park_log_only": True, "park_arm_after_min": 3,
+    "park_arm_delay_min": 2, "park_grace_min": 3, "park_home": None,
+    "park_tilt_deg": 0.5, "park_shake_k": 6.0, "park_entry_s": 90,
+}
+#: (najmniej, najwięcej) dla liczb konfiguracji. ``park_entry_s`` = okno
+#: wejścia (0 = alarm od razu, jak przed tą zmianą).
+PARK_INT_RANGES = {"park_arm_after_min": (1, 60), "park_arm_delay_min": (0, 30),
+                   "park_grace_min": (1, 15), "park_entry_s": (0, 300)}
+PARK_FLOAT_RANGES = {"park_tilt_deg": (0.2, 10.0), "park_shake_k": (2.0, 50.0)}
+PARK_HOME_RADIUS_M = (50, 5000)
+#: Pozycja z gorszą dokładnością nie rozstrzyga „jestem w domu” (uzbrajam).
+PARK_HOME_MAX_ACC_M = 500
+#: Przechył musi trwać tyle, kołysanie tyle (plan D4).
+TILT_HOLD_S = 3.0
+SHAKE_HOLD_S = 0.5
+#: SMS-y alarmowe: najwyżej 1 na 10 min i 6 na dobę — budżet OSOBNY od
+#: SMS-ów o wypadku (te i tak idą pierwsze, patrz :meth:`Agent._deliveries`).
+PARK_ALARM_COOLDOWN_S = 600
+PARK_ALARM_MAX_PER_DAY = 6
+#: Odpowiedzi na polecenia SMS: 1 na numer na 2 min, 10 na numer na dobę.
+PARK_REPLY_COOLDOWN_S = 120
+PARK_REPLY_MAX_PER_DAY = 10
+#: Złe kody TOTP z jednego numeru: po tylu w godzinie numer jest
+#: ignorowany do końca tej godziny (zgadywanie 6 cyfr).
+PARK_BAD_CODE_MAX = 5
+PARK_BAD_CODE_WINDOW_S = 3600
+#: Skrzynka odbiorcza co 30 s (tylko z przełącznikiem, numerami i TOTP).
+PARK_INBOX_EVERY_S = 30.0
+PARK_INBOX_LIMIT = 10
+PARK_INBOX_MAX_BYTES = 64 * 1024
+#: Polecenie starsze niż 10 min (albo sprzed startu agenta) nie działa.
+PARK_SMS_MAX_AGE_S = 600
+PARK_SMS_MAX_BODY = 64
+#: Ile identyfikatorów przeczytanych SMS-ów pamiętam (deduplikacja).
+PARK_SEEN_MAX = 256
+#: Bateria: co tyle przy uzbrojonym (zasilanie wróciło?), co tyle poza nim.
+PARK_BATTERY_ARMED_S = 180.0
+PARK_BATTERY_IDLE_S = 60.0
+#: Kontakt BCM przy uzbrojonym → sprawdzenie zasilania najwyżej co tyle.
+PARK_CONTACT_KICK_S = 30.0
+#: Okno wejścia (``park_entry_s``): bateria co tyle, a przed terminem
+#: odczyt nie starszy niż tyle — właściciel, który właśnie zapalił silnik,
+#: nie może dostać alarmu tylko dlatego, że bateria była czytana 3 min temu.
+PARK_ENTRY_BATTERY_S = 15.0
+PARK_ENTRY_FRESH_S = 5.0
+#: Rodzaje wyzwoleń, które czekają na okno wejścia (właściciel otwiera
+#: drzwi i siada — to samo, co złodziej). Zasilanie bez właściciela ma
+#: własne okno (``park_grace_min``).
+PARK_ENTRY_KINDS = ("tilt", "shake")
+#: Rozbrojenia przez właściciela (albo wyłączenie przełącznika z BCM): tylko
+#: one kasują czekający alarm i SMS-y alarmowe, które jeszcze nie wyszły.
+#: Niska bateria — nie: prawdziwy alarm ma wyjść mimo rozbrojenia.
+PARK_OWNER_BY = ("owner_bt", "owner_code", "owner_sms", "off")
+#: Samo uzbrojenie i to od BCM: paczka próbek tuż przed uzbrojeniem; ruch
+#: większy niż jazda (odchylenie od średniej, m/s²) przesuwa uzbrojenie
+#: o minutę — najwyżej tyle razy (potem uzbrajam mimo to: czujnik, który
+#: zawsze „jedzie”, nie może wyłączyć alarmu na zawsze). Kabel USB, który
+#: odpadnie w czasie jazdy, nie uzbraja telefonu w ruchu.
+PARK_MOVING_MS2 = 0.25
+PARK_MOVING_RETRY_S = 60.0
+PARK_MOVING_MAX = 30
+#: Po nieudanym GPS (``-r once``: brak pozycji albo przekroczony czas) tyle
+#: sekund bez kolejnej próby GPS dla poleceń i strefy „dom” (garaż: każde
+#: POZYCJA nie czeka 60 s na GPS, którego nie będzie). Alarm próbuje GPS
+#: zawsze — auto mogło właśnie zostać wywiezione spod dachu.
+PARK_GPS_SKIP_S = 600.0
+#: Wersja „lekka” (paczka próbek co :data:`PARK_LIGHT_EVERY_S` zamiast
+#: ciągłego strumienia): po dobie uzbrojenia albo poniżej 30% baterii.
+PARK_LIGHT_AFTER_S = 24 * 3600.0
+PARK_LIGHT_PCT = 30
+PARK_LIGHT_EVERY_S = 20.0
+PARK_BURST_SAMPLES = 10
+#: Poniżej tylu % rozbrojenie z jednym SMS-em (telefon ma działać dalej).
+PARK_LOW_PCT = 15
+#: Czujnik: co 100 ms (10 Hz), restart strumienia z backoffem.
+SENSOR_DELAY_MS = 100
+SENSOR_BACKOFF_MIN_S = 5.0
+SENSOR_BACKOFF_MAX_S = 300.0
+#: Strumień bez próbki przez tyle sekund = zawieszony (restart).
+SENSOR_STALL_S = 30.0
+#: Strumień, który przeżył tyle, zeruje backoff.
+SENSOR_GOOD_RUN_S = 60.0
+#: Tyle czekam na koniec wątku czytającego po zatrzymaniu strumienia.
+SENSOR_JOIN_S = 2.0
+SENSOR_LIST_RETRY_S = 600.0
+SENSOR_NAME_RE = re.compile(r"^[A-Za-z0-9 _.()/+-]{1,64}$")
+SENSOR_LINE_MAX = 4096
+SENSOR_OBJ_MAX_LINES = 64
+#: Pozycja: GPS do 60 s, potem sieć, potem ostatnia znana (plan D4).
+PARK_LOCATION_STEPS = ((["-p", "gps", "-r", "once"], 60.0),
+                       (["-p", "network", "-r", "once"], 30.0),
+                       (["-p", "gps", "-r", "last"], 10.0),
+                       (["-p", "network", "-r", "last"], 10.0))
+#: Pozycja młodsza niż tyle służy kolejnym zadaniom bez nowego pomiaru.
+PARK_FIX_REUSE_S = 60.0
+PARK_MAX_JOBS = 8
+PARK_KEEP_SMS_S = 3600.0
+PARK_MAX_SMS = 16
+#: Najdłuższe czekanie wątku postoju (zdarzenia i tak go budzą).
+PARK_MAX_WAIT_S = 30.0
+#: TOTP (RFC 6238): SHA1, 6 cyfr, krok 30 s, ±1 krok.
+TOTP_STEP_S = 30
+TOTP_DIGITS = 6
+TOTP_SKEW = 1
+TOTP_SECRET_BYTES = 20
+TOTP_FILE = "park_totp"
+PARK_LOCAL_FILE = "park_local.json"
+_B32_RE = re.compile(r"^[A-Z2-7]{16,64}$")
+_PARK_CMD_RE = re.compile(r"^(POZYCJA|GDZIE|PARKON|PARKOFF|PARKSTATUS)([0-9]{6})$")
+_PARK_CODE_RE = re.compile(r"^[0-9]{6}$")
+PARK_COMMANDS = {"POZYCJA": "position", "GDZIE": "position", "PARKON": "on",
+                 "PARKOFF": "off", "PARKSTATUS": "status"}
+
 #: Stany odbiorcy, które kończą jego wysyłkę.
 RCPT_FINAL = ("sent", "sent_dry", "failed", "skipped")
 RCPT_OK = ("sent", "sent_dry")
@@ -457,10 +692,13 @@ def config_hash(cfg: Mapping[str, Any]) -> str:
     klucze. Dzięki temu przy wyłączonym 112 stary agent z nowym BCM i nowy
     agent ze starym BCM liczą ten sam skrót — sama aktualizacja jednej
     strony nie kończy się „config_refused” (a ten wymusza tryb testowy
-    SMS-a po stłuczce)."""
+    SMS-a po stłuczce). Tak samo pola ``park_*`` (alarm na postoju, 1.2.0)
+    — tylko przy włączonym ``parking_guard``."""
     toggles = cfg.get("toggles")
     on = isinstance(toggles, Mapping) and toggles.get("call112") is True
-    view = {k: v for k, v in cfg.items() if on or not k.startswith("call112_")}
+    park = isinstance(toggles, Mapping) and toggles.get("parking_guard") is True
+    view = {k: v for k, v in cfg.items()
+            if (on or not k.startswith("call112_")) and (park or not k.startswith("park_"))}
     return sha256_hex(canonical_json(view).encode("ascii"))[:16]
 
 
@@ -699,22 +937,76 @@ def parse_call_state(text: Any) -> Optional[int]:
 Runner = Callable[[list, Optional[str], float], "tuple[int, str, str]"]
 
 
+def stop_process(proc: Any, term_s: float = 3.0, kill_s: float = 2.0) -> None:
+    """Zatrzymaj proces razem z jego potomkami: SIGTERM do całej GRUPY
+    procesów (proces startuje z ``start_new_session=True``), po ``term_s``
+    SIGKILL. Dlaczego grupa: polecenia Termux:API to skrypty powłoki, które
+    uruchamiają pomocnika ``termux-api`` jako dziecko — a bash z pułapką na
+    SIGTERM czeka, aż dziecko skończy, więc sygnał do samego skryptu nic nie
+    daje, a osierocony pomocnik trzyma rurę stdout i rejestrację czujnika.
+    Bez liczbowego ``pid`` (atrapy w testach) — ``terminate()``/``kill()``.
+    SIGKILL tylko do grupy procesu, który jeszcze nie został zebrany
+    (``wait``), więc numer grupy nie mógł trafić do obcego procesu. Nigdy
+    nie rzuca."""
+    pid = getattr(proc, "pid", None)
+    group = isinstance(pid, int) and not isinstance(pid, bool) and pid > 1
+
+    def send(sig: int, fallback: str) -> None:
+        if group:
+            try:
+                os.killpg(pid, sig)
+                return
+            except ProcessLookupError:
+                return
+            except OSError:
+                pass
+        try:
+            getattr(proc, fallback)()
+        except Exception:
+            pass
+
+    send(signal.SIGTERM, "terminate")
+    try:
+        proc.wait(timeout=term_s)
+        return
+    except Exception:
+        pass
+    send(signal.SIGKILL, "kill")
+    try:
+        proc.wait(timeout=kill_s)
+    except Exception:
+        pass
+
+
 def default_runner(argv: list, stdin: Optional[str], timeout: float) -> tuple[int, str, str]:
     """Jedno polecenie: lista argumentów (NIGDY powłoka), limit czasu, nigdy
-    nie rzuca. 127 = brak programu, 124 = przekroczony czas."""
+    nie rzuca. 127 = brak programu, 124 = przekroczony czas. Własna grupa
+    procesów, a po przekroczeniu czasu :func:`stop_process` na całą grupę —
+    zabicie samego skryptu Termux:API zostawiłoby jego pomocnika
+    ``termux-api`` na zawsze (czeka w ``accept()`` bez limitu czasu)."""
     if not isinstance(argv, list) or not argv or not all(isinstance(a, str) for a in argv):
         return 2, "", "invalid command"
     try:
-        res = subprocess.run(argv, input=stdin if stdin is not None else "",
-                             capture_output=True, text=True, errors="replace",
-                             timeout=timeout, shell=False)
+        proc = subprocess.Popen(argv, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                                stderr=subprocess.PIPE, text=True, errors="replace",
+                                shell=False, start_new_session=True)
     except FileNotFoundError:
         return RC_MISSING, "", f"{argv[0]} not installed"
-    except subprocess.TimeoutExpired:
-        return RC_TIMEOUT, "", f"{argv[0]} timed out"
     except OSError as e:
         return 1, "", f"{argv[0]}: {e}"
-    return res.returncode, res.stdout or "", res.stderr or ""
+    try:
+        out, err = proc.communicate(input=stdin if stdin is not None else "", timeout=timeout)
+    except subprocess.TimeoutExpired:
+        stop_process(proc, term_s=1.0, kill_s=2.0)
+        try:
+            proc.communicate(timeout=2.0)
+        except Exception:
+            pass
+        return RC_TIMEOUT, "", f"{argv[0]} timed out"
+    except OSError as e:
+        stop_process(proc, term_s=1.0, kill_s=2.0)
+        return 1, "", f"{argv[0]}: {e}"
+    return proc.returncode, out or "", err or ""
 
 
 def _clean(text: Any, limit: int = 160) -> str:
@@ -734,6 +1026,8 @@ class Phone:
         self._clock = clock
         self._service: Optional[tuple[float, Optional[bool]]] = None
         self.sms_permission: Optional[bool] = None
+        #: Kiedy (zegar od startu) ostatni GPS ``-r once`` nic nie dał.
+        self.gps_failed_at: Optional[float] = None
 
     def _json(self, argv: list, timeout: float = API_TIMEOUT_S, limit: int = 262144) -> Any:
         rc, out, _err = self._run(argv, None, timeout)
@@ -859,6 +1153,66 @@ class Phone:
             return 2, "", "refused: not a fixed command"
         return self._run(argv, None, timeout)
 
+    # ── alarm na postoju (plan D4) ────────────────────────────────────────
+
+    def sms_inbox(self) -> Optional[list]:
+        """Ostatnie :data:`PARK_INBOX_LIMIT` wiadomości ze skrzynki
+        odbiorczej (``termux-sms-list -t inbox``) — surowe słowniki, które
+        :meth:`ParkGuard._inbox_item` sprawdza pole po polu. None = nie da
+        się odczytać (brak READ_SMS, błąd, za duża odpowiedź)."""
+        obj = self._json(["termux-sms-list", "-t", "inbox", "-l", str(PARK_INBOX_LIMIT)],
+                         limit=PARK_INBOX_MAX_BYTES)
+        if not isinstance(obj, list):
+            return None
+        return [i for i in obj[:PARK_INBOX_LIMIT * 2] if isinstance(i, dict)]
+
+    def location(self, try_gps: bool = True) -> Optional[dict]:
+        """Jedna pozycja na żądanie: najpierw GPS (``-r once``, do 60 s),
+        potem sieć, na końcu ostatnia znana (``-r last``) — zwalidowana
+        przez :func:`parse_location`. None = żadna z prób nic nie dała.
+        GPS włączany tylko tu (polecenie SMS, alarm, sprawdzenie strefy
+        „dom”), nigdy stale — bateria na postoju. ``try_gps=False`` pomija
+        GPS ``-r once`` (świeża porażka: garaż); porażkę i sukces GPS
+        zapisuje :attr:`gps_failed_at`."""
+        for args, timeout in PARK_LOCATION_STEPS:
+            gps_once = args[1] == "gps" and args[3] == "once"
+            if gps_once and not try_gps:
+                continue
+            rc, out, _err = self._run(["termux-location", *args], None, timeout)
+            fix = parse_location(out) if rc == 0 and len(out) <= 65536 else None
+            if gps_once:
+                self.gps_failed_at = None if fix is not None else self._clock()
+            if fix is not None:
+                return fix
+        return None
+
+    def sensor_names(self) -> Optional[list]:
+        """``termux-sensor -l`` → lista nazw czujników (None = błąd)."""
+        obj = self._json(["termux-sensor", "-l"], limit=65536)
+        names = obj.get("sensors") if isinstance(obj, dict) else None
+        if not isinstance(names, list):
+            return None
+        return [n for n in names[:200] if isinstance(n, str)]
+
+    def sensor_burst(self, name: str) -> str:
+        """Paczka :data:`PARK_BURST_SAMPLES` próbek co 100 ms (tryb „lekki”
+        i sprawdzenie „czy auto jedzie”; ``termux-sensor -n``, sam się
+        kończy) — surowe wyjście albo "" (wtedy wołający zwalnia czujnik
+        przez ``-c``: nieudana paczka mogła go zostawić zarejestrowanego)."""
+        if not isinstance(name, str) or not SENSOR_NAME_RE.fullmatch(name):
+            return ""
+        rc, out, _err = self._run(["termux-sensor", "-s", name, "-d", str(SENSOR_DELAY_MS),
+                                   "-n", str(PARK_BURST_SAMPLES)], None, 15.0)
+        return out[:262144] if rc == 0 else ""
+
+    def sensor_cleanup(self) -> None:
+        """``termux-sensor -c``: Termux:API zwalnia czujnik. Zabicie procesu
+        strumienia go nie wyrejestrowuje, a Termux:API tworzy nowego
+        „pisarza” próbek tylko, gdy starego już nie ma — bez ``-c`` każdy
+        następny strumień i każda paczka ``-n`` nie dostałyby nic (i czujnik
+        pracowałby dalej: bateria)."""
+        self._run(["termux-sensor", "-c"], None, 10.0)
+
 
 # ── wysyłka do listy odbiorców ────────────────────────────────────────────
 
@@ -935,11 +1289,15 @@ def delivery_view(d: dict) -> list:
 
 _RCPT_STATES = ("queued", "wait", "retry", "sending", "submitted", "verifying",
                 *RCPT_FINAL)
+#: Rodzaje wysyłek: wypadek, odwołanie, test, „wybrano 112” oraz SMS-y
+#: alarmu na postoju (alarm, odpowiedź na polecenie, informacja o baterii).
+DELIVERY_KINDS = ("crash", "cancel", "test", "call112", "park_alarm", "park_reply",
+                  "park_info")
 
 
 def valid_delivery(d: Any) -> bool:
     """Kształt zapisanej wysyłki (plik mógł zostać uszkodzony albo podmieniony)."""
-    if not isinstance(d, dict) or d.get("kind") not in ("crash", "cancel", "test", "call112"):
+    if not isinstance(d, dict) or d.get("kind") not in DELIVERY_KINDS:
         return False
     if not isinstance(d.get("text"), str) or not isinstance(d.get("dry"), bool) \
             or d.get("slot") not in (0, 1) or isinstance(d.get("slot"), bool) \
@@ -1024,12 +1382,16 @@ class Agent:
         clock: CLOCK_BOOTTIME w sekundach (terminy).
         wall: czas ścienny (znaczniki, okno ±60 s, zapis terminów).
         localtime: ``time.localtime`` (godzina w SMS-ie).
+        spawn: długo żyjący proces (strumień ``termux-sensor``; testy).
+        mktime: odwrotność ``localtime`` (czas SMS-a z ``termux-sms-list``).
     """
 
     def __init__(self, state_dir: str = DEFAULT_STATE_DIR, runner: Runner = default_runner,
                  clock: Callable[[], float] = boot_clock,
                  wall: Callable[[], float] = time.time,
-                 localtime: Callable[[float], time.struct_time] = time.localtime) -> None:
+                 localtime: Callable[[float], time.struct_time] = time.localtime,
+                 spawn: Optional[Spawner] = None,
+                 mktime: Callable[[time.struct_time], float] = time.mktime) -> None:
         self.dir = state_dir
         self._clock = clock
         self._wall = wall
@@ -1058,7 +1420,15 @@ class Agent:
         self.config = self._load_config()
         self.meta = self._load_json("meta.json", {"last_test_wall": None, "last_sent_ts": None,
                                                   "last_verified_test_ts": None, "test": None,
-                                                  "call112_wall": None})
+                                                  "call112_wall": None, "park_sms": []})
+        # SMS-y alarmu na postoju (alarm, odpowiedzi, bateria) — w meta.json,
+        # bo zapisuje go każdy krok harmonogramu wysyłki; uszkodzone pomijam.
+        park_sms = self.meta.get("park_sms")
+        self.meta["park_sms"] = [d for d in park_sms if valid_delivery(d)
+                                 and d["kind"].startswith("park_")][:PARK_MAX_SMS] \
+            if isinstance(park_sms, list) else []
+        for d in self.meta["park_sms"]:
+            fill_delivery_defaults(d)
         test = self.meta.get("test")
         if test is not None and not (isinstance(test, dict)
                                      and valid_delivery(test.get("delivery"))):
@@ -1079,6 +1449,8 @@ class Agent:
         self._su_ok: Optional[bool] = None
         self._su_checked: Optional[float] = None
         self._call_state: Optional[int] = None
+        # Alarm na postoju (plan D4): stan z park.json, wątek :meth:`run_park`.
+        self.park = ParkGuard(self, spawn if spawn is not None else default_spawn, mktime)
         self._resume()
 
     # ── pliki ────────────────────────────────────────────────────────────
@@ -1242,6 +1614,13 @@ class Agent:
                 self._fail_rest(d, "expired")
                 test["state"] = delivery_outcome(d)
                 changed = True
+        for d in self.meta.get("park_sms") or []:
+            # SMS postoju sprzed restartu: dokończony, chyba że ma > 30 min
+            # (alarm sprzed pół godziny nikomu już nie pomoże).
+            self._reset_runtime(d, now)
+            if not delivery_done(d) and wall - float(d.get("created_wall", 0)) > RESUME_MAX_LATE_S:
+                self._fail_rest(d, "expired")
+                changed = True
         if changed:
             self._persist_quietly()
 
@@ -1349,6 +1728,12 @@ class Agent:
             return "call112_hangup", None, method == "POST"
         if path == "/v1/call112/mark":
             return "call112_mark", None, method == "POST"
+        if path == "/v1/park":
+            return "park_get", None, method == "GET"
+        if path == "/v1/park/arm":
+            return "park_arm", None, method == "POST"
+        if path == "/v1/park/disarm":
+            return "park_disarm", None, method == "POST"
         parts = path.split("/")
         if len(parts) in (4, 5) and parts[0] == "" and parts[1] == "v1" and parts[2] == "crash" \
                 and EVENT_ID_RE.fullmatch(parts[3]):
@@ -1385,6 +1770,8 @@ class Agent:
         if err:
             return self._unauth(401, err)
         assert nonce is not None
+        # Podpisane żądanie = BCM żyje (alarm na postoju: „brak kontaktu z BCM”).
+        self.park.note_contact()
         try:
             obj = parse_json_object(body) if method != "GET" else {}
             if method == "GET" and body:
@@ -1411,6 +1798,12 @@ class Agent:
             status, out = self.call112_hangup(obj)
         elif name == "call112_mark":
             status, out = self.call112_mark(obj)
+        elif name == "park_get":
+            status, out = 200, self.park.view()
+        elif name == "park_arm":
+            status, out = self.park.http_arm(obj)
+        elif name == "park_disarm":
+            status, out = self.park.http_disarm(obj)
         else:
             status, out = self.send_now(event_id)
         return self._reply(status, out, nonce)
@@ -1656,6 +2049,14 @@ class Agent:
         if norm["toggles"]["call112"]:
             # ``su`` sprawdzony od razu, nie przy następnym odświeżeniu stanu.
             self.status_kick.set()
+        if changed:
+            if norm["toggles"]["parking_guard"]:
+                log.info("Parking guard config: %d number(s), %s, arm after %d+%d min, home %s",
+                         len(norm["park_numbers"]),
+                         "LOG ONLY" if norm["park_log_only"] else "alarm SMS",
+                         norm["park_arm_after_min"], norm["park_arm_delay_min"],
+                         "set" if norm["park_home"] else "-")
+            self.park.wake.set()
         return 200, {"ok": True, "config_hash": config_hash(norm)}
 
     def arm(self, obj: dict) -> tuple[int, dict]:
@@ -2307,7 +2708,7 @@ class Agent:
 
     def _deliveries(self):
         """``(dostawa, zdarzenie|None)`` w kolejności pilności: wypadek,
-        odwołanie, „wybrano 112”, test."""
+        odwołanie, „wybrano 112”, alarm na postoju, test."""
         for ev in self.events:
             if ev["state"] in ("pending", "sending") or (
                     ev["state"] == "cancelled" and not delivery_done(ev["crash"])):
@@ -2320,6 +2721,11 @@ class Agent:
             c = ev.get("c112")
             if isinstance(c, dict) and not delivery_done(c):
                 yield c, ev
+        # Alarm na postoju: ZA wszystkim, co dotyczy wypadku (pierwszeństwo
+        # SMS-a o wypadku), przed SMS-em testowym.
+        for d in self.meta.get("park_sms") or []:
+            if isinstance(d, dict) and not delivery_done(d):
+                yield d, None
         test = self.meta.get("test")
         if isinstance(test, dict) and isinstance(test.get("delivery"), dict) \
                 and not delivery_done(test["delivery"]):
@@ -2583,6 +2989,1796 @@ class Agent:
                     log.exception("Status refresh failed")
             self.status_kick.wait(STATUS_REFRESH_S)
 
+    def run_park(self, stop: threading.Event) -> None:
+        """Wątek alarmu na postoju (:meth:`ParkGuard.step`); przy wyłączonym
+        ``parking_guard`` tylko co :data:`PARK_MAX_WAIT_S` sprawdza
+        przełącznik — zero wywołań Termux:API."""
+        while not stop.is_set():
+            self.park.wake.clear()
+            try:
+                wait = self.park.step()
+            except Exception:
+                log.exception("Parking guard step failed")
+                wait = 5.0
+            if wait > 0:
+                self.park.wake.wait(wait)
+        try:
+            self.park.shutdown()
+        except Exception:
+            log.exception("Parking guard shutdown failed")
+
+
+# ── alarm na postoju (plan D4): czyste funkcje ────────────────────────────
+
+def totp_code(key: bytes, counter: int, digits: int = TOTP_DIGITS) -> str:
+    """HOTP (RFC 4226) dla licznika ``counter``; TOTP (RFC 6238) to HOTP
+    z licznikiem ``czas_unix // 30`` i HMAC-SHA1 — to samo liczy każda
+    aplikacja „authenticator” (Aegis, FreeOTP)."""
+    mac = hmac.new(key, struct.pack(">Q", counter), hashlib.sha1).digest()
+    off = mac[-1] & 0x0F
+    value = struct.unpack(">I", mac[off:off + 4])[0] & 0x7FFFFFFF
+    return str(value % (10 ** digits)).zfill(digits)
+
+
+def totp_verify(key: bytes, code: Any, wall: float,
+                last_counter: Optional[int]) -> tuple[str, Optional[int]]:
+    """``("ok", krok)``, ``("replay", krok)`` (kod dobry, ale ten krok albo
+    późniejszy był już użyty — RFC 6238 §5.2: drugi raz ten sam kod nie
+    przechodzi) albo ``("bad", None)``. Okno ±:data:`TOTP_SKEW` kroku (zegar
+    telefonu albo aplikacji spóźniony o kilkadziesiąt sekund). Porównanie
+    w stałym czasie, zawsze wszystkie kroki okna."""
+    if not isinstance(code, str) or not _PARK_CODE_RE.fullmatch(code) or not key:
+        return "bad", None
+    now = int(wall // TOTP_STEP_S)
+    found: Optional[int] = None
+    for step in range(now - TOTP_SKEW, now + TOTP_SKEW + 1):
+        if step >= 0 and hmac.compare_digest(totp_code(key, step), code):
+            found = step
+    if found is None:
+        return "bad", None
+    if last_counter is not None and found <= last_counter:
+        return "replay", found
+    return "ok", found
+
+
+def new_totp_secret() -> str:
+    """Losowy sekret TOTP (20 bajtów z ``secrets``) w base32 bez ``=``."""
+    return base64.b32encode(secrets.token_bytes(TOTP_SECRET_BYTES)).decode("ascii").rstrip("=")
+
+
+def parse_totp_secret(text: Any) -> Optional[bytes]:
+    """Zapisany sekret (base32) → bajty klucza; None dla czegokolwiek innego."""
+    if not isinstance(text, str):
+        return None
+    s = text.strip().upper().replace(" ", "")
+    if not _B32_RE.fullmatch(s):
+        return None
+    try:
+        return base64.b32decode(s + "=" * (-len(s) % 8))
+    except ValueError:
+        return None
+
+
+def otpauth_uri(secret_b32: str, label: str = DEFAULT_LABEL) -> str:
+    """``otpauth://totp/…`` do aplikacji „authenticator” (wklejenie albo
+    kod QR). Sekret tylko na ekran — nigdy do logu."""
+    account = urllib.parse.quote(f"BCM:{label} postoj")
+    return (f"otpauth://totp/{account}?secret={secret_b32}&issuer=BCM"
+            f"&algorithm=SHA1&digits={TOTP_DIGITS}&period={TOTP_STEP_S}")
+
+
+def power_of(battery: Any) -> Optional[str]:
+    """``termux-battery-status`` → ``plugged`` | ``unplugged`` | None (nie
+    wiadomo: błąd odczytu, brak pola, nieznana wartość). Tylko pole
+    ``plugged`` — NIE ``status``: przy ograniczniku ładowania (ACC 40–60%)
+    telefon na kablu raportuje DISCHARGING / NOT_CHARGING."""
+    if not isinstance(battery, dict):
+        return None
+    plugged = battery.get("plugged")
+    if plugged in ("UNPLUGGED", "NONE"):
+        return "unplugged"
+    if isinstance(plugged, str) and plugged.startswith("PLUGGED"):
+        return "plugged"
+    return None
+
+
+def parse_location(text: Any) -> Optional[dict]:
+    """Wyjście ``termux-location`` → ``{lat, lon, acc, age_s, provider}``
+    albo None (brak pozycji, błąd API, wartości spoza zakresu, „null
+    island” 0,0). ``age_s`` z ``elapsedMs`` (wiek pomiaru)."""
+    if not isinstance(text, str) or not text.strip():
+        return None
+    try:
+        obj = json.loads(text, parse_constant=_reject_constant)
+    except (ValueError, RecursionError):
+        return None
+    if not isinstance(obj, dict):
+        return None
+    lat = _number(obj.get("latitude"), -90, 90)
+    lon = _number(obj.get("longitude"), -180, 180)
+    if lat is None or lon is None or (lat == 0 and lon == 0):
+        return None
+    acc = _number(obj.get("accuracy"), 0, 1_000_000)
+    age = _number(obj.get("elapsedMs"), 0, 10 ** 13)
+    provider = obj.get("provider")
+    return {"lat": float(lat), "lon": float(lon),
+            "acc": None if acc is None else int(round(acc)),
+            "age_s": None if age is None else int(age // 1000),
+            "provider": provider if provider in ("gps", "network", "fused", "passive") else None}
+
+
+def distance_m(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
+    """Odległość po kuli (haversine) w metrach."""
+    p1, p2 = math.radians(lat1), math.radians(lat2)
+    dp, dl = p2 - p1, math.radians(lon2 - lon1)
+    h = math.sin(dp / 2) ** 2 + math.cos(p1) * math.cos(p2) * math.sin(dl / 2) ** 2
+    return 2 * 6371000.0 * math.asin(min(1.0, math.sqrt(h)))
+
+
+def at_home(fix: Optional[dict], home: Optional[dict]) -> bool:
+    """Czy pozycja jest w strefie „dom”. Bez pozycji albo z dokładnością
+    gorszą niż :data:`PARK_HOME_MAX_ACC_M` — NIE (lepiej uzbroić w domu,
+    niż nie uzbroić pod sklepem)."""
+    if not fix or not home:
+        return False
+    acc = fix.get("acc")
+    if acc is None or acc > PARK_HOME_MAX_ACC_M:
+        return False
+    return distance_m(fix["lat"], fix["lon"], home["lat"], home["lon"]) <= home["radius_m"]
+
+
+def match_sender(raw: Any, numbers: list) -> Optional[str]:
+    """Nadawca SMS-a → numer z białej listy (E.164, dokładnie ten zapis,
+    który potem trafia do ``termux-sms-send``) albo None. ``+…``/``00…``
+    musi się zgadzać co do cyfry; zapis krajowy (bez kierunkowego, ≥ 9
+    cyfr) pasuje do końcówki numeru z listy, ale tylko jednoznacznie."""
+    if not isinstance(raw, str) or len(raw) > 32:
+        return None
+    s = re.sub(r"[\s().-]", "", raw)
+    if s.startswith("00"):
+        s = "+" + s[2:]
+    if s.startswith("+"):
+        return s if E164_RE.fullmatch(s) and s in numbers else None
+    if not re.fullmatch(r"[0-9]{9,15}", s):
+        return None
+    hits = [n for n in numbers if n.endswith(s) and 1 <= len(n) - 1 - len(s) <= 3]
+    return hits[0] if len(hits) == 1 else None
+
+
+def parse_park_command(body: Any) -> Optional[tuple[str, str]]:
+    """Treść SMS-a → ``(polecenie, kod)``: wielkość liter i spacje bez
+    znaczenia (``park off 123 456`` = ``PARKOFF123456``). Polecenia:
+    POZYCJA / GDZIE → ``position``, PARK ON / OFF / STATUS → ``on`` /
+    ``off`` / ``status``. Zawsze z 6-cyfrowym kodem TOTP."""
+    if not isinstance(body, str) or len(body) > PARK_SMS_MAX_BODY:
+        return None
+    m = _PARK_CMD_RE.fullmatch(re.sub(r"\s+", "", body).upper())
+    return (PARK_COMMANDS[m.group(1)], m.group(2)) if m else None
+
+
+def parse_received(value: Any,
+                   mktime: Callable[[time.struct_time], float] = time.mktime) -> Optional[float]:
+    """``"2026-11-19 14:03:07"`` (czas lokalny telefonu z ``termux-sms-list``)
+    → epoch; None, gdy format jest inny."""
+    if not isinstance(value, str) or len(value) > 32:
+        return None
+    for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M"):
+        try:
+            t = time.strptime(value.strip(), fmt)
+        except ValueError:
+            continue
+        try:
+            return float(mktime(t))
+        except (OverflowError, ValueError):
+            return None
+    return None
+
+
+def pick_accelerometer(names: Any) -> Optional[str]:
+    """Nazwa akcelerometru z ``termux-sensor -l``: zawiera „accelerometer”,
+    nie „uncalibrated” ani „linear” (te dwa to inne czujniki); nazwa
+    trafia jako jeden argument do ``termux-sensor -s``, więc tylko bezpieczne
+    znaki i bez przecinka (``-s`` dzieli listę przecinkami)."""
+    if not isinstance(names, list):
+        return None
+    ok = [n for n in names if isinstance(n, str) and SENSOR_NAME_RE.fullmatch(n)]
+    for want in ("accelerometer", "accel"):
+        for n in ok:
+            low = n.lower()
+            if want in low and "uncalibrated" not in low and "linear" not in low:
+                return n
+    return None
+
+
+def _vec3(values: Any) -> Optional[tuple[float, float, float]]:
+    if not isinstance(values, list) or len(values) < 3:
+        return None
+    out = []
+    for v in values[:3]:
+        if isinstance(v, bool) or not isinstance(v, (int, float)) or not math.isfinite(v) \
+                or abs(v) > 1000:
+            return None
+        out.append(float(v))
+    return out[0], out[1], out[2]
+
+
+def sensor_vectors(obj: Any, name: Optional[str] = None) -> list:
+    """Obiekt ``termux-sensor`` (``{"<nazwa>": {"values": [x, y, z]}}``) →
+    ``[(x, y, z)]`` — wpis o dokładnie tej nazwie (``-s`` dopasowuje też
+    fragment nazwy, więc w strumieniu bywa np. wersja „Uncalibrated”),
+    a bez niej pierwszy. Wszystko inne — pusta lista."""
+    if not isinstance(obj, dict) or not obj:
+        return []
+    items = list(obj.items())[:8]
+    chosen = [v for k, v in items if k == name] if name is not None else []
+    for item in chosen or [items[0][1]]:
+        if isinstance(item, dict):
+            vec = _vec3(item.get("values"))
+            if vec is not None:
+                return [vec]
+    return []
+
+
+class SensorParser:
+    """Wyjście ``termux-sensor`` linia po linii → wektory przyspieszenia.
+
+    termux-sensor wypisuje obiekty JSON jeden po drugim, sformatowane
+    w wielu liniach (``{`` i ``}`` w pierwszej kolumnie); bywa też jeden
+    obiekt w linii. Śmieci, urwane obiekty i za długie linie są pomijane
+    (licznik ``garbage``) — parser nigdy nie rzuca i nie rośnie bez końca."""
+
+    def __init__(self, name: Optional[str] = None) -> None:
+        self._name = name
+        self._buf: Optional[list] = None
+        self._size = 0
+        self.garbage = 0
+
+    def _parse(self, text: str) -> Optional[list]:
+        try:
+            obj = json.loads(text, parse_constant=_reject_constant)
+        except (ValueError, RecursionError):
+            return None
+        return sensor_vectors(obj, self._name) if isinstance(obj, dict) else None
+
+    def feed_line(self, line: Any) -> list:
+        if not isinstance(line, str):
+            return []
+        if len(line) > SENSOR_LINE_MAX:
+            self._buf = None
+            self.garbage += 1
+            return []
+        text = line.rstrip("\r\n")
+        stripped = text.strip()
+        if not stripped:
+            return []
+        if text.startswith("{"):
+            # Nowy obiekt najwyższego poziomu; niedokończony przed nim = śmieć.
+            if self._buf is not None:
+                self.garbage += 1
+            self._buf = None
+            if stripped.endswith("}"):
+                one = self._parse(stripped)
+                if one is not None:
+                    return one
+            self._buf = [text]
+            self._size = len(text)
+            return []
+        if self._buf is None:
+            self.garbage += 1
+            return []
+        self._buf.append(text)
+        self._size += len(text)
+        if text.startswith("}"):
+            joined = "\n".join(self._buf)
+            self._buf = None
+            out = self._parse(joined)
+            if out is None:
+                self.garbage += 1
+                return []
+            return out
+        if len(self._buf) > SENSOR_OBJ_MAX_LINES or self._size > SENSOR_LINE_MAX * 4:
+            self._buf = None
+            self.garbage += 1
+        return []
+
+    def feed_text(self, text: Any) -> list:
+        out: list = []
+        for line in (text if isinstance(text, str) else "").splitlines()[:4000]:
+            out.extend(self.feed_line(line))
+        return out
+
+
+def _sub(a: tuple, b: tuple) -> tuple:
+    return a[0] - b[0], a[1] - b[1], a[2] - b[2]
+
+
+def _norm(v: tuple) -> float:
+    return math.sqrt(v[0] * v[0] + v[1] * v[1] + v[2] * v[2])
+
+
+def _lerp(a: tuple, b: tuple, k: float) -> tuple:
+    return a[0] + (b[0] - a[0]) * k, a[1] + (b[1] - a[1]) * k, a[2] + (b[2] - a[2]) * k
+
+
+def angle_deg(a: tuple, b: tuple) -> float:
+    """Kąt między wektorami w stopniach (atan2 — dokładny także dla
+    ułamków stopnia, gdzie acos traci precyzję)."""
+    cross = (a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0])
+    dot = a[0] * b[0] + a[1] * b[1] + a[2] * b[2]
+    return math.degrees(math.atan2(_norm(cross), dot))
+
+
+def burst_spread(vecs: list) -> Optional[float]:
+    """Rozrzut paczki próbek (m/s²): pierwiastek ze średniego kwadratu
+    odchylenia od średniej. Stojące auto ma tu setne części (szum czujnika,
+    wiatr), jadące — dziesiąte i więcej (nierówności, silnik). None przy
+    mniej niż 5 poprawnych próbkach."""
+    vs = []
+    for v in vecs or []:
+        try:
+            t = (float(v[0]), float(v[1]), float(v[2]))
+        except (TypeError, ValueError, IndexError):
+            continue
+        if all(math.isfinite(c) and abs(c) < 200.0 for c in t):
+            vs.append(t)
+    if len(vs) < 5:
+        return None
+    n = float(len(vs))
+    mean = (sum(v[0] for v in vs) / n, sum(v[1] for v in vs) / n, sum(v[2] for v in vs) / n)
+    return math.sqrt(sum(_norm(_sub(v, mean)) ** 2 for v in vs) / n)
+
+
+def _alpha(dt: float, tau: float) -> float:
+    return 1.0 - math.exp(-dt / tau) if dt > 0 else 0.0
+
+
+class MotionDetector:
+    """Przechył i kołysanie z akcelerometru (m/s², z grawitacją). Czysta
+    logika — czas podaje wywołujący (testy: sztuczny zegar).
+
+    * **Kalibracja:** pierwsze :data:`CALIB_S` s po uzbrojeniu dają wektor
+      odniesienia (kierunek grawitacji) i poziom szumu.
+    * **Przechył** (podnośnik, holowanie): kąt między średnią krótką
+      (τ 0,5 s) a wolnym odniesieniem (τ 15 min — dryf temperatury, siadające
+      koło) ≥ ``tilt_deg`` przez ≥ :data:`TILT_HOLD_S`. Po wykryciu nowa
+      pozycja staje się odniesieniem.
+    * **Kołysanie / wstrząs:** odchylenie od średniej (τ 1 s) ponad
+      ``shake_k`` × szum przez ≥ :data:`SHAKE_HOLD_S` (krótkie przerwy do
+      0,25 s się nie liczą — pojedynczy pik, np. przejeżdżająca ciężarówka,
+      nie wystarczy). Szum uczy się powoli, tylko w spokoju, z dolną granicą
+      (idealnie cichy czujnik nie może dać progu ≈ 0).
+    * Po każdym wykryciu :data:`COOLDOWN_S` przerwy dla tego rodzaju.
+    """
+
+    CALIB_S = 5.0
+    WARM_S = 1.0
+    FAST_TAU_S = 0.5
+    HP_TAU_S = 1.0
+    REF_TAU_S = 900.0
+    NOISE_TAU_S = 120.0
+    NOISE_FLOOR = 0.02
+    GAP_S = 5.0
+    COOLDOWN_S = 30.0
+    SHAKE_GAP_S = 0.25
+    MIN_G = 2.0
+    MAX_G = 30.0
+
+    def __init__(self, tilt_deg: float = 0.5, shake_k: float = 6.0) -> None:
+        self.tilt_deg = float(tilt_deg)
+        self.shake_k = float(shake_k)
+        self.ref: Optional[tuple] = None
+        self.noise: Optional[float] = None
+        self.samples = 0
+        self._cal_start: Optional[float] = None
+        self._cal_sum = (0.0, 0.0, 0.0)
+        self._cal_dev = 0.0
+        self._cal_n = 0
+        self._fast: Optional[tuple] = None
+        self._hp: Optional[tuple] = None
+        self._t: Optional[float] = None
+        self._warm_until = 0.0
+        self._tilt_since: Optional[float] = None
+        self._shake_since: Optional[float] = None
+        self._shake_last: Optional[float] = None
+        self._shake_peak = 0.0
+        self._cool: dict[str, float] = {}
+        self._burst_tilt: Optional[float] = None
+
+    @property
+    def calibrated(self) -> bool:
+        return self.ref is not None
+
+    def gap(self) -> None:
+        """Przerwa w danych (nowy proces strumienia): krótkie filtry od nowa."""
+        self._t = None
+
+    def _valid(self, v: tuple) -> bool:
+        m = _norm(v)
+        return math.isfinite(m) and self.MIN_G <= m <= self.MAX_G
+
+    def _cooled(self, kind: str, t: float) -> bool:
+        last = self._cool.get(kind)
+        if last is not None and 0 <= t - last < self.COOLDOWN_S:
+            return False
+        self._cool[kind] = t
+        return True
+
+    def feed(self, t: float, x: float, y: float, z: float) -> Optional[tuple[str, float]]:
+        """Jedna próbka strumienia → ``("tilt", stopnie)`` /
+        ``("shake", krotność szumu)`` albo None."""
+        v = (float(x), float(y), float(z))
+        if not self._valid(v):
+            return None
+        self.samples += 1
+        dt = None if self._t is None else t - self._t
+        self._t = t
+        if dt is None or dt < 0 or dt > self.GAP_S:
+            self._fast = v
+            self._hp = v
+            self._warm_until = t + self.WARM_S
+            self._tilt_since = None
+            self._shake_since = None
+            dt = 0.0
+        else:
+            self._fast = _lerp(self._fast, v, _alpha(dt, self.FAST_TAU_S))
+            self._hp = _lerp(self._hp, v, _alpha(dt, self.HP_TAU_S))
+        dev = _norm(_sub(v, self._hp))
+        if self.ref is None:
+            if self._cal_start is None:
+                self._cal_start = t
+            self._cal_sum = (self._cal_sum[0] + v[0], self._cal_sum[1] + v[1],
+                             self._cal_sum[2] + v[2])
+            self._cal_dev += dev
+            self._cal_n += 1
+            if t - self._cal_start >= self.CALIB_S and self._cal_n >= 10:
+                n = float(self._cal_n)
+                self.ref = (self._cal_sum[0] / n, self._cal_sum[1] / n, self._cal_sum[2] / n)
+                self.noise = max(self.NOISE_FLOOR, self._cal_dev / n)
+                self._warm_until = max(self._warm_until, t)
+            return None
+        if t < self._warm_until:
+            return None
+        event: Optional[tuple[str, float]] = None
+        ang = angle_deg(self._fast, self.ref)
+        if ang >= self.tilt_deg:
+            if self._tilt_since is None:
+                self._tilt_since = t
+            elif t - self._tilt_since >= TILT_HOLD_S:
+                self._tilt_since = None
+                self.ref = self._fast            # nowa pozycja = odniesienie
+                if self._cooled("tilt", t):
+                    event = ("tilt", ang)
+        else:
+            self._tilt_since = None
+            self.ref = _lerp(self.ref, self._fast, _alpha(dt, self.REF_TAU_S))
+        noise = self.noise or self.NOISE_FLOOR
+        ratio = dev / noise
+        if ratio > self.shake_k:
+            if self._shake_since is None:
+                self._shake_since = t
+                self._shake_peak = 0.0
+            self._shake_last = t
+            self._shake_peak = max(self._shake_peak, ratio)
+            if t - self._shake_since >= SHAKE_HOLD_S:
+                peak = self._shake_peak
+                self._shake_since = None
+                if event is None and self._cooled("shake", t):
+                    event = ("shake", peak)
+        elif self._shake_last is None or t - self._shake_last > self.SHAKE_GAP_S:
+            self._shake_since = None
+        if ratio < self.shake_k / 2:
+            self.noise = max(self.NOISE_FLOOR,
+                             noise + (dev - noise) * _alpha(dt, self.NOISE_TAU_S))
+        return event
+
+    def feed_burst(self, t: float, samples: list,
+                   step: float = SENSOR_DELAY_MS / 1000.0) -> Optional[tuple[str, float]]:
+        """Paczka próbek z trybu „lekkiego” (``termux-sensor -n``, co
+        :data:`PARK_LIGHT_EVERY_S`). Przechył: średnia paczki względem
+        odniesienia w DWÓCH kolejnych paczkach (≥ :data:`TILT_HOLD_S`);
+        kołysanie: ≥ 0,5 s kolejnych próbek ponad progiem w jednej paczce."""
+        vs = [tuple(float(c) for c in s) for s in samples if len(s) >= 3]
+        vs = [v for v in vs if self._valid(v)]
+        if len(vs) < 3:
+            return None
+        self.samples += len(vs)
+        n = float(len(vs))
+        mean = (sum(v[0] for v in vs) / n, sum(v[1] for v in vs) / n, sum(v[2] for v in vs) / n)
+        devs = [_norm(_sub(v, mean)) for v in vs]
+        mdev = sum(devs) / n
+        if self.ref is None:
+            self.ref = mean
+            self.noise = max(self.NOISE_FLOOR, mdev)
+            self._burst_tilt = None
+            return None
+        event: Optional[tuple[str, float]] = None
+        ang = angle_deg(mean, self.ref)
+        if ang >= self.tilt_deg:
+            if self._burst_tilt is None:
+                self._burst_tilt = t
+            elif t - self._burst_tilt >= TILT_HOLD_S:
+                self._burst_tilt = None
+                self.ref = mean
+                if self._cooled("tilt", t):
+                    event = ("tilt", ang)
+        else:
+            self._burst_tilt = None
+            self.ref = _lerp(self.ref, mean, _alpha(PARK_LIGHT_EVERY_S, self.REF_TAU_S))
+        noise = self.noise or self.NOISE_FLOOR
+        need = max(2, int(math.ceil(SHAKE_HOLD_S / step)) + 1)
+        run = peak = best = 0.0
+        for d in devs:
+            r = d / noise
+            if r > self.shake_k:
+                run += 1
+                peak = max(peak, r)
+                if run >= need:
+                    best = max(best, peak)
+            else:
+                run = 0
+                peak = 0.0
+        if best and event is None and self._cooled("shake", t):
+            event = ("shake", best)
+        if max(devs) / noise < self.shake_k / 2:
+            self.noise = max(self.NOISE_FLOOR,
+                             noise + (mdev - noise) * _alpha(PARK_LIGHT_EVERY_S, self.NOISE_TAU_S))
+        return event
+
+
+# ── treści SMS alarmu na postoju (stałe szablony, tylko GSM-7) ────────────
+
+PARK_REASON_TEXT = {"tilt": "przechyl (podnosnik albo holowanie)",
+                    "shake": "wstrzas albo kolysanie",
+                    "power": "zasilanie wrocilo bez telefonu wlasciciela"}
+PARK_STATE_TEXT = {"off": "wylaczony", "disarmed": "rozbrojony", "arming": "uzbrajanie",
+                   "armed": "uzbrojony", "alarm": "ALARM", "log_only": "uzbrojony (tylko log)"}
+PARK_EVENT_TEXT = {"tilt": "przechyl", "shake": "wstrzas", "power": "zasilanie bez wlasciciela",
+                   "low_battery": "niska bateria", "home": "dom, bez uzbrojenia"}
+
+
+def _dm_hm(wall: float, localtime: Callable[[float], time.struct_time]) -> str:
+    return time.strftime("%d.%m %H:%M", localtime(wall))
+
+
+def fix_text(fix: Optional[dict]) -> str:
+    """Link do mapy z wiekiem i dokładnością pomiaru (same liczby)."""
+    if not fix:
+        return "nieznana (brak GPS)"
+    src = "siec" if fix.get("provider") == "network" else "GPS"
+    parts = [f"{src} sprzed {_fmt_age(int(fix['age_s']))}" if fix.get("age_s") is not None
+             else src]
+    if fix.get("acc") is not None:
+        parts.append(f"dokladnosc {int(fix['acc'])} m")
+    return f"https://maps.google.com/?q={fix['lat']:.5f},{fix['lon']:.5f} ({', '.join(parts)})"
+
+
+def park_alarm_text(label: str, reason: str, wall: float, fix: Optional[dict],
+                    localtime: Callable[[float], time.struct_time] = time.localtime) -> str:
+    return (f"{label}: ALARM {PARK_REASON_TEXT.get(reason, 'czujnik')} "
+            f"{_dm_hm(wall, localtime)}. Pozycja: {fix_text(fix)}")
+
+
+def park_position_text(label: str, fix: Optional[dict]) -> str:
+    if not fix:
+        return f"{label}: POZYCJA nieznana (brak GPS i sieci)"
+    return f"{label}: POZYCJA {fix_text(fix)}"
+
+
+def park_low_battery_text(label: str, pct: int) -> str:
+    return (f"{label}: POSTOJ rozbrojony - bateria telefonu {int(pct)}%. Alarm wroci po "
+            f"podlaczeniu zasilania.")
+
+
+def park_ack_text(label: str, what: str, minutes: int = 0) -> str:
+    if what == "arming":
+        return (f"{label}: POSTOJ uzbrajanie za {int(minutes)} min." if minutes
+                else f"{label}: POSTOJ uzbrojony.")
+    return {"already": f"{label}: POSTOJ juz uzbrojony.",
+            "off": f"{label}: POSTOJ rozbrojony.",
+            "low_battery": f"{label}: POSTOJ nie uzbrojony - bateria telefonu za niska.",
+            }.get(what, f"{label}: POSTOJ zly albo zuzyty kod.")
+
+
+def park_status_text(label: str, view: dict,
+                     localtime: Callable[[float], time.struct_time] = time.localtime) -> str:
+    out = f"{label}: POSTOJ {PARK_STATE_TEXT.get(view.get('state'), 'nieznany')}"
+    if view.get("since"):
+        out += f" od {_dm_hm(view['since'], localtime)}"
+    pct = (view.get("battery") or {}).get("pct")
+    if isinstance(pct, int) and not isinstance(pct, bool):
+        out += f", bateria {pct}%"
+    ev = view.get("last_event")
+    if isinstance(ev, dict) and ev.get("kind") in PARK_EVENT_TEXT and ev.get("ts"):
+        out += f", ostatnie: {PARK_EVENT_TEXT[ev['kind']]} {_dm_hm(ev['ts'], localtime)}"
+    if view.get("entry_until"):
+        out += f", ruch - alarm o {_dm_hm(view['entry_until'], localtime)[-5:]} bez rozbrojenia"
+    return out + "."
+
+
+def normalize_park_numbers(raw: Any) -> Optional[list]:
+    """Lista ≤ :data:`MAX_RECIPIENTS` numerów E.164 bez powtórzeń; None =
+    zły kształt."""
+    if not isinstance(raw, list) or len(raw) > MAX_RECIPIENTS:
+        return None
+    out: list[str] = []
+    for n in raw:
+        if not isinstance(n, str) or not E164_RE.fullmatch(n):
+            return None
+        if n not in out:
+            out.append(n)
+    return out
+
+
+def _park_default_state() -> dict:
+    return {"state": "disarmed", "since": None, "by": "", "arm_at": None, "armed_wall": None,
+            "check_home": False, "await_plug": False, "power": None, "restored_wall": None,
+            "last_event": None, "alarm_walls": [], "reply_walls": {}, "bad_codes": {},
+            "totp_last": None, "pending": None}
+
+
+def _walls(raw: Any) -> list:
+    if not isinstance(raw, list):
+        return []
+    return [float(w) for w in raw[-32:] if _number(w, 0, EVENT_TS_MAX) is not None]
+
+
+def normalize_park_state(obj: Any) -> dict:
+    """``park.json`` → stan; każde uszkodzone pole = wartość domyślna (plik
+    mógł zostać podmieniony), a stan bez potrzebnych znaczników czasu —
+    rozbrojony."""
+    st = _park_default_state()
+    if not isinstance(obj, dict):
+        return st
+    if obj.get("state") in PARK_SAVED_STATES:
+        st["state"] = obj["state"]
+    if obj.get("by") in PARK_BY:
+        st["by"] = obj["by"]
+    for key in ("since", "arm_at", "armed_wall", "restored_wall"):
+        if _number(obj.get(key), 0, EVENT_TS_MAX) is not None:
+            st[key] = float(obj[key])
+    for key in ("check_home", "await_plug"):
+        if isinstance(obj.get(key), bool):
+            st[key] = obj[key]
+    if obj.get("power") in ("plugged", "unplugged"):
+        st["power"] = obj["power"]
+    ev = obj.get("last_event")
+    if isinstance(ev, dict) and ev.get("kind") in PARK_EVENT_KINDS \
+            and _number(ev.get("ts"), 0, EVENT_TS_MAX) is not None:
+        val = _number(ev.get("value"), -1e6, 1e6)
+        st["last_event"] = {"kind": ev["kind"], "ts": int(ev["ts"]),
+                            "value": None if val is None else float(val),
+                            "logged_only": ev.get("logged_only") is True}
+    st["alarm_walls"] = _walls(obj.get("alarm_walls"))
+    for key in ("reply_walls", "bad_codes"):
+        m = obj.get(key)
+        if isinstance(m, dict):
+            st[key] = {k: _walls(v) for k, v in list(m.items())[:8]
+                       if isinstance(k, str) and (k == "bcm" or E164_RE.fullmatch(k))}
+    last = obj.get("totp_last")
+    if _number(last, 0, 10 ** 12, integer=True) is not None:
+        st["totp_last"] = int(last)
+    pend = obj.get("pending")
+    if isinstance(pend, dict) and pend.get("kind") in PARK_ENTRY_KINDS \
+            and _number(pend.get("wall"), 0, EVENT_TS_MAX) is not None \
+            and _number(pend.get("deadline"), 0, EVENT_TS_MAX) is not None:
+        val = _number(pend.get("value"), -1e6, 1e6)
+        st["pending"] = {"kind": pend["kind"], "value": None if val is None else float(val),
+                         "wall": float(pend["wall"]), "deadline": float(pend["deadline"])}
+    if st["state"] == "arming" and st["arm_at"] is None:
+        st["state"] = "disarmed"
+    if st["state"] in ("armed", "alarm") and st["armed_wall"] is None:
+        if st["since"] is None:
+            st["state"] = "disarmed"
+        else:
+            st["armed_wall"] = st["since"]
+    if st["state"] != "armed":
+        # Czekający alarm istnieje tylko przy uzbrojonym (przy „alarm”
+        # kolejne wyzwolenia idą od razu).
+        st["pending"] = None
+    return st
+
+
+Spawner = Callable[[list], Any]
+
+
+def default_spawn(argv: list) -> Any:
+    """Długo żyjący proces (strumień ``termux-sensor``): lista argumentów,
+    NIGDY powłoka; stdout jako tekst, linia po linii. Własna grupa procesów
+    (``start_new_session``): :func:`stop_process` zatrzymuje skrypt RAZEM
+    z pomocnikiem ``termux-api``, który pisze próbki."""
+    if not isinstance(argv, list) or not argv or not all(isinstance(a, str) for a in argv):
+        raise ValueError("invalid command")
+    return subprocess.Popen(argv, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
+                            stderr=subprocess.DEVNULL, text=True, errors="replace", bufsize=1,
+                            shell=False, start_new_session=True)
+
+
+# ── alarm na postoju (plan D4): stan i wątek ──────────────────────────────
+
+class ParkGuard:
+    """Alarm na postoju w agencie (opis w nagłówku pliku, „Alarm na
+    postoju”).
+
+    Stan ``self.st`` (zapisywany atomowo w ``park.json`` przy każdej zmianie)
+    zmienia się WYŁĄCZNIE pod blokadą agenta (``agent._lock``); polecenia
+    w telefonie (bateria, skrzynka SMS, pozycja, czujnik) idą poza nią,
+    w wątku postoju (:meth:`step`). Strumień akcelerometru czyta osobny
+    wątek (najwyżej jeden naraz), który tylko karmi :class:`MotionDetector`
+    (własna blokada, nigdy razem z blokadą agenta w odwrotnej kolejności)
+    i wrzuca wykrycia do ograniczonej kolejki."""
+
+    def __init__(self, agent: "Agent", spawn: Spawner,
+                 mktime: Callable[[time.struct_time], float]) -> None:
+        self.a = agent
+        self._spawn = spawn
+        self._mktime = mktime
+        self.wake = threading.Event()
+        self.st = normalize_park_state(agent._load_json("park.json", {}))
+        self._started = agent._clock()
+        self._start_wall = agent._wall()
+        self._power: Optional[str] = self.st["power"]
+        self._pct: Optional[int] = None
+        self._battery_at: Optional[float] = None
+        self._kick = False
+        self._kick_at: Optional[float] = None
+        self._contact_at: Optional[float] = None
+        self._inbox_at: Optional[float] = None
+        self._seen: deque = deque()
+        self._seen_set: set = set()
+        self._jobs: list = []
+        self._fix: Optional[dict] = None
+        self._fix_at: Optional[float] = None
+        self._warned: set = set()
+        self._local: tuple = (None, [])
+        self._light = False
+        # Ile razy samo uzbrojenie przesunięto, bo auto jechało.
+        self._moving_n = 0
+        # Czujnik (wątek postoju; ``_det`` i ``_last_sample`` pod _det_lock).
+        self._det_lock = threading.Lock()
+        self._det = MotionDetector()
+        self._det_q: queue.Queue = queue.Queue(maxsize=32)
+        self._last_sample: Optional[float] = None
+        self._sensor_name: Optional[str] = None
+        self._sensor_list_at: Optional[float] = None
+        self._proc: Any = None
+        self._reader: Optional[threading.Thread] = None
+        # Pokolenie strumienia (pod _det_lock): wątek czytający starego
+        # procesu, który jeszcze żyje, porzuca próbki i kończy się.
+        self._gen = 0
+        self._proc_started = 0.0
+        self._backoff = SENSOR_BACKOFF_MIN_S
+        self._sensor_next = 0.0
+        self._light_next = 0.0
+        self._cleanup_due = False
+        self.sensor_state = "off"
+
+    # ── pomocnicze ───────────────────────────────────────────────────────
+
+    def _warn_once(self, key: str, msg: str, *args: Any) -> None:
+        if key not in self._warned:
+            self._warned.add(key)
+            log.warning(msg, *args)
+
+    def _save_locked(self) -> None:
+        try:
+            self.a._save_json("park.json", self.st)
+        except OSError as e:
+            log.error("Cannot save the parking guard state: %s", _clean(e))
+
+    def _on(self) -> bool:
+        return bool(self.a.config["toggles"]["parking_guard"])
+
+    def _local_numbers(self) -> list:
+        """Numery ustawione w telefonie (``--park-numbers``), czytane
+        ponownie tylko po zmianie pliku."""
+        path = self.a._path(PARK_LOCAL_FILE)
+        try:
+            mtime = os.stat(path).st_mtime_ns
+        except OSError:
+            self._local = (None, [])
+            return []
+        if self._local[0] == mtime:
+            return list(self._local[1])
+        obj = self.a._load_json(PARK_LOCAL_FILE, {})
+        nums = normalize_park_numbers(obj.get("numbers", []) if isinstance(obj, dict) else None)
+        if nums is None:
+            log.warning("%s: 'numbers' is not a list of at most %d E.164 numbers — ignored",
+                        PARK_LOCAL_FILE, MAX_RECIPIENTS)
+            nums = []
+        self._local = (mtime, nums)
+        return list(nums)
+
+    def numbers_locked(self) -> list:
+        """Biała lista: z BCM (``park_numbers``), a gdy BCM nie podał żadnego
+        — ustawiona w telefonie."""
+        nums = self.a.config["park_numbers"]
+        return list(nums) if nums else self._local_numbers()
+
+    def totp_key(self) -> Optional[bytes]:
+        try:
+            raw = read_small(self.a._path(TOTP_FILE), 256)
+        except (OSError, ValueError):
+            return None
+        return parse_totp_secret(raw.decode("ascii", "replace")) if raw else None
+
+    def _no_contact_locked(self) -> bool:
+        base = self._contact_at if self._contact_at is not None else self._started
+        return self.a._clock() - base >= 60.0 * self.a.config["park_arm_after_min"]
+
+    # ── zdarzenia z zewnątrz ─────────────────────────────────────────────
+
+    def note_contact(self) -> None:
+        """Podpisane żądanie BCM (dowolne). Liczy się do „brak kontaktu
+        z BCM”; przy uzbrojonym — szybkie sprawdzenie zasilania (BCM żyje,
+        więc prąd mógł wrócić) zamiast czekać do :data:`PARK_BATTERY_ARMED_S`."""
+        now = self.a._clock()
+        with self.a._lock:
+            self._contact_at = now
+            kick = self._on() and self.st["state"] in ("armed", "alarm") and (
+                self._kick_at is None or now - self._kick_at >= PARK_CONTACT_KICK_S)
+            if kick:
+                self._kick = True
+                self._kick_at = now
+        if kick:
+            self.wake.set()
+
+    def view(self) -> dict:
+        with self.a._lock:
+            return self._view_locked(self.a._wall())
+
+    def _view_locked(self, wall: float) -> dict:
+        cfg, st = self.a.config, self.st
+        state = st["state"]
+        if not self._on():
+            state = "off"
+        elif state == "armed" and cfg["park_log_only"]:
+            state = "log_only"
+        ev = st["last_event"]
+        return {
+            "state": state,
+            "since": None if st["since"] is None else int(st["since"]),
+            "by": st["by"],
+            "arm_at": int(st["arm_at"]) if st["state"] == "arming" and st["arm_at"] else None,
+            "last_event": dict(ev) if isinstance(ev, dict) else None,
+            "battery": {"pct": self._pct, "power": self._power},
+            "log_only": bool(cfg["park_log_only"]),
+            "light": self._light,
+            "sensor": self.sensor_state,
+            "totp_ready": self.totp_key() is not None,
+            "numbers_n": len(self.numbers_locked()),
+            "home_set": cfg["park_home"] is not None,
+            "alarms_today": sum(1 for w in st["alarm_walls"] if abs(wall - w) < DAY_S),
+            # Okno wejścia: wykryto ruch, alarm o tej godzinie bez dowodu
+            # właściciela (None = nic nie czeka).
+            "entry_until": None if self._entry_deadline_locked() is None
+            else int(self._entry_deadline_locked()),
+        }
+
+    def _entry_deadline_locked(self) -> Optional[float]:
+        """Termin czekającego alarmu (okno wejścia) albo None. Prąd, który
+        wrócił w tym oknie (właściciel zapalił silnik, BCM startuje),
+        przesuwa termin do końca ``park_grace_min`` — tyle trwa start
+        komputera, przekierowanie adb i połączenie telefonu właściciela."""
+        pend = self.st["pending"]
+        if pend is None:
+            return None
+        deadline = float(pend["deadline"])
+        restored = self.st["restored_wall"]
+        if restored is not None:
+            deadline = max(deadline, restored + 60.0 * self.a.config["park_grace_min"])
+        return deadline
+
+    def http_arm(self, obj: dict) -> tuple[int, dict]:
+        """``POST /v1/park/arm {"delay_min": 0..30}`` — BCM wie, że auto
+        zgaszono (wersja docelowa z buforem). Bez ``delay_min`` — opóźnienie
+        z konfiguracji. Strefa „dom” obowiązuje."""
+        if set(obj) - {"delay_min"}:
+            return 400, {"error": "bad_request", "detail": 'body: {"delay_min": 0..30}'}
+        delay = obj.get("delay_min")
+        if delay is not None and _number(delay, 0, 30, integer=True) is None:
+            return 400, {"error": "bad_request", "detail": "delay_min: integer 0..30"}
+        with self.a._lock:
+            if not self._on():
+                return 409, {"error": "parking_guard_off"}
+            wall = self.a._wall()
+            res = self._arm_locked("bcm", self.a.config["park_arm_delay_min"]
+                                   if delay is None else int(delay), True, wall)
+            view = self._view_locked(wall)
+        self.wake.set()
+        if res == "low_battery":
+            return 409, dict(view, error="low_battery")
+        return 200, view
+
+    def http_disarm(self, obj: dict) -> tuple[int, dict]:
+        """``POST /v1/park/disarm`` — dowód właściciela. ``{}``: BCM widzi
+        połączony telefon właściciela (BT/HFP/AA) — BCM wysyła to TYLKO
+        wtedy. ``{"code": "<6 cyfr>"}``: kod TOTP wpisany na ekranie auta
+        (sprawdzany tu, jak w SMS-ie ``PARK OFF``; ten sam limit złych
+        kodów i ochrona przed powtórką)."""
+        if set(obj) - {"code"}:
+            return 400, {"error": "bad_request", "detail": 'body: {} or {"code": "<6 digits>"}'}
+        code = obj.get("code")
+        if "code" in obj and (not isinstance(code, str) or not _PARK_CODE_RE.fullmatch(code)):
+            return 400, {"error": "bad_request", "detail": "code: 6 digits"}
+        key = self.totp_key() if code is not None else None
+        with self.a._lock:
+            if not self._on():
+                return 409, {"error": "parking_guard_off"}
+            wall = self.a._wall()
+            if code is not None:
+                if self._locked_out_locked("bcm", wall):
+                    return 429, {"error": "rate_limited", "retry_after": 600}
+                if key is None:
+                    return 409, {"error": "no_totp"}
+                res, step = totp_verify(key, code, wall, self.st["totp_last"])
+                if res != "ok":
+                    self._bad_code_locked("bcm", wall)
+                    self._save_locked()
+                    log.warning("PARK: disarm code from the car screen refused (%s)",
+                                "already used" if res == "replay" else "wrong")
+                    return 403, {"error": "code_used" if res == "replay" else "bad_code"}
+                self.st["totp_last"] = step
+                # Zapis TERAZ: _disarm_locked przy już rozbrojonym nic nie
+                # zapisuje, a użyty krok ma przetrwać restart (powtórka).
+                self._save_locked()
+            self._disarm_locked("owner_code" if code is not None else "owner_bt", wall)
+            view = self._view_locked(wall)
+        self.wake.set()
+        return 200, view
+
+    # ── przejścia stanu (pod blokadą agenta) ──────────────────────────────
+
+    def _arm_locked(self, by: str, delay_min: int, check_home: bool, wall: float) -> str:
+        """``arming`` (z oknem wyjścia ``delay_min``) — ``already`` /
+        ``low_battery`` bez zmiany."""
+        st = self.st
+        if st["state"] in ("armed", "alarm"):
+            return "already"
+        if self._pct is not None and self._pct < PARK_LOW_PCT:
+            log.warning("PARK: not arming (%s) — phone battery %d%%", by, self._pct)
+            return "low_battery"
+        home = self.a.config["park_home"]
+        st.update(state="arming", by=by, since=wall, arm_at=wall + 60.0 * delay_min,
+                  check_home=bool(check_home and home is not None), restored_wall=None,
+                  pending=None)
+        self._moving_n = 0
+        log.warning("PARK: arming (%s) — armed in %d min%s", by, delay_min,
+                    " unless the phone is at home" if st["check_home"] else "")
+        self._save_locked()
+        self.wake.set()
+        return "arming"
+
+    def _arm_now_locked(self, wall: float) -> None:
+        cfg, st = self.a.config, self.st
+        st.update(state="armed", since=wall, armed_wall=wall, arm_at=None, check_home=False,
+                  restored_wall=None, pending=None)
+        with self._det_lock:
+            self._det = MotionDetector(cfg["park_tilt_deg"], cfg["park_shake_k"])
+        while True:
+            try:
+                self._det_q.get_nowait()
+            except queue.Empty:
+                break
+        self._light_next = 0.0
+        log.warning("PARK: ARMED (%s)%s", st["by"],
+                    " — LOG ONLY, no SMS" if cfg["park_log_only"] else "")
+        self._save_locked()
+        self.wake.set()
+
+    def _disarm_locked(self, by: str, wall: float) -> None:
+        """Rozbrojenie. Po nim samo uzbrojenie (brak prądu + brak BCM)
+        czeka na NOWE odcięcie zasilania (``await_plug``, gdy teraz nie ma
+        prądu) — „PARK OFF” z daleka nie może się zaraz cofnąć.
+
+        Rozbrojenie przez właściciela (:data:`PARK_OWNER_BY`) kasuje
+        czekający alarm (okno wejścia), zadania alarmu i SMS-y alarmowe,
+        które jeszcze nie wyszły — właściciel, który wsiadł i rozbroił,
+        nie dostaje SMS-a o własnym wejściu. Inne rozbrojenie (niska
+        bateria) NIE: czekający alarm wychodzi od razu, bo mógł to być
+        złodziej, a telefon zaraz przestanie pilnować."""
+        st = self.st
+        if by in PARK_OWNER_BY:
+            self._jobs = [j for j in self._jobs if j["kind"] not in ("alarm", "arm_check")]
+            self._cancel_alarm_sms_locked()
+        else:
+            self._jobs = [j for j in self._jobs if j["kind"] != "arm_check"]
+            pend = st["pending"]
+            if pend is not None and st["state"] == "armed" \
+                    and not self.a.config["park_log_only"]:
+                st["pending"] = None
+                self._alarm_locked(pend["kind"], pend["value"], float(pend["wall"]), wall)
+        st["pending"] = None
+        if st["state"] == "disarmed":
+            return
+        st.update(state="disarmed", by=by, since=wall, arm_at=None, check_home=False,
+                  restored_wall=None, await_plug=self._power == "unplugged")
+        log.warning("PARK: disarmed (%s)", by)
+        self._save_locked()
+        self.wake.set()
+
+    def _cancel_alarm_sms_locked(self) -> None:
+        """SMS-y alarmowe, które czekają w kolejce wysyłki (na zasięg, na
+        ponowienie): odbiorcy jeszcze nieobsłużeni → ``skipped``, a
+        ``no_retry`` zatrzymuje też ten, dla którego właśnie trwa
+        sprawdzanie zasięgu/skrzynek (:meth:`Agent._run_action`). Samego
+        ``termux-sms-send`` w toku nie da się cofnąć."""
+        changed = False
+        for d in self.a.meta.get("park_sms") or []:
+            if not isinstance(d, dict) or d.get("kind") != "park_alarm" or delivery_done(d):
+                continue
+            if not d.get("no_retry"):
+                d["no_retry"] = True
+                changed = True
+            for r in d["rcpt"]:
+                if r["st"] in ("queued", "wait", "retry"):
+                    r["st"] = "skipped"
+                    r["err"] = "disarmed"
+                    changed = True
+        if changed:
+            log.warning("PARK: disarmed by the owner — alarm SMS not sent yet are cancelled")
+            self.a._persist_quietly()
+            self.a.wake.set()
+
+    def _trigger_locked(self, kind: str, value: Optional[float], wall: float) -> None:
+        """Wyzwolenie przy uzbrojonym: zdarzenie, a poza ``log_only`` —
+        alarm. Przechył i wstrząs przy ``armed`` najpierw czekają
+        ``park_entry_s`` (okno wejścia, stan ``pending``): właściciel, który
+        otwiera drzwi i siada, wygląda dla czujnika tak samo jak złodziej,
+        a jego dowód (telefon połączony z BCM) przychodzi dopiero po
+        zapłonie, starcie komputera i połączeniu Bluetooth. Podnośnik
+        i holowanie nie przywracają prądu, więc alarmują po tym oknie."""
+        st, cfg = self.st, self.a.config
+        if st["state"] not in ("armed", "alarm"):
+            return
+        log_only = bool(cfg["park_log_only"])
+        st["last_event"] = {"kind": kind, "ts": int(wall),
+                            "value": None if value is None else round(float(value), 2),
+                            "logged_only": log_only}
+        detail = "" if value is None else f" ({value:.2f})"
+        if log_only:
+            log.warning("PARK (log only, no SMS): %s%s", kind, detail)
+            self._save_locked()
+            return
+        entry = int(cfg["park_entry_s"])
+        if kind in PARK_ENTRY_KINDS and st["state"] == "armed" and entry > 0:
+            # Kolejne wstrząsy w oknie nie przesuwają terminu (inaczej
+            # złodziej, który ciągle kołysze autem, nigdy by go nie dobił).
+            if st["pending"] is None:
+                st["pending"] = {"kind": kind,
+                                 "value": None if value is None else round(float(value), 2),
+                                 "wall": wall, "deadline": wall + entry}
+                log.warning("PARK: %s%s — alarm in %d s unless the owner disarms (entry "
+                            "window)", kind, detail, entry)
+                self.wake.set()
+            self._save_locked()
+            return
+        self._alarm_locked(kind, value, wall, wall)
+
+    def _alarm_locked(self, kind: str, value: Optional[float], event_wall: float,
+                      wall: float) -> None:
+        """Stan ``alarm`` i SMS (z pozycją) w ramach budżetu 1 na 10 min /
+        6 na dobę; ``event_wall`` = kiedy czujnik to wykrył (godzina w SMS-ie,
+        także po oknie wejścia)."""
+        st = self.st
+        if st["state"] != "alarm":
+            st["state"] = "alarm"
+            st["since"] = wall
+        detail = "" if value is None else f" ({value:.2f})"
+        log.critical("PARK ALARM: %s%s", kind, detail)
+        if not self.numbers_locked():
+            self._warn_once("no_numbers", "PARK: no numbers for the alarm SMS (park_numbers "
+                                          "from BCM, or --park-numbers on the phone)")
+            self._save_locked()
+            return
+        wait = self._alarm_wait_locked(wall)
+        if wait is not None:
+            log.warning("PARK: alarm SMS limit (1 per %d min, %d per day) — next possible in "
+                        "%d s", PARK_ALARM_COOLDOWN_S // 60, PARK_ALARM_MAX_PER_DAY, wait)
+            self._save_locked()
+            return
+        st["alarm_walls"].append(wall)
+        if len(self._jobs) < PARK_MAX_JOBS:
+            self._jobs.append({"kind": "alarm", "reason": kind, "wall": event_wall})
+        self._save_locked()
+        self.wake.set()
+
+    def _alarm_wait_locked(self, wall: float) -> Optional[int]:
+        walls = [w for w in self.st["alarm_walls"] if abs(wall - w) < DAY_S]
+        self.st["alarm_walls"] = walls
+        ages = sorted(abs(wall - w) for w in walls)
+        if ages and ages[0] < PARK_ALARM_COOLDOWN_S:
+            return _wait_s(PARK_ALARM_COOLDOWN_S - ages[0])
+        if len(ages) >= PARK_ALARM_MAX_PER_DAY:
+            return _wait_s(DAY_S - ages[PARK_ALARM_MAX_PER_DAY - 1])
+        return None
+
+    def _reply_ok_locked(self, num: str, wall: float) -> bool:
+        """Budżet odpowiedzi: 1 na numer na 2 min, 10 na numer na dobę."""
+        walls = [w for w in self.st["reply_walls"].get(num, []) if abs(wall - w) < DAY_S]
+        ok = not (walls and abs(wall - walls[-1]) < PARK_REPLY_COOLDOWN_S) \
+            and len(walls) < PARK_REPLY_MAX_PER_DAY
+        if ok:
+            walls.append(wall)
+        self.st["reply_walls"][num] = walls[-PARK_REPLY_MAX_PER_DAY:]
+        if not ok:
+            log.warning("PARK: reply to %s skipped (limit 1 per %d min, %d per day)",
+                        mask_number(num), PARK_REPLY_COOLDOWN_S // 60, PARK_REPLY_MAX_PER_DAY)
+        return ok
+
+    def _bad_code_locked(self, key: str, wall: float) -> None:
+        walls = [w for w in self.st["bad_codes"].get(key, [])
+                 if abs(wall - w) < PARK_BAD_CODE_WINDOW_S]
+        walls.append(wall)
+        self.st["bad_codes"][key] = walls[-PARK_BAD_CODE_MAX:]
+
+    def _locked_out_locked(self, key: str, wall: float) -> bool:
+        walls = [w for w in self.st["bad_codes"].get(key, [])
+                 if abs(wall - w) < PARK_BAD_CODE_WINDOW_S]
+        return len(walls) >= PARK_BAD_CODE_MAX
+
+    def _queue_sms_locked(self, kind: str, text: str, numbers: list, wall: float) -> None:
+        """SMS do kolejki wysyłki agenta (ta sama ścieżka co SMS o wypadku:
+        czekanie na zasięg, kontrola skrzynek, ponowienia) — ZA wysyłkami
+        wypadku, odwołania i „wybrano 112”, które mają pierwszeństwo."""
+        nums = [n for n in numbers if isinstance(n, str) and E164_RE.fullmatch(n)]
+        if not nums:
+            return
+        if not is_gsm7(text):
+            log.error("PARK: %s text is not GSM-7 — not sent", kind)
+            return
+        lst = self.a.meta.setdefault("park_sms", [])
+        lst.append(new_delivery(kind, text, nums[:MAX_RECIPIENTS], False,
+                                self.a.config["sim_slot"], wall, self.a._clock()))
+        self._prune_sms_locked(wall)
+        self.a._persist_quietly()
+        self.a.wake.set()
+        log.warning("PARK: %s SMS queued for %d recipient(s)", kind, len(nums))
+
+    def _prune_sms_locked(self, wall: float) -> None:
+        lst = self.a.meta.get("park_sms")
+        if not isinstance(lst, list):
+            self.a.meta["park_sms"] = []
+            return
+        keep = [d for d in lst if not delivery_done(d)
+                or abs(wall - float(d["created_wall"])) < PARK_KEEP_SMS_S]
+        while len(keep) > PARK_MAX_SMS:
+            victim = next((d for d in keep if delivery_done(d)), keep[0])
+            keep.remove(victim)
+        self.a.meta["park_sms"] = keep
+
+    # ── wątek postoju ─────────────────────────────────────────────────────
+
+    def step(self) -> float:
+        """Jeden krok: bateria, wykrycia, terminy, skrzynka SMS, pozycja,
+        czujnik. Zwraca, za ile sekund następny."""
+        a = self.a
+        with a._lock:
+            on = self._on()
+            if not on:
+                self._disarm_locked("off", a._wall())
+        if not on:
+            self._sensor_off()
+            self._drain_detections()
+            return PARK_MAX_WAIT_S
+        now = a._clock()
+        if self._battery_due(now):
+            self._poll_battery(now)
+        self._handle_detections()
+        self._timers()
+        if self._inbox_due(a._clock()):
+            self._poll_inbox()
+        self._run_jobs()
+        self._manage_sensor()
+        return self._next_wait()
+
+    def shutdown(self) -> None:
+        self._sensor_off()
+
+    def _battery_every_locked(self) -> float:
+        """Co ile bateria: w oknie wejścia często (prąd wrócił = właściciel
+        zapalił silnik?), przy uzbrojonym rzadko, poza nim co minutę."""
+        if self.st["pending"] is not None:
+            return PARK_ENTRY_BATTERY_S
+        return PARK_BATTERY_ARMED_S if self.st["state"] in ("armed", "alarm") \
+            else PARK_BATTERY_IDLE_S
+
+    def _battery_due(self, now: float) -> bool:
+        with self.a._lock:
+            kick, self._kick = self._kick, False
+            every = self._battery_every_locked()
+        return kick or self._battery_at is None or now - self._battery_at >= every
+
+    def _poll_battery(self, now: float) -> None:
+        a = self.a
+        with a._lock:
+            fresh = a._status_ts is not None and now - a._status_ts < 20.0
+            cached = a._status.get("battery") if fresh else None
+        battery = cached if cached is not None else a.phone.battery()
+        with a._lock:
+            self._on_battery_locked(battery, a._clock(), a._wall())
+
+    def _on_battery_locked(self, battery: Optional[dict], now: float, wall: float) -> None:
+        """Odczyt baterii: zasilanie zniknęło / wróciło, wersja lekka,
+        rozbrojenie przy :data:`PARK_LOW_PCT`. Nieudany odczyt niczego nie
+        zmienia."""
+        self._battery_at = now
+        if battery is None:
+            return
+        pct = battery.get("pct")
+        if isinstance(pct, int) and not isinstance(pct, bool):
+            self._pct = pct
+        power = power_of(battery)
+        st = self.st
+        changed = False
+        prev = st["power"]
+        if power is not None:
+            self._power = power
+            if power != prev:
+                st["power"] = power
+                changed = True
+            if power == "plugged" and st["await_plug"]:
+                st["await_plug"] = False
+                changed = True
+        state = st["state"]
+        if state == "arming" and power == "plugged" and st["by"] == "power":
+            # Prąd wrócił w oknie wyjścia: kierowca wrócił przed uzbrojeniem.
+            self._disarm_locked("power_back", wall)
+            return
+        if state in ("armed", "alarm") and power is not None:
+            if prev == "unplugged" and power == "plugged" and st["restored_wall"] is None:
+                st["restored_wall"] = wall
+                changed = True
+                log.warning("PARK: power is back — %d min for the owner's phone (BCM) or "
+                            "PARK OFF, otherwise an alarm", self.a.config["park_grace_min"])
+            elif power == "unplugged" and st["restored_wall"] is not None:
+                st["restored_wall"] = None
+                changed = True
+                log.info("PARK: power gone again before the grace ended — no alarm")
+        if state in ("arming", "armed", "alarm") and self._pct is not None \
+                and self._pct < PARK_LOW_PCT:
+            self._low_battery_locked(wall)
+            return
+        if changed:
+            self._save_locked()
+
+    def _low_battery_locked(self, wall: float) -> None:
+        """Poniżej :data:`PARK_LOW_PCT`: rozbrojenie i JEDEN SMS (poza
+        ``log_only``) — telefon ma jeszcze wysłać SMS o wypadku po
+        powrocie do auta, a rozładowany trzeba włączać ręcznie."""
+        cfg = self.a.config
+        pct = int(self._pct or 0)
+        log_only = bool(cfg["park_log_only"])
+        self.st["last_event"] = {"kind": "low_battery", "ts": int(wall), "value": float(pct),
+                                 "logged_only": log_only}
+        self._disarm_locked("low_battery", wall)
+        log.warning("PARK: phone battery %d%% — disarmed%s", pct,
+                    " (log only, no SMS)" if log_only else "")
+        if not log_only:
+            self._queue_sms_locked("park_info", park_low_battery_text(cfg["vehicle_label"], pct),
+                                   self.numbers_locked(), wall)
+        self._save_locked()
+
+    def _drain_detections(self) -> list:
+        out = []
+        while True:
+            try:
+                out.append(self._det_q.get_nowait())
+            except queue.Empty:
+                return out
+
+    def _handle_detections(self) -> None:
+        events = self._drain_detections()
+        if not events:
+            return
+        with self.a._lock:
+            wall = self.a._wall()
+            for kind, value in events:
+                self._trigger_locked(kind, value, wall)
+
+    def _timers(self) -> None:
+        a = self.a
+        with a._lock:
+            wall, st, cfg = a._wall(), self.st, a.config
+            now = a._clock()
+            if st["state"] == "disarmed" and self._power == "unplugged" \
+                    and not st["await_plug"] and self._no_contact_locked():
+                log.warning("PARK: no USB power and no BCM for %d min — arming",
+                            cfg["park_arm_after_min"])
+                if self._arm_locked("power", cfg["park_arm_delay_min"], True, wall) \
+                        == "low_battery":
+                    st["await_plug"] = True
+                    self._save_locked()
+            if st["state"] == "arming" and st["arm_at"] is not None and wall >= st["arm_at"]:
+                if st["check_home"] or st["by"] in ("power", "bcm"):
+                    # Poza blokadą (_run_jobs): paczka próbek „czy auto
+                    # jedzie” i/lub pozycja dla strefy „dom”.
+                    if not any(j["kind"] == "arm_check" for j in self._jobs):
+                        self._jobs.append({"kind": "arm_check", "wall": wall})
+                else:
+                    self._arm_now_locked(wall)
+            entry_wait = self._entry_timer_locked(now, wall)
+            if not entry_wait and st["state"] in ("armed", "alarm") \
+                    and st["restored_wall"] is not None \
+                    and wall - st["restored_wall"] >= 60.0 * cfg["park_grace_min"]:
+                st["restored_wall"] = None
+                self._trigger_locked("power", None, wall)
+            armed = st["state"] in ("armed", "alarm")
+            light = armed and (
+                (st["armed_wall"] is not None and wall - st["armed_wall"] >= PARK_LIGHT_AFTER_S)
+                or (self._pct is not None and self._pct < PARK_LIGHT_PCT))
+            if light != self._light and armed:
+                log.info("PARK: %s sensor mode", "light (1 s burst every %d s)"
+                         % PARK_LIGHT_EVERY_S if light else "continuous")
+            self._light = light
+            self._prune_sms_locked(wall)
+            # Limits of numbers no longer in use (or long expired) go away —
+            # park.json never grows with every number ever configured.
+            for key, keep_s in (("reply_walls", DAY_S), ("bad_codes", PARK_BAD_CODE_WINDOW_S)):
+                st[key] = {k: v for k, v in st[key].items()
+                           if any(abs(wall - w) < keep_s for w in v)}
+
+    def _entry_timer_locked(self, now: float, wall: float) -> bool:
+        """Termin okna wejścia. True = alarm jeszcze czeka na świeży odczyt
+        baterii (wtedy alarm „zasilanie bez właściciela” też nie idzie
+        w tym kroku — jeden alarm, nie dwa)."""
+        st = self.st
+        pend = st["pending"]
+        if pend is None:
+            return False
+        if st["state"] != "armed":
+            st["pending"] = None
+            self._save_locked()
+            return False
+        deadline = self._entry_deadline_locked()
+        if deadline is None or wall < deadline:
+            return False
+        if self._battery_at is None or now - self._battery_at > PARK_ENTRY_FRESH_S:
+            # Najpierw świeży odczyt: prąd, który wrócił przed chwilą (zapłon),
+            # przesuwa termin o park_grace_min.
+            self._kick = True
+            return True
+        st["pending"] = None
+        st["restored_wall"] = None          # ten alarm obejmuje też powrót prądu
+        log.warning("PARK: entry window over without the owner's proof — alarm")
+        self._alarm_locked(pend["kind"], pend["value"], float(pend["wall"]), wall)
+        return True
+
+    # ── polecenia SMS ─────────────────────────────────────────────────────
+
+    def _inbox_due(self, now: float) -> bool:
+        if self._inbox_at is not None and now - self._inbox_at < PARK_INBOX_EVERY_S:
+            return False
+        with self.a._lock:
+            nums = self.numbers_locked()
+        if not nums:
+            return False
+        if self.totp_key() is None:
+            self._inbox_at = now
+            self._warn_once("no_totp", "PARK: no TOTP secret — SMS commands are off (run: "
+                                       "python ~/bcm_agent/bcm_agent.py --park-setup)")
+            return False
+        return True
+
+    def _poll_inbox(self) -> None:
+        self._inbox_at = self.a._clock()
+        items = self.a.phone.sms_inbox()
+        if items is None:
+            self._warn_once("inbox", "PARK: cannot read the SMS inbox (termux-sms-list; READ_SMS "
+                                     "for Termux:API?) — SMS commands do not work")
+            return
+        parsed = []
+        for item in items:
+            p = self._inbox_item(item)
+            if p is not None:
+                parsed.append(p)
+        for rwall, num, cmd, code in sorted(parsed, key=lambda p: p[0]):
+            self._command(num, cmd, code, rwall)
+
+    def _seen_add(self, key: Any) -> bool:
+        """False, gdy już przeczytana (deduplikacja po ``_id``, a bez niego
+        po numerze, czasie i treści)."""
+        if key in self._seen_set:
+            return False
+        self._seen.append(key)
+        self._seen_set.add(key)
+        while len(self._seen) > PARK_SEEN_MAX:
+            self._seen_set.discard(self._seen.popleft())
+        return True
+
+    def _inbox_item(self, item: dict) -> Optional[tuple]:
+        """Jedna wiadomość → ``(czas, numer z listy, polecenie, kod)`` albo
+        None (powtórka, stara, sprzed startu agenta, obcy nadawca — po cichu,
+        nie polecenie)."""
+        num, body, received = item.get("number"), item.get("body"), item.get("received")
+        if item.get("type") not in (None, "inbox") or not isinstance(body, str):
+            return None
+        mid = item.get("_id")
+        if isinstance(mid, int) and not isinstance(mid, bool):
+            key: Any = ("id", mid)
+        else:
+            key = ("h", sha256_hex(f"{num}\n{received}\n{body}".encode("utf-8", "replace"))[:24])
+        if not self._seen_add(key):
+            return None
+        rwall = parse_received(received, self._mktime)
+        wall = self.a._wall()
+        if rwall is None or rwall < self._start_wall - 2 or wall - rwall > PARK_SMS_MAX_AGE_S \
+                or rwall - wall > 120:
+            return None
+        with self.a._lock:
+            owner = match_sender(num, self.numbers_locked())
+        if owner is None:
+            return None
+        cmd = parse_park_command(body)
+        if cmd is None:
+            log.info("PARK: an SMS from %s is not a command — ignored", mask_number(owner))
+            return None
+        return rwall, owner, cmd[0], cmd[1]
+
+    def _command(self, num: str, cmd: str, code: str, rwall: float) -> None:
+        """Polecenie z numeru z listy: kod TOTP (zapisany jako użyty PRZED
+        wykonaniem — nawet po restarcie agenta nie zadziała drugi raz), potem
+        akcja i odpowiedź w ramach budżetu.
+
+        Kod sprawdzam względem CZASU ODEBRANIA SMS-a (``rwall``), nie chwili
+        przetwarzania: skrzynkę czytam co :data:`PARK_INBOX_EVERY_S`, a wątek
+        postoju może być zajęty pozycją (GPS + sieć do ok. 110 s) — przy
+        oknie ±1 krok (30 s) prawdziwy kod często byłby już „zły” i liczył
+        się do blokady numeru. ``rwall`` to czas zapisany przez telefon przy
+        odbiorze (nie przez nadawcę), już ograniczony w :meth:`_inbox_item`
+        (nie sprzed startu agenta, nie starszy niż 10 min); nie później niż
+        teraz. Ochrona przed powtórką (``totp_last``) obowiązuje jak zwykle."""
+        key = self.totp_key()
+        with self.a._lock:
+            wall, st, cfg = self.a._wall(), self.st, self.a.config
+            label = cfg["vehicle_label"]
+            if self._locked_out_locked(num, wall):
+                log.warning("PARK: SMS command from %s ignored — %d wrong codes within an hour",
+                            mask_number(num), PARK_BAD_CODE_MAX)
+                return
+            res, step = totp_verify(key, code, min(float(rwall), wall), st["totp_last"]) \
+                if key else ("bad", None)
+            if res != "ok":
+                self._bad_code_locked(num, wall)
+                log.warning("PARK: SMS command from %s refused (%s code)", mask_number(num),
+                            "already used" if res == "replay" else "wrong")
+                if self._reply_ok_locked(num, wall):
+                    self._queue_sms_locked("park_reply", park_ack_text(label, "bad"), [num],
+                                           wall)
+                self._save_locked()
+                return
+            st["totp_last"] = step
+            self._save_locked()
+            log.warning("PARK: SMS command %s from %s accepted", cmd, mask_number(num))
+            reply: Optional[str] = None
+            if cmd == "position":
+                if self._reply_ok_locked(num, wall) and len(self._jobs) < PARK_MAX_JOBS:
+                    self._jobs.append({"kind": "position", "num": num, "wall": wall})
+                    self.wake.set()
+                self._save_locked()
+                return
+            if cmd == "on":
+                delay = cfg["park_arm_delay_min"]
+                res = self._arm_locked("sms", delay, False, wall)
+                reply = park_ack_text(label, res, delay)
+            elif cmd == "off":
+                self._disarm_locked("owner_sms", wall)
+                reply = park_ack_text(label, "off")
+            else:
+                reply = park_status_text(label, self._view_locked(wall), self.a._localtime)
+            if self._reply_ok_locked(num, wall):
+                self._queue_sms_locked("park_reply", reply, [num], wall)
+            self._save_locked()
+
+    # ── zadania z pozycją (GPS na żądanie) ────────────────────────────────
+
+    def _run_jobs(self) -> None:
+        """Zadania wymagające poleceń w telefonie — poza blokadą: pozycja
+        (POZYCJA, alarm, strefa „dom”) i paczka próbek przed samym
+        uzbrojeniem („czy auto jedzie”)."""
+        a = self.a
+        with a._lock:
+            jobs = list(self._jobs)
+            st = self.st
+            check = any(j["kind"] == "arm_check" for j in jobs) and st["state"] == "arming"
+            want_motion = check and st["by"] in ("power", "bcm")
+            check_home = check and st["check_home"]
+            may_postpone = self._moving_n < PARK_MOVING_MAX
+        if not jobs:
+            return
+        moving = self._moving_now() if want_motion else None
+        postpone = bool(moving) and may_postpone
+        need_fix = any(j["kind"] in ("alarm", "position") for j in jobs) \
+            or (check_home and not postpone)
+        fix = self._fix if self._fix_at is not None \
+            and a._clock() - self._fix_at < PARK_FIX_REUSE_S else None
+        if fix is None and need_fix:
+            gps_failed = a.phone.gps_failed_at
+            # GPS zawsze przy alarmie; dla poleceń i strefy „dom” nie po
+            # świeżej porażce (garaż — patrz PARK_GPS_SKIP_S).
+            try_gps = any(j["kind"] == "alarm" for j in jobs) or gps_failed is None \
+                or a._clock() - gps_failed >= PARK_GPS_SKIP_S
+            fix = a.phone.location(try_gps=try_gps)
+            if fix is not None:
+                self._fix, self._fix_at = fix, a._clock()
+            else:
+                log.warning("PARK: no position (GPS, network and last known all failed)")
+        with a._lock:
+            wall, st, cfg = a._wall(), self.st, a.config
+            label = cfg["vehicle_label"]
+            for job in jobs:
+                if not any(j is job for j in self._jobs):
+                    continue        # rozbrojone w międzyczasie
+                self._jobs = [j for j in self._jobs if j is not job]
+                if job["kind"] == "alarm":
+                    self._queue_sms_locked("park_alarm", park_alarm_text(
+                        label, job["reason"], job["wall"], fix, a._localtime),
+                        self.numbers_locked(), wall)
+                elif job["kind"] == "position":
+                    self._queue_sms_locked("park_reply", park_position_text(label, fix),
+                                           [job["num"]], wall)
+                elif job["kind"] == "arm_check" and st["state"] == "arming":
+                    if postpone and self._moving_n < PARK_MOVING_MAX:
+                        self._moving_n += 1
+                        st["arm_at"] = wall + PARK_MOVING_RETRY_S
+                        log.warning("PARK: the car seems to be moving (%s) — arming postponed "
+                                    "by %d s (%d/%d)", st["by"], PARK_MOVING_RETRY_S,
+                                    self._moving_n, PARK_MOVING_MAX)
+                        self._save_locked()
+                    elif st["check_home"] and at_home(fix, cfg["park_home"]):
+                        st["last_event"] = {"kind": "home", "ts": int(wall), "value": None,
+                                            "logged_only": False}
+                        self._disarm_locked("home", wall)
+                        log.info("PARK: the phone is at home — not arming")
+                    else:
+                        if moving:
+                            log.warning("PARK: still moving after %d checks — arming anyway",
+                                        PARK_MOVING_MAX)
+                        self._arm_now_locked(wall)
+
+    def _moving_now(self) -> Optional[bool]:
+        """Jedna paczka próbek (1 s): True = ruch jak w jeździe (rozrzut
+        ponad :data:`PARK_MOVING_MS2`), False = stoi, None = nie wiadomo
+        (brak czujnika, nieudana paczka) — wtedy uzbrajam jak zwykle."""
+        name = self._sensor()
+        if name is None:
+            return None
+        vecs = self._burst(name)
+        spread = burst_spread(vecs)
+        if spread is None:
+            return None
+        log.info("PARK: motion check before arming: %.3f m/s2", spread)
+        return spread > PARK_MOVING_MS2
+
+    # ── czujnik ───────────────────────────────────────────────────────────
+
+    def _manage_sensor(self) -> None:
+        with self.a._lock:
+            armed = self.st["state"] in ("armed", "alarm")
+            light = self._light
+        now = self.a._clock()
+        if not armed:
+            self._sensor_off()
+        elif light:
+            if self._proc is not None:
+                # Przejście na wersję lekką: strumień zatrzymany I czujnik
+                # zwolniony — inaczej Termux:API dalej próbkuje 10 Hz, a
+                # paczki ``-n`` nie dostają nic (oszczędzanie nie działa).
+                self._stop_stream()
+                self._release_sensor()
+            self._light_burst(now)
+        else:
+            self._ensure_stream(now)
+
+    def _sensor(self) -> Optional[str]:
+        """Nazwa akcelerometru (``termux-sensor -l`` raz, ponowienie co
+        :data:`SENSOR_LIST_RETRY_S`)."""
+        if self._sensor_name is not None:
+            return self._sensor_name
+        now = self.a._clock()
+        if self._sensor_list_at is not None and now - self._sensor_list_at < SENSOR_LIST_RETRY_S:
+            return None
+        self._sensor_list_at = now
+        name = pick_accelerometer(self.a.phone.sensor_names())
+        if name is None:
+            log.error("PARK: no accelerometer in 'termux-sensor -l' — only the power trigger "
+                      "works (retry in %d min)", SENSOR_LIST_RETRY_S // 60)
+            return None
+        self._sensor_name = name
+        log.info("PARK: accelerometer '%s'", name)
+        return name
+
+    def _ensure_stream(self, now: float) -> None:
+        proc = self._proc
+        if proc is not None:
+            with self._det_lock:
+                last = self._last_sample
+            alive = proc.poll() is None
+            stalled = alive and now - (last if last is not None else self._proc_started) \
+                > SENSOR_STALL_S
+            if alive and not stalled:
+                if last is not None and now - self._proc_started >= SENSOR_GOOD_RUN_S:
+                    self._backoff = SENSOR_BACKOFF_MIN_S
+                self.sensor_state = "ok" if last is not None else "starting"
+                return
+            log.warning("PARK: accelerometer stream %s — restart in %.0f s",
+                        "stalled" if stalled else "ended", self._backoff)
+            self._stop_stream()
+            # Przed następnym strumieniem: bez ``-c`` nowy dostałby zero próbek.
+            self._release_sensor()
+            self._sensor_next = now + self._backoff
+            self._backoff = min(self._backoff * 2, SENSOR_BACKOFF_MAX_S)
+            self.sensor_state = "error"
+            return
+        if now < self._sensor_next:
+            return
+        name = self._sensor()
+        if name is None:
+            self.sensor_state = "no_sensor"
+            return
+        try:
+            proc = self._spawn(["termux-sensor", "-s", name, "-d", str(SENSOR_DELAY_MS)])
+        except (OSError, ValueError) as e:
+            log.error("PARK: cannot start termux-sensor (%s) — retry in %.0f s", _clean(e),
+                      self._backoff)
+            self._sensor_next = now + self._backoff
+            self._backoff = min(self._backoff * 2, SENSOR_BACKOFF_MAX_S)
+            self.sensor_state = "error"
+            return
+        self._proc = proc
+        self._proc_started = now
+        self._cleanup_due = True
+        with self._det_lock:
+            self._last_sample = None
+            self._det.gap()
+            gen = self._gen
+        self._reader = threading.Thread(target=self._read, args=(proc, name, gen), daemon=True,
+                                        name="park-sensor")
+        self._reader.start()
+        self.sensor_state = "starting"
+
+    def _read(self, proc: Any, name: str, gen: int) -> None:
+        """Wątek czytający strumień: parser → detektor → kolejka wykryć.
+        Kończy się sam na EOF (koniec procesu) albo przy pierwszej próbce po
+        zatrzymaniu strumienia (inne pokolenie — patrz :meth:`_stop_stream`)."""
+        parser = SensorParser(name)
+        stdout = getattr(proc, "stdout", None)
+        if stdout is None:
+            return
+        try:
+            for line in stdout:
+                vecs = parser.feed_line(line)
+                if not vecs:
+                    continue
+                t = self.a._clock()
+                for vec in vecs:
+                    with self._det_lock:
+                        if gen != self._gen:
+                            return          # zatrzymany: nic już nie karmię
+                        self._last_sample = t
+                        ev = self._det.feed(t, *vec)
+                    if ev is not None:
+                        try:
+                            self._det_q.put_nowait(ev)
+                        except queue.Full:
+                            pass
+                        self.wake.set()
+        except (OSError, ValueError):
+            pass
+
+    def _stop_stream(self) -> None:
+        """Zatrzymanie strumienia: najpierw nowe pokolenie (stary wątek
+        czytający już nic nie wrzuci do detektora), potem SIGTERM/SIGKILL do
+        CAŁEJ grupy procesów (:func:`stop_process` — skrypt
+        ``termux-sensor`` i jego pomocnik ``termux-api``; zamknięty pomocnik
+        = EOF dla wątku czytającego). Zwolnienie czujnika (``-c``) — osobno,
+        :meth:`_release_sensor`, po KAŻDYM zatrzymaniu."""
+        proc, self._proc = self._proc, None
+        if proc is None:
+            return
+        with self._det_lock:
+            self._gen += 1
+        stop_process(proc)
+        reader, self._reader = self._reader, None
+        if reader is not None:
+            reader.join(timeout=SENSOR_JOIN_S)
+            if reader.is_alive():
+                # Rura wciąż otwarta (coś spoza grupy ją trzyma): wątek jest
+                # już bez znaczenia (inne pokolenie) i skończy się przy
+                # pierwszej próbce albo na EOF. Zamykanie stdout tutaj
+                # mogłoby zablokować wątek postoju na czytającym.
+                log.warning("PARK: the old accelerometer reader is still blocked — ignored")
+            else:
+                try:
+                    proc.stdout.close()
+                except Exception:
+                    pass
+        self._cleanup_due = True
+
+    def _release_sensor(self) -> None:
+        """``termux-sensor -c`` (jeśli od ostatniego był strumień albo
+        paczka): Termux:API trzyma zarejestrowany czujnik także po zabiciu
+        procesu, a nowego „pisarza” próbek tworzy dopiero po zwolnieniu."""
+        if self._cleanup_due:
+            self._cleanup_due = False
+            self.a.phone.sensor_cleanup()
+
+    def _burst(self, name: str) -> list:
+        """Jedna paczka ``-n`` → wektory. Nieudana (błąd, przekroczony czas,
+        pusta) → ``-c``: mogła zostawić czujnik zarejestrowany. Udana kończy
+        się sama po stronie Androida (limit próbek)."""
+        out = self.a.phone.sensor_burst(name)
+        vecs = SensorParser(name).feed_text(out) if out else []
+        self._cleanup_due = True
+        if not vecs:
+            self._release_sensor()
+        return vecs
+
+    def _sensor_off(self) -> None:
+        """Strumień zatrzymany i ``termux-sensor -c`` (raz): Termux:API
+        trzyma zarejestrowany czujnik także po zabiciu procesu."""
+        self._stop_stream()
+        self._release_sensor()
+        self.sensor_state = "off"
+        self._backoff = SENSOR_BACKOFF_MIN_S
+        self._sensor_next = 0.0
+
+    def _light_burst(self, now: float) -> None:
+        if now < self._light_next:
+            return
+        self._light_next = now + PARK_LIGHT_EVERY_S
+        name = self._sensor()
+        if name is None:
+            self.sensor_state = "no_sensor"
+            return
+        vecs = self._burst(name)
+        if not vecs:
+            self.sensor_state = "error"
+            return
+        t = self.a._clock()
+        with self._det_lock:
+            self._last_sample = t
+            ev = self._det.feed_burst(t, vecs)
+        self.sensor_state = "light"
+        if ev is not None:
+            try:
+                self._det_q.put_nowait(ev)
+            except queue.Full:
+                pass
+            self.wake.set()
+
+    def _next_wait(self) -> float:
+        a = self.a
+        now = a._clock()
+        waits = [PARK_MAX_WAIT_S]
+        with a._lock:
+            wall, st, cfg = a._wall(), self.st, a.config
+            armed = st["state"] in ("armed", "alarm")
+            if self._jobs or self._kick:
+                return 0.0
+            if st["state"] == "arming" and st["arm_at"] is not None:
+                waits.append(st["arm_at"] - wall)
+            if armed and st["restored_wall"] is not None:
+                waits.append(st["restored_wall"] + 60.0 * cfg["park_grace_min"] - wall)
+            entry = self._entry_deadline_locked()
+            if entry is not None:
+                waits.append(entry - wall)
+            if st["state"] == "disarmed" and self._power == "unplugged" and not st["await_plug"]:
+                base = self._contact_at if self._contact_at is not None else self._started
+                waits.append(base + 60.0 * cfg["park_arm_after_min"] - now)
+            light = self._light
+            every = self._battery_every_locked()
+        if self._battery_at is not None:
+            waits.append(self._battery_at + every - now)
+        if self._inbox_at is not None:
+            waits.append(self._inbox_at + PARK_INBOX_EVERY_S - now)
+        if armed and light:
+            waits.append(self._light_next - now)
+        elif armed and self._proc is None:
+            waits.append(self._sensor_next - now)
+        elif armed:
+            waits.append(5.0)                    # zdrowie strumienia
+        return min(PARK_MAX_WAIT_S, max(0.2, min(waits)))
+
 
 # ── walidacja danych od BCM ───────────────────────────────────────────────
 
@@ -2593,7 +4789,9 @@ def default_config() -> dict:
             "toggles": {k: False for k in TOGGLES}, "dry_run": True, "follow_up_cancel": True,
             # Bez konfiguracji z BCM: 112 w trybie TESTOWYM bez numeru = nic
             # nie da się wybrać (i tak przełącznik call112 jest wyłączony).
-            "call112_test_mode": True, "call112_test_number": ""}
+            "call112_test_mode": True, "call112_test_number": "",
+            # Alarm na postoju: bez numerów, tylko log (przełącznik i tak off).
+            **{k: (list(v) if isinstance(v, list) else v) for k, v in PARK_DEFAULTS.items()}}
 
 
 def normalize_config(obj: Any, strict: bool = False) -> tuple[Optional[dict], str]:
@@ -2647,6 +4845,50 @@ def normalize_config(obj: Any, strict: bool = False) -> tuple[Optional[dict], st
     if not isinstance(num, str) or (num and not E164_RE.fullmatch(num)):
         return None, "call112_test_number must be '' or match ^\\+[1-9][0-9]{7,14}$"
     out["call112_test_number"] = num
+    park, err = normalize_park_config(obj, base)
+    if park is None:
+        return None, err
+    out.update(park)
+    return out, ""
+
+
+def normalize_park_config(obj: dict, base: dict) -> tuple[Optional[dict], str]:
+    """Pola ``park_*`` (alarm na postoju) — wszystkie opcjonalne (BCM wysyła
+    je tylko z włączonym ``modules.parking_guard``), ale podane muszą być
+    poprawne (BCM sam przycina wartości, więc wartość spoza zakresu to błąd,
+    a nie „popraw po cichu”). Postać kanoniczna jak w BCM (skrót musi się
+    zgadzać): liczby zmiennoprzecinkowe zaokrąglone do 0,01, współrzędne
+    do 6 miejsc."""
+    out: dict[str, Any] = {}
+    nums = normalize_park_numbers(obj.get("park_numbers", base["park_numbers"]))
+    if nums is None:
+        return None, f"park_numbers: at most {MAX_RECIPIENTS} numbers ^\\+[1-9][0-9]{{7,14}}$"
+    out["park_numbers"] = nums
+    log_only = obj.get("park_log_only", base["park_log_only"])
+    if not isinstance(log_only, bool):
+        return None, "park_log_only must be a boolean"
+    out["park_log_only"] = log_only
+    for key, (lo, hi) in PARK_INT_RANGES.items():
+        v = _number(obj.get(key, base[key]), lo, hi, integer=True)
+        if v is None:
+            return None, f"{key}: integer {lo}..{hi}"
+        out[key] = int(v)
+    for key, (flo, fhi) in PARK_FLOAT_RANGES.items():
+        f = _number(obj.get(key, base[key]), flo, fhi)
+        if f is None:
+            return None, f"{key}: number {flo}..{fhi}"
+        out[key] = round(float(f), 2)
+    home = obj.get("park_home", base["park_home"])
+    if home is not None:
+        if not isinstance(home, dict) or set(home) != {"lat", "lon", "radius_m"}:
+            return None, "park_home: null or {lat, lon, radius_m}"
+        lat, lon = _number(home["lat"], -90, 90), _number(home["lon"], -180, 180)
+        radius = _number(home["radius_m"], *PARK_HOME_RADIUS_M, integer=True)
+        if lat is None or lon is None or radius is None:
+            return None, (f"park_home: lat -90..90, lon -180..180, radius_m integer "
+                          f"{PARK_HOME_RADIUS_M[0]}..{PARK_HOME_RADIUS_M[1]}")
+        home = {"lat": round(float(lat), 6), "lon": round(float(lon), 6), "radius_m": int(radius)}
+    out["park_home"] = home
     return out, ""
 
 
@@ -2837,6 +5079,67 @@ def write_pairing_code(state_dir: str, out: Any = None) -> int:
     return 0
 
 
+def write_park_setup(state_dir: str, new: bool = False, out: Any = None) -> int:
+    """``--park-setup``: sekret TOTP do poleceń SMS alarmu na postoju
+    (``PARK OFF <kod>`` itd.) — tworzy go, gdy go nie ma (albo z ``--new``:
+    nowy, stary kod w aplikacji przestaje działać), zapisuje w ``park_totp``
+    (0600) i wypisuje NA EKRAN adres ``otpauth://`` dla aplikacji
+    „authenticator”. Nigdy do logu. Działający agent bierze nowy sekret
+    przy następnym poleceniu (bez restartu)."""
+    out = out if out is not None else sys.stdout
+    try:
+        os.chmod(state_dir, 0o700)
+    except OSError:
+        pass
+    path = os.path.join(state_dir, TOTP_FILE)
+    try:
+        raw = read_small(path, 256)
+    except (OSError, ValueError):
+        raw = None
+    current = raw.decode("ascii", "replace").strip().upper() if raw else ""
+    if parse_totp_secret(current) is not None and not new:
+        secret = current
+        print("Sekret TOTP juz jest (ten sam kod w aplikacji). Nowy: --park-setup --new",
+              file=out)
+    else:
+        secret = new_totp_secret()
+        try:
+            atomic_write(path, (secret + "\n").encode("ascii"))
+        except OSError as e:
+            print(f"Nie moge zapisac {path}: {_clean(e)}", file=sys.stderr)
+            return 1
+        print("Nowy sekret TOTP zapisany (park_totp, 0600).", file=out)
+    print("Dodaj go w aplikacji authenticator (np. Aegis z F-Droid) - wklej adres albo "
+          "wpisz sekret recznie (TOTP, SHA1, 6 cyfr, 30 s):", file=out)
+    print(otpauth_uri(secret), file=out)
+    print(f"Sekret: {secret}", file=out)
+    print("Polecenia SMS z numeru z listy: POZYCJA <kod>, PARK ON <kod>, PARK OFF <kod>, "
+          "PARK STATUS <kod>.", file=out)
+    return 0
+
+
+def write_park_numbers(state_dir: str, text: str, out: Any = None) -> int:
+    """``--park-numbers +48…,+48…``: biała lista ustawiona w telefonie
+    (``park_local.json``, 0600) — używana, gdy BCM nie wysyła własnej
+    (``parking_guard.numbers``). Pusty tekst czyści listę."""
+    out = out if out is not None else sys.stdout
+    items = [n.strip() for n in (text or "").split(",") if n.strip()]
+    nums = normalize_park_numbers(items)
+    if nums is None:
+        print(f"Najwyzej {MAX_RECIPIENTS} numery w formacie +48601234567, rozdzielone "
+              f"przecinkiem.", file=sys.stderr)
+        return 2
+    path = os.path.join(state_dir, PARK_LOCAL_FILE)
+    try:
+        atomic_write(path, canonical_json({"numbers": nums}).encode("ascii"))
+    except OSError as e:
+        print(f"Nie moge zapisac {path}: {_clean(e)}", file=sys.stderr)
+        return 1
+    print(f"Numery postoju w telefonie: {', '.join(mask_number(n) for n in nums) or 'brak'} "
+          f"(BCM, jesli wysyla wlasne, ma pierwszenstwo).", file=out)
+    return 0
+
+
 def main(argv: Optional[list] = None) -> int:
     parser = argparse.ArgumentParser(description="BCM agent for the car phone (Termux)")
     parser.add_argument("--port", type=int, default=DEFAULT_PORT,
@@ -2845,10 +5148,22 @@ def main(argv: Optional[list] = None) -> int:
     parser.add_argument("-v", "--verbose", action="store_true")
     parser.add_argument("--pair", action="store_true",
                         help="write a fresh one-time pairing code into PAIRING, print it, exit")
+    parser.add_argument("--park-setup", action="store_true",
+                        help="parking guard: create (or show) the TOTP secret, print the "
+                             "otpauth:// URI, exit")
+    parser.add_argument("--new", action="store_true",
+                        help="with --park-setup: replace the TOTP secret")
+    parser.add_argument("--park-numbers", metavar="LIST", default=None,
+                        help="parking guard: allowed numbers set on the phone (comma "
+                             "separated E.164, '' clears), exit")
     args = parser.parse_args(argv)
     os.makedirs(args.state_dir, mode=0o700, exist_ok=True)
     if args.pair:
         return write_pairing_code(args.state_dir)
+    if args.park_setup:
+        return write_park_setup(args.state_dir, args.new)
+    if args.park_numbers is not None:
+        return write_park_numbers(args.state_dir, args.park_numbers)
     setup_logging(args.state_dir, args.verbose)
     agent = Agent(args.state_dir)
     server = make_server(agent, args.port)
@@ -2858,7 +5173,9 @@ def main(argv: Optional[list] = None) -> int:
                threading.Thread(target=agent.run_status, args=(stop,), daemon=True,
                                 name="status"),
                threading.Thread(target=agent.run_calls, args=(stop,), daemon=True,
-                                name="call112")]
+                                name="call112"),
+               threading.Thread(target=agent.run_park, args=(stop,), daemon=True,
+                                name="park")]
     for t in threads:
         t.start()
 
@@ -2867,6 +5184,7 @@ def main(argv: Optional[list] = None) -> int:
         agent.wake.set()
         agent.status_kick.set()
         agent.call_wake.set()
+        agent.park.wake.set()
         threading.Thread(target=server.shutdown, daemon=True).start()
 
     signal.signal(signal.SIGTERM, _stop)
@@ -2877,7 +5195,10 @@ def main(argv: Optional[list] = None) -> int:
         server.serve_forever(poll_interval=0.5)
     finally:
         stop.set()
+        agent.park.wake.set()
         server.server_close()
+        # Wątek postoju zatrzymuje strumień czujnika (termux-sensor -c).
+        threads[-1].join(timeout=8)
     log.info("BCM agent stopped")
     return 0
 

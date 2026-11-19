@@ -127,10 +127,10 @@ modules:
   # --- moduły dodatkowe (telefon w aucie, bezpieczeństwo, wybudzanie) ---
   # Każdy ma TYLKO ten jeden przełącznik (bez pod-kluczy „enabled” w blokach
   # niżej). Wszystkie wyłączone, bo wymagają nowego sprzętu. car_phone,
-  # car_phone_hotspot, phone_sensors, car_phone_agent i crash_sms mają już
-  # kod — włącz je w Ustawieniach → Moduły, gdy Redmi jest podłączony; reszta
-  # nie ma jeszcze kodu (Ustawienia pokazują je jako „niedostępny w tej
-  # wersji”). Zależności i potrzebny sprzęt:
+  # car_phone_hotspot, phone_sensors, car_phone_agent, crash_sms, call112
+  # i parking_guard mają już kod — włącz je w Ustawieniach → Moduły, gdy
+  # Redmi jest podłączony; reszta nie ma jeszcze kodu (Ustawienia pokazują je
+  # jako „niedostępny w tej wersji”). Zależności i potrzebny sprzęt:
   # src/core/modules_catalog.py; moduł bez włączonych zależności nie startuje
   # (jedno ostrzeżenie w logu).
   car_phone: false         # telefon w aucie: Redmi na USB przez adb —
@@ -153,7 +153,10 @@ modules:
                            # BCM_CAR_PHONE_AGENT_SECRET w /etc/bcm/bcm.env.
                            # Parowanie: kod z telefonu (bcm_agent.py --pair)
                            # → Ustawienia → „Agent w telefonie”
-  parking_guard: false     # pozycja i alarm na postoju; wymaga car_phone_agent
+  parking_guard: false     # pozycja i alarm na postoju — działa W TELEFONIE
+                           # (agent ≥ 1.2.0, sekret TOTP: bcm_agent.py
+                           # --park-setup); wymaga car_phone_agent; blok
+                           # parking_guard niżej (pierwszy tydzień log_only)
   cabin_watch: false       # czuwanie kabiny kamerą Redmi; wymaga
                            # car_phone_agent
   crash_sms: false         # SMS po stłuczce: okno z odliczaniem i ANULUJ,
@@ -766,6 +769,43 @@ safety:
     window_min: 30
     test_mode: true
     test_number: ''
+# Alarm na postoju (modules.parking_guard, src/safety/parking_guard.py; włącznikiem
+# jest TYLKO ten przełącznik). Działa w TELEFONIE (agent Termux, plan D4), bo
+# BCM na postoju jest wyłączony; BCM przy każdej zmianie wysyła mu te
+# ustawienia (modules.car_phone_agent). Telefon sam się uzbraja: brak
+# zasilania USB i brak kontaktu z BCM przez arm_after_min, potem jeszcze
+# arm_delay_min na wyjście z auta. Rozbraja TYLKO dowód właściciela: telefon
+# właściciela połączony z BCM (Bluetooth/HFP/AA), SMS „PARK OFF <kod TOTP>”
+# z numeru z listy albo kod TOTP wpisany w Ustawieniach → „Postój”. Prąd,
+# który wróci bez tego, daje grace_min minut, potem alarm.
+# entry_s = okno wejścia (sekundy, 0–300; 0 = alarm od razu): przechył albo
+# wstrząs przy uzbrojonym czeka tyle na dowód właściciela, bo właściciel,
+# który otwiera drzwi i siada, wygląda dla czujnika jak złodziej, a jego
+# telefon łączy się z BCM dopiero po zapłonie. Zapłon w tym czasie przesuwa
+# termin do końca grace_min; podnośnik i holowanie prądu nie przywracają.
+# log_only: true (TU) = pierwszy tydzień: zdarzenia tylko w logu telefonu
+# (~/.config/bcm_agent/agent.log, „PARK (log only…”), żadnych
+# automatycznych SMS-ów — do strojenia progów tilt_deg (przechył w stopniach)
+# i shake_k (kołysanie: krotność szumu czujnika). Potem log_only: false
+# w config/local.yaml.
+# Numery (najwyżej 3, E.164, np. '+48601234567' — dostają alarm i mogą
+# wysyłać polecenia SMS), strefę „dom” (lat, lon, radius_m ≥ 50 — tam telefon
+# się sam nie uzbraja) i telefony właściciela (owner_macs, AA:BB:CC:DD:EE:FF;
+# puste = telefon połączony ostatnio przed startem BCM) wpisz TYLKO
+# w config/local.yaml — nigdy w repo:
+#   parking_guard:
+#     numbers: ['+48601234567']
+#     owner_macs: ['AA:BB:CC:DD:EE:FF']
+#     home: {lat: 52.2297, lon: 21.0122, radius_m: 150}
+# Opis: docs/WDROZENIE_TESTOWE.md §5.12.
+parking_guard:
+  log_only: true
+  arm_after_min: 3
+  arm_delay_min: 2
+  grace_min: 3
+  entry_s: 90
+  tilt_deg: 0.5
+  shake_k: 6.0
 # Czujniki telefonu w aucie (modules.phone_sensors; src/sensors/phone_sensors.py).
 # Kierunek grawitacji kalibruje się sam przy pierwszych ~10 s postoju
 # (zapis: data/phone_sensors.json); przesunięcie telefonu w uchwycie o > 10°

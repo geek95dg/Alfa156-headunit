@@ -42,6 +42,7 @@ from src.network.phone_tether import RETRY_TOPIC as _TETHER_RETRY_TOPIC
 from src.network.phone_tether import STATES as _TETHER_STATES
 from src.safety import call112 as _call112
 from src.safety import crash_sms as _crash_sms
+from src.safety import parking_guard as _parking_guard
 from src.weather.weather import valid_coords
 
 log = get_logger("web_viewer")
@@ -524,6 +525,71 @@ _CALL112_MIN_INTERVAL_S = 1.0
 _CALL112_TEST_MIN_INTERVAL_S = 10.0
 #: The vehicle description in the dispatcher panel (local.yaml text).
 _CALL112_VEHICLE_LIMITS = {"label": 32, "colour": 20, "plate": 12}
+
+
+#: "Postój" routes (src/safety/parking_guard.py): Uzbrój / Rozbrój from the
+#: head unit's own screen — at most one accepted request per this many
+#: seconds per route (a loop guard; the phone limits wrong codes itself).
+_PARK_MIN_INTERVAL_S = 3.0
+
+
+def _parking_guard_summary(value: Any) -> Optional[dict]:
+    """``park.state`` → the Settings row "Postój". The module validated the
+    phone's answer already; this is the second line (whitelists, numbers by
+    type and range) because the payload also reaches network clients in
+    ``readonly`` mode. Never published = module not running = None."""
+    if not isinstance(value, dict):
+        return None
+
+    def ts(v: Any) -> Optional[float]:
+        if isinstance(v, bool) or not isinstance(v, (int, float)):
+            return None
+        return v if math.isfinite(v) and 1e9 < v < 4e9 else None
+
+    def small_int(v: Any, hi: int) -> Optional[int]:
+        return v if isinstance(v, int) and not isinstance(v, bool) and 0 <= v <= hi else None
+
+    ev = value.get("last_event")
+    event = None
+    if isinstance(ev, dict) and ev.get("kind") in _car_phone_agent.PARK_EVENT_KINDS \
+            and ts(ev.get("ts")) is not None:
+        num = ev.get("value")
+        event = {"kind": ev["kind"], "ts": ts(ev.get("ts")),
+                 "value": num if isinstance(num, (int, float)) and not isinstance(num, bool)
+                 and math.isfinite(num) and abs(num) < 1e6 else None,
+                 "logged_only": ev.get("logged_only") is True}
+    cmd = value.get("cmd")
+    command = None
+    if isinstance(cmd, dict) and cmd.get("action") in _parking_guard.CMD_ACTIONS:
+        command = {"action": cmd["action"], "ok": cmd.get("ok") is True,
+                   "error": cmd.get("error") if cmd.get("error") in _parking_guard.CMD_ERRORS
+                   else "", "ts": ts(cmd.get("ts"))}
+    state = value.get("state")
+    by = value.get("by")
+    sensor = value.get("sensor")
+    error = value.get("error")
+    return {
+        "state": state if state in _parking_guard.STATES else "unknown",
+        "since": ts(value.get("since")),
+        "by": by if by in _car_phone_agent.PARK_BY else "",
+        "arm_at": ts(value.get("arm_at")),
+        "last_event": event,
+        "battery_pct": small_int(value.get("battery_pct"), 100),
+        "power": value.get("power") if value.get("power") in ("plugged", "unplugged") else None,
+        "log_only": value.get("log_only") if isinstance(value.get("log_only"), bool) else None,
+        "light": value.get("light") is True,
+        "sensor": sensor if sensor in _car_phone_agent.PARK_SENSOR_STATES else "off",
+        "totp_ready": value.get("totp_ready") is True,
+        "numbers_n": small_int(value.get("numbers_n"), _car_phone_agent.MAX_RECIPIENTS) or 0,
+        "home_set": value.get("home_set") is True,
+        "alarms_today": small_int(value.get("alarms_today"), 1000) or 0,
+        "entry_until": ts(value.get("entry_until")),
+        "owner_connected": value.get("owner_connected") is True,
+        "owner_known": value.get("owner_known") is True,
+        "disarm_pending": value.get("disarm_pending") is True,
+        "error": error if error in _parking_guard.ERRORS else "",
+        "cmd": command,
+    }
 
 
 def _call112_summary(value: Any) -> Optional[dict]:
@@ -1303,6 +1369,10 @@ class WebViewer:
             # crash.call112_state): the button's path, the call, the
             # dispatcher panel. None = module not running (no button).
             "call112": _call112_summary(_val(_call112.TOPIC_STATE)),
+            # The alarm on the parked car, run by the phone
+            # (src/safety/parking_guard.py, park.state): the Settings row
+            # "Postój". None = module not running (no row).
+            "parking_guard": _parking_guard_summary(_val(_parking_guard.TOPIC_STATE)),
             # Phone battery / signal / operator for the top bar
             # (src/multimedia/phone_status.py). Re-sanitised here: values come
             # from the phone; None = module not running (no cluster drawn).
@@ -3300,6 +3370,68 @@ class WebViewer:
             result = module.dismiss(eid)
             if not result.get("ok"):
                 return jsonify({"ok": False, "error": result.get("error") or "refused"}), 409
+            return jsonify({"ok": True})
+
+        # --- Alarm na postoju (src/safety/parking_guard.py) -----------------
+        # "Uzbrój" / "Rozbrój" in the Settings row "Postój": loopback ONLY
+        # (also with remote_access "full"), a small JSON object body (no
+        # "simple" cross-origin POST), rate-limited. Disarming needs owner
+        # proof: an owner phone connected to BCM, or the TOTP code from the
+        # owner's authenticator app — checked BY THE PHONE; the code is
+        # never logged or published.
+
+        def _park_module():
+            module = _parking_guard.get_parking_guard()
+            if module is None:
+                return None, (jsonify({"ok": False, "error": "not_running"}), 409)
+            return module, None
+
+        def _park_guard(what: str, key: str):
+            refused = _crash_kiosk_only(what)
+            if refused is not None:
+                return None, None, None, refused
+            data, err = _crash_body()
+            if err is not None:
+                return None, None, None, err
+            module, err = _park_module()
+            if err is not None:
+                return None, None, None, err
+            now = time.monotonic()
+            limited = _crash_rate_limited(key, _PARK_MIN_INTERVAL_S, now)
+            if limited is not None:
+                return None, None, None, limited
+            return module, data, now, None
+
+        @app.route("/api/parking_guard/arm", methods=["POST"])
+        def api_parking_guard_arm():
+            """"Uzbrój": the phone arms after its exit window
+            (``parking_guard.arm_delay_min``). Body: a JSON object, ignored."""
+            module, _data, now, err = _park_guard("arming the parking guard", "park_arm")
+            if err is not None:
+                return err
+            result = module.request_arm()
+            if not result.get("ok"):
+                return jsonify({"ok": False, "error": result.get("error") or "refused"}), 409
+            _crash_accepted("park_arm", now)
+            return jsonify({"ok": True})
+
+        @app.route("/api/parking_guard/disarm", methods=["POST"])
+        def api_parking_guard_disarm():
+            """"Rozbrój": ``{}`` while the owner's phone is connected (409
+            ``owner_required`` otherwise), or ``{"code": "<6 digits>"}`` —
+            the TOTP code the phone checks. The outcome (wrong / used code)
+            shows in the row (``cmd``)."""
+            module, data, now, err = _park_guard("disarming the parking guard", "park_disarm")
+            if err is not None:
+                return err
+            code = data.get("code")
+            if set(data) - {"code"} or ("code" in data and (
+                    not isinstance(code, str) or not _parking_guard.CODE_RE.fullmatch(code))):
+                return jsonify({"ok": False, "error": "bad_code_format"}), 400
+            result = module.request_disarm(code)
+            if not result.get("ok"):
+                return jsonify({"ok": False, "error": result.get("error") or "refused"}), 409
+            _crash_accepted("park_disarm", now)
             return jsonify({"ok": True})
 
         @app.route("/api/crash/recipients", methods=["GET"])

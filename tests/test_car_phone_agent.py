@@ -1086,10 +1086,11 @@ class TestDesiredConfig:
 
     def test_toggles_mirror_only_modules_with_code(self, crash_sms_has_code):
         cfg = _config()
-        cfg["modules"].update(crash_sms=True, parking_guard=True, cabin_watch="yes")
+        cfg["modules"].update(crash_sms=True, parking_guard=True, cabin_watch=True,
+                              call112="yes")
         toggles = cpa.desired_config(cfg)["toggles"]
-        # crash_sms has code (fixture); parking_guard is planned; "yes" is not True
-        assert toggles == {"crash_sms": True, "parking_guard": False, "cabin_watch": False,
+        # crash_sms and parking_guard have code; cabin_watch is planned; "yes" is not True
+        assert toggles == {"crash_sms": True, "parking_guard": True, "cabin_watch": False,
                            "call112": False}
 
 
