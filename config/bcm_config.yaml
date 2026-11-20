@@ -292,6 +292,18 @@ crash_detection:
   g_h_threshold: 4.0
   min_rate_hz: 80
   confirm_stop_kmh: 5
+# „Zadzwoń 112” w oknie wypadku — tylko z modules.call112 (tu wyłączone,
+# w kodzie też). Opis kluczy: config/bcm_config_test.yaml i
+# src/safety/call112.py. test_mode: true = 112 nie da się wybrać (dzwoni
+# tylko na test_number z config/local.yaml); prawdziwe 112 dopiero po
+# sprawdzeniu na stole, przez test_mode: false w local.yaml.
+safety:
+  call112:
+    paths: [hfp, car_phone]
+    hold_ms: 2000
+    arm_delay_ms: 700
+    window_min: 30
+    test_mode: true
 tracking:
   db_path: data/gps_tracks.db
   interval_sec: 30

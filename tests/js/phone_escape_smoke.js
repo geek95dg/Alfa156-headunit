@@ -261,6 +261,9 @@ for (const [input, want] of NUMBERS) {
               "bad address only as escaped text");
     assert.ok(!html.includes("Settings.btPair('AA:BB"), "no button for an invalid address");
     assert.ok(html.includes("&lt;img src=x onerror=alert(1)&gt;"));
+    // Paired devices: only the last two bytes of the address on screen.
+    assert.ok(html.includes("XX:XX:XX:XX:EE:02") && !html.includes(">AA:BB:CC:DD:EE:02<"), html);
+    assert.ok(html.includes(">11:22:33:44:55:66<"), "a discovered device keeps its address");
 
     Settings._showPairingPopup({ address: EVIL_NAME, passkey: "<b>123456</b>" });
     assertInert(popup.innerHTML, [/^Settings\.btPairingRespond\((true|false)\)$/], "pairing popup");

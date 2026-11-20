@@ -7,8 +7,9 @@
 #   cp boot_bcm_agent.sh ~/.termux/boot/ && chmod 700 ~/.termux/boot/boot_bcm_agent.sh
 #
 # termux-wake-lock trzyma procesor telefonu na nogach: termin wysyłki SMS-a
-# po stłuczce pilnuje agent, więc Android nie może go uśpić. Optymalizacja
-# baterii dla Termux / Termux:API / Termux:Boot musi być wyłączona.
+# po stłuczce i alarm na postoju (czujnik, polecenia SMS) pilnuje agent, więc
+# Android nie może go uśpić. Optymalizacja baterii dla Termux / Termux:API /
+# Termux:Boot musi być wyłączona.
 #
 # Pętla: gdy agent się wywróci (albo port jeszcze zajęty po restarcie), po
 # 10 s rusza znowu. Wyjście agenta i ewentualne błędy Pythona trafiają do

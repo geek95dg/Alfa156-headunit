@@ -314,6 +314,16 @@ const Settings = {
         }
         if (ag.sim_ready === true) facts.push(t("car_phone_agent_sim_ok", "SIM"));
         else if (ag.sim_ready === false) facts.push(t("car_phone_agent_sim_missing", "brak SIM"));
+        // „Zadzwoń 112” from the car phone (plan H, path B): ready only with
+        // the toggle on, a working su and (test mode) a test number. Shown
+        // only when the phone was told about 112 (call112_mode known) — with
+        // modules.call112 off the agent says "not capable" by design.
+        if (ag.call112_capable === true) {
+            facts.push(ag.call112_mode === "test" ? t("car_phone_agent_112_ok_test", "112: gotowy (test)")
+                : t("car_phone_agent_112_ok", "112: gotowy"));
+        } else if (ag.call112_capable === false && ag.call112_enabled === true) {
+            facts.push(t("car_phone_agent_112_no", "112: niegotowy (su / numer testowy)"));
+        }
         if (typeof ag.last_ok_ts === "number" && isFinite(ag.last_ok_ts) && ag.last_ok_ts > 0) {
             const d = new Date(ag.last_ok_ts * 1000);
             const hm = String(d.getHours()).padStart(2, "0") + ":" + String(d.getMinutes()).padStart(2, "0");
@@ -334,6 +344,7 @@ const Settings = {
             no_answer: t("car_phone_agent_hint_no_answer", "agent nie odpowiada — czy Termux z bcm_agent.py działa?"),
             config_pending: t("car_phone_agent_hint_config_pending", "telefon ma starą konfigurację — ponowię"),
             config_refused: t("car_phone_agent_hint_config_refused", "agent odrzucił konfigurację — sprawdź crash_detection.sms"),
+            agent_outdated: t("car_phone_agent_hint_agent_outdated", "agent w telefonie jest starszy niż BCM — skopiuj nowy tools/car_phone/termux/bcm_agent.py do ~/bcm_agent/ i zrestartuj go (pkill -f bcm_agent.py)"),
         };
         const has = (k) => typeof k === "string" && k !== "" && Object.prototype.hasOwnProperty.call(hints, k);
         let hintText = "";
@@ -564,6 +575,647 @@ const Settings = {
             if (el.hasAttribute("data-crash-rcpt") && Number.isInteger(i) && i >= 0 && i < 3) {
                 Settings._crash.recipients[i] = String(el.value || "").slice(0, 20);
             }
+        });
+    },
+
+    // Alarm na postoju (src/safety/parking_guard.py). data.parking_guard =
+    // web_viewer._parking_guard_summary(park.state), or null while the module
+    // is not running (production config: no row). The alarm itself runs ON
+    // THE CAR PHONE (the Termux agent); this row shows its state and sends
+    // "Uzbrój" / "Rozbrój" to the loopback-only /api/parking_guard/* routes.
+    // Disarming needs owner proof: the owner's phone connected to BCM, or the
+    // 6-digit TOTP code from the owner's authenticator app (checked by the
+    // phone — never stored, logged or kept in the page after the request).
+    _park: { listening: false, sentAt: 0, msg: "" },
+    _parkColors: {
+        armed: "#16a34a", log_only: "#d97706", arming: "var(--color-primary)",
+        alarm: "#dc2626", disarmed: "var(--text-mid)",
+    },
+    _parkArmable: ["disarmed"],
+    _parkDisarmable: ["arming", "armed", "alarm", "log_only"],
+
+    /** While the driver types the code (the field has focus), the row must
+     *  not be redrawn: the OSK writes into the very input element it
+     *  attached to. Only focus counts — a half-typed code left in an
+     *  unfocused field must not freeze the row on a stale state (e.g.
+     *  still "ALARM" after the phone disarmed); update() carries the typed
+     *  digits over into the redrawn field instead. */
+    parkingGuardTyping(slot) {
+        const input = slot && slot.querySelector ? slot.querySelector("[data-park-code]") : null;
+        if (!input) return false;
+        return typeof document !== "undefined" && document.activeElement === input;
+    },
+
+    /** The row "Postój: uzbrojony · od 19.11 03:12 · bateria 64%" plus the
+     *  last event, what is missing (TOTP, numbers, owner phone), the outcome
+     *  of the last command, and Uzbrój / Rozbrój. '' without a payload.
+     *  Inline styles only; every value escaped / type-checked. */
+    parkingGuardRowHtml(pg, t) {
+        t = t || ((k, d) => d);
+        if (!pg || typeof pg !== "object") return "";
+        const esc = Settings._esc;
+        const has = (obj, k) => typeof k === "string" && Object.prototype.hasOwnProperty.call(obj, k);
+        const labels = {
+            unknown: t("park_unknown", "brak danych z telefonu"),
+            off: t("park_off", "wyłączony w telefonie"),
+            disarmed: t("park_disarmed", "rozbrojony"),
+            arming: t("park_arming", "uzbrajanie"),
+            armed: t("park_armed", "uzbrojony"),
+            alarm: t("park_alarm", "ALARM"),
+            log_only: t("park_log_only", "uzbrojony — tylko log, bez SMS"),
+        };
+        const state = has(labels, pg.state) ? pg.state : "unknown";
+        const color = Settings._parkColors[state] || "var(--text-dim)";
+        const facts = [];
+        const since = Settings._crashFmtTime(pg.since);
+        if (since && state !== "unknown" && state !== "off") facts.push(t("park_since", "od") + " " + since);
+        if (state === "arming") {
+            const at = Settings._crashFmtTime(pg.arm_at);
+            if (at) facts.push(t("park_arm_at", "uzbroi się o") + " " + at.slice(-5));
+        }
+        // The entry window: the phone saw motion and alarms at this time
+        // unless the owner's phone connects or the code is typed.
+        const entry = Settings._crashFmtTime(pg.entry_until);
+        if (entry && state === "armed") facts.push(t("park_entry", "wykryto ruch — alarm bez rozbrojenia o") + " " + entry.slice(-5));
+        if (Number.isInteger(pg.battery_pct) && pg.battery_pct >= 0 && pg.battery_pct <= 100) {
+            facts.push(t("park_battery", "bateria") + " " + pg.battery_pct + "%");
+        }
+        if (pg.light === true) facts.push(t("park_light", "oszczędzanie baterii"));
+        // Switched off on BCM while armed: not an owner proof — the phone
+        // keeps guarding until "Rozbrój" (owner's phone or code).
+        if (pg.off_pending === true) facts.push(t("park_off_pending", "wyłączony w BCM — pilnuje do rozbrojenia przez właściciela"));
+        const evLabels = {
+            tilt: t("park_ev_tilt", "przechył"),
+            shake: t("park_ev_shake", "wstrząs"),
+            power: t("park_ev_power", "zasilanie bez telefonu właściciela"),
+            low_battery: t("park_ev_low_battery", "niska bateria — rozbrojony"),
+            home: t("park_ev_home", "dom — bez uzbrojenia"),
+            cabin: t("park_ev_cabin", "ruch w kabinie"),
+            crash_holdoff: t("park_ev_crash_holdoff", "wypadek / 112 — bez uzbrojenia przez 6 h"),
+        };
+        const ev = pg.last_event;
+        let evHtml = "";
+        if (ev && typeof ev === "object" && has(evLabels, ev.kind)) {
+            const when = Settings._crashFmtTime(ev.ts);
+            const logged = ev.logged_only === true ? " (" + t("park_logged_only", "tylko log") + ")" : "";
+            // red = a real alarm; amber = only logged (log_only week); grey = home
+            const evColor = ev.kind === "home" || ev.kind === "crash_holdoff" ? "var(--text-mid)" : (ev.logged_only === true ? "#d97706" : "#dc2626");
+            evHtml = `<span data-park-event="${esc(ev.kind)}" style="color:${evColor};flex-basis:100%;padding-left:24px">${esc(t("park_last_event", "Ostatnie zdarzenie") + ": " + evLabels[ev.kind] + (when ? " " + when : "") + logged)}</span>`;
+        }
+        // What is missing / wrong — what to do, never raw error text.
+        const hints = [];
+        const errHints = {
+            no_agent: t("park_hint_no_agent", "agent w telefonie nie działa — patrz wiersz „Agent w telefonie”"),
+            agent_outdated: t("park_hint_outdated", "agent w telefonie jest za stary — skopiuj nowy tools/car_phone/termux/bcm_agent.py (≥ 1.2.0)"),
+            no_answer: t("park_hint_no_answer", "telefon nie odpowiada"),
+            agent_error: t("park_hint_agent_error", "telefon nie podał stanu — ponowię"),
+        };
+        if (has(errHints, pg.error)) hints.push(errHints[pg.error]);
+        if (state !== "unknown" && state !== "off") {
+            if (pg.totp_ready === false) hints.push(t("park_hint_totp", "brak kodu TOTP — w Termuxie: python ~/bcm_agent/bcm_agent.py --park-setup"));
+            if (pg.numbers_n === 0) hints.push(t("park_hint_numbers", "brak numerów do SMS — parking_guard.numbers w config/local.yaml"));
+        }
+        if (pg.owner_known === false) hints.push(t("park_hint_owner", "telefon właściciela nieznany — parking_guard.owner_macs w config/local.yaml"));
+        // The owner's address is connected but without the HFP link that
+        // proves it (a bare connection can be spoofed): code or SMS only.
+        if (pg.bt_proof === false) hints.push(t("park_hint_no_bt", "bez Bluetooth telefon właściciela nie rozbraja — tylko kod albo SMS PARK OFF"));
+        if (pg.owner_unproven === true) hints.push(t("park_hint_unproven", "telefon właściciela połączony bez HFP — to nie dowód; Rozbrój kodem"));
+        const hintHtml = hints.length
+            ? `<span data-park-hint style="color:var(--text-mid);flex-basis:100%;padding-left:24px">${esc(hints.join(" · "))}</span>` : "";
+        // The outcome of the last Uzbrój / Rozbrój (from the module).
+        const cmdErrors = {
+            bad_code: t("park_err_bad_code", "zły kod"),
+            code_used: t("park_err_code_used", "kod już użyty — poczekaj na następny"),
+            rate_limited: t("park_err_rate", "za dużo złych kodów — spróbuj za godzinę"),
+            no_totp: t("park_err_no_totp", "w telefonie nie ma sekretu TOTP"),
+            low_battery: t("park_err_low_battery", "bateria telefonu za niska"),
+            parking_guard_off: t("park_err_off", "alarm wyłączony w telefonie"),
+            no_agent: t("park_err_no_agent", "agent w telefonie nie działa"),
+            agent_outdated: t("park_err_outdated", "agent w telefonie jest za stary"),
+            no_answer: t("park_err_no_answer", "telefon nie odpowiada"),
+            owner_required: t("park_err_owner", "połącz telefon właściciela albo wpisz kod"),
+            crash_holdoff: t("park_err_crash_holdoff", "po wypadku / 112 alarm nie uzbraja się przez 6 h"),
+        };
+        let cmdText = Settings._park.msg || "";
+        const cmd = pg.cmd;
+        if (!cmdText && cmd && typeof cmd === "object" && (cmd.action === "arm" || cmd.action === "disarm")) {
+            if (cmd.ok === true) cmdText = cmd.action === "arm" ? t("park_cmd_armed", "uzbrajanie przyjęte") : t("park_cmd_disarmed", "rozbrojono");
+            else cmdText = has(cmdErrors, cmd.error) ? cmdErrors[cmd.error] : t("park_err", "nie udało się");
+        }
+        // Buttons (data-* + one delegated listener, parkListen()).
+        const btn = (attr, label, bg, fg) => `<button ${attr} style="padding:7px 14px;border-radius:8px;font-size:12px;font-weight:700;background:${bg};color:${fg};border:none">${esc(label)}</button>`;
+        let actions = "";
+        if (Settings._parkArmable.indexOf(state) >= 0) {
+            actions = btn("data-park-arm", t("park_arm", "Uzbrój"), "var(--card-border)", "var(--text-mid)");
+        } else if (Settings._parkDisarmable.indexOf(state) >= 0) {
+            const code = pg.owner_connected === true ? ""
+                : `<input data-park-code type="tel" inputmode="numeric" maxlength="6" autocomplete="off" placeholder="${esc(t("park_code", "kod TOTP"))}" style="width:96px;padding:6px 8px;border-radius:8px;font-size:13px;letter-spacing:1px;background:var(--color-surface);color:var(--text-primary);border:1px solid var(--card-border)">`;
+            actions = code + btn("data-park-disarm", t("park_disarm", "Rozbrój"), "#d97706", "#fff");
+        }
+        const actionsHtml = actions || cmdText
+            ? `<span data-park-actions style="flex-basis:100%;display:flex;flex-wrap:wrap;align-items:center;gap:6px;padding-left:24px">${actions}<span data-park-msg style="color:var(--text-mid)">${esc(cmdText)}</span></span>` : "";
+        const factsHtml = facts.length ? ` <span style="color:var(--text-mid)">· ${esc(facts.join(" · "))}</span>` : "";
+        return `<div data-park-state="${esc(state)}" style="display:flex;flex-wrap:wrap;align-items:center;gap:4px 8px;padding:8px 12px;border-radius:12px;background:var(--card-bg);border:1px solid var(--card-border);font-size:11px;line-height:1.3">
+            <span class="material-symbols-outlined" style="font-size:16px;color:${color}">local_parking</span>
+            <span style="color:var(--text-dim);font-weight:700">${esc(t("park_title", "Postój"))}:</span>
+            <span style="color:${color};font-weight:700">${esc(labels[state])}</span>${factsHtml}${evHtml}${hintHtml}${actionsHtml}
+        </div>`;
+    },
+
+    _parkSay(text) {
+        Settings._park.msg = text;
+        const node = typeof document !== "undefined" ? document.querySelector("[data-park-msg]") : null;
+        if (node) node.textContent = text;
+    },
+
+    /** POST one command; the answer only says "handed to the module" — the
+     *  phone's verdict arrives with the next payload (cmd). */
+    async parkSend(action) {
+        const t = (typeof App !== "undefined" && App.t) ? App.t.bind(App) : ((k, d) => d);
+        const now = Date.now();
+        if (now - Settings._park.sentAt < 1500) return;
+        const body = {};
+        if (action === "disarm") {
+            const input = typeof document !== "undefined" ? document.querySelector("[data-park-code]") : null;
+            if (input) {
+                const code = typeof input.value === "string" ? input.value.replace(/\s+/g, "") : "";
+                if (!/^[0-9]{6}$/.test(code)) {
+                    Settings._parkSay(t("park_code_hint", "wpisz 6 cyfr kodu z aplikacji"));
+                    return;
+                }
+                body.code = code;
+                input.value = "";       // the code is not kept in the page
+            }
+        }
+        Settings._park.sentAt = now;
+        try {
+            const res = await fetch(`/api/parking_guard/${action === "arm" ? "arm" : "disarm"}`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify(body),
+            });
+            let out = {};
+            try { out = await res.json(); } catch (e) { /* not JSON */ }
+            const errors = {
+                owner_required: t("park_err_owner", "połącz telefon właściciela albo wpisz kod"),
+                not_running: t("park_err_not_running", "moduł nie działa"),
+                moving: t("park_err_moving", "auto jedzie — uzbrój na postoju"),
+                bad_code_format: t("park_code_hint", "wpisz 6 cyfr kodu z aplikacji"),
+                "too many requests": t("park_err_wait", "chwilę — spróbuj za kilka sekund"),
+            };
+            const key = out && typeof out.error === "string" ? out.error : "";
+            if (res.ok) Settings._parkSay(t("park_sent", "przekazano do telefonu…"));
+            else if (res.status === 403) Settings._parkSay(t("crash_kiosk_only", "Tylko z ekranu w aucie"));
+            else Settings._parkSay(Object.prototype.hasOwnProperty.call(errors, key)
+                ? errors[key] : t("park_err", "nie udało się"));
+        } catch (e) {
+            Settings._parkSay(t("park_err", "nie udało się"));
+        }
+        // The module's verdict (cmd) replaces the local message on the next redraw.
+        setTimeout(() => { Settings._park.msg = ""; }, 4000);
+    },
+
+    /** One delegated click listener for the row (installed once). */
+    parkListen() {
+        const p = Settings._park;
+        if (p.listening || typeof document === "undefined" || !document.addEventListener) return;
+        p.listening = true;
+        document.addEventListener("click", (e) => {
+            const el = e.target && e.target.closest ? e.target.closest("[data-park-arm],[data-park-disarm]") : null;
+            if (!el) return;
+            Settings.parkSend(el.hasAttribute("data-park-arm") ? "arm" : "disarm");
+        });
+    },
+
+    // Czuwanie kabiny (src/safety/cabin_watch.py). data.cabin_watch =
+    // web_viewer._cabin_watch_summary(park.cabin_state), or null while the
+    // module is not running (production config: no row). The watch runs ON
+    // THE CAR PHONE (front camera, photos stay there); this row only shows
+    // its state and the last event — read-only, no buttons, never a photo.
+    _cabinColors: {
+        watching: "#16a34a", pending: "#dc2626", idle: "var(--text-mid)",
+        off: "var(--text-dim)", unknown: "var(--text-dim)",
+    },
+
+    /** The row "Czuwanie kabiny: czuwa · kamera gotowa · zdjęcia 3 (2.1 MB)"
+     *  plus the last event and what is missing. '' without a payload.
+     *  Inline styles only; every value escaped / type-checked. */
+    cabinWatchRowHtml(cw, t) {
+        t = t || ((k, d) => d);
+        if (!cw || typeof cw !== "object") return "";
+        const esc = Settings._esc;
+        const has = (obj, k) => typeof k === "string" && Object.prototype.hasOwnProperty.call(obj, k);
+        const labels = {
+            unknown: t("cabin_unknown", "brak danych z telefonu"),
+            off: t("cabin_off", "wyłączone w telefonie"),
+            idle: t("cabin_idle", "czeka na uzbrojenie postoju"),
+            watching: t("cabin_watching", "czuwa"),
+            pending: t("cabin_pending", "ruch w kabinie"),
+        };
+        const state = has(labels, cw.state) ? cw.state : "unknown";
+        const color = Settings._cabinColors[state] || "var(--text-dim)";
+        const cameraLabels = {
+            ok: t("cabin_cam_ok", "kamera gotowa"),
+            light_mode: t("cabin_cam_light_mode", "kamera wyłączona: oszczędzanie baterii"),
+            low_battery: t("cabin_cam_low_battery", "kamera wyłączona: bateria poniżej 30%"),
+            no_temp: t("cabin_cam_no_temp", "kamera wyłączona: brak temperatury baterii"),
+            cold: t("cabin_cam_cold", "kamera wyłączona: za zimno (< 0 °C)"),
+            hot: t("cabin_cam_hot", "kamera wyłączona: za gorąco (> 45 °C)"),
+            charging_hot: t("cabin_cam_charging_hot", "kamera wyłączona: ładowanie przy ≥ 40 °C"),
+            no_space: t("cabin_cam_no_space", "kamera wyłączona: mało miejsca w telefonie"),
+            no_front_camera: t("cabin_cam_no_front", "brak przedniej kamery — uprawnienie Aparat dla Termux:API?"),
+            bad_path: t("cabin_cam_bad_path", "kamera wyłączona: zły katalog zdjęć"),
+            in_call: t("cabin_cam_in_call", "kamera wyłączona: trwa rozmowa 112"),
+        };
+        const facts = [];
+        if (state === "pending") {
+            const until = Settings._crashFmtTime(cw.entry_until);
+            if (until) facts.push(t("cabin_until", "alarm bez rozbrojenia o") + " " + until.slice(-5));
+        }
+        if ((state === "watching" || state === "pending") && has(cameraLabels, cw.camera)) facts.push(cameraLabels[cw.camera]);
+        if (Number.isInteger(cw.photos_n) && cw.photos_n >= 0) {
+            const mb = typeof cw.photos_mb === "number" && isFinite(cw.photos_mb) && cw.photos_mb >= 0
+                ? " (" + cw.photos_mb.toFixed(1) + " MB)" : "";
+            facts.push(t("cabin_photos", "zdjęcia w telefonie") + ": " + cw.photos_n + mb);
+        }
+        if (Number.isInteger(cw.events_today) && cw.events_today > 0) facts.push(t("cabin_today", "dziś") + ": " + cw.events_today);
+        if (cw.log_only === true && state !== "off" && state !== "unknown") facts.push(t("cabin_log_only", "tylko log, bez SMS"));
+        // The last event: when, why, photos, the analysis, what happened.
+        const reasonLabels = {
+            door: t("cabin_r_door", "drzwi"), light: t("cabin_r_light", "światło"),
+            shake: t("cabin_r_shake", "ruch"), tilt: t("cabin_r_tilt", "przechył"),
+            power: t("cabin_r_power", "zapłon"),
+        };
+        const outcomeLabels = {
+            pending: t("cabin_o_pending", "czeka na dowód właściciela"),
+            alarm: t("cabin_o_alarm", "alarm — SMS do numerów alarmu"),
+            owner: t("cabin_o_owner", "właściciel — zdjęcia usunięte"),
+            off: t("cabin_o_off", "wyłączone — zdjęcia usunięte"),
+            crash: t("cabin_o_crash", "wypadek / 112 — zdjęcia usunięte"),
+            logged: t("cabin_o_logged", "tylko log"),
+            limited: t("cabin_o_limited", "limit SMS — tylko log"),
+            no_numbers: t("cabin_o_no_numbers", "brak numerów — bez SMS"),
+            expired: t("cabin_o_expired", "agent nie działał — bez SMS"),
+        };
+        const verdictLabels = {
+            change: t("cabin_v_change", "zmiana w kabinie"),
+            no_change: t("cabin_v_no_change", "bez zmian na zdjęciach"),
+            dark: t("cabin_v_dark", "zdjęcia ciemne"),
+            skipped: t("cabin_v_skipped", "bez analizy"),
+            error: t("cabin_v_error", "błąd analizy"),
+        };
+        const ev = cw.last_event;
+        let evHtml = "";
+        if (ev && typeof ev === "object" && has(outcomeLabels, ev.outcome)) {
+            const parts = [];
+            const when = Settings._crashFmtTime(ev.ts);
+            const reasons = Array.isArray(ev.reasons) ? ev.reasons.filter((r) => has(reasonLabels, r)).map((r) => reasonLabels[r]) : [];
+            if (reasons.length) parts.push(reasons.join(" + "));
+            if (Number.isInteger(ev.photos) && ev.photos >= 0 && ev.photos <= 3) parts.push(t("cabin_ev_photos", "zdjęcia") + " " + ev.photos);
+            if (has(verdictLabels, ev.verdict)) {
+                const pct = typeof ev.changed_pct === "number" && isFinite(ev.changed_pct) ? " " + ev.changed_pct.toFixed(1) + "%" : "";
+                parts.push(verdictLabels[ev.verdict] + (ev.verdict === "change" ? pct : ""));
+            }
+            if (has(cameraLabels, ev.camera) && ev.camera !== "ok") parts.push(cameraLabels[ev.camera]);
+            parts.push(outcomeLabels[ev.outcome]);
+            const evColor = ev.outcome === "alarm" || ev.outcome === "pending" ? "#dc2626"
+                : (ev.outcome === "logged" || ev.outcome === "limited" ? "#d97706" : "var(--text-mid)");
+            evHtml = `<span data-cabin-event="${esc(ev.outcome)}" style="color:${evColor};flex-basis:100%;padding-left:24px">${esc(t("cabin_last_event", "Ostatnie zdarzenie") + ": " + (when ? when + " — " : "") + parts.join(", "))}</span>`;
+        }
+        // What is missing / wrong — what to do, never raw error text.
+        const hints = [];
+        const errHints = {
+            no_agent: t("cabin_hint_no_agent", "agent w telefonie nie działa — patrz wiersz „Agent w telefonie”"),
+            agent_outdated: t("cabin_hint_outdated", "agent w telefonie jest za stary — skopiuj nowy tools/car_phone/termux/bcm_agent.py (≥ 1.3.0)"),
+            no_answer: t("cabin_hint_no_answer", "telefon nie odpowiada"),
+            agent_error: t("cabin_hint_agent_error", "telefon nie podał stanu — ponowię"),
+        };
+        if (has(errHints, cw.error)) hints.push(errHints[cw.error]);
+        if (state !== "unknown" && state !== "off") {
+            if (cw.pillow === false) hints.push(t("cabin_hint_pillow", "bez analizy zdjęć — w Termuxie: pkg install python-pillow"));
+            if (cw.light_sensor === "none") hints.push(t("cabin_hint_light", "brak czujnika światła — tylko ruch, przechył i drzwi"));
+        }
+        const hintHtml = hints.length
+            ? `<span data-cabin-hint style="color:var(--text-mid);flex-basis:100%;padding-left:24px">${esc(hints.join(" · "))}</span>` : "";
+        const factsHtml = facts.length ? ` <span style="color:var(--text-mid)">· ${esc(facts.join(" · "))}</span>` : "";
+        return `<div data-cabin-state="${esc(state)}" style="display:flex;flex-wrap:wrap;align-items:center;gap:4px 8px;padding:8px 12px;border-radius:12px;background:var(--card-bg);border:1px solid var(--card-border);font-size:11px;line-height:1.3">
+            <span class="material-symbols-outlined" style="font-size:16px;color:${color}">photo_camera</span>
+            <span style="color:var(--text-dim);font-weight:700">${esc(t("cabin_title", "Czuwanie kabiny"))}:</span>
+            <span style="color:${color};font-weight:700">${esc(labels[state])}</span>${factsHtml}${evHtml}${hintHtml}
+        </div>`;
+    },
+
+    // Wybudzanie (src/power/remote_session.py, modules.remote_session — plan
+    // E, wersja z buforem). data.remote_session =
+    // web_viewer._remote_session_summary(power.remote_session), or null while
+    // the module is not running (production: no row). Read-only: the
+    // buttons live in the global banner (components/wake_banner.js); the
+    // row says what woke the computer last, how many requests Nano #2
+    // refused (and why) and whether the Nano is connected. The countdown
+    // (lease_left_s) is NOT part of the row, so it is not redrawn every
+    // second.
+    _remoteColors: {
+        session: "#f59e0b", ending: "var(--text-mid)", idle: "var(--text-mid)",
+    },
+
+    /** The row "Wybudzanie: czeka · ostatnie: drzwi 19.11 03:12 · odmowy
+     *  Nano: 3 (ostatnio: limit)". '' without a payload. Inline styles only;
+     *  every value whitelisted or type-checked, then escaped. */
+    remoteSessionRowHtml(rs, t) {
+        t = t || ((k, d) => d);
+        if (!rs || typeof rs !== "object") return "";
+        const esc = Settings._esc;
+        const has = (obj, k) => typeof k === "string" && Object.prototype.hasOwnProperty.call(obj, k);
+        const reasons = {
+            ir: t("wake_r_ir", "telefon"), door: t("wake_r_door", "drzwi"),
+            ext: t("wake_r_ext", "wejście EXT"),
+        };
+        const denials = {
+            rate: t("wake_d_rate", "limit pobudek"), lowbatt: t("wake_d_lowbatt", "słaby bank"),
+            holdoff: t("wake_d_holdoff", "zaraz po zgaszeniu"),
+            state: t("wake_d_state", "komputer nie spał"),
+        };
+        const ended = {
+            lease_end: t("wake_e_lease", "koniec dzierżawy"),
+            released: t("wake_e_released", "uśpiony z ekranu"),
+            idle: t("wake_e_idle", "bezczynność"),
+            ignition: t("wake_e_ignition", "zapłon"),
+            lost: t("wake_e_lost", "Nano przestał odpowiadać"),
+        };
+        const state = has(Settings._remoteColors, rs.state) ? rs.state : "idle";
+        const color = Settings._remoteColors[state];
+        let label;
+        if (state === "session") {
+            label = t("wake_state_session", "sesja") + ": " + (reasons[rs.reason] || "?");
+        } else if (state === "ending") {
+            label = t("wake_state_ending", "usypianie");
+        } else {
+            label = t("wake_state_idle", "czeka");
+        }
+        const facts = [];
+        if (state === "session" && Number.isInteger(rs.hold_max_min) && rs.hold_max_min > 0) {
+            const used = Number.isInteger(rs.holds_used_min) ? rs.holds_used_min : 0;
+            facts.push(t("wake_holds", "przedłużenia") + ": " + used + "/" + rs.hold_max_min + " min");
+        }
+        if (state === "session" && Number.isInteger(rs.idle_suspend_min) && rs.idle_suspend_min > 0) {
+            facts.push(t("wake_idle_after", "uśpienie po bezczynności") + " " + rs.idle_suspend_min + " min");
+        }
+        const last = rs.last_wake;
+        if (last && typeof last === "object" && has(reasons, last.reason)) {
+            const when = Settings._crashFmtTime(last.ts);
+            facts.push(t("wake_last", "ostatnie") + ": " + reasons[last.reason] + (when ? " " + when : ""));
+        }
+        if (state !== "session" && has(ended, rs.ended)) {
+            facts.push(t("wake_ended", "koniec sesji") + ": " + ended[rs.ended]);
+        }
+        const total = Number.isInteger(rs.denied_total) ? rs.denied_total : null;
+        const lastNano = has(denials, rs.last_denied_nano) ? denials[rs.last_denied_nano] : "";
+        if (total !== null) {
+            facts.push(t("wake_denied", "odmowy Nano") + ": " + total + (total > 0 && lastNano ? " (" + t("wake_denied_last", "ostatnio") + ": " + lastNano + ")" : ""));
+        } else if (Number.isInteger(rs.denied_seen) && rs.denied_seen > 0) {
+            facts.push(t("wake_denied", "odmowy Nano") + ": " + rs.denied_seen);
+        }
+        const hints = [];
+        if (rs.link === false) hints.push(t("wake_hint_link", "Nano #2 (sensor_hub) niepodłączony — port szeregowy"));
+        // The repo's IR wake code is public — anyone could wake the PC.
+        if (rs.ir_default === true) hints.push(t("wake_hint_ir_default", "kod IR z repozytorium — ustaw własny (WAKE_IR_ADDRESS / WAKE_IR_COMMAND przy make i w local.yaml)"));
+        const cmd = rs.cmd;
+        if (cmd && typeof cmd === "object" && cmd.ok === false) {
+            const errs = {
+                not_sent: t("wake_cmd_not_sent", "polecenie nie dotarło do Nano"),
+                not_confirmed: t("wake_cmd_not_confirmed", "Nano nie potwierdził uśpienia"),
+                hold_limit: t("wake_cmd_hold_limit", "wykorzystano limit przedłużeń"),
+            };
+            if (has(errs, cmd.error)) hints.push(errs[cmd.error]);
+        }
+        const hintHtml = hints.length
+            ? `<span data-wake-hint style="color:#d97706;flex-basis:100%;padding-left:24px">${esc(hints.join(" · "))}</span>` : "";
+        const factsHtml = facts.length ? ` <span style="color:var(--text-mid)">· ${esc(facts.join(" · "))}</span>` : "";
+        return `<div data-wake-state="${esc(state)}" style="display:flex;flex-wrap:wrap;align-items:center;gap:4px 8px;padding:8px 12px;border-radius:12px;background:var(--card-bg);border:1px solid var(--card-border);font-size:11px;line-height:1.3">
+            <span class="material-symbols-outlined" style="font-size:16px;color:${color}">power_settings_new</span>
+            <span style="color:var(--text-dim);font-weight:700">${esc(t("wake_row_title", "Wybudzanie"))}:</span>
+            <span style="color:${color};font-weight:700">${esc(label)}</span>${factsHtml}${hintHtml}
+        </div>`;
+    },
+
+    /** What the row shows — the summary without the countdown. */
+    remoteSessionRowKey(rs) {
+        if (!rs || typeof rs !== "object") return "null";
+        const copy = Object.assign({}, rs);
+        delete copy.lease_left_s;
+        return JSON.stringify(copy);
+    },
+
+    // Jasność ekranu (src/power/brightness.py, modules.auto_brightness).
+    // data.auto_brightness = web_viewer._auto_brightness_summary(
+    // display.brightness_state), or null while the module is not running
+    // (production: no row). Auto / Ręczna, the slider
+    // (display.dashboard.brightness) and "Ściemnianie: Programowe /
+    // Sprzętowe (DDC/CI)" all go through the whitelisted POST /api/config
+    // into local.yaml; the module applies them live (config.changed). The
+    // DDC probe runs in BCM — the driver cannot run ddcutil from a terminal
+    // in the car — and the row says why hardware dimming is unavailable.
+    // data-* + ONE delegated listener (brightListen); the slider is never
+    // redrawn under the finger.
+    _bright: { listening: false, down: false, inputAt: 0, sentAt: 0, msg: "" },
+    _brightColors: {
+        auto: "var(--color-primary)", hold: "var(--text-mid)", manual: "var(--text-mid)",
+        stale: "#d97706", no_source: "#d97706",
+    },
+
+    /** True while the driver drags the slider (pointer down, or an input
+     *  event in the last 1.5 s). */
+    brightDragging() {
+        return Settings._bright.down || Date.now() - Settings._bright.inputAt < 1500;
+    },
+
+    _brightHas(obj, k) {
+        return typeof k === "string" && Object.prototype.hasOwnProperty.call(obj, k);
+    },
+
+    _brightPct(v) {
+        return Number.isInteger(v) && v >= 0 && v <= 100 ? v : null;
+    },
+
+    /** "Auto · 120 lx · 45%", "Ręczna — wraca do auto za 8 min · 70%", …
+     *  Plain text (goes through textContent or _esc). */
+    brightnessStatusText(ab, t) {
+        t = t || ((k, d) => d);
+        if (!ab || typeof ab !== "object") return "";
+        const parts = [];
+        const eff = ab.effective;
+        if (eff === "auto") {
+            parts.push(t("bright_auto", "Auto") + (ab.source === "arduino"
+                ? " (" + t("bright_src_arduino", "czujnik Arduino") + ")"
+                : (ab.source === "phone" ? " (" + t("bright_src_phone", "telefon") + ")" : "")));
+        } else if (eff === "hold") {
+            const n = Number.isInteger(ab.hold_left_min) && ab.hold_left_min > 0 ? ab.hold_left_min : null;
+            parts.push(t("bright_hold", "Ręczna — wraca do auto za") + (n ? " " + n + " min" : ""));
+        } else if (eff === "manual") {
+            parts.push(t("bright_manual", "Ręczna"));
+        } else if (eff === "stale") {
+            parts.push(t("bright_stale", "czujnik światła nie odpowiada — trzymam ostatnią jasność"));
+        } else {
+            parts.push(t("bright_no_source", "brak czujnika światła — jasność ręczna"));
+        }
+        if (typeof ab.lux === "number" && isFinite(ab.lux) && ab.lux >= 0) {
+            parts.push((ab.lux < 10 ? ab.lux.toFixed(1) : String(Math.round(ab.lux))) + " lx");
+        }
+        const pct = Settings._brightPct(ab.pct);
+        if (pct !== null) parts.push(pct + "%");
+        return parts.join(" · ");
+    },
+
+    /** The line under the dimming switch: probing / works / why not. */
+    brightnessBackendText(ab, t) {
+        t = t || ((k, d) => d);
+        if (!ab || typeof ab !== "object") return "";
+        const reasons = {
+            no_ddcutil: t("bright_r_no_ddcutil", "brak programu ddcutil (sudo apt install ddcutil)"),
+            no_i2c: t("bright_r_no_i2c", "brak /dev/i2c-* (sudo modprobe i2c-dev)"),
+            no_display: t("bright_r_no_display", "monitor nie odpowiada przez DDC/CI"),
+            no_vcp: t("bright_r_no_vcp", "monitor nie podaje jasności (VCP 10)"),
+            timeout: t("bright_r_timeout", "ddcutil nie odpowiedział na czas"),
+            write_failed: t("bright_r_write_failed", "monitor przestał przyjmować jasność"),
+            no_xrandr: t("bright_r_no_xrandr", "brak programu xrandr"),
+            xrandr_config: t("bright_r_xrandr_config", "zła konfiguracja display.auto_brightness.xrandr"),
+            xrandr_failed: t("bright_r_xrandr_failed", "xrandr odmówił"),
+        };
+        if (ab.probe === "probing") return t("bright_probing", "sprawdzam monitor (DDC/CI)…");
+        if (ab.probe === "failed") {
+            const why = Settings._brightHas(reasons, ab.reason) ? reasons[ab.reason] : t("bright_r_error", "nieznany błąd");
+            const head = ab.backend === "xrandr" ? t("bright_xrandr_fail", "xrandr niedostępny")
+                : t("bright_ddc_fail", "Sprzętowe niedostępne");
+            return head + ": " + why + " — " + t("bright_use_css", "używam programowego");
+        }
+        if (ab.active === "ddc") return t("bright_ddc_ok", "Sprzętowe: DDC/CI działa");
+        if (ab.active === "xrandr") return t("bright_xrandr_ok", "xrandr (z config/local.yaml)");
+        return "";
+    },
+
+    /** Everything the row draws except the live numbers (status text, the
+     *  slider position): a change of this key redraws the row. */
+    brightnessRowKey(ab) {
+        if (!ab || typeof ab !== "object") return "null";
+        return JSON.stringify([ab.mode, ab.effective, ab.source, ab.min_pct, ab.backend,
+            ab.active, ab.probe, ab.reason, Settings._bright.msg]);
+    },
+
+    /** The row "Jasność ekranu: Auto (telefon) · 120 lx · 45%", Auto /
+     *  Ręczna, the slider and the dimming switch. '' without a payload.
+     *  Inline styles only; every value escaped / type-checked. */
+    brightnessRowHtml(ab, t) {
+        t = t || ((k, d) => d);
+        if (!ab || typeof ab !== "object") return "";
+        const esc = Settings._esc;
+        const has = Settings._brightHas;
+        const eff = has(Settings._brightColors, ab.effective) ? ab.effective : "no_source";
+        const color = Settings._brightColors[eff];
+        const pct = Settings._brightPct(ab.pct);
+        const lo = Settings._brightPct(ab.min_pct);
+        const sel = (on) => on
+            ? "background:var(--color-primary);color:#fff;border:1px solid var(--color-primary)"
+            : "background:var(--card-bg);color:var(--text-mid);border:1px solid var(--card-border)";
+        const btn = (attr, label, on) => `<button ${attr} aria-pressed="${on ? "true" : "false"}" style="padding:6px 12px;border-radius:8px;font-size:12px;font-weight:700;${sel(on)}">${esc(label)}</button>`;
+        const manual = ab.mode === "manual";
+        const modeHtml = btn('data-bright-mode="auto"', t("bright_auto", "Auto"), !manual)
+            + btn('data-bright-mode="manual"', t("bright_manual", "Ręczna"), manual);
+        const slider = `<input data-bright-slider type="range" min="${lo !== null ? lo : 5}" max="100" step="1" value="${pct !== null ? pct : 100}" aria-label="${esc(t("bright_title", "Jasność ekranu"))}" style="flex:1 1 160px;min-width:120px;height:28px;accent-color:var(--color-primary)">`;
+        const pctHtml = `<span data-bright-pct style="min-width:40px;text-align:right;color:var(--text-primary);font-weight:700">${pct !== null ? pct + "%" : ""}</span>`;
+        const soft = ab.backend === "css" || ab.backend === "auto";
+        const backendHtml = btn('data-bright-backend="css"', t("bright_css", "Programowe"), soft)
+            + btn('data-bright-backend="ddc"', t("bright_ddc", "Sprzętowe (DDC/CI)"), ab.backend === "ddc");
+        const backText = Settings.brightnessBackendText(ab, t);
+        const backColor = ab.probe === "failed" ? "#d97706" : "var(--text-mid)";
+        const msg = Settings._bright.msg;
+        return `<div data-bright-row data-bright-effective="${esc(eff)}" style="display:flex;flex-wrap:wrap;align-items:center;gap:6px 8px;padding:8px 12px;border-radius:12px;background:var(--card-bg);border:1px solid var(--card-border);font-size:11px;line-height:1.3">
+            <span class="material-symbols-outlined" style="font-size:16px;color:${color}">brightness_6</span>
+            <span style="color:var(--text-dim);font-weight:700">${esc(t("bright_title", "Jasność ekranu"))}:</span>
+            <span data-bright-status style="color:${color};font-weight:700">${esc(Settings.brightnessStatusText(ab, t))}</span>
+            <span style="flex-basis:100%;display:flex;flex-wrap:wrap;align-items:center;gap:6px;padding-left:24px">${modeHtml}${slider}${pctHtml}</span>
+            <span style="flex-basis:100%;display:flex;flex-wrap:wrap;align-items:center;gap:6px;padding-left:24px"><span style="color:var(--text-dim);font-weight:700">${esc(t("bright_dimming", "Ściemnianie"))}:</span>${backendHtml}</span>
+            <span data-bright-backend-msg style="flex-basis:100%;padding-left:24px;color:${backColor}">${esc(backText)}</span>
+            <span data-bright-msg style="flex-basis:100%;padding-left:24px;color:var(--text-mid)">${esc(msg)}</span>
+        </div>`;
+    },
+
+    /** Same key, new numbers: only text and the slider position change —
+     *  never the slider while the finger is on it. */
+    brightnessLive(slot, ab, t) {
+        if (!slot || !slot.querySelector || !ab || typeof ab !== "object") return;
+        const status = slot.querySelector("[data-bright-status]");
+        if (status) status.textContent = Settings.brightnessStatusText(ab, t);
+        if (Settings.brightDragging()) return;
+        const pct = Settings._brightPct(ab.pct);
+        if (pct === null) return;
+        const label = slot.querySelector("[data-bright-pct]");
+        if (label) label.textContent = pct + "%";
+        const slider = slot.querySelector("[data-bright-slider]");
+        if (slider) slider.value = String(pct);
+    },
+
+    _brightSay(text) {
+        Settings._bright.msg = text;
+        const node = typeof document !== "undefined" ? document.querySelector("[data-bright-msg]") : null;
+        if (node) node.textContent = text;
+    },
+
+    /** POST one whitelisted change to /api/config; the module's new state
+     *  arrives with the next payload. */
+    async brightSend(body) {
+        const t = (typeof App !== "undefined" && App.t) ? App.t.bind(App) : ((k, d) => d);
+        try {
+            const res = await fetch("/api/config", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify(body),
+            });
+            if (res.ok) Settings._brightSay("");
+            else if (res.status === 403) Settings._brightSay(t("bright_err_forbidden", "zmiana tylko z ekranu w aucie"));
+            else Settings._brightSay(t("bright_err", "nie udało się zapisać"));
+        } catch (e) {
+            Settings._brightSay(t("bright_err", "nie udało się zapisać"));
+        }
+    },
+
+    /** One delegated listener set for the row (installed once). */
+    brightListen() {
+        const b = Settings._bright;
+        if (b.listening || typeof document === "undefined" || !document.addEventListener) return;
+        b.listening = true;
+        document.addEventListener("click", (e) => {
+            const el = e.target && e.target.closest ? e.target.closest("[data-bright-mode],[data-bright-backend]") : null;
+            if (!el || typeof el.getAttribute !== "function") return;
+            // Only the two whitelisted values of each — never text from the page.
+            const mode = el.getAttribute("data-bright-mode");
+            const backend = el.getAttribute("data-bright-backend");
+            let body = null;
+            if (mode === "auto" || mode === "manual") body = { brightness_mode: mode };
+            else if (backend === "css" || backend === "ddc") body = { brightness_backend: backend };
+            if (!body) return;
+            const now = Date.now();
+            if (now - b.sentAt < 500) return;          // double tap
+            b.sentAt = now;
+            Settings.brightSend(body);
+        });
+        const isSlider = (el) => !!(el && el.hasAttribute && el.hasAttribute("data-bright-slider"));
+        document.addEventListener("pointerdown", (e) => { if (isSlider(e.target)) b.down = true; });
+        const up = () => { b.down = false; };
+        document.addEventListener("pointerup", up);
+        document.addEventListener("pointercancel", up);
+        document.addEventListener("input", (e) => {
+            if (!isSlider(e.target)) return;
+            b.inputAt = Date.now();
+            const v = Number(e.target.value);
+            const label = document.querySelector("[data-bright-pct]");
+            if (label && Number.isInteger(v)) label.textContent = v + "%";
+        });
+        document.addEventListener("change", (e) => {
+            if (!isSlider(e.target)) return;
+            b.down = false;
+            b.inputAt = Date.now();
+            const v = Number(e.target.value);
+            if (Number.isInteger(v) && v >= 0 && v <= 100) Settings.brightSend({ brightness: v });
         });
     },
 
@@ -878,6 +1530,11 @@ const Settings = {
                         "nie zapisano w local.yaml — zmiana zniknie po restarcie");
                 }
                 mods.status = msg;
+            } else if (data && data.error === "disarm_first") {
+                // The parked-car alarm is armed: switching it off on BCM is
+                // not an owner proof (the phone keeps guarding anyway).
+                mods.status = t("module_disarm_first",
+                    "Najpierw rozbrój alarm na postoju (telefon właściciela albo kod w wierszu „Postój”) — wyłączenie z BCM nie rozbraja");
             } else {
                 mods.status = (data && typeof data.error === "string")
                     ? data.error : ("HTTP " + res.status);
@@ -1486,6 +2143,31 @@ App.registerScreen("settings", (() => {
         return JSON.stringify([cs.dry_run, cs.forced_dry_run_reason, cs.recipients_n, cs.test]);
     }
 
+    /** The "Postój" row as drawn (the whole summary — it changes rarely). */
+    let _parkKey = "null";
+    function _parkKeyOf(data) {
+        return JSON.stringify((data && data.parking_guard) || null) + "|" + Settings._park.msg;
+    }
+
+    /** The "Czuwanie kabiny" row as drawn (the whole summary). */
+    let _cabinKey = "null";
+    function _cabinKeyOf(data) {
+        return JSON.stringify((data && data.cabin_watch) || null);
+    }
+
+    /** The "Wybudzanie" row as drawn (without the countdown). */
+    let _remoteKey = "null";
+    function _remoteKeyOf(data) {
+        return Settings.remoteSessionRowKey(data && data.remote_session);
+    }
+
+    /** The "Jasność ekranu" row as drawn — without the live numbers (lux,
+     *  %, minutes left), which brightnessLive() writes in place. */
+    let _brightKey = "null";
+    function _brightKeyOf(data) {
+        return Settings.brightnessRowKey(data && data.auto_brightness);
+    }
+
     /** What the GPS row shows: gps_state without last_ts (it changes with
      *  every fix, the row does not show it) + the bnep0 IP of the hint. */
     function _gpsKeyOf(data) {
@@ -1535,6 +2217,52 @@ App.registerScreen("settings", (() => {
                 slot.innerHTML = Settings.crashSmsRowHtml(data && data.crash_sms, t);
             }
         }
+        const parkKey = _parkKeyOf(data);
+        if (parkKey !== _parkKey) {
+            const slot = document.querySelector("[data-parking-guard-slot]");
+            // Not while the driver types the TOTP code (retried next update).
+            if (slot && !Settings.parkingGuardTyping(slot)) {
+                _parkKey = parkKey;
+                // Digits typed into an unfocused field survive the redraw.
+                const old = slot.querySelector ? slot.querySelector("[data-park-code]") : null;
+                const typed = old && typeof old.value === "string" ? old.value : "";
+                slot.innerHTML = Settings.parkingGuardRowHtml(data && data.parking_guard, t);
+                const field = typed && slot.querySelector ? slot.querySelector("[data-park-code]") : null;
+                if (field) field.value = typed;
+            }
+        }
+        const cabinKey = _cabinKeyOf(data);
+        if (cabinKey !== _cabinKey) {
+            const slot = document.querySelector("[data-cabin-watch-slot]");
+            if (slot) {
+                _cabinKey = cabinKey;
+                slot.innerHTML = Settings.cabinWatchRowHtml(data && data.cabin_watch, t);
+            }
+        }
+        const remoteKey = _remoteKeyOf(data);
+        if (remoteKey !== _remoteKey) {
+            const slot = document.querySelector("[data-remote-session-slot]");
+            if (slot) {
+                _remoteKey = remoteKey;
+                slot.innerHTML = Settings.remoteSessionRowHtml(data && data.remote_session, t);
+            }
+        }
+        const brightKey = _brightKeyOf(data);
+        const brightSlot = document.querySelector("[data-brightness-slot]");
+        if (brightSlot) {
+            if (brightKey !== _brightKey) {
+                // Not under the finger (retried on the next update).
+                if (!Settings.brightDragging()) {
+                    _brightKey = brightKey;
+                    // The row may first appear here (module published after
+                    // render): its listener comes with it (installed once).
+                    if (data && data.auto_brightness) Settings.brightListen();
+                    brightSlot.innerHTML = Settings.brightnessRowHtml(data && data.auto_brightness, t);
+                }
+            } else if (data && data.auto_brightness) {
+                Settings.brightnessLive(brightSlot, data.auto_brightness, t);
+            }
+        }
         const gpsKey = _gpsKeyOf(data);
         if (gpsKey !== _gpsKey) {
             const slot = document.querySelector("[data-gps-slot]");
@@ -1554,6 +2282,10 @@ App.registerScreen("settings", (() => {
         _carPhoneKey = _carPhoneKeyOf(data);
         _agentKey = _agentKeyOf(data);
         _crashKey = _crashKeyOf(data);
+        _parkKey = _parkKeyOf(data);
+        _cabinKey = _cabinKeyOf(data);
+        _remoteKey = _remoteKeyOf(data);
+        _brightKey = _brightKeyOf(data);
         const paired = Settings._btPaired;
         const discovered = Settings._btDiscovered;
         const scanning = Settings._btScanning;
@@ -1574,6 +2306,10 @@ App.registerScreen("settings", (() => {
             Settings.crashListen();
             Settings.crashLoad();
         }
+        // Always (idempotent, one listener): the row may first appear through
+        // update() when the module publishes after this render.
+        Settings.parkListen();
+        if (data && data.auto_brightness) Settings.brightListen();
 
         container.innerHTML = `<div class="screen-container" style="background:var(--color-surface);color:var(--color-on-surface)">
             ${AppBar.render(theme, data)}
@@ -1614,6 +2350,14 @@ App.registerScreen("settings", (() => {
                                 </div>
                             </div>
                         </div>
+                        <!-- Jasność ekranu (modules.auto_brightness): Auto / Ręczna,
+                             slider, Programowe / Sprzętowe (DDC/CI). Empty
+                             slot = module off; update() swaps it. -->
+                        <div data-brightness-slot style="display:contents">${Settings.brightnessRowHtml(data && data.auto_brightness, t)}</div>
+                        <!-- Wybudzanie (modules.remote_session, buffered build):
+                             last wake, refusals, Nano link — read-only; the
+                             buttons are in the global banner. -->
+                        <div data-remote-session-slot style="display:contents">${Settings.remoteSessionRowHtml(data && data.remote_session, t)}</div>
                         <!-- Internet from the phone (BT PAN). display:contents: an
                              empty slot (module off) adds no flex gap; update()
                              swaps its content. -->
@@ -1626,6 +2370,10 @@ App.registerScreen("settings", (() => {
                              and the recipients editor (render() only). -->
                         <div data-crash-sms-slot style="display:contents">${Settings.crashSmsRowHtml(data && data.crash_sms, t)}</div>
                         <div data-crash-editor-slot style="display:contents">${Settings.crashEditorHtml(data && data.crash_sms, t)}</div>
+                        <!-- Alarm na postoju (the phone runs it): state + Uzbrój / Rozbrój. -->
+                        <div data-parking-guard-slot style="display:contents">${Settings.parkingGuardRowHtml(data && data.parking_guard, t)}</div>
+                        <!-- Czuwanie kabiny (the phone runs it): state + last event, read-only. -->
+                        <div data-cabin-watch-slot style="display:contents">${Settings.cabinWatchRowHtml(data && data.cabin_watch, t)}</div>
                         <!-- GPS source / fix + where to send NMEA (same slot idea). -->
                         <div data-gps-slot style="display:contents">${Settings.gpsRowHtml(data && data.gps_state, data && data.phone_tether, t)}</div>
                         <!-- Wi-Fi Hotspot / ALFA-NET network access. The live
@@ -1843,6 +2591,11 @@ App.registerScreen("settings", (() => {
         // picks its own name (no pairing needed) — escaped like all phone data.
         const esc = Settings._esc;
         const mac = typeof d.address === "string" && BT_MAC_RE.test(d.address) ? d.address : "";
+        // A paired device shows only the last two bytes of its address: the
+        // owner's phone is what parking_guard.owner_macs names, and a thief
+        // at this screen must not read it (the authenticated HFP link stays
+        // the real proof). New devices from a scan keep the full address.
+        const shown = type === "paired" && mac ? "XX:XX:XX:XX:" + mac.slice(-5) : d.address;
         const isConnected = d.connected === true;
         const isPaired = type === "paired";
         const statusBadge = isConnected
@@ -1872,10 +2625,10 @@ App.registerScreen("settings", (() => {
                 <span class="material-symbols-outlined ${isConnected ? 'text-green-500' : ''}" style="font-size:16px;${isConnected ? '' : 'color:var(--text-dim)'}">bluetooth</span>
                 <div>
                     <div class="flex items-center gap-2">
-                        <p class="text-xs font-bold">${esc(d.name || d.address)}</p>
+                        <p class="text-xs font-bold">${esc(d.name || shown)}</p>
                         ${statusBadge}
                     </div>
-                    <p class="text-[9px]" style="color:var(--text-dim)">${esc(d.address)}</p>
+                    <p class="text-[9px]" style="color:var(--text-dim)">${esc(shown)}</p>
                 </div>
             </div>
             ${actions}

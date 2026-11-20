@@ -122,6 +122,24 @@ const DataStore = (() => {
         },
 
         /**
+         * Tell the backend the kiosk was touched ({"type":"activity"} on
+         * /ws/input; web_viewer turns it into ui.activity for loopback
+         * clients only). Used by components/wake_banner.js — throttled
+         * there — so a session after a remote wake is not put to sleep for
+         * idleness under a driver who is using the screen. Dropped while
+         * the socket is down (best effort, no HTTP fallback).
+         */
+        sendActivity() {
+            if (_inputWs && _inputWs.readyState === WebSocket.OPEN) {
+                try {
+                    _inputWs.send(JSON.stringify({ type: "activity" }));
+                    return true;
+                } catch (e) { /* best effort */ }
+            }
+            return false;
+        },
+
+        /**
          * Send an Android Auto touch event (A2 overlay → xdotool on :99).
          * action: "down" | "move" | "up" | "cancel" | "tap"; x, y: 0..1
          * relative to the AA canvas (null for cancel).

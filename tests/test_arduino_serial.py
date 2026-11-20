@@ -781,3 +781,212 @@ class TestReconnect:
         t0 = time.monotonic()
         lst.stop()
         assert time.monotonic() - t0 < 0.5
+
+
+# ── plan E: wake lines and the HOLD/RELEASE writer ─────────────────────────
+
+
+@pytest.fixture()
+def wake_listener(monkeypatch):
+    monkeypatch.setattr(arduino_serial, "find_arduino_serial", lambda: None)
+    bus = EventBus()
+    lst = ArduinoSerialListener(bus)
+    events: list[tuple[str, object]] = []
+    for topic in ("vehicle.wake_reason", "vehicle.wake_denied", "vehicle.wake_lease_s",
+                  "vehicle.wake_stats", "vehicle.power_state"):
+        bus.subscribe(topic, lambda t, v, ts: events.append((t, v)))
+    lst._events = events
+    return lst
+
+
+class TestWakeLines:
+    @pytest.mark.parametrize("line, topic, value", [
+        ("WAKE:IR", "vehicle.wake_reason", "ir"),
+        ("WAKE:DOOR", "vehicle.wake_reason", "door"),
+        ("WAKE:EXT", "vehicle.wake_reason", "ext"),
+        ("WAKE_DENIED:RATE", "vehicle.wake_denied", "rate"),
+        ("WAKE_DENIED:LOWBATT", "vehicle.wake_denied", "lowbatt"),
+        ("WAKE_DENIED:HOLDOFF", "vehicle.wake_denied", "holdoff"),
+        ("WAKE_DENIED:STATE", "vehicle.wake_denied", "state"),
+        ("LEASE:0", "vehicle.wake_lease_s", 0),
+        ("LEASE:600", "vehicle.wake_lease_s", 600),
+        ("LEASE:5400", "vehicle.wake_lease_s", 5400),
+        ("WAKESTAT:0,NONE", "vehicle.wake_stats", {"denied": 0, "last": ""}),
+        ("WAKESTAT:65535,RATE", "vehicle.wake_stats", {"denied": 65535, "last": "rate"}),
+    ])
+    def test_valid(self, wake_listener, line, topic, value):
+        wake_listener._parse_line(line)
+        assert wake_listener._events == [(topic, value)]
+
+    @pytest.mark.parametrize("line", [
+        "WAKE:", "WAKE:ir", "WAKE:PHONE", "WAKE:IR ", "WAKE:IR,DOOR", "WAKE:NONE",
+        "WAKE_DENIED:", "WAKE_DENIED:rate", "WAKE_DENIED:NONE", "WAKE_DENIED:RATE\x00",
+        "LEASE:", "LEASE:-1", "LEASE:5401", "LEASE:007", "LEASE:1e3", "LEASE:12.5",
+        "LEASE:99999", "LEASE: 60", "LEASE:６０",
+        "WAKESTAT:", "WAKESTAT:1", "WAKESTAT:65536,RATE", "WAKESTAT:01,RATE",
+        "WAKESTAT:1,rate", "WAKESTAT:1,RATE,X", "WAKESTAT:-1,NONE",
+    ])
+    def test_garbage_publishes_nothing(self, wake_listener, line):
+        wake_listener._parse_line(line)
+        assert wake_listener._events == []
+
+    def test_denied_info_is_rate_limited(self, monkeypatch):
+        monkeypatch.setattr(arduino_serial, "find_arduino_serial", lambda: None)
+        now = [0.0]
+        lst = ArduinoSerialListener(EventBus(), clock=lambda: now[0])
+        infos: list[tuple] = []
+        monkeypatch.setattr(arduino_serial.log, "info", lambda *a, **k: infos.append(a))
+        for _ in range(5):
+            lst._parse_line("WAKE_DENIED:RATE")
+        assert len(infos) == 1
+        now[0] += arduino_serial.WAKE_LOG_S + 1
+        lst._parse_line("WAKE_DENIED:STATE")
+        assert len(infos) == 2 and "+4 more" in infos[1][-1]
+
+    def test_pwract_is_info_rate_limited_and_never_an_event(self, monkeypatch, wake_listener):
+        now = [0.0]
+        wake_listener._clock = lambda: now[0]
+        wake_listener._pwract_log = arduino_serial._LogLimiter(lambda: now[0],
+                                                               arduino_serial.PWRACT_LOG_S)
+        infos: list[tuple] = []
+        monkeypatch.setattr(arduino_serial.log, "info", lambda *a, **k: infos.append(a))
+        wake_listener._parse_line("PWRACT:SHORT")
+        wake_listener._parse_line("PWRACT:LONG\x1b[2J")
+        assert len(infos) == 1 and infos[0][1] == "SHORT"
+        assert wake_listener._events == []
+
+
+class _WriteSerial:
+    def __init__(self, fail=None):
+        self.written: list[bytes] = []
+        self.fail = fail
+        self.write_timeout = None
+        self.flushed = 0
+
+    def write(self, data):
+        if self.fail:
+            raise self.fail
+        self.written.append(data)
+        return len(data)
+
+    def flush(self):
+        self.flushed += 1
+
+
+class TestSendLine:
+    def _listener(self, monkeypatch, ser=None):
+        monkeypatch.setattr(arduino_serial, "find_arduino_serial", lambda: None)
+        lst = ArduinoSerialListener(EventBus())
+        if ser is not None:
+            lst._attach(ser)
+        return lst
+
+    @pytest.mark.parametrize("line", ["HOLD:1", "HOLD:9", "HOLD:10", "HOLD:30", "HOLD:59",
+                                      "HOLD:60", "RELEASE"])
+    def test_valid_commands_are_written(self, monkeypatch, line):
+        ser = _WriteSerial()
+        lst = self._listener(monkeypatch, ser)
+        assert lst.send_line(line) is True
+        assert ser.written == [(line + "\n").encode("ascii")]
+        assert ser.write_timeout == arduino_serial.WRITE_TIMEOUT_S
+        assert ser.flushed == 0          # no tcdrain: write_timeout does not bound it
+
+    @pytest.mark.parametrize("line", [
+        "HOLD:0", "HOLD:61", "HOLD:05", "HOLD:-1", "HOLD:", "HOLD:30\n", "HOLD:30\nRELEASE",
+        "hold:30", "RELEASE\n", " RELEASE", "RELEASE ", "PWR:SHORT", "LONG", "", "HOLD:1e1",
+        "HOLD:３０", None, 30, b"RELEASE",
+    ])
+    def test_anything_else_is_refused(self, monkeypatch, line):
+        ser = _WriteSerial()
+        lst = self._listener(monkeypatch, ser)
+        warnings: list[tuple] = []
+        monkeypatch.setattr(arduino_serial.log, "warning", lambda *a, **k: warnings.append(a))
+        assert lst.send_line(line) is False
+        assert ser.written == []
+        assert len(warnings) == 1 and "%r" in warnings[0][0]
+
+    def test_no_port_returns_false(self, monkeypatch):
+        lst = self._listener(monkeypatch)
+        assert lst.send_line("RELEASE") is False
+
+    def test_write_error_returns_false(self, monkeypatch):
+        lst = self._listener(monkeypatch, _WriteSerial(fail=OSError("write timeout")))
+        assert lst.send_line("HOLD:30") is False
+
+    def test_detached_port_is_not_written(self, monkeypatch):
+        ser = _WriteSerial()
+        lst = self._listener(monkeypatch, ser)
+        lst._detach()
+        assert lst.send_line("RELEASE") is False and ser.written == []
+
+    def test_busy_lock_times_out(self, monkeypatch):
+        ser = _WriteSerial()
+        lst = self._listener(monkeypatch, ser)
+        monkeypatch.setattr(arduino_serial, "WRITE_LOCK_S", 0.05)
+        lst._ser_lock.acquire()
+        try:
+            assert lst.send_line("RELEASE") is False
+        finally:
+            lst._ser_lock.release()
+        assert ser.written == []
+
+    def test_detach_does_not_wait_for_a_stuck_writer(self, monkeypatch):
+        """A writer stuck in the driver holds the lock: the reader still
+        detaches (bounded wait) instead of freezing every sensor_hub line."""
+        ser = _WriteSerial()
+        lst = self._listener(monkeypatch, ser)
+        monkeypatch.setattr(arduino_serial, "WRITE_LOCK_S", 0.05)
+        monkeypatch.setattr(arduino_serial, "WRITE_TIMEOUT_S", 0.05)
+        warnings: list[tuple] = []
+        monkeypatch.setattr(arduino_serial.log, "warning", lambda *a, **k: warnings.append(a))
+        lst._ser_lock.acquire()               # the stuck writer
+        try:
+            started = time.monotonic()
+            lst._detach()
+            assert time.monotonic() - started < 2.0
+        finally:
+            lst._ser_lock.release()
+        assert lst._ser is None and len(warnings) == 1
+        assert lst.send_line("RELEASE") is False and ser.written == []
+
+    def test_reader_offers_the_open_port_and_clears_it(self, monkeypatch, fast_backoff):
+        """The reader thread attaches the port while it is open; after the
+        port is lost send_line() refuses (nothing writes to a closed port)."""
+        monkeypatch.setattr(arduino_serial, "find_arduino_serial", _no_probe)
+
+        class Port(_FakeSerial, _WriteSerial):
+            def __init__(self):
+                _FakeSerial.__init__(self, [b"LEASE:600\n"], fail_after=False)
+                _WriteSerial.__init__(self)
+
+        port = Port()
+        opened = []
+
+        def factory(p, baud, timeout=None):
+            opened.append(p)
+            if len(opened) > 1:
+                raise OSError("gone")
+            return port
+
+        lst = ArduinoSerialListener(EventBus(), port="/dev/ttyBCM_SENSOR",
+                                    serial_factory=factory)
+        lst.start()
+        try:
+            assert _wait_for(lambda: lst._ser is port)
+            assert lst.send_line("HOLD:30") is True
+            assert port.written == [b"HOLD:30\n"]
+        finally:
+            lst.stop()
+        assert lst._ser is None
+        assert lst.send_line("RELEASE") is False
+
+    def test_concurrent_writers_do_not_interleave(self, monkeypatch):
+        ser = _WriteSerial()
+        lst = self._listener(monkeypatch, ser)
+        threads = [threading.Thread(target=lambda: [lst.send_line("RELEASE") for _ in range(50)])
+                   for _ in range(4)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+        assert ser.written == [b"RELEASE\n"] * 200

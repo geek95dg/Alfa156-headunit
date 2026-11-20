@@ -88,7 +88,60 @@ differs from the desired configuration:
   ``follow_up_cancel`` (default True) — all from ``crash_detection.sms``,
 * ``toggles`` mirrored from ``modules.{crash_sms, parking_guard,
   cabin_watch, call112}`` — True only for a module that has code in this
-  version (a planned module is never "on" on the phone).
+  version (a planned module is never "on" on the phone),
+* ``call112_test_mode`` / ``call112_test_number`` ← ``safety.call112``
+  (:func:`call112_settings`; the number only from local.yaml, "" or E.164):
+  the agent dials 112 — a constant on the phone — or, in test mode, ONLY
+  this number; the request to call carries no number at all. Sent ONLY
+  while ``modules.call112`` is on: with the toggle off the config keeps
+  the #128 shape (6 keys), and the agent (≥ 1.1.0) leaves both keys out of
+  its hash while its own toggle is off — so an agent from #128 (1.0.0,
+  which drops unknown keys) and a newer one hash the same config the same
+  way, and a BCM update alone never stops the crash SMS
+  (``config_refused`` would force crash_sms into dry-run). With the toggle
+  on, an agent older than :data:`MIN_AGENT_VERSION` cannot match the hash:
+  the reason is then ``agent_outdated`` ("skopiuj nowy bcm_agent.py").
+* ``park_*`` ← ``parking_guard.*`` (:func:`park_settings`; plan D4, the
+  alarm on the parked car that runs on the phone): ``park_numbers`` (≤ 3
+  E.164 — local.yaml only), ``park_log_only`` (default True: the first
+  week only logs, for tuning), ``park_arm_after_min`` (3),
+  ``park_arm_delay_min`` (2), ``park_grace_min`` (3), ``park_home``
+  ({lat, lon, radius_m ≥ 50} or None — local.yaml only), ``park_tilt_deg``
+  (0.5), ``park_shake_k`` (6.0), ``park_entry_s`` (90: the entry window —
+  a tilt or jolt waits this long for the owner's proof before it alarms,
+  0 = at once). Same rule as the 112 keys: sent ONLY
+  while ``modules.parking_guard`` is on (the agent ≥ 1.2.0 leaves them out
+  of its hash while its toggle is off), so an agent from before D4 and a
+  BCM update agree as long as the alarm is off; with it on, an older agent
+  is ``agent_outdated``. Values are clamped HERE into the agent's ranges
+  and canonical types (ints, floats rounded to 0.01, coordinates to 6
+  places), so the hashes on both sides match.
+* ``cabin_*`` ← ``cabin_watch.*`` (:func:`cabin_settings`; plan I, the
+  cabin watch with the phone's front camera, a layer on top of the parking
+  guard that also runs on the phone): ``cabin_entry_s`` (45–60, default
+  60: the entry window before the cabin alarm SMS — owner proof in it
+  cancels the alarm and deletes the photos), ``cabin_diff_pct`` (0.5–50,
+  default 3.0: changed pixels that count as "change" in the photo
+  analysis), ``cabin_mask`` (up to 4 window rectangles ``[x0, y0, x1, y1]``
+  in % of the frame that the analysis ignores), ``cabin_light_ratio``
+  (2–50, default 5.0) and ``cabin_light_lux`` (1–1000, default 5.0): the
+  light jump that counts as the interior lamp (×ratio AND +lux within 2 s)
+  — tuned in the car during the ``log_only`` week without editing the
+  agent; the phone applies them at once. The same rule again: sent
+  ONLY while ``modules.cabin_watch`` is on; with it on, an agent older than
+  :data:`MIN_AGENT_VERSION_CABIN` is ``agent_outdated``.
+* ``toggles.remote_session`` and ``wake_*`` ← ``modules.remote_session`` and
+  ``power.remote_session.{ir_address, ir_command}`` (plan E, the buffered
+  build: the phone sends the private NEC code to Nano #2's IR receiver on a
+  ``WAKE <code>`` SMS or the wake.sh shortcut). This one goes further than
+  the keys above: the TOGGLE itself is sent only while on (the agents up to
+  1.3.0 know four toggles and normalise ``toggles`` to exactly those, and the
+  1.4.0 agent leaves a false ``remote_session`` out of its hash), so with
+  the module off the config — and its hash — is exactly what it was before.
+  With it on, an agent older than :data:`MIN_AGENT_VERSION_WAKE` is
+  ``agent_outdated``. The IR code is whole numbers only (address 0..65535,
+  command 0..255) — the phone builds the ``termux-infrared-transmit`` pattern
+  from nothing else.
 
 A config the agent refused (400 ``bad_config``, or a hash that does not
 match after a 200) is not re-sent until it changes (reason
@@ -100,7 +153,7 @@ Published on ``net.car_phone_agent`` (on change; ``last_ok_ts`` alone at
 most every 60 s)::
 
     {state, paired, pairing, version, sim_ready, last_ok_ts, last_sent_ts,
-     reason, error, needs_confirm, since}
+     call112_capable, call112_mode, reason, error, needs_confirm, since}
 
     state:  disabled | no_secret | waiting_forward | unpaired | ok | error
             | bad_signature
@@ -109,8 +162,12 @@ most every 60 s)::
     pairing: the PAIRING file exists on the phone (signed health only)
     reason: '' | pairing_closed | bad_code | secret_mismatch | agent_reset
             | clock_skew | no_answer | storage | http | config_pending
-            | config_refused   (what the Settings row explains)
+            | config_refused | agent_outdated  (what the Settings row explains)
     needs_confirm: a re-pair needs "Sparuj mimo to" (proven pairing)
+    call112_capable / call112_mode: what the last signed health answer said
+            about "Zadzwoń 112" on the car phone (plan H, path B: toggle on,
+            ``su`` works, a test number in test mode) — the Settings row
+            shows it, so root problems are visible before a crash
 
 Pairing is started by web_viewer's loopback-only, rate-limited
 ``POST /api/car_phone_agent/pair {code, confirm}`` through
@@ -126,7 +183,18 @@ call it from YOUR OWN worker thread — each call may take a few seconds;
 thread-safe, each returns ``{"ok", "status", "data", "error", "detail"}``
 and never raises: :meth:`~CarPhoneAgent.arm_crash`,
 :meth:`~CarPhoneAgent.cancel`, :meth:`~CarPhoneAgent.send_now`,
-:meth:`~CarPhoneAgent.get`, :meth:`~CarPhoneAgent.test_sms`. Without I/O
+:meth:`~CarPhoneAgent.get`, :meth:`~CarPhoneAgent.test_sms`,
+:meth:`~CarPhoneAgent.call112` / :meth:`~CarPhoneAgent.call112_status` /
+:meth:`~CarPhoneAgent.call112_hangup` / :meth:`~CarPhoneAgent.call112_mark`
+(plan H, used by src/safety/call112.py only, after the driver held the
+button in the crash window — the loopback-only route),
+:meth:`~CarPhoneAgent.park_status` / :meth:`~CarPhoneAgent.park_arm` /
+:meth:`~CarPhoneAgent.park_disarm` (plan D4, src/safety/parking_guard.py),
+:meth:`~CarPhoneAgent.cabin_status` (plan I, src/safety/cabin_watch.py —
+the cabin watch's state and events, never a photo) and
+:meth:`~CarPhoneAgent.park_event` (a door signal for the cabin watch —
+the target variant with the door wake-up of plan E; nothing sends it yet).
+Without I/O
 (any thread): :attr:`~CarPhoneAgent.state` (the published payload),
 :meth:`~CarPhoneAgent.health_facts` (what the last signed health answer
 said beyond the Settings row: the last verified real test SMS, the
@@ -155,6 +223,7 @@ from src.core import modules_catalog
 from src.core.fsutil import atomic_write_json
 from src.core.logger import get_logger
 from src.network._proc import _cfg_get, clean_error
+from src.power import remote_session as _remote_session
 
 log = get_logger("network.car_phone_agent")
 
@@ -164,9 +233,19 @@ FORWARD_NAME = "agent"
 STATES = ("disabled", "no_secret", "waiting_forward", "unpaired", "ok", "error",
           "bad_signature")
 REASONS = ("", "pairing_closed", "bad_code", "secret_mismatch", "agent_reset", "clock_skew",
-           "no_answer", "storage", "http", "config_pending", "config_refused")
+           "no_answer", "storage", "http", "config_pending", "config_refused",
+           "agent_outdated")
 #: Reasons that may accompany state "ok" (the agent works, its config lags).
-OK_REASONS = ("config_pending", "config_refused")
+OK_REASONS = ("config_pending", "config_refused", "agent_outdated")
+#: The first agent version that knows the 112 config keys (plan H). An older
+#: agent drops them, so with ``modules.call112`` on its hash never matches.
+MIN_AGENT_VERSION = (1, 1, 0)
+#: The same for the parking guard keys (plan D4, ``park_*``, ``/v1/park*``).
+MIN_AGENT_VERSION_PARK = (1, 2, 0)
+#: The same for the cabin watch keys (plan I, ``cabin_*``, ``/v1/cabin``).
+MIN_AGENT_VERSION_CABIN = (1, 3, 0)
+#: The same for the IR wake (plan E, ``toggles.remote_session``, ``wake_*``).
+MIN_AGENT_VERSION_WAKE = (1, 4, 0)
 SECRET_PATH = "network.car_phone.agent.secret"
 SECRET_ENV = "BCM_CAR_PHONE_AGENT_SECRET"
 STATE_FILE = "data/car_phone_agent.json"
@@ -194,6 +273,9 @@ NONCE_MAX = 10**18
 LAST_OK_REPUBLISH_S = 60.0
 
 AGENT_TOGGLES = ("crash_sms", "parking_guard", "cabin_watch", "call112")
+#: Toggles sent ONLY while on (an older agent does not know them — see the
+#: module docstring, ``toggles.remote_session``).
+AGENT_TOGGLES_WHEN_ON = ("remote_session",)
 DEFAULT_LABEL = "ALFA 156"
 MAX_RECIPIENTS = 3
 COUNTDOWN_MIN_S = 15
@@ -211,6 +293,47 @@ EVENT_ID_RE = re.compile(r"^[0-9a-f]{1,32}$")
 SIG_RE = re.compile(r"^[0-9a-f]{64}$")
 VERSION_RE = re.compile(r"^[0-9A-Za-z.+-]{1,16}$")
 HASH_RE = re.compile(r"^[0-9a-f]{16}$")
+#: What call112 may ask the agent for (the agent refuses a mismatch with its
+#: own mode — a config not synced yet never dials the wrong number).
+CALL112_MODES = ("real", "test")
+#: The agent's call states (``GET /v1/call112``).
+CALL112_STATES = ("queued", "placed", "offhook", "ended", "failed")
+CALL112_ERRORS = ("", "su_missing", "su_denied", "am_failed", "no_call")
+
+#: The parking guard on the phone (``GET /v1/park``), see bcm_agent.py.
+PARK_STATES = ("off", "disarmed", "arming", "armed", "alarm", "log_only")
+PARK_BY = ("", "power", "bcm", "sms", "owner_bt", "owner_sms", "owner_code", "low_battery",
+           "home", "off", "power_back", "crash")
+#: ``cabin`` = the cabin watch's alarm (plan I) — the same car alarm;
+#: ``crash_holdoff`` = disarmed / not self-arming after a crash or a 112 call.
+PARK_EVENT_KINDS = ("tilt", "shake", "power", "low_battery", "home", "cabin", "crash_holdoff")
+PARK_SENSOR_STATES = ("off", "starting", "ok", "error", "no_sensor", "light")
+#: (default, lo, hi) of the ``parking_guard.*`` numbers — the agent's ranges.
+PARK_INTS = {"arm_after_min": (3, 1, 60), "arm_delay_min": (2, 0, 30), "grace_min": (3, 1, 15),
+             "entry_s": (90, 0, 300)}
+PARK_FLOATS = {"tilt_deg": (0.5, 0.2, 10.0), "shake_k": (6.0, 2.0, 50.0)}
+PARK_HOME_RADIUS_M = (50, 5000)
+PARK_CODE_RE = re.compile(r"^[0-9]{6}$")
+
+#: The cabin watch on the phone (``GET /v1/cabin``), see bcm_agent.py.
+CABIN_STATES = ("off", "idle", "watching", "pending")
+CABIN_CAMERA = ("ok", "unknown", "light_mode", "low_battery", "no_temp", "cold", "hot",
+                "charging_hot", "no_space", "no_front_camera", "bad_path", "in_call")
+CABIN_LIGHT_SENSOR = ("ok", "none", "unknown")
+CABIN_OUTCOMES = ("pending", "alarm", "owner", "off", "logged", "limited", "no_numbers",
+                  "expired", "crash")
+CABIN_SIGNALS = ("door", "light", "shake", "tilt", "power")
+CABIN_VERDICTS = ("change", "no_change", "dark", "skipped", "error")
+CABIN_REF_MODES = ("ref", "burst")
+#: (default, lo, hi) of ``cabin_watch.*`` — the agent's ranges.
+CABIN_ENTRY_S = (60, 45, 60)
+CABIN_DIFF_PCT = (3.0, 0.5, 50.0)
+CABIN_LIGHT_RATIO = (5.0, 2.0, 50.0)
+CABIN_LIGHT_LUX = (5.0, 1.0, 1000.0)
+CABIN_MASK_MAX = 4
+CABIN_EVENT_ID_RE = re.compile(r"^[0-9a-f]{16}$")
+#: What a door signal may say (``POST /v1/park/event``).
+CABIN_EXT_SIGNALS = ("door",)
 
 #: Error codes the agent sends WITHOUT a signature (it cannot sign for a
 #: client it did not authenticate) — informational only.
@@ -286,6 +409,151 @@ def _module_on(config: Any, name: str) -> bool:
     return _cfg_get(config, f"modules.{name}", False) is True
 
 
+def call112_settings(config: Any) -> tuple[bool, str]:
+    """``(test_mode, test_number)`` from ``safety.call112`` — the one place
+    both the call112 module and the config push read them.
+
+    ``test_mode``: False only when missing or an explicit false (the code
+    default is the real 112); any other non-bool value (a typo such as
+    ``"yes"``) means TEST — an unclear setting never dials 112.
+    ``test_number``: the E.164 number (``^\\+[1-9][0-9]{7,14}$``) or "" —
+    in test mode without one, nothing can be dialled at all."""
+    block = _cfg_get(config, "safety.call112", {})
+    if not isinstance(block, dict):
+        block = {}
+    raw = block.get("test_mode", False)
+    test_mode = raw is not False and raw is not None
+    num = block.get("test_number", "")
+    num = num.strip() if isinstance(num, str) else ""
+    return test_mode, num if E164_RE.fullmatch(num) else ""
+
+
+def _clamp_num(raw: Any, default: float, lo: float, hi: float, integer: bool) -> tuple[Any, bool]:
+    """``(value, ok)``: a number clamped into ``[lo, hi]`` (``ok`` False when
+    it had to be clamped or replaced by the default)."""
+    if isinstance(raw, bool) or not isinstance(raw, (int, float)) \
+            or (isinstance(raw, float) and not math.isfinite(raw)):
+        return default, raw is None
+    value = min(max(raw, lo), hi)
+    final = int(round(value)) if integer else round(float(value), 2)
+    return final, final == raw
+
+
+def park_settings(config: Any, warn: Optional[Callable[[str, str], None]] = None) -> dict:
+    """``parking_guard.*`` → the agent's ``park_*`` keys in its canonical
+    form (see the module docstring). ``warn(key, message)`` for every value
+    that was dropped or clamped; personal data (numbers, home) is never in
+    a message."""
+    def _warn(key: str, msg: str) -> None:
+        if warn is not None:
+            warn(key, msg)
+
+    block = _cfg_get(config, "parking_guard", {})
+    if not isinstance(block, dict):
+        block = {}
+    raw = block.get("numbers", [])
+    if raw is None:
+        raw = []
+    if not isinstance(raw, list):
+        _warn("park_numbers", "parking_guard.numbers is not a list — no numbers")
+        raw = []
+    numbers: list[str] = []
+    for n in raw:
+        if not isinstance(n, str) or not E164_RE.fullmatch(n.strip()):
+            _warn(f"park_number:{len(numbers)}", "parking_guard.numbers: an entry is not an "
+                                                 "E.164 number — ignored")
+            continue
+        n = n.strip()
+        if n in numbers:
+            continue
+        if len(numbers) >= MAX_RECIPIENTS:
+            _warn("park_numbers_max", f"parking_guard.numbers: more than {MAX_RECIPIENTS} — "
+                                      f"only the first {MAX_RECIPIENTS} used")
+            break
+        numbers.append(n)
+    out: dict[str, Any] = {
+        "park_numbers": numbers,
+        # Only an explicit false sends alarm SMS (a typo stays log-only).
+        "park_log_only": block.get("log_only", True) is not False,
+    }
+    for key, (default, lo, hi) in PARK_INTS.items():
+        value, ok = _clamp_num(block.get(key), default, lo, hi, True)
+        if not ok:
+            _warn(f"park_{key}", f"parking_guard.{key}={block.get(key)!r} — using {value}")
+        out[f"park_{key}"] = value
+    for key, (default, lo, hi) in PARK_FLOATS.items():
+        value, ok = _clamp_num(block.get(key), default, lo, hi, False)
+        if not ok:
+            _warn(f"park_{key}", f"parking_guard.{key}={block.get(key)!r} — using {value}")
+        out[f"park_{key}"] = float(value)
+    home = block.get("home")
+    out["park_home"] = None
+    if isinstance(home, dict) and home:
+        lat, lon = _num(home.get("lat"), -90, 90), _num(home.get("lon"), -180, 180)
+        radius = home.get("radius_m")
+        if lat is None or lon is None or isinstance(radius, bool) \
+                or not isinstance(radius, (int, float)) or not math.isfinite(radius):
+            _warn("park_home", "parking_guard.home needs lat, lon and radius_m — ignored "
+                               "(the phone arms everywhere)")
+        else:
+            r = int(round(min(max(radius, PARK_HOME_RADIUS_M[0]), PARK_HOME_RADIUS_M[1])))
+            if r != radius:
+                _warn("park_home_radius", f"parking_guard.home.radius_m clamped to {r} m "
+                                          f"({PARK_HOME_RADIUS_M[0]}..{PARK_HOME_RADIUS_M[1]})")
+            out["park_home"] = {"lat": round(float(lat), 6), "lon": round(float(lon), 6),
+                                "radius_m": r}
+    elif home not in (None, {}):
+        _warn("park_home", "parking_guard.home is not {lat, lon, radius_m} — ignored")
+    return out
+
+
+def cabin_settings(config: Any, warn: Optional[Callable[[str, str], None]] = None) -> dict:
+    """``cabin_watch.*`` → the agent's ``cabin_*`` keys in its canonical
+    form (int, float rounded to 0.01, the mask as lists of 4 ints).
+    ``warn(key, message)`` for every value that was dropped or clamped."""
+    def _warn(key: str, msg: str) -> None:
+        if warn is not None:
+            warn(key, msg)
+
+    block = _cfg_get(config, "cabin_watch", {})
+    if not isinstance(block, dict):
+        block = {}
+    default, lo, hi = CABIN_ENTRY_S
+    entry, ok = _clamp_num(block.get("entry_s"), default, lo, hi, True)
+    if not ok:
+        _warn("cabin_entry_s", f"cabin_watch.entry_s={block.get('entry_s')!r} — using {entry}")
+    default, lo, hi = CABIN_DIFF_PCT
+    diff, ok = _clamp_num(block.get("diff_pct"), default, lo, hi, False)
+    if not ok:
+        _warn("cabin_diff_pct", f"cabin_watch.diff_pct={block.get('diff_pct')!r} — using {diff}")
+    raw = block.get("mask")
+    mask: list = []
+    if raw not in (None, []):
+        good = isinstance(raw, list) and len(raw) <= CABIN_MASK_MAX
+        for rect in raw if good else []:
+            vals = rect if isinstance(rect, list) and len(rect) == 4 else []
+            nums = [v for v in vals if isinstance(v, int) and not isinstance(v, bool)
+                    and 0 <= v <= 100]
+            if len(nums) != 4 or nums[0] >= nums[2] or nums[1] >= nums[3]:
+                good = False
+                break
+            mask.append([int(v) for v in nums])
+        if not good:
+            _warn("cabin_mask", f"cabin_watch.mask: at most {CABIN_MASK_MAX} rectangles "
+                                "[x0, y0, x1, y1] of whole percent (0..100, x0 < x1, y0 < y1) "
+                                "— no mask")
+            mask = []
+    out = {"cabin_entry_s": int(entry), "cabin_diff_pct": float(diff), "cabin_mask": mask}
+    for key, name, limits in (("cabin_light_ratio", "light_ratio", CABIN_LIGHT_RATIO),
+                              ("cabin_light_lux", "light_lux", CABIN_LIGHT_LUX)):
+        default, lo, hi = limits
+        val, ok = _clamp_num(block.get(name), default, lo, hi, False)
+        if not ok:
+            _warn(key, f"cabin_watch.{name}={block.get(name)!r} — using {val}")
+        out[key] = float(val)
+    return out
+
+
 def desired_config(config: Any, warn: Optional[Callable[[str, str], None]] = None) -> dict:
     """What the agent should hold (``PUT /v1/config``), in the agent's
     canonical form — the hash must match the agent's ``config_hash``.
@@ -323,26 +591,59 @@ def desired_config(config: Any, warn: Optional[Callable[[str, str], None]] = Non
     if isinstance(slot, bool) or slot not in (0, 1):
         _warn("sim_slot", f"crash_detection.sms.sim_slot={slot!r} — using 0")
         slot = 0
+    test_mode, test_number = call112_settings(config)
     label = sms.get("vehicle_label", DEFAULT_LABEL)
     if not isinstance(label, str) or not LABEL_RE.fullmatch(label) or label != label.strip():
         _warn("vehicle_label", f"crash_detection.sms.vehicle_label is not 1-20 characters "
                                f"A-Z a-z 0-9 space . - — using {DEFAULT_LABEL!r}")
         label = DEFAULT_LABEL
-    return {
+    toggles = {name: _module_on(config, name) for name in AGENT_TOGGLES}
+    for name in AGENT_TOGGLES_WHEN_ON:
+        if _module_on(config, name):
+            toggles[name] = True
+    out = {
         "recipients": recipients,
         "sim_slot": int(slot),
         "vehicle_label": label,
-        "toggles": {name: _module_on(config, name) for name in AGENT_TOGGLES},
+        "toggles": toggles,
         # Only an explicit false sends real SMS (a typo stays in test mode).
         "dry_run": sms.get("dry_run", True) is not False,
         "follow_up_cancel": sms.get("follow_up_cancel", True) is not False,
     }
+    if toggles["call112"]:
+        # Only with the toggle on (see the module docstring): the #128 agent
+        # drops unknown keys and hashes its 6-key form — sending these with
+        # 112 off would make every BCM update look like a refused config.
+        out["call112_test_mode"] = test_mode
+        out["call112_test_number"] = test_number
+    if toggles["parking_guard"]:
+        # The same rule for the parking guard (agent >= 1.2.0).
+        out.update(park_settings(config, warn))
+    if toggles["cabin_watch"]:
+        # ... and for the cabin watch (agent >= 1.3.0).
+        out.update(cabin_settings(config, warn))
+    if toggles.get("remote_session"):
+        # ... and for the IR wake (agent >= 1.4.0), toggle included.
+        address, command = _remote_session.ir_settings(config, warn)
+        out["wake_ir_address"] = address
+        out["wake_ir_command"] = command
+    return out
+
+
+def parse_version(value: Any) -> Optional[tuple[int, int, int]]:
+    """``"1.1.0"`` → ``(1, 1, 0)``; None for anything else (a suffix such
+    as ``1.1.0+dev`` is ignored)."""
+    if not isinstance(value, str):
+        return None
+    m = re.match(r"^([0-9]{1,4})\.([0-9]{1,4})\.([0-9]{1,4})", value)
+    return (int(m.group(1)), int(m.group(2)), int(m.group(3))) if m else None
 
 
 #: health_facts() before the first signed health answer.
 _EMPTY_FACTS: dict[str, Any] = {"last_verified_test_ts": None, "last_test": None,
                                 "dry_run": None, "recipients_n": None, "active_event": None,
-                                "config_hash": None}
+                                "config_hash": None, "call112_capable": None,
+                                "call112_mode": None, "call_state": None}
 _HASH_RE = re.compile(r"^[0-9a-f]{16}$")
 #: States of the agent's last test SMS (``last_test.state``).
 TEST_STATES = ("pending", "sent", "partial", "failed")
@@ -375,7 +676,145 @@ def parse_health_facts(obj: Any) -> dict[str, Any]:
         and EVENT_ID_RE.fullmatch(active) else None
     h = obj.get("config_hash")
     out["config_hash"] = h if isinstance(h, str) and _HASH_RE.fullmatch(h) else None
+    cap = obj.get("call112_capable")
+    out["call112_capable"] = cap if isinstance(cap, bool) else None
+    mode = obj.get("call112_mode")
+    out["call112_mode"] = mode if mode in CALL112_MODES else None
+    cs = obj.get("call_state")
+    out["call_state"] = cs if cs in (0, 1, 2) and not isinstance(cs, bool) else None
     return out
+
+
+def parse_park_view(obj: Any) -> Optional[dict[str, Any]]:
+    """The agent's parking guard view (``GET /v1/park``, also the answer to
+    ``POST /v1/park/arm|disarm``), type- and range-checked field by field.
+    None when it is not one (no known state)."""
+    if not isinstance(obj, dict) or obj.get("state") not in PARK_STATES:
+        return None
+
+    def ts(value: Any) -> Optional[int]:
+        v = _num(value, EVENT_TS_MIN, EVENT_TS_MAX)
+        return None if v is None else int(v)
+
+    def small_int(value: Any, hi: int) -> Optional[int]:
+        return value if isinstance(value, int) and not isinstance(value, bool) \
+            and 0 <= value <= hi else None
+
+    ev = obj.get("last_event")
+    event = None
+    if isinstance(ev, dict) and ev.get("kind") in PARK_EVENT_KINDS and ts(ev.get("ts")):
+        value = _num(ev.get("value"), -1e6, 1e6)
+        event = {"kind": ev["kind"], "ts": ts(ev.get("ts")),
+                 "value": None if value is None else round(float(value), 2),
+                 "logged_only": ev.get("logged_only") is True}
+    battery = obj.get("battery") if isinstance(obj.get("battery"), dict) else {}
+    power = battery.get("power")
+    return {
+        "state": obj["state"],
+        "since": ts(obj.get("since")),
+        "by": obj.get("by") if obj.get("by") in PARK_BY else "",
+        "arm_at": ts(obj.get("arm_at")),
+        "last_event": event,
+        "battery_pct": small_int(battery.get("pct"), 100),
+        "power": power if power in ("plugged", "unplugged") else None,
+        "log_only": obj.get("log_only") is True,
+        "light": obj.get("light") is True,
+        "sensor": obj.get("sensor") if obj.get("sensor") in PARK_SENSOR_STATES else "off",
+        "totp_ready": obj.get("totp_ready") is True,
+        "numbers_n": small_int(obj.get("numbers_n"), MAX_RECIPIENTS) or 0,
+        "home_set": obj.get("home_set") is True,
+        "alarms_today": small_int(obj.get("alarms_today"), 1000) or 0,
+        # The entry window: motion seen, the alarm goes out at this time
+        # without the owner's proof (None = nothing pending).
+        "entry_until": ts(obj.get("entry_until")),
+        # Switched off on BCM while armed: it keeps guarding until the
+        # owner's proof (agent >= 1.5.0; older agents never send it).
+        "off_pending": obj.get("off_pending") is True,
+    }
+
+
+def _cabin_event(ev: Any) -> Optional[dict[str, Any]]:
+    if not isinstance(ev, dict) or not isinstance(ev.get("id"), str) \
+            or not CABIN_EVENT_ID_RE.fullmatch(ev["id"]) or ev.get("outcome") not in CABIN_OUTCOMES:
+        return None
+    ts = _num(ev.get("ts"), EVENT_TS_MIN, EVENT_TS_MAX)
+    if ts is None:
+        return None
+    reasons = ev.get("reasons")
+    photos = ev.get("photos")
+    pct = _num(ev.get("changed_pct"), 0.0, 100.0)
+    return {
+        "id": ev["id"], "ts": int(ts),
+        "reasons": [k for k in CABIN_SIGNALS if isinstance(reasons, list) and k in reasons],
+        "weak": ev.get("weak") is True,
+        "photos": photos if isinstance(photos, int) and not isinstance(photos, bool)
+        and 0 <= photos <= 3 else 0,
+        "outcome": ev["outcome"],
+        "verdict": ev.get("verdict") if ev.get("verdict") in CABIN_VERDICTS else None,
+        "changed_pct": None if pct is None else round(float(pct), 1),
+        "ref": ev.get("ref") if ev.get("ref") in CABIN_REF_MODES else None,
+        "camera": ev.get("camera") if ev.get("camera") in CABIN_CAMERA else "",
+    }
+
+
+def parse_cabin_view(obj: Any) -> Optional[dict[str, Any]]:
+    """The agent's cabin watch view (``GET /v1/cabin``), type- and
+    range-checked field by field (there are never photos in it; anything
+    unexpected is dropped). None when it is not one (no known state)."""
+    if not isinstance(obj, dict) or obj.get("state") not in CABIN_STATES:
+        return None
+    lux = _num(obj.get("lux"), 0.0, 200000.0)
+    mb = _num(obj.get("photos_mb"), 0.0, 100000.0)
+    events = obj.get("events")
+    parsed = [e for e in (_cabin_event(x) for x in (events[-5:] if isinstance(events, list)
+                                                     else [])) if e is not None]
+    pillow = obj.get("pillow")
+    n = obj.get("photos_n")
+    today = obj.get("events_today")
+    until = _num(obj.get("entry_until"), EVENT_TS_MIN, EVENT_TS_MAX)
+    return {
+        "state": obj["state"],
+        "camera": obj.get("camera") if obj.get("camera") in CABIN_CAMERA else "unknown",
+        "light_sensor": obj.get("light_sensor") if obj.get("light_sensor") in CABIN_LIGHT_SENSOR
+        else "unknown",
+        "lux": None if lux is None else round(float(lux), 1),
+        "pillow": pillow if isinstance(pillow, bool) else None,
+        "log_only": obj.get("log_only") is True,
+        "entry_until": None if until is None else int(until),
+        "photos_n": n if isinstance(n, int) and not isinstance(n, bool) and 0 <= n <= 10000
+        else 0,
+        "photos_mb": None if mb is None else round(float(mb), 1),
+        "events_today": today if isinstance(today, int) and not isinstance(today, bool)
+        and 0 <= today <= 1000 else 0,
+        "last_event": _cabin_event(obj.get("last_event")),
+        "events": parsed,
+    }
+
+
+def parse_call112_view(obj: Any) -> Optional[dict[str, Any]]:
+    """The agent's call view (``POST``/``GET /v1/call112``), checked: a
+    known state and error, epoch timestamps, the masked number as at most
+    16 characters of ``+0-9.``. None for anything else."""
+    if not isinstance(obj, dict) or obj.get("state") not in CALL112_STATES:
+        return None
+    seq = obj.get("seq")
+
+    def ts(key: str) -> Optional[int]:
+        v = _num(obj.get(key), EVENT_TS_MIN, EVENT_TS_MAX)
+        return None if v is None else int(v)
+
+    number = obj.get("number")
+    return {
+        "seq": seq if isinstance(seq, int) and not isinstance(seq, bool) and seq >= 0 else 0,
+        "state": obj["state"],
+        "mode": obj.get("mode") if obj.get("mode") in CALL112_MODES else None,
+        "error": obj.get("error") if obj.get("error") in CALL112_ERRORS else "",
+        "final": obj.get("final") is True,
+        "number": number if isinstance(number, str) and re.fullmatch(r"[+0-9.]{1,16}", number)
+        else "",
+        "requested_ts": ts("requested_ts"), "placed_ts": ts("placed_ts"),
+        "offhook_ts": ts("offhook_ts"), "ended_ts": ts("ended_ts"),
+    }
 
 
 # ── transport ─────────────────────────────────────────────────────────────
@@ -694,7 +1133,8 @@ class CarPhoneAgent:
         # Last known agent facts (published with every state).
         self._info: dict[str, Any] = {"paired": None, "pairing": None, "version": None,
                                       "sim_ready": None, "last_ok_ts": None,
-                                      "last_sent_ts": None}
+                                      "last_sent_ts": None, "call112_capable": None,
+                                      "call112_mode": None}
         # More facts from the last signed health answer, NOT published (the
         # Settings row does not show them): see health_facts().
         self._facts: dict[str, Any] = dict(_EMPTY_FACTS)
@@ -955,7 +1395,9 @@ class CarPhoneAgent:
                 else None,
                 sim_ready=sim if isinstance(sim, bool) else None,
                 last_ok_ts=self._wall(),
-                last_sent_ts=sent)
+                last_sent_ts=sent,
+                call112_capable=facts["call112_capable"],
+                call112_mode=facts["call112_mode"])
         self._delay = BACKOFF_MIN_S
         self._next_poll = self._clock() + POLL_OK_S
         self._logged_error = ""
@@ -1043,7 +1485,8 @@ class CarPhoneAgent:
             self._push_logged = ""
             return ""
         if want == self._push_failed:
-            return "config_refused"     # the agent refused exactly this — wait for a change
+            # The agent refused exactly this — wait for a change.
+            return self._refused_reason(desired)
         try:
             status, obj = self._client.request(port, "PUT", "/v1/config", desired)
         except AgentError as e:
@@ -1066,11 +1509,49 @@ class CarPhoneAgent:
         detail = clean_error(obj.get("detail") or obj.get("error") or "")
         if status == 200 or (status == 400 and obj.get("error") == "bad_config"):
             self._push_failed = want
-            log.warning("Car phone agent: the agent refused the config (HTTP %d: %s) — not "
-                        "retried until it changes", status, detail or "hash mismatch")
-            return "config_refused"
+            reason = self._refused_reason(desired)
+            if reason == "agent_outdated":
+                log.warning("Car phone agent: the agent on the phone (%s) is older than this "
+                            "BCM and cannot hold the 112 / parking guard / cabin watch / "
+                            "wake settings — copy the new tools/car_phone/termux/bcm_agent.py "
+                            "to ~/bcm_agent/ and restart it (docs §5.9, "
+                            "PRZYGOTOWANIE_TELEFONU §9.5)",
+                            self._info.get("version") or "?")
+            else:
+                log.warning("Car phone agent: the agent refused the config (HTTP %d: %s) — "
+                            "not retried until it changes", status, detail or "hash mismatch")
+            return reason
         self._log_push(f"config push failed (HTTP {status}: {detail}) — the next poll retries")
         return "config_pending"
+
+    def _refused_reason(self, desired: dict) -> str:
+        """``agent_outdated`` when the refusal is explained by an agent
+        older than :data:`MIN_AGENT_VERSION` while ``modules.call112`` is on
+        (it drops the 112 keys, so its hash never matches) or older than
+        :data:`MIN_AGENT_VERSION_PARK` while ``modules.parking_guard`` is
+        on (the same for the ``park_*`` keys), or older than
+        :data:`MIN_AGENT_VERSION_CABIN` while ``modules.cabin_watch`` is on
+        (``cabin_*``), or older than :data:`MIN_AGENT_VERSION_WAKE` while
+        ``modules.remote_session`` is on (``wake_*``) — the Settings row then says
+        "copy the new bcm_agent.py", not "check crash_detection.sms";
+        otherwise ``config_refused``."""
+        toggles = desired.get("toggles", {})
+        with self._state_lock:
+            version = parse_version(self._info.get("version"))
+            capable = self._facts.get("call112_capable")
+        if toggles.get("call112") and ((version is not None and version < MIN_AGENT_VERSION)
+                                       or (version is None and capable is None)):
+            return "agent_outdated"
+        if toggles.get("parking_guard") and (version is None
+                                             or version < MIN_AGENT_VERSION_PARK):
+            return "agent_outdated"
+        if toggles.get("cabin_watch") and (version is None
+                                           or version < MIN_AGENT_VERSION_CABIN):
+            return "agent_outdated"
+        if toggles.get("remote_session") and (version is None
+                                              or version < MIN_AGENT_VERSION_WAKE):
+            return "agent_outdated"
+        return "config_refused"
 
     def _log_push(self, message: str) -> None:
         """One warning per distinct failure, not one every 30 s."""
@@ -1184,6 +1665,83 @@ class CarPhoneAgent:
             body["real_test"] = True
         return self._call("POST", "/v1/test", body)
 
+    def call112(self, mode: str, event_id: str) -> dict:
+        """``POST /v1/call112 {"mode": "real"|"test", "event_id": "<hex>"}``
+        — the car phone dials on its speaker (plan H, path B). NEVER a
+        number: the agent dials its constant 112, or in test mode its own
+        configured test number, and refuses (409 ``mode_mismatch``) when its
+        mode is not ``mode``. ``event_id`` = the crash event of the window:
+        only THAT event's crash SMS gets "Z auta wybrano 112" (nothing when
+        the phone does not hold it, e.g. a GPS-only event). Only
+        src/safety/call112.py calls this, from its worker after the driver
+        held the button on the head unit's screen."""
+        if mode not in CALL112_MODES:
+            return _result(False, error="bad_request", detail="mode: real|test")
+        if not isinstance(event_id, str) or not EVENT_ID_RE.fullmatch(event_id):
+            return _result(False, error="bad_request", detail="event_id: 1-32 lowercase hex")
+        return self._call("POST", "/v1/call112", {"mode": mode, "event_id": event_id})
+
+    def call112_status(self) -> dict:
+        """``GET /v1/call112`` — the agent's current / last 112 call."""
+        return self._call("GET", "/v1/call112")
+
+    def call112_hangup(self) -> dict:
+        """``POST /v1/call112/hangup`` — "Rozłącz" in the crash window."""
+        return self._call("POST", "/v1/call112/hangup", {})
+
+    def call112_mark(self, event_id: str) -> dict:
+        """``POST /v1/call112/mark {"event_id": "<hex>"}`` — the MAIN phone
+        (HFP, path A) dialled the real 112 for this crash event: the phone
+        marks THAT event ``called_112`` (the crash SMS says "Z auta wybrano
+        112", or one follow-up SMS goes after a sent one) — nothing if it
+        does not hold the event. Never sent in test mode (call112 checks)."""
+        if not isinstance(event_id, str) or not EVENT_ID_RE.fullmatch(event_id):
+            return _result(False, error="bad_request", detail="event_id: 1-32 lowercase hex")
+        return self._call("POST", "/v1/call112/mark", {"event_id": event_id})
+
+    def park_status(self) -> dict:
+        """``GET /v1/park`` — the parking guard on the phone (plan D4);
+        ``data`` is the raw view, :func:`parse_park_view` checks it."""
+        return self._call("GET", "/v1/park")
+
+    def park_arm(self, delay_min: Optional[int] = None) -> dict:
+        """``POST /v1/park/arm {"delay_min": 0..30}`` (no body field = the
+        phone's configured exit window). Arming needs no owner proof."""
+        if delay_min is None:
+            return self._call("POST", "/v1/park/arm", {})
+        if isinstance(delay_min, bool) or not isinstance(delay_min, int) \
+                or not 0 <= delay_min <= 30:
+            return _result(False, error="bad_request", detail="delay_min: 0..30")
+        return self._call("POST", "/v1/park/arm", {"delay_min": delay_min})
+
+    def park_disarm(self, code: Optional[str] = None) -> dict:
+        """``POST /v1/park/disarm`` — OWNER PROOF only: without ``code``
+        it tells the phone "the owner's phone is connected to BCM"
+        (src/safety/parking_guard.py sends that only on such a connection
+        edge); with ``code`` (6 digits typed on the car's screen) the PHONE
+        checks the TOTP code — BCM never knows the TOTP secret."""
+        if code is None:
+            return self._call("POST", "/v1/park/disarm", {})
+        if not isinstance(code, str) or not PARK_CODE_RE.fullmatch(code):
+            return _result(False, error="bad_request", detail="code: 6 digits")
+        return self._call("POST", "/v1/park/disarm", {"code": code})
+
+    def cabin_status(self) -> dict:
+        """``GET /v1/cabin`` — the cabin watch on the phone (plan I): state,
+        events, photo count — never a photo. :func:`parse_cabin_view`
+        checks ``data``."""
+        return self._call("GET", "/v1/cabin")
+
+    def park_event(self, kind: str) -> dict:
+        """``POST /v1/park/event {"kind": "door"}`` — a SIGNAL for the cabin
+        watch (the door opened while the car is parked; sent by
+        src/safety/cabin_watch.py after plan E's door wake-up, buffered
+        build only). Never a disarm: the phone treats it as a
+        possible intruder."""
+        if kind not in CABIN_EXT_SIGNALS:
+            return _result(False, error="bad_request", detail="kind: door")
+        return self._call("POST", "/v1/park/event", {"kind": kind})
+
     def pair(self, code: str, confirm: bool = False) -> dict:
         """``POST /v1/pair {secret}`` signed with the one-time ``code``; the
         answer must be signed with OUR secret. Worker thread only (through
@@ -1257,7 +1815,7 @@ class CarPhoneAgent:
                 ok_reason = state != "ok" or reason in OK_REASONS
                 payload = {"state": state, **{k: info[k] for k in (
                     "paired", "pairing", "version", "sim_ready", "last_ok_ts",
-                    "last_sent_ts")},
+                    "last_sent_ts", "call112_capable", "call112_mode")},
                     "reason": reason if reason in REASONS and ok_reason else "",
                     "error": clean_error(error) if state not in ("ok", "disabled") else "",
                     "needs_confirm": bool(state not in ("ok", "disabled", "no_secret")

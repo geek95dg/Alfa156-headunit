@@ -4,8 +4,13 @@
 //  - components/crash_modal.js, pure parts: which payloads open the window,
 //    which texts it shows (DRY RUN badge, forced-test-mode reason, "no phone"
 //    message, results), escaping, and the skeleton's geometry from its inline
-//    styles (ANULUJ >= 1/3 of the screen, the reserved 112 slot >= 15% of
-//    the width away, no inline JS);
+//    styles (ANULUJ >= 1/3 of the screen, the 112 slot >= 15% of the width
+//    away, no inline JS);
+//  - the 112 parts (plan H): which payloads show what (pickMode), the
+//    button label names the path and never says "ZADZWOŃ 112" in test
+//    mode, the call view texts, the dispatcher panel (decimal and DMS
+//    position, fix age, vehicle, the read-out sentence), escaping, the
+//    panel's Zamknij / Rozłącz >= 15% away from the 112 button;
 //  - app.js: #crash-modal is in GESTURE_OVERLAYS and _syncCrashState hands
 //    data.crash_sms to CrashModal on EVERY screen (A2 included), even when
 //    the screen's own update() throws;
@@ -141,8 +146,139 @@ const gap = Number(sk.match(/data-crash-gap style="width:(\d+)vw/)[1]);
 assert.ok(gap >= 15, "the 112 slot must be >= 15% of the width away from ANULUJ");
 assert.ok(/data-crash-112-slot/.test(sk), "no reserved place for the 112 button");
 assert.ok(/data-crash-action="send_now"/.test(sk));
-assert.ok(!/112/.test(sk.replace(/<!--[\s\S]*?-->/g, "").replace(/data-crash-112-slot/g, "")),
-          "no 112 logic in this batch");
+// Without the 112 module the slot stays empty (no button, no route call).
+assert.ok(!/data-c112-hold/.test(sk), "a 112 button without data.call112");
+
+// ── „Zadzwoń 112” (plan H): pure parts ───────────────────────────────────
+function c112(extra, disp) {
+    return Object.assign({
+        window: true, event_id: EID, state: "idle", path: "", error: "", offer: "hfp",
+        fallback: false, reasons: { hfp: "", car_phone: "not_ready" }, retry_after_s: 0,
+        test_mode: false, test_number: "", hold_ms: 2000, arm_delay_ms: 700, incoming: false,
+        duration_s: null, unverified: false, hangup_pending: false,
+        dispatcher: Object.assign({ lat: 52.229676, lon: 21.012229, fix_age_s: 4, sats: 9,
+                                    heading: 270, speed_kmh: 72, event_ts: 1763000000,
+                                    vehicle: { label: "Alfa Romeo 156", colour: "czerwona",
+                                               plate: "WX 12345" } }, disp || {}),
+    }, extra || {});
+}
+assert.strictEqual(C.normalize112(null), null);
+assert.strictEqual(C.normalize112(c112({ window: false })), null);           // nothing to show
+assert.ok(C.normalize112(c112({ window: false, state: "active" })).live);   // a live call stays
+assert.strictEqual(C.normalize112(c112({ event_id: "<b>" })), null);
+let w1 = C.normalize112(c112({ offer: "<img>", test_mode: "no", test_number: "+48601234567",
+                              reasons: { hfp: "<x>" }, hold_ms: 99999 }));
+assert.strictEqual(w1.offer, "none");
+assert.strictEqual(w1.test, true, "anything but false is TEST");
+assert.strictEqual(w1.testNumber, "", "an unmasked number is never shown");
+assert.strictEqual(w1.reasons.hfp, "");
+assert.strictEqual(w1.holdMs, 2000);
+// Which view
+const vPending = C.normalize(payload("pending"));
+const vSent = C.normalize(payload("sent"));
+w1 = C.normalize112(c112());
+assert.strictEqual(C.pickMode(vPending, null, false), "countdown");
+assert.strictEqual(C.pickMode(vPending, w1, false), "countdown112");
+assert.strictEqual(C.pickMode(vPending, w1, true), "panel");
+assert.strictEqual(C.pickMode(vSent, w1, false), "result112");
+assert.strictEqual(C.pickMode(null, w1, false), "panel");
+assert.strictEqual(C.pickMode(null, null, false), null);
+assert.strictEqual(C.pickMode(vPending, C.normalize112(c112({ state: "dialing" })), false), "panel");
+assert.strictEqual(C.pickMode(vPending, C.normalize112(c112({ incoming: true })), false), "panel");
+assert.strictEqual(C.canCall(w1), true);
+assert.strictEqual(C.canCall(C.normalize112(c112({ retry_after_s: 30 }))), false);
+assert.strictEqual(C.canCall(C.normalize112(c112({ offer: "none" }))), false);
+assert.strictEqual(C.canCall(C.normalize112(c112({ state: "ringing" }))), false);
+// Labels name the path; test mode never says "ZADZWOŃ 112"
+let t112 = C.texts112(w1);
+assert.strictEqual(t112.holdLabel, "PRZYTRZYMAJ 2 s – ZADZWOŃ 112");
+assert.strictEqual(t112.holdSub, "telefon główny");
+t112 = C.texts112(C.normalize112(c112({ offer: "car_phone", fallback: true })));
+assert.strictEqual(t112.holdSub, "teraz: telefon w aucie, głośnik");
+t112 = C.texts112(C.normalize112(c112({ test_mode: true, test_number: "+48...567" })));
+assert.ok(!/112/.test(t112.holdLabel) && /TEST/.test(t112.holdLabel), t112.holdLabel);
+assert.ok(/TEST – dzwoni na \+48\.\.\.567/.test(t112.holdSub), t112.holdSub);
+t112 = C.texts112(C.normalize112(c112({ hold_ms: 2500 })));
+assert.strictEqual(t112.holdLabel, "PRZYTRZYMAJ 2,5 s – ZADZWOŃ 112");
+t112 = C.texts112(C.normalize112(c112({ offer: "none", reasons: { hfp: "no_mic", car_phone: "not_capable" } })));
+assert.strictEqual(t112.none, "Zadzwoń 112 ze swojego telefonu");
+assert.ok(/telefon główny: brak mikrofonu/.test(t112.noneWhy) && /telefon w aucie/.test(t112.noneWhy));
+// The call view
+t112 = C.texts112(C.normalize112(c112({ state: "dialing", path: "hfp" })));
+assert.strictEqual(t112.title, "Łączenie z 112…");
+assert.ok(/przypadkowe – nie rozłączaj się, powiedz dyspozytorowi, że to pomyłka/.test(t112.note));
+t112 = C.texts112(C.normalize112(c112({ state: "active", path: "car_phone", duration_s: 83 })));
+assert.strictEqual(t112.title, "Rozmowa 01:23");
+assert.strictEqual(t112.line, "telefon w aucie, głośnik");
+t112 = C.texts112(C.normalize112(c112({ state: "failed", path: "hfp", error: "timeout" })));
+assert.ok(/Nie połączono/.test(t112.title) && /nie potwierdził/.test(t112.line), t112.line);
+t112 = C.texts112(C.normalize112(c112()), null, 32);
+assert.strictEqual(t112.line, "SMS do bliskich za 32 s");
+// During the call a running SMS countdown stays in the line.
+t112 = C.texts112(C.normalize112(c112({ state: "active", path: "car_phone", duration_s: 5 })), null, 31);
+assert.strictEqual(t112.line, "telefon w aucie, głośnik · SMS do bliskich za 31 s");
+assert.strictEqual(t112.smsCancel, "ANULUJ SMS – nic się nie stało");
+// A call BCM can no longer see, ended: the driver is told where to end it.
+t112 = C.texts112(C.normalize112(c112({ state: "ended", path: "car_phone", unverified: true })));
+assert.ok(/zakończ ją w telefonie/.test(t112.line), t112.line);
+// The main phone's call without a microphone uplink.
+let wUp = C.normalize112(c112({ state: "active", path: "hfp", uplink: "missing", offer: "car_phone",
+                                fallback: true }));
+assert.strictEqual(wUp.uplinkLost, true);
+assert.strictEqual(C.canCall(wUp), true);                    // the car phone, during the call
+t112 = C.texts112(wUp);
+assert.ok(/Dyspozytor może Cię nie słyszeć/.test(t112.note) && /telefon w aucie/.test(t112.note));
+assert.ok(/teraz: telefon w aucie/.test(t112.holdSub), t112.holdSub);
+wUp = C.normalize112(c112({ state: "active", path: "hfp", uplink: "missing", offer: "none" }));
+assert.strictEqual(C.canCall(wUp), false);
+assert.ok(/Dyspozytor może Cię nie słyszeć/.test(C.texts112(wUp).note));
+assert.strictEqual(C.canCall(C.normalize112(c112({ state: "active", path: "hfp", uplink: "ok",
+                                                     offer: "car_phone", fallback: true }))), false);
+assert.strictEqual(C.normalize112(c112({ state: "active", path: "car_phone", uplink: "missing" })).uplinkLost,
+                   false);                                    // only path A has an SCO uplink
+// After a cancelled SMS the 112 panel never takes the screen by itself.
+assert.strictEqual(C.pickMode(null, w1, false, true), null);
+assert.strictEqual(C.pickMode(null, w1, true, true), "panel");      // "Pozycja dla 112"
+assert.strictEqual(C.pickMode(null, C.normalize112(c112({ state: "ringing" })), false, true), "panel");
+assert.strictEqual(C.pickMode(vSent, w1, false, true), "result112");
+// The dispatcher panel: position, DMS, fix age, vehicle, the sentence
+let d = C.dispatcherTexts(C.normalize112(c112()).dispatcher);
+assert.strictEqual(d.pos, "52,22968 N  21,01223 E");
+assert.strictEqual(d.dms, "52°13'46,8\" N  21°00'44,0\" E");
+assert.strictEqual(d.fix, "GPS 4 s temu, 9 sat.");
+assert.ok(/^przed: zach\., 72 km\/h · godz\. \d\d:\d\d$/.test(d.move), d.move);
+assert.strictEqual(d.vehicle, "Alfa Romeo 156 · czerwona · WX 12345");
+assert.ok(/Pozycja GPS: 52,22968 N, 21,01223 E\./.test(d.say), d.say);
+assert.ok(/numer rejestracyjny WX 12345/.test(d.say) && /kierunek zachód, 72 km\/h/.test(d.say));
+d = C.dispatcherTexts(C.normalize112(c112({}, { fix_age_s: 754, sats: null })).dispatcher);
+assert.strictEqual(d.fix, "ostatnia znana pozycja sprzed 12 min");
+assert.ok(/Ostatnia znana pozycja GPS:/.test(d.say));
+d = C.dispatcherTexts(C.normalize112(c112({}, { lat: null, heading: null, speed_kmh: null })).dispatcher);
+assert.strictEqual(d.pos, "brak pozycji GPS");
+assert.strictEqual(d.dms, "");
+assert.ok(/Pozycja GPS nieznana/.test(d.say) && !/Przed zdarzeniem/.test(d.say));
+assert.strictEqual(C.fmtDec(-33.5, "N", "S"), "33,50000 S");
+assert.strictEqual(C.fmtDms(-0.999999, "E", "W"), "1°00'00,0\" W");
+assert.strictEqual(C.compass(359)[0], "N");
+assert.strictEqual(C.compass(135)[0], "SE");
+assert.strictEqual(C.compass(400), null);
+// Skeletons: escaped, no inline JS, the 112 column >= 15% from ANULUJ
+const evil112 = C.texts112(C.normalize112(c112({}, { vehicle: { label: "<img src=x>" } })), evilT);
+for (const html of [C.panelHtml(evil112), C.c112ColumnHtml(evil112),
+                    C.countdownHtml(C.texts(vPending), evil112),
+                    C.resultHtml(C.texts(vSent), evil112)]) {
+    assert.ok(!/<img/.test(html), "markup from a translation / payload reached the skeleton");
+    assert.ok(!/<[^>]*\son[a-z]+=/i.test(html), "inline JS in the 112 parts");
+}
+const sk112 = C.countdownHtml(C.texts(vPending), C.texts112(w1));
+assert.ok(/data-crash-112-slot[^>]*>[\s\S]*data-c112-hold="call"/.test(sk112), "no 112 button in the slot");
+assert.ok(/touch-action:none/.test(C.holdHtml("call", "x", "y", "")), "the hold button must not scroll");
+const pk = C.panelHtml(C.texts112(w1));
+const leftW = Number(pk.match(/data-c112-left style="width:(\d+)vw/)[1]);
+const colW = Number(pk.match(/data-c112-col style="width:(\d+)vw/)[1]);
+assert.ok(100 - 4 - leftW - colW >= 15, "Zamknij / Rozłącz must be >= 15% away from the 112 button");
+assert.strictEqual(C.C112_ROUTES.call, "/api/crash/call112");
+assert.strictEqual(C.HANGUP_HOLD_MS, 1000);
 
 // ── app.js: overlay list + sync on every screen ───────────────────────────
 const appSrc = fs.readFileSync(path.join(WEB, "app.js"), "utf8");

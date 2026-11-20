@@ -40,7 +40,12 @@ from src.network.car_phone_agent import TOPIC as _AGENT_TOPIC
 from src.network.phone_tether import HINTS as _TETHER_HINTS
 from src.network.phone_tether import RETRY_TOPIC as _TETHER_RETRY_TOPIC
 from src.network.phone_tether import STATES as _TETHER_STATES
+from src.power import brightness as _brightness
+from src.power import remote_session as _remote_session
+from src.safety import cabin_watch as _cabin_watch
+from src.safety import call112 as _call112
 from src.safety import crash_sms as _crash_sms
+from src.safety import parking_guard as _parking_guard
 from src.weather.weather import valid_coords
 
 log = get_logger("web_viewer")
@@ -92,6 +97,13 @@ _MAX_INPUT_MESSAGE = 4096
 _MAX_KEY_NAME = 32
 #: Actions accepted by the HTTP fallback POST /aa/touch (no "move": see there).
 _AA_HTTP_TOUCH_ACTIONS = ("tap", "down", "up", "cancel")
+#: ``ui.activity`` (someone is using the kiosk: a key, an AA touch, a tap on
+#: a BCM screen) is published at most once per this many seconds — the
+#: subscriber (src/power/remote_session.py, idle suspend after a remote
+#: wake) only needs "used within the last minutes", not every AA move frame.
+_UI_ACTIVITY_MIN_INTERVAL_S = 5.0
+#: Values of ``ui.activity``: what the kiosk did (whitelisted, no client text).
+_UI_ACTIVITY_KINDS = ("key", "touch")
 
 
 def _ws_origin_allowed(origin: Optional[str], host: Optional[str]) -> bool:
@@ -163,6 +175,12 @@ _CONFIG_FIELDS = (
     ("temp_unit", "units.temperature"),
     ("brightness", "display.dashboard.brightness"),
     ("aa_auto_restart", "multimedia.aa_auto_restart"),
+    # Settings → "Jasność ekranu" (modules.auto_brightness): the dimming
+    # backend — only the two the switch offers (xrandr / auto stay
+    # config-only) — and Auto / Ręczna. src/power/brightness.py applies
+    # both live through config.changed.
+    ("brightness_backend", "display.auto_brightness.backend"),
+    ("brightness_mode", "display.auto_brightness.mode"),
 )
 
 
@@ -209,6 +227,12 @@ def _validate_config_update(data: Any) -> tuple[list[tuple[str, str, Any]], Opti
         elif key == "aa_auto_restart":
             if not isinstance(value, bool):
                 return [], (key, "aa_auto_restart must be true or false")
+        elif key == "brightness_backend":
+            if not isinstance(value, str) or value not in _brightness.UI_BACKENDS:
+                return [], (key, f"brightness_backend must be one of {list(_brightness.UI_BACKENDS)}")
+        elif key == "brightness_mode":
+            if not isinstance(value, str) or value not in _brightness.MODES:
+                return [], (key, f"brightness_mode must be one of {list(_brightness.MODES)}")
         updates.append((key, config_key, value))
     return updates, None
 
@@ -373,8 +397,12 @@ _AGENT_PAIR_MAX_BODY = 256
 _AGENT_VERSION_RE = re.compile(r"^[0-9A-Za-z.+-]{1,16}$")
 
 
-def _car_phone_agent_summary(value: Any) -> Optional[dict]:
+def _car_phone_agent_summary(value: Any, call112_on: bool = False) -> Optional[dict]:
     """``net.car_phone_agent`` → the Settings row "Agent w telefonie".
+
+    ``call112_on`` (``modules.call112``): the row says "112: niegotowy"
+    only then — with the toggle off the agent reports "not capable" by
+    design, which is not a problem to show.
 
     The module validated the agent's answers already; this is the second
     line (whitelisted state/reason, flags only as booleans, timestamps only
@@ -411,6 +439,11 @@ def _car_phone_agent_summary(value: Any) -> Optional[dict]:
         "reason": reason if isinstance(reason, str) and reason in _AGENT_REASONS else "",
         "error": error[:200] if isinstance(error, str) else "",
         "needs_confirm": value.get("needs_confirm") is True,
+        # „Zadzwoń 112” from the car phone (plan H, path B) — whitelisted.
+        "call112_capable": flag("call112_capable"),
+        "call112_mode": value.get("call112_mode")
+        if value.get("call112_mode") in _car_phone_agent.CALL112_MODES else None,
+        "call112_enabled": call112_on is True,
     }
 
 
@@ -502,6 +535,366 @@ def _crash_sms_summary(value: Any) -> Optional[dict]:
             "verified": test.get("verified") is True,
             "last_verified_ts": epoch(test.get("last_verified_ts")),
         },
+    }
+
+
+#: "Zadzwoń 112" routes (src/safety/call112.py): minimum spacing of accepted
+#: requests per route — only a loop guard; the module itself allows one dial
+#: per 60 s (429 with retry_after) except the one fallback to the other
+#: path after a failed attempt.
+_CALL112_MIN_INTERVAL_S = 1.0
+#: The bench-test window (test mode only): one per this many seconds.
+_CALL112_TEST_MIN_INTERVAL_S = 10.0
+#: The vehicle description in the dispatcher panel (local.yaml text).
+_CALL112_VEHICLE_LIMITS = {"label": 32, "colour": 20, "plate": 12}
+
+
+#: "Postój" routes (src/safety/parking_guard.py): Uzbrój / Rozbrój from the
+#: head unit's own screen — at most one accepted request per this many
+#: seconds per route (a loop guard; the phone limits wrong codes itself).
+_PARK_MIN_INTERVAL_S = 3.0
+
+
+def _parking_guard_summary(value: Any) -> Optional[dict]:
+    """``park.state`` → the Settings row "Postój". The module validated the
+    phone's answer already; this is the second line (whitelists, numbers by
+    type and range) because the payload also reaches network clients in
+    ``readonly`` mode. Never published = module not running = None."""
+    if not isinstance(value, dict):
+        return None
+
+    def ts(v: Any) -> Optional[float]:
+        if isinstance(v, bool) or not isinstance(v, (int, float)):
+            return None
+        return v if math.isfinite(v) and 1e9 < v < 4e9 else None
+
+    def small_int(v: Any, hi: int) -> Optional[int]:
+        return v if isinstance(v, int) and not isinstance(v, bool) and 0 <= v <= hi else None
+
+    ev = value.get("last_event")
+    event = None
+    if isinstance(ev, dict) and ev.get("kind") in _car_phone_agent.PARK_EVENT_KINDS \
+            and ts(ev.get("ts")) is not None:
+        num = ev.get("value")
+        event = {"kind": ev["kind"], "ts": ts(ev.get("ts")),
+                 "value": num if isinstance(num, (int, float)) and not isinstance(num, bool)
+                 and math.isfinite(num) and abs(num) < 1e6 else None,
+                 "logged_only": ev.get("logged_only") is True}
+    cmd = value.get("cmd")
+    command = None
+    if isinstance(cmd, dict) and cmd.get("action") in _parking_guard.CMD_ACTIONS:
+        command = {"action": cmd["action"], "ok": cmd.get("ok") is True,
+                   "error": cmd.get("error") if cmd.get("error") in _parking_guard.CMD_ERRORS
+                   else "", "ts": ts(cmd.get("ts"))}
+    state = value.get("state")
+    by = value.get("by")
+    sensor = value.get("sensor")
+    error = value.get("error")
+    return {
+        "state": state if state in _parking_guard.STATES else "unknown",
+        "since": ts(value.get("since")),
+        "by": by if by in _car_phone_agent.PARK_BY else "",
+        "arm_at": ts(value.get("arm_at")),
+        "last_event": event,
+        "battery_pct": small_int(value.get("battery_pct"), 100),
+        "power": value.get("power") if value.get("power") in ("plugged", "unplugged") else None,
+        "log_only": value.get("log_only") if isinstance(value.get("log_only"), bool) else None,
+        "light": value.get("light") is True,
+        "sensor": sensor if sensor in _car_phone_agent.PARK_SENSOR_STATES else "off",
+        "totp_ready": value.get("totp_ready") is True,
+        "numbers_n": small_int(value.get("numbers_n"), _car_phone_agent.MAX_RECIPIENTS) or 0,
+        "home_set": value.get("home_set") is True,
+        "alarms_today": small_int(value.get("alarms_today"), 1000) or 0,
+        "entry_until": ts(value.get("entry_until")),
+        "off_pending": value.get("off_pending") is True,
+        "owner_connected": value.get("owner_connected") is True,
+        "owner_unproven": value.get("owner_unproven") is True,
+        "owner_known": value.get("owner_known") is True,
+        "bt_proof": value.get("bt_proof") is not False,
+        "disarm_pending": value.get("disarm_pending") is True,
+        "error": error if error in _parking_guard.ERRORS else "",
+        "cmd": command,
+    }
+
+
+def _cabin_watch_summary(value: Any) -> Optional[dict]:
+    """``park.cabin_state`` → the Settings row "Czuwanie kabiny". The module
+    validated the phone's answer already; this is the second line
+    (whitelists, numbers by type and range) because the payload also reaches
+    network clients in ``readonly`` mode. Never a photo or a path — there are
+    none in the state. Never published = module not running = None."""
+    if not isinstance(value, dict):
+        return None
+
+    def ts(v: Any) -> Optional[float]:
+        if isinstance(v, bool) or not isinstance(v, (int, float)):
+            return None
+        return v if math.isfinite(v) and 1e9 < v < 4e9 else None
+
+    def small_int(v: Any, hi: int) -> Optional[int]:
+        return v if isinstance(v, int) and not isinstance(v, bool) and 0 <= v <= hi else None
+
+    def num(v: Any, hi: float) -> Optional[float]:
+        if isinstance(v, bool) or not isinstance(v, (int, float)) or not math.isfinite(v):
+            return None
+        return float(v) if 0 <= v <= hi else None
+
+    ev = value.get("last_event")
+    event = None
+    if isinstance(ev, dict) and ev.get("outcome") in _car_phone_agent.CABIN_OUTCOMES \
+            and ts(ev.get("ts")) is not None:
+        reasons = ev.get("reasons")
+        event = {
+            "ts": ts(ev.get("ts")),
+            "reasons": [k for k in _car_phone_agent.CABIN_SIGNALS
+                        if isinstance(reasons, list) and k in reasons],
+            "weak": ev.get("weak") is True,
+            "photos": small_int(ev.get("photos"), 3) or 0,
+            "outcome": ev["outcome"],
+            "verdict": ev.get("verdict") if ev.get("verdict") in _car_phone_agent.CABIN_VERDICTS
+            else None,
+            "changed_pct": num(ev.get("changed_pct"), 100.0),
+            "ref": ev.get("ref") if ev.get("ref") in _car_phone_agent.CABIN_REF_MODES else None,
+            "camera": ev.get("camera") if ev.get("camera") in _car_phone_agent.CABIN_CAMERA
+            else "",
+        }
+    state, camera = value.get("state"), value.get("camera")
+    light, error = value.get("light_sensor"), value.get("error")
+    pillow, log_only = value.get("pillow"), value.get("log_only")
+    return {
+        "state": state if state in _cabin_watch.STATES else "unknown",
+        "camera": camera if camera in _car_phone_agent.CABIN_CAMERA else "unknown",
+        "light_sensor": light if light in _car_phone_agent.CABIN_LIGHT_SENSOR else "unknown",
+        "lux": num(value.get("lux"), 200000.0),
+        "pillow": pillow if isinstance(pillow, bool) else None,
+        "log_only": log_only if isinstance(log_only, bool) else None,
+        "entry_until": ts(value.get("entry_until")),
+        "photos_n": small_int(value.get("photos_n"), 10000) or 0,
+        "photos_mb": num(value.get("photos_mb"), 100000.0),
+        "events_today": small_int(value.get("events_today"), 1000) or 0,
+        "last_event": event,
+        "error": error if error in _cabin_watch.ERRORS else "",
+    }
+
+
+#: "Wybudzono" banner routes (src/power/remote_session.py): at most one
+#: accepted request per this many seconds per route (a loop guard — the
+#: module allows hold_max_min minutes of holds per session itself).
+_REMOTE_SESSION_MIN_INTERVAL_S = 2.0
+
+
+def _remote_session_summary(value: Any) -> Optional[dict]:
+    """``power.remote_session`` → the global banner (app.js →
+    components/wake_banner.js) and the Settings row "Wybudzanie". The module
+    built it from whitelisted serial lines already; this is the second line
+    (whitelists, numbers by type and range) because the payload also reaches
+    network clients in ``readonly`` mode. ``lease_left_s`` is computed HERE,
+    at payload time, from the published end of the lease (epoch seconds);
+    ``idle_left_s`` likewise from ``idle_at`` — set only while idle suspend
+    would end the session before the lease, never above ``lease_left_s``.
+    Never published = module not running = None (no banner, no row)."""
+    if not isinstance(value, dict):
+        return None
+
+    def ts(v: Any) -> Optional[float]:
+        if isinstance(v, bool) or not isinstance(v, (int, float)):
+            return None
+        return v if math.isfinite(v) and 1e9 < v < 4e9 else None
+
+    def small_int(v: Any, hi: int) -> Optional[int]:
+        return v if isinstance(v, int) and not isinstance(v, bool) and 0 <= v <= hi else None
+
+    def word(v: Any, allowed: tuple) -> str:
+        return v if isinstance(v, str) and v in allowed else ""
+
+    def stamped(v: Any, allowed: tuple) -> Optional[dict]:
+        if not isinstance(v, dict) or v.get("reason") not in allowed or ts(v.get("ts")) is None:
+            return None
+        return {"reason": v["reason"], "ts": ts(v["ts"])}
+
+    state = value.get("state")
+    state = state if state in _remote_session.STATES else "idle"
+    until = ts(value.get("lease_until"))
+    left = None
+    idle_left = None
+    if state == "session" and until is not None:
+        left = int(max(0.0, min(until - time.time(), float(_remote_session.LEASE_MAX_S))))
+        idle_at = ts(value.get("idle_at"))
+        if idle_at is not None:
+            # Idle suspend comes first (the module publishes idle_at only
+            # then): the banner counts down to it instead of the lease.
+            idle_left = int(max(0.0, min(idle_at - time.time(), float(left))))
+    cmd = value.get("cmd")
+    command = None
+    if isinstance(cmd, dict) and cmd.get("action") in _remote_session.CMD_ACTIONS:
+        command = {"action": cmd["action"], "ok": cmd.get("ok") is True,
+                   "error": word(cmd.get("error"), _remote_session.CMD_ERRORS),
+                   "ts": ts(cmd.get("ts"))}
+    link = value.get("link")
+    return {
+        "state": state,
+        "reason": word(value.get("reason"), _remote_session.REASONS),
+        "since": ts(value.get("since")),
+        "lease_left_s": left,
+        "idle_left_s": idle_left,
+        "sleep_pending": value.get("sleep_pending") is True,
+        "holds_used_min": small_int(value.get("holds_used_min"), 60) or 0,
+        "hold_step_min": small_int(value.get("hold_step_min"), 60) or 0,
+        "hold_max_min": small_int(value.get("hold_max_min"), 60) or 0,
+        "can_hold": value.get("can_hold") is True,
+        "idle_suspend_min": small_int(value.get("idle_suspend_min"), 60) or 0,
+        "link": link if isinstance(link, bool) else None,
+        "ended": word(value.get("ended"), _remote_session.ENDED),
+        "last_wake": stamped(value.get("last_wake"), _remote_session.REASONS),
+        "denied_seen": small_int(value.get("denied_seen"), 1_000_000) or 0,
+        "denied_total": small_int(value.get("denied_total"), 0xFFFF),
+        "last_denied": stamped(value.get("last_denied"), _remote_session.DENIALS),
+        "last_denied_nano": word(value.get("last_denied_nano"), _remote_session.DENIALS),
+        "cmd": command,
+        "ir_default": value.get("ir_default") is True,
+    }
+
+
+def _auto_brightness_summary(value: Any) -> Optional[dict]:
+    """``display.brightness_state`` → the Settings row "Jasność ekranu".
+    Second line after src/power/brightness.py: whitelists for every word,
+    numbers by type and range (the payload also reaches network clients in
+    ``readonly`` mode). Never published = module not running = None, and
+    Settings shows no row."""
+    if not isinstance(value, dict):
+        return None
+
+    def pct(v: Any) -> Optional[int]:
+        return v if isinstance(v, int) and not isinstance(v, bool) and 0 <= v <= 100 else None
+
+    def word(v: Any, allowed: tuple, default: str) -> str:
+        return v if isinstance(v, str) and v in allowed else default
+
+    lux = value.get("lux")
+    if isinstance(lux, bool) or not isinstance(lux, (int, float)) or not math.isfinite(lux) \
+            or not 0 <= lux <= _brightness.LUX_MAX:
+        lux = None
+    adc = value.get("adc")
+    if isinstance(adc, bool) or not isinstance(adc, int) or not 0 <= adc <= _brightness.ADC_MAX:
+        adc = None
+    hold = value.get("hold_left_min")
+    if isinstance(hold, bool) or not isinstance(hold, int) or not 0 < hold <= 1440:
+        hold = None
+    return {
+        "mode": word(value.get("mode"), _brightness.MODES, "auto"),
+        "effective": word(value.get("effective"), _brightness.EFFECTIVE, "no_source"),
+        "source": word(value.get("source"), _brightness.SOURCES, ""),
+        "lux": lux,
+        "adc": adc,
+        "pct": pct(value.get("pct")),
+        "target_pct": pct(value.get("target_pct")),
+        "manual_pct": pct(value.get("manual_pct")),
+        "hold_left_min": hold,
+        "min_pct": pct(value.get("min_pct")),
+        "max_pct": pct(value.get("max_pct")),
+        "backend": word(value.get("backend"), _brightness.BACKENDS, "auto"),
+        "active": word(value.get("active"), _brightness.ACTIVE_BACKENDS, "css"),
+        "probe": word(value.get("probe"), _brightness.PROBE_STATES, "idle"),
+        "reason": word(value.get("reason"), _brightness.REASONS, ""),
+    }
+
+
+def _display_dim_summary(value: Any) -> Optional[dict]:
+    """``display.dim`` → ``{level, brightness_pct}`` for the kiosk's ONE
+    dimming overlay (components/dim_overlay.js). ``level`` is the overlay's
+    opacity, capped at :data:`src.power.brightness.CSS_MAX_DIM_LIMIT` — a
+    bad value may dim the screen, never black it out. Anything malformed or
+    never published (module off) = None = no overlay at all."""
+    if not isinstance(value, dict):
+        return None
+    level, pct = value.get("level"), value.get("brightness_pct")
+    if isinstance(level, bool) or not isinstance(level, (int, float)) or not math.isfinite(level) \
+            or not 0 <= level <= _brightness.CSS_MAX_DIM_LIMIT:
+        return None
+    if isinstance(pct, bool) or not isinstance(pct, int) or not 0 <= pct <= 100:
+        pct = None
+    return {"level": round(float(level), 3), "brightness_pct": pct}
+
+
+def _call112_summary(value: Any) -> Optional[dict]:
+    """``crash.call112_state`` → the 112 part of the crash window.
+
+    A whitelist with types and ranges (the payload also reaches network
+    clients in ``readonly`` mode — which see the window without buttons).
+    The test number is already masked by the module (``+48...567``); the
+    vehicle texts are capped here and escaped by the UI. None = the module
+    does not run (no button, no panel)."""
+    if not isinstance(value, dict):
+        return None
+
+    def epoch(v):
+        if isinstance(v, bool) or not isinstance(v, (int, float)):
+            return None
+        return float(v) if math.isfinite(v) and 0 < v < 4.1e9 else None
+
+    def num(v, lo, hi):
+        if isinstance(v, bool) or not isinstance(v, (int, float)):
+            return None
+        return v if math.isfinite(v) and lo <= v <= hi else None
+
+    def small_int(v, hi):
+        if isinstance(v, bool) or not isinstance(v, int) or not 0 <= v <= hi:
+            return None
+        return v
+
+    def pick(v, allowed, default=""):
+        return v if isinstance(v, str) and v in allowed else default
+
+    eid = value.get("event_id")
+    reasons = value.get("reasons") if isinstance(value.get("reasons"), dict) else {}
+    disp = value.get("dispatcher")
+    dispatcher = None
+    if isinstance(disp, dict):
+        lat, lon = num(disp.get("lat"), -90, 90), num(disp.get("lon"), -180, 180)
+        if lat is None or lon is None:
+            lat = lon = None
+        veh = disp.get("vehicle") if isinstance(disp.get("vehicle"), dict) else {}
+        dispatcher = {
+            "lat": lat, "lon": lon,
+            "fix_age_s": small_int(disp.get("fix_age_s"), 10 ** 7) if lat is not None else None,
+            "sats": small_int(disp.get("sats"), 255) if lat is not None else None,
+            "heading": small_int(disp.get("heading"), 359),
+            "speed_kmh": small_int(disp.get("speed_kmh"), 400),
+            "event_ts": epoch(disp.get("event_ts")),
+            "vehicle": {k: veh.get(k)[:n] if isinstance(veh.get(k), str) else ""
+                        for k, n in _CALL112_VEHICLE_LIMITS.items()},
+        }
+    number = value.get("test_number")
+    return {
+        "window": value.get("window") is True,
+        "event_id": eid if isinstance(eid, str) and _call112.EVENT_ID_RE.fullmatch(eid)
+        else None,
+        "event_ts": epoch(value.get("event_ts")),
+        "window_until_ts": epoch(value.get("window_until_ts")),
+        "state": pick(value.get("state"), _call112.CALL_STATES, "idle"),
+        "path": pick(value.get("path"), _call112.PATHS),
+        "error": pick(value.get("error"), _call112.ERRORS),
+        "started_ts": epoch(value.get("started_ts")),
+        "active_ts": epoch(value.get("active_ts")),
+        "ended_ts": epoch(value.get("ended_ts")),
+        "duration_s": small_int(value.get("duration_s"), 86400),
+        "unverified": value.get("unverified") is True,
+        # Path A: "missing" = no microphone uplink to the dispatcher (the
+        # window warns and offers the car phone).
+        "uplink": pick(value.get("uplink"), _call112.UPLINK_STATES, "unknown"),
+        "hangup_pending": value.get("hangup_pending") is True,
+        "offer": pick(value.get("offer"), _call112.PATHS + ("none",), "none"),
+        "fallback": value.get("fallback") is True,
+        "reasons": {p: pick(reasons.get(p), _call112.REASONS) for p in _call112.PATHS},
+        "retry_after_s": small_int(value.get("retry_after_s"), 3600) or 0,
+        # Anything but an explicit false is shown as TEST (never "real 112").
+        "test_mode": value.get("test_mode") is not False,
+        "test_number": number if isinstance(number, str)
+        and re.fullmatch(r"\+[0-9]{2}\.\.\.[0-9]{3}", number) else "",
+        "hold_ms": small_int(value.get("hold_ms"), 5000) or 2000,
+        "arm_delay_ms": small_int(value.get("arm_delay_ms"), 3000) or 700,
+        "incoming": value.get("incoming") is True,
+        "dispatcher": dispatcher,
     }
 
 
@@ -714,6 +1107,38 @@ def _host_name(host: Any) -> str:
     if host.count(":") == 1:
         host = host.split(":", 1)[0]
     return host.rstrip(".")
+
+
+#: ``Host`` names of the kiosk's own page (it opens http://localhost:5002).
+_KIOSK_HOSTS = ("localhost", "127.0.0.1", "::1")
+
+
+def _kiosk_request(remote_addr: Any, host: Any, origin: Any) -> bool:
+    """Is this the kiosk on this machine — for the loopback-only routes
+    (crash / 112 / parking guard / remote session / pairing)?
+
+    A loopback client is not enough: a foreign page the kiosk Chromium
+    renders whose host name is re-pointed at 127.0.0.1 (DNS rebinding)
+    sends its requests from loopback too, same-origin. So the ``Host``
+    header must name loopback as well (``localhost``, ``127.0.0.1``,
+    ``::1``), and an ``Origin`` header, when the browser sends one (every
+    POST from a page), must be such a loopback http(s) origin — ``null``
+    (sandboxed frame, file://) is refused. Defence in depth: Chromium's
+    Private Network Access already blocks most of this.
+    """
+    ip = _client_ip(remote_addr)
+    if ip is None or not ip.is_loopback:
+        return False
+    if _host_name(host) not in _KIOSK_HOSTS:
+        return False
+    if origin is None:
+        return True
+    try:
+        parts = urlsplit(str(origin).strip())
+        name = parts.hostname
+    except ValueError:
+        return False
+    return parts.scheme in ("http", "https") and name in _KIOSK_HOSTS
 
 
 def _host_allowed(host: Any, allowed_hosts: tuple) -> bool:
@@ -973,6 +1398,10 @@ class WebViewer:
         # so a dashboard without AA never starts the worker thread.
         self._aa_injector = None
         self._aa_injector_lock = threading.Lock()
+        # ui.activity throttle (monotonic of the last publication; several
+        # /ws/input threads share it).
+        self._ui_activity_lock = threading.Lock()
+        self._ui_activity_at: Optional[float] = None
 
         # Network access policy: last "refused" log time per client address
         # (monotonic; bounded — see _log_refusal).
@@ -1189,11 +1618,38 @@ class WebViewer:
             "car_phone": _car_phone_summary(_val("net.car_phone")),
             # The Termux agent on that phone (src/network/car_phone_agent.py):
             # pairing / health for the Settings row. None = module not running.
-            "car_phone_agent": _car_phone_agent_summary(_val(_AGENT_TOPIC)),
+            "car_phone_agent": _car_phone_agent_summary(
+                _val(_AGENT_TOPIC),
+                bool(self._config and self._config.get("modules.call112", False) is True)),
             # The crash SMS window (src/safety/crash_sms.py, crash.sms_state):
             # app.js shows #crash-modal on every screen from it. Whitelisted,
             # no phone numbers; None = module not running.
             "crash_sms": _crash_sms_summary(_val(_crash_sms.TOPIC_STATE)),
+            # "Zadzwoń 112" in the same window (src/safety/call112.py,
+            # crash.call112_state): the button's path, the call, the
+            # dispatcher panel. None = module not running (no button).
+            "call112": _call112_summary(_val(_call112.TOPIC_STATE)),
+            # The alarm on the parked car, run by the phone
+            # (src/safety/parking_guard.py, park.state): the Settings row
+            # "Postój". None = module not running (no row).
+            "parking_guard": _parking_guard_summary(_val(_parking_guard.TOPIC_STATE)),
+            # The cabin watch on top of it, also run by the phone
+            # (src/safety/cabin_watch.py, park.cabin_state): the Settings
+            # row "Czuwanie kabiny" — state and the last event, never a
+            # photo. None = module not running (no row).
+            "cabin_watch": _cabin_watch_summary(_val(_cabin_watch.TOPIC_STATE)),
+            # Automatic brightness (src/power/brightness.py, modules.
+            # auto_brightness): the Settings row "Jasność ekranu" and the
+            # kiosk's dimming overlay (app.js → components/dim_overlay.js,
+            # below the crash window and the reverse camera). Both None =
+            # module not running = no row and no overlay (production).
+            "auto_brightness": _auto_brightness_summary(_val(_brightness.TOPIC_STATE)),
+            "display_dim": _display_dim_summary(_val(_brightness.TOPIC_DIM)),
+            # The session after a remote wake (src/power/remote_session.py,
+            # plan E, the buffered build): the global "Wybudzono" banner
+            # (app.js → components/wake_banner.js) and the Settings row.
+            # None = module not running (no banner, no row — production).
+            "remote_session": _remote_session_summary(_val(_remote_session.TOPIC_STATE)),
             # Phone battery / signal / operator for the top bar
             # (src/multimedia/phone_status.py). Re-sanitised here: values come
             # from the phone; None = module not running (no cluster drawn).
@@ -1391,7 +1847,33 @@ class WebViewer:
             if injector is not None:
                 injector.reset()
 
-    def _handle_input_message(self, msg: Any, client_key: Hashable = None) -> bool:
+    def _note_ui_activity(self, kind: str, local: bool) -> None:
+        """Publish ``ui.activity`` (throttled) when the KIOSK was used.
+
+        Why: after a remote wake (src/power/remote_session.py) the computer
+        is put back to sleep after ``idle_suspend_min`` without use — and a
+        driver who is touching the screen or Android Auto is using it, even
+        without a steering-wheel button. Only loopback clients count (the
+        kiosk on this machine), like the loopback-only hold route: a phone
+        on the car's network must not keep the computer awake on the bank.
+        Never raises; at most one publication per
+        :data:`_UI_ACTIVITY_MIN_INTERVAL_S`.
+        """
+        if not local or self._event_bus is None or kind not in _UI_ACTIVITY_KINDS:
+            return
+        now = time.monotonic()
+        with self._ui_activity_lock:
+            last = self._ui_activity_at
+            if last is not None and 0.0 <= now - last < _UI_ACTIVITY_MIN_INTERVAL_S:
+                return
+            self._ui_activity_at = now
+        try:
+            self._event_bus.publish("ui.activity", kind)
+        except Exception:
+            log.debug("Publishing ui.activity failed", exc_info=True)
+
+    def _handle_input_message(self, msg: Any, client_key: Hashable = None,
+                              local: bool = False) -> bool:
         """Dispatch one /ws/input message. Never raises; True if acted on.
 
         Accepts the raw WebSocket payload (str/bytes) or an already decoded
@@ -1399,7 +1881,12 @@ class WebViewer:
           ``{"type": "keydown", "key": "<KeyboardEvent.key>"}``
           ``{"type": "aa_touch", "action": "down|move|up|cancel|tap",
              "x": 0..1, "y": 0..1}``
+          ``{"type": "activity"}`` — the kiosk was touched (sent by
+             components/wake_banner.js, throttled, only during a session
+             after a remote wake); nothing but :meth:`_note_ui_activity`.
         Anything else — oversized, not JSON, wrong types — is dropped.
+        ``local``: the connection comes from loopback (the kiosk) — only
+        then does any of this count as ``ui.activity``.
         """
         try:
             if isinstance(msg, (bytes, bytearray)):
@@ -1420,25 +1907,34 @@ class WebViewer:
                 if not isinstance(key, str) or not key or len(key) > _MAX_KEY_NAME:
                     return False
                 self._handle_browser_key(key)
+                self._note_ui_activity("key", local)
                 return True
             if kind == "aa_touch":
                 injector = self._get_aa_injector()
                 if injector is None:
                     return False
-                return injector.submit(data.get("action"), data.get("x"),
-                                       data.get("y"), client=client_key)
+                ok = injector.submit(data.get("action"), data.get("x"),
+                                     data.get("y"), client=client_key)
+                if ok:
+                    self._note_ui_activity("touch", local)
+                return ok
+            if kind == "activity":
+                self._note_ui_activity("touch", local)
+                return local
             return False
         except Exception:
             log.debug("Dropped malformed /ws/input message", exc_info=True)
             return False
 
-    def _serve_input_ws(self, ws: Any) -> None:
+    def _serve_input_ws(self, ws: Any, local: bool = False) -> None:
         """Read loop of one /ws/input connection.
 
         Keyboard (SWC pod, OSK) and AA touch share this socket. Message
         handling lives in _handle_input_message(), which never raises: this
         loop used to break on ANY exception, so one malformed message
         silently killed keyboard input until the page was reloaded.
+        ``local``: the client is on loopback (the kiosk) — see
+        :meth:`_note_ui_activity`.
         """
         client_key = id(ws)
         log.info("WebSocket client connected (input)")
@@ -1450,7 +1946,7 @@ class WebViewer:
                     break  # connection closed
                 if msg is None:
                     continue
-                self._handle_input_message(msg, client_key)
+                self._handle_input_message(msg, client_key, local=local)
         finally:
             # A finger still down when the socket drops would leave the AA
             # button pressed — release whatever this client holds.
@@ -1726,6 +2222,8 @@ class WebViewer:
                 "temp_unit": cfg.get("units.temperature", "C"),
                 "brightness": cfg.get("display.dashboard.brightness", 70),
                 "aa_auto_restart": cfg.get("multimedia.aa_auto_restart", True),
+                "brightness_backend": cfg.get("display.auto_brightness.backend", "auto"),
+                "brightness_mode": cfg.get("display.auto_brightness.mode", "auto"),
             })
 
         @app.route("/api/config", methods=["POST"])
@@ -1745,6 +2243,19 @@ class WebViewer:
             for _key, config_key, value in updates:
                 cfg.set(config_key, value)
             applied = {key: value for key, _ck, value in updates}
+
+            # "Ręczna" (modules.auto_brightness) freezes what is on screen
+            # now: the running controller's level is saved as the slider
+            # value too, so neither this change nor the next boot (every
+            # drive of the test car is one) jumps to an older, maybe much
+            # brighter slider value in a dark cabin. A slider value sent in
+            # the same request wins. Module not running: nothing to freeze.
+            if applied.get("brightness_mode") == "manual" and "brightness" not in applied:
+                ctrl = _brightness.get_brightness_controller()
+                level = ctrl.brightness if ctrl is not None else None
+                if isinstance(level, int) and not isinstance(level, bool) and 0 <= level <= 100:
+                    cfg.set("display.dashboard.brightness", level)
+                    applied["brightness"] = level
 
             if "aa_auto_restart" in applied:
                 openauto = _get_openauto()
@@ -1809,6 +2320,15 @@ class WebViewer:
             if enabled and not mc.is_available(mc.MODULES[name]):
                 return jsonify({"error": "module not available in this version",
                                 "available": False}), 409
+            if not enabled and name in ("parking_guard", "cabin_watch"):
+                # Switching the parked-car alarm off is not an owner proof
+                # (anyone at this screen can do it): while it is armed and the
+                # owner's phone is not connected, "Rozbrój" (owner's phone or
+                # TOTP code) comes first. The phone (agent >= 1.5.0) keeps
+                # guarding regardless — this only tells the driver why.
+                pg = _parking_guard.get_parking_guard()
+                if pg is not None and _parking_guard.disarm_first(pg.state):
+                    return jsonify({"error": "disarm_first"}), 409
             also: list[str] = []
             if enabled and with_deps:
                 plan = mc.enable_plan(mc.MODULES, mc.enabled_map(cfg), name)
@@ -1872,8 +2392,8 @@ class WebViewer:
             cancel a crash SMS — as much "controlling the crash SMS" as the
             /api/crash/* routes, so loopback only, whatever
             dashboard.remote_access says."""
-            ip = _client_ip(request.remote_addr)
-            if ip is not None and ip.is_loopback:
+            if _kiosk_request(request.remote_addr, request.host,
+                              request.headers.get("Origin")):
                 return None
             viewer._log_refusal(str(request.remote_addr)[:64], request.method,
                                 request.path, "loopback_only",
@@ -2238,6 +2758,8 @@ class WebViewer:
             if not injector.submit(action, data.get("x", 0.5), data.get("y", 0.5),
                                    client="http"):
                 return jsonify({"ok": False, "error": "touch injection unavailable"}), 503
+            ip = _client_ip(request.remote_addr)
+            viewer._note_ui_activity("touch", ip is not None and ip.is_loopback)
             return jsonify({"ok": True, "action": action, "x": px, "y": py})
 
         def _get_openauto():
@@ -2796,6 +3318,9 @@ class WebViewer:
             from the network in "full" mode, but not in a loop.
             """
             from src.multimedia.bluetooth import is_emergency_number, normalize_dial_number
+            refused = _phone_during_112("dial")
+            if refused is not None:
+                return refused
             data = request.get_json(silent=True)
             raw = data.get("number", "") if isinstance(data, dict) else ""
             number = normalize_dial_number(raw)
@@ -2914,8 +3439,8 @@ class WebViewer:
             is needed; at most one attempt that reaches the phone per
             _AGENT_PAIR_MIN_INTERVAL_S (429 + Retry-After).
             """
-            ip = _client_ip(request.remote_addr)
-            if ip is None or not ip.is_loopback:
+            if not _kiosk_request(request.remote_addr, request.host,
+                                  request.headers.get("Origin")):
                 viewer._log_refusal(str(request.remote_addr)[:64], request.method,
                                     request.path, "loopback_only",
                                     "pairing the car phone agent is only possible from the "
@@ -2961,8 +3486,10 @@ class WebViewer:
         # validated event id / a confirmation flag / the recipients.
 
         def _crash_kiosk_only(what: str):
-            ip = _client_ip(request.remote_addr)
-            if ip is not None and ip.is_loopback:
+            # Loopback client AND loopback Host / Origin (_kiosk_request:
+            # a rebinding page in the kiosk browser is loopback too).
+            if _kiosk_request(request.remote_addr, request.host,
+                              request.headers.get("Origin")):
                 return None
             viewer._log_refusal(str(request.remote_addr)[:64], request.method,
                                 request.path, "loopback_only",
@@ -3070,6 +3597,243 @@ class WebViewer:
             _crash_accepted("test", now)
             return jsonify({"ok": True})
 
+        # --- "Zadzwoń 112" (src/safety/call112.py) --------------------------
+        # Same rules as the crash SMS routes: loopback ONLY (also with
+        # remote_access "full"), rate-limited, and NOTHING from the body is
+        # used to dial — the number is 112 (or, in test mode, the test
+        # number from local.yaml), chosen in the module. The body must still
+        # be a small JSON object (crash_modal.js sends {}): a JSON
+        # Content-Type cannot be sent cross-origin without a CORS preflight
+        # (which this app never answers), so a page from elsewhere rendered
+        # by a browser on the head unit — loopback too — cannot fire a
+        # "simple" text/plain or form POST at these routes.
+
+        def _call112_module():
+            module = _call112.get_call112()
+            if module is None:
+                return None, (jsonify({"ok": False, "error": "not_running"}), 409)
+            return module, None
+
+        def _call112_guard(what: str, key: str):
+            """Loopback, a small body, the module, the loop guard; returns
+            (module, now, None) or (None, None, error response)."""
+            refused = _crash_kiosk_only(what)
+            if refused is not None:
+                return None, None, refused
+            _data, err = _crash_body()
+            if err is not None:
+                return None, None, err
+            module, err = _call112_module()
+            if err is not None:
+                return None, None, err
+            now = time.monotonic()
+            limited = _crash_rate_limited(key, _CALL112_MIN_INTERVAL_S, now)
+            if limited is not None:
+                return None, None, limited
+            return module, now, None
+
+        @app.route("/api/crash/call112", methods=["POST"])
+        def api_crash_call112():
+            """"PRZYTRZYMAJ 2 s – ZADZWOŃ 112" was held in the crash window.
+            The body must be a JSON object (see above) and is otherwise
+            ignored on purpose (whatever number it carries is never
+            dialled); the module picks the path (main phone over HFP
+            or the car phone on speaker) and dials on its worker. 429 with
+            ``retry_after`` within 60 s of the previous dial (except the
+            one fallback after a failed attempt); 409 ``no_window`` outside
+            the window of a crash event, ``no_path`` when neither phone can
+            call (the window says "Zadzwoń 112 ze swojego telefonu")."""
+            module, now, err = _call112_guard("calling 112", "call112")
+            if err is not None:
+                return err
+            result = module.request_call(source="ui")
+            if not result.get("ok"):
+                if result.get("error") == "rate_limited":
+                    wait = int(result.get("retry_after") or 1)
+                    res = jsonify({"ok": False, "error": "too many requests",
+                                   "retry_after": wait})
+                    res.headers["Retry-After"] = str(wait)
+                    return res, 429
+                return jsonify({"ok": False, "error": result.get("error") or "refused",
+                                "path": result.get("path") or ""}), 409
+            _crash_accepted("call112", now)
+            return jsonify({"ok": True, "path": result.get("path")})
+
+        @app.route("/api/crash/call112/hangup", methods=["POST"])
+        def api_crash_call112_hangup():
+            """"Rozłącz" held 1 s in the call view: ends the 112 call (HFP
+            HangupAll, or the car phone's KEYCODE_ENDCALL). Body: a JSON
+            object, ignored."""
+            module, now, err = _call112_guard("ending the 112 call", "call112_hangup")
+            if err is not None:
+                return err
+            result = module.request_hangup()
+            if not result.get("ok"):
+                return jsonify({"ok": False, "error": result.get("error") or "refused"}), 409
+            _crash_accepted("call112_hangup", now)
+            return jsonify({"ok": True})
+
+        @app.route("/api/crash/call112/test", methods=["POST"])
+        def api_crash_call112_test():
+            """Bench test: open the 112 window without a crash. Only in
+            ``safety.call112.test_mode`` with a ``test_number`` (409
+            otherwise) — the button then calls ONLY that number. No SMS,
+            no crash record. At most one per _CALL112_TEST_MIN_INTERVAL_S."""
+            refused = _crash_kiosk_only("opening the 112 test window")
+            if refused is not None:
+                return refused
+            _data, err = _crash_body()
+            if err is not None:
+                return err
+            module, err = _call112_module()
+            if err is not None:
+                return err
+            now = time.monotonic()
+            limited = _crash_rate_limited("call112_test", _CALL112_TEST_MIN_INTERVAL_S, now)
+            if limited is not None:
+                return limited
+            result = module.open_test_window()
+            if not result.get("ok"):
+                return jsonify({"ok": False, "error": result.get("error") or "refused"}), 409
+            _crash_accepted("call112_test", now)
+            return jsonify({"ok": True})
+
+        @app.route("/api/crash/call112/close", methods=["POST"])
+        def api_crash_call112_close():
+            """"Zamknij" — close the 112 view of ``{"event_id": "<hex>"}``
+            (not during a call; the countdown of a crash SMS, if any, is
+            not touched)."""
+            refused = _crash_kiosk_only("closing the crash window")
+            if refused is not None:
+                return refused
+            data, err = _crash_body()
+            if err is not None:
+                return err
+            eid = data.get("event_id")
+            if not isinstance(eid, str) or not _call112.EVENT_ID_RE.fullmatch(eid):
+                return jsonify({"ok": False, "error": "bad_event_id"}), 400
+            module, err = _call112_module()
+            if err is not None:
+                return err
+            result = module.dismiss(eid)
+            if not result.get("ok"):
+                return jsonify({"ok": False, "error": result.get("error") or "refused"}), 409
+            return jsonify({"ok": True})
+
+        # --- Alarm na postoju (src/safety/parking_guard.py) -----------------
+        # "Uzbrój" / "Rozbrój" in the Settings row "Postój": loopback ONLY
+        # (also with remote_access "full"), a small JSON object body (no
+        # "simple" cross-origin POST), rate-limited. Disarming needs owner
+        # proof: an owner phone connected to BCM, or the TOTP code from the
+        # owner's authenticator app — checked BY THE PHONE; the code is
+        # never logged or published.
+
+        def _park_module():
+            module = _parking_guard.get_parking_guard()
+            if module is None:
+                return None, (jsonify({"ok": False, "error": "not_running"}), 409)
+            return module, None
+
+        def _park_guard(what: str, key: str):
+            refused = _crash_kiosk_only(what)
+            if refused is not None:
+                return None, None, None, refused
+            data, err = _crash_body()
+            if err is not None:
+                return None, None, None, err
+            module, err = _park_module()
+            if err is not None:
+                return None, None, None, err
+            now = time.monotonic()
+            limited = _crash_rate_limited(key, _PARK_MIN_INTERVAL_S, now)
+            if limited is not None:
+                return None, None, None, limited
+            return module, data, now, None
+
+        @app.route("/api/parking_guard/arm", methods=["POST"])
+        def api_parking_guard_arm():
+            """"Uzbrój": the phone arms after its exit window
+            (``parking_guard.arm_delay_min``). Body: a JSON object, ignored."""
+            module, _data, now, err = _park_guard("arming the parking guard", "park_arm")
+            if err is not None:
+                return err
+            result = module.request_arm()
+            if not result.get("ok"):
+                return jsonify({"ok": False, "error": result.get("error") or "refused"}), 409
+            _crash_accepted("park_arm", now)
+            return jsonify({"ok": True})
+
+        @app.route("/api/parking_guard/disarm", methods=["POST"])
+        def api_parking_guard_disarm():
+            """"Rozbrój": ``{}`` while the owner's phone is connected (409
+            ``owner_required`` otherwise), or ``{"code": "<6 digits>"}`` —
+            the TOTP code the phone checks. The outcome (wrong / used code)
+            shows in the row (``cmd``)."""
+            module, data, now, err = _park_guard("disarming the parking guard", "park_disarm")
+            if err is not None:
+                return err
+            code = data.get("code")
+            if set(data) - {"code"} or ("code" in data and (
+                    not isinstance(code, str) or not _parking_guard.CODE_RE.fullmatch(code))):
+                return jsonify({"ok": False, "error": "bad_code_format"}), 400
+            result = module.request_disarm(code)
+            if not result.get("ok"):
+                return jsonify({"ok": False, "error": result.get("error") or "refused"}), 409
+            _crash_accepted("park_disarm", now)
+            return jsonify({"ok": True})
+
+        # --- Wybudzanie (src/power/remote_session.py, plan E) ---------------
+        # "Nie usypiaj 30 min" / "Uśpij teraz" in the global banner: loopback
+        # ONLY (also with remote_access "full" — a phone in the car's network
+        # must not keep the parked car's computer awake or put it to sleep),
+        # a small JSON object body (no "simple" cross-origin POST), rate-
+        # limited. The body is ignored: the step and the budget are the
+        # module's (power.remote_session.*), never the client's.
+
+        def _remote_session_guard(what: str, key: str):
+            refused = _crash_kiosk_only(what)
+            if refused is not None:
+                return None, None, refused
+            _data, err = _crash_body()
+            if err is not None:
+                return None, None, err
+            module = _remote_session.get_remote_session()
+            if module is None:
+                return None, None, (jsonify({"ok": False, "error": "not_running"}), 409)
+            now = time.monotonic()
+            limited = _crash_rate_limited(key, _REMOTE_SESSION_MIN_INTERVAL_S, now)
+            if limited is not None:
+                return None, None, limited
+            return module, now, None
+
+        @app.route("/api/remote_session/hold", methods=["POST"])
+        def api_remote_session_hold():
+            """"Nie usypiaj": HOLD:<hold_step_min> to the sensor_hub (on the
+            module's worker). 409 ``no_session`` / ``hold_limit``."""
+            module, now, err = _remote_session_guard("keeping the computer awake",
+                                                     "remote_hold")
+            if err is not None:
+                return err
+            result = module.request_hold()
+            if not result.get("ok"):
+                return jsonify({"ok": False, "error": result.get("error") or "refused"}), 409
+            _crash_accepted("remote_hold", now)
+            return jsonify({"ok": True})
+
+        @app.route("/api/remote_session/sleep", methods=["POST"])
+        def api_remote_session_sleep():
+            """"Uśpij teraz": RELEASE to the sensor_hub — the Nano presses
+            SHORT (the usual way to S3). 409 ``no_session``."""
+            module, now, err = _remote_session_guard("putting the computer to sleep",
+                                                     "remote_sleep")
+            if err is not None:
+                return err
+            result = module.request_sleep()
+            if not result.get("ok"):
+                return jsonify({"ok": False, "error": result.get("error") or "refused"}), 409
+            _crash_accepted("remote_sleep", now)
+            return jsonify({"ok": True})
+
         @app.route("/api/crash/recipients", methods=["GET"])
         def api_crash_recipients_get():
             """The recipients for the Settings editor (kiosk only: personal
@@ -3145,14 +3909,47 @@ class WebViewer:
                     log.debug("agent kick failed", exc_info=True)
             return jsonify({"ok": True, "persisted": persisted, "recipients_n": len(numbers)})
 
+        def _call112_live() -> bool:
+            """A 112 call from the crash window is live (dialing / ringing /
+            active) — read from the RUNNING call112 module (None once it
+            stopped), so a stale bus value can never block the phone."""
+            module = _call112.get_call112()
+            st = module.state if module is not None else None
+            return isinstance(st, dict) and st.get("state") in _call112.LIVE
+
+        def _phone_during_112(action: str):
+            """During a live 112 call: the network may not answer, dial or
+            hang up at all (403 — in remote_access "full" every LAN / AP /
+            PAN device, or a cross-site "simple" POST from a passenger's
+            browser, could otherwise end the dispatcher call over HFP); the
+            kiosk may not hang up through the phone screen either (409
+            ``call112_live``) — the crash window ends a 112 call only with
+            the 1-s hold on "Rozłącz" (/api/crash/call112/hangup), the same
+            reason the steering-wheel hang-up is ignored (input_bridge).
+            The kiosk's "Odbierz" (dispatcher calling back) and dial stay."""
+            if not _call112_live():
+                return None
+            refused = _crash_kiosk_only("controlling a call during a 112 call")
+            if refused is not None:
+                return refused
+            if action == "hangup":
+                return jsonify({"ok": False, "error": "call112_live"}), 409
+            return None
+
         @app.route("/api/phone/answer", methods=["POST"])
         def api_phone_answer():
+            refused = _phone_during_112("answer")
+            if refused is not None:
+                return refused
             if viewer._event_bus:
                 viewer._event_bus.publish("bt.cmd.answer", True)
             return jsonify({"ok": True})
 
         @app.route("/api/phone/hangup", methods=["POST"])
         def api_phone_hangup():
+            refused = _phone_during_112("hangup")
+            if refused is not None:
+                return refused
             if viewer._event_bus:
                 viewer._event_bus.publish("bt.cmd.hangup", True)
             return jsonify({"ok": True})
@@ -3604,6 +4401,7 @@ class WebViewer:
                 log.debug("Rejected /ws/input from foreign Origin %r (host %r)",
                           origin, request.host)
                 return
-            viewer._serve_input_ws(ws)
+            ip = _client_ip(request.remote_addr)
+            viewer._serve_input_ws(ws, local=ip is not None and ip.is_loopback)
 
         return app

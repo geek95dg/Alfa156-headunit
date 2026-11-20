@@ -606,7 +606,11 @@ small dashboard on second display. Both in kiosk mode, no cursor.
 
 Press F1:
 - **Power → After Power Loss:** Power On
-- **Power → Wake on USB:** Enabled (Arduino can wake from S3)
+- **Power → Wake on USB:** Disabled — the M910q cuts USB power in S3, so
+  nothing on USB (Arduino HID keys, the car phone) can wake it; it only
+  causes false wake-ups. Wake goes through the power button: the relay
+  driven by Nano #2 (sensor hub) in the buffered build, or a manual press.
+- **Power → Wake on LAN:** Disabled (the Ethernet port is not used)
 
 ### 9.3 Prevent systemd-logind from handling power button
 

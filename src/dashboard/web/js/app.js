@@ -610,15 +610,40 @@ const App = (() => {
         }
     }
 
-    // --- Crash SMS window (crash.sms_state from src/safety/crash_sms.py) ---
+    // --- Crash window (crash.sms_state from src/safety/crash_sms.py and
+    // crash.call112_state from src/safety/call112.py) ---
     // Like calls, followed here on EVERY screen (A2/Android Auto included):
     // components/crash_modal.js draws #crash-modal on <body> (z-index 300,
-    // listed in GESTURE_OVERLAYS) from data.crash_sms — the countdown, ANULUJ
-    // / "Wyślij teraz" and the result. No navigation: the window covers
+    // listed in GESTURE_OVERLAYS) from data.crash_sms and data.call112 — the
+    // countdown, ANULUJ / "Wyślij teraz", the result, the 112 button, the
+    // call view and the dispatcher panel. No navigation: the window covers
     // whatever screen is up, so the driver does not lose their place.
     function _syncCrashState(data) {
         if (typeof CrashModal === "undefined" || !CrashModal) return;
-        CrashModal.sync(data ? data.crash_sms : null);
+        CrashModal.sync(data ? data.crash_sms : null, data ? data.call112 : null);
+    }
+
+    // --- Software dimming (modules.auto_brightness, display.dim from
+    // src/power/brightness.py) ---
+    // components/dim_overlay.js draws ONE black overlay on <body> (z-index
+    // 190: under #reverse-overlay 200 and #crash-modal 300, which stay fully
+    // bright; pointer-events:none). No data.display_dim (module off) = no
+    // overlay.
+    function _syncDim(data) {
+        if (typeof DimOverlay === "undefined" || !DimOverlay) return;
+        DimOverlay.sync(data ? data.display_dim : null);
+    }
+
+    // --- Remote wake session (modules.remote_session, power.remote_session
+    // from src/power/remote_session.py; plan E, the buffered build) ---
+    // components/wake_banner.js draws ONE non-modal bar on <body> (z-index
+    // 250: under #crash-modal 300 and the notifications 400; NOT in
+    // GESTURE_OVERLAYS — the screen under it keeps working): "Wybudzono:
+    // telefon — uśpienie za mm:ss [Nie usypiaj 30 min] [Uśpij teraz]".
+    // No data.remote_session (module off — production) = no banner.
+    function _syncWakeBanner(data) {
+        if (typeof WakeBanner === "undefined" || !WakeBanner) return;
+        WakeBanner.sync(data ? data.remote_session : null);
     }
 
     /** Update current screen with new data */
@@ -626,6 +651,8 @@ const App = (() => {
         // The crash window first: it must appear even if a screen's update()
         // throws further down.
         try { _syncCrashState(data); } catch (e) { /* never break the data loop */ }
+        try { _syncDim(data); } catch (e) { /* never break the data loop */ }
+        try { _syncWakeBanner(data); } catch (e) { /* never break the data loop */ }
         // Calls first: may switch to A8, whose update() then sees fresh state.
         try { _syncCallState(data); } catch (e) { /* never break the data loop */ }
         if (_renderers[_currentScreen] && _renderers[_currentScreen].update) {

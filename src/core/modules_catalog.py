@@ -152,6 +152,64 @@ MODULES: dict[str, dict] = {
                     "group": "bezpieczenstwo",
                     "requires": ("crash_detect", "phone_sensors", "car_phone_agent"),
                     "hardware": "Redmi z kartą SIM, sztywny uchwyt; odbiorcy w Ustawieniach"},
+    # Plan H: the 112 button in the crash window (src/safety/call112.py) —
+    # ALWAYS manual (held 2 s, loopback-only route). Two paths, chosen at
+    # the press: the main phone over HFP (only with a microphone, oFono and
+    # network — checked at run time; main.py passes the shared
+    # BluetoothManager) or the car phone on its speaker (the agent).
+    "call112":      {"part": 20, "description": "Przycisk „Zadzwoń na 112” w oknie wypadku (zawsze ręcznie)",
+                     "entry": ("src.safety.call112", "start_call112"), "default": False,
+                     "group": "bezpieczenstwo",
+                     "requires": ("crash_detect",),
+                     "requires_any": (("car_phone_agent", "bluetooth"),),
+                     "hardware": "Redmi z rootem (głośnik) albo główny telefon przez HFP "
+                                 "+ mikrofon i phone_status; najpierw test_mode z numerem "
+                                 "testowym"},
+    # Plan D4: the alarm on the parked car runs ON THE PHONE (bcm_agent.py,
+    # ParkGuard) — BCM is off when the car is parked. BCM's part
+    # (src/safety/parking_guard.py): the owner proof on the phone's
+    # authenticated Bluetooth (HFP) link (disarm), the phone's park state on
+    # park.state and the Settings row "Postój" (Uzbrój / Rozbrój, loopback
+    # only). Never alarm.sensor.* (that is the siren alarm module).
+    # Bluetooth is NOT in ``requires``: without it the module still shows
+    # the state and disarms with the TOTP code — it warns at start and the
+    # row says so (the owner's phone cannot be the proof then).
+    "parking_guard": {"part": 22, "description": "Pozycja i alarm auta na postoju (działa w telefonie)",
+                     "entry": ("src.safety.parking_guard", "start_parking_guard"),
+                     "default": False, "group": "telefon_w_aucie",
+                     "requires": ("car_phone_agent",),
+                     "hardware": "Redmi z kartą SIM (SMS), agent ≥ 1.2.0; sekret TOTP: "
+                                 "bcm_agent.py --park-setup; numery i dom w local.yaml "
+                                 "(parking_guard); Bluetooth z HFP (oFono) — telefon "
+                                 "właściciela rozbraja tylko z nim"},
+    # Plan I: the cabin watch is a layer ON TOP of the parking guard and
+    # runs on the phone too (bcm_agent.py, CabinWatch: light + motion → 3
+    # photos with the front camera, analysed on the phone, alarm SMS after the
+    # entry window). BCM only shows it (src/safety/cabin_watch.py: GET
+    # /v1/cabin → park.cabin_state / park.cabin_event history, Settings row
+    # "Czuwanie kabiny") — never a photo, never alarm.sensor.*.
+    "cabin_watch":  {"part": 22, "description": "Czuwanie kabiny na postoju: zdjęcia przednią kamerą telefonu",
+                     "entry": ("src.safety.cabin_watch", "start_cabin_watch"),
+                     "default": False, "group": "telefon_w_aucie",
+                     "requires": ("car_phone_agent", "parking_guard"),
+                     "hardware": "Redmi z rootem: przednia kamera, blokada ekranu „Brak”, "
+                                 "agent ≥ 1.3.0; analiza zdjęć z Pillow "
+                                 "(pkg install python-pillow)"},
+    # Plan D3 "Światło (lux)": the old BrightnessController (src/power/
+    # brightness.py), finally started — light from the car phone
+    # (phone.light_lux) OR the Arduino LDR (LIGHT: lines, read by
+    # arduino_serial, which the input module starts); the phone wins when
+    # both are fresh. The screen in the test car has no brightness control
+    # wired, so the default backend dims the IMAGE (an overlay in the
+    # kiosk); DDC/CI (ddcutil) is optional, chosen and probed in Settings →
+    # "Jasność ekranu". Without the module nothing is dimmed (production).
+    "auto_brightness": {"part": 10, "description": "Automatyczna jasność ekranu z czujnika światła",
+                     "entry": ("src.power.brightness", "start_auto_brightness"),
+                     "default": False, "group": "zasilanie",
+                     "requires_any": (("phone_sensors", "input"),),
+                     "hardware": "czujnik światła: telefon w aucie (phone_sensors) albo LDR "
+                                 "Arduino (input); ściemnianie programowe (nakładka), "
+                                 "sprzętowe DDC/CI opcjonalnie (ddcutil)"},
     "battery":     {"part": 21, "description": "Battery Backup Monitor",
                     "entry": ("src.power.battery", "start_battery"), "default": False},
 
@@ -174,10 +232,10 @@ MODULES: dict[str, dict] = {
     "small_display": {"part": 2,  "description": "4.3\" stats display server (port 5003)",
                      "default": True},
 
-    # --- planned modules (plan sections D3–I): listed, never started ---
+    # --- add-ons read inside other modules, and the buffered-power build ---
     # Every one defaults to False and is the ONLY switch of its feature
-    # (no ``enabled`` sub-keys in the config blocks). ``planned`` goes away
-    # when the code lands; ``requires`` already describes the final graph.
+    # (no ``enabled`` sub-keys in the config blocks). None is ``planned``
+    # any more (the mechanism is described in the module docstring).
     # Plan D2 — read inside car_phone (no start path of its own): the
     # hotspot status in its Settings row. Read-only; the hotspot itself is
     # configured and switched on the phone.
@@ -185,33 +243,18 @@ MODULES: dict[str, dict] = {
                      "default": False, "group": "telefon_w_aucie",
                      "requires": ("car_phone",),
                      "hardware": "Redmi: hotspot skonfigurowany w telefonie"},
-    "parking_guard": {"part": 22, "description": "Pozycja i alarm auta na postoju (działa w telefonie)",
-                     "default": False, "planned": True, "group": "telefon_w_aucie",
-                     "requires": ("car_phone_agent",),
-                     "hardware": "Redmi z kartą SIM (SMS)"},
-    "cabin_watch":  {"part": 22, "description": "Czuwanie kabiny na postoju: zdjęcia przednią kamerą telefonu",
-                     "default": False, "planned": True, "group": "telefon_w_aucie",
-                     "requires": ("car_phone_agent",),
-                     "hardware": "Redmi: przednia kamera, blokada ekranu „Brak”"},
-    # The 112 button lives in the crash window (crash_detect). Two paths:
-    # the car phone on speaker (agent) or the main phone over HFP — the
-    # latter only with a microphone, which is checked at run time.
-    "call112":      {"part": 20, "description": "Przycisk „Zadzwoń na 112” w oknie wypadku (zawsze ręcznie)",
-                     "default": False, "planned": True, "group": "bezpieczenstwo",
-                     "requires": ("crash_detect",),
-                     "requires_any": (("car_phone_agent", "bluetooth"),),
-                     "hardware": "Redmi (głośnik) albo główny telefon przez HFP + mikrofon"},
-    # Light from the car phone OR the Arduino light sensor (LIGHT: lines,
-    # read by arduino_serial, which the input module starts).
-    "auto_brightness": {"part": 10, "description": "Automatyczna jasność ekranu z czujnika światła",
-                     "default": False, "planned": True, "group": "zasilanie",
-                     "requires_any": (("phone_sensors", "input"),),
-                     "hardware": "czujnik światła: telefon w aucie albo Arduino; DDC/CI lub xrandr"},
-    # WAKE:/LEASE: lines come from Nano #2 through arduino_serial (input).
+    # Plan E (the buffered build only): the session after Nano #2 woke the
+    # computer (driver's door, IR from the car phone, EXT pulse) —
+    # src/power/remote_session.py. WAKE:/LEASE: lines come through
+    # arduino_serial (started by input); HOLD/RELEASE go back the same way.
+    # Nothing here can wake the computer; the firmware owns the rules.
     "remote_session": {"part": 10, "description": "Sesja po zdalnym wybudzeniu (drzwi, telefon): baner i auto-uśpienie",
-                     "default": False, "planned": True, "group": "zasilanie",
+                     "entry": ("src.power.remote_session", "start_remote_session"),
+                     "default": False, "group": "zasilanie",
                      "requires": ("input",),
-                     "hardware": "Nano #2 (sensor_hub) z FEATURE_WAKE_* i przekaźnikiem przycisku zasilania"},
+                     "hardware": "wersja z buforem: Nano #2 (sensor_hub) z FEATURE_WAKE_* "
+                                 "i FEATURE_PWRLED, przekaźnik przycisku zasilania; IR — "
+                                 "odbiornik TSOP na A3 i telefon w aucie z nadajnikiem IR"},
 }
 
 

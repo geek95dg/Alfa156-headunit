@@ -930,6 +930,29 @@ else
     warn "  Fix: sudo apt-get install adb, then re-run this script (or apply-fixes.sh)."
 fi
 
+# ddcutil = OPTIONAL hardware dimming for modules.auto_brightness
+# (src/power/brightness.py): Settings → "Jasność ekranu" → "Sprzętowe
+# (DDC/CI)" makes BCM probe the monitor (ddcutil detect / getvcp 10) and,
+# if it answers, set its brightness over DDC/CI (the video cable — also on
+# a USB-powered monitor). Without ddcutil the row says so and BCM keeps the
+# software dimming (an overlay in the kiosk), so a missing package is a
+# warning, not an error. Same checked single-package pattern as adb.
+apt-get install -y ddcutil || true
+if command -v ddcutil >/dev/null 2>&1; then
+    echo "  ddcutil: $(command -v ddcutil)"
+else
+    warn "ddcutil is NOT installed — hardware dimming (DDC/CI) will NOT work; BCM keeps software dimming."
+    warn "  Fix: sudo apt-get install ddcutil, then re-run this script (or apply-fixes.sh)."
+fi
+# ddcutil talks to the monitor through /dev/i2c-*, which only exist with the
+# i2c-dev module: load it at every boot (cleanup-x86.sh removes the file)
+# and now, so the probe works without a reboot.
+cat > /etc/modules-load.d/bcm-i2c.conf <<'EOF'
+# BCM: /dev/i2c-* for ddcutil (DDC/CI dimming, modules.auto_brightness)
+i2c-dev
+EOF
+modprobe i2c-dev 2>/dev/null || warn "modprobe i2c-dev failed — DDC/CI needs it (it loads at the next boot)"
+
 # The WirePlumber drop-ins in /etc/wireplumber/wireplumber.conf.d use the
 # 0.5 SPA-JSON syntax; WirePlumber 0.4 (Lua config) silently ignores them,
 # which would leave the native HFP backend active and the dialer dead.

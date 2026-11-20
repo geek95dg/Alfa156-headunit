@@ -359,8 +359,8 @@
                 <tr>
                   <td>Wake on USB</td>
                   <td>Power &rarr; Wake on USB</td>
-                  <td><strong>Enabled</strong></td>
-                  <td>Allows the Arduino to wake the M910q from S3 suspend via USB activity</td>
+                  <td><strong>Disabled</strong></td>
+                  <td>The M910q cuts USB power in S3, so nothing on USB (Arduino, car phone) can wake it &mdash; it only causes false wake-ups. Wake goes through the power button: the relay driven by Nano #2 (sensor hub) in the buffered build, or a manual press</td>
                 </tr>
               </tbody>
             </table>
@@ -653,7 +653,7 @@ WantedBy=multi-user.target</code></pre>
                 <tr>
                   <td>Ignition ON</td>
                   <td>Resume &rarr; restart BCM</td>
-                  <td>The Arduino USB activity wakes the M910q from S3 (Wake on USB enabled in BIOS); the resume service restarts BCM</td>
+                  <td>The Nano #2 relay pulses the M910q power button, which wakes it from S3 (USB is unpowered in S3, so Wake on USB stays disabled); the resume service restarts BCM</td>
                 </tr>
               </tbody>
             </table>
@@ -858,7 +858,7 @@ cat /proc/acpi/wakeup</code></pre>
                 </tr>
                 <tr>
                   <td>BIOS: Wake on USB</td>
-                  <td>Set to "Enabled"</td>
+                  <td>Set to "Disabled" (wake via the power-button relay)</td>
                   <td>[ ]</td>
                 </tr>
               </tbody>

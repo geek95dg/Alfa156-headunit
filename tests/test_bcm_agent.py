@@ -12,7 +12,13 @@ crash events with the deadline held by the agent (fake clock), cancel
 before / after sending with exactly one follow-up SMS, the 10 min / 3 per
 day limits persisted, resume after a restart, retries and verification,
 GSM-7 only texts within 2 segments, the number as the only free word in
-argv, dry_run never calling termux-sms-send, the test SMS.
+argv, dry_run never calling termux-sms-send, the test SMS; "Zadzwoń 112"
+(plan H): only the agent's fixed strings ever reach ``su -c`` (a fake su
+refuses anything else), the request never carries a number, test mode only
+ever dials the configured test number, 1 call per 60 s (persisted, a failed
+``am start`` does not count), no root, hang-up (also before ``am start``),
+an unreadable call state, and the crash SMS: "Z auta wybrano 112 o hh:mm"
+in a pending SMS or ONE follow-up SMS after a sent one (GSM-7).
 """
 
 from __future__ import annotations
@@ -237,13 +243,29 @@ class TestFile:
         py_compile.compile(str(AGENT_PATH), cfile=str(tmp_path / "agent.pyc"), doraise=True)
 
     def test_stdlib_only(self):
+        """Only the standard library — except Pillow, and Pillow only as the
+        optional import inside load_pillow() behind try/except (the cabin
+        watch analysis; 'pkg install python-pillow' in Termux)."""
         tree = ast.parse(AGENT_PATH.read_text(encoding="utf-8"))
         names = set()
+        optional = set()
+        for fn in ast.walk(tree):
+            if isinstance(fn, ast.FunctionDef) and fn.name == "load_pillow":
+                for t in ast.walk(fn):
+                    if isinstance(t, ast.Try) and any(
+                            isinstance(h.type, ast.Name) and h.type.id == "Exception"
+                            for h in t.handlers):
+                        optional.update(id(n) for n in ast.walk(t)
+                                        if isinstance(n, ast.ImportFrom))
         for node in ast.walk(tree):
             if isinstance(node, ast.Import):
                 names.update(a.name.split(".")[0] for a in node.names)
             elif isinstance(node, ast.ImportFrom) and node.level == 0:
-                names.add(node.module.split(".")[0])
+                root = node.module.split(".")[0]
+                if root == "PIL":
+                    assert id(node) in optional, "PIL may only be imported in load_pillow()"
+                    continue
+                names.add(root)
         assert names <= set(sys.stdlib_module_names) | {"__future__"}, names
 
     def test_no_shell_anywhere(self):
@@ -632,7 +654,21 @@ class TestConfig:
         agent = make_agent(state_dir, runner, clock)
         assert agent.config == {"recipients": [], "sim_slot": 0, "vehicle_label": "ALFA 156",
                                 "toggles": dict.fromkeys(A.TOGGLES, False), "dry_run": True,
-                                "follow_up_cancel": True}
+                                "follow_up_cancel": True, "call112_test_mode": True,
+                                "call112_test_number": "",
+                                # alarm na postoju: bez numerów, tylko log
+                                "park_numbers": [], "park_log_only": True,
+                                "park_arm_after_min": 3, "park_arm_delay_min": 2,
+                                "park_grace_min": 3, "park_home": None,
+                                "park_tilt_deg": 0.5, "park_shake_k": 6.0,
+                                "park_entry_s": 90,
+                                # czuwanie kabiny: okno 60 s, próg 3%, bez maski,
+                                # skok światła ×5 i +5 lux
+                                "cabin_entry_s": 60, "cabin_diff_pct": 3.0,
+                                "cabin_mask": [], "cabin_light_ratio": 5.0,
+                                "cabin_light_lux": 5.0,
+                                # budzenie IR (plan E): kod z firmware
+                                "wake_ir_address": 0x7A15, "wake_ir_command": 0x56}
 
     def test_put_is_persisted(self, ready, state_dir, runner, clock):
         agent, peer = ready
@@ -664,7 +700,8 @@ class TestConfig:
                                                          toggles={"crash_sms": True, "x": 1}))
         assert status == 200
         assert agent.config["toggles"] == {"crash_sms": True, "parking_guard": False,
-                                           "cabin_watch": False, "call112": False}
+                                           "cabin_watch": False, "call112": False,
+                                           "remote_session": False}
 
 
 # ── crash events ─────────────────────────────────────────────────────────
@@ -1536,3 +1573,372 @@ class TestStatus:
             agent.status_kick.set()
             thread.join(5)
         assert not thread.is_alive()
+
+
+# ── „Zadzwoń 112” (plan H, path B) ───────────────────────────────────────
+
+TEST_NUM = "+48601234599"
+#: Every string the agent may ever hand to ``su -c`` (fixed + validated digits).
+SU_ALLOWED = {A.call_command(None), A.call_command(TEST_NUM), A.VOLUME_GET_COMMAND,
+              A.volume_set_command(7), A.CALL_STATE_COMMAND, A.HANGUP_COMMAND,
+              A.SU_PROBE_COMMAND}
+
+
+class SuRunner(FakeRunner):
+    """FakeRunner + Magisk ``su``: only the agent's fixed strings are
+    accepted (anything else fails the test); nothing is ever dialled."""
+
+    def __init__(self, clock=None):
+        super().__init__(clock)
+        self.call_state = "0"
+        self.am = (0, "Starting: Intent { act=android.intent.action.CALL_PRIVILEGED }", "")
+        self.su_rc = None                   # (rc, out, err) for every su call, if set
+
+    def su_calls(self):
+        return [argv[2] for argv, _ in self.calls if argv[0] == "su"]
+
+    def __call__(self, argv, stdin, timeout):
+        if argv and argv[0] == "su":
+            assert len(argv) == 3 and argv[1] == "-c", argv
+            assert stdin is None and timeout > 0
+            assert argv[2] in SU_ALLOWED, argv[2]
+            self.calls.append((list(argv), stdin))
+            if self.su_rc is not None:
+                return self.su_rc
+            cmd = argv[2]
+            if cmd == A.SU_PROBE_COMMAND:
+                return 0, "0\n", ""
+            if cmd == A.CALL_STATE_COMMAND:
+                return 0, f"  mCallState={self.call_state}\n  mCallIncomingNumber=\n", ""
+            if cmd == A.VOLUME_GET_COMMAND:
+                return 0, "volume is 3 in range [1..7]\n", ""
+            if cmd.startswith("am start "):
+                return self.am
+            return 0, "", ""
+        return super().__call__(argv, stdin, timeout)
+
+
+CONFIG112 = dict(CONFIG, toggles=dict(CONFIG["toggles"], call112=True),
+                 call112_test_mode=False, call112_test_number="")
+#: POST /v1/call112 bodies: the mode guard and the crash event of BCM's
+#: window (CRASH's id — only that event's SMS may mention 112).
+REAL = {"mode": "real", "event_id": "c0ffee01"}
+TEST = {"mode": "test", "event_id": "c0ffee01"}
+MARK = {"event_id": "c0ffee01"}
+
+
+@pytest.fixture
+def su_ready(state_dir, clock):
+    runner = SuRunner(clock)
+    agent = make_agent(state_dir, runner, clock)
+    assert pair(agent, state_dir)[0] == 200
+    peer = Peer(agent, clock)
+    assert peer.req("PUT", "/v1/config", CONFIG112)[0] == 200
+    agent.probe_su()
+    return agent, peer, runner
+
+
+def _calls_step(agent, n=6):
+    for _ in range(n):
+        agent.call_step()
+
+
+class TestCall112Commands:
+    def test_fixed_strings(self):
+        assert A.call_command(None) == (
+            "am start -a android.intent.action.CALL_PRIVILEGED -d tel:112 "
+            "--ez android.telecom.extra.START_CALL_WITH_SPEAKERPHONE true")
+        assert A.call_command(TEST_NUM) == (
+            "am start -a android.intent.action.CALL -d tel:+48601234599 "
+            "--ez android.telecom.extra.START_CALL_WITH_SPEAKERPHONE true")
+        assert A.volume_set_command(7) == "cmd media_session volume --stream 0 --set 7"
+
+    @pytest.mark.parametrize("bad", ["112", "601234599", "+48 601", "+48601234599;reboot",
+                                     "+4860123459$(id)", "", 112])
+    def test_only_e164_test_numbers(self, bad):
+        # (None = the real 112 by design — the one number the agent owns)
+        with pytest.raises(ValueError):
+            A.call_command(bad)
+
+    @pytest.mark.parametrize("bad", [-1, 101, True, 3.0, "7", None])
+    def test_volume_index_validated(self, bad):
+        with pytest.raises(ValueError):
+            A.volume_set_command(bad)
+
+    @pytest.mark.parametrize("cmd", ["id -u; reboot", "am start 'x'", "a$(b)", "a|b", "a&b",
+                                     "a\nb", "a/b", "a\\b", "", "x" * 201, None])
+    def test_su_refuses_anything_shell_like(self, cmd):
+        with pytest.raises(ValueError):
+            A.su_argv(cmd)
+
+    def test_su_argv_is_one_fixed_string(self):
+        assert A.su_argv(A.SU_PROBE_COMMAND) == ["su", "-c", "id -u"]
+
+    def test_parsers(self):
+        assert A.parse_volume_max("volume is 3 in range [1..7]") == 7
+        assert A.parse_volume_max("volume is 3 in range [9..7]") is None
+        assert A.parse_volume_max("garbage") is None and A.parse_volume_max(None) is None
+        assert A.parse_call_state("mCallState=0\nmCallState=2") == 2
+        assert A.parse_call_state("mCallState=7") is None
+        assert A.parse_call_state(5) is None
+
+
+class TestCall112:
+    def test_real_call_flow(self, su_ready, clock):
+        agent, peer, runner = su_ready
+        status, out = peer.req("POST", "/v1/call112", REAL)
+        assert status == 200 and out["state"] == "queued" and out["number"] == "112"
+        agent.call_step()
+        assert runner.su_calls()[-3:] == [A.call_command(None), A.VOLUME_GET_COMMAND,
+                                          A.volume_set_command(7)]
+        assert peer.req("GET", "/v1/call112")[1]["call"]["state"] == "placed"
+        runner.call_state = "2"
+        clock.advance(2)
+        agent.call_step()
+        view = peer.req("GET", "/v1/call112")[1]["call"]
+        assert view["state"] == "offhook" and view["offhook_ts"] is not None
+        runner.call_state = "0"
+        _calls_step(agent, 2)
+        view = peer.req("GET", "/v1/call112")[1]["call"]
+        assert view["state"] == "ended" and view["final"] is True
+        # never a number other than 112 / never termux-telephony-call
+        assert not [c for c in runner.calls if c[0][0] == "termux-telephony-call"]
+
+    def test_test_mode_dials_only_the_test_number(self, su_ready):
+        agent, peer, runner = su_ready
+        peer.req("PUT", "/v1/config", dict(CONFIG112, call112_test_mode=True,
+                                           call112_test_number=TEST_NUM))
+        assert peer.req("POST", "/v1/call112", REAL)[1] == {
+            "error": "mode_mismatch", "mode": "test"}
+        status, out = peer.req("POST", "/v1/call112", TEST)
+        assert status == 200 and out["number"] == "+48...599" and out["mode"] == "test"
+        agent.call_step()
+        assert A.call_command(TEST_NUM) in runner.su_calls()
+        assert not any("tel:112" in c for c in runner.su_calls())
+
+    def test_test_mode_without_a_number_dials_nothing(self, su_ready):
+        agent, peer, runner = su_ready
+        peer.req("PUT", "/v1/config", dict(CONFIG112, call112_test_mode=True))
+        assert peer.req("POST", "/v1/call112", TEST) == (
+            409, {"error": "no_test_number"})
+        assert peer.req("GET", "/v1/health")[1]["call112_capable"] is False
+
+    @pytest.mark.parametrize("body", [{}, {"mode": "real", "number": "997"},
+                                      {"mode": "real", "number": "112"}, {"mode": "both"},
+                                      {"number": "112"}, {"mode": "real"},
+                                      dict(REAL, number="112"), dict(REAL, event_id="X;id"),
+                                      dict(REAL, event_id=""), dict(REAL, event_id=7)])
+    def test_the_request_never_carries_a_number(self, su_ready, body):
+        agent, peer, runner = su_ready
+        status, out = peer.req("POST", "/v1/call112", body)
+        assert status == 400 and out["error"] == "bad_request"
+        agent.call_step()
+        assert not any(c.startswith("am start") for c in runner.su_calls())
+
+    @pytest.mark.parametrize("test_number", ["112", "601234599", "+48 601", "+48;1"])
+    def test_config_test_number_validated(self, su_ready, test_number):
+        agent, peer, runner = su_ready
+        status, out = peer.req("PUT", "/v1/config", dict(CONFIG112, call112_test_mode=True,
+                                                         call112_test_number=test_number))
+        assert status == 400 and out["error"] == "bad_config"
+
+    def test_off_on_the_phone(self, su_ready):
+        agent, peer, runner = su_ready
+        peer.req("PUT", "/v1/config", CONFIG)              # call112 toggle off
+        assert peer.req("POST", "/v1/call112", REAL) == (409, {"error": "call112_off"})
+        assert peer.req("GET", "/v1/health")[1]["call112_capable"] is False
+
+    def test_one_per_minute_persisted(self, su_ready, state_dir, clock):
+        agent, peer, runner = su_ready
+        assert peer.req("POST", "/v1/call112", REAL)[0] == 200
+        agent.call_step()
+        runner.call_state = "2"
+        agent.call_step()
+        assert peer.req("POST", "/v1/call112", REAL)[1]["error"] == "busy"
+        runner.call_state = "0"
+        _calls_step(agent, 2)
+        status, out = peer.req("POST", "/v1/call112", REAL)
+        assert status == 429 and out["error"] == "rate_limited"
+        restarted = make_agent(state_dir, runner, clock)
+        restarted._su_ok = True
+        peer2 = Peer(restarted, clock, nonce=peer.nonce)
+        assert peer2.req("POST", "/v1/call112", REAL)[0] == 429
+        clock.advance(A.CALL112_COOLDOWN_S)
+        assert peer2.req("POST", "/v1/call112", REAL)[0] == 200
+
+    def test_failed_am_start_does_not_use_the_limit(self, su_ready):
+        agent, peer, runner = su_ready
+        runner.am = (1, "", "Error: Activity not started, unable to resolve Intent")
+        peer.req("POST", "/v1/call112", REAL)
+        agent.call_step()
+        view = peer.req("GET", "/v1/call112")[1]["call"]
+        assert view["state"] == "failed" and view["error"] == "am_failed"
+        runner.am = (0, "Starting: Intent", "")
+        assert peer.req("POST", "/v1/call112", REAL)[0] == 200
+
+    @pytest.mark.parametrize("answer, error", [((127, "", "su: not found"), "su_missing"),
+                                               ((1, "", "Permission denied"), "su_denied"),
+                                               ((124, "", ""), "su_denied")])
+    def test_no_root(self, su_ready, answer, error):
+        agent, peer, runner = su_ready
+        assert peer.req("GET", "/v1/health")[1]["call112_capable"] is True
+        runner.su_rc = answer
+        peer.req("POST", "/v1/call112", REAL)
+        agent.call_step()
+        assert peer.req("GET", "/v1/call112")[1]["call"]["error"] == error
+        assert peer.req("GET", "/v1/health")[1]["call112_capable"] is False
+        assert peer.req("POST", "/v1/call112", REAL) == (409, {"error": "no_root"})
+
+    def test_probe(self, su_ready):
+        agent, peer, runner = su_ready
+        runner.su_rc = (0, "10123\n", "")                  # not root
+        agent.probe_su()
+        assert agent._su_ok is False
+        runner.su_rc = None
+        agent.probe_su()
+        out = peer.req("GET", "/v1/health")[1]
+        assert out["call112_capable"] is True and out["call112_mode"] == "real"
+
+    def test_hangup(self, su_ready):
+        agent, peer, runner = su_ready
+        assert peer.req("POST", "/v1/call112/hangup", {}) == (409, {"error": "no_call"})
+        peer.req("POST", "/v1/call112", REAL)
+        agent.call_step()
+        assert peer.req("POST", "/v1/call112/hangup", {"x": 1})[0] == 400
+        assert peer.req("POST", "/v1/call112/hangup", {})[0] == 200
+        agent.call_step()
+        assert A.HANGUP_COMMAND in runner.su_calls()
+
+    def test_hangup_before_am_start_dials_nothing(self, su_ready):
+        agent, peer, runner = su_ready
+        peer.req("POST", "/v1/call112", REAL)
+        assert peer.req("POST", "/v1/call112/hangup", {})[0] == 200
+        agent.call_step()
+        assert not any(c.startswith("am start") for c in runner.su_calls())
+        assert peer.req("GET", "/v1/call112")[1]["call"]["state"] == "ended"
+        assert peer.req("POST", "/v1/call112", REAL)[0] == 200   # no limit used
+
+    def test_unreadable_state_does_not_block_the_next_call(self, su_ready, clock):
+        agent, peer, runner = su_ready
+        peer.req("POST", "/v1/call112", REAL)
+        agent.call_step()
+        runner.su_rc = (1, "", "dumpsys: permission")         # state never readable
+        clock.advance(A.CALL_NO_STATE_S)
+        agent.call_step()
+        runner.su_rc = None
+        view = peer.req("GET", "/v1/call112")[1]["call"]
+        assert view["state"] == "placed" and view["final"] is True
+        assert peer.req("POST", "/v1/call112/hangup", {})[0] == 200    # ENDCALL still possible
+        agent.call_step()
+        assert peer.req("GET", "/v1/call112")[1]["call"]["state"] == "ended"
+        clock.advance(A.CALL112_COOLDOWN_S)
+        assert peer.req("POST", "/v1/call112", REAL)[0] == 200
+
+    def test_never_went_into_the_call(self, su_ready, clock):
+        agent, peer, runner = su_ready
+        peer.req("POST", "/v1/call112", REAL)
+        agent.call_step()
+        clock.advance(A.CALL_IDLE_FAIL_S)
+        agent.call_step()
+        view = peer.req("GET", "/v1/call112")[1]["call"]
+        assert view["state"] == "failed" and view["error"] == "no_call"
+
+
+class TestCall112Sms:
+    def test_pending_crash_sms_says_112_was_called(self, su_ready, clock):
+        agent, peer, runner = su_ready
+        peer.req("POST", "/v1/crash", CRASH)
+        clock.advance(10)
+        peer.req("POST", "/v1/call112", REAL)
+        assert agent.events[0].get("called_112_wall") is None   # not before am start
+        agent.call_step()
+        assert agent.events[0]["called_112_wall"] == clock.wall
+        clock.advance(35)
+        run_steps(agent)
+        texts = [stdin for argv, stdin in runner.sms_calls()]
+        assert len(texts) == 2
+        for text in texts:
+            assert text.endswith(" Z auta wybrano 112 o 02:13.")
+            assert A.is_gsm7(text) and A.sms_segments(text) <= 3
+
+    def test_sent_crash_sms_gets_one_follow_up_and_no_cancel_sms(self, su_ready, clock):
+        agent, peer, runner = su_ready
+        peer.req("POST", "/v1/crash", CRASH)
+        clock.advance(45)
+        run_steps(agent)
+        clock.advance(A.VERIFY_AFTER_S)
+        run_steps(agent)
+        assert len(runner.sms_calls()) == 2
+        peer.req("POST", "/v1/call112", REAL)
+        agent.call_step()
+        run_steps(agent)
+        follow = runner.sms_calls()[2:]
+        assert [argv[2] for argv, _ in follow] == [NUM1, NUM2]
+        assert follow[0][1] == "ALFA 156: Z auta wybrano 112 o 02:14 (alarm o wypadku z 02:13)."
+        assert A.is_gsm7(follow[0][1]) and A.sms_segments(follow[0][1]) == 1
+        view = peer.req("GET", "/v1/crash/c0ffee01")[1]
+        assert view["follow_up_left"] is False and view["called_112_ts"] is not None
+        # "Jestem OK" afterwards: the follow-up budget is used up
+        assert peer.req("POST", "/v1/crash/c0ffee01/cancel", {})[0] == 200
+        clock.advance(600)
+        run_steps(agent)
+        assert len(runner.sms_calls()) == 4
+        # a second 112 call: still only one follow-up
+        clock.advance(A.CALL112_COOLDOWN_S)
+        peer.req("POST", "/v1/call112", REAL)
+        agent.call_step()
+        run_steps(agent)
+        assert len(runner.sms_calls()) == 4
+
+    def test_test_mode_never_touches_the_crash_sms(self, su_ready, clock):
+        agent, peer, runner = su_ready
+        peer.req("PUT", "/v1/config", dict(CONFIG112, call112_test_mode=True,
+                                           call112_test_number=TEST_NUM))
+        peer.req("POST", "/v1/crash", CRASH)
+        peer.req("POST", "/v1/call112", TEST)
+        agent.call_step()
+        assert agent.events[0].get("called_112_wall") is None
+        clock.advance(45)
+        run_steps(agent)
+        assert not any("112 o" in stdin for argv, stdin in runner.sms_calls())
+
+    def test_mark_from_the_main_phone(self, su_ready, clock):
+        agent, peer, runner = su_ready
+        assert peer.req("POST", "/v1/call112/mark", MARK) == (200, {"ok": True, "event_id": None})
+        peer.req("POST", "/v1/crash", CRASH)
+        for bad in ({}, {"event_id": "x"}, {"event_id": "c0ffee01", "x": 1}, {"event_id": 5}):
+            assert peer.req("POST", "/v1/call112/mark", bad)[0] == 400
+        # another event (e.g. a GPS-only one BCM's window follows): nothing
+        assert peer.req("POST", "/v1/call112/mark", {"event_id": "c0ffee02"}) == (
+            200, {"ok": True, "event_id": None})
+        assert agent.events[0].get("called_112_wall") is None
+        assert peer.req("POST", "/v1/call112/mark", MARK) == (
+            200, {"ok": True, "event_id": "c0ffee01"})
+        clock.advance(45)
+        run_steps(agent)
+        assert all(stdin.endswith("Z auta wybrano 112 o 02:13.")
+                   for argv, stdin in runner.sms_calls())
+        assert not any(c.startswith("am start") for c in runner.su_calls())
+        peer.req("PUT", "/v1/config", CONFIG)               # toggle off
+        assert peer.req("POST", "/v1/call112/mark", MARK) == (409, {"error": "call112_off"})
+
+    def test_a_call_for_another_event_leaves_this_sms_alone(self, su_ready, clock):
+        agent, peer, runner = su_ready
+        peer.req("POST", "/v1/crash", CRASH)
+        assert peer.req("POST", "/v1/call112", dict(REAL, event_id="c0ffee02"))[0] == 200
+        agent.call_step()
+        assert any(c.startswith("am start") for c in runner.su_calls())
+        assert agent.events[0].get("called_112_wall") is None
+        clock.advance(45)
+        run_steps(agent)
+        assert runner.sms_calls() and not any("wybrano 112" in stdin
+                                           for argv, stdin in runner.sms_calls())
+
+    def test_events_with_112_fields_survive_a_restart(self, su_ready, state_dir, clock):
+        agent, peer, runner = su_ready
+        peer.req("POST", "/v1/crash", CRASH)
+        peer.req("POST", "/v1/call112/mark", MARK)
+        restarted = make_agent(state_dir, runner, clock)
+        assert restarted.events[0]["called_112_wall"] == clock.wall
+        assert A.valid_event(dict(restarted.events[0], called_112_wall="x")) is False
+        assert A.valid_event(dict(restarted.events[0], follow_up_used="yes")) is False

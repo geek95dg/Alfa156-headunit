@@ -20,12 +20,15 @@ WRITE     goes to the overlay.
 REVIEW    goes to the overlay, but is hardware-specific (audio sink, GPIO,
           serial ports, blinker monitor) — check it matches this car.
 DROPPED   never migrated: ``*_runtime`` state, ``system.platform``,
-          placeholders (``PASTE_...``, ``XXXX``), ``--exclude`` paths and
-          secrets. A secret is reported with the bcm.env variable it belongs
-          in; its value is never printed.
+          placeholders (``PASTE_...``, ``XXXX``), ``--exclude`` paths,
+          keys no code reads any more (the old crash detector's
+          ``crash_detection.speed_drop_threshold`` & co.) and secrets. A
+          secret is reported with the bcm.env variable it belongs in; its
+          value is never printed.
 SKIPPED   the base wins for features the new base enables on purpose
           (weather, route planner, location, tracking, phonebook, network,
-          phone tether) — an old ``false`` would silently switch them off.
+          phone tether, crash detection) — an old ``false`` would silently
+          switch them off.
           Only that direction is skipped: a feature the device has on and
           the base off is migrated (WRITE) like any other value.
           Likewise for values the new base changes on purpose
@@ -90,7 +93,23 @@ SKIP_BASE_WINS = (
     "modules.phonebook",
     "modules.network",
     "modules.phone_tether",
+    # The test base turns crash detection on deliberately since #128 (it
+    # collects the data the thresholds are tuned with, and crash_sms /
+    # call112 need it). Every device bcm_config_temp.yaml still carries the
+    # old default `crash_detect: false` — nobody chose it, so it must not
+    # switch the detector off on a migrated car. --keep-source keeps it off.
+    "modules.crash_detect",
 )
+
+#: Keys no code reads any more → why. Copying them into local.yaml would
+#: only carry dead values along (and a start-up warning about them).
+#: Must match ``LEGACY_KEYS`` in src/safety/crash_detect.py (a test checks
+#: it); kept as a literal so the tool does not import the detector module.
+DROP_OBSOLETE: dict = {
+    "crash_detection.speed_drop_threshold": "no longer read (old crash detector)",
+    "crash_detection.g_force_threshold": "no longer read (old crash detector)",
+    "crash_detection.post_crash_record_sec": "no longer read (old crash detector)",
+}
 
 #: Values the new base changes on purpose → the OLD default(s) they replace.
 #: The device file (bcm_config_temp.yaml) predates the change and still
@@ -237,6 +256,11 @@ def build_plan(source: dict, base: dict, *, excludes=(), keep_source=()) -> dict
     for dotpath, value in iter_leaves(pruned):
         if is_placeholder(value):
             plan["dropped"].append({"path": dotpath, "reason": "placeholder value"})
+            continue
+        if _covered_by_any(DROP_OBSOLETE, dotpath):
+            plan["dropped"].append({"path": dotpath,
+                                    "reason": next(r for k, r in DROP_OBSOLETE.items()
+                                                   if _covers(k, dotpath))})
             continue
         if _covered_by_any(excludes, dotpath):
             plan["dropped"].append({"path": dotpath, "reason": "excluded (--exclude)"})

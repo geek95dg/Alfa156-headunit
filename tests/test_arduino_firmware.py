@@ -17,8 +17,18 @@ The power-button decisions live in ``sensor_hub/power_logic.h`` (plain C++);
 ``millis()`` wrap (~49.7 days — the Nano runs 24/7 from the buffer) and is run
 here too, so CI's pytest job executes it (skipped without g++). Static checks
 make sure no deadline is compared as ``now < deadline`` again.
+
+The external wake (plan E, ``FEATURE_WAKE_DOOR/EXT/IR``, the buffered build
+only) lives in ``sensor_hub/wake_logic.h``: the acceptance rules, the lease,
+the rate limits, the door hold-off, the NEC decoder and the bounded line
+reader for ``HOLD:<min>`` / ``RELEASE``. ``test_wake_logic.cpp`` runs them
+on the same simulated M910q (also across the ``millis()`` / ``micros()``
+wrap and a board reset that keeps ``.noinit``), from pytest too. The
+``#error`` guards (no wake without the power LED, IR/EXT against the parking
+sensors' echo pins) are checked by compiling the sketch with stubs.
 """
 
+import os
 import re
 import shutil
 import subprocess
@@ -31,6 +41,8 @@ ARDUINO = REPO / "arduino"
 SKETCH = ARDUINO / "sensor_hub" / "sensor_hub.ino"
 POWER_LOGIC = ARDUINO / "sensor_hub" / "power_logic.h"
 POWER_TEST = ARDUINO / "sensor_hub" / "test" / "test_power_logic.cpp"
+WAKE_LOGIC = ARDUINO / "sensor_hub" / "wake_logic.h"
+WAKE_TEST = ARDUINO / "sensor_hub" / "test" / "test_wake_logic.cpp"
 MAKEFILE = ARDUINO / "Makefile"
 CI = REPO / ".github" / "workflows" / "ci.yml"
 UDEV = REPO / "config" / "udev" / "99-bcm-sensor-hub.rules"
@@ -57,12 +69,56 @@ class TestBuildPlumbing:
         assert re.search(r"^sensor_hub-variants:", mk, flags=re.M)
         assert re.search(r"^SENSOR_HUB_VARIANTS \?=.*\bBATT_ADC\b.*\bBATT_INA226\b", mk, flags=re.M)
         body = mk.split("sensor_hub-variants:", 2)[-1].split("\n\n", 1)[0]
-        assert "compiler.cpp.extra_flags=-DFEATURE_$$v" in body
+        # "A+B" variants: every name becomes its own -DFEATURE_ flag.
+        assert """flags="-DFEATURE_$$(echo $$v | sed 's/+/ -DFEATURE_/g')";""" in body
+        assert "compiler.cpp.extra_flags=$$flags" in body
         assert "--build-path" in body and "sensor_hub-$$v" in body   # one dir per variant
         assert "--profile default" in body
         assert "|| exit 1" in body                                  # a failing variant fails make
         phony = re.search(r"^\.PHONY:(.*?)(?<!\\)\n", mk, flags=re.M | re.S).group(1)
         assert "sensor_hub-variants" in phony
+
+    def test_variants_have_a_ram_budget(self):
+        """arduino-cli fails a sketch too big for flash on its own, but only
+        WARNS about RAM — the variants target fails above SENSOR_HUB_RAM_MAX
+        (75 % of the Nano's 2048 B, the rest is stack) and when the size
+        summary is missing (a check that silently does nothing is worse)."""
+        mk = MAKEFILE.read_text(encoding="utf-8")
+        m = re.search(r"^SENSOR_HUB_RAM_MAX \?= (\d+)$", mk, flags=re.M)
+        assert m and 1024 <= int(m.group(1)) <= 1536
+        body = mk.split("\nsensor_hub-variants:", 1)[1].split("\n\n", 1)[0]
+        assert "LC_ALL=C $(ARDUINO_CLI) compile" in body
+        assert "Global variables use" in body and "$(SENSOR_HUB_RAM_MAX)" in body
+
+    @pytest.mark.parametrize("mode, rc, text", [
+        ("ok", 0, "RAM: 1100 B z 2048 B"),
+        ("big", 2, "zmienne globalne 1700 B > SENSOR_HUB_RAM_MAX"),
+        ("none", 2, "brak podsumowania RAM"),
+        ("fail", 2, "error: something"),
+    ])
+    def test_ram_budget_with_a_fake_cli(self, tmp_path, mode, rc, text):
+        make = shutil.which("make")
+        if make is None:
+            pytest.skip("make not installed")
+        cli = tmp_path / "arduino-cli"
+        cli.write_text(
+            "#!/bin/sh\n"
+            'case "$FAKE_MODE" in\n'
+            "  ok) echo 'Global variables use 1100 bytes (53%) of dynamic memory, leaving 948 "
+            "bytes for local variables. Maximum is 2048 bytes.'; exit 0 ;;\n"
+            "  big) echo 'Global variables use 1700 bytes (83%) of dynamic memory, leaving 348 "
+            "bytes for local variables. Maximum is 2048 bytes.'; exit 0 ;;\n"
+            "  none) echo 'Sketch uses 20000 bytes'; exit 0 ;;\n"
+            "  *) echo 'error: something'; exit 1 ;;\n"
+            "esac\n", encoding="utf-8")
+        cli.chmod(0o755)
+        res = subprocess.run(
+            [make, "-s", "-C", str(ARDUINO), "sensor_hub-variants", f"ARDUINO_CLI={cli}",
+             f"VARIANTS_BUILD_DIR={tmp_path / 'build'}", "SENSOR_HUB_VARIANTS=WAKE_IR"],
+            capture_output=True, text=True, timeout=60,
+            env=dict(os.environ, FAKE_MODE=mode))
+        assert res.returncode == rc, res.stdout + res.stderr
+        assert text in res.stdout + res.stderr
 
     def test_clean_removes_variant_builds(self):
         mk = MAKEFILE.read_text(encoding="utf-8")
@@ -94,7 +150,9 @@ class TestBuildPlumbing:
         assert re.search(r"^test: .*\bsensor_hub-test\b", mk, flags=re.M)
         body = mk.split("\nsensor_hub-test:", 1)[1].split("\n\n", 1)[0]
         assert "sensor_hub/test/test_power_logic.cpp" in body
-        assert "$(HOST_CXXFLAGS)" in body                          # -Werror like esp32
+        assert "sensor_hub/test/test_wake_logic.cpp" in body
+        assert "$(SENSOR_HUB_WAKE_TEST_BIN)" in body               # built AND run
+        assert body.count("$(HOST_CXXFLAGS)") == 2                 # -Werror like esp32
 
     def test_ci_compiles_the_variants(self):
         ci = CI.read_text(encoding="utf-8")
@@ -111,9 +169,12 @@ class TestSketch:
     def test_switches_are_off_by_default(self, ino):
         code = _code(ino)
         assert not re.search(r"#\s*define\s+FEATURE_BATT_", code)
+        assert not re.search(r"#\s*define\s+FEATURE_WAKE_", code)
         assert "#undef" not in code          # a -D flag must not be cancelled
         assert re.search(r"^// #define FEATURE_BATT_ADC\b", ino, flags=re.M)
         assert re.search(r"^// #define FEATURE_BATT_INA226\b", ino, flags=re.M)
+        for name in ("WAKE_DOOR", "WAKE_EXT", "WAKE_IR"):
+            assert re.search(rf"^// #define FEATURE_{name}\b", ino, flags=re.M)
 
     def test_conflict_guards(self, ino):
         assert re.search(r"#if defined\(FEATURE_BATT_INA226\) && \(defined\(FEATURE_CRUISE\) "
@@ -130,9 +191,11 @@ class TestSketch:
 
     def test_batt_report_rides_on_the_full_state(self, ino):
         full = ino.split("void reportFullState() {", 1)[1].split("\n}\n", 1)[0]
-        # Last thing in the full-state report, right after the PWR: block.
+        # Right after the PWR: block; only the wake report (WAKE:/LEASE:/
+        # WAKESTAT:, compiled only with FEATURE_WAKE_*) comes after it.
         assert re.search(r"PWR_NAMES\[pwr\.state\]\);\n#endif\n#if defined\(FEATURE_BATT_ADC\) "
-                         r"\|\| defined\(FEATURE_BATT_INA226\)\n  battReport\(\);\n#endif$", full)
+                         r"\|\| defined\(FEATURE_BATT_INA226\)\n  battReport\(\);\n#endif\n"
+                         r"#ifdef SENSOR_HUB_WAKE\n  wakeReportFull\(\);\n#endif$", full)
         # …and NOT in the power-state setter, which prints PWR: on change only.
         setter = ino.split("void pwrReportState() {", 1)[1].split("\n}\n", 1)[0]
         assert "battReport" not in setter
@@ -173,7 +236,9 @@ class TestPowerButton:
     _DEADLINE_CMP = re.compile(r"\bnow\s*<(?!<)\s*[A-Za-z_][\w.]*|[A-Za-z_][\w.]*\s*>(?!>)\s*now\b")
 
     def test_no_absolute_time_comparisons(self, ino, logic):
-        for name, text in (("sensor_hub.ino", ino), ("power_logic.h", logic)):
+        wake = WAKE_LOGIC.read_text(encoding="utf-8")
+        for name, text in (("sensor_hub.ino", ino), ("power_logic.h", logic),
+                           ("wake_logic.h", wake)):
             bad = [m.group(0) for m in self._DEADLINE_CMP.finditer(_code(text))]
             assert bad == [], f"{name}: {bad}"
         assert "pwrSettleUntil" not in ino
@@ -274,6 +339,8 @@ enum { LOW = 0, HIGH = 1, INPUT = 0, OUTPUT = 1, INPUT_PULLUP = 2 };
 enum { A0 = 14, A1, A2, A3, A4, A5, A6, A7 };
 struct SerialStub {
   void begin(long) {}
+  int available() { return 0; }
+  int read() { return -1; }
   template <class T> void print(T) {}
   template <class T> void println(T) {}
   void print(float, int) {}
@@ -288,7 +355,18 @@ int analogRead(uint8_t);
 void delayMicroseconds(unsigned int);
 void delay(unsigned long);
 unsigned long millis();
+unsigned long micros();
 unsigned long pulseIn(uint8_t, uint8_t, unsigned long);
+void noInterrupts();
+void interrupts();
+// avr/io.h + avr/interrupt.h (Arduino.h includes both on the real core)
+#define _BV(bit) (1 << (bit))
+extern volatile uint8_t PINC, PCMSK1, PCICR, PCIFR;
+#define PINC3 3
+#define PCINT11 3
+#define PCIE1 1
+#define PCIF1 1
+#define ISR(vector) extern "C" void vector(void)
 """,
     "avr/wdt.h": """
 #pragma once
@@ -443,3 +521,206 @@ def test_make_rejects_unknown_features(bad):
     res = _make_dry("sensor_hub", f"SENSOR_HUB_FEATURES={bad}")
     assert res.returncode != 0
     assert "SENSOR_HUB_FEATURES: nieznane" in res.stderr
+
+
+def test_make_takes_a_private_ir_code_without_editing_the_header():
+    """The private IR wake code comes from the make command line, not from
+    an edit of the tracked wake_logic.h (which would end up in git)."""
+    res = _make_dry("sensor_hub", "SENSOR_HUB_FEATURES=WAKE_IR",
+                    "WAKE_IR_ADDRESS=0x1B2C", "WAKE_IR_COMMAND=0x3d")
+    assert res.returncode == 0, res.stderr
+    assert ('"compiler.cpp.extra_flags=-DFEATURE_WAKE_IR -DWAKE_IR_ADDRESS=0x1B2C '
+            '-DWAKE_IR_COMMAND=0x3d"') in res.stdout
+
+
+@pytest.mark.parametrize("bad", ["WAKE_IR_ADDRESS=1234", "WAKE_IR_ADDRESS=0xZZ",
+                                 "WAKE_IR_COMMAND=0x", "WAKE_IR_ADDRESS=0x1;id",
+                                 "WAKE_IR_COMMAND=0x1 0x2", "WAKE_IR_ADDRESS=0x1\"x"])
+def test_make_rejects_a_malformed_ir_code(bad):
+    res = _make_dry("sensor_hub", bad)
+    assert res.returncode != 0
+    assert "tylko 0x i cyfry szesnastkowe" in res.stderr
+
+
+def test_ir_code_range_is_checked_by_the_preprocessor():
+    h = (ARDUINO / "sensor_hub" / "wake_logic.h").read_text(encoding="utf-8")
+    assert "#if (WAKE_IR_ADDRESS) > 0xFFFF || (WAKE_IR_COMMAND) > 0xFF" in h
+
+
+# ── external wake (plan E, FEATURE_WAKE_*) ─────────────────────────────────
+
+
+@pytest.fixture(scope="module")
+def wake_h() -> str:
+    return WAKE_LOGIC.read_text(encoding="utf-8")
+
+
+class TestWake:
+    def test_variants_cover_wake_and_combinations(self):
+        mk = MAKEFILE.read_text(encoding="utf-8")
+        m = re.search(r"^SENSOR_HUB_VARIANTS \?=((?:.*\\\n)*.*)$", mk, flags=re.M)
+        variants = m.group(1).replace("\\\n", " ").split()
+        for v in ("WAKE_DOOR", "WAKE_EXT", "WAKE_IR"):
+            assert v in variants
+        combos = [v.split("+") for v in variants if "+" in v]
+        # Wake with each bank sensor (the 12.2 V check only exists with BATT_*).
+        assert any({"WAKE_IR", "BATT_ADC"} <= set(c) for c in combos)
+        assert any({"WAKE_IR", "BATT_INA226"} <= set(c) for c in combos)
+        optional = set(re.findall(r"^// *#define FEATURE_([A-Z0-9_]+)", SKETCH.read_text(encoding="utf-8"),
+                                  flags=re.M))
+        for v in variants:
+            assert set(v.split("+")) <= optional, v
+
+    def test_guards_present(self, ino):
+        for pattern in (
+                r"#if defined\(SENSOR_HUB_WAKE\) && !defined\(FEATURE_PWRLED\)\n#error",
+                r"#if defined\(FEATURE_WAKE_DOOR\) && !defined\(FEATURE_DOORS\)\n#error",
+                r"#if defined\(FEATURE_WAKE_IR\) && defined\(FEATURE_PARK\)\n#error",
+                r"#if defined\(FEATURE_WAKE_EXT\) && defined\(FEATURE_PARK\)\n#error"):
+            assert re.search(pattern, ino), pattern
+        assert re.search(r"#if defined\(FEATURE_WAKE_DOOR\) \|\| defined\(FEATURE_WAKE_EXT\) \|\| "
+                         r"defined\(FEATURE_WAKE_IR\)\n#define SENSOR_HUB_WAKE 1", ino)
+
+    def test_no_ir_library(self, ino):
+        # CI installs no extra Arduino libraries: the NEC decoder is our own.
+        code = _code(ino)
+        assert "IRremote" not in code and "SoftwareSerial" not in code
+        assert re.search(r"ISR\(PCINT1_vect\) \{\n  necEdge\(irDec, \(PINC & _BV\(PINC3\)\) == 0, "
+                         r"micros\(\)\);\n\}", code)
+        y = (ARDUINO / "sensor_hub" / "sketch.yaml").read_text(encoding="utf-8")
+        assert "IRremote" not in y
+
+    def test_state_survives_reset_in_noinit(self, ino, wake_h):
+        assert 'WakeLogic     wake __attribute__((section(".noinit")));' in ino
+        setup = ino.split("void setup() {", 1)[1].split("\n}\n", 1)[0]
+        assert "wakeBase = wakeBoot(wake, m) - m;" in setup
+        handler = ino.split("void handleWake(unsigned long now) {", 1)[1].split("\n}\n", 1)[0]
+        assert handler.rstrip().endswith("wakeSeal(wake);")      # after every change
+        # sum is the LAST member (the checksum covers everything before it).
+        struct = wake_h.split("struct WakeLogic {", 1)[1].split("};", 1)[0]
+        assert struct.strip().splitlines()[-1].strip() == "uint16_t sum;"
+
+    def test_serial_is_read_only_with_wake(self, ino):
+        code = _code(ino)
+        block = code.split("#ifdef SENSOR_HUB_WAKE\nuint32_t wakeNow()", 1)[1].split(
+            "\n#endif\n\nvoid reportFullState()", 1)[0]
+        assert "Serial.read()" in block and "Serial.available()" in block
+        outside = code.replace(block, "")
+        assert "Serial.read" not in outside and "Serial.available" not in outside
+
+    def test_wake_never_presses_directly(self, wake_h):
+        code = _code(wake_h)
+        # Every press goes through power_logic.h's intents (stable state,
+        # settle, grace, pulse cap) — the wake logic never returns an action.
+        assert "PWR_ACT_" not in code and "pwrShort(" not in code
+        assert "pwrSetIntent(p, PWR_RUNNING, pnow);" in code
+        assert "pwrSetIntent(p, PWR_SLEEP, pnow);" in code
+
+    def test_rules_constants(self, wake_h):
+        for line in ("#define WAKE_MAX_PER_HOUR            3",
+                     "#define WAKE_MAX_PER_DAY             6",
+                     "#define WAKE_BATT_MIN_MV         12200L",
+                     "#define WAKE_DOOR_HOLDOFF_MS    120000UL",
+                     "#define WAKE_LEASE_DOOR_MS      300000UL",
+                     "#define WAKE_LEASE_REMOTE_MS    600000UL",
+                     "#define WAKE_HOLD_MAX_MIN           60",
+                     "#define WAKE_LINE_MAX 16",
+                     "#define WAKE_IR_PAIR_MS           1000UL",
+                     "#define WAKE_EXT_DEBOUNCE_MS        50UL"):
+            assert line in wake_h, line
+
+    def test_ir_defaults_match_bcm(self, wake_h):
+        # The phone builds the NEC frame from power.remote_session.ir_* —
+        # the defaults on both sides must be the same code.
+        from src.power import remote_session
+        addr = int(re.search(r"#define WAKE_IR_ADDRESS\s+0x([0-9A-F]+)U", wake_h).group(1), 16)
+        cmd = int(re.search(r"#define WAKE_IR_COMMAND\s+0x([0-9A-F]+)U", wake_h).group(1), 16)
+        assert (addr, cmd) == (remote_session.DEFAULT_IR_ADDRESS, remote_session.DEFAULT_IR_COMMAND)
+
+    def test_protocol_documented(self, ino):
+        header = ino.split("*/", 1)[0]
+        for text in ("WAKE:IR|DOOR|EXT", "WAKE_DENIED:RATE|LOWBATT|HOLDOFF|STATE", "LEASE:600",
+                     "WAKESTAT:3,RATE", "HOLD:<min>", "RELEASE"):
+            assert text in header, text
+
+
+@pytest.mark.parametrize("defines", [
+    ("-DFEATURE_WAKE_DOOR",), ("-DFEATURE_WAKE_EXT",), ("-DFEATURE_WAKE_IR",),
+    ("-DFEATURE_WAKE_DOOR", "-DFEATURE_WAKE_EXT", "-DFEATURE_WAKE_IR", "-DFEATURE_BATT_ADC"),
+    ("-DFEATURE_WAKE_IR", "-DFEATURE_WAKE_DOOR", "-DFEATURE_BATT_INA226"),
+])
+def test_host_syntax_of_wake_variants(host_tree, defines):
+    res = _syntax(host_tree, "-Wall", "-Wextra", "-Werror", *defines)
+    assert res.returncode == 0, res.stderr
+
+
+@pytest.mark.parametrize("defines, message", [
+    (("-DFEATURE_WAKE_IR", "-DFEATURE_PARK"), "FEATURE_PARK uzywa A3"),
+    (("-DFEATURE_WAKE_EXT", "-DFEATURE_PARK"), "FEATURE_PARK uzywa A2"),
+])
+def test_host_wake_pin_guards_fire(host_tree, defines, message):
+    res = _syntax(host_tree, *defines)
+    assert res.returncode != 0
+    assert message in res.stderr
+
+
+@pytest.mark.parametrize("switch, defines, message", [
+    ("FEATURE_PWRLED", ("-DFEATURE_WAKE_IR",), "FEATURE_WAKE_* wymaga FEATURE_PWRLED"),
+    ("FEATURE_PWRLED", ("-DFEATURE_WAKE_DOOR",), "FEATURE_WAKE_* wymaga FEATURE_PWRLED"),
+    ("FEATURE_DOORS", ("-DFEATURE_WAKE_DOOR",), "FEATURE_WAKE_DOOR wymaga FEATURE_DOORS"),
+])
+def test_host_wake_needs_guards_fire(host_tree, tmp_path, switch, defines, message):
+    """The default-on switches can only be turned off by editing the sketch:
+    compile a copy with that #define commented out."""
+    gxx, root, src = host_tree
+    text = src.read_text(encoding="utf-8")
+    edited, n = re.subn(rf"^#define {switch}\b", f"// #define {switch}", text, flags=re.M)
+    assert n == 1
+    copy = tmp_path / "sensor_hub.cpp"
+    copy.write_text(edited, encoding="utf-8")
+    res = subprocess.run(
+        [gxx, "-std=gnu++11", "-fsyntax-only", f"-I{root}", f"-I{SKETCH.parent}", *defines,
+         str(copy)], capture_output=True, text=True, timeout=60)
+    assert res.returncode != 0
+    assert message in res.stderr
+
+
+def test_wake_logic_host_harness(tmp_path):
+    """The wake rules, lease, limits, NEC decoder and line reader on the PC
+    (make -C arduino sensor_hub-test runs it too)."""
+    gxx = shutil.which("g++")
+    if not gxx:
+        pytest.skip("g++ not available")
+    exe = tmp_path / "test_wake_logic"
+    build = subprocess.run(
+        [gxx, "-std=c++17", "-O1", "-Wall", "-Wextra", "-Werror", "-o", str(exe), str(WAKE_TEST)],
+        capture_output=True, text=True, timeout=120)
+    assert build.returncode == 0, build.stderr
+    run = subprocess.run([str(exe)], capture_output=True, text=True, timeout=120)
+    assert run.returncode == 0, run.stderr
+    assert "sensor_hub wake_logic: OK" in run.stdout
+
+
+def test_wake_logic_compiles_as_gnu11(tmp_path):
+    gxx = shutil.which("g++")
+    if not gxx:
+        pytest.skip("g++ not available")
+    src = tmp_path / "t.cpp"
+    src.write_text('#include "wake_logic.h"\nint main() { PwrLogic p; pwrInit(p, true, 0); '
+                   'WakeLogic w; uint32_t t = wakeBoot(w, 0); WakeIn in = WakeIn(); WakeOut o; '
+                   'wakeStep(w, p, t, 0, in, o); wakeSeal(w); NecDecoder d; necInit(d); '
+                   'necEdge(d, true, 0); WakeLine r = WakeLine(); uint8_t m = 0; '
+                   'if (wakeLineFeed(r, 0x0a)) wakeParseCmd(r.buf, m); return o.wake; }\n',
+                   encoding="utf-8")
+    res = subprocess.run(
+        [gxx, "-std=gnu++11", "-Wall", "-Wextra", "-Werror", "-fsyntax-only",
+         f"-I{WAKE_LOGIC.parent}", str(src)],
+        capture_output=True, text=True, timeout=60)
+    assert res.returncode == 0, res.stderr
+
+
+def test_make_accepts_wake_features():
+    res = _make_dry("sensor_hub", "SENSOR_HUB_FEATURES=BATT_INA226 WAKE_IR WAKE_DOOR")
+    assert res.returncode == 0, res.stderr
+    assert ('"compiler.cpp.extra_flags=-DFEATURE_BATT_INA226 -DFEATURE_WAKE_IR '
+            '-DFEATURE_WAKE_DOOR"') in res.stdout

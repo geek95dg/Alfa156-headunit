@@ -29,6 +29,7 @@ rozładowaniem, sterowanie stanem komputera i przetwornica step-up do 19 V.
 11. [Procedura pierwszego uruchomienia](#11-procedura-pierwszego-uruchomienia)
 12. [Serwis i kontrola okresowa](#12-serwis-i-kontrola-okresowa)
 13. [Znane rozbieżności i luki](#13-znane-rozbieżności-i-luki)
+14. [Wybudzanie z zewnątrz: drzwi, telefon (IR), wejście EXT](#14-wybudzanie-z-zewnątrz-drzwi-telefon-ir-wejście-ext)
 
 ---
 
@@ -112,7 +113,7 @@ dlaczego:
 |---|---|---|
 | Postój (7 pakietów) | ~9,3 dnia | ~1,6–3,7 dnia w S3, ~5,0–14,9 po wyłączeniu |
 | Wybudzenie | zimny start ~40 s | **~3 s** z S3 |
-| Ryzyko ucięcia zapisu na dysk | **przy każdym przekręceniu kluczyka** | brak — maszyna schodzi do S3 sama |
+| Ryzyko ucięcia zapisu na dysk | **przy każdym przekręceniu kluczyka** | mniejsze — maszyna schodzi do S3 sama, ale LVD, wyłącznik główny i luźny styk nadal tną prąd |
 | Elementy w torze mocy | przekaźnik 30 A + okablowanie | **brak** |
 | Kod / firmware | brak | impuls z Arduino, po stronie hosta zero zmian |
 
@@ -2230,6 +2231,366 @@ Dwie rzeczy, które trzeba wiedzieć o samych liczbach:
   20-godzinnego, na którym oparta jest pojemność 5,1 Ah. Czasy dla siódemki
   są przez to **mniej** optymistyczne niż te same liczby były dla czwórki
   (C/5,8), ale skali korekty nie da się policzyć bez tych krzywych.
+
+---
+
+## 14. Wybudzanie z zewnątrz: drzwi, telefon (IR), wejście EXT
+
+> **Tylko wersja z buforem.** W aucie testowym bez bufora komputer na postoju
+> nie śpi, tylko traci prąd — nie ma czego budzić. Kod jest gotowy, ale
+> wszystko jest **domyślnie wyłączone**: flagi `FEATURE_WAKE_*` w firmware
+> są zakomentowane, `modules.remote_session` jest `false` w kodzie i w obu
+> configach, a przełącznik w agencie telefonu przychodzi z BCM. Włączaj
+> dopiero po montażu bufora i Nano #2 oraz po sprawdzeniu na stole dekodera
+> diody zasilania (§14.8, krok 1).
+
+### 14.1 Jak to działa
+
+M910q w S3 odcina zasilanie portów USB (§2.1), więc ani telefon, ani
+klawiatura, ani „Wake on USB” go nie obudzą. Jedyna droga, która działa
+i z S3, i z wyłączenia: **Nano #2 naciska przycisk zasilania** — ten sam
+przekaźnik na A0 co przy zapłonie. Każdy wyzwalacz to tylko **prośba** do
+Nano; o naciśnięciu decyduje firmware (`arduino/sensor_hub/wake_logic.h`),
+a samo naciśnięcie robi zawsze ta sama logika co przy zapłonie
+(`power_logic.h`: stan z diody, cisza po impulsie, okno usypiania, limit
+impulsów).
+
+| Wyzwalacz | Flaga | Wejście | Dzierżawa |
+|-----------|-------|---------|-----------|
+| Otwarcie drzwi kierowcy | `FEATURE_WAKE_DOOR` | D2 (krańcówka FL, `FEATURE_DOORS`) | 5 min |
+| Podczerwień z telefonu w aucie | `FEATURE_WAKE_IR` | A3 (odbiornik TSOP) | 10 min |
+| Impuls zewnętrzny ≥ 50 ms | `FEATURE_WAKE_EXT` | A2 (transoptor PC817) | 10 min |
+
+Prośba przechodzi **tylko**, gdy:
+
+- zapłon jest potwierdzony jako wyłączony (przy włączonym prośby nie ma
+  wcale — otwieranie drzwi w trasie nic nie robi);
+- komputer jest **stabilnie** w S3 albo wyłączony (stan z diody, bez
+  trwającego impulsu i okna usypiania) — inaczej `WAKE_DENIED:STATE`;
+- drzwi: **pierwsze otwarcie drzwi kierowcy po jeździe to wysiadanie** —
+  nie budzi komputera i nie jest odmową, także gdy kierowca posiedział po
+  zgaszeniu dłużej (np. kończył rozmowę). Jeśli przez 30 min po zgaszeniu
+  nikt nie otworzył drzwi kierowcy (wysiadł drzwiami pasażera), następne
+  otwarcie jest już powrotem i budzi. Każde kolejne otwarcie nie wcześniej
+  niż **2 min po zgaszeniu zapłonu** — inaczej `WAKE_DENIED:HOLDOFF`. Po
+  zaniku zasilania Nano (świeży start) nie wiadomo, czy ktoś siedzi
+  w aucie, więc liczy się tylko blokada 2 min od startu;
+- limit: **3 pobudki na godzinę, 6 na dobę** — `WAKE_DENIED:RATE`;
+- z pomiarem banku (`FEATURE_BATT_ADC` albo `FEATURE_BATT_INA226`, §13.4):
+  świeży odczyt **powyżej 12,2 V**; brak odczytu też jest odmową
+  (`WAKE_DENIED:LOWBATT`). **Bez `FEATURE_BATT_*` tego warunku nie ma czym
+  sprawdzić i jest pomijany** — dlatego CI kompiluje wybudzanie razem
+  z oboma wariantami pomiaru.
+
+**Dzierżawa.** Przyjęta pobudka daje komputerowi 5 min (drzwi) albo 10 min
+(IR, EXT). Kolejna prośba w trakcie ją przedłuża (bez naciskania i bez
+liczenia do limitu), BCM może ją przedłużyć poleceniem `HOLD:<min>` albo
+zakończyć `RELEASE`. Po jej końcu, przy wyłączonym zapłonie, Nano naciska
+SHORT — komputer wraca do S3 zwykłą drogą (acpid → `bcm-power-toggle.sh`:
+zatrzymanie BCM, uśpienie). Zapłon kasuje dzierżawę bez naciskania. Cała
+sesja trwa najwyżej **90 min** od pobudki, nawet gdy BCM bez końca wysyła
+`HOLD`. Eskalacja do OFF zostaje jak była: 2 h od pobudki i **LONG tylko na
+maszynę stabilnie uśpioną**, nigdy na pracującą.
+
+**Reset Nano nie gubi pobudki.** Nano z CH340 resetuje się przy każdym
+otwarciu portu (linia DTR), a BCM otwiera port zaraz po każdej pobudce —
+startuje przecież dopiero po wybudzeniu. Stan pobudek (dzierżawa, limity,
+blokada drzwi, licznik odmów) leży więc w RAM w sekcji `.noinit`
+(przeżywa reset, nie przeżywa zaniku zasilania) z sumą kontrolną; po
+resecie zegar budzenia ciągnie dalej. Z tego samego powodu Nano powtarza
+`WAKE:` i `LEASE:` co 2 s w pełnym stanie — BCM, który właśnie wstał,
+dowiaduje się o pobudce najpóźniej po 2 s.
+
+### 14.2 Okablowanie
+
+**Odbiornik IR na A3** (TSOP38238, TSOP4838 albo VS1838B — nośna 38 kHz,
+ok. 0,4 mA):
+
+```
+5 V Nano ──[100 Ω]──┬── VS (zasilanie TSOP)
+                    │
+                  [4,7 µF] (+ 100 nF ceramiczny równolegle, tuż przy TSOP)
+                    │
+GND Nano ───────────┴── GND TSOP
+A3 Nano ────────────── OUT TSOP   (LOW = nośna; pull-up jest w TSOP)
+```
+
+- Filtr RC 100 Ω / 4,7 µF jest **obowiązkowy**: zasilanie Nano z MP1584
+  i przekaźnik niosą zakłócenia, a TSOP reaguje na nie fałszywymi impulsami.
+- Przewód 3-żyłowy w wiązce kabla USB telefonu, do Nano #2. Odbiornik
+  montuje się **między górną krawędzią telefonu a szybą**
+  (`docs/PRZYGOTOWANIE_TELEFONU.md` §18): 5–10 cm od diody IR telefonu, soczewką do tyłu — na
+  diodę, nie w słońce — pod małą czarną osłonką, poza polem widzenia
+  kierowcy i kamery za lusterkiem. TSOP-y wytrzymują ok. 85 °C; latem
+  sprawdź temperaturę pod podsufitką.
+- A3 jest wolny przy `FEATURE_PWRBTN`. Z `FEATURE_PARK` (A0–A3 to ECHO
+  czujników HC-SR04) kompilacja kończy się błędem `#error`.
+- Przerwanie zmiany stanu A3 to wektor `PCINT1`; nie dodawaj do sketcha
+  biblioteki SoftwareSerial (zajmuje wszystkie wektory PCINT).
+
+**Wejście EXT na A2** (PC817, np. impuls „odblokuj” centralnego zamka albo
+w przyszłości płytka BLE):
+
+```
+sygnał 12 V ──[1,5 kΩ]──► anoda LED PC817 ──► katoda ── masa auta
+                 (1N4148 antyrównolegle do LED — ochrona przed odwrotną polaryzacją)
+A2 Nano ◄──── kolektor PC817, emiter ── GND Nano   (INPUT_PULLUP; LOW = aktywny)
+```
+
+- Impuls musi trwać **co najmniej 50 ms** (krótszy jest odrzucany jako
+  zakłócenie). Prośbą jest początek impulsu, nie jego trwanie.
+- Okablowania „odblokuj” w Alfie 156 **nie sprawdzono** — przed podpięciem
+  zmierz przebieg miernikiem albo oscyloskopem.
+
+**Drzwi na D2** — ta sama krańcówka drzwi kierowcy co dla `DOOR:` (masa przy
+otwartych, `INPUT_PULLUP`). Auto z kierownicą po prawej: w sketchu
+`WAKE_DOOR_INDEX 1` (FR, D3).
+
+### 14.3 Firmware: flagi i wgranie
+
+Flagi tylko przez `SENSOR_HUB_FEATURES` (repo zostaje czyste), np. pomiar
+banku INA226 i pobudka podczerwienią oraz drzwiami:
+
+```bash
+make -C arduino sensor_hub-upload PORT=/dev/ttyUSB0 SENSOR_HUB_FEATURES="BATT_INA226 WAKE_IR WAKE_DOOR"
+```
+
+- Każda `WAKE_*` wymaga `FEATURE_PWRLED` (domyślnie włączony; bez diody
+  firmware nie wie, czy komputer śpi), `WAKE_DOOR` — także `FEATURE_DOORS`.
+  Złe zestawienie kończy kompilację błędem `#error`.
+- **Kod IR** (prywatny adres NEC 16-bitowy i polecenie): domyślne
+  `WAKE_IR_ADDRESS 0x7A15` i `WAKE_IR_COMMAND 0x56` z
+  `arduino/sensor_hub/wake_logic.h` są publiczne (każdy, kto czyta repo,
+  je zna) — BCM ostrzega w logu i w wierszu „Wybudzanie”, dopóki ich nie
+  zmienisz. Własne podaj przy `make`, **bez edycji** śledzonego
+  `wake_logic.h` (inaczej trafią do gita przy następnym commicie); make
+  przyjmuje tylko `0x` i cyfry szesnastkowe, zakres (adres do `0xFFFF`,
+  polecenie do `0xFF`) sprawdza `#error` w `wake_logic.h`:
+
+  ```bash
+  make -C arduino sensor_hub-upload PORT=/dev/ttyUSB0 SENSOR_HUB_FEATURES="BATT_INA226 WAKE_IR WAKE_DOOR" WAKE_IR_ADDRESS=0x1B2C WAKE_IR_COMMAND=0x3D
+  ```
+
+  (`0x1B2C` / `0x3D` to tylko przykład — wybierz własne). **Te same**
+  wartości wpisz w `config/local.yaml` (`power.remote_session.ir_address`
+  i `ir_command`, §14.5) — telefon dostaje je od BCM.
+- Testy logiki na PC (reguły, dzierżawa, limity, przepełnienie `millis()`
+  i `micros()`, reset `.noinit`, dekoder NEC, czytnik linii):
+
+  ```bash
+  make -C arduino sensor_hub-test
+  ```
+
+- CI kompiluje warianty `WAKE_DOOR`, `WAKE_EXT`, `WAKE_IR` i zestawy
+  z `BATT_ADC` / `BATT_INA226` (`make -C arduino sensor_hub-variants`).
+  Za duży program arduino-cli odrzuca sam; RAM (Nano ma 2048 B, resztę
+  zajmuje stos) pilnuje ten cel: zmienne globalne wariantu ponad
+  `SENSOR_HUB_RAM_MAX` (domyślnie 1536 B = 75 %) kończą kompilację błędem.
+  Własny zestaw flag sprawdzisz tak samo:
+
+  ```bash
+  make -C arduino sensor_hub-variants SENSOR_HUB_VARIANTS="WAKE_IR+WAKE_DOOR+BATT_INA226"
+  ```
+
+### 14.4 Protokół Nano ↔ BCM
+
+Nano → BCM (115200 baud, linie zakończone `\n`):
+
+| Linia | Kiedy | Znaczenie |
+|-------|-------|-----------|
+| `WAKE:IR` / `WAKE:DOOR` / `WAKE:EXT` | przy przyjęciu prośby i co 2 s w trakcie dzierżawy | pobudka (albo przedłużenie) z tego źródła |
+| `WAKE_DENIED:RATE` / `LOWBATT` / `HOLDOFF` / `STATE` | przy odmowie | powód odmowy |
+| `LEASE:<s>` | co 2 s i przy każdej zmianie | ile sekund dzierżawy zostało (0 = brak) |
+| `WAKESTAT:<n>,<powód>` | co 2 s | odmowy od zaniku zasilania Nano i ostatnia (`NONE` = żadnej) |
+
+BCM → Nano — **jedyne dwie linie, jakie Nano przyjmuje** (czytnik linii
+najwyżej 16 znaków; dłuższa linia albo znak spoza ASCII jest w całości
+odrzucana; bez `FEATURE_WAKE_*` sketch nie czyta portu wcale):
+
+| Linia | Skutek | Odpowiedź |
+|-------|--------|-----------|
+| `HOLD:<min>` (1–60, bez zer wiodących) | dzierżawa co najmniej `<min>` minut od teraz, w granicach 90 min sesji; bez dzierżawy nic | `LEASE:<s>` |
+| `RELEASE` | koniec dzierżawy teraz → SHORT na pracujący komputer | `LEASE:0` |
+
+Żadna linia z hosta nie naciska przycisku bezpośrednio: `HOLD` tylko
+przedłuża istniejącą dzierżawę, `RELEASE` ją kończy.
+
+Reset Nano (każde otwarcie portu przez BCM ustawia DTR) zaczyna od nowa
+odczyt zapłonu — przez ~2 s Nano nie wie, czy zapłon jest wyłączony. Gdy
+w tym oknie przyjdzie `RELEASE` albo minie dzierżawa, Nano odpowiada od
+razu `LEASE:0`, ale SHORT naciska dopiero po potwierdzeniu zapłonu
+(wyłączony → S3; włączony → dzierżawa znika bez naciskania). `HOLD` w tym
+oknie nie wskrzesza zakończonej dzierżawy.
+
+### 14.5 BCM: moduł `remote_session`
+
+`src/power/remote_session.py`, przełącznik `modules.remote_session`
+(wymaga `input`, który czyta port sensor_hub). BCM:
+
+- pokazuje **baner** na każdym ekranie (także na Android Auto), nie
+  modalny, u dołu nad paskiem nawigacji (pasek i przeciągnięcie od dolnej
+  krawędzi działają dalej): „Wybudzono: telefon — uśpienie za mm:ss [Nie
+  usypiaj 30 min] [Uśpij teraz]”. Przyciski działają tylko na ekranie w aucie
+  (trasy `/api/remote_session/hold` i `/sleep` przyjmują wyłącznie
+  loopback, także przy `remote_access: full`);
+- „Nie usypiaj” = `HOLD:<hold_step_min>`; razem najwyżej
+  `hold_max_min` minut przedłużeń w jednej sesji;
+- po `idle_suspend_min` bez użycia wysyła `RELEASE` wcześniej — dzierżawa
+  Nano i tak jest twardą granicą. Użycie to: dotyk ekranu w aucie (każdy
+  ekran BCM i Android Auto; liczy się tylko kiosk na tym komputerze, nie
+  telefon w sieci auta), klawisz przez `/ws/input`, przycisk na kierownicy,
+  stuknięcie w baner, połączenie lub rozłączenie Android Auto, kolejna
+  prośba przy aucie, koniec rozmowy i koniec muzyki. **Rozmowa** i **grająca
+  muzyka z telefonu** (`bt.media_playing`) wstrzymują odliczanie na cały
+  czas trwania — samo połączenie telefonu przez Bluetooth już nie (główny
+  telefon zwykle jest połączony). Gdy bezczynność skończyłaby sesję przed
+  dzierżawą (czyli po „Nie usypiaj”), baner odlicza do niej z dopiskiem
+  „(bez użycia)”, więc kierowca widzi, kiedy komputer naprawdę zaśnie;
+- **rozmowa telefoniczna** w trakcie sesji nie jest przerywana: 90 s przed
+  końcem dzierżawy BCM sam wysyła ten sam `HOLD` (z tego samego budżetu);
+- wiersz „Wybudzanie” w Ustawieniach: ostatnia pobudka (źródło, godzina),
+  liczba odmów Nano i ostatni powód, brak połączenia z Nano;
+- **nigdy sam nie usypia komputera** — tylko prosi Nano (`RELEASE`), więc
+  do S3 prowadzi jedna droga, ta sama co przy zapłonie.
+  `ignition_watcher` zostaje nieruszony: jego naprawa włączyłaby drugą,
+  konkurencyjną ścieżkę usypiania.
+
+Włączenie (`config/local.yaml`, BCM zatrzymany; minuty 1–60):
+
+```yaml
+modules:
+  remote_session: true
+power:
+  remote_session:
+    idle_suspend_min: 10
+    hold_step_min: 30
+    hold_max_min: 60
+    ir_address: 0x7A15     # domyślne z repo — wpisz WŁASNE, te same co
+    ir_command: 0x56       # WAKE_IR_ADDRESS / WAKE_IR_COMMAND przy make (§14.3)
+```
+
+### 14.6 Telefon w aucie jako pilot IR
+
+Redmi Note 8 Pro ma nadajnik IR. Agent w Termuxie (`bcm_agent.py` ≥ 1.4.0,
+nagłówek pliku: „Budzenie komputera w aucie”) nadaje kod z §14.3:
+
+- **SMS `WAKE <kod>`** z numeru z białej listy alarmu na postoju, z kodem
+  TOTP z aplikacji „authenticator” (ten sam sekret co `PARK OFF`; tworzy
+  go `python ~/bcm_agent/bcm_agent.py --park-setup`,
+  `PRZYGOTOWANIE_TELEFONU.md` §12). Skrzynka jest czytana także przy
+  wyłączonym alarmie na postoju (wtedy działa tylko `WAKE`). **Biała lista
+  przy wyłączonym alarmie:** BCM wysyła `park_numbers` tylko z
+  `modules.parking_guard: true` — bez alarmu ustaw numery w samym
+  telefonie: `python ~/bcm_agent/bcm_agent.py --park-numbers '+48…'`.
+  Bez numerów agent nie czyta skrzynki i raz zapisuje w logu
+  `PARK: no numbers for SMS commands (WAKE)`. Odpowiedź:
+  `ALFA 156: BUDZENIE wyslane` albo powód odmowy; gdy BCM milczał przed
+  budzeniem i w ciągu 10 min przyjdzie od niego pierwsze podpisane żądanie
+  (komputer wstał, forward agenta działa), ten sam numer dostaje drugą
+  odpowiedź `ALFA 156: komputer obudzony - BCM odpowiada` (agent ≥ 1.5.0;
+  raz na budzenie, w dziennym budżecie odpowiedzi). Brak jej po 10 min =
+  komputer nie wstał albo nie doszedł do telefonu;
+- **skrót Termux:Widget** `tools/car_phone/termux/wake.sh` (albo
+  `python ~/bcm_agent/bcm_agent.py --wake`) — na telefonie w aucie, bez
+  sieci i bez kodu. Instalacja (tylko wersja z buforem): aplikacja
+  **Termux:Widget** z F-Droid — z tego samego źródła co Termux (inny
+  podpis = nie zadziała, `PRZYGOTOWANIE_TELEFONU.md` §4); na M910q
+  dołóż `wake.sh` do kopiowania z `PRZYGOTOWANIE_TELEFONU.md` §9.2:
+
+  ```bash
+  cd /opt/bcm && sudo env ADB_SERVER_SOCKET=localfilesystem:/run/bcm-adb/adb.sock adb push tools/car_phone/termux/wake.sh /sdcard/Download/
+  ```
+
+  potem w Termuxie:
+
+  ```bash
+  mkdir -p ~/.shortcuts
+  ```
+
+  ```bash
+  cp ~/storage/downloads/wake.sh ~/.shortcuts/ && chmod 700 ~/.shortcuts/wake.sh
+  ```
+
+  i na ekranie głównym telefonu dodaj widżet Termux:Widget → „wake.sh”.
+  Skrypt nie przyjmuje żadnych argumentów; wynik pokazuje dymkiem;
+- limit w telefonie: 1 próba na minutę, 3 udane na godzinę, 6 na dobę
+  (niezależnie od limitu Nano); jedno nadanie to 3 ramki NEC co 108 ms
+  (`termux-infrared-transmit -f 38000 …`), Nano przyjmuje 2 identyczne
+  w ciągu 1 s.
+
+Warunki: przełącznik `remote_session` i kod IR telefon dostaje od BCM przez
+`modules.car_phone_agent` — agent musi raz zsynchronizować konfigurację,
+gdy BCM pracuje. Telefon musi być **zasilany z bufora**, niezależnie od
+portu USB M910q (w S3 port jest martwy): wstrzykiwacz VBUS jak przy Nano #2
+albo osobna ładowarka. Czy Termux:API widzi nadajnik:
+
+```bash
+termux-infrared-frequencies
+```
+
+(lista zakresów częstotliwości z 38000 w środku = działa).
+
+### 14.7 BIOS i system
+
+| Ustawienie | Wartość | Dlaczego |
+|------------|---------|----------|
+| After Power Loss | **Power On** | powrót prądu = start komputera |
+| Tryb uśpienia | **S3** (`deep`) | patrz niżej; Modern Standby (s2idle) zostawia komputer „półprzytomny” i bez stabilnego migania diody |
+| Wake on USB | **Disabled** | w S3 porty USB są martwe — zostają tylko fałszywe wybudzenia |
+| Wake on LAN | **Disabled** | port Ethernet nie jest używany, a S5 i tak nie gwarantuje wybudzenia |
+
+```bash
+cat /sys/power/mem_sleep
+```
+
+Ma pokazać `[deep]` (w nawiasie). Jeśli nie — `docs/WDROZENIE_M910Q.md`
+(`mem_sleep_default=deep`).
+
+### 14.8 Sprawdzenie na stole (po kolei)
+
+1. **Dekoder diody.** Bez stabilnego `PWR:SLEEP` w S3 żadna pobudka nie
+   przejdzie (`WAKE_DENIED:STATE`) — `docs/WDROZENIE_TESTOWE.md` §3.1a.
+2. **Linie co 2 s.** BCM zatrzymany, port otwarty `picocom -b 115200
+   /dev/ttyBCM_SENSOR`: obok `PWR:` i `BATT:` są `LEASE:0` i `WAKESTAT:0,NONE`.
+3. **Drzwi.** Zapłon włączony, potem zgaszony, komputer w S3. Otwórz
+   i zamknij drzwi kierowcy (wysiadanie): cisza — ani `WAKE:`, ani
+   `WAKE_DENIED:`. Otwórz je ponownie od razu: `WAKE_DENIED:HOLDOFF`.
+   Odczekaj 2 min od zgaszenia i otwórz: `WAKE:DOOR`, `LEASE:300`,
+   `PWRACT:SHORT`, komputer wstaje.
+4. **IR.** Na telefonie skrót `wake.sh` (instalacja: §14.6) albo
+   `bcm_agent.py --wake`: `WAKE:IR`. Bez reakcji: odległość i kąt diody do TSOP, osłonka, filtr RC.
+5. **Reset przy otwarciu portu.** Po starcie BCM baner pokazuje pozostały
+   czas (dzierżawa przeżyła reset Nano przez DTR). Jeśli baner się nie
+   pojawia, a w porcie jest `LEASE:0` — bootloader nadpisał RAM: zgłoś to
+   (wariant: kondensator 10 µF RESET–GND blokujący auto-reset; zdejmij go
+   do wgrywania).
+6. **Baner.** „Nie usypiaj 30 min” → w porcie `LEASE:` ok. 1800; „Uśpij
+   teraz” → `LEASE:0`, `PWRACT:SHORT`, komputer zasypia.
+7. **Limit.** Czwarta pobudka w godzinie: `WAKE_DENIED:RATE`; wiersz
+   „Wybudzanie” w Ustawieniach pokazuje odmowę.
+
+### 14.9 Bezpieczeństwo i ograniczenia
+
+- **Kod IR nie jest uwierzytelniony** (NEC to zwykły pilot): ktoś z
+  nadajnikiem IR i Twoim kodem obudzi komputer — nie otworzy auta i nie
+  wyłączy alarmu na postoju (ten rozbraja tylko dowód właściciela). Limity
+  3/h i 6/dobę ograniczają zużycie banku; zmień domyślny kod (§14.3 —
+  BCM ostrzega, dopóki jest domyślny).
+- **Pobudka od drzwi** daje telefonowi w aucie jeden podpisany sygnał
+  drzwi dla czuwania kabiny (`WDROZENIE_TESTOWE.md` §5.13) — tylko sygnał,
+  nigdy rozbrojenie.
+- SMS `WAKE` wymaga numeru z białej listy **i** jednorazowego kodu TOTP
+  (powtórka nie przejdzie, 5 złych kodów w godzinie blokuje numer).
+- Z hosta do Nano trafiają tylko `HOLD:<1–60>` i `RELEASE`, sprawdzane po
+  obu stronach.
+- **Niesprawdzone na sprzęcie:** tolerancje dekodera NEC z prawdziwym TSOP,
+  zasięg diody Redmi, Termux:API i nadajnik IR na crDroid 13, przetrwanie
+  `.noinit` przez bootloader, okablowanie „odblokuj” w Alfie 156, pobór
+  prądu TSOP w S3.
+- **Na przyszłość (nie w tej wersji):** budzenie z głównego telefonu przez
+  prywatny temat ntfy/MQTT z podpisem HMAC (dziś zapasem jest SMS
+  `WAKE <kod>`), geofence przy podejściu, płytka BLE (nRF52840) na wejściu
+  EXT.
 
 ---
 

@@ -21,6 +21,30 @@
   contact type-checked, a hint by reason instead of the raw error, "Sparuj"
   only while unpaired and posting no body, escaping, inline styles) and its
   update() slot;
+* settings_parking_guard_smoke.js: screens/settings.js — the "Postój" row
+  (data.parking_guard: state labels, Uzbrój only when disarmed, Rozbrój with
+  a TOTP code field unless the owner's phone is connected, the last event,
+  hints, the command outcome, escaping, inline styles, one delegated
+  listener, the code only in the POST body and cleared after) and its
+  update() slot, not redrawn while typing;
+* settings_cabin_watch_smoke.js: screens/settings.js — the "Czuwanie
+  kabiny" row (data.cabin_watch: state labels, why the camera is off, the
+  last event with reasons / photos / analysis / outcome, hints, escaping,
+  inline styles, read-only — no buttons) and its update() slot; the park
+  row's "ruch w kabinie" event;
+* settings_brightness_smoke.js: screens/settings.js — the "Jasność ekranu"
+  row (data.auto_brightness: status per mode with the current lux, Auto /
+  Ręczna, the slider, "Programowe / Sprzętowe (DDC/CI)" with the probe's
+  verdict and reason, escaping, inline styles, no inline handlers, only the
+  whitelisted /api/config bodies from the delegated listeners) and its
+  update() slot — numbers in place, nothing under the finger; plus
+  components/dim_overlay.js's level rules;
+* dim_overlay_browser_smoke.js: the software dimming overlay on the real
+  dashboard in headless Chromium at 1024x600 (mouse and touch): one fixed
+  black layer, z-index 190, pointer-events none, over A1 and Android Auto
+  but UNDER the reverse camera view and the crash window (paint order), taps
+  go through it, removed for level 0 / no payload; the Settings row posts
+  the switch, the mode and the slider value. Skipped without playwright;
 * appbar_phone_smoke.js: components/appbar.js — the phone cluster (signal /
   operator / battery from data.phone_status): hidden without a phone, glyphs
   by level, the operator only ever via textContent, change-only updates;
@@ -57,6 +81,15 @@
   navigating, nothing off-screen, ANULUJ >= 1/3 and on top, an edge pull
   does not navigate, beeps while pending, one POST {event_id} per tap, the
   result closes on a tap. Skipped without the playwright package/Chromium;
+* hold_eval.js: components/hold.js — the hold-to-confirm of the 112 and
+  "Rozłącz" buttons on a fake clock: too short, finger left, pointercancel,
+  the arm delay, a second finger, a late or early timer, rearm, destroy;
+* call112_browser_smoke.js: "Zadzwoń 112" in the crash window on the real
+  dashboard in headless Chromium at 1024x600 (mouse and a real touch): the
+  red button >= 15% away from ANULUJ / Zamknij, naming the path, hold
+  rules, one POST with an empty body, the call view, "Rozłącz" held 1 s,
+  "Odbierz", the dispatcher panel >= 48 px that fits, test-mode label, no
+  button without the module or off the kiosk. Skipped without playwright;
 * weather_escape_smoke.js: screens/weather.js — geocoder place names and
   the weather city / condition never become markup, results are picked via
   data-weather-idx + one delegated listener, and only valid coordinates reach
@@ -235,6 +268,100 @@ def test_edge_tracker(name, ops, expected):
     assert events == expected
 
 
+def _hold(scripts):
+    res = subprocess.run(
+        [NODE, str(JS / "hold_eval.js")],
+        input=json.dumps({"scripts": scripts}), capture_output=True, text=True, timeout=60,
+    )
+    assert res.returncode == 0, res.stderr
+    return json.loads(res.stdout)["scripts"]
+
+
+ARMED = ["advance", 800]          # past the 700 ms arm delay
+# (name, opts, ops, expected events) — see tests/js/hold_eval.js
+HOLD_SCRIPTS = [
+    ("2 s hold fires once", {}, [
+        ARMED, ["press", 1], ["advance", 1999], ["state"], ["advance", 1], ["state"],
+        ["advance", 5000]],
+     [["press", "holding"], ["state", "holding"], ["fire"], ["state", "fired"]]),
+    ("too short", {}, [
+        ARMED, ["press", 1], ["advance", 1500], ["release", 1], ["advance", 3000], ["state"]],
+     [["press", "holding"], ["reset", "released"], ["state", "idle"]]),
+    ("finger slid off the button", {}, [
+        ARMED, ["press", 1], ["advance", 1000], ["leave", 1], ["advance", 3000]],
+     [["press", "holding"], ["reset", "left"]]),
+    ("pointercancel (browser took the touch)", {}, [
+        ARMED, ["press", 1], ["advance", 1900], ["cancel", 1], ["advance", 3000]],
+     [["press", "holding"], ["reset", "cancelled"]]),
+    ("inactive during the arm delay", {}, [
+        ["advance", 699], ["press", 1], ["advance", 5000], ["state"]],
+     [["press", "not_armed"], ["state", "idle"]]),
+    ("armed right after the delay", {}, [
+        ["advance", 700], ["press", 1], ["advance", 2000]],
+     [["press", "holding"], ["fire"]]),
+    ("a second finger neither restarts nor fires twice", {}, [
+        ARMED, ["press", 1], ["advance", 1000], ["press", 2], ["release", 2],
+        ["advance", 1000], ["press", 1], ["advance", 5000]],
+     [["press", "holding"], ["press", "busy"], ["fire"], ["press", "fired"]]),
+    ("double trigger: fired stays fired until rearm", {}, [
+        ARMED, ["press", 1], ["advance", 2000], ["release", 1], ["press", 1],
+        ["advance", 3000], ["rearm", 700], ["press", 1], ["advance", 700], ["press", 1],
+        ["advance", 2000]],
+     [["press", "holding"], ["fire"], ["press", "fired"], ["press", "not_armed"],
+      ["press", "holding"], ["fire"]]),
+    ("a late timer after the release does nothing", {}, [
+        ARMED, ["press", 1], ["advance", 1000], ["snap"], ["release", 1], ["advance", 1500],
+        ["late"], ["state"]],
+     [["press", "holding"], ["reset", "released"], ["state", "idle"]]),
+    ("a timer that fires early waits for the rest", {}, [
+        ARMED, ["press", 1], ["snap"], ["advance", 500], ["late"], ["state"],
+        ["advance", 1500], ["state"], ["advance", 5000]],
+     [["press", "holding"], ["state", "holding"], ["fire"], ["state", "fired"]]),
+    ("progress follows the hold", {}, [
+        ARMED, ["press", 1], ["advance", 500], ["progress"], ["advance", 500], ["progress"]],
+     [["press", "holding"], ["progress", 0.25], ["progress", 0.5]]),
+    ("Rozłącz: 1 s", {"holdMs": 1000, "armDelayMs": 0}, [
+        ["press", 1], ["advance", 999], ["state"], ["advance", 1]],
+     [["press", "holding"], ["state", "holding"], ["fire"]]),
+    ("destroyed: nothing fires", {}, [
+        ARMED, ["press", 1], ["advance", 1000], ["destroy"], ["advance", 3000], ["press", 1]],
+     [["press", "holding"], ["press", "dead"]]),
+    ("nonsense options fall back to 2 s / 0.7 s", {"holdMs": "x", "armDelayMs": -5}, [
+        ["advance", 600], ["press", 1], ["advance", 200], ["press", 1], ["advance", 1999],
+        ["state"], ["advance", 1]],
+     [["press", "not_armed"], ["press", "holding"], ["state", "holding"], ["fire"]]),
+]
+
+
+@pytest.mark.parametrize("name, opts, ops, expected", HOLD_SCRIPTS,
+                         ids=[s[0] for s in HOLD_SCRIPTS])
+def test_hold_to_confirm(name, opts, ops, expected):
+    assert _hold([{"opts": opts, "ops": ops}])[0] == expected
+
+
+def test_hold_js_has_no_dom_at_load_and_blocks_the_long_press_menu():
+    src = (ROOT / "src/dashboard/web/js/components/hold.js").read_text(encoding="utf-8")
+    for needle in ('"contextmenu"', "setPointerCapture", 'touchAction = "none"',
+                   '"pointercancel"', '"lostpointercapture"', "passive: false"):
+        assert needle in src, needle
+    html = (ROOT / "src/dashboard/web/index.html").read_text(encoding="utf-8")
+    assert html.index("components/hold.js") < html.index("components/crash_modal.js")
+
+
+@pytest.mark.timeout(200)
+def test_call112_in_chromium():
+    """The 112 button, call view and dispatcher panel at 1024x600 in
+    headless Chromium (see the harness). Nothing can dial: every request is
+    answered by the harness."""
+    res = subprocess.run([NODE, str(JS / "call112_browser_smoke.js")],
+                         capture_output=True, text=True, timeout=180)
+    out = res.stdout.strip()
+    if res.returncode == 0 and out.startswith("SKIP:"):
+        pytest.skip(out[5:].strip())
+    assert res.returncode == 0, res.stderr or res.stdout
+    assert out.endswith("ok"), out
+
+
 @pytest.mark.parametrize("harness", ["app_smoke.js", "aa_screen_smoke.js",
                                      "call_nav_smoke.js", "settings_tether_smoke.js",
                                      "appbar_phone_smoke.js", "phone_escape_smoke.js",
@@ -242,7 +369,10 @@ def test_edge_tracker(name, ops, expected):
                                      "settings_modules_smoke.js", "weather_escape_smoke.js",
                                      "settings_car_phone_smoke.js",
                                      "settings_car_phone_agent_smoke.js",
-                                     "crash_modal_smoke.js"])
+                                     "settings_parking_guard_smoke.js",
+                                     "settings_cabin_watch_smoke.js",
+                                     "settings_brightness_smoke.js",
+                                     "crash_modal_smoke.js", "wake_banner_smoke.js"])
 def test_screen_harness(harness):
     res = subprocess.run([NODE, str(JS / harness)], capture_output=True, text=True,
                          timeout=60)
@@ -296,6 +426,42 @@ def test_crash_modal_in_chromium():
         pytest.skip(out[5:].strip())
     assert res.returncode == 0, res.stderr or res.stdout
     assert out.endswith("ok"), out
+
+
+@pytest.mark.timeout(150)
+def test_dim_overlay_in_chromium():
+    """modules.auto_brightness: the dimming overlay under the safety views
+    and the "Jasność ekranu" row at 1024x600 (see the harness)."""
+    res = subprocess.run([NODE, str(JS / "dim_overlay_browser_smoke.js")],
+                         capture_output=True, text=True, timeout=120)
+    out = res.stdout.strip()
+    if res.returncode == 0 and out.startswith("SKIP:"):
+        pytest.skip(out[5:].strip())
+    assert res.returncode == 0, res.stderr or res.stdout
+    assert out.endswith("ok"), out
+
+
+def test_dim_overlay_sits_below_every_safety_layer():
+    """The z-index the overlay uses is below the reverse camera view and the
+    crash window as their code sets them (the browser test checks the paint
+    order; this pins the numbers the comments promise)."""
+    dim = (ROOT / "src/dashboard/web/js/components/dim_overlay.js").read_text(encoding="utf-8")
+    z = int(re.search(r"const Z_INDEX = (\d+);", dim).group(1))
+    app = (ROOT / "src/dashboard/web/js/app.js").read_text(encoding="utf-8")
+    reverse = int(re.search(r'overlay\.id = "reverse-overlay";\s*overlay\.className = "[^"]*z-\[(\d+)\]',
+                            app).group(1))
+    crash = (ROOT / "src/dashboard/web/js/components/crash_modal.js").read_text(encoding="utf-8")
+    modal = int(re.search(r'_el\.style\.cssText = "position:fixed;inset:0;z-index:(\d+);', crash).group(1))
+    assert 0 < z < reverse < modal, (z, reverse, modal)
+    assert "pointer-events:none" in dim and "MAX_LEVEL = 0.9" in dim
+    html = (ROOT / "src/dashboard/web/index.html").read_text(encoding="utf-8")
+    assert html.index("components/dim_overlay.js") < html.index("/js/app.js")
+
+
+def test_brightness_row_glyph_exists_in_the_bundled_font():
+    src = (ROOT / "src/dashboard/web/js/screens/settings.js").read_text(encoding="utf-8")
+    assert ">brightness_6</span>" in src
+    assert "brightness_6" in _font_ligatures(FONT)
 
 
 def test_crash_window_glyphs_exist_in_the_bundled_font():
@@ -396,3 +562,47 @@ def test_phone_cluster_glyphs_exist_in_the_bundled_font():
     assert len(glyphs) == 14
     missing = sorted(glyphs - ligatures)
     assert not missing, f"not in {FONT.name}: {missing}"
+
+
+@pytest.mark.timeout(150)
+def test_wake_banner_in_chromium():
+    """modules.remote_session (plan E): the non-modal "Wybudzono" banner and
+    the "Wybudzanie" row at 1024x600 (see the harness)."""
+    res = subprocess.run([NODE, str(JS / "wake_banner_browser_smoke.js")],
+                         capture_output=True, text=True, timeout=120)
+    out = res.stdout.strip()
+    if res.returncode == 0 and out.startswith("SKIP:"):
+        pytest.skip(out[5:].strip())
+    assert res.returncode == 0, res.stderr or res.stdout
+    assert out.endswith("ok"), out
+
+
+def test_wake_banner_layering_and_wiring():
+    """The banner sits above the dimming overlay and the reverse camera /
+    keyboard (200), below the crash window (300) and the notifications
+    (400); it is loaded before app.js and is NOT a gesture overlay (the
+    screen under it keeps working)."""
+    banner = (ROOT / "src/dashboard/web/js/components/wake_banner.js").read_text(encoding="utf-8")
+    z = int(re.search(r"const Z_INDEX = (\d+);", banner).group(1))
+    dim = (ROOT / "src/dashboard/web/js/components/dim_overlay.js").read_text(encoding="utf-8")
+    dim_z = int(re.search(r"const Z_INDEX = (\d+);", dim).group(1))
+    crash = (ROOT / "src/dashboard/web/js/components/crash_modal.js").read_text(encoding="utf-8")
+    modal = int(re.search(r'_el\.style\.cssText = "position:fixed;inset:0;z-index:(\d+);', crash).group(1))
+    assert dim_z < 200 < z < modal < 400, (dim_z, z, modal)
+    app = (ROOT / "src/dashboard/web/js/app.js").read_text(encoding="utf-8")
+    overlays = re.search(r"const GESTURE_OVERLAYS = ([^;]+);", app).group(1)
+    assert "wake-banner" not in overlays
+    assert "try { _syncWakeBanner(data); } catch (e)" in app
+    html = (ROOT / "src/dashboard/web/index.html").read_text(encoding="utf-8")
+    assert html.index("components/wake_banner.js") < html.index("/js/app.js")
+    # buttons by data-* and one delegated listener; texts never as HTML
+    assert "onclick" not in banner and "data-wake-action" in banner
+    assert 'body: "{}"' in banner                  # the step is the server's, never the client's
+    # Above the autohiding NavBar (h-14 = 56 px) and out of the bottom
+    # gesture strip, and it never swallows a touch: the bar's buttons and
+    # the swipe up from the bottom edge keep working during a session.
+    bottom = int(re.search(r"const BOTTOM_PX = (\d+);", banner).group(1))
+    gestures = (ROOT / "src/dashboard/web/js/components/gestures.js").read_text(encoding="utf-8")
+    edge = int(re.search(r"const EDGE_PX = (\d+);", gestures).group(1))
+    assert bottom >= 56 + 12 and bottom > edge, (bottom, edge)
+    assert ".stopPropagation(" not in banner

@@ -18,6 +18,24 @@ BCM v8.5 — custom head unit for Alfa Romeo 156 1.9 JTD 8V, built on a
 - 3 themes: Heritage, Modern, Autodelta
 - GPS route logger (SQLite + GPX export) — `modules.tracking`
 
+## Auto testowe — instrukcja dla właściciela (PL)
+
+- **[`docs/WDROZENIE_TESTOWE_TELEFON.md`](docs/WDROZENIE_TESTOWE_TELEFON.md)** —
+  krok po kroku: co się zmieniło w #126–#129, „już wdrożyłem — co teraz”
+  (migracja ustawień, sekrety, `bcm-harden.sh`, `apply-fixes.sh`, autoapp),
+  BIOS, główny telefon (internet i GPS), audio i mikrofon, tabela
+  przełączników modułów, lista sprawdzeń, wycofanie zmian.
+- **[`docs/PRZYGOTOWANIE_TELEFONU.md`](docs/PRZYGOTOWANIE_TELEFONU.md)** —
+  telefon w aucie (Redmi Note 8 Pro, crDroid 13): ROM, Termux, agent BCM,
+  „Zadzwoń 112”, alarm na postoju, czuwanie kabiny, jasność.
+- **Gdzie są ustawienia:** baza `config/bcm_config_test.yaml` (w gicie, BCM
+  jej nie zmienia) → `config/local.yaml` (poza gitem; zmiany z ekranu, zapis
+  atomowy) → `/etc/bcm/bcm.env` (sekrety: klucze API, sekret agenta; 0600
+  root:root, wzór w `config/bcm.env.example`). Bazę wskazuje `BCM_CONFIG`
+  (domyślna w unicie, zmiana albo powrót do starego pliku jedną linią
+  w `/etc/bcm/bcm.env`); przeniesienie starych ustawień z auta:
+  `tools/migrate_local_config.py`.
+
 ## Quick start
 
 ```bash
@@ -27,8 +45,10 @@ pip install -r requirements.txt -r requirements-x86.txt
 ./run_x86.sh          # dashboard: http://localhost:5002, small: :5003
 ```
 
-- Modules are toggled in `config/bcm_config.yaml` (`modules:` block,
-  plus `bluetooth.enabled`, `wifi.enabled`, `fuel_sender.enabled`).
+- Modules are toggled in Settings → Moduły on the car screen (saved to
+  `config/local.yaml`) or in the base YAML (`modules:` block, plus the
+  legacy `bluetooth.enabled`, `wifi.enabled`, `fuel_sender.enabled`).
+  The list with dependencies lives in `src/core/modules_catalog.py`.
 - Arduino firmware (3 boards): `make -C arduino` compiles all sketches,
   `make -C arduino <sketch>-upload PORT=/dev/ttyXXX` flashes one —
   see `docs/ARDUINO_SETUP_GUIDE.md`. Never touched an Arduino before?

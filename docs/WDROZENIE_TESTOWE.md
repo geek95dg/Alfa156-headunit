@@ -6,8 +6,17 @@ Wszystko pozostałe wyłączone.
 
 Wdrożenie docelowe (pełne): [`WDROZENIE_M910Q.md`](WDROZENIE_M910Q.md).
 
+> **Instrukcja krok po kroku dla auta testowego** (co się zmieniło w
+> #126–#129, migracja ustawień, sekrety, BIOS, główny telefon, audio,
+> tabela przełączników, lista sprawdzeń, wycofanie zmian):
+> [`WDROZENIE_TESTOWE_TELEFON.md`](WDROZENIE_TESTOWE_TELEFON.md).
+> Przygotowanie telefonu w aucie:
+> [`PRZYGOTOWANIE_TELEFONU.md`](PRZYGOTOWANIE_TELEFONU.md). Ten dokument
+> zostaje opisem technicznym — tam, gdzie się pokrywają, kroki są w tamtych.
+
 > **To nie jest stanowisko biurkowe.** Zestaw jedzie w aucie, więc tor
-> zasilania jest kompletny: ładowanie banku, blokada przeładowania i LVD.
+> zasilania ma być kompletny: ładowanie banku, blokada przeładowania i LVD
+> (dziś auto testowe jeździ jeszcze bez bufora — §3).
 > Oszczędzamy na funkcjach BCM i na wariancie ładowarki — **nie na
 > zabezpieczeniach**.
 
@@ -36,7 +45,10 @@ Wdrożenie docelowe (pełne): [`WDROZENIE_M910Q.md`](WDROZENIE_M910Q.md).
 ## 1. Co uruchamiamy
 
 Pięć modułów zamiast dwudziestu ośmiu, plus dwa podsystemy potrzebne do
-Android Auto wireless:
+Android Auto wireless — to był punkt wyjścia. Od #127 config testowy włącza
+też internet i GPS z telefonu, trasy, pogodę, książkę telefoniczną i stan
+telefonu, a dodatki z telefonem w aucie czekają wyłączone; aktualna tabela
+przełączników: [`WDROZENIE_TESTOWE_TELEFON.md`](WDROZENIE_TESTOWE_TELEFON.md) §8.
 
 | Przełącznik | Po co | Czego wymaga |
 |-------------|-------|--------------|
@@ -89,6 +101,15 @@ przechodzi do STANDBY, co oznacza wygaszenie podświetlenia i
 ---
 
 ## 3. Zasilanie
+
+> **Stan auta testowego dziś: bufora jeszcze nie ma.** **Każde zgaszenie
+> silnika to twarde odcięcie prądu** M910q (a z nim zasilania USB telefonu
+> w aucie) w dowolnej chwili, także w trakcie zapisu na dysk. Przed
+> skutkami chronią atomowe zapisy BCM (`config/local.yaml`, dane w `data/`)
+> i `config/scripts/bcm-harden.sh` (fsck przy starcie, krótsze okno
+> niezapisanych danych) — kroki:
+> [`WDROZENIE_TESTOWE_TELEFON.md`](WDROZENIE_TESTOWE_TELEFON.md) §3. Ten
+> rozdział opisuje tor zasilania, który ma to zmienić.
 
 ### 3.1 Tor — co jedzie w aucie
 
@@ -164,10 +185,12 @@ Pięć rzeczy warto tu zauważyć:
 
 ### 3.1a Stałe zasilanie i S3 — co to kosztuje
 
-Zapłon nie odcina już komputera. Zamiast tego **Arduino wykrywa zmianę stanu
-zapłonu**, a M910q schodzi do **S3** i z niego wraca. Zysk jest realny:
-wybudzenie w ~3 s zamiast ~40 s zimnego startu, bez ryzyka ucięcia zapisu
-na dysk w połowie.
+Z buforem zapłon nie odcina już komputera. Zamiast tego **Arduino wykrywa
+zmianę stanu zapłonu**, a M910q schodzi do **S3** i z niego wraca. Zysk jest
+realny: wybudzenie w ~3 s zamiast ~40 s zimnego startu, a zgaszenie silnika
+przestaje ucinać zapis na dysk w połowie. Prąd nadal może zniknąć bez
+ostrzeżenia (LVD przy rozładowanym banku, wyłącznik główny, luźny styk), więc
+atomowe zapisy BCM i `bcm-harden.sh` zostają także w tej wersji.
 
 Cena też jest realna — i to jest najważniejsza liczba w tej zmianie:
 
@@ -367,6 +390,15 @@ ani przycisk SWC nic dziś nie robią.
 switchami i to w zupełności wystarcza na czas testów. Domknięcie tego
 łańcucha to zadanie na krok 6 roadmapy (§9), razem z Nano #1.
 
+> **Aktualizacja (plan D3, `modules.auto_brightness`, §5.14).** Moduł
+> tworzy wreszcie `BrightnessController`: czyta światło z telefonu w aucie
+> albo z tego LDR (`LIGHT:`), słucha dźwigienki i nowego suwaka w wierszu
+> „Jasność ekranu”, a `POST /api/config` z kluczem `brightness` ma już
+> odbiorcę. Ekran w aucie (zasilany z USB) nie ma żadnego sterowania
+> jasnością, więc moduł przyciemnia **obraz** nakładką w kiosku (opcjonalnie
+> DDC/CI przez `ddcutil`). PWM podświetlenia z tabeli wyżej dalej wymaga
+> Nano #1 — bez zmian. Moduł jest domyślnie wyłączony.
+
 ### 3.2 Ładowanie — wariant B, i dlaczego akurat on
 
 [`ZASILANIE_BUFOROWANE.md`](ZASILANIE_BUFOROWANE.md) §5 opisuje dwa warianty:
@@ -555,9 +587,11 @@ Obowiązkowe sprawdzenia XL6019 i XH-M609 przed pierwszym załączeniem:
 
 ### 3.6 Wyłączanie — dopóki Arduino nie usypia, robisz to ręcznie
 
-Nic już nie tnie zasilania komputera, więc **nie ma ryzyka ucięcia zapisu
-na dysk** — to główny zysk z §3.1a. Dopóki jednak brakuje trzech elementów
-z tabeli w §3.1a, przejście do S3 wywołujesz sam:
+Gdy tor z §3.1 jest zamontowany, zgaszenie silnika nie tnie już zasilania
+komputera — to główny zysk z §3.1a. Ryzyko ucięcia zapisu maleje, ale nie
+znika: XH-M609 (LVD), wyłącznik główny albo luźny styk dalej odcinają prąd
+bez ostrzeżenia. Dopóki brakuje trzech elementów z tabeli w §3.1a, przejście
+do S3 wywołujesz sam:
 
 ```
 1. Zaparkuj.
@@ -566,8 +600,11 @@ z tabeli w §3.1a, przejście do S3 wywołujesz sam:
 4. Dłuższy postój? Wyłącznik główny — inaczej S3 zjada bank (§3.1a).
 ```
 
-Wybudzenie: przycisk zasilania albo dowolny klawisz z Pro Micro, o ile
-w BIOS-ie włączone jest **Wake on USB**. Wraca w ~3 s.
+Wybudzenie: przycisk zasilania — ręcznie albo przekaźnikiem z Arduino
+(§3.1a). Wraca w ~3 s. Klawisz z Pro Micro komputera **nie** obudzi: M910q
+w S3 odcina zasilanie portów USB, więc **Wake on USB** w BIOS-ie zostaw
+**wyłączone** — daje tylko fałszywe wybudzenia
+([`WDROZENIE_TESTOWE_TELEFON.md`](WDROZENIE_TESTOWE_TELEFON.md) §4).
 
 Zapomniany krok 2 nie jest groźny — maszyna po prostu pracuje dalej i szybciej
 zjada bank. Zapomniany krok 4 przy tygodniowym postoju kończy się odcięciem
@@ -627,13 +664,16 @@ BCM nie wymaga tu żadnej konfiguracji — bierze domyślny sink.
 
 ### 5.4 Konfiguracja wariantu testowego
 
-Repozytorium zawiera gotowy plik `config/bcm_config_test.yaml`: pięć
-modułów plus `bluetooth` i `wifi_ap` włączone, reszta wyłączona,
-ekran 1024×600.
+Repozytorium zawiera gotowy plik `config/bcm_config_test.yaml` (ekran
+1024×600, przełączniki modułów dla auta testowego). Usługa startuje z nim
+(`BCM_CONFIG` w unicie), nakłada `config/local.yaml` (zmiany z ekranu, poza
+gitem) i sekrety z `/etc/bcm/bcm.env`. Opis warstw, bezpieczna ręczna
+edycja `local.yaml` i migracja starego `bcm_config_temp.yaml`:
+[`WDROZENIE_TESTOWE_TELEFON.md`](WDROZENIE_TESTOWE_TELEFON.md) §2–§3.
 
-> `--config` **podmienia całą konfigurację**, nie nakłada się na
-> `bcm_config.yaml`. Dlatego jest to pełna kopia z pozmienianymi kluczami,
-> a nie krótka nakładka.
+> `--config` **podmienia całą konfigurację bazową**, nie nakłada się na
+> `bcm_config.yaml`. Dlatego jest to pełna kopia z pozmienianymi kluczami;
+> nakładką jest dopiero `config/local.yaml`.
 
 ### 5.5 Firmware Pro Micro
 
@@ -721,22 +761,19 @@ Kolejność:
 2. `adb` z pakietu Debiana — instalują go `setup-x86.sh` i `apply-fixes.sh`
    (głośne ostrzeżenie, gdy się nie uda); `bcm-harden.sh` krok 8 tylko
    raportuje.
-3. W telefonie: opcje programisty → debugowanie USB, „Disable adb
-   authorization timeout”; aplikacja serwera NMEA TCP (np. gpsdRelay) na
-   porcie 50000 (`network.car_phone.gps_remote_port`). Jeśli aplikacja
-   pozwala wybrać adres nasłuchu, ustaw **127.0.0.1** — BCM i tak czyta
-   pozycję przez `adb forward`, a przy włączonym hotspocie dla pasażerów
-   serwer na 0.0.0.0 pokazywałby pozycję auta każdemu podłączonemu
-   (ROM: §5.7a).
-4. Podłącz telefon i raz wywołaj adb **przez gniazdo BCM** (niżej,
-   „Bezpieczeństwo”) — w telefonie „Zawsze zezwalaj z tego komputera”:
-
-   ```bash
-   sudo install -d -m 0700 /run/bcm-adb     # moduł tworzy go sam; ręcznie tylko przed jego startem
-   sudo env ADB_SERVER_SOCKET=localfilesystem:/run/bcm-adb/adb.sock adb devices -l
-   ```
-
-   Klucz adb to `/root/.android/adbkey` (generuje go adb; nigdy w repo).
+3. Telefon przygotowany według
+   [`PRZYGOTOWANIE_TELEFONU.md`](PRZYGOTOWANIE_TELEFONU.md) §1–§6: opcje
+   programisty (debugowanie USB, „Disable adb authorization timeout”) i serwer NMEA TCP
+   na porcie 50000 (`network.car_phone.gps_remote_port`) z nasłuchem na
+   **127.0.0.1** — BCM i tak czyta pozycję przez `adb forward`, a przy
+   włączonym hotspocie dla pasażerów serwer na 0.0.0.0 pokazywałby pozycję
+   auta każdemu podłączonemu.
+4. Zgoda adb raz, **przez gniazdo BCM** (niżej, „Bezpieczeństwo”) —
+   polecenia: [`PRZYGOTOWANIE_TELEFONU.md`](PRZYGOTOWANIE_TELEFONU.md)
+   §8.2; w telefonie „Zawsze zezwalaj z tego komputera”.
+   Katalog `/run/bcm-adb` moduł tworzy sam; ręcznie tylko przed jego
+   startem. Klucz adb to `/root/.android/adbkey` (generuje go adb; nigdy
+   w repo).
    Zwykłe `sudo adb …` uruchamia **drugi** serwer adb na `127.0.0.1:5037`,
    który walczy z serwerem BCM o telefon na USB — jeśli to się zdarzyło:
    `sudo adb kill-server`. Wygodny alias:
@@ -855,7 +892,7 @@ w aucie):
 
 Podgląd: wiersz „Telefon w aucie” w Ustawieniach (stan, IP, bateria, °C,
 GPS, hotspot, przycisk „Ponów”), `bcm-adb devices -l` (alias z kroku 4),
-`nmcli connection show --active`, `journalctl -u bcm-headunit | grep -i "car phone"`.
+`nmcli connection show --active`, `sudo journalctl -u bcm-headunit -b | grep -i "car phone"`.
 
 **Wyłączenie modułu.** `modules.car_phone: false` kończy tylko nadzór BCM.
 Profil NetworkManagera `bcm-car-phone` zostaje (autoconnect, metryka 650,
@@ -877,49 +914,24 @@ Pro (begonia), najlepiej bez usług Google (GPS działa bez nich, pierwszy
 fix bywa tylko wolniejszy). Androidy 14 i 15 nic tu nie dodają, a mocniej
 ograniczają pracę w tle i aplikacje spoza sklepu — nie były sprawdzane.
 
-Na Androidzie 13 (AOSP/crDroid) zrób raz:
+Kroki na Androidzie 13 (AOSP/crDroid) są w
+[`PRZYGOTOWANIE_TELEFONU.md`](PRZYGOTOWANIE_TELEFONU.md):
 
-1. **Phantom process killer wyłączony** — inaczej Android potrafi ubić
-   procesy Termuxa (agent z §5.9) w tle. W Termuxie (telefon zrootowany):
-
-   ```bash
-   su -c '/system/bin/device_config set_sync_disabled_for_tests persistent'
-   su -c '/system/bin/device_config put activity_manager max_phantom_processes 2147483647'
-   ```
-
-   Jeśli w Opcjach programisty → Feature flags jest
-   `settings_enable_monitor_phantom_procs`, wyłącz go. Sprawdzenie:
-   `su -c '/system/bin/device_config get activity_manager max_phantom_processes'`.
-2. **Powiadomienia** (Android 13 pyta o nie osobno) i **bateria „Bez
-   ograniczeń”** dla: Termux, Termux:API, Termux:Boot, SensorServer i
-   aplikacji serwera NMEA.
-3. **Termux i wtyczki z jednego źródła** (F-Droid) — Termux, Termux:API i
-   Termux:Boot muszą mieć ten sam podpis; wersja ze Sklepu Play nie dogada
-   się z resztą.
-4. Kroki „Xiaomi (MIUI/HyperOS)” z §5.9 (Autostart, kłódka) na crDroid
-   **nie dotyczą** — ich odpowiednikiem jest punkt 1 i 2.
-5. **Hotspot dla pasażerów** (`car_phone_hotspot`): WPA2/WPA3 i mocne
-   hasło. SensorServer z **Local Host** (§5.8), serwer NMEA na 127.0.0.1
-   (§5.7 krok 3), agent BCM słucha tylko na 127.0.0.1 — klienci hotspotu
-   nie widzą wtedy ani pozycji, ani czujników.
-6. **Poprawki bezpieczeństwa:** crDroid 13 raczej ich już nie dostaje. Dla
-   telefonu tylko do auta to akceptowalne pod warunkiem: brak kont, BT i
-   NFC wyłączone, ADB tylko po kablu (nigdy `adb tcpip`, debugowanie
-   bezprzewodowe wyłączone), usługi tylko na 127.0.0.1.
-
-Do sprawdzenia na tym ROM-ie, zanim telefon trafi pod podsufitkę:
-
-- SMS i **zwykłe** połączenie z karty w Redmi (nigdy próbnie na 112).
-  Custom ROM-y na MediaTeku często nie mają VoLTE — rozmowy schodzą wtedy
-  na 2G; to działa, ale warto wiedzieć przed „Zadzwoń 112”;
-- SensorServer daje około 100 Hz (§5.8);
-- kamera przednia robi zdjęcie z Termuxa (czuwanie kabiny):
-  `termux-camera-info` pokaże jej id (zwykle 1), potem
-  `termux-camera-photo -c <id> test.jpg`;
-- tethering USB włącza się z BCM (`svc usb setFunctions rndis`, wiersz
-  „Telefon w aucie”);
-- nadajnik IR działa (`termux-infrared-frequencies` zwraca listę) —
-  potrzebny dopiero do wybudzania BCM z telefonu.
+- **phantom process killer wyłączony** (inaczej Android ubija procesy
+  Termuxa — agenta z §5.9 — w tle), **powiadomienia** i **bateria „Bez
+  ograniczeń”** dla Termux, Termux:API, Termux:Boot, SensorServer
+  i aplikacji NMEA — §5 tamże;
+- **Termux i wtyczki z jednego źródła** (F-Droid, ten sam podpis) — §4;
+  kroki „Xiaomi (MIUI/HyperOS)” z nagłówka `bcm_agent.py` (Autostart,
+  kłódka) na crDroid **nie dotyczą**;
+- **hotspot dla pasażerów** (`car_phone_hotspot`): WPA2/WPA3, SensorServer
+  z Local Host, serwer NMEA i agent tylko na 127.0.0.1 — §17;
+- **poprawki bezpieczeństwa:** crDroid 13 raczej ich już nie dostaje; dla
+  telefonu tylko do auta akceptowalne przy braku kont, wyłączonych BT i NFC,
+  ADB tylko po kablu (nigdy `adb tcpip`) i usługach na 127.0.0.1 — §19;
+- **sprawdzenia na tym ROM-ie** przed montażem (SMS i zwykłe połączenie —
+  nigdy próbnie na 112; MediaTek bez VoLTE schodzi na 2G; SensorServer
+  ~100 Hz; kamera przednia; `svc usb setFunctions rndis`; nadajnik IR) — §15.
 
 ### 5.8 Czujniki telefonu i wykrywanie stłuczki (`phone_sensors`, `crash_detect`)
 
@@ -932,15 +944,13 @@ do rozpoznania telefonu, który spada, obracając się; gdy SensorServer go
 odmówi (zamknięcie z kodem 4xxx przed pierwszą ramką), BCM łączy się dalej
 bez niego i loguje to raz.
 
-W telefonie, w SensorServer:
-
-1. **Local Host** włączone (serwer słucha tylko na 127.0.0.1 telefonu —
-   dostępny przez adb, nie przez Wi-Fi), port **8080**
-   (`network.car_phone.sensors_remote_port`).
-2. **Częstotliwość próbkowania 10000 µs** (100 Hz). Domyślna w aplikacji
-   jest dużo wolniejsza, a poniżej 80 Hz (`crash_detection.min_rate_hz`)
-   wykrywanie stłuczki z akcelerometru jest wyłączone.
-3. Start serwera przy uruchomieniu telefonu, bateria bez ograniczeń.
+W telefonie, w SensorServer
+([`PRZYGOTOWANIE_TELEFONU.md`](PRZYGOTOWANIE_TELEFONU.md) §7): **Local
+Host** (tylko 127.0.0.1 telefonu — dostępny przez adb, nie przez Wi-Fi),
+port **8080** (`network.car_phone.sensors_remote_port`), **próbkowanie 10000
+µs** (100 Hz; domyślne jest dużo wolniejsze, a poniżej 80 Hz —
+`crash_detection.min_rate_hz` — wykrywanie stłuczki z akcelerometru jest
+wyłączone), start przy uruchomieniu telefonu, bateria bez ograniczeń.
 
 BCM publikuje `phone.g_force` (≤ 10 Hz: szczyty poziomo/pionowo w g, zmiana
 prędkości w poziomie w oknie 150 ms, swobodny spadek, nasycenie,
@@ -1000,7 +1010,7 @@ Kamery **nie** są potrzebne.
   `stopped` (prędkość ≤ 5 km/h), `cancelled` (auto jechało dalej > 25 km/h
   przez 10 s), `unconfirmed` (brak danych przez 120 s).
 - Zapis: `data/crash_events/crash_<data UTC>_<id>.json` (atomowo, 50
-  ostatnich). Podgląd: `journalctl -u bcm-headunit | grep -i crash`.
+  ostatnich). Podgląd: `sudo journalctl -u bcm-headunit -b | grep -i crash`.
 
 Do sprawdzenia na stole, zanim ktokolwiek zaufa tym danym: rzeczywista
 częstotliwość SensorServer (≥ 100 Hz) i czy przeżywa w tle, pole `type`
@@ -1018,34 +1028,22 @@ nieosiągalne), progi „postoju” kalibracji przy pracującym silniku
 nie działa. Dlatego BCM tylko „uzbraja” zdarzenie, a termin wysyłki, treść
 SMS-a (stałe szablony GSM-7, bez polskich liter) i limity (1 zdarzenie na
 10 min, 3 na dobę) pilnuje agent w Redmi: `tools/car_phone/termux/bcm_agent.py`
-(sam Python z biblioteką standardową). Ten sam agent obsłuży później alarm
-na postoju, „Zadzwoń 112” i czuwanie kabiny. Moduł w BCM
+(sam Python z biblioteką standardową). Ten sam agent obsługuje też
+„Zadzwoń 112” (§5.11), alarm na postoju (§5.12) i czuwanie kabiny (§5.13). Moduł w BCM
 (`src/network/car_phone_agent.py`, wymaga `car_phone`, domyślnie wyłączony
 wszędzie) sprawdza stan agenta co 30 s, wysyła mu ustawienia, gdy się
 zmienią, i paruje go. Sam przebieg SMS-owy (odliczanie na ekranie,
 ANULUJ) to kolejny moduł, `crash_sms` (§5.10).
 
-**W telefonie** (pełny opis w nagłówku `bcm_agent.py`):
-
-1. Termux, **Termux:API** i **Termux:Boot** z F-Droid; Termux:Boot raz
-   otwórz ręcznie.
-2. W Termuxie: `pkg install python termux-api`, skopiuj `bcm_agent.py` do
-   `~/bcm_agent/`, a `boot_bcm_agent.sh` do `~/.termux/boot/`
-   (`chmod 700`). Skrypt bierze `termux-wake-lock` i restartuje agenta po
-   awarii.
-3. Uprawnienia Termux:API: **SMS** i **Telefon**; pierwsze
-   `termux-sms-send -n +48… ` ręcznie (okno zgody). Optymalizacja baterii
-   wyłączona dla Termux, Termux:API i Termux:Boot.
-4. **Tylko Xiaomi z MIUI/HyperOS** (na crDroid/AOSP zamiast tego §5.7a:
-   phantom process killer, powiadomienia, bateria) — bez tego agent nie
-   wstanie po restarcie albo nie wyśle SMS-a bez człowieka:
-   - Ustawienia → Aplikacje → Termux i Termux:Boot → **Autostart: ON**
-     (inaczej Termux:Boot nie dostaje sygnału startu telefonu);
-   - Ustawienia → Aplikacje → Termux:API → Uprawnienia → **Wysyłanie SMS:
-     „Zezwalaj”**, nie „Pytaj” (przy „Pytaj” każdy SMS czeka na kliknięcie
-     na ekranie telefonu — alarm po stłuczce nigdy by nie wyszedł);
-   - Termux zablokowany w ostatnich aplikacjach (kłódka).
-5. Restart telefonu. Log: `~/.config/bcm_agent/agent.log` (rotowany).
+**W telefonie:** [`PRZYGOTOWANIE_TELEFONU.md`](PRZYGOTOWANIE_TELEFONU.md) §9
+(Termux, Termux:API i Termux:Boot z F-Droid, `pkg install python
+termux-api`, `bcm_agent.py` w `~/bcm_agent/`, `boot_bcm_agent.sh` w
+`~/.termux/boot/` — bierze `termux-wake-lock` i restartuje agenta po awarii;
+uprawnienia Termux:API; log `~/.config/bcm_agent/agent.log`, rotowany).
+**Tylko Xiaomi z MIUI/HyperOS** ma dwie własne blokady — Autostart dla
+Termux i Termux:Boot oraz „Wysyłanie SMS: Zezwalaj”, nie „Pytaj” (przy
+„Pytaj” każdy SMS czeka na kliknięcie na ekranie, alarm po stłuczce nigdy by
+nie wyszedł); opis w nagłówku `bcm_agent.py`. Na crDroid zamiast tego §5.7a.
 
 **W BCM:**
 
@@ -1097,6 +1095,24 @@ nieuprzywilejowany użytkownik kiosku (port 952). Dlatego:
 Ryzyko, które zostaje: przejęty użytkownik kiosku (ta sama sesja X) mógłby
 podejrzeć wpisywany kod; parowanie rób, gdy w telefonie nie ma obcych
 aplikacji.
+
+**Aktualizacja agenta.** Po każdej aktualizacji BCM, która zmienia
+`tools/car_phone/termux/bcm_agent.py`, skopiuj nowy plik do
+`~/bcm_agent/` w telefonie i zrestartuj agenta: `pkill -f bcm_agent.py`
+(pętla w `boot_bcm_agent.sh` uruchomi go po 10 s) albo restart telefonu.
+Sekret, nonce, zdarzenia i parowanie w `~/.config/bcm_agent` zostają.
+Wiersz „Agent w telefonie” pokazuje wersję agenta; obecną i minimalną
+wersję dla każdej funkcji podaje
+[PRZYGOTOWANIE_TELEFONU.md](PRZYGOTOWANIE_TELEFONU.md) §9.5 („Zadzwoń 112”
+≥ 1.1.0, alarm na postoju ≥ 1.2.0, czuwanie kabiny ≥ 1.3.0, budzenie
+podczerwienią — wersja z buforem — ≥ 1.4.0). Starszy agent z nowym BCM
+działa dalej, dopóki `modules.call112`, `modules.parking_guard`,
+`modules.cabin_watch` i `modules.remote_session` są wyłączone (ich pola nie
+liczą się wtedy do skrótu konfiguracji). Przy włączonym którymkolwiek
+z nich wiersz pokaże „agent w telefonie jest starszy niż BCM” albo „agent
+w telefonie jest za stary — skopiuj nowy … bcm_agent.py”, a SMS po
+stłuczce przejdzie w tryb testowy, dopóki agent nie zostanie
+zaktualizowany.
 
 **Potwierdzanie wysyłki.** Agent czyta `termux-sms-list -t all` i patrzy na
 typ wiadomości: w „wysłanych” = wysłany; w „nieudanych” = ponowienie (do 3,
@@ -1191,8 +1207,1021 @@ Przypisać go można tylko z ekranu auta.
 
 Trasy `/api/crash/{cancel,send_now,follow_up,test,recipients}` działają
 **wyłącznie z ekranu auta** (loopback), także przy `remote_access: full`,
-i mają limit żądań; telefon pasażera widzi okno bez przycisków. Miejsce na
-przycisk „Zadzwoń 112” w oknie jest zarezerwowane (kolejna partia, plan H).
+i mają limit żądań; telefon pasażera widzi okno bez przycisków. Przycisk
+„Zadzwoń 112” w tym samym oknie opisuje §5.11.
+
+### 5.11 „Zadzwoń 112” w oknie wypadku (`modules.call112`)
+
+**Co robi.** W oknie wypadku (to samo okno co w §5.10; działa też bez
+`crash_sms`) pojawia się czerwony przycisk **„PRZYTRZYMAJ 2 s – ZADZWOŃ
+112”** — po przeciwnej stronie niż ANULUJ / Zamknij, z odstępem ≥ 15%
+szerokości ekranu. **Zawsze ręcznie:** nic nie dzwoni samo, odliczanie
+dotyczy tylko SMS-a, żadna akcja kierownicy nie dzwoni na 112. Przycisk
+trzeba **przytrzymać** 2 s (pierścień się zapełnia); przez pierwsze 0,7 s
+po pojawieniu się nie reaguje wcale, puszczenie albo zjechanie palcem
+z przycisku zeruje odliczanie. Numer nigdy nie przychodzi z ekranu: to
+stałe 112 (w trybie testowym — wyłącznie numer testowy). Okno otwiera
+każde zdarzenie `crash.detected` (także „sam GPS”) i pozwala dzwonić przez
+`window_min` (30) minut. Zamyka je (nigdy w trakcie rozmowy):
+
+- „Zamknij”;
+- jazda dalej: prędkość z `gps.speed` powyżej
+  `crash_detection.min_speed_kmh` (25 km/h) przez 10 s bez przerwy dłuższej
+  niż 2,5 s między próbkami — liczona od zdarzenia, także po zatrzymaniu
+  (moduł `crash_detect` po „zatrzymał się” nie mówi już nic więcej, więc
+  okno 112 liczy to samo);
+- SMS do bliskich odwołany (ANULUJ / kierownica / jazda dalej), gdy dla
+  tego zdarzenia nic nie wybierano — 60 s później, kiedy znika wynik
+  z kolumną 112. Okno nie wraca wtedy samo na cały ekran.
+
+Zdarzenie zapisuje się w `data/call112.json` — po zaniku prądu
+i ponownym przekręceniu kluczyka okno wraca, jeśli nie minęło 30 min.
+
+**Którędy dzwoni** (wybór w chwili przytrzymania; napis na przycisku mówi
+którędy):
+
+- **„telefon główny”** — przez Bluetooth (HFP). Tylko gdy telefon jest
+  połączony, oFono ma modem z VoiceCallManager, `phone_status` pokazuje
+  zasięg (`registered`/`roaming` — potrzebny `modules.phone_status`), nie
+  trwa inna rozmowa i **jest mikrofon** (`audio.mic_state: ok`; bez
+  mikrofonu dyspozytor słyszałby ciszę, więc ta droga nie jest wtedy
+  proponowana). Gdy telefon nie potwierdzi połączenia w 10 s albo zgłosi
+  błąd, przycisk od razu proponuje drugą drogę (jedno dodatkowe
+  przytrzymanie, bez czekania na limit). To samo, gdy rozmowa trwa, ale
+  `audio.call_route` (kilka sekund po „active”) pokazuje, że mikrofon nie
+  jest podpięty do rozmowy (brak wejścia SCO albo tylko cichy
+  `bcm_null_mic`): okno mówi „Dyspozytor może Cię nie słyszeć”, a przycisk
+  112 wraca W TRAKCIE rozmowy z drogą „telefon w aucie” — BCM najpierw
+  rozłącza rozmowę przez telefon główny, potem dzwoni Redmi (nigdy dwa
+  połączenia z 112 naraz). Po takiej rozmowie przycisk proponuje dalej
+  telefon w aucie, nie główny (ten sam mikrofon by nie działał).
+- **„telefon w aucie, głośnik”** — Redmi przez agenta (§5.9): BCM wysyła
+  podpisane `POST /v1/call112` (bez numeru), agent przez Magisk `su`
+  uruchamia stałą intencję CALL_PRIVILEGED na numer alarmowy z flagą
+  START_CALL_WITH_SPEAKERPHONE — dokładne polecenie jest tylko w kodzie
+  agenta (`call_command()` w `tools/car_phone/termux/bcm_agent.py`);
+  **nigdy nie uruchamiaj go ręcznie** — i podnosi głośność rozmowy. BCM na
+  czas rozmowy wycisza swoje media.
+- **żadna** — napis „Zadzwoń 112 ze swojego telefonu” i powód (np. „telefon
+  główny: brak mikrofonu; telefon w aucie: agent niegotowy”).
+
+Najwyżej jedno połączenie na 60 s (wyjątek: jedna próba drugą drogą po
+nieudanej); telefon ma ten sam limit u siebie. Telefon główny NIE jest
+proponowany od razu, gdy Redmi może właśnie dzwonić: agent odpowiedział
+„zajęty” (BCM śledzi wtedy jego trwającą rozmowę) albo „limit”, albo
+odpowiedź zginęła i rozmowy nie widać przez 20 s — po minucie zwykły wybór
+drogi wraca.
+
+**Widok rozmowy i panel dla dyspozytora.** W trakcie rozmowy okno pokazuje
+„Łączenie z 112…” / „Rozmowa mm:ss”, drogę, „PRZYTRZYMAJ 1 s – ROZŁĄCZ”
+i tekst „Jeśli połączenie było przypadkowe – nie rozłączaj się, powiedz
+dyspozytorowi, że to pomyłka.” Pisk odliczania milknie. Gdy dyspozytor
+oddzwania na telefon główny — „Odbierz”. Przycisk „rozłącz” na
+kierownicy jest w trakcie rozmowy z 112 **ignorowany** (jedna linia
+w logu). Trwające odliczanie SMS-a zostaje widoczne w wierszu stanu („·
+SMS do bliskich za X s”), a po prawej jest stuknięciowe **„ANULUJ SMS –
+nic się nie stało”** (≥ 15% szerokości od „Rozłącz”). Jeśli „Rozłącz” nie
+zadziała (rozmowa trwa 10 s po rozłączeniu), przycisk znów daje się
+przytrzymać. Gdy stanu rozmowy nie widać (Redmi nie odczytuje stanu,
+przestał odpowiadać albo agent się zrestartował), BCM śledzi ją najwyżej
+5 min, potem uznaje za zakończoną („stanu rozmowy nie widać – jeśli trwa,
+zakończ ją w telefonie”): okno da się zamknąć, wracają media BCM i
+przycisk „rozłącz” na kierownicy. Panel (od otwarcia okna: „Pozycja dla 112”, w trakcie rozmowy
+sam) pokazuje czcionką ≥ 48 px: pozycję „52,22968 N  21,01223 E” i w
+stopniach/minutach/sekundach, wiek fixa i satelity (albo „ostatnia znana
+pozycja sprzed X min”), kierunek i prędkość przed uderzeniem, godzinę,
+opis auta oraz gotowe zdanie do przeczytania. Bez odwrotnego geokodowania.
+
+**SMS do bliskich** (§5.10) nie jest odwoływany. Gdy połączenie z 112
+przeszło (telefon główny je przyjął albo Redmi je wybrał), SMS TEGO
+zdarzenia (BCM podaje telefonowi jego `event_id`; zdarzenia, którego
+telefon nie zna — np. „sam GPS” — nic nie oznacza), który jeszcze nie
+wyszedł, dostaje dopisek „Z auta wybrano 112 o hh:mm.” (może mieć wtedy 3
+części) — „Jestem OK” po jego wysłaniu zostaje. Jeśli SMS już wyszedł —
+idzie JEDEN SMS uzupełniający „ALFA 156: Z auta wybrano 112 o hh:mm
+(alarm o wypadku z hh:mm).” z budżetu SMS-a odwołującego; BCM pyta wtedy
+telefon (`follow_up_left`) i do jego odpowiedzi „Jestem OK” jest ukryte.
+W trybie testowym SMS-ów to nie dotyczy.
+
+**Włączenie:** Ustawienia → Moduły → `call112` (wymaga `crash_detect` oraz
+`car_phone_agent` albo `bluetooth`), restart BCM. W `config/bcm_config_test.yaml`
+blok `safety.call112` ma **`test_mode: true`** — 112 nie da się wtedy
+wybrać. Numer testowy (zaufana osoba, która wie o teście) i opis auta
+wpisz TYLKO do `config/local.yaml`, nigdy do repo:
+
+```yaml
+safety:
+  call112:
+    test_number: '+48…'        # E.164: '+', kierunkowy, 8–15 cyfr
+  vehicle:
+    label: Alfa Romeo 156      # do 32 znaków
+    colour: czerwona           # do 20 znaków
+    plate: WX 12345            # litery, cyfry, spacja, '-', do 12 znaków
+```
+
+Pozostałe klucze `safety.call112`: `paths: [hfp, car_phone]` (kolejność
+i dozwolone drogi), `hold_ms: 2000`, `arm_delay_ms: 700`, `window_min: 30`.
+Przełącznik `modules.call112` jest jedynym włącznikiem (bez klucza
+`enabled`).
+
+**Telefon w aucie (droga „głośnik”):** Magisk `su` tylko dla Termuxa,
+z wyłączonymi powiadomieniami, sprawdzenie `su -c 'id -u'` = `0` —
+[`PRZYGOTOWANIE_TELEFONU.md`](PRZYGOTOWANIE_TELEFONU.md) §11. Agent zgłasza
+gotowość w `/v1/health` jako `call112_capable` (przełącznik `call112`
+włączony, `su` działa, w trybie testowym jest numer); wiersz „Agent
+w telefonie” w Ustawieniach pokazuje to jako „112: gotowy (test)” /
+„112: gotowy” albo „112: niegotowy (su / numer testowy)”. Ta droga wymaga
+agenta **≥ 1.1.0** — po aktualizacji BCM skopiuj nowy
+`tools/car_phone/termux/bcm_agent.py` do `~/bcm_agent/` i zrestartuj go
+(`pkill -f bcm_agent.py`, patrz „Aktualizacja agenta” w §5.9); starszy
+agent przy włączonym `call112` daje w wierszu „agent w telefonie jest
+starszy niż BCM”.
+
+**Test na stole — TYLKO numerem testowym, NIGDY prawdziwym 112:**
+
+1. W `config/local.yaml` numer testowy (wyżej); `test_mode: true` zostaje.
+2. Ustawienia → Moduły: `call112` (i jego zależności), restart BCM.
+3. Okno bez wypadku, na samym komputerze BCM:
+   `curl -s -X POST -H 'Content-Type: application/json' -d '{}' http://127.0.0.1:5002/api/crash/call112/test`
+   — działa tylko w trybie testowym z numerem testowym (inaczej 409),
+   najwyżej raz na 10 s; nie wysyła SMS-a i nie zapisuje zdarzenia stłuczki.
+   Treść musi być obiektem JSON (bez nagłówka `Content-Type:
+   application/json` — 400): takiego żądania obca strona otwarta
+   w przeglądarce na komputerze BCM nie wyśle bez zgody CORS.
+4. Przycisk mówi „PRZYTRZYMAJ 2 s – TEST” i „TEST – dzwoni na +48...xyz”.
+   Sprawdź: za krótko / zjechanie palcem — nic; 2 s — dzwoni numer testowy;
+   „Rozłącz” 1 s; drogę „telefon główny” (z mikrofonem) i „telefon
+   w aucie” (np. odłącz Bluetooth); głośnik i głośność w Redmi; czy BCM
+   ścisza muzykę; „Odbierz”, gdy numer testowy oddzwoni.
+5. Do sprawdzenia na tym ROM-ie (crDroid 13) — **niesprawdzone**: czy
+   flaga głośnika (START_CALL_WITH_SPEAKERPHONE) włącza głośnik — sprawdzasz
+   to WYŁĄCZNIE rozmową testową z kroku 4 (przycisk w oknie po
+   `/api/crash/call112/test`: agent uruchamia tę samą intencję ze zwykłym
+   CALL, numerem testowym i tą samą flagą głośnika; **nigdy nie wpisuj
+   `am start` ręcznie**), format wyjścia `cmd media_session volume
+   --stream 0 --get` (strumień 0 = rozmowa), czy `mCallState` w `dumpsys
+   telephony.registry` pokazuje rozmowę (agent nie odróżnia „łączy” od
+   „rozmawia”; gdy stanu nie widać, okno mówi „stanu rozmowy nie widać”)
+   i czy `input keyevent KEYCODE_ENDCALL` kończy rozmowę. Custom ROM na
+   MediaTeku często nie ma VoLTE — rozmowa idzie wtedy przez 2G.
+6. Prawdziwe 112 dopiero po tych sprawdzeniach: `test_mode: false`
+   w `config/local.yaml` (numer testowy może zostać — w trybie
+   prawdziwym nie jest używany) i **restart BCM** (`config/local.yaml`
+   czyta się przy starcie). Okno testowe otwarte jeszcze w chwili restartu
+   NIE wraca po nim (zapisane zdarzenie testowe jest odrzucane poza trybem
+   testowym z numerem testowym), a okno testowe nigdy nie oferuje
+   prawdziwego 112 — nie musisz go zamykać przed zmianą trybu.
+
+Trasy 112 w /api/crash/ (wybieranie, rozłączanie, zamykanie okna
+i `/api/crash/call112/test`) działają **wyłącznie z ekranu auta**
+(loopback, a do tego nagłówek `Host` — i `Origin`, gdy przeglądarka go
+wysyła — musi wskazywać `localhost` / `127.0.0.1`, czyli stronę kiosku;
+obca strona, której nazwę ktoś skierował na 127.0.0.1, dostaje 403), także
+przy `remote_access: full`, i wymagają treści JSON (obiekt;
+`Content-Type: application/json`) — obca strona w przeglądarce na
+komputerze BCM nie wyśle takiego żądania bez zgody CORS; treść żądania
+nigdy nie wybiera numeru. `/api/phone/dial` z sieci dalej odrzuca numery
+alarmowe (403). **W trakcie rozmowy z 112** (łączenie, dzwoni, rozmowa)
+`/api/phone/hangup`, `/api/phone/answer` i `/api/phone/dial` z sieci dają
+403, a z ekranu auta `/api/phone/hangup` daje 409 `call112_live` — rozmowę
+z 112 kończy tylko przytrzymane „Rozłącz” w oknie wypadku (to samo, co
+z przyciskiem na kierownicy). Prawdziwą ochroną jest
+`dashboard.remote_access: tracking` (tak jest w konfiguracji testowej):
+przy `full` urządzenie w sieci auta wciąż może przerwać rozmowę innymi
+drogami (rozłączenie Bluetooth, restart komputera, dotyk w Android Auto).
+Telefon pasażera widzi okno i panel bez przycisków.
+
+**Czego nie obiecujemy:** zestawienia połączenia, automatycznego
+przekazania pozycji dyspozytorowi, jakości głośnika Redmi pod podsufitką.
+To nie eCall.
+
+### 5.12 Pozycja i alarm auta na postoju (`modules.parking_guard`)
+
+**Po co i gdzie działa.** Na postoju BCM nie działa — w wariancie testowym
+każde zgaszenie silnika odcina prąd M910q, a razem z nim zasilanie USB
+telefonu. Dlatego cały alarm działa **w telefonie**, w tym samym agencie
+co SMS po stłuczce (§5.9; `tools/car_phone/termux/bcm_agent.py`, klasa
+`ParkGuard`, opis w nagłówku pliku). BCM (moduł
+`src/safety/parking_guard.py`, wymaga `car_phone_agent`, domyślnie
+wyłączony w kodzie i w obu configach) robi tylko trzy rzeczy, gdy działa:
+wysyła telefonowi ustawienia, rozbraja go, gdy połączy się telefon
+właściciela, i pokazuje stan w Ustawieniach → wiersz **„Postój”**.
+Tematu `alarm.sensor.*` (syrena) moduł nigdy nie publikuje.
+
+**Jak telefon się uzbraja** (sam, bez BCM):
+
+1. Zgaszenie silnika → brak zasilania USB (`termux-battery-status`,
+   pole `plugged` = `UNPLUGGED`; telefon sprawdza baterię co 60 s);
+2. przez `arm_after_min` (3) min żadnego podpisanego żądania od BCM
+   (BCM pyta agenta co 30 s, więc dopóki działa, alarm się nie uzbroi);
+3. stan **„uzbrajanie”** i jeszcze `arm_delay_min` (2) min na wyjście
+   z auta (wysiadanie nie alarmuje); prąd, który wróci w tym czasie,
+   przerywa uzbrajanie;
+4. **„uzbrojony”** — razem ok. 5 min po zgaszeniu. Tuż przed tym telefon
+   bierze jedną paczkę próbek akcelerometru (1 s): ruch jak w jeździe
+   (rozrzut > 0,25 m/s²) przesuwa uzbrojenie o minutę, najwyżej 30 razy
+   (potem uzbraja mimo to) — kabel USB, który odpadnie w czasie jazdy,
+   nie uzbraja telefonu w jadącym aucie.
+
+Do tego „Uzbrój” w wierszu „Postój” (od razu po oknie wyjścia; BCM
+odmawia — „auto jedzie” — gdy świeże `gps.speed`, nie starsze niż 10 s,
+przekracza 5 km/h), SMS
+`PARK ON <kod>`. Agent przyjmuje też podpisane `POST /v1/park/arm` od BCM,
+ale BCM wysyła je dziś **tylko** z przycisku „Uzbrój” — samo uzbrojenie
+przy zgaszeniu (wersja z buforem, gdzie telefon nie traci zasilania USB)
+nie jest w tej wersji zrobione; w aucie testowym telefon i tak uzbraja się
+sam po utracie zasilania USB. Opcjonalna strefa **„dom”** (`home`): przy
+uzbrajaniu samym i przez BCM telefon sprawdza pozycję i w strefie się nie
+uzbraja (w wierszu: „dom — bez uzbrojenia”); pozycja nieznana albo
+z dokładnością gorszą niż 500 m niczego nie rozstrzyga — wtedy telefon się
+uzbraja. Po rozbrojeniu bez prądu
+(np. `PARK OFF` z daleka albo strefa „dom”) samo uzbrojenie czeka na
+następne odcięcie zasilania (najpierw jazda).
+
+**Jak się rozbraja — tylko dowodem właściciela,** nigdy samym prądem ani
+zapłonem (złodziej też przekręca kluczyk):
+
+- **telefon właściciela połączony z BCM uwierzytelnionym łączem HFP**
+  (bezprzewodowe Android Auto też zaczyna od Bluetooth): samo
+  „połączony” (`bt.connected`, `bluetoothctl … Connected`) NIE jest
+  dowodem — BlueZ zgłasza je już na poziomie ACL, przed sprawdzeniem
+  klucza parowania, więc wystarczyłoby podszyć się pod adres telefonu
+  właściciela (adres łatwo poznać). Dowodem jest dopiero modem HFP oFono
+  dla TEGO adresu: powstaje, gdy kanał RFCOMM wstał, czyli po
+  uwierzytelnieniu kluczem parowania i szyfrowaniu. Na zboczu połączenia
+  adresu właściciela BCM czeka do 60 s na to łącze i dopiero wtedy wysyła
+  JEDNO podpisane `POST /v1/park/disarm` (sprawdza dowód przed każdym
+  ponowieniem; ponawia, aż telefon potwierdzi — BCM startuje szybciej niż
+  forward agenta — najdłużej 15 min; rozłączenie tego adresu przerywa
+  ponawianie). Bez HFP w 60 s — bez rozbrojenia (log: „no HFP link”,
+  wiersz: „telefon właściciela połączony bez HFP — to nie dowód; Rozbrój
+  kodem”). Bez Bluetooth (`modules.bluetooth` wyłączony, brak adaptera,
+  brak monitora oFono) telefon właściciela nie rozbraja wcale — zostają
+  kod i SMS (ostrzeżenie w logu przy starcie i podpowiedź w wierszu).
+  Telefon właściciela: `parking_guard.owner_macs` (gdy podane — tylko te),
+  inaczej telefon połączony ostatnio PRZED startem BCM
+  (`multimedia.last_bt_device` odczytany raz przy starcie modułu: nowo
+  sparowany telefon staje się „właściciela” dopiero od następnej jazdy).
+  Lista sparowanych w Ustawieniach → Bluetooth pokazuje z adresu tylko
+  dwa ostatnie bajty. Ryzyko, które zostaje: ataki klasy BIAS/KNOB na
+  niezałatanym kontrolerze Bluetooth;
+- **SMS `PARK OFF <kod>`** z numeru z listy;
+- **kod TOTP wpisany w wierszu „Postój”** (pole „kod TOTP” + Rozbrój) —
+  sprawdza go TELEFON, BCM sekretu nie zna; gdy telefon właściciela jest
+  połączony łączem HFP, wystarczy „Rozbrój”.
+
+**Wyłączenie w Ustawieniach → Moduły to NIE rozbrojenie.** Ustawienia ma
+każdy, kto siedzi przy ekranie auta (złodziej po zapłonie też). Dlatego:
+
+- BCM odmawia wyłączenia `parking_guard` i `cabin_watch` (409, w oknie
+  modułów: „Najpierw rozbrój alarm na postoju …”), gdy ostatni stan
+  z telefonu to uzbrojony / alarm / czekające okno wejścia, a telefon
+  właściciela nie jest połączony łączem HFP — najpierw „Rozbrój” (telefon
+  właściciela albo kod);
+- niezależnie od BCM telefon (agent **≥ 1.5.0**) przy uzbrojonym albo
+  w alarmie pilnuje dalej z ostatnimi ustawieniami (numery, `log_only`,
+  okno wejścia; czuwanie kabiny też), gdy przełącznik przyjdzie z BCM
+  wyłączony — czekający alarm wychodzi po terminie, „zasilanie wrocilo bez
+  telefonu wlasciciela” też. Wiersz „Postój” pokazuje wtedy „wyłączony
+  w BCM — pilnuje do rozbrojenia przez właściciela” (`off_pending`).
+  Wyłączenie działa dopiero po rozbrojeniu dowodem właściciela, niską
+  baterią albo strefą „dom”. Przy rozbrojonym i w czasie uzbrajania
+  wyłączenie działa od razu (nic nie może czekać). Starszy agent wyłączał
+  od razu — zaktualizuj go.
+
+**Po wypadku i 112 alarm nie uzbraja się sam** (agent ≥ 1.5.0). Bez bufora
+odcięcie prądu po wypadku wygląda dla telefonu jak zwykły postój, a przy
+aucie są wtedy kierowca, ratownicy, policja i laweta — nie złodziej (i nikt
+z nich nie wyśle `PARK OFF`). Przez **6 h** po wypadku, który BCM doręczył
+telefonowi (`POST /v1/crash`: nieodwołany, nie na próbę), po prawdziwym
+„Zadzwoń 112” z tego telefonu oraz przez cały czas każdej rozmowy 112
+z niego:
+
+- samo uzbrojenie (brak zasilania i BCM) czeka — po 6 h wraca jak zwykle;
+  „Uzbrój” z BCM dostaje odmowę („po wypadku / 112 alarm nie uzbraja się
+  przez 6 h”), `PARK ON <kod>` od właściciela działa;
+- alarm, który właśnie się uzbraja albo jest uzbrojony, gdy przychodzi
+  wypadek albo rozmowa 112 z tego telefonu (także testowa), zostaje
+  rozbrojony bez alarmu (`by crash`, ostatnie
+  zdarzenie: „wypadek / 112 — bez uzbrojenia przez 6 h”): czekający alarm
+  okna wejścia i czekające zdarzenie kabiny są odwoływane, ich zdjęcia
+  usuwane; alarm rozstrzygnięty wcześniej (SMS w kolejce) zostaje.
+
+Działa TYLKO, gdy BCM doręczył wypadek telefonowi (`modules.crash_sms`
+i sparowany agent) albo 112 poszło z tego telefonu (droga „telefon
+w aucie”). Z wyłączonym `crash_sms` i 112 przez telefon główny telefon
+w aucie o wypadku nie wie i po odcięciu prądu uzbroi się jak zwykle.
+
+Prąd, który wróci przy uzbrojonym, daje `grace_min` (3) min na dowód;
+potem **alarm „zasilanie wrocilo bez telefonu wlasciciela”**.
+
+**Okno wejścia (`entry_s`, 90 s; 0 = alarm od razu).** Właściciel, który
+otwiera drzwi i siada, porusza autem tak samo jak złodziej, a jego dowód
+(telefon połączony z BCM) przychodzi dopiero po zapłonie, starcie M910q,
+przekierowaniu adb i połączeniu Bluetooth — zwykle 1–2 min po otwarciu
+drzwi. Dlatego przechył i wstrząs przy uzbrojonym nie alarmują od razu:
+telefon czeka `entry_s` (kolejne wstrząsy nie przesuwają terminu; wiersz
+„Postój” pokazuje „wykryto ruch — alarm bez rozbrojenia o hh:mm”,
+odpowiedź na `PARK STATUS` — „ruch - alarm o hh:mm bez rozbrojenia”). W tym czasie bateria jest czytana co 15 s, a tuż przed
+terminem jeszcze raz. Prąd, który wróci w oknie (zapłon), przesuwa termin
+do końca `grace_min` od powrotu prądu; dowód właściciela kasuje czekający
+alarm i SMS-y alarmowe, które jeszcze czekają w kolejce (na zasięg, na
+ponowienie). Nie da się cofnąć tylko SMS-a, który już jest w
+`termux-sms-send`. Rozbrojenie z powodu niskiej baterii alarmu NIE kasuje.
+
+Co robi właściciel po powrocie do auta: **zapala silnik w ciągu
+`entry_s`** (prąd wraca → `grace_min` na połączenie telefonu z BCM →
+„rozbrojony”, `by owner_bt`) albo **wcześniej wysyła `PARK OFF <kod>`**.
+Otwarcie auta bez zapalania (np. tylko po coś z bagażnika) = alarm po
+`entry_s`. Podnośnik i holowanie prądu nie przywracają, więc alarmują po
+`entry_s`.
+
+**Czujniki (tylko przy uzbrojonym, oszczędnie):** jeden długo żyjący
+`termux-sensor -s <akcelerometr> -d 100` (nazwę agent bierze raz z
+`termux-sensor -l`), bateria co 3 min. Każde zatrzymanie strumienia
+(rozbrojenie, restart po zawieszeniu, przejście na wersję lekką): SIGTERM
+do całej grupy procesów (skrypt `termux-sensor` i jego pomocnik
+`termux-api`), po 3 s SIGKILL, potem `termux-sensor -c` — Termux:API
+inaczej dalej próbkuje, a następny strumień i paczki `-n` nie dostają
+nic. Wyzwalacze: **przechył** ≥ `tilt_deg`
+(0,5°) przez ≥ 3 s względem wolnego odniesienia (podnośnik, holowanie;
+powolny dryf, np. siadające koło, się nie liczy), **kołysanie/wstrząs**
+ponad `shake_k` (6) × szum czujnika przez ≥ 0,5 s (pojedynczy pik — nie),
+**zasilanie bez właściciela**. GPS tylko na żądanie albo przy alarmie:
+`termux-location -p gps -r once` (do 60 s), potem `-p network`, potem
+ostatnia znana pozycja. Po nieudanym GPS (garaż) polecenia SMS i strefa
+„dom” przez 10 min pytają od razu sieć; alarm zawsze próbuje GPS (auto
+mogło właśnie zostać wywiezione spod dachu).
+
+**Pierwszy tydzień: `log_only: true`** (tak jest w kodzie i w
+`bcm_config_test.yaml`) — wyzwalacze trafiają tylko do logu telefonu
+(`~/.config/bcm_agent/agent.log`, linie `PARK (log only, no SMS): tilt (0.80)`
+itp.; wiersz „Postój” pokazuje „uzbrojony — tylko log, bez SMS” i ostatnie
+zdarzenie na pomarańczowo). Żaden automatyczny SMS (alarm, bateria) nie
+wychodzi. Po tygodniu porównaj zdarzenia z tym, co się działo (wiatr,
+ciężarówki, ktoś oparty o auto), dostrój `tilt_deg` / `shake_k`
+w `config/local.yaml` i dopiero wtedy `log_only: false`. Odpowiedzi na
+polecenia SMS idą zawsze (o nie prosi właściciel).
+
+**Polecenia SMS** — z numerów z listy, zawsze z 6-cyfrowym kodem TOTP
+(wielkość liter i spacje bez znaczenia, np. `park off 123 456`):
+
+| SMS | Odpowiedź |
+|---|---|
+| `POZYCJA <kod>` albo `GDZIE <kod>` | `ALFA 156: POZYCJA https://maps.google.com/?q=52.22968,21.01223 (GPS sprzed 4 s, dokladnosc 12 m)` |
+| `PARK ON <kod>` | `ALFA 156: POSTOJ uzbrajanie za 2 min.` |
+| `PARK OFF <kod>` | `ALFA 156: POSTOJ rozbrojony.` |
+| `PARK STATUS <kod>` | `ALFA 156: POSTOJ uzbrojony od 19.11 03:12, bateria 64%, ostatnie: przechyl 19.11 04:12.` |
+
+Agent czyta skrzynkę odbiorczą co 30 s (`termux-sms-list -t inbox -l 10`;
+tylko z włączonym alarmem, numerami i sekretem TOTP). Kod liczy się
+względem czasu, w którym SMS dotarł do telefonu w aucie (pole `received`),
+a nie chwili odczytu skrzynki — odczyt co 30 s albo trwające szukanie
+pozycji nie unieważniają dobrego kodu (okno ±30 s wokół odbioru). Pomija wiadomości
+już przeczytane, starsze niż 10 min i sprzed startu agenta; obcy numer —
+po cichu (bez odpowiedzi). Zły albo już użyty kod: odpowiedź
+`ALFA 156: POSTOJ zly albo zuzyty kod.`; 5 złych kodów w godzinie z
+jednego numeru = ten numer ignorowany do końca godziny. Odpowiedź idzie na
+numer z LISTY (nigdy na tekst z SMS-a), najwyżej 1 na numer na 2 min
+i 10 na dobę.
+
+**SMS alarmowy** (GSM-7, do wszystkich numerów z listy):
+`ALFA 156: ALARM przechyl (podnosnik albo holowanie) 19.11 03:12. Pozycja: https://maps.google.com/?q=…`
+(albo `wstrzas albo kolysanie`, `zasilanie wrocilo bez telefonu wlasciciela`).
+Najwyżej 1 na 10 min i 6 na dobę — budżet osobny od SMS-a po stłuczce,
+a kolejka wysyłki zawsze najpierw obsługuje wypadek. Z czuwaniem kabiny
+(§5.13) ten budżet jest wspólny: wejście do auta daje jeden SMS („RUCH
+W KABINIE”), który obejmuje też czekający alarm „wstrząs”. Stan zostaje
+„ALARM” do rozbrojenia; po starcie BCM pokazuje jedno powiadomienie
+„Alarm na postoju”.
+
+**Bateria telefonu na postoju** (szacunek, niesprawdzone na tym
+telefonie): blokada uśpienia Termuxa 30–80 mA, strumień akcelerometru kilka
+mA, skrzynka co 30 s i bateria co 3 min po ułamku sekundy — razem ok.
+1–2% na godzinę; przy ACC 40–60% to ok. 1–2,5 doby. Po dobie uzbrojenia
+albo poniżej 30% wersja **„lekka”** (co 20 s paczka 10 próbek,
+`termux-sensor -n 10`, zamiast ciągłego strumienia; w wierszu
+„oszczędzanie baterii”); poniżej 15% **rozbrojenie z jednym SMS-em**
+(`ALFA 156: POSTOJ rozbrojony - bateria telefonu 14%. …`; w `log_only`
+bez SMS-a) — telefon ma mieć jeszcze siłę na SMS po stłuczce, a
+rozładowany trzeba włączać ręcznie.
+
+**W telefonie:** [`PRZYGOTOWANIE_TELEFONU.md`](PRZYGOTOWANIE_TELEFONU.md)
+§12 — agent **≥ 1.2.0**, uprawnienia Termux:API **SMS** i **Lokalizacja:
+„Zezwalaj cały czas”** (Android 13 — inaczej `termux-location` w tle nic nie
+zwraca), sekret TOTP z `bcm_agent.py --park-setup` (plik
+`~/.config/bcm_agent/park_totp`, 0600, nigdy w logu; działający agent bierze
+go bez restartu; `--new` = nowy sekret) do aplikacji authenticator na SWOIM
+telefonie i opcjonalnie numery w samym telefonie (`--park-numbers`).
+
+**W BCM:**
+
+1. Ustawienia → Moduły: `car_phone`, `car_phone_agent`, `parking_guard`;
+   restart BCM. `bluetooth` (z oFono) też — bez niego telefon właściciela
+   nie rozbraja, zostają kod i SMS.
+2. W `config/local.yaml` (nigdy w repo — dane osobowe) — wpisz własne
+   numery w miejsce przykładowego:
+
+   ```yaml
+   parking_guard:
+     numbers: ['+48XXXXXXXXX']            # wpisz własny; ≤ 3, E.164: alarm i polecenia SMS
+     owner_macs: ['AA:BB:CC:DD:EE:FF']    # telefon(y) właściciela, ≤ 4
+     home: {lat: 52.2297, lon: 21.0122, radius_m: 150}   # opcjonalnie, ≥ 50 m
+   ```
+
+   Reszta (`log_only`, `arm_after_min` 1–60, `arm_delay_min` 0–30,
+   `grace_min` 1–15, `entry_s` 0–300 (domyślnie 90), `tilt_deg` 0,2–10,
+   `shake_k` 2–50) ma wartości domyślne; wartość spoza zakresu BCM przycina (jedno ostrzeżenie
+   w logu). BCM wysyła je telefonowi tylko z włączonym
+   `modules.parking_guard`.
+3. Wiersz „Postój” w Ustawieniach: stan (od kiedy, bateria telefonu,
+   ostatnie zdarzenie), czego brakuje (kod TOTP, numery, telefon
+   właściciela) i przyciski **Uzbrój** / **Rozbrój**. Trasy
+   `/api/parking_guard/arm` i `/api/parking_guard/disarm` działają
+   **wyłącznie z ekranu auta** (loopback), także przy `remote_access:
+   full`, z treścią JSON; kod TOTP idzie tylko w treści jednego żądania
+   (nie do logu ani na szynę).
+
+**Sprawdzenie na stole** (`log_only: true`, bez prawdziwych alarmów):
+
+1. Redmi na kablu, BCM działa: wiersz „Postój: rozbrojony”.
+2. `PARK STATUS <kod>` ze swojego numeru → odpowiedź w ciągu ~1 min; ten
+   sam kod drugi raz → „zly albo zuzyty kod”.
+3. Odłącz kabel USB od telefonu (BCM traci wtedy kontakt z agentem):
+   po ~3 min „uzbrajanie”, po kolejnych 2 min w logu agenta
+   `PARK: ARMED (power) — LOG ONLY, no SMS`.
+4. Przechyl uchwyt / pobujaj telefonem → w logu `PARK (log only, no SMS):
+   tilt …` / `shake …`; SMS-a brak.
+5. Podłącz kabel z powrotem, telefon właściciela bez Bluetooth → po 3 min
+   w logu `PARK (log only, no SMS): power`. Telefon dalej jest uzbrojony
+   (`log_only` niczego nie zmienia, wiersz: „uzbrojony — tylko log, bez
+   SMS”).
+   Zanim rozbroisz: Ustawienia → Moduły → wyłącz `parking_guard` →
+   odmowa „Najpierw rozbrój alarm na postoju …” (telefon dalej
+   uzbrojony). Wyłącz i włącz Bluetooth w swoim telefonie (rozbraja NOWE
+   połączenie, nie to, które trwało cały czas; potrzebne łącze HFP — w logu
+   BCM bez niego „no HFP link … NOT disarmed”) → „rozbrojony”
+   (`by owner_bt`). Żeby powtórzyć, odłącz kabel jeszcze raz (krok 3).
+6. `POZYCJA <kod>` → link do mapy.
+
+Okna wejścia nie da się sprawdzić przy `log_only: true` (wyzwalacz idzie
+wtedy tylko do logu). Po tygodniu, z `log_only: false` i własnym numerem
+na liście: uzbrojony telefon, otwórz drzwi i usiądź → w logu `PARK: tilt
+… — alarm in 90 s unless the owner disarms (entry window)`; zapal silnik
+→ po połączeniu telefonu z BCM „rozbrojony”, SMS-a brak. Bez zapalania →
+SMS alarmowy po 90 s.
+
+**NIESPRAWDZONE na crDroid 13 / Redmi Note 8 Pro:** format wyjścia
+`termux-sensor` (agent czyta obiekty JSON wielo- i jednoliniowe) i czy
+strumień działa przy wygaszonym ekranie; czy `-n 10` po paczce zwalnia
+czujnik; pole `plugged` w `termux-battery-status` przy ograniczniku
+ładowania ACC (agent nie patrzy na `status`); format pola `received`
+w `termux-sms-list` (`RRRR-MM-DD GG:MM:SS`, czas lokalny); `termux-location`
+w tle przy uprawnieniu „cały czas”; realne zużycie baterii.
+
+**Czego nie obiecujemy:** zatrzymania złodzieja, alarmu przy martwym,
+wyłączonym albo zabitym przez Androida telefonie, doręczenia SMS-a (zasięg
+na parkingu podziemnym), dokładnej pozycji w garażu. Dopóki telefon
+właściciela się nie połączy, właściciel i złodziej wyglądają dla auta tak
+samo — stąd okno wejścia `entry_s`, okno `grace_min` i kod TOTP. Złodziej,
+który w oknie wejścia zapali auto, a nie połączy telefonu właściciela,
+wywoła alarm dopiero po `grace_min` od zapłonu (razem do ok. 4–5 min od
+otwarcia drzwi) — to cena za brak fałszywego alarmu przy każdym powrocie
+właściciela.
+
+### 5.13 Czuwanie kabiny przednią kamerą telefonu (`modules.cabin_watch`)
+
+**Po co i gdzie działa.** Warstwa nad alarmem na postoju (§5.12): gdy
+telefon jest uzbrojony, patrzy przednią kamerą w kabinę (wisi ekranem
+w dół, więc przednia kamera i czujnik światła są po stronie kabiny) i przy
+wejściu do auta robi 3 zdjęcia. Tak jak alarm na postoju działa **w
+telefonie**, w tym samym agencie (`tools/car_phone/termux/bcm_agent.py`,
+klasa `CabinWatch`, opis w nagłówku pliku), bo BCM na postoju nie ma prądu.
+Moduł w BCM (`src/safety/cabin_watch.py`; wymaga `car_phone_agent`
+i `parking_guard`, domyślnie wyłączony w kodzie i w obu configach) niczego
+nie uzbraja i nie robi zdjęć: wysyła telefonowi ustawienia (i w wersji
+z buforem sygnał drzwi, niżej), co 30 s pyta o stan (`GET /v1/cabin`)
+i pokazuje go w Ustawieniach → wiersz **„Czuwanie kabiny”**; każde
+zdarzenie (także te z czasu, gdy BCM był wyłączony)
+publikuje raz w historii na szynie (`park.cabin_event`). Tematu
+`alarm.sensor.*` (syrena) nigdy nie używa. **Zdjęcia nigdy nie trafiają do
+BCM** — ani przez API, ani do Ustawień.
+
+**Kamera działa tylko przy uzbrojonym alarmie na postoju** (stan
+„uzbrojony”, także „tylko log”) — nigdy przy rozbrojonym, nigdy dźwięk.
+
+**Kiedy robi zdjęcia (T0 — sygnały).** Ten sam strumień `termux-sensor` co
+alarm na postoju, z dopisanym czujnikiem światła:
+`termux-sensor -s <akcelerometr>,<światło> -d 100` (nazwy agent bierze raz
+z `termux-sensor -l`; bez czujnika światła strumień zostaje sam
+akcelerometr, a wiersz mówi „brak czujnika światła”). Sygnały:
+
+- **światło** — skok ×5 **i** +5 lux (domyślnie; `light_ratio`,
+  `light_lux` niżej) względem najciemniejszej próbki z ostatnich 2 s
+  (lampka sufitowa po otwarciu drzwi); chmura, zmierzch czy powolna zmiana
+  się nie liczą, zgaśnięcie lampki też nie;
+- **ruch** i **przechył** — z detektora alarmu na postoju (§5.12:
+  `shake_k`, `tilt_deg`); ruch liczy się dla kabiny najwyżej **raz na
+  10 s** (alarm na postoju dalej raz na 30 s), więc ok. 20 s ciągłego
+  kołysania to 3 ruchy;
+- **drzwi** — podpisane `POST /v1/park/event {"kind": "door"}` od BCM,
+  tylko w wersji z buforem: gdy Nano #2 obudzi BCM otwarciem drzwi (plan E,
+  §5.15 — `power.remote_session` przechodzi w sesję z powodem „drzwi”), BCM
+  wysyła JEDEN sygnał na to wybudzenie (ponawia co 10 s, aż forward agenta
+  wstanie, najdłużej 5 min). W aucie testowym (bez bufora, bez
+  `modules.remote_session`) nie wychodzi nigdy. Sam sygnał drzwi **nigdy
+  nie rozbraja**; telefon bierze go pod uwagę tylko przy uzbrojonym
+  czuwaniu.
+
+Zdarzenie kabiny: **światło i ruch w ciągu 10 s** albo **przechył** albo
+**drzwi** albo **3 słabe sygnały w 60 s, w tym co najmniej dwa ruchy** —
+wszystkie skoki światła z tej minuty liczą się jak jeden sygnał
+(powtarzające się błyski: światła awaryjne auta obok, koguty lawety, burza,
+kolejne przejeżdżające auta). Pojedynczy wstrząs (ciężarówka, wiatr), sama
+chmura albo same światła bez ruchu auta to za mało — zdjęć nie ma. Za to
+ok. 20 s kołysania (ktoś wsiada w dzień, kiedy w jasnej kabinie lampka nie
+daje skoku ×5) wystarcza. Na czas zdjęć (ekran się włącza, a czujnik
+światła patrzy w ekran) i 5 s po nich skoki światła się nie liczą.
+W wersji „lekkiej” alarmu na postoju (po dobie albo przy < 30% baterii —
+bez aparatu i bez czujnika światła) przechył i ruch obsługuje sam alarm na
+postoju (jego treść SMS-a), a do kabiny trafia tylko sygnał drzwi.
+
+**Zdjęcia (T1) — od razu,** w osobnym wątku agenta (`cabin`), żeby wątek
+postoju nie czekał na aparat: przez Magisk `su` stałe ciągi
+`input keyevent KEYCODE_WAKEUP` i
+`am start -W -a android.intent.action.MAIN -c android.intent.category.LAUNCHER com.termux`
+(Termux na pierwszym planie — Android 11+ daje aparat tylko aplikacji
+„w użyciu”, a Termux:API ma ten sam UID co Termux; `-W` czeka, aż ekran
+Termuxa się wyświetli, zanim pójdzie pierwsze zdjęcie), potem 3 ×
+`termux-camera-photo -c <id> <ścieżka>` w 0/3/6 s i
+`input keyevent KEYCODE_SLEEP`. Id przedniej kamery agent bierze raz
+z `termux-camera-info` (tylko liczba 0–99), ścieżka jest zawsze w jego
+katalogu. Do `su` trafiają wyłącznie te trzy stałe ciągi. **Bez aparatu**
+(alarm SMS i tak idzie z czujników): temperatura baterii telefonu poniżej
+0 °C albo powyżej 45 °C, ładowanie przy ≥ 40 °C, bateria poniżej 30%,
+wersja „lekka” alarmu na postoju (po dobie albo < 30% — wtedy nie ma też
+czujnika światła), brak odczytu temperatury, mniej niż 100 MB wolnego
+miejsca, brak przedniej kamery. Wiersz w Ustawieniach mówi, dlaczego
+(„kamera wyłączona: za zimno (< 0 °C)” itd.).
+
+**Analiza w telefonie (T2)** — tylko z Pillow (`pkg install
+python-pillow`; pakiet Termuxa, nie pip; bez niego wszystko działa, analiza
+jest pomijana: „bez analizy”). Klatki 320×240 w odcieniach szarości,
+rozmycie, wyrównanie średniej jasności (automatyka ekspozycji nie udaje
+zmiany), porównanie ze zdjęciem odniesienia **z tej samej klasy światła**
+(ciemno < 10 lux, półmrok < 200 lux, jasno). Odniesienie: jedno zdjęcie 30 s
+po uzbrojeniu (pusta kabina — właściciel wyszedł w oknie wyjścia); w pliku
+zostaje tylko przetworzona klatka 320×240 (`ref_<klasa>.png`), surowe zdjęcie
+jest usuwane. W ciemnej kabinie (< 10 lux) odniesienia nie ma wcale — klatka
+byłaby czarna, a zapalony ekran pod podsufitką pustego auta nocą tylko
+kosztuje baterię (w logu `CABIN: no reference photo (dark cabin, …)`).
+Bez odniesienia z tej klasy (typowo: noc, lampka zapalona przy wejściu) —
+porównanie z pierwszym zdjęciem serii. Zmiana ≥ `diff_pct` (3%) pikseli poza maską okien =
+„zmiana w kabinie”; klatki średnio ciemniejsze niż próg = „zdjęcia ciemne”
+(noc bez lampki — przednia kamera ma filtr IR, więc w ciemności nic nie
+widać). **SMS nigdy nie czeka na analizę** — jej wynik widać w wierszu
+„Czuwanie kabiny” i w historii.
+
+**Alarm (T3) — najpierw SMS** (GSM-7, do numerów z `parking_guard.numbers`)
+po oknie wejścia `entry_s` (45–60 s, domyślnie 60; zapłon w tym czasie
+przesuwa termin do końca `parking_guard.grace_min`, tak jak w alarmie na
+postoju):
+
+    ALFA 156: RUCH W KABINIE 19.11 03:12 (swiatlo+ruch). Zdjecia: 3. Pozycja: https://maps.google.com/?q=…
+
+(w nawiasie wszystkie sygnały z ostatniej minuty: `drzwi`, `swiatlo`,
+`ruch`, `przechyl`, `zasilanie` = prąd wrócił bez dowodu właściciela;
+dopisek `3 slabe sygnaly`, gdy zdarzenie dały trzy słabe sygnały).
+„RUCH W KABINIE” jest tylko wtedy, gdy wśród sygnałów jest światło albo
+drzwi. Zdarzenie z samego przechyłu albo ruchu (podnośnik, laweta, ktoś
+kołysze autem — czujnik nie odróżni tego od wsiadania) ma treść alarmu na
+postoju dla najważniejszego powodu (przechył, potem wstrząs), z liczbą
+zdjęć:
+
+    ALFA 156: ALARM przechyl (podnosnik albo holowanie) 19.11 03:12. Zdjecia: 3. Pozycja: https://maps.google.com/?q=…
+
+Budżet SMS-ów jest **wspólny z alarmem na postoju** — jeden alarm auta na
+10 min i 6 na dobę: jedno wejście do auta = jeden SMS (czekający alarm
+postoju — „wstrząs” albo „przechył” — z tego samego wejścia i powrót prądu
+obejmuje SMS kabiny), osobny od SMS-ów o wypadku, które w kolejce zawsze
+idą pierwsze. Gdy `parking_guard.entry_s` jest krótsze niż `entry_s`
+kabiny, czekający alarm postoju skraca okno kabiny do swojego terminu —
+dalej jeden SMS, o czasie z `parking_guard.entry_s` (wiersz „Postój”
+pokazuje ten wcześniejszy termin). Przy `parking_guard.entry_s: 0` alarm
+postoju idzie od razu osobnym SMS-em, a zdarzenie kabiny z tego samego
+wejścia kończy się na limicie („limit SMS — tylko log”, zdjęcia zostają).
+Serii zdjęć najwyżej 1 na 10 min i 6 na dobę, 3 zdjęcia na serię (serie
+odwołane przez właściciela się nie liczą). `parking_guard.log_only: true`
+(pierwszy tydzień) obowiązuje także tu: zdarzenia i zdjęcia tak, SMS-a
+nie (wiersz: „tylko log”). Wysyłki zdjęć (ntfy, szyfrowanie `age`) w tej
+wersji nie ma — zdjęcia zostają w telefonie.
+
+**Dowód właściciela w oknie wejścia** — telefon właściciela połączony
+z BCM (Bluetooth/HFP/AA), SMS `PARK OFF <kod>`, kod TOTP w wierszu
+„Postój” — rozbraja alarm na postoju, **odwołuje alarm kabiny i usuwa
+zdjęcia tego zdarzenia** (to był właściciel; wiersz: „właściciel — zdjęcia
+usunięte”), także w trakcie serii (seria się przerywa, ekran gaśnie).
+Zdjęcia zdarzeń, po których poszedł alarm, zostają. Rozbrojenie z powodu
+niskiej baterii wysyła czekający alarm kabiny od razu.
+
+**Wyłączenie `cabin_watch` (albo `parking_guard`) w Ustawieniach → Moduły
+przy uzbrojonym to nie dowód właściciela** (§5.12): BCM odmawia
+(„Najpierw rozbrój alarm na postoju …”), a telefon (agent ≥ 1.5.0) czuwa
+dalej do rozbrojenia — czekające zdarzenie nie jest odwoływane, jego
+zdjęcia zostają, a alarm kabiny idzie po terminie. Wiersz „wyłączone —
+zdjęcia usunięte” zostaje tylko dla zdarzeń zapisanych przez starszego
+agenta.
+
+**Po wypadku i w czasie rozmowy 112** (agent ≥ 1.5.0, szczegóły i warunki
+w §5.12): alarm na postoju nie uzbraja się sam przez 6 h, więc kamera nie
+czuwa przy ratownikach. Gdy alarm był uzbrojony, wypadek albo rozmowa 112
+z tego telefonu odwołuje czekające zdarzenie kabiny i usuwa jego zdjęcia
+(wiersz: „wypadek / 112 — zdjęcia usunięte”). Przez cały czas rozmowy 112
+z tego telefonu agent nie robi zdjęć i nie rusza ekranu (bez
+`KEYCODE_WAKEUP`, `am start` i wygaszania — ekran rozmowy zostaje na
+wierzchu; wiersz: „kamera wyłączona: trwa rozmowa 112”); seria przerwana
+przez rozmowę kończy się bez wygaszania ekranu.
+
+**Zdjęcia w telefonie:** `~/.config/bcm_agent/cabin/` (katalog 0700, pliki
+0600; dowiązanie symboliczne w tym miejscu wyłącza aparat), nazwy
+`cab_<id zdarzenia>_<0..2>.jpg`, **bez EXIF** (z Pillow — przekodowane do
+najwyżej 1280 px bez metadanych; bez Pillow — wycięte segmenty APP1–APP15
+i komentarz, obraz bit w bit ten sam; plik, który nie jest poprawnym JPEG-iem,
+zostaje bez zmian i trafia do logu). **Retencja: 72 h i 200 MB** (najstarsze
+pierwsze), sprawdzana co 10 min — także przy wyłączonym czuwaniu.
+
+**Prywatność i prawo** (to nie jest porada prawna):
+
+- kamera tylko po uzbrojeniu, nigdy przy właścicielu (jego dowód kasuje
+  zdjęcia), nigdy dźwięk; maska okien (`mask`) — analiza nie patrzy na
+  szyby, a zdjęcia nie opuszczają telefonu;
+- **naklejka informacyjna** na szybie (np. „Pojazd monitorowany — kamera
+  w kabinie”) i **poinformuj domowników**, że auto robi zdjęcia kabiny;
+- wyjątek RODO dla celów czysto osobistych/domowych jest prawdopodobny, ale
+  wąski (wyroki TSUE Ryneš C-212/13, Buivids C-345/17); art. 267 §3
+  i art. 191a k.k. to realne ryzyko przy zdjęciach bliskich;
+- skradziony, odblokowany telefon (blokada ekranu „Brak”!) ujawnia zdjęcia
+  z ostatnich 72 h i sekrety agenta.
+
+**W telefonie:** [`PRZYGOTOWANIE_TELEFONU.md`](PRZYGOTOWANIE_TELEFONU.md)
+§13 — agent **≥ 1.3.0**, uprawnienie Termux:API **Aparat**, Magisk `su` dla
+Termuxa (jak przy „Zadzwoń 112”), blokada ekranu **Brak** i wygaszanie po 15
+s, **wyłączone każde inne budzenie ekranu** (wyświetlacz otoczenia, budzenie
+przy powiadomieniach i po podłączeniu ładowarki itd. — czujnik światła jest
+po stronie ekranu, więc każde takie zapalenie to dla agenta „skok światła”;
+na postoju ekran ma zapalać wyłącznie agent) i opcjonalnie `pkg install
+python-pillow` (analiza zdjęć; bez niego wiersz „Czuwanie kabiny” pokazuje
+„bez analizy zdjęć”).
+
+**W BCM:**
+
+1. Ustawienia → Moduły: `car_phone`, `car_phone_agent`, `parking_guard`,
+   `cabin_watch`; restart BCM.
+2. W `config/local.yaml` (opcjonalnie):
+
+   ```yaml
+   cabin_watch:
+     entry_s: 60                                  # 45–60 s
+     diff_pct: 3.0                                # 0,5–50 (% pikseli)
+     mask: [[0, 0, 15, 100], [85, 0, 100, 100]]   # ≤ 4 prostokąty w % kadru
+     light_ratio: 5.0                             # 2–50: skok światła ×…
+     light_lux: 5.0                               # 1–1000: … i o tyle lux
+   ```
+
+   Wartości spoza zakresu BCM przycina (jedno ostrzeżenie w logu), zła
+   maska = bez maski. BCM wysyła je telefonowi tylko z włączonym
+   `modules.cabin_watch`. Maskę wpisz dopiero po obejrzeniu zdjęcia
+   testowego (krok 2 sprawdzenia niżej): układ kadru zależy od tego, jak
+   telefon wisi. `light_ratio` / `light_lux` stroisz w tygodniu `log_only`
+   z logu agenta (`CABIN: weak signal light (…)` przy lampce, przy
+   fałszywych skokach — za nisko); telefon stosuje nowe progi od razu.
+3. Wiersz „Czuwanie kabiny”: stan („czuwa”, „ruch w kabinie — alarm bez
+   rozbrojenia o hh:mm”, „czeka na uzbrojenie postoju”), stan kamery,
+   liczba i rozmiar zdjęć w telefonie, ostatnie zdarzenie (sygnały, zdjęcia,
+   wynik analizy, co się stało) i czego brakuje. Bez przycisków — rozbraja
+   się w wierszu „Postój”.
+
+**Sprawdzenie na stole** (`parking_guard.log_only: true`):
+
+1. **Id przedniej kamery** —
+   [`PRZYGOTOWANIE_TELEFONU.md`](PRZYGOTOWANIE_TELEFONU.md) §13, krok 6.
+2. **Zdjęcie przy wygaszonym ekranie, po restarcie telefonu** (te same
+   stałe polecenia, które wykonuje agent) — tamże, krok 7; w tym kadrze
+   ustalasz maskę okien.
+3. **Czujnik światła przy wygaszonym ekranie** — tamże, krok 8. Jeśli
+   czujnik przy wygaszonym ekranie milczy, zdjęcia dają już tylko przechył,
+   drzwi (wersja docelowa) i ok. 20 s kołysania (3 ruchy w 60 s) — krótkie
+   wejście bez lampki ich nie da, alarm na postoju i tak wyśle SMS „wstrząs”.
+4. **Cała ścieżka:** uzbrój — „Uzbrój” w wierszu „Postój” (uzbrojony po
+   `parking_guard.arm_delay_min`, domyślnie 2 min) albo odłącz kabel USB
+   (po `arm_after_min` + `arm_delay_min`, domyślnie 3 + 2 min bez prądu
+   i bez kontaktu z BCM) — i poczekaj, aż wiersz „Postój” pokaże
+   „uzbrojony — tylko log, bez SMS”. Po kolejnych 30 s agent robi zdjęcie
+   odniesienia — tylko z Pillow i przy świeżym odczycie światła, a w
+   ciemnej kabinie (< 10 lux) wcale (w logu `CABIN: no reference photo
+   (…)`). Potem zgaś światło, otwórz drzwi i usiądź → w logu agenta
+   (`~/.config/bcm_agent/agent.log`) `CABIN: motion in the cabin
+   (swiatlo+ruch) — photos now …`, w `~/.config/bcm_agent/cabin/` 3 pliki,
+   po 60 s `CABIN (log only, no SMS)`; wiersz „Czuwanie kabiny” pokazuje
+   zdarzenie. Potem połącz telefon właściciela z BCM w ciągu okna — zdjęcia
+   nowego zdarzenia znikają.
+5. **Prąd w mA na warstwę** (telefon bez kabla, po 5 min w każdym stanie):
+   `su -c 'cat /sys/class/power_supply/battery/current_now'` (µA; znak
+   zależy od ROM-u) albo pole `current` z `termux-battery-status`, jeśli
+   jest. Stany: sam agent (rozbrojony), uzbrojony bez czuwania kabiny
+   (akcelerometr), uzbrojony z czuwaniem (akcelerometr + światło), w trakcie
+   serii zdjęć. Szacunek bez pomiaru: czujnik światła ułamek mA, seria
+   zdjęć z ekranem ok. 10 s po kilkaset mA.
+
+**NIESPRAWDZONE na crDroid 13 / Redmi Note 8 Pro:** zdjęcie przy
+wygaszonym ekranie po `KEYCODE_WAKEUP` i `am start` (czy ROM daje aparat
+Termux:API, gdy Termux jest na pierwszym planie); czy `termux-camera-photo`
+kończy się dopiero po zapisaniu pliku (agent sprawdza pliki 2 s po
+ostatnim zdjęciu); czy `am start -W` wraca szybko także wtedy, gdy Termux
+już jest na wierzchu (agent czeka najwyżej 15 s, potem i tak robi
+zdjęcie); format wpisu czujnika światła w `termux-sensor` (agent czyta
+pierwszą wartość `values`) i to, czy czujnik raportuje przy wygaszonym
+ekranie; progi światła (×5, +5 lux — do strojenia `light_ratio`,
+`light_lux`), rytm ruchu 10 s (czy wiatr w nocy nie daje 3 ruchów w 60 s)
+i `diff_pct` w prawdziwym aucie; realny prąd.
+
+**Czego nie obiecujemy:** rozpoznania człowieka (to tylko różnica klatek),
+zdjęć w nocy bez lampki (czarne klatki), zdjęć wybitej szyby bez wejścia,
+działania aparatu, gdy Android go odmówi (ROM, temperatura), ani tego, że
+zdjęcia przetrwają kradzież telefonu. Do połączenia telefonu właściciela
+z BCM właściciel i złodziej wyglądają tak samo — stąd okno wejścia.
+
+### 5.14 Automatyczna jasność ekranu (`modules.auto_brightness`)
+
+**Po co i jak działa.** Jasność ekranu dopasowuje się do światła w aucie:
+w nocy ekran nie oślepia, w słońcu jest czytelny. Moduł to dokończony stary
+`BrightnessController` (`src/power/brightness.py`, opis w nagłówku pliku),
+który do tej pory nikt nie uruchamiał. Wymaga `phone_sensors` **albo**
+`input` (źródło światła, niżej); domyślnie wyłączony w kodzie i w obu
+configach. Bez modułu nic się nie zmienia (produkcja bez zmian, brak
+nakładki).
+
+**Sprzęt w aucie: ekran bez sterowania jasnością.** Ekran jest zasilany
+z USB i nie ma podpiętego żadnego sterowania jasnością, więc domyślne
+ściemnianie jest **programowe** (`backend: css`): kiosk kładzie na cały
+ekran jedną czarną, półprzezroczystą nakładkę. To przyciemnia **obraz**, nie
+podświetlenie: mniej oślepia w nocy, ale nie oszczędza prądu i nie daje
+głębokiej czerni. Przy 100 % nakładki nie ma, a nawet przy 0 % ekran nie
+robi się czarny (krycie najwyżej `css_max_dim`, domyślnie 0,85).
+Ściemniane są ekrany i obraz Android Auto. **Nad nakładką, zawsze w pełnej
+jasności:** okno wypadku z przyciskiem 112, widokiem rozmowy i panelem dla
+dyspozytora (§5.10, §5.11) oraz kamera cofania; także klawiatura ekranowa,
+okna potwierdzeń i powiadomienia. Nakładka nie przechwytuje dotyku.
+
+**Źródła światła.**
+
+- **Telefon w aucie:** `phone.light_lux` z SensorServer (§5.8). Czujnik
+  światła już jest w strumieniu, w telefonie nic więcej nie trzeba
+  ustawiać.
+- **LDR Arduino:** linie `LIGHT:<0-1023>` czytane przez `arduino_serial`
+  (moduł `input`), przeliczane starą tabelą progów (niski odczyt ADC =
+  jasno).
+- **Oba świeże → telefon.** Telefon podaje skalibrowane luksy, pod które
+  napisana jest krzywa; LDR to surowy odczyt ADC zależny od dzielnika.
+- Odczyt jest świeży przez `stale_s` (10 s) od nadejścia. Starszy: BCM
+  trzyma ostatnią jasność (wiersz: „czujnik światła nie odpowiada — trzymam
+  ostatnią jasność”). Bez żadnego odczytu od startu obowiązuje wartość
+  z suwaka (`display.dashboard.brightness`): „brak czujnika światła —
+  jasność ręczna”.
+
+**Krzywa i spokojny obraz.** Klucze w `display.auto_brightness`
+(`config/bcm_config_test.yaml`, zmiany w `config/local.yaml`). Stary blok
+`brightness:` (`mode`, `steps`) na najwyższym poziomie configów nie jest
+czytany przez kod: tryb to `display.auto_brightness.mode`, a stopnie
+dźwigienki są stałe w `src/power/brightness.py`.
+
+| Klucz | Domyślnie | Co robi |
+|-------|-----------|---------|
+| `curve` | `[[0,15],[10,25],[100,45],[1000,70],[10000,100]]` | lux → %: liniowo w skali `log10(1 + lux)`, poniżej pierwszego punktu pierwszy %, powyżej ostatniego ostatni; 2–16 punktów, lux rosnąco |
+| `min_pct` | 15 | podłoga: nigdy ciemniej, także ręcznie (nie mniej niż 5) |
+| `max_pct` | 100 | sufit automatu |
+| `hysteresis_pct` | 10 | nowy cel dopiero przy zmianie o > 10 % lux (co najmniej 0,5 lux); dla LDR: > 30 jednostek ADC |
+| `hysteresis_pp` | 5 | w trakcie przejścia jasność zmienia się krokami ≥ 5 pp; po ustaleniu jeden mniejszy krok dokładnie na cel |
+| `smoothing_s` | 3 | wygładzanie (EMA, stała czasowa w sekundach); 0 = bez wygładzania |
+| `stale_s` | 10 | po tylu sekundach bez odczytu BCM trzyma ostatnią jasność |
+| `manual_hold_min` | 10 | na tyle minut dźwigienka lub suwak wstrzymują automat |
+| `mode` | `auto` | `auto` albo `manual` („Ręczna”) |
+| `backend` | `auto` (= `css`) | `css`, `ddc` albo `xrandr` (niżej); config testowy: `css` |
+| `css_max_dim` | 0,85 | krycie nakładki przy 0 % (0,3–0,9) |
+| `ddc_display` | brak | numer monitora dla `ddcutil --display N` (1–16), gdy jest ich kilka |
+| `xrandr.output` / `xrandr.display` / `xrandr.xauthority` | `""` / `:0` / `""` | tylko `backend: xrandr` |
+
+Wygładzanie działa **tak samo w obie strony**. Przy wjeździe do tunelu
+ekran ciemnieje w kilka sekund; oczy są jeszcze przyzwyczajone do dnia,
+więc jasny ekran przez 3 s nie oślepia. Przy wyjeździe ekran jest przez
+kilka sekund za ciemny w słońcu. To świadomy kompromis na rzecz jednej,
+przewidywalnej reguły. Pierwszy odczyt po starcie działa od razu, bez
+przejścia.
+
+**Ręcznie.**
+
+- **Dźwigienka** (akcja SWC „Brightness”, klawisz F9 →
+  `input.brightness_cycle`): 6 stopni 15 / 30 / 45 / 60 / 80 / 100 %.
+  Pierwsze naciśnięcie wybiera stopień najbliższy obecnej jasności.
+- **Suwak** w Ustawieniach → „Jasność ekranu” (zapis
+  `display.dashboard.brightness`).
+- Dźwigienka i suwak **wstrzymują automat na `manual_hold_min`** (10 min).
+  Wiersz pokazuje wtedy „Ręczna — wraca do auto za N min”, a potem automat
+  płynnie wraca od wartości ręcznej.
+- **„Ręczna”** (`mode: manual`) wyłącza automat do czasu wybrania „Auto”;
+  obowiązuje suwak i dźwigienka. „Ręczna” **zamraża jasność, która jest
+  teraz na ekranie**: BCM zapisuje ją też jako wartość suwaka
+  (`display.dashboard.brightness`), więc ani w tej chwili, ani po
+  następnym starcie ekran nie skacze do starszej, może dużo jaśniejszej
+  wartości suwaka w ciemnej kabinie.
+- `power.ignition_off` kończy pauzę (stare zachowanie). W wariancie
+  testowym prąd po prostu znika, więc to nie ma znaczenia.
+
+Każda wartość, automatyczna i ręczna, idzie przez wybrany backend. Dziś
+na x86 tylko w ten sposób suwak i dźwigienka cokolwiek zmieniają
+(podświetlenie jest symulowane, §3.1c).
+
+**Wiersz „Jasność ekranu” w Ustawieniach** (tylko przy działającym
+module). Pokazuje tryb, źródło, aktualne lux i %, np. „Auto (telefon) ·
+120 lx · 47%”. Pod spodem są przyciski Auto / Ręczna, suwak oraz
+„Ściemnianie: Programowe / Sprzętowe (DDC/CI)”. Zmiany idą przez
+`POST /api/config` (biała lista: `brightness` 0–100, `brightness_mode`
+`auto|manual`, `brightness_backend` `css|ddc`) do `config/local.yaml`
+i działają od razu, bez restartu BCM.
+
+**Sprzętowe ściemnianie (DDC/CI) — opcjonalne.** DDC/CI to kanał
+sterowania monitorem w kablu wideo (HDMI/DP), niezależny od tego, skąd
+monitor ma prąd, więc część monitorów zasilanych z USB go obsługuje.
+Sprawdzenie robi BCM, terminal nie jest potrzebny:
+
+1. Ustawienia → „Jasność ekranu” → **„Sprzętowe (DDC/CI)”**. W tle BCM
+   uruchamia `ddcutil detect --brief`, a potem `ddcutil getvcp 10 --brief`
+   (osobny wątek, limity czasu 15 s i 5 s). Do tego czasu wiersz pokazuje
+   „sprawdzam monitor (DDC/CI)…”, a nakładka zostaje.
+2. **Działa:** „Sprzętowe: DDC/CI działa”, nakładka znika. Jasność ustawia
+   monitor (`ddcutil setvcp 10 <wartość>`, przeliczone na maksimum
+   z `getvcp`).
+3. **Nie działa:** „Sprzętowe niedostępne: <powód> — używam
+   programowego”. Możliwe powody:
+   - brak programu ddcutil;
+   - brak `/dev/i2c-*`;
+   - monitor nie odpowiada przez DDC/CI;
+   - monitor nie podaje jasności (VCP 10);
+   - ddcutil nie odpowiedział na czas;
+   - monitor przestał przyjmować jasność (3 nieudane zapisy z rzędu).
+
+   Przy błędzie przejściowym (ddcutil nie odpowiedział na czas, monitor
+   nie odpowiada, monitor nie podaje jasności) BCM sam sprawdza monitor
+   jeszcze najwyżej 3 razy: po 20 s, 60 s i 180 s. Pomaga to zaraz po
+   starcie, gdy monitor zasilany z USB jeszcze się budzi (w aucie testowym
+   każda jazda to zimny start). Wiersz pokazuje wtedy znowu „sprawdzam
+   monitor (DDC/CI)…”. Brak programu ddcutil albo `/dev/i2c-*` jest
+   ostateczny, tak samo 3 nieudane zapisy z rzędu po udanym sprawdzeniu.
+   Potem kolejna próba tylko po ponownym stuknięciu „Sprzętowe” albo po
+   restarcie BCM, żeby nie męczyć szyny I2C bez końca.
+
+Wybór zostaje w `config/local.yaml` (`backend: ddc`), więc po restarcie
+BCM znów sprawdza monitor. „Programowe” wraca do nakładki, a BCM ustawia
+monitor na 100 %, żeby nakładka nie przyciemniała już przyciemnionego
+obrazu. Robi to dopiero po 1,5 s, gdy nakładka zdąży się pojawić (płynnie
+przez 1 s), żeby w nocy ekran nie błysnął pełną jasnością. Ochrona I2C
+i pamięci EEPROM monitora: zapis tylko
+przy zmianie o ≥ 5 pp (wartość ręczna zawsze) i nie częściej niż co 5 s.
+Wartości pośrednie przepadają, monitor dostaje ostatnią.
+
+Jednorazowe sprawdzenie z terminala, dla chętnych (przycisk robi to samo):
+
+```bash
+sudo apt install ddcutil
+sudo modprobe i2c-dev
+sudo ddcutil detect
+sudo ddcutil getvcp 10
+```
+
+Jeśli `detect` pokazuje „Display 1”, a `getvcp 10` zwraca jasność
+z wartością bieżącą i maksymalną, DDC/CI działa. Wtedy wystarczy przycisk
+albo wpis w `config/local.yaml`:
+
+```yaml
+display:
+  auto_brightness:
+    backend: ddc
+    # ddc_display: 2   # tylko gdy detect pokazał kilka monitorów
+```
+
+**Instalacja.** `setup-x86.sh` i `apply-fixes.sh` instalują `ddcutil`
+jako osobny, sprawdzany pakiet. Brak pakietu to tylko ostrzeżenie, a BCM
+zostaje przy ściemnianiu programowym. Oba skrypty ładują też `i2c-dev` od
+razu i przy każdym starcie (`/etc/modules-load.d/bcm-i2c.conf`), więc po
+`apply-fixes.sh` reboot nie jest potrzebny. `cleanup-x86.sh` usuwa ten
+plik; pakiet `ddcutil` zostaje, tak jak `adb`.
+
+**xrandr (tylko z configu, NIESPRAWDZONE).** `backend: xrandr` ustawia
+`xrandr --output <wyjście> --brightness <0.20-1.00>`. To korekta gammy
+całego ekranu X `:0`, niezależna od strony kiosku: obejmuje też splash
+startowy, kursor i okna X poza kioskiem. Android Auto nie jest powodem do
+wyboru xrandr: na x86 jego obraz jest w kiosku elementem `<img>`, więc
+nakładka przyciemnia go tak samo. BCM działa jako root, a serwer X należy do użytkownika kiosku, więc
+potrzebne są jego `DISPLAY` i `XAUTHORITY`:
+
+```yaml
+display:
+  auto_brightness:
+    backend: xrandr
+    xrandr:
+      output: HDMI-1                         # z: xrandr --query
+      display: ":0"
+      xauthority: /home/<użytkownik kiosku>/.Xauthority
+```
+
+Nazwa wyjścia, `DISPLAY` i ścieżka są sprawdzane (litery, cyfry, `-_.`,
+`:N`, ścieżka bezwzględna bez `..`). Zły config albo błąd xrandr przełącza
+na ściemnianie programowe z powodem w wierszu. Tego trybu nie ma
+w przełączniku w Ustawieniach.
+
+**Włączenie.**
+
+1. Źródło światła: `phone_sensors` (§5.8) albo LDR Arduino (moduł
+   `input`).
+2. Ustawienia → Moduły → `auto_brightness` (wymaga `phone_sensors` albo
+   `input`), potem restart BCM.
+3. Po starcie pojawia się wiersz „Jasność ekranu”. Zasłoń czujnik telefonu
+   dłonią: po kilku sekundach ekran ciemnieje.
+
+Log: `sudo journalctl -u bcm-headunit -b | grep -i brightness`.
+
+**Wyłączenie.** `modules.auto_brightness: false` i restart: nakładka
+znika, ekran wraca do stanu sprzed modułu. Wyłączenie w Ustawieniach →
+Moduły (także wyłączenie jedynego źródła światła, `phone_sensors` albo
+`input`, gdy moduł przez to nie wystartuje) od razu oddaje sprzęt: BCM
+ustawia monitor DDC/CI albo gammę xrandr na 100 %, a do restartu
+ściemnia nakładka. Bez tego monitor zostałby na ostatniej wartości
+(trzyma ją w EEPROM), a po restarcie nic by jej nie cofnęło. Przy ręcznej
+zmianie `config/local.yaml` (bez Ustawień) najpierw wybierz
+„Programowe”. Gdy DDC/CI albo xrandr padnie w trakcie jazdy, BCM raz
+próbuje ustawić 100 %, a jeśli to się nie uda, monitor lub gamma zostają
+na ostatniej wartości i nakładka ściemnia dodatkowo.
+
+**NIESPRAWDZONE w aucie:**
+
+- krzywa i progi w prawdziwym aucie: czujnik telefonu pod podsufitką
+  patrzy w kabinę, nie na drogę, więc pod latarniami i w tunelu może
+  reagować inaczej niż oczy kierowcy;
+- czytelność nakładki w pełnym słońcu;
+- DDC/CI na tym konkretnym ekranie USB;
+- czy monitor zapisuje jasność w EEPROM przy każdej zmianie;
+- `xrandr --brightness` z `XAUTHORITY` kiosku;
+- czy LDR Arduino jest w aucie podłączony.
+
+### 5.15 Wybudzanie od drzwi i z telefonu (`modules.remote_session`, wersja z buforem)
+
+**W tym aucie (bez bufora) zostaje wyłączone.** Komputer na postoju nie śpi,
+tylko traci prąd razem z zapłonem, więc nie ma czego budzić — moduł,
+flagi firmware i przełącznik w agencie telefonu są gotowe na wersję
+z buforem i domyślnie wyłączone (`modules.remote_session: false` w obu
+configach, flagi `FEATURE_WAKE_*` w `arduino/sensor_hub/sensor_hub.ino`
+zakomentowane, agent przyjmuje SMS `WAKE` dopiero z przełącznikiem od BCM).
+
+Co robi w wersji z buforem:
+
+- **Nano #2** (sensor_hub) budzi komputer przyciskiem zasilania na prośbę:
+  otwarcie drzwi kierowcy (nie przy wysiadaniu i najwcześniej 2 min po
+  zgaszeniu zapłonu), kod
+  podczerwieni z telefonu w aucie (odbiornik TSOP na A3) albo impuls na
+  wejściu EXT (PC817 na A2). Tylko przy zgaszonym zapłonie i stabilnym S3
+  albo wyłączeniu, najwyżej 3 razy na godzinę i 6 na dobę, z pomiarem banku
+  powyżej 12,2 V. Po dzierżawie (drzwi 5 min, telefon 10 min) Nano usypia
+  komputer z powrotem; zapłon ją kasuje.
+- **BCM** (`src/power/remote_session.py`) pokazuje baner „Wybudzono: … —
+  uśpienie za mm:ss [Nie usypiaj 30 min] [Uśpij teraz]” i wysyła do Nano
+  `HOLD:<min>` albo `RELEASE`; po `power.remote_session.idle_suspend_min`
+  bez użycia (dotyk ekranu lub Android Auto, przycisk na kierownicy; rozmowa
+  i grająca muzyka wstrzymują odliczanie) usypia wcześniej, a baner odlicza
+  wtedy do tej chwili. Wiersz „Wybudzanie” w Ustawieniach: ostatnia pobudka
+  i odmowy.
+- **Telefon w aucie** (agent ≥ 1.4.0) nadaje kod IR na SMS `WAKE <kod>`
+  (biała lista i kod TOTP alarmu na postoju) albo ze skrótu
+  `tools/car_phone/termux/wake.sh`. Kod TOTP tworzy `--park-setup`; bez
+  `modules.parking_guard` BCM nie wysyła białej listy — wtedy numery
+  ustawia się w telefonie (`--park-numbers`), inaczej agent pomija SMS
+  i raz ostrzega w logu (`ZASILANIE_BUFOROWANE.md` §14.6). Odpowiedź na SMS:
+  „BUDZENIE wyslane” (dioda nadała), a gdy BCM milczał przed budzeniem
+  i w ciągu 10 min przyjdzie od niego pierwsze podpisane żądanie — druga
+  „komputer obudzony - BCM odpowiada” (agent ≥ 1.5.0; jej brak po 10 min =
+  komputer nie wstał albo nie doszedł do telefonu).
+- **Drzwi → czuwanie kabiny:** pobudka od drzwi daje telefonowi sygnał
+  drzwi dla czuwania kabiny (§5.13).
+- **Kod IR jest prywatny** — ten z repozytorium (`0x7A15` / `0x56`) zna każdy,
+  kto czyta kod, więc moduł ostrzega w logu przy starcie i w wierszu
+  „Wybudzanie” („kod IR z repozytorium — ustaw własny …”), dopóki go nie
+  zmienisz. Własny kod podajesz przy kompilacji (bez edycji śledzonego
+  `wake_logic.h`: `WAKE_IR_ADDRESS=0x… WAKE_IR_COMMAND=0x…` przy `make`)
+  i te same wartości w `config/local.yaml` (`power.remote_session.ir_address`
+  / `ir_command`) — `ZASILANIE_BUFOROWANE.md` §14.
+
+Okablowanie, flagi (`make -C arduino sensor_hub-upload … SENSOR_HUB_FEATURES="…
+WAKE_IR WAKE_DOOR"`), protokół, BIOS i kolejność sprawdzeń na stole:
+`docs/ZASILANIE_BUFOROWANE.md` §14.
 
 ---
 
@@ -1214,8 +2243,11 @@ Sprawdzenie bez startowania modułów:
 python3 main.py --platform x86 --config config/bcm_config_test.yaml --dry-run
 ```
 
-Powinno wypisać **5 modules would load** — `bluetooth` i `wifi_ap` to
-podsystemy startowane wprost w `main.py`, więc nie liczą się do tej sumy.
+Wypisuje każdy moduł jako `ENABLED`, `NOT STARTED (powód)` albo `disabled`
+i na końcu `N modules would load` — `N` zależy od przełączników (także
+z `config/local.yaml`, chyba że dodasz `--no-local-config`). Podsystemy bez
+własnego punktu startu (np. `bluetooth`, `wifi_ap`, `phonebook`,
+`phone_status`) uruchamia wprost `main.py`, więc nie liczą się do tej sumy.
 
 ### 6.2 Kiosk
 
@@ -1255,7 +2287,7 @@ Pełna procedura siedmioetapowa (z pomiarami na każdym kroku):
 **Software**
 
 ```
-[ ] python3 main.py --dry-run pokazuje 5 modułów
+[ ] python3 main.py --dry-run: żaden włączony moduł nie jest NOT STARTED
 [ ] curl http://localhost:5002 zwraca HTML
 [ ] Dashboard widoczny na ekranie 7", dotyk działa
 [ ] wpctl status pokazuje analogowe wyjście jako domyślny sink
@@ -1311,7 +2343,7 @@ razem pamiętać o wyłączniku głównym (§3.1a).
 | Kompensacji temperaturowej ładowania | ładowarce B2B (wariant A, §5.2 `ZASILANIE_BUFOROWANE.md`) |
 | Automatycznego S3 na zapłon | wejściu zapłonu w Pro Micro + hakowi po stronie hosta — §3.1a |
 | Sprzężenia zwrotnego o stanie maszyny | wejściu z diody zasilania panelu przedniego — §3.1a |
-| Regulacji jasności z BCM | instancji `BrightnessController` **i** Nano #1 — §3.1c |
+| Regulacji podświetlenia (PWM) z BCM | Nano #1 — §3.1c; przyciemnianie obrazu (nakładka, opcjonalnie DDC/CI) daje już `modules.auto_brightness` — §5.14 |
 | Drugiego ekranu | panelu 6,86" — hot-plug, ale **nie na USB M910q**: dwa panele nie zmieszczą się w zapasie XL6019 (§3.1) |
 | OBD / K-Line | CP2102 + L9637D |
 | Kamer, parkowania, czujników | grabera, HC-SR04, DS18B20, obu Nano |
@@ -1347,6 +2379,8 @@ przejdź na `bcm_config.yaml`, gdy większość będzie już podłączona.
 
 | Dokument | Zakres |
 |----------|--------|
+| [`WDROZENIE_TESTOWE_TELEFON.md`](WDROZENIE_TESTOWE_TELEFON.md) | **auto testowe krok po kroku**: migracja, sekrety, BIOS, telefony, audio, przełączniki, sprawdzenia |
+| [`PRZYGOTOWANIE_TELEFONU.md`](PRZYGOTOWANIE_TELEFONU.md) | **telefon w aucie** (Redmi, crDroid 13): ROM, Termux, agent, 112, postój, kabina |
 | [`LISTA_ZAKUPOWA.md`](LISTA_ZAKUPOWA.md) | **wszystko do kupienia w jednej tabeli** |
 | [`WDROZENIE_M910Q.md`](WDROZENIE_M910Q.md) | wdrożenie docelowe, pełne |
 | [`ZASILANIE_BUFOROWANE.md`](ZASILANIE_BUFOROWANE.md) | warianty ładowania, nastawy modułów, sprawdzenia przed załączeniem |

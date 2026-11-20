@@ -153,7 +153,15 @@ class TestProtocol:
     def test_desired_config_hash_matches_the_agents_normal_form(self):
         desired = cpa.desired_config(_config(recipients=[NUM1, NUM2], dry_run=False))
         norm, err = A.normalize_config(desired, strict=True)
-        assert err == "" and norm == desired
+        # The agent stores the 112 fields with safe defaults; they do not
+        # count while its call112 toggle is off (see TestAgentVersionSkew).
+        # The same for a false remote_session toggle (sent only while on).
+        assert err == "" and norm["toggles"]["remote_session"] is False
+        assert "remote_session" not in desired["toggles"]
+        seen = {k: norm[k] for k in desired}
+        seen["toggles"] = {k: v for k, v in seen["toggles"].items() if k in desired["toggles"]}
+        assert seen == desired
+        assert (norm["call112_test_mode"], norm["call112_test_number"]) == (True, "")
         assert cpa.config_hash(desired) == A.config_hash(norm)
 
     @pytest.mark.parametrize("value", [None, "", "ab" * 31, "zz" * 32, "ab" * 32 + "a", 5])
@@ -1081,13 +1089,18 @@ class TestDesiredConfig:
     def test_fields(self, sms, key, expected):
         assert cpa.desired_config(_config(**sms))[key] == expected
 
-    def test_toggles_mirror_only_modules_with_code(self, crash_sms_has_code):
+    def test_toggles_mirror_only_modules_with_code(self, crash_sms_has_code, monkeypatch):
         cfg = _config()
-        cfg["modules"].update(crash_sms=True, parking_guard=True, cabin_watch="yes")
+        cfg["modules"].update(crash_sms=True, parking_guard=True, cabin_watch=True,
+                              call112="yes")
         toggles = cpa.desired_config(cfg)["toggles"]
-        # crash_sms has code (fixture); parking_guard is planned; "yes" is not True
-        assert toggles == {"crash_sms": True, "parking_guard": False, "cabin_watch": False,
+        # all four have code now; "yes" is not True
+        assert toggles == {"crash_sms": True, "parking_guard": True, "cabin_watch": True,
                            "call112": False}
+        # a planned module is never "on" on the phone, whatever the toggle says
+        monkeypatch.setitem(mc.MODULES, "cabin_watch",
+                            dict(mc.MODULES["cabin_watch"], planned=True))
+        assert cpa.desired_config(cfg)["toggles"]["cabin_watch"] is False
 
 
 # ── the secret's place in the config ─────────────────────────────────────
@@ -1241,7 +1254,8 @@ class TestSummary:
         assert web.viewer._get_dashboard_data()["car_phone_agent"] == {
             "state": "ok", "paired": True, "pairing": False, "version": "1.0.0",
             "sim_ready": True, "last_ok_ts": 1_763_000_000.5, "last_sent_ts": None,
-            "reason": "", "error": "", "needs_confirm": False}
+            "reason": "", "error": "", "needs_confirm": False, "call112_capable": None,
+            "call112_mode": None, "call112_enabled": False}
 
     def test_garbage_is_neutralised(self, web):
         web.bus.publish(cpa.TOPIC, {
@@ -1251,7 +1265,8 @@ class TestSummary:
         assert web.viewer._get_dashboard_data()["car_phone_agent"] == {
             "state": "unknown", "paired": None, "pairing": None, "version": None,
             "sim_ready": None, "last_ok_ts": None, "last_sent_ts": None, "reason": "",
-            "error": "", "needs_confirm": False}
+            "error": "", "needs_confirm": False, "call112_capable": None,
+            "call112_mode": None, "call112_enabled": False}
 
     def test_every_state_and_reason_passes(self, web):
         for state in cpa.STATES:
@@ -1259,3 +1274,252 @@ class TestSummary:
                 web.bus.publish(cpa.TOPIC, dict(AGENT_OK, state=state, reason=reason))
                 out = web.viewer._get_dashboard_data()["car_phone_agent"]
                 assert out["state"] == state and out["reason"] == reason
+
+
+# ── „Zadzwoń 112” (plan H): the client side ──────────────────────────────
+
+TEST_NUM = "+48601234599"
+#: The crash event of the 112 window (only its SMS may mention 112).
+EV = "c0ffee01"
+
+
+class TestCall112Client:
+    @pytest.mark.parametrize("block, expected", [
+        ({}, (False, "")),
+        ({"test_mode": False, "test_number": TEST_NUM}, (False, TEST_NUM)),
+        ({"test_mode": True}, (True, "")),
+        ({"test_mode": "no"}, (True, "")),            # unclear → TEST
+        ({"test_mode": 0}, (True, "")),
+        ({"test_mode": None}, (False, "")),
+        ({"test_mode": True, "test_number": " +48601234599 "}, (True, TEST_NUM)),
+        ({"test_mode": True, "test_number": "601234599"}, (True, "")),
+        ({"test_mode": True, "test_number": "112"}, (True, "")),
+        ({"test_mode": True, "test_number": 48601234599}, (True, "")),
+    ])
+    def test_settings(self, block, expected):
+        assert cpa.call112_settings({"safety": {"call112": block}}) == expected
+        cfg = cpa.desired_config({"modules": {"call112": True}, "safety": {"call112": block}})
+        assert (cfg["call112_test_mode"], cfg["call112_test_number"]) == expected
+        # With modules.call112 off the push keeps the #128 6-key shape.
+        cfg = cpa.desired_config({"safety": {"call112": block}})
+        assert "call112_test_mode" not in cfg and "call112_test_number" not in cfg
+
+    def test_settings_of_a_broken_block(self):
+        assert cpa.call112_settings({"safety": {"call112": "x"}}) == (False, "")
+
+    def test_the_toggle_follows_the_module(self):
+        assert cpa.desired_config({"modules": {"call112": True}})["toggles"]["call112"] is True
+        assert cpa.desired_config({"modules": {"call112": "yes"}})["toggles"]["call112"] is False
+
+    def test_health_facts(self):
+        out = cpa.parse_health_facts({"call112_capable": True, "call112_mode": "test",
+                                      "call_state": 2})
+        assert (out["call112_capable"], out["call112_mode"], out["call_state"]) == (True, "test", 2)
+        out = cpa.parse_health_facts({"call112_capable": "yes", "call112_mode": "<x>",
+                                      "call_state": True})
+        assert (out["call112_capable"], out["call112_mode"], out["call_state"]) == (None, None,
+                                                                                      None)
+
+    def test_call_view_is_checked(self):
+        v = cpa.parse_call112_view({"seq": 3, "state": "offhook", "mode": "real", "error": "",
+                                    "final": False, "number": "112",
+                                    "requested_ts": 1_763_000_000, "offhook_ts": 1_763_000_005})
+        assert v["state"] == "offhook" and v["seq"] == 3 and v["offhook_ts"] == 1_763_000_005
+        assert cpa.parse_call112_view({"state": "<b>"}) is None
+        assert cpa.parse_call112_view(None) is None
+        v = cpa.parse_call112_view({"state": "failed", "error": "rm -rf", "number": "<img>",
+                                    "seq": True, "mode": "x", "requested_ts": 5})
+        assert (v["error"], v["number"], v["seq"], v["mode"], v["requested_ts"]) == (
+            "", "", 0, None, None)
+
+    def test_bad_mode_never_reaches_the_phone(self, tmp_path, bus):
+        mod = _module(tmp_path, bus)
+        assert mod.call112("both", EV)["error"] == "bad_request"
+        assert mod.call112(None, EV)["error"] == "bad_request"
+        # the event id is checked before anything is sent, too
+        for bad in ("", "X;id", None, "0" * 33):
+            assert mod.call112("real", bad)["error"] == "bad_request"
+            assert mod.call112_mark(bad)["error"] == "bad_request"
+
+
+# ── version skew: BCM and the phone agent are updated separately ──────────
+
+#: The config keys of the #128 agent (1.0.0).
+SIX_KEYS = ("recipients", "sim_slot", "vehicle_label", "toggles", "dry_run", "follow_up_cancel")
+
+
+def _hash_128(cfg):
+    """What the #128 agent answers: it drops unknown keys and hashes its own
+    6-key canonical form."""
+    return cpa.config_hash({k: cfg[k] for k in SIX_KEYS})
+
+
+def _config_112(on):
+    cfg = _config()
+    cfg["modules"]["call112"] = on
+    cfg["safety"] = {"call112": {"test_mode": True, "test_number": TEST_NUM}}
+    return cfg
+
+
+class TestAgentVersionSkew:
+    """A BCM update alone must never make the crash SMS look refused
+    (``config_refused`` forces crash_sms into dry-run)."""
+
+    def test_new_bcm_and_a_128_agent_agree_while_112_is_off(self):
+        desired = cpa.desired_config(_config_112(False))
+        assert set(desired) == set(SIX_KEYS)
+        assert _hash_128(desired) == cpa.config_hash(desired)
+
+    def test_a_128_bcm_and_the_new_agent_agree(self):
+        old_push = cpa.desired_config(_config_112(False))      # the #128 6-key shape
+        norm, err = A.normalize_config(old_push, strict=True)
+        assert err == "" and norm["call112_test_mode"] is True   # safe defaults stored
+        assert A.config_hash(norm) == cpa.config_hash(old_push)
+
+    def test_stale_112_fields_do_not_count_while_the_toggle_is_off(self):
+        push = dict(cpa.desired_config(_config_112(False)), call112_test_mode=False,
+                    call112_test_number=TEST_NUM)
+        norm, _ = A.normalize_config(push, strict=True)
+        assert A.config_hash(norm) == _hash_128(push)
+
+    def test_with_112_on_new_bcm_and_new_agent_agree(self):
+        desired = cpa.desired_config(_config_112(True))
+        assert desired["call112_test_number"] == TEST_NUM
+        norm, _ = A.normalize_config(desired, strict=True)
+        assert A.config_hash(norm) == cpa.config_hash(desired)
+        assert _hash_128(desired) != cpa.config_hash(desired)   # a 1.0.0 agent cannot match
+
+    def _with_128_agent(self, tmp_path, bus, phone, monkeypatch, config):
+        monkeypatch.setattr(A, "VERSION", "1.0.0")
+        orig = phone.agent.put_config
+
+        def put_128(obj):
+            status, out = orig({k: v for k, v in obj.items() if not k.startswith("call112_")})
+            if status == 200:
+                out = dict(out, config_hash=_hash_128(phone.agent.config))
+            return status, out
+        monkeypatch.setattr(phone.agent, "put_config", put_128)
+        mod = _module(tmp_path, bus, config)
+        _forward(bus, phone.port)
+        _pair(mod, phone)
+        _poll(mod)
+        return mod
+
+    def test_a_128_agent_keeps_the_crash_sms_in_sync_with_112_off(self, tmp_path, bus, phone,
+                                                                  monkeypatch):
+        mod = self._with_128_agent(tmp_path, bus, phone, monkeypatch, _config_112(False))
+        st = _state(bus)
+        assert st["state"] == "ok" and st["reason"] == "" and st["version"] == "1.0.0"
+        assert mod.health_facts()["config_hash"] == cpa.config_hash(
+            cpa.desired_config(mod._config))
+
+    def test_a_128_agent_with_112_on_says_update_the_agent(self, tmp_path, bus, phone,
+                                                          monkeypatch, caplog):
+        with caplog.at_level(logging.WARNING, logger="bcm.network.car_phone_agent"):
+            self._with_128_agent(tmp_path, bus, phone, monkeypatch, _config_112(True))
+        assert _state(bus)["reason"] == "agent_outdated"
+        assert any("older than this BCM" in r.getMessage() for r in caplog.records)
+
+    def test_a_current_agent_refusing_is_still_config_refused(self, tmp_path, bus, phone,
+                                                            monkeypatch):
+        mod = _module(tmp_path, bus, _config_112(True))
+        _forward(bus, phone.port)
+        _pair(mod, phone)
+        monkeypatch.setattr(phone.agent, "put_config",
+                            lambda obj: (400, {"error": "bad_config", "detail": "nope"}))
+        mod._config["crash_detection"]["sms"]["sim_slot"] = 1
+        _poll(mod)
+        assert _state(bus)["reason"] == "config_refused"
+
+    def test_versions(self):
+        assert cpa.parse_version("1.1.0") == (1, 1, 0)
+        assert cpa.parse_version("1.10.2+dev") == (1, 10, 2)
+        assert cpa.parse_version("x") is None and cpa.parse_version(None) is None
+        assert cpa.parse_version(A.VERSION) >= cpa.MIN_AGENT_VERSION
+
+    def test_the_row_shows_112_readiness(self, tmp_path, bus, phone):
+        mod = _module(tmp_path, bus, _config_112(False))
+        _forward(bus, phone.port)
+        _pair(mod, phone)
+        st = _state(bus)
+        assert st["call112_capable"] is False and st["call112_mode"] == "test"
+        out = wv._car_phone_agent_summary(dict(st, call112_mode="<b>", call112_capable="yes"))
+        assert out["call112_mode"] is None and out["call112_capable"] is None
+        assert out["call112_enabled"] is False
+        assert wv._car_phone_agent_summary(st, True)["call112_enabled"] is True
+
+class SuRunner(Runner):
+    """Runner + a Magisk ``su`` that answers the agent's fixed strings."""
+
+    def __call__(self, argv, stdin, timeout):
+        if argv[0] == "su":
+            self.calls.append(list(argv))
+            assert len(argv) == 3 and argv[1] == "-c"
+            cmd = argv[2]
+            assert cmd in (A.SU_PROBE_COMMAND, A.call_command(TEST_NUM), A.call_command(None),
+                           A.VOLUME_GET_COMMAND, A.volume_set_command(7), A.CALL_STATE_COMMAND,
+                           A.HANGUP_COMMAND), cmd
+            if cmd == A.SU_PROBE_COMMAND:
+                return 0, "0\n", ""
+            if cmd == A.VOLUME_GET_COMMAND:
+                return 0, "volume is 3 in range [1..7]", ""
+            if cmd == A.CALL_STATE_COMMAND:
+                return 0, "mCallState=2", ""
+            return 0, "", ""
+        return super().__call__(argv, stdin, timeout)
+
+
+@pytest.fixture
+def phone112(tmp_path):
+    runner = SuRunner()
+    agent = A.Agent(str(tmp_path / "phone"), runner=runner, clock=time.monotonic,
+                    wall=time.time, localtime=time.gmtime)
+    server = A.make_server(agent, 0)
+    thread = threading.Thread(target=server.serve_forever, kwargs={"poll_interval": 0.05},
+                              daemon=True)
+    thread.start()
+    yield SimpleNamespace(agent=agent, server=server, port=server.server_address[1],
+                          runner=runner, dir=Path(tmp_path / "phone"), seen=[])
+    server.shutdown()
+    server.server_close()
+
+
+class TestCall112RoundTrip:
+    def _ready(self, tmp_path, bus, phone, **c112):
+        config = _config()
+        config["modules"]["call112"] = True
+        config["safety"] = {"call112": dict({"test_mode": True, "test_number": TEST_NUM},
+                                            **c112)}
+        mod = _module(tmp_path, bus, config)
+        _forward(bus, phone.port)
+        _pair(mod, phone)
+        phone.agent.probe_su()
+        _poll(mod)
+        return mod
+
+    def test_config_reaches_the_phone_and_health_says_capable(self, tmp_path, bus, phone112):
+        mod = self._ready(tmp_path, bus, phone112)
+        cfg = phone112.agent.config
+        assert cfg["toggles"]["call112"] is True
+        assert (cfg["call112_test_mode"], cfg["call112_test_number"]) == (True, TEST_NUM)
+        facts = mod.health_facts()
+        assert facts["call112_capable"] is True and facts["call112_mode"] == "test"
+        assert facts["config_hash"] == cpa.config_hash(cpa.desired_config(mod._config))
+
+    def test_call_status_hangup_mark(self, tmp_path, bus, phone112):
+        mod = self._ready(tmp_path, bus, phone112)
+        assert mod.call112("real", EV)["error"] == "mode_mismatch"   # the phone is in test
+        res = mod.call112("test", EV)
+        assert res["ok"] and res["data"]["number"] == "+48...599"
+        view = cpa.parse_call112_view(res["data"])
+        assert view["state"] == "queued" and view["mode"] == "test"
+        phone112.agent.call_step()
+        assert ["su", "-c", A.call_command(TEST_NUM)] in phone112.runner.calls
+        assert not any("tel:112" in a for argv in phone112.runner.calls for a in argv)
+        st = mod.call112_status()
+        assert st["ok"] and cpa.parse_call112_view(st["data"]["call"])["state"] == "placed"
+        assert mod.call112_hangup()["ok"]
+        assert mod.call112_mark(EV) == {"ok": True, "status": 200,
+                                        "data": {"ok": True, "event_id": None},
+                                        "error": "", "detail": ""}
+        assert mod.call112("test", EV)["status"] == 409              # busy: still in the call
