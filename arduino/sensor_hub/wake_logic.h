@@ -123,6 +123,11 @@
 #ifndef WAKE_IR_COMMAND
 #define WAKE_IR_COMMAND          0x56U
 #endif
+// Własny kod bez edycji tego pliku: make ... WAKE_IR_ADDRESS=0x… WAKE_IR_COMMAND=0x…
+// (arduino/Makefile). Zakres sprawdzany tu, bo make sprawdza tylko zapis.
+#if (WAKE_IR_ADDRESS) > 0xFFFF || (WAKE_IR_COMMAND) > 0xFF
+#error "WAKE_IR_ADDRESS najwyzej 0xFFFF, WAKE_IR_COMMAND najwyzej 0xFF"
+#endif
 #define WAKE_IR_PAIR_MS           1000UL   // 2 identyczne ramki w ciągu 1 s
 #define WAKE_IR_REARM_MS          3000UL   // po przyjętej parze: cisza
                                            // (telefon nadaje 3 ramki)

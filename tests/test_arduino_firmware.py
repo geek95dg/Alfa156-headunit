@@ -523,6 +523,30 @@ def test_make_rejects_unknown_features(bad):
     assert "SENSOR_HUB_FEATURES: nieznane" in res.stderr
 
 
+def test_make_takes_a_private_ir_code_without_editing_the_header():
+    """The private IR wake code comes from the make command line, not from
+    an edit of the tracked wake_logic.h (which would end up in git)."""
+    res = _make_dry("sensor_hub", "SENSOR_HUB_FEATURES=WAKE_IR",
+                    "WAKE_IR_ADDRESS=0x1B2C", "WAKE_IR_COMMAND=0x3d")
+    assert res.returncode == 0, res.stderr
+    assert ('"compiler.cpp.extra_flags=-DFEATURE_WAKE_IR -DWAKE_IR_ADDRESS=0x1B2C '
+            '-DWAKE_IR_COMMAND=0x3d"') in res.stdout
+
+
+@pytest.mark.parametrize("bad", ["WAKE_IR_ADDRESS=1234", "WAKE_IR_ADDRESS=0xZZ",
+                                 "WAKE_IR_COMMAND=0x", "WAKE_IR_ADDRESS=0x1;id",
+                                 "WAKE_IR_COMMAND=0x1 0x2", "WAKE_IR_ADDRESS=0x1\"x"])
+def test_make_rejects_a_malformed_ir_code(bad):
+    res = _make_dry("sensor_hub", bad)
+    assert res.returncode != 0
+    assert "tylko 0x i cyfry szesnastkowe" in res.stderr
+
+
+def test_ir_code_range_is_checked_by_the_preprocessor():
+    h = (ARDUINO / "sensor_hub" / "wake_logic.h").read_text(encoding="utf-8")
+    assert "#if (WAKE_IR_ADDRESS) > 0xFFFF || (WAKE_IR_COMMAND) > 0xFF" in h
+
+
 # ── external wake (plan E, FEATURE_WAKE_*) ─────────────────────────────────
 
 

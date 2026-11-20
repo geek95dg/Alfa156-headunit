@@ -490,6 +490,12 @@ def _ddc(cfg_extra=None, **kw):
     return m
 
 
+#: Manual mode: the slider value (70) is written right after the probe —
+#: in automatic mode the monitor's own level is kept until the first light
+#: reading (TestDdcBootLevel).
+MANUAL = {"mode": "manual"}
+
+
 def _drain(m, limit=10):
     for _ in range(limit):
         if m.ctrl.hw_step() != 0.0:
@@ -504,7 +510,7 @@ class TestDdc:
         assert m.seen[TOPIC_DIM][-1]["level"] > 0 and m.runner.calls == []
 
     def test_probe_then_write(self):
-        m = _ddc()
+        m = _ddc(MANUAL)
         _drain(m)
         assert m.runner.argvs() == [["ddcutil", "detect", "--brief"],
                                     ["ddcutil", "getvcp", "10", "--brief"],
@@ -518,19 +524,19 @@ class TestDdc:
         assert m.seen[TOPIC_DIM][-1] == {"level": 0.0, "brightness_pct": 70}   # overlay gone
 
     def test_value_scaled_to_the_monitors_max(self):
-        m = _ddc(runner=FakeRunner(getvcp=Res(0, "VCP 10 C 10 50\n")))
+        m = _ddc(MANUAL, runner=FakeRunner(getvcp=Res(0, "VCP 10 C 10 50\n")))
         _drain(m)
         assert m.runner.argvs("setvcp") == [["ddcutil", "setvcp", "10", "35"]]
 
     def test_display_number_from_the_config(self):
-        m = _ddc({"ddc_display": 2}, runner=FakeRunner(detect=Res(0, DETECT_OK.replace(
+        m = _ddc(dict(MANUAL, ddc_display=2), runner=FakeRunner(detect=Res(0, DETECT_OK.replace(
             "Display 1", "Display 1\n\nDisplay 2"))))
         _drain(m)
         assert m.runner.argvs()[1:] == [["ddcutil", "getvcp", "10", "--brief", "--display", "2"],
                                         ["ddcutil", "setvcp", "10", "70", "--display", "2"]]
 
     def test_rate_limit_and_coalescing(self):
-        m = _ddc()
+        m = _ddc(MANUAL)
         _drain(m)
         n = len(m.runner.calls)
         m.clock.advance(1.0)
@@ -607,7 +613,7 @@ class TestDdc:
         assert _state(m)["reason"] == "no_display"
 
     def test_three_failed_writes_fall_back_and_restore(self):
-        m = _ddc(runner=FakeRunner(setvcp=Res(1, "", "Verification failed")))
+        m = _ddc(MANUAL, runner=FakeRunner(setvcp=Res(1, "", "Verification failed")))
         _drain(m)                                                # write 1 fails
         for _ in range(br.DDC_MAX_FAILURES - 1):                 # writes 2 and 3 fail
             m.clock.advance(br.DDC_MIN_INTERVAL_S)
@@ -628,14 +634,14 @@ class TestDdc:
         assert len(m.runner.calls) == n                          # no retry loop on the I2C bus
 
     def test_binary_gone_at_run_time(self):
-        m = _ddc(runner=FakeRunner(setvcp=FileNotFoundError()))
+        m = _ddc(MANUAL, runner=FakeRunner(setvcp=FileNotFoundError()))
         _drain(m)
         st = _state(m)
         assert (st["active"], st["reason"]) == ("css", "no_ddcutil")
         assert m.runner.argvs("setvcp") == [["ddcutil", "setvcp", "10", "70"]]   # no restore
 
     def test_switch_back_to_css_restores_full_brightness(self):
-        m = _ddc()
+        m = _ddc(MANUAL)
         _drain(m)
         m.bus.publish("config.changed", {"brightness_backend": "css"})
         st = _state(m)
@@ -699,6 +705,40 @@ class _Seq:
         return self.answers.pop(0) if len(self.answers) > 1 else self.answers[0]
 
 
+class TestDdcBootLevel:
+    """Every drive is a cold boot and the light reading comes only after the
+    phone's adb forward: before it, the monitor keeps its own level from the
+    last drive (no jump to the slider value at a night start)."""
+
+    def test_the_monitors_level_is_kept_until_the_first_reading(self):
+        m = _ddc(runner=FakeRunner(getvcp=Res(0, "VCP 10 C 15 100\n")))
+        _drain(m)
+        assert _state(m)["active"] == "ddc" and m.ctrl.brightness == 15
+        assert m.runner.argvs("setvcp") == []                  # not raised to 70
+        for _ in range(5):
+            m.clock.advance(5)
+            m.ctrl.tick()
+            _drain(m)
+        assert m.runner.argvs("setvcp") == [] and m.ctrl.brightness == 15
+        _run_for(m, 40, lux=100.0)                              # the first reading decides
+        _drain(m)
+        m.clock.advance(10)
+        _drain(m)
+        assert m.runner.argvs("setvcp")[-1] == ["ddcutil", "setvcp", "10", "45"]
+
+    def test_below_the_floor_is_raised_to_it(self):
+        m = _ddc(runner=FakeRunner(getvcp=Res(0, "VCP 10 C 5 100\n")))
+        _drain(m)
+        assert m.ctrl.brightness == 15
+        assert m.runner.argvs("setvcp") == [["ddcutil", "setvcp", "10", "15"]]
+
+    def test_a_manual_choice_before_the_probe_is_written(self):
+        m = _ddc(runner=FakeRunner(getvcp=Res(0, "VCP 10 C 15 100\n")))
+        m.ctrl.set_manual(60)
+        _drain(m)
+        assert m.runner.argvs("setvcp") == [["ddcutil", "setvcp", "10", "60"]]
+
+
 class TestDdcRetry:
     """A transient probe failure at boot (cold monitor) is retried by
     itself, a bounded number of times; a missing tool is not."""
@@ -706,7 +746,7 @@ class TestDdcRetry:
     def test_timeout_then_ok_on_the_second_probe(self):
         runner = FakeRunner(detect=_Seq(subprocess.TimeoutExpired("ddcutil", 15),
                                         Res(0, DETECT_OK)))
-        m = _ddc(runner=runner)
+        m = _ddc(MANUAL, runner=runner)
         _drain(m)
         st = _state(m)
         assert (st["active"], st["probe"], st["reason"]) == ("css", "failed", "timeout")
@@ -793,7 +833,7 @@ class TestDdcRetry:
         assert m.ctrl.hw_step() is None
 
     def test_write_failure_after_a_good_probe_is_not_reprobed(self):
-        m = _ddc(runner=FakeRunner(setvcp=Res(1, "", "Verification failed")))
+        m = _ddc(MANUAL, runner=FakeRunner(setvcp=Res(1, "", "Verification failed")))
         _drain(m)
         for _ in range(br.DDC_MAX_FAILURES):
             m.clock.advance(br.DDC_MIN_INTERVAL_S)
@@ -821,7 +861,7 @@ class TestRestoreDelay:
         assert m.runner.argvs("setvcp")[-1] == ["ddcutil", "setvcp", "10", "100"]
 
     def test_restore_comes_before_what_a_new_choice_writes(self):
-        m = _ddc()
+        m = _ddc(MANUAL)
         _drain(m)
         m.ctrl.set_backend("css")
         m.ctrl.set_backend("ddc")                                # re-chosen at once

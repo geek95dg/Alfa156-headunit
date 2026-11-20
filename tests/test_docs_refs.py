@@ -26,6 +26,9 @@ checked against the code here:
 * Settings labels quoted as „…” after „Ustawienia →” or „wiersz” are real
   Polish UI strings from ``src/dashboard/i18n.py``.
 
+The 112 and phone-number checks also cover the technical references the
+guides link to (``docs/WDROZENIE_TESTOWE.md``, ``docs/ZASILANIE_BUFOROWANE.md``).
+
 The checks only read files; nothing is written anywhere.
 """
 
@@ -48,6 +51,12 @@ from src.core.modules_catalog import MODULES, is_enabled, requirement_groups
 
 REPO = Path(__file__).resolve().parent.parent
 DOCS = ("docs/WDROZENIE_TESTOWE_TELEFON.md", "docs/PRZYGOTOWANIE_TELEFONU.md")
+#: The technical references both guides link to (the 112 test, the parking
+#: guard, the buffered build). Not copy-paste guides — paths, flags and
+#: labels are not checked there — but the owner copies from them too, so
+#: nothing copyable in them may dial the real 112 or hold a dialable number.
+REFERENCE_DOCS = ("docs/WDROZENIE_TESTOWE.md", "docs/ZASILANIE_BUFOROWANE.md")
+GUARDED_DOCS = DOCS + REFERENCE_DOCS
 
 #: Git-ignored files BCM (or the owner) creates on the car — they cannot be
 #: in the repository, but the guides must talk about them.
@@ -91,7 +100,8 @@ LABEL_RE = re.compile(r"(?:Ustawienia\s*→\s*|wiersz[a-z]*\s+)„([^”\n]+)”
 _EMERGENCY = r"(?:112|911|997|998|999)"
 #: Anything copyable that could dial the real emergency number: a tel: URI,
 #: Android's CALL intent (am start …), Termux's dialer with an emergency
-#: number. The agent's fixed 112 intent lives in its code, never in a doc.
+#: number. The agent's fixed 112 intent lives in its code, never in a doc
+#: (neither the guides nor the reference docs, :data:`GUARDED_DOCS`).
 REAL_112_RE = re.compile(
     r"tel:\+?" + _EMERGENCY + r"\b"
     r"|android\.intent\.action\.CALL\b|\bACTION_CALL\b"
@@ -353,6 +363,12 @@ def test_agent_version_in_phone_guide_is_current():
         return tuple(int(x) for x in v.split("."))
     for needed in re.findall(r"≥ (\d+\.\d+\.\d+)", text):
         assert key(needed) <= key(version), f"wymagany agent {needed} > {version}"
+    # The technical reference names minimums only — never "after this
+    # update: X" (it went stale at every agent release).
+    ref = _doc("docs/WDROZENIE_TESTOWE.md").text
+    assert not re.search(r"po tej aktualizacji \*\*\d+\.\d+\.\d+\*\*", ref)
+    for needed in re.findall(r"≥ (\d+\.\d+\.\d+)", ref):
+        assert key(needed) <= key(version), f"WDROZENIE_TESTOWE: agent {needed} > {version}"
 
 
 @pytest.mark.skipif(shutil.which("bash") is None, reason="bash not installed")
@@ -378,7 +394,7 @@ def test_bash_blocks_have_no_prompt(name):
                 f"{name}: znak zachęty '$' w bloku do skopiowania: {line!r}"
 
 
-@pytest.mark.parametrize("name", DOCS)
+@pytest.mark.parametrize("name", GUARDED_DOCS)
 def test_no_copy_paste_block_can_dial_112(name):
     """Tests use a test number only — nothing the owner copies (a block of
     any language, or inline code) may place a real emergency call (the
@@ -397,7 +413,7 @@ def test_no_copy_paste_block_can_dial_112(name):
             f"{name}: polecenie do /api/phone/dial: {span!r}"
 
 
-@pytest.mark.parametrize("name", DOCS)
+@pytest.mark.parametrize("name", GUARDED_DOCS)
 def test_no_dialable_number_in_copyable_code(name):
     """``+48601234567`` passes every E.164 check — pasted unchanged it would
     send the car's position to a stranger or ring them for the 112 test."""

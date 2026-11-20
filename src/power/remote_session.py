@@ -235,6 +235,17 @@ class RemoteSession:
         self._clock = clock
         self._wall = wall
         self._settings = session_settings(config)
+        # The repo's IR wake code (wake_logic.h, both configs, the docs) is
+        # public: anyone with a learning IR remote could wake the parked
+        # PC (3/h, 6/day — drains the bank). Warned at start and shown in
+        # the Settings row until a private code is set.
+        self._ir_default = ir_settings(config) == (DEFAULT_IR_ADDRESS, DEFAULT_IR_COMMAND)
+        if self._ir_default:
+            log.warning("Remote wake: the IR wake code is still the repo default (%#x/%#x) — "
+                        "set your own: make ... WAKE_IR_ADDRESS=0x… WAKE_IR_COMMAND=0x… "
+                        "(arduino/Makefile) and the same power.remote_session.ir_address / "
+                        "ir_command in config/local.yaml", DEFAULT_IR_ADDRESS,
+                        DEFAULT_IR_COMMAND)
         self._lock = threading.Lock()
         self._wake = threading.Event()
         self._stop = threading.Event()
@@ -712,6 +723,8 @@ class RemoteSession:
                 "last_denied": dict(self._last_denied) if self._last_denied else None,
                 "last_denied_nano": self._last_denied_nano,
                 "cmd": dict(self._cmd) if self._cmd else None,
+                # The public repo IR code is in use (see __init__).
+                "ir_default": self._ir_default,
             }
 
     @property

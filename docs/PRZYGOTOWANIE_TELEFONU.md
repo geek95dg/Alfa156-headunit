@@ -31,7 +31,7 @@ Powiązane: wdrożenie całej reszty w aucie (migracja ustawień, BIOS, audio,
 główny telefon, lista przełączników) —
 [`WDROZENIE_TESTOWE_TELEFON.md`](WDROZENIE_TESTOWE_TELEFON.md). Szczegóły
 techniczne i powody każdego kroku: [`WDROZENIE_TESTOWE.md`](WDROZENIE_TESTOWE.md)
-§5.7–§5.14 oraz nagłówek `tools/car_phone/termux/bcm_agent.py`.
+§5.7–§5.15 oraz nagłówek `tools/car_phone/termux/bcm_agent.py`.
 
 ---
 
@@ -132,7 +132,9 @@ Zainstaluj F-Droid (APK z f-droid.org), a z niego:
 
 > Termux, Termux:API i Termux:Boot muszą pochodzić z **tego samego źródła**
 > (F-Droid) — mają wtedy ten sam podpis. Wersje ze Sklepu Play się z nimi
-> nie dogadają.
+> nie dogadają. Tylko w wersji z buforem dochodzi **Termux:Widget** (skrót
+> budzenia `wake.sh`, z tego samego źródła) — `ZASILANIE_BUFOROWANE.md`
+> §14.6; w aucie testowym niepotrzebny.
 
 Po instalacji **raz otwórz Termux:Boot** — Android pozwoli mu wtedy
 startować przy włączeniu telefonu.
@@ -367,8 +369,12 @@ zdarzenia, parowanie i sekret TOTP w `~/.config/bcm_agent` zostają. Wiersz
 „Agent w telefonie” w Ustawieniach pokazuje wersję. Wymagane wersje:
 „Zadzwoń 112” ≥ 1.1.0, alarm na postoju ≥ 1.2.0, czuwanie kabiny ≥ 1.3.0,
 budzenie podczerwienią (wersja z buforem) ≥ 1.4.0
-(obecna: 1.4.0). Starszy agent przy włączonym module = „agent w telefonie
-jest starszy niż BCM” albo „agent w telefonie jest za stary”.
+(obecna: 1.5.0). Starszy agent przy włączonym module = „agent w telefonie
+jest starszy niż BCM” albo „agent w telefonie jest za stary”. Wersja 1.5.0
+nie jest wymagana, ale zaktualizuj: dopiero ona pilnuje dalej, gdy ktoś
+wyłączy alarm w Ustawieniach → Moduły przy uzbrojonym, i nie uzbraja się
+sama po wypadku (szczegóły: [WDROZENIE_TESTOWE.md](WDROZENIE_TESTOWE.md)
+§5.12).
 
 ## 10. Agent i BCM: sekret, moduły, parowanie, SMS
 
@@ -506,9 +512,12 @@ M910q i zasilanie USB telefonu. Alarm działa więc **w telefonie**: po ok.
 5 min bez prądu i bez kontaktu z BCM telefon sam się uzbraja, pilnuje
 przechyłu i wstrząsów akcelerometrem, odpowiada na polecenia SMS z Twoich
 numerów i wysyła SMS alarmowy z pozycją. Rozbraja go tylko dowód właściciela:
-Twój telefon połączony z BCM przez Bluetooth, SMS `PARK OFF <kod>` albo kod
-wpisany w wierszu „Postój”. Pełny opis (okno wejścia, limity, bateria):
-`docs/WDROZENIE_TESTOWE.md` §5.12.
+Twój telefon połączony z BCM przez Bluetooth z rozmowami (HFP — samo
+„połączony” bez HFP się nie liczy), SMS `PARK OFF <kod>` albo kod wpisany
+w wierszu „Postój”. Wyłączenie alarmu w Ustawieniach → Moduły przy
+uzbrojonym NIE rozbraja (agent ≥ 1.5.0 pilnuje dalej do rozbrojenia), a po
+wypadku i 112 telefon przez 6 h sam się nie uzbraja. Pełny opis (okno
+wejścia, limity, bateria): `docs/WDROZENIE_TESTOWE.md` §5.12.
 
 W telefonie:
 
@@ -756,8 +765,9 @@ Zanim telefon trafi pod podsufitkę:
 - [ ] **Nadajnik IR** (przyda się do wybudzania BCM w wersji z buforem):
       `termux-infrared-frequencies` zwraca listę (z 38000 w zakresie).
       Samo wybudzanie — SMS `WAKE <kod>` albo skrót Termux:Widget
-      `wake.sh` — opisuje `ZASILANIE_BUFOROWANE.md` §14.6; w aucie
-      testowym bez bufora nie ma czego budzić.
+      `wake.sh`, razem z instalacją skrótu — opisuje
+      `ZASILANIE_BUFOROWANE.md` §14.6; w aucie testowym bez bufora nie ma
+      czego budzić.
 - [ ] **Prąd ładowania** z portu M910q (port daje tylko ~500 mA, §18):
 
       ```bash
@@ -812,7 +822,13 @@ w wierszu „Telefon w aucie”.
   w promieniu ±25 cm od lusterka, kabel nigdy między poduszką a tapicerką.
 - **Zasilanie**: port M910q daje ~500 mA i gaśnie razem z autem. Na stałe —
   wstrzykiwacz zasilania przy M910q (przetwornica 12 → 5,1–5,2 V,
-  bezpiecznik 2 A, odcięte VBUS od strony komputera).
+  bezpiecznik 2 A, odcięte VBUS od strony komputera). **W wariancie
+  testowym przetwornica bierze 12 V z obwodu zapłonu** (to samo, co gaśnie
+  z autem), nigdy ze stałego 12 V ani z bufora: alarm na postoju i czuwanie
+  kabiny uzbrajają się same właśnie po UTRACIE zasilania USB
+  (`WDROZENIE_TESTOWE.md` §5.12). Telefon zasilany na postoju stale
+  zostaje „podłączony” i sam się nie uzbroi, a uzbrajania przez BCM przy
+  zgaszeniu (wersja z buforem) w tej wersji nie ma.
 - **Ciepło**: osłona przeciwsłoneczna na postoju, szczelina ≥ 10 mm. BCM
   ostrzega przy 45 °C i alarmuje przy 50 °C (`network.car_phone.warn_temp_c`,
   `network.car_phone.critical_temp_c`). Jeśli latem często przekracza

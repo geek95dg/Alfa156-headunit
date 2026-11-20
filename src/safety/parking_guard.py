@@ -11,13 +11,23 @@ BCM adds while it runs:
 
 * **Owner proof → disarm.** The phone disarms ONLY on proof of the owner,
   never on power or ignition alone (a thief turns the key too). BCM's proof
-  is the owner's phone connecting over Bluetooth (HFP, A2DP — wireless
-  Android Auto starts with the same Bluetooth connection): on the
-  connection EDGE of an owner phone (``bt.connected`` with a new address)
-  the worker sends ONE signed ``POST /v1/park/disarm {}`` — retried with
-  backoff until the phone confirms it (BCM boots faster than the agent
-  forward comes up) or :data:`DISARM_TTL_S` passes, never a second one for
-  the same connection. Owner phones: ``parking_guard.owner_macs`` (up to
+  is the owner's phone holding an AUTHENTICATED Bluetooth link: its
+  address in ``BluetoothManager.authenticated_peers()`` — oFono's HFP voice
+  modem for that address, which exists only after the RFCOMM channel came
+  up, i.e. after link-key authentication and encryption. ``bt.connected``
+  alone is NOT proof: BlueZ reports a device Connected at ACL level,
+  before authentication, so anyone presenting the owner's BD_ADDR (MAC
+  spoofing; the address is easy to learn) would pass. The owner address on
+  ``bt.connected`` (a new address = a connection EDGE) only starts the
+  check: the worker waits up to :data:`PROOF_WAIT_S` for the HFP link,
+  then sends ONE signed ``POST /v1/park/disarm {}`` — re-checking the proof
+  before every retry, retried with backoff until the phone confirms it
+  (BCM boots faster than the agent forward comes up) or
+  :data:`DISARM_TTL_S` passes, never a second one for the same connection;
+  ``bt.disconnected`` of that address cancels it. Without a live oFono
+  monitor there is no Bluetooth proof — the TOTP code (Rozbrój) and the SMS
+  ``PARK OFF <kod>`` still work. Residual risk: BIAS/KNOB-class attacks on
+  an unpatched Bluetooth controller. Owner phones: ``parking_guard.owner_macs`` (up to
   :data:`MAX_OWNER_MACS`, local.yaml) when set — ONLY those; otherwise the
   ``multimedia.last_bt_device`` read once at module start, i.e. the phone
   that was connected last BEFORE this boot (a phone paired today becomes
@@ -38,20 +48,26 @@ BCM adds while it runs:
   while an owner phone is connected (the same proof as above); otherwise
   with the 6-digit TOTP code from the owner's authenticator app, which the
   PHONE checks (BCM never knows the TOTP secret). A thief at the car's
-  screen has neither.
+  screen has neither (a spoofed address gives no HFP link).
 
 The settings themselves (numbers, log_only, home zone, thresholds) reach
 the phone through car_phone_agent's config push (``park_*`` keys, only
 while ``modules.parking_guard`` is on — see
 src/network/car_phone_agent.py). The toggle on the phone mirrors
-``modules.parking_guard``.
+``modules.parking_guard`` — but switching it off is NOT an owner proof
+(anyone at the car's screen can open Settings → Moduły): an armed phone
+(agent >= 1.5.0) keeps guarding with its last settings until the owner's
+proof (``off_pending`` in the state), and web_viewer refuses the toggle
+with ``disarm_first`` while the last state is armed without the owner's
+phone (:func:`disarm_first`).
 
 Published ``park.state`` (on change)::
 
     {state, since, by, arm_at, last_event {kind, ts, value, logged_only} | None,
      battery_pct, power, log_only, light, sensor, totp_ready, numbers_n,
-     home_set, alarms_today, entry_until, owner_connected, owner_known,
-     disarm_pending, error, cmd {action, ok, error, ts} | None}
+     home_set, alarms_today, entry_until, off_pending, owner_connected,
+     owner_unproven, owner_known, bt_proof, disarm_pending, error,
+     cmd {action, ok, error, ts} | None}
 
     state: unknown (no answer yet) | off | disarmed | arming | armed | alarm
            | log_only
@@ -88,11 +104,15 @@ ERRORS = ("", "no_agent", "agent_outdated", "no_answer", "agent_error")
 CMD_ACTIONS = ("arm", "disarm")
 CMD_ERRORS = ("", "no_agent", "agent_outdated", "no_answer", "parking_guard_off", "bad_code",
               "code_used", "no_totp", "rate_limited", "low_battery", "owner_required",
-              "agent_error")
+              "agent_error", "crash_holdoff")
 #: GET /v1/park every 30 s while the phone answers; backoff while not.
 POLL_S = 30.0
 POLL_FAIL_MIN_S = 10.0
 POLL_FAIL_MAX_S = 120.0
+#: How long a connection edge of an owner address waits for the
+#: authenticated HFP link (oFono's modem comes a few seconds after connect).
+PROOF_WAIT_S = 60.0
+PROOF_POLL_S = 2.0
 #: The disarm of one connection edge: retried 5 s → 60 s, given up after 15 min.
 DISARM_RETRY_MIN_S = 5.0
 DISARM_RETRY_MAX_S = 60.0
@@ -167,15 +187,20 @@ class ParkingGuard:
         agent_getter: returns the running CarPhoneAgent or None.
         clock / wall_clock: monotonic / epoch seconds (tests pass fakes).
         notify: ``publish_notification``-compatible (tests).
+        bt_manager: the shared BluetoothManager (main.py) — its
+            ``authenticated_peers()`` is the Bluetooth owner proof; None =
+            no Bluetooth proof (code / SMS only).
     """
 
     def __init__(self, config: Any, event_bus: Any,
                  agent_getter: Optional[Callable[[], Any]] = None,
                  clock: Callable[[], float] = time.monotonic,
                  wall_clock: Callable[[], float] = time.time,
-                 notify: Optional[Callable[..., Any]] = None) -> None:
+                 notify: Optional[Callable[..., Any]] = None,
+                 bt_manager: Any = None) -> None:
         self._config = config
         self._bus = event_bus
+        self._bt = bt_manager
         self._agent_getter = agent_getter or _cpa.get_agent
         self._clock = clock
         self._wall = wall_clock
@@ -203,6 +228,11 @@ class ParkingGuard:
         self._speed: Optional[tuple[float, float]] = None
         log.info("Parking guard ready (owner phones: %d from %s)", len(self._owners),
                  self._owner_source or "nowhere — set parking_guard.owner_macs")
+        if bt_manager is None:
+            log.warning("Parking guard: no Bluetooth (modules.bluetooth off or no adapter) — "
+                        "the owner's phone cannot disarm; only the TOTP code (Rozbrój) and "
+                        "SMS PARK OFF <kod> do, otherwise every engine start alarms after "
+                        "parking_guard grace_min")
 
     # ── lifecycle ─────────────────────────────────────────────────────────
 
@@ -322,10 +352,27 @@ class ParkingGuard:
 
     # ── API for the web routes (any thread, no I/O) ───────────────────────
 
+    def _proven(self, mac: Optional[str]) -> bool:
+        """``mac`` holds an authenticated HFP link now (no I/O)."""
+        if mac is None or self._bt is None:
+            return False
+        try:
+            peers = self._bt.authenticated_peers()
+        except Exception:
+            return False
+        return isinstance(peers, (set, frozenset)) and mac in peers
+
+    def _owner_link(self) -> tuple[bool, bool]:
+        """``(owner address connected, and proven)``."""
+        with self._lock:
+            mac = self._connected if self._connected in self._owners else None
+        return mac is not None, self._proven(mac)
+
     @property
     def owner_connected(self) -> bool:
-        with self._lock:
-            return self._connected is not None and self._connected in self._owners
+        """An owner phone is connected WITH an authenticated HFP link (the
+        proof for "Rozbrój" without a code) — never the address alone."""
+        return self._owner_link()[1]
 
     @property
     def moving(self) -> bool:
@@ -374,8 +421,17 @@ class ParkingGuard:
             self._bt_on(cmd[1])
         elif kind == "bt_off":
             with self._lock:
-                if cmd[1] is None or cmd[1] == self._connected:
+                gone = cmd[1] is None or cmd[1] == self._connected
+                if gone:
                     self._connected = None
+            if gone and self._disarm is not None:
+                # The proof is the LIVE link: a disarm not confirmed yet is
+                # not retried after it went away (a spoofed address may get
+                # a short connection; the real owner's next connection is a
+                # new edge anyway).
+                log.info("Parking guard: the owner's phone disconnected before the phone "
+                         "confirmed the disarm — not retried")
+                self._disarm = None
         elif kind == "agent_ok":
             # The agent (re)appeared: a pending disarm and a poll go now.
             if self._disarm is not None:
@@ -399,8 +455,10 @@ class ParkingGuard:
             log.info("Parking guard: a phone that is not the owner's connected — no disarm")
             return
         now = self._clock()
-        self._disarm = {"since": now, "next": 0.0, "delay": DISARM_RETRY_MIN_S, "tries": 0}
-        log.info("Parking guard: the owner's phone connected — disarming the phone's guard")
+        self._disarm = {"since": now, "next": 0.0, "delay": DISARM_RETRY_MIN_S, "tries": 0,
+                        "mac": mac, "proof_until": now + PROOF_WAIT_S, "sent": False}
+        log.info("Parking guard: the owner's phone connected — waiting for its HFP link "
+                 "before disarming")
 
     def _agent(self) -> Any:
         try:
@@ -420,7 +478,18 @@ class ParkingGuard:
                             DISARM_TTL_S // 60)
                 self._disarm = None
             elif now >= d["next"]:
-                self._send_disarm(now)
+                if self._proven(d["mac"]):
+                    self._send_disarm(now)
+                elif not d["sent"] and now >= d["proof_until"]:
+                    log.warning("Parking guard: the owner's address connected, but no HFP "
+                                "link within %d s — NOT disarmed (a bare connection is no "
+                                "proof; Rozbrój with the code or PARK OFF <kod>)",
+                                PROOF_WAIT_S)
+                    self._disarm = None
+                else:
+                    # No proof (yet / any more): checked again shortly,
+                    # never sent without it.
+                    d["next"] = now + PROOF_POLL_S
             if self._disarm is not None:
                 waits.append(self._disarm["next"] - now)
         if now >= self._next_poll:
@@ -434,6 +503,7 @@ class ParkingGuard:
         assert d is not None
         agent = self._agent()
         d["tries"] += 1
+        d["sent"] = True
         res = agent.park_disarm() if agent is not None else {"ok": False, "error": "no_agent"}
         if res.get("ok") or res.get("error") == "parking_guard_off":
             # Done for this connection (with the phone's toggle off there is
@@ -528,8 +598,7 @@ class ParkingGuard:
 
     def payload(self) -> dict[str, Any]:
         view = self._view or {}
-        with self._lock:
-            owner_connected = self._connected is not None and self._connected in self._owners
+        owner_present, owner_connected = self._owner_link()
         out: dict[str, Any] = {
             "state": view.get("state", "unknown") if view else "unknown",
             "since": view.get("since"), "by": view.get("by", ""),
@@ -543,8 +612,14 @@ class ParkingGuard:
             "home_set": bool(view.get("home_set")),
             "alarms_today": int(view.get("alarms_today") or 0),
             "entry_until": view.get("entry_until"),
+            "off_pending": bool(view.get("off_pending")),
             "owner_connected": owner_connected,
+            # The owner's address is connected, but without the HFP link
+            # that proves it (no oFono, HFP off on the phone — or spoofed).
+            "owner_unproven": owner_present and not owner_connected,
             "owner_known": bool(self._owners),
+            # Without the BluetoothManager there is no Bluetooth proof.
+            "bt_proof": self._bt is not None,
             "disarm_pending": self._disarm is not None,
             "error": self._error if self._error in ERRORS else "agent_error",
             "cmd": dict(self._cmd) if self._cmd else None,
@@ -569,18 +644,33 @@ _INSTANCE: Optional[ParkingGuard] = None
 _INSTANCE_LOCK = threading.Lock()
 
 
+def disarm_first(state: Any) -> bool:
+    """For Settings → Moduły: True when switching ``parking_guard`` /
+    ``cabin_watch`` off must wait for the owner's disarm — the last
+    ``park.state`` is armed (or alarming, or an entry window runs) and no
+    owner phone is connected. Only the screen's answer: the phone itself
+    (agent >= 1.5.0) keeps guarding regardless; an unknown state allows it."""
+    if not isinstance(state, dict):
+        return False
+    armed = state.get("state") in ("armed", "alarm", "log_only") \
+        or state.get("entry_until") is not None or state.get("off_pending") is True
+    return armed and state.get("owner_connected") is not True
+
+
 def get_parking_guard() -> Optional[ParkingGuard]:
     """The running module, or None (not enabled, not started, stopped)."""
     with _INSTANCE_LOCK:
         return _INSTANCE
 
 
-def start_parking_guard(config, event_bus, hal=None, **kwargs) -> ParkingGuard:
+def start_parking_guard(config, event_bus, hal=None, bt_manager=None,
+                        **kwargs) -> ParkingGuard:
     """Module entry point (``modules.parking_guard``): builds the object,
     registers it for :func:`get_parking_guard`, subscribes and starts its one
-    daemon thread; every agent request happens there."""
+    daemon thread; every agent request happens there. ``bt_manager`` (main.py
+    passes the shared BluetoothManager) gives the Bluetooth owner proof."""
     global _INSTANCE
-    module = ParkingGuard(config, event_bus)
+    module = ParkingGuard(config, event_bus, bt_manager=bt_manager)
     with _INSTANCE_LOCK:
         _INSTANCE = module
     module.start()

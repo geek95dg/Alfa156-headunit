@@ -168,16 +168,20 @@ MODULES: dict[str, dict] = {
     # Plan D4: the alarm on the parked car runs ON THE PHONE (bcm_agent.py,
     # ParkGuard) — BCM is off when the car is parked. BCM's part
     # (src/safety/parking_guard.py): the owner proof on the phone's
-    # Bluetooth connection edge (disarm), the phone's park state on
+    # authenticated Bluetooth (HFP) link (disarm), the phone's park state on
     # park.state and the Settings row "Postój" (Uzbrój / Rozbrój, loopback
     # only). Never alarm.sensor.* (that is the siren alarm module).
+    # Bluetooth is NOT in ``requires``: without it the module still shows
+    # the state and disarms with the TOTP code — it warns at start and the
+    # row says so (the owner's phone cannot be the proof then).
     "parking_guard": {"part": 22, "description": "Pozycja i alarm auta na postoju (działa w telefonie)",
                      "entry": ("src.safety.parking_guard", "start_parking_guard"),
                      "default": False, "group": "telefon_w_aucie",
                      "requires": ("car_phone_agent",),
                      "hardware": "Redmi z kartą SIM (SMS), agent ≥ 1.2.0; sekret TOTP: "
                                  "bcm_agent.py --park-setup; numery i dom w local.yaml "
-                                 "(parking_guard)"},
+                                 "(parking_guard); Bluetooth z HFP (oFono) — telefon "
+                                 "właściciela rozbraja tylko z nim"},
     # Plan I: the cabin watch is a layer ON TOP of the parking guard and
     # runs on the phone too (bcm_agent.py, CabinWatch: light + motion → 3
     # photos with the front camera, analysed on the phone, alarm SMS after the
@@ -228,10 +232,10 @@ MODULES: dict[str, dict] = {
     "small_display": {"part": 2,  "description": "4.3\" stats display server (port 5003)",
                      "default": True},
 
-    # --- planned modules (plan sections D3–I): listed, never started ---
+    # --- add-ons read inside other modules, and the buffered-power build ---
     # Every one defaults to False and is the ONLY switch of its feature
-    # (no ``enabled`` sub-keys in the config blocks). ``planned`` goes away
-    # when the code lands; ``requires`` already describes the final graph.
+    # (no ``enabled`` sub-keys in the config blocks). None is ``planned``
+    # any more (the mechanism is described in the module docstring).
     # Plan D2 — read inside car_phone (no start path of its own): the
     # hotspot status in its Settings row. Read-only; the hotspot itself is
     # configured and switched on the phone.

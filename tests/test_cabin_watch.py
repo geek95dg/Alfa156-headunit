@@ -75,6 +75,14 @@ class FakeAgent:
         self.view = json.loads(json.dumps(VIEW))
         self.result = None
         self.thread_ids = set()
+        self.event_results = []
+
+    def park_event(self, kind):
+        self.calls.append(("event", kind))
+        if self.event_results:
+            return dict(self.event_results.pop(0))
+        return {"ok": True, "status": 200, "data": {"accepted": True}, "error": "",
+                "detail": ""}
 
     def cabin_status(self):
         self.calls.append("status")
@@ -422,6 +430,84 @@ class TestEndToEnd:
         _paired_module(tmp_path, bus, phone, _push_config(entry_s=50))
         assert bus.get_last(cpa.TOPIC)[0]["reason"] == "agent_outdated"
         assert phone.agent.config["cabin_entry_s"] == 60          # it never got it
+
+
+# ── the door signal (plan I T0 + E, buffered build) ──────────────────────
+
+def _wake(env, reason="door", since=T0, state="session"):
+    env.bus.publish(cw._rs.TOPIC_STATE, {"state": state, "reason": reason, "since": since})
+
+
+class TestDoorSignal:
+    @pytest.fixture
+    def denv(self, env):
+        env.m._subscribed = True
+        for topic, cb in env.m._subscriptions():
+            env.bus.subscribe(topic, cb)
+        return env
+
+    def _events(self, env):
+        return [c for c in env.agent.calls if isinstance(c, tuple)]
+
+    def test_one_door_signal_per_door_wake_up(self, denv):
+        _wake(denv)
+        denv.run()
+        assert self._events(denv) == [("event", "door")]
+        _wake(denv)                                      # the same wake-up again
+        denv.clock.advance(cw.DOOR_RETRY_S)
+        denv.run()
+        assert self._events(denv) == [("event", "door")]
+        _wake(denv, since=T0 + 3600)                     # a new wake-up
+        denv.run()
+        assert self._events(denv) == [("event", "door")] * 2
+
+    @pytest.mark.parametrize("value", [
+        {"state": "session", "reason": "ir", "since": T0},
+        {"state": "idle", "reason": "door", "since": T0},
+        {"state": "session", "reason": "door", "since": None},
+        {"state": "session", "reason": "door", "since": True},
+        "door", None])
+    def test_nothing_else_sends_it(self, denv, value):
+        denv.bus.publish(cw._rs.TOPIC_STATE, value)
+        denv.run()
+        assert self._events(denv) == []
+
+    def test_retried_until_the_forward_is_up_then_given_up(self, denv):
+        denv.agent.event_results = [{"ok": False, "error": "no_forward"}] * 2
+        _wake(denv)
+        denv.run()
+        assert len(self._events(denv)) == 1
+        denv.run()                                       # not due yet
+        assert len(self._events(denv)) == 1
+        denv.clock.advance(cw.DOOR_RETRY_S)
+        denv.run()
+        denv.clock.advance(cw.DOOR_RETRY_S)
+        denv.run()
+        assert len(self._events(denv)) == 3 and denv.m._door is None
+        # a forward that never comes up: given up after DOOR_TTL_S
+        denv.agent.event_results = [{"ok": False, "error": "connect"}] * 100
+        _wake(denv, since=T0 + 3600)
+        for _ in range(int(cw.DOOR_TTL_S / cw.DOOR_RETRY_S) + 5):
+            denv.run()
+            denv.clock.advance(cw.DOOR_RETRY_S)
+        n = len(self._events(denv))
+        assert denv.m._door is None and n <= 3 + int(cw.DOOR_TTL_S / cw.DOOR_RETRY_S) + 1
+        denv.run()
+        assert len(self._events(denv)) == n
+
+    def test_a_refusal_is_not_retried(self, denv):
+        denv.agent.event_results = [{"ok": False, "error": "parking_guard_off", "status": 409}]
+        _wake(denv)
+        denv.run()
+        denv.clock.advance(cw.DOOR_RETRY_S)
+        denv.run()
+        assert self._events(denv) == [("event", "door")] and denv.m._door is None
+
+    def test_sent_from_the_worker_never_the_dispatcher(self, denv):
+        _wake(denv)
+        assert self._events(denv) == []                  # the bus callback only queues
+        denv.run()
+        assert self._events(denv) == [("event", "door")]
 
 
 # ── the dashboard summary ────────────────────────────────────────────────

@@ -104,7 +104,8 @@ follow-up SMS from the cancel budget. crash_sms uses ``reached`` only as
 a trigger to re-read the phone's ``follow_up_left``. ``uplink`` (path A):
 ``unknown`` | ``ok`` | ``missing`` from ``audio.call_route``.
 ``unverified``: the car phone placed the call but its state is not
-readable (or it stopped answering) — followed for at most
+readable (or it stopped answering — also right after it accepted the call
+while still ``queued``) — followed for at most
 :data:`UNVERIFIED_FOLLOW_MAX_S` more, then ``ended`` (still unverified),
 so a call BCM can no longer see never keeps the window, the media mute
 and the ignored steering-wheel hang-up for an hour. ``incoming``: the
@@ -747,6 +748,14 @@ class Call112:
     def _window_open_locked(self, now: float, cfg: Call112Config) -> bool:
         ev = self._event
         if ev is None or ev["dismissed"]:
+            return False
+        if ev.get("source") == "test" and not (cfg.test_mode and cfg.test_number):
+            # A bench-test window (open_test_window) exists only in test mode
+            # with a test number: request_call picks the number from the
+            # CURRENT mode, so outside it this window would offer the real
+            # 112 without any crash. Every path (payload, dispatcher panel,
+            # request_call) goes through here; a live test call can still be
+            # hung up (request_hangup needs no window).
             return False
         if self._call is not None and self._call["state"] in LIVE:
             return True
@@ -1469,7 +1478,16 @@ class Call112:
                     self._end_locked(call, now, wall)
                     return
             call["poll_fails"] += 1
-            if call["poll_fails"] >= POLL_FAILS_UNVERIFIED and call["state"] != "dialing":
+            # A 'dialing' call is left alone only while the lost-answer
+            # deadline runs (verify_until; it fails 'no_phone' there). One the
+            # agent accepted (200, still 'queued') and then went silent —
+            # cable knocked out, forward gone, Termux killed — is placed by
+            # the agent's own call thread anyway: unverified, ended after
+            # UNVERIFIED_FOLLOW_MAX_S instead of blocking the window, the
+            # media mute, the main-phone fallback and the steering-wheel
+            # hang-up for CALL_FOLLOW_MAX_S (an hour).
+            if call["poll_fails"] >= POLL_FAILS_UNVERIFIED and (
+                    call["state"] != "dialing" or call["verify_until"] is None):
                 self._unverified_locked(call, now)
             call["next_poll"] = now + (POLL_SLOW_S if call["poll_fails"]
                                        >= POLL_FAILS_UNVERIFIED else POLL_LIVE_S)
@@ -1563,15 +1581,22 @@ class Call112:
             }
 
     def _publish(self) -> None:
+        """Called by the worker AND the web threads (request_call, hangup,
+        dismiss): compare, store and publish under one lock, otherwise an
+        older payload could reach the bus after a newer one while
+        ``_published`` holds the newer — and every later identical payload
+        would be deduplicated (a closed window stuck at ``window: true``, a
+        stale LIVE state ignoring the steering-wheel hang-up). The bus only
+        records and enqueues (no subscriber calls back into this module)."""
         out = self.payload()
         with self._lock:
             if out == self._published:
                 return
             self._published = out
-        try:
-            self._bus.publish(TOPIC_STATE, dict(out))
-        except Exception:
-            log.exception("Publishing %s failed", TOPIC_STATE)
+            try:
+                self._bus.publish(TOPIC_STATE, dict(out))
+            except Exception:
+                log.exception("Publishing %s failed", TOPIC_STATE)
 
     # ── persistence ────────────────────────────────────────────────────────
 
@@ -1627,6 +1652,15 @@ class Call112:
         age = wall - det["ts"]
         cfg = load_config(self._config)
         if not 0 <= age <= cfg.window_min * 60.0:
+            return
+        if det["source"] == "test" and not (cfg.test_mode and cfg.test_number):
+            # The bench test before switching test_mode off (docs §5.11): its
+            # window must never come back as a real-112 window. Not restored,
+            # and the file is overwritten with no event right away.
+            log.info("112: test window from before the restart not restored — not in test "
+                     "mode")
+            self._saved = None
+            self._save()
             return
         with self._lock:
             self._event = dict(det, at_mono=now - age,

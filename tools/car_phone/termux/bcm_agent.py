@@ -275,6 +275,25 @@ prąd komputerowi i USB telefonu), więc wszystko dzieje się TU, w telefonie.
   ekranie auta, sprawdzany tutaj); SMS ``PARK OFF <kod>`` z numeru z białej
   listy. Prąd, który wraca przy uzbrojonym, daje ``park_grace_min`` (3) min
   na dowód; potem alarm „zasilanie wrocilo bez telefonu wlasciciela”.
+  Wyłączenie ``modules.parking_guard`` / ``modules.cabin_watch`` w BCM
+  (Ustawienia → Moduły — ma je każdy przy ekranie auta) NIE jest dowodem:
+  przy uzbrojonym albo w alarmie alarm i czuwanie pilnują dalej (stare
+  ustawienia ``park_*`` / ``cabin_*`` zostają, ``off_pending`` w widoku),
+  a wyłączenie działa dopiero po rozbrojeniu dowodem właściciela, niską
+  baterią albo strefą „dom”.
+* **Po wypadku i 112** (:data:`PARK_CRASH_HOLDOFF_S`, 6 h): wariant testowy
+  nie ma bufora, więc odcięcie prądu po wypadku wygląda jak zwykły postój,
+  a ratownicy, policja i laweta otwierają drzwi i podnoszą auto. Przez 6 h
+  po wypadku od BCM (``POST /v1/crash``, nieodwołany, nie na próbę) albo po
+  prawdziwym 112 z tego telefonu oraz w czasie każdej rozmowy 112 alarm NIE
+  uzbraja się sam (zasilanie, BCM — ``SMS PARK ON <kod>`` działa); alarm,
+  który się uzbraja albo jest uzbrojony, gdy przychodzi wypadek / 112,
+  zostaje rozbrojony bez alarmu (czekający alarm okna wejścia i czekające
+  zdarzenie kabiny odwołane, ich zdjęcia usunięte; alarmy rozstrzygnięte
+  wcześniej zostają). W czasie rozmowy 112 czuwanie kabiny nie robi zdjęć
+  i nie przełącza ekranu. Działa TYLKO, gdy BCM doręczył wypadek
+  telefonowi (``modules.crash_sms`` i sparowany agent) albo 112 poszło
+  z tego telefonu.
 * **Okno wejścia** (``park_entry_s``, 90 s; 0 = alarm od razu): przechył
   albo wstrząs przy uzbrojonym nie alarmuje od razu — właściciel, który
   otwiera drzwi i siada, wygląda dla czujnika tak samo jak złodziej, a jego
@@ -340,8 +359,9 @@ prąd komputerowi i USB telefonu), więc wszystko dzieje się TU, w telefonie.
   agenta albo telefonu go nie gubi. ``GET /v1/park``: ``{state (off |
   disarmed | arming | armed | alarm | log_only), since, by, arm_at,
   last_event, battery {pct, power}, log_only, light, sensor, totp_ready,
-  numbers_n, home_set, alarms_today, entry_until}`` (``entry_until`` =
-  termin czekającego alarmu okna wejścia albo null).
+  numbers_n, home_set, alarms_today, entry_until, off_pending}``
+  (``entry_until`` = termin czekającego alarmu okna wejścia albo null;
+  ``off_pending`` = wyłączony w BCM, pilnuje do dowodu właściciela).
 
 Uprawnienia Termux:API dla alarmu na postoju: **SMS** (odczyt skrzynki
 odbiorczej i wysyłka), **Lokalizacja: zawsze** (Android 13: „Zezwalaj cały
@@ -477,6 +497,12 @@ nie ma czego budzić: przełącznik zostaje wyłączony.
   postoju, GSM-7): ``ALFA 156: BUDZENIE wyslane`` albo powód odmowy
   (wyłączone, limit, nieudane). „Wysłane” znaczy: dioda nadała — czy
   komputer wstał, decyduje Nano (BCM po starcie pokaże baner „Wybudzono”).
+  Gdy BCM milczał przed budzeniem (:data:`WAKE_SILENT_S`) i w ciągu
+  :data:`WAKE_CONFIRM_S` przyjdzie od niego pierwsze podpisane żądanie,
+  ten sam numer dostaje drugą odpowiedź ``ALFA 156: komputer obudzony -
+  BCM odpowiada`` (raz na budzenie; bez 2-minutowej przerwy odpowiedzi,
+  w dziennym budżecie). Bez niej po 10 min — komputer nie wstał albo nie
+  doszedł do agenta (brak osobnego SMS-a „nie wstał”).
 * NIESPRAWDZONE na crDroid 13: że Termux:API obsługuje nadajnik IR tego
   telefonu (``termux-infrared-frequencies`` powinno pokazać zakres z 38 kHz)
   i że wzorzec 3 ramek mieści się w limicie długości ConsumerIrManager.
@@ -533,7 +559,11 @@ except ImportError:                 # pragma: no cover
 #: 1.4.0 — budzenie komputera podczerwienią (plan E): przełącznik
 #: ``toggles.remote_session``, pola ``wake_*``, SMS ``WAKE <kod>``,
 #: ``--wake`` (wymagane przez BCM z włączonym ``modules.remote_session``).
-VERSION = "1.4.0"
+#: 1.5.0 — wyłączenie z BCM przy uzbrojonym czeka na dowód właściciela
+#: (``off_pending``), alarm na postoju nie uzbraja się sam po wypadku i 112,
+#: kabina bez zdjęć w czasie rozmowy 112, odpowiedź „komputer obudzony” po
+#: ``WAKE <kod>``. BCM tej wersji nie wymaga.
+VERSION = "1.5.0"
 
 log = logging.getLogger("bcm_agent")
 
@@ -671,9 +701,11 @@ PARK_STATES = ("off", "disarmed", "arming", "armed", "alarm", "log_only")
 PARK_SAVED_STATES = ("disarmed", "arming", "armed", "alarm")
 #: Kto/co ustawiło bieżący stan (``by`` w widoku i w park.json).
 PARK_BY = ("", "power", "bcm", "sms", "owner_bt", "owner_sms", "owner_code", "low_battery",
-           "home", "off", "power_back")
-#: ``cabin`` = alarm czuwania kabiny (plan I) — ten sam „alarm auta”.
-PARK_EVENT_KINDS = ("tilt", "shake", "power", "low_battery", "home", "cabin")
+           "home", "off", "power_back", "crash")
+#: ``cabin`` = alarm czuwania kabiny (plan I) — ten sam „alarm auta”;
+#: ``crash_holdoff`` = po wypadku / 112 bez uzbrojenia albo rozbrojony
+#: (:data:`PARK_CRASH_HOLDOFF_S`).
+PARK_EVENT_KINDS = ("tilt", "shake", "power", "low_battery", "home", "cabin", "crash_holdoff")
 #: Konfiguracja z BCM (``PUT /v1/config``), wartości domyślne. Klucze
 #: ``park_*`` liczą się do skrótu konfiguracji TYLKO przy włączonym
 #: przełączniku ``parking_guard`` (zgodność wersji — jak ``call112_*``).
@@ -727,10 +759,24 @@ PARK_ENTRY_FRESH_S = 5.0
 #: drzwi i siada — to samo, co złodziej). Zasilanie bez właściciela ma
 #: własne okno (``park_grace_min``).
 PARK_ENTRY_KINDS = ("tilt", "shake")
-#: Rozbrojenia przez właściciela (albo wyłączenie przełącznika z BCM): tylko
-#: one kasują czekający alarm i SMS-y alarmowe, które jeszcze nie wyszły.
+#: Rozbrojenia przez właściciela: tylko one kasują czekający alarm i SMS-y
+#: alarmowe, które jeszcze nie wyszły (wypadek — ``crash`` — kasuje tylko
+#: czekający, patrz :meth:`ParkGuard.crash_locked`).
 #: Niska bateria — nie: prawdziwy alarm ma wyjść mimo rozbrojenia.
-PARK_OWNER_BY = ("owner_bt", "owner_code", "owner_sms", "off")
+#: Wyłączenie przełącznika z BCM (``off``) TEŻ NIE jest dowodem właściciela:
+#: Ustawienia → Moduły ma każdy, kto siedzi przy ekranie auta (złodziej po
+#: zapłonie też) — przy uzbrojonym czeka na dowód (:meth:`ParkGuard.step`).
+PARK_OWNER_BY = ("owner_bt", "owner_code", "owner_sms")
+#: Po wypadku (zdarzenie od BCM ``POST /v1/crash``, nieodwołane, nie na
+#: próbę) albo po „Zadzwoń 112” z tego telefonu (prawdziwe, nie testowe):
+#: tyle sekund bez SAMEGO uzbrojenia (zasilanie, BCM). Wariant testowy nie
+#: ma bufora — odcięcie prądu po wypadku wygląda dla telefonu jak zwykły
+#: postój, a właściciel jest przy aucie, ale nie ma jak tego udowodnić
+#: (BCM nie działa, ranny kierowca nie wyśle PARK OFF). Krócej niż
+#: :data:`KEEP_EVENTS_S` — zdarzenie jest jeszcze w pamięci. Działa TYLKO,
+#: gdy BCM doręczył wypadek telefonowi (``modules.crash_sms`` + sparowany
+#: agent) albo 112 poszło z tego telefonu.
+PARK_CRASH_HOLDOFF_S = 6 * 3600
 #: Samo uzbrojenie i to od BCM: paczka próbek tuż przed uzbrojeniem; ruch
 #: większy niż jazda (odchylenie od średniej, m/s²) przesuwa uzbrojenie
 #: o minutę — najwyżej tyle razy (potem uzbrajam mimo to: czujnik, który
@@ -810,6 +856,13 @@ NEC_FRAMES = 3
 NEC_PERIOD_US = 108000
 #: Limit w telefonie (Nano ma własny: 3/h, 6/dobę przyjętych pobudek).
 WAKE_COOLDOWN_S = 60
+#: Po udanym ``WAKE <kod>``: pierwsze podpisane żądanie BCM w tym czasie =
+#: „komputer obudzony” (BCM wstaje i forward agenta rośnie w 1–2 min; Nano
+#: daje 10 min dzierżawy).
+WAKE_CONFIRM_S = 600
+#: … ale tylko, gdy BCM milczał przed budzeniem co najmniej tyle (działający
+#: BCM pyta co 30 s — jego żądanie nie znaczy, że budzenie zadziałało).
+WAKE_SILENT_S = 120
 WAKE_MAX_PER_HOUR = 3
 WAKE_MAX_PER_DAY = 6
 WAKE_FILE = "wake.json"
@@ -829,16 +882,22 @@ WAKE_RESULTS = ("sent", "off", "rate", "busy", "no_ir", "failed")
 #: ``pending`` = zdarzenie czeka w oknie wejścia na dowód właściciela.
 CABIN_STATES = ("off", "idle", "watching", "pending")
 #: Stan warstwy kamery: ``ok`` albo powód, dla którego jest wyłączona.
+#: ``in_call`` = trwa połączenie 112 z tego telefonu (ekran rozmowy ma
+#: zostać na wierzchu, żadnych zdjęć ludzi przy aucie).
 CABIN_CAMERA = ("ok", "unknown", "light_mode", "low_battery", "no_temp", "cold", "hot",
-                "charging_hot", "no_space", "no_front_camera", "bad_path")
+                "charging_hot", "no_space", "no_front_camera", "bad_path", "in_call")
 #: Wynik zdarzenia: ``pending`` (okno wejścia) → ``alarm`` (SMS w kolejce) |
 #: ``owner`` (dowód właściciela: odwołane, zdjęcia usunięte) | ``off``
-#: (przełącznik wyłączony z BCM — jak dowód właściciela) | ``logged``
-#: (``park_log_only``: bez SMS-a) | ``limited`` (budżet SMS-ów alarmu auta
-#: wyczerpany) | ``no_numbers`` | ``expired`` (agent nie działał w chwili
-#: terminu, ponad 30 min temu).
+#: (tylko w starych plikach stanu: dawniej wyłączenie z BCM odwoływało jak
+#: dowód właściciela) | ``crash`` (wypadek / 112: odwołane, zdjęcia
+#: usunięte) | ``logged`` (``park_log_only``: bez SMS-a) | ``limited``
+#: (budżet SMS-ów alarmu auta wyczerpany) | ``no_numbers`` | ``expired``
+#: (agent nie działał w chwili terminu, ponad 30 min temu).
 CABIN_OUTCOMES = ("pending", "alarm", "owner", "off", "logged", "limited", "no_numbers",
-                  "expired")
+                  "expired", "crash")
+#: Wyniki, przy których zdjęcia zdarzenia są usuwane i które nie liczą się
+#: do limitu serii (wejście właściciela / po wypadku nie zużywa budżetu).
+CABIN_PURGED = ("owner", "off", "crash")
 #: Sygnały w kolejności, w jakiej trafiają do treści SMS-a. ``power`` =
 #: prąd wrócił (zapłon) bez dowodu właściciela — tylko dopisek do alarmu.
 CABIN_SIGNALS = ("door", "light", "shake", "tilt", "power")
@@ -1403,6 +1462,8 @@ def wake_reply_text(label: str, result: str) -> str:
         "rate": (f"{label}: BUDZENIE odrzucone - limit (1 na minute, {WAKE_MAX_PER_HOUR} na "
                  f"godzine, {WAKE_MAX_PER_DAY} na dobe)"),
         "busy": f"{label}: BUDZENIE odrzucone - trwa inne budzenie",
+        # Druga odpowiedź: po budzeniu przyszło pierwsze żądanie od BCM.
+        "woke": f"{label}: komputer obudzony - BCM odpowiada",
     }.get(result, f"{label}: BUDZENIE nieudane - brak nadajnika IR albo blad Termux:API")
 
 
@@ -1944,7 +2005,8 @@ class Agent:
         self.config = self._load_config()
         self.meta = self._load_json("meta.json", {"last_test_wall": None, "last_sent_ts": None,
                                                   "last_verified_test_ts": None, "test": None,
-                                                  "call112_wall": None, "park_sms": []})
+                                                  "call112_wall": None, "park_sms": [],
+                                                  "call112_real_wall": None})
         # SMS-y alarmu na postoju (alarm, odpowiedzi, bateria) — w meta.json,
         # bo zapisuje go każdy krok harmonogramu wysyłki; uszkodzone pomijam.
         park_sms = self.meta.get("park_sms")
@@ -1959,7 +2021,11 @@ class Agent:
             self.meta["test"] = None
         elif test is not None:
             fill_delivery_defaults(test["delivery"])
-        for key in ("last_test_wall", "last_sent_ts", "last_verified_test_ts", "call112_wall"):
+        # ``call112_real_wall``: ostatnie PRAWDZIWE 112 z tego telefonu (nie
+        # cofane po nieudanym ``am start``) — wstrzymuje samo uzbrojenie
+        # alarmu na postoju (PARK_CRASH_HOLDOFF_S).
+        for key in ("last_test_wall", "last_sent_ts", "last_verified_test_ts", "call112_wall",
+                    "call112_real_wall"):
             if _number(self.meta.get(key), 0, EVENT_TS_MAX) is None:
                 self.meta[key] = None
         self.events: list[dict] = self._load_events()
@@ -1968,7 +2034,13 @@ class Agent:
         # limit 1 na minutę jest w meta.json). ``su`` sprawdzany w wątku
         # stanu: None = jeszcze nie wiadomo.
         self.call: Optional[dict] = None
-        self._call_seq = 0
+        # Numer połączenia rośnie także między restartami agenta (start od
+        # milisekund zegara): BCM, któremu zginęła odpowiedź na POST,
+        # rozpoznaje „swoje” połączenie po numerze większym niż każdy
+        # widziany w tym przebiegu BCM — po restarcie agenta od 1 nowe
+        # połączenie wyglądałoby na stare, BCM uznałby 112 za nieudane
+        # i zaproponował drugie z głównego telefonu.
+        self._call_seq = int(wall() * 1000)
         self.call_wake = threading.Event()
         self._su_ok: Optional[bool] = None
         self._su_checked: Optional[float] = None
@@ -2549,6 +2621,9 @@ class Agent:
         if norm is None:
             return 400, {"error": "bad_config", "detail": err}
         with self._lock:
+            # Alarm uzbrojony, a BCM wyłączył przełącznik: ustawienia alarmu
+            # zostają do dowodu właściciela (ParkGuard.keep_settings_locked).
+            kept = self.park.keep_settings_locked(norm)
             try:
                 self._save_json("config.json", norm)
             except OSError as e:
@@ -2571,6 +2646,9 @@ class Agent:
         if retest:
             log.warning("Recipients or SIM slot changed — the verified test no longer counts; "
                         "send a new test SMS")
+        if kept and changed:
+            log.warning("Config: %s switched off on BCM while the parking guard is armed — its "
+                        "settings stay until the owner disarms", "+".join(kept))
         if changed:
             log.info("Config updated: %d recipient(s), slot %d, toggles %s, dry_run=%s, "
                      "112: %s", len(norm["recipients"]), norm["sim_slot"],
@@ -2651,6 +2729,10 @@ class Agent:
             saved = self._try_save_events()
             if not saved:
                 ev["_unsaved"] = True
+            if not dry:
+                # Wypadek: alarm na postoju rozbrojony bez alarmu, samo
+                # uzbrojenie wstrzymane (PARK_CRASH_HOLDOFF_S).
+                self.park.crash_locked("crash event from BCM", wall)
         self.wake.set()
         log.warning("Event %s ARMED: SMS to %d recipient(s) in %d s%s", eid,
                     len(ev["crash"]["rcpt"]), countdown, " (dry run)" if dry else "")
@@ -2827,6 +2909,11 @@ class Agent:
                          "final": False, "hangup": False, "_prev_wall": last,
                          "_placed": None, "_idle": 0, "_seen_state": False}
             self.meta["call112_wall"] = wall
+            if mine == "real":
+                self.meta["call112_real_wall"] = wall
+            # Alarm na postoju / czuwanie kabiny nie mogą działać przy
+            # rozmowie z dyspozytorem (zdjęcia, Termux na wierzchu, SMS).
+            self.park.crash_locked("112 call", wall)
             try:
                 self._save_meta()
             except OSError as e:
@@ -4733,6 +4820,13 @@ class ParkGuard:
         self._light = False
         # Ile razy samo uzbrojenie przesunięto, bo auto jechało.
         self._moving_n = 0
+        # Wyłączony z BCM przy uzbrojonym (log raz na przejście).
+        self._off_held = False
+        # Po udanym WAKE z SMS-a, gdy BCM milczał: {num, until} — pierwsze
+        # podpisane żądanie BCM przed ``until`` = odpowiedź „obudzony”.
+        self._wake_confirm: Optional[dict] = None
+        # Powód wstrzymania samego uzbrojenia po wypadku (log raz na powód).
+        self._holdoff_logged: Optional[str] = None
         # Czujnik (wątek postoju; ``_det`` i ``_last_sample`` pod _det_lock).
         self._det_lock = threading.Lock()
         self._det = MotionDetector()
@@ -4776,7 +4870,81 @@ class ParkGuard:
             log.error("Cannot save the parking guard state: %s", _clean(e))
 
     def _on(self) -> bool:
+        """(pod blokadą) Alarm działa: przełącznik ``parking_guard`` z BCM
+        włączony ALBO alarm uzbrojony / w alarmie. Wyłączenie z BCM przy
+        uzbrojonym NIE jest dowodem właściciela (Ustawienia → Moduły ma
+        każdy, kto siedzi przy ekranie auta — złodziej po zapłonie też):
+        alarm pilnuje dalej (czujnik, terminy, SMS-y, polecenia SMS), aż
+        rozbroi go dowód właściciela, niska bateria albo strefa „dom”;
+        dopiero potem wyłączenie działa (``off_pending`` w widoku)."""
+        return self._toggle_on() or self.st["state"] in ("armed", "alarm")
+
+    def _toggle_on(self) -> bool:
         return bool(self.a.config["toggles"]["parking_guard"])
+
+    def keep_settings_locked(self, new: dict) -> list:
+        """Nowa konfiguracja z BCM (``PUT /v1/config``, pod blokadą, PRZED
+        zapisem): przy uzbrojonym albo w alarmie, gdy BCM wyłączył
+        ``parking_guard`` / ``cabin_watch``, ustawienia ``park_*`` /
+        ``cabin_*`` zostają stare. BCM przy wyłączonym przełączniku nie
+        wysyła tych pól, więc bez tego alarm, który ma pilnować do dowodu
+        właściciela, wróciłby do domyślnego ``park_log_only`` (bez SMS-a)
+        i bez numerów z BCM. Te pola nie liczą się wtedy do skrótu
+        konfiguracji, więc BCM nie widzi różnicy. Zwraca, co zostało."""
+        if self.st["state"] not in ("armed", "alarm"):
+            return []
+        old, kept = self.a.config, []
+        for toggle, defaults in (("parking_guard", PARK_DEFAULTS),
+                                 ("cabin_watch", CABIN_DEFAULTS)):
+            if not new["toggles"].get(toggle):
+                for k in defaults:
+                    v = old[k]
+                    new[k] = [list(r) if isinstance(r, list) else r for r in v] \
+                        if isinstance(v, list) else v
+                kept.append(toggle)
+        return kept
+
+    def call_live_locked(self) -> bool:
+        """(pod blokadą) Trwa połączenie 112 z tego telefonu."""
+        call = self.a.call
+        return call is not None and call["state"] in CALL_ACTIVE and not call["final"]
+
+    def crash_holdoff_locked(self, wall: float) -> Optional[str]:
+        """(pod blokadą) Powód, dla którego alarm nie uzbraja się SAM
+        (:data:`PARK_CRASH_HOLDOFF_S`), albo None: ``call112`` — trwa
+        połączenie 112 albo prawdziwe 112 poszło z tego telefonu niedawno;
+        ``crash`` — niedawny wypadek od BCM (nieodwołany, nie na próbę)."""
+        if self.call_live_locked():
+            return "call112"
+        for e in self.a.events:
+            if e["state"] != "cancelled" and not e["dry"] \
+                    and 0 <= wall - float(e["created_wall"]) < PARK_CRASH_HOLDOFF_S:
+                return "crash"
+        last = self.a.meta.get("call112_real_wall")
+        if isinstance(last, (int, float)) and not isinstance(last, bool) \
+                and 0 <= wall - last < PARK_CRASH_HOLDOFF_S:
+            return "call112"
+        return None
+
+    def crash_locked(self, why: str, wall: float) -> None:
+        """(pod blokadą) Wypadek od BCM albo 112 z tego telefonu: alarm,
+        który się uzbraja albo jest uzbrojony, rozbrojony BEZ alarmu. Po
+        wypadku w aucie są kierowca, ratownicy, policja i laweta, nie
+        złodziej: czekający alarm (okno wejścia — wejście tuż przed jazdą)
+        i czekające zdarzenie kabiny (zdjęcia usunięte) są odwoływane.
+        Alarmy już rozstrzygnięte PRZED wypadkiem (SMS w kolejce) zostają —
+        dotyczą tego, co działo się wcześniej. Samo uzbrojenie wraca po
+        :data:`PARK_CRASH_HOLDOFF_S` (bez ``await_plug``)."""
+        st = self.st
+        if st["state"] not in ("arming", "armed", "alarm"):
+            return
+        log.warning("PARK: %s — the parking guard is disarmed without an alarm (people at the "
+                    "car now are the driver and the rescuers)", why)
+        st["last_event"] = {"kind": "crash_holdoff", "ts": int(wall), "value": None,
+                            "logged_only": False}
+        self._disarm_locked("crash", wall)
+        st["await_plug"] = False
+        self._save_locked()
 
     def _wake_on(self) -> bool:
         """Budzenie IR (plan E) — przełącznik ``remote_session`` z BCM."""
@@ -4828,6 +4996,7 @@ class ParkGuard:
         now = self.a._clock()
         with self.a._lock:
             self._contact_at = now
+            self._wake_confirmed_locked(now)
             kick = self._on() and self.st["state"] in ("armed", "alarm") and (
                 self._kick_at is None or now - self._kick_at >= PARK_CONTACT_KICK_S)
             if kick:
@@ -4835,6 +5004,32 @@ class ParkGuard:
                 self._kick_at = now
         if kick:
             self.wake.set()
+
+    def _wake_confirmed_locked(self, now: float) -> None:
+        """(pod blokadą, z :meth:`note_contact`) BCM odezwał się po udanym
+        ``WAKE <kod>``: jedna odpowiedź „obudzony” do numeru, który budził.
+        Raz na budzenie; bez 2-minutowej przerwy odpowiedzi (pierwsza
+        odpowiedź „BUDZENIE wyslane” wyszła przed chwilą), ale w dziennym
+        budżecie odpowiedzi na numer."""
+        conf, self._wake_confirm = self._wake_confirm, None
+        if conf is None:
+            return
+        if now > conf["until"]:
+            log.info("WAKE: BCM answered %d min after the wake — no reply", WAKE_CONFIRM_S // 60)
+            return
+        wall = self.a._wall()
+        walls = [w for w in self.st["reply_walls"].get(conf["num"], []) if abs(wall - w) < DAY_S]
+        if len(walls) >= PARK_REPLY_MAX_PER_DAY:
+            log.warning("WAKE: BCM is up — reply to %s skipped (%d per day)",
+                        mask_number(conf["num"]), PARK_REPLY_MAX_PER_DAY)
+            return
+        walls.append(wall)
+        self.st["reply_walls"][conf["num"]] = walls[-PARK_REPLY_MAX_PER_DAY:]
+        log.warning("WAKE: BCM is up after the wake — telling %s", mask_number(conf["num"]))
+        self._queue_sms_locked("park_reply",
+                               wake_reply_text(self.a.config["vehicle_label"], "woke"),
+                               [conf["num"]], wall)
+        self._save_locked()
 
     def view(self) -> dict:
         with self.a._lock:
@@ -4869,6 +5064,8 @@ class ParkGuard:
             # właściciela (None = nic nie czeka). Czekające zdarzenie kabiny
             # liczy się też: jego SMS (wcześniejszy) obejmuje alarm postoju.
             "entry_until": None if entry is None else int(entry),
+            # Wyłączony z BCM przy uzbrojonym: działa do dowodu właściciela.
+            "off_pending": self._on() and not self._toggle_on(),
         }
 
     def _entry_deadline_locked(self) -> Optional[float]:
@@ -4898,6 +5095,11 @@ class ParkGuard:
             if not self._on():
                 return 409, {"error": "parking_guard_off"}
             wall = self.a._wall()
+            hold = self.crash_holdoff_locked(wall)
+            if hold is not None:
+                log.warning("PARK: arming from BCM refused — %s within %d h", hold,
+                            PARK_CRASH_HOLDOFF_S // 3600)
+                return 409, dict(self._view_locked(wall), error="crash_holdoff")
             res = self._arm_locked("bcm", self.a.config["park_arm_delay_min"]
                                    if delay is None else int(delay), True, wall)
             view = self._view_locked(wall)
@@ -5013,9 +5215,11 @@ class ParkGuard:
         Rozbrojenie przez właściciela (:data:`PARK_OWNER_BY`) kasuje
         czekający alarm (okno wejścia), zadania alarmu i SMS-y alarmowe,
         które jeszcze nie wyszły — właściciel, który wsiadł i rozbroił,
-        nie dostaje SMS-a o własnym wejściu. Inne rozbrojenie (niska
-        bateria) NIE: czekający alarm wychodzi od razu, bo mógł to być
-        złodziej, a telefon zaraz przestanie pilnować."""
+        nie dostaje SMS-a o własnym wejściu. Wypadek (``crash``) kasuje
+        tylko czekający alarm (:meth:`crash_locked`). Inne rozbrojenie
+        (niska bateria, wyłączenie z BCM przy nieuzbrojonym) NIE: czekający
+        alarm wychodzi od razu, bo mógł to być złodziej, a telefon zaraz
+        przestanie pilnować."""
         st = self.st
         # Najpierw kabina: jej czekające zdarzenie odwołuje dowód właściciela,
         # a inne rozbrojenie wysyła jego alarm (obejmuje też czekający alarm
@@ -5028,7 +5232,7 @@ class ParkGuard:
         else:
             self._jobs = [j for j in self._jobs if j["kind"] != "arm_check"]
             pend = st["pending"]
-            if pend is not None and st["state"] == "armed" \
+            if pend is not None and st["state"] == "armed" and by != "crash" \
                     and not self.a.config["park_log_only"]:
                 st["pending"] = None
                 self._alarm_locked(pend["kind"], pend["value"], float(pend["wall"]), wall)
@@ -5202,6 +5406,12 @@ class ParkGuard:
             wake = self._wake_on()
             if not on:
                 self._disarm_locked("off", a._wall())
+            held = on and not self._toggle_on()
+            if held != self._off_held:
+                self._off_held = held
+                if held:
+                    log.warning("PARK: switched off on BCM while armed — stays armed until the "
+                                "owner disarms (owner's phone, code, PARK OFF)")
         if not on:
             self._sensor_off()
             self._drain_detections()
@@ -5354,8 +5564,20 @@ class ParkGuard:
         with a._lock:
             wall, st, cfg = a._wall(), self.st, a.config
             now = a._clock()
+            hold = None
             if st["state"] == "disarmed" and self._power == "unplugged" \
                     and not st["await_plug"] and self._no_contact_locked():
+                hold = self.crash_holdoff_locked(wall)
+            if hold is not None:
+                # Bez await_plug: po końcu okna uzbrajam sam jak zwykle.
+                if hold != self._holdoff_logged:
+                    log.warning("PARK: no USB power and no BCM, but %s within %d h — not "
+                                "arming by itself (the owner may be at the car)", hold,
+                                PARK_CRASH_HOLDOFF_S // 3600)
+                self._holdoff_logged = hold
+            elif st["state"] == "disarmed" and self._power == "unplugged" \
+                    and not st["await_plug"] and self._no_contact_locked():
+                self._holdoff_logged = None
                 log.warning("PARK: no USB power and no BCM for %d min — arming",
                             cfg["park_arm_after_min"])
                 if self._arm_locked("power", cfg["park_arm_delay_min"], True, wall) \
@@ -5591,6 +5813,11 @@ class ParkGuard:
                              lock_wait_s=WAKE_LOCK_WAIT_SMS_S)
             with a._lock:
                 wall = a._wall()
+                now = a._clock()
+                if result == "sent" and (self._contact_at is None
+                                         or now - self._contact_at >= WAKE_SILENT_S):
+                    # BCM spał: jego pierwsze żądanie = „obudzony” (note_contact).
+                    self._wake_confirm = {"num": job["num"], "until": now + WAKE_CONFIRM_S}
                 if self._reply_ok_locked(job["num"], wall):
                     self._queue_sms_locked("park_reply", wake_reply_text(label, result),
                                            [job["num"]], wall)
@@ -5652,7 +5879,13 @@ class ParkGuard:
                     self._queue_sms_locked("park_reply", park_position_text(label, fix),
                                            [job["num"]], wall)
                 elif job["kind"] == "arm_check" and st["state"] == "arming":
-                    if postpone and self._moving_n < PARK_MOVING_MAX:
+                    hold = self.crash_holdoff_locked(wall) \
+                        if st["by"] in ("power", "bcm") else None
+                    if hold is not None:
+                        # Wypadek / 112 w oknie wyjścia: samo uzbrojenie i to od
+                        # BCM odwołane (PARK ON <kod> od właściciela — nie).
+                        self.crash_locked(hold, wall)
+                    elif postpone and self._moving_n < PARK_MOVING_MAX:
                         self._moving_n += 1
                         st["arm_at"] = wall + PARK_MOVING_RETRY_S
                         log.warning("PARK: the car seems to be moving (%s) — arming postponed "
@@ -6007,6 +6240,9 @@ class CabinWatch:
         self._purge: list = []
         self.camera = "unknown"
         self._limit_logged_at: Optional[float] = None
+        #: Czuwanie działało przy uzbrojonym alarmie — zostaje do rozbrojenia
+        #: (w pamięci: restart agenta przy wyłączonym przełączniku je kończy).
+        self._latched = False
         # Tylko wątek kabiny.
         self._session: Optional[dict] = None
         self._front: Optional[str] = None
@@ -6044,9 +6280,17 @@ class CabinWatch:
 
     def enabled_locked(self) -> bool:
         """Przełączniki ``cabin_watch`` I ``parking_guard`` (warstwa nad
-        alarmem na postoju — sama nie działa)."""
+        alarmem na postoju — sama nie działa) — ALBO czuwanie, które było
+        włączone przy uzbrojonym alarmie (zatrzask :attr:`_latched`, do
+        rozbrojenia). Wyłączenie z BCM przy uzbrojonym nie jest dowodem
+        właściciela (patrz :meth:`ParkGuard._on`): czekające zdarzenie
+        nie jest odwoływane, a jego zdjęcia zostają."""
         toggles = self.a.config["toggles"]
-        return bool(toggles["cabin_watch"] and toggles["parking_guard"])
+        on = bool(toggles["cabin_watch"] and toggles["parking_guard"])
+        armed = self.g.st["state"] in ("armed", "alarm")
+        if on and armed:
+            self._latched = True
+        return on or (armed and self._latched)
 
     def active_locked(self) -> bool:
         """Czuwa: włączone i alarm na postoju uzbrojony (albo w alarmie)."""
@@ -6114,7 +6358,7 @@ class CabinWatch:
         """Zdarzenia, które liczą się do limitu serii zdjęć: odwołane przez
         właściciela — nie (jego wejścia nie mogą zużyć budżetu na złodzieja)."""
         return sorted(abs(wall - e["wall"]) for e in self.st["events"]
-                      if e["outcome"] not in ("owner", "off") and abs(wall - e["wall"]) < DAY_S)
+                      if e["outcome"] not in CABIN_PURGED and abs(wall - e["wall"]) < DAY_S)
 
     def _event_wait_locked(self, wall: float) -> Optional[int]:
         ages = self._counted_walls_locked(wall)
@@ -6163,9 +6407,8 @@ class CabinWatch:
         ev = self._pending_locked()
         if ev is None:
             return False
-        if not self.enabled_locked():
-            self._cancel_locked(ev, "off")
-            return False
+        # Wyłączenie z BCM NIE odwołuje czekającego zdarzenia (to nie dowód
+        # właściciela): przy uzbrojonym alarm idzie po terminie jak zwykle.
         if self.g.st["state"] not in ("armed", "alarm"):
             # Rozbrojone bez przejścia przez disarmed_locked (np. stan
             # wczytany po restarcie) — nie wiadomo, kto rozbroił: bez SMS-a.
@@ -6240,30 +6483,35 @@ class CabinWatch:
         self._save_locked()
 
     def _cancel_locked(self, ev: dict, outcome: str) -> None:
-        """Dowód właściciela (albo wyłączenie z BCM) w oknie wejścia: alarm
-        odwołany, zdjęcia tego zdarzenia do usunięcia (wątek kabiny)."""
+        """Dowód właściciela (``owner``) albo wypadek / 112 (``crash``)
+        w oknie wejścia: alarm odwołany, zdjęcia tego zdarzenia do usunięcia
+        (wątek kabiny). Wyłączenie z BCM tu NIE trafia (to nie dowód)."""
         ev["outcome"] = outcome
         self._todo = [t for t in self._todo if t.get("id") != ev["id"]]
         if ev["id"] not in self._purge:
             self._purge.append(ev["id"])
         log.warning("CABIN: %s within the entry window — cabin alarm cancelled, its photos "
-                    "are deleted", "the owner disarmed" if outcome == "owner" else "switched off")
+                    "are deleted", "the owner disarmed" if outcome == "owner"
+                    else "crash / 112 call")
         self._save_locked()
         self.wake.set()
 
     def disarmed_locked(self, by: str, wall: float) -> None:
         """Alarm na postoju rozbrojony (woła :meth:`ParkGuard._disarm_locked`
         NA POCZĄTKU, zanim obsłuży własny czekający alarm). Dowód właściciela
-        (:data:`PARK_OWNER_BY`) odwołuje zdarzenie i kasuje jego zdjęcia;
-        inne rozbrojenie (niska bateria, dom) wysyła alarm od razu — to mógł
-        być złodziej, a telefon zaraz przestanie pilnować."""
+        (:data:`PARK_OWNER_BY`) i wypadek (``crash``) odwołują zdarzenie
+        i kasują jego zdjęcia; inne rozbrojenie (niska bateria,
+        dom) wysyła alarm od razu — to mógł być złodziej, a telefon zaraz
+        przestanie pilnować. Zatrzask czuwania (:attr:`_latched`) kończy
+        się tu."""
         self._todo = [t for t in self._todo if t["kind"] != "ref"]
         self._comb.reset()
+        self._latched = False
         ev = self._pending_locked()
         if ev is None:
             return
-        if by in PARK_OWNER_BY:
-            self._cancel_locked(ev, "off" if by == "off" else "owner")
+        if by in PARK_OWNER_BY or by == "crash":
+            self._cancel_locked(ev, "crash" if by == "crash" else "owner")
         else:
             log.warning("CABIN: disarmed (%s) during the entry window — the cabin alarm goes "
                         "now", by)
@@ -6347,7 +6595,7 @@ class CabinWatch:
             purge, self._purge = list(self._purge), []
             enabled, active = self.enabled_locked(), self.active_locked()
             dirty = [(e["id"], list(e["photos"])) for e in self.st["events"]
-                     if e["photos"] and not e["clean"] and e["outcome"] not in ("owner", "off")]
+                     if e["photos"] and not e["clean"] and e["outcome"] not in CABIN_PURGED]
         for eid in purge:
             self._purge_event(eid)
         if self._session is not None:
@@ -6385,6 +6633,11 @@ class CabinWatch:
                 return 0.0
         block = self._camera_block(now, fresh=True)
         with a._lock:
+            # Rozmowa 112 z tego telefonu: ekran rozmowy zostaje na wierzchu
+            # (bez KEYCODE_WAKEUP / am start / SLEEP), żadnych zdjęć ludzi
+            # przy aucie — sprawdzane tu, pod blokadą, tuż przed serią.
+            if not block and self.g.call_live_locked():
+                block = "in_call"
             self.camera = block or "ok"
             ev = self.find_locked(todo.get("id")) if todo["kind"] == "event" else None
             if todo["kind"] == "event" and (ev is None or ev["outcome"] != "pending"):
@@ -6509,11 +6762,13 @@ class CabinWatch:
         """``(przerwać, usunąć zdjęcia)``: rozbrojone / wyłączone — koniec
         serii; dowód właściciela — także usunięcie zdjęć."""
         with self.a._lock:
-            stop = not self.active_locked()
+            # Połączenie 112 w trakcie serii: koniec serii (zdjęcia zostają,
+            # ekran wygaszany jak zwykle — rozmowa trwa dalej).
+            stop = not self.active_locked() or self.g.call_live_locked()
             purge = False
             if s["kind"] == "event":
                 ev = self.find_locked(s["id"])
-                purge = ev is None or ev["outcome"] in ("owner", "off")
+                purge = ev is None or ev["outcome"] in CABIN_PURGED
             return stop or purge, purge
 
     def _session_step(self, now: float) -> float:
@@ -6559,7 +6814,10 @@ class CabinWatch:
         analiza (jeśli jest Pillow) — albo usunięcie, gdy właściciel zdążył
         w międzyczasie rozbroić."""
         self._session = None
-        if s["woke"]:
+        with self.a._lock:
+            in_call = self.g.call_live_locked()
+        if s["woke"] and not in_call:
+            # Przy rozmowie 112 ekranu nie wygaszam — to ekran rozmowy.
             self._su(SLEEP_COMMAND)
         with self.g._det_lock:
             self.light.mute(self.a._clock() + CABIN_LIGHT_MUTE_S)
@@ -6581,7 +6839,7 @@ class CabinWatch:
         analysis = self._analyse(names, s["lux"], diff_pct, mask)
         with self.a._lock:
             ev = self.find_locked(s["id"])
-            purge = ev is None or ev["outcome"] in ("owner", "off")
+            purge = ev is None or ev["outcome"] in CABIN_PURGED
             if not purge:
                 ev["photos"] = [n for n in ev["photos"] if n in names]
                 ev["clean"] = True

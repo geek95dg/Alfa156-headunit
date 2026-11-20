@@ -101,6 +101,33 @@ def _config(**park):
             "parking_guard": park}
 
 
+class FakeBT:
+    """BluetoothManager.authenticated_peers(): by default every connected
+    phone also gets its HFP link (a real phone); ``auto = False`` = a bare
+    connection without HFP (spoofed address, no oFono) — ``peers`` set by
+    hand."""
+
+    def __init__(self, bus):
+        self.auto = True
+        self.peers = set()
+        self.raise_ = False
+        bus.subscribe("bt.connected", self._on)
+        bus.subscribe("bt.disconnected", self._off)
+
+    def _on(self, topic, value, ts):
+        if self.auto and isinstance(value, dict):
+            self.peers.add(str(value.get("address", "")).upper())
+
+    def _off(self, topic, value, ts):
+        if self.auto and isinstance(value, dict):
+            self.peers.discard(str(value.get("address", "")).upper())
+
+    def authenticated_peers(self):
+        if self.raise_:
+            raise RuntimeError("D-Bus gone")
+        return frozenset(self.peers)
+
+
 class Env:
     def __init__(self, config=None, agent="fake"):
         self.bus = EventBus()
@@ -108,10 +135,11 @@ class Env:
         self.agent = FakeAgent() if agent == "fake" else agent
         self.notes = []
         self.config = _config() if config is None else config
+        self.bt = FakeBT(self.bus)
         self.m = pg.ParkingGuard(self.config, self.bus, agent_getter=lambda: self.agent,
                                  clock=lambda: self.clock.t, wall_clock=lambda: self.clock.wall,
                                  notify=lambda bus, title, desc, **kw: self.notes.append(
-                                     (title, desc, kw)))
+                                     (title, desc, kw)), bt_manager=self.bt)
         self.topics = []
         self.bus.subscribe("*", lambda topic, value, ts: self.topics.append(topic))
         self.m.subscribe()
@@ -203,9 +231,11 @@ class TestOwnerEdge:
 
     def test_connected_before_the_module_started(self):
         bus = EventBus()
+        bt_ = FakeBT(bus)
         bus.publish("bt.connected", {"address": OWNER_MAC})
         agent = FakeAgent()
-        m = pg.ParkingGuard(_config(), bus, agent_getter=lambda: agent, notify=lambda *a, **k: 0)
+        m = pg.ParkingGuard(_config(), bus, agent_getter=lambda: agent, notify=lambda *a, **k: 0,
+                            bt_manager=bt_)
         m.subscribe()
         m.run_once()
         assert agent.disarms() == [("disarm", None)]
@@ -516,7 +546,7 @@ class TestEndToEnd:
             phone.agent.park._arm_locked("power", 0, False, time.time())
             phone.agent.park._arm_now_locked(time.time())
         guard = pg.ParkingGuard(config, bus, agent_getter=lambda: mod,
-                                notify=lambda *a, **k: None)
+                                notify=lambda *a, **k: None, bt_manager=FakeBT(bus))
         guard.subscribe()
         guard.run_once()
         assert bus.get_last(pg.TOPIC_STATE)[0]["state"] == "armed"
@@ -651,3 +681,130 @@ class TestRoutes:
         web.env.run()
         data = web.client.get("/api/data").get_json()
         assert data["parking_guard"]["state"] == "armed"
+
+
+# ── the Bluetooth proof is an authenticated HFP link, not the address ─────
+
+class TestAuthenticatedProof:
+    def test_a_bare_connection_of_the_owner_address_never_disarms(self, env):
+        env.bt.auto = False                       # spoofed BD_ADDR: ACL only, no HFP
+        env.run()
+        env.bus.publish("bt.connected", {"address": OWNER_MAC, "name": "Pixel"})
+        env.run()
+        st = env.state()
+        assert st["owner_connected"] is False and st["owner_unproven"] is True
+        assert env.m.request_disarm() == {"ok": False, "error": "owner_required"}
+        for _ in range(40):
+            env.clock.advance(2)
+            env.run()
+        assert env.agent.disarms() == [] and env.m._disarm is None   # gave up after 60 s
+
+    def test_proof_a_few_seconds_after_connect_gives_one_disarm(self, env):
+        env.bt.auto = False
+        env.bus.publish("bt.connected", {"address": OWNER_MAC})
+        env.run()
+        env.clock.advance(6)
+        env.run()
+        assert env.agent.disarms() == []
+        env.bt.peers.add(OWNER_MAC)               # oFono's HFP modem came up
+        env.clock.advance(2)
+        env.run()
+        assert env.agent.disarms() == [("disarm", None)]
+        assert env.state()["owner_connected"] is True
+        for _ in range(5):
+            env.clock.advance(10)
+            env.run()
+        assert len(env.agent.disarms()) == 1
+
+    def test_disconnect_before_the_proof_cancels(self, env):
+        env.bt.auto = False
+        env.bus.publish("bt.connected", {"address": OWNER_MAC})
+        env.run()
+        env.bus.publish("bt.disconnected", {"address": OWNER_MAC})
+        env.run()
+        env.bt.peers.add(OWNER_MAC)
+        env.clock.advance(5)
+        env.run()
+        assert env.agent.disarms() == [] and env.m._disarm is None
+
+    def test_a_modem_of_another_phone_does_not_count(self, env):
+        env.bt.auto = False
+        env.bt.peers.add(OTHER_MAC)
+        env.bus.publish("bt.connected", {"address": OWNER_MAC})
+        for _ in range(35):
+            env.clock.advance(2)
+            env.run()
+        assert env.agent.disarms() == []
+
+    def test_no_bluetooth_manager_or_a_failing_one_is_no_proof(self, env):
+        env.bt.raise_ = True
+        env.bus.publish("bt.connected", {"address": OWNER_MAC})
+        env.run()
+        assert env.agent.disarms() == [] and env.m.owner_connected is False
+        m = pg.ParkingGuard(_config(), env.bus, agent_getter=lambda: env.agent,
+                            clock=lambda: env.clock.t, notify=lambda *a, **k: 0)
+        m.subscribe()
+        m.run_once()
+        assert m.owner_connected is False and env.agent.disarms() == []
+
+    def test_a_disarm_not_confirmed_yet_is_dropped_on_disconnect(self, env):
+        env.agent.disarm_results = [{"ok": False, "error": "no_forward"}] * 3
+        env.bus.publish("bt.connected", {"address": OWNER_MAC})
+        env.run()
+        assert len(env.agent.disarms()) == 1
+        env.bus.publish("bt.disconnected", {"address": OWNER_MAC})
+        env.run()
+        env.clock.advance(120)
+        env.run()
+        assert len(env.agent.disarms()) == 1
+
+
+class TestSwitchOffWhileArmed:
+    """Settings → Moduły: parking_guard / cabin_watch off is refused while
+    the phone is armed and no proven owner phone is connected."""
+
+    @pytest.mark.parametrize("name", ["parking_guard", "cabin_watch"])
+    def test_refused_while_armed(self, web, name):
+        web.env.run()
+        before = web.cfg.get(f"modules.{name}")
+        res = web.client.post("/api/modules", json={"name": name, "enabled": False})
+        assert res.status_code == 409 and res.get_json() == {"error": "disarm_first"}
+        assert web.cfg.get(f"modules.{name}") == before
+
+    def test_allowed_with_the_owners_proven_phone(self, web):
+        web.env.run()
+        web.env.bus.publish("bt.connected", {"address": OWNER_MAC})
+        web.env.agent.disarm_results = [{"ok": False, "error": "no_forward"}]
+        web.env.run()
+        res = web.client.post("/api/modules", json={"name": "parking_guard", "enabled": False})
+        assert res.status_code == 200
+
+    def test_allowed_when_disarmed_or_unknown(self, web):
+        web.env.agent.view = dict(VIEW, state="disarmed")
+        web.env.run()
+        res = web.client.post("/api/modules", json={"name": "parking_guard", "enabled": False})
+        assert res.status_code == 200
+        web.holder["module"] = None
+        res = web.client.post("/api/modules", json={"name": "cabin_watch", "enabled": False})
+        assert res.status_code == 200
+
+    def test_switching_on_is_never_refused(self, web):
+        web.env.run()
+        res = web.client.post("/api/modules", json={"name": "parking_guard", "enabled": True})
+        assert res.status_code == 200
+
+    def test_disarm_first_helper(self):
+        assert pg.disarm_first(None) is False
+        assert pg.disarm_first({"state": "armed", "owner_connected": False}) is True
+        assert pg.disarm_first({"state": "log_only"}) is True
+        assert pg.disarm_first({"state": "disarmed", "entry_until": 1_763_000_000}) is True
+        assert pg.disarm_first({"state": "armed", "owner_connected": True}) is False
+        assert pg.disarm_first({"state": "disarmed", "entry_until": None}) is False
+
+
+def test_off_pending_reaches_the_settings_row(env):
+    env.agent.view = dict(VIEW, off_pending=True)
+    env.run()
+    assert env.state()["off_pending"] is True
+    assert wv._parking_guard_summary(env.state())["off_pending"] is True
+    assert cpa.parse_park_view(dict(VIEW, off_pending="yes"))["off_pending"] is False

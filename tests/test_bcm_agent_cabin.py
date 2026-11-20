@@ -823,6 +823,10 @@ class TestOwnerProof:
         assert env.peer.req("POST", "/v1/park/event", {"kind": "door"}, sign=False)[0] == 401
         assert env.cabin.st["events"] == []
         env.peer.req("PUT", "/v1/config", P.park_config(toggles=toggles(cabin_watch=False)))
+        # switched off while armed: the watch keeps running until the owner disarms
+        assert env.peer.req("POST", "/v1/park/event", {"kind": "door"})[0] == 200
+        assert env.peer.req("POST", "/v1/park/disarm", {})[0] == 200
+        env.arm()
         assert env.peer.req("POST", "/v1/park/event", {"kind": "door"}) == \
             (409, {"error": "cabin_watch_off"})
 
@@ -1313,20 +1317,24 @@ class TestSensors:
         bad = json.dumps({ACCEL: {"values": [0, 0, 9.8]}, LIGHT: {"values": [-4]}})
         assert p.feed_items(bad) == [("a", (0.0, 0.0, 9.8))]
 
-    def test_toggling_the_cabin_restarts_the_stream(self, env, spawn, monkeypatch):
+    def test_toggling_the_cabin_restarts_the_stream(self, tmp_path, clock, runner, spawn,
+                                                    monkeypatch):
+        # Switched ON while armed: the light sensor joins at once. (Switched
+        # off while armed it stays until the owner disarms — TestOffWhileArmed.)
         monkeypatch.setattr(A, "SENSOR_JOIN_S", 0.2)
+        env = CabinEnv(tmp_path, clock, runner, spawn, toggles=toggles(cabin_watch=False))
         env.arm()
         stuck = P.StuckProc(["termux-sensor"])
         stuck.wait = lambda timeout=None: 0          # ends on SIGTERM
         env.guard._spawn = lambda argv: (spawn.argvs.append(argv), stuck)[1]
         env.guard._manage_sensor()
-        assert spawn.argvs[-1][2] == f"{ACCEL},{LIGHT}"
-        env.peer.req("PUT", "/v1/config", P.park_config(toggles=toggles(cabin_watch=False)))
+        assert spawn.argvs[-1] == ["termux-sensor", "-s", ACCEL, "-d", "100"]
+        env.peer.req("PUT", "/v1/config", P.park_config(toggles=toggles()))
         fresh = P.StuckProc(["termux-sensor"])
         env.guard._spawn = lambda argv: (spawn.argvs.append(argv), fresh)[1]
         stuck.stdout.q.put(None)                      # its reader ends (EOF)
         env.guard._manage_sensor()
-        assert spawn.argvs[-1] == ["termux-sensor", "-s", ACCEL, "-d", "100"]
+        assert spawn.argvs[-1][2] == f"{ACCEL},{LIGHT}"
         assert stuck.terminate_calls == 1             # no backoff: restarted at once
         fresh.stdout.q.put(None)
         env.guard._reader.join(timeout=5)
@@ -1369,3 +1377,64 @@ class TestPersistence:
         events = env.cabin.st["events"]
         assert len(events) == 1 and events[0]["photos"] == ["cab_" + "a" * 16 + "_1.jpg"]
         assert events[0]["reasons"] == ["door"]
+
+
+class TestOffWhileArmed:
+    """Settings → Moduły is not an owner proof: switching the watch (or the
+    parking guard) off while armed keeps the pending event, its photos and
+    its alarm."""
+
+    @pytest.mark.parametrize("off", [{"cabin_watch": False}, {"parking_guard": False}])
+    def test_pending_event_keeps_photos_and_alarms(self, env, runner, off):
+        env.arm()
+        env.stream(lamp_and_seat())
+        env.cabin_run(12)
+        assert len(env.files()) == 3
+        cfg = P.park_config(toggles=toggles(**off))
+        for k in [k for k in cfg if k.startswith("park_")] if "parking_guard" in off else []:
+            del cfg[k]
+        assert env.peer.req("PUT", "/v1/config", cfg)[0] == 200
+        env.cabin_run(2)
+        assert len(env.files()) == 3 and env.event()["outcome"] == "pending"
+        env.until_alarm(55)
+        texts = runner.sms_texts()
+        assert len(texts) == 2 and "RUCH W KABINIE" in texts[0], texts
+        assert env.event()["outcome"] == "alarm" and len(env.files()) == 3
+
+
+class TestCrashAndCall:
+    def test_no_photos_during_a_112_call(self, env, runner):
+        env.arm()
+        env.agent.call = {"state": "offhook", "final": False}
+        env.stream(lamp_and_seat())
+        env.cabin_run(12)
+        assert runner.photos() == [] and runner.su_calls == []
+        assert env.event()["camera"] == "in_call"
+
+    def test_call_in_the_middle_of_the_series_stops_it_and_keeps_the_screen(self, env,
+                                                                             runner):
+        env.arm()
+        env.stream(lamp_and_seat())
+
+        def call(_path):
+            env.agent.call = {"state": "placed", "final": False}
+
+        runner.on_photo = call
+        env.cabin_run(15)
+        assert len(runner.photos()) == 1
+        assert A.SLEEP_COMMAND not in runner.su_calls       # the in-call screen stays
+
+    def test_crash_in_the_window_cancels_the_event_and_its_photos(self, env, runner):
+        env.arm()
+        env.stream(lamp_and_seat())
+        env.cabin_run(12)
+        assert len(env.files()) == 3
+        status, out = env.peer.req("POST", "/v1/crash", {
+            "event_id": "abc", "countdown_s": 15, "event_ts": int(env.clock.wall),
+            "lat": None, "lon": None})
+        assert status == 200, out
+        env.cabin_run(2)
+        assert env.files() == [] and env.event()["outcome"] == "crash"
+        assert env.guard.st["state"] == "disarmed" and env.guard.st["by"] == "crash"
+        env.until_alarm(120)
+        assert not any("RUCH W KABINIE" in t or "ALARM" in t for t in runner.sms_texts())

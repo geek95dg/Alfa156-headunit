@@ -114,7 +114,7 @@ def report_blocked_modules(module_states, log) -> int:
 
 
 #: Registry modules whose entry point takes the shared BluetoothManager.
-_NEEDS_BT_MANAGER = ("multimedia", "call112")
+_NEEDS_BT_MANAGER = ("multimedia", "call112", "parking_guard")
 
 
 def start_modules(started_modules, config, event_bus, hal, bt_manager=None) -> None:

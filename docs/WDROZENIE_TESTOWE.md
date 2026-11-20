@@ -892,7 +892,7 @@ w aucie):
 
 Podgląd: wiersz „Telefon w aucie” w Ustawieniach (stan, IP, bateria, °C,
 GPS, hotspot, przycisk „Ponów”), `bcm-adb devices -l` (alias z kroku 4),
-`nmcli connection show --active`, `journalctl -u bcm-headunit | grep -i "car phone"`.
+`nmcli connection show --active`, `sudo journalctl -u bcm-headunit -b | grep -i "car phone"`.
 
 **Wyłączenie modułu.** `modules.car_phone: false` kończy tylko nadzór BCM.
 Profil NetworkManagera `bcm-car-phone` zostaje (autoconnect, metryka 650,
@@ -1010,7 +1010,7 @@ Kamery **nie** są potrzebne.
   `stopped` (prędkość ≤ 5 km/h), `cancelled` (auto jechało dalej > 25 km/h
   przez 10 s), `unconfirmed` (brak danych przez 120 s).
 - Zapis: `data/crash_events/crash_<data UTC>_<id>.json` (atomowo, 50
-  ostatnich). Podgląd: `journalctl -u bcm-headunit | grep -i crash`.
+  ostatnich). Podgląd: `sudo journalctl -u bcm-headunit -b | grep -i crash`.
 
 Do sprawdzenia na stole, zanim ktokolwiek zaufa tym danym: rzeczywista
 częstotliwość SensorServer (≥ 100 Hz) i czy przeżywa w tle, pole `type`
@@ -1101,12 +1101,18 @@ aplikacji.
 `~/bcm_agent/` w telefonie i zrestartuj agenta: `pkill -f bcm_agent.py`
 (pętla w `boot_bcm_agent.sh` uruchomi go po 10 s) albo restart telefonu.
 Sekret, nonce, zdarzenia i parowanie w `~/.config/bcm_agent` zostają.
-Wiersz „Agent w telefonie” pokazuje wersję — po tej aktualizacji **1.1.0**.
-Stary agent (1.0.0) z nowym BCM działa dalej, dopóki `modules.call112` jest
-wyłączony (pola 112 nie liczą się wtedy do skrótu konfiguracji); przy
-włączonym `call112` wiersz pokaże „agent w telefonie jest starszy niż BCM —
-skopiuj nowy … bcm_agent.py”, a SMS po stłuczce przejdzie w tryb testowy,
-dopóki agent nie zostanie zaktualizowany.
+Wiersz „Agent w telefonie” pokazuje wersję agenta; obecną i minimalną
+wersję dla każdej funkcji podaje
+[PRZYGOTOWANIE_TELEFONU.md](PRZYGOTOWANIE_TELEFONU.md) §9.5 („Zadzwoń 112”
+≥ 1.1.0, alarm na postoju ≥ 1.2.0, czuwanie kabiny ≥ 1.3.0, budzenie
+podczerwienią — wersja z buforem — ≥ 1.4.0). Starszy agent z nowym BCM
+działa dalej, dopóki `modules.call112`, `modules.parking_guard`,
+`modules.cabin_watch` i `modules.remote_session` są wyłączone (ich pola nie
+liczą się wtedy do skrótu konfiguracji). Przy włączonym którymkolwiek
+z nich wiersz pokaże „agent w telefonie jest starszy niż BCM” albo „agent
+w telefonie jest za stary — skopiuj nowy … bcm_agent.py”, a SMS po
+stłuczce przejdzie w tryb testowy, dopóki agent nie zostanie
+zaktualizowany.
 
 **Potwierdzanie wysyłki.** Agent czyta `termux-sms-list -t all` i patrzy na
 typ wiadomości: w „wysłanych” = wysłany; w „nieudanych” = ponowienie (do 3,
@@ -1251,9 +1257,11 @@ którędy):
   telefon w aucie, nie główny (ten sam mikrofon by nie działał).
 - **„telefon w aucie, głośnik”** — Redmi przez agenta (§5.9): BCM wysyła
   podpisane `POST /v1/call112` (bez numeru), agent przez Magisk `su`
-  uruchamia stałe polecenie
-  `am start -a android.intent.action.CALL_PRIVILEGED -d tel:112 --ez android.telecom.extra.START_CALL_WITH_SPEAKERPHONE true`
-  i podnosi głośność rozmowy. BCM na czas rozmowy wycisza swoje media.
+  uruchamia stałą intencję CALL_PRIVILEGED na numer alarmowy z flagą
+  START_CALL_WITH_SPEAKERPHONE — dokładne polecenie jest tylko w kodzie
+  agenta (`call_command()` w `tools/car_phone/termux/bcm_agent.py`);
+  **nigdy nie uruchamiaj go ręcznie** — i podnosi głośność rozmowy. BCM na
+  czas rozmowy wycisza swoje media.
 - **żadna** — napis „Zadzwoń 112 ze swojego telefonu” i powód (np. „telefon
   główny: brak mikrofonu; telefon w aucie: agent niegotowy”).
 
@@ -1346,25 +1354,42 @@ starszy niż BCM”.
    w aucie” (np. odłącz Bluetooth); głośnik i głośność w Redmi; czy BCM
    ścisza muzykę; „Odbierz”, gdy numer testowy oddzwoni.
 5. Do sprawdzenia na tym ROM-ie (crDroid 13) — **niesprawdzone**: czy
-   `START_CALL_WITH_SPEAKERPHONE` z `am start` włącza głośnik, format
-   wyjścia `cmd media_session volume --stream 0 --get` (strumień 0 =
-   rozmowa), czy `mCallState` w `dumpsys telephony.registry` pokazuje
-   rozmowę (agent nie odróżnia „łączy” od „rozmawia”; gdy stanu nie widać,
-   okno mówi „stanu rozmowy nie widać”) i czy `input keyevent
-   KEYCODE_ENDCALL` kończy rozmowę. Custom ROM na MediaTeku często nie ma
-   VoLTE — rozmowa idzie wtedy przez 2G.
+   flaga głośnika (START_CALL_WITH_SPEAKERPHONE) włącza głośnik — sprawdzasz
+   to WYŁĄCZNIE rozmową testową z kroku 4 (przycisk w oknie po
+   `/api/crash/call112/test`: agent uruchamia tę samą intencję ze zwykłym
+   CALL, numerem testowym i tą samą flagą głośnika; **nigdy nie wpisuj
+   `am start` ręcznie**), format wyjścia `cmd media_session volume
+   --stream 0 --get` (strumień 0 = rozmowa), czy `mCallState` w `dumpsys
+   telephony.registry` pokazuje rozmowę (agent nie odróżnia „łączy” od
+   „rozmawia”; gdy stanu nie widać, okno mówi „stanu rozmowy nie widać”)
+   i czy `input keyevent KEYCODE_ENDCALL` kończy rozmowę. Custom ROM na
+   MediaTeku często nie ma VoLTE — rozmowa idzie wtedy przez 2G.
 6. Prawdziwe 112 dopiero po tych sprawdzeniach: `test_mode: false`
    w `config/local.yaml` (numer testowy może zostać — w trybie
-   prawdziwym nie jest używany).
+   prawdziwym nie jest używany) i **restart BCM** (`config/local.yaml`
+   czyta się przy starcie). Okno testowe otwarte jeszcze w chwili restartu
+   NIE wraca po nim (zapisane zdarzenie testowe jest odrzucane poza trybem
+   testowym z numerem testowym), a okno testowe nigdy nie oferuje
+   prawdziwego 112 — nie musisz go zamykać przed zmianą trybu.
 
-Trasy `/api/crash/call112`, `/api/crash/call112/hangup`,
-`/api/crash/call112/close` i `/api/crash/call112/test` działają
-**wyłącznie z ekranu auta** (loopback), także przy `remote_access: full`,
-i wymagają treści JSON (obiekt; `Content-Type: application/json`) — obca
-strona w przeglądarce na komputerze BCM nie wyśle takiego żądania bez
-zgody CORS; treść żądania nigdy nie wybiera numeru. `/api/phone/dial` z sieci dalej
-odrzuca numery alarmowe (403). Telefon pasażera widzi okno i panel bez
-przycisków.
+Trasy 112 w /api/crash/ (wybieranie, rozłączanie, zamykanie okna
+i `/api/crash/call112/test`) działają **wyłącznie z ekranu auta**
+(loopback, a do tego nagłówek `Host` — i `Origin`, gdy przeglądarka go
+wysyła — musi wskazywać `localhost` / `127.0.0.1`, czyli stronę kiosku;
+obca strona, której nazwę ktoś skierował na 127.0.0.1, dostaje 403), także
+przy `remote_access: full`, i wymagają treści JSON (obiekt;
+`Content-Type: application/json`) — obca strona w przeglądarce na
+komputerze BCM nie wyśle takiego żądania bez zgody CORS; treść żądania
+nigdy nie wybiera numeru. `/api/phone/dial` z sieci dalej odrzuca numery
+alarmowe (403). **W trakcie rozmowy z 112** (łączenie, dzwoni, rozmowa)
+`/api/phone/hangup`, `/api/phone/answer` i `/api/phone/dial` z sieci dają
+403, a z ekranu auta `/api/phone/hangup` daje 409 `call112_live` — rozmowę
+z 112 kończy tylko przytrzymane „Rozłącz” w oknie wypadku (to samo, co
+z przyciskiem na kierownicy). Prawdziwą ochroną jest
+`dashboard.remote_access: tracking` (tak jest w konfiguracji testowej):
+przy `full` urządzenie w sieci auta wciąż może przerwać rozmowę innymi
+drogami (rozłączenie Bluetooth, restart komputera, dotyk w Android Auto).
+Telefon pasażera widzi okno i panel bez przycisków.
 
 **Czego nie obiecujemy:** zestawienia połączenia, automatycznego
 przekazania pozycji dyspozytorowi, jakości głośnika Redmi pod podsufitką.
@@ -1401,8 +1426,11 @@ Tematu `alarm.sensor.*` (syrena) moduł nigdy nie publikuje.
 Do tego „Uzbrój” w wierszu „Postój” (od razu po oknie wyjścia; BCM
 odmawia — „auto jedzie” — gdy świeże `gps.speed`, nie starsze niż 10 s,
 przekracza 5 km/h), SMS
-`PARK ON <kod>` i — w wersji docelowej z buforem — podpisane
-`POST /v1/park/arm` od BCM. Opcjonalna strefa **„dom”** (`home`): przy
+`PARK ON <kod>`. Agent przyjmuje też podpisane `POST /v1/park/arm` od BCM,
+ale BCM wysyła je dziś **tylko** z przycisku „Uzbrój” — samo uzbrojenie
+przy zgaszeniu (wersja z buforem, gdzie telefon nie traci zasilania USB)
+nie jest w tej wersji zrobione; w aucie testowym telefon i tak uzbraja się
+sam po utracie zasilania USB. Opcjonalna strefa **„dom”** (`home`): przy
 uzbrajaniu samym i przez BCM telefon sprawdza pozycję i w strefie się nie
 uzbraja (w wierszu: „dom — bez uzbrojenia”); pozycja nieznana albo
 z dokładnością gorszą niż 500 m niczego nie rozstrzyga — wtedy telefon się
@@ -1413,19 +1441,76 @@ następne odcięcie zasilania (najpierw jazda).
 **Jak się rozbraja — tylko dowodem właściciela,** nigdy samym prądem ani
 zapłonem (złodziej też przekręca kluczyk):
 
-- **telefon właściciela połączony z BCM** przez Bluetooth (HFP/A2DP;
-  bezprzewodowe Android Auto też zaczyna od Bluetooth): na zboczu
-  połączenia BCM wysyła JEDNO podpisane `POST /v1/park/disarm` (ponawia,
-  aż telefon potwierdzi — BCM startuje szybciej niż forward agenta —
-  najdłużej 15 min). Telefon właściciela: `parking_guard.owner_macs`
-  (gdy podane — tylko te), inaczej telefon połączony ostatnio PRZED
-  startem BCM (`multimedia.last_bt_device` odczytany raz przy starcie
-  modułu: nowo sparowany telefon staje się „właściciela” dopiero od
-  następnej jazdy);
+- **telefon właściciela połączony z BCM uwierzytelnionym łączem HFP**
+  (bezprzewodowe Android Auto też zaczyna od Bluetooth): samo
+  „połączony” (`bt.connected`, `bluetoothctl … Connected`) NIE jest
+  dowodem — BlueZ zgłasza je już na poziomie ACL, przed sprawdzeniem
+  klucza parowania, więc wystarczyłoby podszyć się pod adres telefonu
+  właściciela (adres łatwo poznać). Dowodem jest dopiero modem HFP oFono
+  dla TEGO adresu: powstaje, gdy kanał RFCOMM wstał, czyli po
+  uwierzytelnieniu kluczem parowania i szyfrowaniu. Na zboczu połączenia
+  adresu właściciela BCM czeka do 60 s na to łącze i dopiero wtedy wysyła
+  JEDNO podpisane `POST /v1/park/disarm` (sprawdza dowód przed każdym
+  ponowieniem; ponawia, aż telefon potwierdzi — BCM startuje szybciej niż
+  forward agenta — najdłużej 15 min; rozłączenie tego adresu przerywa
+  ponawianie). Bez HFP w 60 s — bez rozbrojenia (log: „no HFP link”,
+  wiersz: „telefon właściciela połączony bez HFP — to nie dowód; Rozbrój
+  kodem”). Bez Bluetooth (`modules.bluetooth` wyłączony, brak adaptera,
+  brak monitora oFono) telefon właściciela nie rozbraja wcale — zostają
+  kod i SMS (ostrzeżenie w logu przy starcie i podpowiedź w wierszu).
+  Telefon właściciela: `parking_guard.owner_macs` (gdy podane — tylko te),
+  inaczej telefon połączony ostatnio PRZED startem BCM
+  (`multimedia.last_bt_device` odczytany raz przy starcie modułu: nowo
+  sparowany telefon staje się „właściciela” dopiero od następnej jazdy).
+  Lista sparowanych w Ustawieniach → Bluetooth pokazuje z adresu tylko
+  dwa ostatnie bajty. Ryzyko, które zostaje: ataki klasy BIAS/KNOB na
+  niezałatanym kontrolerze Bluetooth;
 - **SMS `PARK OFF <kod>`** z numeru z listy;
 - **kod TOTP wpisany w wierszu „Postój”** (pole „kod TOTP” + Rozbrój) —
   sprawdza go TELEFON, BCM sekretu nie zna; gdy telefon właściciela jest
-  połączony, wystarczy „Rozbrój”.
+  połączony łączem HFP, wystarczy „Rozbrój”.
+
+**Wyłączenie w Ustawieniach → Moduły to NIE rozbrojenie.** Ustawienia ma
+każdy, kto siedzi przy ekranie auta (złodziej po zapłonie też). Dlatego:
+
+- BCM odmawia wyłączenia `parking_guard` i `cabin_watch` (409, w oknie
+  modułów: „Najpierw rozbrój alarm na postoju …”), gdy ostatni stan
+  z telefonu to uzbrojony / alarm / czekające okno wejścia, a telefon
+  właściciela nie jest połączony łączem HFP — najpierw „Rozbrój” (telefon
+  właściciela albo kod);
+- niezależnie od BCM telefon (agent **≥ 1.5.0**) przy uzbrojonym albo
+  w alarmie pilnuje dalej z ostatnimi ustawieniami (numery, `log_only`,
+  okno wejścia; czuwanie kabiny też), gdy przełącznik przyjdzie z BCM
+  wyłączony — czekający alarm wychodzi po terminie, „zasilanie wrocilo bez
+  telefonu wlasciciela” też. Wiersz „Postój” pokazuje wtedy „wyłączony
+  w BCM — pilnuje do rozbrojenia przez właściciela” (`off_pending`).
+  Wyłączenie działa dopiero po rozbrojeniu dowodem właściciela, niską
+  baterią albo strefą „dom”. Przy rozbrojonym i w czasie uzbrajania
+  wyłączenie działa od razu (nic nie może czekać). Starszy agent wyłączał
+  od razu — zaktualizuj go.
+
+**Po wypadku i 112 alarm nie uzbraja się sam** (agent ≥ 1.5.0). Bez bufora
+odcięcie prądu po wypadku wygląda dla telefonu jak zwykły postój, a przy
+aucie są wtedy kierowca, ratownicy, policja i laweta — nie złodziej (i nikt
+z nich nie wyśle `PARK OFF`). Przez **6 h** po wypadku, który BCM doręczył
+telefonowi (`POST /v1/crash`: nieodwołany, nie na próbę), po prawdziwym
+„Zadzwoń 112” z tego telefonu oraz przez cały czas każdej rozmowy 112
+z niego:
+
+- samo uzbrojenie (brak zasilania i BCM) czeka — po 6 h wraca jak zwykle;
+  „Uzbrój” z BCM dostaje odmowę („po wypadku / 112 alarm nie uzbraja się
+  przez 6 h”), `PARK ON <kod>` od właściciela działa;
+- alarm, który właśnie się uzbraja albo jest uzbrojony, gdy przychodzi
+  wypadek albo rozmowa 112 z tego telefonu (także testowa), zostaje
+  rozbrojony bez alarmu (`by crash`, ostatnie
+  zdarzenie: „wypadek / 112 — bez uzbrojenia przez 6 h”): czekający alarm
+  okna wejścia i czekające zdarzenie kabiny są odwoływane, ich zdjęcia
+  usuwane; alarm rozstrzygnięty wcześniej (SMS w kolejce) zostaje.
+
+Działa TYLKO, gdy BCM doręczył wypadek telefonowi (`modules.crash_sms`
+i sparowany agent) albo 112 poszło z tego telefonu (droga „telefon
+w aucie”). Z wyłączonym `crash_sms` i 112 przez telefon główny telefon
+w aucie o wypadku nie wie i po odcięciu prądu uzbroi się jak zwykle.
 
 Prąd, który wróci przy uzbrojonym, daje `grace_min` (3) min na dowód;
 potem **alarm „zasilanie wrocilo bez telefonu wlasciciela”**.
@@ -1532,7 +1617,8 @@ telefonie i opcjonalnie numery w samym telefonie (`--park-numbers`).
 **W BCM:**
 
 1. Ustawienia → Moduły: `car_phone`, `car_phone_agent`, `parking_guard`;
-   restart BCM.
+   restart BCM. `bluetooth` (z oFono) też — bez niego telefon właściciela
+   nie rozbraja, zostają kod i SMS.
 2. W `config/local.yaml` (nigdy w repo — dane osobowe) — wpisz własne
    numery w miejsce przykładowego:
 
@@ -1570,9 +1656,12 @@ telefonie i opcjonalnie numery w samym telefonie (`--park-numbers`).
    w logu `PARK (log only, no SMS): power`. Telefon dalej jest uzbrojony
    (`log_only` niczego nie zmienia, wiersz: „uzbrojony — tylko log, bez
    SMS”).
-   Wyłącz i włącz Bluetooth w swoim telefonie (rozbraja NOWE połączenie,
-   nie to, które trwało cały czas) → „rozbrojony” (`by owner_bt`). Żeby
-   powtórzyć, odłącz kabel jeszcze raz (krok 3).
+   Zanim rozbroisz: Ustawienia → Moduły → wyłącz `parking_guard` →
+   odmowa „Najpierw rozbrój alarm na postoju …” (telefon dalej
+   uzbrojony). Wyłącz i włącz Bluetooth w swoim telefonie (rozbraja NOWE
+   połączenie, nie to, które trwało cały czas; potrzebne łącze HFP — w logu
+   BCM bez niego „no HFP link … NOT disarmed”) → „rozbrojony”
+   (`by owner_bt`). Żeby powtórzyć, odłącz kabel jeszcze raz (krok 3).
 6. `POZYCJA <kod>` → link do mapy.
 
 Okna wejścia nie da się sprawdzić przy `log_only: true` (wyzwalacz idzie
@@ -1610,9 +1699,10 @@ telefonie**, w tym samym agencie (`tools/car_phone/termux/bcm_agent.py`,
 klasa `CabinWatch`, opis w nagłówku pliku), bo BCM na postoju nie ma prądu.
 Moduł w BCM (`src/safety/cabin_watch.py`; wymaga `car_phone_agent`
 i `parking_guard`, domyślnie wyłączony w kodzie i w obu configach) niczego
-nie uzbraja i nie robi zdjęć: wysyła telefonowi ustawienia, co 30 s pyta
-o stan (`GET /v1/cabin`) i pokazuje go w Ustawieniach → wiersz **„Czuwanie
-kabiny”**; każde zdarzenie (także te z czasu, gdy BCM był wyłączony)
+nie uzbraja i nie robi zdjęć: wysyła telefonowi ustawienia (i w wersji
+z buforem sygnał drzwi, niżej), co 30 s pyta o stan (`GET /v1/cabin`)
+i pokazuje go w Ustawieniach → wiersz **„Czuwanie kabiny”**; każde
+zdarzenie (także te z czasu, gdy BCM był wyłączony)
 publikuje raz w historii na szynie (`park.cabin_event`). Tematu
 `alarm.sensor.*` (syrena) nigdy nie używa. **Zdjęcia nigdy nie trafiają do
 BCM** — ani przez API, ani do Ustawień.
@@ -1634,9 +1724,14 @@ akcelerometr, a wiersz mówi „brak czujnika światła”). Sygnały:
   `shake_k`, `tilt_deg`); ruch liczy się dla kabiny najwyżej **raz na
   10 s** (alarm na postoju dalej raz na 30 s), więc ok. 20 s ciągłego
   kołysania to 3 ruchy;
-- **drzwi** — podpisane `POST /v1/park/event {"kind": "door"}` od BCM
-  (wersja docelowa, gdy Nano #2 obudzi BCM otwarciem drzwi — plan E; dziś
-  nikt go nie wysyła). Sam sygnał drzwi **nigdy nie rozbraja**.
+- **drzwi** — podpisane `POST /v1/park/event {"kind": "door"}` od BCM,
+  tylko w wersji z buforem: gdy Nano #2 obudzi BCM otwarciem drzwi (plan E,
+  §5.15 — `power.remote_session` przechodzi w sesję z powodem „drzwi”), BCM
+  wysyła JEDEN sygnał na to wybudzenie (ponawia co 10 s, aż forward agenta
+  wstanie, najdłużej 5 min). W aucie testowym (bez bufora, bez
+  `modules.remote_session`) nie wychodzi nigdy. Sam sygnał drzwi **nigdy
+  nie rozbraja**; telefon bierze go pod uwagę tylko przy uzbrojonym
+  czuwaniu.
 
 Zdarzenie kabiny: **światło i ruch w ciągu 10 s** albo **przechył** albo
 **drzwi** albo **3 słabe sygnały w 60 s, w tym co najmniej dwa ruchy** —
@@ -1728,6 +1823,24 @@ zdjęcia tego zdarzenia** (to był właściciel; wiersz: „właściciel — zdj
 usunięte”), także w trakcie serii (seria się przerywa, ekran gaśnie).
 Zdjęcia zdarzeń, po których poszedł alarm, zostają. Rozbrojenie z powodu
 niskiej baterii wysyła czekający alarm kabiny od razu.
+
+**Wyłączenie `cabin_watch` (albo `parking_guard`) w Ustawieniach → Moduły
+przy uzbrojonym to nie dowód właściciela** (§5.12): BCM odmawia
+(„Najpierw rozbrój alarm na postoju …”), a telefon (agent ≥ 1.5.0) czuwa
+dalej do rozbrojenia — czekające zdarzenie nie jest odwoływane, jego
+zdjęcia zostają, a alarm kabiny idzie po terminie. Wiersz „wyłączone —
+zdjęcia usunięte” zostaje tylko dla zdarzeń zapisanych przez starszego
+agenta.
+
+**Po wypadku i w czasie rozmowy 112** (agent ≥ 1.5.0, szczegóły i warunki
+w §5.12): alarm na postoju nie uzbraja się sam przez 6 h, więc kamera nie
+czuwa przy ratownikach. Gdy alarm był uzbrojony, wypadek albo rozmowa 112
+z tego telefonu odwołuje czekające zdarzenie kabiny i usuwa jego zdjęcia
+(wiersz: „wypadek / 112 — zdjęcia usunięte”). Przez cały czas rozmowy 112
+z tego telefonu agent nie robi zdjęć i nie rusza ekranu (bez
+`KEYCODE_WAKEUP`, `am start` i wygaszania — ekran rozmowy zostaje na
+wierzchu; wiersz: „kamera wyłączona: trwa rozmowa 112”); seria przerwana
+przez rozmowę kończy się bez wygaszania ekranu.
 
 **Zdjęcia w telefonie:** `~/.config/bcm_agent/cabin/` (katalog 0700, pliki
 0600; dowiązanie symboliczne w tym miejscu wyłącza aparat), nazwy
@@ -2035,7 +2148,7 @@ w przełączniku w Ustawieniach.
 3. Po starcie pojawia się wiersz „Jasność ekranu”. Zasłoń czujnik telefonu
    dłonią: po kilku sekundach ekran ciemnieje.
 
-Log: `journalctl -u bcm-headunit | grep -i brightness`.
+Log: `sudo journalctl -u bcm-headunit -b | grep -i brightness`.
 
 **Wyłączenie.** `modules.auto_brightness: false` i restart: nakładka
 znika, ekran wraca do stanu sprzed modułu. Wyłączenie w Ustawieniach →
@@ -2091,7 +2204,20 @@ Co robi w wersji z buforem:
   `tools/car_phone/termux/wake.sh`. Kod TOTP tworzy `--park-setup`; bez
   `modules.parking_guard` BCM nie wysyła białej listy — wtedy numery
   ustawia się w telefonie (`--park-numbers`), inaczej agent pomija SMS
-  i raz ostrzega w logu (`ZASILANIE_BUFOROWANE.md` §14.6).
+  i raz ostrzega w logu (`ZASILANIE_BUFOROWANE.md` §14.6). Odpowiedź na SMS:
+  „BUDZENIE wyslane” (dioda nadała), a gdy BCM milczał przed budzeniem
+  i w ciągu 10 min przyjdzie od niego pierwsze podpisane żądanie — druga
+  „komputer obudzony - BCM odpowiada” (agent ≥ 1.5.0; jej brak po 10 min =
+  komputer nie wstał albo nie doszedł do telefonu).
+- **Drzwi → czuwanie kabiny:** pobudka od drzwi daje telefonowi sygnał
+  drzwi dla czuwania kabiny (§5.13).
+- **Kod IR jest prywatny** — ten z repozytorium (`0x7A15` / `0x56`) zna każdy,
+  kto czyta kod, więc moduł ostrzega w logu przy starcie i w wierszu
+  „Wybudzanie” („kod IR z repozytorium — ustaw własny …”), dopóki go nie
+  zmienisz. Własny kod podajesz przy kompilacji (bez edycji śledzonego
+  `wake_logic.h`: `WAKE_IR_ADDRESS=0x… WAKE_IR_COMMAND=0x…` przy `make`)
+  i te same wartości w `config/local.yaml` (`power.remote_session.ir_address`
+  / `ir_command`) — `ZASILANIE_BUFOROWANE.md` §14.
 
 Okablowanie, flagi (`make -C arduino sensor_hub-upload … SENSOR_HUB_FEATURES="…
 WAKE_IR WAKE_DOOR"`), protokół, BIOS i kolejność sprawdzeń na stole:

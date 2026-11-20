@@ -481,6 +481,8 @@ class BrightnessController:
         # Automatic path
         self._samples: dict[str, Optional[tuple[float, float]]] = {"phone": None, "arduino": None}
         self._ever_sample = False
+        #: The DDC monitor's own level was adopted at boot (no sample yet).
+        self._ddc_adopted = False
         self._source = ""
         self._anchor: Optional[tuple[str, float]] = None
         self._target: Optional[float] = None
@@ -785,6 +787,10 @@ class BrightnessController:
             desired = self._ema
         elif self._ever_sample:
             eff, desired = "stale", None
+        elif self._ddc_adopted and self._active == "ddc":
+            # The monitor's own level (from the last drive) until the first
+            # light reading — see _ddc_adopt_locked.
+            eff, desired = "no_source", None
         else:
             eff, desired = "no_source", float(self._manual_value)
         self._effective = eff
@@ -803,6 +809,26 @@ class BrightnessController:
                 log.debug("Brightness: %s %d%%", eff, value)
         self._outputs_locked(now, out)
         return out, applied
+
+    def _ddc_adopt_locked(self) -> None:
+        """After a good DDC probe. Every drive of the test car is a cold boot
+        and the light reading comes only after the phone's adb forward, so
+        before the first sample (automatic mode, no manual input) the level
+        the monitor kept in its EEPROM from the last drive is adopted — a
+        night start must not jump to the Settings slider value until the
+        first lux reading decides (``_ddc_adopted`` makes "no_source" hold).
+        Otherwise the current level is written as before."""
+        last = self._ddc_last_pct
+        if last is not None and self._mode == "auto" and not self._manual_override \
+                and not self._ever_sample:
+            value = max(self.settings.min_pct, min(100, last))
+            self._current_brightness = value
+            self._ddc_adopted = True
+            self._hw_desired = None if value == last else (value, True)
+            log.info("Brightness: keeping the monitor's %d%% until the first light reading",
+                     value)
+            return
+        self._hw_desired = (self._current_brightness, True)
 
     def _apply_locked(self, value: int, out: list, force: bool) -> None:
         self._current_brightness = value
@@ -1091,7 +1117,7 @@ class BrightnessController:
                         self._ddc_last_pct = int(round(cur * 100 / mx)) if mx else None
                         self._ddc_last_at = None
                         self._ddc_failures = 0
-                        self._hw_desired = (self._current_brightness, True)
+                        self._ddc_adopt_locked()
                         log.info("Brightness: DDC/CI works (VCP 10 = %d of %d) — hardware dimming",
                                  cur, mx)
                 out, _ = self._evaluate_locked(self._clock())

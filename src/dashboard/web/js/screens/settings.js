@@ -641,6 +641,9 @@ const Settings = {
             facts.push(t("park_battery", "bateria") + " " + pg.battery_pct + "%");
         }
         if (pg.light === true) facts.push(t("park_light", "oszczędzanie baterii"));
+        // Switched off on BCM while armed: not an owner proof — the phone
+        // keeps guarding until "Rozbrój" (owner's phone or code).
+        if (pg.off_pending === true) facts.push(t("park_off_pending", "wyłączony w BCM — pilnuje do rozbrojenia przez właściciela"));
         const evLabels = {
             tilt: t("park_ev_tilt", "przechył"),
             shake: t("park_ev_shake", "wstrząs"),
@@ -648,6 +651,7 @@ const Settings = {
             low_battery: t("park_ev_low_battery", "niska bateria — rozbrojony"),
             home: t("park_ev_home", "dom — bez uzbrojenia"),
             cabin: t("park_ev_cabin", "ruch w kabinie"),
+            crash_holdoff: t("park_ev_crash_holdoff", "wypadek / 112 — bez uzbrojenia przez 6 h"),
         };
         const ev = pg.last_event;
         let evHtml = "";
@@ -655,7 +659,7 @@ const Settings = {
             const when = Settings._crashFmtTime(ev.ts);
             const logged = ev.logged_only === true ? " (" + t("park_logged_only", "tylko log") + ")" : "";
             // red = a real alarm; amber = only logged (log_only week); grey = home
-            const evColor = ev.kind === "home" ? "var(--text-mid)" : (ev.logged_only === true ? "#d97706" : "#dc2626");
+            const evColor = ev.kind === "home" || ev.kind === "crash_holdoff" ? "var(--text-mid)" : (ev.logged_only === true ? "#d97706" : "#dc2626");
             evHtml = `<span data-park-event="${esc(ev.kind)}" style="color:${evColor};flex-basis:100%;padding-left:24px">${esc(t("park_last_event", "Ostatnie zdarzenie") + ": " + evLabels[ev.kind] + (when ? " " + when : "") + logged)}</span>`;
         }
         // What is missing / wrong — what to do, never raw error text.
@@ -672,6 +676,10 @@ const Settings = {
             if (pg.numbers_n === 0) hints.push(t("park_hint_numbers", "brak numerów do SMS — parking_guard.numbers w config/local.yaml"));
         }
         if (pg.owner_known === false) hints.push(t("park_hint_owner", "telefon właściciela nieznany — parking_guard.owner_macs w config/local.yaml"));
+        // The owner's address is connected but without the HFP link that
+        // proves it (a bare connection can be spoofed): code or SMS only.
+        if (pg.bt_proof === false) hints.push(t("park_hint_no_bt", "bez Bluetooth telefon właściciela nie rozbraja — tylko kod albo SMS PARK OFF"));
+        if (pg.owner_unproven === true) hints.push(t("park_hint_unproven", "telefon właściciela połączony bez HFP — to nie dowód; Rozbrój kodem"));
         const hintHtml = hints.length
             ? `<span data-park-hint style="color:var(--text-mid);flex-basis:100%;padding-left:24px">${esc(hints.join(" · "))}</span>` : "";
         // The outcome of the last Uzbrój / Rozbrój (from the module).
@@ -686,6 +694,7 @@ const Settings = {
             agent_outdated: t("park_err_outdated", "agent w telefonie jest za stary"),
             no_answer: t("park_err_no_answer", "telefon nie odpowiada"),
             owner_required: t("park_err_owner", "połącz telefon właściciela albo wpisz kod"),
+            crash_holdoff: t("park_err_crash_holdoff", "po wypadku / 112 alarm nie uzbraja się przez 6 h"),
         };
         let cmdText = Settings._park.msg || "";
         const cmd = pg.cmd;
@@ -816,6 +825,7 @@ const Settings = {
             no_space: t("cabin_cam_no_space", "kamera wyłączona: mało miejsca w telefonie"),
             no_front_camera: t("cabin_cam_no_front", "brak przedniej kamery — uprawnienie Aparat dla Termux:API?"),
             bad_path: t("cabin_cam_bad_path", "kamera wyłączona: zły katalog zdjęć"),
+            in_call: t("cabin_cam_in_call", "kamera wyłączona: trwa rozmowa 112"),
         };
         const facts = [];
         if (state === "pending") {
@@ -841,6 +851,7 @@ const Settings = {
             alarm: t("cabin_o_alarm", "alarm — SMS do numerów alarmu"),
             owner: t("cabin_o_owner", "właściciel — zdjęcia usunięte"),
             off: t("cabin_o_off", "wyłączone — zdjęcia usunięte"),
+            crash: t("cabin_o_crash", "wypadek / 112 — zdjęcia usunięte"),
             logged: t("cabin_o_logged", "tylko log"),
             limited: t("cabin_o_limited", "limit SMS — tylko log"),
             no_numbers: t("cabin_o_no_numbers", "brak numerów — bez SMS"),
@@ -966,6 +977,8 @@ const Settings = {
         }
         const hints = [];
         if (rs.link === false) hints.push(t("wake_hint_link", "Nano #2 (sensor_hub) niepodłączony — port szeregowy"));
+        // The repo's IR wake code is public — anyone could wake the PC.
+        if (rs.ir_default === true) hints.push(t("wake_hint_ir_default", "kod IR z repozytorium — ustaw własny (WAKE_IR_ADDRESS / WAKE_IR_COMMAND przy make i w local.yaml)"));
         const cmd = rs.cmd;
         if (cmd && typeof cmd === "object" && cmd.ok === false) {
             const errs = {
@@ -1517,6 +1530,11 @@ const Settings = {
                         "nie zapisano w local.yaml — zmiana zniknie po restarcie");
                 }
                 mods.status = msg;
+            } else if (data && data.error === "disarm_first") {
+                // The parked-car alarm is armed: switching it off on BCM is
+                // not an owner proof (the phone keeps guarding anyway).
+                mods.status = t("module_disarm_first",
+                    "Najpierw rozbrój alarm na postoju (telefon właściciela albo kod w wierszu „Postój”) — wyłączenie z BCM nie rozbraja");
             } else {
                 mods.status = (data && typeof data.error === "string")
                     ? data.error : ("HTTP " + res.status);
@@ -2573,6 +2591,11 @@ App.registerScreen("settings", (() => {
         // picks its own name (no pairing needed) — escaped like all phone data.
         const esc = Settings._esc;
         const mac = typeof d.address === "string" && BT_MAC_RE.test(d.address) ? d.address : "";
+        // A paired device shows only the last two bytes of its address: the
+        // owner's phone is what parking_guard.owner_macs names, and a thief
+        // at this screen must not read it (the authenticated HFP link stays
+        // the real proof). New devices from a scan keep the full address.
+        const shown = type === "paired" && mac ? "XX:XX:XX:XX:" + mac.slice(-5) : d.address;
         const isConnected = d.connected === true;
         const isPaired = type === "paired";
         const statusBadge = isConnected
@@ -2602,10 +2625,10 @@ App.registerScreen("settings", (() => {
                 <span class="material-symbols-outlined ${isConnected ? 'text-green-500' : ''}" style="font-size:16px;${isConnected ? '' : 'color:var(--text-dim)'}">bluetooth</span>
                 <div>
                     <div class="flex items-center gap-2">
-                        <p class="text-xs font-bold">${esc(d.name || d.address)}</p>
+                        <p class="text-xs font-bold">${esc(d.name || shown)}</p>
                         ${statusBadge}
                     </div>
-                    <p class="text-[9px]" style="color:var(--text-dim)">${esc(d.address)}</p>
+                    <p class="text-[9px]" style="color:var(--text-dim)">${esc(shown)}</p>
                 </div>
             </div>
             ${actions}

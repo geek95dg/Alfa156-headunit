@@ -85,8 +85,31 @@ SENSOR_HUB_FEATURES ?=
 SENSOR_HUB_OPTIONAL = $(shell sed -n 's|^// *.define FEATURE_\([A-Z0-9_]*\).*|\1|p' \
                         $(CURDIR)/sensor_hub/sensor_hub.ino)
 SENSOR_HUB_UNKNOWN = $(filter-out $(SENSOR_HUB_OPTIONAL),$(SENSOR_HUB_FEATURES))
-SENSOR_HUB_FLAGS = $(if $(strip $(SENSOR_HUB_FEATURES)),--build-property \
-                     "compiler.cpp.extra_flags=$(addprefix -DFEATURE_,$(SENSOR_HUB_FEATURES))")
+
+# Własny (prywatny) kod IR budzenia BEZ edycji śledzonego wake_logic.h —
+# tam trafiłby do gita przy następnym commicie. Np.
+#   make sensor_hub-upload PORT=/dev/ttyUSB0 SENSOR_HUB_FEATURES="WAKE_IR ..." \
+#        WAKE_IR_ADDRESS=0x1B2C WAKE_IR_COMMAND=0x3D
+# Te same wartości w config/local.yaml (power.remote_session.ir_address /
+# ir_command). Tylko jedno słowo „0x” + cyfry szesnastkowe — sprawdzane
+# w samym make (nic nie idzie do powłoki); zakres (adres do 0xFFFF,
+# polecenie do 0xFF) pilnuje #error w wake_logic.h.
+WAKE_IR_ADDRESS ?=
+WAKE_IR_COMMAND ?=
+_HEX_DIGITS := 0 1 2 3 4 5 6 7 8 9 a b c d e f A B C D E F
+# $(call _strip,tekst,znaki): tekst bez podanych znaków.
+_strip = $(if $(2),$(call _strip,$(subst $(firstword $(2)),,$(1)),$(wordlist 2,99,$(2))),$(1))
+# $(call _hex_bad,ZMIENNA): nazwa zmiennej, gdy jej wartość nie jest pusta
+# i nie jest jednym słowem 0x<cyfry szesnastkowe>.
+_hex_bad = $(if $(strip $($(1))),$(if $(and $(filter 1,$(words $($(1)))),$(filter 0x%,$($(1))),\
+             $(patsubst 0x%,%,$($(1)))),$(if $(call _strip,$(patsubst 0x%,%,$($(1))),\
+             $(_HEX_DIGITS)),$(1)),$(1)))
+SENSOR_HUB_IR_BAD = $(strip $(call _hex_bad,WAKE_IR_ADDRESS) $(call _hex_bad,WAKE_IR_COMMAND))
+SENSOR_HUB_DEFINES = $(strip $(addprefix -DFEATURE_,$(SENSOR_HUB_FEATURES)) \
+                     $(if $(strip $(WAKE_IR_ADDRESS)),-DWAKE_IR_ADDRESS=$(strip $(WAKE_IR_ADDRESS))) \
+                     $(if $(strip $(WAKE_IR_COMMAND)),-DWAKE_IR_COMMAND=$(strip $(WAKE_IR_COMMAND))))
+SENSOR_HUB_FLAGS = $(if $(SENSOR_HUB_DEFINES),--build-property \
+                     "compiler.cpp.extra_flags=$(SENSOR_HUB_DEFINES)")
 SENSOR_HUB_TEST_BIN := $(VARIANTS_BUILD_DIR)/sensor_hub-test/test_power_logic
 SENSOR_HUB_WAKE_TEST_BIN := $(VARIANTS_BUILD_DIR)/sensor_hub-test/test_wake_logic
 
@@ -107,6 +130,8 @@ $(filter-out sensor_hub,$(AVR_SKETCHES)):
 sensor_hub:
 	$(if $(strip $(SENSOR_HUB_UNKNOWN)),$(error SENSOR_HUB_FEATURES: nieznane \
 		"$(SENSOR_HUB_UNKNOWN)" - dozwolone: $(SENSOR_HUB_OPTIONAL)))
+	$(if $(SENSOR_HUB_IR_BAD),$(error $(SENSOR_HUB_IR_BAD): tylko 0x i cyfry \
+		szesnastkowe, np. WAKE_IR_ADDRESS=0x1B2C WAKE_IR_COMMAND=0x3D))
 	$(ARDUINO_CLI) compile --profile default --warnings default $(SENSOR_HUB_FLAGS) \
 		$(CURDIR)/sensor_hub
 

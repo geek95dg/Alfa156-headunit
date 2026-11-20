@@ -303,9 +303,10 @@ CALL112_ERRORS = ("", "su_missing", "su_denied", "am_failed", "no_call")
 #: The parking guard on the phone (``GET /v1/park``), see bcm_agent.py.
 PARK_STATES = ("off", "disarmed", "arming", "armed", "alarm", "log_only")
 PARK_BY = ("", "power", "bcm", "sms", "owner_bt", "owner_sms", "owner_code", "low_battery",
-           "home", "off", "power_back")
-#: ``cabin`` = the cabin watch's alarm (plan I) — the same car alarm.
-PARK_EVENT_KINDS = ("tilt", "shake", "power", "low_battery", "home", "cabin")
+           "home", "off", "power_back", "crash")
+#: ``cabin`` = the cabin watch's alarm (plan I) — the same car alarm;
+#: ``crash_holdoff`` = disarmed / not self-arming after a crash or a 112 call.
+PARK_EVENT_KINDS = ("tilt", "shake", "power", "low_battery", "home", "cabin", "crash_holdoff")
 PARK_SENSOR_STATES = ("off", "starting", "ok", "error", "no_sensor", "light")
 #: (default, lo, hi) of the ``parking_guard.*`` numbers — the agent's ranges.
 PARK_INTS = {"arm_after_min": (3, 1, 60), "arm_delay_min": (2, 0, 30), "grace_min": (3, 1, 15),
@@ -317,10 +318,10 @@ PARK_CODE_RE = re.compile(r"^[0-9]{6}$")
 #: The cabin watch on the phone (``GET /v1/cabin``), see bcm_agent.py.
 CABIN_STATES = ("off", "idle", "watching", "pending")
 CABIN_CAMERA = ("ok", "unknown", "light_mode", "low_battery", "no_temp", "cold", "hot",
-                "charging_hot", "no_space", "no_front_camera", "bad_path")
+                "charging_hot", "no_space", "no_front_camera", "bad_path", "in_call")
 CABIN_LIGHT_SENSOR = ("ok", "none", "unknown")
 CABIN_OUTCOMES = ("pending", "alarm", "owner", "off", "logged", "limited", "no_numbers",
-                  "expired")
+                  "expired", "crash")
 CABIN_SIGNALS = ("door", "light", "shake", "tilt", "power")
 CABIN_VERDICTS = ("change", "no_change", "dark", "skipped", "error")
 CABIN_REF_MODES = ("ref", "burst")
@@ -726,6 +727,9 @@ def parse_park_view(obj: Any) -> Optional[dict[str, Any]]:
         # The entry window: motion seen, the alarm goes out at this time
         # without the owner's proof (None = nothing pending).
         "entry_until": ts(obj.get("entry_until")),
+        # Switched off on BCM while armed: it keeps guarding until the
+        # owner's proof (agent >= 1.5.0; older agents never send it).
+        "off_pending": obj.get("off_pending") is True,
     }
 
 
@@ -1508,9 +1512,10 @@ class CarPhoneAgent:
             reason = self._refused_reason(desired)
             if reason == "agent_outdated":
                 log.warning("Car phone agent: the agent on the phone (%s) is older than this "
-                            "BCM and cannot hold the 112 / parking guard / cabin watch "
-                            "settings — copy the new tools/car_phone/termux/bcm_agent.py to "
-                            "~/bcm_agent/ and restart it (docs §5.11–§5.13)",
+                            "BCM and cannot hold the 112 / parking guard / cabin watch / "
+                            "wake settings — copy the new tools/car_phone/termux/bcm_agent.py "
+                            "to ~/bcm_agent/ and restart it (docs §5.9, "
+                            "PRZYGOTOWANIE_TELEFONU §9.5)",
                             self._info.get("version") or "?")
             else:
                 log.warning("Car phone agent: the agent refused the config (HTTP %d: %s) — "
@@ -1729,8 +1734,9 @@ class CarPhoneAgent:
 
     def park_event(self, kind: str) -> dict:
         """``POST /v1/park/event {"kind": "door"}`` — a SIGNAL for the cabin
-        watch (the door opened while the car is parked; plan E's door
-        wake-up will send it). Never a disarm: the phone treats it as a
+        watch (the door opened while the car is parked; sent by
+        src/safety/cabin_watch.py after plan E's door wake-up, buffered
+        build only). Never a disarm: the phone treats it as a
         possible intruder."""
         if kind not in CABIN_EXT_SIGNALS:
             return _result(False, error="bad_request", detail="kind: door")

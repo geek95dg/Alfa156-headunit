@@ -21,6 +21,7 @@ the Bluetooth manager's entry point and the catalog / config wiring.
 from __future__ import annotations
 
 import json
+import logging
 import shutil
 import sys
 from pathlib import Path
@@ -1026,6 +1027,49 @@ class TestUnverified:
         assert p["state"] == "ended" and p["unverified"] is True
         assert env.m.dismiss(EID)["ok"] is True and env.mutes == [True, True]
 
+    def test_accepted_then_silent_while_dialing_is_followed_5_min_at_most(self, env):
+        """200 'queued', then the phone stops answering (cable knocked out,
+        forward gone): unverified, ended after UNVERIFIED_FOLLOW_MAX_S — not
+        an hour of 'dialing' that blocks the main phone and dismiss."""
+        env.bus.publish("audio.mic_state", {"state": "none"})       # path A out
+        env.bus.publish("audio.mute_changed", False)
+        _crash(env)
+        assert env.m.request_call()["path"] == "car_phone"
+        env.m.run_once()
+        env.bus.publish("audio.mute_changed", True)
+        env.agent.status_answer = {"ok": False, "status": None, "data": None,
+                                   "error": "no_forward"}
+        for _ in range(c112.POLL_FAILS_UNVERIFIED):
+            env.clock.advance(2)
+            env.m.run_once()
+        p = _last(env)
+        assert p["state"] == "dialing" and p["unverified"] is True
+        assert env.m.dismiss(EID)["error"] == "busy"
+        env.clock.advance(c112.UNVERIFIED_FOLLOW_MAX_S)
+        env.m.run_once()
+        env.m.run_once()
+        p = _last(env)
+        assert p["state"] == "ended" and p["unverified"] is True
+        assert env.mutes == [True, True]
+        env.bus.publish("audio.mic_state", {"state": "ok", "source": "usb", "aec": False})
+        env.clock.advance(61)
+        res = env.m.request_call()
+        assert res["ok"] is True and res["path"] == "hfp"               # not 'busy'
+
+    def test_a_lost_answer_still_fails_no_phone_at_20_s(self, env):
+        env.bus.publish("audio.mic_state", {"state": "none"})
+        _crash(env)
+        env.agent.call_answer = {"ok": False, "status": None, "data": None, "error": "timeout"}
+        env.m.request_call()
+        env.m.run_once()
+        env.agent.status_answer = {"ok": False, "status": None, "data": None,
+                                   "error": "no_forward"}
+        for _ in range(12):
+            env.clock.advance(2)
+            env.m.run_once()
+        p = _last(env)
+        assert p["state"] == "failed" and p["error"] == "no_phone"
+
     def test_an_unreadable_call_state_is_followed_5_min_at_most(self, live_b):
         env = live_b
         env.agent.status_answer = _view("placed", final=True, placed_ts=int(WALL0) + 1)
@@ -1213,6 +1257,54 @@ class TestLimits:
         env.m.run_once()
         assert _last(env)["window"] is True and seen == []    # no crash, no SMS
 
+    def _restart(self, env, cfg):
+        again = c112.Call112(cfg, env.bus, bt_manager=env.bt,
+                             agent_getter=lambda: env.agent, clock=lambda: env.clock.mono,
+                             wall_clock=lambda: env.clock.wall, state_path=str(env.path))
+        again.run_once()
+        return again
+
+    def _bench_test(self, env):
+        env.cfg["safety"]["call112"].update(test_mode=True, test_number=TEST_NUM)
+        assert env.m.open_test_window()["ok"] is True
+        env.m.run_once()
+        assert json.loads(env.path.read_text())["event"]["source"] == "test"
+        env.clock.advance(300)
+
+    def test_a_test_window_never_comes_back_in_real_mode(self, env):
+        """docs §5.11: bench test, then test_mode: false and a BCM restart
+        within window_min — no phantom real-112 window, nothing dialled."""
+        self._bench_test(env)
+        again = self._restart(env, _cfg())
+        p = again.payload()
+        assert p["window"] is False and p["dispatcher"] is None
+        assert again.request_call()["error"] == "no_window"
+        again.run_once()
+        assert env.bt.dialled == [] and env.agent.calls == []
+        assert json.loads(env.path.read_text())["event"] is None   # overwritten
+
+    def test_a_test_window_comes_back_in_test_mode_and_dials_only_the_test_number(self, env):
+        self._bench_test(env)
+        again = self._restart(env, _cfg(test_mode=True, test_number=TEST_NUM))
+        assert again.payload()["window"] is True
+        assert again.request_call()["ok"] is True
+        again.run_once()
+        assert env.bt.dialled == [TEST_NUM]
+
+    def test_a_test_window_needs_the_test_number_after_a_restart(self, env):
+        self._bench_test(env)
+        again = self._restart(env, _cfg(test_mode=True))
+        assert again.payload()["window"] is False
+        assert again.request_call()["error"] == "no_window"
+
+    def test_switching_test_mode_off_at_runtime_closes_a_test_window(self, env):
+        self._bench_test(env)
+        env.cfg["safety"]["call112"].update(test_mode=False)
+        assert env.m.payload()["window"] is False
+        assert env.m.request_call()["error"] == "no_window"
+        env.m.run_once()
+        assert env.bt.dialled == []
+
 
 # ── stop / start ───────────────────────────────────────────────────────────
 
@@ -1299,6 +1391,31 @@ class TestRoutes:
     def test_kiosk(self, web, addr):
         _crash(web.env)
         assert web.client.post("/api/crash/call112", json={}, **_as(addr)).status_code == 200
+
+    @pytest.mark.parametrize("headers", [
+        {"Host": "evil.example:5002"},                                 # DNS rebinding
+        {"Host": "localhost:5002", "Origin": "http://evil.example"},   # foreign page
+        {"Host": "localhost:5002", "Origin": "null"},                  # sandboxed frame
+    ])
+    def test_loopback_with_a_foreign_host_or_origin_is_refused(self, web, headers):
+        """A page in the kiosk browser whose name was re-pointed at
+        127.0.0.1 is loopback too — Host / Origin must be the kiosk's."""
+        _crash(web.env)
+        res = web.client.post("/api/crash/call112", json={}, headers=headers,
+                              **_as("127.0.0.1"))
+        assert res.status_code == 403 and res.get_json()["error"] == "forbidden"
+        web.env.m.run_once()
+        assert web.env.bt.dialled == []
+
+    @pytest.mark.parametrize("host,origin", [("localhost:5002", "http://localhost:5002"),
+                                             ("127.0.0.1:5002", "http://127.0.0.1:5002"),
+                                             ("localhost:5002", None)])
+    def test_the_kiosk_page_with_its_own_origin(self, web, host, origin):
+        _crash(web.env)
+        headers = {"Host": host} if origin is None else {"Host": host, "Origin": origin}
+        res = web.client.post("/api/crash/call112", json={}, headers=headers,
+                              **_as("127.0.0.1"))
+        assert res.status_code == 200
 
     def test_module_off(self, web):
         web.holder["module"] = None
@@ -1454,6 +1571,18 @@ class TestBluetoothEntryPoint:
         assert queued == [("dial", (number, "call112"))]
         assert bus.get_last("bt.call_state")[0] == "ringing"
 
+    def test_the_test_number_is_masked_in_the_log(self, monkeypatch, caplog):
+        """The test number is a private person's number (local.yaml only)."""
+        bus, mgr, queued, results = self._mgr(monkeypatch)
+        monkeypatch.setattr(bt, "HAS_DBUS", True)
+        monkeypatch.setattr(mgr, "_hfp_dial_dbus", lambda number: "netdown")
+        monkeypatch.setattr(mgr, "_schedule_call_reconcile", lambda *a: None)
+        with caplog.at_level(logging.DEBUG):
+            assert mgr.dial_call112(TEST_NUM) is True
+            mgr._run_dial((TEST_NUM, "call112"))
+        assert TEST_NUM not in caplog.text
+        assert f"{TEST_NUM[:3]}...{TEST_NUM[-3:]}" in caplog.text
+
     def test_busy_reports_its_origin(self, monkeypatch):
         bus, mgr, queued, results = self._mgr(monkeypatch)
         mgr._dial_busy = True
@@ -1482,6 +1611,24 @@ class TestBluetoothEntryPoint:
         assert mgr.call112_facts() == {"connected": True, "voice_modem": True,
                                        "call_state": "idle"}
 
+    def test_authenticated_peers_are_hfp_modems_of_a_live_monitor(self, monkeypatch):
+        """parking_guard's Bluetooth owner proof: oFono's HFP voice modem per
+        address (exists only after an authenticated RFCOMM link), never a
+        bare connection."""
+        bus, mgr, queued, results = self._mgr(monkeypatch)
+        assert mgr.authenticated_peers() == frozenset()
+        tracker = bt.OfonoCallTracker(bus)
+        tracker.modem_added("/hfp/org/bluez/hci0/dev_AA_BB_CC_DD_EE_01",
+                            {"Interfaces": [bt.OFONO_VCM_IFACE]})
+        tracker.modem_added("/hfp/org/bluez/hci0/dev_AA_BB_CC_DD_EE_02",
+                            {"Interfaces": []})                # no VoiceCallManager yet
+        tracker.modem_added("/ril_0", {"Interfaces": [bt.OFONO_VCM_IFACE]})
+        mgr._call_tracker = tracker
+        assert mgr.authenticated_peers() == frozenset()          # monitor not live
+        tracker.live = True
+        mgr._connected_device = {"address": "AA:BB:CC:DD:EE:02", "name": "P"}
+        assert mgr.authenticated_peers() == frozenset({"AA:BB:CC:DD:EE:01"})
+
     def test_hangup_entry_point(self, monkeypatch):
         bus, mgr, queued, results = self._mgr(monkeypatch)
         monkeypatch.setattr(bt, "HAS_DBUS", True)
@@ -1494,3 +1641,53 @@ def test_module_docs_say_always_manual():
     doc = c112.__doc__
     assert "ALWAYS manual" in doc and "NOTHING here dials by itself" in doc
     assert sys.modules["src.safety.call112"] is c112
+
+
+class TestPhoneRoutesDuring112:
+    """/api/phone/hangup|answer|dial during a live 112 call: never from the
+    network (403, also in remote_access "full"); the kiosk cannot end the
+    dispatcher call through the phone screen (409) — only the crash window's
+    held "Rozłącz" does."""
+
+    def _live(self, web):
+        _crash(web.env)
+        assert web.env.m.request_call()["ok"] is True
+        web.env.m.run_once()
+        assert web.env.m.state["state"] in c112.LIVE
+        cmds = []
+        web.env.bus.subscribe("*", lambda t, v, ts: cmds.append(t)
+                              if t.startswith("bt.cmd.") else None)
+        return cmds
+
+    @pytest.mark.parametrize("route,body", [("/api/phone/hangup", None),
+                                            ("/api/phone/answer", None),
+                                            ("/api/phone/dial", {"number": "601234567"})])
+    def test_the_network_cannot_touch_the_call(self, web, route, body):
+        cmds = self._live(web)
+        web.cfg.set("dashboard.remote_access", "full")
+        client = web.viewer._build_app().test_client()
+        res = client.post(route, json=body, **_as("10.0.0.23"))
+        assert res.status_code == 403 and res.get_json()["error"] == "forbidden"
+        res = client.post(route, data="x", content_type="text/plain", **_as("192.168.1.5"))
+        assert res.status_code == 403
+        assert cmds == []
+
+    def test_the_kiosk_cannot_hang_up_through_the_phone_screen(self, web):
+        cmds = self._live(web)
+        res = web.client.post("/api/phone/hangup")
+        assert res.status_code == 409 and res.get_json()["error"] == "call112_live"
+        assert cmds == []
+        assert web.client.post("/api/phone/answer").status_code == 200   # "Odbierz"
+        assert cmds == ["bt.cmd.answer"]
+
+    def test_after_the_call_or_without_the_module_it_works(self, web):
+        cmds = self._live(web)
+        web.holder["module"] = None
+        assert web.client.post("/api/phone/hangup").status_code == 200
+        web.holder["module"] = web.env.m
+        web.env.bus.publish("bt.call_state", "active")
+        web.env.bus.publish("bt.call_state", "idle")
+        web.env.m.run_once()
+        assert web.env.m.state["state"] not in c112.LIVE
+        assert web.client.post("/api/phone/hangup").status_code == 200
+        assert cmds.count("bt.cmd.hangup") == 2

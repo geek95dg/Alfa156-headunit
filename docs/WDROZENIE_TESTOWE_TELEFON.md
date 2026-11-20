@@ -22,7 +22,7 @@ Jak czytać tę instrukcję:
 Przygotowanie samego telefonu w aucie (ROM, Termux, agent, 112, postój,
 kabina): [`PRZYGOTOWANIE_TELEFONU.md`](PRZYGOTOWANIE_TELEFONU.md).
 Szczegóły techniczne każdej funkcji: [`WDROZENIE_TESTOWE.md`](WDROZENIE_TESTOWE.md)
-§5.6–§5.14.
+§5.6–§5.15.
 
 ---
 
@@ -678,7 +678,8 @@ sudo nmcli connection delete bcm-car-phone
 W wersji z buforem komputer śpi w S3, a budzi go Nano #2 przyciskiem
 zasilania: po otwarciu drzwi kierowcy (nie przy wysiadaniu — pierwsze
 otwarcie po jeździe nie budzi — i najwcześniej 2 min po zgaszeniu zapłonu), po kodzie podczerwieni z telefonu w aucie (SMS `WAKE <kod>` albo
-skrót Termux:Widget `tools/car_phone/termux/wake.sh`) albo po impulsie na
+skrót Termux:Widget `tools/car_phone/termux/wake.sh` — instalacja skrótu
+w `ZASILANIE_BUFOROWANE.md` §14.6) albo po impulsie na
 wejściu EXT — najwyżej 3 razy na godzinę i 6 na dobę. Po pobudce BCM pokazuje
 baner „Wybudzono: … — uśpienie za mm:ss [Nie usypiaj 30 min] [Uśpij teraz]”,
 a po dzierżawie (drzwi 5 min, telefon 10 min) Nano usypia komputer z
@@ -727,7 +728,7 @@ loguje jedno ostrzeżenie, a Ustawienia proponują włączenie zależności.
 | `car_phone_agent` | agent w Termuxie (SMS, 112, postój, kabina) | `car_phone` | Termux + `bcm_agent.py`, sekret w `bcm.env` | wył. | wył. |
 | `crash_sms` | SMS do bliskich po stłuczce, z odliczaniem | `crash_detect`, `phone_sensors`, `car_phone_agent` | Redmi z kartą SIM | wył. | wył. |
 | `call112` | „Zadzwoń 112” w oknie wypadku (ręcznie) | `crash_detect`; `car_phone_agent` lub `bluetooth` | Redmi z rootem albo główny telefon + mikrofon | wył. | wył. |
-| `parking_guard` | pozycja i alarm na postoju (w telefonie) | `car_phone_agent` | Redmi z SIM, agent ≥ 1.2.0, kod TOTP | wył. | wył. |
+| `parking_guard` | pozycja i alarm na postoju (w telefonie) | `car_phone_agent` | Redmi z SIM, agent ≥ 1.2.0, kod TOTP; rozbrajanie telefonem właściciela tylko z `bluetooth` (HFP) | wył. | wył. |
 | `cabin_watch` | zdjęcia kabiny przednią kamerą przy alarmie | `car_phone_agent`, `parking_guard` | Redmi z rootem, blokada „Brak”, agent ≥ 1.3.0 | wył. | wył. |
 | `auto_brightness` | jasność ekranu z czujnika światła | `phone_sensors` lub `input` | czujnik w telefonie albo LDR Arduino | wył. | wył. |
 | `battery` | pomiar banku buforowego (BATT) | — | bufor, Nano #2 z `FEATURE_BATT_*` | wył. | wył. |

@@ -507,6 +507,22 @@ class TestStats:
         assert rs.ir_settings({"power": {"remote_session": {"ir_address": 0x1234,
                                                             "ir_command": 0}}}) == (0x1234, 0)
 
+    def test_the_public_repo_ir_code_is_warned_about(self, caplog):
+        """The repo's IR code is public: warned at start and shown in the
+        Settings row until a private code is set."""
+        with caplog.at_level("WARNING", logger=rs.log.name):
+            e = Env()
+        e.step()
+        assert e.state["ir_default"] is True
+        assert "repo default" in caplog.text
+        assert wv._remote_session_summary(e.state)["ir_default"] is True
+        caplog.clear()
+        with caplog.at_level("WARNING", logger=rs.log.name):
+            e = Env({"power": {"remote_session": {"ir_address": 0x1B2C, "ir_command": 0x3D}}})
+        e.step()
+        assert e.state["ir_default"] is False and "repo default" not in caplog.text
+        assert wv._remote_session_summary(e.state)["ir_default"] is False
+
 
 class TestSender:
     def test_default_sender_is_the_arduino_listener(self):

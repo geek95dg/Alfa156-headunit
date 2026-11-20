@@ -852,6 +852,18 @@ _DIAL_ERROR_TEXT = {
 CALL112_NUMBER = "112"
 CALL112_ORIGIN = "call112"
 _E164_RE = re.compile(r"^\+[1-9][0-9]{7,14}$")
+
+
+def _log_number(number: str, origin: str = "") -> str:
+    """A dialled number as it may go into the log. The 112 button's test
+    number (call112 test mode) is a private person's number kept only in
+    local.yaml — masked like call112.mask_number (``+48...599``); 112 itself
+    and ordinary dials from the phone screen stay as they are."""
+    if origin == CALL112_ORIGIN and number != CALL112_NUMBER:
+        return f"{number[:3]}...{number[-3:]}" if len(number) > 6 else "..."
+    return number
+#: A Bluetooth address as authenticated_peers() returns it.
+_MAC_RE = re.compile(r"^[0-9A-F]{2}(:[0-9A-F]{2}){5}$")
 #: bt.phone_status registration states meaning "no cellular network".
 _NO_NETWORK_STATES = ("searching", "denied", "unregistered")
 #: D-Bus errors meaning "no answer in time" — not "refused".
@@ -2084,7 +2096,8 @@ class BluetoothManager:
             log.warning("HFP dial refused: the previous dial is still in progress")
             self._dial_failed(number, "busy", revert=False, origin=origin)
             return False
-        log.info("HFP dial request%s: %s", " (112 button)" if origin else "", number)
+        log.info("HFP dial request%s: %s", " (112 button)" if origin else "",
+                 _log_number(number, origin))
         self._hfp_active = True
         self._event_bus.publish("bt.hfp_active", True)
         self._event_bus.publish("bt.call_state", "ringing")
@@ -2136,6 +2149,29 @@ class BluetoothManager:
         return {"connected": bool(self.connected),
                 "voice_modem": bool(live and tracker.has_voice_modem()),
                 "call_state": tracker.state if live else None}
+
+    def authenticated_peers(self) -> frozenset:
+        """Addresses (``AA:BB:CC:DD:EE:FF``) of phones with a live oFono HFP
+        voice modem — no I/O, any thread. oFono gets the HFP connection
+        (BlueZ Profile1 NewConnection) only once the RFCOMM channel is up,
+        which the kernel opens only after link-key authentication and
+        encryption; ``bt.connected`` / ``bluetoothctl … Connected`` is
+        already true for a bare ACL link, which anyone presenting the
+        owner's BD_ADDR can open (MAC spoofing). parking_guard treats this
+        set, not ``bt.connected``, as the owner's Bluetooth proof. Empty
+        without a live oFono monitor (then there is no Bluetooth proof)."""
+        tracker = self._call_tracker
+        if tracker is None or not tracker.live:
+            return frozenset()
+        out = set()
+        for path in tracker.voice_modems():
+            node = str(path).rstrip("/").rsplit("/", 1)[-1]
+            if not node.startswith("dev_"):
+                continue
+            addr = _device_path_to_addr(node).upper()
+            if _MAC_RE.fullmatch(addr):
+                out.add(addr)
+        return frozenset(out)
 
     # ── bt-call worker ────────────────────────────────────────────────────
 
@@ -2215,7 +2251,8 @@ class BluetoothManager:
             # again" would make a second call), no revert of the provisional
             # "ringing" — oFono's call state (monitor / reconcile) decides.
             log.warning("HFP dial: oFono did not answer in %.0f s — the call may "
-                        "still be going out: %s", _DIAL_TIMEOUT_S, number)
+                        "still be going out: %s", _DIAL_TIMEOUT_S,
+                        _log_number(number, origin))
             self._publish_dial_result(None, "unknown", origin)
             self._schedule_call_reconcile()
         else:
@@ -2267,7 +2304,8 @@ class BluetoothManager:
         title, desc = _DIAL_ERROR_TEXT.get(error, _DIAL_ERROR_TEXT["dbus"])
         publish_notification(bus, title, desc, severity="warning", icon="call_end",
                              key="dial_result")
-        log.warning("HFP dial failed (%s)%s", error, f": {number}" if number else "")
+        log.warning("HFP dial failed (%s)%s", error,
+                    f": {_log_number(number, origin)}" if number else "")
         if not revert:
             return
         tracker = self._call_tracker
@@ -2354,7 +2392,9 @@ class BluetoothManager:
                 vcm = dbus.Interface(bus.get_object(OFONO_SERVICE, path), OFONO_VCM_IFACE)
                 dial_sent = True
                 vcm.Dial(number, "", timeout=_DIAL_TIMEOUT_S)
-                log.info("HFP dial via ofono: %s", number)
+                # The number is in the "HFP dial request" line (masked
+                # there for the 112 button's test number).
+                log.info("HFP dial accepted by oFono")
                 return None
             return "no_modem"
         except dbus.DBusException as e:

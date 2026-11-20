@@ -13,8 +13,8 @@ frame-difference analysis on the phone, and the alarm SMS after the entry
 window unless the owner proves themselves (which also deletes the photos).
 The photos never leave the phone in this version.
 
-What BCM adds while it runs — read-only, nothing here can arm, disarm or
-take a photo:
+What BCM adds while it runs — nothing here can arm, disarm or take a
+photo itself:
 
 * ``GET /v1/cabin`` every :data:`POLL_S` on the module's own worker (never
   the bus dispatcher, never module start), published on
@@ -27,6 +27,17 @@ take a photo:
   A bus topic only — never ``alarm.sensor.*`` (that is the siren alarm
   module, which treats every value as a break-in) and no notification
   (the parking guard already shows ONE for the car's alarm).
+* **The door signal** (plan I T0 + plan E, buffered build only): when the
+  sensor_hub woke BCM because a door opened (``power.remote_session``
+  goes to ``session`` with reason ``door`` — remote_session already drops
+  repeated full-state lines), the worker sends ONE signed
+  ``POST /v1/park/event {"kind": "door"}`` for that wake-up, retried every
+  :data:`DOOR_RETRY_S` while the agent forward is not up yet (BCM boots
+  faster than the forward), given up after :data:`DOOR_TTL_S`. It is only
+  a SIGNAL for the phone's cabin watch (a possible intruder — the phone
+  never disarms on it, and ignores it unless the cabin watch is armed).
+  In the test car (no buffer, no ``modules.remote_session``) it never
+  happens.
 
 The owner proof is the parking guard's job (src/safety/parking_guard.py
 disarms the phone on the owner's Bluetooth connection edge); the phone
@@ -63,6 +74,7 @@ from typing import Any, Callable, Optional
 
 from src.core.logger import get_logger
 from src.network import car_phone_agent as _cpa
+from src.power import remote_session as _rs
 
 log = get_logger("safety.cabin_watch")
 
@@ -78,6 +90,11 @@ IDLE_WAIT_S = 30.0
 #: Event ids remembered for the history (the phone keeps the last 32).
 SEEN_MAX = 64
 QUEUE_MAX = 8
+#: The door signal of one wake-up: retried while the agent forward is not up
+#: yet (1-2 min after boot), given up after DOOR_TTL_S — a door that opened
+#: longer ago is no news for the cabin watch.
+DOOR_RETRY_S = 10.0
+DOOR_TTL_S = 300.0
 #: Agent errors that mean "nothing answered" (vs. an agent that refused).
 _NO_ANSWER = ("no_forward", "connect", "dropped", "timeout", "busy", "stopped", "no_secret")
 
@@ -125,11 +142,17 @@ class CabinWatch:
         self._logged_error = ""
         self._seen: "OrderedDict[str, str]" = OrderedDict()
         self._published: Optional[dict[str, Any]] = None
+        # The door signal (under _lock: set by the dispatcher, sent by the
+        # worker): ``since`` of the last door wake-up already taken, and the
+        # pending send ({until, next} monotonic) or None.
+        self._door_since: Optional[float] = None
+        self._door: Optional[dict[str, float]] = None
 
     # ── lifecycle ─────────────────────────────────────────────────────────
 
     def _subscriptions(self) -> tuple:
         return ((_cpa.TOPIC, self._on_agent),
+                (_rs.TOPIC_STATE, self._on_wake),
                 ("power.shutting_down", self._on_shutdown))
 
     def start(self) -> None:
@@ -166,6 +189,23 @@ class CabinWatch:
         if isinstance(value, dict) and value.get("state") == "ok":
             self._kick()
 
+    def _on_wake(self, topic: str, value: Any, timestamp: float) -> None:
+        """``power.remote_session`` (dispatcher: no I/O). A NEW wake-up by
+        the door (a ``since`` not seen yet) queues ONE door signal."""
+        if not isinstance(value, dict) or value.get("state") != "session" \
+                or value.get("reason") != "door":
+            return
+        since = value.get("since")
+        if isinstance(since, bool) or not isinstance(since, (int, float)):
+            return
+        with self._lock:
+            if since == self._door_since:
+                return
+            self._door_since = float(since)
+            self._door = {"until": self._clock() + DOOR_TTL_S, "next": 0.0}
+        log.info("Cabin watch: BCM was woken by a door — sending the door signal to the phone")
+        self._kick()
+
     def _kick(self) -> None:
         try:
             self._q.put_nowait(True)
@@ -198,12 +238,48 @@ class CabinWatch:
             return None
 
     def step(self) -> float:
-        """One poll when due; returns the sleep."""
+        """One poll when due (and a pending door signal); returns the sleep."""
         now = self._clock()
+        with self._lock:
+            door = dict(self._door) if self._door is not None else None
+        if door is not None and now >= door["next"]:
+            self._send_door(now, door)
         if now >= self._next_poll:
             self._poll(now)
         self._publish()
-        return max(0.05, min(IDLE_WAIT_S, self._next_poll - now))
+        wait = self._next_poll - now
+        with self._lock:
+            if self._door is not None:
+                wait = min(wait, self._door["next"] - now)
+        return max(0.05, min(IDLE_WAIT_S, wait))
+
+    def _send_door(self, now: float, door: dict) -> None:
+        """One try of the door signal (worker thread)."""
+        agent = self._agent()
+        res = agent.park_event("door") if agent is not None else {"ok": False,
+                                                                   "error": "no_agent"}
+        err = res.get("error") or ""
+        retry = not res.get("ok") and (err == "no_agent" or err in _NO_ANSWER) \
+            and now + DOOR_RETRY_S < door["until"]
+        with self._lock:
+            if self._door is None or self._door["until"] != door["until"]:
+                return                   # a newer wake-up replaced it meanwhile
+            if retry:
+                self._door["next"] = now + DOOR_RETRY_S
+                return
+            self._door = None
+        if res.get("ok"):
+            data = res.get("data")
+            accepted = isinstance(data, dict) and data.get("accepted") is True
+            log.info("Cabin watch: door signal %s by the phone",
+                     "taken" if accepted else "ignored (the cabin watch is not armed)")
+        elif err == "not_found":
+            log.warning("Cabin watch: the agent on the phone has no door signal (older than "
+                        "1.3.0) — door signal dropped")
+        else:
+            log.info("Cabin watch: door signal not delivered (%s) — dropped",
+                     err or "agent_error")
+        self._next_poll = 0.0            # the cabin state may have changed: poll now
 
     def _poll(self, now: float) -> None:
         agent = self._agent()

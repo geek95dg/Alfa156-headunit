@@ -363,6 +363,40 @@ class TestWakeSms:
         env.step()
         assert len(env.runner.ir) == 1
 
+    def test_the_phone_tells_when_bcm_is_up(self, wenv):
+        """BCM was silent before the wake: its first signed request after
+        it = ONE more reply "komputer obudzony" to the number that woke it
+        (no 2-min reply pause — the first reply went out just before)."""
+        wenv.clock.advance(A.WAKE_SILENT_S + 5)
+        wenv.sms_in(f"WAKE {wenv.code()}")
+        wenv.step()
+        wenv.send()
+        wenv.clock.advance(60)                           # BCM boots, the forward comes up
+        assert wenv.peer.req("GET", "/v1/park")[0] == 200
+        wenv.send()
+        assert wenv.runner.sms == [(OWNER, "ALFA 156: BUDZENIE wyslane"),
+                                   (OWNER, "ALFA 156: komputer obudzony - BCM odpowiada")]
+        wenv.clock.advance(30)
+        assert wenv.peer.req("GET", "/v1/park")[0] == 200   # only once per wake
+        wenv.send()
+        assert len(wenv.runner.sms) == 2
+
+    def test_no_woke_reply_when_bcm_was_running_or_came_too_late(self, wenv):
+        # BCM talked a moment ago (it was running): its next request proves nothing.
+        wenv.sms_in(f"WAKE {wenv.code()}")
+        wenv.step()
+        assert wenv.peer.req("GET", "/v1/park")[0] == 200
+        wenv.send()
+        assert wenv.runner.sms_texts() == ["ALFA 156: BUDZENIE wyslane"]
+        # Silent, woken, but BCM answers only after WAKE_CONFIRM_S: no reply.
+        wenv.clock.advance(A.WAKE_SILENT_S + 5)
+        wenv.sms_in(f"WAKE {wenv.code()}", number=OWNER2)
+        wenv.step()
+        wenv.clock.advance(A.WAKE_CONFIRM_S + 1)
+        assert wenv.peer.req("GET", "/v1/park")[0] == 200
+        wenv.send()
+        assert "komputer obudzony" not in " ".join(wenv.runner.sms_texts())
+
     def test_park_commands_are_ignored_while_the_guard_is_off(self, wenv):
         wenv.sms_in(f"PARK ON {wenv.code()}")
         wenv.step()

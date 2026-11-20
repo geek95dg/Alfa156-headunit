@@ -678,22 +678,42 @@ class TestArming:
             assert env.peer.req("POST", "/v1/park/arm", bad)[0] == 400
 
     def test_off_toggle(self, env):
-        env.peer.req("POST", "/v1/park/arm", {"delay_min": 0})
+        """Off while NOT armed (arming): applies at once."""
+        env.peer.req("POST", "/v1/park/arm", {"delay_min": 2})
         env.step()
+        assert env.view()["state"] == "arming"
         cfg = park_config()
         cfg["toggles"]["parking_guard"] = False
         assert env.peer.req("PUT", "/v1/config", cfg)[0] == 200
         env.runner.calls.clear()
         env.step()
         v = env.view()
-        assert v["state"] == "off" and env.guard.st["by"] == "off"
-        assert [c[0] for c in env.runner.calls] == ["termux-sensor"]   # only the cleanup
+        assert v["state"] == "off" and env.guard.st["by"] == "off" and not v["off_pending"]
         assert env.peer.req("POST", "/v1/park/arm", {})[0] == 409
         assert env.peer.req("POST", "/v1/park/disarm", {})[0] == 409
         env.runner.calls.clear()
         env.clock.advance(3600)
         env.step(5)
         assert env.runner.calls == []                             # off = zero Termux:API
+
+    def test_off_toggle_after_the_owner_disarms_stops_everything(self, env):
+        env.peer.req("POST", "/v1/park/arm", {"delay_min": 0})
+        env.step()
+        cfg = park_config()
+        cfg["toggles"]["parking_guard"] = False
+        assert env.peer.req("PUT", "/v1/config", cfg)[0] == 200
+        env.step()
+        v = env.view()
+        assert v["state"] == "armed" and v["off_pending"] is True
+        # the owner's proof still works with the toggle off
+        status, out = env.peer.req("POST", "/v1/park/disarm", {})
+        assert status == 200 and out["state"] == "off"
+        assert env.guard.st["by"] == "owner_bt"
+        env.step()
+        env.runner.calls.clear()
+        env.clock.advance(3600)
+        env.step(5)
+        assert env.runner.calls == [] and env.view()["state"] == "off"
 
     def test_toggle_off_from_the_start_never_calls_the_phone(self, tmp_path, clock, runner,
                                                              spawn):
@@ -1760,7 +1780,7 @@ class TestConfigAndApi:
         assert status == 200
         assert set(v) == {"state", "since", "by", "arm_at", "last_event", "battery", "log_only",
                           "light", "sensor", "totp_ready", "numbers_n", "home_set",
-                          "alarms_today", "entry_until"}
+                          "alarms_today", "entry_until", "off_pending"}
         assert v["state"] == "disarmed" and v["totp_ready"] is True and v["numbers_n"] == 2
         status, out, = env.peer.req("GET", "/v1/park", sign=False)
         assert status == 401
@@ -1799,3 +1819,199 @@ class TestConfigAndApi:
         text = "\n".join(r.getMessage() for r in caplog.records)
         assert B32 not in text and code not in text and "000000" not in text
         assert OWNER not in text                                   # masked
+
+
+# ── switched off on BCM while armed: not an owner proof ──────────────────
+
+def _toggle_off(env):
+    cfg = park_config()
+    cfg["toggles"]["parking_guard"] = False
+    del cfg["park_numbers"], cfg["park_log_only"]       # BCM sends no park_* when off
+    status, _out = env.peer.req("PUT", "/v1/config", cfg)
+    assert status == 200
+
+
+class TestOffWhileArmed:
+    def test_power_back_alarm_still_goes_after_the_grace(self, env):
+        env.arm_by_power()
+        assert env.view()["state"] == "armed"
+        env.clock.advance(30)
+        env.plug()                                    # a thief turns the key, BCM boots
+        env.step()
+        assert env.guard.st["restored_wall"] is not None
+        _toggle_off(env)                              # ... and taps Settings → Moduły
+        # the alarm's settings stay (no fallback to log_only / phone numbers)
+        assert env.agent.config["park_log_only"] is False
+        assert env.agent.config["park_numbers"] == [OWNER, OWNER2]
+        env.step()
+        v = env.view()
+        assert v["state"] == "armed" and v["off_pending"] is True
+        env.clock.advance(181)
+        env.step(3)
+        env.send()
+        texts = env.runner.sms_texts()
+        assert len(texts) == 2 and A.PARK_REASON_TEXT["power"] in texts[0], texts
+
+    def test_entry_window_alarm_still_goes(self, env):
+        _jolt(env)
+        env.clock.advance(5)
+        env.plug()
+        env.step()
+        _toggle_off(env)
+        env.step()
+        env.clock.advance(200)                       # past the grace-extended deadline
+        env.step(3)
+        env.send()
+        texts = env.runner.sms_texts()
+        assert len(texts) == 2 and "ALARM" in texts[0]
+        env.clock.advance(900)                       # one alarm, not two
+        env.step(3)
+        env.send()
+        assert len(env.runner.sms) == 2
+
+    def test_owner_sms_ends_it_without_an_alarm(self, env):
+        _jolt(env)
+        _toggle_off(env)
+        env.step()
+        env.sms_in(f"PARK OFF {env.code()}")
+        env.step(2)
+        assert env.guard.st["state"] == "disarmed" and env.guard.st["by"] == "owner_sms"
+        assert env.view()["state"] == "off"
+        env.clock.advance(600)
+        env.step(3)
+        env.send()
+        assert not any("ALARM" in t for t in env.runner.sms_texts())
+
+    def test_settings_survive_an_agent_restart(self, env, clock, runner, spawn):
+        env.arm_by_power()
+        _toggle_off(env)
+        again = make_agent(env.dir, runner, clock, spawn)
+        assert again.config["toggles"]["parking_guard"] is False
+        assert again.config["park_log_only"] is False
+        with again._lock:
+            assert again.park._on() and again.park._view_locked(clock.wall)["off_pending"]
+
+    def test_config_hash_ignores_the_kept_settings(self, env):
+        env.arm_by_power()
+        cfg = park_config()
+        cfg["toggles"]["parking_guard"] = False
+        plain, _ = A.normalize_config(cfg, strict=True)
+        _toggle_off(env)
+        assert env.peer.req("GET", "/v1/health")[1]["config_hash"] == A.config_hash(plain)
+
+
+# ── after a crash / a 112 call: no self-arming, no photos ────────────────
+
+def _crash(env, eid="c0ffee01", dry=False, cancel=False):
+    body = {"event_id": eid, "countdown_s": 15, "lat": 52.1, "lon": 21.0, "fix_age_s": 3,
+            "speed_kmh": 60, "dv_kmh": 40, "event_ts": int(env.clock.wall) - 1}
+    if dry:
+        body["dry_run"] = True
+    status, out = env.peer.req("POST", "/v1/crash", body)
+    assert status == 200, out
+    if cancel:
+        assert env.peer.req("POST", f"/v1/crash/{eid}/cancel", {})[0] == 200
+
+
+def _not_the_crash_sms(runner):
+    """Every su / camera call and every SMS other than the crash SMS."""
+    return [c for c in runner.calls if c[0] in ("su", "termux-camera-photo")] \
+        + [t for t in runner.sms_texts() if "WYPADEK" not in t]
+
+
+class TestCrashHoldoff:
+    def test_power_cut_after_a_crash_does_not_arm(self, env):
+        _crash(env)
+        env.peer.req("POST", "/v1/crash/c0ffee01/send_now", {})
+        env.send(60)
+        assert any("WYPADEK" in t for t in env.runner.sms_texts())
+        env.step()
+        env.unplug()                                  # the engine stops, BCM dies
+        env.step()
+        for _ in range(4):
+            env.clock.advance(181)
+            env.step()
+        v = env.view()
+        assert v["state"] == "disarmed", v
+        assert _not_the_crash_sms(env.runner) == []
+
+    def test_a_cancelled_crash_does_not_hold(self, env):
+        _crash(env, cancel=True)
+        env.arm_by_power()
+        assert env.view()["state"] == "armed"
+
+    def test_a_dry_run_crash_does_not_hold(self, env):
+        _crash(env, dry=True)
+        env.arm_by_power()
+        assert env.view()["state"] == "armed"
+
+    def test_arms_again_after_the_holdoff(self, env):
+        _crash(env)
+        env.step()
+        env.unplug()
+        env.step()
+        env.clock.advance(A.PARK_CRASH_HOLDOFF_S + 1)
+        env.step()
+        assert env.view()["state"] == "arming"
+        env.clock.advance(121)
+        env.step()
+        assert env.view()["state"] == "armed"
+
+    def test_a_live_112_call_blocks_arming(self, env):
+        env.agent.call = {"state": "offhook", "final": False}
+        env.step()
+        env.unplug()
+        env.step()
+        env.clock.advance(400)
+        env.step(2)
+        assert env.view()["state"] == "disarmed"
+        status, out = env.peer.req("POST", "/v1/park/arm", {"delay_min": 0})
+        assert status == 409 and out["error"] == "crash_holdoff"
+        env.agent.call = None
+        env.clock.advance(181)                         # the request was a BCM contact
+        env.step()
+        assert env.view()["state"] == "arming"
+
+    def test_crash_in_the_exit_window_cancels_the_arming(self, env):
+        env.step()
+        env.unplug()
+        env.step()
+        env.clock.advance(181)
+        env.step()
+        assert env.view()["state"] == "arming"
+        _crash(env)
+        v = env.view()
+        assert v["state"] == "disarmed" and v["by"] == "crash"
+        assert v["last_event"]["kind"] == "crash_holdoff"
+
+    def test_crash_while_armed_drops_the_pending_alarm(self, env):
+        _jolt(env)
+        _crash(env)
+        v = env.view()
+        assert v["state"] == "disarmed" and v["entry_until"] is None
+        env.peer.req("POST", "/v1/crash/c0ffee01/send_now", {})
+        env.clock.advance(600)
+        env.step(3)
+        env.send(60)
+        texts = env.runner.sms_texts()
+        assert texts and all("WYPADEK" in t for t in texts), texts
+        assert not env.guard.st["await_plug"]
+
+    def test_real_112_request_disarms_and_holds(self, env):
+        cfg = park_config()
+        cfg["toggles"]["call112"] = True
+        cfg.update(call112_test_mode=False, call112_test_number="")
+        assert env.peer.req("PUT", "/v1/config", cfg)[0] == 200
+        env.agent._su_ok = True
+        env.arm_by_power()
+        assert env.view()["state"] == "armed"
+        status, out = env.peer.req("POST", "/v1/call112", {"mode": "real",
+                                                           "event_id": "c0ffee01"})
+        assert status == 200, out
+        assert env.view()["state"] == "disarmed" and env.view()["by"] == "crash"
+        assert env.agent.meta["call112_real_wall"] == env.clock.wall
+        env.agent.call = None                          # the call ended
+        env.unplug()
+        env.clock.advance(600)
+        env.step(3)
+        assert env.view()["state"] == "disarmed"       # still held off (6 h)

@@ -126,13 +126,13 @@ modules:
 
   # --- moduły dodatkowe (telefon w aucie, bezpieczeństwo, wybudzanie) ---
   # Każdy ma TYLKO ten jeden przełącznik (bez pod-kluczy „enabled” w blokach
-  # niżej). Wszystkie wyłączone, bo wymagają nowego sprzętu. car_phone,
-  # car_phone_hotspot, phone_sensors, car_phone_agent, crash_sms, call112,
-  # parking_guard, cabin_watch i auto_brightness mają już kod — włącz je
-  # w Ustawieniach → Moduły, gdy Redmi jest podłączony; reszta nie ma jeszcze
-  # kodu (Ustawienia pokazują je jako „niedostępny w tej wersji”). Zależności i potrzebny sprzęt:
-  # src/core/modules_catalog.py; moduł bez włączonych zależności nie startuje
-  # (jedno ostrzeżenie w logu).
+  # niżej). Wszystkie wyłączone, bo wymagają nowego sprzętu. Każdy ma już
+  # kod: car_phone, car_phone_hotspot, phone_sensors, car_phone_agent,
+  # crash_sms, call112, parking_guard, cabin_watch i auto_brightness włącz
+  # w Ustawieniach → Moduły, gdy Redmi jest podłączony; remote_session jest
+  # TYLKO dla wersji z buforem (w aucie testowym zostaje false). Zależności
+  # i potrzebny sprzęt: src/core/modules_catalog.py; moduł bez włączonych
+  # zależności nie startuje (jedno ostrzeżenie w logu).
   car_phone: false         # telefon w aucie: Redmi na USB przez adb —
                            # tethering USB, GPS (adb forward), bateria
                            # i temperatura, czas z telefonu; blok

@@ -606,8 +606,11 @@ def _parking_guard_summary(value: Any) -> Optional[dict]:
         "home_set": value.get("home_set") is True,
         "alarms_today": small_int(value.get("alarms_today"), 1000) or 0,
         "entry_until": ts(value.get("entry_until")),
+        "off_pending": value.get("off_pending") is True,
         "owner_connected": value.get("owner_connected") is True,
+        "owner_unproven": value.get("owner_unproven") is True,
         "owner_known": value.get("owner_known") is True,
+        "bt_proof": value.get("bt_proof") is not False,
         "disarm_pending": value.get("disarm_pending") is True,
         "error": error if error in _parking_guard.ERRORS else "",
         "cmd": command,
@@ -748,6 +751,7 @@ def _remote_session_summary(value: Any) -> Optional[dict]:
         "last_denied": stamped(value.get("last_denied"), _remote_session.DENIALS),
         "last_denied_nano": word(value.get("last_denied_nano"), _remote_session.DENIALS),
         "cmd": command,
+        "ir_default": value.get("ir_default") is True,
     }
 
 
@@ -1103,6 +1107,38 @@ def _host_name(host: Any) -> str:
     if host.count(":") == 1:
         host = host.split(":", 1)[0]
     return host.rstrip(".")
+
+
+#: ``Host`` names of the kiosk's own page (it opens http://localhost:5002).
+_KIOSK_HOSTS = ("localhost", "127.0.0.1", "::1")
+
+
+def _kiosk_request(remote_addr: Any, host: Any, origin: Any) -> bool:
+    """Is this the kiosk on this machine — for the loopback-only routes
+    (crash / 112 / parking guard / remote session / pairing)?
+
+    A loopback client is not enough: a foreign page the kiosk Chromium
+    renders whose host name is re-pointed at 127.0.0.1 (DNS rebinding)
+    sends its requests from loopback too, same-origin. So the ``Host``
+    header must name loopback as well (``localhost``, ``127.0.0.1``,
+    ``::1``), and an ``Origin`` header, when the browser sends one (every
+    POST from a page), must be such a loopback http(s) origin — ``null``
+    (sandboxed frame, file://) is refused. Defence in depth: Chromium's
+    Private Network Access already blocks most of this.
+    """
+    ip = _client_ip(remote_addr)
+    if ip is None or not ip.is_loopback:
+        return False
+    if _host_name(host) not in _KIOSK_HOSTS:
+        return False
+    if origin is None:
+        return True
+    try:
+        parts = urlsplit(str(origin).strip())
+        name = parts.hostname
+    except ValueError:
+        return False
+    return parts.scheme in ("http", "https") and name in _KIOSK_HOSTS
 
 
 def _host_allowed(host: Any, allowed_hosts: tuple) -> bool:
@@ -2284,6 +2320,15 @@ class WebViewer:
             if enabled and not mc.is_available(mc.MODULES[name]):
                 return jsonify({"error": "module not available in this version",
                                 "available": False}), 409
+            if not enabled and name in ("parking_guard", "cabin_watch"):
+                # Switching the parked-car alarm off is not an owner proof
+                # (anyone at this screen can do it): while it is armed and the
+                # owner's phone is not connected, "Rozbrój" (owner's phone or
+                # TOTP code) comes first. The phone (agent >= 1.5.0) keeps
+                # guarding regardless — this only tells the driver why.
+                pg = _parking_guard.get_parking_guard()
+                if pg is not None and _parking_guard.disarm_first(pg.state):
+                    return jsonify({"error": "disarm_first"}), 409
             also: list[str] = []
             if enabled and with_deps:
                 plan = mc.enable_plan(mc.MODULES, mc.enabled_map(cfg), name)
@@ -2347,8 +2392,8 @@ class WebViewer:
             cancel a crash SMS — as much "controlling the crash SMS" as the
             /api/crash/* routes, so loopback only, whatever
             dashboard.remote_access says."""
-            ip = _client_ip(request.remote_addr)
-            if ip is not None and ip.is_loopback:
+            if _kiosk_request(request.remote_addr, request.host,
+                              request.headers.get("Origin")):
                 return None
             viewer._log_refusal(str(request.remote_addr)[:64], request.method,
                                 request.path, "loopback_only",
@@ -3273,6 +3318,9 @@ class WebViewer:
             from the network in "full" mode, but not in a loop.
             """
             from src.multimedia.bluetooth import is_emergency_number, normalize_dial_number
+            refused = _phone_during_112("dial")
+            if refused is not None:
+                return refused
             data = request.get_json(silent=True)
             raw = data.get("number", "") if isinstance(data, dict) else ""
             number = normalize_dial_number(raw)
@@ -3391,8 +3439,8 @@ class WebViewer:
             is needed; at most one attempt that reaches the phone per
             _AGENT_PAIR_MIN_INTERVAL_S (429 + Retry-After).
             """
-            ip = _client_ip(request.remote_addr)
-            if ip is None or not ip.is_loopback:
+            if not _kiosk_request(request.remote_addr, request.host,
+                                  request.headers.get("Origin")):
                 viewer._log_refusal(str(request.remote_addr)[:64], request.method,
                                     request.path, "loopback_only",
                                     "pairing the car phone agent is only possible from the "
@@ -3438,8 +3486,10 @@ class WebViewer:
         # validated event id / a confirmation flag / the recipients.
 
         def _crash_kiosk_only(what: str):
-            ip = _client_ip(request.remote_addr)
-            if ip is not None and ip.is_loopback:
+            # Loopback client AND loopback Host / Origin (_kiosk_request:
+            # a rebinding page in the kiosk browser is loopback too).
+            if _kiosk_request(request.remote_addr, request.host,
+                              request.headers.get("Origin")):
                 return None
             viewer._log_refusal(str(request.remote_addr)[:64], request.method,
                                 request.path, "loopback_only",
@@ -3859,14 +3909,47 @@ class WebViewer:
                     log.debug("agent kick failed", exc_info=True)
             return jsonify({"ok": True, "persisted": persisted, "recipients_n": len(numbers)})
 
+        def _call112_live() -> bool:
+            """A 112 call from the crash window is live (dialing / ringing /
+            active) — read from the RUNNING call112 module (None once it
+            stopped), so a stale bus value can never block the phone."""
+            module = _call112.get_call112()
+            st = module.state if module is not None else None
+            return isinstance(st, dict) and st.get("state") in _call112.LIVE
+
+        def _phone_during_112(action: str):
+            """During a live 112 call: the network may not answer, dial or
+            hang up at all (403 — in remote_access "full" every LAN / AP /
+            PAN device, or a cross-site "simple" POST from a passenger's
+            browser, could otherwise end the dispatcher call over HFP); the
+            kiosk may not hang up through the phone screen either (409
+            ``call112_live``) — the crash window ends a 112 call only with
+            the 1-s hold on "Rozłącz" (/api/crash/call112/hangup), the same
+            reason the steering-wheel hang-up is ignored (input_bridge).
+            The kiosk's "Odbierz" (dispatcher calling back) and dial stay."""
+            if not _call112_live():
+                return None
+            refused = _crash_kiosk_only("controlling a call during a 112 call")
+            if refused is not None:
+                return refused
+            if action == "hangup":
+                return jsonify({"ok": False, "error": "call112_live"}), 409
+            return None
+
         @app.route("/api/phone/answer", methods=["POST"])
         def api_phone_answer():
+            refused = _phone_during_112("answer")
+            if refused is not None:
+                return refused
             if viewer._event_bus:
                 viewer._event_bus.publish("bt.cmd.answer", True)
             return jsonify({"ok": True})
 
         @app.route("/api/phone/hangup", methods=["POST"])
         def api_phone_hangup():
+            refused = _phone_during_112("hangup")
+            if refused is not None:
+                return refused
             if viewer._event_bus:
                 viewer._event_bus.publish("bt.cmd.hangup", True)
             return jsonify({"ok": True})

@@ -139,6 +139,8 @@ html = row({ state: "session", reason: "door", holds_used_min: 30, ended: "" });
 assert.ok(html.includes("sesja: drzwi") && html.includes("przedłużenia: 30/60 min"), html);
 assert.ok(html.includes("uśpienie po bezczynności 10 min") && !html.includes("koniec sesji"), html);
 assert.ok(row({ link: false }).includes("Nano #2 (sensor_hub) niepodłączony"));
+assert.ok(row({ ir_default: true }).includes("kod IR z repozytorium"));
+assert.ok(!row({ ir_default: false }).includes("kod IR z repozytorium"));
 assert.ok(row({ cmd: { action: "sleep", ok: false, error: "not_confirmed", ts: TS } })
     .includes("Nano nie potwierdził uśpienia"));
 assert.ok(row({ denied_total: 0 }).includes("odmowy Nano: 0") && !row({ denied_total: 0 }).includes("ostatnio"));

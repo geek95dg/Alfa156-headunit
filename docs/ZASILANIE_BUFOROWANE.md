@@ -2358,10 +2358,21 @@ make -C arduino sensor_hub-upload PORT=/dev/ttyUSB0 SENSOR_HUB_FEATURES="BATT_IN
 - Każda `WAKE_*` wymaga `FEATURE_PWRLED` (domyślnie włączony; bez diody
   firmware nie wie, czy komputer śpi), `WAKE_DOOR` — także `FEATURE_DOORS`.
   Złe zestawienie kończy kompilację błędem `#error`.
-- **Kod IR** (prywatny adres NEC 16-bitowy i polecenie):
-  `WAKE_IR_ADDRESS 0x7A15` i `WAKE_IR_COMMAND 0x56` w
-  `arduino/sensor_hub/wake_logic.h`. Zmień je na własne i wpisz **te same**
-  wartości w `config/local.yaml` (`power.remote_session.ir_address`
+- **Kod IR** (prywatny adres NEC 16-bitowy i polecenie): domyślne
+  `WAKE_IR_ADDRESS 0x7A15` i `WAKE_IR_COMMAND 0x56` z
+  `arduino/sensor_hub/wake_logic.h` są publiczne (każdy, kto czyta repo,
+  je zna) — BCM ostrzega w logu i w wierszu „Wybudzanie”, dopóki ich nie
+  zmienisz. Własne podaj przy `make`, **bez edycji** śledzonego
+  `wake_logic.h` (inaczej trafią do gita przy następnym commicie); make
+  przyjmuje tylko `0x` i cyfry szesnastkowe, zakres (adres do `0xFFFF`,
+  polecenie do `0xFF`) sprawdza `#error` w `wake_logic.h`:
+
+  ```bash
+  make -C arduino sensor_hub-upload PORT=/dev/ttyUSB0 SENSOR_HUB_FEATURES="BATT_INA226 WAKE_IR WAKE_DOOR" WAKE_IR_ADDRESS=0x1B2C WAKE_IR_COMMAND=0x3D
+  ```
+
+  (`0x1B2C` / `0x3D` to tylko przykład — wybierz własne). **Te same**
+  wartości wpisz w `config/local.yaml` (`power.remote_session.ir_address`
   i `ir_command`, §14.5) — telefon dostaje je od BCM.
 - Testy logiki na PC (reguły, dzierżawa, limity, przepełnienie `millis()`
   i `micros()`, reset `.noinit`, dekoder NEC, czytnik linii):
@@ -2454,8 +2465,8 @@ power:
     idle_suspend_min: 10
     hold_step_min: 30
     hold_max_min: 60
-    ir_address: 0x7A15
-    ir_command: 0x56
+    ir_address: 0x7A15     # domyślne z repo — wpisz WŁASNE, te same co
+    ir_command: 0x56       # WAKE_IR_ADDRESS / WAKE_IR_COMMAND przy make (§14.3)
 ```
 
 ### 14.6 Telefon w aucie jako pilot IR
@@ -2473,10 +2484,35 @@ nagłówek pliku: „Budzenie komputera w aucie”) nadaje kod z §14.3:
   telefonie: `python ~/bcm_agent/bcm_agent.py --park-numbers '+48…'`.
   Bez numerów agent nie czyta skrzynki i raz zapisuje w logu
   `PARK: no numbers for SMS commands (WAKE)`. Odpowiedź:
-  `ALFA 156: BUDZENIE wyslane` albo powód odmowy;
+  `ALFA 156: BUDZENIE wyslane` albo powód odmowy; gdy BCM milczał przed
+  budzeniem i w ciągu 10 min przyjdzie od niego pierwsze podpisane żądanie
+  (komputer wstał, forward agenta działa), ten sam numer dostaje drugą
+  odpowiedź `ALFA 156: komputer obudzony - BCM odpowiada` (agent ≥ 1.5.0;
+  raz na budzenie, w dziennym budżecie odpowiedzi). Brak jej po 10 min =
+  komputer nie wstał albo nie doszedł do telefonu;
 - **skrót Termux:Widget** `tools/car_phone/termux/wake.sh` (albo
   `python ~/bcm_agent/bcm_agent.py --wake`) — na telefonie w aucie, bez
-  sieci i bez kodu;
+  sieci i bez kodu. Instalacja (tylko wersja z buforem): aplikacja
+  **Termux:Widget** z F-Droid — z tego samego źródła co Termux (inny
+  podpis = nie zadziała, `PRZYGOTOWANIE_TELEFONU.md` §4); na M910q
+  dołóż `wake.sh` do kopiowania z `PRZYGOTOWANIE_TELEFONU.md` §9.2:
+
+  ```bash
+  cd /opt/bcm && sudo env ADB_SERVER_SOCKET=localfilesystem:/run/bcm-adb/adb.sock adb push tools/car_phone/termux/wake.sh /sdcard/Download/
+  ```
+
+  potem w Termuxie:
+
+  ```bash
+  mkdir -p ~/.shortcuts
+  ```
+
+  ```bash
+  cp ~/storage/downloads/wake.sh ~/.shortcuts/ && chmod 700 ~/.shortcuts/wake.sh
+  ```
+
+  i na ekranie głównym telefonu dodaj widżet Termux:Widget → „wake.sh”.
+  Skrypt nie przyjmuje żadnych argumentów; wynik pokazuje dymkiem;
 - limit w telefonie: 1 próba na minutę, 3 udane na godzinę, 6 na dobę
   (niezależnie od limitu Nano); jedno nadanie to 3 ramki NEC co 108 ms
   (`termux-infrared-transmit -f 38000 …`), Nano przyjmuje 2 identyczne
@@ -2521,8 +2557,8 @@ Ma pokazać `[deep]` (w nawiasie). Jeśli nie — `docs/WDROZENIE_M910Q.md`
    `WAKE_DENIED:`. Otwórz je ponownie od razu: `WAKE_DENIED:HOLDOFF`.
    Odczekaj 2 min od zgaszenia i otwórz: `WAKE:DOOR`, `LEASE:300`,
    `PWRACT:SHORT`, komputer wstaje.
-4. **IR.** Na telefonie skrót `wake.sh` albo `bcm_agent.py --wake`:
-   `WAKE:IR`. Bez reakcji: odległość i kąt diody do TSOP, osłonka, filtr RC.
+4. **IR.** Na telefonie skrót `wake.sh` (instalacja: §14.6) albo
+   `bcm_agent.py --wake`: `WAKE:IR`. Bez reakcji: odległość i kąt diody do TSOP, osłonka, filtr RC.
 5. **Reset przy otwarciu portu.** Po starcie BCM baner pokazuje pozostały
    czas (dzierżawa przeżyła reset Nano przez DTR). Jeśli baner się nie
    pojawia, a w porcie jest `LEASE:0` — bootloader nadpisał RAM: zgłoś to
@@ -2538,7 +2574,11 @@ Ma pokazać `[deep]` (w nawiasie). Jeśli nie — `docs/WDROZENIE_M910Q.md`
 - **Kod IR nie jest uwierzytelniony** (NEC to zwykły pilot): ktoś z
   nadajnikiem IR i Twoim kodem obudzi komputer — nie otworzy auta i nie
   wyłączy alarmu na postoju (ten rozbraja tylko dowód właściciela). Limity
-  3/h i 6/dobę ograniczają zużycie banku; zmień domyślny kod (§14.3).
+  3/h i 6/dobę ograniczają zużycie banku; zmień domyślny kod (§14.3 —
+  BCM ostrzega, dopóki jest domyślny).
+- **Pobudka od drzwi** daje telefonowi w aucie jeden podpisany sygnał
+  drzwi dla czuwania kabiny (`WDROZENIE_TESTOWE.md` §5.13) — tylko sygnał,
+  nigdy rozbrojenie.
 - SMS `WAKE` wymaga numeru z białej listy **i** jednorazowego kodu TOTP
   (powtórka nie przejdzie, 5 złych kodów w godzinie blokuje numer).
 - Z hosta do Nano trafiają tylko `HOLD:<1–60>` i `RELEASE`, sprawdzane po
