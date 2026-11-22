@@ -59,6 +59,10 @@ Druk: skala **100 % / „rzeczywisty rozmiar”**, wyłączone „dopasuj do
 strony” i marginesy „bez obramowania”; po wydruku zmierz linijkę
 kontrolną — 50 mm ±0,5. Bez tej kontroli nie traw.
 
+Podgląd arkusza 1:1, który już jest w ``png/`` (dziś
+``pcb_power_layout.png``), domyślny przebieg też odświeża, a ``--check``
+sprawdza — nowego podglądu sam nie tworzy.
+
 Plik powstaje w domyślnym przebiegu, z ``--all`` i z ``--print``
 (tylko on); ``--check`` sprawdza go jak każdy inny. ``--scale`` go nie
 dotyczy — rozdzielczość jest stała. Wymaga Pillow (jest w
@@ -234,7 +238,8 @@ def main():
         print("Komplet zasilania (domyślny):")
         for name in POWER_SHEETS:
             print(f"  {name}")
-        print("\nArkusze 1:1 jako podgląd 192 dpi — tylko z nazwy albo --all:")
+        print("\nArkusze 1:1 jako podgląd 192 dpi — z nazwy albo --all"
+              " (podgląd już obecny w png/ odświeża i sprawdza też domyślny przebieg):")
         for name in PRINT_SHEETS:
             print(f"  {name}")
         print(f"\nDruk mozaiki miedzi (domyślnie, --all, --print):\n"
@@ -253,6 +258,15 @@ def main():
         sheets = []
     else:
         sheets = resolve(args.svg, args.all)
+        if not args.svg and not args.all:
+            # Podgląd arkusza 1:1, który już leży w png/ (np. pcb_power_layout.png),
+            # też trzymamy w ryzach — domyślny przebieg go odświeża, a --check
+            # pilnuje, żeby nie zestarzał się po cichu wobec SVG.
+            for name in PRINT_SHEETS:
+                src = os.path.join(SRC_DIR, name)
+                if (os.path.exists(src)
+                        and os.path.exists(os.path.join(args.out_dir, name[:-4] + ".png"))):
+                    sheets.append((name, src))
     # (nazwa wyświetlana, źródło SVG, plik wynikowy, funkcja renderu)
     jobs = [(name, src, name[:-4] + ".png", lambda s: render(s, args.scale))
             for name, src in sheets]

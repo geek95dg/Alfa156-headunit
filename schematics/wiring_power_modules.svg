@@ -454,8 +454,8 @@
 <path class="plus" d="M772 890 L640 890 L640 994"/>
 <rect class="wtag" x="1090.0" y="792" width="20.0" height="16"/>
 <text class="wnum" x="1100" y="804">9</text>
-<text class="wl" x="1112" y="790">4 mm², ≤ 1 m</text>
-<text class="wl" x="1112" y="806">ładowanie → L+</text>
+<text class="wl" x="1118" y="790">4 mm², ≤ 1 m</text>
+<text class="wl" x="1118" y="806">ładowanie → L+</text>
 <rect class="noteb" x="380" y="908" width="230" height="36"/>
 <text class="wnc" x="495" y="922">18 · pomiar napięcia banku → Nano #2</text>
 <text class="wnc" x="495" y="937">0,5 mm², opcja (ZB §13.4)</text>
@@ -877,5 +877,5 @@
 <text class="td" x="1566.5" y="2594">25</text>
 <text class="note" x="40" y="2623">Bez numeru w §10: 5 i 10 (masy toru ładowania, §10.6), 11–16 (bank). Tylko w wersji docelowej: 18, 20, 22, 24, 29–31, 33, 34, 36, 44–46.</text>
 <text class="note" x="40" y="2640">Numeracja zacisków K1 wg ISO 280: 30 = wspólny, 87 = zwierny (NO), 87a = rozwierny (NC), 85/86 = cewka. Na tanich podstawkach opisy bywają inne — sprawdź omomierzem.</text>
-<text class="note" x="40" y="2657">Rozbieżność dokumentów: SCHEMATY §10.3 podaje dla 13 i 14 przekrój 1,5 mm² i „Panel 7″”; obowiązuje ZB §8.2 / §8a.2 — 1,0 mm² i panel 10,1″ (jak na tym arkuszu).</text>
+<text class="note" x="40" y="2657">Wariant testowy (SCHEMATY §10.3) celowo: przewody 13 i 14 · 1,5 mm² (zapas na bezpieczniku 2 A) i panel 7″. Wersja docelowa (ten arkusz, ZB §8.2 / §8a.2): 1,0 mm² i panel 10,1″.</text>
 </svg>

@@ -82,7 +82,8 @@ ich `--check`; wyrenderujesz je z nazwy albo przez `--all`.
 Dwa arkusze drukowane 1:1 — [`pcb_power_layout.svg`](pcb_power_layout.svg)
 i [`pcb_power_etch.svg`](pcb_power_etch.svg) — są **poza** domyślnym kompletem
 podglądów (raster 210 mm przy 96 dpi × 2 = 192 dpi, bez zapisanej
-rozdzielczości — `png/pcb_power_layout.png` to tylko podgląd).
+rozdzielczości — `png/pcb_power_layout.png` to tylko podgląd; skoro leży
+w `png/`, domyślny przebieg `render_png.py` go odświeża, a `--check` sprawdza).
 
 **Mozaika miedzi na laminat:** [`png/pcb_power_etch_600dpi.png`](png/pcb_power_etch_600dpi.png)
 — 600 dpi, A4 (4961 × 7016 px), miedź czysto czarna, rozdzielczość zapisana
@@ -103,13 +104,16 @@ i przed trawieniem zmierz linijkę kontrolną — 50 mm ±0,5.
    XY-SK120, progi XH-M603 15,30 / 14,00 V, LVD XH-M609 11,00 / 12,60 V) —
    ustaw ładowarki, rozłączniki nadnapięciowe i LVD **przed** pierwszym
    podłączeniem banku.
-4. **`schematic_test_power.svg`** + **`pcb_power_schematic.svg`** — teraz
-   łącz, zacisk po zacisku, wg tabel „skąd → dokąd” w
-   [`../docs/SCHEMATY_POLACZEN.md`](../docs/SCHEMATY_POLACZEN.md) § 2
-   i kolejności montażu z tego samego dokumentu § 8.
-   Zacisk po zacisku w wersji docelowej: **`wiring_power_modules.svg`**;
-   nastawy ładowania i LVD zebrane na **`charging_lvd.svg`**, budżet
-   poboru i odgałęzienia na **`power_domains_m910q.svg`**.
+4. **`wiring_power_modules.svg`** — teraz łącz, zacisk po zacisku, wg
+   tabel „skąd → dokąd” w
+   [`../docs/SCHEMATY_POLACZEN.md`](../docs/SCHEMATY_POLACZEN.md) §2
+   (ta sama numeracja przewodów co na arkuszu) i kolejności montażu
+   z tego samego dokumentu §8. Tor ładowania i dystrybucję na płytkach
+   (wariant PCB) pokazuje **`pcb_power_schematic.svg`**; nastawy
+   ładowania i LVD zebrane na **`charging_lvd.svg`**, budżet poboru
+   i odgałęzienia na **`power_domains_m910q.svg`**.
+   `schematic_test_power.svg` należy do wariantu testowego (numeracja
+   §10) — nie mieszaj jej z tabelami §2.
 5. **`wiring_vehicle_arduino.svg`** — sygnały z auta, po jednym obwodzie.
 6. **`wiring_usb_av.svg`** + **`audio_system.svg`** — peryferia i tor audio.
 
@@ -123,7 +127,8 @@ Tor zasilania jest ten sam co w wersji docelowej, ale bez stałej logiki
 (Nano #1, HM-10, RXB6), wzmacniacza i drugiego ekranu. Czytaj w tej
 kolejności:
 
-1. **`schematic_test_power.svg`** — tor zasilania, element po elemencie.
+1. **`schematic_test_power.svg`** — tor zasilania, element po elemencie
+   (numeracja przewodów wg §10 SCHEMATY_POLACZEN.md).
 2. **`ignition_sense.svg`** — układ wejściowy zapłonu, wartości elementów.
 3. **`schematic_test_signals.svg`** — transoptory, Nano i przycisk M910q;
    zaciski i kolejność podłączania — §10 SCHEMATY_POLACZEN.md.
@@ -132,16 +137,17 @@ kolejności:
 
 ## Konwencje na schematach
 
+Każdy arkusz zasilania ma własną legendę — przy wątpliwości obowiązuje
+ona. Wspólne dla arkuszy z generatorów `gen_*.py`:
+
 | Element | Znaczenie |
 |---------|-----------|
-| Gruba czerwona linia | Zasilanie 12 V (moc) |
-| Zielona linia | Tor ładowania |
-| Niebieska linia | Odgałęzienie odbiorników (za LVD i wyłącznikiem) |
-| Linia przerywana | Sygnał sterujący (ACC, D+), nie moc |
-| Ramka pomarańczowa | Element zabezpieczający (bezpiecznik, LVD, rozłącznik) |
-| Ramka zielona | Tor ładowania / bank akumulatorów |
-| Ramka niebieska | Odbiorniki |
-| Ramka czerwona | Gałąź niezależna (wzmacniacze) |
+| Czerwona linia | „+” zasilania 12 V / 20 V — moc, także tor ładowania |
+| Czarna / grafitowa linia, symbol trzech kresek | Masa — punkt masy przy banku (gwiazda) |
+| Brązowa linia, symbol kreskowany | Masa nadwozia (np. „−” akumulatora rozruchowego) — nie łączyć z gwiazdą osobnym przewodem |
+| Niebieska / szara linia przerywana | Sterowanie (zapłon, D+, cewka K1), nie moc |
+| Ramka przerywana | Grupa elementów (płytka, kosz banku, ochrona wejścia) |
+| Czerwony opis (F…, K…, M…) | Oznacznik elementu: bezpiecznik, przekaźnik, moduł |
 
 ---
 

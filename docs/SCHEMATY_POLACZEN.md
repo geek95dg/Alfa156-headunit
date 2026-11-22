@@ -544,9 +544,8 @@ w drugą stronę.
   (przewód 17). Z S1 w torze **nie używaj P− jako punktu masy** i nie
   dawaj żadnego bezpośredniego mostka P− → blok masowy: każda masa
   wylądowana na P− albo taki mostek omija S1 i po jego otwarciu wszystkie
-  odbiorniki dalej wiszą na banku — S1 nic by nie odcinał (ZB §8.3 mówi
-  „blok P− albo blok obok spięty z P−" — to opis sprzed S1; przy S1
-  obowiązuje osobny blok, zgodnie z §8.4 ZB),
+  odbiorniki dalej wiszą na banku — S1 nic by nie odcinał (tak samo
+  ZB §8.3),
 - schodzą się w nim: masa banku (z P− przez S1), masy obu
   XY-SK120 (wejście i wyjście to jeden zacisk) i obu XH-M603, LVD,
   dystrybucja, step-up, powrót 20 V z M910q, wspólny powrót 12 V z przodu
@@ -731,6 +730,12 @@ i ZB §4.3.
 **Logika panelu i dotyk zostają na USB M910q** — osobno idzie wyłącznie
 podświetlenie. Panel ma jeden kabel USB do komputera i jedno złącze
 zasilania podświetlenia.
+
+> **Przewody 13 i 14 — 1,5 mm² celowo.** ZB §8.2 / §8a.2 podaje dla
+> gałęzi F9 → LM2596 1,0 mm² (wersja docelowa, panel 10,1"). W wariancie
+> testowym zostaje 1,5 mm² — grubszy przewód na bezpieczniku 2 A to
+> tylko zapas, nie błąd. Panel 7" jest konfiguracją tymczasową
+> (WDROZENIE_TESTOWE).
 
 ### 10.4 Wejścia optoizolowane — zapłon i bieg wsteczny
 

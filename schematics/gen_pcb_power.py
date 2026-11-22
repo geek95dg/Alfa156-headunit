@@ -58,6 +58,7 @@ STYLE = '''<style>
  .te{font-size:12.5px;font-weight:bold;fill:#0d1c26;text-anchor:end}
  .tb{font-size:12.5px;font-weight:bold;fill:#0d1c26}
  .gl{font-size:11px;font-weight:bold;fill:#3d4f5c;text-anchor:middle}
+ .glo{font-size:11px;font-weight:bold;fill:#9a6b12;text-anchor:middle}
  .nh{font-size:13px;font-weight:bold;fill:#0d1c26}
  .nt{font-size:11.5px;fill:#4a5a66}
  .wn{font-size:11px;font-weight:bold;fill:#0d1c26;text-anchor:middle}
@@ -172,11 +173,12 @@ class Sheet:
     def diode_v(self, x, y, ref, val=None, up=False, side=1):
         """Pionowa dioda, wejście y, wyjście y+50. up=True → katoda u góry."""
         self.w(x, y, x, y + 16)
+        # Grot trójkąta zawsze wskazuje kreskę katody.
         if up:
-            self.a(f'<polygon class="symf" points="{x-11},{y+16} {x+11},{y+16} {x},{y+34}"/>')
+            self.a(f'<polygon class="symf" points="{x-11},{y+34} {x+11},{y+34} {x},{y+16}"/>')
             bar = y + 16
         else:
-            self.a(f'<polygon class="symf" points="{x-11},{y+34} {x+11},{y+34} {x},{y+16}"/>')
+            self.a(f'<polygon class="symf" points="{x-11},{y+16} {x+11},{y+16} {x},{y+34}"/>')
             bar = y + 34
         self.w(x - 13, bar, x + 13, bar, "sym")
         self.w(x, bar, x, y + 50)
@@ -271,6 +273,15 @@ class Sheet:
         if label:
             self.txt(x, y + 42, label, "gl")
 
+    def chassis(self, x, y, label=None):
+        """Masa nadwozia (brązowa, kreskowana) — inna niż punkt masy banku."""
+        self.w(x, y, x, y + 10, "wo")
+        self.w(x - 15, y + 10, x + 15, y + 10, "wo")
+        for dx in (-10, -2, 6, 14):
+            self.w(x + dx, y + 10, x + dx - 7, y + 21, "wo")
+        if label:
+            self.txt(x, y + 38, label, "glo")
+
     def term(self, x, y, t, sub=None, side=1):
         self.a(f'<circle class="term" cx="{x}" cy="{y}" r="7"/>')
         if side > 0:
@@ -325,8 +336,9 @@ def build_schematic(out_path):
     s.txt(100, 186, "AKUMULATOR", "lbb")
     s.txt(100, 202, "ROZRUCHOWY", "lbb")
     s.battery(100, RAIL, "BT0", "12 V")
-    s.w(100, RAIL + 62, 100, 400)
-    s.star_gnd(100, 400, "gwiazda")
+    # „−” rozruchowego tylko do nadwozia (ZB §5.6) — nie do punktu masy banku
+    s.w(100, RAIL + 62, 100, 400, "wo")
+    s.chassis(100, 400, "nadwozie")
     s.w(100, RAIL, 130, RAIL)
     s.wn(118, RAIL - 15, 1)
     x = s.fuse_h(130, RAIL, "F1", "20 A")
@@ -424,7 +436,11 @@ def build_schematic(out_path):
     s.txt(164, ACCY + 20, "(albo D+ alternatora)", "ve")
     s.path([(BXL, ACCY), (438, ACCY)])
     s.dot(376, ACCY)
-    s.diode_v(376, ACCY + 6, "D6", "1N4007", up=True, side=-1)
+    s.diode_v(376, ACCY + 6, "", None, up=True, side=1)
+    # opis D6 pod pętlą cewki: z lewej idzie pion masy, z prawej cewka K1
+    s.txt(384, ACCY + 100, "D6", "r")
+    s.txt(406, ACCY + 100, "1N4007", "v")
+    s.txt(384, ACCY + 116, "katoda → 86", "v")
     s.coil(438, ACCY, "K1")
     s.path([(376, ACCY + 56), (376, ACCY + 80), (438, ACCY + 80)])
     s.dot(438, ACCY + 80)
@@ -451,7 +467,7 @@ def build_schematic(out_path):
     s.txt(540, GMA + 16, "GND — śruba M4, oczko 6 mm²", "tb")
     s.txt(540, GMA + 32, "jedyna masa płytki → punkt masy przy banku", "v")
     s.path([(520, GMA + 30), (520, GMA + 68), (300, GMA + 68), (300, GMA + 82)], "wg")
-    s.star_gnd(300, GMA + 82, "gwiazda")
+    s.star_gnd(300, GMA + 82, "punkt masy przy banku")
     s.txt(560, GMA + 96, "XY-SK120 nie ma izolacji (masa wejścia = masa wyjścia). Masy obu ładowarek, obu XH-M603 "
                          "i płytki schodzą się w JEDNYM", "v")
     s.txt(560, GMA + 112, "punkcie masy przy banku (ZB §5.6, §8.3) — bez osobnego przewodu masy do klemy „−” "
@@ -493,7 +509,7 @@ def build_schematic(out_path):
          "zalewany, 200 W (ZB §3)",
          "→ M910q, bezp. 5 A w linii"),
         (590, "F9", "2 A", "X10", "M5 · LM2596 → 5 V",
-         "podświetlenie panelu 7”", "→ PWM+ / GND panelu"),
+         "podświetlenie panelu 7\"", "→ PWM+ / GND panelu"),
         (820, "F10", "3 A", "X11", "M6 · MP1584 → 5 V",
          "zasilanie Arduino Nano", "→ Nano 5V/GND (przew. 25)"),
         (1050, "F11", "5 A", "X12", "AUX 12 V",
@@ -541,7 +557,7 @@ def build_schematic(out_path):
     s.term(BBL, GB, "", None)
     s.txt(BBL + 14, GB + 26, "X8.2 GND", "pin")
     s.w(BBL, GB, 200, GB, "wg")
-    s.star_gnd(200, GB, "gwiazda")
+    s.star_gnd(200, GB, "punkt masy przy banku")
     s.term(BBR, GB, "", None)
     s.txt(BBR - 14, GB + 26, "J1.2 GND", "pine")
 
@@ -866,8 +882,9 @@ def build_board_a():
     p.trace("GND", 2, [(30, 46.16), (30, 66.5)])
     p.trace("GND", 2, [(42.54, 26.1), (42.54, 66.5)])
     # styk 87 przekaźnika wprost na oba zaciski wejść ładowarek — bez diody
-    # (XY-SK120 to buck-boost). Cały tor 30 → 87 → X2 ma 6 mm: przy 13,6 A
-    # (2 × 72 W / 0,88 / 12,0 V) sama miedź 35 µm grzeje się wg IPC-2221
+    # (XY-SK120 to buck-boost). Cały tor 30 → 87 → X2 ma 6 mm. Prąd roboczy
+    # to do 13 A (ZB §5.4: 11,9–13,0 A); miedź liczona z zapasem dla 13,6 A
+    # (2 × 72 W / 0,88 / 12,0 V) — sama miedź 35 µm grzeje się wg IPC-2221
     # o ok. 27 °C (4 mm: ok. 53 °C) — i tak wzmacniasz ją drutem 2,5 mm².
     p.trace("CHGIN", 6, [(57.74, 29.9), (57.74, 21), (85, 21), (85, 10), (90, 8)])
     p.trace("CHGIN", 6, [(90, 8), (90, 15.62)])
@@ -992,7 +1009,8 @@ class MmSheet:
             self.a(f'<line x1="{x+i}" y1="{y}" x2="{x+i}" y2="{y+t}" '
                    f'stroke="#111" stroke-width="{0.3 if i % 10 == 0 else 0.15}"/>')
         for i in range(0, ln + 1, 10):
-            self.txt(x + i - 1.4, y + 6, str(i), "l")
+            # ~0,7 mm na znak: liczba wyśrodkowana na swojej kresce, także „0”
+            self.txt(x + i - 0.7 * len(str(i)), y + 6, str(i), "l")
         self.txt(x + ln + 3, y + 3, "mm — po wydruku zmierz: 50 mm ±0,5", "lb")
 
     def copper(self, b, ox, oy, mirror=False, light=False):
@@ -1028,6 +1046,15 @@ class MmSheet:
             self.a(f'<circle class="{drl}" cx="{x}" cy="{y}" r="{drill/2}"/>')
         for (x, y, drill, ring) in b.holes:
             self.a(f'<circle class="{drl}" cx="{x}" cy="{y}" r="{drill/2}"/>')
+            if not light:
+                # znacznik środka otworu montażowego: cienki okrąg + krzyżyk
+                # w obrębie wiercenia (i tak wypada z wiertłem), żeby na
+                # białym tle było widać, gdzie wiercić Φ3,2
+                r = drill / 2
+                self.a(f'<circle cx="{x}" cy="{y}" r="{r - 0.1:.2f}" fill="none" '
+                       f'stroke="#000" stroke-width="0.2"/>')
+                self.a(f'<path d="M {x - r:.2f} {y} H {x + r:.2f} M {x} {y - r:.2f} '
+                       f'V {y + r:.2f}" stroke="#000" stroke-width="0.2"/>')
         self.a(f'<rect class="brd" x="0" y="0" width="{b.w}" height="{b.h}"/>')
         self.a('</g>')
 
@@ -1125,8 +1152,8 @@ def build_pcb_sheets(layout_path, etch_path):
     e.txt(12, 12, "MOZAIKA MIEDZI 1:1 — DRUK BEZ SKALOWANIA (100 %)", "ttl")
     e.txt(12, 17, "Orientacja: widok od strony elementów. Termotransfer: drukuj tak jak jest, "
                   "toner do miedzi. Fotorezyst: folia tonerem do płytki.", "sub")
-    e.txt(12, 21, "Kontrola po wytrawieniu: napis „BCM-•” ma się czytać poprawnie "
-                  "patrząc NA MIEDŹ.", "sub")
+    e.txt(12, 21, "Kontrola po wytrawieniu: napisy „BCM-A” i „BCM-B” mają się czytać "
+                  "poprawnie, patrząc NA MIEDŹ.", "sub")
 
     ax, ay = 16, 30
     e.txt(ax, ay - 2.5, "PŁYTKA A · 100 × 75 mm", "h")

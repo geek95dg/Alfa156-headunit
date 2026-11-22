@@ -314,7 +314,7 @@
 <line x1="60" y1="258" x2="60" y2="259.2" stroke="#111" stroke-width="0.15"/>
 <line x1="61" y1="258" x2="61" y2="259.2" stroke="#111" stroke-width="0.15"/>
 <line x1="62" y1="258" x2="62" y2="261" stroke="#111" stroke-width="0.3"/>
-<text class="l" x="10.6" y="264">0</text>
+<text class="l" x="11.3" y="264">0</text>
 <text class="l" x="20.6" y="264">10</text>
 <text class="l" x="30.6" y="264">20</text>
 <text class="l" x="40.6" y="264">30</text>

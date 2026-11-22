@@ -1627,8 +1627,11 @@ jest pomijalny (dawniej 3 m i dyskusja 2,5 vs 4 mm²).
 ### 8.3 Masa
 
 - **jeden punkt masy** dla całego head unitu — gwiazda, nie łańcuszek —
-  **w bagażniku przy banku**: blok P− (albo osobny blok masowy tuż obok,
-  spięty z P− krótkim 6 mm²) i z niego **jeden** przewód 6 mm² do karoserii,
+  **w bagażniku przy banku**: osobny blok masowy tuż obok banku, połączony
+  z P− **wyłącznie przez rozłącznik S1** (przewód 17, 6 mm²) — bez
+  bezpośredniego mostka P− → blok i bez mas wylądowanych na P−, bo każda
+  taka droga omija S1 (tak samo SCHEMATY_POLACZEN.md, rozdz. 7 — „Masy”);
+  z bloku **jeden** przewód 6 mm² do karoserii,
 - śruba do gołego metalu nadwozia, powierzchnia oczyszczona ze szpachli
   i lakieru, po dokręceniu zabezpieczona wazeliną techniczną — **nie** w
   podłodze nad zbiornikiem (§4.7); użyj istniejącego punktu masy w bagażniku

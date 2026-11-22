@@ -45,7 +45,7 @@
 </style>
 <rect class="bg" x="0" y="0" width="1800" height="1990"/>
 <text class="ttl" x="24" y="34">Schemat połączeniowy — wariant testowo-rozwojowy (M910q zasilany stale z banku)</text>
-<text class="sub" x="24" y="56">Każdy zacisk podpisany, każdy przewód ponumerowany jak w tabelach docs/SCHEMATY_POLACZEN.md § 10. Ten sam tor komponentowo: schematic_test_power.svg i schematic_test_signals.svg. Nastawy i uzasadnienia: docs/ZASILANIE_BUFOROWANE.md (ZB).</text>
+<text class="sub" x="24" y="56">Każdy zacisk podpisany, każdy przewód ponumerowany jak w tabelach docs/SCHEMATY_POLACZEN.md §10. Ten sam tor komponentowo: schematic_test_power.svg i schematic_test_signals.svg. Nastawy i uzasadnienia: docs/ZASILANIE_BUFOROWANE.md (ZB).</text>
 <line x1="24" y1="68" x2="1776" y2="68" stroke="#c8d2da" stroke-width="1.5"/>
 <path class="wp" d="M 24 90 L 64 90"/>
 <text class="xs" x="72" y="94">„+” zasilania</text>
@@ -57,13 +57,13 @@
 <text class="xs" x="432" y="94">masa instalacji auta</text>
 <rect class="pp" x="565.0" y="81" width="26" height="18"/>
 <text class="wn" x="578" y="94">5a</text>
-<text class="xs" x="596" y="94">numer przewodu z § 10</text>
+<text class="xs" x="596" y="94">numer przewodu z §10</text>
 <rect class="pg" x="735.5" y="81" width="97" height="18"/>
 <text class="wn" x="784" y="94">PM · 2,5 mm²</text>
-<text class="xs" x="836" y="94">przewód do punktu masy przy banku (§ 10.6), z przekrojem</text>
+<text class="xs" x="836" y="94">przewód do punktu masy przy banku (§10.6), z przekrojem</text>
 <circle cx="1222" cy="90" r="3.6" fill="#1b2b36"/>
 <text class="xs" x="1232" y="94">zacisk / połączenie · skrzyżowanie bez kropki = brak połączenia</text>
-<text class="sec" x="24" y="128">1 · TOR ŁADOWANIA — komora silnika → bagażnik (§ 10.1)</text>
+<text class="sec" x="24" y="128">1 · TOR ŁADOWANIA — komora silnika → bagażnik (§10.1)</text>
 <rect class="blk" x="24" y="152" width="170" height="116"/>
 <text class="mh" x="109.0" y="171">Akumulator</text>
 <text class="mh" x="109.0" y="188">rozruchowy</text>
@@ -241,7 +241,7 @@
 <text class="wn" x="1500" y="504">B</text>
 <text class="xsc" x="1500" y="486">4 mm² · ≤ 1 m</text>
 <text class="xse" x="718" y="530">MIDI/ANL, przy L+</text>
-<text class="sec" x="24" y="496">2 · BANK 7 × CSB HR1221W W DWÓCH KOSZACH · LVD · ROZŁĄCZNIK MASY (§ 10.2)</text>
+<text class="sec" x="24" y="496">2 · BANK 7 × CSB HR1221W W DWÓCH KOSZACH · LVD · ROZŁĄCZNIK MASY (§10.2)</text>
 <rect class="kosz" x="300" y="538" width="560" height="262"/>
 <rect class="kosz" x="920" y="538" width="420" height="262"/>
 <path class="wp" d="M 770 536 L 770 548"/>
@@ -383,7 +383,7 @@
 <rect class="blk" x="1590" y="520" width="186" height="300"/>
 <text class="mh" x="1683.0" y="539">PM · PUNKT MASY</text>
 <text class="ms" x="1683.0" y="556">osobny blok masowy</text>
-<text class="ms" x="1683.0" y="572">przy banku (§ 10.6)</text>
+<text class="ms" x="1683.0" y="572">przy banku (§10.6)</text>
 <text class="tm" x="1597" y="794">← 9 (S1)</text>
 <text class="tmc" x="1683" y="812"></text>
 <circle cx="1590" cy="790" r="3.6" fill="#10202b"/>
@@ -409,7 +409,7 @@
 <line class="wo" x1="1696" y1="850" x2="1689" y2="862"/>
 <text class="xse" x="1663" y="854">6 mm² →</text>
 <text class="go" x="1683" y="882">nadwozie (bagażnik)</text>
-<text class="secb" x="84" y="900">3 · ODBIORNIKI — zasilane stale, za LVD; wkładki w bagażniku (§ 10.3)</text>
+<text class="secb" x="84" y="900">3 · ODBIORNIKI — zasilane stale, za LVD; wkładki w bagażniku (§10.3)</text>
 <path class="wp" d="M 60 708 L 60 950"/>
 <rect class="pp" x="47.0" y="809" width="26" height="18"/>
 <text class="wn" x="60" y="822">10</text>
@@ -520,8 +520,8 @@
 <path class="wg" d="M 1500 1140 L 1465 1140 L 1465 1185"/>
 <rect class="pg" x="1392.0" y="1185" width="146" height="18"/>
 <text class="wn" x="1465" y="1198">PM · powrót 2,5 mm²</text>
-<text class="xsc" x="1040" y="1226">IN− obu bucków z przodu: jeden wspólny powrót 2,5 mm² do PM (ZB § 8.2) · przewody 13 i 13a idą ~4 m do przodu</text>
-<text class="secb" x="24" y="1262">4 · SYGNAŁY — zapłon, bieg wsteczny, przycisk M910q (§ 10.4, § 10.5) · wszystkie 0,5 mm², przewód 25: 0,75 mm²</text>
+<text class="xsc" x="1040" y="1226">IN− obu bucków z przodu: jeden wspólny powrót 2,5 mm² do PM (ZB §8.2) · przewody 13 i 13a idą ~4 m do przodu</text>
+<text class="secb" x="24" y="1262">4 · SYGNAŁY — zapłon, bieg wsteczny, przycisk M910q (§10.4, §10.5) · wszystkie 0,5 mm², przewód 25: 0,75 mm²</text>
 <rect class="blkp" x="380" y="1290" width="150" height="100"/>
 <text class="ref" x="455.0" y="1309">U1 · PC817</text>
 <text class="ms" x="455.0" y="1326">zapłon</text>
@@ -682,12 +682,12 @@
 <text class="wn" x="1450" y="1564">25</text>
 <text class="xsc" x="1450" y="1585">MP1584 OUT+ → Nano 5V, OUT− → Nano GND · 0,75 mm²</text>
 <rect class="note" x="24" y="1620" width="560" height="350"/>
-<text class="nh" x="40" y="1644">Kolejność podłączania (§ 10.7)</text>
+<text class="nh" x="40" y="1644">Kolejność podłączania (§10.7)</text>
 <text class="nt" x="40" y="1666">1. S1 rozwarty, bank odłączony, F1 wyjęty z oprawki.</text>
-<text class="nt" x="40" y="1685">2. Nastawy na stole (ZB § 11 Etap 1): step-up 19,9–20,5 V bez</text>
+<text class="nt" x="40" y="1685">2. Nastawy na stole (ZB §11 Etap 1): step-up 19,9–20,5 V bez</text>
 <text class="nt" x="40" y="1704">    obciążenia · 2 × XY-SK120 CV 14,40 V / CC 5,0 A ·</text>
 <text class="nt" x="40" y="1723">    2 × XH-M603 15,30 / 14,00 V · XH-M609 11,00 / 12,60 V.</text>
-<text class="nt" x="40" y="1742">3. Punkt masy przy banku — komplet z § 10.6.</text>
+<text class="nt" x="40" y="1742">3. Punkt masy przy banku — komplet z §10.6.</text>
 <text class="nt" x="40" y="1761">4. Bank w koszach, bloki, FB1…FB7, łączniki; pomiar L+ / P−.</text>
 <text class="nt" x="40" y="1780">5. Przewody 8, 9, 10 — bank przez F7 do LVD, P− przez S1.</text>
 <text class="nt" x="40" y="1799">6. Przewody 11 i 12 — step-up. POMIAR 19,9–20,5 V BEZ M910q.</text>
@@ -706,20 +706,20 @@
 <text class="nt" x="620" y="1761">9 · 6 mm² · 10 · 4 mm² · 11, 12 · 4 mm² (F8 10 A, 5 A na wyjściu)</text>
 <text class="nt" x="620" y="1780">13, 14 · 1,5 mm² (F9 2 A) · 13a, 25 · 0,75 mm² (F10 3 A)</text>
 <text class="nt" x="620" y="1799">15–24 · 0,5 mm² · pakiety: FLRY-B 2,5 mm² + FB 10 A</text>
-<text class="ntb" x="620" y="1818">Masy bez numeru w § 10 — przekroje wg § 2 i ZB § 8.2:</text>
+<text class="ntb" x="620" y="1818">Masy bez numeru w §10 — przekroje wg §2 i ZB §8.2:</text>
 <text class="nt" x="620" y="1837">TVS/C1, XY-SK120, XH-M603 → PM 2,5 mm² · K1 85, LVD VIN− 0,75 mm²</text>
 <text class="nt" x="620" y="1856">step-up IN− 4 mm² · PM → nadwozie: jeden przewód 6 mm²</text>
 <text class="nt" x="620" y="1875">Tylko miedź (FLRY / OFC), nie CCA. Końcówki zaciskane</text>
 <text class="nt" x="620" y="1894">zaciskarką zapadkową + koszulka termokurczliwa z klejem.</text>
 <text class="nt" x="620" y="1913">Wkładki przed LVD (F1, F7, F12) — klasa MIDI/AMI lub ANL;</text>
-<text class="nt" x="620" y="1932">za LVD i w gałęziach ładowarek wystarczą ATO (ZB § 8.1).</text>
+<text class="nt" x="620" y="1932">za LVD i w gałęziach ładowarek wystarczą ATO (ZB §8.1).</text>
 <rect class="note" x="1204" y="1620" width="572" height="350"/>
 <text class="nh" x="1220" y="1644">Masy i to, czego w tym wariancie nie ma</text>
 <text class="nt" x="1220" y="1666">Wszystkie masy zestawu schodzą się w JEDNYM punkcie PM przy</text>
 <text class="nt" x="1220" y="1685">banku. P− dochodzi do niego wyłącznie przez S1 — nic nie</text>
-<text class="nt" x="1220" y="1704">ląduje na P− i nie ma mostka P− → PM (§ 7).</text>
+<text class="nt" x="1220" y="1704">ląduje na P− i nie ma mostka P− → PM (§7).</text>
 <text class="nt" x="1220" y="1723">Brak osobnego przewodu masy do klemy „−” rozruchowego —</text>
-<text class="nt" x="1220" y="1742">prąd wraca przez PM i nadwozie (ZB § 5.6).</text>
+<text class="nt" x="1220" y="1742">prąd wraca przez PM i nadwozie (ZB §5.6).</text>
 <text class="ntb" x="1220" y="1761">Wyjątek: 16 / 16a idą do masy instalacji auta (optoizolacja).</text>
 <text class="nt" x="1220" y="1780">Rozłącznik S1 przełączaj tylko bez obciążenia.</text>
 <text class="ntb" x="1220" y="1799">Nie ma w torze: diody blokującej, przekaźnika zapłonu przed</text>
@@ -729,5 +729,5 @@
 <text class="nt" x="1220" y="1875">wyłączenie). Wersja docelowa dokłada F11 (AUX), F13 (telefon)</text>
 <text class="nt" x="1220" y="1894">i wzmacniacz na osobnej gałęzi z rozruchowego — tu ich nie ma.</text>
 <text class="nt" x="1220" y="1913">Wariant PCB: 3, 5, 5a, TVS, C1, K1, D6 na płytce A</text>
-<text class="nt" x="1220" y="1932">(docs/PCB_ZASILANIE.md § 1).</text>
+<text class="nt" x="1220" y="1932">(docs/PCB_ZASILANIE.md §1).</text>
 </svg>

@@ -106,8 +106,9 @@
 <circle class="symf" cx="480" cy="175" r="3"/>
 <line class="w" x1="480" y1="175" x2="514" y2="160"/>
 <circle class="term" cx="522" cy="175" r="3.5"/>
-<text class="refc" x="520" y="128">K1 · 30 A SPDT</text>
-<text class="lbc" x="520" y="143">zwiera, gdy pracuje silnik</text>
+<text class="refc" x="520" y="114">K1 · 30 A SPDT</text>
+<text class="lbc" x="520" y="129">zwiera przy zapłonie</text>
+<text class="lbc" x="530" y="144">(z D+: tylko przy pracy silnika)</text>
 <line class="wp" x1="522" y1="175" x2="600" y2="175"/>
 <line class="wd" x1="499" y1="167" x2="499" y2="292"/>
 <rect class="blk" x="476" y="292" width="46" height="22"/>
@@ -119,7 +120,7 @@
 <line class="wg" x1="545" y1="321" x2="551" y2="321"/>
 <circle class="term" cx="250" cy="303" r="6"/>
 <text class="lbbe" x="238" y="299">Zapłon / D+</text>
-<text class="lbe" x="238" y="314">12 V, silnik pracuje</text>
+<text class="lbe" x="238" y="314">12 V: kluczyk ON / D+</text>
 <line class="w" x1="256" y1="303" x2="340" y2="303"/>
 <line class="w" x1="340" y1="303" x2="348" y2="303"/>
 <rect class="sym" x="348" y="295" width="34" height="16" fill="#ffffff"/>
@@ -180,16 +181,19 @@
 <text class="lbl" x="1196" y="345">do F12 przy L+</text>
 <rect class="note" x="1320" y="92" width="256" height="238"/>
 <text class="nh" x="1334" y="114">Tor ładowania — co tu jest</text>
-<text class="nt" x="1334" y="136">K1 rozwarty przy zgaszonym silniku:</text>
-<text class="nt" x="1334" y="153">rozruchowy zawsze odcięty od banku.</text>
-<text class="nt" x="1334" y="170">Bez diody szeregowej i bez</text>
-<text class="nt" x="1334" y="187">izolacji — wspólna masa, jeden</text>
-<text class="nt" x="1334" y="204">punkt przy banku (ZB §5.6).</text>
-<text class="nt" x="1334" y="221">2 × 5 A z ładowarek, netto do banku</text>
-<text class="nt" x="1334" y="238">≈ 5 A; z instalacji 11,9–13,0 A.</text>
-<text class="nt" x="1334" y="255">Oba XH-M603 widzą bank: przy</text>
-<text class="nt" x="1334" y="272">15,30 V rozwierają obie gałęzie.</text>
-<text class="nt" x="1334" y="289">F1, F7, F12: klasa ≥ 2,5 kA (ZB §8.1).</text>
+<text class="nt" x="1334" y="136">K1 rozwarty przy wyłączonym zapłonie</text>
+<text class="nt" x="1334" y="151">(z D+: przy zgaszonym silniku).</text>
+<text class="nt" x="1334" y="166">Kluczyk ON bez silnika ≈ 13 A</text>
+<text class="nt" x="1334" y="181">z rozruchowego — cewka z D+</text>
+<text class="nt" x="1334" y="196">albo LVP 12,8 V (ZB §5.4).</text>
+<text class="nt" x="1334" y="211">Bez diody szeregowej i bez</text>
+<text class="nt" x="1334" y="226">izolacji — wspólna masa, jeden</text>
+<text class="nt" x="1334" y="241">punkt przy banku (ZB §5.6).</text>
+<text class="nt" x="1334" y="256">2 × 5 A z ładowarek, netto do banku</text>
+<text class="nt" x="1334" y="271">≈ 5 A; z instalacji 11,9–13,0 A.</text>
+<text class="nt" x="1334" y="286">Oba XH-M603 widzą bank: przy</text>
+<text class="nt" x="1334" y="301">15,30 V rozwierają obie gałęzie.</text>
+<text class="nt" x="1334" y="316">F1, F7, F12: klasa ≥ 2,5 kA (ZB §8.1).</text>
 <line x1="24" y1="395" x2="1576" y2="395" stroke="#c8d2da" stroke-width="1.5" stroke-dasharray="6 5"/>
 <text class="sec" x="24" y="420">B · BANK W DWÓCH KOSZACH 4 + 3 · LVD · ROZŁĄCZNIK MASY (ZB §4.3, §7)</text>
 <line class="wp" x1="1180" y1="425" x2="1180" y2="440"/>
@@ -599,5 +603,5 @@
 <text class="nt" x="1090" y="1313">wzmacniacza: osobna gałąź z rozruchowego, własna masa</text>
 <text class="nt" x="1090" y="1330">F11 (AUX 12 V) i F13 (wstrzykiwacz 5 V telefonu, opcja) —</text>
 <text class="nt" x="1090" y="1347">tylko wersja docelowa (ZB §8.1); tu telefon na USB M910q</text>
-<text class="nt" x="1090" y="1364">kompensacji temperaturowej: CV 14,40 V stałe (ZB §4.5)</text>
+<text class="nt" x="1090" y="1364">autokompensacji temp.: CV ręcznie, 14,40 V / lato 13,95 V (ZB §5.5)</text>
 </svg>

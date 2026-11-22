@@ -126,7 +126,7 @@ procedura pierwszego uruchomienia w siedmiu etapach, plan serwisowy.
 | Plik | Zawartość |
 |------|-----------|
 | `power_buffered_m910q.svg` | tor główny: akumulator → rozdział ładowania → CC-CV → blokada przeładowania → bank CSB HR1221W → LVD → wyłącznik główny → step-up → M910q, z tabelą przekrojów i bezpieczników |
-| `charging_lvd.svg` | cztery warstwy ochrony, nastawy dla CSB HR1221W (AGM), dwie tabele kompensacji temperaturowej, wpływ temperatury na żywotność, przebieg CC → CV → float |
+| `charging_lvd.svg` | cztery warstwy ochrony, nastawy dla CSB HR1221W (AGM), dwie tabele kompensacji temperaturowej, wpływ temperatury na żywotność, przebieg CC → CV (bez float) |
 | `power_domains_m910q.svg` | rozdział odbiorników, bezpieczniki odgałęzień, budżet poboru w trzech stanach maszyny, tabela czasu postoju, osobna gałąź wzmacniaczy |
 | `README.md` | indeks, kolejność czytania przy montażu, konwencje rysunkowe |
 

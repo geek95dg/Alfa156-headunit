@@ -316,7 +316,7 @@ s.lines(1235, TOP + 22, [
     ("blok P− → S1 100 A → blok masowy", "t"),
     ("→ nadwozie 6 mm² · audio osobno", "t"),
     ("masy z bagażnika i powrót 2,5 mm² z przodu", "notec"),
-    ("na bloku masowym, nie na P− (§10.6)", "notec")], step=15)
+    ("na bloku masowym, nie na P− (ZB §8.3)", "notec")], step=15)
 
 # ---- szyna i odgałęzienia ---------------------------------------------------
 BUS = 204

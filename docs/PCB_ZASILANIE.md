@@ -253,9 +253,11 @@ Cały proces jest nadrukowany na
    3,2 / 4,5 mm). Zaczynaj 1,0 i rozwiercaj — pady bez metalizacji lubią
    uciekać spod większych wierteł. Pady D5 (SMD) **nie** są wiercone.
 4. **Ścieżki mocy pocynuj grubo i przylutuj wzdłuż nich drut 2,5 mm²**
-   (AKU i CHGIN na płytce A — do 13,6 A: 2 × 72 W / 0,88 / 12,0 V; BUS
-   i gałąź F8 na płytce B). Sama miedź 35 µm na 6 mm ścieżki grzałaby
-   się przy tym prądzie o ok. 27 °C (IPC-2221), w ciepłym bagażniku to
+   (AKU i CHGIN na płytce A — do 13 A, ZB §5.4: 11,9–13,0 A; BUS
+   i gałąź F8 na płytce B). Miedź liczona z zapasem dla 13,6 A
+   (2 × 72 W / 0,88 / 12,0 V — przypadek ostrzejszy niż w ZB §6.3):
+   sama miedź 35 µm na 6 mm ścieżki grzałaby się wtedy o ok. 27 °C
+   (IPC-2221), w ciepłym bagażniku to
    za dużo; z drutem 2,5 mm² tor jest zimny. BUS (8 mm, 10,5 A) i F8
    (6 mm, 6,6 A) wystarczają same — drut to zapas.
 5. Po wytrawieniu: omomierz między sąsiednimi sieciami (zwarcia po

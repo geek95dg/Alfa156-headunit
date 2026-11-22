@@ -359,8 +359,9 @@ s.w(395, YA, 480, YA, "wp")
 
 # K1 — styk
 s.switch_h(480, YA, "wp")
-s.txt(520, 128, "K1 · 30 A SPDT", "refc")
-s.txt(520, 143, "zwiera, gdy pracuje silnik", "lbc")
+s.txt(520, 114, "K1 · 30 A SPDT", "refc")
+s.txt(520, 129, "zwiera przy zapłonie", "lbc")
+s.txt(530, 144, "(z D+: tylko przy pracy silnika)", "lbc")
 s.w(522, YA, 600, YA, "wp")
 s.a('<line class="wd" x1="499" y1="167" x2="499" y2="292"/>')
 # cewka K1
@@ -370,7 +371,7 @@ s.w(522, 303, 548, 303, "wg")
 s.gnd(548, 303)
 s.term(250, 303)
 s.txt(238, 299, "Zapłon / D+", "lbbe")
-s.txt(238, 314, "12 V, silnik pracuje", "lbe")
+s.txt(238, 314, "12 V: kluczyk ON / D+", "lbe")
 s.w(256, 303, 340, 303)
 s.fuse_h(340, 303)
 s.txt(365, 290, "FK · 1 A", "refc")
@@ -412,8 +413,11 @@ s.txt(1196, 330, "4 mm² · ≤ 1 m", "lbl")
 s.txt(1196, 345, "do F12 przy L+", "lbl")
 
 s.note(1320, 92, 256, 238, "Tor ładowania — co tu jest",
-       ["K1 rozwarty przy zgaszonym silniku:",
-        "rozruchowy zawsze odcięty od banku.",
+       ["K1 rozwarty przy wyłączonym zapłonie",
+        "(z D+: przy zgaszonym silniku).",
+        "Kluczyk ON bez silnika ≈ 13 A",
+        "z rozruchowego — cewka z D+",
+        "albo LVP 12,8 V (ZB §5.4).",
         "Bez diody szeregowej i bez",
         "izolacji — wspólna masa, jeden",
         "punkt przy banku (ZB §5.6).",
@@ -421,7 +425,7 @@ s.note(1320, 92, 256, 238, "Tor ładowania — co tu jest",
         "≈ 5 A; z instalacji 11,9–13,0 A.",
         "Oba XH-M603 widzą bank: przy",
         "15,30 V rozwierają obie gałęzie.",
-        "F1, F7, F12: klasa ≥ 2,5 kA (ZB §8.1)."], step=17)
+        "F1, F7, F12: klasa ≥ 2,5 kA (ZB §8.1)."], step=15)
 
 s.sep(395)
 
@@ -677,7 +681,7 @@ s.note(1076, 1252, 500, 132, "Czego na tym arkuszu celowo nie ma",
         "wzmacniacza: osobna gałąź z rozruchowego, własna masa",
         "F11 (AUX 12 V) i F13 (wstrzykiwacz 5 V telefonu, opcja) —",
         "tylko wersja docelowa (ZB §8.1); tu telefon na USB M910q",
-        "kompensacji temperaturowej: CV 14,40 V stałe (ZB §4.5)"])
+        "autokompensacji temp.: CV ręcznie, 14,40 V / lato 13,95 V (ZB §5.5)"])
 
 s.check_overlaps()
 s.check_text()

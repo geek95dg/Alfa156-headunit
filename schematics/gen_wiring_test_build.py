@@ -351,7 +351,7 @@ s = Sheet(W, H, "BCM v8.5 — schemat połączeniowy wariantu testowo-rozwojoweg
                 "zacisk po zacisku (M910q)")
 s.txt(24, 34, "Schemat połączeniowy — wariant testowo-rozwojowy (M910q zasilany stale z banku)", "ttl")
 s.txt(24, 56, "Każdy zacisk podpisany, każdy przewód ponumerowany jak w tabelach "
-              "docs/SCHEMATY_POLACZEN.md § 10. Ten sam tor komponentowo: "
+              "docs/SCHEMATY_POLACZEN.md §10. Ten sam tor komponentowo: "
               "schematic_test_power.svg i schematic_test_signals.svg. "
               "Nastawy i uzasadnienia: docs/ZASILANIE_BUFOROWANE.md (ZB).", "sub")
 s.a('<line x1="24" y1="68" x2="1776" y2="68" stroke="#c8d2da" stroke-width="1.5"/>')
@@ -367,15 +367,15 @@ s.txt(324, LY + 4, "sygnał", "xs")
 s.wire([(384, LY), (424, LY)], "wo")
 s.txt(432, LY + 4, "masa instalacji auta", "xs")
 s.pill(578, LY, "5a", "p")
-s.txt(596, LY + 4, "numer przewodu z § 10", "xs")
+s.txt(596, LY + 4, "numer przewodu z §10", "xs")
 s.gnd_tag(784, LY - 9, "PM · 2,5 mm²")
-s.txt(836, LY + 4, "przewód do punktu masy przy banku (§ 10.6), z przekrojem", "xs")
+s.txt(836, LY + 4, "przewód do punktu masy przy banku (§10.6), z przekrojem", "xs")
 s.dot(1222, LY)
 s.txt(1232, LY + 4, "zacisk / połączenie · skrzyżowanie bez kropki = brak połączenia", "xs")
 
 # =====================================================================
 # 1 · TOR ŁADOWANIA
-s.sect(24, 128, "1 · TOR ŁADOWANIA — komora silnika → bagażnik (§ 10.1)")
+s.sect(24, 128, "1 · TOR ŁADOWANIA — komora silnika → bagażnik (§10.1)")
 
 Y1 = 232           # główna linia „+” toru ładowania
 Y1m = 254          # rząd zacisków masy
@@ -493,7 +493,7 @@ s.txt(LPX - 52, 530, "MIDI/ANL, przy L+", "xse")
 
 # =====================================================================
 # 2 · BANK
-s.sect(24, 496, "2 · BANK 7 × CSB HR1221W W DWÓCH KOSZACH · LVD · ROZŁĄCZNIK MASY (§ 10.2)")
+s.sect(24, 496, "2 · BANK 7 × CSB HR1221W W DWÓCH KOSZACH · LVD · ROZŁĄCZNIK MASY (§10.2)")
 
 KL_X, KP_X = 300, 920
 KY0, KY1 = 538, 800
@@ -558,7 +558,7 @@ s.pill(1373, 790, "9", "g")
 s.txt(1373, 816, "6 mm²", "xsc")
 pm = s.module(1590, 520, 186, 300, "blk",
               [("PM · PUNKT MASY", "mh"), ("osobny blok masowy", "ms"),
-               ("przy banku (§ 10.6)", "ms")],
+               ("przy banku (§10.6)", "ms")],
               [("s1", "L", 790, "← 9 (S1)"), ("ch", "B", 1683, "")])
 for i, ln in enumerate(["TVS / C1 „−”", "K1 zacisk 85", "IN−/OUT− XY-SK120 ×2",
                         "DC-IN− XH-M603 ×2", "XH-M609 VIN−", "step-up IN−",
@@ -575,7 +575,7 @@ s.txt(1683, 882, "nadwozie (bagażnik)", "go")
 
 # =====================================================================
 # 3 · ODBIORNIKI
-s.sect(84, 900, "3 · ODBIORNIKI — zasilane stale, za LVD; wkładki w bagażniku (§ 10.3)", "secb")
+s.sect(84, 900, "3 · ODBIORNIKI — zasilane stale, za LVD; wkładki w bagażniku (§10.3)", "secb")
 YBUS = 950
 s.wire([lvd["vout"], (60, YBUS)])
 s.pill(60, 818, "10")
@@ -644,11 +644,11 @@ mp = s.module(1500, YM, 170, 130, "blkb",
 branch(1440, "F10 · 3 A", "13a", "0,75 mm²", mp["in"][0], last=True)
 s.wire([mp["inm"], (1465, YMb), (1465, 1185)], "wg")
 s.gnd_tag(1465, 1185, "PM · powrót 2,5 mm²")
-s.txt(1040, 1226, "IN− obu bucków z przodu: jeden wspólny powrót 2,5 mm² do PM (ZB § 8.2) · "
+s.txt(1040, 1226, "IN− obu bucków z przodu: jeden wspólny powrót 2,5 mm² do PM (ZB §8.2) · "
                   "przewody 13 i 13a idą ~4 m do przodu", "xsc")
 # =====================================================================
 # 4 · SYGNAŁY
-s.sect(24, 1262, "4 · SYGNAŁY — zapłon, bieg wsteczny, przycisk M910q (§ 10.4, § 10.5) · "
+s.sect(24, 1262, "4 · SYGNAŁY — zapłon, bieg wsteczny, przycisk M910q (§10.4, §10.5) · "
                  "wszystkie 0,5 mm², przewód 25: 0,75 mm²", "secb")
 
 YU1a, YU1b = 1320, 1360          # U1: pin 1/4 i 2/3
@@ -751,12 +751,12 @@ s.txt(1450, 1585, "MP1584 OUT+ → Nano 5V, OUT− → Nano GND · 0,75 mm²", "
 # =====================================================================
 # 5 · NOTATKI
 NY = 1620
-s.note(24, NY, 560, 350, "Kolejność podłączania (§ 10.7)", [
+s.note(24, NY, 560, 350, "Kolejność podłączania (§10.7)", [
     "1. S1 rozwarty, bank odłączony, F1 wyjęty z oprawki.",
-    "2. Nastawy na stole (ZB § 11 Etap 1): step-up 19,9–20,5 V bez",
+    "2. Nastawy na stole (ZB §11 Etap 1): step-up 19,9–20,5 V bez",
     "    obciążenia · 2 × XY-SK120 CV 14,40 V / CC 5,0 A ·",
     "    2 × XH-M603 15,30 / 14,00 V · XH-M609 11,00 / 12,60 V.",
-    "3. Punkt masy przy banku — komplet z § 10.6.",
+    "3. Punkt masy przy banku — komplet z §10.6.",
     "4. Bank w koszach, bloki, FB1…FB7, łączniki; pomiar L+ / P−.",
     "5. Przewody 8, 9, 10 — bank przez F7 do LVD, P− przez S1.",
     "6. Przewody 11 i 12 — step-up. POMIAR 19,9–20,5 V BEZ M910q.",
@@ -775,20 +775,20 @@ s.note(604, NY, 580, 350, "Przekroje i wkładki", [
     "9 · 6 mm² · 10 · 4 mm² · 11, 12 · 4 mm² (F8 10 A, 5 A na wyjściu)",
     "13, 14 · 1,5 mm² (F9 2 A) · 13a, 25 · 0,75 mm² (F10 3 A)",
     "15–24 · 0,5 mm² · pakiety: FLRY-B 2,5 mm² + FB 10 A",
-    ("Masy bez numeru w § 10 — przekroje wg § 2 i ZB § 8.2:", "ntb"),
+    ("Masy bez numeru w §10 — przekroje wg §2 i ZB §8.2:", "ntb"),
     "TVS/C1, XY-SK120, XH-M603 → PM 2,5 mm² · K1 85, LVD VIN− 0,75 mm²",
     "step-up IN− 4 mm² · PM → nadwozie: jeden przewód 6 mm²",
     "Tylko miedź (FLRY / OFC), nie CCA. Końcówki zaciskane",
     "zaciskarką zapadkową + koszulka termokurczliwa z klejem.",
     "Wkładki przed LVD (F1, F7, F12) — klasa MIDI/AMI lub ANL;",
-    "za LVD i w gałęziach ładowarek wystarczą ATO (ZB § 8.1).",
+    "za LVD i w gałęziach ładowarek wystarczą ATO (ZB §8.1).",
 ], step=19)
 s.note(1204, NY, 572, 350, "Masy i to, czego w tym wariancie nie ma", [
     "Wszystkie masy zestawu schodzą się w JEDNYM punkcie PM przy",
     "banku. P− dochodzi do niego wyłącznie przez S1 — nic nie",
-    "ląduje na P− i nie ma mostka P− → PM (§ 7).",
+    "ląduje na P− i nie ma mostka P− → PM (§7).",
     "Brak osobnego przewodu masy do klemy „−” rozruchowego —",
-    "prąd wraca przez PM i nadwozie (ZB § 5.6).",
+    "prąd wraca przez PM i nadwozie (ZB §5.6).",
     ("Wyjątek: 16 / 16a idą do masy instalacji auta (optoizolacja).", "ntb"),
     "Rozłącznik S1 przełączaj tylko bez obciążenia.",
     ("Nie ma w torze: diody blokującej, przekaźnika zapłonu przed", "ntb"),
@@ -798,7 +798,7 @@ s.note(1204, NY, 572, 350, "Masy i to, czego w tym wariancie nie ma", [
     "wyłączenie). Wersja docelowa dokłada F11 (AUX), F13 (telefon)",
     "i wzmacniacz na osobnej gałęzi z rozruchowego — tu ich nie ma.",
     "Wariant PCB: 3, 5, 5a, TVS, C1, K1, D6 na płytce A",
-    "(docs/PCB_ZASILANIE.md § 1).",
+    "(docs/PCB_ZASILANIE.md §1).",
 ], step=19)
 
 _errors = []

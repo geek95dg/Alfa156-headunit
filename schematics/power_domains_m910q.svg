@@ -70,7 +70,7 @@
 <text class="t" x="1235" y="121">blok P− → S1 100 A → blok masowy</text>
 <text class="t" x="1235" y="136">→ nadwozie 6 mm² · audio osobno</text>
 <text class="notec" x="1235" y="151">masy z bagażnika i powrót 2,5 mm² z przodu</text>
-<text class="notec" x="1235" y="166">na bloku masowym, nie na P− (§10.6)</text>
+<text class="notec" x="1235" y="166">na bloku masowym, nie na P− (ZB §8.3)</text>
 <path class="wire" d="M940 172 L940 204"/>
 <text class="note" x="948" y="192">4 mm²</text>
 <path class="wire" d="M70 204 L1138 204"/>

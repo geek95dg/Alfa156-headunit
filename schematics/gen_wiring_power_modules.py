@@ -602,8 +602,8 @@ f12l, f12r = s.fuse_h(790, 890, "F12", "15 A · MIDI/ANL")
 s.wire([(1060, YJ), (1100, YJ), (1100, 890), f12r])
 s.wire([f12l, (640, 890), (640, YT - 8)])
 s.tag(1100, 800, "9")
-s.txt(1112, 790, "4 mm², ≤ 1 m", "wl")
-s.txt(1112, 806, "ładowanie → L+", "wl")
+s.txt(1118, 790, "4 mm², ≤ 1 m", "wl")
+s.txt(1118, 806, "ładowanie → L+", "wl")
 
 # 18: pomiar napięcia banku
 s.rect(380, 908, 230, 36, "noteb")
@@ -876,9 +876,9 @@ s.txt(40, YT0 + 78, "Bez numeru w §10: 5 i 10 (masy toru ładowania, §10.6), 1
 s.txt(40, YT0 + 95, "Numeracja zacisków K1 wg ISO 280: 30 = wspólny, 87 = zwierny (NO), "
                     "87a = rozwierny (NC), 85/86 = cewka. Na tanich podstawkach opisy bywają "
                     "inne — sprawdź omomierzem.", "note")
-s.txt(40, YT0 + 112, "Rozbieżność dokumentów: SCHEMATY §10.3 podaje dla 13 i 14 przekrój 1,5 mm² "
-                     "i „Panel 7″”; obowiązuje ZB §8.2 / §8a.2 — 1,0 mm² i panel 10,1″ "
-                     "(jak na tym arkuszu).", "note")
+s.txt(40, YT0 + 112, "Wariant testowy (SCHEMATY §10.3) celowo: przewody 13 i 14 · 1,5 mm² (zapas "
+                     "na bezpieczniku 2 A) i panel 7″. Wersja docelowa (ten arkusz, ZB §8.2 / §8a.2): "
+                     "1,0 mm² i panel 10,1″.", "note")
 
 s.check()
 s.save(OUT)
