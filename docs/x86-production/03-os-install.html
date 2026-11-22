@@ -98,10 +98,12 @@
           <div class="box box-info">
             <div class="box-title">After Power Loss = Power On</div>
             <p>
-              This setting is critical for automotive use. When the 12 V &rarr; 20 V converter
-              supplies power (ignition on), the M910q will boot automatically without pressing
-              the power button. Combined with ACPI suspend, this gives seamless ignition-based
-              start/stop behaviour.
+              This setting is critical for automotive use. The 12 V &rarr; 20 V step-up converter
+              feeds the M910q <strong>all the time</strong> from the buffer bank (there is no ignition
+              relay in front of it), so power is lost only when the LVD cuts the bus or the bank is
+              disconnected. &ldquo;Power On&rdquo; makes the M910q boot by itself when power comes back.
+              Day to day, ignition is only a signal: Nano #2 (sensor hub) pulses the power button for
+              S3 suspend and wake &mdash; see <a href="10-power-suspend.html">10 &mdash; Power &amp; Suspend</a>.
             </p>
           </div>
 

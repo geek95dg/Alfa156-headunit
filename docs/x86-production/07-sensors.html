@@ -67,14 +67,14 @@
           </p>
 
           <div class="box box-info">
-            <div class="box-title">OPi vs x86</div>
+            <div class="box-title">Why through an Arduino</div>
             <p>
-              On the Orange Pi, sensors like the DS18B20 connect directly to
-              the GPIO header via the kernel 1-Wire driver. On x86, the same
-              sensor connects to the Arduino, which reads it and sends
-              <code>TEMP:23.5</code> over serial. The BCM software handles
-              both paths transparently via the config option
-              <code>environment.temperature.source: arduino</code> (default on x86).
+              The M910q has no GPIO header, so the DS18B20 connects to the
+              Arduino sensor hub, which reads it and sends
+              <code>TEMP:23.5</code> over serial, parsed by
+              <code>src/input/arduino_serial.py</code>. The sysfs 1-Wire driver in
+              <code>src/environment/ds18b20.py</code> is a leftover from boards with a
+              native 1-Wire bus and is not used on the M910q.
             </p>
           </div>
         </section>
@@ -138,7 +138,7 @@
           <pre><code># config/bcm.yml
 environment:
   temperature:
-    source: arduino        # "arduino" (x86 default) or "onewire" (OPi)
+    source: arduino        # sensor hub over serial on the M910q
     read_interval: 10      # seconds between readings
     offset: 0.0            # calibration offset in °C</code></pre>
         </section>
@@ -209,8 +209,8 @@ environment:
             <div class="box-title">Voltage divider (optional)</div>
             <p>
               The HC-SR04 ECHO output is 5 V, which is safe for the Arduino
-              (also 5 V logic). If connecting to a 3.3 V board (such as an
-              OPi), add a voltage divider: ECHO &rarr; 1 k&Omega; &rarr;
+              (also 5 V logic). If you ever connect it to a 3.3 V board,
+              add a voltage divider: ECHO &rarr; 1 k&Omega; &rarr;
               GPIO &rarr; 2 k&Omega; &rarr; GND. This drops 5 V to ~3.3 V.
             </p>
           </div>

@@ -1058,10 +1058,11 @@ Projekt rezygnuje z budowania wzmacniacza na TDA7388 + TDA2050 na rzecz
 zasilanego wprost z akumulatora rozruchowego i odseparowanego od systemu
 buforowanego (§14, [`../schematics/audio_system.svg`](../schematics/audio_system.svg)).
 
-Dokumenty źródłowe wciąż pokazują starą ścieżkę DIY:
-`x86-production/01-bom.html`, `02-assembly.html`, `10-power-suspend.html`,
-`index.html` oraz `bcm_v85_docs.html`. Zostają jako referencja historyczna;
-**obowiązuje opis z §14 i schemat toru audio**.
+Dokumenty HTML (`x86-production/01-bom.html`, `02-assembly.html`,
+`10-power-suspend.html`, `index.html`, `bcm_v85_docs.html`) są już poprawione
+do gotowego wzmacniacza; stara ścieżka DIY została w nich tylko w szarych
+blokach „Historyczne (nieaktualne)”. Przy rozbieżności **obowiązuje opis
+z §14 i schemat toru audio**.
 
 Po stronie software'u nic się nie zmienia — PipeWire widzi wyłącznie DAC USB,
 a co jest za gniazdem RCA, jest dla niego niewidoczne.

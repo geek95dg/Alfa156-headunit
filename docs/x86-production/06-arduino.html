@@ -58,7 +58,13 @@
 
           <p>
             The x86 M910q has no GPIO header, so all vehicle I/O passes through
-            two USB Arduinos connected via the powered USB hub:
+            USB Arduinos connected via the powered USB hub. This page covers the
+            Pro Micro (input) and the always-on Nano (outputs); the third board,
+            <strong>Nano #2 &mdash; sensor hub</strong> (<code>arduino/sensor_hub</code>:
+            doors, ignition, rain, DS18B20, the M910q power-button relay, optional bank
+            voltage), is described in <code>docs/ARDUINO_OD_ZERA.md</code> and
+            <code>docs/ZASILANIE_BUFOROWANE.md</code> &sect;13.4 / &sect;14. Both Nano boards get
+            5 V from the MP1584 buck on the buffered bus; the Pro Micro is powered over USB.
           </p>
 
           <div class="table-wrap">
@@ -320,7 +326,7 @@
             <li><strong>MCU:</strong> ATmega328P (CH340 USB-UART bridge)</li>
             <li><strong>USB:</strong> Serial only at <strong>9600 baud</strong></li>
             <li><strong>Port:</strong> <code>/dev/ttyUSB0</code> (or <code>ttyUSB1</code>)</li>
-            <li><strong>Power domain:</strong> <strong>Domain A &mdash; always on.</strong> Vin from the 12 V SLA battery buffer via a 12 V&rarr;5 V buck. USB to M910q is used only for the <code>backlight</code> commands when the BCM is awake.</li>
+            <li><strong>Power domain:</strong> <strong>Domain A &mdash; always on.</strong> 5.0 V from the MP1584 buck (fed from the buffered bus behind the LVD, fuse F10 3 A) straight to the Nano&#39;s <strong>5V pin</strong>, not to Vin &mdash; the buck already regulates, and the onboard regulator would only drop the voltage. The M910q cuts USB power in S3, so USB cannot keep the board alive; it is used only for the <code>backlight</code> commands when the BCM is awake. Wiring: <code>docs/SCHEMATY_POLACZEN.md</code>.</li>
             <li><strong>Sketch:</strong> <code>arduino/output_controller/output_controller.ino</code></li>
             <li><strong>Libraries:</strong> <code>ArduinoJson</code> (v7), <code>RCSwitch</code>, <code>SoftwareSerial</code> (bundled)</li>
             <li><strong>Relay module:</strong> 10-channel, active-low, opto-isolated (9 of 10 channels used)</li>
@@ -374,12 +380,12 @@
                   <td>Hold while keyfob button held</td>
                 </tr>
                 <tr>
-                  <td>Backlight LARGE (7" main)</td>
+                  <td>Backlight LARGE (main display)</td>
                   <td>D9</td>
                   <td>PWM ~490 Hz, drives display M_PWM gate (0&ndash;100&nbsp;%)</td>
                 </tr>
                 <tr>
-                  <td>Backlight SMALL (4.3" dashboard)</td>
+                  <td>Backlight SMALL (second display)</td>
                   <td>D10</td>
                   <td>PWM ~490 Hz, drives display M_PWM gate (0&ndash;100&nbsp;%)</td>
                 </tr>
@@ -437,9 +443,10 @@
             </p>
             <p>
               If you ever want the dropped outputs back (headlights, horn,
-              wipers, blinkers), they need a separate Nano on Domain B
-              with its own sketch &mdash; the always-on Nano's pin
-              budget is fully used by the new scope.
+              wipers, blinkers), they need another Nano with its own sketch
+              &mdash; the always-on Nano's pin budget is fully used by the
+              new scope. (There is no separate ignition-switched power
+              domain any more: every board hangs on the one buffered bus.)
             </p>
           </div>
 
@@ -511,7 +518,7 @@
                 <tr>
                   <td>Backlight</td>
                   <td><code>{"cmd":"backlight","display":"large","brightness":80}</code></td>
-                  <td>PWM duty on D9 (large/7") or D10 (small/4.3"); accepts <code>"both"</code> too</td>
+                  <td>PWM duty on D9 (large/main) or D10 (small/second); accepts <code>"both"</code> too</td>
                 </tr>
                 <tr>
                   <td>Health-check</td>
@@ -803,7 +810,7 @@ minicom -D /dev/ttyUSB0 -b 9600
 # Dump current state (learned codes, BLE MAC, RSSI threshold):
 #   {"cmd":"status"}
 
-# Set the 7" display backlight to 50% (D9 PWM duty ~2.5V average):
+# Set the main display backlight to 50% (D9 PWM duty ~2.5V average):
 #   {"cmd":"backlight","display":"large","brightness":50}</code></pre>
 
           <h3>Test BCM integration</h3>

@@ -2260,8 +2260,9 @@ Sama zasada nie zmienia się wcale: gałąź audio idzie prosto z akumulatora
 rozruchowego, ma własną masę lokalną i **nie dotyka banku, LVD ani listwy
 dystrybucyjnej**.
 
-Dokumenty źródłowe (`x86-production/*.html`, `bcm_v85_docs.html`) wciąż
-opisują wariant DIY — zostają jako referencja historyczna.
+Dokumenty HTML (`x86-production/*.html`, `bcm_v85_docs.html`) są już
+poprawione do gotowego wzmacniacza; wariant DIY został w nich tylko
+w szarych blokach „Historyczne (nieaktualne)”.
 
 ### 13.6 Ograniczenia wynikające z wybranych modułów
 

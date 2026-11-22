@@ -467,6 +467,20 @@ pre.ascii-art code {
   color: #60e080;
 }
 
+/* Historical block: hardware or numbers of a superseded design kept for
+   reference. Greyed and dashed so it never reads like a current
+   instruction; tests/test_html_docs.py skips its contents when it looks
+   for retired parts. */
+.box-historical {
+  background: #1a1a1a;
+  border-left: 4px dashed #777;
+  color: #9a9a9a;
+}
+
+.box-historical .box-title {
+  color: #b0b0b0;
+}
+
 /* ============================================================
    Phase Overview Grid (index page)
    ============================================================ */
@@ -737,6 +751,12 @@ pre.ascii-art code {
     background: #fff0f0;
     border-left-color: #cc3333;
     color: #333;
+  }
+
+  .box-historical {
+    background: #f2f2f2;
+    border-left-color: #888;
+    color: #555;
   }
 
   .card,

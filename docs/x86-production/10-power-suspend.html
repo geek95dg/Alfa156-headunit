@@ -56,85 +56,95 @@
         <section>
           <h2 id="overview">Overview</h2>
 
-          <p>
-            The Lenovo M910q uses a <strong>65 W, 20 V barrel jack</strong>
-            power supply &mdash; not a standard ATX connector. In the car, this
-            means you need a <strong>12 V &rarr; 20 V boost converter</strong>
-            to step up the vehicle's 12 V supply to the required 20 V input.
-          </p>
+          <div class="box box-info">
+            <div class="box-title">Authoritative source</div>
+            <p>
+              This page summarises the buffered power design. All numbers come from
+              <code>docs/ZASILANIE_BUFOROWANE.md</code> (ZB, Polish), which wins wherever this page
+              differs. Terminal-by-terminal wiring: <code>docs/SCHEMATY_POLACZEN.md</code>.
+            </p>
+          </div>
 
           <p>
-            Because the car's 12 V rail drops to 6&ndash;8 V during engine
-            cranking, a <strong>12 V SLA battery buffer</strong> sits between
-            the car battery and the rest of the system. The buffer is built
-            from <strong>4&ndash;6 sealed lead-acid 12 V 5 Ah batteries
-            wired in parallel</strong> (total 20&ndash;30 Ah; 5 packs = 25 Ah
-            is the sweet spot). A Schottky diode isolates the bus from the
-            car battery so it never backfeeds. A low-voltage disconnect
-            (LVD) at <strong>11.0 V</strong> protects the SLA bank from
-            deep discharge when the car is parked for extended periods.
+            The Lenovo M910q uses a <strong>65 W, 20 V</strong> supply on a Lenovo slim-tip plug and
+            runs only in the 19&ndash;21 V window. In the car a potted
+            <strong>12 V &rarr; 20 V, 10 A (200 W) step-up converter</strong> in the trunk feeds it; at the
+            M910q&#39;s full 65 W it works at about a third of its nameplate rating, so no CPU power limit
+            (RAPL) is needed &mdash; <code>bcm-power-cap</code> stays as an option for quieter, cooler running.
+          </p>
+          <p>
+            When the engine cranks, the car&#39;s 12 V rail sags to 6&ndash;8 V for 200&ndash;600 ms. A
+            <strong>buffer bank of seven CSB HR1221W AGM batteries</strong> (12 V / 5.1 Ah each, in parallel:
+            <strong>35.7 Ah</strong>) keeps the bus above 12 V through it. The bank sits in two steel baskets
+            (4 + 3) in the trunk and is charged from the car by <strong>two XY-SK120</strong> buck-boost CC-CV
+            modules (CV 14.40 V, CC 5.0 A each) through the charge relay <strong>K1</strong>, which closes only
+            with ignition / D+. Each charger has its own <strong>XH-M603</strong> overvoltage disconnect
+            (15.30 V). An <strong>XH-M609</strong> LVD (11.00 V off / 12.60 V on) protects the bank from deep
+            discharge.
+          </p>
+          <p>
+            Everything hangs on <strong>one buffered bus</strong> behind the LVD &mdash; the M910q, USB hub,
+            both displays, the three Arduino boards, HM-10, RXB6 and the relay module. There is
+            <strong>no ignition relay in front of the loads</strong>: ignition is only a signal. Nano #2
+            (sensor hub) reads it through a PC817 and pulses the M910q power button through a relay. With
+            the engine off K1 is open, so the starter battery never feeds the head unit while parked and the
+            car always starts, however empty the bank is.
           </p>
 
-          <p>
-            The bus splits into <strong>two power domains</strong>:
-          </p>
-          <ul>
-            <li>
-              <strong>Domain A &mdash; always on.</strong> The Arduino Nano,
-              HM-10 BLE module, RXB6 433 MHz receiver, 9 relays
-              (4 windows &times; 2 directions + trunk), and the trunk-button
-              input. Idle draw ~60 mA. This subsystem continues running
-              while the BCM is asleep so the secondary window keyfob and
-              BLE-gated trunk button keep working.
-            </li>
-            <li>
-              <strong>Domain B &mdash; ignition/RTC-controlled.</strong>
-              The M910q, Pro Micro, USB hub, displays, amplifier. Comes
-              up on ACC (via the ignition relay) or on M910q RTC wake.
-              Draws ~10 W when up, 0 W when off.
-            </li>
-          </ul>
-
-          <p>
-            The M910q supports native <strong>ACPI S3 suspend</strong>
-            with a typical draw of only ~0.2 A at 12 V, but in this build
-            we don't rely on it for parked-car standby &mdash; instead the
-            ignition relay fully de-energises Domain B on park, and the
-            BCM cold-boots on ACC or RTC wake. Domain A keeps the
-            always-on features alive without involving the M910q at all.
-          </p>
+          <h3>Three machine states</h3>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>State</th>
+                  <th>How it is reached</th>
+                  <th>Draw from the bank</th>
+                  <th>Time to 50&nbsp;% DoD (35.7 Ah)</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>Running</td>
+                  <td>Ignition ON &rarr; short pulse &rarr; wake from S3</td>
+                  <td>&asymp; 50&ndash;75 W, i.e. &asymp; 4&ndash;6 A (5 A assumed)</td>
+                  <td>~3.6 h with the engine off</td>
+                </tr>
+                <tr>
+                  <td>S3</td>
+                  <td>Ignition OFF &rarr; short pulse &rarr; suspend</td>
+                  <td>200&ndash;460 mA + idle current of the step-up</td>
+                  <td>1.6&ndash;3.7 days (without the step-up idle current)</td>
+                </tr>
+                <tr>
+                  <td>Off</td>
+                  <td>2 h after ignition OFF &rarr; long 5 s pulse</td>
+                  <td>50&ndash;150 mA + idle current of the step-up</td>
+                  <td>5.0&ndash;14.9 days (without the step-up idle current)</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
 
           <div class="box box-warning">
-            <div class="box-title">Historical &mdash; superseded</div>
+            <div class="box-title">Standby figures are an upper bound</div>
             <p>
-              This page describes an earlier sizing of the buffer bank. As
-              built, the bank is <strong>seven CSB HR1221W packs in parallel:
-              35.7 Ah, 12.6 kg, catalogue charge ceiling 14.7 A, charger set
-              to CC 8.0 A</strong>. Three consequences: the 15&ndash;20 A
-              bulk-charge figure is no longer the binding limit (the charging
-              path is &mdash; the XH-M603 board caps it at 8.0 A); the standby
-              figures below are full discharges rather than the 50 % DoD they
-              claim; and the &ldquo;RTC wake halves those figures&rdquo; line
-              is wrong at any pack count &mdash; 5 Ah/week is ~29.8 mA of
-              equivalent draw, which at an 80 mA base leaves
-              <strong>73 %</strong>, not 50 %. Authoritative numbers, in
-              Polish: <code>docs/ZASILANIE_BUFOROWANE.md</code> &sect;4.2
-              (bank), &sect;4.3 (busbar topology for an odd pack count),
-              &sect;9.2 (standby), &sect;9.3 (RTC) and &sect;13.1 (what
-              exactly was wrong here).
+              The S3 and Off draws were measured or estimated with the earlier, weaker step-up module. The
+              new 20 V converter hangs on the bus all the time and adds its own idle current, which sellers
+              do not publish &mdash; measure it (ZB &sect;3.4, &sect;11). Until then the times above are the
+              longest you can expect, not a promise. The M910q cuts USB power in S3, so the displays go dark
+              with it, Wake on USB is useless, and the Arduino boards must have their own 5 V from the MP1584
+              buck &mdash; otherwise nothing could press the power button.
             </p>
           </div>
 
           <div class="box box-info">
-            <div class="box-title">Parked-car standby budget</div>
+            <div class="box-title">Bank monitoring (optional)</div>
             <p>
-              At 60 mA Domain A draw, a 25 Ah pack (5 batteries) lasts
-              ~17 days before reaching 50 % depth-of-discharge. Discharge
-              past 50 % shortens SLA cycle life sharply, so the 11.0 V
-              LVD trips well before the bus is empty. 4 batteries
-              (20 Ah) gives ~14 days; 6 batteries (30 Ah) gives ~21 days.
-              If you also let the M910q RTC-wake every 15 minutes for
-              cloud tracking, halve those figures.
+              With <code>FEATURE_BATT_ADC</code> or <code>FEATURE_BATT_INA226</code> built into the sensor hub
+              firmware and <code>modules.battery: true</code>, <code>src/power/battery.py</code> reports the
+              bank state with AGM thresholds: full 12.85 V, nominal 12.40 V (reference only), low 11.80 V,
+              critical 11.20 V &mdash; just above the 11.0 V LVD so BCM can warn first. It never switches
+              anything off; the hardware LVD does (ZB &sect;13.4).
             </p>
           </div>
         </section>
@@ -145,107 +155,81 @@
         <section>
           <h2 id="power-supply-chain">Power Supply Chain</h2>
 
-          <p>
-            The complete power path from the car battery to the M910q and
-            amplifier:
-          </p>
-
-          <pre><code>Car 12V ─[30A fuse]─┬─[Schottky MBR2045]──┐
-                    │                       │
-                    │                       ▼
-                    │       ┌──────────────────────────────┐
-                    │       │ CC-CV charge controller      │
-                    │       │ DC-DC buck, 15-20A bulk      │
-                    │       │ 14.4V absorb / 13.8V float   │
-                    │       └─────────────┬────────────────┘
-                    │                     │
-                    │       ┌─────────────▼────────────────┐
-                    │       │  Battery buffer bus 12V      │
-                    │       │  4-6 × SLA 5 Ah parallel     │
-                    │       │  (per-battery 10A fuses)     │
-                    │       └─────────┬────────────────────┘
-                    │                 │
-                    │       ┌─────────┴──────────┐
-                    │       │  LVD 11.0V cutoff  │
-                    │       └─────────┬──────────┘
-                    │                 │
-                    │   ┌─────────────┼─────────────┬──────────────┐
-                    │   │             │             │              │
-                    ▼   ▼             ▼             ▼              ▼
-              ┌─────────────┐   ┌──────────┐  ┌─────────────┐  ┌──────────────┐
-              │ Ign relay   │   │ Buck     │  │ Buck 12→5V  │  │ Relay coils  │
-              │ (ACC sense) │   │ 12→5V    │  │ (Nano Vin   │  │ (12V, driven │
-              └──────┬──────┘   │ display  │  │  + HM-10    │  │  by Nano via │
-                     │          │ panels   │  │  + RXB6)    │  │  opto board) │
-              ┌──────┴──────┐   └──────────┘  └─────────────┘  └──────────────┘
-              │ 12→20V boost│       │              │
-              │ (XL6019)    │       ▼              ▼
-              └──────┬──────┘    Display 5V    Domain A 5V
-                     │           (Domain B)   (always on)
-                     ▼
-              M910q barrel jack
-              + powered USB hub
-              (Domain B)</code></pre>
+          <pre><code>Starter battery +12 V
+ │
+ ├─[F1 20 A, ≤ 30 cm from the terminal]── 6 mm² OFC, ~5 m to the trunk
+ │     │
+ │     ▼  TVS SMCJ20CA + 470 µF ── K1 charge relay 30 A (coil: ignition / D+ via FK 1 A)
+ │                                  │ open with the engine off: the starter battery
+ │                                  │ never feeds the head unit while parked
+ │                     ┌────────────┴────────────┐
+ │                XY-SK120 #1               XY-SK120 #2      buck-boost CC-CV,
+ │                     │                         │           CV 14.40 V, CC 5.0 A each
+ │                XH-M603 #1                XH-M603 #2       open above 15.30 V
+ │                 [FC1 7.5 A]              [FC2 7.5 A]
+ │                     └────────────┬────────────┘
+ │                             [F12 15 A]
+ │                                  ▼
+ │   ┌───────────────────────────────────────────────────────────┐
+ │   │ Bank: 7 × CSB HR1221W AGM in parallel = 35.7 Ah           │
+ │   │ steel baskets 4 + 3 in the trunk, linked by 6 mm² cable   │
+ │   │ FB1…FB7 10 A on every pack                                │
+ │   └───────────────────────────┬───────────────────────────────┘
+ │                          L+ [F7 20 A]
+ │                               ▼
+ │                 XH-M609 LVD  11.00 V off / 12.60 V on
+ │                               │  buffered bus (always on)
+ │     ┌────────────┬────────────┼────────────┬─────────────┐
+ │ [F8 10 A]    [F9 2 A]    [F10 3 A]    [F11 5 A]    [F13 2 A] (option)
+ │ step-up      LM2596      MP1584       AUX 12 V     phone 5 V
+ │ 12 → 20 V    5 V         5 V          relay        injector
+ │ 10 A potted  displays    Nano #1/#2,  module
+ │ [5 A out]                HM-10, RXB6
+ │   │ 2 × 4 mm², ~4 m
+ │   ▼
+ │ M910q — powered all the time; ignition is only a signal:
+ │ Nano #2 (sensor hub) pulses the power button → S3 / wake
+ │
+ └─[fuse per amplifier datasheet, at the terminal]── 6 mm² ── amplifier
+       own branch, local ground, REM from terminal 87 — never through the bank or the LVD</code></pre>
 
           <h3>Key Design Points</h3>
-
           <ul>
             <li>
-              <strong>Schottky diode (MBR2045):</strong> Prevents the buffer
-              bus from backfeeding into the car battery. The diode's low
-              forward voltage drop (~0.45 V) minimises power loss. One-way
-              isolator only &mdash; it does <em>not</em> limit charge
-              current, so the CC-CV stage below is mandatory.
+              <strong>Two chargers, not one:</strong> while driving the bus draws ~5 A. One XY-SK120 at
+              5 A would leave ~0&ndash;1.5 A net for the bank, so it would hardly charge; two give ~10 A, i.e.
+              ~5 A net. Buck-boost modules keep regulating whether the alternator gives 12.5 or 14.7 V, so no
+              isolating diode is needed. There is no galvanic isolation &mdash; hence the single ground point
+              (ZB &sect;5.6). An isolated B2B charger remains a more expensive alternative (ZB &sect;5.7).
             </li>
             <li>
-              <strong>CC-CV charge controller (mandatory):</strong> the
-              Alfa 156 alternator is rated for 120 A. With the SLA bus
-              depleted and the engine started, the Schottky alone would
-              let the alternator dump tens of amps per pack until bus
-              voltage rises &mdash; instant Schottky failure and cooked
-              SLAs (cycle life collapses past 1 C charge). A DC-DC CC-CV
-              buck module sits between the diode and the bus, limiting
-              bulk-charge to ~15-20 A and stepping through 14.4 V absorb
-              &rarr; 13.8 V float per SLA datasheet. Without this stage
-              expect ~6-12 month SLA life instead of multi-year. An
-              XL4016-based module (~30-50 PLN) is the DIY option; a
-              proper B2B charger (Redarc BCDC, Sterling, Victron
-              Orion-Tr Smart, ~600-1500 PLN) is bullet-proof and
-              temperature-compensated.
+              <strong>Overvoltage disconnect:</strong> one XH-M603 per charger opens above 15.30 V if a
+              charger fails high. The board carries ~8&ndash;10 A in practice, so one module cannot take both.
             </li>
             <li>
-              <strong>LVD cutoff (11.0 V):</strong> Protects the SLA bank
-              from deep discharge. SLA cycle life collapses past 50 % DoD;
-              11.0 V trips well before that point. The cutoff isolates all
-              loads (both domains) so the bank stays parked at ~50 % SoC
-              until the alternator can recharge.
+              <strong>LVD (XH-M609):</strong> cuts the whole bus at 11.00 V and reconnects at 12.60 V, i.e.
+              only after real charging. It must switch the positive line &mdash; check with an ohmmeter that
+              VIN&minus; and VOUT&minus; are always connected.
             </li>
             <li>
-              <strong>Per-battery fusing:</strong> each 5 Ah pack has its own
-              10 A in-line fuse before joining the bus. If one cell shorts
-              you only lose that pack &mdash; the bus and the rest of the
-              system keep running.
+              <strong>Fuses at the source:</strong> F1 20 A within 30 cm of the starter battery, FB1&hellip;FB7
+              10 A on every pack, F7 20 A and F12 15 A at the bank block in MIDI/AMI or ANL class (the bank can
+              deliver ~2.2 kA into a short), branch fuses F8&ndash;F13 in the trunk at the start of each wire
+              running forward.
             </li>
             <li>
-              <strong>Ignition relay:</strong> a standard automotive
-              30 A SPDT closes when the ACC line goes hot, energising the
-              12&rarr;20 V boost and the powered USB hub (Domain B). When
-              parked, the relay opens and Domain B is fully off &mdash;
-              no S3 ghost draw, no USB hub leakage.
+              <strong>Converter in the trunk:</strong> 20 V over the ~4 m run to the M910q loses less than
+              12 V would (2 &times; 4 mm&sup2;: ~0.1 V at 65 W), and the LVD measures the bank itself rather
+              than the end of a long wire.
             </li>
             <li>
-              <strong>Standby calculation:</strong> 25 Ah &divide; 60 mA
-              (Domain A draw) limited to 50 % DoD = <strong>~17 days</strong>
-              standby on a 5-battery pack before the LVD trips. 4 packs
-              (20 Ah) gives ~14 days; 6 packs (30 Ah) gives ~21 days.
-              <em>Superseded &mdash; those are full discharges, and the bank
-              has seven packs (35.7 Ah): ~12.4 days to 50 % DoD at 60 mA.
-              See the note above.</em>
+              <strong>Amplifier on its own branch:</strong> straight from the starter battery with its own
+              fuse and local ground. Its peaks would exceed the 20 A LVD relay; it shares only the REM signal
+              and the RCA screen with the head unit.
             </li>
           </ul>
 
           <h3>Component Specifications</h3>
-
           <div class="table-wrap">
             <table>
               <thead>
@@ -258,73 +242,82 @@
               </thead>
               <tbody>
                 <tr>
-                  <td>SLA batteries (buffer bus)</td>
-                  <td>12 V 5 Ah sealed lead-acid, 4&ndash;6 in parallel</td>
-                  <td>5 packs = 25 Ah is the sweet spot. User owns 8; using 4&ndash;6 leaves a spare pool.</td>
-                  <td>40&ndash;60 each</td>
+                  <td>Buffer bank</td>
+                  <td>7&times; CSB HR1221W F2, 12 V / 5.1 Ah AGM, parallel = 35.7 Ah</td>
+                  <td>Two steel baskets (4 + 3) on the trunk floor, M8 to the bulkhead behind the rear seat, ~16.8 kg; linked by 6 mm&sup2; OFC cable, equal 2.5 mm&sup2; leads, FB1&hellip;FB7 10 A per pack</td>
+                  <td>owned</td>
                 </tr>
                 <tr>
-                  <td>Per-battery fuses</td>
-                  <td>10 A inline blade-fuse holders</td>
-                  <td>One per pack on the positive terminal</td>
-                  <td>3 each</td>
+                  <td>Charge relay K1</td>
+                  <td>12 V / 30 A SPDT</td>
+                  <td>Closed only with ignition / D+; coil fuse FK 1 A at the tap point</td>
+                  <td>15&ndash;25</td>
                 </tr>
                 <tr>
-                  <td>Schottky diode</td>
-                  <td>MBR2045CT (20 A, 45 V, dual)</td>
-                  <td>TO-220 package, ~0.45 V drop. One-way isolator only.</td>
+                  <td>Chargers</td>
+                  <td>2&times; XY-SK120 (or XY-SK120X), buck-boost CC-CV</td>
+                  <td>CV 14.40 V, CC 5.0 A each; unbranded &mdash; check output voltage and CC current on the bench (ZB &sect;5.2)</td>
+                  <td>120&ndash;180 (pair)</td>
+                </tr>
+                <tr>
+                  <td>Overvoltage disconnect</td>
+                  <td>2&times; XH-M603 (or XH-M604)</td>
+                  <td>15.30 V off / 14.00 V on, one per charger; FC1/FC2 7.5 A at OUT+</td>
+                  <td>80&ndash;160 (pair)</td>
+                </tr>
+                <tr>
+                  <td>LVD</td>
+                  <td>XH-M609</td>
+                  <td>11.00 V off / 12.60 V on, 20 A relay; F7 20 A (MIDI/AMI or ANL) in front of it</td>
+                  <td>owned</td>
+                </tr>
+                <tr>
+                  <td>Step-up 12 &rarr; 20 V</td>
+                  <td>Potted IP67/IP68, 20 V / 10 A (200 W), input ~9&ndash;18 V</td>
+                  <td>Unbranded family, seller figures only; bench-test each unit (ZB &sect;3.4). F8 10 A in, 5 A out, 4 mm&sup2;</td>
+                  <td>60&ndash;130</td>
+                </tr>
+                <tr>
+                  <td>Buck 12 &rarr; 5 V (logic)</td>
+                  <td>MP1584, min. 1 A, 5.0 V</td>
+                  <td>Nano #1/#2 5V pins, HM-10, RXB6 &mdash; must stay alive in S3; F10 3 A</td>
                   <td>5&ndash;10</td>
                 </tr>
                 <tr>
-                  <td>CC-CV charge controller</td>
-                  <td>XL4016 DC-DC buck, 15&ndash;20 A, 14.4 V absorb / 13.8 V float</td>
-                  <td><strong>Mandatory.</strong> Limits charge current from the 120 A alternator so the SLA bank isn't slammed and the Schottky doesn't melt. For a higher-budget build, use a proper B2B charger (Redarc BCDC1225D, Sterling B2B, Victron Orion-Tr Smart).</td>
-                  <td>30&ndash;50 (DIY) / 600&ndash;1500 (B2B)</td>
+                  <td>Buck 12 &rarr; 5 V (displays)</td>
+                  <td>LM2596 module</td>
+                  <td>Display panels; F9 2 A</td>
+                  <td>5&ndash;15</td>
                 </tr>
                 <tr>
-                  <td>LVD module</td>
-                  <td>12 V low-voltage disconnect, 11.0 V cutoff</td>
-                  <td>Adjustable cutoff preferred; 30 A rated</td>
-                  <td>20&ndash;40</td>
+                  <td>Charging feed fuse F1</td>
+                  <td>20 A</td>
+                  <td>&le; 30 cm from the starter battery terminal &mdash; the only link to it (besides the amplifier branch)</td>
+                  <td>15&ndash;25</td>
                 </tr>
                 <tr>
-                  <td>Ignition relay</td>
-                  <td>Bosch 12 V 30 A SPDT (automotive)</td>
-                  <td>Coil driven by ACC line; switches Domain B power</td>
-                  <td>10&ndash;15</td>
-                </tr>
-                <tr>
-                  <td>12 V &rarr; 20 V boost</td>
-                  <td>XL6019, 150 W, 12 V in &rarr; 20 V / 7.5 A out</td>
-                  <td>Must handle 65 W sustained for M910q. Wired downstream of the ignition relay.</td>
-                  <td>40&ndash;70</td>
-                </tr>
-                <tr>
-                  <td>Buck 12 V &rarr; 5 V (Domain A)</td>
-                  <td>LM2596, 12 V in &rarr; 5 V / 1 A</td>
-                  <td>Feeds Nano Vin + HM-10 + RXB6 (always on)</td>
-                  <td>5&ndash;10</td>
-                </tr>
-                <tr>
-                  <td>Buck 12 V &rarr; 5 V (displays)</td>
-                  <td>MP1584 or MP2307, 3 A output</td>
-                  <td>Feeds both display panels' 5 V rails (Domain B)</td>
-                  <td>5&ndash;10</td>
-                </tr>
-                <tr>
-                  <td>Main fuse</td>
-                  <td>30 A blade fuse</td>
-                  <td>Inline holder on car battery positive (was 25 A &mdash; bumped to cover the larger SLA charging surge)</td>
-                  <td>5&ndash;10</td>
-                </tr>
-                <tr>
-                  <td>Amp branch fuse</td>
-                  <td>20 A blade fuse</td>
-                  <td>Separate fuse for TDA7388 amplifier branch</td>
-                  <td>5&ndash;10</td>
+                  <td>Amplifier branch</td>
+                  <td>Fuse per the amplifier datasheet (typically 20&ndash;30 A), 6 mm&sup2;</td>
+                  <td>Straight from the starter battery, local ground &mdash; not through the bank or the LVD</td>
+                  <td>40&ndash;80</td>
                 </tr>
               </tbody>
             </table>
+          </div>
+          <p>
+            Full shopping list (wires, lugs, distribution, TVS, ground disconnect): ZB &sect;10.2 &mdash;
+            ~740&ndash;1 270 PLN without the items marked &ldquo;to be quoted&rdquo;.
+          </p>
+
+          <div class="box box-historical">
+            <div class="box-title">Historyczne (nieaktualne) &mdash; what earlier revisions of this page described</div>
+            <p>
+              An ignition relay switching a separate &ldquo;Domain B&rdquo; (M910q, hub, displays,
+              amplifier) and cold-booting on every start; an XL6019 boost (about 45 W in practice, which
+              forced a RAPL limit); a Schottky MBR2045 isolator followed by an XL4016 buck as the charger (a
+              buck cannot raise the voltage to absorption); and a bank of 4&ndash;6 &times; SLA 5 Ah under
+              the passenger seat. None of this is current &mdash; do not wire from old printouts.
+            </p>
           </div>
         </section>
 
@@ -480,7 +473,7 @@ action=/opt/bcm/scripts/bcm-power-toggle.sh</code></pre>
             </li>
             <li>
               <strong>systemctl suspend</strong> &mdash; Enters ACPI S3 deep
-              sleep. Power draw drops to ~0.2 A at 12 V.
+              sleep. The whole head unit then draws ~200&ndash;460 mA from the bank, plus the step-up idle current (see Overview).
             </li>
           </ol>
 
@@ -587,28 +580,35 @@ systemctl start bcm-headunit</code></pre>
           <h2 id="ignition-watcher">Ignition Watcher</h2>
 
           <p>
-            On the x86 platform, the ignition watcher uses the
-            <strong>Arduino input board</strong> to detect the car's ignition
-            state. The car's 12 V ignition signal is connected to the Arduino
-            via a <strong>PC817 optoisolator</strong>, which provides
-            electrical isolation between the car's ignition circuit and the
-            Arduino's digital input.
+            On the x86 platform, the ignition watcher uses
+            <strong>Arduino Nano #2 (sensor hub, <code>arduino/sensor_hub</code>)</strong>
+            to detect the car's ignition state. The car's 12 V ignition signal is
+            connected to the Nano via a <strong>PC817 optoisolator</strong>, which
+            provides electrical isolation between the car's ignition circuit and the
+            Arduino's digital input. The same board drives the relay whose contacts
+            sit in parallel with the M910q power button (<code>FEATURE_PWRBTN</code>,
+            pin A0) and reads the front-panel power LED (<code>FEATURE_PWRLED</code>,
+            pin A1). It is powered from the MP1584 5 V buck, so it keeps working
+            while the M910q sleeps and its USB ports are dead.
           </p>
 
           <h3>Hardware Signal Path</h3>
 
           <pre><code>Ignition 12V ─[1K resistor]─ PC817 LED side
                                     │
-                              PC817 transistor side ─ Arduino D2 (INPUT_PULLUP)
+                              PC817 transistor side ─ Nano #2 D9 (INPUT_PULLUP)
                                     │
                                    GND</code></pre>
 
           <p>
             When the ignition is <strong>ON</strong>, the PC817's internal LED
-            illuminates, the transistor conducts, and Arduino pin D2 reads LOW.
-            When the ignition is <strong>OFF</strong>, D2 reads HIGH (pulled up
-            internally). The Arduino sends an <code>IGN:ON</code> or
-            <code>IGN:OFF</code> message over USB serial to the M910q.
+            illuminates, the transistor conducts, and pin D9 reads LOW.
+            When the ignition is <strong>OFF</strong>, D9 reads HIGH (pulled up
+            internally). The sensor hub reports <code>IGN:1</code> or
+            <code>IGN:0</code> over USB serial (115200 baud) while the M910q is
+            awake, and independently pulses the power button: short pulse on
+            ignition OFF (S3) and ON (wake), a long 5 s pulse after 2 h with the
+            ignition off (full power-off).
           </p>
 
           <h3>bcm-ignition-watcher.service</h3>
@@ -653,7 +653,7 @@ WantedBy=multi-user.target</code></pre>
                 <tr>
                   <td>Ignition ON</td>
                   <td>Resume &rarr; restart BCM</td>
-                  <td>The Nano #2 relay pulses the M910q power button, which wakes it from S3 (USB is unpowered in S3, so Wake on USB stays disabled); the resume service restarts BCM</td>
+                  <td>The Nano #2 relay pulses the M910q power button, which wakes it from S3 (USB is unpowered in S3, so Wake on USB stays disabled); the system-sleep hook (<code>bcm-sleep</code>) restores BCM after resume</td>
                 </tr>
               </tbody>
             </table>
@@ -906,16 +906,18 @@ dmesg | grep -i "wake"</code></pre>
 
           <ul>
             <li>
-              The SLA battery buffer may have hit the LVD cutoff (11.0 V),
-              causing a full power loss. Check bus voltage with a
-              multimeter at the LVD input; under 11.0 V means at least one
-              SLA pack is below ~50&nbsp;% SoC and needs alternator charging.
+              The AGM bank may have hit the LVD cutoff (11.00 V; the bus returns
+              only at 12.60 V), causing a full power loss. Check the bank voltage
+              with a multimeter at the LVD input (VIN); near 11 V the bank is
+              deeply discharged and needs a long drive or a mains AGM charger.
             </li>
             <li>
-              The boost converter may have shut down during engine cranking.
-              Verify the SLA buffer bus is properly wired with the Schottky
-              diode isolating it from the car battery, and that the
-              per-battery 10 A fuses are intact.
+              The 20 V step-up may have dropped out. Check that the bank holds the
+              bus above 12 V while cranking (if it sags, look for blown FB1&hellip;FB7
+              pack fuses or a loose basket link), that F8 and the 5 A output fuse are
+              intact, and that the converter still regulates at 11 V input (ZB &sect;3.4).
+              Also check the long-pulse rule: after 2 h with the ignition off the
+              sensor hub powers the M910q off on purpose, so the next start is a cold boot.
             </li>
             <li>
               BIOS "After Power Loss" may be set to "Last State" instead of

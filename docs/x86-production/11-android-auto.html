@@ -332,9 +332,9 @@ wifi:
             <p>
               Android Auto requires a 5 GHz WiFi connection for wireless mode. The
               2.4 GHz band does not have enough bandwidth for the H.264 video stream.
-              If using the stock Intel 8265 card, verify it can create a 5 GHz AP &mdash;
-              some firmware versions restrict AP mode to 2.4 GHz. The Fenvi FU-AX1800
-              (Intel AX200) is the recommended upgrade if 5 GHz AP is unstable.
+              The stock Intel 8265 card does not hold a stable 5 GHz P2P-GO, so the build
+              replaces it with the Fenvi FU-AX1800 (MediaTek MT7921) &mdash; see
+              <a href="02-assembly.html">02 &mdash; Physical Assembly</a>, section 6.
             </p>
           </div>
         </section>
@@ -434,9 +434,8 @@ canvas = (dash_w, max(240, dash_h - appbar - navbar))</code></pre>
           <div class="box box-info">
             <div class="box-title">Why Xvfb?</div>
             <p>
-              On ARM (OPi 5 Pro), OpenAuto renders directly to a physical HDMI output
-              using EGL/SDL2. On x86, the physical displays are already used by Chromium
-              kiosk instances. Xvfb provides a virtual display that OpenAuto can render
+              On the M910q the physical displays are already used by Chromium
+              kiosk instances, so OpenAuto cannot render straight to an output. Xvfb provides a virtual display that OpenAuto can render
               to without conflicting with the existing X11 session. The MJPEG streaming
               approach adds ~30 ms latency but keeps the architecture clean and avoids
               compositing issues.
@@ -532,7 +531,7 @@ canvas = (dash_w, max(240, dash_h - appbar - navbar))</code></pre>
                 <tr>
                   <td>AA connects then disconnects after a few seconds</td>
                   <td>WiFi signal too weak (2.4 GHz fallback)</td>
-                  <td>Confirm AP is on 5 GHz: <code>iw dev | grep channel</code>; consider upgrading to Fenvi AX200</td>
+                  <td>Confirm AP is on 5 GHz: <code>iw dev | grep channel</code>; check that the Fenvi FU-AX1800 (MT7921) is fitted and <code>firmware-mediatek</code> is installed</td>
                 </tr>
                 <tr>
                   <td>Wireless AA lag or stutter</td>
