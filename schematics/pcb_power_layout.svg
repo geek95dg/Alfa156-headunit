@@ -34,7 +34,7 @@
 <path class="culw" stroke-width="6" d="M 9 8 L 50 8"/>
 <path class="culw" stroke-width="3" d="M 16 8 L 16 10.5"/>
 <path class="culw" stroke-width="2.5" d="M 16 17.5 L 16 20.7"/>
-<path class="culw" stroke-width="4" d="M 50 8 L 55.2 8 L 55.2 12.1"/>
+<path class="culw" stroke-width="6" d="M 50 8 L 55.2 8 L 55.2 12.1"/>
 <path class="culw" stroke-width="3" d="M 9 15.62 L 11 20.7 L 26 20.7"/>
 <path class="culw" stroke-width="2.5" d="M 26 13 L 26 20.7"/>
 <path class="culw" stroke-width="3" d="M 9 15.62 L 4 15.62 L 4 66.5"/>
@@ -43,8 +43,8 @@
 <path class="culw" stroke-width="2" d="M 30 36 L 30 32"/>
 <path class="culw" stroke-width="2" d="M 30 46.16 L 30 66.5"/>
 <path class="culw" stroke-width="2" d="M 42.54 26.1 L 42.54 66.5"/>
-<path class="culw" stroke-width="4" d="M 57.74 29.9 L 57.74 18 L 85 18 L 85 10 L 90 8"/>
-<path class="culw" stroke-width="4" d="M 90 8 L 90 15.62"/>
+<path class="culw" stroke-width="6" d="M 57.74 29.9 L 57.74 21 L 85 21 L 85 10 L 90 8"/>
+<path class="culw" stroke-width="6" d="M 90 8 L 90 15.62"/>
 <circle class="cul" cx="9" cy="8.0" r="2.2"/>
 <circle class="cul" cx="9" cy="15.620000000000001" r="2.2"/>
 <circle class="cul" cx="9" cy="27.0" r="1.5"/>

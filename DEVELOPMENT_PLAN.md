@@ -102,8 +102,8 @@ Alfa156-headunit/
 ├── schematics/                   # Part 11: Electrical diagrams
 │   ├── README.md                 # Index (M910q)
 │   ├── power_buffered_m910q.svg  # Buffered 12 V supply + 19/20 V step-up
-│   ├── power_domains_m910q.svg   # one buffered bus, fusing, load budget (do przerysowania)
-│   ├── charging_lvd.svg          # CC-CV charging, overcharge + LVD cutoff (do przerysowania)
+│   ├── power_domains_m910q.svg   # one buffered bus, fusing, load budget
+│   ├── charging_lvd.svg          # CC-CV charging, overcharge + LVD cutoff
 │   └── audio_system.svg          # DAC → AMP → Speakers (platform-agnostic)
 │   # v7 / Orange Pi GPIO set → Archive/orange-pi-5/schematics-v7/
 ├── tests/                        # Unit tests per module
