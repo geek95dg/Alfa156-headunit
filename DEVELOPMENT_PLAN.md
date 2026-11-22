@@ -346,9 +346,10 @@ Sensor mounted under front bumper (shielded from engine heat)
   - Fader (front/rear, -10 to +10) — requires multi-channel DAC for actual routing
   - Balance (left/right, -10 to +10)
 - **Real-time spectrum visualizer** on A1 main screen:
-  - 16-band FFT from PipeWire monitor sink (pw-record / parec)
-  - Canvas-based bar visualizer, ~15fps, theme-colored (amber/blue/orange)
-  - Graceful fallback to simulated bars when capture unavailable
+  - 16 log bands (30 Hz – 16 kHz) from the MONITOR of the music sink: `bcm_eq_sink` while the EQ chain runs, otherwise the hardware sink chosen by `PipeWireController` (`pw-record --target <sink>` with `stream.capture.sink=true`, `parec -d <sink>.monitor` as fallback) — never the default source, which is the microphone
+  - 48 kHz, 4096-sample Hann frames with 50% overlap, dBFS on a fixed window (`audio.spectrum_db_floor` / `_ceiling`, default -70..0), published at 15 Hz; silence = zeros; watchdog relaunches capture when the EQ chain restarts
+  - Canvas-based bar visualizer: requestAnimationFrame easing toward the latest frame, peak-hold caps, 2 px baseline, theme colours from CSS variables
+  - Simulated bars only when numpy / pw-record+parec are missing or PipeWire never comes up — reported in `audio.spectrum_state`
 - REST API: `GET/POST /api/audio/eq` for EQ state, `POST /api/audio/volume` for volume/mute
 
 **Why ES9038Q2M over PCM5102A?**

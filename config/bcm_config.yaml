@@ -111,6 +111,11 @@ audio:
   fader: 0
   balance: 0
   spectrum_enabled: true
+  # Pasek widma na A1: monitor sinka z muzyką (bcm_eq_sink albo sink sprzętowy).
+  # Poziom pasma w dBFS: podłoga = pusty pasek, sufit = pełny.
+  spectrum_db_floor: -70.0
+  spectrum_db_ceiling: 0.0
+  spectrum_tilt_db_per_oct: 0.0   # łagodne pochylenie wokół 1 kHz; 0 = płasko
   dac: ES9038Q2M
   amp_main: car-amp-4ch
   amp_sub: none

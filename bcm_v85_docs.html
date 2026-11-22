@@ -469,9 +469,16 @@ tr:hover td{background:var(--bg-card)}
   </ul>
 
   <h3>Wizualizator widma (Spectrum)</h3>
-  <p>Canvas-owy wizualizator 16-pasmowy na ekranie A1 (głównym). Pobiera dane FFT z PipeWire
-  (pw-record/parec) w czasie rzeczywistym ~15fps. Fallback na symulowane dane gdy PipeWire niedostępny.
-  Kolory dopasowane do motywu: amber (Heritage), niebieski (Modern), pomarańczowy (Autodelta).</p>
+  <p>Canvas-owy wizualizator 16-pasmowy na ekranie A1 (głównym). Słucha <strong>monitora sinka z muzyką</strong>:
+  <code>bcm_eq_sink</code>, gdy działa łańcuch EQ, a bez EQ sinka sprzętowego wybranego przez
+  <code>PipeWireController</code> (<code>pw-record --target &lt;sink&gt;</code> ze <code>stream.capture.sink=true</code>,
+  awaryjnie <code>parec -d &lt;sink&gt;.monitor</code>). Nigdy domyślnego źródła — to mikrofon.
+  16 pasm logarytmicznych 30 Hz – 16 kHz, 48 kHz, okno Hann 4096 próbek z 50% nakładką, poziom w dBFS
+  w stałym oknie <code>audio.spectrum_db_floor</code>..<code>audio.spectrum_db_ceiling</code> (domyślnie -70..0 dB),
+  publikacja 15 Hz; cisza = zera (widać tylko 2-pikselową linię bazową). Po każdej zmianie EQ i AEC łańcuch EQ
+  startuje od nowa — watchdog sam ponawia nagrywanie. Animacja symulowana tylko bez numpy, bez pw-record i parec
+  albo gdy PipeWire w ogóle nie wstał (stan w <code>audio.spectrum_state</code>).
+  Kolory z motywu: amber (Heritage), niebieski (Modern), pomarańczowy (Autodelta).</p>
 </section>
 
 <!-- ═══ S9 — KAMERY ═══ -->

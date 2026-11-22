@@ -655,8 +655,14 @@ const App = (() => {
         try { _syncWakeBanner(data); } catch (e) { /* never break the data loop */ }
         // Calls first: may switch to A8, whose update() then sees fresh state.
         try { _syncCallState(data); } catch (e) { /* never break the data loop */ }
-        if (_renderers[_currentScreen] && _renderers[_currentScreen].update) {
-            _renderers[_currentScreen].update(data, _currentTheme);
+        // A renderer bug (e.g. the A1 spectrum canvas) must not skip what
+        // follows: the reverse-camera overlay and the toasts are safety UI.
+        try {
+            if (_renderers[_currentScreen] && _renderers[_currentScreen].update) {
+                _renderers[_currentScreen].update(data, _currentTheme);
+            }
+        } catch (e) {
+            if (typeof console !== "undefined" && console.error) console.error("screen update failed:", e);
         }
         // Reverse / side camera now lives on the MAIN display: auto-show the
         // overlay whenever the CameraController resolves a feed (rear on

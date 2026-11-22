@@ -161,7 +161,9 @@ def start_audio(config: Any, event_bus: EventBus, hal: Any = None,
     spectrum_enabled = config.get("audio.spectrum_enabled", True)
     spectrum = None
     if spectrum_enabled:
-        spectrum = SpectrumAnalyzer(event_bus)
+        # Listens to the monitor of the sink pw plays into (bcm_eq_sink or
+        # the hardware sink), so it needs the controller, not a guess.
+        spectrum = SpectrumAnalyzer(event_bus, controller=pw, config=config)
         spectrum.start()
 
     # Hand the output back and kill the filter-chain child on the way out.
@@ -171,9 +173,11 @@ def start_audio(config: Any, event_bus: EventBus, hal: Any = None,
         # pass in progress, so a wedged PipeWire cannot stall this handler.
         if mic_router is not None:
             mic_router.stop(restore_eq=False)
-        pw.stop()
+        # Spectrum before pw.stop(): its capture child is a client of the
+        # EQ sink pw is about to remove; stop() terminates, waits and kills.
         if spectrum is not None:
             spectrum.stop()
+        pw.stop()
 
     event_bus.subscribe("power.shutting_down", _on_shutdown)
 
