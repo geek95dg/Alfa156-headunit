@@ -559,7 +559,7 @@ w osobnym dokumencie: **[`LISTA_ZAKUPOWA.md`](LISTA_ZAKUPOWA.md)**.
 
 | | |
 |---|---|
-| **Razem do kupienia** | **~805–1405 PLN** bez pozycji „do wyceny” (wkładki MIDI/ANL, bloki zbiorcze, stal na kosze) |
+| **Razem do kupienia** | **~790–1380 PLN** bez pozycji „do wyceny” (wkładki MIDI/ANL, bloki zbiorcze, stal na kosze) |
 | Największe pozycje | 2 × XY-SK120 (120–180), 2 × XH-M603 (80–160), przetwornica step-up 20 V (60–130), przewód 6 mm² OFC (90–135), przewód 4 mm² (65–110) |
 | Czego **nie** kupujesz | boost z diodą, przetwornica 19 V, przewód CCA, płaskowniki na szyny, VSR, DAC USB, karta WiFi — pełna lista z powodami tamże |
 | Warto dołożyć | multimetr z pomiarem prądu DC 10 A — bez niego nie odbierzesz instalacji |

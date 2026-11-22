@@ -307,7 +307,7 @@ w `ZASILANIE_BUFOROWANE.md` §10. Rdzeń (stan z 22.11.2026):
 | **Okablowanie** | 6 mm² OFC (F1, łącznik koszy, odbiór, masa), 4 mm², FLRY-B 2,5 mm², 0,5–1,5 mm², 4 bloki zbiorcze M6, oczka, nasuwki w pełni izolowane, peszel, przelotki |
 | **Mechanika** | dwa kosze stalowe 4 + 3 ([`mechanika/kosze_HR1221W_4+3.pdf`](mechanika/kosze_HR1221W_4+3.pdf)), rozłącznik masy 100 A |
 
-**Orientacyjnie:** ~740–1270 PLN bez pozycji „do wyceny” (wkładki MIDI/ANL,
+**Orientacyjnie:** ~735–1265 PLN bez pozycji „do wyceny” (wkładki MIDI/ANL,
 bloki zbiorcze, stal na kosze) — ZB §10.2. Izolowana ładowarka B2B zamiast
 dwóch XY-SK120 to +280–370 PLN.
 

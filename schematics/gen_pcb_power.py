@@ -585,7 +585,7 @@ def build_schematic(out_path):
          "nie podłączaj do banku w aucie — to jedyna warstwa nadnapięciowa."),
         ("Czego celowo NIE ma na płytkach.",
          "XH-M603, FC1/FC2 i ładowarek (moduły i oprawki inline przy banku), F7/F12 (MIDI/ANL ≥ 2,5 kA przy bloku "
-         "L+), drugiego TVS, kondensatora na szynie (bank to bufor), NTC i 470 µF na wyjściu step-upu (tylko przy "
+         "L+), drugiego TVS, kondensatora na szynie (bank to bufor), 470 µF na wyjściu step-upu (tylko przy "
          "czkawce, ZB §3.2b — w linii), kompensacji temperaturowej (sezonowa zmiana CV, ZB §5.5)."),
         ("Masy.", "Każda płytka ma jeden odpływ masy do punktu masy (A: śruba M4, B: X8.2). Otwory montażowe są "
          "odizolowane — słupki nylonowe, żeby nie zrobić drugiej drogi masy przez karoserię."),

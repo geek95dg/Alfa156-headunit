@@ -91,13 +91,20 @@ miedzi drukuj wyłącznie z SVG w skali 100 % i sprawdź linijkę kontrolną 50 
 
 ## Kolejność czytania przy montażu
 
-1. **`power_domains_m910q.svg`** — najpierw ustal, co gdzie ma wisieć
-   i jaki jest budżet poboru w każdym ze stanów maszyny.
+1. **[`../docs/ZASILANIE_BUFOROWANE.md`](../docs/ZASILANIE_BUFOROWANE.md) §2**
+   — najpierw ustal, co gdzie ma wisieć i jaki jest budżet poboru w każdym
+   ze stanów maszyny.
 2. **`power_buffered_m910q.svg`** — trasa zasilania, przekroje, bezpieczniki.
-3. **`charging_lvd.svg`** — nastaw ładowarkę, rozłącznik nadnapięciowy i LVD
-   **przed** pierwszym podłączeniem banku.
-4. **`wiring_power_modules.svg`** — teraz łącz, zacisk po zacisku.
-   Tabele „skąd → dokąd”: [`../docs/SCHEMATY_POLACZEN.md`](../docs/SCHEMATY_POLACZEN.md) § 2.
+3. **Nastawy z ZB §4.4 / §5 / §6 / §7** (CV 14,40 V, CC 2 × 5,0 A na
+   XY-SK120, progi XH-M603 15,30 / 14,00 V, LVD XH-M609 11,00 / 12,60 V) —
+   ustaw ładowarki, rozłączniki nadnapięciowe i LVD **przed** pierwszym
+   podłączeniem banku.
+4. **`schematic_test_power.svg`** + **`pcb_power_schematic.svg`** — teraz
+   łącz, zacisk po zacisku, wg tabel „skąd → dokąd” w
+   [`../docs/SCHEMATY_POLACZEN.md`](../docs/SCHEMATY_POLACZEN.md) § 2
+   i kolejności montażu z tego samego dokumentu § 8.
+   `power_domains_m910q.svg`, `charging_lvd.svg` i `wiring_power_modules.svg`
+   to **poprzedni wariant — nie używaj ich do nastaw ani montażu**.
 5. **`wiring_vehicle_arduino.svg`** — sygnały z auta, po jednym obwodzie.
 6. **`wiring_usb_av.svg`** + **`audio_system.svg`** — peryferia i tor audio.
 

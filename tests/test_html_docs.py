@@ -62,6 +62,9 @@ RETIRED_HTML = {
     "19,5 V": re.compile(r"\b19[,.]5\s*V\b"),
     "under the passenger seat (bank)": re.compile(
         r"(bank|batter\w*)[^.]{0,60}under the passenger seat", re.I),
+    # One XY-SK120 at 5 A against a 4-6 A load nets about -1...+1 A (ZB §5.3),
+    # not "0-1.5 A" — the figure must match ZB in every file.
+    "one charger ~0-1.5 A net": re.compile(r"\b0\s*[–-]\s*1[.,]5\s*A\s+net", re.I),
 }
 
 #: Stale data that may appear only as release history: rows of a

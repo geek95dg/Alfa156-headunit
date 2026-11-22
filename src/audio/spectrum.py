@@ -112,6 +112,9 @@ PW_GIVE_UP_S = 120.0                     # ~ PipeWireController background retry
 SIMULATED_RECHECK_S = 5.0
 
 CAPTURE_NODE_NAME = "bcm_spectrum"
+# _node_id() result when the sink list could not be read at all (pw-dump and
+# wpctl both failed). Distinct from None = "listed, but not there".
+_NODE_UNKNOWN = object()
 CAPTURE_TOOLS = ("pw-record", "parec")
 
 
@@ -266,6 +269,12 @@ class SpectrumAnalyzer:
         self._tilt = _as_float(cfg("audio.spectrum_tilt_db_per_oct", 0.0), 0.0)
 
         self._thread: Optional[threading.Thread] = None
+        # The thread that currently owns the capture state. stop() may give
+        # up waiting for a thread stuck in pw-dump (up to ~13 s); a later
+        # start() then makes a new owner and the old thread exits at its
+        # next check instead of running a second capture loop on the same
+        # _proc / _dsp / _tool_idx.
+        self._owner: Optional[threading.Thread] = None
         self._running = False
         self._stop_evt = threading.Event()
         self._lock = threading.Lock()
@@ -295,12 +304,14 @@ class SpectrumAnalyzer:
         self._stop_evt.clear()
         self._thread = threading.Thread(target=self._run, name="spectrum",
                                         daemon=True)
+        self._owner = self._thread
         self._thread.start()
         log.info("SpectrumAnalyzer started")
 
     def stop(self, timeout: float = 3.0) -> None:
         """Stop the thread AND the capture child (terminate, wait, kill)."""
         self._running = False
+        self._owner = None
         self._stop_evt.set()
         with self._lock:
             proc = self._proc
@@ -318,6 +329,10 @@ class SpectrumAnalyzer:
         if t is None or not t.is_alive():
             self._kill_proc()            # thread gone: safe to close the pipe
 
+    def _alive(self) -> bool:
+        """True while this thread is the current, running owner."""
+        return self._running and threading.current_thread() is self._owner
+
     @property
     def state(self) -> Optional[dict]:
         return dict(self._state) if self._state else None
@@ -332,10 +347,12 @@ class SpectrumAnalyzer:
         except Exception:
             log.exception("Spectrum thread crashed")
         finally:
-            self._kill_proc()
+            # A superseded thread must not kill the new owner's child.
+            if self._owner is None or self._owner is threading.current_thread():
+                self._kill_proc()
 
     def _loop(self) -> None:
-        while self._running:
+        while self._alive():
             reason = self._simulated_reason()
             if reason:
                 self._run_simulated(reason)
@@ -349,7 +366,7 @@ class SpectrumAnalyzer:
                 continue
             target = self._resolve_target()
             node_id = self._node_id(target) if target else None
-            if not target or node_id is None:
+            if not target or node_id is None or node_id is _NODE_UNKNOWN:
                 self._set_state("waiting", target, None,
                                 "sink not present yet" if target else "no output sink chosen")
                 self._publish_zero_once()
@@ -357,7 +374,7 @@ class SpectrumAnalyzer:
                 continue
             self._wait_s = TARGET_POLL_S
             failed = self._capture_session(target, node_id)
-            if self._running:
+            if self._alive():
                 self._sleep(self._backoff)
                 # Grow the backoff only for real failures. Routine relaunches
                 # (pause stall, EQ restart, retarget) must come back fast, or
@@ -405,13 +422,25 @@ class SpectrumAnalyzer:
             log.debug("music_sink() failed", exc_info=True)
             return None
 
-    def _node_id(self, name: str) -> Optional[str]:
+    def _node_id(self, name: str):
+        """Node id of `name`, None if it is not listed, or _NODE_UNKNOWN.
+
+        list_sink_nodes() returns [] when pw-dump AND the wpctl fallback
+        fail (a timeout under load), so an empty list means "could not
+        list", not "node gone" — otherwise one pw-dump hiccup would kill a
+        capture that works fine. A real removal still ends the child (EOF)
+        and is caught on the next successful listing.
+        """
         try:
-            for sink in self._pw.list_sink_nodes():
-                if sink.get("name") == name:
-                    return str(sink.get("id") or "") or "?"
+            sinks = self._pw.list_sink_nodes()
         except Exception:
             log.debug("list_sink_nodes() failed", exc_info=True)
+            return _NODE_UNKNOWN
+        if not sinks:
+            return _NODE_UNKNOWN
+        for sink in sinks:
+            if sink.get("name") == name:
+                return str(sink.get("id") or "") or "?"
         return None
 
     # ------------------------------------------------------------------ #
@@ -430,10 +459,10 @@ class SpectrumAnalyzer:
             log.warning("Spectrum: cannot start %s: %s", tool, e)
             return None
         with self._lock:
-            if self._running:
+            if self._alive():
                 self._proc = proc
                 return proc
-        _terminate(proc)                   # stop() raced the launch
+        _terminate(proc)                   # stop() / a newer start() raced the launch
         return None
 
     def _capture_session(self, target: str, node_id: str) -> bool:
@@ -462,8 +491,8 @@ class SpectrumAnalyzer:
             reason = f"error: {e}"
             log.warning("Spectrum capture error: %s", e)
         finally:
-            self._kill_proc()
-        if not self._running:
+            self._kill_proc(proc)
+        if not self._alive():
             return False
         lasted = self._clock() - t0
         node_changed = reason in ("retarget", "target gone", "target replaced")
@@ -473,7 +502,7 @@ class SpectrumAnalyzer:
             # dont-reconnect / --no-move — expected), or did it break by
             # itself? Only the latter is a failure.
             current = self._node_id(target)
-            if current != node_id:
+            if current is not _NODE_UNKNOWN and current != node_id:
                 node_changed = True
                 reason = "target gone" if current is None else "target replaced"
             else:
@@ -492,6 +521,12 @@ class SpectrumAnalyzer:
             return False                           # still "real": just a pause
         log.info("Spectrum capture ended (%s) — relaunching", reason)
         self._set_state("waiting", target, None, reason)
+        if failed:
+            # A real failure is followed by a growing backoff (up to
+            # BACKOFF_MAX_S): drop the bars instead of freezing the last
+            # frame mid-height while nothing is captured. Routine relaunches
+            # keep the frame so an EQ preset tap does not flicker.
+            self._publish_zero_once()
         return failed
 
     def _pump(self, proc: subprocess.Popen, target: str,
@@ -516,7 +551,7 @@ class SpectrumAnalyzer:
         next_live_check = now + NODE_CHECK_MAX_S
         got_data = False
         mismatch_since: Optional[float] = None
-        while self._running:
+        while self._alive():
             timeout = min(0.1, max(0.0, next_pub - self._clock()))
             try:
                 ready, _, _ = select.select([fd], [], [], timeout)
@@ -570,7 +605,7 @@ class SpectrumAnalyzer:
             idle_check = idle >= NODE_CHECK_MIN_S and now >= next_check
             if idle_check or now >= next_live_check:
                 current = self._node_id(target)
-                if current != node_id:
+                if current is not _NODE_UNKNOWN and current != node_id:
                     return got_data, "target gone" if current is None else "target replaced"
                 if idle_check:
                     check_every = min(NODE_CHECK_MAX_S, check_every * 2)
@@ -580,9 +615,17 @@ class SpectrumAnalyzer:
                 return got_data, "stall"
         return got_data, "stopped"
 
-    def _kill_proc(self) -> None:
+    def _kill_proc(self, own: Optional[subprocess.Popen] = None) -> None:
+        """Terminate the capture child. With `own`, terminate that one and
+        clear the shared slot only if it still holds it (a newer owner may
+        have launched its own child meanwhile)."""
         with self._lock:
-            proc, self._proc = self._proc, None
+            if own is None:
+                proc, self._proc = self._proc, None
+            else:
+                proc = own
+                if self._proc is own:
+                    self._proc = None
         if proc is not None:
             _terminate(proc)
 
@@ -633,7 +676,7 @@ class SpectrumAnalyzer:
         t = 0.0
         period = 1.0 / PUBLISH_HZ
         next_check = self._clock() + SIMULATED_RECHECK_S
-        while self._running:
+        while self._alive():
             if self._clock() >= next_check:
                 next_check = self._clock() + SIMULATED_RECHECK_S
                 if self._simulated_reason() != reason:

@@ -134,11 +134,14 @@ def _passages(prose: str) -> list[str]:
 
 
 def test_superseded_hardware_only_as_history():
+    # Same retired list as the guard for the other documents, so XL4016,
+    # MBR2045, "Domena B" and "4-6 ×" cannot creep back into ZB either.
+    from tests.test_power_docs import RETIRED
     offenders = []
     for passage in _passages(_prose()):
         low = passage.lower()
-        for word in ("XL6019", "MBR2545CT", "pod fotelem"):
-            if word.lower() in low and not any(m in low for m in HISTORY_MARKERS):
+        for word, rx in RETIRED.items():
+            if rx.search(passage) and not any(m in low for m in HISTORY_MARKERS):
                 offenders.append(f"{word}: {passage.strip()[:90]!r}")
     assert not offenders, f"stary sprzęt opisany jak obecny: {offenders}"
 

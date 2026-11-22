@@ -66,9 +66,11 @@ diagnostyce po roku od montażu to oszczędza godziny:
 
 ### Zaciski na rysunkach
 
-Zaciski są narysowane **na krawędziach obudów** i ponumerowane. Numery
-w tabelach poniżej odpowiadają numerom na
-[`wiring_power_modules.svg`](../schematics/wiring_power_modules.svg).
+Zaciski są narysowane **na krawędziach obudów** i ponumerowane.
+**Obowiązuje numeracja z tabel poniżej** (6/6a, 7/7a, bloki L+/L−/P+/P−,
+FC1/FC2, F12). [`wiring_power_modules.svg`](../schematics/wiring_power_modules.svg)
+ma jeszcze starą numerację zacisków 1–8 i zostanie przenumerowany przy
+przerysowaniu.
 
 ---
 
@@ -88,7 +90,7 @@ z własnym rozłącznikiem nadnapięciowym **XH-M603** — ZB §5.2–§5.4, §6
 | # | Skąd | Dokąd | Przewód | Zabezpieczenie |
 |---|------|-------|---------|----------------|
 | 1 | Akumulator rozruchowy „+” | **F1** (wejście) | 6 mm² | — |
-| 2 | **F1** (wyjście) | TVS + C1, biegun „+” (w bagażniku, przed K1) | 6 mm², ~5 m — zmierz | **F1 20 A**, ≤ 30 cm od klemy |
+| 2 | **F1** (wyjście) | TVS + C1, biegun „+” (w bagażniku, przed K1) | 6 mm², ~5 m — zmierz | **F1 20 A**, MIDI/AMI lub ANL, ≤ 30 cm od klemy |
 | 3 | TVS + C1 „+” | **K1** zacisk **30** | 6 mm² | — |
 | 4 | zapłon albo **D+** alternatora | **K1** zacisk **86** (cewka) | 0,75 mm², ~4–5 m | **FK 1 A** z przodu, w miejscu wpięcia |
 | 5 | **K1** zacisk **85** | punkt masy przy banku | 0,75 mm² | — |
@@ -503,7 +505,7 @@ Pełna tabela z uzasadnieniem: ZB §8.1. Skrót:
 
 | Oznaczenie | Wartość | Gdzie | Chroni |
 |------------|---------|-------|--------|
-| **F1** | 20 A | przy klemie „+”, ≤ 30 cm | ~5 m przewodu 6 mm² do ładowarek (biorą 11,9–13,0 A) |
+| **F1** | 20 A, MIDI/AMI lub ANL | przy klemie „+”, ≤ 30 cm | ~5 m przewodu 6 mm² do ładowarek (biorą 11,9–13,0 A) |
 | **FK** | 1 A ATO | z przodu, w miejscu wpięcia w zapłon / D+ | przewód 0,75 mm² do cewki K1 |
 | **FC1, FC2** | 7,5 A ATO | przy OUT+ każdego XH-M603, przed złączeniem | płytki XH-M603 (≤ 8 A) od strony banku |
 | **F12** | 15 A, MIDI/AMI lub ANL | przy bloku L+ | przewód ładowania 4 mm² od strony banku |
@@ -517,12 +519,13 @@ Pełna tabela z uzasadnieniem: ZB §8.1. Skrót:
 | **F13** | 2 A (opcja) | dystrybucja | wstrzykiwacz 5 V telefonu |
 | — | 1 A | przy banku | przewód pomiaru napięcia banku |
 | — | 2 A | odgałęzienie +15 → buck 5 V wyświetlacza ESP32 | moduł wyświetlacza 1,8" (§ 11.3) |
-| — | wg karty modułu (20–30 A) | przy klemie „+”, osobno | gałąź wzmacniacza |
+| — | wg karty modułu (20–30 A), klasa jak F1 | przy klemie „+”, osobno | gałąź wzmacniacza |
 
 Wkładki za LVD (F8–F11, F13) i FC1/FC2 mogą być zwykłymi ATO — prąd
 zwarciowy ogranicza tam rezystancja przewodów i przekaźnika LVD (ZB §8.1).
 **F7 i F12 widzą pełne ~2,2 kA banku** i muszą mieć zdolność wyłączania
-≥ 2,5 kA wg karty. Wszystkie odgałęzienia biegnące do przodu mają wkładki
+≥ 2,5 kA wg karty. **F1** (i gałąź wzmacniacza) przy klemie rozruchowego
+widzi szacunkowo 1,2–2,5 kA — ta sama klasa (ZB §8.1). Wszystkie odgałęzienia biegnące do przodu mają wkładki
 **w bagażniku**, na początku trasy; wyjątek to FK, bo jego przewód biegnie
 w drugą stronę.
 
@@ -665,7 +668,7 @@ przerysowanie — przy rozbieżności obowiązują tabele niżej
 | # | Skąd | Dokąd | Przewód | Zabezpieczenie |
 |---|------|-------|---------|----------------|
 | 1 | Akumulator rozruchowy **„+”** | Bezpiecznik **F1** (wejście) | 6 mm² | — |
-| 2 | **F1** (wyjście) | **TVS + C1**, biegun „+” | 6 mm², ~5 m | **20 A**, ≤ 30 cm od klemy |
+| 2 | **F1** (wyjście) | **TVS + C1**, biegun „+” | 6 mm², ~5 m | **20 A** (MIDI/ANL), ≤ 30 cm od klemy |
 | 3 | **TVS + C1** „+” | Przekaźnik **K1**, zacisk **30** | 6 mm² | — |
 | 4 | Zapłon albo **D+** alternatora | **K1** zacisk **86** | 0,75 mm² | **FK 1 A** przy wpięciu |
 | 5 | **K1** zacisk **87** | **XY-SK120 #1** (M1a) **IN+** | 2,5 mm² | — |

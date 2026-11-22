@@ -10,7 +10,7 @@ różnice są tylko po stronie odbiorników.
 > buforowany, który ma to zmienić — do czasu montażu każde zgaszenie silnika
 > odcina M910q (WDROZENIE_TESTOWE.md §3).
 
-Ceny orientacyjne, rynek PL (ogłoszenia, zmienne). **Razem: ~805–1405 PLN**
+Ceny orientacyjne, rynek PL (ogłoszenia, zmienne). **Razem: ~790–1380 PLN**
 bez pozycji „do wyceny” (wkładki MIDI/ANL, bloki zbiorcze, stal na kosze).
 
 > **Moduły bezmarkowe.** Przetwornica step-up, XY-SK120, XH-M603 i XH-M609
@@ -66,7 +66,7 @@ bez pozycji „do wyceny” (wkładki MIDI/ANL, bloki zbiorcze, stal na kosze).
 
 | # | Element | Specyfikacja | Po co | Cena (PLN) |
 |---|---------|--------------|-------|-----------|
-| 7 | **F1 + oprawka** | **20 A**, oprawka na przewód 6 mm², montaż ≤ 30 cm od klemy „+” | jedyne połączenie toru z akumulatorem rozruchowym; ładowarki biorą 11,9–13,0 A, więc 15 A pracowałoby na 80–87 % (ZB §8.1) | 15–25 |
+| 7 | **F1 + oprawka** | **20 A** (30 A, jeśli 20 A brak), klasa **MIDI/AMI albo ANL**, zdolność wyłączania **≥ 2,5 kA wg karty** — zwarcie przy klemie rozruchowego to szacunkowo 1,2–2,5 kA; oprawka na przewód 6 mm², montaż ≤ 30 cm od klemy „+” | jedyne połączenie toru z akumulatorem rozruchowym; ładowarki biorą 11,9–13,0 A, więc 15 A pracowałoby na 80–87 % (ZB §8.1) | do wyceny |
 | 8 | **FB1…FB7, FC1, FC2, FK + oprawki inline** | ATO albo mini; oprawki na 2,5 mm² (FK na 0,75 mm²); wkładki: **FB 10 A × 7**, **FC 7,5 A × 2**, **FK 1 A × 1** | FB — na „+” każdego pakietu, 5–10 cm od zacisku; FC — przy OUT+ każdego XH-M603; FK — przy wpięciu w zapłon / D+ | 35–57 |
 | 9 | **F7 i F12 + oprawki** | **20 A** (F7) i **15 A** (F12), klasa **MIDI/AMI albo ANL**, zdolność wyłączania **≥ 2,5 kA wg karty** — prąd zwarciowy banku to ok. 2,2 kA, ATO ma ok. 1 kA | F7 — blok L+ → XH-M609; F12 — przewód ładowania przy bloku L+. Jeśli 15 / 20 A w tej klasie nie da się kupić, decyzja świadoma — ZB §7.4 | do wyceny |
 | 10 | **Wkładki ATO** | 10 A (F8), 2 A (F9), 3 A (F10), 5 A (wyjście step-upu), 1 A (pomiar banku), zapas FB 10 A / FC 7,5 A / FK 1 A | odgałęzienia za LVD | 10–15 |
@@ -130,6 +130,12 @@ Zestawienie z §3 PDF-u, łącznie na oba kosze (kosz L 4 szt.: klatka
 > wierć** (zbiornik paliwa); 8 otworów Ø 8,5 mm tylko poziomo przez grodź.
 > Jeśli blacha grodzi ugina się przy dokręcaniu, dołóż drugą parę listew
 > 30 × 4 pod dolny rząd (kolejne 0,64 m płaskownika) — ZB §4.7.
+>
+> **Przed spawaniem zrób przymiarkę wg ramki w ZB §4.7** (wnioski z wymiarów
+> PDF-u, nie pomiar): otwory 20 mm od boków trafiają w słupki, w koszu jest
+> ~1 mm luzu z tyłu, a wieniec stoi ~3 mm poza dolnym kątownikiem. Może to
+> wymagać śrub z łbem stożkowym (np. DIN 7991) od strony kosza, listwy
+> dystansowej 3 mm i dłuższych śrub — dokup po przymiarce.
 
 ---
 

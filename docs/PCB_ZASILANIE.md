@@ -134,7 +134,7 @@ wejścia). Powtórzone tu najważniejsze:
   wyjściu i ≥ 19,5 V na wtyku, powtórka przy wejściu 11,0 V, temperatura
   obudowy < 60 °C po 30 min, prąd jałowy zapisany (ZB §3.4),
 - limit RAPL **nie jest potrzebny** (ZB §3.5a zostaje jako opcja),
-- kondensator 470 µF i NTC na wyjściu — tylko przy „czkawce” (ZB §3.2b),
+- kondensator 470 µF na wyjściu — tylko przy „czkawce” (ZB §3.2b; bez NTC, bo M910q wraca z S3 przy zimnym termistorze),
   w linii, poza płytką.
 
 Wcześniejsze wydanie tego dokumentu zalecało boost CC-CV „1500 W 30 A”
@@ -192,7 +192,7 @@ prądu z banku — to **przyjęcie**, które potwierdza test ZB §6.4 pkt 6.
 | **XH-M603, FC1/FC2, F12 na płytce** | prądy od strony banku — oprawki inline przy banku (§1) |
 | **Drugi TVS** | jeden na wejściu wystarcza; za bankiem szyna jest buforowana samym bankiem |
 | **Kondensator na szynie za LVD** | bank 35,7 Ah o rezystancji ok. 5,75 mΩ (ZB §4.4) to kondensator, jakiego nie kupisz |
-| **470 µF / NTC na wyjściu step-upu** | tylko przy „czkawce” (ZB §3.2b) — wtedy w linii, poza płytką |
+| **470 µF na wyjściu step-upu (bez NTC)** | tylko przy „czkawce” (ZB §3.2b) — wtedy w linii, poza płytką |
 | **Kompensacja temperaturowa ładowania** | XY-SK120 nie ma wejścia NTC (w dostępnych materiałach) — CV przestawiasz sezonowo (ZB §5.5) |
 | **REM wzmacniacza na płytce** | wzmacniacz ma własną gałąź z akumulatora rozruchowego; REM bierz z linii zapłonu |
 | **Woltomierz z bocznikiem 50 A** | dzielnik R5/R6 + ADC sensor-huba pokazuje napięcie banku w BCM |

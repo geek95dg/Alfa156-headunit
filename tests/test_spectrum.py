@@ -604,3 +604,93 @@ def test_start_audio_hands_controller_to_spectrum(monkeypatch):
     bus.publish("power.shutting_down", True)
     assert _wait(lambda: seen.get("stopped"))
 
+
+
+class TestReviewFixes:
+    def test_real_failure_drops_the_bars(self, rig):
+        """A child that breaks by itself (node intact) zeroes the bars
+        instead of freezing the last frame through the backoff."""
+        bus, procs, make, _ = rig
+        make().start()
+        assert _wait(lambda: procs)
+        procs[0].write(_pcm(100, 0.2))
+        assert _wait(lambda: any(bus.get_last("audio.spectrum")[0])
+                     if bus.get_last("audio.spectrum") else False)
+        procs[0].rc = 1
+        procs[0].eof()                                    # breaks, node still there
+        assert _wait(lambda: bus.get_last("audio.spectrum")[0] == [0.0] * 16)
+
+    def test_listing_hiccup_does_not_kill_capture(self, rig, monkeypatch):
+        """pw-dump + wpctl failing once (empty list) is "could not list",
+        not "node gone"."""
+        monkeypatch.setattr(sp, "NODE_CHECK_MAX_S", 0.1)  # live check often
+        _, procs, make, _ = rig
+        pw = FakePW()
+        an = make(pw)
+        an.start()
+        assert _wait(lambda: procs)
+        stop = threading.Event()
+
+        def feed():
+            while not stop.is_set():
+                try:
+                    procs[0].write(_pcm(100, 0.02))
+                except OSError:
+                    return
+                time.sleep(0.02)
+
+        t = threading.Thread(target=feed, daemon=True)
+        t.start()
+        try:
+            pw.nodes = {}                                 # listing fails
+            calls = pw.list_calls
+            assert _wait(lambda: pw.list_calls >= calls + 3, 3)
+            assert len(procs) == 1 and procs[0].terminated == 0
+            assert an.state["mode"] == "real"
+        finally:
+            stop.set()
+            t.join(1)
+
+    def test_node_id_distinguishes_unknown_from_absent(self, rig):
+        _, _, make, _ = rig
+        pw = FakePW()
+        an = make(pw)
+        assert an._node_id("bcm_eq_sink") == "77"
+        assert an._node_id("other") is None
+        pw.nodes = {}
+        assert an._node_id("bcm_eq_sink") is sp._NODE_UNKNOWN
+
+        def boom():
+            raise RuntimeError("pw-dump")
+        pw.list_sink_nodes = boom
+        assert an._node_id("bcm_eq_sink") is sp._NODE_UNKNOWN
+
+    def test_restart_after_stop_timeout_leaves_one_loop(self, rig):
+        """stop() that gave up on a stuck thread, then start(): the old
+        thread must exit instead of running a second capture loop."""
+        _, procs, make, _ = rig
+        pw = FakePW()
+        gate = threading.Event()
+        entered = threading.Event()
+        real = pw.list_sink_nodes
+
+        def slow():
+            if not gate.is_set():
+                entered.set()
+                gate.wait(5)                              # stuck "pw-dump"
+            return real()
+        pw.list_sink_nodes = slow
+        an = make(pw)
+        an.start()
+        assert entered.wait(3)
+        old = an._thread
+        an.stop(timeout=0.05)
+        assert old.is_alive()                             # gave up waiting
+        an.start()
+        new = an._thread
+        assert new is not old
+        gate.set()
+        old.join(3)
+        assert not old.is_alive()                         # superseded thread left
+        assert _wait(lambda: procs)
+        assert new.is_alive() and an._owner is new

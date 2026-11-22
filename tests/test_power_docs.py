@@ -34,6 +34,8 @@ ZB = REPO / "docs" / "ZASILANIE_BUFOROWANE.md"
 #: plus the schematics index. Archive/ is history by definition.
 MD_FILES = sorted(p for p in (REPO / "docs").glob("*.md") if p != ZB) + [
     REPO / "schematics" / "README.md",
+    REPO / "README.md",
+    REPO / "DEVELOPMENT_PLAN.md",
 ]
 #: Generators whose strings end up as labels on the drawings.
 PY_FILES = [
@@ -217,6 +219,40 @@ def test_hand_drawn_svgs_show_current_design(path):
     assert text.strip(), f"{path.name}: brak elementów <text>"
     bad = [name for name, rx in SVG_RETIRED.items() if rx.search(text)]
     assert not bad, f"{path.name}: wycofany sprzęt na rysunku: {bad}"
+
+
+def test_svgs_embedded_in_zb_are_checked():
+    """A drawing shown inline in ZB (``![…](…svg)``) reads as current, so it
+    must be on SVG_FILES; old sheets are linked with a "poprzedni wariant"
+    note instead of embedded."""
+    embedded = re.findall(r"!\[[^\]]*\]\((\.\./schematics/[^)]+\.svg)\)",
+                          ZB.read_text(encoding="utf-8"))
+    checked = {p.resolve() for p in SVG_FILES}
+    bad = [e for e in embedded if (ZB.parent / e).resolve() not in checked]
+    assert not bad, f"ZB osadza rysunek spoza SVG_FILES: {bad}"
+
+
+def test_no_series_ntc_on_step_up_output():
+    """A series NTC on the fixed 20 V output stays cold in S3 (~0.1-0.2 A)
+    and drops volts on resume (ZB §3.2b) — it must not be recommended."""
+    rx = re.compile(r"termistor\s+NTC\s+ogranicz|\+\s*termistor|NTC\s+\d+\s*Ω"
+                    r"|NTC\s+i\s+470|470\s*µF\s*/\s*NTC")
+    bad = [str(p.relative_to(REPO)) for p in [ZB, *MD_FILES, *PY_FILES]
+           if rx.search(p.read_text(encoding="utf-8"))]
+    assert not bad, f"NTC szeregowo na wyjściu step-upu: {bad}"
+
+
+def test_assembly_order_skips_stale_sheets():
+    """The installer's reading order must not send anyone to an old sheet
+    for settings or wiring without the "do not use" mark."""
+    text = (REPO / "schematics" / "README.md").read_text(encoding="utf-8")
+    m = re.search(r"## Kolejność czytania przy montażu\n(.*?)\n## ", text, re.S)
+    assert m, "brak sekcji „Kolejność czytania przy montażu”"
+    for item in re.split(r"\n(?=\d+\. )", m.group(1)):
+        for sheet in ("power_domains_m910q.svg", "charging_lvd.svg",
+                      "wiring_power_modules.svg"):
+            if sheet in item:
+                assert "nie używaj" in item, f"{sheet} w kolejności montażu bez ostrzeżenia"
 
 
 # ---------------------------------------------------------------- §-refs
