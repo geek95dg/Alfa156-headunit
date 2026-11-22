@@ -292,7 +292,7 @@
 <text class="nt" x="306" y="1008">start zimny, ~40 s</text>
 <text class="nt" x="80" y="1033">5 s</text>
 <text class="nt" x="280" y="1033">→</text>
-<text class="nt" x="306" y="1033">twarde wyłączenie, ~80–120 mA</text>
+<text class="nt" x="306" y="1033">twarde wyłączenie, 50–150 mA + I_jał</text>
 <text class="nt" x="80" y="1070">Zapłon potwierdzany 2 s — zapad przy</text>
 <text class="nt" x="80" y="1090">rozruchu nie usypia BCM. Zamiar jest jednorazowy.</text>
 <rect class="note" x="60" y="1140" width="1500" height="62"/>

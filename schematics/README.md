@@ -8,6 +8,21 @@ M910q Tiny**.
 | **co i dlaczego** — architektura, dobór podzespołów, nastawy, zakupy | [`../docs/ZASILANIE_BUFOROWANE.md`](../docs/ZASILANIE_BUFOROWANE.md) |
 | **jak to pospiąć** — zacisk po zacisku, tabele połączeń, kolejność montażu | [`../docs/SCHEMATY_POLACZEN.md`](../docs/SCHEMATY_POLACZEN.md) |
 
+> **Stan rysunków po zmianie projektu zasilania (22.11.2026).** Obowiązuje:
+> zalewany step-up 12 → 20 V / 200 W, 2 × XY-SK120 z dwoma XH-M603, bank
+> 7 × HR1221W na lince w dwóch koszach w bagażniku
+> ([`ZASILANIE_BUFOROWANE.md`](../docs/ZASILANIE_BUFOROWANE.md)).
+> **Aktualne:** arkusze z generatorów (`schematic_test_power.svg`,
+> `schematic_test_signals.svg`, `pcb_power_*.svg`) oraz napisy na
+> `power_buffered_m910q.svg` i `vehicle_layout_m910q.svg`.
+> **Jeszcze w poprzednim wariancie** (boost z diodą, XL6019, listwy,
+> przekaźnik zapłonu przed odbiornikami) i do przerysowania:
+> `charging_lvd.svg`, `power_domains_m910q.svg`, `wiring_power_modules.svg`,
+> `power_test_build.svg`, `schematic_test_build.svg`, `wiring_test_build.svg`
+> — przy rozbieżności obowiązują dokumenty. Pliki PNG w `png/` też pokazują
+> jeszcze poprzedni stan, dopóki ktoś nie uruchomi `render_png.py`
+> (wymaga `cairosvg`).
+
 ---
 
 ## Zawartość
@@ -16,30 +31,30 @@ M910q Tiny**.
 
 | Plik | Co przedstawia |
 |------|----------------|
-| [`power_buffered_m910q.svg`](power_buffered_m910q.svg) | **Tor główny zasilania** — od klemy akumulatora, przez przekaźnik ładowania, ładowarkę CC-CV, blokadę przeładowania, bank CSB HR1221W i LVD, po wyłącznik główny, przetwornicę step-up 19 V i M910q. Zawiera tabelę przekrojów przewodów i bezpieczników. |
-| [`charging_lvd.svg`](charging_lvd.svg) | **Ładowanie i ochrona banku** — cztery warstwy (przekaźnik ładowania → CC-CV → rozłącznik nadnapięciowy → LVD), komplet nastaw dla **CSB HR1221W (AGM)**, dwie tabele kompensacji temperaturowej, wpływ temperatury na żywotność, przebieg CC → CV → float. |
-| [`power_domains_m910q.svg`](power_domains_m910q.svg) | **Rozdział odbiorników** — co wisi na szynie buforowanej, bezpieczniki odgałęzień, budżet poboru w trzech stanach maszyny (praca / S3 / wyłączona), tabela czasu postoju, osobna gałąź wzmacniaczy. |
+| [`power_buffered_m910q.svg`](power_buffered_m910q.svg) | **Tor główny zasilania** — od klemy akumulatora, przez przekaźnik ładowania K1, dwie ładowarki XY-SK120 i dwa XH-M603, bank 7 × CSB HR1221W w dwóch koszach, LVD i dystrybucję, po przetwornicę step-up 20 V i M910q. Zawiera tabelę przekrojów przewodów i bezpieczników. Rysunek odręczny — przy zmianie popraw napisy w SVG. |
+| [`charging_lvd.svg`](charging_lvd.svg) | *(poprzedni wariant — do przerysowania)* **Ładowanie i ochrona banku** — cztery warstwy (przekaźnik ładowania → CC-CV → rozłącznik nadnapięciowy → LVD), komplet nastaw dla **CSB HR1221W (AGM)**, dwie tabele kompensacji temperaturowej, wpływ temperatury na żywotność, przebieg CC → CV → float. |
+| [`power_domains_m910q.svg`](power_domains_m910q.svg) | *(poprzedni wariant — do przerysowania)* **Rozdział odbiorników** — co wisi na szynie buforowanej, bezpieczniki odgałęzień, budżet poboru w trzech stanach maszyny (praca / S3 / wyłączona), tabela czasu postoju, osobna gałąź wzmacniaczy. |
 | [`audio_system.svg`](audio_system.svg) | **Tor audio** — ES9038Q2M (USB DAC) → RCA → **gotowy wzmacniacz samochodowy** → głośniki 4 Ω. Wzmacniacz zasilany wprost z akumulatora rozruchowego, z własną masą — całkowicie odseparowany od systemu buforowanego. |
-| [`power_test_build.svg`](power_test_build.svg) | **Wariant testowo-rozwojowy** — uproszczony tor dla instalacji jeżdżącej z minimalnym zestawem funkcji: ładowanie wariantem B (przekaźnik + MBR2545CT + CC-CV boost), bank, LVD, XL6019 i panel 7". M910q zasilany stale, zapłon tylko jako sygnał. Bez domeny A i bez wzmacniacza. Opis: [`../docs/WDROZENIE_TESTOWE.md`](../docs/WDROZENIE_TESTOWE.md). |
+| [`power_test_build.svg`](power_test_build.svg) | *(poprzedni wariant — do przerysowania)* **Wariant testowo-rozwojowy** — przegląd blokowy toru dla instalacji jeżdżącej z minimalnym zestawem funkcji. Rysunek pokazuje jeszcze dawny tor ładowania i dawną przetwornicę; obowiązuje `schematic_test_power.svg` i §3 [`../docs/WDROZENIE_TESTOWE.md`](../docs/WDROZENIE_TESTOWE.md). |
 
 ### Schematy połączeniowe — montaż
 
 | Plik | Co przedstawia |
 |------|----------------|
-| [`schematic_test_power.svg`](schematic_test_power.svg) | **Arkusz 1/2 — zasilanie, komponentowo.** Każdy element osobno: BT0, F1, D5 (TVS) i C1 narysowane oddzielnie, styki i cewki K1/K2 rozdzielone, D1 jako dwie diody Schottky ze zwartymi anodami, siedem pakietów banku (BT1…BT7) z własnymi wkładkami FB1…FB7 na szynie zbiorczej z płaskownika, S1, trzy przetwornice. Detal łączenia siedmiu pakietów (odbiór po przekątnej) w pasie B. Moduły kupne (M1…M6) jako prostokąty z nazwanymi zaciskami. Numery przewodów zgodne z §10 [`../docs/SCHEMATY_POLACZEN.md`](../docs/SCHEMATY_POLACZEN.md). |
+| [`schematic_test_power.svg`](schematic_test_power.svg) | **Arkusz 1/2 — zasilanie, komponentowo.** Każdy element osobno: BT0, F1 20 A, D5 (TVS SMCJ20CA) i C1 narysowane oddzielnie, styk i cewka K1 rozdzielone (cewka przez FK 1 A), dwie gałęzie ładowania XY-SK120 → XH-M603 → FC1/FC2 → F12, siedem pakietów (BT1…BT7) z wkładkami FB1…FB7 w dwóch koszach (4 + 3) z blokami zbiorczymi i łącznikami, F7 20 A, LVD, rozłącznik masy S1, trzy przetwornice (step-up 20 V, LM2596, MP1584). Detal łączenia koszy (odbiór po przekątnej L+ / P−). Moduły kupne (M1a/M1b, M2a/M2b, M3…M6) jako prostokąty z nazwanymi zaciskami. Numery przewodów zgodne z §10 [`../docs/SCHEMATY_POLACZEN.md`](../docs/SCHEMATY_POLACZEN.md). |
 | [`schematic_test_signals.svg`](schematic_test_signals.svg) | **Arkusz 2/2 — sygnały i Arduino, komponentowo.** Dwa transoptory PC817 (zapłon → D9, bieg wsteczny → D10) z rezystorami i filtrami, Arduino Nano, moduł przekaźnika i przycisk zasilania M910q ze stykami równolegle. Pokazuje rozdział mas: gwiazda vs masa auta. Wejście biegu wstecznego wymaga `FEATURE_REV` w firmwarze. |
-| [`gen_test_schematics.py`](gen_test_schematics.py) | **Generator obu arkuszy.** `python3 schematics/gen_test_schematics.py` z katalogu głównego repo. Po zmianie tabel §10 popraw generator i wygeneruj SVG ponownie — nie edytuj tych dwóch SVG ręcznie. |
-| [`schematic_test_build.svg`](schematic_test_build.svg) | **Schemat ideowy wariantu testowego, wersja skrócona** — symbole elektryczne, ale elementy pogrupowane w bloki. Szybki przegląd; do montażu użyj dwóch arkuszy powyżej. Opis: [`../docs/WDROZENIE_TESTOWE.md`](../docs/WDROZENIE_TESTOWE.md). |
+| [`gen_test_schematics.py`](gen_test_schematics.py) | **Generator obu arkuszy.** `python3 schematics/gen_test_schematics.py` z katalogu głównego repo (wystarcza biblioteka standardowa — działa też z venv BCM). Po zmianie tabel §10 popraw generator i wygeneruj SVG ponownie — nie edytuj tych dwóch SVG ręcznie. |
+| [`schematic_test_build.svg`](schematic_test_build.svg) | *(poprzedni wariant — do przerysowania)* **Schemat ideowy wariantu testowego, wersja skrócona** — symbole elektryczne, ale elementy pogrupowane w bloki. Szybki przegląd; do montażu użyj dwóch arkuszy powyżej. Opis: [`../docs/WDROZENIE_TESTOWE.md`](../docs/WDROZENIE_TESTOWE.md). |
 | [`ignition_sense.svg`](ignition_sense.svg) | **Wykrywanie zapłonu → S3** — układ wejściowy z optoizolacją PC817 i wartościami elementów (R1 2,2 kΩ, R2 10 kΩ, C2 100 nF), przebieg uśpienia i wybudzania, oraz spis tego, czego brakuje w kodzie i firmwarze. |
-| [`pcb_power_schematic.svg`](pcb_power_schematic.svg) | **PCB zasilania — schemat ideowy dwóch płytek** (A: tor ładowania z K1, D1 i XH-M603 w torze; B: dystrybucja szyny z F8–F11 i dzielnikiem pomiaru banku) wraz z tabelą zacisków. Opis: [`../docs/PCB_ZASILANIE.md`](../docs/PCB_ZASILANIE.md). |
+| [`pcb_power_schematic.svg`](pcb_power_schematic.svg) | **PCB zasilania — schemat ideowy dwóch płytek** (A: strona pojazdu toru ładowania — TVS, C1, K1 i dwa wyjścia na 2 × XY-SK120, z gałęziami XH-M603 → FC1/FC2 → F12 narysowanymi obok; B: dystrybucja szyny za LVD z F8–F11 i dzielnikiem pomiaru banku) wraz z tabelą zacisków. Opis: [`../docs/PCB_ZASILANIE.md`](../docs/PCB_ZASILANIE.md). |
 | [`pcb_power_layout.svg`](pcb_power_layout.svg) | **PCB zasilania — rozmieszczenie elementów 1:1** — widok od strony elementów, opisy wszystkich zacisków, BOM elementów lutowanych, uwagi montażowe. |
 | [`pcb_power_etch.svg`](pcb_power_etch.svg) | **PCB zasilania — mozaika miedzi 1:1 do wytrawienia** — druk bez skalowania (linijka kontrolna 50 mm), widok kontrolny od strony miedzi, tabela wierceń i proces termotransferu. |
 | [`gen_pcb_power.py`](gen_pcb_power.py) | **Generator trzech powyższych.** `python3 schematics/gen_pcb_power.py` — sam sprawdza spójność sieci i prześwity. Po zmianie projektu popraw generator, nie SVG. |
-| [`wiring_test_build.svg`](wiring_test_build.svg) | **Schemat połączeniowy wariantu testowego** — każdy zacisk podpisany, każdy przewód ponumerowany (1–20 + złącze B), punkt gwiazdowy masy, kolejność podłączania, przekroje. Tabele: [`../docs/SCHEMATY_POLACZEN.md`](../docs/SCHEMATY_POLACZEN.md) § 10. |
-| [`wiring_power_modules.svg`](wiring_power_modules.svg) | **Moduły zasilania zacisk po zacisku** — każdy zacisk podpisany i ponumerowany, przekroje przewodów, bezpieczniki, punkty masy, kolejność podłączania. |
+| [`wiring_test_build.svg`](wiring_test_build.svg) | *(poprzedni wariant — do przerysowania)* **Schemat połączeniowy wariantu testowego** — każdy zacisk podpisany, każdy przewód ponumerowany (1–20 + złącze B), punkt gwiazdowy masy, kolejność podłączania, przekroje. Tabele: [`../docs/SCHEMATY_POLACZEN.md`](../docs/SCHEMATY_POLACZEN.md) § 10. |
+| [`wiring_power_modules.svg`](wiring_power_modules.svg) | *(poprzedni wariant — do przerysowania)* **Moduły zasilania zacisk po zacisku** — każdy zacisk podpisany i ponumerowany, przekroje przewodów, bezpieczniki, punkty masy, kolejność podłączania. |
 | [`wiring_vehicle_arduino.svg`](wiring_vehicle_arduino.svg) | **Sygnały pojazdu → Arduino** — punkty poboru w aucie, stopień PC817, dzielniki napięcia, podciągnięcia, rozpiska pinów trzech płytek, tor K-Line. |
 | [`wiring_usb_av.svg`](wiring_usb_av.svg) | **USB, obraz, audio, kamery** — co idzie przez hub, a co bezpośrednio w port, przejściówki DP → HDMI, tor audio i przypisanie kamer. |
-| [`vehicle_layout_m910q.svg`](vehicle_layout_m910q.svg) | **Rozmieszczenie w aucie** — rzut z góry Alfy 156 ze strefami montażu, trasami kablowymi, uzasadnieniem lokalizacji i bilansem masy. |
+| [`vehicle_layout_m910q.svg`](vehicle_layout_m910q.svg) | **Rozmieszczenie w aucie** — rzut z góry Alfy 156 ze strefami montażu (bank w dwóch koszach w bagażniku przy grodzi, z otworem na narty pośrodku), trasami kablowymi, uzasadnieniem lokalizacji i bilansem masy. Rysunek odręczny. |
 | [`esp32_display_wiring.svg`](esp32_display_wiring.svg) | **Wyświetlacz pomocniczy 1,8" (ESP32-S3 + ST7735)** — stopień PC817 narysowany raz plus tabela dziesięciu wejść z numerami GPIO, panel po SPI, zasilanie z +15 przez buck 5 V, dane po natywnym USB. Rozdział mas i uwaga o przeciętej żyle VBUS. Tabele: [`../docs/SCHEMATY_POLACZEN.md`](../docs/SCHEMATY_POLACZEN.md) § 11. |
 | [`gen_esp32_display.py`](gen_esp32_display.py) | **Generator powyższego.** `python3 schematics/gen_esp32_display.py` — przed zapisem sam sprawdza, czy bloki na siebie nie nachodzą i czy żaden napis nie wychodzi z ramki, nie wpada pod sąsiedni prostokąt ani na inny napis (mierzy je fontem DejaVu Sans, tym samym, którym narysuje je przeglądarka). Po zmianie § 11 popraw generator, nie SVG. |
 
@@ -92,13 +107,14 @@ Zanim zaczniesz cokolwiek wiercić i prowadzić: **`vehicle_layout_m910q.svg`**
 ### Wariant testowo-rozwojowy — osobny komplet
 
 Budujesz wariant z [`../docs/WDROZENIE_TESTOWE.md`](../docs/WDROZENIE_TESTOWE.md)?
-Powyższa kolejność Cię **nie** dotyczy — tam nie ma domeny A ani przekaźnika
-odcinającego odbiorniki. Czytaj trzy rysunki w tej kolejności:
+Tor zasilania jest ten sam co w wersji docelowej, ale bez stałej logiki
+(Nano #1, HM-10, RXB6), wzmacniacza i drugiego ekranu. Czytaj w tej
+kolejności:
 
-1. **`schematic_test_build.svg`** — co z czym się łączy i dlaczego.
+1. **`schematic_test_power.svg`** — tor zasilania, element po elemencie.
 2. **`ignition_sense.svg`** — układ wejściowy zapłonu, wartości elementów.
-3. **`wiring_test_build.svg`** — dopiero teraz zaciski, numery przewodów
-   i kolejność podłączania.
+3. **`schematic_test_signals.svg`** — transoptory, Nano i przycisk M910q;
+   zaciski i kolejność podłączania — §10 SCHEMATY_POLACZEN.md.
 
 ---
 

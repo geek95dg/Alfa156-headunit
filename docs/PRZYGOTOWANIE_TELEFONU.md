@@ -821,14 +821,23 @@ w wierszu „Telefon w aucie”.
 - **Poduszki powietrzne**: sprawdź, czy auto ma kurtyny; wszystko
   w promieniu ±25 cm od lusterka, kabel nigdy między poduszką a tapicerką.
 - **Zasilanie**: port M910q daje ~500 mA i gaśnie razem z autem. Na stałe —
-  wstrzykiwacz zasilania przy M910q (przetwornica 12 → 5,1–5,2 V,
-  bezpiecznik 2 A, odcięte VBUS od strony komputera). **W wariancie
-  testowym przetwornica bierze 12 V z obwodu zapłonu** (to samo, co gaśnie
-  z autem), nigdy ze stałego 12 V ani z bufora: alarm na postoju i czuwanie
-  kabiny uzbrajają się same właśnie po UTRACIE zasilania USB
-  (`WDROZENIE_TESTOWE.md` §5.12). Telefon zasilany na postoju stale
-  zostaje „podłączony” i sam się nie uzbroi, a uzbrajania przez BCM przy
-  zgaszeniu (wersja z buforem) w tej wersji nie ma.
+  **wstrzykiwacz zasilania** przy M910q: mała przetwornica 12 → 5 V
+  ustawiona na 5,1–5,2 V (moduł bezmarkowy — po zakupie zmierz napięcie bez
+  obciążenia i przy ~1 A), wpięta w żyłę VBUS kabla telefonu, z **odciętym
+  VBUS od strony komputera** (dane zostają na USB), przed nią bezpiecznik
+  2 A. Skąd bierze 12 V, zależy od wersji:
+  - **auto testowe (bez bufora) — z obwodu zapłonu** (to samo, co gaśnie
+    z autem), nigdy ze stałego 12 V: alarm na postoju i czuwanie kabiny
+    uzbrajają się same właśnie po UTRACIE zasilania USB
+    (`WDROZENIE_TESTOWE.md` §5.12). Telefon zasilany na postoju stale
+    zostaje „podłączony” i sam się nie uzbroi, a uzbrajania przez BCM przy
+    zgaszeniu (wersja z buforem) w tej wersji nie ma;
+  - **wersja z buforem — opcjonalnie z szyny za LVD** przez wkładkę **F13
+    2 A** w bagażniku i przewód 0,75 mm² do przodu
+    (`ZASILANIE_BUFOROWANE.md` §8.1, §8a.2). Tylko wtedy telefon może
+    budzić komputer podczerwienią na postoju (`ZASILANIE_BUFOROWANE.md`
+    §14.6), ale dokłada swój pobór do budżetu postoju (§9.1 tamże) i — jak
+    wyżej — nie uzbroi się sam po utracie zasilania.
 - **Ciepło**: osłona przeciwsłoneczna na postoju, szczelina ≥ 10 mm. BCM
   ostrzega przy 45 °C i alarmuje przy 50 °C (`network.car_phone.warn_temp_c`,
   `network.car_phone.critical_temp_c`). Jeśli latem często przekracza

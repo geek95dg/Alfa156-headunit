@@ -33,6 +33,8 @@
 <rect class="cu" x="3" y="66" width="94" height="6"/>
 <rect class="cu" x="46" y="62" width="16" height="10"/>
 <path class="cuw" stroke-width="6" d="M 9 8 L 50 8"/>
+<path class="cuw" stroke-width="3" d="M 16 8 L 16 10.5"/>
+<path class="cuw" stroke-width="2.5" d="M 16 17.5 L 16 20.7"/>
 <path class="cuw" stroke-width="4" d="M 50 8 L 55.2 8 L 55.2 12.1"/>
 <path class="cuw" stroke-width="3" d="M 9 15.62 L 11 20.7 L 26 20.7"/>
 <path class="cuw" stroke-width="2.5" d="M 26 13 L 26 20.7"/>
@@ -43,16 +45,15 @@
 <path class="cuw" stroke-width="2" d="M 30 46.16 L 30 66.5"/>
 <path class="cuw" stroke-width="2" d="M 42.54 26.1 L 42.54 66.5"/>
 <path class="cuw" stroke-width="4" d="M 57.74 29.9 L 57.74 18 L 85 18 L 85 10 L 90 8"/>
-<path class="cuw" stroke-width="3.5" d="M 90 15.62 L 96 15.62"/>
-<path class="cuw" stroke-width="5" d="M 96 15.62 L 96 66.5"/>
+<path class="cuw" stroke-width="4" d="M 90 8 L 90 15.62"/>
 <circle class="cu" cx="9" cy="8.0" r="2.2"/>
 <circle class="cu" cx="9" cy="15.620000000000001" r="2.2"/>
 <circle class="cu" cx="9" cy="27.0" r="1.5"/>
 <circle class="cu" cx="9" cy="32.0" r="1.5"/>
 <circle class="cu" cx="90" cy="8.0" r="2.2"/>
 <circle class="cu" cx="90" cy="15.620000000000001" r="2.2"/>
-<circle class="cu" cx="16" cy="8" r="1.4"/>
-<circle class="cu" cx="16" cy="20.7" r="1.4"/>
+<rect class="cu" x="14.3" y="9.2" width="3.4" height="2.6" rx="1.3"/>
+<rect class="cu" x="14.3" y="16.2" width="3.4" height="2.6" rx="1.3"/>
 <circle class="cu" cx="26" cy="8" r="1.2"/>
 <circle class="cu" cx="26" cy="13" r="1.2"/>
 <circle class="cu" cx="40" cy="21" r="2.0"/>
@@ -69,16 +70,14 @@
 <circle class="drl" cx="4" cy="71" r="3.5"/>
 <circle class="drl" cx="96" cy="71" r="3.5"/>
 <g transform="translate(57,59.5) scale(-1,1)"><text x="-10.24" y="0" font-size="3.2" font-weight="bold" fill="#111">BCM-A</text></g>
-<g transform="translate(70,45) scale(-1,1)"><text x="-43.008" y="0" font-size="2.4" font-weight="bold" fill="#111">wolne pole — po usunięciu D1</text></g>
-<g transform="translate(70,50) scale(-1,1)"><text x="-43.008" y="0" font-size="2.4" font-weight="bold" fill="#111">i zacisków strony izolowanej</text></g>
 <circle class="drl" cx="9" cy="8.0" r="0.75"/>
 <circle class="drl" cx="9" cy="15.620000000000001" r="0.75"/>
 <circle class="drl" cx="9" cy="27.0" r="0.65"/>
 <circle class="drl" cx="9" cy="32.0" r="0.65"/>
 <circle class="drl" cx="90" cy="8.0" r="0.75"/>
 <circle class="drl" cx="90" cy="15.620000000000001" r="0.75"/>
-<circle class="drl" cx="16" cy="8" r="0.65"/>
-<circle class="drl" cx="16" cy="20.7" r="0.65"/>
+<circle class="drl" cx="16" cy="10.5" r="0.0"/>
+<circle class="drl" cx="16" cy="17.5" r="0.0"/>
 <circle class="drl" cx="26" cy="8" r="0.5"/>
 <circle class="drl" cx="26" cy="13" r="0.5"/>
 <circle class="drl" cx="40" cy="21" r="1.0"/>
@@ -193,6 +192,8 @@
 <rect class="cul" x="3" y="66" width="94" height="6"/>
 <rect class="cul" x="46" y="62" width="16" height="10"/>
 <path class="culw" stroke-width="6" d="M 9 8 L 50 8"/>
+<path class="culw" stroke-width="3" d="M 16 8 L 16 10.5"/>
+<path class="culw" stroke-width="2.5" d="M 16 17.5 L 16 20.7"/>
 <path class="culw" stroke-width="4" d="M 50 8 L 55.2 8 L 55.2 12.1"/>
 <path class="culw" stroke-width="3" d="M 9 15.62 L 11 20.7 L 26 20.7"/>
 <path class="culw" stroke-width="2.5" d="M 26 13 L 26 20.7"/>
@@ -203,16 +204,15 @@
 <path class="culw" stroke-width="2" d="M 30 46.16 L 30 66.5"/>
 <path class="culw" stroke-width="2" d="M 42.54 26.1 L 42.54 66.5"/>
 <path class="culw" stroke-width="4" d="M 57.74 29.9 L 57.74 18 L 85 18 L 85 10 L 90 8"/>
-<path class="culw" stroke-width="3.5" d="M 90 15.62 L 96 15.62"/>
-<path class="culw" stroke-width="5" d="M 96 15.62 L 96 66.5"/>
+<path class="culw" stroke-width="4" d="M 90 8 L 90 15.62"/>
 <circle class="cul" cx="9" cy="8.0" r="2.2"/>
 <circle class="cul" cx="9" cy="15.620000000000001" r="2.2"/>
 <circle class="cul" cx="9" cy="27.0" r="1.5"/>
 <circle class="cul" cx="9" cy="32.0" r="1.5"/>
 <circle class="cul" cx="90" cy="8.0" r="2.2"/>
 <circle class="cul" cx="90" cy="15.620000000000001" r="2.2"/>
-<circle class="cul" cx="16" cy="8" r="1.4"/>
-<circle class="cul" cx="16" cy="20.7" r="1.4"/>
+<rect class="cul" x="14.3" y="9.2" width="3.4" height="2.6" rx="1.3"/>
+<rect class="cul" x="14.3" y="16.2" width="3.4" height="2.6" rx="1.3"/>
 <circle class="cul" cx="26" cy="8" r="1.2"/>
 <circle class="cul" cx="26" cy="13" r="1.2"/>
 <circle class="cul" cx="40" cy="21" r="2.0"/>
@@ -229,16 +229,14 @@
 <circle class="drll" cx="4" cy="71" r="3.5"/>
 <circle class="drll" cx="96" cy="71" r="3.5"/>
 <g transform="translate(57,59.5) scale(-1,1)"><text x="-10.24" y="0" font-size="3.2" font-weight="bold" fill="#d8dde2">BCM-A</text></g>
-<g transform="translate(70,45) scale(-1,1)"><text x="-43.008" y="0" font-size="2.4" font-weight="bold" fill="#d8dde2">wolne pole — po usunięciu D1</text></g>
-<g transform="translate(70,50) scale(-1,1)"><text x="-43.008" y="0" font-size="2.4" font-weight="bold" fill="#d8dde2">i zacisków strony izolowanej</text></g>
 <circle class="drll" cx="9" cy="8.0" r="0.75"/>
 <circle class="drll" cx="9" cy="15.620000000000001" r="0.75"/>
 <circle class="drll" cx="9" cy="27.0" r="0.65"/>
 <circle class="drll" cx="9" cy="32.0" r="0.65"/>
 <circle class="drll" cx="90" cy="8.0" r="0.75"/>
 <circle class="drll" cx="90" cy="15.620000000000001" r="0.75"/>
-<circle class="drll" cx="16" cy="8" r="0.65"/>
-<circle class="drll" cx="16" cy="20.7" r="0.65"/>
+<circle class="drll" cx="16" cy="10.5" r="0.0"/>
+<circle class="drll" cx="16" cy="17.5" r="0.0"/>
 <circle class="drll" cx="26" cy="8" r="0.5"/>
 <circle class="drll" cx="26" cy="13" r="0.5"/>
 <circle class="drll" cx="40" cy="21" r="1.0"/>
@@ -353,17 +351,19 @@
 <text class="lb" x="128" y="124.6">Φ 1,2</text>
 <text class="n" x="140" y="124.6">cewka K1</text>
 <text class="lb" x="128" y="128.2">Φ 1,3</text>
-<text class="n" x="140" y="128.2">KF301 (X6, X10–X12, J1), D5</text>
-<text class="lb" x="128" y="131.8">Φ 1,5</text>
-<text class="n" x="140" y="131.8">KF7.62 (X1, X2, X8, X9)</text>
-<text class="lb" x="128" y="135.4">Φ 2,0</text>
-<text class="n" x="140" y="135.4">styki K1 (COM/NO/NC), pady bezpieczników</text>
-<text class="lb" x="128" y="139.0">Φ 2,4</text>
-<text class="n" x="140" y="139.0">czopy oprawek ATO (bez miedzi)</text>
-<text class="lb" x="128" y="142.6">Φ 3,2</text>
-<text class="n" x="140" y="142.6">otwory montażowe (odizolowane)</text>
-<text class="lb" x="128" y="146.2">Φ 4,5</text>
-<text class="n" x="140" y="146.2">śruba masy M4 (płytka A)</text>
+<text class="n" x="140" y="128.2">KF301 (X6, X10–X12, J1)</text>
+<text class="lb" x="128" y="131.8">SMD</text>
+<text class="n" x="140" y="131.8">D5 (SMC) — bez wiercenia, od strony miedzi</text>
+<text class="lb" x="128" y="135.4">Φ 1,5</text>
+<text class="n" x="140" y="135.4">KF7.62 (X1, X2, X8, X9)</text>
+<text class="lb" x="128" y="139.0">Φ 2,0</text>
+<text class="n" x="140" y="139.0">styki K1 (COM/NO/NC), pady bezpieczników</text>
+<text class="lb" x="128" y="142.6">Φ 2,4</text>
+<text class="n" x="140" y="142.6">czopy oprawek ATO (bez miedzi)</text>
+<text class="lb" x="128" y="146.2">Φ 3,2</text>
+<text class="n" x="140" y="146.2">otwory montażowe (odizolowane)</text>
+<text class="lb" x="128" y="149.8">Φ 4,5</text>
+<text class="n" x="140" y="149.8">śruba masy M4 (płytka A)</text>
 <line x1="16" y1="186" x2="66" y2="186" stroke="#111" stroke-width="0.3"/>
 <line x1="16" y1="186" x2="16" y2="189" stroke="#111" stroke-width="0.3"/>
 <line x1="17" y1="186" x2="17" y2="187.2" stroke="#111" stroke-width="0.15"/>
@@ -430,9 +430,9 @@
 <text class="n" x="12" y="216.4">4. Mocz w wodzie 10 min, zroluj papier palcem. Ubytki popraw markerem permanentnym.</text>
 <text class="n" x="12" y="220.2">5. Traw w B327 (nadsiarczan sodu, ~45 °C) albo FeCl3. Poruszaj kuwetą.</text>
 <text class="n" x="12" y="224.0">6. Toner zmyj acetonem. Przewierć otwory wg tabeli (najpierw 1,0, potem rozwiercaj).</text>
-<text class="n" x="12" y="227.8">7. Ścieżki mocy pocynuj grubą warstwą albo przylutuj wzdłuż drut 1,5 mm².</text>
+<text class="n" x="12" y="227.8">7. Ścieżki mocy pocynuj grubą warstwą i przylutuj wzdłuż drut 2,5 mm².</text>
 <text class="n" x="12" y="231.6">8. Kontrola: omomierzem sąsiednie sieci (zwarcia) i ciągłość każdej ścieżki.</text>
-<text class="n" x="12" y="240">Sieci na płytce A: AKU (X1→K1) · CHGIN (styk 87 → X2.1 → M1 IN+) · ACC (cewka K1) · GND (pole dolne). Strona izolowana jest poza płytką — listwa L1.</text>
+<text class="n" x="12" y="240">Sieci na płytce A: AKU (X1→K1) · CHGIN (styk 87 → X2.1/X2.2 → 2 × XY-SK120 IN+) · ACC (cewka K1) · GND (pole dolne).</text>
 <text class="n" x="12" y="244">Sieci na płytce B: BUS (X8→bezpieczniki) · F8O–F11O (odgałęzienia) · SIG (dzielnik) · GND (obwódka górna).</text>
 <text class="sub" x="12" y="252">Wygenerowano: schematics/gen_pcb_power.py — nie edytuj SVG ręcznie.</text>
 </svg>

@@ -8,6 +8,14 @@ wraz ze schematami zasilania buforowanego.
 **Gałąź:** `claude/m910q-deployment-docs-33g92j`
 **PR:** [#106](https://github.com/geek95dg/Alfa156-headunit/pull/106)
 
+> **To zapis z 25.07.2026 — projekt zasilania od tego czasu się zmienił.**
+> Obowiązuje [`ZASILANIE_BUFOROWANE.md`](ZASILANIE_BUFOROWANE.md): zalewana
+> przetwornica step-up 12 → 20 V / 200 W zamiast posiadanego wtedy XL6019,
+> ładowanie z dwóch XY-SK120 zamiast dawnych wariantów A/B, bank 7 × HR1221W
+> w dwóch koszach w bagażniku. §3.1, §3.1a, §3.2, §4 i §5 niżej są
+> zaktualizowane do tego stanu (22.11.2026); reszta raportu to zapis
+> z chwili konsolidacji.
+
 ---
 
 ## Punkt wyjścia
@@ -154,9 +162,11 @@ płyty i przyspiesza korozję siatki. Przy banku, jaki opisywały tamte notatki
 (pięć pakietów, sufit 10,5 A), 15–20 A było niemal dwukrotnym przekroczeniem.
 Dzisiejszy bank ma **siedem pakietów** i sufit katalogowy **14,7 A**, więc
 dolny kraniec „15–20 A" już się w karcie mieści — zarzut zmienia adresata.
-Nastawę ogranicza teraz **tor ładowania**, a nie akumulator: płytka XH-M603
-wyrabia ok. 10 A i spec podaje „≤ 8 A". Przyjęta nastawa to **CC 8,0 A**,
-czyli 54 % sufitu katalogowego i 80 % obciążalności płytki.
+Nastawę ogranicza teraz **tor ładowania**, a nie akumulator. Obowiązuje
+**2 × XY-SK120 po CC 5,0 A** — razem ok. 10 A, a po odjęciu obciążenia 4–6 A
+do banku idzie netto ok. 5 A, czyli 34 % sufitu katalogowego. Granicę płytki
+XH-M603 (realnie ok. 8 A) obchodzi jeden moduł na ładowarkę — każdy niesie
+5 A (ZB §5.3, §6.3).
 
 **Dlaczego kompensacja ma znaczenie.** Bagażnik latem osiąga 45–55 °C. Bez
 kompensacji bank przy stałych 14,4 V jest w takich warunkach stale
@@ -172,12 +182,15 @@ dopiero po dekadzie.
 
 | Miejsce montażu | Szacowana żywotność |
 |-----------------|--------------------|
-| kabina, pod fotelem | 2–4 lata |
+| kabina | 2–4 lata |
 | bagażnik | 1,5–3 lata |
 | przy tunelu wydechowym | < 1,5 roku |
 
 **Wniosek: miejsce montażu wpływa na życie banku bardziej niż dyscyplina
-rozładowania.**
+rozładowania.** Bank ostatecznie stoi jednak **w bagażniku**, w dwóch
+stalowych koszach 4 + 3 przy grodzi za tylną kanapą — tylko tam mieści się
+siedem pakietów z zachowaniem otworu na narty (ZB §4.7). Stąd w planie
+serwisowym 1,5–3 lata życia banku.
 
 ### 3.2 Proponowany moduł buck nie może pełnić roli ładowarki
 
@@ -195,18 +208,16 @@ wejście przetwornicy   13,75 V
 Buck **obniża** napięcie — z 13,75 V nie zrobi 14,40 V absorpcji. Bank utknąłby
 na ~85 % pojemności i nigdy nie naładował się do końca.
 
-Podane dwie działające topologie:
+Obowiązująca topologia (ZB §5):
 
-| Wariant | Rozwiązanie | Koszt |
-|---------|-------------|-------|
-| **A — zalecany** | ładowarka DC-DC B2B z presetem AGM (Victron Orion-Tr Smart, Redarc BCDC, Sterling) — buck-boost, limit prądu, kompensacja temperaturowa, detekcja pracy alternatora w jednym pudełku | 800–1000 PLN |
-| **B — DIY** | przekaźnik ładowania + dioda **MBR2545CT** + moduł **CC-CV boost** nastawiony na 14,40 V / **8,0 A** | 70–180 PLN |
+| Rozwiązanie | Co robi | Koszt |
+|-------------|---------|-------|
+| **2 × XY-SK120** (buck-boost CC-CV) + przekaźnik K1 z zapłonu / D+ + 2 × XH-M603 | z 12,5–14,7 V robi 14,40 V w obie strony, CC 5,0 A każda; tor rozłączany przez K1 przy zgaszonym silniku | ok. 120–180 PLN za ładowarki (ogłoszenia) |
+| alternatywa: izolowana ładowarka B2B (np. VEVOR 12/12-20) | izolacja galwaniczna i profil AGM z float w jednym pudełku; 20 A bez regulacji to za dużo dla banku (ZB §5.7) | ok. 400–550 PLN |
 
-W wariancie B tor ładowania **musi być fizycznie rozłączany**: boost nie może
-dawać napięcia niższego niż wejściowe, więc przy zgaszonym silniku próbowałby
-dalej podawać 14,4 V i rozładowywał akumulator rozruchowy. Robi to przekaźnik
-sterowany zapłonem (albo D+ alternatora), a dioda MBR2545CT jest drugą
-barierą na wypadek zespawania styków.
+Wcześniej rozważane warianty — markowa B2B (800–1000 PLN) oraz „DIY”
+z przekaźnikiem, diodą Schottky i modułem boost — wypadły: buck-boost nie
+potrzebuje diody blokującej, a tani moduł z regulowanym CC wystarcza.
 
 ### 3.3 Czas postoju „~17 dni" to pełne rozładowanie
 
@@ -242,35 +253,30 @@ LVD" to rezerwa awaryjna kosztem żywotności, a nie tryb normalnej pracy.
 
 ## 4. Przetwornica step-up — weryfikacja
 
-Przetwornica jest już kupiona (19 V), więc zamiast doboru powstała lista
-kontrolna. Wnioski:
+> **Zaktualizowane 22.11.2026.** W chwili konsolidacji przetwornica była już
+> kupiona (19 V) i powstała dla niej lista kontrolna z nastawą 19,5 V; potem
+> wyszło, że dawny, posiadany moduł XL6019 realnie daje ok. 45 W i wymusza limit
+> RAPL. Obowiązuje zalewana przetwornica **12 → 20 V, 10 A (200 W)** — ZB §3.
 
-**19 V mieści się w zakresie, ale przy samej dolnej granicy.** Dokumentacja
-produkcyjna w repozytorium podaje, że M910q pracuje w oknie **19–21 V i nie
-wystartuje poza nim**. Pod obciążeniem dochodzi spadek na przewodzie,
-regulacja obciążeniowa przetwornicy i spadek napięcia wejściowego, gdy bank
-schodzi w stronę LVD.
+**20 V, nie 19 V.** Dokumentacja produkcyjna w repozytorium podaje, że M910q
+pracuje w oknie **19–21 V i nie wystartuje poza nim**. Przetwornica stoi
+w bagażniku, ok. 4 m od komputera: na pętli 2 × 4 m przewodu 4 mm² przy 65 W
+spada ok. 0,11 V, więc z 20,0 V na wtyku zostaje ok. 19,9 V. Moduł 19 V
+zszedłby w tym samym rachunku poniżej dolnej granicy (ZB §3.1).
 
-> **Nastawa: 19,5 V, nie 19,0 V.** Nadal bezpiecznie w oknie, a daje ~0,5 V
-> zapasu na zapady. Regulować pod obciążeniem, potem zabezpieczyć potencjometr
-> przed rozstrojeniem wibracjami.
-
-**Obciążalność — wymaganie policzone, nie przepisane z naklejki:**
+**Obciążalność — wymaganie policzone, nie przepisane z naklejki** (sprawność
+przyjęta konserwatywnie 90 %, ZB §3.2):
 
 | Wielkość | Wartość |
 |----------|---------|
-| Prąd wyjściowy przy 19,5 V | 3,34 A |
-| Moc wejściowa przy sprawności 88 % | 73,9 W |
-| Prąd wejściowy przy 12,6 V | 5,9 A |
-| Prąd wejściowy przy 11,0 V (próg LVD) | **6,7 A** |
+| Prąd wyjściowy przy 65 W / 20 V | 3,25 A |
+| Moc wejściowa | 72,2 W |
+| Prąd wejściowy przy 12,6 V | 5,73 A |
+| Prąd wejściowy przy 11,0 V (próg LVD) | **6,57 A** |
 
-Wymaganie: **≥ 3,5 A wyjścia i ≥ 7 A wejścia w pracy ciągłej.**
-
-> ⚠ **Uwaga do modułów „XL6019 150 W".** Sam układ XL6019 ma prąd klucza
-> ok. 5 A, a przy 65 W wyjścia prąd klucza sięga ~7 A — **powyżej wartości
-> katalogowej**. Taki moduł jest dobry do typowego obciążenia (25–35 W, czyli
-> realny pobór M910q z dashboardem), ale ryzykowny w szczycie. Deklarowane
-> „150 W" to zwykle szczyt przy maksymalnym napięciu wejściowym i z chłodzeniem.
+65 W to 33 % mocy z tabliczki modułu 200 W; nawet gdyby bezmarkowa sztuka
+realnie dawała ok. 70 % opisu, to wciąż ok. 45 %. Limit RAPL nie jest
+potrzebny. Wejście: F8 10 A, przewód 4 mm².
 
 **Wtyk zasilania.** Najpewniejsze rozwiązanie to poświęcić oryginalny zasilacz:
 odciąć kabel 30–40 cm od wtyku i podłączyć do wyjścia przetwornicy. Gwarantuje
@@ -278,35 +284,39 @@ to pasowanie mechaniczne. Środkowy pin identyfikacyjny Lenovo po odcięciu
 znika — ThinkCentre Tiny w praktyce startują normalnie, ale nie da się tego
 założyć w ciemno, stąd obowiązkowy test.
 
-**Test na biurku przed zabudową** (`stress-ng --cpu 4 --timeout 600s`):
-napięcie na wtyku ≥ 19,0 V przez cały czas, temperatura cewki i układu
-< 85 °C, brak resetów. **Powtórzyć przy napięciu wejściowym 11,0 V** — to
-najgorszy przypadek pod względem prądu i grzania.
+**Test na biurku przed zabudową** (ZB §3.4): bez obciążenia **19,9–20,5 V**,
+przy ~60 W na wyjściu modułu ≥ 19,8 V, na wtyku M910q ≥ 19,5 V, obudowa
+< 60 °C po 30 min, brak resetów, zapisany prąd jałowy. **Powtórzyć przy
+napięciu wejściowym 11,0 V** — to najgorszy przypadek pod względem prądu
+i grzania.
 
 ---
 
 ## 5. Co trzeba dokupić poza przetwornicą
 
-Pełna lista (24 pozycje obowiązkowe + 5 zalecanych) jest
-w `ZASILANIE_BUFOROWANE.md` §10. Rdzeń:
+Pełna lista (24 pozycje obowiązkowe + 6 zalecanych) jest
+w `ZASILANIE_BUFOROWANE.md` §10. Rdzeń (stan z 22.11.2026):
 
 | Grupa | Elementy |
 |-------|----------|
-| **Ładowanie** | ładowarka DC-DC z profilem AGM (wariant A) **albo** przekaźnik + MBR2545CT + moduł CC-CV boost (wariant B) |
-| **Ochrona** | rozłącznik nadnapięciowy 15,3 V (blokada przeładowania), moduł LVD 11,0 V, przekaźnik ładowania 30 A, przekaźnik mocy |
-| **Zabezpieczenia** | listwa dystrybucyjna 6–8 obwodów, bezpiecznik główny 30 A, 5× inline 10 A na pakiety, wkładki 5/3/20 A |
-| **Przetwornice pomocnicze** | buck 12→5 V 1 A (logika), buck 12→5 V 3 A (wyświetlacze) |
-| **Ochrona wejścia** | dioda TVS 1.5KE33CA, kondensator 470 µF/35 V, diody gaszeniowe 1N4007 |
-| **Okablowanie** | 6 mm² (główne + masa), 2,5 mm², 1,5 mm², 0,75 mm², konektory, peszel, przelotki |
-| **Mechanika** | skrzynka/wspornik na bank z pasami, rozłącznik masy 100 A, radiator + wentylator 40 mm do przetwornicy |
+| **Ładowanie** | 2 × XY-SK120 (CV 14,40 V, CC 5,0 A każda), przekaźnik ładowania K1 30 A z zapłonu / D+ |
+| **Ochrona** | 2 × XH-M603 (15,30 / 14,00 V, po jednym na ładowarkę), LVD XH-M609 11,00 / 12,60 V (posiadany) |
+| **Zabezpieczenia** | F1 20 A przy klemie, 7 × FB 10 A na pakiety, FC1/FC2 7,5 A, FK 1 A, F7 20 A i F12 15 A w klasie MIDI/ANL, dystrybucja F8–F11 i F13 |
+| **Przetwornice** | step-up 12 → 20 V 10 A zalewany, MP1584 (logika, Arduino), LM2596 (wyświetlacze) |
+| **Ochrona wejścia** | dioda TVS SMCJ20CA, kondensator 470 µF/35 V, dioda gaszeniowa 1N4007 |
+| **Okablowanie** | 6 mm² OFC (F1, łącznik koszy, odbiór, masa), 4 mm², FLRY-B 2,5 mm², 0,5–1,5 mm², 4 bloki zbiorcze M6, oczka, nasuwki w pełni izolowane, peszel, przelotki |
+| **Mechanika** | dwa kosze stalowe 4 + 3 ([`mechanika/kosze_HR1221W_4+3.pdf`](mechanika/kosze_HR1221W_4+3.pdf)), rozłącznik masy 100 A |
 
-**Orientacyjnie:** ~600–1100 PLN w wariancie DIY, ~1300–1900 PLN z gotową
-ładowarką B2B.
+**Orientacyjnie:** ~740–1270 PLN bez pozycji „do wyceny” (wkładki MIDI/ANL,
+bloki zbiorcze, stal na kosze) — ZB §10.2. Izolowana ładowarka B2B zamiast
+dwóch XY-SK120 to +280–370 PLN.
 
-Osobna sekcja **„czego nie kupować"** wymienia moduł buck jako ładowarkę,
-diodę krzemową zamiast Schottky, „uniwersalne" końcówki do M910q, ładowarki
-LiFePO₄/Li-ion, ładowarki z presetem GEL (profil żelowy jest o 0,2–0,3 V niższy —
-bank AGM nigdy nie doszedłby do pełna) i akumulatory rozruchowe zamiast HR1221W.
+Osobna sekcja **„czego nie kupować"** (ZB §10.4) wymienia moduł buck jako
+ładowarkę, przetwornicę 19 V, XL6019 zamiast przetwornicy 200 W, przewód CCA,
+jeden XH-M603 na dwie ładowarki, „uniwersalne" końcówki do M910q, ładowarki
+LiFePO₄/Li-ion, ładowarki z presetem GEL (profil żelowy jest o 0,2–0,3 V
+niższy — bank AGM nigdy nie doszedłby do pełna) i akumulatory rozruchowe
+zamiast HR1221W.
 
 ---
 

@@ -67,7 +67,7 @@
   <!-- ============ ENGINE BAY ============ -->
   <rect class="zoneS" x="112" y="248" width="130" height="42"/>
   <text class="zt" x="177" y="266">akumulator</text>
-  <text class="zt" x="177" y="282">bezp. 30 A + 20 A</text>
+  <text class="zt" x="177" y="282">F1 20 A + bezp. wzm.</text>
   <circle class="pin" cx="112" cy="248" r="11"/><text class="pinT" x="112" y="252">1</text>
 
   <circle class="pin" cx="88" cy="335" r="11"/><text class="pinT" x="88" y="339">16</text>
@@ -87,21 +87,16 @@
   <circle class="pin" cx="268" cy="290" r="11"/><text class="pinT" x="268" y="294">10</text>
 
   <!-- ============ FRONT CABIN — PASSENGER SIDE ============ -->
-  <rect class="zoneS" x="276" y="344" width="104" height="32"/>
-  <text class="zt" x="328" y="364">przekaźnik</text>
+  <rect class="zoneS" x="276" y="344" width="120" height="32"/>
+  <text class="zt" x="336" y="364">FK 1 A · zapłon/D+</text>
   <circle class="pin" cx="276" cy="344" r="11"/><text class="pinT" x="276" y="348">3</text>
 
   <rect class="zoneB" x="276" y="392" width="190" height="56"/>
   <text class="zt" x="371" y="411">M910q, hub USB</text>
-  <text class="zt" x="371" y="427">step-up, przekaźnik</text>
-  <text class="zt" x="371" y="441">listwa bezpiecznikowa</text>
+  <text class="zt" x="371" y="427">bucki LM2596, MP1584</text>
+  <text class="zt" x="371" y="441">20 V i 12 V z bagażnika</text>
   <circle class="pin" cx="276" cy="392" r="11"/><text class="pinT" x="276" y="396">4</text>
 
-  <rect class="zoneA" x="490" y="392" width="190" height="56"/>
-  <text class="zt" x="585" y="411">bank 7 × HR1221W</text>
-  <text class="zt" x="585" y="427">ładowarka, LVD</text>
-  <text class="zt" x="585" y="441">rozłącznik masy</text>
-  <circle class="pin" cx="490" cy="392" r="11"/><text class="pinT" x="490" y="396">5</text>
 
   <!-- ============ CENTER CONSOLE ============ -->
   <rect class="zoneV" x="486" y="240" width="120" height="26"/>
@@ -116,8 +111,6 @@
   <text class="zt" x="546" y="328">enkoder + przyciski</text>
   <circle class="pinV" cx="486" cy="312" r="11"/><text class="pinT" x="486" y="316">8</text>
 
-  <!-- star ground -->
-  <circle class="pin" cx="446" cy="348" r="11"/><text class="pinT" x="446" y="352">11</text>
 
   <!-- cabin point markers -->
   <circle class="pinV" cx="400" cy="196" r="11"/><text class="pinT" x="400" y="200">15</text>
@@ -133,48 +126,61 @@
   <circle class="pinC" cx="860" cy="430" r="11"/><text class="pinT" x="860" y="434">22</text>
 
   <!-- ============ TRUNK ============ -->
-  <rect class="zoneC" x="936" y="228" width="196" height="50"/>
-  <text class="zt" x="1034" y="247">wzmacniacz samochodowy</text>
-  <text class="zt" x="1034" y="263">gotowy moduł, wentylacja</text>
-  <circle class="pin" cx="936" cy="228" r="11"/><text class="pinT" x="936" y="232">17</text>
+  <rect class="zoneC" x="936" y="200" width="180" height="42"/>
+  <text class="zt" x="1026" y="218">wzmacniacz samochodowy</text>
+  <text class="zt" x="1026" y="233">+ subwoofer (opc.)</text>
+  <circle class="pin" cx="936" cy="200" r="11"/><text class="pinT" x="936" y="204">17</text>
+  <circle class="pin" cx="1116" cy="200" r="11"/><text class="pinT" x="1116" y="204">18</text>
 
-  <rect class="zoneC" x="936" y="404" width="196" height="42"/>
-  <text class="zt" x="1034" y="429">subwoofer</text>
-  <circle class="pin" cx="936" cy="404" r="11"/><text class="pinT" x="936" y="408">18</text>
+  <!-- bank: two steel baskets bolted to the bulkhead behind the rear seat,
+       standing on the trunk floor, ski-hatch gap on the centre line -->
+  <rect class="zoneA" x="906" y="268" width="150" height="46"/>
+  <text class="zt" x="981" y="295">kosz L · 4 × HR1221W</text>
+  <circle class="pin" cx="906" cy="268" r="11"/><text class="pinT" x="906" y="272">5</text>
+  <text class="ax" x="930" y="339">otwór na narty 290–296 mm</text>
+  <rect class="zoneA" x="906" y="356" width="150" height="40"/>
+  <text class="zt" x="981" y="380">kosz P · 3 × HR1221W</text>
+  <circle class="pin" cx="906" cy="356" r="11"/><text class="pinT" x="906" y="360">5</text>
+  <rect class="zoneS" x="906" y="404" width="196" height="44"/>
+  <text class="zt" x="1004" y="422">2 × XY-SK120, 2 × XH-M603</text>
+  <text class="zt" x="1004" y="438">LVD, step-up 20 V, S1</text>
+  <circle class="pin" cx="906" cy="404" r="11"/><text class="pinT" x="906" y="408">5</text>
+  <circle class="pin" cx="1102" cy="404" r="11"/><text class="pinT" x="1102" y="408">11</text>
 
   <circle class="pinV" cx="1172" cy="298" r="11"/><text class="pinT" x="1172" y="302">19</text>
   <circle class="pin" cx="1172" cy="372" r="11"/><text class="pinT" x="1172" y="376">20</text>
 
   <!-- ============ ROUTES ============ -->
-  <!-- main power: battery -> firewall -> charge relay -> M910q bay -> bank -->
+  <!-- main harness: battery -> firewall -> sill -> trunk (F1 6 mm² to the
+       chargers; 20 V and 12 V back to the dash on the same route) -->
   <path class="route" d="M177 290 L177 404 L255 404"/>
-  <path class="route" d="M255 404 L255 360 L276 360"/>
-  <path class="route" d="M328 376 L328 392"/>
-  <path class="route" d="M466 420 L490 420"/>
+  <path class="route" d="M255 404 L255 455 L1004 455 L1004 448"/>
+  <path class="route" d="M371 455 L371 448"/>
   <text class="rl" x="120" y="400">1 → 2 przelotka</text>
+  <text class="rl" x="470" y="450">wiązka: F1 6 mm² → bagażnik · 20 V i 12 V → przód (~4–5 m)</text>
 
   <!-- amp branch straight from starter battery along the sill -->
-  <path class="route" d="M212 290 L212 462 L1000 462 L1000 446"/>
-  <text class="rl" x="600" y="458">gałąź wzmacniaczy — osobno, prosto z akumulatora, bezp. 20 A</text>
+  <path class="route" d="M212 290 L212 472 L1120 472 L1120 242"/>
+  <text class="rl" x="775" y="486">gałąź wzmacniacza — osobno, z akumulatora</text>
 
   <!-- audio signal M910q -> amps -->
-  <path class="routeA" d="M400 392 L400 366 L700 366 L700 300 L900 300 L900 262 L936 262"/>
-  <text class="rl" x="720" y="294">sygnał audio RCA — inną trasą niż zasilanie</text>
+  <path class="routeA" d="M400 392 L400 366 L700 366 L700 300 L896 300 L896 230 L936 230"/>
+  <text class="rl" x="640" y="294">sygnał audio RCA — inną trasą niż zasilanie</text>
 
   <!-- ============ LEGEND ============ -->
   <text class="sec" x="60" y="566">Legenda</text>
   <rect x="60" y="576" width="560" height="230" fill="#fbfcfd" stroke="#c8d2da" stroke-width="1.5" rx="6"/>
-  <text class="tl" x="78" y="598">1 · akumulator rozruchowy + bezpieczniki 30 A i 20 A</text>
+  <text class="tl" x="78" y="598">1 · akumulator rozruchowy + F1 20 A (ładowanie) i bezpiecznik wzmacniacza</text>
   <text class="tl" x="78" y="618">2 · fabryczna przelotka w przegrodzie</text>
-  <text class="tl" x="78" y="638">3 · Przekaźnik ładowania + dioda</text>
-  <text class="tl" x="78" y="658">4 · M910q, hub USB, step-up, przekaźnik zapłonu, listwa</text>
-  <text class="tl" x="78" y="678">5 · bank 7 × HR1221W (35,7 Ah), ładowarka CC-CV, LVD, rozłącznik masy</text>
+  <text class="tl" x="78" y="638">3 · FK 1 A — wpięcie zapłonu / D+ dla cewki K1 (K1 jest w bagażniku)</text>
+  <text class="tl" x="78" y="658">4 · M910q, hub USB, bucki LM2596 / MP1584 — zasilanie z bagażnika</text>
+  <text class="tl" x="78" y="678">5 · bank 7 × HR1221W w koszach 4 + 3, 2 × XY-SK120, LVD, step-up 20 V, S1</text>
   <text class="tl" x="78" y="698">6 · wyświetlacz główny 10,1" 1280×800 — miejsce radia</text>
   <text class="tl" x="78" y="718">7 · wyświetlacz drugi 6,86" 1280×480 (opcjonalny)</text>
   <text class="tl" x="78" y="738">8 · enkoder, przyciski, panel muzyczny</text>
   <text class="tl" x="78" y="758">9 · Nano #1, Nano #2, moduł przekaźników, HM-10, RXB6</text>
   <text class="tl" x="78" y="778">10 · złącze OBD-II + CP2102 + L9637D (K-Line)</text>
-  <text class="tl" x="78" y="798">11 · punkt gwiazdowy masy</text>
+  <text class="tl" x="78" y="798">11 · punkt masy — w bagażniku, przy banku</text>
 
   <rect x="650" y="576" width="560" height="230" fill="#fbfcfd" stroke="#c8d2da" stroke-width="1.5" rx="6"/>
   <text class="tl" x="668" y="598">12 · pody SWC na kierownicy</text>
@@ -193,26 +199,26 @@
   <text class="sec" x="60" y="838">Dlaczego akurat tam</text>
   <rect x="60" y="848" width="560" height="340" fill="#fbfcfd" stroke="#c8d2da" stroke-width="1.5" rx="6"/>
 
-  <text class="tb" x="78" y="872">Bank pod fotelem pasażera, nie w bagażniku</text>
-  <text class="note" x="78" y="890">Kabina jest chłodniejsza. Karta HR1221W: 3–5 lat przy 25 °C, z połowieniem</text>
-  <text class="note" x="78" y="906">na każde +10 °C. Bagażnik latem osiąga 45–55 °C — różnica wychodzi</text>
-  <text class="note" x="78" y="922">2–4 lata (kabina) wobec 1,5–3 lat (bagażnik). Siedem pakietów w układzie</text>
-  <text class="note" x="78" y="938">4+3 to ok. 280 × 180 × 101 mm, ze skrzynką ok. 300 × 200 × 115 mm —</text>
-  <text class="warn" x="78" y="954">ZMIERZ tę przestrzeń w aucie, zanim cokolwiek zamówisz.</text>
+  <text class="tb" x="78" y="872">Bank w bagażniku, w dwóch koszach przy grodzi</text>
+  <text class="note" x="78" y="890">Kosze 4 + 3 (docs/mechanika/kosze_HR1221W_4+3.pdf) przykręcone M8 do grodzi</text>
+  <text class="note" x="78" y="906">za tylną kanapą, stoją na podłodze; między nimi 290–296 mm na narty.</text>
+  <text class="note" x="78" y="922">Podłogi NIE wierć — pod nią zbiornik paliwa. Bagażnik latem 45–55 °C:</text>
+  <text class="note" x="78" y="938">licz 1,5–3 lata życia banku zamiast 3–5 lat przy 25 °C (ZB §4.6, §4.7).</text>
+  <text class="warn" x="78" y="954">≈ 16,8 kg tuż za oparciem kanapy — mocowanie sprawdź, zanim ruszysz.</text>
 
-  <text class="tb" x="78" y="980">Wzmacniacz w bagażniku, nie przy banku</text>
-  <text class="note" x="78" y="998">Potrzebuje wentylacji i idzie osobną gałęzią 12 V prosto z akumulatora,</text>
-  <text class="note" x="78" y="1014">więc nie ma powodu ciągnąć go do kabiny.</text>
+  <text class="tb" x="78" y="980">Wzmacniacz w bagażniku, ale nie z banku</text>
+  <text class="note" x="78" y="998">Potrzebuje wentylacji; zasilanie osobną gałęzią prosto z akumulatora</text>
+  <text class="note" x="78" y="1014">rozruchowego — jego szczyty przekroczyłyby przekaźnik LVD 20 A (ZB §2.2).</text>
 
   <text class="tb" x="78" y="1040">M910q za deską po stronie pasażera</text>
   <text class="note" x="78" y="1058">Poziomo, logo do góry, na wsporniku VESA 100. Blisko obu wyświetlaczy</text>
   <text class="note" x="78" y="1074">i huba, więc kable DP i USB są krótkie. Wymaga przewiewu.</text>
 
-  <text class="tb" x="78" y="1100">Step-up w tej samej strefie, ale z wentylatorem</text>
-  <text class="note" x="78" y="1118">Rozprasza ~6 W. Nie kładź jej na wykładzinie ani tapicerce — radiator na</text>
-  <text class="note" x="78" y="1134">blasze lub profilu aluminiowym, wentylator 40 mm z szyny buforowanej.</text>
+  <text class="tb" x="78" y="1100">Step-up 20 V w bagażniku, przy koszach</text>
+  <text class="note" x="78" y="1118">Rozprasza 3–7 W całą obudową: przykręć płasko do blachy, nie do kosza i nie</text>
+  <text class="note" x="78" y="1134">na wykładzinę. Do przodu idzie 20 V — mniejszy prąd, mniejszy spadek (ZB §8a).</text>
 
-  <text class="warn" x="78" y="1160">Rozłącznik masy banku musi być dostępny bez demontażu fotela.</text>
+  <text class="warn" x="78" y="1160">Rozłącznik masy banku musi być dostępny bez wyjmowania kanapy.</text>
   <text class="note" x="78" y="1176">Będzie potrzebny przy każdym serwisie i przy dłuższym postoju auta.</text>
 
   <!-- ============ ROUTING + MASS ============ -->
@@ -222,17 +228,17 @@
   <text class="note" x="668" y="890">Fabryczna przelotka w przegrodzie. Nie wierć nowej; jeśli musisz — przelotka</text>
   <text class="note" x="668" y="906">gumowa i zabezpieczenie antykorozyjne krawędzi otworu.</text>
   <text class="tb" x="668" y="932">Kabina → bagażnik</text>
-  <text class="note" x="668" y="950">Wzdłuż progu, pod listwą, lewą stroną. Zasilanie wzmacniaczy i sygnał audio</text>
-  <text class="note" x="668" y="966">prowadź osobnymi trasami — równolegle złapiesz przydźwięk.</text>
+  <text class="note" x="668" y="950">Wzdłuż progu pod listwami, w peszlu: F1 6 mm² oraz 20 V / 12 V (~4–5 m).</text>
+  <text class="note" x="668" y="966">Sygnał audio RCA prowadź drugą stroną auta — równolegle złapiesz przydźwięk.</text>
   <text class="note" x="668" y="990">Do lusterek i zderzaków: gumowe przepusty w drzwiach, wzdłuż wiązki reflektorów.</text>
 
   <text class="sec" x="650" y="1046">Masa i rozkład</text>
   <rect x="650" y="1056" width="560" height="96" fill="#fbfcfd" stroke="#c8d2da" stroke-width="1.5" rx="6"/>
-  <text class="tl" x="668" y="1078">bank 7 × HR1221W (12,6 kg) + skrzynka i pasy</text><text class="tl" x="1000" y="1078">ok. 15 kg</text>
+  <text class="tl" x="668" y="1078">bank 7 × HR1221W (12,6 kg) w dwóch koszach</text><text class="tl" x="1000" y="1078">≈ 16,8 kg</text>
   <text class="tl" x="668" y="1096">M910q, hub, przetwornice</text><text class="tl" x="1000" y="1096">ok. 2,5 kg</text>
   <text class="tl" x="668" y="1114">wzmacniacze + radiatory</text><text class="tl" x="1000" y="1114">ok. 2,0 kg</text>
   <text class="tl" x="668" y="1132">subwoofer z obudową</text><text class="tl" x="1000" y="1132">5–12 kg</text>
-  <text class="tb" x="1000" y="1150">razem 24,5–31,5 kg</text>
+  <text class="tb" x="1000" y="1150">razem ≈ 26–33 kg</text>
 
   <text class="warn" x="24" y="1224">Każdy element powyżej 1 kg przykręcony albo przypięty pasem do elementu konstrukcyjnego. Luźny akumulator 1,8 kg przy hamowaniu awaryjnym to pocisk.</text>
   <text class="note" x="24" y="1244">Rysunek pokazuje strefy montażu i trasy, nie wymiary nadwozia. Przed wierceniem sprawdź, co jest po drugiej stronie blachy — wiązki, przewody paliwowe, wzmocnienia.</text>

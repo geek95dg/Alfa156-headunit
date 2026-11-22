@@ -6,7 +6,7 @@ jaki bezpiecznik i w jakiej kolejności. Uzupełnia schematy blokowe
 
 | Rysunek | Co pokazuje |
 |---------|-------------|
-| [`wiring_power_modules.svg`](../schematics/wiring_power_modules.svg) | Moduły zasilania — każdy zacisk podpisany, przekroje, bezpieczniki, masy |
+| [`wiring_power_modules.svg`](../schematics/wiring_power_modules.svg) | Moduły zasilania — każdy zacisk podpisany, przekroje, bezpieczniki, masy. **Pokazuje jeszcze poprzedni tor** (domena za zapłonem, boost z diodą, listwy) i czeka na przerysowanie — obowiązują tabele §2 |
 | [`wiring_vehicle_arduino.svg`](../schematics/wiring_vehicle_arduino.svg) | Sygnały pojazdu → układy dopasowujące (PC817, dzielniki) → Arduino |
 | [`wiring_usb_av.svg`](../schematics/wiring_usb_av.svg) | USB, wyświetlacze, audio, kamery |
 | [`vehicle_layout_m910q.svg`](../schematics/vehicle_layout_m910q.svg) | Rozmieszczenie w aucie — strefy montażu, trasy kablowe, bilans masy |
@@ -55,14 +55,14 @@ diagnostyce po roku od montażu to oszczędza godziny:
 
 | Obwód | Kolor |
 |-------|-------|
-| +12 V stałe (przed LVD) | czerwony |
-| +12 V buforowane (za LVD) | czerwono-biały |
-| +12 V odbiorników (za wyłącznikiem głównym) | pomarańczowy |
+| +12 V stałe (przed LVD: ładowanie, bank) | czerwony |
+| +12 V buforowane (za LVD, dystrybucja) | czerwono-biały |
+| +12 V odgałęzień do przodu (za F9–F13) | pomarańczowy |
 | +5 V | żółty |
-| +19 V do M910q | brązowy |
+| +20 V do M910q | brązowy |
 | Masa | czarny |
 | Sygnały do Arduino | szary / niebieski |
-| ACC (sterowanie) | zielony |
+| Zapłon / D+ (sterowanie K1, sygnał) | zielony |
 
 ### Zaciski na rysunkach
 
@@ -74,139 +74,167 @@ w tabelach poniżej odpowiadają numerom na
 
 ## 2. Tabela połączeń — zasilanie
 
-### 2.1 Tor główny (od auta do banku)
+Wartości wkładek, przekroje i nastawy pochodzą z
+[`ZASILANIE_BUFOROWANE.md`](ZASILANIE_BUFOROWANE.md) (dalej: ZB) — przy
+rozbieżności obowiązuje tamten dokument. Wszystko, co dotyczy banku,
+ładowania, LVD i przetwornicy step-up, stoi **w bagażniku, przy koszach**;
+do przodu idzie jedna wiązka (ZB §8a.2).
+
+### 2.1 Tor ładowania (od akumulatora rozruchowego do banku)
+
+Dwie ładowarki **XY-SK120** (buck-boost CC-CV) pracują równolegle, każda
+z własnym rozłącznikiem nadnapięciowym **XH-M603** — ZB §5.2–§5.4, §6.3.
 
 | # | Skąd | Dokąd | Przewód | Zabezpieczenie |
 |---|------|-------|---------|----------------|
-| 1 | Akumulator „+” | Bezpiecznik główny (wejście) | 6 mm² | — |
-| 2 | Bezpiecznik główny (wyjście) | Przekaźnik ładowania **30** | 6 mm² | 30 A, ≤ 30 cm od klemy |
-| 3 | Przekaźnik ładowania **87** | Dioda MBR2545CT — anody (1 + 3) | 6 mm² | — |
-| 4 | Dioda MBR2545CT — katoda (2 / blaszka) | Ładowarka **IN +** (zacisk 1) | 6 mm² | blaszka pod potencjałem katody — izoluj od masy |
-| 5 | Ładowarka **IN −** (2) | punkt gwiazdowy masy | 6 mm² | — |
-| 6 | Ładowarka **OUT +** (3) | Blokada przeładowania **COM** (7) | 4 mm² | — |
-| 7 | Ładowarka **OUT −** (4) | punkt gwiazdowy masy | 4 mm² | powrót tej samej pętli CV co przewód 6 — ten sam przekrój |
-| 8 | Blokada **NC** (8) | szyna „+” banku (odczep nr 1) | 4 mm² | — |
-| 9 | Blokada **VCC** (5) | szyna „+” banku (pomiar) | 0,75 mm² | 2 A |
-| 10 | Blokada **GND** (6) | punkt gwiazdowy masy | 0,75 mm² | — |
+| 1 | Akumulator rozruchowy „+” | **F1** (wejście) | 6 mm² | — |
+| 2 | **F1** (wyjście) | TVS + C1, biegun „+” (w bagażniku, przed K1) | 6 mm², ~5 m — zmierz | **F1 20 A**, ≤ 30 cm od klemy |
+| 3 | TVS + C1 „+” | **K1** zacisk **30** | 6 mm² | — |
+| 4 | zapłon albo **D+** alternatora | **K1** zacisk **86** (cewka) | 0,75 mm², ~4–5 m | **FK 1 A** z przodu, w miejscu wpięcia |
+| 5 | **K1** zacisk **85** | punkt masy przy banku | 0,75 mm² | — |
+| 6 | **K1** zacisk **87** | XY-SK120 #1 **IN+** | 2,5 mm², ≤ 1 m | — |
+| 6a | **K1** zacisk **87** | XY-SK120 #2 **IN+** | 2,5 mm², ≤ 1 m | — |
+| 7 / 7a | XY-SK120 #1 / #2 **OUT+** | XH-M603 #1 / #2 **DC-IN+** | 2,5 mm², ≤ 0,5 m | — |
+| 8 / 8a | XH-M603 #1 / #2 **OUT+** | złączenie gałęzi | 2,5 mm², obie gałęzie tej samej długości | **FC1 / FC2 7,5 A** ATO, tuż przy OUT+ |
+| 9 | złączenie gałęzi | **blok L+** banku | **4 mm²**, ≤ 1 m | **F12 15 A**, MIDI/AMI lub ANL, przy bloku L+ |
+| 10 | IN− / OUT− obu XY-SK120, DC-IN− obu XH-M603, „−” TVS i C1 | punkt masy przy banku | 2,5 mm² | — |
 
-**Ochrona wejścia ładowarki** — montowana bezpośrednio na zaciskach IN+/IN−:
-dioda TVS 1.5KE33CA równolegle oraz kondensator 470 µF / 35 V równolegle.
+> **Bez diody blokującej i bez izolacji.** XY-SK120 robi 14,40 V z dowolnego
+> napięcia 12,5–14,7 V z instalacji (ZB §5.1), więc dawna dioda MBR2545CT
+> nie jest potrzebna. Bank od instalacji auta na postoju odcina rozwarty
+> K1. Masa wejścia i wyjścia XY-SK120 to ten sam zacisk: **żadnego
+> osobnego przewodu masy do klemy „−” rozruchowego** — prąd wejściowy wraca
+> przez punkt masy przy banku i nadwozie (ZB §5.6).
 
-### 2.2 Bank akumulatorów
+> **Ochrona wejścia** — przed K1, na jednym zacisku: dioda TVS **SMCJ20CA**
+> (dwukierunkowa; Vc ok. 32 V wg typowych kart, poniżej 36 V wejścia
+> XY-SK120 — potwierdź w karcie kupionej diody) i kondensator
+> **470 µF / 35 V** low-ESR, 105 °C, oba równolegle. Nietłumionego load
+> dumpu ta dioda nie przeżyje — ZB §5.8.
 
-Bank ma **siedem pakietów** łączonych **równolegle** (12 V / 35,7 Ah).
-Wpinają się do dwóch szyn zbiorczych z płaskownika miedzianego, po jednym
-odczepie M6 na pakiet, rozstaw 70 mm.
+> **Dioda gaszeniowa 1N4007** równolegle do cewki K1: **katoda do zacisku
+> 86**, anoda do 85.
+
+> **XH-M603 zasilany z wyjścia swojej ładowarki** (DC-IN), mierzy po stronie
+> OUT (bank). Przyjęcie, że bez zasilania ma rozwarty przekaźnik i nie bierze
+> prądu z banku, sprawdza test ZB §6.4 pkt 6 — **przed** montażem.
+> Nastawy: rozwarcie 15,30 V, powrót 14,00 V. Ładowarki: CV 14,40 V (lato
+> 13,95 V), CC 5,0 A każda, OVP 15,0 V, wyjście po włączeniu zasilania ON —
+> ZB §5.2, §5.5, §11 Etap 1.
+
+> **Wariant PCB.** TVS, C1, K1 z diodą D6 i rozgałęzienie na przewody 6/6a
+> mogą siedzieć na płytce A —
+> [`PCB_ZASILANIE.md`](PCB_ZASILANIE.md) §1. Ładowarki, XH-M603, FC1/FC2
+> i F12 zostają przy banku, na przewodach.
+
+### 2.2 Bank akumulatorów — dwa kosze, linka i bloki zbiorcze
+
+Bank ma **siedem pakietów** łączonych **równolegle** (12 V / 35,7 Ah) w dwóch
+koszach przy grodzi za tylną kanapą: **kosz L — #1…#4, kosz P — #5…#7**
+(numeracja od zewnętrznego końca kosza L). W każdym koszu po jednym
+**bloku zbiorczym na biegun** — L+, L−, P+, P−: izolowana podstawa
+z szynką, **4 kołki M6 i pokrywa** (ZB §4.3).
 
 | # | Skąd | Dokąd | Przewód | Zabezpieczenie |
 |---|------|-------|---------|----------------|
-| 11 | HR1221W #1 **„+” F2** | szyna „+” banku, odczep 1 | 1,5 mm² | **FB1** 10 A inline |
-| 12 | HR1221W #2 **„+” F2** | szyna „+” banku, odczep 2 | 1,5 mm² | **FB2** 10 A inline |
-| 13 | HR1221W #3 **„+” F2** | szyna „+” banku, odczep 3 | 1,5 mm² | **FB3** 10 A inline |
-| 14 | HR1221W #4 **„+” F2** | szyna „+” banku, odczep 4 | 1,5 mm² | **FB4** 10 A inline |
-| 15 | HR1221W #5 **„+” F2** | szyna „+” banku, odczep 5 | 1,5 mm² | **FB5** 10 A inline |
-| 15a | HR1221W #6 **„+” F2** | szyna „+” banku, odczep 6 | 1,5 mm² | **FB6** 10 A inline |
-| 15b | HR1221W #7 **„+” F2** | szyna „+” banku, odczep 7 | 1,5 mm² | **FB7** 10 A inline |
-| 16 | HR1221W #1–#7 **„−” F2** | szyna „−” banku, odczepy 1–7 | 1,5 mm² | — |
-| 17 | szyna „−” banku, **odczep 7** | punkt gwiazdowy masy | 6 mm² | rozłącznik masy 100 A |
-| 18 | NTC 10 kΩ | wejście czujnika ładowarki | 0,5 mm² | — |
+| 11 | HR1221W #1…#4 **„+” F2** | blok **L+** | FLRY-B 2,5 mm², 0,25 m ±30 mm | **FB1…FB4** 10 A inline, 5–10 cm od zacisku |
+| 12 | HR1221W #5…#7 **„+” F2** | blok **P+** | FLRY-B 2,5 mm², 0,25 m ±30 mm | **FB5…FB7** 10 A inline, 5–10 cm od zacisku |
+| 13 | HR1221W #1…#4 **„−” F2** | blok **L−** | FLRY-B 2,5 mm², ta sama długość | — |
+| 14 | HR1221W #5…#7 **„−” F2** | blok **P−** | FLRY-B 2,5 mm², ta sama długość | — |
+| 15 | blok **L+** | blok **P+** — łącznik „+” | **6 mm² OFC**, 0,4–0,6 m | chroniony wkładkami FB pakietów |
+| 16 | blok **L−** | blok **P−** — łącznik „−” | **6 mm² OFC**, ta sama długość co 15 | — |
+| 17 | blok **P−** | **S1** rozłącznik masy 100 A → punkt masy | 6 mm², ≤ 0,5 m | — |
+| 18 | blok **L+** | pomiar napięcia banku (`FEATURE_BATT_ADC`, ZB §13.4) | 0,5 mm² | 1 A przy banku |
 
-> **Odbiór po przekątnej.** „+" bierzesz z **odczepu 1** szyny dodatniej
-> (przewód 8 z §2.1), „−" z **odczepu 7** szyny ujemnej (przewód 17).
-> Kolejność odczepów na obu szynach musi być ta sama: odczep „−" pakietu *k*
-> naprzeciw odczepu „+" pakietu *k*. **Nigdy oba bieguny z tego samego końca
-> szyny** — to jedyny układ, który przy siedmiu pakietach naprawdę psuje
-> rozdział prądów (4,6 × gorzej niż przekątna).
+> **Odbiór po przekątnej.** „+” bierzesz z bloku **L+** (przewody 9 i 19),
+> „−” z bloku **P−** (przewód 17). **Nigdy oba bieguny z tego samego
+> kosza** — rozrzut prądów skacze wtedy z ok. 4 % do ok. 24 % (ZB §4.3).
 
-> **Szyny, nie linka.** Dwa płaskowniki miedziane: minimum **15 × 2 mm**
-> (30 mm²), zalecane **20 × 3 mm** (60 mm²). Prądowo starczyłoby 1,5 mm²
-> (najbardziej obciążony segment wiezie 6,4 A) — przekrój wynika wyłącznie
-> z rezystancji. Mostek z linki 4 mm² dałby 7,3 % rozrzutu prądów, płaskownik
-> 15 × 2 mm — 0,99 %. Obie szyny **pod pokrywą izolacyjną**: prąd zwarciowy
-> prospektywny banku to ~2,4 kA.
+> **Linka zamiast listwy — warunki.** Łącznik i odbiory 6 mm² z czystej
+> miedzi (**nie CCA**), linka drobnodrutowa klasy 5/6, izolacja 105 °C,
+> np. FLRY-B 6 mm² albo przewód car-audio OFC 6 mm². Odcinki pakiet → blok
+> **równej długości (±30 mm)** — nadmiar zwiń w pętlę, nie skracaj. Na blok
+> oczka M6, najwyżej dwa na kołek, grubsze na spód, nakrętka z podkładką
+> sprężystą. Rachunek: ZB §4.3.
 
-> **Jednakowe ogonki.** Przewód od każdego pakietu do szyny musi mieć ten sam
-> przekrój i **tę samą rezystancję**, nawet jeśli pakiety leżą w różnych
-> miejscach. Tolerancja: różnica długości pętli („+" i „−" razem)
-> **≤ ±30 mm**. Nadmiar w drugim rzędzie **zwiń w pętlę serwisową, nie
-> skracaj**. Nierówność rezystancji = nierówny rozdział prądu = jeden pakiet
-> umiera pierwszy.
-
-Pełne uzasadnienie liczbowe i rysunek szyn: §4.3
-[`ZASILANIE_BUFOROWANE.md`](ZASILANIE_BUFOROWANE.md).
-
-> **Zaciski F2.** Nasuwki 6,35 mm w pełni izolowane, zaciskane zaciskarką
-> zapadkową, koszulka termokurczliwa z klejem, wiązka przypięta opaską do
-> skrzynki (odciążenie mechaniczne).
+> **Zaciski F2 i belka dociskowa.** Nasuwki żeńskie 6,3 × 0,8 mm **w pełni
+> izolowane** (na 1,5–2,5 mm²), zaciskane zaciskarką zapadkową, kapturki na
+> wszystkich 14 biegunach. Uziemiona belka dociskowa kosza leży 25–29 mm nad
+> zaciskami — przewody prowadź **od belki w stronę bagażnika**, nigdy pod
+> nią. Bloki na płytce izolacyjnej ≥ 3 mm od strony bagażnika, **nie** na
+> grodzi nad koszem (ZB §4.3, §4.7). Prąd zwarciowy banku to ok. 2,2 kA —
+> pokrywy bloków są obowiązkowe.
 
 ### 2.3 LVD i dystrybucja
 
 | # | Skąd | Dokąd | Przewód | Zabezpieczenie |
 |---|------|-------|---------|----------------|
-| 19 | szyna „+” banku (odczep 1) | XH-M609 **VIN +** (9) | 2,5 mm² | **F7** 15 A, klasa **MIDI/AMI lub ANL** |
-| 20 | XH-M609 **VIN −** (10) | punkt gwiazdowy masy | 2,5 mm² | — |
-| 21 | XH-M609 **VOUT +** (11) | listwa dystrybucyjna, wejście | 2,5 mm² | — |
-| 22 | XH-M609 **VOUT −** (12) | punkt gwiazdowy masy | 2,5 mm² | — |
-| 23 | listwa, szyna masowa | punkt gwiazdowy masy | 6 mm² | — |
+| 19 | blok **L+** | XH-M609 **VIN+** | **6 mm²**, ≤ 0,5 m | **F7 20 A**, klasa **MIDI/AMI lub ANL** (≥ 2,5 kA wg karty), przy bloku L+ |
+| 20 | XH-M609 **VIN−** | punkt masy | 0,75 mm² | — |
+| 21 | XH-M609 **VOUT+** | dystrybucja — listwa ATO z pokrywą albo płytka B (X8.1) | 4 mm², ≤ 0,5 m | — |
+| 22 | dystrybucja, masa (X8.2) | punkt masy | 2,5 mm² | — |
 
 > **XH-M609 — sprawdź przed montażem.** Przekaźnik ma przerywać **plus**.
 > Omomierz między VIN− a VOUT− musi pokazywać zwarcie niezależnie od stanu
 > przekaźnika; jeżeli pokazuje przerwę, moduł przełącza masę i rozspójnia
-> topologię jednego punktu gwiazdowego. Szczegóły i pozostałe dwa sprawdzenia:
-> [`ZASILANIE_BUFOROWANE.md`](ZASILANIE_BUFOROWANE.md) §7.3.
+> topologię jednego punktu masy. VOUT− zostaw niepodłączony — powroty
+> odbiorników idą wprost do punktu masy. Pozostałe sprawdzenia: ZB §7.3.
 >
-> Bezpiecznik **F7** 15 A przed VIN+ wynika z zalecenia producenta modułu:
-> 1,5 × prąd szczytowy obciążenia = 1,5 × 7,5 = 11,25 A, czyli najbliższa
-> większa wkładka typoszeregu. Wartość nie zależy od liczby pakietów — przez
-> F7 płynie wyłącznie prąd odbiorników. **Klasa jednak zależy**: przy banku
-> siedmiu pakietów prąd zwarciowy prospektywny na szynie to ~2,4 kA, a ATO/ATC
-> ma zdolność wyłączania ok. 1 kA. Użyj wkładki MIDI/AMI albo ANL
-> (≥ 2 kA) — §7.4 [`ZASILANIE_BUFOROWANE.md`](ZASILANIE_BUFOROWANE.md).
+> **F7 20 A**: reguła producenta modułu 1,5 × prąd szczytowy
+> (1,5 × 10,5 A = 15,75 A) daje najbliższą większą wkładkę 20 A. Wartość
+> nie zależy od liczby pakietów — przez F7 płynie wyłącznie prąd
+> odbiorników. Klasa wynika z ok. 2,2 kA prądu zwarciowego na bloku — ATO ma
+> zdolność wyłączania ok. 1 kA (ZB §7.4).
 
-### 2.4 Domena A (zawsze zasilana)
+### 2.4 Odgałęzienia za LVD — wszystkie wkładki w bagażniku
+
+Bezpiecznik stoi **przy źródle**, czyli na początku trasy do przodu —
+zwarcie w połowie czterech metrów ma się przepalić w bagażniku (ZB §8.1).
 
 | # | Skąd | Dokąd | Przewód | Zabezpieczenie |
 |---|------|-------|---------|----------------|
-| 24 | listwa, obwód 1 | Buck LM2596 **IN +** | 0,75 mm² | 3 A |
-| 25 | Buck LM2596 **IN −** | masa | 0,75 mm² | — |
-| 26 | Buck **OUT +** (5,0 V) | Nano #1 pin **5V** | 0,75 mm² | — |
-| 27 | Buck **OUT +** (5,0 V) | Nano #2 pin **5V** | 0,75 mm² | — |
-| 28 | Buck **OUT +** (5,0 V) | HM-10 **VCC**, RXB6 **VCC** | 0,5 mm² | — |
-| 29 | Buck **OUT −** | Nano #1/#2 **GND**, HM-10, RXB6 | 0,75 mm² | — |
-| 30 | listwa, obwód 1 | Moduł 9 przekaźników **VCC** (12 V) | 0,75 mm² | wspólny z poz. 24 |
-| 31 | Moduł przekaźników **GND** | masa | 0,75 mm² | — |
+| 23 | dystrybucja | przetwornica step-up **IN+** | 4 mm², ≤ 1 m | **F8 10 A** |
+| 24 | step-up **IN−** | punkt masy | 4 mm² | — |
+| 25 | step-up **OUT+** | wtyk M910q, **środek** | 4 mm², ~4 m + odcinek oryginalnego kabla | **5 A** przy wyjściu przetwornicy |
+| 26 | step-up **OUT−** | wtyk M910q, **ekran** | 4 mm², ~4 m | — |
+| 27 | dystrybucja | LM2596 **IN+** (z przodu — wyświetlacze) | 1,0 mm², ~4 m | **F9 2 A** |
+| 28 | dystrybucja | MP1584 **IN+** (z przodu — logika, Arduino) | 0,75 mm², ~4 m | **F10 3 A** |
+| 29 | dystrybucja | AUX 12 V: moduł 9 przekaźników **VCC** | 1,5 mm² | **F11 5 A** |
+| 30 | dystrybucja | wstrzykiwacz 5 V telefonu (opcja, ZB §14.6) | 0,75 mm², ~4 m | **F13 2 A** |
+| 31 | IN− LM2596 i MP1584, GND modułu przekaźników i wstrzykiwacza (z przodu) | wspólny powrót → punkt masy przy banku | **2,5 mm²**, ~4 m | — |
+
+> **Przetwornica step-up 12 → 20 V, 10 A (200 W), zalewana.** Moduł
+> bezmarkowy i zwykle bez regulacji — każdą sztukę sprawdzasz na biurku
+> przed zabudową: bez obciążenia **19,9–20,5 V**, przy ~60 W na wyjściu
+> modułu ≥ 19,8 V, na wtyku ≥ 19,5 V, także przy wejściu 11,0 V (ZB §3.4).
+> M910q jest zasilany **stale** — wyjścia przetwornicy nie używa się jako
+> wyłącznika; usypia go impuls z Arduino na przycisk zasilania (§10.5).
+> Wtyk: z uciętego oryginalnego kabla, środek = „+”, ekran = masa; uwaga
+> o pinie identyfikacyjnym — ZB §3.3.
+
+> **Hub USB.** ZB nie przypisuje mu osobnej wkładki. Hub z wejściem 12 V
+> zasil z gałęzi **F11** (moduł przekaźników ~10 mA w spoczynku + hub do
+> ~1 A mieści się w 5 A); hub 5 V — przez własny buck z tej samej gałęzi.
+> Osiem urządzeń nie wyrobi się na prądzie z portu M910q (§5.3).
+
+### 2.5 Odbiorniki 5 V z przodu — logika i wyświetlacze
+
+| # | Skąd | Dokąd | Przewód | Zabezpieczenie |
+|---|------|-------|---------|----------------|
+| 32 | MP1584 **OUT+** (5,0 V) | Nano #1 pin **5V**, Nano #2 pin **5V** | 0,75 mm² | — |
+| 33 | MP1584 **OUT+** (5,0 V) | HM-10 **VCC**, RXB6 **VCC** | 0,5 mm² | — |
+| 34 | MP1584 **OUT−** | Nano #1/#2 **GND**, HM-10, RXB6 | 0,75 mm² | — |
+| 35 | LM2596 **OUT+** (wg panelu) | panel główny 10,1" — zasilanie podświetlenia przez stopień MOSFET (PWM z Nano #1) | 1,0 mm² | — |
+| 36 | LM2596 **OUT+** | panel drugi 6,86" *(opcjonalny)* | 1,0 mm² | — |
+| 37 | LM2596 **OUT−** | masa paneli (wspólna z Nano #1) | 1,0 mm² | — |
+
+> **Role bucków.** **MP1584** zasila logikę i Arduino — Nano #2 musi żyć,
+> gdy M910q śpi, bo w S3 porty USB są martwe (ZB §2.1). **LM2596** zasila
+> wyświetlacze — osobno, bo podświetlenie jest sterowane PWM-em z Nano #1,
+> czego nie da się zrobić na zasilaniu z USB (ZB §2.2).
 
 > **Nie podawaj napięcia na pin Vin Nano.** Buck jest ustawiony na 5,0 V
 > i idzie wprost na pin **5V**, z pominięciem wewnętrznego stabilizatora.
-
-### 2.5 Domena B (za zapłonem)
-
-| # | Skąd | Dokąd | Przewód | Zabezpieczenie |
-|---|------|-------|---------|----------------|
-| 32 | listwa, obwód 2 | Przekaźnik **30** | 2,5 mm² | 30 A |
-| 33 | Przekaźnik **87** | XL6019 **IN +** (13) | 2,5 mm² | — |
-| 34 | Przekaźnik **87** | Buck MP1584 **IN +** | 1,0 mm² | 3 A |
-| 35 | Przekaźnik **87** | Hub USB, zasilanie | 1,0 mm² | 3 A |
-| 36 | Przekaźnik **86** | linia ACC z zamka kluczyka | 0,75 mm² | 5 A |
-| 37 | Przekaźnik **85** | masa | 0,75 mm² | — |
-| 38 | XL6019 **IN −** (14) | masa | 2,5 mm² | — |
-| 39 | XL6019 **OUT +** (15) | wtyk M910q, **środek** | 1,5 mm² | 5 A |
-| 40 | XL6019 **OUT −** (16) | wtyk M910q, **ekran** | 1,5 mm² | — |
-| 39a | XL6019 **OUT +** ↔ **OUT −** | kondensator 470 µF / 35 V low-ESR | — | — |
-| 41 | Buck MP1584 **OUT +** | panel główny 10,1", 5 V | 1,0 mm² | — |
-| 42 | Buck MP1584 **OUT +** | panel drugi 6,86", 5 V *(opcjonalny)* | 1,0 mm² | — |
-| 43 | Buck MP1584 **OUT −** | masa paneli (wspólna z Nano #1) | 1,0 mm² | — |
-
-> **Dioda gaszeniowa 1N4007** równolegle do cewki przekaźnika: **katoda do
-> zacisku 86**, anoda do 85. Bez niej przepięcie przy rozwarciu cewki wraca
-> do instalacji.
-
-> **XL6019 daje ok. 45 W, nie 65 W** (limit prądu klucza 5 A). Przed
-> uruchomieniem w aucie ustaw limit poboru pakietu CPU na M910q —
-> [`ZASILANIE_BUFOROWANE.md`](ZASILANIE_BUFOROWANE.md) §3.5a. Wyjścia
-> przetwornicy **nie da się użyć jako wyłącznika** komputera: boost przepuszcza
-> napięcie wejściowe. Komputera nie odcina nic — usypia go impuls z Arduino
-> na przycisk zasilania (§10.5).
 
 ### 2.6 Gałąź wzmacniacza (niezależna)
 
@@ -218,15 +246,19 @@ masa, wyzwalanie sygnałem REM.
 |---|------|-------|---------|----------------|
 | 44 | Akumulator „+” | Wzmacniacz **+12V** | 6 mm² | wg karty modułu, przy klemie |
 | 45 | Wzmacniacz **GND** | masa lokalna, przy wzmacniaczu | 6 mm² | — |
-| 46 | Przekaźnik **87** | Wzmacniacz **REM** | 0,75 mm² | 2 A |
+| 46 | linia zapłonu (ACC) | Wzmacniacz **REM** | 0,75 mm² | 2 A |
 
 > **Bezpiecznik dobierz wg karty wzmacniacza**, nie „na oko". Typowy moduł
 > 4 × 50 W RMS ma na płytce bezpiecznik 20–30 A i tyle samo powinien mieć
 > przy klemie. Przewód 6 mm² wynika ze spadku napięcia na trasie do bagażnika
 > (~4 m), nie z samego prądu.
 
+> **Dlaczego nie z banku.** Szczyty 20–30 A przekroczyłyby przekaźnik LVD
+> (20 A) — ZB §2.2. REM idzie z zapłonu: wzmacniacz ma grać, gdy jedziesz,
+> a nie gdy komputer jest w S3.
+
 > **Masa wzmacniacza osobno.** To jedyny obwód mocy, który **nie** idzie do
-> punktu gwiazdowego — wspólna masa z komputerem daje pętlę i przydźwięk
+> punktu masy przy banku — wspólna masa z komputerem daje pętlę i przydźwięk
 > alternatora. Masa krótka (do 1 m), do gołego metalu, tym samym przekrojem
 > co „+”.
 
@@ -440,8 +472,9 @@ Zasilanie i REM — §2.6.
 > **Kabel RCA prowadź po przeciwnej stronie auta niż kabel zasilania
 > wzmacniacza.** Równoległy przebieg to najprostszy sposób na przydźwięk.
 
-> **Pętla masy.** DAC ma masę przez USB (punkt gwiazdowy pod deską),
-> wzmacniacz ma masę lokalną w bagażniku, a ekran RCA łączy oba punkty.
+> **Pętla masy.** DAC ma masę przez USB i M910q (powrót 20 V idzie do punktu
+> masy przy banku), wzmacniacz ma własną masę lokalną, a ekran RCA łączy oba
+> punkty.
 > Jeżeli słychać buczenie zmieniające się z obrotami silnika: najpierw popraw
 > masę wzmacniacza, potem przetrasuj RCA, i dopiero na końcu sięgaj po
 > izolator pętli masy — pogarsza pasmo.
@@ -466,36 +499,58 @@ brak**. Sygnały wyzwalające wchodzą przez PC817 na Nano #2.
 
 ## 6. Bezpieczniki — zestawienie
 
-| Wartość | Gdzie | Chroni |
-|---------|-------|--------|
-| 30 A | przy klemie „+”, ≤ 30 cm | cały tor główny |
-| wg karty modułu (20–30 A) | przy klemie „+”, osobno | gałąź wzmacniacza |
-| 10 A × 7 (**FB1…FB7**) | na „+” każdego z siedmiu pakietów banku | zwarcie pojedynczego pakietu |
-| 30 A | listwa, obwód 2 | odbiorniki 12 V |
-| 5 A | wyjście step-up, przed wtykiem | M910q |
-| 5 A | linia ACC do cewki przekaźnika | obwód sterowania |
-| 3 A | listwa, obwód 1 | logika 5 V |
-| 3 A | odgałęzienie buck MP1584 | panele wyświetlaczy |
-| 3 A | odgałęzienie hub USB | hub i peryferia |
-| 2 A | odgałęzienie +15 → buck 5 V wyświetlacza ESP32 | moduł wyświetlacza 1,8" (§ 11.3) |
-| 15 A **MIDI/AMI lub ANL** (**F7**) | między szyną banku a XH-M609 **VIN +** | moduł LVD i cała szyna za nim; klasa z powodu 2,4 kA prądu zwarciowego |
-| 2 A | zasilanie/pomiar modułu nadnapięciowego | obwód pomiarowy |
+Pełna tabela z uzasadnieniem: ZB §8.1. Skrót:
 
-Wszystkie w listwie dystrybucyjnej ATO/ATC z pokrywą, w miejscu dostępnym
-bez demontażu deski rozdzielczej. Wyjątek: bezpiecznik główny 30 A i 20 A
-gałęzi wzmacniacza — w oprawkach przy klemie akumulatora.
+| Oznaczenie | Wartość | Gdzie | Chroni |
+|------------|---------|-------|--------|
+| **F1** | 20 A | przy klemie „+”, ≤ 30 cm | ~5 m przewodu 6 mm² do ładowarek (biorą 11,9–13,0 A) |
+| **FK** | 1 A ATO | z przodu, w miejscu wpięcia w zapłon / D+ | przewód 0,75 mm² do cewki K1 |
+| **FC1, FC2** | 7,5 A ATO | przy OUT+ każdego XH-M603, przed złączeniem | płytki XH-M603 (≤ 8 A) od strony banku |
+| **F12** | 15 A, MIDI/AMI lub ANL | przy bloku L+ | przewód ładowania 4 mm² od strony banku |
+| **FB1…FB7** | 10 A ATO / mini | na „+” każdego pakietu, 5–10 cm od zacisku | zwarcie pojedynczego pakietu |
+| **F7** | 20 A, MIDI/AMI lub ANL | przy bloku L+, przed XH-M609 VIN+ | moduł LVD i cała szyna za nim (~2,2 kA zwarciowo) |
+| **F8** | 10 A | dystrybucja | wejście step-upu (do 6,6 A przy 11 V) |
+| — | 5 A | wyjście step-upu, w bagażniku | przewód 20 V do M910q |
+| **F9** | 2 A | dystrybucja | LM2596 — wyświetlacze |
+| **F10** | 3 A | dystrybucja | MP1584 — logika, Arduino |
+| **F11** | 5 A | dystrybucja | AUX 12 V: moduł przekaźników, hub USB |
+| **F13** | 2 A (opcja) | dystrybucja | wstrzykiwacz 5 V telefonu |
+| — | 1 A | przy banku | przewód pomiaru napięcia banku |
+| — | 2 A | odgałęzienie +15 → buck 5 V wyświetlacza ESP32 | moduł wyświetlacza 1,8" (§ 11.3) |
+| — | wg karty modułu (20–30 A) | przy klemie „+”, osobno | gałąź wzmacniacza |
+
+Wkładki za LVD (F8–F11, F13) i FC1/FC2 mogą być zwykłymi ATO — prąd
+zwarciowy ogranicza tam rezystancja przewodów i przekaźnika LVD (ZB §8.1).
+**F7 i F12 widzą pełne ~2,2 kA banku** i muszą mieć zdolność wyłączania
+≥ 2,5 kA wg karty. Wszystkie odgałęzienia biegnące do przodu mają wkładki
+**w bagażniku**, na początku trasy; wyjątek to FK, bo jego przewód biegnie
+w drugą stronę.
 
 ---
 
 ## 7. Masy
 
-**Jeden punkt gwiazdowy** dla całego head unitu:
+**Jeden punkt masy** dla całego head unitu — **w bagażniku, przy banku**
+(ZB §8.3):
 
-- śruba do gołego metalu nadwozia, powierzchnia oczyszczona ze szpachli
-  i lakieru, po dokręceniu zabezpieczona wazeliną techniczną,
-- schodzą się w nim: masa banku (przez rozłącznik 100 A), masa listwy
-  dystrybucyjnej, masa M910q, masa Arduino, masa audio od DAC-a,
-- przekrój do nadwozia: **6 mm²**.
+- punkt masy to **osobny blok masowy** tuż obok banku, a z niego **jeden**
+  przewód 6 mm² do karoserii; śruba do gołego metalu,
+  oczyszczonego ze szpachli i lakieru, zabezpieczona wazeliną techniczną —
+  **nie** w podłodze nad zbiornikiem paliwa (ZB §4.7),
+- blok P− banku dochodzi do niego **wyłącznie przez rozłącznik S1 100 A**
+  (przewód 17). Z S1 w torze **nie używaj P− jako punktu masy** i nie
+  dawaj żadnego bezpośredniego mostka P− → blok masowy: każda masa
+  wylądowana na P− albo taki mostek omija S1 i po jego otwarciu wszystkie
+  odbiorniki dalej wiszą na banku — S1 nic by nie odcinał (ZB §8.3 mówi
+  „blok P− albo blok obok spięty z P−" — to opis sprzed S1; przy S1
+  obowiązuje osobny blok, zgodnie z §8.4 ZB),
+- schodzą się w nim: masa banku (z P− przez S1), masy obu
+  XY-SK120 (wejście i wyjście to jeden zacisk) i obu XH-M603, LVD,
+  dystrybucja, step-up, powrót 20 V z M910q, wspólny powrót 12 V z przodu
+  (2,5 mm²) i masa audio,
+- M910q, panele i moduły z przodu **nie dostają własnej masy do
+  karoserii**; jeżeli obudowa M910q dotyka metalu, to druga droga masy —
+  przy przydźwięku sprawdź to pierwsze.
 
 **Dwa wyjątki:**
 
@@ -510,15 +565,17 @@ gałęzi wzmacniacza — w oprawkach przy klemie akumulatora.
 
 ```
 0. Rozplanuj strefy montażu wg vehicle_layout_m910q.svg — zanim cokolwiek wywiercisz
-1. Punkt gwiazdowy masy — przygotuj i sprawdź omomierzem (< 0,5 Ω do klemy „−”)
-2. Trasy przewodów — peszel, przelotki gumowe w każdej blasze
-3. Listwa dystrybucyjna — zamontowana, dostępna, BEZ bezpieczników
-4. Moduły zasilania — wszystkie zaciski dokręcone, BEZ zasilania
-5. Bank — siedem pakietów zmierzonych osobno, wyrównanych, szyny zbiorcze
-   z odczepami, bezpieczniki FB1…FB7 10 A założone
-6. Rozłącznik masy banku w pozycji ROZWARTY
-7. Nastawy modułów na stole (patrz ZASILANIE_BUFOROWANE.md § 11 etap 1)
-8. Bezpiecznik główny 30 A — wkładany JAKO OSTATNI
+1. Kosze przykręcone do grodzi (8 × M8, ZB §4.7) — PODŁOGI NIE WIERCISZ
+2. Punkt masy przy banku — przygotuj i sprawdź omomierzem (< 0,5 Ω do klemy „−”)
+3. Trasy przewodów — peszel, przelotki gumowe w każdej blasze, łącznik
+   między koszami pod osłoną
+4. Dystrybucja (listwa albo płytka B) — zamontowana, dostępna, BEZ wkładek
+5. Moduły zasilania — wszystkie zaciski dokręcone, BEZ zasilania
+6. Bank — siedem pakietów zmierzonych osobno i wyrównanych, bloki L+/L−/P+/P−
+   z pokrywami, odcinki równej długości, FB1…FB7 10 A założone
+7. Rozłącznik masy banku S1 w pozycji ROZWARTY
+8. Nastawy modułów na stole (ZB § 11 etap 1)
+9. Bezpiecznik F1 20 A — wkładany JAKO OSTATNI
 ```
 
 **Zasada:** każdy etap kończy się pomiarem. Podłączenie wszystkiego naraz
@@ -533,31 +590,34 @@ To samo dotyczy Arduino: wgraj firmware i sprawdź każdą płytkę przez
 ## 9. Lista kontrolna przed pierwszym załączeniem
 
 ```
-[ ] Bezpiecznik główny 30 A WYJĘTY
-[ ] Rozłącznik masy banku ROZWARTY
+[ ] Bezpiecznik F1 20 A WYJĘTY
+[ ] Rozłącznik masy banku S1 ROZWARTY
 [ ] Polaryzacja na wtyku M910q sprawdzona multimetrem (środek „+”)
-[ ] XL6019 ustawiony na 19,5 V i przetestowany pod obciążeniem
-[ ] Limit poboru pakietu CPU ustawiony na M910q (wymóg przy XL6019)
-[ ] Ładowarka: CV 14,40 V, CC **8,0 A** (§4.4 ZASILANIE_BUFOROWANE)
-[ ] Rozłącznik nadnapięciowy: 15,30 V / 14,00 V, sprawdzony zasilaczem lab.
+[ ] Step-up: bez obciążenia 19,9–20,5 V; test ~60 W i przy 11,0 V wejścia
+    zaliczony; prąd jałowy zapisany (ZB §3.4)
+[ ] XY-SK120 × 2: CV 14,40 V (±0,02 V między modułami), CC 5,0 A
+    sprawdzone amperomierzem, OVP 15,0 V, wyjście po włączeniu: ON
+[ ] XH-M603 × 2: 15,30 V / 14,00 V, sprawdzone zasilaczem lab.; test
+    „12,6 V tylko na OUT” zaliczony (ZB §6.4 pkt 6)
 [ ] XH-M609: 11,00 V / 12,60 V, sprawdzony zasilaczem laboratoryjnym
 [ ] XH-M609: potwierdzone, że przełącza plus, i zmierzony pobór własny
-[ ] Buck logiki: 5,0 V na wyjściu (zmierzone, nie „powinno być”)
-[ ] Buck paneli: 5,0 V na wyjściu
-[ ] Dioda 1N4007 na cewce przekaźnika — katoda do 86
-[ ] TVS i kondensator na wejściu ładowarki zamontowane
-[ ] Wszystkie siedem pakietów banku zmierzone osobno, rozrzut < 0,2 V
-[ ] Bezpieczniki FB1…FB7 10 A na każdym pakiecie
-[ ] Odbiór z szyn po przekątnej: „+" z odczepu 1, „−" z odczepu 7
-[ ] Ogonki pakietów równej długości (±30 mm), szyny pod pokrywą izolacyjną
+[ ] Buck logiki MP1584: 5,0 V na wyjściu (zmierzone, nie „powinno być”)
+[ ] Buck wyświetlaczy LM2596: napięcie wg panelu
+[ ] Dioda 1N4007 na cewce K1 — katoda do 86
+[ ] TVS SMCJ20CA i kondensator 470 µF przed K1 zamontowane
+[ ] FC1/FC2 7,5 A przy OUT+ XH-M603; F12 15 A i F7 20 A (MIDI/ANL) przy L+
+[ ] Wszystkie siedem pakietów zmierzone osobno, rozrzut < 0,2 V
+[ ] Bezpieczniki FB1…FB7 10 A na każdym pakiecie, 5–10 cm od zacisku
+[ ] Odbiór po przekątnej: „+” z bloku L+, „−” z bloku P−
+[ ] Odcinki pakietów równej długości (±30 mm), bloki pod pokrywami
 [ ] Wszystkie zaciski dokręcone i pociągnięte ręką
-[ ] Masa: < 0,5 Ω między punktem gwiazdowym a klemą „−” akumulatora
-[ ] Żaden przewód nie ociera o krawędź blachy
+[ ] Masa: < 0,5 Ω między punktem masy a klemą „−” akumulatora
+[ ] Żaden przewód nie ociera o krawędź blachy ani o belkę dociskową kosza
 [ ] Nic z instalacji 12 V nie idzie bezpośrednio na pin Arduino
 ```
 
 Po odhaczeniu całości przejdź do procedury pomiarowej:
-[`ZASILANIE_BUFOROWANE.md`](ZASILANIE_BUFOROWANE.md) § 11, etap 4.
+ZB § 11, etap 4.
 
 ---
 
@@ -568,116 +628,101 @@ Ten rozdział dotyczy **wyłącznie** wariantu z
 M910q zasilany stale. Tabele §2–§5 opisują wersję docelową i tutaj **nie
 obowiązują**.
 
+> **Auto testowe dziś jeździ bez bufora** — M910q i telefon tracą zasilanie
+> przy każdym zgaszeniu silnika ([`WDROZENIE_TESTOWE.md`](WDROZENIE_TESTOWE.md)
+> §3). Poniższe tabele opisują tor buforowany, który ma to zmienić: ten sam
+> co w ZB (step-up 20 V, 2 × XY-SK120, 2 × XH-M603, bank 7 × HR1221W
+> w koszach 4 + 3), tylko bez logiki domeny stałej, wzmacniacza i drugiego
+> ekranu.
+
 **Rysunki — zacznij od tych dwóch.** Każdy element jest na nich narysowany
 osobno: TVS i C1 to nie jeden bloczek, tylko dwa symbole z własnymi
-połączeniami; cewki i styki przekaźników są rozdzielone (K1 i K2 to po
-jednym przekaźniku, narysowanym w dwóch miejscach).
+połączeniami; cewka i styk K1 są rozdzielone (to jeden przekaźnik,
+narysowany w dwóch miejscach).
 
 | Arkusz | Zakres |
 |--------|--------|
-| [`../schematics/schematic_test_power.svg`](../schematics/schematic_test_power.svg) | **1/2 — zasilanie.** Tor ładowania, bank z bezpiecznikami pakietów, LVD, wyłącznik, trzy przetwornice. Numery przewodów jak w tabelach niżej. |
+| [`../schematics/schematic_test_power.svg`](../schematics/schematic_test_power.svg) | **1/2 — zasilanie.** Tor ładowania z dwiema XY-SK120, bank w dwóch koszach z bezpiecznikami pakietów, LVD, rozłącznik masy, trzy przetwornice. Numery przewodów jak w tabelach niżej. |
 | [`../schematics/schematic_test_signals.svg`](../schematics/schematic_test_signals.svg) | **2/2 — sygnały.** Oba transoptory, Arduino Nano, moduł przekaźnika, przycisk M910q, rozdział mas. |
 
 Generator obu: [`../schematics/gen_test_schematics.py`](../schematics/gen_test_schematics.py)
 — po zmianie tabel popraw generator i wygeneruj SVG ponownie, nie edytuj ich ręcznie.
 
-Uzupełniająco: [`schematic_test_build.svg`](../schematics/schematic_test_build.svg)
-(skrót ideowy) · [`wiring_test_build.svg`](../schematics/wiring_test_build.svg)
-(rozmieszczenie i przekroje) ·
-[`ignition_sense.svg`](../schematics/ignition_sense.svg)
-(przebiegi czasowe uśpienia i wybudzania)
+Uzupełniająco: [`ignition_sense.svg`](../schematics/ignition_sense.svg)
+(przebiegi czasowe uśpienia i wybudzania). Rysunki
+[`schematic_test_build.svg`](../schematics/schematic_test_build.svg) i
+[`wiring_test_build.svg`](../schematics/wiring_test_build.svg) pokazują
+jeszcze **poprzedni** tor (boost z diodą, XL6019) i czekają na
+przerysowanie — przy rozbieżności obowiązują tabele niżej
+([`../schematics/README.md`](../schematics/README.md)).
 
 ### 10.1 Tor ładowania
 
-> **Wariant PCB.** Przewody 3, 5, B(część), 7c–7e istnieją też jako ścieżki
-> na trawionej płytce A — wtedy łączysz tylko zaciski X1–X6 wg
-> [`PCB_ZASILANIE.md`](PCB_ZASILANIE.md) §1, a XH-M603 pracuje w torze
-> ładowania (bez K2 — uzasadnienie tamże, §3).
+> **Wariant PCB.** Przewody 3, 5 i 5a oraz TVS, C1, K1 i D6 mogą siedzieć na
+> trawionej płytce A — wtedy łączysz zaciski X1, X2 i X6 wg
+> [`PCB_ZASILANIE.md`](PCB_ZASILANIE.md) §1.
 
 | # | Skąd | Dokąd | Przewód | Zabezpieczenie |
 |---|------|-------|---------|----------------|
-| 1 | Akumulator rozruchowy **„+”** | Bezpiecznik **F1** (wejście) | 4 mm² | — |
-| 2 | **F1** (wyjście) | Płytka **TVS + C1**, biegun „+” | 4 mm² | 15 A, ≤ 30 cm od klemy |
-| 3 | **TVS + C1** „+” | Przekaźnik **K1**, zacisk **30** | 4 mm² | — |
-| 4 | Zapłon / ACC (albo **D+** alternatora) | **K1** zacisk **86** | 0,75 mm² | — |
-| 5 | **K1** zacisk **87** | **D1 MBR2545CT**, anody **1 + 3** zwarte | 4 mm² | — |
-| 6 | **D1** katoda **2** (blaszka) | Moduł CC-CV boost **IN+** | 4 mm² | — |
-| **B** | Boost **OUT+** | **K2** (przekaźnik mocy) zacisk **30** | 4 mm² | powrót **OUT−** tym samym przekrojem |
-| 7 | **K2** zacisk **87** | Szyna **„+”** banku (odczep nr 1) | 4 mm² | — |
-| 7a | **K1** zacisk **87** | **XH-M603** zasilanie „+" | 0,75 mm² | — |
-| 7b | **XH-M603** zasilanie „−" | Punkt gwiazdowy masy | 0,75 mm² | — |
-| 7c | **K1** zacisk **87** | **XH-M603** styk **COM** | 0,75 mm² | — |
-| 7d | **XH-M603** styk **NO** | **K2** zacisk **86** (cewka) | 0,75 mm² | — |
-| 7e | **K2** zacisk **85** | Punkt gwiazdowy masy | 0,75 mm² | — |
+| 1 | Akumulator rozruchowy **„+”** | Bezpiecznik **F1** (wejście) | 6 mm² | — |
+| 2 | **F1** (wyjście) | **TVS + C1**, biegun „+” | 6 mm², ~5 m | **20 A**, ≤ 30 cm od klemy |
+| 3 | **TVS + C1** „+” | Przekaźnik **K1**, zacisk **30** | 6 mm² | — |
+| 4 | Zapłon albo **D+** alternatora | **K1** zacisk **86** | 0,75 mm² | **FK 1 A** przy wpięciu |
+| 5 | **K1** zacisk **87** | **XY-SK120 #1** (M1a) **IN+** | 2,5 mm² | — |
+| 5a | **K1** zacisk **87** | **XY-SK120 #2** (M1b) **IN+** | 2,5 mm² | — |
+| 6 / 6a | M1a / M1b **OUT+** | **XH-M603 #1 / #2** (M2a / M2b) **DC-IN+** | 2,5 mm² | — |
+| 7 / 7a | M2a / M2b **OUT+** | złączenie gałęzi | 2,5 mm², obie równe | **FC1 / FC2 7,5 A** przy OUT+ |
+| **B** | złączenie | **blok L+** banku | **4 mm²** | **F12 15 A** (MIDI/ANL) przy bloku |
 
-> **XH-M603 i cewka K2 wiszą na zacisku 87 przekaźnika ładowania, nie na
-> banku.** Na banku dokładałyby ~160 mA przez całą dobę — tyle, ile
-> w stanie wyłączonym pobiera cała reszta instalacji. Uzasadnienie
-> i zachowanie po zadziałaniu: §6.3 [`ZASILANIE_BUFOROWANE.md`](ZASILANIE_BUFOROWANE.md).
-
-> **Dioda 1N4007** równolegle do cewki K2 (zaciski 85–86), katodą do „+”.
-> Przy **CC ≤ 8,0 A** można pominąć K2 i puścić prąd wprost przez styki
-> modułu — wtedy przewody 7c–7e odpadają, a 7 idzie z **NO** modułu. Uwaga:
-> 8,0 A to 80 % realnej obciążalności płytki XH-M603, czyli praca bez zapasu
-> (§6.3 [`ZASILANIE_BUFOROWANE.md`](ZASILANIE_BUFOROWANE.md)).
-
-> **Przekroje przy CC 8,0 A.** Wejście toru (przewody 1, 2, 3, 5, 6) niesie
-> ~9,2 A: na 3 m przewodu 2,5 mm² to 0,39 V (2,8 %) — formalnie mieści się
-> w kryterium 3 %, ale bez zapasu, dlatego w tabeli stoi **4 mm²** (0,24 V).
-> Odcinek **ładowarka → szyna banku** (B i 7) bierz 4 mm² **zawsze**: jego
-> spadek siedzi w pętli CV i opóźnia wejście w absorpcję. Uzasadnienie: §8.2
-> [`ZASILANIE_BUFOROWANE.md`](ZASILANIE_BUFOROWANE.md), rachunek na przewody
-> §3.1 [`WDROZENIE_TESTOWE.md`](WDROZENIE_TESTOWE.md).
-
-Masy tego toru (K1 zacisk 85, „−” TVS/C1, boost **IN−** i **OUT−**, „−”
-zasilania rozłącznika) idą do punktu gwiazdowego — §10.4. **Powrót boost
-OUT− bierze ten sam przekrój co przewód B**, bo spadek pętli CV liczy się
-na obu żyłach.
+Nastawy i powody: §2.1 wyżej i ZB §5. Masy tego toru (K1 zacisk 85, „−”
+TVS/C1, IN−/OUT− obu XY-SK120, DC-IN− obu XH-M603) idą do punktu masy przy
+banku — §10.6.
 
 > **Dioda 1N4007** równolegle do cewki K1 (zaciski 85–86), katodą do „+”.
 > Bez niej impuls samoindukcji cewki wraca w instalację przy każdym
-> przekręceniu kluczyka.
+> zgaszeniu silnika.
 
 #### Kierunki diod — sprawdź przed lutowaniem
 
 | Element | Kierunek |
 |---------|----------|
-| **D5** — TVS 1.5KE33**CA** / SMCJ26**CA** | **bez znaczenia.** Sufiks „CA" = dwukierunkowa: nie ma anody ani katody, pasek na obudowie (jeśli w ogóle jest) nic nie znaczy |
-| **D1** — MBR2545CT | **blaszka = katoda (pin 2)** → na **IN+** ładowarki. Anody (piny 1 i 3, zwarte) od strony **K1 zacisk 87** |
-| **D6, D7** — 1N4007 | **pasek = katoda** → na zacisk **86** cewki, czyli po stronie plusa |
+| **D5** — TVS SMCJ20**CA** | **bez znaczenia.** Sufiks „CA" = dwukierunkowa: nie ma anody ani katody, pasek na obudowie (jeśli w ogóle jest) nic nie znaczy |
+| **D6** — 1N4007 | **pasek = katoda** → na zacisk **86** cewki, czyli po stronie plusa |
 
-> **Pułapka przy zakupie TVS.** **1.5KE33A** (bez „C") to inna dioda —
+> **Pułapka przy zakupie TVS.** **SMCJ20A** (bez „C") to inna dioda —
 > jednokierunkowa — i tam pasek musi iść na plus. Odwrotnie wlutowana jest
 > zwarciem ~1 V na zasilaniu i **F1 idzie natychmiast**. Rozpoznasz miernikiem
 > w trybie testu diody: **dwukierunkowa daje OL w obie strony**,
-> jednokierunkowa ~0,7 V w jedną. Uzasadnienie: §5.4
-> [`ZASILANIE_BUFOROWANE.md`](ZASILANIE_BUFOROWANE.md).
+> jednokierunkowa ~0,7 V w jedną. Uzasadnienie: ZB §5.8.
 
-### 10.2 Bank, LVD, wyłącznik
+### 10.2 Bank, LVD, rozłącznik masy
 
 | # | Skąd | Dokąd | Przewód | Zabezpieczenie |
 |---|------|-------|---------|----------------|
-| — | „+” każdego z **siedmiu** pakietów HR1221W | Szyna **„+”** banku, odczepy 1–7 | 1,5 mm² | **FB1…FB7** 10 A, osobno na pakiet |
-| — | „−” każdego z siedmiu pakietów | Szyna **„−”** banku, odczepy 1–7 | 1,5 mm² | — |
-| 8 | Szyna **„+”** banku, **odczep 1** | **XH-M609 VIN+** | 2,5 mm² | **F7** 15 A (MIDI/AMI lub ANL) |
-| 9 | Szyna **„−”** banku, **odczep 7** | **XH-M609 VIN−** | 2,5 mm² | — |
-| 10 | **XH-M609 VOUT+** | **S1** wyłącznik główny, zacisk 1 | 2,5 mm² | — |
+| — | „+” pakietów #1…#4 / #5…#7 | bloki **L+** / **P+** | FLRY-B 2,5 mm², 0,25 m ±30 mm | **FB1…FB7** 10 A, osobno na pakiet |
+| — | „−” pakietów #1…#4 / #5…#7 | bloki **L−** / **P−** | FLRY-B 2,5 mm², ta sama długość | — |
+| — | L+ ↔ P+, L− ↔ P− | łączniki między koszami | 6 mm² OFC, 0,4–0,6 m, obie żyły równe | — |
+| 8 | blok **L+** | **XH-M609 VIN+** | 6 mm² | **F7** 20 A (MIDI/AMI lub ANL) |
+| 9 | blok **P−** | **S1** rozłącznik masy 100 A → punkt masy | 6 mm² | — |
+| 10 | **XH-M609 VOUT+** | szyna odbiorników | 4 mm² | — |
 
-Nasuwki **F2 6,35 mm** izolowane, zaciskane zaciskarką zapadkową.
-Łączenie równoległe pakietów: [`ZASILANIE_BUFOROWANE.md`](ZASILANIE_BUFOROWANE.md) §4.3.
+Nasuwki **F2 6,35 mm** w pełni izolowane, zaciskane zaciskarką zapadkową,
+kapturki na biegunach. Odbiór po przekątnej: „+” z L+, „−” z P− — §2.2
+i ZB §4.3.
 
 ### 10.3 Odbiorniki — zasilane stale
 
 | # | Skąd | Dokąd | Przewód | Zabezpieczenie |
 |---|------|-------|---------|----------------|
-| 11 | **S1** zacisk 2 (szyna odbiorników) | **XL6019 IN+** | 1,5 mm² | **F8** 7,5 A |
-| 12 | **XL6019 OUT+** / **OUT−** | Wtyk M910q: środek „+”, ekran „−” | 1,5 mm² | — |
-| 13 | **S1** zacisk 2 (szyna odbiorników) | **LM2596 IN+** | 1,5 mm² | **F9** 2 A |
+| 11 | szyna odbiorników | **step-up 20 V IN+** (M4) | 4 mm² | **F8** 10 A |
+| 12 | **step-up OUT+** / **OUT−** | Wtyk M910q: środek „+”, ekran „−” | 4 mm² | 5 A przy wyjściu przetwornicy |
+| 13 | szyna odbiorników | **LM2596 IN+** | 1,5 mm² | **F9** 2 A |
 | 14 | **LM2596 OUT+** / **OUT−** | Panel 7", złącze **PWM+** / **GND** | 1,5 mm² | — |
+| 13a | szyna odbiorników | **MP1584 IN+** (M6 — logika, Nano; wyjście = przewód 25, §10.5) | 0,75 mm² | **F10** 3 A |
 
-> **F8 to 7,5 A, nie 5 A.** Przy 45 W na wyjściu XL6019 i sprawności 85 %
-> prąd wejściowy sięga 4,2 A przy 12,6 V i **4,6 A** przy napięciu banku
-> bliskim progu LVD. Wkładka 5 A pracowałaby na krawędzi.
+> **F8 to 10 A.** Pełne 65 W na wtyku M910q przy wejściu 11,0 V to
+> ok. 6,6 A z szyny (ZB §3.2) — 66 % wkładki. Z tą przetwornicą limit
+> poboru CPU (RAPL) nie jest potrzebny.
 
 **Logika panelu i dotyk zostają na USB M910q** — osobno idzie wyłącznie
 podświetlenie. Panel ma jeden kabel USB do komputera i jedno złącze
@@ -696,7 +741,7 @@ z firmware'u.
 | # | Skąd | Dokąd | Przewód |
 |---|------|-------|---------|
 | 15 | Zapłon / ACC **12 V** | **R1** 2,2 kΩ / 0,25 W → **U1 (PC817)** pin **1** | 0,5 mm² |
-| 16 | **U1** pin **2** | **Masa instalacji auta** — NIE punkt gwiazdowy | 0,5 mm² |
+| 16 | **U1** pin **2** | **Masa instalacji auta** — NIE punkt masy przy banku | 0,5 mm² |
 | 17 | **U1** pin **4** | Nano **D9** | 0,5 mm² |
 | 18 | **U1** pin **3** | Nano **GND** | 0,5 mm² |
 | 20 | Nano **D9** | **C3** 100 nF → Nano **GND** | 0,5 mm² |
@@ -741,7 +786,7 @@ normalnie i zostaje ratunkiem awaryjnym.
 | **250 ms** przy pracy | uśpienie do S3 |
 | **250 ms** w S3 | wybudzenie w ~3 s |
 | **250 ms** po wyłączeniu | start (zimny, ~40 s) |
-| **5 s** | twarde wyłączenie — pobór spada do ~80–120 mA |
+| **5 s** | twarde wyłączenie — pobór spada do 50–150 mA + prąd jałowy step-upu (ZB §2.1) |
 
 > **Przetnij żyłę VBUS (czerwoną) w kablu USB do Nano.** Płytka jest
 > zasilana z MP1584 (przewód 25) i musi żyć, gdy M910q śpi — a wtedy port USB
@@ -751,12 +796,14 @@ normalnie i zostaje ratunkiem awaryjnym.
 > **Zaciski przycisku znajdź miernikiem** w trybie ciągłości, przy maszynie
 > odłączonej od zasilania: rozwarte, zwarte przy wciśnięciu.
 
-### 10.6 Punkt gwiazdowy masy
+### 10.6 Punkt masy przy banku
 
-Lądują na nim: „−” akumulatora rozruchowego, „−” TVS/C1, zacisk **85** K1,
-**IN−** i **OUT−** boostu, „−” zasilania rozłącznika nadnapięciowego, szyna
-**„−”** banku, **VIN−** i **VOUT−** modułu XH-M609, **IN−** przetwornic
-XL6019, LM2596 i MP1584.
+Punkt masy to **osobny blok masowy**, nie blok P− — P− łączy się z nim
+tylko przez S1 (§7). Lądują na nim: „−” TVS/C1, zacisk **85** K1, **IN−/OUT−** obu XY-SK120
+(jeden zacisk — brak izolacji), **DC-IN−** obu XH-M603, blok **P−** banku
+przez **S1**, **VIN−** modułu XH-M609, **IN−** przetwornic step-up, LM2596
+i MP1584. „−” akumulatora rozruchowego łączy się z nim przez nadwozie —
+osobnego przewodu masy z ładowarek do klemy „−” **nie ma** (ZB §5.6).
 
 **Jedyny wyjątek:** masa wejść optoizolowanych (**U1 pin 2** i **U2 pin 2**,
 przewody 16 i 16a) idzie do masy instalacji auta.
@@ -765,21 +812,26 @@ przewody 16 i 16a) idzie do masy instalacji auta.
 
 ```
 1. S1 rozwarty, bank odłączony, F1 wyjęty z oprawki.
-2. Nastawy na zasilaczu laboratoryjnym — wszystkie pięć:
-   XL6019 19,5 V · LM2596 wg panelu · boost 14,40 V / 8 A
-   rozłącznik 15,30 V · XH-M609 11,00 / 12,60 V
-3. Punkt gwiazdowy masy — komplet z §10.5.
-4. Bank (7 pakietów) na szynach zbiorczych, bezpieczniki FB1…FB7, pomiar
-   napięcia na szynie. Odbiór po przekątnej — §4.3 ZASILANIE_BUFOROWANE.
-5. Przewody 8, 9, 10 — bank przez F7 do LVD i S1.
-6. Przewody 11 i 12 — XL6019. POMIAR 19,5 V BEZ podłączonego M910q.
-7. Dopiero teraz M910q, potem 13–14 (podświetlenie).
-8. Na końcu przewody 1–7 i B — tor ładowania, przy zgaszonym silniku.
-9. Rozruch silnika, pomiar prądu ładowania cęgami lub bocznikiem.
+2. Nastawy i testy na stole (ZB §11 Etap 1):
+   step-up 19,9–20,5 V bez obciążenia, test ~60 W i przy 11,0 V ·
+   LM2596 wg panelu · 2 × XY-SK120 CV 14,40 V / CC 5,0 A ·
+   2 × XH-M603 15,30 / 14,00 V (i test „12,6 V tylko na OUT”) ·
+   XH-M609 11,00 / 12,60 V
+3. Punkt masy przy banku — komplet z §10.6.
+4. Bank (7 pakietów) w koszach, bloki L+/L−/P+/P−, FB1…FB7, łączniki,
+   pomiar napięcia na L+/P−. Odbiór po przekątnej — ZB §4.3.
+5. Przewody 8, 9, 10 — bank przez F7 do LVD, P− przez S1 do masy.
+6. Przewody 11 i 12 — step-up. POMIAR 19,9–20,5 V BEZ podłączonego M910q.
+7. Dopiero teraz M910q, potem 13–14 (podświetlenie) oraz 13a i 25
+   (MP1584 → Nano; POMIAR 5,0 V na wyjściu przed podłączeniem Nano).
+8. Na końcu przewody 1–7a i B — tor ładowania, przy zgaszonym silniku.
+9. Rozruch silnika, pomiar prądu ładowania cęgami lub bocznikiem
+   (ok. 10 A przy F12, ok. 5–7 A netto do banku w wariancie testowym —
+   WDROZENIE_TESTOWE §3.3; ZB §11 Etap 5).
 ```
 
-Punkt 6 pomijany „bo przecież ustawiałem" to najczęstszy sposób na zabicie
-płyty głównej. Punkt 8 pomijany — na zabicie banku.
+Punkt 6 pomijany „bo przecież sprawdzałem na biurku" to najczęstszy sposób
+na zabicie płyty głównej. Punkt 8 pomijany — na zabicie banku.
 
 ---
 
@@ -792,8 +844,9 @@ protokół i budżet poboru: [`WYSWIETLACZ_ESP32_1V8.md`](WYSWIETLACZ_ESP32_1V8.
 
 > **Oznaczenia elementów (U1–U10, D1, F12, M8, A5, DS3) należą do tego
 > podukładu.** Arkusze wariantu testowego (§ 10) mają własną numerację —
-> tamtejsze `U1`/`U2` to transoptory zapłonu i biegu wstecznego, a `D1` to
-> dioda MBR2545CT w torze ładowania.
+> tamtejsze `U1`/`U2` to transoptory zapłonu i biegu wstecznego. **F12**
+> w [`ZASILANIE_BUFOROWANE.md`](ZASILANIE_BUFOROWANE.md) §8.1 to inny
+> element: bezpiecznik przewodu ładowania przy bloku L+ banku.
 
 Panel **ST7735 128 × 160 px zamontowany pionowo**, sterowany z **ESP32-S3**.
 Dwa niezależne źródła danych: dziesięć sygnałów 12 V wprost z auta (przez
@@ -866,11 +919,11 @@ W `TFT_eSPI` panel opisuje `User_Setup` z `ST7735_DRIVER`, `TFT_WIDTH 128`,
 
 | Skąd | Dokąd | Uwagi |
 |------|-------|-------|
-| **+15** (po zapłonie), listwa ATO — *albo* szyna buforowana za LVD i S1 | bezpiecznik **2 A** | § 6; wybór źródła jest otwarty — patrz ramka niżej |
+| **+15** (po zapłonie), listwa ATO — *albo* szyna buforowana za LVD | bezpiecznik **2 A** | § 6; wybór źródła jest otwarty — patrz ramka niżej |
 | bezpiecznik 2 A | buck 12 V → 5 V, **IN+** | MP1584, jak M6 w § 10 |
-| buck **IN−** | punkt gwiazdowy masy | § 7 |
+| buck **IN−** | punkt masy | § 7 |
 | buck **OUT+** | ESP32-S3 **5V** | ~60 mA z 12 V przy pracy |
-| buck **OUT−** | ESP32-S3 **GND** + punkt gwiazdowy | |
+| buck **OUT−** | ESP32-S3 **GND** + punkt masy | |
 | ESP32-S3, **natywne** gniazdo USB-C | port USB M910q (przez hub, § 5.3) | `/dev/ttyACM_display` |
 
 > **Żyła VBUS w kablu USB musi być przecięta**, jeśli moduł ma własne
@@ -882,7 +935,7 @@ W `TFT_eSPI` panel opisuje `User_Setup` z `ST7735_DRIVER`, `TFT_WIDTH 128`,
 > zeruje pobór na postoju i tak jest tu narysowane. W wersji **docelowej**
 > zapłon nie jest już źródłem zasilania, tylko sygnałem
 > ([`ZASILANIE_BUFOROWANE.md`](ZASILANIE_BUFOROWANE.md) §2), więc panel
-> powinien wisieć na **szynie buforowanej za LVD i S1**. Przy banku siedmiu
+> powinien wisieć na **szynie buforowanej za LVD** (S1 odcina masę banku). Przy banku siedmiu
 > pakietów (35,7 Ah) kosztuje to 24–43 % czasu postoju: 5,3–3,0 dnia zamiast
 > 9,3–4,0. Rachunek i warunki:
 > [`WYSWIETLACZ_ESP32_1V8.md`](WYSWIETLACZ_ESP32_1V8.md), sekcja „Czy można

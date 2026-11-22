@@ -88,135 +88,57 @@ M910q USB ports
 
 ## 2. Power Supply + Battery Buffer
 
-The system uses **two power domains** with separate rails. This is the
-key design constraint that makes always-on features (window keyfob,
-BLE-gated trunk button) possible without flattening the car battery.
+> **Authoritative design, in Polish:
+> [`ZASILANIE_BUFOROWANE.md`](ZASILANIE_BUFOROWANE.md) (ZB).** This section
+> is a short English summary; when the two disagree, ZB wins. Earlier
+> revisions of this section described a superseded design — two power
+> domains with an ignition relay cutting the PC, a bank of four to six 5 Ah
+> SLA packs, a Schottky diode feeding a *buck* module as the "charger" at
+> 15–20 A, and a 45 W boost module for the PC. That text was removed; what
+> exactly was wrong with it is recorded in ZB §13.1–§13.3.
 
-### 2.1 Two power domains
+### 2.1 One buffered rail, three machine states
 
-| | **Domain A — always on** | **Domain B — ignition/RTC-only** |
-|---|---|---|
-| **Powered from** | 12 V battery buffer bus | Domain A *or* car ignition feed via relay |
-| **Devices** | Arduino Nano, HM-10 BLE, RXB6 433 MHz RX, 9-channel relay module, all window/trunk relays | M910q PC, Pro Micro, powered USB hub, USB peripherals, displays, amplifier |
-| **Idle draw** | ~30 mA (~0.36 W) | ~0 mA when off, ~10 W when M910q is up |
-| **When parked, BCM asleep** | Continues running — listens for window remote, trunk button + BLE | Off; M910q can be RTC-woken every 15 min for location ping if desired |
+Everything — the M910q, the displays, the three Arduinos, the relay module,
+BLE and 433 MHz receivers — hangs on **one buffered 12 V rail** behind the
+low-voltage disconnect. **Ignition is only a signal:** an Arduino sees it
+through a PC817 and pulses the M910q power button (S3 on key-off, wake on
+key-on, a 5 s pulse for a hard power-off after 2 h parked). The only relay
+in the power path is the **charge relay K1** (plus the LVD's own relay);
+nothing cuts the PC when the key turns. The amplifier is a separate branch
+straight from the starter battery. Details and why: ZB §2.
 
-### 2.2 Battery buffer — 4-6 × 12 V 5 Ah SLA in parallel
+### 2.2 Battery bank and charging
 
-> **Historical — superseded.** This section describes an earlier sizing.
-> The bank as built has **seven CSB HR1221W packs in parallel: 35.7 Ah,
-> 12.6 kg, catalogue charge ceiling 14.7 A, charger set to CC 8.0 A**.
-> The 15-20 A bulk-charge figure below is no longer the binding limit
-> (the charging path is), and the standby table in §2.3 does not apply.
-> Authoritative numbers, in Polish: [`ZASILANIE_BUFOROWANE.md`](ZASILANIE_BUFOROWANE.md)
-> §4.2 (bank), §4.3 (busbar topology for an odd pack count), §9.2
-> (standby) and §13.1 (what exactly was wrong here).
+| Part | What it is | Setting / note |
+|------|-----------|----------------|
+| Bank | 7 × CSB HR1221W (12 V 5.1 Ah **AGM**) in parallel — 35.7 Ah | two steel baskets (4 + 3) in the trunk, bolted to the bulkhead behind the rear seat, ≈ 16.8 kg with baskets (ZB §4.7) |
+| Bank wiring | 6 mm² OFC link between baskets, insulated M6 bus block per pole per basket, equal 2.5 mm² pack leads | diagonal take-off: "+" from the left basket, "−" from the right one (ZB §4.3) |
+| Charge relay K1 | 30 A, coil from ignition or alternator D+ | disconnects charging with the engine off (ZB §5.4) |
+| Chargers | **2 × XY-SK120** buck-boost CC-CV modules in parallel | CV 14.40 V, CC 5.0 A each — ≈ 10 A total, ≈ 5 A net into the bank; no float stage, no temperature input, so CV is changed seasonally (ZB §5.2–§5.5) |
+| Overcharge cut-off | **2 × XH-M603**, one per charger | opens at 15.30 V, closes at 14.00 V (ZB §6) |
+| LVD | XH-M609 | 11.00 V cut-off, 12.60 V reconnect (ZB §7) |
+| PC supply | potted step-up **12 → 20 V, 10 A (200 W)**, in the trunk next to the baskets | 4 mm² run of ~4 m to the M910q; no CPU power cap needed (ZB §3) |
+| Fuses | F1 20 A at the starter battery, 10 A per pack, F7 20 A and F12 15 A (MIDI/ANL class) at the bank | full table: ZB §8.1 |
 
-Four to six sealed lead-acid 12 V 5 Ah batteries wired in parallel form
-the always-on bus. Using five is the sweet spot (25 Ah pack, ~17 days
-parked-car standby at 60 mA Domain A draw). Six (30 Ah) gives ~21 days;
-four (20 Ah) is still comfortably ~14 days.
-
-```
-Car 12V (ACC)  ──[30 A fuse]──┬──[Schottky diode MBR2045]──┐
-                              │                            │
-                              │                            ▼
-                              │             ┌────────────────────────────┐
-                              │             │  CC-CV charge controller   │
-                              │             │  DC-DC buck, ~15-20 A max  │
-                              │             │  14.4 V absorb / 13.8 V    │
-                              │             │  float (3-stage SLA)       │
-                              │             └────────────┬───────────────┘
-                              │                          │
-                              │            ┌─────────────▼──────────────┐
-                              │            │  Battery buffer bus (12 V) │
-                              │            │  4-6 × SLA 5 Ah parallel   │
-                              │            │  (per-battery 10 A fuses)  │
-                              │            └────────────┬───────────────┘
-                              │                         │
-                              │                  ┌──────┴───────┐
-                              │                  │  LVD 11.0 V  │
-                              │                  │  cutoff      │
-                              │                  └──────┬───────┘
-                              │                         │
-                              │           ┌─────────────┼─────────────────┐
-                              │           │             │                 │
-                              ▼           ▼             ▼                 ▼
-                       ┌─────────────┐ ┌──────────┐ ┌──────────────┐ ┌────────────────┐
-                       │ Ignition    │ │ 12→5 V   │ │ 12→5 V buck  │ │ 9-ch relay     │
-                       │ relay       │ │ buck     │ │ for Nano Vin │ │ module (12 V   │
-                       │ (closes on  │ │ for      │ │ + HM-10 +    │ │ coil, switches │
-                       │ ACC, opens  │ │ display  │ │ RXB6         │ │ via Nano)      │
-                       │ on park)    │ │ panels   │ │              │ │                │
-                       └──────┬──────┘ └──────────┘ └──────────────┘ └────────────────┘
-                              │
-                       ┌──────┴──────┐
-                       │ 12→20 V     │
-                       │ boost       │
-                       │ (XL6019)    │
-                       └──────┬──────┘
-                              │
-                              ▼
-                       M910q barrel jack
-                       + powered USB hub (Domain B)
-```
-
-**Component selection notes:**
-
-- **Schottky diode (MBR2045):** prevents the buffer bus from
-  backfeeding the car battery when the engine is off. 20 A / 45 V is
-  oversize but cheap; do not substitute a regular silicon diode (the
-  0.6 V drop bleeds energy).
-- **CC-CV charge controller (XL4016 / DPS3020 / similar, 15-20 A):**
-  the alternator can push 120 A into a depleted bus through the
-  Schottky diode in a fraction of a second, well past what 5 Ah SLA
-  packs tolerate (~1 C = 5 A per pack, or 25 A across 5 packs *as
-  bulk-charge ceiling*). A CC-CV DC-DC module sits between the diode
-  and the bus, limiting bulk-charge current to ~15-20 A and switching
-  to constant-voltage at 14.4 V (absorb) then dropping to 13.8 V
-  (float). Without this, expect Schottky failure, cell venting, and
-  ~6-12 month SLA life instead of years. ~30-50 PLN for an XL4016
-  module; a proper automotive B2B charger (Redarc BCDC, Sterling
-  B2B, Victron Orion-Tr Smart) is ~600-1500 PLN if you want it
-  bullet-proof.
-- **LVD (low-voltage disconnect) module:** set to 11.0 V cutoff for
-  SLA. AGM has gentler discharge curves than flooded; 10.5 V works
-  too but 11.0 V leaves more headroom for the Domain A bus to keep
-  driving the Nano cleanly. ~10-15 PLN.
-- **Per-battery fusing:** each 5 Ah battery gets its own 10 A
-  in-line fuse on the positive terminal before joining the bus. If
-  one cell shorts you only lose that pack, not the bus.
-- **Buck converters:** LM2596 modules are fine for the Nano feed
-  (~100 mA peak). For the displays' 5 V rail, use a DC-DC with at
-  least 3 A capacity (mini-MP1584 or similar).
-- **12 V → 20 V boost (XL6019, ~15-30 PLN):** unchanged — still
-  feeds the M910q's 65 W barrel jack. On Domain B only — when
-  ignition relay opens, the boost goes dark and the M910q sees a
-  clean power-loss event.
+The charge voltages above (14.40 V absorption; 13.5–13.8 V is the
+catalogue float range) are correct for this AGM series. The catalogue
+charge-current ceiling is 2.1 A per pack (14.7 A for seven); the binding
+limit is the charging path, not the cells.
 
 ### 2.3 Standby budget
 
-| Pack size | Total capacity | Domain A draw | Safe parked time before LVD |
-|-----------|---------------|---------------|-----------------------------|
-| 4 batteries | 20 Ah | 60 mA | ~14 days |
-| 5 batteries | 25 Ah | 60 mA | ~17 days |
-| 6 batteries | 30 Ah | 60 mA | ~21 days |
+| State | Draw from the bank | 35.7 Ah bank, to 50 % DoD |
+|-------|--------------------|---------------------------|
+| Running | ≈ 4–6 A (5 A assumed) | ~3.6 h with the engine off |
+| S3 | 200–460 mA + step-up idle current | 1.6–3.7 days (without idle current) |
+| Off (5 s pulse) | 50–150 mA + step-up idle current | 5.0–14.9 days (without idle current) |
 
-> **Historical — superseded.** These figures are full discharges, not the
-> 50 % DoD the caption claims, and the bank has seven packs (35.7 Ah), not
-> four to six. The "~5 Ah/week halves the standby figures" line below is
-> wrong too, and was wrong at any pack count: 5 Ah/week is ~29.8 mA of
-> equivalent draw, so at an 80 mA base it shortens standby to
-> 80/(80+29.8) = **73 %**, not 50 %. Current table and the corrected RTC
-> figure: [`ZASILANIE_BUFOROWANE.md`](ZASILANIE_BUFOROWANE.md) §9.2 and §9.3.
-
-(60 mA = Nano ~25 mA + HM-10 idle ~15 mA + RXB6 idle ~5 mA + relay
-quiescent ~10 mA + buck losses ~5 mA. Discharge limited to 50 % DoD
-to preserve cycle life on SLA.)
-
-If you also want the M910q to RTC-wake every 15 min for cloud tracking
-(see § 9 Suspend/Wake), budget another ~5 Ah/week → halves the standby
-figures above. For long parking, disable RTC wakes from the BCM UI.
+The step-up's own idle current is not published by sellers and has to be
+measured (ZB §3.4); until then the times above are an upper bound. Full
+tables, including the LVD module's self-draw: ZB §9.2. Earlier revisions of
+this section quoted "~17 days" — that was a full discharge, not 50 % DoD
+(ZB §13.3).
 
 ---
 

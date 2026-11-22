@@ -46,7 +46,7 @@
 </style>
 <rect class="bg" x="0" y="0" width="1660" height="2210"/>
 <text class="ttl" x="40" y="44">PCB zasilania buforowanego — schemat ideowy dwóch płytek</text>
-<text class="sub" x="40" y="68">Płytka A: tor ładowania (K1, ładowarka izolowana, XH-M603 w torze). Płytka B: dystrybucja szyny za S1 (F8–F11, dzielnik pomiaru banku). Oznaczenia i numery przewodów zgodne z §10 SCHEMATY_POLACZEN.md.</text>
+<text class="sub" x="40" y="68">Płytka A: tor ładowania — strona pojazdu (D5, C1, K1) i dwa wyjścia na 2 × XY-SK120. Płytka B: dystrybucja szyny za LVD (F8–F11, dzielnik pomiaru banku). Oznaczenia i numery przewodów zgodne z §10 SCHEMATY_POLACZEN.md.</text>
 <rect class="sectb" x="40" y="102" width="26" height="26"/>
 <text class="sn" x="53" y="121">A</text>
 <text class="sec" x="78" y="122">PŁYTKA A — TOR ŁADOWANIA (100 × 75 mm, jednostronna)</text>
@@ -78,7 +78,7 @@
 <line class="w" x1="140" y1="250" x2="178" y2="250"/>
 <line class="w" x1="178" y1="250" x2="188" y2="250"/>
 <text class="rc" x="159" y="233">F1</text>
-<text class="vc" x="159" y="277">15 A</text>
+<text class="vc" x="159" y="277">20 A</text>
 <text class="vc" x="159" y="292">≤ 30 cm od klemy</text>
 <line class="w" x1="188" y1="250" x2="250" y2="250"/>
 <rect class="wnb" x="204" y="225" width="24" height="18"/>
@@ -96,7 +96,7 @@
 <path class="sym" d="M 286 294 L 286 300 L 314 300 L 314 306"/>
 <line class="w" x1="300" y1="318" x2="300" y2="332"/>
 <text class="r" x="322" y="286">D5</text>
-<text class="v" x="322" y="301">1.5KE33CA</text>
+<text class="v" x="322" y="301">SMCJ20CA</text>
 <line class="w" x1="300" y1="332" x2="300" y2="350"/>
 <line class="w" x1="360" y1="296" x2="360" y2="316"/>
 <line class="sym" x1="343" y1="316" x2="377" y2="316"/>
@@ -127,56 +127,133 @@
 <text class="pin" x="414" y="272">30</text>
 <text class="pine" x="482" y="272">87</text>
 <text class="vc" x="448" y="218">T90 · wlutowany</text>
+<line class="w" x1="496" y1="250" x2="520" y2="250"/>
 <circle class="symf" cx="520" cy="250" r="3.8"/>
 <line class="w" x1="520" y1="250" x2="1010" y2="250"/>
-<text class="vc" x="660" y="228">bez diody blokującej —</text>
-<text class="vc" x="660" y="244">izolacja w M1 zastępuje MBR2545CT</text>
+<text class="vc" x="700" y="228">bez diody blokującej — XY-SK120</text>
+<text class="vc" x="700" y="244">to buck-boost (ZB §5.1, §5.4)</text>
 <circle class="term" cx="1010" cy="250" r="7"/>
 <text class="te" x="994" y="255"></text>
 <text class="pine" x="996" y="236">X2.1</text>
-<rect class="wnb" x="1058" y="224" width="24" height="18"/>
-<text class="wn" x="1070" y="238">6</text>
-<rect class="blkc" x="1150" y="158" width="250" height="236"/>
-<text class="mref" x="1275.0" y="183">M1</text>
-<text class="mname" x="1275.0" y="202">ŁADOWARKA IZOLOWANA</text>
-<text class="vc" x="1275.0" y="220">DC-DC B2B · CV 14,40 V / CC 8,0 A</text>
-<line class="w" x1="1132" y1="250" x2="1150" y2="250"/>
-<text class="pin" x="1160" y="255">IN +</text>
-<line class="w" x1="1132" y1="286" x2="1150" y2="286"/>
-<text class="pin" x="1160" y="291">IN −</text>
-<line class="w" x1="1132" y1="322" x2="1150" y2="322"/>
-<text class="pin" x="1160" y="327">OUT +</text>
-<line class="w" x1="1132" y1="358" x2="1150" y2="358"/>
-<text class="pin" x="1160" y="363">OUT −</text>
-<line class="wd" x1="1150" y1="304.0" x2="1400" y2="304.0"/>
-<text class="vc" x="1275" y="296.0">izolacja galwaniczna</text>
-<line class="w" x1="1010" y1="250" x2="1132" y2="250"/>
-<circle class="term" cx="1010" cy="286" r="7"/>
-<text class="te" x="994" y="291"></text>
-<text class="pine" x="996" y="272">X2.2</text>
-<line class="w" x1="1132" y1="286" x2="1010" y2="286"/>
-<line class="w" x1="1010" y1="286" x2="920" y2="286"/>
-<line class="w" x1="920" y1="286" x2="920" y2="720"/>
-<circle class="term" cx="1084" cy="322" r="7"/>
-<text class="te" x="1068" y="327"></text>
-<text class="pine" x="1070" y="308">L1.1</text>
-<line class="w" x1="1132" y1="322" x2="1084" y2="322"/>
-<circle class="term" cx="1084" cy="358" r="7"/>
-<text class="te" x="1068" y="363"></text>
-<text class="pine" x="1070" y="382">L1.2</text>
-<line class="w" x1="1132" y1="358" x2="1084" y2="358"/>
-<line class="w" x1="1084" y1="358" x2="1050" y2="358"/>
-<line class="w" x1="1050" y1="358" x2="1050" y2="690"/>
-<line class="w" x1="1084" y1="322" x2="1064" y2="322"/>
-<line class="w" x1="1064" y1="322" x2="1064" y2="472"/>
-<line class="w" x1="1064" y1="472" x2="1084" y2="472"/>
+<circle class="symf" cx="940" cy="250" r="3.8"/>
+<line class="w" x1="940" y1="250" x2="940" y2="532"/>
+<line class="w" x1="940" y1="532" x2="1010" y2="532"/>
+<circle class="term" cx="1010" cy="532" r="7"/>
+<text class="te" x="994" y="537"></text>
+<text class="pine" x="996" y="518">X2.2</text>
+<rect class="blkc" x="1060" y="170" width="170" height="170"/>
+<text class="mref" x="1145.0" y="195">M1a</text>
+<text class="mname" x="1145.0" y="214">XY-SK120 #1</text>
+<text class="vc" x="1145.0" y="232">CV 14,40 V · CC 5,0 A</text>
+<line class="w" x1="1042" y1="262" x2="1060" y2="262"/>
+<text class="pin" x="1070" y="267">IN +</text>
+<line class="w" x1="1042" y1="298" x2="1060" y2="298"/>
+<text class="pin" x="1070" y="303">IN −</text>
+<line class="w" x1="1230" y1="262" x2="1248" y2="262"/>
+<text class="pine" x="1220" y="267">OUT +</text>
+<line class="w" x1="1230" y1="298" x2="1248" y2="298"/>
+<text class="pine" x="1220" y="303">OUT −</text>
+<rect class="blkr" x="1290" y="170" width="150" height="170"/>
+<text class="mref" x="1365.0" y="195">M2a</text>
+<text class="mname" x="1365.0" y="214">XH-M603 #1</text>
+<text class="vc" x="1365.0" y="232">15,30 / 14,00 V</text>
+<line class="w" x1="1272" y1="262" x2="1290" y2="262"/>
+<text class="pin" x="1300" y="267">DC-IN +</text>
+<line class="w" x1="1272" y1="298" x2="1290" y2="298"/>
+<text class="pin" x="1300" y="303">DC-IN −</text>
+<line class="w" x1="1440" y1="262" x2="1458" y2="262"/>
+<text class="pine" x="1430" y="267">OUT +</text>
+<line class="w" x1="1010" y1="250" x2="1026" y2="250"/>
+<line class="w" x1="1026" y1="250" x2="1026" y2="262"/>
+<line class="w" x1="1026" y1="262" x2="1042" y2="262"/>
+<rect class="wnb" x="1014" y="224" width="24" height="18"/>
+<text class="wn" x="1026" y="238">5</text>
+<line class="w" x1="1248" y1="262" x2="1272" y2="262"/>
+<line class="wg" x1="1042" y1="298" x2="1042" y2="372"/>
+<line class="wg" x1="1248" y1="298" x2="1272" y2="298"/>
+<circle class="symf" cx="1260" cy="298" r="3.8"/>
+<line class="wg" x1="1260" y1="298" x2="1260" y2="372"/>
+<line class="wg" x1="1042" y1="372" x2="1260" y2="372"/>
+<line class="w" x1="1160" y1="372" x2="1160" y2="384"/>
+<line class="wg" x1="1142" y1="384" x2="1178" y2="384"/>
+<line class="wg" x1="1149" y1="391" x2="1171" y2="391"/>
+<line class="wg" x1="1156" y1="398" x2="1164" y2="398"/>
+<text class="gl" x="1160" y="414">punkt masy przy banku</text>
+<line class="w" x1="1458" y1="262" x2="1470" y2="262"/>
+<line class="w" x1="1470" y1="262" x2="1480" y2="262"/>
+<rect class="sym" x="1480" y="253" width="38" height="18" fill="#fff"/>
+<line class="w" x1="1480" y1="262" x2="1518" y2="262"/>
+<line class="w" x1="1518" y1="262" x2="1528" y2="262"/>
+<text class="rc" x="1499" y="245">FC1</text>
+<text class="vc" x="1499" y="289">7,5 A</text>
+<line class="w" x1="1528" y1="262" x2="1570" y2="262"/>
+<rect class="blkc" x="1060" y="440" width="170" height="170"/>
+<text class="mref" x="1145.0" y="465">M1b</text>
+<text class="mname" x="1145.0" y="484">XY-SK120 #2</text>
+<text class="vc" x="1145.0" y="502">CV 14,40 V · CC 5,0 A</text>
+<line class="w" x1="1042" y1="532" x2="1060" y2="532"/>
+<text class="pin" x="1070" y="537">IN +</text>
+<line class="w" x1="1042" y1="568" x2="1060" y2="568"/>
+<text class="pin" x="1070" y="573">IN −</text>
+<line class="w" x1="1230" y1="532" x2="1248" y2="532"/>
+<text class="pine" x="1220" y="537">OUT +</text>
+<line class="w" x1="1230" y1="568" x2="1248" y2="568"/>
+<text class="pine" x="1220" y="573">OUT −</text>
+<rect class="blkr" x="1290" y="440" width="150" height="170"/>
+<text class="mref" x="1365.0" y="465">M2b</text>
+<text class="mname" x="1365.0" y="484">XH-M603 #2</text>
+<text class="vc" x="1365.0" y="502">15,30 / 14,00 V</text>
+<line class="w" x1="1272" y1="532" x2="1290" y2="532"/>
+<text class="pin" x="1300" y="537">DC-IN +</text>
+<line class="w" x1="1272" y1="568" x2="1290" y2="568"/>
+<text class="pin" x="1300" y="573">DC-IN −</text>
+<line class="w" x1="1440" y1="532" x2="1458" y2="532"/>
+<text class="pine" x="1430" y="537">OUT +</text>
+<line class="w" x1="1010" y1="532" x2="1026" y2="532"/>
+<line class="w" x1="1026" y1="532" x2="1026" y2="532"/>
+<line class="w" x1="1026" y1="532" x2="1042" y2="532"/>
+<rect class="wnb" x="1014" y="506" width="24" height="18"/>
+<text class="wn" x="1026" y="520">5a</text>
+<line class="w" x1="1248" y1="532" x2="1272" y2="532"/>
+<line class="wg" x1="1042" y1="568" x2="1042" y2="642"/>
+<line class="wg" x1="1248" y1="568" x2="1272" y2="568"/>
+<circle class="symf" cx="1260" cy="568" r="3.8"/>
+<line class="wg" x1="1260" y1="568" x2="1260" y2="642"/>
+<line class="wg" x1="1042" y1="642" x2="1260" y2="642"/>
+<line class="w" x1="1160" y1="642" x2="1160" y2="654"/>
+<line class="wg" x1="1142" y1="654" x2="1178" y2="654"/>
+<line class="wg" x1="1149" y1="661" x2="1171" y2="661"/>
+<line class="wg" x1="1156" y1="668" x2="1164" y2="668"/>
+<text class="gl" x="1160" y="684">punkt masy przy banku</text>
+<line class="w" x1="1458" y1="532" x2="1470" y2="532"/>
+<line class="w" x1="1470" y1="532" x2="1480" y2="532"/>
+<rect class="sym" x="1480" y="523" width="38" height="18" fill="#fff"/>
+<line class="w" x1="1480" y1="532" x2="1518" y2="532"/>
+<line class="w" x1="1518" y1="532" x2="1528" y2="532"/>
+<text class="rc" x="1499" y="515">FC2</text>
+<text class="vc" x="1499" y="559">7,5 A</text>
+<line class="w" x1="1528" y1="532" x2="1570" y2="532"/>
+<circle class="symf" cx="1570" cy="532" r="3.8"/>
+<line class="w" x1="1570" y1="262" x2="1570" y2="600"/>
+<line class="w" x1="1570" y1="600" x2="1570" y2="610"/>
+<rect class="sym" x="1561" y="610" width="18" height="38" fill="#fff"/>
+<line class="w" x1="1570" y1="610" x2="1570" y2="648"/>
+<line class="w" x1="1570" y1="648" x2="1570" y2="658"/>
+<text class="re" x="1555" y="626">F12</text>
+<text class="ve" x="1555" y="641">15 A</text>
+<line class="w" x1="1570" y1="658" x2="1570" y2="690"/>
+<line class="w" x1="1570" y1="690" x2="1600" y2="690"/>
+<rect class="wnb" x="1558" y="666" width="24" height="18"/>
+<text class="wn" x="1570" y="680">B</text>
+<text class="te" x="1640" y="714">4 mm² → BLOK L+ BANKU</text>
+<text class="ve" x="1640" y="730">F12: MIDI/ANL ≥ 2,5 kA, przy bloku</text>
 <circle class="term" cx="250" cy="580" r="7"/>
 <text class="te" x="234" y="585"></text>
-<text class="pin" x="262" y="566">X6.1 ZAPŁON / ACC</text>
+<text class="pin" x="262" y="566">X6.1 ZAPŁON / D+</text>
 <rect class="wnb" x="204" y="555" width="24" height="18"/>
 <text class="wn" x="216" y="569">4</text>
 <line class="w" x1="190" y1="580" x2="250" y2="580"/>
-<text class="te" x="164" y="584">z linii ACC</text>
+<text class="te" x="164" y="584">zapłon przez FK 1 A</text>
 <text class="ve" x="164" y="600">(albo D+ alternatora)</text>
 <line class="w" x1="250" y1="580" x2="438" y2="580"/>
 <circle class="symf" cx="376" cy="580" r="3.8"/>
@@ -202,51 +279,9 @@
 <line class="w" x1="290" y1="624" x2="250" y2="624"/>
 <circle class="term" cx="250" cy="624" r="7"/>
 <text class="te" x="234" y="629"></text>
-<text class="pin" x="262" y="644">X6.2 ACC dalej</text>
-<text class="v" x="470" y="540">X6.2 = przelot ACC dalej</text>
-<text class="v" x="470" y="556">(PC817 przy Arduino, REM wzmacniacza)</text>
-<rect class="blkr" x="1150" y="380" width="250" height="214"/>
-<text class="mref" x="1275.0" y="405">M2</text>
-<text class="mname" x="1275.0" y="424">XH-M603</text>
-<text class="vc" x="1275.0" y="442">rozłącznik nadnapięciowy · rozwarcie 15,30 V</text>
-<line class="w" x1="1132" y1="472" x2="1150" y2="472"/>
-<text class="pin" x="1160" y="477">DC-IN +</text>
-<line class="w" x1="1132" y1="508" x2="1150" y2="508"/>
-<text class="pin" x="1160" y="513">DC-IN −</text>
-<line class="w" x1="1132" y1="544" x2="1150" y2="544"/>
-<text class="pin" x="1160" y="549">OUT +</text>
-<circle class="term" cx="1084" cy="472" r="7"/>
-<text class="te" x="1068" y="477"></text>
-<text class="pine" x="1070" y="458">L1.3</text>
-<line class="w" x1="1084" y1="472" x2="1132" y2="472"/>
-<text class="wn" x="1140" y="462">7a″</text>
-<circle class="term" cx="1084" cy="508" r="7"/>
-<text class="te" x="1068" y="513"></text>
-<text class="pine" x="1070" y="494">L1.2</text>
-<line class="w" x1="1084" y1="508" x2="1132" y2="508"/>
-<text class="wn" x="1140" y="498">7b</text>
-<line class="w" x1="1050" y1="508" x2="1084" y2="508"/>
-<circle class="symf" cx="1050" cy="508" r="3.8"/>
-<circle class="term" cx="1084" cy="544" r="7"/>
-<text class="te" x="1068" y="549"></text>
-<text class="pine" x="1070" y="530">L1.4</text>
-<line class="w" x1="1132" y1="544" x2="1084" y2="544"/>
-<text class="wn" x="1140" y="534">7d″</text>
-<circle class="term" cx="1084" cy="580" r="7"/>
-<text class="te" x="1068" y="585"></text>
-<text class="pine" x="1070" y="566">L1.5</text>
-<line class="w" x1="1084" y1="544" x2="1064" y2="544"/>
-<line class="w" x1="1064" y1="544" x2="1064" y2="580"/>
-<line class="w" x1="1064" y1="580" x2="1084" y2="580"/>
-<line class="w" x1="1084" y1="580" x2="1120" y2="580"/>
-<line class="w" x1="1120" y1="580" x2="1120" y2="690"/>
-<line class="w" x1="1120" y1="690" x2="1142" y2="690"/>
-<rect class="wnb" x="1124" y="658" width="24" height="18"/>
-<text class="wn" x="1136" y="672">7</text>
-<text class="tb" x="1152" y="686">przewód 7 → SZYNA „+” BANKU</text>
-<text class="v" x="1152" y="702">(7 × HR1221W = 35,7 Ah, wkładki FB1…FB7)</text>
-<text class="v" x="1152" y="718">uwaga: bank wychodzi z L1.5 (+) i L1.6 (−) —</text>
-<text class="v" x="1152" y="734">bez M2 zewrzyj L1.3 z L1.4 drutem</text>
+<text class="pin" x="262" y="644">X6.2 przelot dalej</text>
+<text class="v" x="470" y="540">X6.2 = przelot tylko przy X6.1 z zapłonu/ACC</text>
+<text class="v" x="470" y="556">(przy D+: wolny — PC817 i REM z zapłonu osobno)</text>
 <line class="wg" x1="300" y1="720" x2="930" y2="720"/>
 <text class="gl" x="560" y="688">POLE MASY PŁYTKI A</text>
 <text class="gl" x="560" y="704">(dolny pas miedzi)</text>
@@ -254,7 +289,7 @@
 <circle class="term" cx="520" cy="740" r="10"/>
 <circle class="symf" cx="520" cy="740" r="3"/>
 <text class="tb" x="540" y="736">GND — śruba M4, oczko 6 mm²</text>
-<text class="v" x="540" y="752">jedyna masa płytki → punkt gwiazdowy</text>
+<text class="v" x="540" y="752">jedyna masa płytki → punkt masy przy banku</text>
 <line class="wg" x1="520" y1="750" x2="520" y2="788"/>
 <line class="wg" x1="520" y1="788" x2="300" y2="788"/>
 <line class="wg" x1="300" y1="788" x2="300" y2="802"/>
@@ -263,47 +298,33 @@
 <line class="wg" x1="289" y1="821" x2="311" y2="821"/>
 <line class="wg" x1="296" y1="828" x2="304" y2="828"/>
 <text class="gl" x="300" y="844">gwiazda</text>
-<circle class="symf" cx="1050" cy="690" r="3.8"/>
-<circle class="term" cx="1084" cy="726" r="7"/>
-<text class="te" x="1068" y="731"></text>
-<text class="pine" x="1070" y="746">L1.6</text>
-<line class="wg" x1="1050" y1="690" x2="1050" y2="726"/>
-<line class="wg" x1="1050" y1="726" x2="1084" y2="726"/>
-<rect class="brd" x="1040" y="300" width="88" height="452" fill="none"/>
-<text class="brdl" x="1044" y="276">LISTWA L1</text>
-<text class="v" x="560" y="816">Masa pojazdu i masa banku spotykają się TYLKO w aucie, w jednym punkcie —</text>
-<text class="v" x="560" y="832">na płytce nie wolno ich zewrzeć, bo znika cały zysk z izolacji.</text>
+<text class="v" x="560" y="816">XY-SK120 nie ma izolacji (masa wejścia = masa wyjścia). Masy obu ładowarek, obu XH-M603 i płytki schodzą się w JEDNYM</text>
+<text class="v" x="560" y="832">punkcie masy przy banku (ZB §5.6, §8.3) — bez osobnego przewodu masy do klemy „−” akumulatora rozruchowego.</text>
 <rect class="sectb" x="40" y="880" width="26" height="26"/>
 <text class="sn" x="53" y="899">B</text>
 <text class="sec" x="78" y="900">PŁYTKA B — DYSTRYBUCJA SZYNY BUFOROWANEJ (100 × 60 mm, jednostronna)</text>
 <rect class="brd" x="250" y="936" width="930" height="356"/>
 <text class="brdl" x="262" y="926">PŁYTKA B</text>
-<rect class="blkc" x="40" y="970" width="96" height="60"/>
-<text class="lbb" x="88" y="994">SZYNA „+”</text>
-<text class="vc" x="88" y="1012">banku</text>
-<line class="w" x1="136" y1="1000" x2="148" y2="1000"/>
-<rect class="wnb" x="130" y="973" width="24" height="18"/>
-<text class="wn" x="142" y="987">8</text>
-<line class="w" x1="140" y1="1000" x2="150" y2="1000"/>
-<rect class="sym" x="150" y="991" width="38" height="18" fill="#fff"/>
-<line class="w" x1="150" y1="1000" x2="188" y2="1000"/>
-<line class="w" x1="188" y1="1000" x2="198" y2="1000"/>
-<text class="rc" x="169" y="983">F7</text>
-<text class="vc" x="169" y="1027">15 A</text>
-<rect class="blkr" x="202" y="974" width="60" height="52"/>
-<text class="rc" x="232" y="996">M3</text>
-<text class="vc" x="232" y="1014">LVD</text>
-<line class="w" x1="262" y1="1000" x2="272" y2="1000"/>
-<line class="w" x1="272" y1="1000" x2="286" y2="1000"/>
-<circle class="sym" cx="290" cy="1000" r="4.5" fill="#fff"/>
-<line class="w" x1="293" y1="997" x2="346" y2="974"/>
-<circle class="sym" cx="350" cy="1000" r="4.5" fill="#fff"/>
-<line class="w" x1="354" y1="1000" x2="368" y2="1000"/>
-<text class="rc" x="320" y="962">S1</text>
-<text class="vc" x="320" y="1026">wyłącznik główny</text>
-<line class="w" x1="368" y1="1000" x2="250" y2="1000"/>
-<rect class="wnb" x="374" y="975" width="24" height="18"/>
-<text class="wn" x="386" y="989">11</text>
+<rect class="blkc" x="20" y="970" width="80" height="60"/>
+<text class="lbb" x="60" y="994">BLOK L+</text>
+<text class="vc" x="60" y="1012">banku</text>
+<line class="w" x1="100" y1="1000" x2="106" y2="1000"/>
+<rect class="wnb" x="91" y="950" width="24" height="18"/>
+<text class="wn" x="103" y="964">8</text>
+<line class="w" x1="106" y1="1000" x2="116" y2="1000"/>
+<rect class="sym" x="116" y="991" width="38" height="18" fill="#fff"/>
+<line class="w" x1="116" y1="1000" x2="154" y2="1000"/>
+<line class="w" x1="154" y1="1000" x2="164" y2="1000"/>
+<text class="rc" x="135" y="983">F7</text>
+<text class="vc" x="135" y="1027">20 A</text>
+<text class="vc" x="135" y="1043">MIDI/ANL</text>
+<rect class="blkr" x="168" y="974" width="60" height="52"/>
+<text class="rc" x="198" y="996">M3</text>
+<text class="vc" x="198" y="1014">LVD</text>
+<line class="w" x1="228" y1="1000" x2="250" y2="1000"/>
+<rect class="wnb" x="227" y="1014" width="24" height="18"/>
+<text class="wn" x="239" y="1028">10</text>
+<text class="v" x="20" y="1066">S1 = rozłącznik masy (P−)</text>
 <circle class="term" cx="250" cy="1000" r="7"/>
 <text class="te" x="234" y="1005"></text>
 <text class="pin" x="262" y="986">X8.1 SZYNA+</text>
@@ -314,15 +335,15 @@
 <line class="w" x1="380" y1="1010" x2="380" y2="1048"/>
 <line class="w" x1="380" y1="1048" x2="380" y2="1058"/>
 <text class="r" x="395" y="1026">F8</text>
-<text class="v" x="395" y="1041">7,5 / 10 A</text>
+<text class="v" x="395" y="1041">10 A</text>
 <line class="w" x1="380" y1="1058" x2="380" y2="1252"/>
 <circle class="term" cx="380" cy="1252" r="7"/>
 <text class="te" x="364" y="1257"></text>
 <text class="pin" x="392" y="1248">X9</text>
 <line class="w" x1="380" y1="1262" x2="380" y2="1310"/>
 <rect class="blkm" x="288" y="1310" width="184" height="62"/>
-<text class="mname" x="380" y="1332">M4 · PRZETWORNICA 19,5 V</text>
-<text class="vc" x="380" y="1350">XL6019 (45 W) albo „1500 W 30 A” CC-CV</text>
+<text class="mname" x="380" y="1332">M4 · STEP-UP 12 → 20 V</text>
+<text class="vc" x="380" y="1350">zalewany, 10 A / 200 W (ZB §3)</text>
 <text class="vc" x="380" y="1366">→ wtyk M910q, bezp. 5 A w linii</text>
 <circle class="symf" cx="600" cy="1000" r="3.8"/>
 <line class="w" x1="600" y1="1000" x2="600" y2="1010"/>
@@ -370,8 +391,7 @@
 <line class="w" x1="960" y1="1262" x2="960" y2="1310"/>
 <rect class="blkm" x="868" y="1310" width="184" height="62"/>
 <text class="mname" x="960" y="1332">AUX 12 V</text>
-<text class="vc" x="960" y="1350">rezerwa: moduł przekaźników,</text>
-<text class="vc" x="960" y="1366">wentylator radiatora</text>
+<text class="vc" x="960" y="1350">rezerwa: moduł przekaźników</text>
 <circle class="symf" cx="1096" cy="1000" r="3.8"/>
 <line class="w" x1="1096" y1="1000" x2="1096" y2="1010"/>
 <rect class="sym" x="1086" y="1010" width="20" height="34" fill="#fff"/>
@@ -423,53 +443,48 @@
 <text class="nh" x="60" y="1500">PŁYTKA A</text>
 <text class="nt" x="240" y="1500"></text>
 <text class="tb" x="60" y="1524">X1.1 / X1.2</text>
-<text class="nt" x="240" y="1524">„+” z F1 15 A (przewód 2) · masa do punktu gwiazdowego</text>
+<text class="nt" x="240" y="1524">„+” z F1 20 A (przewód 2, 6 mm²) · masa (opcjonalna)</text>
 <text class="tb" x="60" y="1548">X2.1 / X2.2</text>
-<text class="nt" x="240" y="1548">M1 IN+ / IN− — wejście ładowarki, strona pojazdu (przewód 6)</text>
-<text class="tb" x="60" y="1572">L1.1 … L1.6</text>
-<text class="nt" x="240" y="1572">listwa PRZY BANKU, strona izolowana: L1.1 M1 OUT+ · L1.2 M1 OUT− i M2 DC-IN− · L1.3 M2 DC-IN+ · L1.4 M2 OUT+ · L1.5 szyna „+” banku · L1.6 masa banku (4 mm²)</text>
+<text class="nt" x="240" y="1548">K1:87 → IN+ XY-SK120 #1 / #2 (przewody 5 i 5a, 2,5 mm²)</text>
+<text class="tb" x="60" y="1572">poza płytką</text>
+<text class="nt" x="240" y="1572">XY-SK120 → XH-M603 → FC1/FC2 7,5 A → złączenie → F12 15 A → L+</text>
 <text class="tb" x="60" y="1596">X6.1 / X6.2</text>
-<text class="nt" x="240" y="1596">zapłon / ACC (przewód 4) · przelot ACC dalej (PC817, REM)</text>
+<text class="nt" x="240" y="1596">zapłon albo D+ przez FK 1 A (przewód 4) · przelot tylko przy zapłonie</text>
 <text class="tb" x="60" y="1620">GND M4</text>
-<text class="nt" x="240" y="1620">oczko 6 mm² → punkt gwiazdowy masy</text>
+<text class="nt" x="240" y="1620">oczko 6 mm² → punkt masy przy banku</text>
 <text class="nh" x="880" y="1500">PŁYTKA B</text>
 <text class="nt" x="1040" y="1500"></text>
 <text class="tb" x="880" y="1524">X8.1 / X8.2</text>
-<text class="nt" x="1040" y="1524">szyna za S1 (przewód 11) · masa → punkt gwiazdowy</text>
+<text class="nt" x="1040" y="1524">XH-M609 VOUT+ (przewód 10) · masa → punkt masy</text>
 <text class="tb" x="880" y="1548">X9</text>
-<text class="nt" x="1040" y="1548">przetwornica 19,5 V IN+ (za F8)</text>
+<text class="nt" x="1040" y="1548">step-up 20 V IN+ (za F8 10 A, przewód 11, 4 mm²)</text>
 <text class="tb" x="880" y="1572">X10</text>
 <text class="nt" x="1040" y="1572">LM2596 IN+ (za F9, przewód 13)</text>
 <text class="tb" x="880" y="1596">X11</text>
-<text class="nt" x="1040" y="1596">MP1584 IN+ (za F10)</text>
+<text class="nt" x="1040" y="1596">MP1584 IN+ (za F10 3 A, przewód 13a)</text>
 <text class="tb" x="880" y="1620">X12</text>
-<text class="nt" x="1040" y="1620">AUX 12 V (za F11) — moduł przekaźników / wentylator</text>
+<text class="nt" x="1040" y="1620">AUX 12 V (za F11) — moduł przekaźników</text>
 <text class="tb" x="880" y="1644">J1.1 / J1.2</text>
 <text class="nt" x="1040" y="1644">V_BANK → ADC sensor-huba · GND sygnałowa</text>
-<rect class="note" x="40" y="1720" width="1580" height="372"/>
-<text class="nh" x="60" y="1748">XH-M603 pracuje W TORZE ładowania (IN+ → OUT+), nie jako pilot przekaźnika K2 — zmiana wobec §6.3.</text>
-<text class="nt" x="78" y="1766">Zweryfikowane działanie modułu: przekaźnik siedzi wewnętrznie między DC-IN+ a OUT+, a pomiar napięcia jest po stronie OUT (akumulatora). W układzie</text>
-<text class="nt" x="78" y="1784">„pilot + K2” po zadziałaniu OUT spada do zera przez cewkę i moduł natychmiast zwiera z powrotem — oscylacja niszczy styki. W torze działa zgodnie z</text>
-<text class="nt" x="78" y="1802">przeznaczeniem: przy CC 8,0 A (nastawa dla banku siedmiu pakietów, §5.3) płytka modułu pracuje na 80 % swojej obciążalności — bez komfortowego</text>
-<text class="nt" x="78" y="1820">zapasu; wyżej trzeba modułu z wolnym stykiem i przekaźnika K2. Moduł mierzy wprost napięcie banku. Zasilanie ma z toru ładowania, więc na postoju</text>
-<text class="nt" x="78" y="1838">pobór wynosi zero. Progi: rozwarcie 15,30 V, powrót 14,00 V.</text>
-<text class="nh" x="60" y="1868">Ładowarka jest IZOLOWANA — stąd dwie masy na płytce A.</text>
-<text class="nt" x="78" y="1886">M1 to gotowa ładowarka DC-DC typu battery-to-battery z transformatorem, a nie moduł boost. Wejście (masa pojazdu) i wyjście (masa banku) nie mają</text>
-<text class="nt" x="78" y="1904">wspólnego potencjału, więc prąd ładowania i tętnienia alternatora nie płyną wspólnym powrotem z prądem odbiorników — bank zostaje jedynym źródłem dla</text>
-<text class="nt" x="78" y="1922">szyny buforowanej. Konsekwencje na płytce: (1) odpada dioda D1 MBR2545CT wraz z radiatorem, bo izolacja sama blokuje przepływ wsteczny — mniej o 4,4</text>
-<text class="nt" x="78" y="1940">W strat; (2) pole masy płytki (X1.2, D5, C1, cewka K1, M1 IN−) NIE MOŻE stykać się z wyspą masy banku (X3.2, X5.2, X3.3) — prześwit minimum 4 mm,</text>
-<text class="nt" x="78" y="1958">żadnej przelotki ani zworki; (3) masa banku dochodzi do nadwozia w JEDNYM punkcie w aucie, nie na płytce. Zwarcie obu mas na płytce nie uszkodzi</text>
-<text class="nt" x="78" y="1976">niczego, ale kasuje cały zysk z izolacji.</text>
-<text class="nh" x="60" y="2006">Budowa etapami.</text>
-<text class="nt" x="78" y="2024">Zanim kupisz M2 (XH-M603), zewrzyj L1.3 z L1.4 kawałkiem przewodu w listwie — tor ładowania działa bez warstwy nadnapięciowej. Tak samo można zacząć</text>
-<text class="nt" x="78" y="2042">bez M1: ładowanie pomijasz, a płytka B i bank pracują.</text>
-<text class="nh" x="60" y="2072">Czego celowo NIE ma na płytkach.</text>
-<text class="nt" x="78" y="2090">K2, D7 i JP1 (patrz wyżej — pilot odpada), X4 (bank wychodzi z X5.4), REM wzmacniacza (bierz z przelotu ACC X6.2), drugi TVS, kondensator na szynie</text>
-<text class="nt" x="78" y="2108">za LVD (bank to bufor), NTC rozruchowy (tylko przy czkawce XL6019 — w linii, poza płytką), kompensacja temperaturowa (wariant B świadomie bez niej),</text>
-<text class="nt" x="78" y="2126">C6 470 µF na wyjściu przetwornicy 19,5 V (moduł „1500 W 30 A” ma własne kondensatory).</text>
-<text class="nh" x="60" y="2156">Masy.</text>
-<text class="nt" x="78" y="2174">Każda płytka ma jeden odpływ masy do punktu gwiazdowego (A: śruba M4 w polu masy, B: X8.2). Otwory montażowe są odizolowane — tulejki/słupki</text>
-<text class="nt" x="78" y="2192">nylonowe, żeby nie zrobić drugiej drogi masy przez karoserię.</text>
-<text class="nh" x="40" y="2140">Nastawy: M1 CV 14,40 V / CC 8,0 A · M2 rozwarcie 15,30 V, powrót 14,00 V · M3 (XH-M609) 11,00 / 12,60 V · przetwornica 19,5 V pod obciążeniem.</text>
+<rect class="note" x="40" y="1720" width="1580" height="392"/>
+<text class="nh" x="60" y="1748">Dwie XY-SK120 równolegle, każda z własnym XH-M603 (ZB §5.2–§5.4, §6.3).</text>
+<text class="nt" x="78" y="1766">Każda ładowarka: CV 14,40 V, CC 5,0 A — razem ok. 10 A, netto do banku ok. 5 A przy obciążeniu 4–6 A; jedna sztuka ledwo pokryłaby same odbiorniki.</text>
+<text class="nt" x="78" y="1784">XH-M603 pracuje W TORZE (DC-IN+ → OUT+): przekaźnik ma wewnątrz, a napięcie mierzy po stronie OUT, więc nie nadaje się na pilota osobnego przekaźnika</text>
+<text class="nt" x="78" y="1802">mocy (oscylacja). Płytka modułu realnie ok. 8 A (oszacowanie, nie karta) — stąd jeden moduł na ładowarkę, każdy niesie 5 A. FC1/FC2 7,5 A przy OUT+</text>
+<text class="nt" x="78" y="1820">chronią płytki od strony banku. Progi: 15,30 / 14,00 V.</text>
+<text class="nh" x="60" y="1850">Bez izolacji galwanicznej — jedna masa, bez diody blokującej.</text>
+<text class="nt" x="78" y="1868">XY-SK120 ma wspólną masę wejścia i wyjścia. Płytka A ma jedno pole masy; masy ładowarek i XH-M603 idą prosto do punktu masy przy banku. Dawnej diody</text>
+<text class="nt" x="78" y="1886">MBR2545CT nie ma: buck-boost nie potrzebuje wejścia wyższego od CV, a bank od instalacji auta na postoju odcina rozwarty K1. Czy XH-M603 bez</text>
+<text class="nt" x="78" y="1904">zasilania rozwiera przekaźnik i nie bierze prądu z banku — to przyjęcie do sprawdzenia testem ZB §6.4 pkt 6.</text>
+<text class="nh" x="60" y="1934">Prąd przez płytkę A i budowa etapami.</text>
+<text class="nt" x="78" y="1952">Dwie ładowarki biorą z instalacji 11,9–13,0 A (ZB §5.4): stąd F1 20 A i ścieżki AKU/CHGIN wzmocnione drutem 2,5 mm². Płytka B i bank pracują bez</text>
+<text class="nt" x="78" y="1970">płytki A (ładowanie pominięte); ładowarek bez XH-M603 nie podłączaj do banku w aucie — to jedyna warstwa nadnapięciowa.</text>
+<text class="nh" x="60" y="2000">Czego celowo NIE ma na płytkach.</text>
+<text class="nt" x="78" y="2018">XH-M603, FC1/FC2 i ładowarek (moduły i oprawki inline przy banku), F7/F12 (MIDI/ANL ≥ 2,5 kA przy bloku L+), drugiego TVS, kondensatora na szynie</text>
+<text class="nt" x="78" y="2036">(bank to bufor), NTC i 470 µF na wyjściu step-upu (tylko przy czkawce, ZB §3.2b — w linii), kompensacji temperaturowej (sezonowa zmiana CV, ZB §5.5).</text>
+<text class="nh" x="60" y="2066">Masy.</text>
+<text class="nt" x="78" y="2084">Każda płytka ma jeden odpływ masy do punktu masy (A: śruba M4, B: X8.2). Otwory montażowe są odizolowane — słupki nylonowe, żeby nie zrobić drugiej</text>
+<text class="nt" x="78" y="2102">drogi masy przez karoserię.</text>
+<text class="nh" x="40" y="2140">Nastawy: M1a/M1b CV 14,40 V / CC 5,0 A · M2a/M2b 15,30 / 14,00 V · M3 (XH-M609) 11,00 / 12,60 V · step-up 20 V (bez regulacji, ZB §3.4).</text>
 <text class="nt" x="40" y="2164">Montaż i trawienie: docs/PCB_ZASILANIE.md · mozaika: pcb_power_etch.svg · rozmieszczenie: pcb_power_layout.svg</text>
 </svg>
