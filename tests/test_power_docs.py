@@ -41,6 +41,12 @@ MD_FILES = sorted(p for p in (REPO / "docs").glob("*.md") if p != ZB) + [
 PY_FILES = [
     REPO / "schematics" / "gen_pcb_power.py",
     REPO / "schematics" / "gen_test_schematics.py",
+    REPO / "schematics" / "gen_charging_lvd.py",
+    REPO / "schematics" / "gen_power_domains_m910q.py",
+    REPO / "schematics" / "gen_wiring_power_modules.py",
+    REPO / "schematics" / "gen_power_test_build.py",
+    REPO / "schematics" / "gen_schematic_test_build.py",
+    REPO / "schematics" / "gen_wiring_test_build.py",
 ]
 
 #: Retired hardware and claims of the superseded design.
@@ -223,11 +229,13 @@ def test_hand_drawn_svgs_show_current_design(path):
 
 def test_svgs_embedded_in_zb_are_checked():
     """A drawing shown inline in ZB (``![…](…svg)``) reads as current, so it
-    must be on SVG_FILES; old sheets are linked with a "poprzedni wariant"
-    note instead of embedded."""
+    must be on SVG_FILES (or REDRAWN_SVGS in test_power_sheets.py)."""
     embedded = re.findall(r"!\[[^\]]*\]\((\.\./schematics/[^)]+\.svg)\)",
                           ZB.read_text(encoding="utf-8"))
-    checked = {p.resolve() for p in SVG_FILES}
+    redrawn = [REPO / "schematics" / f"{name}.svg" for name in (
+        "charging_lvd", "power_domains_m910q", "wiring_power_modules",
+        "power_test_build", "schematic_test_build", "wiring_test_build")]
+    checked = {p.resolve() for p in [*SVG_FILES, *redrawn]}
     bad = [e for e in embedded if (ZB.parent / e).resolve() not in checked]
     assert not bad, f"ZB osadza rysunek spoza SVG_FILES: {bad}"
 
@@ -242,17 +250,21 @@ def test_no_series_ntc_on_step_up_output():
     assert not bad, f"NTC szeregowo na wyjściu step-upu: {bad}"
 
 
-def test_assembly_order_skips_stale_sheets():
-    """The installer's reading order must not send anyone to an old sheet
-    for settings or wiring without the "do not use" mark."""
-    text = (REPO / "schematics" / "README.md").read_text(encoding="utf-8")
-    m = re.search(r"## Kolejność czytania przy montażu\n(.*?)\n## ", text, re.S)
-    assert m, "brak sekcji „Kolejność czytania przy montażu”"
-    for item in re.split(r"\n(?=\d+\. )", m.group(1)):
-        for sheet in ("power_domains_m910q.svg", "charging_lvd.svg",
-                      "wiring_power_modules.svg"):
-            if sheet in item:
-                assert "nie używaj" in item, f"{sheet} w kolejności montażu bez ostrzeżenia"
+def test_no_sheet_marked_for_redraw():
+    """All power sheets were redrawn for the current design (22.11.2026).
+    A leftover "do przerysowania" / "poprzedni wariant" next to a sheet name
+    would send the reader to the documents instead of a valid drawing."""
+    stale = re.compile(r"do\s+przerysowania|czeka\w*\s+na\s+przerysowanie"
+                       r"|poprzedni\s+wariant\s+—\s+do", re.I)
+    files = [REPO / "schematics" / "README.md", ZB, REPO / "DEVELOPMENT_PLAN.md",
+             REPO / "docs" / "SCHEMATY_POLACZEN.md",
+             REPO / "docs" / "WDROZENIE_TESTOWE.md",
+             REPO / "docs" / "PCB_ZASILANIE.md"]
+    bad = [f"{p.relative_to(REPO)}:{no}"
+           for p in files
+           for no, line in enumerate(p.read_text(encoding="utf-8").splitlines(), 1)
+           if stale.search(line)]
+    assert not bad, f"rysunek oznaczony jako do przerysowania: {bad}"
 
 
 # ---------------------------------------------------------------- §-refs

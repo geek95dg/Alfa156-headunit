@@ -6,16 +6,17 @@ XY-SK120, blokada przeładowania, ochrona przed głębokim rozładowaniem,
 sterowanie stanem komputera i zalewana przetwornica step-up 12 → 20 V.
 
 **Schematy blokowe:** [`../schematics/power_buffered_m910q.svg`](../schematics/power_buffered_m910q.svg) ·
-[`../schematics/charging_lvd.svg`](../schematics/charging_lvd.svg) (poprzedni wariant) ·
-[`../schematics/power_domains_m910q.svg`](../schematics/power_domains_m910q.svg) (poprzedni wariant)
+[`../schematics/charging_lvd.svg`](../schematics/charging_lvd.svg) ·
+[`../schematics/power_domains_m910q.svg`](../schematics/power_domains_m910q.svg)
 
-> **Rysunki ręczne jeszcze w poprzednim wariancie.** Sześć ręcznie
-> rysowanych SVG — `charging_lvd`, `power_domains_m910q`,
-> `wiring_power_modules`, `power_test_build`, `schematic_test_build`,
-> `wiring_test_build` — pokazuje jeszcze poprzedni wariant (XL6019, boost
-> z diodą MBR2545CT, F1/F7 15 A, bank pod fotelem) i czeka na przerysowanie;
-> pliki PNG w `schematics/png/` też są sprzed zmiany. Przy każdej
-> rozbieżności obowiązuje ten dokument.
+> **Rysunki zgodne z tym dokumentem (22.11.2026).** Wszystkie arkusze
+> zasilania — `charging_lvd`, `power_domains_m910q`, `wiring_power_modules`,
+> `power_test_build`, `schematic_test_build`, `wiring_test_build` — są
+> przerysowane pod bieżący projekt i powstają z generatorów `gen_*.py`;
+> pliki PNG w `schematics/png/` są wyrenderowane z bieżących SVG, a mozaika
+> miedzi PCB ma plik do druku na laminat 600 dpi
+> (`schematics/png/pcb_power_etch_600dpi.png`). Przy każdej rozbieżności
+> obowiązuje ten dokument.
 
 **Projekt koszy na bank (stal, 4 + 3 szt.):** [`mechanika/kosze_HR1221W_4+3.pdf`](mechanika/kosze_HR1221W_4+3.pdf) — streszczenie w §4.7
 
@@ -66,7 +67,7 @@ pusty.
 ## 2. Architektura — jedna szyna, trzy stany maszyny
 
 Rysunek: [`../schematics/power_domains_m910q.svg`](../schematics/power_domains_m910q.svg)
-(poprzedni wariant — do przerysowania; obowiązuje tekst §2)
+(przy rozbieżności obowiązuje tekst §2)
 
 Wszystko wisi na **jednej szynie buforowanej** za LVD i wyłącznikiem
 głównym. Zapłon nie odcina już żadnego odbiornika — jest wyłącznie
@@ -678,8 +679,7 @@ problemem są wibracje i bliskość stali:
 
 Rysunki: [`../schematics/wiring_power_modules.svg`](../schematics/wiring_power_modules.svg)
 (zacisk po zacisku) oraz [`../schematics/power_buffered_m910q.svg`](../schematics/power_buffered_m910q.svg)
-(tor główny) — do czasu przegenerowania mogą pokazywać listwy (uwaga na
-początku dokumentu).
+(tor główny) — oba pokazują bank na lince z blokami zbiorczymi.
 
 ### 4.4 AGM — nastawy ładowania
 
@@ -932,7 +932,7 @@ foteli i pasów. Przewody i przekroje tej trasy — §8a.2.
 ## 5. Ładowanie — 2 × XY-SK120
 
 Rysunek: [`../schematics/charging_lvd.svg`](../schematics/charging_lvd.svg)
-(poprzedni wariant — do przerysowania; obowiązuje tekst §5)
+(przy rozbieżności obowiązuje tekst §5)
 
 ### 5.1 Dlaczego zwykły buck DC-DC tu nie zadziała
 
@@ -1627,8 +1627,11 @@ jest pomijalny (dawniej 3 m i dyskusja 2,5 vs 4 mm²).
 ### 8.3 Masa
 
 - **jeden punkt masy** dla całego head unitu — gwiazda, nie łańcuszek —
-  **w bagażniku przy banku**: blok P− (albo osobny blok masowy tuż obok,
-  spięty z P− krótkim 6 mm²) i z niego **jeden** przewód 6 mm² do karoserii,
+  **w bagażniku przy banku**: osobny blok masowy tuż obok banku, połączony
+  z P− **wyłącznie przez rozłącznik S1** (przewód 17, 6 mm²) — bez
+  bezpośredniego mostka P− → blok i bez mas wylądowanych na P−, bo każda
+  taka droga omija S1 (tak samo SCHEMATY_POLACZEN.md, rozdz. 7 — „Masy”);
+  z bloku **jeden** przewód 6 mm² do karoserii,
 - śruba do gołego metalu nadwozia, powierzchnia oczyszczona ze szpachli
   i lakieru, po dokręceniu zabezpieczona wazeliną techniczną — **nie** w
   podłodze nad zbiornikiem (§4.7); użyj istniejącego punktu masy w bagażniku
@@ -2388,7 +2391,7 @@ albo decyzji właściciela.
 | 13 | **Wiek i pochodzenie pakietów** | Rozrzut rezystancji ±10 % daje ~13 % rozrzutu prądów — więcej niż cała geometria połączeń na lince. Zmierz rezystancję mostkiem, nie tylko napięcie spoczynkowe | §4.3, §11 Etap 2 |
 | 14 | **Siedem czy osiem pakietów** | Kosze z PDF-u są na 4 + 3; ósmy pakiet wymagałby zmiany kosza prawego. Zapas jednego pakietu i tak nie pozwala wymienić kompletu (§4.2) | §4.2, §9.2 |
 | 15 | **Skąd zasilać wyświetlacz 1,8" na ESP32** | Przy 35,7 Ah wariant „z szyny buforowanej" mieści się w budżecie (postój 5,3–3,0 zamiast 9,3–4,0 dnia), ale wymaga dopisania panelu do §9.1 i odgałęzienia w §8.2. Wariant „+15" jest prostszy, lecz kłóci się z §2 | [`WYSWIETLACZ_ESP32_1V8.md`](WYSWIETLACZ_ESP32_1V8.md) |
-| 16 | **Rysunki ręczne i PNG w poprzednim wariancie** | Sześć ręcznie rysowanych SVG (`charging_lvd`, `power_domains_m910q`, `wiring_power_modules`, `power_test_build`, `schematic_test_build`, `wiring_test_build`) pokazuje jeszcze XL6019, boost z MBR2545CT, F1/F7 15 A i bank pod fotelem; `charging_lvd.svg` dodatkowo CC 8 A, kompensację temperaturową i szynę Cu. Martwe odsyłacze w nich: `power_domains_m910q.svg` (`§5.3c` — dziś §5.4), `schematic_test_build.svg` (`§5.3b` — dziś §5.5). PNG w `schematics/png/` nie są przegenerowane (`render_png.py` wymaga `cairosvg`). Dokumenty Markdown są już zgodne. Obowiązuje ten dokument | nagłówek, [`../schematics/README.md`](../schematics/README.md) |
+| 16 | **Rysunki i PNG — przerysowane 22.11.2026** | Wszystkie arkusze zasilania pokazują bieżący projekt i powstają z generatorów; PNG wyrenderowane na nowo (`render_png.py --check` → „aktualny”), mozaika miedzi do druku 600 dpi w `schematics/png/pcb_power_etch_600dpi.png`. Punkt zamknięty — zostaje dla ciągłości numeracji. Przy rozbieżności obowiązuje ten dokument | nagłówek, [`../schematics/README.md`](../schematics/README.md) |
 | 17 | **Prąd jałowy przetwornicy step-up 20 V (I_jał)** | Zalewane moduły go nie podają, a przetwornica wisi na szynie w S3 i po wyłączeniu. Pomiary S3 i stanu wyłączonego z §2.1 pochodzą z poprzedniej przetwornicy XL6019 — nowy moduł dokłada nieznany prąd do każdego wiersza budżetu postoju | §3.4, §9.1, §9.2, §11 Etap 6 |
 
 Dwie rzeczy, które trzeba wiedzieć o samych liczbach:

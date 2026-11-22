@@ -129,9 +129,9 @@ wzmacniacza).
 Rysunki [`power_test_build.svg`](../schematics/power_test_build.svg),
 [`schematic_test_build.svg`](../schematics/schematic_test_build.svg) i
 [`wiring_test_build.svg`](../schematics/wiring_test_build.svg) pokazują
-jeszcze **poprzedni** tor (boost z diodą, XL6019, szyny z płaskownika)
-i czekają na przerysowanie — przy rozbieżności obowiązuje ten rozdział
-i tabele [`SCHEMATY_POLACZEN.md`](SCHEMATY_POLACZEN.md) §10.
+ten sam tor (przegląd blokowy, skrócony schemat ideowy, połączenia zacisk
+po zacisku) — przy rozbieżności obowiązuje ten rozdział i tabele
+[`SCHEMATY_POLACZEN.md`](SCHEMATY_POLACZEN.md) §10.
 
 ```
 akumulator rozruchowy

@@ -13,8 +13,10 @@ Uruchomienie (z katalogu głównego repo):
     python3 schematics/render_png.py --scale 1.5         # lżejsze pliki
     python3 schematics/render_png.py --check             # czy PNG są aktualne (CI)
     python3 schematics/render_png.py --list              # co wchodzi do kompletu
+    python3 schematics/render_png.py --print             # tylko mozaika miedzi 600 dpi
 
 Wynik ląduje w ``schematics/png/`` pod tą samą nazwą co źródło.
+Wyjątek: mozaika miedzi do druku, ``pcb_power_etch_600dpi.png`` (niżej).
 
 Dlaczego skala 2,0 (a nie 1,0 ani 3,0)
 --------------------------------------
@@ -27,17 +29,44 @@ na powiększenie. Skala 2,0 robi z tych 9 px 18 px, a z 10,5 px 21 px:
 napis czyta się bez mrużenia oczu przy oglądaniu 1:1 i zostaje margines
 na przybliżenie, a kreski 1,5–2,8 px nie gubią się w zaokrągleniu do
 piksela. Największy arkusz
-(1660 × 2210 px) daje przy tej skali 3320 × 4420 px i ok. 0,8 MB —
+(1640 × 2680 px, ``wiring_power_modules.svg``) daje przy tej skali
+3280 × 5360 px i ok. 1,3 MB —
 z zapasem pod przyjęty limit 2 MB. Skala 3,0 kosztuje +60 % objętości
 i nie dokłada nic, czego nie widać już przy 2,0, bo źródło jest
 wektorowe i nie ma w nim detalu poniżej piksela.
 
 Arkusze w milimetrach (montażówka i mozaika miedzi PCB, A4 210 × 297 mm)
 przelicza cairosvg po 96 dpi, więc skala 2,0 daje w ich przypadku
-192 dpi. To wystarcza na podgląd, ale **nie do trawienia**: mozaikę
-drukuj wyłącznie z SVG w skali 100 % i sprawdź linijkę kontrolną 50 mm.
-Dlatego oba arkusze 1:1 są poza domyślnym kompletem — trzeba je wskazać
-z nazwy albo użyć ``--all``.
+192 dpi i PNG bez zapisanej rozdzielczości — to tylko podgląd, **nie do
+trawienia**. Dlatego oba arkusze 1:1 w tej postaci są poza domyślnym
+kompletem — trzeba je wskazać z nazwy albo użyć ``--all``.
+
+Mozaika miedzi do druku: ``pcb_power_etch_600dpi.png``
+--------------------------------------------------------
+Osobny plik do laserowego wydruku na papier do termotransferu. Źródłem
+prawdy zostaje ``pcb_power_etch.svg``; ten PNG jest jego równorzędną
+kopią 1:1 dla drukarek i komputerów, które SVG skalują po swojemu:
+
+* 600 dpi, A4 (4961 × 7016 px), rozdzielczość zapisana w pliku (chunk
+  pHYs) — program, który ją honoruje, drukuje rozmiar rzeczywisty,
+* miedź czysto czarna (#000) na białym tle, skala szarości; reszta
+  arkusza (opisy, szary widok kontrolny) zostaje do orientacji,
+* orientacja jak w SVG: widok od strony elementów, napisy „BCM-A/B”
+  na papierze **lustrzane** — po przyłożeniu tonerem do miedzi czytają
+  się poprawnie. Niczego nie odbijaj w sterowniku drukarki.
+
+Druk: skala **100 % / „rzeczywisty rozmiar”**, wyłączone „dopasuj do
+strony” i marginesy „bez obramowania”; po wydruku zmierz linijkę
+kontrolną — 50 mm ±0,5. Bez tej kontroli nie traw.
+
+Podgląd arkusza 1:1, który już jest w ``png/`` (dziś
+``pcb_power_layout.png``), domyślny przebieg też odświeża, a ``--check``
+sprawdza — nowego podglądu sam nie tworzy.
+
+Plik powstaje w domyślnym przebiegu, z ``--all`` i z ``--print``
+(tylko on); ``--check`` sprawdza go jak każdy inny. ``--scale`` go nie
+dotyczy — rozdzielczość jest stała. Wymaga Pillow (jest w
+requirements-x86.txt) do zapisu skali szarości i pHYs.
 
 Powtarzalność: cairosvg nie zapisuje w PNG ani znacznika czasu, ani
 niczego innego, co zmieniałoby się między przebiegami — dwa uruchomienia
@@ -45,7 +74,8 @@ na tym samym SVG dają bajtowo identyczny plik (``md5sum``). Warunkiem
 jest obecność fontu DejaVu Sans, tego samego, którym schematy są
 opisane; bez niego cairo podstawi inny krój i napisy zmienią metryki.
 
-Zależności: cairosvg (pip install cairosvg).
+Zależności: cairosvg (pip install cairosvg); dla mozaiki 600 dpi także
+Pillow.
 """
 
 import argparse
@@ -89,6 +119,15 @@ PRINT_SHEETS = (
     "pcb_power_layout.svg",
     "pcb_power_etch.svg",
 )
+
+# Mozaika miedzi do druku na papier transferowy — patrz docstring.
+ETCH_SVG = "pcb_power_etch.svg"
+ETCH_PRINT_PNG = "pcb_power_etch_600dpi.png"
+PRINT_DPI = 600
+# Kolory miedzi w arkuszu z gen_pcb_power.py (#111 — ciemny, ale nie
+# czarny, żeby na ekranie odróżniał się od opisów) → czysta czerń w druku.
+# Jasny widok kontrolny (#d8dde2) i opisy zostają bez zmian.
+COPPER_COLORS = ("#111111", '"#111"')
 
 SCALE = 2.0          # patrz uzasadnienie w docstringu
 MAX_MB = 2.0         # próg ostrzeżenia o rozmiarze pliku
@@ -140,6 +179,33 @@ def render(src, scale):
     return cairosvg.svg2png(url=src, scale=scale, background_color=BACKGROUND)
 
 
+def render_etch_print(src):
+    """Mozaika miedzi 1:1 do druku: 600 dpi, pHYs, czarna miedź, skala szarości.
+
+    Zwraca bajty PNG. Deterministyczne: Pillow nie zapisuje daty ani
+    metadanych poza pHYs, a wejście (SVG + DejaVu) jest stałe.
+    """
+    try:
+        from PIL import Image
+    except ImportError:                                       # pragma: no cover
+        sys.exit("Mozaika 600 dpi wymaga Pillow: pip install Pillow")
+    import io
+
+    with open(src, encoding="utf-8") as fh:
+        svg = fh.read()
+    for color in COPPER_COLORS:
+        if color not in svg:
+            sys.exit(f"{ETCH_SVG}: brak koloru miedzi {color} — zmienił się "
+                     "gen_pcb_power.py, popraw COPPER_COLORS w render_png.py")
+        svg = svg.replace(color, color.replace("1", "0"))
+    raw = cairosvg.svg2png(bytestring=svg.encode("utf-8"), dpi=PRINT_DPI,
+                           background_color=BACKGROUND)
+    img = Image.open(io.BytesIO(raw)).convert("L")
+    out = io.BytesIO()
+    img.save(out, format="PNG", dpi=(PRINT_DPI, PRINT_DPI), optimize=True)
+    return out.getvalue()
+
+
 def png_size(blob):
     """Wymiary z nagłówka IHDR — bez wciągania Pillow tylko dla dwóch liczb."""
     return int.from_bytes(blob[16:20], "big"), int.from_bytes(blob[20:24], "big")
@@ -163,15 +229,21 @@ def main():
                     help="nie zapisuj — tylko sprawdź, czy PNG w repo są aktualne")
     ap.add_argument("--list", action="store_true",
                     help="wypisz, co wchodzi do domyślnego kompletu, i zakończ")
+    ap.add_argument("--print", dest="etch_print", action="store_true",
+                    help=f"tylko mozaika miedzi do druku ({ETCH_PRINT_PNG}, "
+                         f"{PRINT_DPI} dpi)")
     args = ap.parse_args()
 
     if args.list:
         print("Komplet zasilania (domyślny):")
         for name in POWER_SHEETS:
             print(f"  {name}")
-        print("\nArkusze 1:1 — tylko z nazwy albo --all (druk wyłącznie z SVG):")
+        print("\nArkusze 1:1 jako podgląd 192 dpi — z nazwy albo --all"
+              " (podgląd już obecny w png/ odświeża i sprawdza też domyślny przebieg):")
         for name in PRINT_SHEETS:
             print(f"  {name}")
+        print(f"\nDruk mozaiki miedzi (domyślnie, --all, --print):\n"
+              f"  {ETCH_PRINT_PNG}  ← {ETCH_SVG}, {PRINT_DPI} dpi, skala 100 %")
         return
 
     if args.scale <= 0:
@@ -180,14 +252,36 @@ def main():
         print("uwaga: brak fontu DejaVu Sans — cairo podstawi inny krój "
               "i napisy rozjadą się wobec SVG", file=sys.stderr)
 
-    sheets = resolve(args.svg, args.all)
+    if args.etch_print:
+        if args.svg or args.all:
+            sys.exit("--print nie łączy się z nazwami plików ani z --all.")
+        sheets = []
+    else:
+        sheets = resolve(args.svg, args.all)
+        if not args.svg and not args.all:
+            # Podgląd arkusza 1:1, który już leży w png/ (np. pcb_power_layout.png),
+            # też trzymamy w ryzach — domyślny przebieg go odświeża, a --check
+            # pilnuje, żeby nie zestarzał się po cichu wobec SVG.
+            for name in PRINT_SHEETS:
+                src = os.path.join(SRC_DIR, name)
+                if (os.path.exists(src)
+                        and os.path.exists(os.path.join(args.out_dir, name[:-4] + ".png"))):
+                    sheets.append((name, src))
+    # (nazwa wyświetlana, źródło SVG, plik wynikowy, funkcja renderu)
+    jobs = [(name, src, name[:-4] + ".png", lambda s: render(s, args.scale))
+            for name, src in sheets]
+    etch_src = os.path.join(SRC_DIR, ETCH_SVG)
+    if (args.etch_print or not args.svg) and os.path.exists(etch_src):
+        jobs.append((ETCH_PRINT_PNG, etch_src, ETCH_PRINT_PNG, render_etch_print))
+    elif args.etch_print:
+        sys.exit(f"Nie ma {ETCH_SVG} — uruchom schematics/gen_pcb_power.py.")
     if not args.check:
         os.makedirs(args.out_dir, exist_ok=True)
 
     stale, oversize = [], []
-    for name, src in sheets:
-        dst = os.path.join(args.out_dir, name[:-4] + ".png")
-        blob = render(src, args.scale)
+    for name, src, out_name, render_fn in jobs:
+        dst = os.path.join(args.out_dir, out_name)
+        blob = render_fn(src)
         width, height = png_size(blob)
         mb = len(blob) / 1e6
 

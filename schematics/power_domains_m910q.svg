@@ -1,147 +1,352 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="1180" height="900" viewBox="0 0 1180 900" font-family="DejaVu Sans, Verdana, sans-serif">
+<svg xmlns="http://www.w3.org/2000/svg" width="1400" height="1330" viewBox="0 0 1400 1330" font-family="DejaVu Sans, Verdana, sans-serif">
   <title>BCM v8.5 — rozdział odbiorników, bezpieczniki i budżet poboru w trzech stanach (M910q)</title>
-  <style>
-    .bg   { fill: #ffffff; }
-    .box  { fill: #f7f9fb; stroke: #2b3a45; stroke-width: 2; rx: 6; }
-    .boxA { fill: #eef7ee; stroke: #2d6a2d; stroke-width: 2; rx: 6; }
-    .boxB { fill: #eef2fa; stroke: #2b4a8a; stroke-width: 2; rx: 6; }
-    .boxC { fill: #fbeff1; stroke: #97324a; stroke-width: 2; rx: 6; }
-    .wire { stroke: #c0392b; stroke-width: 3; fill: none; }
-    .wA   { stroke: #2d6a2d; stroke-width: 2.5; fill: none; }
-    .wB   { stroke: #2b4a8a; stroke-width: 2.5; fill: none; }
-    .ttl  { font-size: 19px; font-weight: bold; fill: #10202b; }
-    .sub  { font-size: 12px; fill: #5a6b78; }
-    .h    { font-size: 13px; font-weight: bold; fill: #10202b; text-anchor: middle; }
-    .t    { font-size: 11px; fill: #33424e; text-anchor: middle; }
-    .tl   { font-size: 11px; fill: #33424e; }
-    .tb   { font-size: 11px; font-weight: bold; fill: #10202b; }
-    .note { font-size: 10.5px; fill: #6a7a86; }
-    .fuse { font-size: 10.5px; font-weight: bold; fill: #a8321a; text-anchor: middle; }
-  </style>
-
-  <rect class="bg" x="0" y="0" width="1180" height="900"/>
-  <text class="ttl" x="24" y="32">Rozdział odbiorników, bezpieczniki i budżet poboru</text>
-  <text class="sub" x="24" y="52">Jedna szyna buforowana — zapłon nie odcina niczego. Stan komputera zmienia impuls z Arduino na styki przycisku zasilania.</text>
-  <line x1="24" y1="62" x2="1156" y2="62" stroke="#c8d2da" stroke-width="1.5"/>
-
-  <!-- BUS -->
-  <rect class="box" x="360" y="86" width="460" height="62"/>
-  <text class="h" x="590" y="110">Szyna buforowana 12 V — za XH-M609 i wyłącznikiem głównym</text>
-  <text class="t" x="590" y="132">bank 7 × CSB HR1221W · 35,7 Ah · 12,6 kg · listwa dystrybucyjna</text>
-
-  <path class="wire" d="M590 148 L590 180"/>
-  <path class="wire" d="M240 180 L940 180"/>
-  <path class="wA" d="M240 180 L240 218"/>
-  <path class="wB" d="M940 180 L940 218"/>
-  <circle cx="590" cy="180" r="4" fill="#c0392b"/>
-
-  <!-- ============ LOGIC ============ -->
-  <text class="tb" x="70" y="208" fill="#2d6a2d" font-size="14">LOGIKA I I/O POJAZDU — pobór stały</text>
-  <rect class="boxA" x="60" y="218" width="420" height="300"/>
-
-  <text class="fuse" x="240" y="240">bezpiecznik odgałęzienia 3 A</text>
-
-  <rect class="box" x="86" y="252" width="170" height="58"/>
-  <text class="h" x="171" y="274">Buck 12 → 5 V</text>
-  <text class="t" x="171" y="292">LM2596, min. 1 A</text>
-  <text class="t" x="171" y="306">zasilanie logiki</text>
-
-  <rect class="box" x="288" y="252" width="170" height="58"/>
-  <text class="h" x="373" y="274">Zasilanie 12 V</text>
-  <text class="t" x="373" y="292">wprost z szyny</text>
-  <text class="t" x="373" y="306">cewki przekaźników</text>
-
-  <path class="wA" d="M240 240 L240 252"/>
-  <path class="wA" d="M171 310 L171 338"/>
-  <path class="wA" d="M373 310 L373 338"/>
-
-  <rect class="box" x="86" y="338" width="170" height="128"/>
-  <text class="h" x="171" y="360">Odbiorniki 5 V</text>
-  <text class="tl" x="98" y="382">Arduino Nano #1</text>
-  <text class="tl" x="98" y="400">Arduino Nano #2</text>
-  <text class="tl" x="98" y="418">HM-10 BLE</text>
-  <text class="tl" x="98" y="436">RXB6 433 MHz</text>
-  <text class="t" x="171" y="458">razem ~50 mA</text>
-
-  <rect class="box" x="288" y="338" width="170" height="128"/>
-  <text class="h" x="373" y="360">Odbiorniki 12 V</text>
-  <text class="tl" x="300" y="382">moduł 9 przekaźników</text>
-  <text class="tl" x="300" y="400">— 4 szyby × 2 kierunki</text>
-  <text class="tl" x="300" y="418">— zamek bagażnika</text>
-  <text class="t" x="373" y="442">spoczynkowo ~10 mA</text>
-  <text class="t" x="373" y="458">(cewki tylko chwilowo)</text>
-
-  <text class="tb" x="270" y="492" text-anchor="middle">Pobór stały: ~60 mA (0,7 W)</text>
-  <text class="note" x="270" y="510" text-anchor="middle">niezależnie od tego, czy komputer pracuje, śpi czy jest wyłączony</text>
-
-  <!-- ============ COMPUTER ============ -->
-  <text class="tb" x="700" y="208" fill="#2b4a8a" font-size="14">KOMPUTER I OBRAZ — zasilane stale</text>
-  <rect class="boxB" x="700" y="218" width="420" height="300"/>
-
-  <rect class="box" x="726" y="252" width="188" height="88"/>
-  <text class="fuse" x="786" y="244">7,5 A</text>
-  <text class="h" x="820" y="274">XL6019 12 → 19,5 V</text>
-  <text class="t" x="820" y="292">ok. 45 W ciągle</text>
-  <text class="t" x="820" y="310">→ M910q (limit CPU 28 W)</text>
-  <text class="t" x="820" y="328">→ hub USB zasilany</text>
-
-  <rect class="box" x="932" y="252" width="162" height="88"/>
-  <text class="fuse" x="1054" y="244">3 A</text>
-  <text class="h" x="1013" y="274">Buck 12 → 5 V</text>
-  <text class="t" x="1013" y="292">MP1584, min. 3 A</text>
-  <text class="t" x="1013" y="310">→ panele wyświetlaczy</text>
-  <text class="t" x="1013" y="328">→ podświetlenie PWM</text>
-
-  <path class="wB" d="M940 218 L940 236"/>
-  <path class="wB" d="M820 236 L1013 236"/>
-  <path class="wB" d="M820 236 L820 252"/>
-  <path class="wB" d="M1013 236 L1013 252"/>
-  <path class="wB" d="M820 340 L820 366"/>
-  <path class="wB" d="M1013 340 L1013 366"/>
-
-  <rect class="box" x="726" y="366" width="188" height="70"/>
-  <text class="tl" x="738" y="386">M910q · 19 V · 10–55 W</text>
-  <text class="tl" x="738" y="404">hub USB 7-portowy</text>
-  <text class="tl" x="738" y="422">Pro Micro, GPS, LTE, mikrofon</text>
-
-  <rect class="box" x="932" y="366" width="162" height="70"/>
-  <text class="tl" x="944" y="386">wyświetlacz 10,1"</text>
-  <text class="tl" x="944" y="404">wyświetlacz 6,86" (opc.)</text>
-  <text class="tl" x="944" y="422">DAC USB, graber AHD</text>
-
-  <text class="tb" x="910" y="464" text-anchor="middle">Zapłon niczego tu nie odcina — zmienia tylko stan maszyny</text>
-  <text class="note" x="910" y="484" text-anchor="middle">kluczyk → Arduino → impuls na przycisk → S3 / wybudzenie / wyłączenie</text>
-  <text class="note" x="910" y="502" text-anchor="middle">szczegóły: ignition_sense.svg</text>
-
-  <!-- ============ AMP ============ -->
-  <text class="tb" x="70" y="562" fill="#97324a" font-size="14">GAŁĄŹ NIEZALEŻNA — wzmacniacze</text>
-  <rect class="boxC" x="60" y="572" width="420" height="112"/>
-  <text class="t" x="270" y="596">Prosto z akumulatora rozruchowego, z pominięciem banku buforowego</text>
-  <text class="tl" x="80" y="618">• bezpiecznik wg karty wzmacniacza, przy klemie „+”, przewód 6 mm²</text>
-  <text class="tl" x="80" y="638">• gotowy wzmacniacz samochodowy 4-kanałowy (nie DIY)</text>
-  <text class="tl" x="80" y="658">• REM wprost z linii zapłonu · masa lokalna, przy wzmacniaczu</text>
-  <text class="note" x="80" y="676">Szczyty 20–30 A (0,6–0,8 C) zjadłyby połowę banku w godzinę.</text>
-
-  <!-- ============ BUDGET ============ -->
-  <rect x="700" y="536" width="420" height="234" fill="#fbfcfd" stroke="#c8d2da" stroke-width="1.5" rx="6"/>
-  <text class="h" x="910" y="560">Trzy stany maszyny — trzy poziomy poboru</text>
-  <line x1="716" y1="570" x2="1104" y2="570" stroke="#c8d2da"/>
-  <text class="tb" x="722" y="590">Stan</text>
-  <text class="tb" x="852" y="590">Pobór</text>
-  <text class="tb" x="972" y="590">7 pakietów (35,7 Ah)</text>
-  
-  <line x1="716" y1="598" x2="1104" y2="598" stroke="#c8d2da"/>
-  <text class="tl" x="722" y="618">Praca</text><text class="tl" x="852" y="618">10–55 W</text><text class="tl" x="972" y="618">~5,1 h bez silnika</text>
-  <text class="tl" x="722" y="642">S3 (kluczyk OFF)</text><text class="tl" x="852" y="642">200–460 mA</text><text class="tl" x="972" y="642">1,6–3,7 dnia</text>
-  <text class="tl" x="722" y="666">Wyłączony</text><text class="tl" x="852" y="666">50–150 mA</text><text class="tl" x="972" y="666">5,0–14,9 dnia</text>
-  <line x1="716" y1="680" x2="1104" y2="680" stroke="#c8d2da"/>
-  <text class="note" x="722" y="700">Czasy do 50 % DoD (17,85 Ah); wiersz „Praca” — przy 3,5 A z banku.</text>
-  <text class="note" x="722" y="716">Arduino wyłącza M910q po 2 h zgaszonego zapłonu — dłuższy impuls.</text>
-  <text class="note" x="722" y="740">Wyświetlacz gaśnie z komputerem — USB w S3 jest martwe.</text>
-  <text class="note" x="722" y="756">Rozrzut w wierszu „Wyłączony” to własny pobór XH-M609 — ZMIERZ go.</text>
-
-  <text class="note" x="24" y="778">Wyłącznik główny to jedyne realne zero poboru. Na postój dłuższy niż tydzień rozłączaj bank — inaczej LVD odetnie go przy 11,00 V.</text>
-  <text class="note" x="24" y="800">Wszystkie bezpieczniki: wkładki nożowe ATO/ATC w listwie dystrybucyjnej z pokrywą, w miejscu dostępnym bez demontażu deski rozdzielczej.</text>
-  <text class="note" x="24" y="830">Model z przekaźnikiem odcinającym komputer („domena B”) został porzucony — porównanie: docs/ZASILANIE_BUFOROWANE.md §2.2.</text>
-  <text class="note" x="24" y="852">Jedyny przekaźnik w torze mocy siedzi w ładowaniu (docs/ZASILANIE_BUFOROWANE.md §5.3c), nie po stronie odbiorników.</text>
+<style>
+ .bg{fill:#ffffff}
+ .box{fill:#f7f9fb;stroke:#2b3a45;stroke-width:2}
+ .boxA{fill:#eef7ee;stroke:#2d6a2d;stroke-width:2}
+ .boxB{fill:#eef2fa;stroke:#2b4a8a;stroke-width:2}
+ .boxC{fill:#fbeff1;stroke:#97324a;stroke-width:2}
+ .boxO{fill:#fbf8f0;stroke:#8a6d2b;stroke-width:2;stroke-dasharray:7 4}
+ .tbl{fill:#fbfcfd;stroke:#c8d2da;stroke-width:1.5}
+ .thd{fill:#eef2f5;stroke:none}
+ .rule{stroke:#c8d2da;stroke-width:1}
+ .zone{stroke:#8b9aa6;stroke-width:1.6;fill:none;stroke-dasharray:9 6}
+ .wire{stroke:#c0392b;stroke-width:3;fill:none}
+ .wA{stroke:#2d6a2d;stroke-width:2.5;fill:none}
+ .wB{stroke:#2b4a8a;stroke-width:2.5;fill:none}
+ .wC{stroke:#97324a;stroke-width:2.5;fill:none}
+ .wO{stroke:#8a6d2b;stroke-width:2.5;fill:none;stroke-dasharray:7 4}
+ .fs{fill:#ffffff;stroke:#a8321a;stroke-width:2}
+ .ttl{font-size:20px;font-weight:bold;fill:#10202b}
+ .sub{font-size:12px;fill:#5a6b78}
+ .h{font-size:13px;font-weight:bold;fill:#10202b;text-anchor:middle}
+ .hl{font-size:14px;font-weight:bold;fill:#10202b}
+ .t{font-size:11px;fill:#33424e;text-anchor:middle}
+ .tl{font-size:11px;fill:#33424e}
+ .tb{font-size:11px;font-weight:bold;fill:#10202b}
+ .tbc{font-size:11px;font-weight:bold;fill:#10202b;text-anchor:middle}
+ .note{font-size:10.5px;fill:#6a7a86}
+ .notec{font-size:10.5px;fill:#6a7a86;text-anchor:middle}
+ .notee{font-size:10.5px;fill:#6a7a86;text-anchor:end}
+ .fuse{font-size:11px;font-weight:bold;fill:#a8321a}
+ .fusec{font-size:10.5px;font-weight:bold;fill:#a8321a;text-anchor:middle}
+ .zl{font-size:11px;font-weight:bold;fill:#5a6b78;text-anchor:end}
+ .secA{font-size:13px;font-weight:bold;fill:#2d6a2d}
+ .secC{font-size:13px;font-weight:bold;fill:#97324a;text-anchor:middle}
+</style>
+<rect class="bg" x="0" y="0" width="1400" height="1330"/>
+<text class="ttl" x="24" y="32">Rozdział odbiorników, bezpieczniki i budżet poboru</text>
+<text class="sub" x="24" y="52">Jedna szyna buforowana za LVD — zapłon niczego nie odcina, zmienia tylko stan maszyny (impuls z Arduino na przycisk zasilania M910q).  Wg docs/ZASILANIE_BUFOROWANE.md (22.11.2026).</text>
+<line class="rule" x1="24" y1="62" x2="1376" y2="62"/>
+<rect class="box" x="40" y="84" width="280" height="88" rx="6"/>
+<text class="h" x="180" y="106">Ładowanie — osobny rysunek</text>
+<text class="t" x="180" y="125">F1 20 A → TVS + C1 → K1 30 A (zapłon / D+)</text>
+<text class="t" x="180" y="144">→ 2 × XY-SK120 → 2 × XH-M603 → FC1/FC2</text>
+<text class="notec" x="180" y="163">charging_lvd.svg · power_buffered_m910q.svg</text>
+<path class="wire" d="M320 128 L400 128"/>
+<rect class="fs" x="348" y="122" width="24" height="12" rx="2"/>
+<line stroke="#a8321a" stroke-width="1.5" x1="351" y1="128" x2="369" y2="128"/>
+<text class="fusec" x="360" y="104">MIDI/ANL</text>
+<text class="fusec" x="360" y="116">F12 15 A</text>
+<text class="note" x="344" y="150">4 mm²</text>
+<rect class="box" x="400" y="84" width="300" height="88" rx="6"/>
+<text class="h" x="550" y="106">Bank 7 × CSB HR1221W — 35,7 Ah</text>
+<text class="t" x="550" y="125">2 kosze w bagażniku: L #1–#4, P #5–#7</text>
+<text class="t" x="550" y="144">FB1…FB7 10 A · łącznik L↔P 6 mm² OFC</text>
+<text class="t" x="550" y="163">odbiór po przekątnej: „+” z L+, „−” z P−</text>
+<path class="wire" d="M700 128 L790 128"/>
+<rect class="fs" x="733" y="122" width="24" height="12" rx="2"/>
+<line stroke="#a8321a" stroke-width="1.5" x1="736" y1="128" x2="754" y2="128"/>
+<text class="fusec" x="745" y="104">MIDI/ANL</text>
+<text class="fusec" x="745" y="116">F7 20 A</text>
+<text class="note" x="729" y="150">6 mm²</text>
+<rect class="box" x="790" y="84" width="300" height="88" rx="6"/>
+<text class="h" x="940" y="106">XH-M609 — LVD</text>
+<text class="t" x="940" y="125">odcięcie 11,00 V · powrót 12,60 V</text>
+<text class="t" x="940" y="144">przekaźnik 20 A (szczyt odbiorników 10,5 A)</text>
+<text class="t" x="940" y="163">pobór własny 20–125 mA — zmierz (§7.3)</text>
+<rect class="box" x="1110" y="84" width="250" height="88" rx="6"/>
+<text class="h" x="1235" y="106">Masa — blok masowy (gwiazda)</text>
+<text class="t" x="1235" y="121">blok P− → S1 100 A → blok masowy</text>
+<text class="t" x="1235" y="136">→ nadwozie 6 mm² · audio osobno</text>
+<text class="notec" x="1235" y="151">masy z bagażnika i powrót 2,5 mm² z przodu</text>
+<text class="notec" x="1235" y="166">na bloku masowym, nie na P− (ZB §8.3)</text>
+<path class="wire" d="M940 172 L940 204"/>
+<text class="note" x="948" y="192">4 mm²</text>
+<path class="wire" d="M70 204 L1138 204"/>
+<circle cx="70" cy="204" r="4" fill="#c0392b"/>
+<circle cx="337" cy="204" r="4" fill="#c0392b"/>
+<circle cx="604" cy="204" r="4" fill="#c0392b"/>
+<circle cx="871" cy="204" r="4" fill="#c0392b"/>
+<circle cx="1138" cy="204" r="4" fill="#c0392b"/>
+<circle cx="940" cy="204" r="4" fill="#c0392b"/>
+<text class="tb" x="84" y="194">SZYNA BUFOROWANA 12 V za LVD (11,0–14,4 V) — dystrybucja w bagażniku · F8–F11, F13: ATO przy źródle</text>
+<text class="note" x="1000" y="194">F7, F12: MIDI/ANL, ≥ 2,5 kA (ZB §7.4)</text>
+<rect class="fs" x="64" y="218" width="12" height="24" rx="2"/>
+<line stroke="#a8321a" stroke-width="1.5" x1="70" y1="221" x2="70" y2="239"/>
+<text class="fuse" x="84" y="229">F8 10 A</text>
+<text class="note" x="84" y="245">4 mm², ≤ 1 m · do 6,6 A</text>
+<rect class="fs" x="331" y="218" width="12" height="24" rx="2"/>
+<line stroke="#a8321a" stroke-width="1.5" x1="337" y1="221" x2="337" y2="239"/>
+<text class="fuse" x="351" y="229">F9 2 A</text>
+<text class="note" x="351" y="245">1,0 mm², ~4 m · ~1,5 A</text>
+<rect class="fs" x="598" y="218" width="12" height="24" rx="2"/>
+<line stroke="#a8321a" stroke-width="1.5" x1="604" y1="221" x2="604" y2="239"/>
+<text class="fuse" x="618" y="229">F10 3 A</text>
+<text class="note" x="618" y="245">0,75 mm², ~4 m · &lt; 1 A</text>
+<rect class="fs" x="865" y="218" width="12" height="24" rx="2"/>
+<line stroke="#a8321a" stroke-width="1.5" x1="871" y1="221" x2="871" y2="239"/>
+<text class="fuse" x="885" y="229">F11 5 A</text>
+<text class="note" x="885" y="245">1,5 mm² · do ~2 A</text>
+<rect class="fs" x="1132" y="218" width="12" height="24" rx="2"/>
+<line stroke="#a8321a" stroke-width="1.5" x1="1138" y1="221" x2="1138" y2="239"/>
+<text class="fuse" x="1152" y="229">F13 2 A (opcja)</text>
+<text class="note" x="1152" y="245">0,75 mm², ~4 m · &lt; 1 A</text>
+<path class="wire" d="M70 204 L70 218"/>
+<path class="wB" d="M70 242 L70 262"/>
+<rect class="box" x="40" y="262" width="252" height="92" rx="6"/>
+<text class="h" x="166.0" y="284">Step-up 12 → 20 V</text>
+<text class="t" x="166.0" y="302">10 A · 200 W · zalewany, w bagażniku</text>
+<text class="t" x="166.0" y="320">sprawność 90 % (do rachunku)</text>
+<text class="t" x="166.0" y="338">straty 3,3 / 5,0 / 7,2 W</text>
+<path class="wB" d="M70 354 L70 430"/>
+<rect class="fs" x="64" y="362" width="12" height="24" rx="2"/>
+<line stroke="#a8321a" stroke-width="1.5" x1="70" y1="365" x2="70" y2="383"/>
+<text class="fuse" x="84" y="373">5 A — wyjście step-upu</text>
+<text class="note" x="84" y="389">4 mm² „+” i „−”, ~4 m · 3,3 A</text>
+<path class="wire" d="M337 204 L337 218"/>
+<path class="wB" d="M337 242 L337 430"/>
+<path class="wB" d="M337 494 L337 520"/>
+<path class="wire" d="M604 204 L604 218"/>
+<path class="wA" d="M604 242 L604 430"/>
+<path class="wA" d="M604 494 L604 520"/>
+<path class="wire" d="M871 204 L871 218"/>
+<path class="wA" d="M871 242 L871 430"/>
+<path class="wA" d="M871 494 L871 520"/>
+<path class="wire" d="M1138 204 L1138 218"/>
+<path class="wO" d="M1138 242 L1138 430"/>
+<path class="wO" d="M1138 494 L1138 520"/>
+<line class="zone" x1="24" y1="408" x2="1376" y2="408"/>
+<text class="zl" x="1360" y="400">▲ BAGAŻNIK</text>
+<text class="zl" x="1360" y="424">▼ PRZÓD — deska, ~4 m wiązki</text>
+<rect class="boxB" x="40" y="430" width="252" height="262" rx="6"/>
+<text class="h" x="166.0" y="452">Lenovo M910q — 20 V</text>
+<text class="t" x="166.0" y="470">wtyk z uciętego oryginalnego kabla</text>
+<text class="note" x="58" y="496">na wtyku → z szyny → przy 12,6 V</text>
+<text class="tl" x="58" y="513">30 W dashboard → 33,3 W → 2,65 A</text>
+<text class="tl" x="58" y="530">45 W AA + wideo → 50,0 W → 3,97 A</text>
+<text class="tl" x="58" y="547">65 W znamionowo → 72,2 W → 5,73 A</text>
+<text class="tl" x="58" y="564">przy 11,0 V i 65 W: 6,57 A (66 % F8)</text>
+<text class="tl" x="58" y="598">limit RAPL nie jest potrzebny</text>
+<text class="tl" x="58" y="615">w S3 porty USB są martwe</text>
+<text class="tb" x="58" y="649">Praca: 2,65 A · szczyt 5,7 A</text>
+<text class="note" x="58" y="666">(6,6 A przy 11,0 V)</text>
+<rect class="box" x="307" y="430" width="252" height="64" rx="6"/>
+<text class="h" x="433.0" y="456">Buck LM2596</text>
+<text class="t" x="433.0" y="476">z przodu · napięcie wg panelu</text>
+<rect class="boxB" x="307" y="520" width="252" height="172" rx="6"/>
+<text class="h" x="433.0" y="544">Wyświetlacze</text>
+<text class="tl" x="353" y="566">panel 10,1" — podświetlenie</text>
+<text class="tl" x="363" y="582">PWM z Nano #1 przez MOSFET</text>
+<text class="tl" x="353" y="598">panel 6,86" (opcja)</text>
+<text class="tl" x="353" y="614">logika i dotyk paneli — po USB</text>
+<text class="tl" x="363" y="630">M910q, więc gasną w S3</text>
+<text class="tb" x="353" y="662">Praca: ~0,8 A · szczyt 1,5 A</text>
+<rect class="box" x="574" y="430" width="252" height="64" rx="6"/>
+<text class="h" x="700.0" y="456">Buck MP1584 → 5,0 V</text>
+<text class="t" x="700.0" y="476">z przodu · wprost na pin 5V</text>
+<rect class="boxA" x="574" y="520" width="252" height="172" rx="6"/>
+<text class="h" x="700.0" y="544">Logika — zawsze żywa</text>
+<text class="tl" x="620" y="566">Arduino Nano #1 (wyjścia, PWM)</text>
+<text class="tl" x="620" y="582">Arduino Nano #2 (czujniki, zapłon)</text>
+<text class="tl" x="620" y="598">HM-10 BLE · RXB6 433 MHz</text>
+<text class="tl" x="620" y="614">Nano #2 naciska przycisk M910q</text>
+<text class="tl" x="630" y="630">— musi żyć, gdy USB jest martwe</text>
+<text class="tb" x="620" y="662">Praca: ~0,2 A · szczyt 0,5 A</text>
+<text class="note" x="620" y="678">(logika razem z cewkami z F11)</text>
+<rect class="box" x="841" y="430" width="252" height="64" rx="6"/>
+<text class="h" x="967.0" y="456">AUX 12 V</text>
+<text class="t" x="967.0" y="476">wprost z szyny</text>
+<rect class="boxA" x="841" y="520" width="252" height="172" rx="6"/>
+<text class="h" x="967.0" y="544">Odbiorniki 12 V</text>
+<text class="tl" x="887" y="566">moduł 9 przekaźników: 4 szyby</text>
+<text class="tl" x="897" y="582">× 2 kierunki, zamek bagażnika</text>
+<text class="tl" x="897" y="598">(spoczynek ~10 mA)</text>
+<text class="tl" x="887" y="614">hub USB 7-portowy* z peryferiami:</text>
+<text class="tl" x="897" y="630">Pro Micro, DAC USB, graber AHD</text>
+<text class="tl" x="887" y="646">wentylator</text>
+<text class="tb" x="887" y="662">hub: ~0,7 A · szczyt 1,0 A</text>
+<text class="note" x="887" y="678">* hub na F11 wg SCHEMATY §2.4</text>
+<rect class="boxO" x="1108" y="430" width="252" height="64" rx="6"/>
+<text class="h" x="1234.0" y="456">Wstrzykiwacz VBUS</text>
+<text class="t" x="1234.0" y="476">12 → 5 V, nastawa 5,1–5,2 V</text>
+<rect class="boxO" x="1108" y="520" width="252" height="172" rx="6"/>
+<text class="h" x="1234.0" y="544">Telefon w aucie (opcja)</text>
+<text class="tl" x="1154" y="566">Redmi Note 8 Pro — pilot IR</text>
+<text class="tl" x="1164" y="582">do budzenia M910q (§14.6)</text>
+<text class="tl" x="1154" y="598">VBUS od strony M910q odcięty,</text>
+<text class="tl" x="1164" y="614">dane zostają na USB</text>
+<text class="tb" x="1154" y="662">Praca: ~0,5 A · szczyt 0,9 A</text>
+<text class="note" x="1154" y="678">postój: 30–100 mA, gdy naładowany</text>
+<text class="tb" x="24" y="718">Praca typowo: 2,65 + 0,8 + 0,7 + 0,2 + 0,5 = 4,85 A ≈ 5 A (≈ 61 W) przy 12,6 V · szczyt ≈ 9,6 A, przy 11,0 V ≈ 10,5 A (F7 20 A = 1,5 × szczyt, zaokrąglone w górę) — ZB §2.1, §7.4</text>
+<text class="hl" x="40" y="748">Trzy stany maszyny — pobór z banku (ZB §2.1, straty step-upu §3.2)</text>
+<rect class="tbl" x="40" y="760" width="860" height="204" rx="6"/>
+<rect class="thd" x="41" y="761" width="858" height="29"/>
+<line class="rule" x1="40" y1="790" x2="900" y2="790"/>
+<line class="rule" x1="48" y1="848" x2="892" y2="848"/>
+<line class="rule" x1="48" y1="906" x2="892" y2="906"/>
+<text class="tb" x="48" y="778.5">Stan</text>
+<text class="tb" x="176" y="778.5">Co pobiera</text>
+<text class="tb" x="408" y="778.5">Pobór z banku</text>
+<text class="tb" x="604" y="778.5">Straty step-upu</text>
+<text class="tb" x="764" y="778.5">35,7 Ah, 50 % DoD</text>
+<text class="tb" x="48" y="815.0">Praca</text>
+<text class="note" x="48" y="830.0">kluczyk ON</text>
+<text class="tl" x="176" y="815.0">wszystkie odbiorniki,</text>
+<text class="tl" x="176" y="830.0">telefon się doładowuje</text>
+<text class="tl" x="408" y="807.5">≈ 5 A (≈ 61 W) przy 12,6 V</text>
+<text class="tl" x="408" y="822.5">szczyt 9,6 A</text>
+<text class="tl" x="408" y="837.5">10,5 A przy 11,0 V</text>
+<text class="tl" x="604" y="807.5">3,3 W przy 30 W</text>
+<text class="tl" x="604" y="822.5">5,0 W przy 45 W</text>
+<text class="tl" x="604" y="837.5">7,2 W przy 65 W</text>
+<text class="tl" x="764" y="815.0">~3,6 h</text>
+<text class="tl" x="764" y="830.0">silnik zgaszony</text>
+<text class="tb" x="48" y="873.0">S3</text>
+<text class="note" x="48" y="888.0">kluczyk OFF</text>
+<text class="tl" x="176" y="865.5">M910q w S3, Arduino, LVD,</text>
+<text class="tl" x="176" y="880.5">jałowy step-upu (I_jał);</text>
+<text class="tl" x="176" y="895.5">USB i panele martwe</text>
+<text class="tl" x="408" y="873.0">200–460 mA</text>
+<text class="tl" x="408" y="888.0">+ I_jał</text>
+<text class="tl" x="604" y="873.0">I_jał — nieznany,</text>
+<text class="tl" x="604" y="888.0">zmierz (§3.4)</text>
+<text class="tl" x="764" y="873.0">1,6–3,7 dnia</text>
+<text class="tl" x="764" y="888.0">bez I_jał</text>
+<text class="tb" x="48" y="931.0">Wyłączony</text>
+<text class="note" x="48" y="946.0">po 2 h, impuls 5 s</text>
+<text class="tl" x="176" y="938.5">przetwornice, Arduino, LVD</text>
+<text class="tl" x="408" y="931.0">50–150 mA</text>
+<text class="tl" x="408" y="946.0">+ I_jał</text>
+<text class="tl" x="604" y="938.5">I_jał</text>
+<text class="tl" x="764" y="931.0">5,0–14,9 dnia</text>
+<text class="tl" x="764" y="946.0">bez I_jał</text>
+<text class="note" x="40" y="984">Użyteczne: 17,85 Ah do 50 % DoD, 10,71 Ah do 30 % DoD. Czasy liczone prądem, bez poprawki Peukerta — realne 3,6 h będzie nieco krótsze.</text>
+<text class="note" x="40" y="1000">S3 zmierzono, a „Wyłączony” oszacowano jeszcze z poprzednią przetwornicą — z nową oba wiersze to dolna granica poboru, dopóki nie zmierzysz I_jał.</text>
+<text class="note" x="40" y="1016">Rozrzut wiersza „Wyłączony” to pobór własny XH-M609. Telefon na buforze dokłada 30–100 mA (do 0,9 A przez 1–2 h, gdy się ładuje).</text>
+<text class="hl" x="920" y="748">Czas postoju — bank 35,7 Ah (ZB §9.2)</text>
+<rect class="tbl" x="920" y="760" width="440" height="142" rx="6"/>
+<rect class="thd" x="921" y="761" width="438" height="37"/>
+<line class="rule" x1="920" y1="798" x2="1360" y2="798"/>
+<line class="rule" x1="928" y1="824" x2="1352" y2="824"/>
+<line class="rule" x1="928" y1="850" x2="1352" y2="850"/>
+<line class="rule" x1="928" y1="876" x2="1352" y2="876"/>
+<text class="tb" x="928" y="775.0">Pobór</text>
+<text class="note" x="928" y="790.0">całkowity</text>
+<text class="tb" x="1016" y="775.0">ponad 60 mA</text>
+<text class="tb" x="1016" y="790.0">logiki</text>
+<text class="tb" x="1132" y="775.0">do 30 %</text>
+<text class="tb" x="1132" y="790.0">DoD</text>
+<text class="tb" x="1210" y="775.0">do 50 %</text>
+<text class="tb" x="1210" y="790.0">DoD</text>
+<text class="tb" x="1288" y="775.0">do progu</text>
+<text class="tb" x="1288" y="790.0">LVD</text>
+<text class="tb" x="928" y="814.5">80 mA</text>
+<text class="tl" x="1016" y="814.5">20 mA</text>
+<text class="tl" x="1132" y="814.5">~5,6 dnia</text>
+<text class="tl" x="1210" y="814.5">~9,3 dnia</text>
+<text class="tl" x="1288" y="814.5">~13,9 dnia</text>
+<text class="tb" x="928" y="840.5">100 mA</text>
+<text class="tl" x="1016" y="840.5">40 mA</text>
+<text class="tl" x="1132" y="840.5">~4,5 dnia</text>
+<text class="tl" x="1210" y="840.5">~7,4 dnia</text>
+<text class="tl" x="1288" y="840.5">~11,2 dnia</text>
+<text class="tb" x="928" y="866.5">130 mA</text>
+<text class="tl" x="1016" y="866.5">70 mA</text>
+<text class="tl" x="1132" y="866.5">~3,4 dnia</text>
+<text class="tl" x="1210" y="866.5">~5,7 dnia</text>
+<text class="tl" x="1288" y="866.5">~8,6 dnia</text>
+<text class="tb" x="928" y="892.5">185 mA</text>
+<text class="tl" x="1016" y="892.5">125 mA*</text>
+<text class="tl" x="1132" y="892.5">~2,4 dnia</text>
+<text class="tl" x="1210" y="892.5">~4,0 dnia</text>
+<text class="tl" x="1288" y="892.5">~6,0 dnia</text>
+<text class="note" x="920" y="922">„Ponad 60 mA” = XH-M609 + I_jał step-upu + telefon.</text>
+<text class="note" x="920" y="938">* sam XH-M609 wg specyfikacji maks. (125 mA).</text>
+<text class="note" x="920" y="954">I_jał dodaj do każdego wiersza — np. +50 mA: 80 → 130 mA,</text>
+<text class="note" x="930" y="970">czyli 9,3 → 5,7 dnia do 50 % DoD (ilustracja, nie pomiar).</text>
+<text class="note" x="920" y="986">Budzenie RTC co 15 min: +29,8 mA (5 Ah/tydz., §9.3).</text>
+<text class="note" x="920" y="1002">Do progu LVD ≈ 75 % DoD — rezerwa awaryjna, nie rutyna.</text>
+<text class="hl" x="40" y="1064">Pobór stały bez komputera (ZB §9.1)</text>
+<rect class="tbl" x="40" y="1076" width="420" height="236" rx="6"/>
+<rect class="thd" x="41" y="1077" width="418" height="25"/>
+<line class="rule" x1="40" y1="1102" x2="460" y2="1102"/>
+<line class="rule" x1="48" y1="1123" x2="452" y2="1123"/>
+<line class="rule" x1="48" y1="1144" x2="452" y2="1144"/>
+<line class="rule" x1="48" y1="1165" x2="452" y2="1165"/>
+<line class="rule" x1="48" y1="1186" x2="452" y2="1186"/>
+<line class="rule" x1="48" y1="1207" x2="452" y2="1207"/>
+<line class="rule" x1="48" y1="1228" x2="452" y2="1228"/>
+<line class="rule" x1="48" y1="1249" x2="452" y2="1249"/>
+<line class="rule" x1="48" y1="1270" x2="452" y2="1270"/>
+<line class="rule" x1="48" y1="1291" x2="452" y2="1291"/>
+<text class="tb" x="48" y="1092.5">Element</text>
+<text class="tb" x="314" y="1092.5">Pobór</text>
+<text class="tl" x="48" y="1116.0">Arduino Nano #1</text>
+<text class="tl" x="314" y="1116.0">~25 mA</text>
+<text class="tl" x="48" y="1137.0">HM-10 BLE (nasłuch)</text>
+<text class="tl" x="314" y="1137.0">~15 mA</text>
+<text class="tl" x="48" y="1158.0">RXB6 433 MHz (nasłuch)</text>
+<text class="tl" x="314" y="1158.0">~5 mA</text>
+<text class="tl" x="48" y="1179.0">moduł przekaźników (spoczynek)</text>
+<text class="tl" x="314" y="1179.0">~10 mA</text>
+<text class="tl" x="48" y="1200.0">straty przetwornicy buck</text>
+<text class="tl" x="314" y="1200.0">~5 mA</text>
+<text class="tl" x="48" y="1221.0">Podsuma: logika i przekaźniki</text>
+<text class="tl" x="314" y="1221.0">~60 mA (0,7 W)</text>
+<text class="tl" x="48" y="1242.0">XH-M609 (LVD)</text>
+<text class="tl" x="314" y="1242.0">20–125 mA, zmierz</text>
+<text class="tl" x="48" y="1263.0">I_jał step-upu 20 V</text>
+<text class="tl" x="314" y="1263.0">zmierz (§3.4)</text>
+<text class="tl" x="48" y="1284.0">telefon na buforze (opcja)</text>
+<text class="tl" x="314" y="1284.0">30–100 mA</text>
+<text class="tl" x="48" y="1305.0">Nano #2 — poza budżetem §9.1</text>
+<text class="tl" x="314" y="1305.0">zmierz</text>
+<rect class="boxC" x="480" y="1048" width="420" height="250" rx="6"/>
+<text class="secC" x="690.0" y="1070">GAŁĄŹ NIEZALEŻNA — wzmacniacz</text>
+<rect class="box" x="500" y="1086" width="140" height="50" rx="6"/>
+<text class="tbc" x="570" y="1106">Akumulator</text>
+<text class="t" x="570" y="1124">rozruchowy 12 V</text>
+<path class="wC" d="M640 1111 L740 1111"/>
+<rect class="fs" x="678" y="1105" width="24" height="12" rx="2"/>
+<line stroke="#a8321a" stroke-width="1.5" x1="681" y1="1111" x2="699" y2="1111"/>
+<text class="fusec" x="690" y="1100">20–30 A</text>
+<text class="note" x="674" y="1130">6 mm²</text>
+<rect class="box" x="740" y="1086" width="140" height="50" rx="6"/>
+<text class="tbc" x="810" y="1106">Wzmacniacz</text>
+<text class="t" x="810" y="1124">4 × 50 W RMS</text>
+<text class="tl" x="500" y="1162">• gotowy moduł samochodowy, podłączany jak radio</text>
+<text class="tl" x="500" y="1178">• bezpiecznik przy klemie „+” wg karty modułu</text>
+<text class="tl" x="515" y="1194">(zwykle 20–30 A), klasa jak F1 (MIDI/ANL)</text>
+<text class="tl" x="500" y="1210">• przewód 6 mm², ~4 m · własna masa lokalna</text>
+<text class="tl" x="500" y="1226">• REM wprost z linii zapłonu (zacisk 87) —</text>
+<text class="tl" x="515" y="1242">gra w jeździe, nie w S3</text>
+<text class="tl" x="500" y="1258">• z buforem łączy go tylko REM i ekran kabla RCA</text>
+<text class="note" x="500" y="1274">Szczyty 20–30 A przekroczyłyby przekaźnik LVD (20 A).</text>
+<rect class="box" x="920" y="1048" width="440" height="250" rx="6"/>
+<text class="hl" x="940" y="1070">Zasady</text>
+<text class="tl" x="940" y="1094">• Przekaźnika zapłonu przed odbiornikami nie ma. W torze</text>
+<text class="tl" x="955" y="1109">ładowania: K1 (§5.4) i przekaźniki obu XH-M603 (§6.3);</text>
+<text class="tl" x="955" y="1124">po stronie odbiorników jedyny przekaźnik to LVD (§7).</text>
+<text class="tl" x="940" y="1139">• Wkładki odgałęzień (F8–F11, F13, wyjście step-upu) siedzą</text>
+<text class="tl" x="955" y="1154">w bagażniku, przy źródle — zwarcie w połowie trasy ma</text>
+<text class="tl" x="955" y="1169">przepalić wkładkę, a nie przewód (§8.1).</text>
+<text class="tl" x="940" y="1184">• Poniżej 11,00 V LVD odcina całą szynę, także logikę.</text>
+<text class="tl" x="940" y="1199">• Wyłącznik główny S1 to jedyne prawdziwe zero poboru —</text>
+<text class="tl" x="955" y="1214">na dłuższy postój rozłącz bank (bez obciążenia).</text>
+<text class="tl" x="940" y="1229">• Wyświetlacz 1,8" ESP32: w wariancie testowym z +15;</text>
+<text class="tl" x="955" y="1244">zasilanie z bufora to decyzja otwarta (+~60 mA na</text>
+<text class="tl" x="955" y="1259">postoju — ZB §9.1, SCHEMATY §11.3).</text>
+<text class="note" x="940" y="1274">Przebiegi uśpienia i wybudzania: ignition_sense.svg</text>
+<text class="note" x="940" y="1289">Tor ładowania i bank: charging_lvd.svg · power_buffered_m910q.svg</text>
 </svg>

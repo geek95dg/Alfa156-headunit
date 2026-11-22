@@ -13,17 +13,20 @@ i wymieniasz je **etapami**, bez lutownicy przy każdej zmianie.
 | [`../schematics/pcb_power_schematic.svg`](../schematics/pcb_power_schematic.svg) | schemat ideowy obu płytek + otoczenie (dwie gałęzie ładowania, bank, LVD), tabela zacisków |
 | [`../schematics/pcb_power_layout.svg`](../schematics/pcb_power_layout.svg) | rozmieszczenie elementów 1:1, opisy zacisków, BOM, wiercenie |
 | [`../schematics/pcb_power_etch.svg`](../schematics/pcb_power_etch.svg) | **mozaika miedzi 1:1 do wydruku** + widok kontrolny + proces trawienia |
+| [`../schematics/png/pcb_power_etch_600dpi.png`](../schematics/png/pcb_power_etch_600dpi.png) | ta sama mozaika jako **PNG 600 dpi do druku 1:1** (A4, czarna miedź, rozdzielczość zapisana w pliku) — dla drukarek, którym SVG skaluje się „po swojemu” |
 | [`../schematics/gen_pcb_power.py`](../schematics/gen_pcb_power.py) | generator trzech powyższych — po zmianie projektu popraw i wygeneruj ponownie |
-| [`../schematics/png/pcb_power_schematic.png`](../schematics/png/pcb_power_schematic.png) | ten sam schemat ideowy w PNG — do podglądu na telefonie; render [`../schematics/render_png.py`](../schematics/render_png.py). **Uwaga:** PNG trzeba wygenerować ponownie po tej zmianie (wymaga `cairosvg`) — do tego czasu pokazuje poprzedni projekt |
+| [`../schematics/png/pcb_power_schematic.png`](../schematics/png/pcb_power_schematic.png) | ten sam schemat ideowy w PNG — do podglądu na telefonie; render [`../schematics/render_png.py`](../schematics/render_png.py). |
 
 Generator sam sprawdza spójność sieci i prześwity (uruchom
 `python3 schematics/gen_pcb_power.py` — błędy projektu przerywają generację).
 
-Rastrową kopię schematu ideowego robi `python3 schematics/render_png.py`
-(wynik w `schematics/png/`, szczegóły w
-[`../schematics/README.md`](../schematics/README.md#eksport-do-png)). Montażówki
-i mozaiki miedzi **nie drukuj z PNG** — te dwa arkusze idą do druku wyłącznie
-z SVG w skali 100 %, z kontrolą linijki 50 mm.
+Rastrową kopię schematu ideowego i mozaikę do druku robi
+`python3 schematics/render_png.py` (wynik w `schematics/png/`, szczegóły
+w [`../schematics/README.md`](../schematics/README.md#eksport-do-png);
+samą mozaikę: `--print`). Mozaikę drukujesz z `pcb_power_etch.svg` albo
+z `pcb_power_etch_600dpi.png` — oba są 1:1; podglądów 192 dpi
+(`render_png.py --all`) do trawienia nie używaj. Zawsze skala 100 %
+i kontrola linijki 50 mm (§6).
 
 ---
 
@@ -196,7 +199,7 @@ prądu z banku — to **przyjęcie**, które potwierdza test ZB §6.4 pkt 6.
 | **Kompensacja temperaturowa ładowania** | XY-SK120 nie ma wejścia NTC (w dostępnych materiałach) — CV przestawiasz sezonowo (ZB §5.5) |
 | **REM wzmacniacza na płytce** | wzmacniacz ma własną gałąź z akumulatora rozruchowego; REM bierz z linii zapłonu |
 | **Woltomierz z bocznikiem 50 A** | dzielnik R5/R6 + ADC sensor-huba pokazuje napięcie banku w BCM |
-| **Metalizacja otworów, druga warstwa, soldermaska** | jednostronna, THT (poza D5), ścieżki ≥ 2 mm, prześwity ≥ 0,7 mm — projekt od początku pod trawienie w domu |
+| **Metalizacja otworów, druga warstwa, soldermaska** | jednostronna, THT (poza D5), ścieżki mocy 4–8 mm, sygnałowe ≥ 1,5 mm, prześwity ≥ 0,65 mm (pilnuje ich generator) — projekt od początku pod trawienie w domu |
 
 ---
 
@@ -236,18 +239,27 @@ i FB1…FB7 — kupujesz według tamtej listy.
 Cały proces jest nadrukowany na
 [`pcb_power_etch.svg`](../schematics/pcb_power_etch.svg). Najważniejsze:
 
-1. **Drukuj 1:1 (100 %, bez „dopasuj do strony")** i **zmierz linijkę
-   kontrolną** — 50 mm ± 0,5. Bez tego rozstawy 7,62/9,2 mm nie trafią.
+1. **Drukuj 1:1** z `pcb_power_etch.svg` albo
+   `png/pcb_power_etch_600dpi.png` (600 dpi, czarna miedź) — drukarka
+   laserowa, skala **100 % / „rzeczywisty rozmiar”**, **bez „dopasuj do
+   strony”**, i **zmierz linijkę kontrolną** — 50 mm ± 0,5. Bez tego
+   rozstawy 7,62/9,2 mm nie trafią.
 2. Orientacja jest już właściwa dla termotransferu (widok od strony
-   elementów, toner do miedzi) — **niczego nie odbijaj lustrzanie**.
-   Kontrola po wytrawieniu: napis „BCM-A"/„BCM-B" czyta się poprawnie,
-   patrząc na miedź.
+   elementów, toner do miedzi): na papierze „BCM-A"/„BCM-B" są
+   **lustrzane** i tak ma być — **niczego nie odbijaj** ani w programie,
+   ani w sterowniku drukarki. Kontrola po wytrawieniu: napis czyta się
+   poprawnie, patrząc na miedź.
 3. Wiercenie wg tabeli na arkuszu (1,0 / 1,2 / 1,3 / 1,5 / 2,0 / 2,4 /
    3,2 / 4,5 mm). Zaczynaj 1,0 i rozwiercaj — pady bez metalizacji lubią
    uciekać spod większych wierteł. Pady D5 (SMD) **nie** są wiercone.
 4. **Ścieżki mocy pocynuj grubo i przylutuj wzdłuż nich drut 2,5 mm²**
-   (AKU i CHGIN na płytce A — do 13 A; BUS i gałąź F8 na płytce B). Sama
-   miedź 35 µm nie jest do tego prądu.
+   (AKU i CHGIN na płytce A — do 13 A, ZB §5.4: 11,9–13,0 A; BUS
+   i gałąź F8 na płytce B). Miedź liczona z zapasem dla 13,6 A
+   (2 × 72 W / 0,88 / 12,0 V — przypadek ostrzejszy niż w ZB §6.3):
+   sama miedź 35 µm na 6 mm ścieżki grzałaby się wtedy o ok. 27 °C
+   (IPC-2221), w ciepłym bagażniku to
+   za dużo; z drutem 2,5 mm² tor jest zimny. BUS (8 mm, 10,5 A) i F8
+   (6 mm, 6,6 A) wystarczają same — drut to zapas.
 5. Po wytrawieniu: omomierz między sąsiednimi sieciami (zwarcia po
    transferze) i ciągłość każdej ścieżki.
 

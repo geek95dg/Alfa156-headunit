@@ -1,4 +1,4 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="960" height="1164" viewBox="0 0 960 1164" font-family="DejaVu Sans, Verdana, sans-serif">
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="1800" viewBox="0 0 1200 1800" font-family="DejaVu Sans, Verdana, sans-serif">
   <title>BCM v8.5 — tor zasilania wariantu testowo-rozwojowego (M910q)</title>
   <style>
     .bg   { fill: #ffffff; }
@@ -6,148 +6,340 @@
     .boxC { fill: #eef7ee; stroke: #2d6a2d; stroke-width: 2; rx: 6; }
     .boxB { fill: #fdf6e6; stroke: #9a6b12; stroke-width: 2; rx: 6; }
     .boxL { fill: #eef2fa; stroke: #2b4a8a; stroke-width: 2; rx: 6; }
+    .boxS { fill: #f6f0fa; stroke: #6a3d8a; stroke-width: 2; rx: 6; }
+    .boxW { fill: #fdecea; stroke: #a8321a; stroke-width: 2; rx: 6; }
+    .pack { fill: #ffffff; stroke: #9a6b12; stroke-width: 1.5; rx: 4; }
     .note { fill: #fbfcfd; stroke: #c8d2da; stroke-width: 1.5; rx: 6; }
     .wire { stroke: #c0392b; stroke-width: 3; fill: none; }
+    .wthin{ stroke: #c0392b; stroke-width: 1.8; fill: none; }
+    .wgnd { stroke: #3d4f5c; stroke-width: 3; fill: none; }
+    .wusb { stroke: #2b4a8a; stroke-width: 2; fill: none; stroke-dasharray: 6 4; }
+    .wsig { stroke: #6a3d8a; stroke-width: 2; fill: none; stroke-dasharray: 6 4; }
+    .zone { stroke: #8b9aa6; stroke-width: 1.5; fill: none; stroke-dasharray: 8 5; }
+    .dot  { fill: #c0392b; }
     .ttl  { font-size: 19px; font-weight: bold; fill: #10202b; }
     .sub  { font-size: 12px; fill: #5a6b78; }
     .h    { font-size: 13.5px; font-weight: bold; fill: #10202b; text-anchor: middle; }
     .t    { font-size: 11.5px; fill: #33424e; text-anchor: middle; }
     .tl   { font-size: 11.5px; fill: #33424e; }
     .tb   { font-size: 11.5px; font-weight: bold; fill: #10202b; }
+    .tbm  { font-size: 11.5px; font-weight: bold; fill: #10202b; text-anchor: middle; }
+    .sec  { font-size: 13.5px; font-weight: bold; }
     .nh   { font-size: 12.5px; font-weight: bold; fill: #10202b; }
     .nt   { font-size: 11px; fill: #4a5a66; }
+    .ntm  { font-size: 11px; fill: #4a5a66; text-anchor: middle; }
     .fuse { font-size: 11px; font-weight: bold; fill: #a8321a; }
+    .fusem{ font-size: 11px; font-weight: bold; fill: #a8321a; text-anchor: middle; }
+    .fusee{ font-size: 11px; font-weight: bold; fill: #a8321a; text-anchor: end; }
+    .wl   { font-size: 11px; fill: #4a5a66; }
+    .wle  { font-size: 11px; fill: #4a5a66; text-anchor: end; }
+    .zl   { font-size: 11px; font-weight: bold; fill: #6a7a86; }
     .foot { font-size: 10.5px; fill: #6a7a86; }
   </style>
 
-  <rect class="bg" x="0" y="0" width="960" height="1164"/>
-  <text class="ttl" x="24" y="32">Wariant testowo-rozwojowy — kompletny tor zasilania</text>
-  <text class="sub" x="24" y="52">Ładowanie wariantem B (przekaźnik + MBR2545CT + CC-CV boost). M910q zasilany stale; zapłon tylko jako sygnał do Arduino.</text>
-  <line x1="24" y1="64" x2="936" y2="64" stroke="#c8d2da" stroke-width="1.5"/>
+  <rect class="bg" x="0" y="0" width="1200" height="1800"/>
+  <text class="ttl" x="24" y="32">Wariant testowo-rozwojowy — tor zasilania z buforem (przegląd blokowy)</text>
+  <text class="sub" x="24" y="52">Ten sam tor co w wersji docelowej (ZB); różnice tylko po stronie odbiorników: jeden panel 7", bez domeny stałej logiki i bez wzmacniacza.</text>
+  <line x1="24" y1="64" x2="1176" y2="64" stroke="#c8d2da" stroke-width="1.5"/>
+  <rect class="boxW" x="24" y="76" width="1152" height="50"/>
+  <text class="tb" x="40" y="96">Stan auta testowego dziś: bufora jeszcze nie ma — nic z tego arkusza nie jest zamontowane.</text>
+  <text class="tl" x="40" y="115">Każde zgaszenie silnika to twarde odcięcie prądu M910q (i USB telefonu). Do montażu chronią atomowe zapisy BCM i bcm-harden.sh (WDROZENIE_TESTOWE §3).</text>
 
-  <!-- ============== SPINE ============== -->
-  <text class="tb" x="90" y="88" fill="#2d6a2d" font-size="13.5">ŁADOWANIE</text>
+  <!-- A. ŁADOWANIE -->
+  <text class="sec" x="24" y="152" fill="#2d6a2d">ŁADOWANIE — przy zapłonie albo tylko przy pracy silnika (cewka K1 z D+)</text>
+  <rect class="boxC" x="197" y="162" width="400" height="56"/>
+  <text class="h" x="397" y="185">Akumulator rozruchowy 12 V</text>
+  <text class="t" x="397" y="204">„−” przez nadwozie do punktu masy przy banku</text>
+  <path class="wire" d="M397 218 L397 266"/>
+  <text class="fuse" x="409" y="238">F1 20 A (MIDI/ANL), ≤ 30 cm od klemy „+”</text>
+  <text class="wl" x="409" y="254">przewody 1–2 · 6 mm², ok. 5 m do bagażnika</text>
+  <rect class="boxC" x="197" y="266" width="400" height="56"/>
+  <text class="h" x="397" y="289">Ochrona wejścia — D5 + C1</text>
+  <text class="t" x="397" y="308">TVS SMCJ20CA (dwukierunkowa) · C1 470 µF / 35 V low-ESR</text>
+  <path class="wire" d="M397 322 L397 352"/>
+  <text class="wl" x="409" y="341">przewód 3 · 6 mm²</text>
+  <rect class="boxC" x="197" y="352" width="400" height="74"/>
+  <text class="h" x="397" y="375">K1 — przekaźnik ładowania 30 A</text>
+  <text class="t" x="397" y="394">cewka 85/86 z zapłonu albo D+ · 1N4007 (D6) na cewce</text>
+  <text class="t" x="397" y="412">zwiera przy zapłonie (z D+: tylko przy pracy silnika)</text>
+  <rect class="box" x="30" y="362" width="118" height="54"/>
+  <text class="h" x="89" y="384">ZAPŁON / D+</text>
+  <text class="t" x="89" y="403">12 V: ON / praca</text>
+  <path class="wire" d="M148 395 L197 395"/>
+  <text class="fuse" x="153" y="388">FK 1 A</text>
+  <path class="wire" d="M397 426 L397 454"/>
+  <path class="wire" d="M210 454 L585 454"/>
+  <path class="wire" d="M210 454 L210 482"/>
+  <path class="wire" d="M585 454 L585 482"/>
+  <circle class="dot" cx="397" cy="454" r="4.5"/>
+  <text class="wl" x="409" y="445">przewody 5 / 5a · 2,5 mm² z zacisku 87</text>
+  <rect class="boxC" x="60" y="482" width="300" height="56"/>
+  <text class="h" x="210" y="505">XY-SK120 #1 (M1a)</text>
+  <text class="t" x="210" y="524">buck-boost CC-CV · CV 14,40 V · CC 5,0 A</text>
+  <path class="wire" d="M210 538 L210 568"/>
+  <text class="wl" x="222" y="557">przewód 6 · 2,5 mm²</text>
+  <rect class="boxC" x="60" y="568" width="300" height="56"/>
+  <text class="h" x="210" y="591">XH-M603 #1 (M2a)</text>
+  <text class="t" x="210" y="610">blokada przeładowania · 15,30 / 14,00 V</text>
+  <path class="wire" d="M210 624 L210 668"/>
+  <text class="fuse" x="222" y="643">FC1 7,5 A przy OUT+</text>
+  <text class="wl" x="222" y="658">przewód 7 · 2,5 mm²</text>
+  <rect class="boxC" x="435" y="482" width="300" height="56"/>
+  <text class="h" x="585" y="505">XY-SK120 #2 (M1b)</text>
+  <text class="t" x="585" y="524">buck-boost CC-CV · CV 14,40 V · CC 5,0 A</text>
+  <path class="wire" d="M585 538 L585 568"/>
+  <text class="wl" x="597" y="557">przewód 6a · 2,5 mm²</text>
+  <rect class="boxC" x="435" y="568" width="300" height="56"/>
+  <text class="h" x="585" y="591">XH-M603 #2 (M2b)</text>
+  <text class="t" x="585" y="610">blokada przeładowania · 15,30 / 14,00 V</text>
+  <path class="wire" d="M585 624 L585 668"/>
+  <text class="fuse" x="597" y="643">FC2 7,5 A przy OUT+</text>
+  <text class="wl" x="597" y="658">przewód 7a · 2,5 mm²</text>
+  <path class="wire" d="M210 668 L585 668"/>
+  <circle class="dot" cx="397" cy="668" r="4.5"/>
+  <text class="wl" x="409" y="689">złączenie gałęzi (obie równej długości)</text>
 
-  <rect class="boxC" x="90" y="96" width="420" height="56"/>
-  <text class="h" x="300" y="119">Akumulator rozruchowy 12 V</text>
-  <text class="t" x="300" y="138">masa na fabrycznym punkcie nadwozia, nie „gdziekolwiek”</text>
+  <!-- B. BANK -->
+  <path class="wire" d="M397 668 L397 700 L145 700 L145 744"/>
+  <text class="fuse" x="157" y="721">F12 15 A (MIDI/ANL) przy bloku L+</text>
+  <text class="wl" x="157" y="736">przewód B · 4 mm²</text>
+  <text class="sec" x="24" y="724" fill="#9a6b12">BANK</text>
+  <rect class="boxB" x="110" y="744" width="70" height="30"/>
+  <text class="tbm" x="145" y="764">L+</text>
+  <rect class="boxB" x="505" y="744" width="70" height="30"/>
+  <text class="tbm" x="540" y="764">P+</text>
+  <path class="wire" d="M180 759 L505 759"/>
+  <text class="ntm" x="342" y="753">łącznik „+” 6 mm² OFC</text>
+  <rect class="boxB" x="60" y="790" width="400" height="120"/>
+  <text class="tbm" x="260" y="810">KOSZ L — 4 × HR1221W (#1–#4)</text>
+  <rect class="boxB" x="480" y="790" width="280" height="120"/>
+  <text class="tbm" x="620" y="810">KOSZ P — 3 × HR1221W (#5–#7)</text>
+  <rect class="pack" x="80" y="822" width="76" height="46"/>
+  <text class="tbm" x="118" y="840">#1</text>
+  <text class="fusem" x="118" y="858">FB1 10 A</text>
+  <rect class="pack" x="172" y="822" width="76" height="46"/>
+  <text class="tbm" x="210" y="840">#2</text>
+  <text class="fusem" x="210" y="858">FB2 10 A</text>
+  <rect class="pack" x="264" y="822" width="76" height="46"/>
+  <text class="tbm" x="302" y="840">#3</text>
+  <text class="fusem" x="302" y="858">FB3 10 A</text>
+  <rect class="pack" x="356" y="822" width="76" height="46"/>
+  <text class="tbm" x="394" y="840">#4</text>
+  <text class="fusem" x="394" y="858">FB4 10 A</text>
+  <rect class="pack" x="500" y="822" width="76" height="46"/>
+  <text class="tbm" x="538" y="840">#5</text>
+  <text class="fusem" x="538" y="858">FB5 10 A</text>
+  <rect class="pack" x="588" y="822" width="76" height="46"/>
+  <text class="tbm" x="626" y="840">#6</text>
+  <text class="fusem" x="626" y="858">FB6 10 A</text>
+  <rect class="pack" x="676" y="822" width="76" height="46"/>
+  <text class="tbm" x="714" y="840">#7</text>
+  <text class="fusem" x="714" y="858">FB7 10 A</text>
+  <text class="t" x="260" y="892">FLRY-B 2,5 mm², 0,25 m ±30 mm, równej długości</text>
+  <text class="t" x="620" y="892">jak w koszu L</text>
+  <path class="wthin" d="M145 774 L145 790"/>
+  <path class="wthin" d="M540 774 L540 790"/>
+  <path class="wthin" d="M145 910 L145 926"/>
+  <path class="wthin" d="M675 910 L675 926"/>
+  <rect class="boxB" x="110" y="926" width="70" height="30"/>
+  <text class="tbm" x="145" y="946">L−</text>
+  <rect class="boxB" x="640" y="926" width="70" height="30"/>
+  <text class="tbm" x="675" y="946">P−</text>
+  <path class="wgnd" d="M180 941 L640 941"/>
+  <text class="ntm" x="410" y="935">łącznik „−” 6 mm² OFC (obie żyły równe, 0,4–0,6 m)</text>
+  <text class="tl" x="64" y="978">7 × CSB HR1221W F2 równolegle = 35,7 Ah · ≈ 16,8 kg z koszami · odbiór po przekątnej: „+” z L+, „−” z P−</text>
+  <path class="wgnd" d="M710 941 L800 941"/>
+  <text class="wl" x="716" y="934">9 · 6 mm²</text>
+  <rect class="boxB" x="800" y="918" width="376" height="46"/>
+  <text class="h" x="988" y="947">S1 — rozłącznik masy 100 A</text>
+  <path class="wgnd" d="M988 964 L988 986"/>
+  <rect class="note" x="800" y="986" width="376" height="174"/>
+  <text class="nh" x="816" y="1008">Punkt masy przy banku — JEDEN (ZB §5.6, §8.3)</text>
+  <text class="nt" x="816" y="1029">osobny blok masowy, nie blok P−. Lądują na nim:</text>
+  <text class="nt" x="816" y="1046">„−” D5/C1, K1:85, IN−/OUT− obu XY-SK120 (bez izolacji),</text>
+  <text class="nt" x="816" y="1063">DC-IN− obu XH-M603, S1 (masa banku), VIN− XH-M609,</text>
+  <text class="nt" x="816" y="1080">IN− step-upu i powrót 20 V z M910q (żyła „−” przewodu 12),</text>
+  <text class="nt" x="816" y="1097">wspólny powrót 12 V z przodu (LM2596, MP1584) 2,5 mm².</text>
+  <text class="tb" x="816" y="1114">→ karoseria: JEDEN przewód 6 mm² (ok. 13 A).</text>
+  <text class="nt" x="816" y="1131">„−” akumulatora rozruchowego — tylko przez nadwozie.</text>
+  <text class="nt" x="816" y="1148">Wyjątek: masa wejść PC817 (U1 pin 2) → masa auta.</text>
 
-  <path class="wire" d="M300 152 L300 186"/>
-  <text class="fuse" x="312" y="172">F1 15 A przy klemie „+” · 4 mm²</text>
+  <!-- C. ODBIORNIKI -->
+  <path class="wire" d="M110 759 L36 759 L36 1032 L60 1032"/>
+  <text class="fuse" x="40" y="752">F7 20 A</text>
+  <text class="sec" x="64" y="1003" fill="#2b4a8a">ODBIORNIKI — zasilane stale, niezależnie od zapłonu</text>
+  <rect class="boxL" x="60" y="1010" width="300" height="74"/>
+  <text class="h" x="210" y="1033">M3 XH-M609 — LVD</text>
+  <text class="t" x="210" y="1052">odcięcie 11,00 V · powrót 12,60 V</text>
+  <text class="t" x="210" y="1070">wejście: F7 przy L+, przewód 8, 6 mm²</text>
+  <path class="wire" d="M185 1084 L185 1110"/>
+  <path class="wire" d="M185 1110 L665 1110"/>
+  <circle class="dot" cx="185" cy="1110" r="4.5"/>
+  <text class="tb" x="372" y="1048">szyna odbiorników +12 V za LVD</text>
+  <text class="wl" x="372" y="1064">przewód 10 · 4 mm²</text>
+  <text class="fuse" x="197" y="1131">F8 10 A</text>
+  <text class="wl" x="197" y="1146">przewód 11 · 4 mm²</text>
+  <text class="fuse" x="462" y="1131">F9 2 A</text>
+  <text class="wl" x="462" y="1146">przewód 13 · 1,5 mm²</text>
+  <text class="fuse" x="677" y="1131">F10 3 A</text>
+  <text class="wl" x="677" y="1146">przewód 13a</text>
+  <text class="wl" x="677" y="1161">0,75 mm²</text>
+  <circle class="dot" cx="450" cy="1110" r="4.5"/>
+  <path class="wire" d="M185 1110 L185 1158"/>
+  <path class="wire" d="M450 1110 L450 1296"/>
+  <path class="wire" d="M665 1110 L665 1296"/>
+  <rect class="boxL" x="40" y="1158" width="290" height="74"/>
+  <text class="h" x="185" y="1181">M4 STEP-UP 12 → 20 V</text>
+  <text class="t" x="185" y="1200">zalewany, 10 A / 200 W · bez regulacji</text>
+  <text class="t" x="185" y="1218">do 6,6 A z szyny przy 11 V (65 W)</text>
+  <path class="zone" d="M24 1263 L772 1263"/>
+  <text class="zl" x="28" y="1257">▲ BAGAŻNIK</text>
+  <text class="zl" x="28" y="1280">▼ PRZÓD</text>
+  <path class="wire" d="M185 1232 L185 1296"/>
+  <text class="fuse" x="197" y="1250">5 A na wyjściu step-upu (w bagażniku)</text>
+  <text class="wl" x="197" y="1287">12 · 2 × 4 mm², ok. 4 m</text>
+  <rect class="box" x="40" y="1296" width="290" height="128"/>
+  <text class="h" x="185" y="1319">M910q — ZASILANY STALE</text>
+  <text class="t" x="185" y="1338">20 V, do 3,25 A (65 W) · RAPL niepotrzebny</text>
+  <text class="t" x="185" y="1356">zapłon go nie odcina — S3 robi Arduino</text>
+  <text class="t" x="185" y="1374">USB: panel 7" (logika + dotyk),</text>
+  <text class="t" x="185" y="1392">Pro Micro, modem LTE</text>
+  <text class="t" x="185" y="1410">przycisk zasilania ← przekaźnik Nano</text>
+  <rect class="boxL" x="350" y="1296" width="200" height="56"/>
+  <text class="h" x="450" y="1319">M5 LM2596</text>
+  <text class="t" x="450" y="1338">12 → 5 V · tylko podświetlenie</text>
+  <rect class="boxL" x="570" y="1296" width="190" height="56"/>
+  <text class="h" x="665" y="1319">M6 MP1584</text>
+  <text class="t" x="665" y="1338">12 → 5 V · logika</text>
+  <path class="wire" d="M450 1352 L450 1382"/>
+  <text class="wl" x="462" y="1371">przewód 14</text>
+  <path class="wire" d="M665 1352 L665 1382"/>
+  <text class="wl" x="677" y="1371">przewód 25</text>
+  <rect class="box" x="350" y="1382" width="200" height="74"/>
+  <text class="h" x="450" y="1405">PANEL 7" 1024×600</text>
+  <text class="t" x="450" y="1424">podświetlenie: PWM+ / GND</text>
+  <text class="t" x="450" y="1442">logika + dotyk: USB</text>
+  <rect class="boxS" x="570" y="1382" width="190" height="74"/>
+  <text class="h" x="665" y="1405">Arduino Nano</text>
+  <text class="t" x="665" y="1424">żyje, gdy M910q śpi</text>
+  <text class="t" x="665" y="1442">USB bez żyły VBUS</text>
+  <path class="wusb" d="M330 1404 L350 1404"/>
+  <text class="sec" x="24" y="1488" fill="#6a3d8a">STEROWANIE — zapłon jest tylko sygnałem (§3.1a, SCHEMATY §10.4–10.5)</text>
+  <rect class="boxS" x="24" y="1500" width="150" height="48"/>
+  <text class="h" x="99" y="1520">ZAPŁON / ACC</text>
+  <text class="t" x="99" y="1539">12 V</text>
+  <rect class="boxS" x="200" y="1500" width="150" height="48"/>
+  <text class="h" x="275" y="1520">PC817 (U1)</text>
+  <text class="t" x="275" y="1539">R1 2,2 kΩ → D9</text>
+  <rect class="boxS" x="376" y="1500" width="180" height="48"/>
+  <text class="h" x="466" y="1520">Nano → przekaźnik</text>
+  <text class="t" x="466" y="1539">A0 · impuls 250 ms / 5 s</text>
+  <rect class="boxS" x="582" y="1500" width="178" height="48"/>
+  <text class="h" x="671" y="1520">przycisk M910q</text>
+  <text class="t" x="671" y="1539">równolegle do styków</text>
+  <path class="wsig" d="M174 1524 L200 1524"/>
+  <path class="wsig" d="M350 1524 L376 1524"/>
+  <path class="wsig" d="M556 1524 L582 1524"/>
+  <text class="tl" x="24" y="1568">250 ms: praca → S3, S3 → wybudzenie (~3 s), wyłączony → start · 5 s: twarde wyłączenie (eskalacja po 2 h postoju)</text>
 
-  <rect class="boxC" x="90" y="186" width="420" height="62"/>
-  <text class="h" x="300" y="209">Ochrona wejścia</text>
-  <text class="t" x="300" y="228">dioda TVS 1.5KE33CA (lub SMCJ26CA) · C 470 µF / 35 V low-ESR</text>
-
-  <path class="wire" d="M300 248 L300 282"/>
-
-  <rect class="boxC" x="90" y="282" width="420" height="62"/>
-  <text class="h" x="300" y="305">Przekaźnik ładowania 30 A + MBR2545CT</text>
-  <text class="t" x="300" y="324">cewka z zapłonu (albo D+) · obie anody diody zwarte, radiator</text>
-
-  <path class="wire" d="M300 344 L300 378"/>
-
-  <rect class="boxC" x="90" y="378" width="420" height="76"/>
-  <text class="h" x="300" y="401">Moduł CC-CV boost — „900 W 15 A”</text>
-  <text class="t" x="300" y="420">albo „1500 W 30 A” · CV 14,40 V · CC 8,0 A (7 pakietów)</text>
-  <text class="t" x="300" y="438">radiator i przewiew — 8 A ciągłe to nie jest praca „na sucho”</text>
-
-  <path class="wire" d="M300 454 L300 488"/>
-
-  <rect class="boxC" x="90" y="488" width="420" height="62"/>
-  <text class="h" x="300" y="511">Rozłącznik nadnapięciowy — warstwa 2</text>
-  <text class="t" x="300" y="530">próg 15,30 V · powrót 14,00 V</text>
-
-  <path class="wire" d="M300 550 L300 584"/>
-
-  <text class="tb" x="90" y="576" fill="#9a6b12" font-size="13.5">BANK</text>
-
-  <rect class="boxB" x="90" y="584" width="420" height="84"/>
-  <text class="h" x="300" y="607">BANK 7 × CSB HR1221W F2 — 35,7 Ah · 12,6 kg</text>
-  <text class="t" x="300" y="626">wkładka 10 A (FB1…FB7) na „+” każdego pakietu</text>
-  <text class="t" x="300" y="644">nasuwki F2 6,35 mm · szyna: 2 płaskowniki Cu 15 × 2 mm</text>
-  <text class="t" x="300" y="661">odbiór po przekątnej: „+” odczep 1, „−” odczep 7 (§4.3)</text>
-
-  <path class="wire" d="M300 668 L300 702"/>
-  <text class="fuse" x="312" y="690">F7 15 A MIDI przed VIN+</text>
-
-  <text class="tb" x="90" y="694" fill="#2b4a8a" font-size="13.5">ODBIORNIKI</text>
-
-  <rect class="boxL" x="90" y="702" width="420" height="62"/>
-  <text class="h" x="300" y="725">XH-M609 — LVD</text>
-  <text class="t" x="300" y="744">odcięcie 11,00 V · powrót 12,60 V</text>
-
-  <path class="wire" d="M300 764 L300 798"/>
-
-  <rect class="boxL" x="90" y="798" width="420" height="56"/>
-  <text class="h" x="300" y="821">Wyłącznik główny na „+”</text>
-  <text class="t" x="300" y="840">albo rozłącznik masy 100 A na „−” banku</text>
-
-  <path class="wire" d="M300 854 L300 888"/>
-
-  <rect class="boxL" x="90" y="888" width="420" height="80"/>
-  <text class="h" x="300" y="909">Wyjście na odbiorniki — ZASILANE STALE</text>
-  <text class="t" x="300" y="928">zapłon nie odcina komputera — usypia go Arduino (S3)</text>
-  <text class="t" x="300" y="946">bezp. 7,5 A → XL6019 · bezp. 2 A → LM2596 (podświetlenie)</text>
-
-  <path class="wire" d="M300 968 L300 1000"/>
-  <text class="fuse" x="312" y="990">bezp. 7,5 A</text>
-
-  <rect class="box" x="90" y="1000" width="420" height="88"/>
-  <text class="h" x="300" y="1023">XL6019 12 → 19,5 V → M910q</text>
-  <text class="t" x="300" y="1042">limit CPU 28 W · radiator + wentylator 40 mm · C 470 µF/35 V</text>
-  <text class="t" x="300" y="1060">USB M910q: panel 7" 1024×600 + dotyk, Pro Micro, modem LTE</text>
-  <text class="t" x="300" y="1078">razem 29–42 W na szynie 19,5 V — sufit XL6019 to ok. 45 W</text>
-
-  <!-- ============== NOTES ============== -->
-  <rect class="note" x="560" y="282" width="376" height="96"/>
-  <text class="nh" x="576" y="304">Dlaczego tor ładowania musi się rozłączać</text>
-  <text class="nt" x="576" y="325">Boost nie da napięcia niższego niż wejściowe, więc przy</text>
-  <text class="nt" x="576" y="342">zgaszonym silniku podawałby 14,4 V i rozładowywał</text>
-  <text class="nt" x="576" y="359">akumulator auta. Przekaźnik przerywa go fizycznie.</text>
-
-  <rect class="note" x="560" y="394" width="376" height="130"/>
-  <text class="nh" x="576" y="416">Prąd CC liczysz razem z obciążeniem</text>
-  <text class="nt" x="576" y="437">Moduł limituje prąd WYJŚCIOWY — obciążenie plus</text>
-  <text class="nt" x="576" y="454">ładowanie. Zestaw pobiera podczas jazdy ok. 3,5 A.</text>
-  <text class="nt" x="576" y="475">CC 4 A  →  do banku 0,5 A  →  nigdy się nie doładuje</text>
-  <text class="nt" x="576" y="492">CC 8,0 A →  do banku 4,5 A  →  z 50 % w 4,0 h fazy CC</text>
-  <text class="nt" x="576" y="513">Sufit CSB: 2,1 A × 7 = 14,7 A — ogranicza tor, nie bank.</text>
-
-  <rect class="note" x="560" y="540" width="376" height="112"/>
-  <text class="nh" x="576" y="562">Pobór postojowy — S3 to nie zero</text>
-  <text class="nt" x="576" y="583">M910q w S3 160–320 mA + Arduino 15 mA + XH-M609</text>
-  <text class="nt" x="576" y="600">20–125 mA  =  razem 200–460 mA z banku.</text>
-  <text class="nt" x="576" y="621">7 pakietów (35,7 Ah) → 1,6–3,7 dnia w S3</text>
-  <text class="nt" x="576" y="638">Po wyłączeniu (impuls 5 s): 50–150 mA → 5,0–14,9 dnia.</text>
-
-  <rect class="note" x="560" y="668" width="376" height="230"/>
-  <text class="nh" x="576" y="690">Bezpieczniki i przekroje</text>
-  <line x1="576" y1="700" x2="920" y2="700" stroke="#c8d2da"/>
-  <text class="tb" x="576" y="719">Obwód</text>
-  <text class="tb" x="800" y="719">Bezp.</text>
-  <text class="tb" x="866" y="719">Przekrój</text>
-  <line x1="576" y1="727" x2="920" y2="727" stroke="#c8d2da"/>
-  <text class="nt" x="576" y="746">ładowarka ← akumulator</text><text class="nt" x="800" y="746">15 A</text><text class="nt" x="866" y="746">4 mm²</text>
-  <text class="nt" x="576" y="768">ogonek pakietu → szyna</text><text class="nt" x="800" y="768">10 A</text><text class="nt" x="866" y="768">1,5 mm²</text>
-  <text class="nt" x="576" y="790">wejście XH-M609</text><text class="nt" x="800" y="790">15 A</text><text class="nt" x="866" y="790">2,5 mm²</text>
-  <text class="nt" x="576" y="812">odgałęzienie do XL6019</text><text class="nt" x="800" y="812">7,5 A</text><text class="nt" x="866" y="812">1,5 mm²</text>
-  <text class="nt" x="576" y="834">panel 7" (przez USB)</text><text class="nt" x="800" y="834">—</text><text class="nt" x="866" y="834">—</text>
-  <text class="nt" x="576" y="856">podświetlenie (LM2596)</text><text class="nt" x="800" y="856">2 A</text><text class="nt" x="866" y="856">1,5 mm²</text>
-  <line x1="576" y1="868" x2="920" y2="868" stroke="#c8d2da"/>
-  <text class="foot" x="576" y="886">Wejście 4 mm² (ładowarka daje 8 A). Szyna banku: płaskownik Cu.</text>
-
-  <rect class="note" x="560" y="914" width="376" height="174"/>
-  <text class="nh" x="576" y="936">Kolejność pierwszego załączenia</text>
-  <text class="nt" x="576" y="957">1. Wyłącznik główny rozwarty, ładowarka odłączona.</text>
-  <text class="nt" x="576" y="978">2. Nastawy XL6019, XH-M609, boostu i rozłącznika</text>
-  <text class="nt" x="576" y="995">    nadnapięciowego sprawdzone na zasilaczu lab.</text>
-  <text class="nt" x="576" y="1016">3. Bank (7 pakietów) złożony, wkładki FB1…FB7 założone.</text>
-  <text class="nt" x="576" y="1037">4. Pomiar 19,5 V na XL6019 BEZ M910q.</text>
-  <text class="nt" x="576" y="1058">5. M910q. 6. Tor ładowania JAKO OSTATNI, na zgaszonym</text>
-  <text class="nt" x="576" y="1075">    silniku. 7. Rozruch i pomiar prądu ładowania.</text>
-
-  <text class="foot" x="24" y="1108">Wzmacniacz nie występuje w tym wariancie. Gdy dojdzie — osobna gałąź wprost z akumulatora rozruchowego, własny</text>
-  <text class="foot" x="24" y="1124">bezpiecznik i własna masa; przez bank nie przechodzi wtedy żaden prąd mocy.</text>
-  <text class="foot" x="24" y="1146">Pełny opis nastaw i pomiarów: docs/ZASILANIE_BUFOROWANE.md · wariant docelowy z domeną A: schematics/power_domains_m910q.svg</text>
+  <!-- NOTATKI -->
+  <rect class="note" x="800" y="140" width="376" height="123"/>
+  <text class="nh" x="816" y="162">Dlaczego tor ładowania musi się rozłączać</text>
+  <text class="nt" x="816" y="183">Bez K1 wejścia ładowarek wisiałyby stale na akumulatorze</text>
+  <text class="nt" x="816" y="200">rozruchowym i na postoju ładowały bank jego kosztem.</text>
+  <text class="nt" x="816" y="217">Cewka z zapłonu: kluczyk ON bez silnika = ok. 13 A</text>
+  <text class="nt" x="816" y="234">z rozruchowego. Lepiej z D+/L alternatora; LVP 12,8 V.</text>
+  <text class="nt" x="816" y="251">K1 nie odcina niczego po stronie odbiorników.</text>
+  <rect class="note" x="800" y="277" width="376" height="140"/>
+  <text class="nh" x="816" y="299">Dwie XY-SK120 — CC liczysz z obciążeniem</text>
+  <text class="nt" x="816" y="320">Moduł limituje prąd WYJŚCIOWY: obciążenie plus ładowanie.</text>
+  <text class="nt" x="816" y="337">Zestaw testowy bierze w jeździe ok. 3–5 A (szacunek).</text>
+  <text class="nt" x="816" y="354">1 × CC 5 A  →  netto do banku 0–2 A — za mało</text>
+  <text class="tb" x="816" y="371">2 × CC 5 A  →  netto ≈ 5–7 A (0,7–1,0 A na pakiet)</text>
+  <text class="nt" x="816" y="388">Sufit CSB 2,1 A × 7 = 14,7 A — daleko. Jeden XH-M603</text>
+  <text class="nt" x="816" y="405">realnie ok. 8 A, więc po jednym na ładowarkę (ZB §6.3).</text>
+  <rect class="note" x="800" y="431" width="376" height="157"/>
+  <text class="nh" x="816" y="453">Nastawy (WDROZENIE_TESTOWE §3.5)</text>
+  <text class="nt" x="816" y="474">XY-SK120 × 2: CV 14,40 V · CC 5,0 A · OVP 15,0 V,</text>
+  <text class="nt" x="816" y="491">  LVP 12,8 V · wyjście po włączeniu: ON; oba CV ±0,02 V,</text>
+  <text class="nt" x="816" y="508">  nastawiane bez banku. Lato: 13,95 V (ZB §5.5).</text>
+  <text class="nt" x="816" y="525">XH-M603 × 2: próg 15,30 V · powrót 14,00 V</text>
+  <text class="nt" x="816" y="542">XH-M609: odcięcie 11,00 V · powrót 12,60 V</text>
+  <text class="nt" x="816" y="559">Step-up: bez regulacji; bez obciążenia 19,9–20,5 V,</text>
+  <text class="nt" x="816" y="576">  ~60 W: ≥ 19,8 V na wyjściu, ≥ 19,5 V na wtyku.</text>
+  <rect class="note" x="800" y="602" width="376" height="123"/>
+  <text class="nh" x="816" y="624">Bank na lince — bloki zbiorcze (ZB §4.3)</text>
+  <text class="nt" x="816" y="645">Blok zbiorczy na biegun w każdym koszu (L+, L−, P+, P−):</text>
+  <text class="nt" x="816" y="662">izolowany, 4 kołki M6, pokrywa. 14 odcinków FLRY-B 2,5 mm²</text>
+  <text class="nt" x="816" y="679">równej długości; FB1…FB7 10 A na „+”, 5–10 cm od zacisku.</text>
+  <text class="nt" x="816" y="696">Po przekątnej rozrzut prądów ok. 4 %; oba bieguny</text>
+  <text class="nt" x="816" y="713">z jednego kosza — ok. 24 %, zakaz.</text>
+  <rect class="note" x="800" y="1174" width="376" height="123"/>
+  <text class="nh" x="816" y="1196">Pobór postojowy — S3 to nie zero (§3.1a)</text>
+  <text class="nt" x="816" y="1217">M910q w S3 160–320 mA + Nano 15 mA + XH-M609</text>
+  <text class="nt" x="816" y="1234">20–125 mA + prąd jałowy step-upu (I_jał — zmierz).</text>
+  <text class="tb" x="816" y="1251">S3: 200–460 mA + I_jał → 1,6–3,7 dnia (bez I_jał)</text>
+  <text class="nt" x="816" y="1268">Wyłączony (impuls 5 s): 50–150 mA + I_jał → 5,0–14,9 dnia.</text>
+  <text class="nt" x="816" y="1285">Dłuższy postój: S1 rozwarty — jedyne prawdziwe zero.</text>
+  <rect class="note" x="800" y="1311" width="376" height="373"/>
+  <text class="nh" x="816" y="1333">Bezpieczniki i przekroje (SCHEMATY §10)</text>
+  <line x1="816" y1="1342" x2="1160" y2="1342" stroke="#c8d2da"/>
+  <text class="tb" x="816" y="1359">Obwód</text>
+  <text class="tb" x="996" y="1359">Bezp.</text>
+  <text class="tb" x="1096" y="1359">Przekrój</text>
+  <text class="nt" x="816" y="1381">akumulator → F1 → bagażnik</text>
+  <text class="nt" x="996" y="1381">F1 20 A</text>
+  <text class="nt" x="1096" y="1381">6 mm²</text>
+  <text class="nt" x="816" y="1398">K1 → każda XY-SK120</text>
+  <text class="nt" x="996" y="1398">—</text>
+  <text class="nt" x="1096" y="1398">2,5 mm²</text>
+  <text class="nt" x="816" y="1415">XH-M603 → złączenie</text>
+  <text class="nt" x="996" y="1415">FC1/FC2 7,5 A</text>
+  <text class="nt" x="1096" y="1415">2,5 mm²</text>
+  <text class="nt" x="816" y="1432">złączenie → L+ (przewód B)</text>
+  <text class="nt" x="996" y="1432">F12 15 A</text>
+  <text class="nt" x="1096" y="1432">4 mm²</text>
+  <text class="nt" x="816" y="1449">pakiet → blok (× 14)</text>
+  <text class="nt" x="996" y="1449">FB 10 A</text>
+  <text class="nt" x="1096" y="1449">2,5 mm²</text>
+  <text class="nt" x="816" y="1466">łącznik L ↔ P (+ i −)</text>
+  <text class="nt" x="996" y="1466">—</text>
+  <text class="nt" x="1096" y="1466">6 mm² OFC</text>
+  <text class="nt" x="816" y="1483">L+ → XH-M609</text>
+  <text class="nt" x="996" y="1483">F7 20 A</text>
+  <text class="nt" x="1096" y="1483">6 mm²</text>
+  <text class="nt" x="816" y="1500">P− → S1 → punkt masy</text>
+  <text class="nt" x="996" y="1500">—</text>
+  <text class="nt" x="1096" y="1500">6 mm²</text>
+  <text class="nt" x="816" y="1517">punkt masy → karoseria (jeden)</text>
+  <text class="nt" x="996" y="1517">—</text>
+  <text class="nt" x="1096" y="1517">6 mm²</text>
+  <text class="nt" x="816" y="1534">wspólny powrót 12 V z przodu</text>
+  <text class="nt" x="996" y="1534">—</text>
+  <text class="nt" x="1096" y="1534">2,5 mm²</text>
+  <text class="nt" x="816" y="1551">LVD → szyna odbiorników</text>
+  <text class="nt" x="996" y="1551">—</text>
+  <text class="nt" x="1096" y="1551">4 mm²</text>
+  <text class="nt" x="816" y="1568">szyna → step-up</text>
+  <text class="nt" x="996" y="1568">F8 10 A</text>
+  <text class="nt" x="1096" y="1568">4 mm²</text>
+  <text class="nt" x="816" y="1585">step-up → M910q (+ i −)</text>
+  <text class="nt" x="996" y="1585">5 A</text>
+  <text class="nt" x="1096" y="1585">4 mm²</text>
+  <text class="nt" x="816" y="1602">szyna → LM2596</text>
+  <text class="nt" x="996" y="1602">F9 2 A</text>
+  <text class="nt" x="1096" y="1602">1,5 mm²</text>
+  <text class="nt" x="816" y="1619">szyna → MP1584</text>
+  <text class="nt" x="996" y="1619">F10 3 A</text>
+  <text class="nt" x="1096" y="1619">0,75 mm²</text>
+  <text class="nt" x="816" y="1636">zapłon / D+ → cewka K1</text>
+  <text class="nt" x="996" y="1636">FK 1 A</text>
+  <text class="nt" x="1096" y="1636">0,75 mm²</text>
+  <text class="foot" x="816" y="1657">F7 i F12: ≤ 30 cm od bloku L+ (ZB §8a.3).</text>
+  <text class="foot" x="816" y="1672">Oba przewody masy: bez numeru w SCHEMATY §10.3/§10.6.</text>
+  <text class="foot" x="24" y="1712">Bagażnik: bank, ładowarki, LVD, wkładki F7, F8–F10, F12 i step-up; przód: M910q przy nogach pasażera, panel, LM2596, MP1584 i Nano.</text>
+  <text class="foot" x="24" y="1730">Do przodu idą: 20 V (para 4 mm²), dwie żyły 12 V (F9, F10) i wspólny powrót 12 V 2,5 mm² do punktu masy przy banku (ZB §8.2, §8a).</text>
+  <text class="foot" x="24" y="1748">Wzmacniacz nie występuje w tym wariancie. Gdy dojdzie — osobna gałąź wprost z akumulatora rozruchowego, własny bezpiecznik i własna masa; przez bank nie idzie wtedy żaden prąd mocy.</text>
+  <text class="foot" x="24" y="1766">Schemat komponentowy tego toru (numery przewodów): schematics/schematic_test_power.svg · tabele: docs/SCHEMATY_POLACZEN.md §10 · nastawy i pomiary: docs/ZASILANIE_BUFOROWANE.md</text>
+  <text class="foot" x="24" y="1784">Generator: schematics/gen_power_test_build.py — po zmianie dokumentów popraw generator, nie edytuj SVG ręcznie.</text>
 </svg>

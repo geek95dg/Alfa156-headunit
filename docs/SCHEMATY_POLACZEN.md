@@ -6,7 +6,7 @@ jaki bezpiecznik i w jakiej kolejności. Uzupełnia schematy blokowe
 
 | Rysunek | Co pokazuje |
 |---------|-------------|
-| [`wiring_power_modules.svg`](../schematics/wiring_power_modules.svg) | Moduły zasilania — każdy zacisk podpisany, przekroje, bezpieczniki, masy. **Pokazuje jeszcze poprzedni tor** (domena za zapłonem, boost z diodą, listwy) i czeka na przerysowanie — obowiązują tabele §2 |
+| [`wiring_power_modules.svg`](../schematics/wiring_power_modules.svg) | Moduły zasilania — każdy zacisk podpisany, przekroje, bezpieczniki, masy; numery przewodów jak w tabelach §2 (przy rozbieżności obowiązują tabele) |
 | [`wiring_vehicle_arduino.svg`](../schematics/wiring_vehicle_arduino.svg) | Sygnały pojazdu → układy dopasowujące (PC817, dzielniki) → Arduino |
 | [`wiring_usb_av.svg`](../schematics/wiring_usb_av.svg) | USB, wyświetlacze, audio, kamery |
 | [`vehicle_layout_m910q.svg`](../schematics/vehicle_layout_m910q.svg) | Rozmieszczenie w aucie — strefy montażu, trasy kablowe, bilans masy |
@@ -69,8 +69,8 @@ diagnostyce po roku od montażu to oszczędza godziny:
 Zaciski są narysowane **na krawędziach obudów** i ponumerowane.
 **Obowiązuje numeracja z tabel poniżej** (6/6a, 7/7a, bloki L+/L−/P+/P−,
 FC1/FC2, F12). [`wiring_power_modules.svg`](../schematics/wiring_power_modules.svg)
-ma jeszcze starą numerację zacisków 1–8 i zostanie przenumerowany przy
-przerysowaniu.
+używa tej samej numeracji i ma na dole tabelę zgodności z numeracją
+wariantu testowego §10.
 
 ---
 
@@ -544,9 +544,8 @@ w drugą stronę.
   (przewód 17). Z S1 w torze **nie używaj P− jako punktu masy** i nie
   dawaj żadnego bezpośredniego mostka P− → blok masowy: każda masa
   wylądowana na P− albo taki mostek omija S1 i po jego otwarciu wszystkie
-  odbiorniki dalej wiszą na banku — S1 nic by nie odcinał (ZB §8.3 mówi
-  „blok P− albo blok obok spięty z P−" — to opis sprzed S1; przy S1
-  obowiązuje osobny blok, zgodnie z §8.4 ZB),
+  odbiorniki dalej wiszą na banku — S1 nic by nie odcinał (tak samo
+  ZB §8.3),
 - schodzą się w nim: masa banku (z P− przez S1), masy obu
   XY-SK120 (wejście i wyjście to jeden zacisk) i obu XH-M603, LVD,
   dystrybucja, step-up, powrót 20 V z M910q, wspólny powrót 12 V z przodu
@@ -653,10 +652,11 @@ Generator obu: [`../schematics/gen_test_schematics.py`](../schematics/gen_test_s
 
 Uzupełniająco: [`ignition_sense.svg`](../schematics/ignition_sense.svg)
 (przebiegi czasowe uśpienia i wybudzania). Rysunki
-[`schematic_test_build.svg`](../schematics/schematic_test_build.svg) i
-[`wiring_test_build.svg`](../schematics/wiring_test_build.svg) pokazują
-jeszcze **poprzedni** tor (boost z diodą, XL6019) i czekają na
-przerysowanie — przy rozbieżności obowiązują tabele niżej
+[`schematic_test_build.svg`](../schematics/schematic_test_build.svg)
+(skrócony schemat ideowy) i
+[`wiring_test_build.svg`](../schematics/wiring_test_build.svg) (zacisk po
+zacisku) pokazują ten sam tor z numeracją przewodów z tabel niżej — przy
+rozbieżności obowiązują tabele
 ([`../schematics/README.md`](../schematics/README.md)).
 
 ### 10.1 Tor ładowania
@@ -730,6 +730,12 @@ i ZB §4.3.
 **Logika panelu i dotyk zostają na USB M910q** — osobno idzie wyłącznie
 podświetlenie. Panel ma jeden kabel USB do komputera i jedno złącze
 zasilania podświetlenia.
+
+> **Przewody 13 i 14 — 1,5 mm² celowo.** ZB §8.2 / §8a.2 podaje dla
+> gałęzi F9 → LM2596 1,0 mm² (wersja docelowa, panel 10,1"). W wariancie
+> testowym zostaje 1,5 mm² — grubszy przewód na bezpieczniku 2 A to
+> tylko zapas, nie błąd. Panel 7" jest konfiguracją tymczasową
+> (WDROZENIE_TESTOWE).
 
 ### 10.4 Wejścia optoizolowane — zapłon i bieg wsteczny
 
