@@ -20,8 +20,19 @@
     </div>
     <nav>
       <ul>
-        <li><a class="active" href="01-bom.html"><span class="nav-num">01</span> Bill of Materials</a></li>
-        <li><a href="02-assembly.html"><span class="nav-num">02</span> Physical Assembly</a></li>
+        <li><a href="index.html"><span class="nav-num"></span>Overview</a></li>
+        <li><a href="01-bom.html" class="active"><span class="nav-num">01</span>Bill of Materials</a></li>
+        <li><a href="02-assembly.html"><span class="nav-num">02</span>Physical Assembly</a></li>
+        <li><a href="03-os-install.html"><span class="nav-num">03</span>OS Installation</a></li>
+        <li><a href="04-software.html"><span class="nav-num">04</span>BCM Software</a></li>
+        <li><a href="05-kline-obd.html"><span class="nav-num">05</span>K-Line OBD-II</a></li>
+        <li><a href="06-arduino.html"><span class="nav-num">06</span>Arduino Wiring</a></li>
+        <li><a href="07-sensors.html"><span class="nav-num">07</span>Environmental Sensors</a></li>
+        <li><a href="08-wifi-bt.html"><span class="nav-num">08</span>WiFi &amp; Bluetooth</a></li>
+        <li><a href="09-display-touch.html"><span class="nav-num">09</span>Display &amp; Touch</a></li>
+        <li><a href="10-power-suspend.html"><span class="nav-num">10</span>Power &amp; Suspend</a></li>
+        <li><a href="11-android-auto.html"><span class="nav-num">11</span>Android Auto</a></li>
+        <li><a href="12-verification.html"><span class="nav-num">12</span>Verification</a></li>
       </ul>
     </nav>
   </aside>
@@ -44,9 +55,10 @@
       <div class="box box-info">
         <div class="box-title">Why M910q?</div>
         <p>
-          A used M910q costs 200-400 PLN — cheaper than a new Orange Pi 5 Pro while offering a quad-core
-          Intel i5 with VAAPI hardware decode, 2 DisplayPort outputs, 6 USB 3.0 ports, and NVMe storage.
-          The trade-off: no GPIO (requires Arduino peripherals) and higher power draw (20V / 65W).
+          A used M910q costs 200-400 PLN and offers a quad-core Intel i5 with VAAPI hardware decode,
+          2 DisplayPort outputs, 6 USB 3.0 ports, NVMe storage and reliable ACPI S3 suspend.
+          The trade-off: no GPIO (requires Arduino peripherals) and a 20 V / 65 W supply, which in the car
+          comes from a 12 V &rarr; 20 V step-up converter fed by the buffer bank.
         </p>
       </div>
 
@@ -56,8 +68,18 @@
            STAGE 1
            ============================================================ -->
 
-      <h2><span class="badge badge-stage1">Stage 1</span> Core System — Dashboard + Audio + OBD</h2>
-      <p>Estimated cost: <strong>~650 — 1 100 PLN</strong></p>
+      <h2><span class="badge badge-stage1">Stage 1</span> Core System — Dashboard + Audio + OBD + Buffered Power</h2>
+      <p>Estimated cost: <strong>~1 830 &mdash; 3 620 PLN</strong> (without the parts already on hand and the &ldquo;to be quoted&rdquo; items)</p>
+
+      <div class="box box-info">
+        <div class="box-title">Power items follow the buffered design</div>
+        <p>
+          Rows P1&ndash;P10 are the buffered power system. The authoritative list, with every fuse and
+          wire, is <code>docs/ZASILANIE_BUFOROWANE.md</code> (ZB) &sect;10 (Polish); prices here are copied
+          from it. Modules from Allegro/AliExpress are unbranded: they are named as module families, and
+          ZB says what to check on each unit after purchase.
+        </p>
+      </div>
 
       <div class="table-wrap">
         <table>
@@ -75,117 +97,125 @@
             <tr>
               <td>1</td>
               <td>Mini PC</td>
-              <td><strong>Lenovo M910q Tiny</strong> (i5-6400T, 8 GB DDR4, 256 GB NVMe) — used</td>
+              <td><strong>Lenovo M910q Tiny</strong> (i5-6400T, 8 GB DDR4, 256 GB NVMe) &mdash; used</td>
               <td>1</td>
               <td>200-400</td>
-              <td>2&times; DisplayPort, 6&times; USB 3.0</td>
+              <td>2&times; DisplayPort, 6&times; USB 3.0. Keep the original 20 V PSU: its cable and Lenovo slim-tip plug feed the car converter (ZB &sect;3.3)</td>
             </tr>
             <tr>
               <td>2</td>
-              <td>WiFi + BT dongle</td>
+              <td>WiFi + BT card</td>
               <td><strong>Fenvi FU-AX1800</strong> (MT7921, WiFi 6 + BT 5.2)</td>
               <td>1</td>
               <td>120-180</td>
               <td>Replaces Intel 8265 for 5 GHz AP + BT</td>
             </tr>
             <tr>
-              <td>3</td>
-              <td>Power converter</td>
-              <td><strong>XL6019</strong> 12 V &rarr; 20 V DC-DC boost, 65 W</td>
+              <td>P1</td>
+              <td>Step-up converter (M910q supply)</td>
+              <td>Potted IP67/IP68 boost, <strong>12 V &rarr; 20 V, 10 A (200 W)</strong>, input ~9&ndash;18 V</td>
               <td>1</td>
-              <td>15-30</td>
-              <td>M910q uses 20 V barrel jack</td>
+              <td>60-130</td>
+              <td>Unbranded module family, not a specific model: seller figures only, no datasheet. Bench-test every unit after purchase (no-load voltage &le; 20.5 V, temperature at load, behaviour at 11 V) &mdash; ZB &sect;3.2, &sect;3.4. Lives in the trunk next to the bank</td>
+            </tr>
+            <tr>
+              <td>P2</td>
+              <td>Buffer bank</td>
+              <td><strong>CSB HR1221W F2</strong>, 12 V / 5.1 Ah AGM, <strong>7 in parallel = 35.7 Ah</strong></td>
+              <td>7</td>
+              <td>owned</td>
+              <td>Two steel baskets (4 + 3) on the trunk floor, bolted M8 to the bulkhead behind the rear seat; packs linked by cable, not copper bars (ZB &sect;4.3, &sect;4.7). 8 on hand, 1 spare</td>
+            </tr>
+            <tr>
+              <td>P3</td>
+              <td>Battery baskets</td>
+              <td>Steel, 4-pack (left) + 3-pack (right), M8 to the bulkhead, ~16.8 kg loaded</td>
+              <td>2</td>
+              <td>to be quoted</td>
+              <td>Design: <code>docs/mechanika/kosze_HR1221W_4+3.pdf</code> (its 3D views on pages 2 and 4 did not render). Do not drill the floor &mdash; fuel tank below</td>
+            </tr>
+            <tr>
+              <td>P4</td>
+              <td>LVD</td>
+              <td><strong>XH-M609</strong>, cut-off 11.00 V / reconnect 12.60 V, 20 A relay</td>
+              <td>1</td>
+              <td>owned</td>
+              <td>Check on the bench that it works at 11 V and switches the positive line; measure its own draw (ZB &sect;7.3)</td>
+            </tr>
+            <tr>
+              <td>P5</td>
+              <td>CC-CV charger</td>
+              <td><strong>XY-SK120</strong> (or XY-SK120X), buck-boost, CV 14.40 V, CC 5.0 A each</td>
+              <td>2</td>
+              <td>120-180</td>
+              <td>Two in parallel: one alone leaves about &minus;1&hellip;+1 A net (&asymp; 0) for the bank while the system draws 4&ndash;6 A (ZB &sect;5.3). Buck-boost, so no charging diode is needed. Price for the pair</td>
+            </tr>
+            <tr>
+              <td>P6</td>
+              <td>Overvoltage disconnect</td>
+              <td><strong>XH-M603</strong> (or XH-M604), 15.30 / 14.00 V &mdash; one per charger</td>
+              <td>2</td>
+              <td>80-160</td>
+              <td>The board carries ~8&ndash;10 A in practice, so one cannot take both chargers (ZB &sect;6.3). Price for the pair</td>
+            </tr>
+            <tr>
+              <td>P7</td>
+              <td>Charge relay K1</td>
+              <td>12 V / 30 A SPDT + socket, coil from ignition / D+</td>
+              <td>1</td>
+              <td>15-25</td>
+              <td>The only relay in the power path besides the LVD relay; open with the engine off</td>
+            </tr>
+            <tr>
+              <td>P8</td>
+              <td>Buck 12 V &rarr; 5 V (logic, Arduino)</td>
+              <td><strong>MP1584</strong>, min. 1 A, set to 5.0 V</td>
+              <td>1</td>
+              <td>5-10</td>
+              <td>Feeds the Nano boards&#39; 5V pins, HM-10 and RXB6 &mdash; must live while the M910q sleeps</td>
+            </tr>
+            <tr>
+              <td>P9</td>
+              <td>Buck 12 V &rarr; 5 V (displays)</td>
+              <td><strong>LM2596</strong> module, 3 A (realistically &le; 2 A continuous)</td>
+              <td>1</td>
+              <td>5-15</td>
+              <td>Needed for the backlight PWM</td>
+            </tr>
+            <tr>
+              <td>P10</td>
+              <td>Rest of the power kit</td>
+              <td>Fuses and holders (F1 20 A at the starter battery, FB1&hellip;FB7 10 A per pack, FC1/FC2 7.5 A, FK 1 A, branch blades), fuse distribution, TVS SMCJ20CA, 470 &micro;F / 35 V, 1N4007, OFC 6 mm&sup2; / 4 mm&sup2; / FLRY-B 2.5 mm&sup2; wire, M6 lugs, insulated 6.3 mm receptacles, conduit, 100 A ground disconnect</td>
+              <td>kit</td>
+              <td>457-752</td>
+              <td>Itemised in ZB &sect;10.2. F7 (20 A) and F12 (15 A) must be MIDI/AMI or ANL class (&ge; 2.5 kA breaking capacity per datasheet) &mdash; to be quoted, not in this price</td>
+            </tr>
+            <tr>
+              <td>3</td>
+              <td>Main display</td>
+              <td><strong>10.1&quot; IPS 1280&times;800</strong> + USB touch</td>
+              <td>1</td>
+              <td>300-500</td>
+              <td>Dashboard, port 5002</td>
             </tr>
             <tr>
               <td>4</td>
-              <td>SLA battery buffer (Domain A bus)</td>
-              <td>12 V 5 Ah sealed lead-acid, parallel pack</td>
-              <td>4-6</td>
-              <td>40-60 each</td>
-              <td>Always-on subsystem. 5 packs = 25 Ah = ~17 days parked standby at 60 mA Domain A draw. See <code>X86_PLATFORM_SETUP.md</code> &sect; 2.</td>
+              <td>Second display <em>(optional)</em></td>
+              <td><strong>6.86&quot; widescreen 1280&times;480</strong>, no touch</td>
+              <td>0-1</td>
+              <td>150-300</td>
+              <td>Status carousel + reversing camera, port 5003; hot-plug</td>
             </tr>
             <tr>
               <td>5</td>
-              <td>LVD cutoff</td>
-              <td>11.0 V low-voltage disconnect module</td>
-              <td>1</td>
-              <td>15-25</td>
-              <td>Protects the SLA bank from deep discharge</td>
-            </tr>
-            <tr>
-              <td>6</td>
-              <td>Schottky diode</td>
-              <td><strong>MBR2045</strong> (20 A, 45 V)</td>
-              <td>1</td>
-              <td>5-10</td>
-              <td>Prevents Domain A bus from backfeeding car battery (one-way isolator only)</td>
-            </tr>
-            <tr>
-              <td>7</td>
-              <td>CC-CV charge controller</td>
-              <td>XL4016 DC-DC buck, 15&ndash;20 A, 14.4 V absorb / 13.8 V float</td>
-              <td>1</td>
-              <td>30-50</td>
-              <td><strong>Mandatory.</strong> Limits charge current from the 120 A alternator so the SLA bank isn't slammed and the Schottky doesn't melt. Higher-budget option: B2B charger (Redarc / Sterling / Victron Orion-Tr Smart, 600&ndash;1500 PLN).</td>
-            </tr>
-            <tr>
-              <td>8</td>
-              <td>Per-battery fuses</td>
-              <td>10 A inline fuse holders</td>
-              <td>4-6</td>
-              <td>3 each</td>
-              <td>One per SLA pack; isolates a shorted cell from the bus</td>
-            </tr>
-            <tr>
-              <td>9</td>
-              <td>Buck converter (Domain A 5 V rail)</td>
-              <td>LM2596 12 V &rarr; 5 V (1 A min)</td>
-              <td>1</td>
-              <td>5-10</td>
-              <td>Feeds Nano Vin + HM-10 + RXB6 from the SLA bus</td>
-            </tr>
-            <tr>
-              <td>10</td>
-              <td>Ignition relay</td>
-              <td>Bosch 12 V 30 A automotive SPDT</td>
-              <td>1</td>
-              <td>10-15</td>
-              <td>Closes Domain B power on ACC, opens on park</td>
-            </tr>
-            <tr>
-              <td>11</td>
-              <td>Fuses (Domain B)</td>
-              <td>5 A blade (M910q) + 25 A blade (amps)</td>
-              <td>2</td>
-              <td>10</td>
-              <td></td>
-            </tr>
-            <tr>
-              <td>8</td>
-              <td>Main display</td>
-              <td>7" IPS 1024&times;600 HDMI + USB touch</td>
-              <td>1</td>
-              <td>200-350</td>
-              <td>QDtech MPI5001 or similar</td>
-            </tr>
-            <tr>
-              <td>9</td>
-              <td>Small display</td>
-              <td>4.3" TFT 800&times;480 HDMI (no touch)</td>
-              <td>1</td>
-              <td>150-250</td>
-              <td>Status dashboard</td>
-            </tr>
-            <tr>
-              <td>10</td>
               <td>DP-to-HDMI adapters</td>
               <td>Passive DisplayPort to HDMI cables</td>
               <td>2</td>
               <td>20-30</td>
-              <td>M910q has 2&times; DP, displays need HDMI</td>
+              <td>Only if your M910q has DP outputs and the panels take HDMI</td>
             </tr>
             <tr>
-              <td>11</td>
+              <td>6</td>
               <td>USB DAC</td>
               <td><strong>ES9038Q2M</strong> module</td>
               <td>1</td>
@@ -193,23 +223,23 @@
               <td>32-bit audio, RCA out</td>
             </tr>
             <tr>
-              <td>12</td>
-              <td>Amplifier (main)</td>
-              <td><strong>TDA7388</strong> (4&times;45 W Class AB)</td>
+              <td>7</td>
+              <td>Amplifier</td>
+              <td><strong>Ready-made 4-channel car amplifier</strong>, RCA inputs, class D, 4 &times; 50&ndash;75 W RMS</td>
               <td>1</td>
-              <td>45-70</td>
-              <td>4 car speakers</td>
+              <td>250-600</td>
+              <td>Powered on its own branch straight from the starter battery, local ground, REM from terminal 87 &mdash; never from the buffer bank</td>
             </tr>
             <tr>
-              <td>13</td>
-              <td>Heatsink</td>
-              <td>Aluminium for TDA7388</td>
-              <td>1</td>
-              <td>10-15</td>
+              <td>8</td>
+              <td>Amplifier power cable</td>
+              <td>6 mm&sup2; + fuse holder at the battery terminal (fuse per the amplifier&#39;s datasheet, typically 20&ndash;30 A)</td>
+              <td>kit</td>
+              <td>40-80</td>
               <td></td>
             </tr>
             <tr>
-              <td>14</td>
+              <td>9</td>
               <td>K-Line adapter</td>
               <td>CP2102 USB-UART + L9637D + 510 &Omega; resistor</td>
               <td>1</td>
@@ -217,17 +247,17 @@
               <td>ECU communication (Bosch EDC15C7)</td>
             </tr>
             <tr>
-              <td>15</td>
+              <td>10</td>
               <td>USB powered hub</td>
               <td>7-port USB 3.0 powered</td>
               <td>1</td>
               <td>40-60</td>
-              <td>All peripherals connect through this</td>
+              <td>Powered from the buffered bus</td>
             </tr>
             <tr>
-              <td>16</td>
+              <td>11</td>
               <td>Cables</td>
-              <td>2&times; DP-HDMI, USB-A, power, RCA audio</td>
+              <td>DP-HDMI, USB-A, RCA audio</td>
               <td>&mdash;</td>
               <td>50-80</td>
               <td></td>
@@ -236,7 +266,7 @@
           <tfoot>
             <tr>
               <td colspan="4"><strong>Stage 1 subtotal</strong></td>
-              <td colspan="2"><strong>~820 &mdash; 1 470 PLN</strong> (up from ~650&ndash;1 100 due to the SLA bank + CC-CV stage replacing the single AGM)</td>
+              <td colspan="2"><strong>~1 830 &mdash; 3 620 PLN</strong> (1 832&ndash;3 617; bank and XH-M609 already owned, baskets and MIDI/ANL fuses not priced)</td>
             </tr>
           </tfoot>
         </table>
@@ -251,7 +281,7 @@
       <h2><span class="badge badge-stage2">Stage 2</span> Cameras (4-way) + Sensors + Dashcam</h2>
       <p>Estimated cost: <strong>~450 — 800 PLN</strong></p>
       <p>
-        Same components as the OPi 5 Pro BOM items 14-24. Four AHD cameras with a 4-channel
+        Four AHD cameras with a 4-channel
         USB grabber, ultrasonic parking sensors, and a USB SSD for dashcam loop recording.
       </p>
 
@@ -374,7 +404,6 @@
 
       <h2><span class="badge badge-stage3">Stage 3</span> Input + Connectivity</h2>
       <p>Estimated cost: <strong>~260 — 420 PLN</strong></p>
-      <p>Same as OPi 5 Pro BOM items 25-29.</p>
 
       <div class="table-wrap">
         <table>
@@ -454,8 +483,12 @@
            ============================================================ -->
 
       <h2><span class="badge badge-stage4">Stage 4</span> Subwoofer + Rain Sensor</h2>
-      <p>Estimated cost: <strong>~63 — 102 PLN</strong></p>
-      <p>Same as OPi 5 Pro BOM items 30-33.</p>
+      <p>Estimated cost: <strong>~38 — 62 PLN</strong> (without the subwoofer amplifier)</p>
+      <p>
+        The subwoofer amplifier, if fitted, is a ready-made car unit on the same kind of separate branch
+        from the starter battery as the main amplifier. The repo has no price for it, so it is left out
+        of the subtotal.
+      </p>
 
       <div class="table-wrap">
         <table>
@@ -472,19 +505,11 @@
           <tbody>
             <tr>
               <td>33</td>
-              <td>Subwoofer amp</td>
-              <td><strong>TDA2050</strong> (40 W mono Class AB)</td>
-              <td>1</td>
-              <td>20-30</td>
-              <td></td>
-            </tr>
-            <tr>
-              <td>34</td>
-              <td>Heatsink (sub)</td>
-              <td>Aluminium</td>
-              <td>1</td>
-              <td>5-10</td>
-              <td></td>
+              <td>Subwoofer amp <em>(optional)</em></td>
+              <td>Ready-made mono car amplifier, RCA input, own fuse at the starter battery</td>
+              <td>0-1</td>
+              <td>to be quoted</td>
+              <td>Never from the buffer bank: amplifier peaks would exceed the 20 A LVD relay</td>
             </tr>
             <tr>
               <td>35</td>
@@ -506,7 +531,7 @@
           <tfoot>
             <tr>
               <td colspan="4"><strong>Stage 4 subtotal</strong></td>
-              <td colspan="2"><strong>~63 — 102 PLN</strong></td>
+              <td colspan="2"><strong>~38 — 62 PLN</strong></td>
             </tr>
           </tfoot>
         </table>
@@ -519,12 +544,12 @@
            ============================================================ -->
 
       <h2><span class="badge badge-stage5">Stage 5</span> Always-On Subsystem (window remote + BLE trunk)</h2>
-      <p>Estimated cost: <strong>~100 &mdash; 160 PLN</strong></p>
+      <p>Estimated cost: <strong>~115 &mdash; 195 PLN</strong></p>
       <p>
         Replaces the previous &quot;central lock + alarm&quot; stage. The
         original Alfa 156 central lock and alarm are left untouched; this
         stage adds an <strong>always-on Arduino Nano (Domain A)</strong>
-        powered from the SLA battery buffer that handles the secondary
+        powered from the buffered bus (5 V from the MP1584 buck) that handles the secondary
         window keyfob and the BLE-gated trunk-release button. Both work
         while the car is parked and the M910q (BCM) is asleep.
       </p>
@@ -602,7 +627,7 @@
           <tfoot>
             <tr>
               <td colspan="4"><strong>Stage 5 subtotal</strong></td>
-              <td colspan="2"><strong>~180 — 285 PLN</strong></td>
+              <td colspan="2"><strong>~115 — 195 PLN</strong></td>
             </tr>
           </tfoot>
         </table>
@@ -630,46 +655,46 @@
           <tbody>
             <tr>
               <td><span class="badge badge-stage1">1</span></td>
-              <td>Dashboard + Audio + OBD + dual DP + WiFi/BT + SLA buffer w/ CC-CV charge</td>
-              <td>820</td>
-              <td>1 470</td>
-              <td>820 &ndash; 1 470</td>
+              <td>Dashboard + Audio + OBD + dual displays + WiFi/BT + buffered power (step-up, 2&times; XY-SK120, XH-M603, XH-M609)</td>
+              <td>1 832</td>
+              <td>3 617</td>
+              <td>1 832 &ndash; 3 617</td>
             </tr>
             <tr>
               <td><span class="badge badge-stage2">2</span></td>
               <td>4-way cameras, parking sensors, DS18B20, dashcam</td>
               <td>450</td>
               <td>800</td>
-              <td>1 270 &ndash; 2 270</td>
+              <td>2 282 &ndash; 4 417</td>
             </tr>
             <tr>
               <td><span class="badge badge-stage3">3</span></td>
               <td>SWC dual-pod, GPS, LTE modem</td>
               <td>260</td>
               <td>420</td>
-              <td>1 530 &ndash; 2 690</td>
+              <td>2 542 &ndash; 4 837</td>
             </tr>
             <tr>
               <td><span class="badge badge-stage4">4</span></td>
-              <td>Subwoofer amp + rain sensor</td>
-              <td>63</td>
-              <td>102</td>
-              <td>1 593 &ndash; 2 792</td>
+              <td>Rain sensor + wiper relay (subwoofer amp not priced)</td>
+              <td>38</td>
+              <td>62</td>
+              <td>2 580 &ndash; 4 899</td>
             </tr>
             <tr>
               <td><span class="badge badge-stage5">5</span></td>
               <td>Always-on subsystem (window remote + BLE trunk)</td>
-              <td>100</td>
-              <td>160</td>
-              <td>1 693 &ndash; 2 952</td>
+              <td>115</td>
+              <td>195</td>
+              <td>2 695 &ndash; 5 094</td>
             </tr>
           </tbody>
           <tfoot>
             <tr class="total-row">
               <td colspan="2"><strong>Total (all stages)</strong></td>
-              <td><strong>1 693</strong></td>
-              <td><strong>2 952</strong></td>
-              <td><strong>~1 700 &ndash; 3 000 PLN</strong></td>
+              <td><strong>2 695</strong></td>
+              <td><strong>5 094</strong></td>
+              <td><strong>~2 700 &ndash; 5 100 PLN</strong></td>
             </tr>
           </tfoot>
         </table>
@@ -681,7 +706,15 @@
            M910q vs OPi COMPARISON
            ============================================================ -->
 
-      <h2>M910q vs OPi 5 Pro — Platform Comparison</h2>
+      <h2>Platform Choice</h2>
+
+      <div class="box box-historical">
+        <div class="box-title">Historyczne (nieaktualne) &mdash; the earlier M910q vs Orange Pi 5 Pro comparison</div>
+        <p>
+          Kept only to explain why the project moved to the M910q. The Orange Pi build is retired and is
+          not maintained; the prices and the &ldquo;total BOM&rdquo; row below are from that time and do
+          not match the current stages above.
+        </p>
 
       <div class="table-wrap">
         <table>
@@ -762,9 +795,8 @@
         </table>
       </div>
 
-      <div class="box box-warning">
-        <div class="box-title">Key trade-offs</div>
         <p>
+          <strong>Key trade-offs (at the time):</strong>
           The M910q is <strong>cheaper</strong> and <strong>more powerful</strong> for general compute, but
           lacks GPIO and requires a 12 V &rarr; 20 V boost converter. It also cannot do hardware H.264 encoding
           for the dashcam — the CPU handles encoding in software (x264), which works fine on an i5 but uses
@@ -836,12 +868,14 @@
         <li>DIN bracket / 3D-printed mount — ~20-50 PLN</li>
         <li>SIM card with data plan (for LTE)</li>
         <li>Labour / installation time</li>
+        <li>Parts already on hand: 7&times; CSB HR1221W (plus 1 spare), XH-M609, the original M910q PSU</li>
+        <li>Items without a price in the repo: the two battery baskets, F7/F12 MIDI/ANL fuses, thin FLRY wire, busbar blocks, the subwoofer amplifier, the phone 5 V injector</li>
       </ul>
 
       <!-- Page Navigation -->
       <div class="page-nav">
-        <span></span>
-        <a href="02-assembly.html">Physical Assembly &rarr;</a>
+        <a href="index.html">&larr; Overview</a>
+        <a href="02-assembly.html">02 &mdash; Physical Assembly &rarr;</a>
       </div>
 
       <!-- Footer -->

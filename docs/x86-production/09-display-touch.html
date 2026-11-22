@@ -22,16 +22,16 @@
       <ul>
         <li><a href="index.html"><span class="nav-num"></span>Overview</a></li>
         <li><a href="01-bom.html"><span class="nav-num">01</span>Bill of Materials</a></li>
-        <li><a href="02-power.html"><span class="nav-num">02</span>Power Supply</a></li>
+        <li><a href="02-assembly.html"><span class="nav-num">02</span>Physical Assembly</a></li>
         <li><a href="03-os-install.html"><span class="nav-num">03</span>OS Installation</a></li>
-        <li><a href="04-packages.html"><span class="nav-num">04</span>System Packages</a></li>
-        <li><a href="05-bcm-install.html"><span class="nav-num">05</span>BCM Installation</a></li>
-        <li><a href="06-systemd.html"><span class="nav-num">06</span>Systemd Services</a></li>
-        <li><a href="07-boot.html"><span class="nav-num">07</span>Boot &amp; Splash</a></li>
-        <li><a href="08-kiosk.html"><span class="nav-num">08</span>Kiosk Display</a></li>
+        <li><a href="04-software.html"><span class="nav-num">04</span>BCM Software</a></li>
+        <li><a href="05-kline-obd.html"><span class="nav-num">05</span>K-Line OBD-II</a></li>
+        <li><a href="06-arduino.html"><span class="nav-num">06</span>Arduino Wiring</a></li>
+        <li><a href="07-sensors.html"><span class="nav-num">07</span>Environmental Sensors</a></li>
+        <li><a href="08-wifi-bt.html"><span class="nav-num">08</span>WiFi &amp; Bluetooth</a></li>
         <li><a href="09-display-touch.html" class="active"><span class="nav-num">09</span>Display &amp; Touch</a></li>
-        <li><a href="10-wifi.html"><span class="nav-num">10</span>WiFi &amp; Android Auto</a></li>
-        <li><a href="11-arduino.html"><span class="nav-num">11</span>Arduino Wiring</a></li>
+        <li><a href="10-power-suspend.html"><span class="nav-num">10</span>Power &amp; Suspend</a></li>
+        <li><a href="11-android-auto.html"><span class="nav-num">11</span>Android Auto</a></li>
         <li><a href="12-verification.html"><span class="nav-num">12</span>Verification</a></li>
       </ul>
     </nav>
@@ -60,9 +60,14 @@
             The Lenovo M910q has <strong>2&times; mini-DisplayPort</strong> outputs,
             providing native dual-display support without any USB display adapters.
             Both outputs connect to car displays using passive DP-to-HDMI adapters.
-            The primary display is a <strong>7" IPS touchscreen</strong> (1024&times;600)
+            The primary display is a <strong>10.1" IPS touchscreen</strong> (1280&times;800)
             for the main BCM dashboard, and the secondary is a
-            <strong>4.3" TFT</strong> (800&times;480) for the status dashboard.
+            <strong>6.86" widescreen</strong> (1280&times;480, optional) for the status dashboard.
+            The sizes are those in <code>display.dashboard</code> and
+            <code>display.small</code> of <code>config/bcm_config.yaml</code>, mirrored by
+            <code>MAIN_W</code>/<code>MAIN_H</code>/<code>SMALL_W</code>/<code>SMALL_H</code>
+            in <code>setup-x86.sh</code>; with a 7" 1024&times;600 panel change both and
+            substitute its size in the commands below.
           </p>
 
           <p>
@@ -102,14 +107,14 @@
               <tbody>
                 <tr>
                   <td>DP-1 &rarr; HDMI-1</td>
-                  <td>7" IPS touchscreen</td>
-                  <td>1024&times;600</td>
+                  <td>10.1" IPS touchscreen</td>
+                  <td>1280&times;800</td>
                   <td>BCM dashboard (port 5002)</td>
                 </tr>
                 <tr>
                   <td>DP-2 &rarr; HDMI-2</td>
-                  <td>4.3" TFT</td>
-                  <td>800&times;480</td>
+                  <td>6.86" widescreen</td>
+                  <td>1280&times;480</td>
                   <td>Status dashboard (port 5003)</td>
                 </tr>
               </tbody>
@@ -197,8 +202,8 @@ ExecStart=-/sbin/agetty --autologin bcm --noclear %I $TERM</code></pre>
           <ol>
             <li>Configure xrandr layout (side-by-side, main display on the left)</li>
             <li>Map the USB touchscreen to the correct display output</li>
-            <li>Launch the main Chromium instance on the 7" display (port 5002)</li>
-            <li>Launch the small Chromium instance on the 4.3" display (port 5003)</li>
+            <li>Launch the main Chromium instance on the 10.1" display (port 5002)</li>
+            <li>Launch the small Chromium instance on the 6.86" display (port 5003)</li>
           </ol>
 
           <h3>Chromium Policy</h3>
@@ -272,9 +277,9 @@ xinput map-to-output "$TOUCH_DEVICE" "$MAIN_OUTPUT"</code></pre>
             <p>
               If touch events land on the wrong screen or are offset, verify that
               <code>MAIN_OUTPUT</code> in <code>.xinitrc</code> matches the actual
-              xrandr output name for your 7" display. Run
+              xrandr output name for your 10.1" display. Run
               <code>DISPLAY=:0 xrandr</code> and check which output shows
-              1024x600. The name must match exactly (e.g., <code>HDMI-1</code>
+              1280x800. The name must match exactly (e.g., <code>HDMI-1</code>
               not <code>HDMI1</code>).
             </p>
           </div>
@@ -310,13 +315,13 @@ xinput map-to-output "$TOUCH_DEVICE" "$MAIN_OUTPUT"</code></pre>
                   <td><code>bcm-splash-main</code></td>
                   <td>HDMI-A-1</td>
                   <td><code>/opt/bcm/assets/splash/main.mp4</code></td>
-                  <td>1024&times;600</td>
+                  <td>1280&times;800</td>
                 </tr>
                 <tr>
                   <td><code>bcm-splash-small</code></td>
                   <td>HDMI-A-2</td>
                   <td><code>/opt/bcm/assets/splash/small.mp4</code></td>
-                  <td>800&times;480</td>
+                  <td>1280&times;480</td>
                 </tr>
               </tbody>
             </table>
@@ -371,11 +376,11 @@ done</code></pre>
           </p>
 
           <pre><code># Generated automatically by setup-x86.sh
-ffmpeg -f lavfi -i color=c=black:s=1024x600:d=5 \
+ffmpeg -f lavfi -i color=c=black:s=1280x800:d=5 \
        -vf "drawtext=text='BCM v8.5':fontsize=48:fontcolor=white:x=(w-tw)/2:y=(h-th)/2" \
        -c:v libx264 -pix_fmt yuv420p /opt/bcm/assets/splash/main.mp4
 
-ffmpeg -f lavfi -i color=c=black:s=800x480:d=3 \
+ffmpeg -f lavfi -i color=c=black:s=1280x480:d=3 \
        -vf "drawtext=text='BCM':fontsize=36:fontcolor=white:x=(w-tw)/2:y=(h-th)/2" \
        -c:v libx264 -pix_fmt yuv420p /opt/bcm/assets/splash/small.mp4</code></pre>
 
@@ -386,8 +391,8 @@ ffmpeg -f lavfi -i color=c=black:s=800x480:d=3 \
           </p>
 
           <ul>
-            <li><code>/opt/bcm/assets/splash/main.mp4</code> &mdash; 1024&times;600, H.264, ~8 s recommended (audio optional)</li>
-            <li><code>/opt/bcm/assets/splash/small.mp4</code> &mdash; 800&times;480, H.264, ~5 s recommended (silent)</li>
+            <li><code>/opt/bcm/assets/splash/main.mp4</code> &mdash; 1280&times;800, H.264, ~8 s recommended (audio optional)</li>
+            <li><code>/opt/bcm/assets/splash/small.mp4</code> &mdash; 1280&times;480, H.264, ~5 s recommended (silent)</li>
           </ul>
 
           <div class="box box-info">
@@ -427,15 +432,15 @@ ffmpeg -f lavfi -i color=c=black:s=800x480:d=3 \
               </thead>
               <tbody>
                 <tr>
-                  <td>Main (7")</td>
+                  <td>Main (10.1")</td>
                   <td><code>http://localhost:5002</code></td>
                   <td><code>--window-position=0,0</code></td>
                   <td><code>/tmp/bcm-chromium-main</code></td>
                 </tr>
                 <tr>
-                  <td>Small (4.3")</td>
+                  <td>Small (6.86")</td>
                   <td><code>http://localhost:5003</code></td>
-                  <td><code>--window-position=1024,0</code> (offset by main width)</td>
+                  <td><code>--window-position=1280,0</code> (offset by main width)</td>
                   <td><code>/tmp/bcm-chromium-small</code></td>
                 </tr>
               </tbody>
@@ -446,7 +451,7 @@ ffmpeg -f lavfi -i color=c=black:s=800x480:d=3 \
 
           <pre><code>chromium --app=http://localhost:5002 \
          --window-position=0,0 \
-         --window-size=1024,600 \
+         --window-size=1280,800 \
          --user-data-dir=/tmp/bcm-chromium-main \
          --no-first-run \
          --disable-infobars \
@@ -492,7 +497,7 @@ ffmpeg -f lavfi -i color=c=black:s=800x480:d=3 \
           <pre><code># Check xrandr sees both displays with correct resolutions
 DISPLAY=:0 xrandr</code></pre>
 
-          <p>Expected: HDMI-1 at 1024x600 and HDMI-2 at 800x480, side by side.</p>
+          <p>Expected: HDMI-1 at 1280x800 and HDMI-2 at 1280x480, side by side.</p>
 
           <h3>Touch Mapping</h3>
 
@@ -529,42 +534,42 @@ sudo journalctl -u bcm-splash-small --no-pager -n 10</code></pre>
                 </tr>
                 <tr>
                   <td>Main display resolution</td>
-                  <td>1024x600 on HDMI-1</td>
+                  <td>1280x800 on HDMI-1</td>
                   <td>[ ]</td>
                 </tr>
                 <tr>
                   <td>Small display resolution</td>
-                  <td>800x480 on HDMI-2</td>
+                  <td>1280x480 on HDMI-2</td>
                   <td>[ ]</td>
                 </tr>
                 <tr>
                   <td>Touch maps to main display</td>
-                  <td>Tapping the 7" screen interacts with port 5002 dashboard only</td>
+                  <td>Tapping the 10.1" screen interacts with port 5002 dashboard only</td>
                   <td>[ ]</td>
                 </tr>
                 <tr>
                   <td>Touch does not affect small display</td>
-                  <td>No touch events registered on the 4.3" status screen</td>
+                  <td>No touch events registered on the 6.86" status screen</td>
                   <td>[ ]</td>
                 </tr>
                 <tr>
                   <td>Boot splash (main)</td>
-                  <td>Splash video plays on 7" during boot, exits when Flask is ready</td>
+                  <td>Splash video plays on 10.1" during boot, exits when Flask is ready</td>
                   <td>[ ]</td>
                 </tr>
                 <tr>
                   <td>Boot splash (small)</td>
-                  <td>Splash video plays on 4.3" during boot</td>
+                  <td>Splash video plays on 6.86" during boot</td>
                   <td>[ ]</td>
                 </tr>
                 <tr>
                   <td>Chromium main</td>
-                  <td>Dashboard on port 5002 fills the 7" display, no browser UI</td>
+                  <td>Dashboard on port 5002 fills the 10.1" display, no browser UI</td>
                   <td>[ ]</td>
                 </tr>
                 <tr>
                   <td>Chromium small</td>
-                  <td>Status dashboard on port 5003 fills the 4.3" display</td>
+                  <td>Status dashboard on port 5003 fills the 6.86" display</td>
                   <td>[ ]</td>
                 </tr>
                 <tr>
@@ -601,7 +606,7 @@ sudo journalctl -u bcm-splash-small --no-pager -n 10</code></pre>
           <ul>
             <li>Check <code>/tmp/bcm-xinput.log</code> for the <code>map-to-output</code> command</li>
             <li>Verify <code>TOUCH_DEVICE</code> matches the actual device name in <code>xinput list</code></li>
-            <li>Verify <code>MAIN_OUTPUT</code> matches the xrandr name for the 7" display</li>
+            <li>Verify <code>MAIN_OUTPUT</code> matches the xrandr name for the 10.1" display</li>
             <li>If displays were swapped physically, swap the DP adapter cables or update <code>MAIN_OUTPUT</code></li>
           </ul>
 

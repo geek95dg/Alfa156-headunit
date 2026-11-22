@@ -226,6 +226,13 @@ body.ws-disconnected::after {
 
 /* ---- HERITAGE THEME ---- */
 [data-theme="heritage"] {
+    /* A1 spectrum strip (screens/main.js): bar gradient top/bottom,
+     * peak-hold cap, 2 px baseline shown at silence. */
+    --spectrum-top: #f59e0b;
+    --spectrum-bottom: #d97706;
+    --spectrum-peak: #fde68a;
+    --spectrum-base: rgba(245, 158, 11, 0.25);
+
     --color-primary: #f59e0b;
     --color-accent: #ec5b13;
     --color-surface: #1a0f0a;
@@ -283,6 +290,13 @@ body[data-theme="heritage"] {
  * and a clearly visible slate-400 border so panels read as panels.
  */
 [data-theme="modern"] {
+    /* A1 spectrum strip (screens/main.js): bar gradient top/bottom,
+     * peak-hold cap, 2 px baseline shown at silence. */
+    --spectrum-top: #3b82f6;
+    --spectrum-bottom: #1d4ed8;
+    --spectrum-peak: #1e3a8a;
+    --spectrum-base: rgba(59, 130, 246, 0.25);
+
     --color-primary: #005596;
     --color-accent: #ef4444;
     --color-surface: #eef2f7;
@@ -352,6 +366,13 @@ body[data-theme="modern"] {
 
 /* ---- AUTODELTA THEME ---- */
 [data-theme="autodelta"] {
+    /* A1 spectrum strip (screens/main.js): bar gradient top/bottom,
+     * peak-hold cap, 2 px baseline shown at silence. */
+    --spectrum-top: #FF5F00;
+    --spectrum-bottom: #ec5b13;
+    --spectrum-peak: #ffd2b3;
+    --spectrum-base: rgba(255, 95, 0, 0.25);
+
     --color-primary: #FF5F00;
     --color-accent: #ec5b13;
     --color-surface: #000000;

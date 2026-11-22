@@ -910,6 +910,19 @@ class PipeWireController:
     def hardware_sink(self) -> Optional[str]:
         return self._hw_sink
 
+    def music_sink(self) -> Optional[str]:
+        """The sink the music is played into — what the spectrum listens to.
+
+        ``bcm_eq_sink`` while the EQ child is alive (apps and the A2DP links
+        go there), otherwise the hardware sink. The EQ child is restarted on
+        every preset/gain change and AEC retarget; the spectrum analyser
+        notices the node being replaced and relaunches its capture itself.
+        """
+        proc = self._eq_proc
+        if proc is not None and proc.poll() is None:
+            return EQ_SINK_NAME
+        return self._hw_sink
+
     @property
     def available(self) -> bool:
         return self._available

@@ -22,15 +22,15 @@
       <ul>
         <li><a href="index.html"><span class="nav-num"></span>Overview</a></li>
         <li><a href="01-bom.html"><span class="nav-num">01</span>Bill of Materials</a></li>
-        <li><a href="02-power.html"><span class="nav-num">02</span>Power Supply</a></li>
+        <li><a href="02-assembly.html"><span class="nav-num">02</span>Physical Assembly</a></li>
         <li><a href="03-os-install.html"><span class="nav-num">03</span>OS Installation</a></li>
-        <li><a href="04-packages.html"><span class="nav-num">04</span>System Packages</a></li>
-        <li><a href="05-bcm-install.html"><span class="nav-num">05</span>BCM Installation</a></li>
-        <li><a href="06-systemd.html"><span class="nav-num">06</span>Systemd Services</a></li>
-        <li><a href="07-boot.html"><span class="nav-num">07</span>Boot &amp; Splash</a></li>
-        <li><a href="08-kiosk.html"><span class="nav-num">08</span>Kiosk Display</a></li>
-        <li><a href="09-suspend.html"><span class="nav-num">09</span>Suspend / Wake</a></li>
-        <li><a href="10-wifi.html"><span class="nav-num">10</span>WiFi &amp; Android Auto</a></li>
+        <li><a href="04-software.html"><span class="nav-num">04</span>BCM Software</a></li>
+        <li><a href="05-kline-obd.html"><span class="nav-num">05</span>K-Line OBD-II</a></li>
+        <li><a href="06-arduino.html"><span class="nav-num">06</span>Arduino Wiring</a></li>
+        <li><a href="07-sensors.html"><span class="nav-num">07</span>Environmental Sensors</a></li>
+        <li><a href="08-wifi-bt.html"><span class="nav-num">08</span>WiFi &amp; Bluetooth</a></li>
+        <li><a href="09-display-touch.html"><span class="nav-num">09</span>Display &amp; Touch</a></li>
+        <li><a href="10-power-suspend.html"><span class="nav-num">10</span>Power &amp; Suspend</a></li>
         <li><a href="11-android-auto.html"><span class="nav-num">11</span>Android Auto</a></li>
         <li><a href="12-verification.html" class="active"><span class="nav-num">12</span>Verification</a></li>
       </ul>
@@ -636,7 +636,7 @@ echo "============================================"</code></pre>
                   <td>WiFi AP not starting</td>
                   <td><code>hostapd</code> fails immediately</td>
                   <td>WiFi card does not support AP mode on 5 GHz</td>
-                  <td>Check <code>iw list | grep AP</code>; consider Fenvi AX200 upgrade; try 2.4 GHz as fallback</td>
+                  <td>Check <code>iw list | grep AP</code>; check that the Fenvi FU-AX1800 (MT7921) is fitted and <code>firmware-mediatek</code> is installed; try 2.4 GHz as fallback</td>
                 </tr>
                 <tr>
                   <td>BT not discoverable</td>

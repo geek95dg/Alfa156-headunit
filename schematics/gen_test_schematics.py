@@ -319,13 +319,13 @@ class Sheet:
 # ======================================================================
 #  ARKUSZ 1 — ZASILANIE
 # ======================================================================
-s = Sheet(1620, 2046,
+s = Sheet(1620, 2090,
           "BCM v8.5 — arkusz 1/2: ZASILANIE (wariant testowo-rozwojowy, M910q)",
-          "Każdy element osobno. Cewki i styki przekaźników rozdzielone — "
-          "K1 i K2 to po jednym przekaźniku Bosch, narysowanym w dwóch "
-          "miejscach. Moduły kupne jako prostokąty z zaciskami.")
+          "Każdy element osobno. Cewka i styk K1 rozdzielone — to jeden przekaźnik "
+          "narysowany w dwóch miejscach. Moduły kupne jako prostokąty z zaciskami. "
+          "Wartości: docs/ZASILANIE_BUFOROWANE.md.")
 
-s.sect(40, 118, "A", "TOR ŁADOWANIA — akumulator rozruchowy → bank")
+s.sect(40, 118, "A", "TOR ŁADOWANIA — akumulator rozruchowy → 2 × XY-SK120 → bank")
 RAIL, GA = 240, 720
 
 # --- akumulator rozruchowy
@@ -336,17 +336,19 @@ s.w(110, RAIL + 62, 110, GA)
 s.star_gnd(110, GA)
 s.w(110, RAIL, 156, RAIL)
 s.wn(133, RAIL - 15, 1)
-x = s.fuse_h(156, RAIL, "F1", "15 A")
+# F1 20 A: dwie ładowarki biorą z instalacji 11,9–13,0 A (ZB §5.4) — 15 A
+# pracowałoby na 80–87 % przez całą jazdę.
+x = s.fuse_h(156, RAIL, "F1", "20 A")
 s.wn(x + 18, RAIL - 15, 2)
 
 # --- TVS i C1 (osobno!)
 s.w(x, RAIL, 430, RAIL)
 s.dot(258, RAIL)
 s.dot(420, RAIL)
-yy = s.tvs_v(258, RAIL + 22, "D5", "1.5KE33CA")
+yy = s.tvs_v(258, RAIL + 22, "D5", "SMCJ20CA")
 s.w(258, yy, 258, GA)
 s.star_gnd(258, GA)
-s.txt(258, GA + 44, "TVS — obcina load dump", "vc")
+s.txt(258, GA + 44, "TVS — krótkie szpilki, nie load dump", "vc")
 s.txt(258, GA + 60, "CA = dwukierunkowa, montaż dowolnie", "vc")
 yy = s.cap_v(420, RAIL + 22, "C1", "470 µF / 35 V", pol=True, side=1)
 s.w(420, yy, 420, GA)
@@ -356,14 +358,16 @@ s.txt(430, GA + 44, "bufor wejścia", "vc")
 # --- styk K1
 s.w(430, RAIL, 470, RAIL)
 s.wn(437, RAIL - 15, 3)
-x = s.contact(470, RAIL, "K1", "zwiera po zapłonie", ny=-32)
-s.dot(600, RAIL)
-s.w(x, RAIL, 660, RAIL)
-s.wn(632, RAIL - 15, 5)
+x = s.contact(470, RAIL, "K1", "zwiera, gdy pracuje silnik", ny=-32)
+NODE = 640
+s.w(x, RAIL, NODE, RAIL)
+s.dot(NODE, RAIL)
 
-# --- cewka K1 + dioda gasząca
-s.term(250, 470, "ZAPŁON / ACC", "12 V po przekręceniu kluczyka")
-s.w(257, 470, 518, 470)
+# --- cewka K1 + dioda gasząca; FK 1 A przy wpięciu w zapłon / D+
+s.term(176, 470, "ZAPŁON / D+", "12 V, gdy pracuje silnik")
+s.w(183, 470, 300, 470)
+x = s.fuse_h(300, 470, "FK", "1 A")
+s.w(x, 470, 518, 470)
 s.wn(400, 455, 4)
 s.coil(518, 470, "K1")
 s.w(518, 550, 518, GA)
@@ -374,159 +378,132 @@ s.diode_v(444, 486, "D6", "1N4007", up=True, side=-1)
 s.path([(444, 536), (444, 550), (518, 550)])
 s.dot(518, 550)
 
-# --- D1 MBR2545CT
-s.a('<rect class="dash" x="660" y="130" width="196" height="224"/>')
-s.txt(758, 118, "D1", "rc")
-s.txt(758, 376, "MBR2545CT — anody 1 i 3 zwarte", "vc")
-s.txt(758, 392, "blaszka = katoda (pin 2), izoluj od radiatora", "vc")
-s.path([(660, RAIL), (686, RAIL)])
-s.dot(686, RAIL)
-s.path([(686, 190), (686, 290)])
-s.schottky_h(686, 190)
-s.schottky_h(686, 290)
-s.path([(738, 190), (830, 190), (830, 290), (738, 290)])
-s.dot(830, RAIL)
-s.txt(712, 176, "pin 1 — anoda", "vc")
-s.txt(712, 322, "pin 3 — anoda", "vc")
-s.txt(806, 254, "pin 2 — katoda", "ve")
-s.leader(810, 250, 828, 241)
-s.w(830, RAIL, 902, RAIL)
-s.wn(874, RAIL - 15, 6)
-
-# --- ładowarka CC-CV
-m1 = s.module(902, 148, 214, 200, "M1", "MODUŁ CC-CV BOOST", "„900 W 15 A” / „1500 W 30 A”",
-              left=[("in+", "IN+"), ("in-", "IN−")],
-              right=[("out+", "OUT+"), ("out-", "OUT−")])
-s.txt(1009, 372, "CV 14,40 V · CC 8,0 A", "vc")
-s.path([(902, RAIL), (884, RAIL), (884, m1["in+"][1]), (m1["in+"][0], m1["in+"][1])])
-s.path([(m1["in-"][0], m1["in-"][1]), (866, m1["in-"][1]), (866, GA)])
-s.star_gnd(866, GA)
-s.path([(m1["out-"][0], m1["out-"][1]), (1160, m1["out-"][1]), (1160, GA)])
-s.star_gnd(1160, GA)
-
-# --- styk K2
-s.path([(m1["out+"][0], m1["out+"][1]), (1216, m1["out+"][1]), (1216, RAIL),
-        (1240, RAIL)])
-s.wn(1216, RAIL - 15, "B")
-x = s.contact(1240, RAIL, "K2", "rozwiera przy przeładowaniu")
-s.w(x, RAIL, 1470, RAIL)
-s.wn(1400, RAIL - 15, 7)
-s.w(1470, RAIL, 1470, 930)
-s.txt(1358, RAIL - 34, "→ szyna „+” banku", "lbl")
-
-# --- cewka K2 + D7
-s.coil(1240, 470, "K2")
-s.w(1240, 550, 1240, GA)
-s.star_gnd(1240, GA)
-s.wn(1215, 590, "7e")
-s.dot(1330, 470)
-s.path([(1240, 470), (1330, 470), (1330, 486)])
-s.diode_v(1330, 486, "D7", "1N4007", up=True)
-s.path([(1330, 536), (1330, 550), (1240, 550)])
-s.dot(1240, 550)
-
-# --- M2 rozłącznik nadnapięciowy
-m2 = s.module(910, 470, 214, 210, "M2", "XH-M603", "rozłącznik nadnapięciowy",
-              left=[("vp", "V+"), ("com", "COM"), ("vm", "V−")],
-              right=[("no", "NO")])
-s.txt(1017, 704, "rozwiera 15,30 V · wraca 14,00 V", "vc")
-s.txt(1017, 720, "zasilany z K1:87 — na postoju martwy", "vc")
-# V+ i COM z węzła za stykiem K1
-s.path([(600, RAIL), (600, 420), (760, 420), (760, m2["vp"][1]),
-        (m2["vp"][0], m2["vp"][1])])
-s.wn(700, 406, "7a")
-s.dot(700, 420)
-s.path([(700, 420), (700, m2["com"][1]), (m2["com"][0], m2["com"][1])])
-s.wn(740, m2["com"][1] - 15, "7c")
-# V- na masę
-s.path([(m2["vm"][0], m2["vm"][1]), (820, m2["vm"][1]), (820, GA)])
-s.star_gnd(820, GA)
-s.wn(848, m2["vm"][1] + 20, "7b")
-# NO → cewka K2:86
-s.path([(m2["no"][0], m2["no"][1]), (1180, m2["no"][1]), (1180, 470), (1240, 470)])
-s.wn(1180, m2["no"][1] - 15, "7d")
+# --- dwie gałęzie: XY-SK120 → XH-M603 → FC → złączenie
+# Bez diody blokującej: XY-SK120 to buck-boost (ZB §5.1). Bank od instalacji
+# odcina rozwarty K1, a od martwej ładowarki — rozwarty przekaźnik XH-M603
+# (przyjęcie do sprawdzenia, ZB §6.4 pkt 6).
+JX = 1300
+for gi, top in enumerate((148, 430)):
+    n, suf = gi + 1, ("", "a")[gi]
+    mc = s.module(700, top, 190, 180, f"M1{'ab'[gi]}", f"XY-SK120 #{n}",
+                  "CV 14,40 V · CC 5,0 A",
+                  left=[("in+", "IN+"), ("in-", "IN−")],
+                  right=[("out+", "OUT+"), ("out-", "OUT−")], cls="blkc")
+    mo = s.module(960, top, 190, 180, f"M2{'ab'[gi]}", f"XH-M603 #{n}",
+                  "15,30 / 14,00 V",
+                  left=[("in+", "DC-IN+"), ("in-", "DC-IN−")],
+                  right=[("out+", "OUT+")], cls="blkr")
+    py, gy = mc["in+"][1], mc["in-"][1]
+    if gi == 0:
+        s.w(NODE, RAIL, mc["in+"][0], py)
+    else:
+        s.path([(NODE, RAIL), (NODE, py), (mc["in+"][0], py)])
+    s.wn(661, py - 15, "5" + suf)
+    s.star_gnd(mc["in-"][0], gy)
+    s.w(mc["out+"][0], py, mo["in+"][0], py)
+    s.wn(925, py - 15, "6" + suf)
+    s.w(mc["out-"][0], gy, mo["in-"][0], gy)
+    s.dot(925, gy)
+    s.star_gnd(925, gy)
+    s.w(mo["out+"][0], py, 1190, py)
+    x = s.fuse_h(1190, py, f"FC{n}", "7,5 A")
+    s.w(x, py, JX, py)
+    s.wn(1274, py - 15, "7" + suf)
+    s.txt(1055, top + 200, f"zasilany z wyjścia M1{'ab'[gi]} — na postoju martwy", "vc")
+s.dot(JX, 522)
+s.w(JX, RAIL, JX, 600)
+yy = s.fuse_v(JX, 600, "F12", "15 A")
+s.txt(JX + 15, 690, "MIDI/ANL ≥ 2,5 kA,", "v")
+s.txt(JX + 15, 706, "przy bloku L+ banku", "v")
+# przewód B schodzi do banku nad modułami pasa A i obok nagłówka pasa B,
+# żeby nie przeciąć XH-M609 (M3)
+s.path([(JX, yy), (JX, 775), (650, 775), (650, 880)])
+s.txt(1340, 520, "złączenie gałęzi", "lbl")
 
 s.a('<line class="wd" x1="40" y1="800" x2="1580" y2="800"/>')
 
 # ---------------- BAND B
-s.sect(40, 852, "B", "BANK BUFOROWY · OCHRONA ROZŁADOWANIA · WYŁĄCZNIK GŁÓWNY")
-PB, NB = 930, 1160
-BUS_L, BUS_R = 170, 906
-# szyny zbiorcze — płaskownik miedziany rysowany pod przewodem
-s.a(f'<line class="bus" x1="{BUS_L}" y1="{PB}" x2="{BUS_R}" y2="{PB}"/>')
-s.a(f'<line class="bus" x1="{BUS_L}" y1="{NB}" x2="{BUS_R}" y2="{NB}"/>')
-s.a(f'<line class="wp" x1="{BUS_L}" y1="{PB}" x2="1470" y2="{PB}"/>')
-s.a(f'<line class="wg" x1="{BUS_L}" y1="{NB}" x2="{BUS_R}" y2="{NB}"/>')
-s.txt(176, PB - 16, "SZYNA „+” BANKU · płaskownik Cu 15 × 2 mm", "nh")
-s.txt(210, NB + 26, "SZYNA „−” BANKU · płaskownik Cu 15 × 2 mm", "nh")
-s.dot(1470, PB)
-
-for i in range(7):
-    bx = 200 + i * 112
+s.sect(40, 852, "B", "BANK W DWÓCH KOSZACH 4 + 3 · LVD · ROZŁĄCZNIK MASY")
+PB, NB = 950, 1170
+LX = [220, 320, 420, 520]          # kosz L — 4 pakiety
+PX = [700, 800, 900]               # kosz P — 3 pakiety
+# kosze (rama przerywana) — rysowane pod wszystkim
+s.a('<rect class="dash" x="160" y="920" width="400" height="300"/>')
+s.a('<rect class="dash" x="660" y="920" width="280" height="300"/>')
+s.txt(360, 1240, "KOSZ L — 4 × HR1221W", "lbb")
+s.txt(800, 1240, "KOSZ P — 3 × HR1221W", "lbb")
+# bloki zbiorcze (gwiazda w każdym koszu) i łączniki między koszami
+for (a, b) in ((200, 540), (680, 920)):
+    s.a(f'<line class="bus" x1="{a}" y1="{PB}" x2="{b}" y2="{PB}"/>')
+    s.a(f'<line class="bus" x1="{a}" y1="{NB}" x2="{b}" y2="{NB}"/>')
+    s.a(f'<line class="wp" x1="{a}" y1="{PB}" x2="{b}" y2="{PB}"/>')
+    s.a(f'<line class="wg" x1="{a}" y1="{NB}" x2="{b}" y2="{NB}"/>')
+s.a(f'<line class="wp" x1="540" y1="{PB}" x2="680" y2="{PB}"/>')
+s.a(f'<line class="wg" x1="540" y1="{NB}" x2="680" y2="{NB}"/>')
+s.txt(610, PB - 8, "łącznik 6 mm²", "vc")
+s.txt(610, NB + 20, "łącznik 6 mm²", "vc")
+s.txt(200, NB + 26, "L−", "pin")
+s.txt(890, NB + 26, "P−", "pin")
+s.txt(610, NB + 36, "OFC · 0,4–0,6 m", "vc")
+for i, bx in enumerate(LX + PX):
     s.dot(bx, PB)
-    yy = s.fuse_v(bx, PB, f"FB{i+1}", "10 A", side=1 if i % 2 == 0 else -1)
+    yy = s.fuse_v(bx, PB, f"FB{i+1}", "10 A",
+                  side=1 if i % 2 == 0 and i != 6 else -1)
     s.w(bx, yy, bx, yy + 12)
     s.battery(bx, yy + 12, f"BT{i+1}", "5,1 Ah")
     s.w(bx, yy + 74, bx, NB)
     s.dot(bx, NB)
-s.txt(536, 1236,
-      "7 × CSB HR1221W F2 · 12 V / 5,1 Ah AGM · równolegle = 35,7 Ah · 12,6 kg", "vc")
+s.txt(550, 1262,
+      "7 × CSB HR1221W F2 · 12 V / 5,1 Ah AGM · równolegle = 35,7 Ah · ≈ 16,8 kg z koszami", "vc")
 
-# odbiór po przekątnej — bieguny wychodzą z PRZECIWNYCH końców szyny
-s.dot(BUS_R, PB)
-s.txt(BUS_R, PB - 32, "odbiór „+”", "rc")
-s.dot(BUS_L, NB)
-s.txt(BUS_L - 16, NB - 12, "odbiór „−”", "re")
+# ładowanie (przewód B) wchodzi do bloku L+
+s.path([(650, 880), (270, 880), (270, PB)])
+s.dot(270, PB)
+s.wn(650, 860, "B")
+s.txt(290, 872, "przewód B 4 mm² — ładowanie do L+", "lbl")
+s.txt(200, PB - 8, "L+", "pin")
 
-s.dot(1000, PB)
-x = s.fuse_h(1000, PB, "F7", "15 A")
-s.wn(x + 18, PB - 15, 8)
-m3 = s.module(1100, 878, 214, 200, "M3", "XH-M609", "ochrona głębokiego rozładowania",
+# odbiór „+” z L+ → F7 → LVD
+s.path([(470, PB), (470, 905), (1000, 905)])
+s.dot(470, PB)
+x = s.fuse_h(1000, 905, "F7", "20 A")
+s.wn(1072, 890, 8)
+s.txt(1029, 948, "MIDI/ANL", "vc")
+m3 = s.module(1110, 860, 214, 200, "M3", "XH-M609", "ochrona głębokiego rozładowania",
               left=[("vin+", "VIN+"), ("vin-", "VIN−")],
               right=[("vout+", "VOUT+"), ("vout-", "VOUT−")])
-s.txt(1207, 1102, "odcina 11,00 V · wraca 12,60 V", "vc")
-s.w(x, PB, m3["vin+"][0], m3["vin+"][1])
-# „−” wraca od przeciwnego końca szyny niż wychodzi „+”
-s.path([(BUS_L, NB), (BUS_L, 1284), (940, 1284), (940, m3["vin-"][1]),
-        (m3["vin-"][0], m3["vin-"][1])])
-s.wn(940, 1230, 9)
-s.path([(m3["vout-"][0], m3["vout-"][1]), (1400, m3["vout-"][1]), (1400, 1100)])
-s.star_gnd(1400, 1100)
+s.txt(1217, 1082, "odcina 11,00 V · wraca 12,60 V", "vc")
+s.path([(x, 905), (1080, 905), (1080, m3["vin+"][1]), (m3["vin+"][0], m3["vin+"][1])])
+s.path([(m3["vin-"][0], m3["vin-"][1]), (1062, m3["vin-"][1]), (1062, 1010)])
+s.star_gnd(1062, 1010)
+# VOUT− celowo wolny: w XH-M609 jest zwarty z VIN− (przekaźnik przerywa
+# plus), a powroty odbiorników idą wprost do punktu masy — SCHEMATY §2.3.
+s.txt(m3["vout-"][0] + 14, m3["vout-"][1] + 4, "wolny", "v")
+s.w(m3["vout+"][0], m3["vout+"][1], 1540, m3["vout+"][1])
+s.wn(1440, m3["vout+"][1] - 15, 10)
+s.w(1540, m3["vout+"][1], 1540, 1440)
 
-s.path([(m3["vout+"][0], m3["vout+"][1]), (1380, m3["vout+"][1])])
-s.wn(1356, m3["vout+"][1] - 15, 10)
-x = s.switch_h(1380, m3["vout+"][1], "S1", "rozłącznik masy 100 A")
-s.path([(x, m3["vout+"][1]), (1540, m3["vout+"][1]), (1540, 1440)])
+# odbiór „−” z P− (po przekątnej!) → S1 → punkt masy
+s.path([(920, NB), (960, NB), (960, 1290), (975, 1290)])
+s.dot(920, NB)
+s.wn(960, 1230, 9)
+x = s.switch_h(975, 1290, "S1", "rozłącznik masy 100 A")
+s.w(x, 1290, 1124, 1290)
+s.star_gnd(1124, 1290, "punkt masy")
 
-# ---- DETAL: jak połączyć siedem pakietów
-# Ramka kończy się na x=1524 — przewód S1 → szyna odbiorników biegnie
-# pionem x=1540 i musi zostać widoczny obok niej, a nie pod nią.
-s.box(964, 1146, 560, 186, "note")
-s.txt(980, 1170, "SZYNA ZBIORCZA — SIEDEM PAKIETÓW (detal)", "nh")
-s.a('<rect class="cu" x="1002" y="1212" width="200" height="9" rx="2"/>')
-s.a('<rect class="cg" x="1002" y="1284" width="200" height="9" rx="2"/>')
-for i in range(7):
-    tx = 1014 + i * 29
-    s.w(tx, 1221, tx, 1232, "wp")
-    s.a(f'<rect class="pk" x="{tx-9}" y="1232" width="18" height="40" rx="3"/>')
-    s.txt(tx, 1257, str(i + 1), "wn")
-    s.w(tx, 1272, tx, 1284, "wg")
-s.dot(1002, 1216)
-s.path([(1002, 1216), (986, 1216), (986, 1196)], "wp")
-s.txt(986, 1190, "„+”", "rc")
-s.dot(1202, 1288)
-s.path([(1202, 1288), (1212, 1288), (1212, 1312)], "wg")
-s.txt(1212, 1322, "„−”", "rc")
-for _y, _t in ((1188, "Dwa płaskowniki miedziane, osobno"),
-               (1204, "dla „+” i „−”: min. 15 × 2 mm"),
-               (1220, "(zalecane 20 × 3 mm), siedem"),
-               (1236, "odczepów M6 co 70 mm. Ogonki"),
-               (1252, "1,5 mm² równej długości, ≤ 30 mm."),
-               (1276, "ODBIÓR PO PRZEKĄTNEJ: bieguny"),
-               (1292, "z przeciwnych końców szyny (1 ↔ 7)"),
-               (1308, "→ rozrzut prądów 1,0 %. Oba z"),
-               (1324, "jednego końca: 4,6 % — ZAKAZ.")):
-    s.txt(1236, _y, _t, "nt")
+# ---- DETAL: jak połączyć dwa kosze
+s.box(1170, 1110, 352, 214, "note")
+for _y, _t, _c in ((1134, "BANK NA LINCE — DWA KOSZE (ZB §4.3)", "nh"),
+                   (1156, "W każdym koszu blok zbiorczy na biegun", "nt"),
+                   (1172, "(L+, L−, P+, P−): izolowany, 4 kołki M6, pokrywa.", "nt"),
+                   (1192, "Pakiet → blok: FLRY-B 2,5 mm², 0,25 m ±30 mm,", "nt"),
+                   (1208, "nasuwka izolowana 6,3 × 0,8, FB 10 A 5–10 cm.", "nt"),
+                   (1228, "Łącznik L ↔ P: 6 mm² OFC (nie CCA), obie żyły", "nt"),
+                   (1244, "tej samej długości, pod osłoną.", "nt"),
+                   (1268, "ODBIÓR PO PRZEKĄTNEJ: „+” z L+, „−” z P−", "nh"),
+                   (1288, "→ rozrzut prądów ok. 4 %. Oba bieguny z jednego", "nt"),
+                   (1304, "kosza: ok. 24 % — ZAKAZ.", "nt")):
+    s.txt(1184, _y, _t, _c)
 
 s.a('<line class="wd" x1="40" y1="1340" x2="1580" y2="1340"/>')
 
@@ -535,12 +512,12 @@ s.sect(40, 1392, "C", "ODBIORNIKI — zasilane stale, niezależnie od zapłonu")
 LB, LG = 1440, 1800
 s.a(f'<line class="wp" x1="180" y1="{LB}" x2="1540" y2="{LB}"/>')
 s.dot(1540, LB)
-s.txt(186, LB - 14, "SZYNA ODBIORNIKÓW +12 V (za S1)", "nh")
+s.txt(186, LB - 14, "SZYNA ODBIORNIKÓW +12 V (za LVD)", "nh")
 
 conv = [
-    (240, "F8", "7,5 A", 11, "M4", "XL6019", "step-up 12 → 19,5 V"),
+    (240, "F8", "10 A", 11, "M4", "STEP-UP 20 V", "zalewany, 10 A / 200 W"),
     (860, "F9", "2 A", 13, "M5", "LM2596", "step-down 12 → 5 V"),
-    (1250, "F10", "3 A", 25, "M6", "MP1584", "step-down 12 → 5 V"),
+    (1250, "F10", "3 A", "13a", "M6", "MP1584", "step-down 12 → 5 V"),
 ]
 mo = {}
 for bx, fr, fv, wnum, mr, mn, ms in conv:
@@ -555,25 +532,19 @@ for bx, fr, fv, wnum, mr, mn, ms in conv:
     s.star_gnd(bx - 22, LG)
     mo[mr] = m
 
-# XL6019 → C6 → wtyk M910q
+# step-up → wkładka 5 A → wtyk M910q (4 mm², do ~4 m)
 m4 = mo["M4"]
-s.w(m4["out+"][0], m4["out+"][1], 620, m4["out+"][1])
-s.dot(520, m4["out+"][1])
-yy = s.cap_v(520, m4["out+"][1], "", "", pol=True, side=1)
-s.txt(478, m4["out+"][1] + 136, "C6", "re")
-s.txt(478, m4["out+"][1] + 152, "470 µF / 35 V", "ve")
-s.leader(492, m4["out+"][1] + 116, 504, m4["out+"][1] + 26)
-s.w(520, yy, 520, LG)
-s.star_gnd(520, LG)
+s.w(m4["out+"][0], m4["out+"][1], 500, m4["out+"][1])
+x = s.fuse_h(500, m4["out+"][1], "5 A", "wyjście")
+s.w(x, m4["out+"][1], 620, m4["out+"][1])
 s.path([(m4["out-"][0], m4["out-"][1]), (486, m4["out-"][1]), (486, LG)])
 s.star_gnd(486, LG)
 s.box(620, m4["out+"][1] - 44, 178, 112)
 s.txt(709, m4["out+"][1] - 20, "WTYK M910q", "lbb")
 s.txt(709, m4["out+"][1] + 2, "środek = „+”  ·  ekran = „−”", "vc")
-s.txt(709, m4["out+"][1] + 22, "19,5 V / 4,74 A", "vc")
+s.txt(709, m4["out+"][1] + 22, "20 V · do 3,25 A (65 W)", "vc")
 s.txt(709, m4["out+"][1] + 44, "M910q zasilany STALE", "vc")
-
-s.wn(580, m4["out+"][1] - 22, 12)
+s.wn(600, m4["out+"][1] - 22, 12)
 
 # LM2596 → panel
 m5 = mo["M5"]
@@ -594,34 +565,31 @@ s.term(1507, m6["out+"][1], "")
 s.term(1507, m6["out-"][1], "")
 s.txt(1520, m6["out+"][1] + 5, "5 V", "pin")
 s.txt(1520, m6["out-"][1] + 5, "GND", "pin")
-s.txt(1490, m6["out-"][1] + 34, "→ ARKUSZ 2", "rc")
-s.txt(1490, m6["out-"][1] + 50, "Arduino Nano", "vc")
+s.wn(1470, m6["out+"][1] - 15, 25)
+s.txt(1530, m6["out-"][1] + 34, "→ ARKUSZ 2", "rc")
+s.txt(1530, m6["out-"][1] + 50, "Arduino Nano", "vc")
 
-for _bx, _t in ((240, "45 W · dlatego F8 = 7,5 A, nie 5 A"),
+for _bx, _t in ((240, "do 6,6 A przy 11 V — F8 = 10 A"),
                 (860, "logika i dotyk panelu idą po USB"),
                 (1250, "Nano musi żyć, gdy M910q śpi")):
     s.txt(_bx + 60, 1856, _t, "vc")
     s.leader(_bx + 60, 1842, _bx + 60, 1720)
 
-s.box(60, 1890, 1000, 56, "note")
-s.txt(80, 1914, "MASA — punkt gwiazdowy", "nh")
-s.txt(80, 1934, "Wszystkie symbole masy na tym arkuszu to JEDEN punkt: "
-                "„−” BT0, „−” D5 i C1, K1:85, K2:85, IN−/OUT− M1, V− M2, "
-                "szyna „−” banku, VIN−/VOUT− M3, IN− M4/M5/M6.", "nt")
-s.box(1090, 1890, 470, 56, "note")
-s.txt(1110, 1914, "Numery w ramkach", "nh")
-s.txt(1110, 1934, "= numery przewodów z tabel §10 docs/SCHEMATY_POLACZEN.md", "nt")
+s.box(60, 1890, 1500, 74, "note")
+s.txt(80, 1914, "MASA — jeden punkt przy banku (ZB §5.6, §8.3)", "nh")
+s.txt(80, 1934, "Wszystkie symbole masy na tym arkuszu to JEDEN punkt: „−” D5 i C1, K1:85, "
+                "IN−/OUT− M1a/M1b (bez izolacji: wejście = wyjście), DC-IN− M2a/M2b, S1 (masa banku),", "nt")
+s.txt(80, 1952, "VIN− M3 (VOUT− wolny), IN−/OUT− M4/M5/M6; „−” BT0 przez nadwozie. "
+                "Numery w ramkach = numery przewodów z tabel §10 docs/SCHEMATY_POLACZEN.md.", "nt")
 
-s.box(60, 1962, 1500, 74, "note")
-s.txt(80, 1986, "KIERUNKI DIOD — sprawdź przed lutowaniem", "nh")
-s.txt(80, 2006, "D5 (1.5KE33CA lub SMCJ26CA): sufiks CA = dwukierunkowa. "
+s.box(60, 1980, 1500, 74, "note")
+s.txt(80, 2004, "KIERUNKI DIOD — sprawdź przed lutowaniem", "nh")
+s.txt(80, 2024, "D5 (SMCJ20CA): sufiks CA = dwukierunkowa. "
                 "Nie ma anody ani katody, wlutuj w dowolną stronę. Uwaga: "
-                "1.5KE33A (bez C) to inna dioda — jednokierunkowa,", "nt")
-s.txt(80, 2026, "tam pasek/katoda idzie na PLUS. Sprawdź miernikiem w trybie "
+                "SMCJ20A (bez C) to inna dioda — jednokierunkowa,", "nt")
+s.txt(80, 2044, "tam pasek/katoda idzie na PLUS. Sprawdź miernikiem w trybie "
                 "diody: dwukierunkowa daje OL w obie strony.   ·   "
-                "D1 MBR2545CT: blaszka = katoda → IN+ ładowarki.   ·   "
-                "D6 i D7 (1N4007): pasek = katoda → zacisk 86 cewki.", "nt")
-
+                "D6 (1N4007): pasek = katoda → zacisk 86 cewki.", "nt")
 s.save("schematics/schematic_test_power.svg")
 
 
@@ -799,7 +767,7 @@ t.txt(80, 928, "Impuls na A0 — sekwencje z sensor_hub.ino", "nh")
 for i, (a_, b_) in enumerate([("250 ms przy pracy", "uśpienie do S3"),
                               ("250 ms w S3", "wybudzenie w ~3 s"),
                               ("250 ms po wyłączeniu", "start zimny, ~40 s"),
-                              ("5 s", "twarde wyłączenie, ~80–120 mA")]):
+                              ("5 s", "twarde wyłączenie, 50–150 mA + I_jał")]):
     yy = 958 + i * 25
     t.txt(80, yy, a_, "nt")
     t.txt(280, yy, "→", "nt")

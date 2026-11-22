@@ -32,6 +32,8 @@
 <rect class="cul" x="3" y="66" width="94" height="6"/>
 <rect class="cul" x="46" y="62" width="16" height="10"/>
 <path class="culw" stroke-width="6" d="M 9 8 L 50 8"/>
+<path class="culw" stroke-width="3" d="M 16 8 L 16 10.5"/>
+<path class="culw" stroke-width="2.5" d="M 16 17.5 L 16 20.7"/>
 <path class="culw" stroke-width="4" d="M 50 8 L 55.2 8 L 55.2 12.1"/>
 <path class="culw" stroke-width="3" d="M 9 15.62 L 11 20.7 L 26 20.7"/>
 <path class="culw" stroke-width="2.5" d="M 26 13 L 26 20.7"/>
@@ -42,16 +44,15 @@
 <path class="culw" stroke-width="2" d="M 30 46.16 L 30 66.5"/>
 <path class="culw" stroke-width="2" d="M 42.54 26.1 L 42.54 66.5"/>
 <path class="culw" stroke-width="4" d="M 57.74 29.9 L 57.74 18 L 85 18 L 85 10 L 90 8"/>
-<path class="culw" stroke-width="3.5" d="M 90 15.62 L 96 15.62"/>
-<path class="culw" stroke-width="5" d="M 96 15.62 L 96 66.5"/>
+<path class="culw" stroke-width="4" d="M 90 8 L 90 15.62"/>
 <circle class="cul" cx="9" cy="8.0" r="2.2"/>
 <circle class="cul" cx="9" cy="15.620000000000001" r="2.2"/>
 <circle class="cul" cx="9" cy="27.0" r="1.5"/>
 <circle class="cul" cx="9" cy="32.0" r="1.5"/>
 <circle class="cul" cx="90" cy="8.0" r="2.2"/>
 <circle class="cul" cx="90" cy="15.620000000000001" r="2.2"/>
-<circle class="cul" cx="16" cy="8" r="1.4"/>
-<circle class="cul" cx="16" cy="20.7" r="1.4"/>
+<rect class="cul" x="14.3" y="9.2" width="3.4" height="2.6" rx="1.3"/>
+<rect class="cul" x="14.3" y="16.2" width="3.4" height="2.6" rx="1.3"/>
 <circle class="cul" cx="26" cy="8" r="1.2"/>
 <circle class="cul" cx="26" cy="13" r="1.2"/>
 <circle class="cul" cx="40" cy="21" r="2.0"/>
@@ -68,16 +69,14 @@
 <circle class="drll" cx="4" cy="71" r="3.5"/>
 <circle class="drll" cx="96" cy="71" r="3.5"/>
 <g transform="translate(57,59.5) scale(-1,1)"><text x="-10.24" y="0" font-size="3.2" font-weight="bold" fill="#d8dde2">BCM-A</text></g>
-<g transform="translate(70,45) scale(-1,1)"><text x="-43.008" y="0" font-size="2.4" font-weight="bold" fill="#d8dde2">wolne pole — po usunięciu D1</text></g>
-<g transform="translate(70,50) scale(-1,1)"><text x="-43.008" y="0" font-size="2.4" font-weight="bold" fill="#d8dde2">i zacisków strony izolowanej</text></g>
 <circle class="drll" cx="9" cy="8.0" r="0.75"/>
 <circle class="drll" cx="9" cy="15.620000000000001" r="0.75"/>
 <circle class="drll" cx="9" cy="27.0" r="0.65"/>
 <circle class="drll" cx="9" cy="32.0" r="0.65"/>
 <circle class="drll" cx="90" cy="8.0" r="0.75"/>
 <circle class="drll" cx="90" cy="15.620000000000001" r="0.75"/>
-<circle class="drll" cx="16" cy="8" r="0.65"/>
-<circle class="drll" cx="16" cy="20.7" r="0.65"/>
+<circle class="drll" cx="16" cy="10.5" r="0.0"/>
+<circle class="drll" cx="16" cy="17.5" r="0.0"/>
 <circle class="drll" cx="26" cy="8" r="0.5"/>
 <circle class="drll" cx="26" cy="13" r="0.5"/>
 <circle class="drll" cx="40" cy="21" r="1.0"/>
@@ -99,8 +98,8 @@
 <rect class="sk" x="4.2" y="4.09" width="9.6" height="15.44" rx="0.8"/>
 <rect class="sk" x="4.2" y="24.4" width="9.6" height="10.2" rx="0.8"/>
 <rect class="sk" x="85.2" y="4.09" width="9.6" height="15.44" rx="0.8"/>
-<rect class="sk" x="13.4" y="9.6" width="5.2" height="9.6" rx="0.8"/>
-<text class="r" x="14.200000000000001" y="8.9">D5</text>
+<rect class="sk" x="13.0" y="9.5" width="6.0" height="9.0" rx="0.8"/>
+<text class="r" x="13.8" y="8.8">D5</text>
 <circle class="sk" cx="26" cy="10.5" r="2.6"/>
 <text class="r" x="29.1" y="11.3">C1</text>
 <rect class="sk" x="36.04" y="7.800000000000001" width="31.8" height="27.4" rx="0.8"/>
@@ -113,16 +112,16 @@
 <line class="ldr" x1="48.4" y1="41.620000000000005" x2="39.5" y2="41.620000000000005"/>
 <text class="we" x="39" y="42.42">X1.2 −</text>
 <line class="ldr" x1="49.1" y1="53.0" x2="39.5" y2="53.0"/>
-<text class="we" x="39" y="53.8">X6.1 ACC</text>
+<text class="we" x="39" y="53.8">X6.1 ZAPŁON / D+</text>
 <line class="ldr" x1="49.1" y1="58.0" x2="39.5" y2="58.0"/>
-<text class="we" x="39" y="58.8">X6.2 ACC dalej</text>
+<text class="we" x="39" y="58.8">X6.2 przelot (zapłon)</text>
 <line class="ldr" x1="134.6" y1="34.0" x2="144.5" y2="34.0"/>
-<text class="w" x="145" y="34.8">X2.1 → M1 IN+</text>
+<text class="w" x="145" y="34.8">X2.1 → XY-SK120 #1 IN+</text>
 <line class="ldr" x1="134.6" y1="41.620000000000005" x2="144.5" y2="41.620000000000005"/>
-<text class="w" x="145" y="42.42">X2.2 → M1 IN−</text>
+<text class="w" x="145" y="42.42">X2.2 → XY-SK120 #2 IN+</text>
 <line class="ldr" x1="101.9" y1="94.5" x2="144.5" y2="94.5"/>
 <text class="w" x="145" y="95.3">GND M4 → gwiazda</text>
-<text class="n" x="42" y="105.5">Strona izolowana (wyjście ładowarki, XH-M603, bank) schodzi się na listwie L1 przy banku — nie na tej płytce. Wolne pole zostaje po diodzie D1.</text>
+<text class="n" x="42" y="105.5">Ładowarki, XH-M603, FC1/FC2 i F12 stoją przy banku (moduły, oprawki inline). D5 (SMC) lutuj od strony miedzi.</text>
 <text class="n" x="42" y="109">K1: T90/SLA-12VDC-SL-A — pady COM-A i NC wiercone, zostają wolne (warianty 4/5/6-pin). C1: 470 µF, raster 5,0 mm.</text>
 <text class="n" x="42" y="112.5">GND M4: śruba M4 z oczkiem 6 mm² do punktu gwiazdowego. Otwory montażowe Φ3,2 odizolowane — słupki nylonowe.</text>
 <text class="h" x="42" y="127.5">PŁYTKA B — DYSTRYBUCJA · 100 × 60 mm · laminat jednostronny</text>
@@ -241,7 +240,7 @@
 <line class="ldr" x1="48.4" y1="140.0" x2="39.5" y2="140.0"/>
 <text class="we" x="39" y="140.8">X8.2 GND → gwiazda</text>
 <line class="ldr" x1="48.4" y1="147.62" x2="39.5" y2="147.62"/>
-<text class="we" x="39" y="148.42000000000002">X8.1 SZYNA+ (za S1)</text>
+<text class="we" x="39" y="148.42000000000002">X8.1 SZYNA+ (za LVD)</text>
 <line class="ldr" x1="62.2" y1="184.6" x2="62.2" y2="192.5"/>
 <g transform="translate(61.400000000000006,194) rotate(45)"><text class="w" x="0" y="0">X9 → M4 IN+</text></g>
 <line class="ldr" x1="69.82" y1="184.6" x2="69.82" y2="192.5"/>
@@ -256,13 +255,13 @@
 <g transform="translate(124.2,194) rotate(45)"><text class="w" x="0" y="0">J1.1 V_BANK</text></g>
 <line class="ldr" x1="130.0" y1="183.9" x2="130.0" y2="192.5"/>
 <g transform="translate(129.2,194) rotate(45)"><text class="w" x="0" y="0">J1.2 GND</text></g>
-<text class="n" x="42" y="212">F8: wkładka 7,5 A (XL6019) / 10 A („1500 W 30 A”). F9: 2 A · F10: 3 A · F11: 5 A. Oprawki ATO 2-pin: otwory Φ2,0 co 9,2 mm + czop Φ2,4</text>
+<text class="n" x="42" y="212">F8: 10 A (step-up 20 V / 200 W). F9: 2 A · F10: 3 A · F11: 5 A. Oprawki ATO 2-pin: otwory Φ2,0 co 9,2 mm + czop Φ2,4</text>
 <text class="n" x="42" y="215.5">albo bezpiecznik wlutowany wprost (pady rozwierć w slot 6×2 mm). R5/R6: dzielnik 100/27 kΩ 1 % — V_BANK do ADC (§13.4).</text>
 <text class="h" x="12" y="232">ELEMENTY LUTOWANE W PŁYTKI (moduły M1–M6 podłączasz do zacisków — nie wlutowujesz):</text>
-<text class="n" x="12" y="237.0">PŁYTKA A:  K1 = SLA-12VDC-SL-A (T90 30 A) · D5 = 1.5KE33CA · D6 = 1N4007 · C1 = 470 µF/35 V low-ESR — diody D1 nie ma, ładowarka jest izolowana</text>
-<text class="n" x="12" y="240.6">           X1/X2 = KF7.62-2P · X6 = KF301-2P · śruba M4 + oczko · L1 = listwa 6-torowa przy banku</text>
+<text class="n" x="12" y="237.0">PŁYTKA A:  K1 = SLA-12VDC-SL-A (T90 30 A) · D5 = SMCJ20CA (SMC, od strony miedzi) · D6 = 1N4007 · C1 = 470 µF/35 V low-ESR</text>
+<text class="n" x="12" y="240.6">           X1/X2 = KF7.62-2P · X6 = KF301-2P · śruba M4 + oczko · bez diody blokującej (XY-SK120)</text>
 <text class="n" x="12" y="244.2">PŁYTKA B:  4 × oprawka ATO PCB (albo klipsy) · R5 = 100 kΩ 1 % · R6 = 27 kΩ 1 % · C7 = 100 nF · X8/X9 = KF7.62-2P · X10–X12, J1 = KF301-2P</text>
-<text class="n" x="12" y="247.8">Ścieżki mocy (AKU, KL87, CHGIN/OUT, BANK, BUS, F8) pocynuj grubo albo wzmocnij drutem 1,5 mm² wzdłuż ścieżki. Sieci: patrz pcb_power_etch.svg.</text>
+<text class="n" x="12" y="247.8">Ścieżki mocy (AKU, CHGIN: do 13 A; BUS, F8) pocynuj grubo i wzmocnij drutem 2,5 mm² wzdłuż ścieżki. Sieci: patrz pcb_power_etch.svg.</text>
 <line x1="12" y1="258" x2="62" y2="258" stroke="#111" stroke-width="0.3"/>
 <line x1="12" y1="258" x2="12" y2="261" stroke="#111" stroke-width="0.3"/>
 <line x1="13" y1="258" x2="13" y2="259.2" stroke="#111" stroke-width="0.15"/>

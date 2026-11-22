@@ -1660,6 +1660,9 @@ class WebViewer:
             "audio_eq_preset": _val("audio.eq_preset", "jazz"),
             "audio_eq_gains": _val("audio.eq_gains", [0] * 10),
             "audio_spectrum": _val("audio.spectrum", [0] * 16),
+            # {mode: real|simulated|waiting, target, tool, reason} from
+            # src/audio/spectrum.py — diagnostics; None = analyser off.
+            "audio_spectrum_state": _val("audio.spectrum_state"),
             "audio_bass": _val("audio.bass", 0),
             "audio_treble": _val("audio.treble", 0),
             "audio_fader": _val("audio.fader", 0),

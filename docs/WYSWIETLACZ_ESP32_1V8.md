@@ -498,7 +498,7 @@ Cztery wyjścia, od najprostszego:
    znika własna skarga tego dokumentu (sekcja niżej): kontrolki bezpieczeństwa
    pojawiają się od przekręcenia kluczyka, a nie po pełnym boocie M910q.
 
-   Warunki: wpięcie **za LVD i wyłącznikiem głównym S1**, własna wkładka
+   Warunki: wpięcie **na szynie buforowanej za LVD** (S1 odcina masę banku), własna wkładka
    2 A z listwy, i **dopisanie panelu do budżetu §9.1**
    [`ZASILANIE_BUFOROWANE.md`](ZASILANIE_BUFOROWANE.md) — dziś go tam nie ma,
    tabela obejmuje tylko Nano #1, HM-10, RXB6, moduł przekaźników i straty

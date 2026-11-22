@@ -22,7 +22,7 @@
 
   <rect class="bg" x="0" y="0" width="1180" height="1140"/>
   <text class="ttl" x="24" y="32">BCM v8.5 — zasilanie buforowane, Lenovo ThinkCentre M910q Tiny</text>
-  <text class="sub" x="24" y="52">Tor główny: akumulator samochodowy → ładowanie CC-CV → bank CSB HR1221W (AGM) → LVD → domeny A/B → step-up 19 V</text>
+  <text class="sub" x="24" y="52">Tor główny: akumulator → K1 → 2 × XY-SK120 → 2 × XH-M603 → bank 7 × HR1221W (2 kosze w bagażniku) → LVD → step-up 20 V → M910q</text>
   <line class="wthin" x1="24" y1="62" x2="1156" y2="62" stroke="#c8d2da"/>
 
   <!-- ============ 1. CAR BATTERY ============ -->
@@ -35,27 +35,27 @@
 
   <!-- 2. MAIN FUSE -->
   <rect class="boxW" x="60" y="186" width="230" height="56"/>
-  <text class="h" x="175" y="208">Bezpiecznik główny 30 A</text>
+  <text class="h" x="175" y="208">Bezpiecznik F1 20 A</text>
   <text class="t" x="175" y="226">maks. 30 cm od klemy „+”, 6 mm²</text>
 
   <path class="wire" d="M175 242 L175 280"/>
 
   <!-- 3. SPLIT CHARGE -->
   <rect class="box" x="40" y="280" width="270" height="86"/>
-  <text class="h" x="175" y="302">Rozdział ładowania</text>
-  <text class="t" x="175" y="320">Przekaźnik 30 A z zapłonu + dioda MBR2545CT</text>
-  <text class="t" x="175" y="336">— albo dioda Schottky MBR2045 —</text>
-  <text class="t" x="175" y="352">blokuje oddawanie prądu do auta</text>
+  <text class="h" x="175" y="302">Przekaźnik ładowania K1 30 A</text>
+  <text class="t" x="175" y="320">cewka: zapłon albo D+ (FK 1 A)</text>
+  <text class="t" x="175" y="336">przed nim TVS SMCJ20CA + 470 µF</text>
+  <text class="t" x="175" y="352">na postoju odcina bank od auta</text>
 
   <path class="wire" d="M175 366 L175 404"/>
 
   <!-- 4. CC-CV CHARGER -->
   <rect class="box" x="40" y="404" width="270" height="112"/>
-  <text class="h" x="175" y="426">Ładowarka CC-CV (buck-boost)</text>
-  <text class="t" x="175" y="444">CC: 8,0 A  (sufit katalogowy 14,7 A)</text>
-  <text class="t" x="175" y="460">CV absorpcja: 14,40 V @ 25 °C</text>
-  <text class="t" x="175" y="476">float: 13,65 V @ 25 °C</text>
-  <text class="t" x="175" y="494">komp. −30 mV/°C abs. / −18 mV/°C float</text>
+  <text class="h" x="175" y="426">Ładowarka 2 × XY-SK120</text>
+  <text class="t" x="175" y="444">CC: 2 × 5,0 A · netto do banku ≈ 5 A</text>
+  <text class="t" x="175" y="460">CV: 14,40 V @ 25 °C (lato 13,95 V)</text>
+  <text class="t" x="175" y="476">brak float — kompromis CV (ZB §5.5)</text>
+  <text class="t" x="175" y="494">bez komp. temp. — CV zmieniane sezonowo</text>
   <text class="warn" x="175" y="510" text-anchor="middle">PROFIL AGM</text>
 
   <path class="wire" d="M175 516 L175 554"/>
@@ -63,7 +63,7 @@
   <!-- 5. OVERCHARGE CUTOFF -->
   <rect class="boxW" x="40" y="554" width="270" height="86"/>
   <text class="h" x="175" y="576">Blokada przeładowania</text>
-  <text class="t" x="175" y="594">XH-M603 (2. warstwa) — styki ≤ 8,0 A</text>
+  <text class="t" x="175" y="594">2 × XH-M603 — po jednym na ładowarkę</text>
   <text class="t" x="175" y="610">rozwiera przy 15,30 V</text>
   <text class="t" x="175" y="626">zwiera ponownie przy 14,00 V</text>
 
@@ -71,9 +71,9 @@
 
   <!-- 6. BUFFER BUS + AGM BANK -->
   <rect class="boxA" x="40" y="678" width="270" height="222"/>
-  <text class="h" x="175" y="700">Szyna bufora 12 V — bank AGM</text>
+  <text class="h" x="175" y="700">Bank AGM — 2 kosze, bagażnik</text>
   <text class="t" x="175" y="718">7 × CSB HR1221W F2 (12 V / 5,1 Ah)</text>
-  <text class="t" x="175" y="734">35,7 Ah · 12,6 kg · układ 4+3</text>
+  <text class="t" x="175" y="734">35,7 Ah · ≈ 16,8 kg z koszami · 4 + 3</text>
 
   <g>
     <rect class="batt" x="82" y="742" width="42" height="30"/><text class="t" x="103" y="762">5,1 Ah</text>
@@ -84,10 +84,10 @@
     <rect class="batt" x="154" y="776" width="42" height="30"/><text class="t" x="175" y="796">5,1 Ah</text>
     <rect class="batt" x="202" y="776" width="42" height="30"/><text class="t" x="223" y="796">5,1 Ah</text>
   </g>
-  <text class="t" x="175" y="824">szyna: 2 płaskowniki Cu 15 × 2 mm</text>
-  <text class="t" x="175" y="840">7 odczepów co 70 mm · ogonki równe</text>
+  <text class="t" x="175" y="824">bloki M6 w koszach · łącznik 6 mm²</text>
+  <text class="t" x="175" y="840">odcinki 2,5 mm² równe (±30 mm)</text>
   <text class="warn" x="175" y="858" text-anchor="middle">ODBIÓR PO PRZEKĄTNEJ</text>
-  <text class="t" x="175" y="874">„+” z odczepu 1, „−” z odczepu 7</text>
+  <text class="t" x="175" y="874">„+” z kosza L, „−” z kosza P</text>
   <text class="t" x="175" y="890">FB1…FB7 — po 10 A na każdy pakiet</text>
 
   <path class="wire" d="M175 900 L175 920"/>
@@ -97,14 +97,14 @@
   <text class="h" x="175" y="942">LVD — moduł XH-M609</text>
   <text class="t" x="175" y="960">rozłącza obciążenia przy 11,00 V</text>
   <text class="t" x="175" y="976">załącza ponownie przy 12,60 V</text>
-  <text class="t" x="175" y="992">przekaźnik 20 A · F7 15 A MIDI na VIN+</text>
+  <text class="t" x="175" y="992">przekaźnik 20 A · F7 20 A MIDI/ANL</text>
 
   <!-- bus out to the right -->
   <path class="wire" d="M175 1000 L175 1036 L700 1036"/>
   <text class="tl" x="330" y="1028">szyna buforowana 12 V (za LVD)</text>
 
   <!-- ============ RIGHT COLUMN: DOMAINS ============ -->
-  <text class="dom" x="430" y="96" fill="#2d6a2d">DOMENA A — zasilana zawsze</text>
+  <text class="dom" x="430" y="96" fill="#2d6a2d">LOGIKA — zasilana zawsze</text>
   <rect class="boxA" x="430" y="106" width="300" height="196"/>
   <text class="t" x="580" y="128">pobór spoczynkowy ~60 mA</text>
   <text class="tl" x="446" y="150">• Arduino Nano #1 (output controller)</text>
@@ -112,19 +112,19 @@
   <text class="tl" x="446" y="190">• RXB6 433 MHz (pilot szyb)</text>
   <text class="tl" x="446" y="210">• moduł 9 przekaźników (cewki 12 V)</text>
   <text class="tl" x="446" y="230">• Arduino Nano #2 (sensor hub)</text>
-  <text class="t" x="580" y="256">zasilanie logiki: buck 12 → 5 V, 1 A</text>
-  <text class="t" x="580" y="274">bezpiecznik odgałęzienia 3 A</text>
-  <text class="t" x="580" y="292">przewód 0,75 mm²</text>
+  <text class="t" x="580" y="256">zasilanie logiki: MP1584 12 → 5 V</text>
+  <text class="t" x="580" y="274">bezpiecznik odgałęzienia F10 3 A</text>
+  <text class="t" x="580" y="292">przewód 0,75 mm² do przodu</text>
 
-  <text class="dom" x="430" y="336" fill="#2b4a8a">DOMENA B — za zapłonem (ACC)</text>
+  <text class="dom" x="430" y="336" fill="#2b4a8a">KOMPUTER I PERYFERIA — też stale</text>
   <rect class="boxB" x="430" y="346" width="300" height="150"/>
-  <text class="tl" x="446" y="370">• Lenovo M910q (19 V, do 65 W)</text>
+  <text class="tl" x="446" y="370">• Lenovo M910q (20 V, do 65 W)</text>
   <text class="tl" x="446" y="390">• hub USB zasilany 7-portowy</text>
-  <text class="tl" x="446" y="410">• wyświetlacz główny 10,1"</text>
+  <text class="tl" x="446" y="410">• wyświetlacz 10,1" (LM2596, F9 2 A)</text>
   <text class="tl" x="446" y="430">• wyświetlacz drugi 6,86" (opc.)</text>
   <text class="tl" x="446" y="450">• Arduino Pro Micro (wejścia, SWC)</text>
-  <text class="t" x="580" y="474">pobór ~10 W (szczyt ~55 W)</text>
-  <text class="t" x="580" y="490">0 W przy rozwartym przekaźniku</text>
+  <text class="t" x="580" y="474">praca ≈ 5 A z banku (4–6 A)</text>
+  <text class="t" x="580" y="490">S3 / wyłączenie impulsem z Arduino</text>
 
   <!-- Domain A feed -->
   <path class="wire" d="M700 1036 L760 1036 L760 264 L730 264"/>
@@ -133,32 +133,32 @@
 
   <!-- Ignition relay -->
   <rect class="box" x="800" y="560" width="330" height="104"/>
-  <text class="h" x="965" y="582">Wyłącznik główny (szyna odbiorników)</text>
-  <text class="t" x="965" y="600">Bosch 12 V / 30 A SPDT</text>
-  <text class="t" x="965" y="618">cewka: linia ACC (kluczyk poz. I/II)</text>
-  <text class="t" x="965" y="636">styk: szyna buforowana → step-up</text>
-  <text class="t" x="965" y="654">dioda gaszeniowa 1N4007 na cewce</text>
+  <text class="h" x="965" y="582">Dystrybucja za LVD</text>
+  <text class="t" x="965" y="600">F8 10 A → step-up (4 mm²)</text>
+  <text class="t" x="965" y="618">F9 2 A LM2596 · F10 3 A MP1584</text>
+  <text class="t" x="965" y="636">F11 5 A AUX · F13 2 A telefon (opc.)</text>
+  <text class="t" x="965" y="654">zapłon niczego nie odcina — sygnał</text>
 
   <path class="wire" d="M760 1036 L965 1036 L965 664"/>
   <circle cx="760" cy="1036" r="4" fill="#c0392b"/>
   <path class="wthin" d="M965 700 L1080 700" stroke-dasharray="4 3"/>
-  <text class="note" x="985" y="694">ACC z zamka kluczyka</text>
+  <text class="note" x="985" y="694">zapłon → Arduino → S3</text>
 
   <!-- Step-up -->
   <rect class="boxB" x="800" y="404" width="330" height="128"/>
-  <text class="h" x="965" y="426">Przetwornica step-up XL6019</text>
-  <text class="t" x="965" y="446">POSIADANA · 12 → 19,5 V</text>
-  <text class="t" x="965" y="464">wyjście 19,0 V ustawione multimetrem</text>
-  <text class="t" x="965" y="482">realnie ok. 45 W (limit klucza 5 A)</text>
-  <text class="t" x="965" y="500">wymaga limitu poboru CPU na M910q</text>
-  <text class="t" x="965" y="518">radiator + wymuszony przepływ powietrza</text>
+  <text class="h" x="965" y="426">Przetwornica step-up 12 → 20 V</text>
+  <text class="t" x="965" y="446">zalewana IP67/68 · 10 A / 200 W</text>
+  <text class="t" x="965" y="464">bez regulacji — sprawdź 19,9–20,5 V</text>
+  <text class="t" x="965" y="482">M910q do 65 W, bez limitu RAPL</text>
+  <text class="t" x="965" y="500">F8 10 A na wejściu, przewód 4 mm²</text>
+  <text class="t" x="965" y="518">w bagażniku, przykręcona do blachy</text>
 
   <path class="wire" d="M965 560 L965 532"/>
 
   <!-- fuse on step-up output -->
   <rect class="boxW" x="838" y="330" width="254" height="48"/>
   <text class="h" x="965" y="350">Bezpiecznik 5 A</text>
-  <text class="t" x="965" y="368">na wyjściu 19 V, przed wtykiem M910q</text>
+  <text class="t" x="965" y="368">na wyjściu 20 V, przy przetwornicy</text>
 
   <path class="wire" d="M965 404 L965 378"/>
 
@@ -179,28 +179,28 @@
   <path class="gnd" d="M580 1066 L580 1080"/>
   <path class="gnd" d="M965 1066 L965 1080"/>
   <path class="gnd" d="M560 1080 L600 1080 M568 1088 L592 1088 M576 1096 L584 1096"/>
-  <text class="tl" x="620" y="1058">Masa wspólna — jeden punkt masy nadwozia, 6 mm², oczyszczony do metalu</text>
+  <text class="tl" x="620" y="1058">Masa wspólna — jeden punkt masy przy banku w bagażniku, 6 mm², oczyszczony do metalu</text>
 
   <!-- Legend -->
   <rect x="430" y="740" width="330" height="220" fill="#fbfcfd" stroke="#c8d2da" stroke-width="1.5" rx="6"/>
   <text class="h" x="595" y="762">Przekroje i zabezpieczenia</text>
-  <text class="tl" x="446" y="784">akumulator → bezp. → przekaźnik</text>
+  <text class="tl" x="446" y="784">akumulator → F1 → K1 (~5 m)</text>
   <text class="tl" x="700" y="784" text-anchor="end">6 mm²</text>
-  <text class="tl" x="446" y="804">ładowarka → bank (do 10 A)</text>
+  <text class="tl" x="446" y="804">ładowarki → F12 → bank (10 A)</text>
   <text class="tl" x="700" y="804" text-anchor="end">4 mm²</text>
-  <text class="tl" x="446" y="824">szyna zbiorcza banku (Cu)</text>
-  <text class="tl" x="700" y="824" text-anchor="end">15 × 2 mm</text>
-  <text class="tl" x="446" y="844">pakiet AGM → szyna, 7 × 10 A</text>
-  <text class="tl" x="700" y="844" text-anchor="end">1,5 mm²</text>
-  <text class="tl" x="446" y="864">szyna → LVD → step-up (7,5 A)</text>
-  <text class="tl" x="700" y="864" text-anchor="end">2,5 mm²</text>
-  <text class="tl" x="446" y="884">step-up → M910q (3,5 A @ 19 V)</text>
-  <text class="tl" x="700" y="884" text-anchor="end">1,5 mm²</text>
-  <text class="tl" x="446" y="904">odgałęzienie domeny A (&lt; 1 A)</text>
+  <text class="tl" x="446" y="824">łącznik kosz L ↔ kosz P (OFC)</text>
+  <text class="tl" x="700" y="824" text-anchor="end">6 mm²</text>
+  <text class="tl" x="446" y="844">pakiet → blok, FB 10 A × 7</text>
+  <text class="tl" x="700" y="844" text-anchor="end">2,5 mm²</text>
+  <text class="tl" x="446" y="864">bank → F7 → LVD (do 10,5 A)</text>
+  <text class="tl" x="700" y="864" text-anchor="end">6 mm²</text>
+  <text class="tl" x="446" y="884">step-up → M910q (3,3 A @ 20 V)</text>
+  <text class="tl" x="700" y="884" text-anchor="end">4 mm²</text>
+  <text class="tl" x="446" y="904">odgałęzienie logiki (&lt; 1 A)</text>
   <text class="tl" x="700" y="904" text-anchor="end">0,75 mm²</text>
-  <text class="tl" x="446" y="924">masa wspólna do nadwozia</text>
+  <text class="tl" x="446" y="924">masa banku → punkt masy</text>
   <text class="tl" x="700" y="924" text-anchor="end">6 mm²</text>
-  <text class="note" x="446" y="948">Przekroje dla trasy ok. 3 m przy spadku napięcia &lt; 3 %.</text>
+  <text class="note" x="446" y="948">Trasa ok. 4 m z bagażnika do przodu — ZB §8.2.</text>
 
   <text class="note" x="24" y="1122">Wzmacniacz audio to gotowy moduł samochodowy zasilany osobną gałęzią 12 V prosto z akumulatora rozruchowego, z własną masą — nie obciąża banku buforowego.</text>
 </svg>

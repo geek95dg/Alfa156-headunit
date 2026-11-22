@@ -40,6 +40,9 @@ tr:hover td{background:var(--bg-card)}
 .note{border-left:3px solid var(--accent2);background:var(--accent2-glow);padding:12px 18px;border-radius:0 7px 7px 0;margin:16px 0;font-size:0.9rem}
 .warn{border-left:3px solid var(--orange);background:rgba(249,115,22,0.1);padding:12px 18px;border-radius:0 7px 7px 0;margin:16px 0;font-size:0.9rem}
 .crit{border-left:3px solid var(--red);background:rgba(239,68,68,0.1);padding:12px 18px;border-radius:0 7px 7px 0;margin:16px 0;font-size:0.9rem}
+.historical{border:1px dashed var(--text-dim);border-left:3px dashed var(--text-dim);background:rgba(139,143,163,0.08);color:var(--text-dim);padding:12px 18px;border-radius:0 7px 7px 0;margin:16px 0;font-size:0.88rem}
+.historical .hist-title{display:block;font-family:'JetBrains Mono',monospace;font-size:0.75rem;text-transform:uppercase;letter-spacing:1px;color:var(--text-dim);margin-bottom:6px}
+.historical table,.historical .code-block{opacity:0.75}
 .ok{border-left:3px solid var(--green);background:rgba(34,197,94,0.08);padding:12px 18px;border-radius:0 7px 7px 0;margin:16px 0;font-size:0.9rem}
 .note strong,.warn strong,.crit strong,.ok strong{color:var(--text-bright)}
 .toc{background:var(--bg-card);border:1px solid var(--border);border-radius:10px;padding:20px 28px;margin:28px 0}
@@ -69,13 +72,14 @@ tr:hover td{background:var(--bg-card)}
 <div class="hero">
   <div class="hero-badge">BCM v8.5 — Dokumentacja Techniczna</div>
   <h1>Alfa Romeo <span>156</span><br>Body Computer Module</h1>
-  <p class="sub">Dual-display: 4.3" statyczna siatka 2×2 z automatyczną kamerą (cofanie / lewy / prawy kierunkowskaz) + 7/8" ekran dotykowy z Android Auto kiosk. 8 ekranów BCM (A1-A8) + ustawienia. 3 motywy graficzne. DVR z GPS overlay + eksport USB. Performance: boost gauge + timer 0-100. Telefon BT (dialer, kontakty PBAP, historia). Zdalne sterowanie 4 szybami z drugiego pilota 433 MHz (oryginalny centralny zamek Alfy nietknięty). Przycisk bagażnika z bramą BLE proximity (HM-10). Czujnik deszczu. SWC remote z konfigurowalnym mapowaniem przycisków (dual-pod, 24 przyciski). <strong>Orange Pi 5 Pro 4GB</strong> z 2× HDMI (2.1 + 2.0), WiFi 6 i BT 5.0. Moduł Travel Plan na ekranie A3 z prognozą pogody, incydentami drogowymi i estymacją paliwa.</p>
+  <p class="sub">Dual-display: 10,1" ekran dotykowy 1280×800 z Android Auto kiosk + opcjonalny drugi ekran 6,86" 1280×480 (karuzela danych z automatyczną kamerą: cofanie / lewy / prawy kierunkowskaz). 8 ekranów BCM (A1-A8) + ustawienia. 3 motywy graficzne. DVR z GPS overlay + eksport USB. Performance: boost gauge + timer 0-100. Telefon BT (dialer, kontakty PBAP, historia). Zdalne sterowanie 4 szybami z drugiego pilota 433 MHz (oryginalny centralny zamek Alfy nietknięty). Przycisk bagażnika z bramą BLE proximity (HM-10). Czujnik deszczu. SWC remote z konfigurowalnym mapowaniem przycisków (dual-pod, 24 przyciski). <strong>Lenovo ThinkCentre M910q Tiny</strong> (x86, i5-6400T, 8 GB, NVMe, Debian 13) z 2× DisplayPort i kartą MT7921 (WiFi 6 + BT 5.2). Zasilanie buforowane: bank 7× CSB HR1221W AGM (35,7 Ah) w bagażniku, M910q zasilany stale, zapłon tylko jako sygnał (S3 / wybudzanie). Moduł Travel Plan na ekranie A3 z prognozą pogody, incydentami drogowymi i estymacją paliwa.</p>
   <div class="tags">
     <span class="tag">1.9 JTD 8V przedlift</span>
     <span class="tag">Bosch EDC15C7</span>
-    <span class="tag">Orange Pi 5 Pro 4GB</span>
-    <span class="tag">HDMI 2.1 + HDMI 2.0</span>
-    <span class="tag">4.3" 2×2 Grid + 7/8" Touch</span>
+    <span class="tag">Lenovo M910q (x86)</span>
+    <span class="tag">2× DisplayPort</span>
+    <span class="tag">10,1" Touch + 6,86" drugi ekran</span>
+    <span class="tag">Bufor AGM 35,7 Ah</span>
     <span class="tag">Android Auto Kiosk</span>
     <span class="tag">4-kamery (front/rear/L/R)</span>
     <span class="tag">Audio 4.1 + Sub</span>
@@ -90,6 +94,8 @@ tr:hover td{background:var(--bg-card)}
     <span class="tag">LTE + Travel Plan</span>
   </div>
 </div>
+
+<div class="warn"><strong>Stan dokumentu (22.11.2026):</strong> ten przegląd powstał przy wcześniejszej platformie ARM. Sekcje sprzętowe są poprawione pod <strong>Lenovo M910q</strong>; to, co dotyczyło wyłącznie starego sprzętu, stoi w szarych blokach <em>„Historyczne (nieaktualne)”</em> — nie montuj według nich. Przy każdej rozbieżności obowiązują: <code>docs/WDROZENIE_M910Q.md</code> (wdrożenie, wyświetlacze), <code>docs/ZASILANIE_BUFOROWANE.md</code> (zasilanie), <code>docs/SCHEMATY_POLACZEN.md</code> (połączenia) i <code>config/bcm_config.yaml</code>.</div>
 
 <!-- ═══ TOC ═══ -->
 <nav class="toc">
@@ -112,10 +118,10 @@ tr:hover td{background:var(--bg-card)}
     <li><a href="#s15">Czujnik deszczu i wycieraczki</a></li>
     <li><a href="#s16">Zdalne sterowanie szybami + przycisk bagażnika BLE</a></li>
     <li><a href="#s17">Schemat blokowy systemu</a></li>
-    <li><a href="#s18">Alokacja GPIO (40-pin header)</a></li>
+    <li><a href="#s18">Wejścia i wyjścia (Arduino; GPIO — historyczne)</a></li>
     <li><a href="#s19">BOM — lista komponentów</a></li>
     <li><a href="#s20">Testowanie na VM</a></li>
-    <li><a href="#s21">Wdrożenie na Orange Pi</a></li>
+    <li><a href="#s21">Wdrożenie na M910q</a></li>
     <li><a href="#s22">Referencja API</a></li>
   </ol>
 </nav>
@@ -123,6 +129,7 @@ tr:hover td{background:var(--bg-card)}
 <!-- ═══ S1 — CHANGELOG ═══ -->
 <section id="s1">
   <h2><span class="n">01</span>Changelog v8.0 → v8.5</h2>
+  <p>Changelog opisuje stan z chwili wydania (wtedy m.in. inne rozmiary ekranów i numery GPIO płytki ARM). Aktualny sprzęt: sekcje 05, 14 i 19.</p>
   <div class="changelog">
     <h4>Zmiany w wersji 8.5</h4>
     <table>
@@ -154,7 +161,7 @@ tr:hover td{background:var(--bg-card)}
     <h4>Zmiany w aktualizacji v8.5.1 (multi-feature)</h4>
     <table>
       <tr><th>Element</th><th>Poprzednio</th><th>Teraz</th><th>Status</th></tr>
-      <tr><td>Platforma produkcyjna</td><td>Orange Pi 5 Plus (600-750 PLN)</td><td><strong>Orange Pi 5 Pro 4GB (350-450 PLN)</strong>, HDMI 2.1 + HDMI 2.0, WiFi 6/BT 5.0</td><td><span class="dt dt-chg">ZMIANA</span></td></tr>
+      <tr><td>Platforma produkcyjna</td><td>SBC ARM (wycofany)</td><td><strong>Lenovo ThinkCentre M910q Tiny</strong> (x86), 2× DisplayPort, MT7921 WiFi 6 / BT 5.2</td><td><span class="dt dt-chg">ZMIANA</span></td></tr>
       <tr><td>Mały ekran 4.3"</td><td>Karuzela (5s/klatka)</td><td><strong>Statyczna siatka 2×2</strong> z 4 wartościami na raz</td><td><span class="dt dt-chg">ZMIANA</span></td></tr>
       <tr><td>Zestaw kamer</td><td>2× AHD (front + rear)</td><td><strong>4× AHD</strong> (front / rear / left / right) + 4-kanałowy USB grabber</td><td><span class="dt dt-chg">ZMIANA</span></td></tr>
       <tr><td>Kontroler kamer</td><td>Tylko bieg wsteczny → rear</td><td><strong>Priorytetowy:</strong> reverse &gt; left blinker &gt; right blinker, publikacja <code>camera.active_feed</code></td><td><span class="dt dt-new">NOWE</span></td></tr>
@@ -175,10 +182,10 @@ tr:hover td{background:var(--bg-card)}
   <h2><span class="n">02</span>Architektura systemu</h2>
   <h3>Dual Display</h3>
   <div class="code-block">┌─────────────────────────────────────┐    ┌───────────────────────┐
-│  EKRAN GŁÓWNY (7/8" touchscreen)    │    │  MAŁY EKRAN (4.3")    │
+│  EKRAN GŁÓWNY (10,1" dotykowy)      │    │  DRUGI EKRAN (6,86")  │
 │  Port 5002 — Flask SPA              │    │  Port 5003 — Flask    │
-│  Rozdzielczość: adaptacyjna         │    │  800×480 stała        │
-│  (1024×600 lub 1280×800)            │    │                       │
+│  Rozdzielczość: 1280×800            │    │  1280×480, opcjonalny │
+│  (display.dashboard w configu)      │    │  (display.small)      │
 │                                     │    │  Statyczna siatka 2×2:│
 │  A1: Dashboard (Hub główny)         │    │  - Poziom paliwa      │
 │  A2: Android Auto (kiosk embed)     │    │  - Temp. płynu chłodn.│
@@ -187,7 +194,7 @@ tr:hover td{background:var(--bg-card)}
 │  A5: Serwis i diagnostyka (DTC)     │    │                       │
 │  A6: Nagrania DVR (+eksport USB)    │    │  + Kamera auto:       │
 │  A7: Performance (boost, 0-100)     │    │    cofanie/L/P + sens │
-│  A8: Telefon BT (dialer, PBAP)     │    │                       │
+│  A8: Telefon BT (dialer, PBAP)      │    │                       │
 │  Settings: BT, WiFi, motyw, język   │    │                       │
 └──────────────┬──────────────────────┘    └───────────┬───────────┘
                │                                       │
@@ -202,22 +209,22 @@ tr:hover td{background:var(--bg-card)}
 
   <h3>Moduły systemu</h3>
   <table>
-    <tr><th>Moduł</th><th>Port/GPIO</th><th>Opis</th></tr>
-    <tr><td><strong>dashboard</strong></td><td>:5002</td><td>Ekran główny 7/8" — 8 ekranów (A1-A8) + settings</td></tr>
-    <tr><td><strong>small_display</strong></td><td>:5003</td><td>Mały ekran 4.3" — karuzela + cofanie</td></tr>
-    <tr><td><strong>obd</strong></td><td>UART3</td><td>K-Line/KWP2000, EDC15C7, DTC</td></tr>
-    <tr><td><strong>parking</strong></td><td>GPIO 79-83</td><td>4× HC-SR04 ultrasonic + buzzer (84)</td></tr>
-    <tr><td><strong>environment</strong></td><td>GPIO 7</td><td>DS18B20 temp + icing detection</td></tr>
+    <tr><th>Moduł</th><th>Port / interfejs</th><th>Opis</th></tr>
+    <tr><td><strong>dashboard</strong></td><td>:5002</td><td>Ekran główny 10,1" — 8 ekranów (A1-A8) + settings</td></tr>
+    <tr><td><strong>small_display</strong></td><td>:5003</td><td>Drugi ekran 6,86" (opcjonalny) — karuzela + cofanie</td></tr>
+    <tr><td><strong>obd</strong></td><td>USB (CP2102 + L9637D)</td><td>K-Line/KWP2000, EDC15C7, DTC</td></tr>
+    <tr><td><strong>parking</strong></td><td>Arduino</td><td>4× HC-SR04 ultrasonic + buzzer</td></tr>
+    <tr><td><strong>environment</strong></td><td>Nano #2 (sensor hub)</td><td>DS18B20 temp + icing detection</td></tr>
     <tr><td><strong>audio</strong></td><td>USB DAC</td><td>PipeWire 4.1, EQ, ducking</td></tr>
     <tr><td><strong>phone</strong></td><td>USB Mic + BT HFP</td><td>BT dialer, kontakty PBAP, historia, mic telefonu/AA</td></tr>
     <tr><td><strong>input</strong></td><td>USB HID</td><td>Touch + dual-pod SWC (24 btn) + physical buttons</td></tr>
     <tr><td><strong>camera</strong></td><td>USB3 grab</td><td>DVR 2-ch AHD + reverse cam</td></tr>
-    <tr><td><strong>power</strong></td><td>GPIO 85,89</td><td>Ignition, shutdown, backlight PWM</td></tr>
+    <tr><td><strong>power</strong></td><td>Nano #2 / Nano #1</td><td>Zapłon, S3 i wybudzanie przyciskiem zasilania (Nano #2), podświetlenie PWM (Nano #1)</td></tr>
     <tr><td><strong>multimedia</strong></td><td>USB BT</td><td>BlueZ A2DP/HFP + OpenAuto Pro</td></tr>
     <tr><td><strong>location</strong></td><td>UART USB</td><td>GPS/GNSS + tracking + GPX export</td></tr>
     <tr><td><strong>network</strong></td><td>USB LTE</td><td>LTE modem + traffic API + remote status</td></tr>
     <tr><td><strong>weather</strong></td><td>LTE</td><td>OpenWeatherMap + prognoza 3-dniowa</td></tr>
-    <tr><td><strong>rain_sensor</strong></td><td>GPIO 87,88</td><td>Czujnik deszczu → auto-wycieraczki</td></tr>
+    <tr><td><strong>rain_sensor</strong></td><td>Nano #2 (sensor hub)</td><td>Czujnik deszczu → auto-wycieraczki</td></tr>
     <tr><td><strong>central_lock</strong></td><td>Serial</td><td>Arduino + 433MHz RF, zamek, okna, bagażnik</td></tr>
     <tr><td><strong>lighting</strong></td><td>Serial</td><td>Follow-me-home, powitanie, leaving-home</td></tr>
     <tr><td><strong>performance</strong></td><td>Event bus</td><td>Timer 0-100, boost peak, G-Force</td></tr>
@@ -230,7 +237,7 @@ tr:hover td{background:var(--bg-card)}
 <!-- ═══ S3 — EKRANY ═══ -->
 <section id="s3">
   <h2><span class="n">03</span>Specyfikacja ekranów (A1-A8)</h2>
-  <p>Ekran główny (7/8") wyświetla 8 ekranów funkcjonalnych + ekran ustawień. Nawigacja: dotyk (swipe lub nav bar) + przycisk SWC na kierownicy.</p>
+  <p>Ekran główny (10,1") wyświetla 8 ekranów funkcjonalnych + ekran ustawień. Nawigacja: dotyk (swipe lub nav bar) + przycisk SWC na kierownicy.</p>
 
   <div class="card-grid">
     <div class="card">
@@ -280,7 +287,7 @@ tr:hover td{background:var(--bg-card)}
     </div>
   </div>
 
-  <h3>Mały ekran 4.3" (port 5003)</h3>
+  <h3>Drugi ekran 6,86" (port 5003, opcjonalny)</h3>
   <p>Wyświetlacz nie-dotykowy z karuzelą danych. Auto-cyklowanie co 5 sekund lub zmiana przyciskiem SWC. Nagłówek z czasem i datą zawsze widoczny. Podczas cofania: pełnoekranowy overlay z kamerą + 4 paski czujników parkowania (LL, CL, CP/CR, PP/RR).</p>
   <div class="note"><strong>Karuzela danych:</strong> Poziom paliwa (%) → Temperatura płynu chłodniczego (°C) → Temperatura zewnętrzna (°C) → Temperatura wewnętrzna (°C, jeśli czujnik dostępny)</div>
 
@@ -331,42 +338,42 @@ tr:hover td{background:var(--bg-card)}
 <!-- ═══ S5 — HARDWARE ═══ -->
 <section id="s5">
   <h2><span class="n">05</span>Platforma sprzętowa</h2>
-  <h3>SBC: Orange Pi 5 Pro 4GB <small>(zalecana wersja produkcyjna)</small></h3>
+  <h3>Komputer: Lenovo ThinkCentre M910q Tiny</h3>
   <table>
     <tr><th>Parametr</th><th>Wartość</th></tr>
-    <tr><td>SoC</td><td>Rockchip RK3588S (4× A76 + 4× A55)</td></tr>
-    <tr><td>RAM</td><td>4 GB LPDDR4X (z zapasem dla pełnej funkcjonalności)</td></tr>
-    <tr><td>Storage</td><td>microSD + slot M.2 NVMe</td></tr>
-    <tr><td>GPU</td><td>Mali-G610 MP4 (HW H.264 encode via rkmpp)</td></tr>
-    <tr><td>Video</td><td><strong>2× HDMI: HDMI 2.1 + HDMI 2.0</strong> (wersja 1.2+)</td></tr>
-    <tr><td>WiFi</td><td>WiFi 6 (802.11ax) + BT 5.0 — wbudowane</td></tr>
-    <tr><td>USB</td><td>USB 3.0 + USB 2.0 + USB-C (OTG/Power)</td></tr>
-    <tr><td>GPIO</td><td>40-pin header (3.3V logic)</td></tr>
-    <tr><td>OS</td><td>Armbian (Ubuntu 24.04 / Debian 12)</td></tr>
-    <tr><td>Cena</td><td>~350-450 PLN (vs ~600-750 PLN dla OPi 5 Plus)</td></tr>
+    <tr><td>CPU</td><td>Intel i5-6400T (4C/4T, 2,2–2,8 GHz, Skylake)</td></tr>
+    <tr><td>GPU</td><td>Intel HD 530 — sprzętowe dekodowanie VAAPI</td></tr>
+    <tr><td>RAM / dysk</td><td>8 GB DDR4 2400 / 256 GB NVMe</td></tr>
+    <tr><td>Obraz</td><td>2× DisplayPort (część egzemplarzy ma HDMI — sprawdź swój)</td></tr>
+    <tr><td>WiFi / BT</td><td><strong>MediaTek MT7921</strong> (Fenvi FU-AX1800, M.2 E) — wymiana fabrycznego Intel 8265 jest obowiązkowa (stabilny P2P-GO 5 GHz dla AA)</td></tr>
+    <tr><td>USB</td><td>6× USB 3.0 + 1× USB-C</td></tr>
+    <tr><td>GPIO</td><td>brak — sygnały pojazdu przez Arduino (Pro Micro, Nano #1, Nano #2)</td></tr>
+    <tr><td>Zasilanie</td><td>20 V / 65 W, wtyk Lenovo slim tip; w aucie zalewana przetwornica step-up 12 → 20 V, 10 A z banku buforowego (sekcja 14)</td></tr>
+    <tr><td>OS</td><td>Debian 13 (Trixie), amd64</td></tr>
+    <tr><td>Cena</td><td>200–400 PLN (używany)</td></tr>
   </table>
-  <p><em>Uwaga:</em> Dotychczasowa dokumentacja referuje też Orange Pi 5 Plus jako alternatywę.
-     OPi 5 Pro ma wystarczające 4 GB RAM dla pełnej listy modułów
-     (Android Auto + DVR + Travel Plan) i jest tańszy o 250-300 PLN.</p>
+  <div class="historical"><span class="hist-title">Historyczne (nieaktualne)</span>
+    Wcześniejsze wydania tego dokumentu opisywały Orange Pi 5 Pro 4 GB (RK3588S, 2× HDMI, 40-pin GPIO, Armbian) jako platformę produkcyjną. Ta ścieżka jest wycofana i nieutrzymywana.</div>
 
   <h3>Wyświetlacze</h3>
+  <p>Wartości z <code>display.dashboard</code> i <code>display.small</code> w <code>config/bcm_config.yaml</code> — to one są źródłem prawdy (<code>docs/WDROZENIE_M910Q.md</code> §10).</p>
   <div class="dual">
     <div>
-      <h4>Mały ekran — 4.3" TFT (statyczna siatka 2×2)</h4>
-      <p><strong>Rozdzielczość:</strong> 800 × 480</p>
-      <p><strong>Interfejs:</strong> HDMI 2.0 (OPi 5 Pro)</p>
-      <p><strong>Funkcja:</strong> Statyczna siatka 2×2 (paliwo, temp. płynu, temp. zewnętrzna, temp. wewnętrzna) +
-         automatyczne przełączanie na kamerę tylną / lewą / prawą na podstawie biegu wstecznego i kierunkowskazów.</p>
+      <h4>Drugi ekran — 6,86" widescreen <small>(opcjonalny)</small></h4>
+      <p><strong>Rozdzielczość:</strong> 1280 × 480</p>
+      <p><strong>Interfejs:</strong> DisplayPort M910q (pasywna przejściówka DP → HDMI, jeśli panel ma HDMI)</p>
+      <p><strong>Funkcja:</strong> karuzela statystyk + automatyczne przełączanie na kamerę tylną / lewą / prawą na podstawie biegu wstecznego i kierunkowskazów.</p>
       <p><strong>Dotyk:</strong> NIE — sterowanie tylko SWC</p>
-      <p><strong>Podświetlenie:</strong> PWM GPIO 32</p>
+      <p><strong>Hotplug:</strong> nie musi być podłączony przy starcie — <code>small-display-watch.sh</code> podnosi i zdejmuje okno</p>
+      <p><strong>Podświetlenie:</strong> PWM z Nano #1 (D10)</p>
     </div>
     <div>
-      <h4>Ekran główny — 7" lub 8" IPS</h4>
-      <p><strong>Rozdzielczość:</strong> 1024×600 (7") lub 1280×800 (8") — adaptacyjna</p>
-      <p><strong>Interfejs:</strong> HDMI 2.1 (OPi 5 Pro)</p>
-      <p><strong>Funkcja:</strong> BCM A1-A8 + Settings + Android Auto kiosk (pełnoekranowy, rozdzielczość zsynchronizowana z display.multimedia).</p>
-      <p><strong>Dotyk:</strong> TAK — capacitive touch (USB HID)</p>
-      <p><strong>Podświetlenie:</strong> PWM GPIO 33</p>
+      <h4>Ekran główny — 10,1" IPS dotykowy</h4>
+      <p><strong>Rozdzielczość:</strong> 1280 × 800</p>
+      <p><strong>Interfejs:</strong> DisplayPort M910q (pasywna przejściówka DP → HDMI, jeśli panel ma HDMI)</p>
+      <p><strong>Funkcja:</strong> BCM A1-A8 + Settings + Android Auto kiosk (rozdzielczość zsynchronizowana z display.multimedia).</p>
+      <p><strong>Dotyk:</strong> TAK — USB HID, przypisany tylko do tego ekranu (<code>xinput map-to-output</code>)</p>
+      <p><strong>Podświetlenie:</strong> PWM z Nano #1 (D9)</p>
       <p><strong>Pamięć ekranu:</strong> ostatnio oglądany ekran A1-A8 jest zapamiętywany w localStorage i przywracany po restarcie.</p>
     </div>
   </div>
@@ -383,10 +390,8 @@ tr:hover td{background:var(--bg-card)}
      Kontroler kamer (src/camera/camera_controller.py) ustala priorytet:
      <code>cofanie &gt; lewy kierunkowskaz &gt; prawy kierunkowskaz &gt; brak</code>
      i publikuje stan przez <code>camera.active_feed</code>.
-     Sygnały kierunkowskazów są odczytywane przez dwa dodatkowe PC817
-     na GPIO (patrz <a href="Archive/orange-pi-5/OPI5PRO_BOM.md">Archive/orange-pi-5/OPI5PRO_BOM.md</a> oraz
-     <a href="Archive/orange-pi-5/OPI5PRO_SETUP.md">OPI5PRO_SETUP.md</a> — wariant Orange Pi;
-     na M910q te same PC817 wchodzą na Arduino sensor hub).</p>
+     Sygnały kierunkowskazów są odczytywane przez dwa dodatkowe PC817,
+     które na M910q wchodzą na Arduino (sensor hub).</p>
 </section>
 
 <!-- ═══ S6 — NOWE MODUŁY ═══ -->
@@ -394,7 +399,7 @@ tr:hover td{background:var(--bg-card)}
   <h2><span class="n">06</span>Nowe moduły sprzętowe</h2>
 
   <h3>Czujnik deszczu + wycieraczki</h3>
-  <p>Optoisolowany sygnał cyfrowy z czujnika deszczu na zderzaku (GPIO 87 wejście). Przekaźnik aktywujący wycieraczki (GPIO 88 wyjście). Logika: wykrycie deszczu → aktywacja wycieraczek na konfigurowalny czas. Czułość: lekki / umiarkowany / intensywny → różne prędkości wycieraczek.</p>
+  <p>Optoizolowany sygnał cyfrowy z czujnika deszczu (na M910q wejście D10 Nano #2 — sensor hub, komunikat <code>RAIN:1</code>). Przekaźnik aktywujący wycieraczki. Logika: wykrycie deszczu → aktywacja wycieraczek na konfigurowalny czas. Czułość: lekki / umiarkowany / intensywny → różne prędkości wycieraczek.</p>
 
   <h3>Always-on Nano — pilot szyb 433 MHz + bagażnik BLE</h3>
   <div class="card-grid">
@@ -411,34 +416,34 @@ tr:hover td{background:var(--bg-card)}
     <div class="card">
       <div class="ic">💡</div>
       <h4>PWM podświetlenia</h4>
-      <p>D9 (7&quot; main) + D10 (4.3&quot; small) — sterowanie M_PWM gate na płytach wyświetlaczy. Komendy z BCM przez USB Serial.</p>
+      <p>D9 (ekran główny) + D10 (drugi ekran) — sterowanie M_PWM gate na płytach wyświetlaczy. Komendy z BCM przez USB Serial.</p>
     </div>
     <div class="card">
       <div class="ic">🔋</div>
       <h4>Domain A — zawsze zasilany</h4>
-      <p>Vin z bufora SLA (4-6 × 12 V 5 Ah). Działa gdy BCM jest uśpiony. Pobór ~60 mA → ~14-21 dni standby.</p>
+      <p>5,0 V z przetwornicy MP1584 na pin 5V (nie Vin), z szyny buforowanej za LVD — bank 7× CSB HR1221W AGM (35,7 Ah). Działa, gdy M910q śpi w S3. Czas postoju całego systemu: <code>ZASILANIE_BUFOROWANE.md</code> §9.2.</p>
     </div>
   </div>
   <div class="note"><strong>MCU:</strong> Arduino Nano (ATmega328P, CH340). Komunikacja z BCM: USB Serial JSON. Moduł 10-kanałowych przekaźników (9 używanych: 8 szyb + bagażnik). <strong>Oryginalny centralny zamek Alfy 156 pozostaje aktywny i niezmieniony.</strong></div>
 
   <h3>Przyciski fizyczne</h3>
-  <p>3 przyciski montowane przy ekranie 7/8": <strong>Power on/off</strong>, <strong>Previous track</strong>, <strong>Next track</strong>. Podłączone do Arduino USB HID → keycody → action_dispatch → event bus.</p>
+  <p>3 przyciski montowane przy ekranie głównym: <strong>Power on/off</strong>, <strong>Previous track</strong>, <strong>Next track</strong>. Podłączone do Arduino USB HID → keycody → action_dispatch → event bus.</p>
 </section>
 
 <!-- ═══ S7 — ANDROID AUTO ═══ -->
 <section id="s7">
   <h2><span class="n">07</span>Android Auto — integracja kiosk</h2>
   <h3>Architektura</h3>
-  <p>OpenAuto Pro działa na OPi jako osobny proces. BCM osadza stream video AA jako iframe/card na ekranie A2. Nagłówek BCM (logo, czas, temperatura) i pasek nawigacji pozostają widoczne — użytkownik może przełączyć ekran bez opuszczania AA.</p>
+  <p>OpenAuto działa na M910q jako osobny proces (w wirtualnym Xvfb). BCM osadza stream video AA jako iframe/card na ekranie A2. Nagłówek BCM (logo, czas, temperatura) i pasek nawigacji pozostają widoczne — użytkownik może przełączyć ekran bez opuszczania AA.</p>
 
   <h3>Połączenie</h3>
   <ul>
-    <li><strong>Bezprzewodowe:</strong> WiFi AP (SSID: ALFA, hasło konfigurowane) — telefon łączy się do hotspotu OPi</li>
+    <li><strong>Bezprzewodowe:</strong> WiFi AP (SSID: ALFA, hasło konfigurowane) — telefon łączy się do hotspotu M910q (MT7921, 5 GHz)</li>
     <li><strong>Przewodowe:</strong> USB-C OTG — telefon podłączony kablem</li>
     <li><strong>Video stream:</strong> MJPEG z Xvfb (DISPLAY=:99) via ffmpeg → endpoint <code>/aa/stream</code></li>
   </ul>
 
-  <div class="warn"><strong>WiFi AP vs LTE:</strong> Hotspot WiFi AP dla AA działa na wewnętrznym WiFi OPi. LTE modem ma osobne połączenie (USB). Nie kolidują ze sobą — AA używa WiFi direct, internet idzie przez LTE.</div>
+  <div class="warn"><strong>WiFi AP vs LTE:</strong> Hotspot WiFi AP dla AA działa na karcie MT7921 w M910q. LTE modem ma osobne połączenie (USB). Nie kolidują ze sobą — AA używa WiFi direct, internet idzie przez LTE.</div>
 
   <h3>Fallback</h3>
   <p>Gdy AA nie jest podłączone, ekran A2 wyświetla placeholder z instrukcją połączenia (ikona telefonu + tekst "Podłącz Android Auto").</p>
@@ -450,11 +455,13 @@ tr:hover td{background:var(--bg-card)}
   <table>
     <tr><th>Komponent</th><th>Model</th><th>Opis</th></tr>
     <tr><td>DAC USB</td><td>ES9038Q2M</td><td>32-bit/384kHz, wyjście RCA stereo</td></tr>
-    <tr><td>AMP główny</td><td>TDA7388</td><td>4 × 45W Class AB (przód L/P + tył L/P)</td></tr>
-    <tr><td>AMP sub</td><td>TDA2050</td><td>40W mono, filtr LP ~120Hz</td></tr>
+    <tr><td>Wzmacniacz</td><td>Gotowy 4-kanałowy samochodowy</td><td>Klasa D, 4 × 50–75 W RMS na 4 Ω, wejścia RCA (przód L/P + tył L/P)</td></tr>
+    <tr><td>Wzmacniacz sub</td><td>Gotowy moduł mono (opcja)</td><td>Filtr dolnoprzepustowy wbudowany we wzmacniacz (sprawdź swój model)</td></tr>
     <tr><td>Głośniki</td><td>4× koaksyjne</td><td>Drzwi przód + tył</td></tr>
     <tr><td>Subwoofer</td><td>1× 8"</td><td>Bagażnik, obudowa bass-reflex</td></tr>
   </table>
+  <div class="note"><strong>Zasilanie wzmacniaczy:</strong> osobną gałęzią prosto z akumulatora rozruchowego — bezpiecznik przy klemie wg karty modułu (zwykle 20–30 A), przewód 6 mm², masa lokalna przy wzmacniaczu, REM z zacisku 87. <strong>Nie z banku buforowego</strong>: szczyty wzmacniacza przekroczyłyby przekaźnik LVD 20 A. Z head unitem łączy go tylko REM i ekran kabla RCA (<code>ZASILANIE_BUFOROWANE.md</code> §13.5, <code>WDROZENIE_M910Q.md</code> §14).</div>
+
   <h3>PipeWire routing</h3>
   <p>Routing audio: Android Auto / BT A2DP / system sounds → PipeWire → USB DAC → wzmacniacze. EQ 10-pasmowy parametryczny (presety: flat, rock, jazz, bass_boost, custom). Ducking priorytetowy: beep parkowania > głos > rozmowa > muzyka.</p>
 
@@ -469,9 +476,16 @@ tr:hover td{background:var(--bg-card)}
   </ul>
 
   <h3>Wizualizator widma (Spectrum)</h3>
-  <p>Canvas-owy wizualizator 16-pasmowy na ekranie A1 (głównym). Pobiera dane FFT z PipeWire
-  (pw-record/parec) w czasie rzeczywistym ~15fps. Fallback na symulowane dane gdy PipeWire niedostępny.
-  Kolory dopasowane do motywu: amber (Heritage), niebieski (Modern), pomarańczowy (Autodelta).</p>
+  <p>Canvas-owy wizualizator 16-pasmowy na ekranie A1 (głównym). Słucha <strong>monitora sinka z muzyką</strong>:
+  <code>bcm_eq_sink</code>, gdy działa łańcuch EQ, a bez EQ sinka sprzętowego wybranego przez
+  <code>PipeWireController</code> (<code>pw-record --target &lt;sink&gt;</code> ze <code>stream.capture.sink=true</code>,
+  awaryjnie <code>parec -d &lt;sink&gt;.monitor</code>). Nigdy domyślnego źródła — to mikrofon.
+  16 pasm logarytmicznych 30 Hz – 16 kHz, 48 kHz, okno Hann 4096 próbek z 50% nakładką, poziom w dBFS
+  w stałym oknie <code>audio.spectrum_db_floor</code>..<code>audio.spectrum_db_ceiling</code> (domyślnie -70..0 dB),
+  publikacja 15 Hz; cisza = zera (widać tylko 2-pikselową linię bazową). Po każdej zmianie EQ i AEC łańcuch EQ
+  startuje od nowa — watchdog sam ponawia nagrywanie. Animacja symulowana tylko bez numpy, bez pw-record i parec
+  albo gdy PipeWire w ogóle nie wstał (stan w <code>audio.spectrum_state</code>).
+  Kolory z motywu: amber (Heritage), niebieski (Modern), pomarańczowy (Autodelta).</p>
 </section>
 
 <!-- ═══ S9 — KAMERY ═══ -->
@@ -482,7 +496,7 @@ tr:hover td{background:var(--bg-card)}
     <tr><th>Parametr</th><th>Wartość</th></tr>
     <tr><td>Kamery</td><td>2× AHD 720P (przód + tył)</td></tr>
     <tr><td>Grabber</td><td>USB3.0 4-ch AHD capture card</td></tr>
-    <tr><td>Kodowanie</td><td>H.264 (HW mpph264enc na OPi, SW x264enc na x86)</td></tr>
+    <tr><td>Kodowanie</td><td>H.264, programowo (x264enc) na M910q</td></tr>
     <tr><td>Segmenty</td><td>5-minutowe pliki, loop recording</td></tr>
     <tr><td>Pojemność</td><td>128GB USB → ~47h nagrań</td></tr>
     <tr><td>GPS overlay</td><td>Prędkość, pozycja, kierunek, czas/data w metadanych</td></tr>
@@ -490,7 +504,7 @@ tr:hover td{background:var(--bg-card)}
   </table>
 
   <h3>Kamera cofania</h3>
-  <p>Aktywacja: sygnał biegu wstecznego (OBD gear="R" lub GPIO). Wyświetlanie na <strong>małym ekranie 4.3"</strong> z overlay czujników parkowania. Linie pomocnicze (zielona/żółta/czerwona strefa). Stream: AHD → grabber → fbdevsink (OPi) lub MJPEG (x86).</p>
+  <p>Aktywacja: sygnał biegu wstecznego (OBD gear="R" lub wejście biegu wstecznego przez Arduino). Wyświetlanie na <strong>drugim ekranie 6,86"</strong> z overlay czujników parkowania. Linie pomocnicze (zielona/żółta/czerwona strefa). Stream: AHD → grabber USB → MJPEG.</p>
 </section>
 
 <!-- ═══ S10 — OBD ═══ -->
@@ -547,7 +561,7 @@ tr:hover td{background:var(--bg-card)}
   <h2><span class="n">13</span>System wejścia</h2>
   <table>
     <tr><th>Źródło</th><th>Typ</th><th>Funkcja</th></tr>
-    <tr><td><strong>Ekran dotykowy 7/8"</strong></td><td>Capacitive USB HID</td><td>Główne sterowanie — tap, swipe L/R (zmiana ekranu)</td></tr>
+    <tr><td><strong>Ekran dotykowy 10,1"</strong></td><td>Capacitive USB HID</td><td>Główne sterowanie — tap, swipe L/R (zmiana ekranu)</td></tr>
     <tr><td><strong>Dual-pod SWC (kierownica)</strong></td><td>Analog → Arduino ADC (A0, A6)</td><td>24 przyciski (12 per pod), konfigurowalne mapowanie w trybie uczenia (learn mode). Akcje: volume, mute, menu, next/prev track, phone, power toggle, voice AA, navigate AA</td></tr>
     <tr><td><strong>Przyciski fizyczne</strong></td><td>Arduino USB HID</td><td>Power on/off, previous track, next track</td></tr>
     <tr><td><strong>Klawiatura (x86)</strong></td><td>Fallback do testów</td><td>Strzałki, Enter, Home, R (reverse), H (settings)</td></tr>
@@ -560,36 +574,53 @@ tr:hover td{background:var(--bg-card)}
 <!-- ═══ S14 — POWER ═══ -->
 <section id="s14">
   <h2><span class="n">14</span>Zarządzanie energią</h2>
-  <h3>Maszyna stanów — deep idle (bez poweroff) <span class="dt dt-chg">ZMIANA</span></h3>
-  <div class="code-block">OS Boot → splash (mpv) → ignition watcher polls GPIO + evdev
-    │
-    ├─ [zapłon ON lub SWC MODE] → boot_mode cold/warm → start BCM
-    │   cold: skip init screen → ostatni ekran
-    │   warm: init 4s → ostatni ekran
-    │
-    ├─ [zapłon OFF lub SWC MODE] → stop BCM → deep idle (OS działa)
-    │
-    └─ [12h timer] → past_12h=True → następne wake = cold-like (splash)</div>
-  <p><strong>Deep idle:</strong> OS nigdy nie robi <code>sudo poweroff</code>. Po zapłonie OFF, BCM app zatrzymuje się, ale OPi działa dalej na baterii backup. Po 12h bez cold boot, następne wake odtwarza splash (mpv) i resetuje okno 12h.</p>
-  <p><strong>SWC power toggle:</strong> Przycisk SWC_MODE (KEY_F10) może włączyć BCM ze standby ORAZ wyłączyć BCM nawet gdy zapłon jest ON. Zarówno SWC jak i zapłon budzą BCM ze standby.</p>
-  <p><strong>Ignition:</strong> GPIO 7 / PA7 (wejście optoisolowane, pin 29). <strong>Central lock:</strong> GPIO 20 / PA20 (pin 37).</p>
+  <p>Pełny opis, wszystkie bezpieczniki i procedura uruchomienia: <code>docs/ZASILANIE_BUFOROWANE.md</code> (ZB) — ta sekcja to streszczenie, a przy rozbieżności obowiązuje ZB.</p>
+
+  <h3>Zasilanie buforowane <span class="dt dt-chg">ZMIANA</span></h3>
+  <div class="code-block">Akumulator rozruchowy ─[F1 20 A]─ K1 (zapłon / D+) ─┬─ XY-SK120 #1 ─ XH-M603 #1 ─┐
+                                                    └─ XY-SK120 #2 ─ XH-M603 #2 ─┤
+                                                                         [F12 15 A]
+  Bank 7× CSB HR1221W AGM, 35,7 Ah — kosze 4 + 3 w bagażniku ◄──────────────┘
+                     │ [F7 20 A]
+           XH-M609 LVD 11,00 / 12,60 V
+                     │  jedna szyna buforowana (zawsze zasilana)
+     ┌───────────────┼──────────────────┬──────────────────┐
+  step-up 12→20 V   LM2596 5 V        MP1584 5 V         AUX 12 V
+  10 A, zalewany    wyświetlacze      Nano #1/#2,        moduł
+     │                                HM-10, RXB6        przekaźników
+  M910q (stale)
+
+Wzmacniacz: osobna gałąź z akumulatora rozruchowego, nie przez bank ani LVD</div>
+  <ul>
+    <li><strong>Bank:</strong> 7× CSB HR1221W F2 (12 V / 5,1 Ah AGM) równolegle = <strong>35,7 Ah</strong>, w dwóch stalowych koszach (lewy 4 szt., prawy 3 szt.) stojących na podłodze bagażnika i przykręconych M8 do grodzi za tylną kanapą (ok. 16,8 kg), z przerwą na otwór na narty. Pakiety spięte linką 6 mm² OFC z ukośnym odbiorem („+” z kosza L, „−” z kosza P), każdy przez własny bezpiecznik 10 A. Projekt koszy: <code>docs/mechanika/kosze_HR1221W_4+3.pdf</code>.</li>
+    <li><strong>Ładowanie:</strong> 2× XY-SK120 (buck-boost CC-CV, CV 14,40 V, CC 5,0 A każda, razem ok. 10 A — przy obciążeniu ok. 5 A do banku idzie netto ok. 5 A; jedna sztuka prawie by go nie ładowała). Przekaźnik K1 zamknięty tylko z zapłonem / D+, więc na postoju akumulator rozruchowy nie zasila head unitu i auto zawsze odpali.</li>
+    <li><strong>Blokada przeładowania:</strong> 2× XH-M603 (15,30 / 14,00 V), po jednym na ładowarkę.</li>
+    <li><strong>LVD:</strong> XH-M609, odcięcie 11,00 V, powrót 12,60 V, przekaźnik 20 A.</li>
+    <li><strong>Komputer:</strong> zalewana przetwornica step-up <strong>12 → 20 V, 10 A (200 W)</strong> w bagażniku, M910q zasilany stale. Rodzina bezmarkowa — każdą sztukę sprawdź po zakupie (ZB §3.4). Limit RAPL niepotrzebny.</li>
+    <li><strong>Bez „domeny” za przekaźnikiem zapłonu:</strong> zapłon niczego nie odcina, jest tylko sygnałem.</li>
+  </ul>
+
+  <h3>Stany komputera: praca / S3 / wyłączony</h3>
+  <table>
+    <tr><th>Stan</th><th>Jak</th><th>Pobór z banku</th><th>Do 50 % DoD (35,7 Ah)</th></tr>
+    <tr><td>Praca</td><td>zapłon ON → krótki impuls na przycisk zasilania</td><td>≈ 50–75 W, czyli ≈ 4–6 A (przyjęte 5 A)</td><td>~3,6 h przy zgaszonym silniku</td></tr>
+    <tr><td>S3</td><td>zapłon OFF → krótki impuls</td><td>200–460 mA + prąd jałowy step-upu</td><td>1,6–3,7 dnia (bez prądu jałowego)</td></tr>
+    <tr><td>Wyłączony</td><td>2 h po zgaszeniu → długi impuls 5 s</td><td>50–150 mA + prąd jałowy step-upu</td><td>5,0–14,9 dnia (bez prądu jałowego)</td></tr>
+  </table>
+  <p>Impulsy daje <strong>Nano #2 (sensor hub)</strong>: zapłon wchodzi przez PC817 na D9, przekaźnik na A0 zwiera styki przycisku zasilania M910q, a odczyt diody zasilania (A1) mówi, czy maszyna pracuje. Pobór w S3 i po wyłączeniu mierzono jeszcze z poprzednią przetwornicą — nowa dokłada nieznany prąd jałowy, więc czasy postoju to górna granica (ZB §2.1). M910q w S3 odcina zasilanie portów USB, dlatego „Wake on USB” jest w BIOS-ie wyłączone, a Arduino ma własne 5 V z MP1584.</p>
+  <p><strong>Start BCM:</strong> <code>bcm-headunit</code> nie startuje z bootu — uruchamia go <code>bcm-ignition-watcher</code> w reakcji na zapłon (<code>WDROZENIE_M910Q.md</code> §7). BIOS: <strong>After Power Loss = Power On</strong> (powrót po zaniku zasilania, np. po LVD).</p>
+  <p><strong>Brak SWC power toggle:</strong> slot MODE (KEY_F10) usunięto w firmware Pro Micro v8.5.4 i zastąpiono go przyciskiem HOME — szum ADC nie może już wyłączyć komputera. W S3 porty USB są bez zasilania, więc żaden przycisk SWC nie wybudzi M910q; budzi go tylko przekaźnik Nano #2 na przycisku zasilania.</p>
   <p><strong>Konfiguracja:</strong> <code>power.standby_max_hours: 12</code>, <code>power.splash_duration_seconds: 15</code> — czas trwania splasha konfigurowalny, domyślnie 15s.</p>
   <p><strong>Stan:</strong> <code>/tmp/bcm_power_state</code> — plik stanu (boot_mode, first_boot_ts) odczytywany przez frontend via <code>/api/boot_mode</code>.</p>
-  <p>Implementacja: <code>src/power/ignition_watcher.py</code> (StandbyTimer, EvdevWakeMonitor, write_state)</p>
 
   <h3>Podświetlenie</h3>
-  <p>PWM 1000Hz na GPIO 32 (4.3") i GPIO 33 (7/8"). Płynne przejścia (50 kroków, 1s). Jasność 0-100% niezależnie per ekran. Auto-jasność z czujnika LDR (Arduino A1).</p>
-  <h3>Shutdown (graceful app cleanup)</h3>
-  <p>Sekwencja: zatrzymaj DVR → zapisz stan → flush logi → sync → <strong>OS zostaje w deep idle</strong> (brak <code>sudo poweroff</code>). Cykl życia OS zarządzany wyłącznie przez ignition watcher.</p>
+  <p>PWM z Nano #1 (D9 — ekran główny, D10 — drugi ekran). Płynne przejścia. Jasność 0-100% niezależnie per ekran. Auto-jasność z czujnika LDR (Arduino A1).</p>
 
-  <h3>Tryb RADIO <span class="dt dt-new">NOWE</span></h3>
-  <p>Uruchamiany <strong>przyciskiem SWC MODE</strong> (lub fizycznym Power). Ekran główny 7/8" ON, audio ON, mały ekran 4.3" OFF. Moduły OBD/parking/DVR wyłączone. Pobór: ~2A 5V + wzmacniacze audio. Wyjście: przycisk SWC MODE ponownie LUB uruchomienie silnika (zapłon → ACTIVE). Auto-timeout po konfigurowalnym czasie (30/60/120 min) aby nie rozładować akumulatora.</p>
+  <h3>Monitor banku (opcjonalny) <span class="dt dt-new">NOWE</span></h3>
+  <p><code>src/power/battery.py</code> czyta napięcie banku z sensor huba (<code>FEATURE_BATT_ADC</code> albo <code>FEATURE_BATT_INA226</code>, linia <code>BATT:</code>) i publikuje <code>battery.state</code>. Progi AGM w bloku <code>battery:</code> configu: <strong>pełny 12,85 V</strong>, nominalny 12,40 V (tylko odniesienie), <strong>niski 11,80 V</strong>, <strong>krytyczny 11,20 V</strong> — powyżej LVD 11,0 V, żeby BCM zdążył ostrzec. Moduł niczego nie wyłącza, to robi sprzętowe LVD. Domyślnie wyłączony (<code>modules.battery: false</code>); włączenie w ZB §13.4.</p>
 
-  <h3>Bateria backup <span class="dt dt-new">NOWE</span></h3>
-  <p>Dodatkowa bateria buforowa (oddzielna od akumulatora samochodu) zasila Arduino always-on (Domain A) ciągle, oraz BCM podczas 12h okna standby (deep idle).</p>
-  <p><strong>Wariant OPi 5 Pro (legacy):</strong> Li-ion 18650 3.7V 5000mAh z ładowarką TP4056 i boost MT3608 (3.7V→5V). Pobór ~0.15A, wytrzymałość ~30h.</p>
-  <p><strong>Wariant x86 (M910q, aktualna produkcja):</strong> <span class="dt dt-new">v8.5</span> 4-6 × SLA 12 V 5 Ah połączonych równolegle (20-30 Ah razem). Łańcuch zasilania: dioda Schottky MBR2045 (izolacja od akumulatora samochodowego, jednokierunkowa) → <strong>kontroler ładowania CC-CV</strong> (DC-DC buck, limit 15-20 A bulk, 14.4 V absorb / 13.8 V float — niezbędny, alternator Alfy 156 ma 120 A i bez ograniczenia prądu spaliłby Schottky'ego i SLA) → magistrala SLA → LVD 11.0 V (ochrona przed głębokim rozładowaniem). Domain A pobiera ~60 mA → ~14-21 dni standby zaparkowanego auta przy 5 SLA = 25 Ah. Szczegóły: <code>docs/X86_PLATFORM_SETUP.md</code> &sect; 2 oraz <code>docs/x86-production/10-power-suspend.html</code>.</p>
-  <p>Implementacja: <code>src/power/battery.py</code> — monitorowanie napięcia baterii (Arduino ADC), progi: full 4.2V, nominal 3.7V, low 3.3V, krytyczny 3.0V.</p>
+  <div class="historical"><span class="hist-title">Historyczne (nieaktualne)</span>
+    Wcześniejsze wersje tej sekcji opisywały: „deep idle” bez S3 na komputerze ARM z wejściem zapłonu na GPIO, baterię backup Li-ion 18650 z ładowarką TP4056 i boostem MT3608, bufor 4-6 × SLA 12 V 5 Ah z diodą MBR2045 i ładowarką buck XL4016, przekaźnik zapłonu z „Domain B” oraz progi <code>battery.py</code> dla Li-ion (4,2 / 3,7 / 3,3 / 3,0 V). Nic z tego nie obowiązuje.</div>
 
   <h3>Detekcja wypadku <span class="dt dt-new">NOWE</span></h3>
   <p>Zdarzenie z akcelerometru telefonu w aucie (czujniki przez SensorServer): prędkość z GPS &ge;25 km/h, zmiana prędkości w poziomie &ge;15 km/h w 150 ms i &ge;4 g przez &ge;3 próbki; odrzucane dziury (gdy akcelerometr nie jest nasycony), upadek telefonu (także z obrotem, z żyroskopem), brak kalibracji, za wolny lub opóźniony strumień. Zdarzenie pokazuje powiadomienie na ekranie. Bez danych z telefonu tylko ścieżka &bdquo;sam GPS&rdquo; (spadek liczony na &ge;2 s) &mdash; log i ochrona nagrań, nigdy SMS. Nagrania wypadku chronione przed nadpisaniem.</p>
@@ -599,12 +630,9 @@ tr:hover td{background:var(--bg-card)}
 <!-- ═══ S15 — RAIN SENSOR ═══ -->
 <section id="s15">
   <h2><span class="n">15</span>Czujnik deszczu i wycieraczki</h2>
-  <p>Moduł czujnika deszczu podłączony przez optoisolator (PC817) do GPIO 87 (wejście). Przekaźnik wycieraczek na GPIO 88 (wyjście) — podłączony równolegle do istniejącego sterowania wycieraczkami w Alfie 156.</p>
-  <table>
-    <tr><th>GPIO</th><th>Kierunek</th><th>Funkcja</th></tr>
-    <tr><td>87</td><td>INPUT</td><td>Sygnał z czujnika deszczu (optoisolowany)</td></tr>
-    <tr><td>88</td><td>OUTPUT</td><td>Przekaźnik wycieraczek (równoległy do przełącznika)</td></tr>
-  </table>
+  <p>Moduł czujnika deszczu (wyjście cyfrowe) podłączony do Nano #2 — sensor hub (D10, <code>FEATURE_RAIN</code>), który zgłasza <code>RAIN:1</code>. Przekaźnik wycieraczek podłączony równolegle do istniejącego sterowania wycieraczkami w Alfie 156.</p>
+  <div class="historical"><span class="hist-title">Historyczne (nieaktualne)</span>
+  Na płytce ARM czujnik wchodził na GPIO 87 (wejście, PC817), a przekaźnik wycieraczek wisiał na GPIO 88 (wyjście). Te numery zostały jako wartości domyślne <code>gpio.rain_sensor</code> / <code>gpio.sprayer</code> w kodzie, ale M910q nie ma GPIO.</div>
   <p><strong>Logika:</strong> deszcz wykryty → aktywacja wycieraczek na konfigurowalny czas. 3 poziomy czułości (lekki / umiarkowany / intensywny) → różne czasy pracy.</p>
   <p><strong>Event bus:</strong> <code>vehicle.rain_detected</code>, <code>vehicle.wipers_active</code></p>
   <p><strong>Implementacja:</strong> <code>src/vehicle/rain_sensor.py</code></p>
@@ -614,10 +642,10 @@ tr:hover td{background:var(--bg-card)}
 <section id="s16">
   <h2><span class="n">16</span>Zdalne sterowanie szybami + przycisk bagażnika BLE</h2>
 
-  <div class="note"><strong>Zmiana zakresu (v8.5):</strong> Pierwotny pomysł zastąpienia całego modułu centralnego zamka Alfy 156 został porzucony. Oryginalny system centralnego zamka pozostaje nietknięty. Dodatkowy Arduino Nano (Domain A, zawsze zasilany) dodaje tylko funkcje, których fabryka nie zapewnia: zdalne sterowanie 4 szybami z drugiego pilota 433 MHz oraz przycisk otwarcia bagażnika z weryfikacją obecności kluczyka przez BLE.</p></div>
+  <div class="note"><strong>Zmiana zakresu (v8.5):</strong> Pierwotny pomysł zastąpienia całego modułu centralnego zamka Alfy 156 został porzucony. Oryginalny system centralnego zamka pozostaje nietknięty. Dodatkowy Arduino Nano (Nano #1, Domain A, zawsze zasilany) dodaje tylko funkcje, których fabryka nie zapewnia: zdalne sterowanie 4 szybami z drugiego pilota 433 MHz oraz przycisk otwarcia bagażnika z weryfikacją obecności kluczyka przez BLE.</div>
 
   <h3>Always-on Arduino Nano (Domain A)</h3>
-  <p>Oddzielny Arduino Nano (ATmega328P, CH340) zasilany z bufora akumulatorowego (4-6 × SLA 12 V 5 Ah równolegle). Działa nieprzerwanie nawet gdy BCM jest uśpiony. Komunikacja z BCM przez USB Serial (JSON, 9600 baud) — używana tylko do komend <code>backlight</code> gdy BCM jest aktywny; pozostałe funkcje (okna, bagażnik) działają autonomicznie.</p>
+  <p>Oddzielny Arduino Nano (ATmega328P, CH340) zasilany 5 V z przetwornicy MP1584 na szynie buforowanej (bank 7× CSB HR1221W AGM, 35,7 Ah). Działa nieprzerwanie nawet gdy BCM jest uśpiony. Komunikacja z BCM przez USB Serial (JSON, 9600 baud) — używana tylko do komend <code>backlight</code> gdy BCM jest aktywny; pozostałe funkcje (okna, bagażnik) działają autonomicznie.</p>
 
   <h4>Kanały przekaźników (9×)</h4>
   <table>
@@ -654,7 +682,7 @@ tr:hover td{background:var(--bg-card)}
     <tr><td>Lock/Unlock przekaźniki</td><td><span class="dt" style="background:var(--red)">USUNIĘTE</span></td><td>Oryginalny centralny zamek Alfy 156 pozostaje aktywny — nie ma potrzeby duplikacji</td></tr>
     <tr><td>Uczenie pilota RF do OEM zamka</td><td><span class="dt" style="background:var(--red)">USUNIĘTE</span></td><td>j.w.</td></tr>
     <tr><td>Sterowanie szybami z BCM (przez UI)</td><td><span class="dt" style="background:var(--red)">USUNIĘTE</span></td><td>Drugi pilot 433 MHz jest jedynym interfejsem; UI nie sterują szybami</td></tr>
-    <tr><td>Kierunkowskazy / klakson / wycieraczki / światła mijania</td><td><span class="dt" style="background:var(--yellow)">OPCJONALNE</span></td><td>Pin-budget zajęty przez 8 szyb + bagażnik + BLE; jeśli ktoś chce te wyjścia, potrzebuje drugiego Nano na Domain B</td></tr>
+    <tr><td>Kierunkowskazy / klakson / wycieraczki / światła mijania</td><td><span class="dt" style="background:var(--yellow)">OPCJONALNE</span></td><td>Pin-budget zajęty przez 8 szyb + bagażnik + BLE; jeśli ktoś chce te wyjścia, potrzebuje kolejnego Nano z własnym sketchem</td></tr>
     <tr><td>Bagażnik (przycisk + BLE)</td><td><span class="dt dt-new">ZACHOWANE I POSZERZONE</span></td><td>Dodano bramę BLE proximity</td></tr>
     <tr><td>Szyby (4 × góra/dół)</td><td><span class="dt dt-new">NOWE</span></td><td>Funkcja, której Alfa 156 nie ma fabrycznie</td></tr>
   </table>
@@ -664,7 +692,7 @@ tr:hover td{background:var(--bg-card)}
   <h4>Czujniki alarmu</h4>
   <table>
     <tr><th>Czujnik</th><th>Model</th><th>Detekcja</th></tr>
-    <tr><td>Kontakty drzwi</td><td>GPIO 86 (istniejący)</td><td>Otwarcie drzwi gdy uzbrojony</td></tr>
+    <tr><td>Kontakty drzwi</td><td>Krańcówki drzwi → Nano #2 (sensor hub) D2–D5</td><td>Otwarcie drzwi gdy uzbrojony</td></tr>
     <tr><td><strong>PIR ruchu</strong></td><td>HC-SR501 mini</td><td>Ruch wewnątrz kabiny</td></tr>
     <tr><td><strong>Czujnik wstrząsów</strong></td><td>Piezo vibration</td><td>Uderzenia w karoserię</td></tr>
     <tr><td><strong>Tilt / holowanie</strong></td><td>MPU6050 akcelerometr</td><td>Podnoszenie / holowanie auta</td></tr>
@@ -680,13 +708,33 @@ tr:hover td{background:var(--bg-card)}
   <p>Implementacja: <code>src/vehicle/alarm.py</code> — maszyna stanów alarmu</p>
 
   <h3>Śledzenie pojazdu (anti-theft) <span class="dt dt-new">NOWE</span></h3>
-  <p>GPS loguje pozycję co 30s do pamięci Arduino. LTE budzi się co 15 min i wysyła paczkę pozycji do API zdalnego. Pobór: ~0.15A z baterii backup → ~30h śledzenia. Geofencing: alert SMS gdy auto opuści skonfigurowany obszar.</p>
+  <p>GPS loguje pozycję co 30s do pamięci Arduino. LTE budzi się co 15 min i wysyła paczkę pozycji do API zdalnego. Pobór i czas pracy na postoju zależą od stanu komputera (S3 / wyłączony) — budżet w <code>ZASILANIE_BUFOROWANE.md</code> §9.2. Geofencing: alert SMS gdy auto opuści skonfigurowany obszar.</p>
   <p>Implementacja: <code>src/location/tracker.py</code> + <code>src/network/remote_status.py</code></p>
 </section>
 
 <!-- ═══ S17 — BLOCK DIAGRAM ═══ -->
 <section id="s17">
   <h2><span class="n">17</span>Schemat blokowy systemu v8.5</h2>
+  <div class="code-block">
+                    ┌──────────────────────────────┐
+                    │  LENOVO M910q TINY (x86)     │
+                    │  i5-6400T, 8 GB, NVMe        │
+                    │                              │
+  DP-1 ─────────────┤ 10,1" dotyk 1280×800         │
+  DP-2 ─────────────┤ 6,86" 1280×480 (opcja)       │
+  USB DAC ──────────┤ → RCA → wzmacniacz           │
+  USB graber AHD ───┤ 4× kamera 720p, DVR          │
+  USB hub ──────────┤ Pro Micro (SWC, przyciski)   │
+                    │  Nano #1 (szyby, bagażnik)   │
+                    │  Nano #2 (sensor hub, zapłon,│
+                    │   przycisk zasilania)        │
+                    │  CP2102 → L9637D → K-Line    │
+                    │  GPS, LTE, mikrofon USB      │
+  M.2 MT7921 ───────┤ WiFi 6 AP + BT 5.2           │
+  20 V (step-up) ───┤ stale z banku buforowego     │
+                    └──────────────────────────────┘</div>
+  <div class="historical"><span class="hist-title">Historyczne (nieaktualne)</span>
+  Schemat blokowy z czasów płytki ARM (Orange Pi 5 Pro, wzmacniacze TDA7388 + TDA2050, sygnały na GPIO):
   <div class="code-block">
                     ┌──────────────────────────┐
                     │    ORANGE PI 5 PRO 4GB    │
@@ -717,11 +765,15 @@ tr:hover td{background:var(--bg-card)}
   GPIO 88 ─────────┤  Wiper Relay Output      │
   GPIO 89 ─────────┤  Central Lock Input      │
                     └──────────────────────────┘</div>
+  </div>
+
 </section>
 
 <!-- ═══ S18 — GPIO ═══ -->
 <section id="s18">
-  <h2><span class="n">18</span>Alokacja GPIO (40-pin header)</h2>
+  <h2><span class="n">18</span>Wejścia i wyjścia</h2>
+  <p>M910q nie ma złącza GPIO. Sygnały pojazdu przechodzą przez trzy płytki Arduino na USB: <strong>Pro Micro</strong> (SWC, przyciski, LDR), <strong>Nano #1</strong> (przekaźniki szyb i bagażnika, PWM podświetlenia, HM-10, RXB6) i <strong>Nano #2 — sensor hub</strong> (drzwi D2–D7, ręczny D8, zapłon D9, deszcz D10, DS18B20 D11, przekaźnik przycisku zasilania A0, dioda zasilania A1). Mapy pinów: <code>arduino/sensor_hub/sensor_hub.ino</code>, <code>docs/x86-production/06-arduino.html</code>; połączenia zacisk po zacisku: <code>docs/SCHEMATY_POLACZEN.md</code>.</p>
+  <div class="historical"><span class="hist-title">Historyczne (nieaktualne) — alokacja GPIO płytki ARM (40-pin header)</span>
   <table class="pinout">
     <tr><th>GPIO</th><th>Pin</th><th>Funkcja</th><th>Moduł</th><th>Kierunek</th></tr>
     <tr><td>7</td><td>7</td><td>1-Wire bus (DS18B20)</td><td>environment</td><td>I/O</td></tr>
@@ -740,101 +792,55 @@ tr:hover td{background:var(--bg-card)}
     <tr><td>89</td><td>—</td><td>Central lock signal (optoisolator)</td><td>power / central_lock</td><td>IN</td></tr>
   </table>
   <div class="note"><strong>Uwaga:</strong> Centralny zamek (przekaźniki, RF, okna) sterowany jest przez <strong>oddzielny Arduino</strong> via USB Serial — nie przez GPIO OPi bezpośrednio. GPIO 89 to tylko sygnał wejściowy (zamknięcie → shutdown timer).</div>
+  </div>
 </section>
 
 <!-- ═══ S19 — BOM ═══ -->
 <section id="s19">
   <h2><span class="n">19</span>BOM — lista komponentów (etapowa budowa)</h2>
-  <p>Projekt podzielony na <strong>4 etapy budowy</strong> — możesz zacząć od minimum i rozbudowywać stopniowo.</p>
+  <p>Projekt podzielony na <strong>5 etapów</strong> — każdy działa samodzielnie, można jeździć już po etapie 1. Pełna lista z numerami pozycji: <code>docs/x86-production/01-bom.html</code>; lista zasilania buforowanego z każdym bezpiecznikiem i przewodem: <code>docs/ZASILANIE_BUFOROWANE.md</code> §10. Ceny są w obu miejscach te same.</p>
 
-  <!-- ETAP 1 -->
-  <h3 style="color:var(--accent)">ETAP 1: Podstawa — Dashboard + Audio + OBD <span class="dt dt-new">START TUTAJ</span></h3>
-  <p>Minimalny zestaw do uruchomienia BCM z ekranem, dźwiękiem i odczytem danych silnika.</p>
+  <h3 style="color:var(--accent)">ETAP 1: Podstawa — Dashboard + Audio + OBD + zasilanie buforowane <span class="dt dt-new">START TUTAJ</span></h3>
   <table>
     <tr><th>Komponent</th><th>Model</th><th>Szt.</th><th>Cena PLN</th><th>Uwagi</th></tr>
-    <tr><td>SBC</td><td><strong>Orange Pi 5 Pro 4GB</strong></td><td>1</td><td>350-450</td><td>RK3588S, HDMI 2.1 + HDMI 2.0, WiFi 6, BT 5.0</td></tr>
-    <tr><td>Ekran główny</td><td>7/8" IPS HDMI + Touch</td><td>1</td><td>400-600</td><td>Dotykowy — A1-A7 + Settings</td></tr>
-    <tr><td>Przetwornica DC-DC</td><td>LM2596 12V→5.1V 4A</td><td>1</td><td>30-50</td><td>Regulowana, ustaw na 5.1V</td></tr>
-    <tr><td>Bezpieczniki</td><td>20A + 25A blade fuse</td><td>2</td><td>10</td><td>5V linia + 12V audio</td></tr>
-    <tr><td>DAC USB</td><td>ES9038Q2M</td><td>1</td><td>45-75</td><td>32-bit audio</td></tr>
-    <tr><td>AMP główny</td><td>TDA7388 (4×45W)</td><td>1</td><td>45-70</td><td>4 kanały Class AB</td></tr>
-    <tr><td>Radiator</td><td>Aluminiowy</td><td>1</td><td>10-15</td><td>Dla TDA7388</td></tr>
-    <tr><td>Transceiver OBD</td><td>L9637D + rez. 510Ω</td><td>1</td><td>15-25</td><td>K-Line do ECU</td></tr>
-    <tr><td>Adapter BT</td><td>USB Bluetooth 5.0</td><td>1</td><td>30-60</td><td>A2DP + HFP (muzyka + telefon)</td></tr>
-    <tr><td>Arduino (input)</td><td>Pro Micro ATmega32U4</td><td>1</td><td>40-60</td><td>SWC + przyciski + LDR</td></tr>
-    <tr><td>Optoisolatory</td><td>PC817</td><td>3</td><td>6-9</td><td>Ignition, door, reverse</td></tr>
-    <tr><td>Rezystory/tranzystory</td><td>Zestaw BC547 + rezystory</td><td>—</td><td>15-20</td><td>Pull-up, dzielniki</td></tr>
-    <tr><td>MOSFET backlight</td><td>IRLZ44N</td><td>1</td><td>4-6</td><td>PWM backlight ekranu</td></tr>
-    <tr><td>USB hub</td><td>USB 3.0 powered hub</td><td>1</td><td>50-80</td><td>Rozszerzenie portów</td></tr>
-    <tr><td>Kable + złącza</td><td>—</td><td>—</td><td>50-80</td><td>HDMI, USB, zasilanie, OBD</td></tr>
+    <tr><td>Komputer</td><td><strong>Lenovo M910q Tiny</strong> (i5-6400T, 8 GB, 256 GB NVMe), używany</td><td>1</td><td>200-400</td><td>zostaw oryginalny zasilacz — z niego kabel z wtykiem slim tip</td></tr>
+    <tr><td>Karta WiFi + BT</td><td>Fenvi FU-AX1800 (MT7921)</td><td>1</td><td>120-180</td><td>zamiast Intel 8265</td></tr>
+    <tr><td>Przetwornica step-up</td><td>zalewana IP67/IP68, <strong>12 → 20 V, 10 A (200 W)</strong></td><td>1</td><td>60-130</td><td>rodzina bezmarkowa — test po zakupie (ZB §3.4)</td></tr>
+    <tr><td>Bank buforowy</td><td><strong>CSB HR1221W F2</strong> 12 V / 5,1 Ah AGM, 7 szt. równolegle = 35,7 Ah</td><td>7</td><td>posiadane</td><td>8 na stanie, 1 zapas</td></tr>
+    <tr><td>Kosze na bank</td><td>stal, 4 + 3 szt., M8 do grodzi</td><td>2</td><td>do wyceny</td><td><code>docs/mechanika/kosze_HR1221W_4+3.pdf</code></td></tr>
+    <tr><td>LVD</td><td><strong>XH-M609</strong>, 11,00 / 12,60 V</td><td>1</td><td>posiadane</td><td>sprawdź pracę przy 11 V i pobór własny</td></tr>
+    <tr><td>Ładowarka CC-CV</td><td><strong>XY-SK120</strong>, CV 14,40 V, CC 5,0 A każda</td><td>2</td><td>120-180</td><td>cena za parę</td></tr>
+    <tr><td>Blokada przeładowania</td><td><strong>XH-M603</strong>, 15,30 / 14,00 V, po jednym na ładowarkę</td><td>2</td><td>80-160</td><td>cena za parę</td></tr>
+    <tr><td>Przekaźnik ładowania K1</td><td>12 V / 30 A SPDT + podstawka</td><td>1</td><td>15-25</td><td>zapłon / D+</td></tr>
+    <tr><td>Buck 12 → 5 V (logika)</td><td>MP1584, 5,0 V</td><td>1</td><td>5-10</td><td>Nano #1/#2, HM-10, RXB6</td></tr>
+    <tr><td>Buck 12 → 5 V (wyświetlacze)</td><td>LM2596</td><td>1</td><td>5-15</td><td></td></tr>
+    <tr><td>Reszta toru zasilania</td><td>bezpieczniki i oprawki, listwa, TVS, kondensatory, przewody OFC 6 / 4 / 2,5 mm², oczka, nasuwki, peszel, rozłącznik masy</td><td>kpl.</td><td>457-752</td><td>pozycje w ZB §10.2; F7/F12 MIDI/ANL do wyceny</td></tr>
+    <tr><td>Ekran główny</td><td><strong>10,1" IPS 1280×800</strong> + dotyk USB</td><td>1</td><td>300-500</td><td></td></tr>
+    <tr><td>Drugi ekran (opcja)</td><td><strong>6,86" 1280×480</strong>, bez dotyku</td><td>0-1</td><td>150-300</td><td></td></tr>
+    <tr><td>Przejściówki DP → HDMI</td><td>pasywne</td><td>2</td><td>20-30</td><td>jeśli panele mają HDMI</td></tr>
+    <tr><td>DAC USB</td><td>ES9038Q2M</td><td>1</td><td>45-75</td><td></td></tr>
+    <tr><td>Wzmacniacz</td><td>gotowy 4-kanałowy samochodowy, klasa D, 4 × 50–75 W RMS</td><td>1</td><td>250-600</td><td>osobna gałąź z akumulatora rozruchowego</td></tr>
+    <tr><td>Kabel zasilający wzmacniacza</td><td>6 mm² + oprawka bezpiecznika przy klemie</td><td>kpl.</td><td>40-80</td><td></td></tr>
+    <tr><td>Interfejs K-Line</td><td>CP2102 + L9637D + 510 Ω</td><td>1</td><td>25-40</td><td></td></tr>
+    <tr><td>Hub USB</td><td>7-portowy USB 3.0 z własnym zasilaniem</td><td>1</td><td>40-60</td><td></td></tr>
+    <tr><td>Kable</td><td>DP-HDMI, USB, RCA</td><td>—</td><td>50-80</td><td></td></tr>
   </table>
-  <div class="changelog" style="border-color:var(--green)"><h4 style="color:var(--green)">ETAP 1 koszt: ~1 350 — 1 900 PLN</h4>
-  <p>Daje: ekran dotykowy z BCM, muzyka przez BT, odczyt danych z ECU (RPM, temp, boost), Android Auto przez WiFi. Możesz już jeździć z tym zestawem.</p></div>
+  <div class="changelog" style="border-color:var(--green)"><h4 style="color:var(--green)">ETAP 1 koszt: ~1 830 — 3 620 PLN</h4>
+  <p>Bez rzeczy już posiadanych (bank HR1221W, XH-M609) i pozycji „do wyceny” (kosze, bezpieczniki MIDI/ANL). Moduły z Allegro/AliExpress są bezmarkowe — dokumentacja podaje rodzinę modułu i co sprawdzić po zakupie, nie konkretny numer części.</p></div>
 
-  <!-- ETAP 2 -->
-  <h3 style="color:var(--accent2)">ETAP 2: Kamery + Czujniki + Mały ekran</h3>
-  <p>DVR przód/tył, kamera cofania, czujniki parkowania, temperatura, mały ekran 4.3".</p>
-  <table>
-    <tr><th>Komponent</th><th>Model</th><th>Szt.</th><th>Cena PLN</th></tr>
-    <tr><td>Ekran mały</td><td>4.3" TFT HDMI 800×480</td><td>1</td><td>200-300</td></tr>
-    <tr><td>MOSFET backlight 2</td><td>IRLZ44N</td><td>1</td><td>4-6</td></tr>
-    <tr><td>Kamery AHD</td><td>720P przód + tył</td><td>2</td><td>200-400</td></tr>
-    <tr><td>Grabber wideo</td><td>USB3.0 4-ch AHD capture</td><td>1</td><td>150-250</td></tr>
-    <tr><td>Pendrive DVR</td><td>USB 3.0 128GB</td><td>1</td><td>80-150</td></tr>
-    <tr><td>Czujniki parkowania</td><td>HC-SR04</td><td>4</td><td>60-80</td></tr>
-    <tr><td>Buzzer parkowania</td><td>Piezo 5V</td><td>1</td><td>5-10</td></tr>
-    <tr><td>Czujnik temperatury</td><td>DS18B20 waterproof</td><td>1</td><td>20-30</td></tr>
-    <tr><td>Mikrofon (telefon/AA)</td><td>USB mini/clip mic</td><td>1</td><td>20-40</td></tr>
-    <tr><td><strong>SWC Button Kit</strong></td><td>AliExpress universal 2-pod (12 btn each)</td><td>1</td><td>60-80</td></tr>
-    <tr><td>Optoisolatory dodatkowe</td><td>PC817</td><td>3</td><td>6-9</td></tr>
-  </table>
-  <div class="changelog" style="border-color:var(--accent2)"><h4 style="color:var(--accent2)">ETAP 2 koszt: ~755 — 1 285 PLN</h4>
-  <p>Daje: nagrywanie jazdy (DVR przód+tył), kamera cofania z czujnikami parkowania, temperatura zewnętrzna, mały ekran z karuzelą danych, SWC remote z konfigurowalnym mapowaniem.</p></div>
-
-  <!-- ETAP 3 -->
-  <h3 style="color:var(--orange)">ETAP 3: Łączność + GPS + Sub</h3>
-  <p>Internet LTE, GPS tracking, pogoda na żywo, subwoofer.</p>
-  <table>
-    <tr><th>Komponent</th><th>Model</th><th>Szt.</th><th>Cena PLN</th></tr>
-    <tr><td>Modem LTE</td><td>Huawei E3372 / SIM7600</td><td>1</td><td>100-200</td></tr>
-    <tr><td>Moduł GPS</td><td>NEO-6M lub NEO-M8N</td><td>1</td><td>40-80</td></tr>
-    <tr><td>AMP sub</td><td>TDA2050 (40W mono)</td><td>1</td><td>20-30</td></tr>
-    <tr><td>Radiator sub</td><td>Aluminiowy</td><td>1</td><td>5-10</td></tr>
-    <tr><td>Czujnik deszczu</td><td>Rain sensor digital</td><td>1</td><td>30-50</td></tr>
-  </table>
-  <div class="changelog" style="border-color:var(--orange)"><h4 style="color:var(--orange)">ETAP 3 koszt: ~195 — 370 PLN</h4>
-  <p>Daje: internet w aucie, pogoda na żywo z mapą, GPS tracking podróży, auto-wycieraczki, subwoofer, zdalny status pojazdu.</p></div>
-
-  <!-- ETAP 4 -->
-  <h3 style="color:var(--red)">ETAP 4: Centralny zamek + Alarm + Tracking</h3>
-  <p>Zamek z pilotem RF, alarm z syreną, śledzenie pojazdu, bateria backup.</p>
-  <table>
-    <tr><th>Komponent</th><th>Model</th><th>Szt.</th><th>Cena PLN</th></tr>
-    <tr><td>Arduino (zamek)</td><td>Nano / Pro Mini</td><td>1</td><td>20-30</td></tr>
-    <tr><td>Moduł przekaźników</td><td>10-ch relay 5V</td><td>1</td><td>40-60</td></tr>
-    <tr><td>Odbiornik RF</td><td>RXB6 433MHz</td><td>1</td><td>15-25</td></tr>
-    <tr><td>Syrena alarmowa</td><td>12V piezo 120dB</td><td>1</td><td>25-40</td></tr>
-    <tr><td>Czujnik ruchu PIR</td><td>HC-SR501 mini</td><td>1</td><td>10-15</td></tr>
-    <tr><td>Czujnik wstrząsów</td><td>Piezo vibration sensor</td><td>1</td><td>8-12</td></tr>
-    <tr><td>Akcelerometr</td><td>MPU6050 6-axis</td><td>1</td><td>15-30</td></tr>
-    <tr><td>LED alarmu</td><td>LED 5mm + rezystor</td><td>1</td><td>2-3</td></tr>
-    <tr><td>Bateria backup</td><td>Li-ion 18650 5000mAh</td><td>1</td><td>20-30</td></tr>
-    <tr><td>Ładowarka + boost</td><td>TP4056 + MT3608</td><td>1</td><td>18-30</td></tr>
-    <tr><td>Przekaźnik power</td><td>Relay switching zasilania</td><td>1</td><td>8-12</td></tr>
-  </table>
-  <div class="changelog" style="border-color:var(--red)"><h4 style="color:var(--red)">ETAP 4 koszt: ~180 — 285 PLN</h4>
-  <p>Daje: centralny zamek z pilotem RF 433MHz, sterowanie oknami/bagażnikiem, alarm z syreną + czujnikami (ruch, wstrząsy, holowanie), follow-me-home, powitanie kierunkowskazami, bateria backup dla śledzenia GPS 30h, detekcja wypadku z ochroną nagrań DVR.</p></div>
-
-  <!-- PODSUMOWANIE -->
   <h3>Podsumowanie kosztów etapów</h3>
   <table>
     <tr><th>Etap</th><th>Co dostajesz</th><th>Min PLN</th><th>Max PLN</th><th>Narastająco</th></tr>
-    <tr><td style="color:var(--accent)"><strong>1. Podstawa</strong></td><td>Ekran + audio + OBD + AA + BT</td><td>1 350</td><td>1 900</td><td>1 350-1 900</td></tr>
-    <tr><td style="color:var(--accent2)"><strong>2. Kamery</strong></td><td>DVR + cofanie + parkowanie + temp + SWC</td><td>755</td><td>1 285</td><td>2 105-3 185</td></tr>
-    <tr><td style="color:var(--orange)"><strong>3. Łączność</strong></td><td>LTE + GPS + pogoda + sub + deszcz</td><td>195</td><td>370</td><td>2 300-3 555</td></tr>
-    <tr><td style="color:var(--red)"><strong>4. Zamek/Alarm</strong></td><td>Zamek RF + alarm + tracking + bateria</td><td>180</td><td>285</td><td>2 480-3 840</td></tr>
+    <tr><td style="color:var(--accent)"><strong>1. Podstawa</strong></td><td>Ekran + audio + OBD + AA + BT + zasilanie buforowane</td><td>1 832</td><td>3 617</td><td>1 832–3 617</td></tr>
+    <tr><td style="color:var(--accent2)"><strong>2. Kamery</strong></td><td>4 kamery AHD, czujniki parkowania, DS18B20, DVR</td><td>450</td><td>800</td><td>2 282–4 417</td></tr>
+    <tr><td style="color:var(--orange)"><strong>3. Wejścia i łączność</strong></td><td>SWC dual-pod, GPS, LTE, mikrofon</td><td>260</td><td>420</td><td>2 542–4 837</td></tr>
+    <tr><td style="color:var(--yellow)"><strong>4. Deszcz</strong></td><td>Czujnik deszczu + przekaźnik wycieraczek (wzmacniacz sub bez ceny)</td><td>38</td><td>62</td><td>2 580–4 899</td></tr>
+    <tr><td style="color:var(--red)"><strong>5. Zawsze zasilane</strong></td><td>Pilot szyb 433 MHz + bagażnik z bramą BLE</td><td>115</td><td>195</td><td>2 695–5 094</td></tr>
   </table>
-  <div class="warn"><strong>Uwaga:</strong> Ceny orientacyjne 2026-03. Nie uwzględniają głośników, subwoofera, kabli samochodowych, obudowy DIN, ani robocizny. Każdy etap jest w pełni funkcjonalny — możesz jeździć po etapie 1.</div>
+  <div class="warn"><strong>Uwaga:</strong> Ceny orientacyjne. Nie uwzględniają głośników, subwoofera, wzmacniacza sub, kabli samochodowych poza torem zasilania, obudowy ani robocizny.</div>
+
+  <div class="historical"><span class="hist-title">Historyczne (nieaktualne)</span>
+  Wcześniejsza wersja tej listy zakładała komputer ARM (Orange Pi 5 Pro), wzmacniacze DIY TDA7388 + TDA2050 z radiatorami, ekrany 7/8" i 4,3" oraz baterię backup Li-ion 18650 z TP4056 + MT3608 i przekaźnikiem zasilania (razem ok. 2 480–3 840 PLN). Tych pozycji nie kupuj.</div>
 </section>
 
 <!-- ═══ S20 — VM TESTING ═══ -->
@@ -886,36 +892,27 @@ curl -X POST http://localhost:5002/api/config \
   </ul>
 </section>
 
-<!-- ═══ S21 — OPi DEPLOY ═══ -->
+<!-- ═══ S21 — M910q DEPLOY ═══ -->
 <section id="s21">
-  <h2><span class="n">21</span>Wdrożenie na Orange Pi</h2>
-  <h3>Instalacja systemu</h3>
+  <h2><span class="n">21</span>Wdrożenie na M910q</h2>
+  <p>Instrukcja krok po kroku: <code>docs/WDROZENIE_M910Q.md</code>. Skrót:</p>
   <ol>
-    <li>Flash Armbian na eMMC (lub SD card)</li>
-    <li>Konfiguracja: <code>armbian-config</code> → UART3, GPIO, I2C, SPI, 1-Wire overlays</li>
-    <li>Instalacja pakietów: Python 3.12, PipeWire, Bluetooth, GStreamer</li>
-    <li>Clone repo: <code>git clone https://github.com/geek95dg/Alfa156-headunit.git</code></li>
-    <li>Virtualenv: <code>python3.12 -m venv .venv && source .venv/bin/activate</code></li>
-    <li>Instalacja zależności: <code>pip install -r requirements.txt -r Archive/orange-pi-5/requirements-opi.txt</code></li>
+    <li>BIOS (F1): <strong>After Power Loss = Power On</strong>, Secure Boot wyłączony, <strong>Wake on USB wyłączone</strong> (w S3 porty USB są bez zasilania — budzi przekaźnik Nano #2 na przycisku zasilania), S3 zamiast Modern Standby.</li>
+    <li>Debian 13 (Trixie), amd64; pakiety systemowe wg <code>WDROZENIE_M910Q.md</code> §5.3.</li>
+    <li>Klon repo do <code>/opt/bcm</code>, venv (PEP 668): <code>python3 -m venv .venv</code>, <code>pip install -r requirements.txt -r requirements-x86.txt</code>.</li>
+    <li>Test ręczny: <code>python3 main.py --platform x86 --config config/bcm_config.yaml --frontend</code> → <code>http://localhost:5002</code>.</li>
+    <li>Całość naraz: najpierw sekcja USER CONFIG w <code>config/scripts/setup-x86.sh</code> (nazwy złączy, np. <code>DP-1</code>/<code>DP-2</code>, rozdzielczości <code>MAIN_W</code>/<code>MAIN_H</code>), potem <code>sudo bash config/scripts/setup-x86.sh</code> — skrypt jest idempotentny.</li>
   </ol>
 
   <h3>Dual display — Chromium kiosk</h3>
-  <div class="code-block"># Ekran główny (HDMI 2.1, 7/8" touch)
-# Na Debian Trixie binarka nazywa się `chromium` (nie chromium-browser);
-# bcm-kiosk.service sam rozpoznaje jedno lub drugie.
-chromium --kiosk --window-size=1024,504 \
-  --display=:0.1 http://localhost:5002
-
-# Mały ekran (HDMI 2.0, 4.3")
-chromium --kiosk --window-size=800,480 \
-  --display=:0.0 http://localhost:5003</div>
+  <p><code>setup-x86.sh</code> generuje <code>~/.xinitrc</code>, który uruchamia dwie instancje Chromium: ekran główny 1280×800 (port 5002) i opcjonalny drugi ekran 1280×480 (port 5003, podnoszony i zdejmowany przez <code>small-display-watch.sh</code>). Na Debianie Trixie binarka nazywa się <code>chromium</code>. Dotyk przypisany wyłącznie do ekranu głównego (<code>xinput map-to-output</code>).</p>
 
   <h3>Usługi systemd</h3>
-  <p>Konfiguracja w <code>config/systemd/</code>: <code>bcm-main.service</code>, <code>bcm-dashboard.service</code>, <code>bcm-small-display.service</code>, <code>bcm-multimedia.service</code>.</p>
+  <p><code>bcm-ignition-watcher</code> (enable, startuje <code>bcm-headunit</code> w reakcji na zapłon) i <code>bcm-splash-main</code> (splash na obu złączach). Logika przed uśpieniem i po wybudzeniu siedzi w haku <code>/lib/systemd/system-sleep/bcm-sleep</code>; <code>bcm-resume</code> i <code>bcm-splash-small</code> zostały w repo tylko jako puste jednostki dla zgodności ze starszymi instalacjami. <code>bcm-headunit</code> <strong>nie</strong> jest włączany z bootu; <code>bcm-kiosk</code> jest zamaskowany (startuje z <code>~/.xinitrc</code>). Szczegóły: <code>WDROZENIE_M910Q.md</code> §7.</p>
 
   <h3>Weryfikacja first-run</h3>
   <ul>
-    <li>☐ Oba ekrany działają (4.3" + 7/8")</li>
+    <li>☐ Oba ekrany działają (10,1" + opcjonalny 6,86")</li>
     <li>☐ Audio: <code>speaker-test -t wav -c 2</code></li>
     <li>☐ OBD: dane z ECU (RPM, temp, prędkość)</li>
     <li>☐ GPS: fix i pozycja</li>
@@ -923,8 +920,12 @@ chromium --kiosk --window-size=800,480 \
     <li>☐ Bluetooth: parowanie telefonu</li>
     <li>☐ DVR: nagrywanie przód/tył</li>
     <li>☐ Czujniki parkowania: dystanse w 4 strefach</li>
-    <li>☐ Centralny zamek: lock/unlock z pilota RF</li>
+    <li>☐ Zapłon OFF → S3, zapłon ON → wybudzenie i dashboard</li>
+    <li>☐ Pilot szyb 433 MHz i bagażnik z bramą BLE</li>
   </ul>
+
+  <div class="historical"><span class="hist-title">Historyczne (nieaktualne)</span>
+  Poprzednio: Armbian na eMMC Orange Pi, <code>armbian-config</code> z nakładkami UART3 / GPIO / 1-Wire i <code>requirements-opi.txt</code> z katalogu <code>Archive/</code>. Ścieżka wycofana.</div>
 </section>
 
 <!-- ═══ S22 — API ═══ -->

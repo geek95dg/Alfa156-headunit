@@ -15,9 +15,9 @@ You will end up with:
 
 | Board | Role | Sketch | USB device |
 |-------|------|--------|------------|
-| **Arduino Pro Micro** (ATmega32U4) — *Domain B* | Inputs — buttons, rotary encoder, SWC, light sensor, fuel sender | `arduino/rotary_encoder/rotary_encoder.ino` | `/dev/ttyACM0` (also USB HID keyboard) |
-| **Arduino Nano** (ATmega328P, CH340) — *Domain A (always-on)* | 4-window remote, BLE-gated trunk button, **display backlight PWM** | `arduino/output_controller/output_controller.ino` | `/dev/ttyUSB0` |
-| **Arduino Nano #2** (ATmega328P, CH340) — *Domain B* | **Vehicle sensor hub** — doors/bonnet/trunk, handbrake, ignition, rain, DS18B20 temp, (opt.) parking, cruise/immo/airbag | `arduino/sensor_hub/sensor_hub.ino` | `/dev/ttyUSB1` |
+| **Arduino Pro Micro** (ATmega32U4) — *on the M910q USB, sleeps with it* | Inputs — buttons, rotary encoder, SWC, light sensor, fuel sender | `arduino/rotary_encoder/rotary_encoder.ino` | `/dev/ttyACM0` (also USB HID keyboard) |
+| **Arduino Nano** (ATmega328P, CH340) — *always on, own 5 V* | 4-window remote, BLE-gated trunk button, **display backlight PWM** | `arduino/output_controller/output_controller.ino` | `/dev/ttyUSB0` |
+| **Arduino Nano #2** (ATmega328P, CH340) — *always on, own 5 V (presses the power button)* | **Vehicle sensor hub** — doors/bonnet/trunk, handbrake, ignition, rain, DS18B20 temp, (opt.) parking, cruise/immo/airbag | `arduino/sensor_hub/sensor_hub.ino` | `/dev/ttyUSB1` |
 
 > **Build from the command line (recommended, repeatable):** every sketch
 > has a pinned `sketch.yaml` profile — `make -C arduino` compiles all
@@ -46,12 +46,14 @@ You will end up with:
 >   a `#define FEATURE_*` toggle at the top of the sketch — comment out
 >   what you don't wire.
 
-The Pro Micro plugs into the powered USB hub on **Domain B** (powered with
-the M910q; off when the BCM sleeps). The Nano runs on **Domain A** — its
-5 V supply comes from the 12 V battery buffer (4-6 × SLA 5 Ah in parallel)
-via a small buck converter, so it stays alive while the car is parked
-and the BCM is asleep. See `docs/X86_PLATFORM_SETUP.md` § Power
-Architecture for the wiring diagram.
+The Pro Micro plugs into the powered USB hub (its USB side goes dark when
+the M910q sleeps in S3). Both Nanos get their own 5 V from the buffered
+12 V rail (7 × CSB HR1221W AGM in parallel, 35.7 Ah) via a small buck
+converter, so they stay alive while the car is parked and the BCM is
+asleep. There is no ignition relay cutting anything any more — the whole
+head unit sits on one buffered rail and ignition is only a signal. See
+`docs/X86_PLATFORM_SETUP.md` § 2 for the summary and
+`docs/ZASILANIE_BUFOROWANE.md` for the authoritative design.
 
 > **What the always-on Nano does even while the BCM sleeps:**
 > - Watches the 2nd 433 MHz keyfob → drives 4 window relays hold-to-move
@@ -99,11 +101,11 @@ Architecture for the wiring diagram.
   on a dash trim panel. ~3 EUR.
 - 1 × **10-channel 5 V opto-isolated relay module** (active-LOW). The
   always-on Nano uses 9 channels: 4 windows × 2 directions + 1 trunk.
-- 4-6 × **12 V 5 Ah SLA (sealed lead-acid) batteries** for the buffer
-  (you own 8; using 4-6 puts the always-on bus at 20-30 Ah, good for
-  ~14-21 days parked-car standby).
-- 1 × **Buck converter 12 V → 5 V** (LM2596 or similar, 1 A minimum)
-  to feed the Nano's Vin from the battery bus.
+- 7 × **CSB HR1221W (12 V 5.1 Ah AGM)** for the buffer, in parallel
+  (you own 8; seven go into the bank, 35.7 Ah — sizing, charging and
+  standby times in `docs/ZASILANIE_BUFOROWANE.md`).
+- 1 × **Buck converter 12 V → 5 V** (MP1584 in the current power design,
+  1 A minimum) feeding the Nanos' **5V** pin from the buffered rail.
 - 1 × **LVD (low-voltage disconnect)** module set to 11.0 V to protect
   the SLA bank from deep discharge.
 
@@ -459,7 +461,7 @@ features layer on top.
 | A5  | reserved (I2C SCL, future expansion)   | — |
 | 5V  | Logic supply                           | Relay module VCC, RXB6 VCC, HM-10 VCC |
 | GND | Ground (common!)                       | Relay module GND, **display GND pads**, RXB6 GND, HM-10 GND, trunk button COM |
-| Vin (7-12V) | Battery-bus input via buck      | 5 V from LM2596 (set output to 5.0 V; do NOT feed >5 V here unless you remove the buck and use the raw Vin regulator) |
+| Vin (7-12V) | unused                          | Leave empty. The Nanos are fed on the **5V** pin from the MP1584 buck (5.0 V, behind F10 3 A); the LM2596 feeds only the display backlight (SCHEMATY_POLACZEN.md §10.3, wires 13a and 25) |
 
 > **Common ground is mandatory:** every module — the displays, the
 > relay board, RXB6, HM-10, the trunk button — shares a single ground
@@ -529,35 +531,34 @@ as `vehicle.*` events on the BCM bus (doors → alarm, rain → wipers, etc.).
 
 ## 8. Powering the boards in the car
 
-Once both sketches are flashed and verified, the in-car wiring splits
-into two power domains. See `docs/X86_PLATFORM_SETUP.md` § Power
-Architecture for the full picture; in short:
+Once both sketches are flashed and verified, everything goes onto the
+one buffered 12 V rail (`docs/X86_PLATFORM_SETUP.md` § 2,
+`docs/ZASILANIE_BUFOROWANE.md` § 2). What differs is where each board
+takes its 5 V from:
 
-**Domain B — Pro Micro + M910q (ignition-controlled)**
+**Pro Micro — on the M910q's USB (sleeps with it)**
 
 The Pro Micro plugs into the **powered USB hub** that sits on the
-M910q. Domain B comes up when the M910q powers on (either ignition
-ON, or the RTC alarm wakes it for a tracking ping). When the M910q
-sleeps, the hub usually drops too — the Pro Micro is off, which is
-fine because none of its features are needed while parked.
+M910q. It is up whenever the M910q is running (ignition ON, or a wake
+from the parking features). When the M910q sleeps in S3 its USB ports
+go dark — the Pro Micro is off, which is fine because none of its
+features are needed while parked.
 
-**Domain A — Nano + HM-10 + RXB6 + relays (always-on, battery-backed)**
+**Nano #1 / Nano #2 + HM-10 + RXB6 + relays — always on, own 5 V**
 
-The Nano runs continuously from the 12 V battery buffer (4-6 × 5 Ah
-SLA in parallel), via a 12 V → 5 V buck converter feeding the Nano's
-Vin pin. Its USB cable still goes to the M910q's hub so the BCM can
+The Nanos run continuously from the buffered rail via a 12 V → 5 V buck
+converter feeding the **5V** pin (see the note below). Its USB cable still goes to the M910q's hub so the BCM can
 send `backlight` commands when it's awake — but the Nano keeps
-running even with USB disconnected, because Vin is supplied
-independently.
+running even with USB disconnected, because its 5V pin is fed by the
+MP1584 buck.
 
 > **Important — don't power the Nano from two sources at once.**
-> The Nano has a diode-OR between USB-5V and the Vin regulator's 5V,
-> but the diode drop is fine only if Vin is > 7 V. If you wire Vin
-> directly to 5 V from the buck (bypassing the on-board regulator),
-> you must remove or de-solder the buck output when the Nano is on
-> USB-power on the bench. The cleanest setup is: buck output = 5 V,
-> wired to the Nano's **5V** pin (not Vin), and let USB-5V coexist
-> via the on-board protection diode.
+> The buck output (5.0 V) goes to the Nano's **5V** pin, not Vin. In
+> the car, **cut the VBUS (red) wire in the Nano's USB cable**
+> (SCHEMATY_POLACZEN.md §10.5): the USB port is dead while the M910q
+> sleeps, data works without VBUS, and two 5 V sources tied together
+> are an avoidable risk. On the bench, power the Nano from USB only
+> and leave the buck disconnected.
 
 Confirm both boards enumerate when the M910q is on:
 
@@ -626,7 +627,7 @@ Once both Arduinos are flashed and verified:
 > blinkers as part of a "replace the OEM body computer" concept. That
 > idea has been dropped — the original Alfa 156 systems stay
 > untouched. If you ever want those outputs back, run a *second*
-> Nano on Domain B with a slimmer sketch; the pin budget on this
+> Nano that sleeps with the M910q, with a slimmer sketch; the pin budget on this
 > always-on Nano is fully committed to the new windows + trunk + BLE
 > scope.
 

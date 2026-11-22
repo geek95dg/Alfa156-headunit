@@ -8,8 +8,8 @@ i nazwa pliku odnosi się do tego, co jest w drzewie. Miejsca, w których
 dokumentacja źródłowa jest niespójna albo kod odbiega od opisu, są
 oznaczone jako ⚠.
 
-**Zasilanie buforowane** (bufor CSB HR1221W, ładowanie, blokada przeładowania,
-step-up 19 V) ma osobny dokument: **[`ZASILANIE_BUFOROWANE.md`](ZASILANIE_BUFOROWANE.md)**.
+**Zasilanie buforowane** (bufor CSB HR1221W w dwóch koszach, ładowanie 2 × XY-SK120, blokada przeładowania,
+step-up 20 V) ma osobny dokument: **[`ZASILANIE_BUFOROWANE.md`](ZASILANIE_BUFOROWANE.md)**.
 
 ---
 
@@ -119,7 +119,7 @@ wspornik. Wszystkie kable spinaj opaskami, bo na dziurach będzie grzechotać.
 |---|---------|--------------|------|-----------|
 | 1 | Mini-PC | Lenovo M910q Tiny (i5-6400T, 8 GB, 256 GB) — używany | 1 | 200–400 |
 | 2 | Karta WiFi + BT | Fenvi FU-AX1800 (MT7921, WiFi 6 + BT 5.2) | 1 | 120–180 |
-| 3 | Przetwornica step-up | **XL6019** 12 V → 19,5 V — posiadana, ok. 45 W, patrz `ZASILANIE_BUFOROWANE.md` §3 | 1 | 15–30 |
+| 3 | Przetwornica step-up | zalewana IP67/IP68, **12 V → 20 V, 10 A (200 W)** — rodzina bezmarkowa, test po zakupie: `ZASILANIE_BUFOROWANE.md` §3.4 | 1 | 60–130 |
 | 4 | Wyświetlacz główny | **10,1" IPS 1280×800** + dotyk USB | 1 | 300–500 |
 | 5 | Wyświetlacz drugi *(opcjonalny)* | **6,86" widescreen 1280×480**, bez dotyku | 0–1 | 150–300 |
 | 6 | Przejściówki DP → HDMI | pasywne, kablowe | 2 | 20–30 |
@@ -173,22 +173,24 @@ odbiornika — jest sygnałem, który Arduino zamienia na impuls na styki
 
 | Stan | Pobór z banku | Postój (7 pakietów, 35,7 Ah) |
 |------|---------------|------------------------------|
-| Praca | 10–55 W (3,5 A z banku) | ~5,1 h przy zgaszonym silniku |
-| **S3** (kluczyk OFF) | 200–460 mA | ~1,6–3,7 dnia |
-| **Wyłączony** (impuls 5 s po 2 h) | 50–150 mA | ~5,0–14,9 dnia |
+| Praca | ≈ 50–75 W, czyli ≈ 4–6 A z banku (przyjęte 5 A) | ~3,6 h przy zgaszonym silniku |
+| **S3** (kluczyk OFF) | 200–460 mA + prąd jałowy step-upu | ~1,6–3,7 dnia (bez prądu jałowego) |
+| **Wyłączony** (impuls 5 s po 2 h) | 50–150 mA + prąd jałowy step-upu | ~5,0–14,9 dnia (bez prądu jałowego) |
 
 Jedyny przekaźnik w torze mocy siedzi w **ładowaniu**, nie w odbiornikach.
-Uzasadnienie i porównanie z porzuconym modelem „domena B":
-[`ZASILANIE_BUFOROWANE.md`](ZASILANIE_BUFOROWANE.md) §2.2.
+Uzasadnienie i porównanie z porzuconym dawniej modelem z przekaźnikiem
+odcinającym komputer: [`ZASILANIE_BUFOROWANE.md`](ZASILANIE_BUFOROWANE.md) §2.2.
 
 Między akumulatorem auta a head unitem stoi **bank 7 × CSB HR1221W F2**
 (12 V / 5,1 Ah AGM, łączone równolegle — razem **35,7 Ah** przy niezmienionym
-napięciu 12 V, masa 12,6 kg), ładowany przez ładowarkę CC-CV z profilem
-**AGM** (14,40 V absorpcji / 13,65 V float, **nastawa CC 8,0 A** przy suficie
-katalogowym 14,7 A — ogranicza tor ładowania, nie akumulator),
-chroniony rozłącznikiem nadnapięciowym (15,3 V) i modułem **XH-M609** jako
-LVD (11,0 / 12,60 V). M910q zasila **przetwornica step-up XL6019**
-(12 → 19,5 V) za przekaźnikiem zapłonu.
+napięciu 12 V) w **dwóch stalowych koszach 4 + 3 w bagażniku**, przy grodzi
+za tylną kanapą (≈ 16,8 kg z koszami). Ładują go **dwie XY-SK120**
+(buck-boost CC-CV, **CV 14,40 V, CC 5,0 A każda** — netto do banku ≈ 5 A
+przy suficie katalogowym 14,7 A), każda z własnym rozłącznikiem
+nadnapięciowym **XH-M603** (15,30 V); przed głębokim rozładowaniem chroni
+**XH-M609** jako LVD (11,0 / 12,60 V). M910q zasila — **stale**, bez
+przekaźnika zapłonu — zalewana **przetwornica step-up 12 → 20 V, 10 A**,
+stojąca w bagażniku przy koszach.
 
 **Konsekwencje dla software'u:**
 
@@ -198,10 +200,10 @@ LVD (11,0 / 12,60 V). M910q zasila **przetwornica step-up XL6019**
   wstanie po zaniku zasilania,
 - przycisk zasilania jest przechwycony przez `acpid` i wykonuje czysty
   suspend do S3 (§9), a nie shutdown,
-- ⚠ **XL6019 daje ok. 45 W, nie 65 W** (limit prądu klucza 5 A), więc na
-  M910q trzeba ustawić limit poboru pakietu CPU — patrz
-  [`ZASILANIE_BUFOROWANE.md`](ZASILANIE_BUFOROWANE.md) §3.5a. Bez tego pełne
-  obciążenie czterech wątków wyjdzie poza możliwości przetwornicy.
+- limit poboru pakietu CPU (RAPL) **nie jest potrzebny** — przetwornica
+  200 W ma zapas na pełne 65 W; usługa `bcm-power-cap` zostaje jako opcja
+  (cichsza praca, niższa temperatura) —
+  [`ZASILANIE_BUFOROWANE.md`](ZASILANIE_BUFOROWANE.md) §3.5a.
 
 ---
 
@@ -1007,14 +1009,16 @@ Wnioski:
 14,4–15,0 V cyklicznie i 13,5–13,8 V buforowo. **Limit prądu nie jest**:
 katalog podaje 2,1 A na pakiet. Przy dzisiejszym banku **siedmiu** pakietów
 sufit wynosi 14,7 A, więc dolna wartość z tamtych notatek mieści się w karcie
-— ale obowiązująca nastawa to **CC 8,0 A** i ogranicza ją tor ładowania
-(płytka XH-M603), a nie akumulator. Brakuje też kompensacji temperaturowej
-(−18 mV/°C float, −30 mV/°C cykl).
+— ale obowiązuje **2 × XY-SK120 po CC 5,0 A** (netto do banku ≈ 5 A),
+a ogranicza to tor ładowania (płytka XH-M603 realnie ok. 8 A, stąd jeden
+moduł na ładowarkę), nie akumulator. Brakuje też kompensacji temperaturowej
+(−18 mV/°C float, −30 mV/°C cykl) — przy XY-SK120 CV przestawiasz sezonowo.
 
 Obowiązujące nastawy: [`ZASILANIE_BUFOROWANE.md`](ZASILANIE_BUFOROWANE.md) §4.4–§4.5 i §5.
 
-Tam też jest wyjaśnione, dlaczego proponowany moduł **buck** XL4016 nie może
-pełnić roli ładowarki (nie podniesie napięcia do absorpcji) — §5.1.
+Tam też jest wyjaśnione, dlaczego proponowany w starszych notatkach moduł
+**buck** XL4016 nie może pełnić roli ładowarki (nie podniesie napięcia do
+absorpcji) — §5.1.
 
 ### 19.3 Moduł `battery` — monitor banku buforowego (przygotowany, domyślnie wyłączony)
 
@@ -1054,20 +1058,21 @@ Projekt rezygnuje z budowania wzmacniacza na TDA7388 + TDA2050 na rzecz
 zasilanego wprost z akumulatora rozruchowego i odseparowanego od systemu
 buforowanego (§14, [`../schematics/audio_system.svg`](../schematics/audio_system.svg)).
 
-Dokumenty źródłowe wciąż pokazują starą ścieżkę DIY:
-`x86-production/01-bom.html`, `02-assembly.html`, `10-power-suspend.html`,
-`index.html` oraz `bcm_v85_docs.html`. Zostają jako referencja historyczna;
-**obowiązuje opis z §14 i schemat toru audio**.
+Dokumenty HTML (`x86-production/01-bom.html`, `02-assembly.html`,
+`10-power-suspend.html`, `index.html`, `bcm_v85_docs.html`) są już poprawione
+do gotowego wzmacniacza; stara ścieżka DIY została w nich tylko w szarych
+blokach „Historyczne (nieaktualne)”. Przy rozbieżności **obowiązuje opis
+z §14 i schemat toru audio**.
 
 Po stronie software'u nic się nie zmienia — PipeWire widzi wyłącznie DAC USB,
 a co jest za gniazdem RCA, jest dla niego niewidoczne.
 
-### 19.6 Limit poboru CPU jest wymagany, nie opcjonalny
+### 19.6 Limit poboru CPU — już nie wymagany
 
-Zasilanie M910q idzie przez posiadany moduł **XL6019**, którego realna
-obciążalność to ok. **45 W** (limit prądu klucza 5 A), a nie 65 W ze znamionowej
-mocy zasilacza. Usługa `bcm-power-cap` ograniczająca pakiet CPU do 28 W jest
-częścią wdrożenia, nie optymalizacją — instrukcja w
+Poprzednie wydanie zasilało M910q z posiadanego modułu XL6019 (realnie
+ok. 45 W) i wymagało usługi `bcm-power-cap` (pakiet CPU 28 W). Obowiązuje
+przetwornica 12 → 20 V / 200 W, przy której M910q może brać pełne 65 W —
+`bcm-power-cap` zostaje jako opcja, instrukcja w
 [`ZASILANIE_BUFOROWANE.md`](ZASILANIE_BUFOROWANE.md) §3.5a.
 
 ### 19.7 Nazewnictwo jednostki `bcm-headunit.service`

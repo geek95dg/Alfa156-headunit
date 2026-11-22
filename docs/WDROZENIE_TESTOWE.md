@@ -16,8 +16,8 @@ Wdrożenie docelowe (pełne): [`WDROZENIE_M910Q.md`](WDROZENIE_M910Q.md).
 
 > **To nie jest stanowisko biurkowe.** Zestaw jedzie w aucie, więc tor
 > zasilania ma być kompletny: ładowanie banku, blokada przeładowania i LVD
-> (dziś auto testowe jeździ jeszcze bez bufora — §3).
-> Oszczędzamy na funkcjach BCM i na wariancie ładowarki — **nie na
+> (dziś auto testowe jeździ jeszcze bez bufora — §3). Tor jest ten sam co
+> w wersji docelowej; oszczędzamy na funkcjach BCM — **nie na
 > zabezpieczeniach**.
 
 > **Ekran 7" to konfiguracja tymczasowa.** Docelowy panel to **10,1"
@@ -95,7 +95,7 @@ przechodzi do STANDBY, co oznacza wygaszenie podświetlenia i
 | Pody SWC + dekoder | rezystorowa drabinka → wejście analogowe |
 | Modem LTE Huawei E3372 | HiLink, USB |
 | Akumulatory CSB HR1221W × 8 | AGM 12 V / 5,1 Ah — do banku idzie **7** (§3.4) |
-| **XL6019** | step-up 12 → 19,5 V dla M910q |
+| XL6019 | step-up — **zastąpiony** (realnie ok. 45 W); zostaje na półce, M910q zasila przetwornica 20 V / 200 W (§3.1) |
 | **XH-M609** | LVD, ochrona banku przed rozładowaniem |
 
 ---
@@ -109,79 +109,77 @@ przechodzi do STANDBY, co oznacza wygaszenie podświetlenia i
 > i `config/scripts/bcm-harden.sh` (fsck przy starcie, krótsze okno
 > niezapisanych danych) — kroki:
 > [`WDROZENIE_TESTOWE_TELEFON.md`](WDROZENIE_TESTOWE_TELEFON.md) §3. Ten
-> rozdział opisuje tor zasilania, który ma to zmienić.
+> rozdział opisuje tor zasilania, który ma to zmienić — **nic z niego nie
+> jest jeszcze zamontowane**, a reszta tego dokumentu (§5–§7) zakłada
+> auto bez bufora, chyba że rozdział mówi inaczej.
 
 ### 3.1 Tor — co jedzie w aucie
 
-![Tor zasilania wariantu testowego](../schematics/power_test_build.svg)
+Tor jest **ten sam co w wersji docelowej**
+([`ZASILANIE_BUFOROWANE.md`](ZASILANIE_BUFOROWANE.md), dalej: ZB) — różnice są
+tylko po stronie odbiorników (jeden panel 7", bez domeny stałej logiki i bez
+wzmacniacza).
 
 | Rysunek | Co pokazuje |
 |---------|-------------|
-| [`power_test_build.svg`](../schematics/power_test_build.svg) | przegląd blokowy — ten powyżej |
-| [`schematic_test_build.svg`](../schematics/schematic_test_build.svg) | **schemat ideowy** z symbolami elektrycznymi |
-| [`wiring_test_build.svg`](../schematics/wiring_test_build.svg) | **schemat połączeniowy** — zaciski i numery przewodów |
+| [`schematic_test_power.svg`](../schematics/schematic_test_power.svg) | **schemat komponentowy** toru zasilania — numery przewodów jak w tabelach |
+| [`schematic_test_signals.svg`](../schematics/schematic_test_signals.svg) | transoptory, Nano, przekaźnik na przycisku M910q |
 | [`ignition_sense.svg`](../schematics/ignition_sense.svg) | **wykrywanie zapłonu** — optoizolacja, wartości elementów |
 
-Tabele „skąd → dokąd": [`SCHEMATY_POLACZEN.md`](SCHEMATY_POLACZEN.md) §10.
+Rysunki [`power_test_build.svg`](../schematics/power_test_build.svg),
+[`schematic_test_build.svg`](../schematics/schematic_test_build.svg) i
+[`wiring_test_build.svg`](../schematics/wiring_test_build.svg) pokazują
+jeszcze **poprzedni** tor (boost z diodą, XL6019, szyny z płaskownika)
+i czekają na przerysowanie — przy rozbieżności obowiązuje ten rozdział
+i tabele [`SCHEMATY_POLACZEN.md`](SCHEMATY_POLACZEN.md) §10.
 
 ```
 akumulator rozruchowy
-   │  bezpiecznik F1 15 A przy klemie „+", przewód 4 mm²
+   │  F1 20 A przy klemie „+", przewód 6 mm² (~5 m do bagażnika)
    ▼
-TVS + kondensator 470 µF/35 V        ← ochrona wejścia (§5.4 ZASILANIE)
+TVS SMCJ20CA + kondensator 470 µF/35 V      ← ochrona wejścia (ZB §5.8)
    │
    ▼
-przekaźnik ładowania 30 A            ← cewka z zapłonu, dioda 1N4007
+przekaźnik ładowania K1 30 A                ← cewka z zapłonu albo D+ (FK 1 A), dioda 1N4007
+   │
+   ├── XY-SK120 #1 (CV 14,40 V / CC 5,0 A) ── XH-M603 #1 ── FC1 7,5 A ──┐
+   └── XY-SK120 #2 (CV 14,40 V / CC 5,0 A) ── XH-M603 #2 ── FC2 7,5 A ──┴── 4 mm² ── F12 15 A
+                                                                              │
+   ┌──────────────────────────────────────────────────────────────────────────┘
+   ▼
+BANK AGM 7 × HR1221W — dwa kosze w bagażniku: L (4) + P (3), bloki zbiorcze,
+FB1…FB7 10 A na „+" każdego pakietu, łącznik L ↔ P 6 mm², odbiór „+" z L, „−" z P
    │
    ▼
-dioda MBR2545CT (obie połówki równolegle, radiator)
-   │
-   ▼
-moduł CC-CV boost  (CV 14,40 V, CC wg §3.3)
-   │
-   ▼
-rozłącznik nadnapięciowy (próg 15,30 V)   ← warstwa 2
-   │
-   ▼
-BANK AGM 7 × HR1221W ── bezpiecznik 10 A (FB1…FB7) na „+" każdego pakietu
-   │
-   ▼
-XH-M609 (LVD)  ── bezpiecznik 15 A przed VIN+
-   │  odcięcie 11,00 V · powrót 12,60 V
-   ▼
-wyłącznik główny na „+"  (albo rozłącznik masy na „−" banku)
-   │
-   ├── bezp. 7,5 A → XL6019 12 → 19,5 V → M910q   ← ZASILANY STALE
-   │                                     └── USB: panel 7", dotyk,
-   │                                         Pro Micro, modem LTE
-   │
-   └── bezp. 2 A → LM2596 12 → 5 V → podświetlenie panelu (§3.1b)
+F7 20 A (MIDI/ANL) → XH-M609 (LVD)  — odcięcie 11,00 V · powrót 12,60 V
+   │                                     (masa banku P− → S1 rozłącznik masy → punkt masy)
+   ├── F8 10 A → step-up 12 → 20 V, 10 A (zalewany) → 4 mm², ~4 m → M910q   ← ZASILANY STALE
+   │                                                    └── USB: panel 7", dotyk,
+   │                                                        Pro Micro, modem LTE
+   ├── F9 2 A → LM2596 12 → 5 V → podświetlenie panelu (§3.1b)
+   └── F10 3 A → MP1584 12 → 5 V → Arduino Nano (żyje, gdy M910q śpi)
 
-sygnał zapłonu ──► wejście Arduino ──► USB ──► M910q: S3 / wybudzenie
+sygnał zapłonu ──► PC817 ──► Arduino Nano ──► przekaźnik na przycisku M910q: S3 / wybudzenie
 ```
 
 Pięć rzeczy warto tu zauważyć:
 
-- **Nie ma już domeny B.** M910q wisi na buforze na stałe, a zapłon jest
-  tylko **sygnałem** — Arduino go wykrywa i usypia albo wybudza komputer.
-  Konsekwencje w §3.1a; jedna z nich jest kosztowna.
-- **Przekaźnik przeniósł się do toru ładowania.** Rozłącza ładowanie przy
-  zgaszonym silniku — nie odcina już niczego po stronie odbiorników.
-- **Panel 7" wisi na USB M910q** — dotyk i zasilanie idą tym samym kablem,
-  więc USB musi zostać. Osobno idzie tylko **podświetlenie**, przez LM2596
-  na złącze PWM + GND panelu (§3.1b).
-- **Jeden bezpiecznik na komputer — ale większy.** Wszystko idzie przez
-  XL6019, więc przy 45 W wyjścia i sprawności 85 % to 4,2 A przy 12,6 V,
-  a przy napięciu banku bliskim progu LVD **4,6 A**. Bezpiecznik 5 A
-  siedziałby na krawędzi i przepalał się bez żadnej usterki — dlatego
-  **7,5 A**.
-- **Przewody toru ładowania przy CC 8,0 A.** Wejście toru niesie wtedy
-  ~9,2 A: na 3 m przewodu 2,5 mm² to 0,39 V (2,8 %) — mieści się w kryterium
-  3 %, ale bez zapasu, więc **zalecany jest 4 mm²** (0,24 V). Odcinek
-  **ładowarka → szyna „+" banku bierz 4 mm² zawsze**, bo jego spadek siedzi
-  w pętli CV i opóźnia wejście w absorpcję (§8.2
-  [`ZASILANIE_BUFOROWANE.md`](ZASILANIE_BUFOROWANE.md)). Wkładka F1 15 A
-  zostaje bez zmian — 9,2 A to 62 % jej wartości.
+- **Zapłon niczego nie odcina.** M910q wisi na buforze na stałe, a zapłon
+  jest tylko **sygnałem** — Arduino go wykrywa i usypia albo wybudza
+  komputer. Konsekwencje w §3.1a; jedna z nich jest kosztowna.
+- **Jedyny przekaźnik w torze mocy siedzi w ładowaniu** (K1) — rozłącza
+  ładowanie przy zgaszonym silniku i nie odcina niczego po stronie
+  odbiorników.
+- **Panel 7" wisi na USB M910q** — dotyk i zasilanie logiki idą tym samym
+  kablem, więc USB musi zostać. Osobno idzie tylko **podświetlenie**, przez
+  LM2596 na złącze PWM + GND panelu (§3.1b).
+- **Przetwornica 200 W, a nie 45 W.** Poprzedni plan zasilał M910q
+  z posiadanego XL6019 (realnie ok. 45 W) i wymagał limitu RAPL. Zalewany
+  moduł 20 V / 10 A daje pełne 65 W z zapasem; F8 to 10 A, bo przy 65 W
+  i banku tuż nad progiem LVD wejście bierze ok. 6,6 A (ZB §3.2).
+- **Wszystko oprócz komputera i panelu stoi w bagażniku** — bank, ładowarki,
+  LVD, dystrybucja i step-up; do przodu idą 20 V (4 mm²) i dwie żyły 12 V
+  dla bucków, z wkładkami w bagażniku na początku trasy (ZB §8a).
 
 ### 3.1a Stałe zasilanie i S3 — co to kosztuje
 
@@ -196,10 +194,11 @@ Cena też jest realna — i to jest najważniejsza liczba w tej zmianie:
 
 | Stan na postoju | Pobór z banku |
 |-----------------|---------------|
-| M910q w S3 (przez XL6019) | 160–320 mA |
+| M910q w S3 (zmierzone z poprzednią przetwornicą XL6019) | 160–320 mA |
 | Arduino Nano przez MP1584 | ~15 mA |
-| XH-M609 — **zmierz**, to jedyna niewiadoma | 20–125 mA |
-| **Razem** | **200–460 mA** |
+| XH-M609 — **zmierz** | 20–125 mA |
+| prąd jałowy step-upu 20 V (I_jał) — **zmierz**, sprzedawcy go nie podają | ? |
+| **Razem** | **200–460 mA + I_jał** |
 
 > **Wyświetlacz nie występuje w tej tabeli i to jest sprawdzone.** M910q
 > **odcina zasilanie portów USB w S3**, więc panel gaśnie razem
@@ -209,8 +208,8 @@ Cena też jest realna — i to jest najważniejsza liczba w tej zmianie:
 
 | Stan | Pobór | 7 pakietów (35,7 Ah, do 50 % DoD) |
 |------|-------|-----------------------------------|
-| **S3** | 200–460 mA | **1,6–3,7 dnia** |
-| **Wyłączony** (impuls 5 s) | 50–150 mA | **5,0–14,9 dnia** |
+| **S3** | 200–460 mA + I_jał | **1,6–3,7 dnia** (bez I_jał) |
+| **Wyłączony** (impuls 5 s) | 50–150 mA + I_jał | **5,0–14,9 dnia** (bez I_jał) |
 
 Dlatego eskalacja z S3 do pełnego wyłączenia po dwóch godzinach jest tu
 naprawdę warta zachodu — a przy sterowaniu przyciskiem zasilania kosztuje
@@ -251,8 +250,10 @@ tyle, co dłuższy impuls.
 > miganie z przerwami do ~6 s.
 
 W wierszu **Wyłączony** rozrzut bierze się w całości z XH-M609. W wierszu
-**S3** większą część wnosi sam M910q (160–320 mA z tabeli wyżej), więc tam
-zmierzyć trzeba oba. Zmierz je raz, a obie liczby zrobią się konkretne.
+**S3** większą część wnosi sam M910q (160–320 mA z tabeli wyżej). Do obu
+dochodzi **prąd jałowy nowej przetwornicy**, która wisi na szynie także
+w S3 i po wyłączeniu — dopóki go nie zmierzysz (ZB §3.4), czasy postoju są
+górną granicą. Zmierz te trzy liczby raz, a tabela zrobi się konkretna.
 
 Co z tym zrobić:
 
@@ -331,7 +332,7 @@ od USB. To pozwala rozdzielić dwie rzeczy:
 | podświetlenie | **LM2596 12 → 5 V** wprost z bufora, bezp. 2 A |
 
 Dzięki temu podświetlenie nie zjada budżetu portu USB (patrz niżej) ani
-zapasu XL6019.
+toru 20 V komputera.
 
 **Regulacji jasności w tym wariancie nie ustawiaj z BCM** — dlaczego,
 opisuje §3.1c. Wejście PWM podaj na stały poziom, a jasność reguluj
@@ -352,20 +353,19 @@ jeden port wystarcza z zapasem. Gdyby panel jednak przyszedł z kablem
 rozgałęzionym na dwa wtyki, podepnij oba do **różnych** portów — objawem
 niedoboru jest migotanie albo restart panelu, nie brak obrazu.
 
-#### Zapas XL6019
+#### Zapas przetwornicy
 
 | Odbiornik | Moc |
 |-----------|-----|
-| M910q (limit CPU 28 W) | 25–35 W |
+| M910q (bez limitu CPU) | 30–45 W typowo, do 65 W szczytowo |
 | Panel — logika + dotyk przez USB | 1–2 W |
 | Pro Micro + modem LTE | 3–5 W |
-| **Razem na szynie 19,5 V** | **29–42 W** |
+| **Razem na szynie 20 V** | **ok. 35–50 W typowo, do ok. 70 W** |
 
-XL6019 daje ok. **45 W**. Przeniesienie podświetlenia na LM2596 odzyskało
-kilka watów, ale zapas dalej jest cienki, więc **limit poboru CPU nie jest
-zaleceniem, tylko warunkiem działania** — instrukcja w
-[`ZASILANIE_BUFOROWANE.md`](ZASILANIE_BUFOROWANE.md) §3.5a. Drugi panel na
-tej samej szynie i tak się nie zmieści.
+Przetwornica ma na tabliczce 200 W. Nawet gdyby bezmarkowa sztuka realnie
+dawała ok. 70 % opisu, szczytowe ~70 W to połowa jej możliwości — **limit
+poboru CPU nie jest potrzebny** (ZB §3.2, §3.5a). Drugi panel nie wejdzie
+na USB M910q (budżet portu), ale nie z powodu przetwornicy.
 
 ### 3.1c Regulacja jasności — czego nie ma w kodzie
 
@@ -399,191 +399,131 @@ switchami i to w zupełności wystarcza na czas testów. Domknięcie tego
 > DDC/CI przez `ddcutil`). PWM podświetlenia z tabeli wyżej dalej wymaga
 > Nano #1 — bez zmian. Moduł jest domyślnie wyłączony.
 
-### 3.2 Ładowanie — wariant B, i dlaczego akurat on
+### 3.2 Ładowanie — dwie XY-SK120 i dlaczego dwie
 
-[`ZASILANIE_BUFOROWANE.md`](ZASILANIE_BUFOROWANE.md) §5 opisuje dwa warianty:
-gotową ładowarkę B2B (800–1000 PLN) albo przekaźnik ładowania z diodą
-i moduł CC-CV boost (70–180 PLN). Na etapie testowym bierzemy **wariant B**
-— różnica to kilkaset złotych za funkcje, które przy jeździe testowej
-niewiele wnoszą.
+Ładowanie robią **dwie XY-SK120** (Sinilink; buck-boost CC-CV, wejście
+6–36 V, do 6 A / 120 W — dane z opisów sprzedawców, ZB §5.2) pracujące
+równolegle, każda z własnym XH-M603. Dawny plan dla tego auta — przekaźnik,
+dioda MBR2545CT i moduł boost CC-CV — wypadł:
 
-**CV ustawiamy na 14,40 V, nie niżej.** To nie jest wybór estetyczny: boost
-ma władzę nad prądem tylko wtedy, gdy faktycznie przetwarza, czyli gdy
-wyjście jest wyżej niż wejście. Na wejściu modułu przy pracującym alternatorze
-jest 13,4–14,2 V, więc nastawa 13,8 V wepchnęłaby moduł w **pass-through**,
-gdzie pętla CC nie ma czym sterować, a rozładowany bank ciągnąłby ponad 30 A
-przez sam dławik. Pełne wyprowadzenie: §5.3b
-[`ZASILANIE_BUFOROWANE.md`](ZASILANIE_BUFOROWANE.md).
+- **buck-boost nie potrzebuje wejścia wyższego od CV.** Z 12,5–14,7 V
+  z instalacji robi 14,40 V w obie strony, a CC działa zawsze. Odpada dioda
+  z radiatorem i cały problem „CV niżej niż wejście = pass-through” znany
+  z boostu (ZB §5.1),
+- **jedna ładowarka by nie nadążyła.** Z przetwornicą 200 W szyna podczas
+  jazdy bierze ok. 4–6 A; ładowarka zasila najpierw odbiorniki, a do banku
+  idzie reszta. Jedna XY-SK120 przy CC 5 A dałaby netto ≈ −1…+1 A — bank po
+  postoju **w ogóle by się w trasie nie ładował**. Dwie po 5 A dają netto
+  ≈ 5 A (ZB §5.3),
+- **jeden XH-M603 nie przeniesie 10 A** — płytka realnie ok. 8 A
+  (oszacowanie), więc po jednym na ładowarkę (ZB §6.3).
 
-Konsekwencje 14,40 V bez kompensacji temperaturowej — i co je łagodzi:
+**Nastawy każdej XY-SK120:** CV **14,40 V**, CC **5,0 A**, OVP 15,0 V, LVP
+12,8 V (jeśli wersja ma regulowane), **wyjście po włączeniu zasilania: ON**
+— inaczej po każdym uruchomieniu silnika moduł stoi z wyjściem OFF i bank
+się nie ładuje, bez żadnego objawu. Oba CV w granicach ±0,02 V, nastawiane
+**bez banku**; na banku tylko sprawdzasz, pod koniec absorpcji przy prądzie
+< 1 A (ZB §5.3).
 
-| | |
-|---|---|
-| ✅ | CC działa zawsze, więc prąd ładowania jest naprawdę ograniczony |
-| ✅ | absorpcja podawana **tylko podczas jazdy** — przekaźnik ładowania jest na postoju rozwarty, bank nie stoi na 14,4 V |
-| ✅ | bank ładuje się do 100 %, nie do 90 % |
-| ⚠️ | brak kompensacji: przy 40 °C prawidłowa absorpcja to 13,95 V, czyli jedziesz 0,45 V za wysoko |
-| ⚠️ | próg warstwy 2 zostaje na **15,30 V** |
+**Brak float i kompensacji temperaturowej.** W dostępnych materiałach
+XY-SK120 nie ma przejścia na float ani wejścia NTC — moduł trzyma CV przez
+całą jazdę. Łagodzi to fakt, że napięcie jest podawane **tylko podczas
+jazdy** (K1 na postoju rozwarty). CV przestawiasz sezonowo: zima 14,40 V,
+lato w gorącym bagażniku **13,95 V**, przy częstych wielogodzinnych trasach
+latem **13,40 V** (ZB §5.5).
 
-Jeśli bagażnik latem dochodzi do 50 °C — zejdź z CV do **14,10 V**. Nadal
-powyżej wejścia, więc CC pozostaje sprawne.
+**Dlaczego tor ładowania musi być rozłączany:** bez K1 wejścia ładowarek
+wisiałyby na stałe na akumulatorze rozruchowym i przy zgaszonym silniku
+ładowałyby bank jego kosztem. Cewka K1 z zapłonu ma jeden koszt: kluczyk na
+ON bez pracującego silnika to ok. 13 A z akumulatora rozruchowego. Lepiej
+podepnij cewkę pod **D+/L alternatora** (sygnał „alternator ładuje”;
+sprawdź potem lampkę ładowania — cewka bierze ~150 mA z jej obwodu) i ustaw
+LVP modułów na 12,8 V — ZB §5.4.
 
-**Dlaczego tor ładowania musi być rozłączany:** boost nie potrafi dać
-napięcia niższego niż wejściowe, więc gdyby jego wejście wisiało na stałe na
-akumulatorze rozruchowym, to przy zgaszonym silniku dalej podawałby 14,4 V
-i **rozładowywał akumulator auta**. Przekaźnik przerywa obwód fizycznie,
-a dioda MBR2545CT jest drugą barierą, gdyby styki się zespawały. Szczegóły:
-§5.3c [`ZASILANIE_BUFOROWANE.md`](ZASILANIE_BUFOROWANE.md).
-
-### 3.2a Konkretne moduły
-
-**Moduł CC-CV** — trzy sensowne opcje, wszystkie to boost:
-
-| Model | Dane | Cena (PLN) | Kiedy ten |
-|-------|------|-----------|-----------|
-| **„900 W 15 A" z wyświetlaczem** (typ CNC/DPS, wej. 8–60 V, wyj. 10–120 V) | CC 0–15 A, nastawa cyfrowa z odczytem | 90–140 | **bierz ten** — wpisujesz 14,40 V i 8,0 A i odczytujesz z powrotem; przy pierwszej instalacji to warte tych 40 zł różnicy |
-| **„1500 W 30 A" boost CC-CV** (wej. 10–60 V, wyj. 12–97 V) | CC 0,8–22 A · sprawność 92–97 % · 130 × 84 × 52 mm, radiator + wentylator | 60–95 | duży zapas mocy, pracuje zimno; nastawa potencjometrami — mierz multimetrem |
-| ~~**„600 W 10 A"**~~ (wej. 10–60 V, wyj. 12–80 V) | CC-CV potencjometrami | 50–80 | **odpada** — przy CC 8,0 A to 80 % jego zakresu, a ścieżki tej płytki są słabe |
-
-> **Nie szukaj SZBK07.** Wcześniejsze wydanie wymieniało go tu jako
-> „1500 W 30 A" — to przetwornica **obniżająca** (buck 300 W na LM5116),
-> więc z 13,7 V nie zrobi 14,4 V. Moduł o podobnych gabarytach szukaj po
-> frazie „boost converter 1500W 30A 10-60V". Uzasadnienie: §5.3a
-> [`ZASILANIE_BUFOROWANE.md`](ZASILANIE_BUFOROWANE.md).
-
-> **Sprawdź „auto output on power-on"** w module z wyświetlaczem. Jeśli ta
-> opcja jest wyłączona, po każdym uruchomieniu silnika wyjście stoi w OFF
-> i bank się nie ładuje — bez żadnego objawu, dopóki nie zejdzie do LVD.
-
-Modułu **buck-boost LTC3780** (WD2002SJ / XR-131) *nie* bierz do siedmiu
-pakietów: utrzymałby 13,8 V, ale ciągle daje tylko 7 A / 80 W, czyli ~5,8 A
-przy 13,8 V. Po odjęciu 3,5 A obciążenia zostaje 2,3 A do banku — czyli
-11,6 h fazy CC z progu LVD zamiast 5,95 h.
-
-**Rozdział ładowania** — przekaźnik plus dioda, obie pozycje po kilkanaście
-złotych:
-
-| Element | Dane | Cena (PLN) | Uwaga |
-|---------|------|-----------|-------|
-| **Przekaźnik 30 A SPDT** + podstawka | cewka z zapłonu, dioda 1N4007 równolegle | 15–25 | tor niesie 9,2 A przy CC 8,0 A, więc 30 A styków to spory zapas |
-| **MBR2545CT** — 25 A / 45 V, TO-220AB | dwie połówki 12,5 A ze wspólną katodą | 5–12 | **zewrzyj obie anody** — przy 9,2 A łącznie każda wiezie 4,6 A, Vf ≈ 0,48 V. Radiator obowiązkowy (**4,4 W** przy CC 8,0 A — ten sam, co przy czterech pakietach). Blaszka jest katodą, więc izoluj ją od masy |
-
-> **Cewka z zapłonu ma jeden koszt.** Przy kluczyku w ON bez pracującego
-> silnika przekaźnik jest zwarty i boost ładuje bank **z akumulatora
-> rozruchowego**. Przy normalnym rozruchu to kilka sekund; przy dłuższym
-> staniu z kluczykiem — już nie. Jeśli chcesz to wyciąć, podepnij cewkę pod
-> **D+/L alternatora** zamiast pod zapłon: jeden przewód inaczej, a sygnał
-> znaczy wtedy „alternator ładuje". Sprawdź potem lampkę kontrolną — cewka
-> bierze ~150 mA z jej obwodu.
+**Alternatywa droższa:** izolowana ładowarka B2B (np. VEVOR 12/12-20,
+400–550 PLN) — ZB §5.7. Nie jest potrzebna do testów, a 20 A bez regulacji
+to dla tego banku za dużo.
 
 ### 3.3 Prąd ładowania — policz go z obciążeniem
 
-Moduł CC-CV limituje **prąd wyjściowy**, czyli obciążenie **plus** ładowanie.
-Zestaw testowy pobiera podczas jazdy ok. **3,5 A** — to całe ~37 W z tabeli
-w §3.1 przepuszczone przez XL6019 (sprawność ~85 %) i przeliczone na napięcie
-banku. Przeniesienie panelu na USB niczego tu nie zmieniło: ta sama energia,
-tylko inną drogą. Jeżeli ustawisz CC na 4 A, do banku popłynie 0,5 A
-i **nigdy się nie doładuje**.
+Moduł CC-CV limituje **prąd wyjściowy**, czyli obciążenie **plus**
+ładowanie. Zestaw testowy (M910q bez limitu CPU, panel 7" na USB, Pro Micro,
+modem, podświetlenie, Nano) bierze podczas jazdy ok. **3–5 A** z szyny (szacunek) —
+mniej niż wersja docelowa (4–6 A, ZB §2.1), bo nie ma drugiego panelu, huba
+z peryferiami ani domeny stałej logiki.
 
-Reguła:
+| Ładowanie | Wyjście razem | Obciążenie | Netto do banku |
+|-----------|---------------|------------|----------------|
+| jedna XY-SK120, CC 5 A | 5 A | 3–5 A | 0–2 A — za mało |
+| **dwie XY-SK120, CC 2 × 5 A** | **10 A** | 3–5 A | **≈ 5–7 A** |
 
-```
-CC = obciążenie (≈3,5 A) + docelowy prąd ładowania
-     jednocześnie CC ≤ 2,1 A × liczba pakietów   ← sufit katalogowy CSB
-     oraz         CC ≤ 8,0 A                     ← sufit toru: płytka XH-M603
-```
+Netto 5–7 A to 0,7–1,0 A na pakiet — daleko od katalogowego sufitu 2,1 A
+na pakiet (14,7 A na bank). Element po elemencie (XH-M603, FC1/FC2, F12,
+F1, K1): ZB §6.3.
 
-| Pakiety | Sufit katalogowy | Zalecane CC | Netto do banku |
-|---------|------------------|-------------|----------------|
-| **7** | **14,7 A** | **8,0 A** | **4,5 A** |
-| 6 (po awarii jednego pakietu) | 12,6 A | 8,0 A | 4,5 A |
-| 4 (poprzednia konfiguracja) | 8,4 A | 7,5 A | 4,0 A |
+> **Zmierz temperaturę zacisków XH-M603 i radiatorów XY-SK120 przy 5 A
+> przez 30 min** (ZB §11 Etap 1). Obciążalność płytki XH-M603 ~8 A
+> i sprawność XY-SK120 (przyjęte 88 %) to oszacowania, nie dane z kart.
+> Modułów nie zamykaj w szczelnej obudowie.
 
-**Przy siedmiu pakietach ten rachunek się odwraca.** Sufit katalogowy wynosi
-14,7 A i **przestał być wiążący** — nastawę ogranicza teraz tor ładowania,
-konkretnie płytka rozłącznika nadnapięciowego XH-M603 (realna obciążalność
-ok. 10 A, spec „≤ 8 A"). Stąd **CC 8,0 A**, czyli 54 % sufitu akumulatorów
-i 80 % obciążalności płytki. Element po elemencie: §6.3
-[`ZASILANIE_BUFOROWANE.md`](ZASILANIE_BUFOROWANE.md).
-
-Przy takim prądzie tani moduł **wymaga radiatora i przewiewu**; katalogowe
-10 A na puszce traktuj jako wartość szczytową, nie roboczą.
-
-> **Zmierz temperaturę zacisków XH-M603 przy 8 A przez 30 min**, zanim
-> oprzesz na tej nastawie cały układ. Obciążalność ~10 A jest oszacowaniem,
-> nie wartością katalogową. Jeśli moduł się grzeje — zejdź na CC 6,0 A
-> i pogódź się z 14–16 h ładowania od progu LVD.
-
-### 3.4 Ile pakietów
+### 3.4 Ile pakietów i gdzie
 
 **Siedem (35,7 Ah)** — z ośmiu posiadanych; jeden zostaje w zapasie.
 Pakiety łączone **równolegle**, więc napięcie zostaje 12 V, a sumuje się
 pojemność i dopuszczalny prąd ładowania.
 
-| Pakiety | Pojemność | Praca przy zgaszonym silniku (3,5 A) | Postój w S3 (300 mA) | Doładowanie z 50 % |
-|---------|-----------|--------------------------------------|----------------------|--------------------|
-| 4 (poprzednio, CC 7,5 A) | 20,4 Ah | ~2,9 h | ~1,4 dnia | ~2,6 h jazdy |
-| 6 (po awarii jednego) | 30,6 Ah | ~4,4 h | ~2,1 dnia | ~3,4 h jazdy |
-| **7** | **35,7 Ah** | **~5,1 h** | **~2,5 dnia** | **~4,0 h jazdy** |
+| Pakiety | Pojemność | Praca przy zgaszonym silniku (5 A) | Postój w S3 (300 mA) | Doładowanie z 50 % (netto 5 A) |
+|---------|-----------|------------------------------------|----------------------|--------------------------------|
+| 6 (po awarii jednego) | 30,6 Ah | ~3,1 h | ~2,1 dnia | ~3,1 h jazdy |
+| **7** | **35,7 Ah** | **~3,6 h** | **~2,5 dnia** | **~3,6 h jazdy** |
 
-Wszystko do 50 % DoD. Kolumna „doładowanie" to sama faza CC, bez absorpcji:
-dla sześciu i siedmiu pakietów przy nastawie **CC 8,0 A** i obciążeniu 3,5 A
-(netto 4,5 A do banku), dla wiersza czteropakietowego przy jego własnej
-ówczesnej nastawie CC 7,5 A (netto 4,0 A). Na pełne naładowanie dolicz
-mnożnik ×1,3–1,5. Pełny rozrzut poboru w S3 (200–460 mA) jest w §3.1a.
+Wszystko do 50 % DoD, bez poprawki Peukerta i temperatury. Tabela celowo
+liczy ostrożnymi liczbami wersji docelowej — 5 A poboru i 5 A netto (ZB §2.1, §9.4)
+— a nie szacunkiem 3–5 A / 5–7 A netto z §3.3; przy mniejszym poborze czasy
+pracy rosną, a doładowanie się skraca. Kolumna
+„doładowanie” to sama faza CC przy netto 5 A; na pełne naładowanie dolicz
+mnożnik ×1,3–1,5. Pełny rozrzut poboru w S3 (200–460 mA + prąd jałowy
+step-upu) jest w §3.1a.
 
-Co daje przejście z czterech pakietów na siedem: **+75 % pojemności**
-(20,4 → 35,7 Ah), +5,4 kg masy (7,2 → **12,6 kg**) i sufit ładowania
-podniesiony z 8,4 na **14,7 A**. Nastawa CC idzie z 7,5 na **8,0 A** — nie
-dlatego, że tyle pozwala akumulator (pozwala na 14,7 A), tylko dlatego, że
-tyle wyrabia tor ładowania (§3.3).
+> **Uwaga, to jest kontrintuicyjne.** Siedem pakietów kupuje **dłuższy
+> postój**, a nie odporność na krótkie przejazdy. Minimalna dzienna jazda
+> podtrzymująca bilans zależy od prądu ładowania netto, a nie od pojemności
+> — ZB §9.4. Krótkie przejazdy po mieście nie doładują banku po dłuższym
+> postoju.
 
-> **Uwaga, to jest kontrintuicyjne.** Siedem pakietów kupuje **dłuższy postój**,
-> a nie odporność na krótkie przejazdy. Doładowanie po rutynowym postoju
-> wydłuża się z ~2,6 h do ~4,0 h fazy CC, bo pojemność urosła o 75 %, a prąd
-> netto do banku tylko o 12 %. Minimalna dzienna jazda podtrzymująca bilans
-> zależy wyłącznie od prądu ładowania — tabela w §9.4
-> [`ZASILANIE_BUFOROWANE.md`](ZASILANIE_BUFOROWANE.md).
-
-> **Miejsce montażu trzeba zmierzyć.** Siedem pakietów to 490 × 90 × 101 mm
-> w jednym rzędzie albo 280 × 180 × 101 mm w układzie 4 + 3 (zalecany
-> mechanicznie). Ze skrzynką ok. 300 × 200 × 115 mm. Ta dokumentacja nie
-> podaje wymiarów przestrzeni pod fotelem pasażera — sprawdź to przed
-> zakupem skrzynki. Masa 12,6 kg wymaga też czterech punktów mocowania M8
-> z płytkami rozkładającymi ≥ 40 × 40 × 3 mm; §4.7 ZASILANIE_BUFOROWANE.
-
-> Krótkie przejazdy po mieście nie doładują banku po dłuższym postoju.
-> Kolumna „doładowanie" zakłada ciągłą jazdę z pracującym alternatorem.
+**Gdzie: dwa stalowe kosze w bagażniku** według
+[`mechanika/kosze_HR1221W_4+3.pdf`](mechanika/kosze_HR1221W_4+3.pdf) —
+kosz L na 4 pakiety (klatka 373 × 83 × 98 mm), kosz P na 3 (283 × 83 × 98 mm),
+przykręcone M8 do grodzi za tylną kanapą i oparte na podłodze; między nimi
+zostaje 290–296 mm na otwór do przewozu nart. Razem z pakietami ≈ 16,8 kg.
+**Podłogi bagażnika nie wierć** (zbiornik paliwa) — 8 otworów Ø 8,5 mm
+tylko poziomo przez grodź, po obejrzeniu, co jest za blachą. Liczby do
+mocowania i to, czego rachunek nie rozstrzyga (nośność grodzi): ZB §4.7.
 
 > **Bezpieczników na pakietach nie pomijaj.** Zwarty HR1221W potrafi oddać
-> ponad 100 A — 5 Ah wystarczy, żeby zapalić przewód. Siedem sztuk, oznaczenia
-> **FB1…FB7** (nie F2…F8 — F7 i F8 są już zajęte). Prąd zwarciowy przez
-> wkładkę uszkodzonego pakietu to 637 A, a przez każdą z sześciu zdrowych
-> 106 A: stosunek 6 : 1 zamiast 3 : 1, czyli selektywność jest **lepsza** niż
-> przy czterech pakietach.
+> setki amperów — 5 Ah wystarczy, żeby zapalić przewód. Siedem sztuk,
+> oznaczenia **FB1…FB7** (nie F2…F8 — F7 i F8 są już zajęte), 10 A, na „+”,
+> 5–10 cm od zacisku. Selektywność: ZB §8.1.
 
-> **Łączenie równoległe siedmiu pakietów wymaga szyny zbiorczej.** Dwa
-> płaskowniki miedziane (min. 15 × 2 mm) z siedmioma odczepami co 70 mm,
-> odbiór **po przekątnej** — „+" z odczepu 1, „−" z odczepu 7. Ogonki 1,5 mm²
-> o równej długości ±30 mm. Nigdy oba bieguny z jednego końca szyny.
-> Rysunek i liczby: §4.3 [`ZASILANIE_BUFOROWANE.md`](ZASILANIE_BUFOROWANE.md).
+> **Bank na lince, nie na listwie.** W każdym koszu blok zbiorczy na biegun
+> (L+, L−, P+, P−; izolowany, 4 kołki M6, pokrywa), odcinki pakiet → blok
+> FLRY-B 2,5 mm² **równej długości ±30 mm**, łącznik między koszami 6 mm²
+> OFC (nie CCA), odbiór **po przekątnej** — „+” z L+, „−” z P−. Rozrzut prądów
+> ok. 4 %; oba bieguny z jednego kosza — ok. 24 %, zakaz. Rachunek i rysunek:
+> ZB §4.3.
 
 ### 3.5 Nastawy modułów
 
 | Moduł | Nastawa | Uwaga |
 |-------|---------|-------|
-| **XL6019** | wyjście **19,5 V** pod obciążeniem | ustaw multimetrem, zabezpiecz potencjometr |
-| **XH-M609** | odcięcie **11,00 V**, powrót **12,60 V** | sprawdź, czy pracuje stabilnie przy 11 V |
-| **Przekaźnik ładowania** | cewka z zapłonu (albo D+) | dioda 1N4007 równolegle, katodą do „+” |
-| **CC-CV boost** | CV **14,40 V**, CC wg §3.3 | ustaw CV **bez obciążenia**, CC na sztucznym obciążeniu; nigdy poniżej napięcia wejściowego — §3.2 |
-| **Rozłącznik nadnapięciowy** (XH-M603) | próg **15,30 V**, powrót **14,00 V** | test zasilaczem laboratoryjnym, nie „na aucie"; steruje cewką przekaźnika mocy — §6.3 ZASILANIE |
+| **Step-up 12 → 20 V** | brak regulacji | bez obciążenia **19,9–20,5 V**; ~60 W: ≥ 19,8 V na wyjściu, ≥ 19,5 V na wtyku; powtórka przy wejściu 11,0 V; prąd jałowy zapisany — ZB §3.4 |
+| **XY-SK120 × 2** | CV **14,40 V**, CC **5,0 A**, OVP 15,0 V, wyjście ON | CV nastawiane bez banku, oba ±0,02 V; CC sprawdzone amperomierzem — §3.2 |
+| **XH-M603 × 2** | próg **15,30 V**, powrót **14,00 V** | test zasilaczem laboratoryjnym, nie „na aucie”, plus test „12,6 V tylko na OUT” — ZB §6.4 |
+| **XH-M609** | odcięcie **11,00 V**, powrót **12,60 V** | sprawdź, czy pracuje stabilnie przy 11 V i przełącza plus — ZB §7.3 |
+| **Przekaźnik ładowania K1** | cewka z zapłonu albo D+ przez FK 1 A | dioda 1N4007 równolegle, katodą do „+” |
 
-Obowiązkowe sprawdzenia XL6019 i XH-M609 przed pierwszym załączeniem:
-[`ZASILANIE_BUFOROWANE.md`](ZASILANIE_BUFOROWANE.md) §3.4 i §7.3.
-
-> **Limit poboru CPU ustaw od razu**, nie „potem". XL6019 daje ok. 45 W,
-> a M910q pod pełnym obciążeniem czterech wątków dobija do 55 W. Instrukcja:
-> [`ZASILANIE_BUFOROWANE.md`](ZASILANIE_BUFOROWANE.md) §3.5a.
+Limitu poboru CPU (RAPL) **nie ustawiasz** — przetwornica ma zapas na pełne
+65 W; ZB §3.5a zostaje jako opcja.
 
 ### 3.6 Wyłączanie — dopóki Arduino nie usypia, robisz to ręcznie
 
@@ -619,14 +559,14 @@ w osobnym dokumencie: **[`LISTA_ZAKUPOWA.md`](LISTA_ZAKUPOWA.md)**.
 
 | | |
 |---|---|
-| **Razem do kupienia** | **~670–1305 PLN** |
-| Największe pozycje | moduł CC-CV boost (50–140), skrzynka na bank na 7 pakietów (100–200), szyny zbiorcze banku (60–140), rozłącznik nadnapięciowy (40–80), rozłącznik masy (40–70) |
-| Czego **nie** kupujesz | VSR, ładowarka B2B, DAC USB, karta WiFi, buck dla panelu — pełna lista z powodami tamże |
+| **Razem do kupienia** | **~790–1380 PLN** bez pozycji „do wyceny” (wkładki MIDI/ANL, bloki zbiorcze, stal na kosze) |
+| Największe pozycje | 2 × XY-SK120 (120–180), 2 × XH-M603 (80–160), przetwornica step-up 20 V (60–130), przewód 6 mm² OFC (90–135), przewód 4 mm² (65–110) |
+| Czego **nie** kupujesz | boost z diodą, przetwornica 19 V, przewód CCA, płaskowniki na szyny, VSR, DAC USB, karta WiFi — pełna lista z powodami tamże |
 | Warto dołożyć | multimetr z pomiarem prądu DC 10 A — bez niego nie odbierzesz instalacji |
 
 Masz już: M910q, ekran 7", MT7921, pody SWC, modem LTE, 8 × HR1221W
-(**do banku idzie 7** — §3.4, jeden zostaje w zapasie), XL6019, XH-M609,
-Pro Micro, Nano V3, LM2596 i MP1584.
+(**do banku idzie 7** — §3.4, jeden zostaje w zapasie), XH-M609,
+Pro Micro, Nano V3, LM2596 i MP1584. XL6019 zostaje na półce.
 
 ---
 
@@ -2263,18 +2203,21 @@ docelową — §7–§8 [`WDROZENIE_M910Q.md`](WDROZENIE_M910Q.md).
 ### 6.3 Kolejność załączania
 
 ```
- 1. Rozłącznik masy ROZWARTY, bank odłączony, ładowarka odłączona
- 2. Nastawy XL6019, XH-M609, boostu i rozłącznika nadnapięciowego
-    sprawdzone na zasilaczu laboratoryjnym — wszystkie cztery
- 3. Bezpieczniki na pakietach założone, bank złożony i zmierzony
- 4. Bank → XH-M609 (bezpiecznik 15 A)
- 5. Pomiar napięcia na wyjściu XL6019 BEZ podłączonego M910q → 19,5 V
+ 1. Rozłącznik masy ROZWARTY, bank odłączony, ładowarki odłączone, F1 wyjęty
+ 2. Na stole: step-up (19,9–20,5 V bez obciążenia, test ~60 W i przy 11,0 V),
+    2 × XY-SK120, 2 × XH-M603 (z testem „12,6 V tylko na OUT”), XH-M609 —
+    ZB §11 Etap 1
+ 3. Kosze przykręcone, bezpieczniki na pakietach założone, bank złożony
+    na blokach i zmierzony (odbiór L+ / P−)
+ 4. Bank → XH-M609 (F7 20 A MIDI/ANL)
+ 5. Pomiar napięcia na wyjściu step-upu BEZ podłączonego M910q → 19,9–20,5 V
  6. Dopiero teraz M910q
  7. Tor ładowania podłączany JAKO OSTATNI, przy zgaszonym silniku
- 8. Rozruch silnika i pomiar prądu ładowania cęgami/bocznikiem
+ 8. Rozruch silnika i pomiar prądu: ok. 10 A przy F12, netto do banku
+    ok. 5–7 A (cęgi albo bocznik; 5 A = dolna granica z §3.3)
 ```
 
-Punkt 5 pomijany „bo przecież ustawiałem" to najczęstszy sposób na zabicie
+Punkt 5 pomijany „bo przecież sprawdzałem na biurku" to najczęstszy sposób na zabicie
 płyty głównej. Punkt 7 pomijany to najczęstszy sposób na zabicie banku.
 
 Pełna procedura siedmioetapowa (z pomiarami na każdym kroku):
@@ -2302,31 +2245,33 @@ Pełna procedura siedmioetapowa (z pomiarami na każdym kroku):
 **Zasilanie — postój**
 
 ```
-[ ] Napięcie na wtyku M910q ≥ 19,0 V pod obciążeniem — z podłączonym
+[ ] Napięcie na wtyku M910q ≥ 19,5 V pod obciążeniem — z podłączonym
     panelem, bo on też wisi na tej szynie (§3.1)
 [ ] Panel nie miga i nie restartuje się przy jasnym obrazie (budżet USB)
-[ ] Po 30 min pracy XL6019 nie parzy w dotyku
+[ ] Po 30 min pracy obudowa step-upu < 60 °C (ZB §3.4)
 [ ] XH-M609 odcina przy 11,00 V (test zasilaczem, nie rozładowywaniem banku)
 [ ] Pro Micro pracuje przy M910q w S3 (zasilany z MP1584, nie z USB — §3.1a)
 [ ] Impuls 250 ms z A2 usypia maszynę, kolejny ją budzi
 [ ] Impuls 5 s wyłącza twardo, krótki startuje z powrotem
-[ ] Pobór z banku przy M910q w S3 — ZMIERZ i zapisz; od tej liczby zależy,
-    ile dni auto może postać (§3.1a)
+[ ] Pobór z banku przy M910q w S3 — ZMIERZ i zapisz (razem z prądem
+    jałowym step-upu); od tej liczby zależy, ile dni auto może postać (§3.1a)
 ```
 
 **Zasilanie — ładowanie**
 
 ```
-[ ] Kluczyk OFF → przekaźnik ładowania rozwarty, zerowy prąd z akumulatora
-    rozruchowego
-[ ] Kluczyk ON → przekaźnik zwiera się, prąd ładowania rusza
-[ ] Dioda MBR2545CT po 30 min jazdy ciepła, ale nie parząca (radiator)
-[ ] Prąd wyjściowy boostu nie przekracza nastawy CC (§3.3)
-[ ] Napięcie na banku po godzinie jazdy w przedziale 14,35–14,45 V
-[ ] Prąd ładowania spada w miarę ładowania (dowód, że moduł REGULUJE,
-    a nie stoi w pass-through — §3.2)
-[ ] Rozłącznik nadnapięciowy odcina przy 15,30 V (test zasilaczem)
-[ ] Moduł boost po 30 min jazdy w granicach temperatury (radiator, przewiew)
+[ ] Silnik zgaszony → K1 rozwarty, obie XY-SK120 ciemne, prąd z banku
+    w stronę ładowarek < 1 mA (amperomierz przy F12)
+[ ] Silnik pracuje → K1 zwiera się, obie XY-SK120 w CC (ok. 5,0 A każda),
+    przy F12 ok. 10 A
+[ ] Kluczyk na ON bez silnika: przy cewce z D+ albo LVP 12,8 V moduły
+    NIE ładują (§3.2)
+[ ] Napięcie na banku pod koniec absorpcji (prąd < 1 A) = nastawa CV
+    ± 0,05 V (14,40 V zimą, 13,95 V latem — §3.2)
+[ ] Prąd ładowania spada w miarę ładowania (CC → CV)
+[ ] Oba XH-M603 odcinają przy 15,30 V (test zasilaczem)
+[ ] Po 30 min jazdy: radiatory XY-SK120, zaciski XH-M603 i oprawki FC1/FC2
+    letnie, nie gorące; pakiety w koszach letnie
 ```
 
 Pomiar poboru w S3 jest tu ważniejszy niż cokolwiek innego na tej liście —
@@ -2340,11 +2285,11 @@ razem pamiętać o wyłączniku głównym (§3.1a).
 | Nie ma | Wróci przy |
 |--------|-----------|
 | Domeny A (Nano ×2, HM-10, RXB6, przekaźniki) | dokupieniu płytek + MP1584 12 → 5 V |
-| Kompensacji temperaturowej ładowania | ładowarce B2B (wariant A, §5.2 `ZASILANIE_BUFOROWANE.md`) |
+| Kompensacji temperaturowej ładowania | izolowanej ładowarce B2B z presetem AGM (ZB §5.7); do tego czasu sezonowa zmiana CV (§3.2) |
 | Automatycznego S3 na zapłon | wejściu zapłonu w Pro Micro + hakowi po stronie hosta — §3.1a |
 | Sprzężenia zwrotnego o stanie maszyny | wejściu z diody zasilania panelu przedniego — §3.1a |
 | Regulacji podświetlenia (PWM) z BCM | Nano #1 — §3.1c; przyciemnianie obrazu (nakładka, opcjonalnie DDC/CI) daje już `modules.auto_brightness` — §5.14 |
-| Drugiego ekranu | panelu 6,86" — hot-plug, ale **nie na USB M910q**: dwa panele nie zmieszczą się w zapasie XL6019 (§3.1) |
+| Drugiego ekranu | panelu 6,86" — hot-plug, ale **nie na USB M910q**: dwa panele nie zmieszczą się w budżecie portu USB (§3.1b) |
 | OBD / K-Line | CP2102 + L9637D |
 | Kamer, parkowania, czujników | grabera, HC-SR04, DS18B20, obu Nano |
 | Wzmacniacza i głośników | zakupie gotowego modułu (osobna gałąź) |
@@ -2368,7 +2313,7 @@ i weryfikowalny osobno:
 | 7 | kamery + graber | `camera` (`crash_detect` działa bez kamer — §5.8; z nimi chroni też nagranie) |
 | 8 | GPS | `location`, `tracking` |
 | 9 | ekran 6,86" | `small_display` (hotplug — wystarczy wpiąć) |
-| 10 | ładowarka B2B zamiast przekaźnika + boostu | bez zmian w configu — absorpcja 14,4 V z kompensacją, przewód 6 mm² |
+| 10 | izolowana ładowarka B2B zamiast 2 × XY-SK120 (opcja, ZB §5.7) | bez zmian w configu — profil AGM z float; warstwa nadnapięciowa na pełny prąd to osobny projekt |
 
 Po każdym kroku przełóż odpowiedni klucz z `bcm_config_test.yaml` albo
 przejdź na `bcm_config.yaml`, gdy większość będzie już podłączona.

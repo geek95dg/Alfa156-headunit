@@ -24,16 +24,16 @@
       <ul>
         <li><a href="index.html"><span class="nav-num"></span>Overview</a></li>
         <li><a href="01-bom.html"><span class="nav-num">01</span>Bill of Materials</a></li>
-        <li><a href="02-power.html"><span class="nav-num">02</span>Power Supply</a></li>
+        <li><a href="02-assembly.html"><span class="nav-num">02</span>Physical Assembly</a></li>
         <li><a href="03-os-install.html"><span class="nav-num">03</span>OS Installation</a></li>
-        <li><a href="04-packages.html"><span class="nav-num">04</span>System Packages</a></li>
-        <li><a href="05-bcm-install.html"><span class="nav-num">05</span>BCM Installation</a></li>
-        <li><a href="06-systemd.html"><span class="nav-num">06</span>Systemd Services</a></li>
-        <li><a href="07-sensors.html"><span class="nav-num">07</span>Sensors</a></li>
+        <li><a href="04-software.html"><span class="nav-num">04</span>BCM Software</a></li>
+        <li><a href="05-kline-obd.html"><span class="nav-num">05</span>K-Line OBD-II</a></li>
+        <li><a href="06-arduino.html"><span class="nav-num">06</span>Arduino Wiring</a></li>
+        <li><a href="07-sensors.html"><span class="nav-num">07</span>Environmental Sensors</a></li>
         <li><a href="08-wifi-bt.html" class="active"><span class="nav-num">08</span>WiFi &amp; Bluetooth</a></li>
         <li><a href="09-display-touch.html"><span class="nav-num">09</span>Display &amp; Touch</a></li>
-        <li><a href="10-wifi.html"><span class="nav-num">10</span>WiFi &amp; Android Auto</a></li>
-        <li><a href="11-arduino.html"><span class="nav-num">11</span>Arduino Wiring</a></li>
+        <li><a href="10-power-suspend.html"><span class="nav-num">10</span>Power &amp; Suspend</a></li>
+        <li><a href="11-android-auto.html"><span class="nav-num">11</span>Android Auto</a></li>
         <li><a href="12-verification.html"><span class="nav-num">12</span>Verification</a></li>
       </ul>
     </nav>
@@ -271,7 +271,7 @@ hciconfig -a                           # expect hci0 UP RUNNING, Manufacturer: M
   dhcp_end: 10.0.0.50
   alfa_net:
     enabled: true     # requires second radio (USB WiFi dongle)
-    interface: ''     # '' = auto-detect a 2nd-PHY radio; or pin e.g. 'wlx<mac>'
+    interface: ''     # '' = auto-detect a 2nd-PHY radio; or pin e.g. 'wlx&lt;mac&gt;'
     ssid: ALFA-NET
     password: AlfaRomeo156
     channel: 6        # 2.4 GHz
@@ -585,7 +585,7 @@ bluetoothctl devices Paired</code></pre>
 
       <!-- ---- Page Navigation ---- -->
       <div class="page-nav">
-        <a href="07-sensors.html">&larr; 07 &mdash; Sensors</a>
+        <a href="07-sensors.html">&larr; 07 &mdash; Environmental Sensors</a>
         <a href="09-display-touch.html">09 &mdash; Display &amp; Touch &rarr;</a>
       </div>
 

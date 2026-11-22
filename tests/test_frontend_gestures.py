@@ -93,7 +93,15 @@
 * weather_escape_smoke.js: screens/weather.js — geocoder place names and
   the weather city / condition never become markup, results are picked via
   data-weather-idx + one delegated listener, and only valid coordinates reach
-  the map and POST /api/weather/location.
+  the map and POST /api/weather/location;
+* spectrum_smoke.js: the A1 spectrum strip in screens/main.js — rAF easing
+  toward the last frame, falling peak caps, 2 px baseline at silence,
+  fillRect without roundRect, whole-pixel canvas, cached gradient, theme CSS
+  colours, garbage payloads, loop stops on unmount / missing canvas;
+* spectrum_browser_smoke.js: the same strip in headless Chromium at
+  1024x600 in all three themes (pixels: baseline at silence, bars with
+  music), without roundRect, and a throwing screen update() that must not
+  keep the reverse-camera view from opening. Skipped without playwright.
 """
 
 import json
@@ -372,7 +380,8 @@ def test_call112_in_chromium():
                                      "settings_parking_guard_smoke.js",
                                      "settings_cabin_watch_smoke.js",
                                      "settings_brightness_smoke.js",
-                                     "crash_modal_smoke.js", "wake_banner_smoke.js"])
+                                     "crash_modal_smoke.js", "wake_banner_smoke.js",
+                                     "spectrum_smoke.js"])
 def test_screen_harness(harness):
     res = subprocess.run([NODE, str(JS / harness)], capture_output=True, text=True,
                          timeout=60)
@@ -433,6 +442,19 @@ def test_dim_overlay_in_chromium():
     """modules.auto_brightness: the dimming overlay under the safety views
     and the "Jasność ekranu" row at 1024x600 (see the harness)."""
     res = subprocess.run([NODE, str(JS / "dim_overlay_browser_smoke.js")],
+                         capture_output=True, text=True, timeout=120)
+    out = res.stdout.strip()
+    if res.returncode == 0 and out.startswith("SKIP:"):
+        pytest.skip(out[5:].strip())
+    assert res.returncode == 0, res.stderr or res.stdout
+    assert out.endswith("ok"), out
+
+
+@pytest.mark.timeout(150)
+def test_spectrum_strip_in_chromium():
+    """A1 spectrum canvas: baseline at silence, bars with music, no roundRect,
+    and a renderer exception cannot skip the reverse view (see the harness)."""
+    res = subprocess.run([NODE, str(JS / "spectrum_browser_smoke.js")],
                          capture_output=True, text=True, timeout=120)
     out = res.stdout.strip()
     if res.returncode == 0 and out.startswith("SKIP:"):

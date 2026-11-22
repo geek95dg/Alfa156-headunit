@@ -20,8 +20,19 @@
     </div>
     <nav>
       <ul>
-        <li><a href="01-bom.html"><span class="nav-num">01</span> Bill of Materials</a></li>
-        <li><a class="active" href="02-assembly.html"><span class="nav-num">02</span> Physical Assembly</a></li>
+        <li><a href="index.html"><span class="nav-num"></span>Overview</a></li>
+        <li><a href="01-bom.html"><span class="nav-num">01</span>Bill of Materials</a></li>
+        <li><a href="02-assembly.html" class="active"><span class="nav-num">02</span>Physical Assembly</a></li>
+        <li><a href="03-os-install.html"><span class="nav-num">03</span>OS Installation</a></li>
+        <li><a href="04-software.html"><span class="nav-num">04</span>BCM Software</a></li>
+        <li><a href="05-kline-obd.html"><span class="nav-num">05</span>K-Line OBD-II</a></li>
+        <li><a href="06-arduino.html"><span class="nav-num">06</span>Arduino Wiring</a></li>
+        <li><a href="07-sensors.html"><span class="nav-num">07</span>Environmental Sensors</a></li>
+        <li><a href="08-wifi-bt.html"><span class="nav-num">08</span>WiFi &amp; Bluetooth</a></li>
+        <li><a href="09-display-touch.html"><span class="nav-num">09</span>Display &amp; Touch</a></li>
+        <li><a href="10-power-suspend.html"><span class="nav-num">10</span>Power &amp; Suspend</a></li>
+        <li><a href="11-android-auto.html"><span class="nav-num">11</span>Android Auto</a></li>
+        <li><a href="12-verification.html"><span class="nav-num">12</span>Verification</a></li>
       </ul>
     </nav>
   </aside>
@@ -45,8 +56,9 @@
         <div class="box-title">Safety first</div>
         <p>
           Disconnect the car's negative battery terminal before doing any wiring. Use properly rated
-          fuses on all power lines. The M910q draws up to 65 W at 20 V — ensure your DC-DC converter
-          and wiring can handle the current.
+          fuses on all power lines, each at the source end of its wire. The M910q draws up to 65 W at 20 V
+          (6.6 A from the bank at 11 V) &mdash; the 200 W step-up and the 4 mm&sup2; wiring in section 2
+          are sized for that. The AGM bank can deliver ~2.2 kA into a short: cover its terminal blocks.
         </p>
       </div>
 
@@ -128,6 +140,12 @@
         </table>
       </div>
 
+      <p>
+        The buffer bank, chargers, LVD and the 20 V step-up live in the trunk, not next to the PC. The
+        wire sizes in section 2 assume about <strong>4 m</strong> from the trunk to the M910q (passenger
+        footwell or behind the console); measure your route and re-check the voltage drop if it is longer.
+      </p>
+
       <h3>1.3 Ventilation Requirements</h3>
 
       <p>
@@ -162,52 +180,66 @@
 
       <h2 id="power-wiring">2. Power Wiring</h2>
 
-      <h3>2.1 Power Supply Chain</h3>
+      <div class="box box-info">
+        <div class="box-title">Authoritative source</div>
+        <p>
+          The full buffered power design &mdash; every fuse, wire size and test step &mdash; is
+          <code>docs/ZASILANIE_BUFOROWANE.md</code> (ZB, Polish); terminal-by-terminal wiring is
+          <code>docs/SCHEMATY_POLACZEN.md</code>. This page is a summary; where it differs, ZB wins.
+        </p>
+      </div>
 
+      <h3>2.1 Power Supply Chain</h3>
       <p>
-        The M910q requires <strong>20 V DC</strong> via a barrel jack
-        (not the standard 12 V car supply). An XL6019 boost converter
-        steps up the 12 V rail. A <strong>battery buffer of 4&ndash;6
-        parallel SLA 12 V 5 Ah batteries</strong> (20&ndash;30 Ah total)
-        provides cranking protection and powers the always-on Domain A
-        subsystem (Arduino Nano + HM-10 + RXB6 + relays) while the
-        M910q is asleep. See
-        <a href="10-power-suspend.html">10 &mdash; Power / Suspend</a>
-        for the full architecture and standby budget.
+        The M910q requires <strong>20 V DC</strong> on its Lenovo slim-tip plug and works only in the
+        <strong>19&ndash;21 V window &mdash; it will not boot outside it</strong>. A potted
+        <strong>12 V &rarr; 20 V, 10 A step-up converter</strong> in the trunk feeds it from a
+        <strong>bank of seven CSB HR1221W AGM batteries</strong> (35.7 Ah) in two steel baskets
+        (4 + 3) bolted to the bulkhead behind the rear seat. Everything hangs on <strong>one buffered
+        bus</strong> behind the LVD: there is no ignition relay in front of the loads. Ignition is only
+        a signal &mdash; Nano #2 (sensor hub) turns it into a power-button pulse for S3 suspend and
+        wake. See <a href="10-power-suspend.html">10 &mdash; Power / Suspend</a>.
       </p>
 
-      <pre class="ascii-art"><code>Car 12V ─[30A fuse]─┬─[Schottky MBR2045]─┐
-                    │                     │
-                    │                     ▼
-                    │  ┌─────────────────────────────────┐
-                    │  │ CC-CV charge controller         │
-                    │  │ DC-DC buck, 15-20A bulk limit   │
-                    │  │ 14.4V absorb / 13.8V float      │
-                    │  └────────────┬────────────────────┘
-                    │               │
-                    │  ┌────────────▼────────────────────┐
-                    │  │ Battery buffer bus 12V          │
-                    │  │ 4-6 × SLA 5 Ah parallel         │
-                    │  │ (per-battery 10A fuses)         │
-                    │  └────────────┬────────────────────┘
-                    │               │
-                    │      ┌────────┴───────────┐
-                    │      │ LVD 11.0V cutoff   │
-                    │      └────────┬───────────┘
-                    │               │
-                    │      ┌────────┼──────────┐
-                    │      │        │          │
-                    ▼      ▼        ▼          ▼
-                  Ign-relay   Buck 12→5V  9-ch relay
-                    │         (Nano +     (12V coils,
-                    ▼          HM-10 +    Nano-driven)
-              [12V→20V boost]   RXB6)
-                    │
-                    ▼
-              M910q barrel jack + USB hub (Domain B)</code></pre>
+      <pre class="ascii-art"><code>Starter battery +12 V
+ │
+ ├─[F1 20 A, ≤ 30 cm from the terminal]── 6 mm² OFC, ~5 m to the trunk
+ │     │
+ │     ▼  TVS SMCJ20CA + 470 µF ── K1 charge relay 30 A (coil: ignition / D+ via FK 1 A)
+ │                                  │ open with the engine off: the starter battery
+ │                                  │ never feeds the head unit while parked
+ │                     ┌────────────┴────────────┐
+ │                XY-SK120 #1               XY-SK120 #2      buck-boost CC-CV,
+ │                     │                         │           CV 14.40 V, CC 5.0 A each
+ │                XH-M603 #1                XH-M603 #2       open above 15.30 V
+ │                 [FC1 7.5 A]              [FC2 7.5 A]
+ │                     └────────────┬────────────┘
+ │                             [F12 15 A]
+ │                                  ▼
+ │   ┌───────────────────────────────────────────────────────────┐
+ │   │ Bank: 7 × CSB HR1221W AGM in parallel = 35.7 Ah           │
+ │   │ steel baskets 4 + 3 in the trunk, linked by 6 mm² cable   │
+ │   │ FB1…FB7 10 A on every pack                                │
+ │   └───────────────────────────┬───────────────────────────────┘
+ │                          L+ [F7 20 A]
+ │                               ▼
+ │                 XH-M609 LVD  11.00 V off / 12.60 V on
+ │                               │  buffered bus (always on)
+ │     ┌────────────┬────────────┼────────────┬─────────────┐
+ │ [F8 10 A]    [F9 2 A]    [F10 3 A]    [F11 5 A]    [F13 2 A] (option)
+ │ step-up      LM2596      MP1584       AUX 12 V     phone 5 V
+ │ 12 → 20 V    5 V         5 V          relay        injector
+ │ 10 A potted  displays    Nano #1/#2,  module
+ │ [5 A out]                HM-10, RXB6
+ │   │ 2 × 4 mm², ~4 m
+ │   ▼
+ │ M910q — powered all the time; ignition is only a signal:
+ │ Nano #2 (sensor hub) pulses the power button → S3 / wake
+ │
+ └─[fuse per amplifier datasheet, at the terminal]── 6 mm² ── amplifier
+       own branch, local ground, REM from terminal 87 — never through the bank or the LVD</code></pre>
 
       <h3>2.2 Component Details</h3>
-
       <div class="table-wrap">
         <table>
           <thead>
@@ -219,65 +251,78 @@
           </thead>
           <tbody>
             <tr>
-              <td><strong>30 A blade fuse (main)</strong></td>
-              <td>Main feed protection from car battery (bumped from 25 A to cover SLA bank charging surge)</td>
-              <td>30 A / 32 V</td>
+              <td><strong>F1 &mdash; charging feed fuse</strong></td>
+              <td>The only link from the starter battery to the head-unit kit (the amplifier has its own branch). Two XY-SK120 draw 11.9&ndash;13.0 A from the car, so 15 A would sit at 80&ndash;87 % all trip</td>
+              <td>20 A, &le; 30 cm from the battery terminal</td>
             </tr>
             <tr>
-              <td><strong>Schottky diode MBR2045</strong></td>
-              <td>Prevents the buffer bus from backfeeding into car battery (one-way isolator only)</td>
-              <td>20 A / 45 V, 0.5 V drop</td>
+              <td><strong>TVS + capacitor</strong></td>
+              <td>Clamp load-dump and ignition spikes at the charger input</td>
+              <td>SMCJ20CA, 470 &micro;F / 35 V low-ESR</td>
             </tr>
             <tr>
-              <td><strong>CC-CV charge controller</strong></td>
-              <td><strong>Mandatory.</strong> Limits bulk-charge current from the 120 A alternator and applies a 3-stage SLA charge profile (14.4 V absorb &rarr; 13.8 V float). Without this, the Schottky melts and the SLA bank dies within months.</td>
-              <td>XL4016 DC-DC buck, 15&ndash;20 A, adjustable V/I</td>
+              <td><strong>K1 charge relay</strong></td>
+              <td>Connects the chargers to the car only with ignition / D+ on; with the engine off the bank is isolated and the car always starts</td>
+              <td>12 V coil, 30 A SPDT; coil fuse FK 1 A at the tap point</td>
             </tr>
             <tr>
-              <td><strong>SLA 12 V 5 Ah × 4&ndash;6 (parallel pack)</strong></td>
-              <td>Cranking buffer + Domain A standby. 5 packs (25 Ah) = ~17 days parked at 60 mA Domain A draw</td>
-              <td>12 V sealed lead-acid, 50&nbsp;% DoD cycled</td>
+              <td><strong>2&times; XY-SK120</strong></td>
+              <td>Buck-boost CC-CV chargers in parallel. Buck-boost works at 12.5&ndash;14.7 V input, so no isolating diode is needed. One alone would leave about &minus;1&hellip;+1 A net (&asymp; 0) for the bank while the system draws 4&ndash;6 A</td>
+              <td>CV 14.40 V, CC 5.0 A each (~10 A together)</td>
             </tr>
             <tr>
-              <td><strong>Per-battery fuses</strong></td>
-              <td>Isolates a shorted pack from the bus</td>
-              <td>10 A inline blade, one per SLA pack</td>
+              <td><strong>2&times; XH-M603</strong></td>
+              <td>Overvoltage disconnect, one per charger (the board carries ~8&ndash;10 A in practice)</td>
+              <td>15.30 V off / 14.00 V on; FC1/FC2 7.5 A at OUT+</td>
             </tr>
             <tr>
-              <td><strong>LVD cutoff (11.0 V)</strong></td>
-              <td>Disconnects load when bus drops below 11.0 V to keep SLA cycle life intact</td>
-              <td>11.0 V threshold, 30 A</td>
+              <td><strong>F12</strong></td>
+              <td>Charging lead into the bank block L+</td>
+              <td>15 A, MIDI/AMI or ANL class (&ge; 2.5 kA breaking capacity per datasheet)</td>
             </tr>
             <tr>
-              <td><strong>Ignition relay (Domain B switch)</strong></td>
-              <td>Bosch 30 A SPDT, coil on ACC line. Closes for Domain B power on ACC, opens on park.</td>
-              <td>12 V coil, 30 A contacts</td>
+              <td><strong>Bank 7&times; CSB HR1221W</strong></td>
+              <td>Cranking buffer and parked-car supply. Packs linked by cable in two baskets (4 + 3), equal lead lengths, positive taken from the left basket and negative from the right</td>
+              <td>12 V / 5.1 Ah AGM each, 35.7 Ah total; FB1&hellip;FB7 10 A per pack</td>
             </tr>
             <tr>
-              <td><strong>XL6019 boost converter</strong></td>
-              <td>Steps 12 V up to 20 V for M910q barrel jack</td>
-              <td>65 W max, adjustable output</td>
+              <td><strong>F7</strong></td>
+              <td>Bank block L+ to the LVD</td>
+              <td>20 A, MIDI/AMI or ANL class (bank short-circuit current ~2.2 kA)</td>
             </tr>
             <tr>
-              <td><strong>5 A blade fuse</strong></td>
-              <td>M910q input protection (after boost converter)</td>
-              <td>5 A / 32 V</td>
+              <td><strong>XH-M609 LVD</strong></td>
+              <td>Cuts the whole buffered bus before the AGM bank is damaged; must switch the positive line</td>
+              <td>11.00 V off / 12.60 V on, 20 A relay</td>
             </tr>
             <tr>
-              <td><strong>20 A blade fuse</strong></td>
-              <td>TDA7388 amplifier protection</td>
-              <td>20 A / 32 V</td>
+              <td><strong>Step-up 12 &rarr; 20 V</strong></td>
+              <td>Feeds the M910q all the time, from the trunk (20 V over ~4 m loses less than 12 V would, and the LVD measures the bank, not a long wire)</td>
+              <td>Potted IP67/IP68, 20 V, 10 A (200 W); F8 10 A in, 5 A out; 4 mm&sup2;</td>
+            </tr>
+            <tr>
+              <td><strong>LM2596 / MP1584</strong></td>
+              <td>5 V for the displays / 5 V for the Arduino boards, HM-10, RXB6 (MP1584 must stay alive while the M910q sleeps)</td>
+              <td>F9 2 A / F10 3 A</td>
+            </tr>
+            <tr>
+              <td><strong>Amplifier branch</strong></td>
+              <td>Straight from the starter battery, not from the bank: amplifier peaks would exceed the 20 A LVD relay</td>
+              <td>Fuse per the amplifier datasheet (typically 20&ndash;30 A), 6 mm&sup2;</td>
             </tr>
           </tbody>
         </table>
       </div>
 
       <div class="box box-danger">
-        <div class="box-title">Boost converter tuning</div>
+        <div class="box-title">Step-up converter check (there is nothing to adjust)</div>
         <p>
-          Before connecting the M910q, adjust the XL6019 output to exactly <strong>20.0 V</strong> using
-          a multimeter. The M910q tolerates 19-21 V but will not boot outside that range. Secure the
-          adjustment potentiometer with a drop of nail polish or thread locker to prevent vibration drift.
+          Potted 20 V modules usually have a <strong>fixed output</strong> and no potentiometer. Before
+          connecting the M910q, measure each unit on the bench (ZB &sect;3.4): no-load output must not
+          exceed <strong>20.5 V</strong> &mdash; reject the unit if it does, 21 V is the top of the
+          M910q window. Load it to ~60 W and check its temperature, then lower the input to 11 V and
+          see whether it still regulates. Over ~4 m of 4 mm&sup2; about 0.1 V is lost, so ~19.9 V
+          reaches the plug; a 19 V module would end up below 19 V &mdash; do not buy one.
         </p>
       </div>
 
@@ -296,12 +341,15 @@
 
       <pre class="ascii-art"><code>M910q USB ports
   ├── USB Hub (powered, 7-port)
-  │     ├── Arduino Pro Micro #1 (input: SWC, buttons, doors, sensors)
-  │     ├── Arduino Nano #2 (output: relays, lock, lights, wipers)
+  │     ├── Arduino Pro Micro (input: SWC, buttons, encoder)
+  │     ├── Arduino Nano #1 (output: window/trunk relays, backlight PWM)
+  │     ├── Arduino Nano #2 (sensor hub: doors, ignition, rain, DS18B20,
+  │     │                    power-button relay)
+  │     ├── CP2102 (K-Line / OBD)
   │     ├── USB GPS (NEO-M8N)
   │     ├── USB LTE modem (Huawei E3372)
   │     └── USB microphone
-  ├── USB DAC (ES9038Q2M) → RCA → TDA7388 + TDA2050
+  ├── USB DAC (ES9038Q2M) → RCA → ready-made car amplifier
   └── USB 4-ch AHD grabber (cameras)</code></pre>
 
       <h3>3.1 Port Assignment Rationale</h3>
@@ -342,7 +390,9 @@
 
       <p>
         The M910q has <strong>2&times; DisplayPort</strong> outputs (mini-DP on some revisions, full-size
-        DP on others). Both car displays use HDMI input, so passive DP-to-HDMI adapter cables are required.
+        DP on others; some units have HDMI &mdash; check yours). If the panels take HDMI and the PC has DP,
+        passive DP-to-HDMI adapter cables are required. Resolutions come from <code>display.dashboard</code>
+        and <code>display.small</code> in <code>config/bcm_config.yaml</code>.
       </p>
 
       <h3>4.1 Connections</h3>
@@ -361,13 +411,13 @@
             <tr>
               <td>DP port 1</td>
               <td>DP-to-HDMI passive cable</td>
-              <td><strong>7" IPS touchscreen</strong> (1024&times;600)</td>
+              <td><strong>10.1" IPS touchscreen</strong> (1280&times;800)</td>
               <td>HDMI video + USB touch (separate USB cable)</td>
             </tr>
             <tr>
               <td>DP port 2</td>
               <td>DP-to-HDMI passive cable</td>
-              <td><strong>4.3" TFT status display</strong> (800&times;480)</td>
+              <td><strong>6.86" widescreen</strong> (1280&times;480), optional, hot-plug</td>
               <td>HDMI video only (no touch)</td>
             </tr>
           </tbody>
@@ -386,8 +436,8 @@
           <thead>
             <tr>
               <th>Tool</th>
-              <th>Main Display (7")</th>
-              <th>Status Display (4.3")</th>
+              <th>Main Display (10.1")</th>
+              <th>Second Display (6.86")</th>
             </tr>
           </thead>
           <tbody>
@@ -420,7 +470,7 @@
       <h3>4.3 Touchscreen USB</h3>
 
       <p>
-        The 7" touchscreen requires a separate USB cable for its touch digitizer. This connects to the
+        The 10.1" touchscreen requires a separate USB cable for its touch digitizer. This connects to the
         M910q via the powered USB hub. The touch input is an HID device and appears as
         <code>/dev/input/eventN</code>. Map it to the correct display output using:
       </p>
@@ -443,15 +493,18 @@
        │
    RCA stereo out
        │
-  ┌────┴─────────────────────────┐
-  │                               │
-  │  TDA7388 (4×45W)              │  TDA2050 (40W mono)
-  │  Class AB amplifier           │  Subwoofer amplifier
-  │                               │  (optional, Stage 4)
-  ├──── FL speaker                │
-  ├──── FR speaker                └──── Subwoofer
+  ┌────┴──────────────────────────────┐
+  │                                    │
+  │  Ready-made 4-ch car amplifier     │  Mono car amplifier
+  │  class D, 4 × 50–75 W RMS          │  (optional, Stage 4)
+  │                                    │
+  ├──── FL speaker                     └──── Subwoofer
+  ├──── FR speaker
   ├──── RL speaker
-  └──── RR speaker</code></pre>
+  └──── RR speaker
+
+  Amplifier power: own fused branch straight from the starter battery,
+  local ground, REM from terminal 87 — not from the buffer bank.</code></pre>
 
       <h3>5.2 Wiring Details</h3>
 
@@ -461,11 +514,11 @@
           (red/white). Use shielded RCA cables to avoid alternator whine.
         </li>
         <li>
-          <strong>TDA7388 input:</strong> RCA stereo in. The TDA7388 has 4 channels — front pair driven
-          directly from left/right, rear pair wired in parallel (same signal) or via a balance control.
+          <strong>Amplifier input:</strong> RCA stereo in. The amplifier has 4 channels — front pair driven
+          directly from left/right, rear pair from a Y-splitter (same signal) or via a balance control.
         </li>
         <li>
-          <strong>TDA7388 outputs:</strong> 4 pairs of speaker wires to the car's existing speaker harness.
+          <strong>Amplifier outputs:</strong> 4 pairs of speaker wires to the car's existing speaker harness.
           Use the Alfa 156 ISO connector pinout:
         </li>
       </ul>
@@ -475,7 +528,7 @@
           <thead>
             <tr>
               <th>Channel</th>
-              <th>TDA7388 Output</th>
+              <th>Amplifier Output</th>
               <th>Speaker Location</th>
               <th>Wire Colour (Alfa 156)</th>
             </tr>
@@ -512,17 +565,27 @@
       <h3>5.3 Subwoofer (Optional — Stage 4)</h3>
 
       <ul>
-        <li>The TDA2050 takes the same RCA input as the TDA7388 (Y-splitter).</li>
-        <li>A passive low-pass filter (capacitor + resistor) at the TDA2050 input cuts frequencies above ~120 Hz.</li>
+        <li>A ready-made mono car amplifier takes the same RCA signal as the main amplifier (Y-splitter).</li>
+        <li>Use the amplifier&#39;s own low-pass crossover if it has one (check your unit); without a subwoofer, set a ~80 Hz high-pass on all main channels instead.</li>
+        <li>Power it like the main amplifier: its own fused branch from the starter battery, never from the buffer bank.</li>
         <li>Output drives a single 8 &Omega; or 4 &Omega; subwoofer driver.</li>
       </ul>
 
       <div class="box box-warning">
-        <div class="box-title">Ground loops</div>
+        <div class="box-title">Grounding &mdash; one star point, amplifier separate</div>
         <p>
-          To avoid alternator whine in the audio, ensure the USB DAC, amplifiers, and M910q share a
-          single ground point on the car chassis. Do not use separate ground connections. Use a ground
-          loop isolator on the RCA cable if whine persists.
+          The head unit has <strong>one ground point</strong>, in the trunk next to the bank (ZB &sect;8.3):
+          bank, chargers, XH-M603, LVD, distribution, step-up, the 20 V return from the M910q and the
+          common 12 V return from the front all meet there, and one 6 mm&sup2; lead goes to bare body
+          metal (not the floor above the fuel tank). The M910q, panels and front modules get
+          <strong>no ground of their own</strong> to the body.
+        </p>
+        <p>
+          The <strong>amplifier is the exception</strong>: it has its own local ground, close to the
+          amplifier, and is linked to the head unit only by the REM wire and the RCA screen. Run the RCA
+          cable on the opposite side of the car from the amplifier power cable. If you hear whine that
+          follows engine speed: fix the amplifier ground first, re-route the RCA second, and only then try
+          a ground-loop isolator (it costs bandwidth).
         </p>
       </div>
 
@@ -635,32 +698,32 @@ iw list | grep -A2 "Supported interface modes"
             </tr>
             <tr>
               <td>2</td>
-              <td>Tune XL6019 output to 20.0 V with multimeter</td>
-              <td>Measure at barrel jack connector</td>
+              <td>Bench-test the 20 V step-up (ZB &sect;3.4) &mdash; fixed output, nothing to tune</td>
+              <td>No-load &le; 20.5 V; still regulating at 11 V input; temperature at ~60 W</td>
             </tr>
             <tr>
               <td>3</td>
-              <td>Wire AGM battery, Schottky diode, LVD module</td>
-              <td>12 V present after LVD at rest</td>
+              <td>Set and check XY-SK120, XH-M603 and XH-M609 on the bench, then mount the AGM bank (7&times; HR1221W, baskets 4 + 3), chargers and LVD in the trunk (ZB &sect;11)</td>
+              <td>Bus voltage after the LVD at rest; F1 still out</td>
             </tr>
             <tr>
               <td>4</td>
-              <td>Connect M910q barrel jack to boost converter output</td>
-              <td>M910q power LED lights</td>
+              <td>Connect the M910q plug (cut from the original PSU, polarity checked) to the step-up output</td>
+              <td>19&ndash;21 V at the plug; M910q powers on</td>
             </tr>
             <tr>
               <td>5</td>
-              <td>Connect DP port 1 &rarr; DP-to-HDMI &rarr; 7" touchscreen</td>
+              <td>Connect DP port 1 &rarr; DP-to-HDMI &rarr; 10.1" touchscreen</td>
               <td>Display shows BIOS/GRUB</td>
             </tr>
             <tr>
               <td>6</td>
-              <td>Connect DP port 2 &rarr; DP-to-HDMI &rarr; 4.3" display</td>
+              <td>Connect DP port 2 &rarr; DP-to-HDMI &rarr; 6.86" display (optional)</td>
               <td>Second display mirrors or extends</td>
             </tr>
             <tr>
               <td>7</td>
-              <td>Connect 7" touchscreen USB cable to hub</td>
+              <td>Connect 10.1" touchscreen USB cable to hub</td>
               <td>Touch input registers in <code>xinput list</code></td>
             </tr>
             <tr>
@@ -670,7 +733,7 @@ iw list | grep -A2 "Supported interface modes"
             </tr>
             <tr>
               <td>9</td>
-              <td>Wire USB DAC RCA &rarr; TDA7388 input</td>
+              <td>Wire USB DAC RCA &rarr; amplifier input; amplifier power from its own branch at the starter battery</td>
               <td>Test tone audible on all 4 speakers</td>
             </tr>
             <tr>
@@ -690,8 +753,8 @@ iw list | grep -A2 "Supported interface modes"
             </tr>
             <tr>
               <td>13</td>
-              <td>Install fuses (5 A for M910q, 25 A for main feed)</td>
-              <td>Fuses accessible for replacement</td>
+              <td>Insert the fuses per ZB &sect;8.1 (F8 10 A in / 5 A out for the step-up, branch fuses F9&ndash;F13), F1 20 A at the starter battery last</td>
+              <td>Fuses accessible for replacement; F1 within 30 cm of the terminal</td>
             </tr>
             <tr>
               <td>14</td>
@@ -704,8 +767,8 @@ iw list | grep -A2 "Supported interface modes"
 
       <!-- Page Navigation -->
       <div class="page-nav">
-        <a href="01-bom.html">&larr; Bill of Materials</a>
-        <span></span>
+        <a href="01-bom.html">&larr; 01 &mdash; Bill of Materials</a>
+        <a href="03-os-install.html">03 &mdash; OS Installation &rarr;</a>
       </div>
 
       <!-- Footer -->

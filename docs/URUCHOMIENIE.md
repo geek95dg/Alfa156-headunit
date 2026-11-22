@@ -77,10 +77,11 @@ Materiały źródłowe, z których korzysta powyższa instrukcja:
 
 Kolejność prac w skrócie:
 
-1. **Sprzęt i zasilanie** — M910q Tiny (i5-6400T, 2× DisplayPort), dwie
-   domeny zasilania: A (always-on, bufor 4–6× SLA 5 Ah — Nano, BLE, przekaźniki)
-   i B (za zapłonem — M910q, hub USB, wyświetlacze). Szczegóły: §1–§2
-   X86_PLATFORM_SETUP.md, `01-bom.html`, `02-assembly.html`.
+1. **Sprzęt i zasilanie** — M910q Tiny (i5-6400T, 2× DisplayPort), jedna
+   szyna buforowana (bank 7 × CSB HR1221W AGM w dwóch koszach w bagażniku,
+   ładowanie 2 × XY-SK120, step-up 20 V); zapłon jest tylko sygnałem, który
+   usypia i budzi M910q. Szczegóły: `ZASILANIE_BUFOROWANE.md`, §1–§2
+   X86_PLATFORM_SETUP.md.
 2. **OS** — Debian 13 (Trixie) netinst, minimalny (tylko SSH + standard
    utils), non-free-firmware włączone (`firmware-mediatek` dla WiFi/BT
    MT7921). §3, `03-os-install.html`.
