@@ -1,12 +1,20 @@
 # Zasilanie buforowane — Lenovo M910q w Alfa Romeo 156
 
 Kompletny opis układu zasilania head unitu BCM v8.5: bufor z akumulatorów
-CSB HR1221W (AGM), ładowanie, blokada przeładowania, ochrona przed głębokim
-rozładowaniem, sterowanie stanem komputera i przetwornica step-up do 19 V.
+CSB HR1221W (AGM) w dwóch koszach w bagażniku, ładowanie z dwóch modułów
+XY-SK120, blokada przeładowania, ochrona przed głębokim rozładowaniem,
+sterowanie stanem komputera i zalewana przetwornica step-up 12 → 20 V.
 
 **Schematy blokowe:** [`../schematics/power_buffered_m910q.svg`](../schematics/power_buffered_m910q.svg) ·
 [`../schematics/charging_lvd.svg`](../schematics/charging_lvd.svg) ·
 [`../schematics/power_domains_m910q.svg`](../schematics/power_domains_m910q.svg)
+
+> **Schematy SVG i pozostałe dokumenty są aktualizowane osobno.** Do czasu
+> ich przegenerowania mogą jeszcze pokazywać poprzedni wariant (XL6019,
+> boost z diodą MBR2545CT, bank pod fotelem). Przy każdej rozbieżności
+> obowiązuje ten dokument.
+
+**Projekt koszy na bank (stal, 4 + 3 szt.):** [`mechanika/kosze_HR1221W_4+3.pdf`](mechanika/kosze_HR1221W_4+3.pdf) — streszczenie w §4.7
 
 **Jak to pospiąć — zacisk po zacisku:** [`SCHEMATY_POLACZEN.md`](SCHEMATY_POLACZEN.md)
 
@@ -18,9 +26,9 @@ rozładowaniem, sterowanie stanem komputera i przetwornica step-up do 19 V.
 
 1. [Po co bufor](#1-po-co-bufor)
 2. [Architektura — jedna szyna, trzy stany maszyny](#2-architektura--jedna-szyna-trzy-stany-maszyny)
-3. [Przetwornica step-up XL6019 — weryfikacja](#3-przetwornica-step-up-xl6019--weryfikacja)
+3. [Przetwornica step-up 12 → 20 V, 10 A (zalewana)](#3-przetwornica-step-up-12--20-v-10-a-zalewana)
 4. [Bank akumulatorów CSB HR1221W](#4-bank-akumulatorów-csb-hr1221w)
-5. [Ładowanie — dwa warianty](#5-ładowanie--dwa-warianty)
+5. [Ładowanie — 2 × XY-SK120](#5-ładowanie--2--xy-sk120)
 6. [Blokada przeładowania](#6-blokada-przeładowania)
 7. [LVD — moduł XH-M609](#7-lvd--moduł-xh-m609)
 8. [Bezpieczniki, przekroje, masa](#8-bezpieczniki-przekroje-masa)
@@ -44,8 +52,11 @@ Trzy niezależne powody — każdy sam w sobie wystarczyłby:
 | **Jakość napięcia** | Instalacja auta to śmietnik EMI: przepięcia od cewek, load dump z alternatora, tętnienia. | Bank o pojemności 35,7 Ah to gigantyczny kondensator — wygładza wszystko, co jest za nim. |
 
 Kluczowa konsekwencja architektury: **akumulator rozruchowy nigdy nie zasila
-head unitu na postoju**. Rozdziela je przekaźnik ładowania z diodą, więc auto
-zawsze odpali, choćby bank był pusty.
+head unitu na postoju**. Rozdzielają je przekaźnik ładowania K1 (rozwarty przy
+zgaszonym silniku) — sam w sobie wystarczający — oraz rozłączniki XH-M603,
+które bez zasilania mają być rozwarte; to drugie jest przyjęciem do
+sprawdzenia na stole (§5.4, §6.4 pkt 6). Auto zawsze odpali, choćby bank był
+pusty.
 
 ---
 
@@ -60,38 +71,65 @@ M910q.
 
 | | |
 |---|---|
-| **Odbiorniki stale zasilane** | M910q, hub USB, oba wyświetlacze, Arduino Pro Micro, Nano #1, Nano #2, HM-10 BLE, RXB6 433 MHz, moduł 9 przekaźników, DAC USB, graber AHD |
-| **Jedyny przekaźnik w torze mocy** | w **ładowaniu**, nie w odbiornikach — rozłącza bank od instalacji auta przy zgaszonym silniku (§5.3c) |
-| **Rola zapłonu** | sygnał do Arduino → impuls na styki przycisku zasilania → S3 albo wybudzenie |
+| **Odbiorniki stale zasilane** | M910q (przez step-up 20 V), hub USB, oba wyświetlacze, Arduino Pro Micro, Nano #1, Nano #2, HM-10 BLE, RXB6 433 MHz, moduł 9 przekaźników, DAC USB, graber AHD; opcjonalnie telefon w aucie (Redmi) przez wstrzykiwacz 5 V (§9.1, §14.6) |
+| **Przekaźniki w torze mocy** | **K1 w ładowaniu** — rozłącza tor ładowania od instalacji auta przy zgaszonym silniku (§5.4) — oraz przekaźnik samego LVD (§7). **Przekaźnika zapłonu przed odbiornikami nie ma** |
+| **Rola zapłonu** | sygnał do Arduino → impuls na styki przycisku zasilania → S3 albo wybudzenie; ten sam sygnał (albo D+ alternatora) steruje cewką K1 |
 
 ### 2.1 Trzy stany i trzy poziomy poboru
 
 Bank ma **7 pakietów (35,7 Ah)**. Do 50 % DoD zostaje **17,85 Ah**
 użytecznych, a w reżimie rutynowym 30 % DoD — **10,71 Ah**.
 
-| Stan | Co pobiera | Pobór z banku | 7 pakietów (35,7 Ah) |
+| Stan | Co pobiera | Pobór z banku | 7 pakietów (35,7 Ah), do 50 % DoD |
 |------|-----------|---------------|----------------------|
-| **Praca** | wszystko | 10–55 W (**3,5 A z banku**) | ~5,1 h przy zgaszonym silniku |
-| **S3** | M910q w S3 + Arduino + LVD | **200–460 mA** | **1,6–3,7 dnia** |
-| **Wyłączony** (impuls 5 s) | przetwornice + Arduino + LVD | **50–150 mA** | **5,0–14,9 dnia** |
+| **Praca** | wszystko | **≈ 50–75 W, czyli ≈ 4–6 A** przy 12,6 V; przyjmujemy **5 A** | **~3,6 h** przy zgaszonym silniku (17,85 Ah / 5 A) |
+| **S3** | M910q w S3 + Arduino + LVD + jałowy step-upu | **200–460 mA** (zmierzone z poprzednią przetwornicą XL6019) **+ I_jał** | **1,6–3,7 dnia** bez I_jał |
+| **Wyłączony** (impuls 5 s) | przetwornice + Arduino + LVD | **50–150 mA** (oszacowane z poprzednią przetwornicą XL6019) **+ I_jał** | **5,0–14,9 dnia** bez I_jał |
 
-> **Pobór w S3 jest zmierzony, nie oszacowany.** Wyświetlacz gaśnie razem
+Skąd 5 A w pracy — rachunek przy 12,6 V na szynie (podczas jazdy szyna stoi
+wyżej, na 13,5–14,4 V, więc prąd jest wtedy o kilka procent mniejszy):
+
+| Odbiornik | Moc / prąd typowy | Szczyt |
+|-----------|-------------------|--------|
+| M910q przez step-up (sprawność 0,90) | 30 W na wtyku → 33 W z szyny → **2,65 A** | 65 W → 72 W → 5,7 A (przy 11,0 V: 6,6 A) |
+| Wyświetlacze (buck LM2596) | **~0,8 A** | ~1,5 A |
+| Hub USB z peryferiami | **~0,7 A** | ~1,0 A |
+| Domena A (logika, cewki przekaźników) | **~0,2 A** | ~0,5 A |
+| Telefon przez wstrzykiwacz 5 V (opcja) | **~0,5 A** (doładowuje się) | ~0,9 A |
+| **Razem** | **≈ 4,85 A ≈ 5 A** (≈ 61 W) | ≈ 9,6 A przy 12,6 V, **≈ 10,5 A przy 11,0 V** |
+
+Widełki 4–6 A to zakres od samego dashboardu (M910q ~20 W, telefon
+naładowany) do Android Auto z dekodowaniem wideo (~40 W) i ładującym się
+telefonem. Poprzednie wydanie podawało tu „10–55 W (3,5 A)" — 55 W przy
+12,6 V to 4,4 A, a nie 3,5 A; liczba 3,5 A wynikała z limitu RAPL dla
+słabego XL6019 i pomijała telefon. Obie rzeczy przestały obowiązywać (§3).
+
+> **Pobór w S3 jest zmierzony — ale z poprzednią przetwornicą.** Pomiar
+> 200–460 mA ([`WDROZENIE_TESTOWE.md`](WDROZENIE_TESTOWE.md) §3.1a) był
+> robiony z M910q zasilanym **przez XL6019**, a wiersz „Wyłączony" też
+> liczono z nią. Nowa zalewana przetwornica 20 V / 200 W wisi na szynie
+> **cały czas** — w S3 i po wyłączeniu — i dokłada **własny prąd jałowy
+> I_jał**, którego sprzedawcy nie podają. Dopóki go nie zmierzysz (§3.4,
+> §11 Etap 1), oba wiersze i wszystkie czasy postoju z §9.2 są **dolną
+> granicą poboru**, czyli górną granicą czasu. Wyświetlacz gaśnie razem
 > z komputerem, bo M910q **odcina zasilanie portów USB w S3** — z szyny
 > ciągną wtedy tylko sam komputer i Arduino. To także przesądza dwie rzeczy:
 > „Wake on USB" jest tu bezużyteczne (port jest martwy), a Arduino **musi**
 > mieć własne 5 V z MP1584, inaczej nie ma czym nacisnąć przycisku.
+> Telefon na buforze (opcja z §14.6) dokłada do S3 i do stanu wyłączonego
+> swój pobór — §9.1.
 
 Kolumna czasów jest liczona **prądem, a nie mocą**: pojemność katalogowa C20
 razy frakcja DoD, podzielona przez pobór, bez poprawki Peukerta i bez korekty
-temperaturowej. Wiersz „Praca" stoi na 3,5 A z banku — tym samym obciążeniu,
-na którym opiera się rachunek ładowania w §9.4; widełki 10–55 W opisują pobór
-odbiorników, a nie podstawę tego rachunku.
+temperaturowej. Wiersz „Praca" stoi na 5 A z banku — tym samym obciążeniu,
+na którym opiera się rachunek ładowania w §9.4.
 
 W wierszu **Wyłączony** rozrzut (100 mA) bierze się w całości z **własnego
-poboru XH-M609** (20–125 mA wg wersji płytki) — to jedyna liczba warta
-zmierzenia multimetrem. W wierszu **S3** jest inaczej: sam M910q w S3 daje
-160–320 mA rozrzutu ([`WDROZENIE_TESTOWE.md`](WDROZENIE_TESTOWE.md) §3.1a),
-czyli więcej niż LVD. Tam zmierzyć trzeba oba.
+poboru XH-M609** (20–125 mA wg wersji płytki); do tego dochodzi nieznany
+I_jał step-upu — to dwie liczby warte zmierzenia multimetrem. W wierszu
+**S3** jest inaczej: sam M910q w S3 daje 160–320 mA rozrzutu (pomiar
+z poprzednią przetwornicą XL6019, [`WDROZENIE_TESTOWE.md`](WDROZENIE_TESTOWE.md) §3.1a), czyli
+więcej niż LVD. Tam zmierzyć trzeba wszystkie trzy.
 
 Wszystko do 50 % DoD. Wniosek jest praktyczny: **S3 do krótkich postojów,
 twarde wyłączenie do długich**. Arduino przełącza między nimi samo — po
@@ -100,8 +138,8 @@ całkowicie. Powrót to znowu krótki impuls.
 
 > **Siedem pakietów nie zmienia bilansu dobowego.** Kupuje dłuższy postój
 > między doładowaniami, ale minimalna dzienna jazda potrzebna do utrzymania
-> bilansu zależy od **prądu ładowania**, a nie od pojemności banku — tabela
-> w §9.4.
+> bilansu zależy od **prądu ładowania netto**, a nie od pojemności banku —
+> tabela w §9.4.
 
 ### 2.2 Dlaczego nie przekaźnik odcinający komputer
 
@@ -114,7 +152,7 @@ dlaczego:
 | Postój (7 pakietów) | ~9,3 dnia | ~1,6–3,7 dnia w S3, ~5,0–14,9 po wyłączeniu |
 | Wybudzenie | zimny start ~40 s | **~3 s** z S3 |
 | Ryzyko ucięcia zapisu na dysk | **przy każdym przekręceniu kluczyka** | mniejsze — maszyna schodzi do S3 sama, ale LVD, wyłącznik główny i luźny styk nadal tną prąd |
-| Elementy w torze mocy | przekaźnik 30 A + okablowanie | **brak** |
+| Przekaźnik zapłonu w torze mocy | przekaźnik 30 A + okablowanie | **brak** |
 | Kod / firmware | brak | impuls z Arduino, po stronie hosta zero zmian |
 
 Twarde odcięcie zasilania pracującemu Linuksowi kilka razy dziennie to
@@ -128,8 +166,9 @@ spokojnie zasiliłyby się z portów USB M910q — i tak właśnie robi wariant
 testowy ([`WDROZENIE_TESTOWE.md`](WDROZENIE_TESTOWE.md) §3.1). W wersji
 docelowej stoi temu na przeszkodzie **regulacja jasności**: podświetlenie
 jest sterowane PWM-em z Nano #1 przez stopień MOSFET, a tego nie da się
-wpiąć w zasilanie logiki panelu idące po USB. Drugi powód jest energetyczny
-— dwa panele na szynie 19,5 V wypchnęłyby XL6019 poza jego ~45 W.
+wpiąć w zasilanie logiki panelu idące po USB. Drugi powód: z portów USB
+M910q i tak nie wyciągniesz prądu dla dwóch paneli z zapasem, a osobny buck
+na 12 V nie obciąża toru 20 V komputera.
 
 **Wzmacniacz idzie osobną gałęzią** prosto z akumulatora rozruchowego —
 gotowy moduł samochodowy, podłączany jak radio: własny bezpiecznik przy klemie
@@ -149,98 +188,103 @@ Tor audio, pętla masy i ustawianie wzmocnienia:
 
 ---
 
-## 3. Przetwornica step-up XL6019 — weryfikacja
+## 3. Przetwornica step-up 12 → 20 V, 10 A (zalewana)
 
-Moduł jest już kupiony, więc zamiast doboru — **lista kontrolna i realne
-ograniczenia tego konkretnego układu**. To jedyny element toru, który zasila
-komputer bezpośrednio.
+To jedyny element toru, który zasila komputer bezpośrednio. Poprzednie
+wydanie opierało się na posiadanym module XL6019 — **ten moduł nie daje rady**:
+limit prądu klucza 5 A ogranicza go do ok. 45 W ciągłej mocy wyjściowej, co
+wymuszało limit RAPL 28 W na CPU. Zastępuje go zalewany moduł 200 W, który
+przy realnym poborze M910q pracuje z dużym zapasem i bez żadnych ograniczeń
+programowych.
 
-### 3.1 Napięcie: 19 V czy 20 V?
+### 3.1 Napięcie: dlaczego 20 V, a nie 19 V
 
 Oryginalny zasilacz M910q to **20 V / 65 W**. Dokumentacja produkcyjna w tym
 repozytorium (`docs/x86-production/02-assembly.html`) podaje, że **M910q
 pracuje w zakresie 19–21 V i nie wystartuje poza nim**.
 
-19 V mieści się w zakresie, ale leży **przy samej dolnej granicy**. Pod
-obciążeniem dojdzie do tego:
-
-- spadek na przewodzie step-up → wtyk (przy 3,5 A i 1,5 mm² na pętli 2 × 1 m ≈ 0,08 V — pomijalny),
-- spadek na samej przetwornicy przy wzroście obciążenia (regulacja obciążeniowa, typowo 1–3 %),
-- spadek napięcia wejściowego, gdy bank schodzi w stronę LVD.
-
-> **Ustaw wyjście na 19,5 V, nie 19,0 V.** Nadal bezpiecznie w zakresie
-> 19–21 V, a daje ~0,5 V zapasu na zapady. Reguluj potencjometrem pod
-> obciążeniem, nie na biegu jałowym, i po ustawieniu zabezpiecz śrubę
-> kroplą lakieru do paznokci lub kleju — wibracje w aucie potrafią
-> rozstroić potencjometr.
-
-### 3.2 Ile XL6019 naprawdę udźwignie
-
-Najpierw czego **potrzebowałby** zasilacz o pełnej mocy znamionowej M910q:
+Przetwornica stoi w bagażniku przy koszach (§8a.1), a M910q przy nogach
+pasażera — **ok. 4 m przewodu**. Spadek na tej trasie liczymy na pętli
+(„+" i „−"), miedź ρ = 0,0172 Ω·mm²/m:
 
 | Wielkość | Wartość |
 |----------|---------|
-| Znamionowa moc M910q | 65 W |
-| Prąd wyjściowy przy 19,5 V | 65 / 19,5 = **3,33 A** |
-| Moc wejściowa przy sprawności 88 % | 65 / 0,88 = **73,9 W** |
-| Prąd wejściowy przy 12,6 V (bank w spoczynku) | 73,9 / 12,6 = **5,9 A** |
-| Prąd wejściowy przy 11,0 V (próg LVD) | 73,9 / 11,0 = **6,7 A** |
+| Rezystancja pętli 2 × 4 m, 4 mm² | 0,0172 × 8 / 4 = **34,4 mΩ** |
+| Spadek przy 45 W (2,26 A) | **0,078 V** |
+| Spadek przy 65 W (3,27 A) | **0,112 V** |
+| Odcinek oryginalnego kabla z wtykiem (0,3–0,4 m, przekrój nieznany) | kilkadziesiąt mV — zmierzyć |
 
-A teraz czego XL6019 **jest w stanie dostarczyć**. Układ ma **limit prądu
-klucza 5 A**, a w topologii boost prąd klucza to w przybliżeniu prąd
-wejściowy. Po odjęciu marginesu na tętnienie zostaje ok. **4,0–4,5 A
-użytecznego prądu wejściowego**:
+Przy 20,0 V na wyjściu modułu zostaje na wtyku **ok. 19,9 V** (19,8 V
+w najgorszym razie) — pewnie w oknie 19–21 V. Moduł 19 V zszedłby w tym
+samym rachunku do 18,8–18,9 V, **poniżej dolnej granicy** — dlatego 20 V.
 
-| Napięcie wejściowe | Moc wejściowa przy 4,5 A | Moc wyjściowa (88 %) |
-|-------------------|--------------------------|---------------------|
-| 12,6 V (bank w spoczynku) | 56,7 W | **~50 W** |
-| 12,0 V | 54,0 W | **~47 W** |
-| 11,0 V (próg LVD) | 49,5 W | **~43 W** |
+> Zalewane moduły 20 V są zwykle **nieregulowane** (brak potencjometru).
+> Nie ma czego „podkręcać" — sprawdzasz tylko, czy dana sztuka trzyma
+> napięcie (§3.4). Gdyby wyjście bez obciążenia przekraczało 20,5 V, sztukę
+> odrzuć: 21 V to górna granica okna M910q.
 
-> **Wniosek: ten moduł da ok. 45 W ciągle, nie 65 W.** Napis „150 W" albo
-> „400 W" na płytce odnosi się do szczytu przy najwyższym dopuszczalnym
-> napięciu wejściowym i z chłodzeniem — nie do pracy ciągłej przy 12 V.
+### 3.2 Jaki moduł i ile prądu bierze z banku
 
-Czy 45 W wystarczy? Realny pobór M910q jest znacznie niższy niż znamionowe
-65 W:
+**Rodzina, nie konkretny model.** Szukasz bezmarkowego, zalewanego żywicą
+modułu boost w obudowie IP67/IP68, opisywanego zwykle jako
+„DC-DC step-up 12 V → 20 V 10 A 200 W" (do laptopa / do auta), sprzedawanego
+na Allegro i AliExpress pod wieloma nazwami. Typowe parametry z opisów
+sprzedawców (nie z karty katalogowej — tej dla takich modułów zwykle nie ma):
 
-| Stan | Pobór |
-|------|-------|
-| Dashboard, praca normalna | 20–30 W |
-| Android Auto + dekodowanie wideo (VAAPI) | 30–40 W |
-| Pełne obciążenie 4 wątków CPU | 50–55 W |
+| Parametr (wg opisu sprzedawcy) | Typowo |
+|-------------------------------|--------|
+| Wejście | 9–18 V (czasem 10–16 V — sprawdź opis konkretnej oferty; potrzebujesz pracy od 11 V w górę) |
+| Wyjście | 20 V stałe, 10 A, 200 W |
+| Sprawność | „90–93 %" — **deklaracja sprzedawcy**, do rachunku bierzemy 90 % |
+| Obudowa | aluminium albo tworzywo zalane żywicą, IP67/IP68, przewody wyprowadzone na stałe |
 
-Czyli **normalna praca mieści się z zapasem, a tylko pełne obciążenie CPU
-wychodzi poza możliwości modułu**. Rozwiązanie jest programowe — patrz §3.6.
+Ile to bierze z banku (sprawność 0,90 — konserwatywnie; przy deklarowanych
+0,93 prąd jest o ok. 3 % mniejszy):
 
-> **Nie łącz dwóch XL6019 równolegle**, żeby uzyskać więcej prądu. Te moduły
-> nie mają podziału obciążenia; ten z wyżej ustawionym napięciem weźmie
-> całość i wejdzie w ograniczenie prądowe, a drugi będzie stał bezczynnie.
+| Moc na wtyku M910q | Moc z szyny | 12,6 V (bank w spoczynku) | 12,0 V | 11,0 V (próg LVD) |
+|--------------------|-------------|---------------------------|--------|-------------------|
+| 30 W (dashboard) | 33,3 W | **2,65 A** | 2,78 A | 3,03 A |
+| 45 W (AA + wideo) | 50,0 W | **3,97 A** | 4,17 A | 4,55 A |
+| 65 W (znamionowa) | 72,2 W | **5,73 A** | 6,02 A | **6,57 A** |
 
-Bezpiecznik na wyjściu 19,5 V ma mieć **5 A**.
+Straty w module: przy 90 % — 3,3 / 5,0 / 7,2 W, przy deklarowanych 93 % —
+2,3 / 3,4 / 4,9 W (30 / 45 / 65 W).
+
+**Zapas.** 65 W to **33 %** mocy z tabliczki (200 W). Bezmarkowy moduł
+zalewany realnie oddaje ciągle zwykle mniej niż napis — nawet gdyby
+wytrzymywał tylko ~70 % tabliczki (ok. 140 W), znamionowe 65 W M910q to
+nadal **ok. 45 %** jego realnej mocy, a typowe 30–45 W to 20–30 %. Stąd:
+
+- **limit RAPL nie jest potrzebny** — M910q może brać pełne 65 W (§3.5a
+  zostaje jako opcja, np. dla cichszej pracy albo niższej temperatury);
+- **nie łącz dwóch przetwornic równolegle** „dla mocy" — nie ma po co, a moduły
+  bez podziału obciążenia i tak by się o nią biły.
+
+**Wejście:** z szyny za LVD przez bezpiecznik **F8 10 A** (6,57 A przy 11 V
+i 65 W to 66 % wkładki), przewód **4 mm²**. **Wyjście:** 4 mm² do M910q
+(3,3 A), bezpiecznik **5 A** przy wyjściu przetwornicy, wtyk z uciętego
+oryginalnego kabla (§3.3).
 
 ### 3.2a Zachowanie przy braku sterowania
 
-Boost **nie potrafi dać napięcia niższego niż wejściowe**. Przy wyłączonej
-regulacji na wyjściu pojawia się napięcie wejściowe pomniejszone o spadek na
-diodzie (~11,4 V przy 12 V wejścia). M910q przy takim napięciu nie wystartuje,
-ale też się nie uszkodzi.
+Boost **nie potrafi dać napięcia niższego niż wejściowe**. Jeżeli moduł
+wyłączy regulację (np. po zejściu wejścia poniżej swojego minimum), na
+wyjściu zwykłego boostu zostaje napięcie wejściowe pomniejszone o spadek na
+diodzie (~11–12 V). M910q przy takim napięciu nie wystartuje, ale też się nie
+uszkodzi. Jak zachowuje się konkretna sztuka — sprawdzasz w §3.4 (próba
+przy 11 V i poniżej).
 
-Praktyczna konsekwencja: **wyjścia XL6019 nie da się użyć jako wyłącznika
-komputera**. Odcinać musi przekaźnik zapłonu po stronie wejścia — i dokładnie
-tak było w poprzednim modelu. Dziś M910q jest zasilany stale, a wyłącza go
-impuls na przycisk zasilania (§2.1) — wyjście XL6019 i tak nie służy do
-odcinania.
+Praktyczna konsekwencja: **wyjścia przetwornicy nie da się użyć jako
+wyłącznika komputera** — i nie jest to potrzebne. M910q jest zasilany stale,
+a wyłącza go impuls na przycisk zasilania (§2.1).
 
 ### 3.2b Prąd rozruchowy
 
-Kondensatory wejściowe M910q przy załączeniu pobierają krótki impuls prądu,
-który potrafi wprowadzić XL6019 w ograniczenie prądowe i tryb „czkawki"
-(hiccup) — moduł próbuje startować cyklicznie zamiast wejść w normalną pracę.
+Kondensatory wejściowe M910q przy załączeniu pobierają krótki impuls prądu.
+Moduł 200 W zwykle przyjmuje go bez kłopotu; jeżeli jednak przy
+podłączaniu M910q wejdzie w zabezpieczenie i startuje cyklicznie („czkawka"):
 
-Jeżeli tak się zachowa:
-
-- **kondensator 470 µF / 35 V low-ESR na wyjściu** przetwornicy (i tak warto),
+- **kondensator 470 µF / 35 V low-ESR na wyjściu** przetwornicy,
 - **termistor NTC ograniczający prąd rozruchowy** (np. 5 Ω / 5 A) szeregowo
   na wyjściu — po nagrzaniu jego rezystancja spada do ułamka oma.
 
@@ -252,8 +296,10 @@ identyfikacyjnego różnią się między wersjami.
 
 **Najpewniejsze rozwiązanie: poświęć oryginalny zasilacz.** Odetnij kabel
 30–40 cm od wtyku, sprawdź polaryzację multimetrem (środek = „+", ekran =
-masa) i podłącz do wyjścia przetwornicy. Zyskujesz gwarantowane pasowanie
-mechaniczne i oryginalny przewód o właściwym przekroju.
+masa) i połącz z przewodem 4 mm² idącym od przetwornicy (tulejka zaciskana
+albo złączka, koszulka z klejem). Zyskujesz gwarantowane pasowanie
+mechaniczne; cienki odcinek oryginalnego kabla jest krótki, więc spadek na
+nim jest mały — zmierz go w §3.4.
 
 > **Pin identyfikacyjny.** W zasilaczach Lenovo slim-tip środkowy pin
 > przenosi sygnał identyfikacyjny z układu w kostce zasilacza. Po odcięciu
@@ -265,38 +311,64 @@ mechaniczne i oryginalny przewód o właściwym przekroju.
 
 ### 3.4 Test na biurku — obowiązkowy
 
-Zanim cokolwiek trafi do samochodu:
+Moduł jest bezmarkowy, więc **każdą sztukę sprawdzasz po zakupie**, zanim
+cokolwiek trafi do samochodu:
 
 ```bash
 # 1. Zasil przetwornicę z akumulatora 12 V (albo zasilacza laboratoryjnego
-#    z limitem prądu 10 A). Wyjście USTAW NA 19,5 V bez obciążenia.
+#    z limitem prądu 10 A). Zmierz wyjście BEZ obciążenia.
 # 2. Podłącz M910q. Musi wystartować i wejść do systemu.
 # 3. Obciąż CPU i sprawdź, czy napięcie się trzyma:
 sudo apt install -y stress-ng
-stress-ng --cpu 4 --timeout 600s
+stress-ng --cpu 4 --timeout 1800s
 ```
 
 W trakcie testu mierz i zapisuj:
 
 | Pomiar | Wartość dopuszczalna |
 |--------|---------------------|
-| Napięcie na wtyku M910q pod obciążeniem | **≥ 19,0 V** przez cały czas |
-| Prąd wejściowy przetwornicy | zgodny z §3.2, bez pulsowania |
-| Temperatura cewki i układu scalonego po 10 min | **< 85 °C** (bezdotykowo lub termoparą) |
+| Napięcie wyjściowe bez obciążenia | **19,9–20,5 V** (powyżej 20,5 V — odrzuć sztukę, §3.1) |
+| Napięcie na wyjściu modułu przy ~60 W | **≥ 19,8 V** |
+| Napięcie na wtyku M910q pod obciążeniem | **≥ 19,5 V** przez cały czas (0,5 V zapasu nad 19 V) |
+| Prąd wejściowy przetwornicy | zgodny z §3.2 (±10 %), bez pulsowania |
+| **Prąd jałowy I_jał** przy wejściu 12,6 V: (a) M910q odłączony, (b) M910q wyłączony, (c) M910q w S3 | **zapisz wszystkie trzy** — (a) to I_jał do §9.2, (b)/(c) minus pobór samego M910q pokazuje, czy moduł przy małym obciążeniu nie bierze więcej niż bez niego. Producent tej liczby nie podaje, więc nie ma progu „dobrze/źle" — wchodzi wprost w budżet postoju (§2.1, §9.2) |
+| Temperatura obudowy po 30 min przy ~60 W | **< 60 °C** — nasze kryterium, nie dane producenta; powyżej 70 °C moduł jest słabszy niż opis albo za słabo chłodzony |
 | Stabilność systemu | brak resetów, brak wpisów o zaniku zasilania w `journalctl -b` |
 
+Obciążenie ~60 W dają razem `stress-ng` na CPU i odtwarzanie wideo; jeżeli
+M910q tyle nie pobiera, użyj obciążenia elektronicznego albo opornika mocy
+(np. 6,8 Ω / 100 W ≈ 59 W przy 20 V) zamiast komputera.
+
 **Powtórz test przy napięciu wejściowym 11,0 V** (symulacja rozładowanego
-banku tuż przed progiem LVD). To najgorszy przypadek — największy prąd
-wejściowy i największe grzanie.
+banku tuż przed progiem LVD). To najgorszy przypadek — prąd wejściowy
+~6,6 A i największe grzanie. Wyjście ma trzymać ≥ 19,8 V. Potem **zejdź
+wolno poniżej 11 V** i zapisz, przy jakim napięciu moduł przestaje
+regulować i co robi: czysto się wyłącza albo przechodzi w napięcie
+wejściowe — dobrze; drga, piszczy albo cyklicznie restartuje M910q — źle
+(wtedy LVD musi odcinać wyżej, §7.3).
 
-Jeżeli którykolwiek pomiar wypadnie poza normę: dołóż radiator i wentylator
-40 mm, a jeśli to nie pomoże — wymień przetwornicę na mocniejszą. Nie
-próbuj tego „docisnąć" w aucie.
+Jeżeli którykolwiek pomiar wypadnie poza normę, wymień sztukę. Nie próbuj
+tego „docisnąć" w aucie.
 
-### 3.5a Ograniczenie poboru M910q — wymagane przy XL6019
+### 3.5 Chłodzenie i montaż
 
-Skoro moduł daje ok. 45 W, a pełne obciążenie CPU potrafi dobić do 55 W,
-trzeba ograniczyć maksymalny pobór pakietu. Najprościej przez **RAPL**:
+Przetwornica przy typowych 30–45 W i sprawności 90 % rozprasza **3–5 W**,
+przy pełnych 65 W ok. **7 W**. Zalewany moduł oddaje to ciepło całą obudową:
+
+- przykręć go płasko do blachy (grodź bagażnika obok kosza albo własny
+  wspornik), żeby obudowa miała kontakt z metalem,
+- **nie** kładź go na koszu z akumulatorami ani na wykładzinie i nie owijaj
+  niczym — §4.6: każde +10 °C przy akumulatorach skraca ich życie,
+- zostaw ≥ 5 cm wolnego miejsca wokół; wentylator nie jest potrzebny,
+- przewody odciąż opaską przy obudowie — wyprowadzenia zalanego modułu są
+  na stałe i nie da się ich wymienić.
+
+### 3.5a Ograniczenie poboru M910q — opcjonalne
+
+W poprzednim wydaniu, przy XL6019, ten limit był **obowiązkowy**. Z przetwornicą 200 W nie jest
+potrzebny; zostaje jako opcja, jeśli chcesz cichszej pracy, niższej
+temperatury w zabudowie albo mniejszego poboru z banku podczas jazdy.
+Najprościej przez **RAPL**:
 
 ```bash
 # sprawdź, gdzie jest pakiet (zwykle intel-rapl:0)
@@ -309,12 +381,12 @@ cat /sys/class/powercap/intel-rapl:0/constraint_0_power_limit_uw
 echo 28000000 | sudo tee /sys/class/powercap/intel-rapl:0/constraint_0_power_limit_uw
 ```
 
-Utrwalenie przez systemd:
+Utrwalenie przez systemd (tylko jeśli limit naprawdę chcesz mieć):
 
 ```ini
 # /etc/systemd/system/bcm-power-cap.service
 [Unit]
-Description=BCM — limit poboru pakietu CPU (zasilanie z XL6019)
+Description=BCM — opcjonalny limit poboru pakietu CPU
 After=multi-user.target
 
 [Service]
@@ -336,20 +408,9 @@ Alternatywa (jeśli RAPL nie jest dostępny) — ograniczenie przez `intel_pstat
 echo 70 | sudo tee /sys/devices/system/cpu/intel_pstate/max_perf_pct
 ```
 
-**28 W pakietu + ~10 W reszty systemu = ~38 W**, czyli komfortowo poniżej
-45 W możliwości modułu. Dla dashboardu i Android Auto to bez znaczenia —
-dekodowanie wideo i tak idzie po VAAPI, a nie po CPU.
-
-### 3.5 Chłodzenie i montaż
-
-Przetwornica przy realnych ~45 W wyjścia (§3.2) i sprawności 88 % rozprasza
-**~6 W**; gdyby faktycznie dawała 65 W, byłoby ~9 W. W zamkniętej zabudowie
-za deską rozdzielczą, latem, jedno i drugie wystarczy do przegrzania.
-
-- radiator na układzie scalonym i na cewce, klej termoprzewodzący,
-- wentylator 40 mm zasilany z szyny buforowanej (5 V albo 12 V),
-- montaż na blasze albo profilu aluminiowym pełniącym rolę radiatora,
-- **nie** montuj płytki bezpośrednio na tapicerce ani wykładzinie.
+**28 W pakietu + ~10 W reszty systemu = ~38 W** — tyle, ile M910q bierze
+przy Android Auto. Dla dashboardu i AA to bez znaczenia, bo dekodowanie
+wideo idzie po VAAPI, a nie po CPU.
 
 ---
 
@@ -363,8 +424,8 @@ za deską rozdzielczą, latem, jedno i drugie wystarczy do przegrzania.
 | Napięcie / cele | 12 V / 6 cel |
 | Pojemność | **5,1 Ah** przy rozładowaniu 20-godzinnym |
 | Moc | 21 W/celę przez 15 min do 1,67 V/celę |
-| Zaciski | **F2** — nasuwka faston 6,35 mm |
-| Wymiary | 90 × 70 × 101 mm |
+| Zaciski | **F2** — nasuwka faston 6,35 mm (część wersji ma F1 4,75 mm — sprawdź swoje sztuki) |
+| Wymiary | 90 × 70 × 101 mm (z zaciskami 101,8 mm) |
 | Masa | ~1,8 kg |
 | Rezystancja wewnętrzna | ~23 mΩ |
 | Maks. prąd rozładowania | 60 A przez 5 s |
@@ -384,202 +445,224 @@ za deską rozdzielczą, latem, jedno i drugie wystarczy do przegrzania.
 Pakiety łączone **równolegle** — napięcie zostaje 12 V, sumuje się pojemność.
 Siedem pakietów to nadal **12 V**, a nie 84 V; szeregowo nie łączymy niczego.
 
-| Liczba pakietów | Pojemność | Masa | Maks. prąd ładowania | Uwagi |
-|-----------------|-----------|------|---------------------|-------|
+| Liczba pakietów | Pojemność | Masa pakietów | Maks. prąd ładowania | Uwagi |
+|-----------------|-----------|---------------|---------------------|-------|
 | 4 | 20,4 Ah | 7,2 kg | 8,4 A | konfiguracja poprzedniego wydania |
 | 5 | 25,5 Ah | 9,0 kg | 10,5 A | — |
 | 6 | 30,6 Ah | 10,8 kg | 12,6 A | **scenariusz awaryjny** — tyle zostaje po utracie jednego pakietu |
-| **7** | **35,7 Ah** | **12,6 kg** | **14,7 A** | **przyjęte** |
+| **7** | **35,7 Ah** | **12,6 kg** | **14,7 A** | **przyjęte** — kosze 4 + 3 (§4.7) |
 | 8 | 40,8 Ah | 14,4 kg | 16,8 A | wszystkie posiadane, zero zapasu |
 
-**Bank ma siedem pakietów.** Wobec czwórki to +75 % pojemności
-(20,4 → 35,7 Ah), +5,4 kg masy i sufit ładowania podniesiony z 8,4 na 14,7 A.
-
-Uzasadnienie z poprzedniego wydania — „tyle się mieści" — **przestało
-obowiązywać i nie zostało zastąpione innym argumentem o miejscu**. Przy
-siedmiu pakietach zmieniają się trzy rzeczy naraz i warto je rozdzielić:
+**Bank ma siedem pakietów** w dwóch koszach: **lewy 4 szt., prawy 3 szt.**,
+w bagażniku, przy grodzi za tylną kanapą (§4.7). Wobec czwórki to +75 %
+pojemności (20,4 → 35,7 Ah) i sufit ładowania podniesiony z 8,4 na 14,7 A.
 
 | Co jest ograniczeniem | Przy 4 pakietach | Przy 7 pakietach |
 |-----------------------|------------------|------------------|
 | Pojemność banku | wiążąca — 10,2 Ah użytecznych do 50 % DoD | przestała być wąskim gardłem: **17,85 Ah** |
-| Prąd ładowania | wiązał **akumulator**: 7,5 A z sufitu 8,4 A = 89 % | wiąże **tor ładowania**: 8,0 A z sufitu 14,7 A = 54 % (§6.3) |
-| Masa i mocowanie | 7,2 kg, temat marginalny | **12,6 kg** — realne wymaganie konstrukcyjne (§4.7) |
-
-To jest sedno tej rozbudowy: **wąskie gardło przeniosło się z akumulatora na
-tor ładowania**. Doładowanie trwa dłużej nie dlatego, że bank jest duży, tylko
-dlatego, że CC stoi na 8,0 A (§9.4).
+| Prąd ładowania | wiązał **akumulator** (sufit 8,4 A) | wiąże **tor ładowania**: 2 × 5 A z ładowarek, netto do banku ≈ 5 A, czyli 34 % sufitu 14,7 A (§5.3) |
+| Masa i mocowanie | 7,2 kg, temat marginalny | **≈ 16,8 kg z koszami** — realne wymaganie konstrukcyjne (§4.7) |
 
 **Zapas.** Z ośmiu posiadanych pakietów siedem idzie do banku, **jeden zostaje
 w zapasie**. Trzeba wiedzieć, co to naprawdę znaczy: wobec zasady z §4.3 („nie
 dokładaj nowego pakietu do starego banku — wyrównuj cały komplet") jeden
-pakiet **nie zastępuje kompletu**, a argument o rotacji zapasu co rok–dwa,
-sensowny przy czterech leżakujących sztukach, przy jednej traci podstawę
-materiałową. Realny scenariusz awaryjny wygląda inaczej: przy padniętym
+pakiet **nie zastępuje kompletu**. Realny scenariusz awaryjny: przy padniętym
 pakiecie **schodzisz na sześć** (30,6 Ah, sufit 12,6 A) i jedziesz dalej —
-układ tego nawet nie zauważy, bo tor ładowania i tak zamyka się na 8,0 A.
-Czasy postoju dla sześciu pakietów są w §9.2.
+prąd ładowania netto (≈ 5 A) i tak jest dużo niższy od sufitu. Czasy postoju
+dla sześciu pakietów są w §9.2.
 
-**Gabaryty.** Pakiet leżący bokiem ma 90 × 70 × 101 mm, więc siedem sztuk
-w jednym rzędzie to **490 × 90 × 101 mm** (7 × 70 mm, bez przerw). Zalecany
-jest jednak układ **4 + 3 w dwóch rzędach: 280 × 180 × 101 mm**, ze skrzynką
-ok. 300 × 200 × 115 mm. Powód jest mechaniczny, nie miejscowy — §4.7.
+**Gabaryty.** Pakiety stoją pionowo, zaciskami do góry, w rzędzie po
+szerokości 90 mm: kosz lewy mieści **4 × 90 = 360 × 70 mm**, prawy
+**3 × 90 = 270 × 70 mm** (wymiary wnętrza po gumie: 361 × 71 i 271 × 71 mm).
+Między koszami zostaje **290–296 mm** wolnego miejsca na otwór do przewozu
+nart. Szczegóły w §4.7.
 
-> **Miejsce montażu trzeba zmierzyć w aucie, zanim cokolwiek kupisz.**
-> Ta dokumentacja nie zawiera ani jednego wymiaru przestrzeni pod fotelem
-> pasażera, więc nie da się na papierze rozstrzygnąć, czy 300 × 200 × 115 mm
-> tam wejdzie. Najbardziej podejrzana jest **wysokość**: 101 mm samego pakietu
-> plus skrzynka to ok. 115 mm. Cała reszta tego rozdziału zakłada, że miejsce
-> się znajdzie.
->
-> Gdyby bank trzeba było **rozdzielić na dwie lokalizacje** (np. 4 pod fotelem
-> i 3 gdzie indziej), rozstrzygnięcie topologiczne z §4.3 **przestaje
-> obowiązywać w prostej postaci**: dwie szyny spięte jednym mostkiem to inny
-> obwód, wzór 9 · r / R nie ma tam zastosowania i asymetrię trzeba policzyć
-> osobno.
+> **Bank w dwóch lokalizacjach to inny obwód niż jedna szyna.** Dwa kosze
+> spięte łącznikiem 0,4–0,6 m nie są drabinką z równymi przęsłami; rozkład
+> prądów jest policzony osobno w §4.3 dla tego właśnie układu.
 
-### 4.3 Zasady łączenia równoległego
+### 4.3 Łączenie równoległe na lince — dwa kosze 4 + 3
 
 Nierówne łączenie równoległe to najczęstszy powód, dla którego bank umiera
-przedwcześnie: pakiet z najniższą rezystancją bierze na siebie większość prądu
-i wykańcza się pierwszy.
+przedwcześnie: pakiet z najniższą rezystancją toru bierze na siebie większość
+prądu i wykańcza się pierwszy. Zasady, niezależnie od tego, czym łączysz:
 
 - **jednakowe pakiety** — ten sam model, ta sama dostawa (zbliżony wiek
   i partia produkcyjna),
-- **jednakowe ogonki** — identyczny przekrój i **rezystancja** od każdego
-  pakietu do szyny, nawet jeśli pakiety leżą różnie; tolerancja liczbowa niżej,
-- **szyna zbiorcza z płaskownika miedzianego**, po jednym odczepie na pakiet,
-  z **odbiorem po przekątnej** — rozstrzygnięcie niżej,
-- **bezpiecznik 10 A na dodatnim biegunie każdego pakietu** (**FB1…FB7**,
-  siedem sztuk) — zwarta cela w jednym pakiecie nie zabiera wtedy całej szyny,
+- **jednakowe odcinki do pakietów** — ten sam przekrój i ta sama długość
+  (±30 mm), nawet jeśli pakiety stoją różnie,
+- **odbiór po przekątnej** — „+" z jednego końca banku, „−" z drugiego,
+- **bezpiecznik 10 A na „+" każdego pakietu** (**FB1…FB7**) — zwarta cela
+  w jednym pakiecie nie zabiera wtedy całego banku,
 - **nie dokładaj nowego pakietu do starego banku** — wyrównuj cały komplet.
 
-#### Siedem to liczba nieparzysta — i to nie jest problem
+#### Czy linka zamiast listwy miedzianej dużo zmienia? Nie — pod trzema warunkami
 
-Przy siedmiu pakietach nie da się zbudować symetrycznego drzewa połączeń
-(2-4-8) i to jedyna rzecz, którą nieparzystość naprawdę wyklucza. Symetryczne
-drzewo jest jednak tylko **jednym ze sposobów** wyrównania rezystancji toru —
-i akurat takim, którego ta dokumentacja nigdy nie proponowała. **Szyna zbiorcza
-z równo rozstawionymi odczepami i odbiór po przekątnej działają dla dowolnej
-liczby gałęzi**, parzystej i nieparzystej tak samo.
+Poprzednie wydanie zalecało płaskowniki miedziane 20 × 3 mm. Linka jest
+prostsza do zrobienia i — przy tym banku — **praktycznie nic nie zmienia**,
+jeżeli:
 
-Rozstrzygnięcie jest ilościowe i wychodzi z rozwiązania drabinki: siedem
-gałęzi o rezystancji `R` (§4.4), przęsła szyny o rezystancji `r` między
-sąsiednimi odczepami. Rozrzut prądów między najbardziej i najmniej obciążoną
-gałęzią zamyka się w trzech wzorach:
+1. **przewód zbiorczy jest gruby** — łącznik między koszami i odbiory 6 mm²,
+2. **odcinki do pakietów są równe** — każdy pakiet ma swój przewód 2,5 mm²
+   tej samej długości do bloku zbiorczego swojego kosza,
+3. **odbiór jest po przekątnej** — **„+" z kosza lewego, „−" z kosza prawego**.
 
-| Sposób odbioru z szyn | Rozrzut prądów |
-|-----------------------|----------------|
-| **po przekątnej** — „+" z odczepu 1, „−" z odczepu 7 | **9 · r / R** |
-| oba bieguny ze środka (przy pakiecie #4) | 12 · r / R |
-| oba bieguny z jednego końca szyny | 42 · r / R ← **zakazane** |
+Listwa i tak nie przeskoczyłaby przerwy 290–296 mm na narty — łącznik między
+koszami jest potrzebny w każdym wariancie.
 
-Dla naszej gałęzi (`R` ≈ 37 mΩ) i skoku odczepów 70 mm:
+**Rachunek** (miedź ρ = 0,0172 Ω·mm²/m, R = ρ · L / A):
 
-| Przewodnik szyny | `r` na przęsło | Przekątna | Ze środka | Z jednego końca |
-|------------------|---------------|-----------|-----------|-----------------|
-| **płaskownik 20 × 3 mm** (zalecany) | 20,4 µΩ | **0,50 %** | 0,66 % | 2,31 % |
-| **płaskownik 15 × 2 mm** (minimum) | 40,8 µΩ | **0,99 %** | 1,32 % | 4,59 % |
-| linka 6 mm² | 204 µΩ | 4,89 % | 6,54 % | 22,0 % |
-| linka 4 mm² | 306 µΩ | 7,29 % | 9,74 % | 32,3 % |
-| linka 1,5 mm² | 817 µΩ | 18,8 % | 25,2 % | 77,1 % |
+| Element | Rachunek | Rezystancja |
+|---------|----------|-------------|
+| Odcinek pakiet → blok, 2,5 mm², 0,25 m na biegun | 0,0172 × 0,25 / 2,5 | 1,72 mΩ na biegun, **3,44 mΩ pętli** |
+| Wkładka 10 A + oprawka inline | przyjęcie (repozytorium nie ma pomiaru) | ~7 mΩ |
+| Dwie nasuwki faston + dwa oczka | przyjęcie | ~1 mΩ |
+| Ogniwo (karta CSB) | — | 23,0 mΩ |
+| **`R` jednej gałęzi** | 23 + 3,44 + 7 + 1 | **≈ 34,4 mΩ** |
+| Łącznik między koszami, 6 mm², 0,4 / 0,5 / 0,6 m | 0,0172 × L / 6 | 1,15 / **1,43** / 1,72 mΩ (+ ~0,2 mΩ na dwóch oczkach) |
 
-> **Wzory wyżej są granicą dla `r` ≪ `R`, tabela — rozwiązaniem dokładnym.**
-> Dlatego oba zestawy schodzą się dla płaskownika (0,50 % wobec 9·r/R = 0,50 %),
-> a rozjeżdżają dla linki: przy 817 µΩ wzór dałby 19,9 % zamiast 18,8 %,
-> a dla odbioru z jednego końca 92,7 % zamiast 77,1 %. Im większe `r`, tym
-> mocniej drabinka „sama się dławi" i tym bardziej liniowe przybliżenie
-> przeszacowuje rozrzut. Do decyzji doborowej wystarczają wzory — różnica
-> jest widoczna dopiero tam, gdzie odpowiedź i tak brzmi „nie linką".
+**Jak rozwiązany jest obwód (bloki, odbiór L+ / P−).** Blok zbiorczy to
+gwiazda, więc kosz lewy to cztery gałęzie `R` równolegle (`R/4` = 8,61 mΩ),
+a kosz prawy trzy (`R/3` = 11,48 mΩ). Łącznik na każdym biegunie ma
+`r = 0,0172 × L / 6 + 0,2 mΩ` (dwa oczka). Rezystancję szynek w blokach
+pomijamy (krótka mosiężna/miedziana szynka — ułamki mΩ, przyjęcie). Od L+
+do P− prowadzą dwie drogi:
 
-> **Skala odniesienia: sam rozrzut produkcyjny ogniw jest większy.**
-> Rezystancja wewnętrzna 23 mΩ ± 10 % w obrębie jednej dostawy daje ok.
-> **12,4 %** rozrzutu prądów przy gałęziach 37 mΩ. Geometria szyny
-> z płaskownika dokłada do tego **mniej niż 0,1 punktu procentowego**,
-> a nieparzystość liczby pakietów nie dokłada nic.
->
-> Naprawdę groźne jest co innego: przejście z czterech pakietów na siedem
-> **na mostkach z linki** pogarsza rozrzut z 4,3 % na 18,8 % przy odbiorze
-> przekątnym, a przy odbiorze z jednego końca z 24,7 % na 77,1 %. Płaskownik
-> miedziany kasuje ten efekt w całości. Jeżeli więc pakiety nie pochodzą
-> z jednej dostawy i nie są w zbliżonym wieku, to **to** jest realne ryzyko
-> dla siódemki — a nie nieparzystość.
+- droga A: pakiety kosza lewego, potem łącznik „−": `R/4 + r`,
+- droga B: łącznik „+", potem pakiety kosza prawego: `r + R/3`.
 
-#### Konkret: jak to zbudować
+Stąd rezystancja banku `R_b = (R/4 + r) ∥ (r + R/3)`, a prąd dzieli się
+odwrotnie do rezystancji dróg: `I_A / I_B = (r + R/3) / (R/4 + r)`.
+Przykład dla 0,5 m: `r` = 1,43 + 0,2 = 1,63 mΩ, A = 10,24 mΩ,
+B = 13,11 mΩ, `R_b` = 10,24 × 13,11 / 23,35 = **5,75 mΩ**. Przy 5 A droga A
+niesie 2,81 A (**0,702 A na pakiet**), droga B 2,19 A (**0,731 A na
+pakiet**); rozrzut (0,731 − 0,702) / (5/7) = **4,1 %**.
 
-**Dwa płaskowniki miedziane** — osobny na „+", osobny na „−" — **minimum
-15 × 2 mm (30 mm²), zalecane 20 × 3 mm (60 mm²)**, po **siedem odczepów
-śrubowych M6 rozstawionych co 70 mm** (szerokość pakietu leżącego bokiem).
-Odbiór **po przekątnej**: „+" z odczepu nr 1, „−" z odczepu nr 7.
+Ten sam rachunek dla innych długości łącznika i, dla porównania, dla innych
+układów (obciążenie 5 A):
+
+| Układ | Łącznik 0,4 m | **0,5 m** | 0,6 m | Rezystancja banku na odbiorach (0,4 / 0,5 / 0,6 m) |
+|-------|---------------|-----------|-------|-----------------------------------------|
+| **Bloki zbiorcze w koszach, odbiór L+ / P−** (przyjęte) | 3,4 % | **4,1 %** | 4,7 % | 5,61 / **5,75** / 5,90 mΩ |
+| Linka 6 mm² wzdłuż koszy, odczepy co 90 mm, łącznik między #4 a #5, odbiór „+" przy #1, „−" przy #7 | 9,3 % | 9,9 % | 10,5 % | 6,43 / 6,57 / 6,72 mΩ |
+| Oba bieguny z kosza lewego — z bloków (L+ / L−) | 21 % | 24 % | 28 % | ← **zakazane** |
+| Oba bieguny z kosza lewego — linka z odczepami, odbiór przy #1 | 44 % | 47 % | 50 % | ← **zakazane** |
+
+Wariant z odczepami nie ma prostego wzoru (drabinka: 90 mm linki 6 mm² =
+0,26 mΩ między sąsiednimi pakietami na każdym biegunie) — liczony
+rozwiązaniem węzłowym tej samej sieci, z tymi samymi `R` i `r`.
+
+Rozrzut to różnica prądu między najbardziej i najmniej obciążonym pakietem
+w odniesieniu do średniej. Przy 5 A pakiety biorą **0,70–0,73 A**, przy
+ładowaniu netto 5 A tyle samo, a przy szczycie 10,5 A — ok. 1,5 A. Wszystko
+daleko od sufitu 2,1 A na pakiet i od wkładki 10 A.
+
+Skala odniesienia:
+
+- **listwa miedziana 20 × 3 mm** dawała w jednym rzędzie ok. 0,5–1 %;
+  różnica 3–4 punktów procentowych przy ~0,7 A na pakiet to setne części
+  ampera — dla AGM bez znaczenia,
+- **rozrzut produkcyjny ogniw jest większy**: 23 mΩ ± 10 % w jednej dostawie
+  daje przy gałęziach 34,4 mΩ ok. **13 %** rozrzutu prądów. Geometria linki
+  z blokami jest więc mniejszym problemem niż sama chemia,
+- **odbiór obu biegunów z jednego kosza psuje wszystko** (24 % z bloków,
+  47 % na lince z odczepami) — to jedyny naprawdę zły układ.
+
+> Wartości 7 mΩ (wkładka z oprawką) i 1 mΩ (przejścia) to **przyjęcia**,
+> a nie pomiary. ±20 % na `R` przesuwa rezystancję banku i rozrzut
+> proporcjonalnie, ale **nie zmienia żadnej decyzji** z tego rozdziału.
+
+#### Konkret: przewody i złącza
+
+| Odcinek | Przewód | Szczegóły |
+|---------|---------|-----------|
+| **Łącznik kosz L ↔ kosz P** („+" i „−" osobno) | **6 mm² (10 AWG), czysta miedź OFC — nie CCA**, linka klasy 5/6 (drobnodrutowa), izolacja 105 °C, np. **FLRY-B 6 mm²** albo przewód car-audio OFC 6 mm² | długość 0,4–0,6 m, **obie żyły tej samej długości**; trasa wzdłuż dolnej krawędzi grodzi pod osłoną (bagaż i narty nie mogą po nim jeździć), mocowanie co 15 cm |
+| **Odcinek pakiet → blok** (14 szt.) | **FLRY-B 2,5 mm²** (ISO 6722) | **równa długość ±30 mm** (ok. 0,25 m; nadmiar w pętlę, nie przycinać krócej niż najdłuższy); na pakiecie **w pełni izolowana nasuwka żeńska 6,3 × 0,8 mm** na 1,5–2,5 mm², zaciskana zaciskarką zapadkową; na bloku oczko M6 |
+| **Bezpiecznik pakietu FB1…FB7** | oprawka inline na 2,5 mm² | **10 A ATO albo mini**, na „+", **5–10 cm od zacisku** pakietu |
+| **Odbiór „+" do LVD** | 6 mm² (jak łącznik) | z bloku L+ przez **F7** (§7.4) |
+| **Doprowadzenie ładowania** | 4 mm² | do bloku L+ przez **F12** (§5.4) |
+| **Masa banku** | 6 mm² | z bloku P− do **jednego** punktu masy (§8.3) |
+
+Pakiety numerujemy od zewnętrznego końca kosza lewego: **#1–#4 w koszu L,
+#5–#7 w koszu P** (#7 przy zewnętrznym końcu kosza P).
+
+**Jak łączyć odcinki z linką 6 mm²: izolowany blok zbiorczy z kołkami M6
+i oczka zaciskane.** W każdym koszu po jednym bloku na biegun (razem cztery:
+L+, L−, P+, P−) — izolowana podstawa z mosiężną lub miedzianą szynką,
+**4 kołki M6 i pokrywa**. Do kołków idą oczka M6: z odcinków pakietów
+(2,5 mm²), z łącznika i z odbiorów (6 mm²), **najwyżej dwa oczka na kołek**,
+grubsze na spód, nakrętka z podkładką sprężystą.
+
+Dlaczego blok z kołkami, a nie „odczepy" na ciągłej lince ani blok
+z wkrętami dociskowymi:
+
+- **elektrycznie to gwiazda** — wszystkie pakiety kosza spotykają się
+  w jednym punkcie, więc wewnątrz kosza nie ma drabinki i rozrzut spada
+  z ok. 10 % do ok. 4 % (tabela wyżej); zostaje tylko asymetria 4 : 3
+  przez łącznik,
+- **mniej połączeń**: 4 bloki zamiast 14 odczepów i 10 przerwanych odcinków
+  linki — każde połączenie to miejsce, które w aucie może się poluzować,
+- **oczko pod nakrętką jest odporne na drgania**, a wkręt dociskowy na
+  drobnodrutowej lince bez tulejki z czasem luzuje się i grzeje,
+- **pokrywa** zamyka gołe kołki — przy prądzie zwarciowym ~2,2 kA
+  (§4.4) upuszczony klucz nie może ich dotknąć.
+
+Bloki przykręć na płytce izolacyjnej (tworzywo ≥ 3 mm) **od strony
+bagażnika**: do przedniego płaskownika wieńca albo na własnym izolowanym
+wsporniku przed koszem — **nie** do dna kosza, nie tak, żeby kołki mogły
+dotknąć stali, i **nie do grodzi nad koszem**. Uziemiona belka dociskowa
+leży od strony grodzi, 25–29 mm nad zaciskami (§4.7), a odcinki pakietów
+mają od niej uciekać w stronę bagażnika; blok na grodzi zmusiłby je, żeby
+przeszły nad belką.
 
 ```
-                 odbiór „+”  (z ładowarki oraz do F7 → LVD)
-                 │
-   szyna „+”  ═══●═══●═══●═══●═══●═══●═══●
-      odczep     1   2   3   4   5   6   7
-                 │←─→│  skok odczepów 70 mm
-                 │   │   │   │   │   │   │
-                FB1 FB2 FB3 FB4 FB5 FB6 FB7    ← wkładki 10 A
-                 │   │   │   │   │   │   │      ogonki 1,5 mm²
-                [#1][#2][#3][#4][#5][#6][#7]   ← HR1221W, „+” i „−” F2
-                 │   │   │   ▲   │   │   │
-                 │   │   │   └── NTC 10 kΩ na boku obudowy pakietu #4
-                 │   │   │   │   │   │   │
-   szyna „−”  ═══●═══●═══●═══●═══●═══●═══●
-      odczep     1   2   3   4   5   6   7
-                                         │
-                    odbiór „−” (masa) ───┘
+   KOSZ LEWY (4)                                   KOSZ PRAWY (3)
+  [#1][#2][#3][#4]                                 [#5][#6][#7]
+   │+  │+  │+  │+    ← FB1…FB4 10 A, 2,5 mm² ±30 mm   │+  │+  │+    ← FB5…FB7
+   └───┴─┬─┴───┘                                    └─┬─┴───┘
+        [L+]════════ łącznik 6 mm², 0,4–0,6 m ════════[P+]
+         ║ ║
+         ║ ╚═ F12 ← ładowanie (2 × XY-SK120 → 2 × XH-M603)
+         ╚═══ F7 → LVD → szyna odbiorników
+   ┌───┬─┴─┬───┐                                    ┌─┴─┬───┐
+   │−  │−  │−  │−                                   │−  │−  │−
+        [L−]════════ łącznik 6 mm², ta sama długość ══[P−]
+                                                      ║
+                                    masa banku 6 mm² ═╝ → punkt masy (§8.3)
 ```
 
-Cztery warunki, bez których ten rysunek nic nie daje:
+> **Stara wersja z listwami.** Płaskowniki miedziane 15 × 2 / 20 × 3 mm
+> z siedmioma odczepami M6 nadal byłyby poprawne (rozrzut ~1 %), ale przy
+> dwóch koszach dawałyby dwie krótkie listwy i ten sam łącznik — zysk
+> kilku punktów procentowych nie jest wart pracy i wierconej miedzi.
 
-1. **Kolejność odczepów na obu szynach musi być ta sama** — odczep „−"
-   pakietu *k* naprzeciw odczepu „+" pakietu *k*. Odwrócenie kolejności na
-   jednej szynie zamienia przekątną w odbiór z jednego końca.
-2. **Ogonki pakiet → szyna: 1,5 mm², o jednakowej rezystancji.** Twardy wymóg
-   liczbowy: różnica długości pętli (żyła „+" i „−" razem) **≤ ±30 mm**.
-   Ogonek 1,5 mm² ma 23,3 mΩ na metr pętli, więc 30 mm to 0,7 mΩ — 2 %
-   rezystancji gałęzi. Przy ogonkach 2,5 mm² tolerancja rośnie do ±50 mm.
-3. **Nadmiar ogonka w drugim rzędzie zwiń w pętlę serwisową, nie skracaj.**
-   Równa ma być rezystancja, a nie odległość w linii prostej.
-4. **Nigdy nie bierz obu biegunów z tego samego końca szyny.** To jedyny
-   układ, który przy siedmiu pakietach naprawdę psuje rozdział prądów —
-   4,6 razy gorzej niż przekątna.
+**Zaciski F2 w samochodzie.** Nasuwki 6,35 mm prądowo wystarczają z ogromnym
+zapasem (bezpiecznik 10 A jest tu elementem ograniczającym), ale w aucie
+problemem są wibracje i bliskość stali:
 
-W układzie 4 + 3 (§4.2) szynę **zginasz w L albo U** tak, żeby przechodziła
-przez odczepy 1 → 7 po kolei. Dłuższy segment narożny jest praktycznie
-darmowy: dla płaskownika 15 × 2 mm przejście z 70 na 200 mm zmienia rozrzut
-z 0,99 % na 1,19 %, a dla 20 × 3 mm z 0,50 % na 0,60 %.
-
-> **Dlaczego płaskownik, skoro prąd jest mały.** Przy odbiorze przekątnym
-> i rozładowaniu 7,5 A najbardziej obciążony segment szyny (między odczepem 1
-> a 2) wiezie 6/7 × 7,5 = **6,4 A**, a dalej coraz mniej — prądowo starczyłoby
-> 1,5 mm². Przekrój wynika **wyłącznie** z rezystancji (tabela wyżej),
-> z potrzeby mechanicznego utrzymania siedmiu odczepów M6 i z prądu
-> zwarciowego **~2,4 kA** (§4.4). Szyny **muszą mieć pokrywę izolacyjną** —
-> upuszczony na nie klucz to zwarcie 2,4 kA.
+- nasuwki żeńskie **w pełni izolowane**, zaciskane zaciskarką zapadkową —
+  nie kombinerkami, do tego **kapturki** na wszystkie 14 biegunów (poz. 9 BOM
+  w PDF koszy),
+- **odcinek przed bezpiecznikiem (zacisk „+" → FB) nie jest niczym
+  chroniony** — zwarcie go do kosza to prąd zwarciowy całego pakietu. Stąd
+  5–10 cm do wkładki i przewody prowadzone **od belki dociskowej w stronę
+  bagażnika**, nigdy pod nią ani po ostrej krawędzi wieńca,
+- **odciążenie mechaniczne**: wiązkę przypnij opaską, żeby ciężar przewodu
+  i oprawki nie wisiał na nasuwce,
+- odrobina smaru stykowego przeciw korozji ciernej (fretting).
 
 **Hierarchia ważności**, gdyby trzeba było wybierać, na czym oszczędzić:
 
 1. pakiety z jednej dostawy, wyrównane napięciowo przed łączeniem (§11 Etap 2),
-2. ogonki o równej rezystancji,
-3. płaskownik zamiast linki,
-4. odbiór po przekątnej,
+2. odcinki do pakietów o równej długości,
+3. odbiór po przekątnej (L+ / P−),
+4. bloki zbiorcze zamiast odczepów na ciągłej lince,
 5. parzystość liczby pakietów — **bez znaczenia**.
 
 Rysunki: [`../schematics/wiring_power_modules.svg`](../schematics/wiring_power_modules.svg)
 (zacisk po zacisku) oraz [`../schematics/power_buffered_m910q.svg`](../schematics/power_buffered_m910q.svg)
-(tor główny).
-
-**Zaciski F2 w samochodzie.** Nasuwki 6,35 mm prądowo wystarczają z ogromnym
-zapasem (bezpiecznik 10 A jest tu elementem ograniczającym), ale w aucie
-problemem są wibracje:
-
-- nasuwki żeńskie 6,35 mm **w pełni izolowane**, zaciskane zaciskarką
-  zapadkową — nie kombinerkami,
-- koszulka termokurczliwa z klejem na całym połączeniu,
-- **odciążenie mechaniczne**: wiązkę przypnij opaską do skrzynki, żeby ciężar
-  przewodu nie wisiał na nasuwce,
-- odrobina smaru stykowego przeciw korozji ciernej (fretting).
+(tor główny) — do czasu przegenerowania mogą pokazywać listwy (uwaga na
+początku dokumentu).
 
 ### 4.4 AGM — nastawy ładowania
 
@@ -587,9 +670,9 @@ Ponieważ HR1221W to AGM, obowiązują wartości z karty katalogowej CSB:
 
 | Parametr | Zakres katalogowy | **Przyjęta nastawa** | Dlaczego |
 |----------|------------------|---------------------|----------|
-| Absorpcja (cykl) | 14,4–15,0 V | **14,40 V** | dolny kraniec — najłagodniejszy dla żywotności |
-| Podtrzymanie (float) | 13,5–13,8 V | **13,65 V** | środek zakresu |
-| Prąd ładowania (CC) | maks. 2,1 A/pakiet | **8,0 A** dla 7 pakietów | 54 % katalogowego sufitu 14,7 A — nastawę ogranicza **tor**, nie bank (§6.3) |
+| Absorpcja (cykl) | 14,4–15,0 V | **14,40 V** | dolny kraniec — najłagodniejszy dla żywotności (wybór CV w §5.5) |
+| Podtrzymanie (float) | 13,5–13,8 V | **13,65 V** | środek zakresu; XY-SK120 nie ma osobnego stopnia float — §5.5 |
+| Prąd ładowania | maks. 2,1 A/pakiet (14,7 A na bank) | **2 × 5,0 A z ładowarek**, netto do banku **≈ 5 A** (4–6 A) | 34 % sufitu; ok. 0,7 A na pakiet |
 
 > **Napięcia nie zależą od liczby pakietów.** Łączenie równoległe sumuje
 > pojemność i prąd, a napięcie zostawia bez zmian: siedem bloków 12 V
@@ -597,17 +680,14 @@ Ponieważ HR1221W to AGM, obowiązują wartości z karty katalogowej CSB:
 > temperaturowa z §4.5, progi rozłącznika nadnapięciowego 15,30 / 14,00 V
 > (§6.2) i progi LVD 11,00 / 12,60 V (§7.2) obowiązują **dosłownie**, tak samo
 > jak przy czterech pakietach. Zmienia się wyłącznie **prąd** i **czas trwania
-> faz**. To jest najczęstsze nieporozumienie przy rozbudowie banku, więc
-> zapisane wprost.
+> faz**.
 
 > **Korekta wcześniejszej wersji tego dokumentu.** Wcześniejsze wydanie
 > zakładało akumulatory żelowe i podawało 14,20 V / 13,70 V oraz ostrzeżenie,
 > że 14,4 V jest za dużo. **Dla HR1221W jest inaczej: 14,4 V mieści się
-> w katalogowym zakresie cyklicznym.** Osobną sprawą jest prąd: przy banku
-> czterech pakietów sufit katalogowy wynosił 8,4 A i wartości 15–20 A
-> z oryginalnych notatek repo były dwukrotnym przekroczeniem. Przy banku
-> siedmiu sufit to **14,7 A** — i dziś nastawy nie ogranicza już karta
-> katalogowa akumulatora, tylko tor ładowania (§6.3, §13.1).
+> w katalogowym zakresie cyklicznym.** Wartości 15–20 A z oryginalnych
+> notatek repo przekraczały sufit czterech pakietów (8,4 A) dwukrotnie; przy
+> siedmiu sufit to 14,7 A, a dzisiejsze netto ≈ 5 A jest daleko poniżej.
 
 **Seria HR to akumulator buforowy, nie trakcyjny.** Konstrukcja z cienkimi
 płytami jest zoptymalizowana pod krótkie rozładowania dużym prądem (UPS) —
@@ -616,47 +696,32 @@ lubi, to **głębokie cyklowanie** — stąd LVD i dyscyplina DoD z §9.
 
 **Rezystancja banku.** Katalogowe 23 mΩ na pakiet daje po zrównolegleniu
 siedmiu sztuk **23 / 7 = 3,29 mΩ na samych ogniwach**. Realnie każda gałąź ma
-jednak więcej:
+więcej (rozbicie w §4.3): **`R` ≈ 34,4 mΩ**, czyli same gałęzie dają
+34,4 / 7 = **4,92 mΩ**, a z łącznikiem 0,5 m między koszami na zaciskach
+odbioru (L+ / P−) — **5,75 mΩ** (rachunek w §4.3).
 
-| Składnik gałęzi jednego pakietu | Rezystancja |
-|---------------------------------|-------------|
-| ogniwo (karta katalogowa CSB) | 23,0 mΩ |
-| ogonek 1,5 mm², pętla 2 × 0,30 m | 7,0 mΩ |
-| wkładka ATO 10 A + oprawka inline | ~7 mΩ |
-| **razem `R` na gałąź** | **≈ 37 mΩ** |
+Skutki praktyczne:
 
-Stąd rezystancja banku **37 / 7 = 5,29 mΩ**; przy czterech pakietach było
-9,25 mΩ, czyli bank jest dziś o **43 % sztywniejszy**. Odbiór po przekątnej
-(§4.3) dokłada każdej gałęzi jednakowe +0,24 mΩ, więc poprawka jest pomijalna.
-
-Skutki praktyczne, prawie wszystkie na korzyść:
-
-- **spadek napięcia**: przy najgorszym prądzie odbiorników 7,5 A (§7.4) bank
-  ugina się o 7,5 × 5,29 mΩ = **39,6 mV**; na samych ogniwach 24,6 mV. To
+- **spadek napięcia**: przy typowym obciążeniu 5 A bank ugina się
+  o 5 × 5,75 mΩ ≈ **29 mV**, przy szczycie 10,5 A (§7.4) o **60 mV**. To
   o rząd wielkości mniej niż histereza LVD (1,6 V) — bez wpływu na próg
-  11,00 V i na okno wejściowe XL6019. Efekt drugiego rzędu: LVD odetnie przy
-  napięciu spoczynkowym niższym o ~30 mV niż przy czwórce, co jest bez
-  znaczenia praktycznego,
-- **prąd zwarciowy pojedynczej gałęzi się nie zmienia**: 12,85 V / 37 mΩ =
-  **347 A**, niezależnie od liczby pakietów. Dlatego bezpieczniki gałęziowe
-  zostają wkładkami ATO (§8.1),
-- **prąd zwarciowy prospektywny na szynie banku rośnie do ≈ 2,4 kA**
-  (12,85 V / 5,29 mΩ; przy czterech pakietach ≈ 1,4 kA). To jedyna liczba
+  11,00 V i na okno wejściowe przetwornicy,
+- **prąd zwarciowy pojedynczej gałęzi**: 12,85 V / 34,4 mΩ = **≈ 374 A**,
+  niezależnie od liczby pakietów — dlatego bezpieczniki gałęziowe zostają
+  wkładkami ATO / mini (zdolność wyłączania ok. 1 kA, §8.1),
+- **prąd zwarciowy prospektywny banku**: na zaciskach odbioru
+  12,85 V / 5,75 mΩ ≈ **2,2 kA**; górna granica (zwarcie tuż przy blokach
+
+  kosza, same gałęzie) 12,85 V / 4,92 mΩ ≈ **2,6 kA**. To jedyna liczba
   w tym rozdziale działająca **na niekorzyść** — konsekwencje dla doboru
   wkładek są w §7.4 i §8.1, a dla obsługi rozłącznika masy w §8.4.
 
-> **Skąd 37 mΩ, skoro karta podaje 23 mΩ.** Rezystancje ogonka i przejść
-> (nasuwka F2, wkładka, oprawka) są **przyjęciem** — repozytorium ich nie
-> podaje. Rozbicie jest wypisane po to, żeby dało się je przeliczyć po pomiarze
-> mostkiem. Wrażliwość: ±20 % na `R` przenosi się 1:1 na rezystancję banku,
-> prąd zwarciowy i rozrzut topologiczny z §4.3, ale **nie zmienia żadnej
-> decyzji doborowej**.
-
-> **Poprawka rachunkowa wobec poprzedniego wydania.** Było tu napisane, że
-> „23 mΩ na pakiet daje po zrównolegleniu 4,6 mΩ, więc pobór 7 A powoduje
-> spadek ~32 mV". 4,6 mΩ to 23/5 — wartość dla **pięciu** pakietów, pozostałość po
-> starszej konfiguracji. Dla czterech byłoby 5,75 mΩ i 40 mV, dla dzisiejszych
-> siedmiu jest 3,29 mΩ i 23 mV na samych ogniwach.
+> **Skąd 34 mΩ, skoro karta podaje 23 mΩ.** Rezystancje odcinka i przejść
+> (nasuwka F2, wkładka, oprawka, oczka) są **przyjęciem** — repozytorium ich
+> nie podaje. Rozbicie jest wypisane po to, żeby dało się je przeliczyć po
+> pomiarze mostkiem. Poprzednie wydanie miało 37 mΩ, bo liczyło ogonki
+> 1,5 mm² × 0,30 m; przy 2,5 mm² × 0,25 m gałąź jest o ok. 3 mΩ sztywniejsza,
+> a prąd zwarciowy banku o ok. 8 % wyższy.
 
 ### 4.5 Kompensacja temperaturowa
 
@@ -680,11 +745,11 @@ CSB podaje **dwa różne współczynniki**:
 — górnej granicy katalogowej CSB. Ładowarka, która nie ma takiego ograniczenia,
 przy mrozie wyjedzie ponad kartę katalogową.
 
-Czujnik NTC 10 kΩ przyklej do **boku obudowy pakietu #4** — środkowego
-z siedmiu (nie na skrajnym, nie na biegunie). Tu nieparzystość akurat pomaga:
-przy siedmiu pakietach środkowy jest jeden i jednoznaczny, przy ośmiu trzeba
-by wybierać między dwoma. W układzie 4 + 3 z §4.2 to środkowy pakiet
-pierwszego rzędu.
+**XY-SK120 nie ma wejścia czujnika temperatury**, więc kompensacja jest
+**ręczna, sezonowa** — nastawy w §5.5. Czujnik NTC 10 kΩ ma sens tylko przy
+ładowarce, która go przyjmuje (alternatywa B2B, §5.7); wtedy przyklej go do
+boku **środkowego pakietu kosza lewego** (#2 albo #3), nie do skrajnego i nie
+na biegunie.
 
 ### 4.6 Temperatura, nie cyklowanie, wyznacza żywotność
 
@@ -693,8 +758,8 @@ akumulatorów ołowiowych: **każde +10 °C mniej więcej połowi ten czas.**
 
 | Miejsce montażu | Szacowana żywotność |
 |-----------------|--------------------|
-| kabina, pod fotelem / za panelem | 2–4 lata |
-| bagażnik | 1,5–3 lata |
+| kabina, pod fotelem / za panelem (wariant poprzedniego wydania) | 2–4 lata |
+| **bagażnik (przyjęte)** | **1,5–3 lata** |
 | przy tunelu wydechowym | < 1,5 roku |
 
 Dla porównania strona cykliczna: > 260 cykli przy 100 % DoD, czyli grubo ponad
@@ -702,63 +767,120 @@ Dla porównania strona cykliczna: > 260 cykli przy 100 % DoD, czyli grubo ponad
 ~50 cykli rocznie — cyklowanie wyczerpie się po dekadzie, a kalendarz i ciepło
 znacznie wcześniej.
 
-**Wniosek praktyczny: miejsce montażu ma większy wpływ na żywotność banku niż
-dyscyplina rozładowania.** Kabina bije bagażnik.
+**Bagażnik to świadomy kompromis.** Kabina byłaby dla akumulatorów
+chłodniejsza, ale siedem pakietów w dwóch koszach mieści się tylko
+w bagażniku, z wolnym otworem na narty. Żeby nie tracić więcej niż trzeba:
 
-### 4.7 Montaż mechaniczny
+- kosze otwarte od góry — **nie przykrywaj ich szczelną pokrywą** i nie
+  zastawiaj bagażem, latem otwórz bagażnik po postoju w słońcu,
+- źródła ciepła (przetwornica, dwie XY-SK120 po ~10 W strat, §5.2) **obok
+  koszy, nie nad akumulatorami** i nie w kontakcie z nimi,
+- latem obniż CV (§5.5) — w gorącym bagażniku 14,40 V to przeładowanie.
 
-Siedem pakietów to **12,6 kg samych akumulatorów**; ze skrzynką, szynami
-i pasami licz ok. **15 kg**. Wobec 7,2 kg przy czwórce to nie jest korekta
-kosmetyczna — mocowanie staje się osobnym zadaniem konstrukcyjnym.
+### 4.7 Montaż mechaniczny — dwa kosze w bagażniku
 
-- miejsce montażu: **pod fotelem pasażera**, nie w bagażniku — patrz
-  [`../schematics/vehicle_layout_m910q.svg`](../schematics/vehicle_layout_m910q.svg),
-- **układ 4 + 3 w dwóch rzędach, nie siedem w rzędzie.** Powód jest liczbowy:
-  moment gnący wspornika `M = m·g·L/8` wynosi **4,33 N·m** przy podparciu co
-  280 mm (4 + 3) i **7,57 N·m** przy 490 mm (jeden rząd). Układ 4 + 3 rośnie
-  wobec czwórki proporcjonalnie do masy (×1,75), jeden rząd — ×3,06,
-- pakiety w **skrzynce lub na wsporniku**, przypięte pasami — 7 × 1,8 kg
-  luzem to 12,6 kg pocisku przy hamowaniu,
-- pozycja: AGM toleruje dowolną orientację poza **do góry nogami**;
-  stojąco albo leżąco na boku,
-- **jak najdalej od źródeł ciepła** — patrz §4.6, to nie jest porada
-  kosmetyczna,
-- dostęp do zacisków bez demontażu połowy auta — przy siedmiu pakietach to
-  **14 odczepów** do okresowego dokręcenia (§12),
-- AGM jest szczelny (VRLA, rekombinacja gazów), więc montaż w kabinie jest
-  dozwolony — ale **skrzynki nie zamykaj hermetycznie**. Przy awarii ładowania
-  zawór bezpieczeństwa wypuszcza wodór, a przy siedmiu pakietach jego objętość
-  jest 1,75 × większa niż przy czterech; szczelina wentylacyjna jest tym
-  bardziej obowiązkowa.
+Bank stoi w **dwóch stalowych koszach** z projektu
+[`mechanika/kosze_HR1221W_4+3.pdf`](mechanika/kosze_HR1221W_4+3.pdf):
+przykręconych do **pionowej blachy grodzi za tylną kanapą** i opartych na
+**podłodze bagażnika**. Między koszami zostaje 290–296 mm na otwór do
+przewozu nart (klapka za podłokietnikiem kanapy). Rysunki 3D na stronach 2
+i 4 PDF-u się nie wyrenderowały (są puste) — wymiary niżej pochodzą z tekstu
+i tabel PDF-u.
 
-#### Liczby do wspornika
+**Konstrukcja (z PDF-u):**
 
-| Wielkość | Wartość |
-|----------|---------|
-| Masa banku (same pakiety) | **12,6 kg** |
-| Siła bezwładności przy 10 g (kryterium robocze) | **1236 N** |
-| Siła bezwładności przy 20 g (jak dla mocowania ładunku wg ECE R17) | **2472 N** |
-| Na jeden z czterech punktów mocowania | 309 N (10 g) / **618 N** (20 g) |
-| Pasy mocujące | 2 szt. ≥ 250 daN (razem 5 kN > 2,47 kN) |
+| | Kosz lewy (4 szt.) | Kosz prawy (3 szt.) |
+|---|---|---|
+| Klatka zewn. (szer. × gł. × wys.) | **373 × 83 × 98 mm** | **283 × 83 × 98 mm** |
+| Z wieńcem i nakrętkami | 416 × 89 mm | 326 × 89 mm |
+| Wnętrze po gumie 3 mm | 361 × 71 mm (na 360 × 70) | 271 × 71 mm (na 270 × 70) |
+| Otwory w grodzi Ø 8,5 mm | 4 (rozstaw 333 mm) | 4 (rozstaw 243 mm) |
+| Belka dociskowa 20 × 3 | 416 mm, otwory co 395 mm | 326 mm, otwory co 305 mm |
 
-Śruby nie są problemem: **M8 klasy 8.8 wytrzymuje na ścinanie ok. 17,6 kN**,
-czyli ponad 28-krotny zapas. Problemem jest **blacha podłogi** — pod każdą
-śrubą musi znaleźć się płytka rozkładająca nacisk **min. 40 × 40 × 3 mm**,
-inaczej przy 618 N łeb przejdzie przez blachę.
+- dolna rama i 4 słupki narożne z **kątownika 25 × 25 × 3 mm** (S235JR),
+  wysokość 98 mm — 4 mm poniżej górnej krawędzi obudowy pakietu,
+- górny wieniec z **płaskownika 20 × 3 mm** szerszą krawędzią w pionie
+  (78–98 mm), dospawane po zewnątrz nakrętki M8,
+- **górna belka dociskowa 20 × 3 mm** leży na obudowach w tylnej części,
+  **25–29 mm od zacisków faston**, przykręcona dwiema M8 × 30 (kl. 8.8)
+  w dospawane nakrętki; pod nią podwójny pasek EPDM (6 mm),
+- **wyklejenie gumą EPDM/SBR 3 mm** dna, narożników i spodu belek,
+- mocowanie do grodzi: **M8 × 25 kl. 8.8 z nakrętką samokontrującą DIN 985**,
+  po 2 podkładki poszerzane **DIN 9021 (Ø 24 mm)** na śrubę; od strony kabiny
+  **listwy kontrujące 30 × 4 mm** (KL-9 365 mm, KP-9 275 mm) pod górnymi
+  śrubami; dolny rząd otworów 14 mm, górny 88 mm nad podłogą,
+- BOM stali na oba kosze: 3 × 1 m kątownika 25 × 25 × 3, 3 × 1 m płaskownika
+  20 × 3, 1 × 1 m płaskownika 30 × 4, 4 nakrętki M8 do spawania, 4 kpl. śrub
+  belek, 8 kpl. śrub kotwiących, 16 podkładek DIN 9021, arkusz EPDM
+  400 × 500 × 3 mm, 14 kapturków na zaciski, podkład i lakier.
 
-> **Dwie rzeczy, których ten rachunek nie rozstrzyga.** Po pierwsze,
-> **nośność podłogi pod fotelem pasażera w Alfie 156 jest nieznana** — 2,47 kN
-> przy 20 g to wymaganie, ale nie wiadomo, czy blacha w tym miejscu przyjmie
-> je bez wzmocnienia. Po drugie, **kryteria 10 g / 20 g są przyjęte z praktyki
-> motoryzacyjnej**, a nie zaczerpnięte z normy, do której ten projekt miałby
-> się stosować; poprzednie wydanie nie podawało tu żadnego kryterium poza
-> zdaniem „to pocisk przy hamowaniu". 12,6 kg w kabinie to masa istotna dla
-> bezpieczeństwa biernego i sposób mocowania jest decyzją człowieka, nie
-> wynikiem tego rachunku.
+**Zasady, których nie wolno złamać:**
+
+- **nie wierć podłogi bagażnika.** W Alfie 156 zbiornik paliwa jest pod
+  siedziskiem kanapy i pod podłogą tuż przed dolną belką grodzi. Kosze stoją
+  na podłodze swobodnie (podłoga przenosi ciężar w pionie), a wszystkie
+  8 otworów Ø 8,5 mm wiercisz **wyłącznie poziomo przez grodź**, po wyjęciu
+  siedziska i oparcia kanapy — i po obejrzeniu, co jest za blachą od strony
+  kabiny (przewody, mocowania pasów),
+- **belka dociskowa jest blisko zacisków „+"** (25–29 mm) i jest uziemiona
+  przez śruby. Kapturki na wszystkie bieguny, nasuwki w pełni izolowane,
+  przewody prowadzone od belki w stronę bagażnika (§4.3),
+- pakiety **stojąco, zaciskami do góry** — AGM toleruje dowolną orientację
+  poza do góry nogami, ale kosz jest zaprojektowany na pion,
+- dostęp do zacisków bez demontażu kanapy — przy siedmiu pakietach to
+  **14 nasuwek** i 4 bloki do okresowej kontroli (§12).
+
+#### Liczby do mocowania (≈ 16,8 kg)
+
+Masa z PDF-u: **≈ 16,8 kg** razem (7 pakietów ~12,6 kg + stal i guma).
+Podział na kosze przyjmujemy proporcjonalnie do liczby pakietów:
+**L ≈ 9,6 kg, P ≈ 7,2 kg**.
+
+| Wielkość | Razem | Kosz L | Kosz P |
+|----------|-------|--------|--------|
+| Siła przy 10 g (kryterium robocze) | **1,65 kN** | 0,94 kN | 0,71 kN |
+| Siła przy 20 g (jak dla mocowania ładunku) | **3,30 kN** | 1,88 kN | 1,41 kN |
+| Na jedną z 4 śrub kosza przy 20 g | — | **≈ 470 N** | ≈ 355 N |
+
+Jak te siły działają na grodź:
+
+- **hamowanie i zderzenie czołowe** pchają kosze **na grodź** — blacha pracuje
+  na docisk przez całą tylną ściankę kosza, śruby są prawie nieobciążone,
+- **uderzenie w tył** ciągnie kosze **od grodzi** — wtedy śruby pracują na
+  rozciąganie, a ryzykiem jest **przeciągnięcie łba przez blachę**; od tego
+  są listwy 30 × 4 i podkładki Ø 24 mm,
+- **siły boczne** (zakręt, uderzenie z boku) — ścinanie śrub i tarcie
+  docisku; M8 kl. 8.8 przenosi rzędu kilkunastu kN, więc ~0,5 kN na śrubę
+  nie jest dla niej problemem,
+- **w pionie** ciężar bierze podłoga, a przy podbiciu na nierówności pakiety
+  trzyma belka dociskowa.
+
+> **Czego ten rachunek nie rozstrzyga.** **Grubość i nośność grodzi w Alfie
+> 156 są nieznane** — repozytorium ich nie zawiera. Dolne śruby (14 mm nad
+> podłogą) siedzą w narożniku grodź–podłoga, który zwykle jest sztywny, ale
+> według PDF-u mają tylko podkładki DIN 9021. Jeżeli blacha ugina się przy
+> dokręcaniu, dołóż drugą parę listew 30 × 4 pod dolny rząd (kolejne
+> 0,64 m płaskownika). Kryteria 10 g / 20 g są przyjęte z praktyki
+> motoryzacyjnej, nie z normy, a 16,8 kg w bagażniku tuż za oparciem
+> kanapy to masa istotna dla bezpieczeństwa pasażerów — sposób mocowania
+> jest decyzją człowieka, nie wynikiem tego rachunku.
+
+**Wentylacja i ciepło.** AGM jest szczelny (VRLA, rekombinacja gazów),
+ale przy awarii ładowania zawór bezpieczeństwa wypuszcza wodór. Kosze są
+otwarte od góry i tak ma zostać: **żadnej szczelnej pokrywy nad pakietami**,
+a elementy, które iskrzą (przekaźnik K1, przekaźniki XH-M603 i XH-M609,
+bezpieczniki), montuj **obok koszy, nie bezpośrednio nad nimi** — wodór
+idzie do góry. Bagażnik sedana nie jest hermetyczny, a XH-M603 (§6) odcina
+ładowanie, zanim AGM zacznie intensywnie gazować.
+
+**Trasa do przodu.** Z bagażnika do M910q przy nogach pasażera jest
+**ok. 4 m**: przez grodź istniejącą przelotką (albo nową, zawsze z gumową
+przelotką), wzdłuż progu pod listwami, w peszlu, z dala od mechanizmów
+foteli i pasów. Przewody i przekroje tej trasy — §8a.2.
 
 ---
 
-## 5. Ładowanie — dwa warianty
+## 5. Ładowanie — 2 × XY-SK120
 
 ![Ładowanie i ochrona](../schematics/charging_lvd.svg)
 
@@ -779,267 +901,289 @@ Przetwornica **buck obniża napięcie** — z 13,75 V nie zrobi 14,40 V absorpcj
 Bank nigdy nie dojdzie powyżej ~13,5 V, czyli utknie na ~85 % pojemności
 i nigdy się w pełni nie naładuje.
 
-Potrzebna jest topologia, która **potrafi podnieść napięcie**: buck-boost,
-SEPIC albo zwykły boost o małym przełożeniu.
+Potrzebna jest topologia, która **potrafi i podnieść, i obniżyć napięcie**:
+buck-boost. Taka jest XY-SK120 — z 12,5–14,7 V z instalacji robi stabilne
+14,40 V w obie strony, więc problem „CV musi być wyższe od wejścia" znany ze
+zwykłego boostu tu nie istnieje, a dioda MBR2545CT nie jest potrzebna.
 
-### 5.2 Wariant A — gotowa ładowarka DC-DC (zalecany)
+### 5.2 Przyjęte: dwie XY-SK120 równolegle
 
-Samochodowa ładowarka DC-DC („B2B", battery-to-battery) rozwiązuje w jednym
-pudełku wszystko: topologię buck-boost, limit prądu, profil wielostopniowy
-z presetem **AGM**, kompensację temperaturową i detekcję pracy alternatora.
+**XY-SK120** (Sinilink; spotykana też jako nowsza **XY-SK120X**) to
+cyfrowy moduł zasilacza **buck-boost CC-CV** z wyświetlaczem i przyciskami.
+Fakty z opisu i instrukcji (dostępne fragmenty dotyczą głównie wersji
+SK120X — plain SK120 może się różnić domyślnymi wartościami i menu):
 
-**Wymaganie nadrzędne: ładowarka ma być IZOLOWANA GALWANICZNIE** (§5.5).
-To zawęża wybór, ale nie do drogich modeli — izolację mają też tanie moduły.
+| Cecha | Wartość |
+|-------|---------|
+| Topologia | buck-boost, CC-CV (SK120X dodatkowo tryb stałej mocy) |
+| Wejście | **6–36 V** |
+| Wyjście | do **6 A / 120 W** |
+| Obsługa | wyświetlacz, nastawa cyfrowa napięcia i prądu z odczytem |
+| Zabezpieczenia w menu | **OVP** (przepięcie wyjścia), **LVP/UVP** (podnapięcie wejścia), OCP, OPP, OTP |
+| Orientacyjna cena | ok. 60–90 PLN sztuka (ogłoszenia — zmienne) |
+
+> **Skąd te liczby.** Pełnej instrukcji XY-SK120 nie udało się przy pisaniu
+> otworzyć — widzieliśmy tylko fragmenty instrukcji SK120X (LVP 5,5–36 V,
+> OVP 0–38 V, OCP domyślnie 6,2 A, OPP, OTP). **Wejście 6–36 V i wyjście
+> 6 A / 120 W pochodzą z opisów sprzedażowych**, nie z instrukcji. Sprawdź je
+> w instrukcji i na obudowie kupionej sztuki, zanim ustawisz CC 5,0 A
+> i podasz na wejście więcej niż ~15 V.
+
+**Nastawy każdego modułu:** **CV 14,40 V, CC 5,0 A** (≈ 72 W — 60 % ze
+120 W, zapas cieplny). Dwa moduły równolegle dają razem **≈ 10 A**.
+
+Czego nie wiemy i trzeba sprawdzić po zakupie:
+
+- **sprawność** — producent jej nie podaje w dostępnych materiałach; do
+  rachunku przyjmujemy **88 %** (przyjęcie, nie dana), czyli ok. **10 W strat
+  na moduł** przy 72 W. Zmierz temperaturę radiatora po 30 min przy 5 A;
+  modułu nie zamykaj w szczelnej obudowie,
+- **prąd CC** — ustaw 5,0 A i sprawdź amperomierzem na wyjściu przy
+  rozładowanym banku (odczyt na ekranie modułu bywa przesunięty),
+- **„wyjście po włączeniu zasilania"** — moduły tej rodziny mają ustawienie,
+  czy wyjście startuje samo po podaniu zasilania. Jeżeli jest wyłączone, po
+  każdym uruchomieniu silnika moduł stoi z wyjściem OFF i **bank się nie
+  ładuje, bez żadnego objawu**. Ustaw „ON" i sprawdź, odcinając i podając
+  zasilanie,
+- **wersja i menu** — czy Twoja sztuka ma LVP z regulacją (instrukcja SK120X
+  podaje LVP 5,5–36 V, domyślnie 5,5 V) i czy ma którąś z funkcji końca
+  ładowania (§5.5).
+
+### 5.3 Dlaczego dwie, a nie jedna
+
+Z nową przetwornicą komputer nie jest już przycięty do ~38 W, a w budżecie
+jest telefon — podczas jazdy szyna bierze **≈ 4–6 A** (§2.1). Ładowarka
+zasila **najpierw odbiorniki**, a do banku idzie dopiero reszta:
+
+| Ładowanie | Wyjście razem | Obciążenie | **Netto do banku** | Faza CC z progu LVD (26,78 Ah) |
+|-----------|---------------|------------|--------------------|--------------------------------|
+| jedna XY-SK120, CC 5 A | 5 A | 4–6 A | **≈ −1…+1 A** — bank się w trasie **nie ładuje** | — |
+| jedna XY-SK120, CC 6 A (maks.) | 6 A | 4–6 A | ≈ 0–2 A | 13 h i więcej |
+| **dwie XY-SK120, CC 2 × 5 A** | **10 A** | 4–6 A | **≈ 4–6 A** (≈ 5 A) | **≈ 5,4 h** (4,5–6,7 h) |
+| dwie XY-SK120, CC 2 × 6 A | 12 A | 4–6 A | ≈ 6–8 A | ≈ 3,8 h — bez zapasu cieplnego, nie zalecane |
+
+Jedna sztuka ledwo pokryłaby obciążenie, więc bank po postoju **nie
+odzyskiwałby ładunku w czasie jazdy**. Dwie dają netto ≈ 5 A, czyli ok.
+0,7 A na pakiet — 34 % katalogowego sufitu 14,7 A, bez ryzyka dla AGM.
+
+**Jak dwa CC-CV dzielą prąd.** Dopóki bank jest poniżej 14,40 V, oba moduły
+siedzą w CC i każdy daje swoje 5 A — podział jest wymuszony nastawą, a nie
+rezystancją przewodów. Gdy bank dochodzi do CV, moduł z odrobinę wyższą
+nastawą przejmuje podtrzymanie, a drugi schodzi z prądu; to nieszkodliwe,
+bo prąd w fazie absorpcji i tak maleje poniżej 5 A. Nastaw oba CV w granicach
+±0,02 V i daj obu przewody wyjściowe tej samej długości. Mierz multimetrem,
+nie odczytem modułu — i **nie w fazie CC przy 10 A**: wtedy w pętli
+4 mm² + F12 spada ok. 0,09 V, a gdybyś „dociągnął" CV tak, żeby bank
+pokazał 14,40 V, to pod koniec absorpcji, gdy prąd zanika, bank stanąłby
+o te 0,05–0,09 V wyżej. Nastawiaj CV na wyjściu modułu **bez banku**
+(wyjście rozpięte albo za otwartym XH-M603), a na zaciskach banku tylko
+sprawdzaj — **pod koniec absorpcji, przy prądzie < 1 A**.
+
+### 5.4 Tor ładowania
+
+```
+akumulator rozruchowy ─ F1 20 A (≤ 30 cm od klemy) ─ 6 mm², ~5 m do bagażnika
+  ─ TVS SMCJ20CA + 470 µF / 35 V ─ K1 30 A (cewka: zapłon albo D+, przez FK 1 A)
+       ├─ XY-SK120 #1 (CV 14,40 V / CC 5,0 A) ─ XH-M603 #1 ─ FC1 7,5 A ─┐
+       └─ XY-SK120 #2 (CV 14,40 V / CC 5,0 A) ─ XH-M603 #2 ─ FC2 7,5 A ─┴─ 4 mm² ─ F12 15 A ─ blok L+ banku
+  masa obu modułów (wejście = wyjście) ─ punkt masy przy banku (§8.3)
+```
+
+| Element | Rola | Nastawa / uwaga |
+|---------|------|-----------------|
+| **F1 20 A** przy klemie | chroni ~5 m przewodu 6 mm² przez całe auto | §8.1 — dlaczego 20 A, a nie 15 A |
+| **TVS + 470 µF** | krótkie szpilki i tętnienia; nietłumionego load dumpu nie przeżyje (§5.8) | — |
+| **K1** 30 A SPDT + podstawka | rozłącza tor, gdy silnik nie pracuje | dioda 1N4007 równolegle do cewki |
+| **2 × XY-SK120** | CC-CV 14,40 V / 5,0 A każda | §5.2, §5.5 |
+| **2 × XH-M603** — po jednym na moduł | odcięcie przy przepięciu na banku | 15,30 / 14,00 V; dlaczego dwa — §6.3 |
+| **FC1, FC2 7,5 A ATO** — po jednej na gałąź, tuż przy OUT+ swojego XH-M603, przed złączeniem | chronią płytkę XH-M603 (≤ 8 A, §6.3) od strony banku i przed nadprądem z uszkodzonej XY-SK120 | 5 A to 67 % wkładki; 10 A byłoby powyżej granicy płytki — niedopuszczalne |
+| **F12 15 A** przy bloku L+ | zwarcie przewodu ładowania zasilane od strony banku | klasa jak F7 (≥ 2,5 kA, §8.1); 10 A to 67 % wkładki |
+| **FK 1 A** w miejscu wpięcia w zapłon / D+ | chroni ~4–5 m przewodu 0,75 mm² do cewki K1 | cewka ~0,15 A; bezpiecznik obwodu auta (15–20 A) tego przewodu nie chroni |
+
+**Po co FC1/FC2, skoro jest F12.** F12 15 A siedzi za złączeniem i chroni
+przewód 4 mm², a nie pojedynczą gałąź. Gdy przekaźnik XH-M603 jest zwarty,
+jego płytka jest wpięta wprost w bank; częściowe uszkodzenie XY-SK120
+(przebity tranzystor wyjściowy, kondensator, nadpalony zacisk) może wtedy
+pchać przez jedną płytkę 8–15 A — do tego może dołożyć prąd druga ładowarka
+przez złączenie — a F12 tego nie przerwie. Rozłącznik też nie, bo reaguje
+tylko na **wzrost** napięcia banku. Stąd wkładka w każdej gałęzi.
+
+**Czy ATO wyłączy prąd zwarcia w tym miejscu** (oszacowanie, jak przyjęcia
+w §4.3): źródło to bank ~5,75 mΩ, do tego ~1 m 4 mm² na „+" (4,3 mΩ),
+powrót przez masę 6 mm² (~1,4 mΩ) i wkładki F12 + FC z oprawkami
+(~10–15 mΩ, przyjęcie, nie pomiar) — razem ~22–27 mΩ, czyli
+12,85 V / 22–27 mΩ ≈ **480–590 A**, poniżej ~1 kA zdolności wyłączania
+ATO. **Selektywność nie jest gwarantowana**: przy twardym zwarciu F12 może
+zadziałać pierwszy albo razem z FC — to dopuszczalne, bo każda z nich
+przerywa obwód.
+
+**Prąd z akumulatora rozruchowego.** Na wyjściu 2 × 72 W = 144 W; przy
+przyjętej sprawności 88 % to 164 W z instalacji: **11,9 A przy 13,8 V**
+(silnik pracuje) i **13,0 A przy 12,6 V** (kluczyk na ON, silnik stoi —
+tylko gdy K1 idzie z zapłonu).
+
+**Czym sterować cewkę K1.** Najprościej **zapłonem**. Koszt: przy kluczyku
+w pozycji ON bez pracującego silnika moduły ładują bank **z akumulatora
+rozruchowego prądem ~13 A**. Przy normalnym uruchamianiu to kilka sekund;
+przy dłuższym staniu z kluczykiem (radio na postoju, diagnostyka) — wyraźnie
+rozładowuje rozruchowy. Dwie poprawki, najlepiej obie:
+
+- cewka z **D+/L alternatora** zamiast z zapłonu — sygnał znaczy wtedy
+  „alternator ładuje". Sprawdź potem, czy lampka kontrolna ładowania dalej
+  działa poprawnie — cewka pobiera ~150 mA z jej obwodu,
+- **LVP modułów na 12,8 V** (jeśli Twoja wersja ma regulowane LVP): przy
+  stojącym silniku rozruchowy ma 12,4–12,7 V i moduły stoją, przy pracującym
+  na wejściu jest 13,4–14,2 V. To także druga bariera, gdyby styki K1 się
+  zespawały. Sprawdź na wolnych obrotach z włączonymi światłami, czy moduły
+  nie klapkują na progu; jeżeli tak — obniż LVP do 12,7 V.
+
+**Przepływ wsteczny (bank → instalacja auta).** Dioda MBR2545CT z dawnego
+wariantu B nie jest potrzebna, ale warto wiedzieć, co ją zastępuje:
+
+1. **K1 rozwarty** przy zgaszonym silniku — wejścia modułów wiszą w powietrzu.
+   To wystarcza, żeby **akumulator rozruchowy** był odcięty od banku,
+   niezależnie od tego, co robi XH-M603,
+2. **zakładamy**, że XH-M603 jest zasilany z DC-IN, czyli z wyjścia swojego
+   modułu, a jego przekaźnik jest w spoczynku rozwarty: gdy moduł gaśnie,
+   gaśnie XH-M603 i **odcina wyjście modułu od banku**. To **przyjęcie, nie
+   fakt** — płytka mierzy po stronie OUT (bank), więc mogłaby też brać
+   zasilanie od banku albo przez swój dzielnik pomiarowy. Wtedy na postoju
+   trzymałaby przekaźnik zwarty (bank < 15,3 V), podpinała bank pod martwe
+   wyjście XY-SK120 i dokładała własny pobór do budżetu postoju. Przyjęcie
+   potwierdza albo obala **test z §6.4 pkt 6** — do tego czasu ten punkt
+   traktuj jako niezweryfikowany,
+3. z samą XY-SK120 nie liczymy na nic: czy jej stopień wyjściowy przewodzi
+   wstecz albo pobiera prąd z wyjścia przy braku wejścia — **nie wiadomo**
+   (schematu brak). Dlatego punkt 2.
+
+Kontrola w §11 Etap 5: przy zgaszonym silniku prąd z banku w stronę ładowarek
+ma być zerowy (< 1 mA na amperomierzu w przewodzie przy F12) — to ostatnia
+siatka bezpieczeństwa, już w aucie.
+
+### 5.5 Nastawa CV i brak prądu końca ładowania
+
+W dostępnych materiałach XY-SK120 / SK120X **nie znaleźliśmy funkcji
+kończenia ładowania prądem** (ustawienia typu „stop przy spadku prądu do
+X A" ani przejścia na float). Niektóre moduły tej rodziny mają limity typu
+OAH (amperogodziny) albo OHP (czas) — **dla SK120 tego nie potwierdziliśmy**;
+jeżeli Twoja sztuka je ma, nie zastępują one prawdziwego przejścia na float.
+Zakładamy więc najgorszy przypadek: **moduł trzyma CV przez cały czas pracy
+silnika**.
+
+Ponieważ XY-SK120 to buck-boost, **CV może być dowolne** — także poniżej
+napięcia wejściowego — a CC działa zawsze. To zmienia rachunek wobec dawnego
+boostu, któremu nastawa 13,8 V wyłączała ograniczenie prądu:
+
+Liczby w tabeli wynikają wprost z §4.5 (absorpcja −30 mV/°C, float
+−18 mV/°C od 25 °C). Temperatura to temperatura **pakietów w bagażniku
+podczas jazdy**, nie powietrza na zewnątrz:
+
+| Nastawa CV | Kiedy | Plus | Minus |
+|-----------|-------|------|-------|
+| **14,40 V** (domyślnie) | pakiety ok. **25 °C** (i chłodniej — zima); typowa jazda do ~2 h dziennie, bank często po postoju | pełne naładowanie, najkrótsza absorpcja; = absorpcja §4.5 dla 25 °C | przy długiej trasie AGM stoi godzinami na napięciu absorpcji — utrata wody, szybsze starzenie |
+| **13,80 V** | ok. **25 °C** i częste trasy po kilka godzin | górna granica katalogowego float **przy 25 °C** — stać na tym bez końca można tylko przy ok. 25 °C lub chłodniej; powyżej obniżaj o ~18 mV/°C | ładowanie do pełna wyraźnie dłuższe (absorpcja na niższym napięciu) |
+| **13,95 V** | **lato, gorący bagażnik (~40 °C)**, typowe jazdy | = absorpcja §4.5 dla 40 °C | jak 14,40 V przy 25 °C: na wielogodzinnej trasie to nadal napięcie absorpcji, nie float |
+| **13,40 V** | **lato (~40 °C) i częste trasy po kilka godzin** | ≈ float §4.5 dla 40 °C (13,38 V) — tu można stać godzinami | bank po postoju doładowuje się bardzo powoli; przy krótkich jazdach za mało |
+
+14,10 V (dawna „letnia" nastawa) odpowiada absorpcji przy ok. **35 °C**, nie
+40 °C, i jest o ok. 0,7 V powyżej float dla 40 °C — na długiej letniej trasie
+to stałe przeładowanie. Nie używaj jej jako nastawy „na całe lato".
+
+Co trzyma 14,40 V w ryzach, gdy zostaje:
+
+- napięcie jest podawane **tylko podczas jazdy** (K1, LVP) — na postoju bank
+  stoi na własnym napięciu spoczynkowym,
+- rozłączniki nadnapięciowe 15,30 V łapią awarię modułu (§6),
+- **OVP modułów ustaw na 15,0 V** — pierwsza, wewnętrzna warstwa (nie chroni
+  przed przebiciem tego samego modułu, od tego jest XH-M603).
+
+Kompensacji temperaturowej nie ma (§4.5) — przestawiasz CV sezonowo: zima
+14,40 V, lato w gorącym bagażniku **13,95 V** (przy częstych wielogodzinnych
+trasach **13,40 V**).
+
+### 5.6 Brak izolacji galwanicznej — zasady masy
+
+XY-SK120 **nie jest izolowana**: masa wejścia i masa wyjścia to ten sam
+zacisk. Prąd ładowania i tętnienia alternatora wracają przez wspólny punkt
+masy, a nie przez transformator. Bank bocznikuje część zakłóceń swoją niską
+impedancją, ale nie wszystkie. Zasady są te same co w dawnym nieizolowanym
+wariancie B:
+
+1. **Masa banku i masa pojazdu spotykają się w JEDNYM punkcie** — przy
+   banku, krótkim przewodem 6 mm² do oczyszczonej blachy nadwozia w bagażniku
+   (§8.3). Wejściowa masa modułów **nie dostaje osobnego przewodu do klemy
+   „−" rozruchowego** — prąd wejściowy wraca przez ten jeden punkt i nadwozie.
+   Drugi przewód masowy to pętla.
+2. **Wszystkie masy head unitu schodzą się w tym punkcie**: bank, moduły,
+   LVD, dystrybucja, powrót 20 V z M910q i powrót 12 V z przodu (§8a.2).
+3. **Wzmacniacz nadal wisi na akumulatorze rozruchowym** z własną masą
+   (§2). Ekran RCA łączy więc dwie różne masy i to jest główna droga
+   sprzężenia. Jeżeli pojawi się przydźwięk, rozstrzyga się to izolatorem
+   pętli masy na RCA albo przeniesieniem punktu masy — nie kolejnym przewodem
+   masowym.
+
+### 5.7 Alternatywa: izolowana ładowarka B2B (droższa)
+
+Samochodowa ładowarka DC-DC („B2B") z **izolacją galwaniczną** rozwiązuje
+w jednym pudełku topologię, profil wielostopniowy z presetem AGM i float,
+a transformator przerywa pętlę masy między instalacją auta a zestawem.
 
 | Model | Prąd | Izolacja | Orientacyjna cena | Uwagi |
 |-------|------|----------|------------------|-------|
-| **VEVOR 12/12-20** (i klony pod innymi markami) | 20 A / 250 W | **tak**, deklarowana | ~400–550 PLN | trójstopniowy profil ołowiu (bulk / absorpcja / float), tryb AGM, wyzwalanie zapłonem — **wybór podstawowy** |
-| Bezmarkowy „DC-DC B2B 12→14,6 V" w obudowie aluminiowej IP55 | 6–10 A | zwykle tak — **do potwierdzenia** | ~150–300 PLN | wybór napięcia zworką (12,6 / 14,0 / 14,5 V), CC bez stopni; najtańsza droga, ale sprawdź profil |
-| Renogy REGO 12/12-20 | 20 A | tak | ~700–900 PLN | sprawność 94 %, preset AGM |
+| **VEVOR 12/12-20** (i klony pod innymi markami) | 20 A / 250 W | deklarowana | ~400–550 PLN | trójstopniowy profil, tryb AGM, wyzwalanie zapłonem |
+| Renogy REGO 12/12-20 | 20 A | tak | ~700–900 PLN | preset AGM |
 | Victron Orion-Tr Smart 12/12-18 | 18 A | **wersja izolowana to osobny wariant** — sprawdź symbol | ~800–1000 PLN | konfiguracja przez Bluetooth, preset AGM |
 
-> **Czego nie dało się zweryfikować.** Specyfikacje z dwóch pierwszych
-> wierszy pochodzą z opisów sklepowych, nie z kart katalogowych —
-> listingów AliExpress i VEVOR nie udało się otworzyć przy pisaniu tego
-> rozdziału. Przed zakupem potwierdź u sprzedawcy trzy rzeczy: **czy
-> wyjście jest naprawdę odizolowane od wejścia** (zmierz omomierzem
-> między masą wejścia a masą wyjścia — ma być rozwarcie), **czy jest
-> stopień float**, oraz **czy ładowanie startuje z zapłonu**, a nie
-> zawsze gdy jest napięcie na wejściu.
+> **Czego nie dało się zweryfikować.** Specyfikacje i ceny pochodzą z opisów
+> sklepowych, nie z kart katalogowych. Przed zakupem potwierdź: **czy wyjście
+> jest naprawdę odizolowane** (omomierz między masą wejścia i wyjścia —
+> rozwarcie), **czy jest float**, **czy ładowanie startuje z zapłonu / D+**
+> i **czy da się ustawić prąd**.
 
-**Czego szukać w opisie, a co jest pułapką**
+Dwa haczyki, przez które to nie jest zamiana „wkręć i jedź":
 
-| Cecha | Dlaczego to ważne |
-|-------|-------------------|
-| „isolated input/output", transformator w środku | bez tego cały §5.5 nie działa |
-| profil trójstopniowy z **float 13,65 V** | samo CC-CV trzymające 14,40 V przez godziny jazdy wysuszy AGM |
-| wyzwalanie **zapłonem / D+** | inaczej ładowarka wyciąga akumulator rozruchowy na postoju |
-| nastawa prądu | potrzeba **8,0 A**; moduł 20 A pracuje wtedy na 40 % i zostaje zimny |
-| „14,6 V" bez możliwości zejścia niżej | to napięcie LiFePO4, nie AGM — dla HR1221W za wysokie |
+- **20 A bez regulacji to za dużo**: przy obciążeniu 5 A do banku poszłoby
+  ~15 A — tyle, co sufit 14,7 A. Potrzebna jest nastawa prądu ≤ ~12 A albo
+  model 10–15 A,
+- **warstwa nadnapięciowa z §6 dalej obowiązuje**, a jeden XH-M603 nie
+  przeniesie 10–20 A z jednego wyjścia (§6.3). To osobny projekt (rozłącznik
+  z wolnym stykiem i przekaźnik mocy) i decyzja człowieka.
 
-Prąd nastaw i tak na **8,0 A** — nie dlatego, że tyle wynosi sufit
-akumulatorów (dla siedmiu HR1221W to 14,7 A), tylko dlatego, że tyle wynosi
-sufit toru ładowania (§6.3). Dla banku 35,7 Ah **Orion-Tr Smart 12/12-18
-nadal wystarcza z zapasem**: 8,0 A to 44 % jego zakresu, a gdyby kiedyś
-podnieść CC do katalogowych 14,7 A — 82 %. To jedyna ładowarka z tej tabeli,
-która udźwignęłaby pełne ładowanie siedmiu pakietów.
+Przy B2B izolowanym masa wyjścia jest tylko masą banku: punkt masy z §5.6
+zostaje, ale wejście ładowarki dostaje własny powrót do „−" rozruchowego.
 
-> **Wariant A nie omija ograniczenia z §6.3.** Warstwa nadnapięciowa jest
-> wymagana także przy gotowej ładowarce B2B (§6.3), więc obciążalność
-> XH-M603 ogranicza oba warianty tak samo. Sama ładowarka tego problemu nie
-> rozwiązuje.
+### 5.8 Ochrona wejścia
 
-**Co odpada przy wariancie A:** przekaźnik ładowania (o ile ładowarka ma
-wejście wyzwalające — jeśli nie, K1 zostaje), **dioda Schottky MBR2545CT
-wraz z radiatorem** (izolacja blokuje przepływ wsteczny sama z siebie —
-to 4,4 W strat mniej i jeden element cieplny mniej na płytce), osobny
-czujnik NTC (jest wbudowany albo w komplecie).
+Instalacja 12 V auta bywa brudna elektrycznie. Na **wejściu toru ładowania**
+(przed K1):
 
-### 5.5 Po co izolacja galwaniczna
+- **dioda TVS SMCJ20CA** równolegle do wejścia — obcina **krótkie szpilki**
+  (mikrosekundy–pojedyncze milisekundy). Napięcie ograniczania serii SMCJ20
+  przy pełnym prądzie impulsu to wg typowych kart ok. **32 V**, czyli poniżej
+  maksymalnych **36 V** wejścia XY-SK120. Dawniej zalecane **1.5KE33CA
+  ogranicza dopiero przy ok. 45 V** — dla tego modułu za wysoko. Potwierdź Vc
+  w karcie kupionej diody. **Prawdziwego, nietłumionego load dumpu ta dioda
+  nie przeżyje**: trwa on setki milisekund i niesie dziesiątki dżuli, a dioda
+  1500 W klasy SMC jest na to za mała — zewrze się i F1 się przepali, tak jak
+  przy rozruchu „z 24 V" niżej. Pełna ochrona przed load dumpem zależy od
+  tłumienia w samym alternatorze, a tego dla tego auta nie sprawdziliśmy,
 
-Bank ma być jedynym źródłem dla szyny buforowanej. Przy ładowarce
-nieizolowanej tak nie jest: masa wejścia i masa wyjścia to ten sam
-potencjał, więc prąd ładowania i tętnienia alternatora wracają tym samym
-przewodem, którym płynie prąd odbiorników. Bank owszem, bocznikuje część
-zakłóceń swoją niską impedancją, ale nie wszystkie — a wspólny powrót
-zamyka pętlę masy między instalacją auta a zestawem.
+- **kondensator elektrolityczny** 470 µF / 35 V low-ESR, 105 °C, równolegle —
+  wygładza tętnienia i pomaga przy zapadach,
+- TVS 20 V zaczyna przewodzić od ok. 22 V: przy rozruchu „z 24 V" albo
+  długim przepięciu przegrzeje się i zewrze — **F1 wtedy przepala się
+  zamiast modułów**. To zamierzone.
 
-Transformator w ładowarce przerywa tę drogę. Po stronie wyjścia zostaje
-obwód, w którym jedynym źródłem jest bank, a jedynym odbiorem szyna
-buforowana. Zakłócenia z alternatora muszą przejść przez chemię banku,
-czyli praktycznie nie przechodzą.
-
-Konsekwencje, o których trzeba pamiętać przy montażu:
-
-1. **Masa banku i masa pojazdu spotykają się w JEDNYM punkcie.** Jeżeli
-   zewrzesz je w dwóch miejscach, robisz pętlę i cały zysk znika.
-   Punkt łączenia daj przy banku, krótkim przewodem 6 mm² do oczyszczonej
-   blachy nadwozia.
-2. **Na płytce A nie ma już strony izolowanej.** Wyjście ładowarki,
-   XH-M603 i bank schodzą się na listwie **L1 przy banku** — sześć
-   zacisków, opis w `schematics/pcb_power_schematic.svg`. Płytka A ma
-   znów jedną masę i nie wymaga dzielenia pola miedzi.
-3. **Wzmacniacz nadal wisi na akumulatorze rozruchowym** z własną masą
-   (§2). Ekran RCA łączy więc dwie różne masy i to jest teraz jedyna
-   pozostała droga sprzężenia. Jeżeli pojawi się przydźwięk, rozstrzyga
-   się to izolatorem pętli masy na RCA albo przeniesieniem punktu masy
-   zestawu bliżej wzmacniacza — nie kolejnym przewodem masowym.
-
-### 5.6 Wariant B — DIY (nieizolowany)
-
-Tańszy, ale wymaga uwagi przy nastawianiu i regularnej kontroli — i,
-co ważniejsze, **nie daje izolacji galwanicznej** (§5.5). Moduł boost
-ma wspólną masę wejścia i wyjścia, więc prąd ładowania wraca tą samą
-drogą co prąd odbiorników. Dioda MBR2545CT blokuje wprawdzie przepływ
-wsteczny, ale nie rozdziela mas. Wybieraj ten wariant tylko wtedy, gdy
-izolacja nie jest dla Ciebie priorytetem albo gdy budujesz etapami
-i ładowarkę izolowaną dołożysz później.
-
-```
-akumulator → bezp. 15 A → TVS + C → przekaźnik ładowania → dioda MBR2545CT
-           → moduł CC-CV boost → blokada nadnapięcia → bank
-```
-
-| Element | Rola | Nastawa | Cena |
-|---------|------|---------|------|
-| **Przekaźnik ładowania** 30 A SPDT | rozłącza tor ładowania, gdy silnik nie pracuje | cewka z zapłonu (patrz §5.3c) | 15–25 PLN |
-| **Dioda Schottky MBR2545CT** | blokuje wsteczny przepływ do instalacji auta | obie połówki równolegle, na radiatorze | 5–12 PLN |
-| **Moduł CC-CV boost** z regulacją prądu i napięcia | podnosi 13,7 V → 14,4 V i limituje prąd | CV 14,40 V, **CC 8,0 A** | 50–140 PLN |
-
-#### 5.3a Konkretne moduły CC-CV
-
-Wszystkie trzy to **boost**, więc nastawa CV musi być wyższa od napięcia
-wejściowego — patrz §5.3b.
-
-| Model | Dane | Cena | Kiedy ten |
-|-------|------|------|-----------|
-| **„900 W 15 A" z wyświetlaczem** (typ CNC/DPS, wej. 8–60 V, wyj. 10–120 V) | CC 0–15 A, nastawa cyfrowa z odczytem, pamięć nastaw | 90–140 PLN | **domyślny wybór** — wpisujesz 14,40 V i 8,0 A i odczytujesz z powrotem, zamiast celować potencjometrem |
-| **„1500 W 30 A" boost CC-CV** (wej. 10–60 V, wyj. 12–97 V) | CC 0,8–22 A · sprawność 92–97 % · 130 × 84 × 52 mm, radiator + wentylator termiczny | 60–95 PLN | gdy chcesz duży zapas mocy i zimną pracę; nastawa potencjometrami |
-| ~~**„600 W 10 A"**~~ (wej. 10–60 V, wyj. 12–80 V) | CC-CV potencjometrami | 50–80 PLN | **wypada przy siedmiu pakietach** — nastawa 8,0 A to 80 % jego zakresu CC, a ścieżki tej płytki są słabe. W aucie to praca na krawędzi |
-
-Przy CC **8,0 A** moc wyjściowa wynosi 14,4 × 8,0 = **115 W**. „900 W 15 A"
-pracuje wtedy na 53 % zakresu CC, ale ma niższą sprawność (~85 %), więc prąd
-wejściowy rośnie do ok. 10,1 A i wkładka F1 15 A schodzi na 67 % — nadal
-w porządku. „1500 W 30 A" pracuje na 36 % i zostawia zapas na ewentualne
-podniesienie CC do 13 A.
-
-> **Korekta: SZBK07 wypada z tej tabeli.** Wcześniejsze wydanie wymieniało
-> tu SZBK07 — to przetwornica **obniżająca** (buck 300 W na LM5116), nie
-> boost; z 13,7 V nie zrobi 14,4 V. Moduł „1500 W 30 A" o podobnych
-> gabarytach szukaj po frazie „boost converter 1500W 30A 10-60V".
-
-> **„Auto output on power-on".** Moduły z wyświetlaczem mają opcję
-> automatycznego załączenia wyjścia po podaniu zasilania. Jeżeli zostanie
-> wyłączona, to po każdym uruchomieniu silnika moduł stoi z wyjściem OFF
-> i **bank się nie ładuje, bez żadnego objawu**. Ustaw to przy nastawianiu
-> i sprawdź, odcinając i podając zasilanie.
-
-#### 5.3b Nastawa CV musi być wyższa od wejścia
-
-Boost ma władzę nad prądem **tylko wtedy, gdy przetwarza** — czyli gdy
-napięcie wyjściowe jest wyższe od wejściowego. Poniżej tego progu duty
-schodzi do zera i moduł przechodzi w **pass-through**: prąd płynie przez
-dławik i diodę, a pętla CC nie ma czym sterować. To ta sama fizyka, którą
-§3.2a opisuje dla XL6019.
-
-Praktycznie: przy pracującym alternatorze na wejściu modułu jest
-**13,4–14,2 V** (zależnie od spadku na przewodzie). Rozładowany bank ma
-12,0 V. W pass-through różnicę 1,75 V ogranicza tylko rezystancja okablowania
-(~30 mΩ) i samego banku (5,29 mΩ, §4.4) — to daje **ok. 50 A**, czyli
-przepalony bezpiecznik w najlepszym razie.
-
-> **Siedem pakietów wzmacnia ten argument.** Bank jest o 43 % sztywniejszy niż
-> czwórka (5,29 zamiast 9,25 mΩ), więc w pass-through popłynie o ok. 11 %
-> więcej prądu: 50 A zamiast 45 A. Nastawa **CV 14,40 V zostaje bez
-> dyskusji**.
-
-| Nastawa CV | Co się dzieje |
-|-----------|---------------|
-| **14,40 V** | wyjście zawsze powyżej wejścia → moduł zawsze przetwarza → **CC działa** ✅ |
-| 13,80 V | wejście bywa wyższe → pass-through → **CC nie działa** ❌ |
-
-Dlatego **CV = 14,40 V**, a nie 13,80 V. Konsekwencje przyjmujesz świadomie:
-próg warstwy 2 zostaje na **15,30 V** (§6.2), a kompensacji temperaturowej
-nie ma.
-
-**Co to łagodzi:** napięcie absorpcji jest podawane **wyłącznie przy
-załączonym przekaźniku ładowania**, czyli podczas jazdy. Na postoju przekaźnik
-jest rozwarty i bank stoi na własnym napięciu spoczynkowym — nie jest trzymany
-na 14,4 V na okrągło. To zupełnie inny reżim niż stały float 14,4 V i dla
-pracy buforowej całkowicie akceptowalny.
-
-Dioda MBR2545CT dodatkowo obniża wejście boostu o ~0,5 V, czyli **powiększa
-zapas nad nastawą CV** — pass-through z §5.3b staje się jeszcze mniej
-prawdopodobny.
-
-**Jeżeli mimo wszystko chcesz 13,80 V**, potrzebujesz topologii z władzą
-w obie strony — modułu **buck-boost**:
-
-| Model | Dane | Cena | Haczyk |
-|-------|------|------|--------|
-| **LTC3780** (moduł WD2002SJ / XR-131, wej. 5–32 V, wyj. 1–30 V) | buck-boost, CC + CV + próg podnapięciowy (trzy potencjometry), 10 A szczytowo | 50–90 PLN | **7 A i 80 W ciągle** — przy 13,8 V to tylko ~5,8 A, więc po odjęciu 3,5 A obciążenia do banku idzie 2,3 A. Przy siedmiu pakietach oznaczałoby to 11,6 h fazy CC z progu LVD zamiast 5,95 h (§9.4) — **odpada** |
-
-#### 5.3c Przekaźnik ładowania i dioda MBR2545CT
-
-Rozdział ładowania robią tu dwa tanie elementy zamiast modułu napięciowego.
-
-**Dlaczego w ogóle coś tu musi być.** Boost nie potrafi dać napięcia niższego
-niż wejściowe. Gdyby jego wejście wisiało na stałe na akumulatorze
-rozruchowym, to przy zgaszonym silniku (12,4 V) dalej próbowałby podawać
-14,4 V i **rozładowywałby akumulator auta**. Tor ładowania musi więc być
-fizycznie rozłączany, gdy silnik nie pracuje.
-
-| Element | Rola | Uwaga |
-|---------|------|-------|
-| **Przekaźnik 30 A SPDT** + podstawka | rozłącza tor, gdy silnik nie pracuje | dioda 1N4007 równolegle do cewki |
-| **MBR2545CT** — 25 A / 45 V, TO-220AB | druga bariera: blokuje przepływ wsteczny, gdyby styki przekaźnika się zespawały | dwie połówki po 12,5 A ze **wspólną katodą** |
-
-**Czym sterować cewkę.** Najprościej **zapłonem** i tak jest w tej
-dokumentacji założone. Ma to jeden koszt, który warto znać: przy kluczyku
-w pozycji ON bez pracującego silnika przekaźnik jest zwarty, więc boost
-ładuje bank **z akumulatora rozruchowego**. Przy normalnym uruchamianiu
-to kilka sekund i nie ma znaczenia; przy dłuższym staniu z kluczykiem
-(radio na postoju, diagnostyka) — ma.
-
-Jeżeli chcesz to wyeliminować, podepnij cewkę pod **D+/L alternatora**
-zamiast pod zapłon. To dosłownie jeden przewód inaczej, a sygnał znaczy
-wtedy „alternator ładuje", a nie „kluczyk przekręcony". Sprawdź potem, czy
-lampka kontrolna ładowania dalej działa poprawnie — cewka pobiera ~150 mA
-z jej obwodu.
-
-**Montaż diody.** MBR2545CT to dwie diody ze wspólną katodą, a **katoda jest
-połączona z blaszką montażową**:
-
-- **zewrzyj obie anody** (piny 1 i 3) i podaj na nie plus z przekaźnika,
-  katodę (pin 2 / blaszka) na wejście boostu — dostajesz pełne 25 A i niższy
-  spadek: przy CC 8,0 A prąd wejściowy toru wynosi ok. **9,2 A**, czyli
-  4,6 A na połówkę i Vf ≈ 0,48 V,
-- **radiator obowiązkowy** — 9,2 A × 0,48 V to **4,4 W** ciągłej straty,
-  czyli 98 % tego, na co radiator (~15 × 14 mm, ≥ 6 K/W) był dobrany przy
-  czterech pakietach: **radiator zostaje bez zmian**. Prądowo dioda też nie
-  jest wąskim gardłem — połówka wiezie 4,6 A z dopuszczalnych 12,5 A. Gdyby
-  kiedyś podnieść CC: przy 10 A strata rośnie do 5,9 W (radiator ≤ 3 K/W),
-  a przy katalogowych 14,7 A do 10,0 W (≤ 2 K/W z przewiewem albo dioda 40 A),
-- blaszka jest pod potencjałem katody, więc albo **izoluj ją podkładką
-  mikową**, albo przykręcaj do radiatora, który nie dotyka masy nadwozia.
-
-**Kompensacja temperaturowa w wariancie B** jest ręczna: tanie moduły CC-CV
-jej nie mają, a — jak pokazuje §5.3b — zejście z CV do „bezpiecznych" 13,8 V
-kupuje spokój kosztem utraty ograniczenia prądowego, czyli w złą stronę.
-Zostaje **14,40 V bez kompensacji**, z trzema rzeczami, które to trzymają
-w ryzach:
-
-- przekaźnik ładowania podaje to napięcie **tylko podczas jazdy**, nie na postoju,
-- rozłącznik nadnapięciowy 15,30 V łapie awarię modułu (§6),
-- bank w bagażniku rzadko przekracza 30 °C, a przy 40 °C prawidłowa absorpcja
-  to 13,95 V — czyli 14,40 V to przegrzanie o 0,45 V przez kilka godzin jazdy,
-  a nie stałe przeładowanie.
-
-Jeżeli auto stoi latem w słońcu i bagażnik dochodzi do 50 °C, obniż CV do
-**14,10 V** — nadal powyżej wejścia, więc CC pozostaje sprawne.
-
-### 5.4 Ochrona wejścia
-
-Instalacja 12 V auta bywa brudna elektrycznie. Na **wejściu ładowarki**
-(strona od akumulatora rozruchowego):
-
-- **dioda TVS** 1.5KE33CA albo SMCJ26CA równolegle do wejścia — obcina
-  load dump z alternatora,
-- **kondensator elektrolityczny** 470 µF / 35 V równolegle — wygładza
-  tętnienia i pomaga przy zapadach,
-- sprawdź w karcie katalogowej modułu **maksymalne napięcie wejściowe** —
-  jeśli to 30 V, to przy load dumpie bez TVS zostanie z niego dym.
-
-> **Sufiks „CA" znaczy dwukierunkowa — i to nie jest szczegół.** 1.5KE33**CA**
-> i SMCJ26**CA** nie mają anody ani katody; wlutuj je w dowolną stronę. Pasek
-> na obudowie, jeśli w ogóle jest nadrukowany, nic nie znaczy. Ale
-> **1.5KE33A** (bez „C") to inna dioda — **jednokierunkowa**, i tam pasek
-> (katoda) musi iść na **plus**. Odwrotnie wlutowana jest spolaryzowana
-> w kierunku przewodzenia, czyli jest zwarciem ~1 V na zasilaniu, i bezpiecznik
-> idzie natychmiast po podaniu napięcia.
+> **Sufiks „CA" znaczy dwukierunkowa — i to nie jest szczegół.** SMCJ20**CA**
+> nie ma anody ani katody; wlutuj ją w dowolną stronę. Pasek na obudowie,
+> jeśli w ogóle jest nadrukowany, nic nie znaczy. Ale **SMCJ20A** (bez „C")
+> to inna dioda — **jednokierunkowa**, i tam pasek (katoda) musi iść na
+> **plus**. Odwrotnie wlutowana jest spolaryzowana w kierunku przewodzenia,
+> czyli jest zwarciem ~1 V na zasilaniu, i bezpiecznik idzie natychmiast po
+> podaniu napięcia.
 >
 > **Sprawdzenie miernikiem** (tryb testu diody): dwukierunkowa daje **OL
-> w obie strony**, jednokierunkowa ~0,7 V w jedną i OL w drugą. Próg 33 V
+> w obie strony**, jednokierunkowa ~0,7 V w jedną i OL w drugą. Próg 22 V
 > jest daleko poza zasięgiem miernika, więc w kierunku zaporowym zawsze
 > zobaczysz OL — to normalne, nie oznacza uszkodzenia.
 
@@ -1067,61 +1211,52 @@ napięcie na banku i rozwiera obwód ładowania, gdy przekroczy próg.
 | Próg rozwarcia | **15,30 V** | powyżej katalogowego maksimum 15,0 V, poniżej napięcia, przy którym AGM intensywnie odgazowuje |
 | Próg powrotu | **14,00 V** | poniżej absorpcji — nie klapkuje w kółko |
 | Zwłoka zadziałania | 1–3 s | ignoruje krótkie piki, reaguje na realne przeładowanie |
-| Prąd przez styki | **≤ 8 A** | to nie jest zapas, tylko **granica** — wyznacza nastawę CC całego układu, §6.3 |
+| Prąd przez styki **jednego** modułu | **≤ 8 A** (u nas 5 A) | granica płytki, nie przekaźnika — §6.3 |
 
-### 6.3 Realizacja
+### 6.3 Realizacja: XH-M603, po jednym na ładowarkę
 
-#### Ile prądu tam naprawdę płynie
+#### Ile prądu tam płynie i dlaczego dwa moduły
 
-To pytanie decyduje o doborze modułu, więc najpierw ono. Rozłącznik siedzi
-**między wyjściem boostu a bankiem**, czyli w torze ładowania — nie w torze
-odbiorników. Płynie przez niego wyłącznie **prąd ładowania, ograniczony
-nastawą CC boostu** (§3.3 [`WDROZENIE_TESTOWE.md`](WDROZENIE_TESTOWE.md)),
-czyli maksymalnie **8,0 A**.
+Rozłącznik siedzi **między wyjściem ładowarki a bankiem** — płynie przez niego
+wyłącznie prąd ładowania, ograniczony nastawą CC. Przy dwóch XY-SK120 to
+razem **10 A**.
 
-**Przy siedmiu pakietach logika tego doboru się odwraca.** Przy czwórce prąd
-przez ten moduł wynikał z sufitu katalogowego akumulatora (8,4 A). Przy
-siódemce sufit akumulatora to 14,7 A i **przestał być wiążący** — o nastawie
-CC decyduje dziś obciążalność samej płytki XH-M603. To jest wąskie gardło
-całej rozbudowy i jedyny element, który trzeba by wymienić, żeby ładować
-szybciej.
+Na płytkach XH-M603 siedzi zwykle przekaźnik z nadrukiem 30 A, ale
+**ograniczeniem jest płytka, nie przekaźnik**: ścieżki i zaciski śrubowe
+wytrzymują realnie ok. **8–10 A** (oszacowanie z oględzin, nie z karty),
+a przyjęta granica to **≤ 8 A**. **Jeden XH-M603 na 10 A nie wystarcza.**
 
-Nie myl tego z XH-M609: ten stoi po stronie odbiorników i przenosi prąd
-odbiorników (**do ~7,5 A** wg zestawienia z §7.4), a ma przekaźnik 20 A —
-tam zapas jest duży i **nie zmienia się z liczbą pakietów**, bo prąd
-ładowania wchodzi na szynę banku obok niego.
+Rozwiązanie: **jeden XH-M603 na każdą XY-SK120.** Każdy przenosi 5 A —
+62 % granicy 8 A — i każdy jest zasilany z wyjścia swojego modułu.
+Dlaczego nie „jeden moduł jako pilot + mocniejszy przekaźnik": XH-M603 nie
+ma wolnego styku — przekaźnik siedzi wewnętrznie w torze DC-IN+ → OUT+,
+a pomiar jest po stronie OUT. Gdy OUT steruje cewką przekaźnika mocy, po
+zadziałaniu napięcie na OUT spada do zera przez cewkę → moduł widzi „pusty
+akumulator" → zwiera z powrotem → oscylacja niszczy styki. Układ „pilot"
+działa tylko z modułem, który ma wolny styk COM/NO — tego nie potwierdziliśmy
+dla żadnego modelu z rodziny (§13.7).
 
-#### Gdzie naprawdę kończy się tor ładowania
+Oba XH-M603 widzą to samo napięcie banku. Jeżeli jedna XY-SK120 się przebije
+i zacznie pchać bank w górę, przy 15,30 V **rozwierają oba** — awaria
+jednego modułu odcina całe ładowanie, a to jest właściwy kierunek.
 
-Element po elemencie, wszystko przeliczone na **prąd wyjścia ładowarki**
-(= obciążenie 3,5 A + prąd do banku). Prąd wejściowy toru liczymy jako
-`I_wej = 14,4 V × CC / (0,93 × 13,4 V)` = 1,16 × CC; dokumentacja zaokrągla
-ten przelicznik do 1,2 i tak są wymiarowane wkładki — konserwatywnie.
+#### Gdzie kończy się tor ładowania
 
-| Element toru | Jego limit | Odpowiada nastawie CC |
-|--------------|-----------|----------------------|
-| **XH-M603 — płytka i zaciski śrubowe** | ~10 A; spec §6.2 „≤ 8 A" | **8,0 A** ← wąskie gardło |
-| Radiator diody MBR2545CT dobrany na 4,5 W | 4,5 W | 8,1 A |
-| Przewód AKU → boost 2,5 mm², 3 m (wariant testowy) | spadek 3 % | 8,6 A |
-| Przewód ładowarka → bank 4 mm², 3 m | spadek 3 % | 10,3 A |
-| Wkładka F1 15 A ATO przy 80 % obciążalności ciągłej | 12 A wejścia | 10,4 A |
-| **Sufit katalogowy CSB: 7 × 2,1 A** | **14,7 A** | 14,7 A |
-| Moduł boost „900 W 15 A" / „1500 W 30 A" | CC 15 A / 22 A | 15 A / 22 A |
-| Dioda MBR2545CT 25 A (prądowo) | 25 A | ~21 A |
-| Przekaźnik K1 30 A · bezpiecznik główny 30 A | 30 A | ~26 A |
+| Element toru | Jego limit | Wobec nastaw (2 × 5 A) |
+|--------------|-----------|------------------------|
+| **XY-SK120** | 6 A / 120 W każda | 5 A × 14,4 V = 72 W — 83 % prądu, 60 % mocy; **nastawa wybrana z zapasem cieplnym** |
+| **XH-M603** — płytka i zaciski | ≤ 8 A (spec przyjęta), ~10 A realnie | 5 A — 62 % |
+| **FC1, FC2 7,5 A** — wkładka w gałęzi, przy OUT+ XH-M603 | 6 A ciągle (80 %) | 5 A — 67 %; chroni płytkę ≤ 8 A z obu stron (§5.4) |
+| Przewód AKU → bagażnik 6 mm², ~5 m | spadek 3 % (0,41 V) | 11,9 A wejścia → 0,17 V na „+" (1,2 %) |
+| **F1 20 A** przy 80 % obciążalności ciągłej | 16 A wejścia | 11,9–13,0 A — 60–65 % wkładki |
+| Przekaźnik K1 30 A | 30 A | 13 A |
+| **F12 15 A** przy banku | 12 A ciągle | 10 A |
+| Cewka K1 przez **FK 1 A** | 0,8 A ciągle | ~0,15 A |
+| **Sufit katalogowy CSB: 7 × 2,1 A** — dotyczy prądu **netto** do banku | 14,7 A | ≈ 5 A (maks. ~10 A, gdy odbiorniki prawie nic nie biorą) |
 
-**Żaden element toru z tej dokumentacji nie dochodzi do 14,7 A.** To jest
-odwrócenie sytuacji z §4.2: bank przestał być ograniczony pojemnością, a stał
-się ograniczony prądem ładowania. Wyjście powyżej 8,0 A jest możliwe, ale
-kosztowne i sztywne w kolejności:
-
-- **do 10 A** — wymiana modułu nadnapięciowego na taki z wolnym stykiem
-  COM/NO plus F1 → 20 A,
-- **do 13–14,7 A** — dodatkowo przekaźnik mocy K2, przewód wejściowy 6 mm²
-  i mocniejszy radiator diody (8,4–10,0 W straty).
-
-To jest osobny projekt i decyzja człowieka, a nie skutek uboczny dołożenia
-pakietów.
+Przy 2 × 5 A żaden element nie pracuje na granicy. Podnoszenie CC do 6 A na
+moduł jest możliwe elektrycznie (XH-M603 nadal ≤ 8 A), ale moduły pracowałyby
+na 100 % prądu i ~86 W — w bagażniku latem to zły pomysł.
 
 #### Konkretne moduły
 
@@ -1139,114 +1274,60 @@ napięcie jest poniżej progu górnego, rozwiera po jego przekroczeniu**,
 a wraca dopiero przy progu dolnym. To jest sterownik ładowania, nie
 ochrona podnapięciowa — nie trzeba go odwracać.
 
-#### „30 A” na przekaźniku to nie 30 A na module
+Połączenie każdego: **DC-IN** z wyjścia swojej XY-SK120, **OUT** przez
+swoją wkładkę FC1 / FC2 na wspólny przewód 4 mm² do F12 i bloku L+ banku.
+**Zakładamy**, że moduł zasilany z wyjścia ładowarki nie bierze nic z banku
+na postoju — przy zgaszonym silniku cały węzeł jest martwy, a przekaźnik
+rozwarty (§5.4). Bez schematu płytki to przyjęcie; potwierdza je dopiero
+test z §6.4 pkt 6.
 
-Na tych płytkach siedzi zwykle przekaźnik z nadrukiem 30 A / 14 VDC, ale
-**ograniczeniem jest płytka, nie przekaźnik**: ścieżki i zaciski śrubowe
-wytrzymują realnie ok. 10 A. Przy naszych **8,0 A jesteś na 80 %** tej
-wartości i dokładnie na deklarowanej granicy spec z §6.2 — w spec, ale bez
-komfortowego zapasu. To jest właśnie powód, dla którego warto zrobić o jeden
-krok więcej.
-
-> **Tę liczbę trzeba potwierdzić pomiarem.** Obciążalność ~10 A jest
-> **oszacowaniem** z oględzin płytki, a nie wartością z karty katalogowej —
-> a przy siedmiu pakietach to od niej zależy nastawa CC całego układu. Zmierz
-> temperaturę zacisków przy 8 A przez 30 min, zanim oprzesz na tym projekt.
-> Jeżeli moduł się grzeje, masz dwa wyjścia: zejść na CC 6,0 A i zaakceptować
-> 14–16 h ładowania od progu LVD (§9.4), albo kupić moduł z wolnym stykiem
-> COM/NO i przekaźnik mocy K2.
-
-> **Uwaga — XH-M603 nie nadaje się do układu „pilot" opisanego niżej.**
-> Zweryfikowane działanie tego modułu: przekaźnik siedzi wewnętrznie w torze
-> DC-IN+ → OUT+ (nie ma wolnego styku na złączce), a pomiar napięcia jest po
-> stronie OUT. Gdy OUT+ steruje cewką K2, po zadziałaniu napięcie na OUT
-> spada do zera przez cewkę → moduł widzi „pusty akumulator" → zwiera
-> z powrotem → oscylacja niszczy styki. **XH-M603 wpinaj w tor ładowania**
-> (DC-IN z boostu, OUT na bank) przy **CC ≤ 8,0 A** — dokładnie tak robi to
-> wariant PCB: [`PCB_ZASILANIE.md`](PCB_ZASILANIE.md) §3. Układ „pilot + K2"
-> pozostaje poprawny tylko dla modułów z wolnym stykiem COM/NO na złączce.
-
-#### Zalecane: moduł jako pilot, moc na osobnym przekaźniku
-
-```
-XH-M603 styk (COM/NO)  →  cewka przekaźnika Bosch 30 A  (~150 mA)
-przekaźnik Bosch 30/87 →  w torze ładowania (te 8 A)
-```
-
-Moduł przełącza wtedy 150 mA zamiast 8 A i pytanie o obciążalność znika.
-Koszt: +15–25 PLN za przekaźnik z podstawką.
-
-> **Zepnij to tak, żeby awaria oznaczała „nie ładuje".** Cewka przekaźnika
-> mocy ma być **zasilana, gdy moduł mówi OK**. Wtedy przepalona cewka,
-> uszkodzony moduł albo urwany przewód sterujący dają rozwarty tor
-> ładowania — najgorsze, co się stanie, to nienaładowany bank. Odwrotne
-> zepnięcie (przekaźnik zwarty w spoczynku) przy awarii modułu zostawia
-> ładowanie bez nadzoru.
->
-> Zanim zalutujesz: sprawdź miernikiem, przy którym stanie modułu jego
-> styk COM–NO jest zwarty. Wersje płytek się różnią.
-
-#### Zasilaj to z przekaźnika ładowania, nie z banku
-
-Łatwo tu zepsuć cały budżet postojowy. Cewka przekaźnika mocy bierze
-~150 mA, moduł XH-M603 kilka do kilkunastu mA. Gdyby wisiały na banku,
-**dokładałyby ~160 mA przez całą dobę** — czyli mniej więcej tyle, ile
-w stanie wyłączonym pobiera wszystko pozostałe razem wzięte (§2.1).
-
-Zasilaj więc i moduł, i cewkę **z zacisku 87 przekaźnika ładowania K1**:
-
-```
-K1 (zapłon)  ──87──┬── moduł CC-CV boost
-                   ├── XH-M603 zasilanie
-                   └── styk XH-M603 → cewka K2 (przekaźnik mocy)
-```
-
-Przy zgaszonym silniku K1 jest rozwarty, więc cały ten węzeł jest martwy:
-zero poboru, K2 rozwarty, tor ładowania przerwany podwójnie.
-
-**Skutek uboczny, który akurat działa na naszą korzyść:** moduł mierzy
-wtedy napięcie po stronie boostu. Po zadziałaniu wyjście boostu bez
-obciążenia nie spadnie do progu powrotu 14,00 V, więc rozłącznik zostaje
-**zatrzaśnięty do końca jazdy** i wraca dopiero po przekręceniu kluczyka.
-Dla usterki to lepsze zachowanie niż klapkowanie w kółko.
-
-#### Kiedy można pominąć K2
-
-Przy nastawie **CC ≤ 8,0 A** styki i płytka XH-M603 wyrabiają bez K2 — ale
-to jest 80 % realnej obciążalności płytki, czyli **bez komfortowego zapasu**.
-Tor wygląda wtedy tak: boost OUT+ → COM modułu → NO modułu → szyna „+" banku,
-a moduł zasilasz z zacisku 87 K1 jak wyżej. Oszczędzasz 20 PLN i jedno
-złącze, kosztem pracy na granicy.
-
-Tak właśnie robi to wariant PCB ([`PCB_ZASILANIE.md`](PCB_ZASILANIE.md) §3),
-gdzie XH-M603 siedzi wprost w torze ładowania. **Powyżej 8,0 A ta droga jest
-zamknięta**: wracasz do układu „pilot + K2", a do tego potrzebujesz modułu
-z wolnym stykiem COM/NO — którego XH-M603 nie ma.
+> **Tę liczbę trzeba potwierdzić pomiarem.** Obciążalność ~8–10 A jest
+> **oszacowaniem** z oględzin płytki. Zmierz temperaturę zacisków przy 5 A
+> przez 30 min (§11 Etap 1), zanim zamkniesz instalację.
 
 #### Czego ten rozłącznik NIE robi
 
-**Nie chroni przed load dumpem.** Moduł reaguje w dziesiątkach do setek
-milisekund, a szpilka z alternatora trwa mikrosekundy — od tego jest dioda
-TVS na wejściu (§5.4). To dwie różne warstwy, jedna nie zastępuje drugiej.
+**Nie chroni przed przepięciami na wejściu.** Moduł reaguje w dziesiątkach
+do setek milisekund, a szpilka z instalacji trwa mikrosekundy — od tego jest
+dioda TVS na wejściu (§5.8), a przed pełnym load dumpem chroni dopiero
+tłumienie w alternatorze. To różne warstwy, jedna nie zastępuje drugiej.
 
-**Nie musi chronić odbiorników.** Bank trzyma napięcie szyny, a XL6019
-i LM2596 przyjmują 15–16 V bez mrugnięcia. Odcięcie samego ładowania
-w zupełności wystarcza.
+**Nie musi chronić odbiorników.** Bank trzyma napięcie szyny, a przetwornica
+step-up (wejście do 18 V wg opisu) i bucki LM2596 / MP1584 przyjmują 15–16 V.
+Odcięcie samego ładowania w zupełności wystarcza.
 
-**Wariant A i tak potrzebuje tej warstwy.** Ładowarka Victron/Redarc jest
-bardzo niezawodna, ale nie jest niezniszczalna — a komplet **siedmiu**
-HR1221W jest wielokrotnie droższy niż moduł za 60 PLN. To znaczy również, że
-ograniczenie 8,0 A z tej sekcji dotyczy **obu wariantów tak samo**: gotowa
-ładowarka go nie omija.
+**Alternatywa izolowana (§5.7) też potrzebuje tej warstwy.** Gotowa ładowarka
+B2B jest zwykle niezawodna, ale nie jest niezniszczalna — a komplet
+**siedmiu** HR1221W jest wielokrotnie droższy niż moduł za 60 PLN.
 
 ### 6.4 Kontrola „na sucho"
 
-Po zamontowaniu, przed podłączeniem banku:
+Każdy z dwóch XH-M603 osobno, po zamontowaniu, przed podłączeniem banku:
 
 1. Zasilacz laboratoryjny na wejście modułu, wolno podnoś napięcie.
 2. Przy 15,30 V ± 0,05 V przekaźnik musi **rozewrzeć**.
 3. Obniżaj — przy 14,00 V musi **zewrzeć z powrotem**.
 4. Powtórz trzy razy; próg nie może pływać o więcej niż 0,05 V.
+5. Odłącz zasilanie modułu — przekaźnik musi być **rozwarty** (to jest
+   bariera przeciw przepływowi wstecznemu z §5.4).
+6. **Zasilanie tylko od strony banku.** DC-IN zostaw odłączone, a 12,6 V
+   z zasilacza podaj **wyłącznie na zaciski OUT** (tam, gdzie w aucie będzie
+   bank), z miliamperomierzem w szereg. Wyświetlacz ma pozostać **ciemny**,
+   przekaźnik **rozwarty** (omomierz DC-IN+ ↔ OUT+: rozwarcie), a prąd
+   **< 1 mA**. Punkt 5 tego nie sprawdza, bo wtedy na OUT nic nie ma.
+
+Jeżeli pkt 6 nie przejdzie — płytka świeci, zwiera przekaźnik albo bierze
+więcej niż 1 mA — założenie z §5.4 pkt 2 jest fałszywe. Akumulator rozruchowy
+dalej odcina K1, ale bank na postoju byłby podpięty pod martwe wyjście
+XY-SK120 i karmiłby wyświetlacz płytki. Dwie poprawki:
+
+- **dioda Schottky'ego w szereg w każdej gałęzi** między OUT XH-M603
+  a złączeniem (anoda od strony płytki). XH-M603 musi wtedy mierzyć stronę
+  banku (za diodą), a CV podnosisz o **zmierzony** spadek diody przy 5 A.
+  Konkretny typ podawaj dopiero po wybraniu diody i sprawdzeniu jej karty
+  (prąd ciągły z zapasem, chłodzenie — przy 5 A to kilka watów),
+- albo **dodatkowy styk przekaźnika** w każdej gałęzi, zasilany tylko wtedy,
+  gdy K1 jest zwarty (cewka równolegle do K1 albo przekaźnik z dwoma torami).
 
 ---
 
@@ -1293,9 +1374,10 @@ minimum. Wersje tego modułu różnią się (część listingów podaje 6–60 V
 więc trzeba to zwyczajnie sprawdzić: zjedź napięciem do 11,0 V i zobacz, czy
 przekaźnik rozwiera się czysto, bez drgania styku i bez resetów wyświetlacza.
 
-> Jeżeli w okolicy 11 V moduł zachowuje się niepewnie — **podnieś próg do
+> Jeżeli w okolicy 11 V moduł zachowuje się niepewnie — albo przetwornica
+> step-up w §3.4 przestała regulować powyżej 11 V — **podnieś próg do
 > 11,5 V**. Dla AGM przy poborze rzędu 100 mA to nadal głębokie rozładowanie,
-> więc ochrona zostaje zachowana, a moduł pracuje w swoim zakresie.
+> więc ochrona zostaje zachowana, a moduły pracują w swoim zakresie.
 
 **2. Który biegun przełącza przekaźnik.** Musi przerywać **plus**. Gdyby
 przerywał masę, rozspójniłoby to topologię jednego punktu gwiazdowego —
@@ -1310,36 +1392,40 @@ z §9; ma bezpośredni wpływ na czas postoju.
 
 ### 7.4 Obciążalność — czy 20 A wystarczy
 
-Tak, z dwukrotnym zapasem. Przez LVD przechodzi:
+Tak, z prawie dwukrotnym zapasem. Przez LVD przechodzi cały prąd odbiorników
+(najgorszy przypadek: bank tuż nad progiem 11,0 V):
 
 | Odbiornik | Prąd szczytowy |
 |-----------|---------------|
-| Step-up (wejście przy 11 V) | do 4,5 A |
+| Step-up (65 W na wtyku, wejście przy 11 V) | do 6,6 A |
 | Hub USB z peryferiami | ~1,0 A |
-| Buck paneli wyświetlaczy | ~1,5 A |
+| Buck wyświetlaczy (LM2596) | ~1,5 A |
 | Domena A (logika + cewki) | ~0,5 A |
-| **Razem** | **~7,5 A** |
+| Telefon przez wstrzykiwacz 5 V (opcja) | ~0,9 A |
+| **Razem** | **~10,5 A** |
 
-Kluczowe jest to, że **wzmacniacze idą osobną gałęzią** prosto z akumulatora
-rozruchowego (§2). Gdyby szły przez LVD, ich szczyty 15–20 A przekroczyłyby
-przekaźnik 20 A.
+Typowo płynie ≈ 5 A (§2.1). Kluczowe jest to, że **wzmacniacze idą osobną
+gałęzią** prosto z akumulatora rozruchowego (§2). Gdyby szły przez LVD, ich
+szczyty 15–20 A przekroczyłyby przekaźnik 20 A.
 
-Bezpiecznik **F7** między szyną „+" banku a VIN+: **15 A**. Reguła producenta
-modułu to 1,5 × prąd szczytowy, czyli 1,5 × 7,5 = 11,25 A — a najbliższa
-większa wkładka typoszeregu to 15 A. Wartość **nie zależy od liczby pakietów**:
-przez F7 płynie wyłącznie prąd odbiorników, a prąd ładowania wchodzi na szynę
-banku obok niego. Nawet po wymianie XL6019 na moduł 65 W (szczyt 9,7 A)
-wychodzi 1,5 × 9,7 = 14,6 A, czyli nadal 15 A.
+Bezpiecznik **F7** między blokiem L+ banku a VIN+: **20 A**. Reguła
+producenta modułu to 1,5 × prąd szczytowy, czyli 1,5 × 10,5 = 15,75 A —
+najbliższa większa wkładka to 20 A. (Poprzednie wydanie miało 15 A przy
+szczycie 7,5 A z XL6019; z pełnymi 65 W i telefonem 15 A schodzi poniżej
+reguły.) Przewód odbioru 6 mm² jest wkładką 20 A chroniony z dużym zapasem.
+Wartość **nie zależy od liczby pakietów**: przez F7 płynie wyłącznie prąd
+odbiorników, a prąd ładowania wchodzi do bloku L+ obok niego (przez F12).
 
-> **Zmienia się natomiast wymagana klasa wkładki.** Prąd zwarciowy
-> prospektywny na szynie banku urósł z ~1,4 kA (cztery pakiety) do **~2,4 kA**
-> (§4.4), a wkładka ATO/ATC ma katalogową zdolność wyłączania ok. **1 kA
-> @ 32 V DC** (ISO 8820 / SAE J1888). Poza tą wartością bezpiecznik zamiast
-> przerwać obwód może zapalić łuk. Na F7 użyj wkładki **MIDI/AMI albo ANL**
-> o zdolności wyłączania ≥ 2 kA. Uwaga uczciwościowa: to przekroczenie
-> istniało już przy czterech pakietach, tylko mniejsze — siedem pakietów je
-> pogłębia, a nie tworzy. Przed zakupem potwierdź zdolność wyłączania w karcie
-> konkretnej wkładki; repozytorium tych danych nie zawiera.
+> **Wymagana klasa wkładki.** Prąd zwarciowy na zaciskach odbioru banku to
+> ok. **2,2 kA** (§4.4), a wkładka ATO/ATC ma katalogową zdolność wyłączania
+> ok. **1 kA @ 32 V DC** (ISO 8820 / SAE J1888). Poza tą wartością
+> bezpiecznik zamiast przerwać obwód może zapalić łuk. Na F7 i F12 użyj
+> wkładki **MIDI/AMI albo ANL** o zdolności wyłączania **≥ 2,5 kA** wg karty.
+> Uwaga praktyczna: typoszeregi MIDI/ANL bywają dostępne dopiero od ok.
+> 30 A — jeżeli 15 / 20 A w tej klasie nie da się kupić, opisz to w §13.7
+> i zdecyduj świadomie (30 A nadal chroni przewód 6 mm², ale nie przekaźnik
+> LVD przed przeciążeniem; przed tym chronią go wkładki odgałęzień F8–F13).
+> Repozytorium nie zawiera kart tych wkładek — potwierdź przed zakupem.
 
 ### 7.5 Co odcina LVD
 
@@ -1348,8 +1434,8 @@ bagażnika nie odpowiadają), ale to celowe: bank przetrwa i naładuje się przy
 następnym uruchomieniu silnika. Alternatywa — pozwolić Nano dojechać bank
 do 9 V — kończy się wymianą kompletu pakietów.
 
-Moduł montuj **za bankiem, przed rozgałęzieniem odbiorników** — patrz
-[`power_buffered_m910q.svg`](../schematics/power_buffered_m910q.svg).
+Moduł montuj **w bagażniku, za bankiem, przed rozgałęzieniem odbiorników**
+— patrz [`power_buffered_m910q.svg`](../schematics/power_buffered_m910q.svg).
 
 > **XH-M609 nie zastąpi blokady przeładowania z §6.** To moduł ochrony
 > **podnapięciowej** — rozłącza *poniżej* progu. Warstwa 2 potrzebuje logiki
@@ -1363,217 +1449,193 @@ Moduł montuj **za bankiem, przed rozgałęzieniem odbiorników** — patrz
 
 | Bezpiecznik | Wartość | Umiejscowienie |
 |-------------|---------|----------------|
-| Główny | 30 A | **maks. 30 cm od klemy „+"** akumulatora rozruchowego |
-| Tor ładowania (**F1**) | 15 A ATO | przy klemie „+", na wejściu toru ładowania (§5.3) |
-| Na pakiet banku (**FB1…FB7**) | 10 A × 7 | na zacisku F2 „+" każdego pakietu |
-| Szyna banku → XH-M609 VIN+ (**F7**) | 15 A, **MIDI/AMI lub ANL** | przy szynie banku — uzasadnienie klasy w §7.4 |
-| Wyjście step-up | 5 A | między przetwornicą a wtykiem M910q |
-| Odgałęzienie logiki (Nano, HM-10, RXB6) | 3 A | przed buckiem 12 → 5 V |
-| Odgałęzienie wyświetlaczy | 3 A | przed buckiem 12 → 5 V wyświetlaczy |
+| Tor ładowania (**F1**) | **20 A** | **maks. 30 cm od klemy „+"** akumulatora rozruchowego — jedyne połączenie zestawu z rozruchowym (poza osobną gałęzią wzmacniacza) |
+| Na pakiet banku (**FB1…FB7**) | 10 A ATO / mini × 7 | na „+" każdego pakietu, **5–10 cm od zacisku** |
+| Blok L+ → XH-M609 VIN+ (**F7**) | 20 A, **MIDI/AMI lub ANL** | przy bloku L+ — klasa w §7.4 |
+| Przewód ładowania → blok L+ (**F12**) | 15 A, klasa jak F7 | przy bloku L+ (§5.4) |
+| Gałęzie ładowarek (**FC1**, **FC2**) | 7,5 A ATO × 2 | przy zacisku OUT+ każdego XH-M603, przed złączeniem gałęzi (§5.4) |
+| Cewka K1 (**FK**) | 1 A ATO | w miejscu wpięcia w obwód zapłonu / D+ (§5.4) |
+| Wejście step-up (**F8**) | 10 A | na dystrybucji za LVD |
+| Buck LM2596 — wyświetlacze (**F9**) | 2 A | na dystrybucji za LVD |
+| Buck MP1584 — logika, Arduino (**F10**) | 3 A | na dystrybucji za LVD |
+| AUX 12 V — moduł przekaźników, wentylator (**F11**) | 5 A | na dystrybucji za LVD |
+| Wstrzykiwacz 5 V telefonu (**F13**, opcja) | 2 A | na dystrybucji za LVD |
+| Wyjście step-up | 5 A | przy wyjściu przetwornicy, w bagażniku |
+| Przewód pomiarowy banku (`FEATURE_BATT_ADC`, §13.4) | 1 A | przy banku |
 | Gałąź wzmacniacza | wg karty modułu (20–30 A) | osobno, przy klemie akumulatora rozruchowego |
 
-Bezpiecznik główny **przy klemie**, nie przy urządzeniu — zwarcie przewodu
+Bezpiecznik **przy źródle**, nie przy urządzeniu — zwarcie przewodu
 o karoserię w połowie trasy ma być przerwane przy źródle, inaczej cały
-przewód staje się grzałką. Wkładki nożowe ATO/ATC w listwie dystrybucyjnej
-z pokrywą, w miejscu dostępnym bez demontażu deski rozdzielczej.
+przewód staje się grzałką. Dlatego wszystkie odgałęzienia biegnące do przodu
+(F9, F10, F11, F13, wyjście step-up) mają wkładki **w bagażniku**, na
+początku trasy, a przewód cewki K1, który biegnie w drugą stronę — **FK
+z przodu**, tam, gdzie wpinasz się w zapłon / D+: bezpiecznik obwodu auta
+(15–20 A) nie chroni 4–5 m przewodu 0,75 mm².
 
-**Dlaczego 10 A na pakiet, skoro pakiet wiezie 1 A.** Prąd roboczy jednej
-gałęzi to 7,5/7 = **1,07 A** przy rozładowaniu i 4,5/7 = **0,64 A** przy
-ładowaniu, więc wkładka 10 A ma zapas dziewięciokrotny. Jej wartość wynika
-z obciążalności nasuwki F2 i z selektywności, a nie z liczby pakietów — przy
-siedmiu pakietach zmienia się **wyłącznie liczba sztuk**, z czterech na
-siedem.
+**FC1/FC2 przy OUT, a nie przy DC-IN XH-M603.** Groźny prąd w gałęzi
+przychodzi od banku (przez zwarty przekaźnik płytki do uszkodzonej
+XY-SK120) albo z drugiej ładowarki przez złączenie — oba wchodzą do gałęzi
+od strony złączenia. Wkładka przy OUT przerywa je przed płytką; ta sama
+wkładka przerywa też nadprąd w przód z uszkodzonego regulatora CC.
 
-**Selektywność przy siedmiu pakietach jest lepsza niż przy czterech.** Przy
-zwarciu wewnątrz jednego pakietu przez jego wkładkę płynie 12,85 V /
-(37/6 + 14) mΩ = **637 A** (przy czwórce było 488 A), a przez każdą z sześciu
-zdrowych gałęzi 637/6 = 106 A. Stosunek 6 : 1 zamiast 3 : 1 — pali się
-właściwy bezpiecznik, i to szybciej. Obie liczby mieszczą się w ~1 kA
-zdolności wyłączania wkładki ATO. Dla zwartej pojedynczej celi (ΔU 2,1 V)
-wychodzi 48,6 A, czyli ok. 5 × prąd znamionowy wkładki — też zadziała.
+**Dlaczego F1 to 20 A, a nie 15 A.** Dwie XY-SK120 biorą z instalacji
+11,9 A (silnik pracuje) do 13,0 A (kluczyk ON, silnik stoi) — §5.4. Wkładka
+15 A przy ciągłych 12–13 A pracowałaby na 80–87 % przez całą jazdę, w ciepłej
+komorze silnika — to przepis na przepalenie bez usterki. 20 A daje 60–65 %,
+a przewód 6 mm² jest nią chroniony z zapasem.
 
-> **Oznaczenia: FB1…FB7, a nie F2…F8.** Proste rozciągnięcie dotychczasowego
-> ciągu F2…F5 na siedem pakietów weszłoby w kolizję z **F7** (szyna banku →
-> LVD) i **F8** (wkładka przetwornicy 19,5 V na płytce B,
+**Wkładki za LVD (F8–F11, F13) i w gałęziach ładowarek (FC1, FC2) mogą być
+zwykłymi ATO** — dla FC rachunek ~480–590 A jest w §5.4. Zwarcie za LVD zasila
+bank przez F7, przekaźnik LVD, przewody i samą wkładkę odgałęzienia; ich
+rezystancje (kilkanaście mΩ razem — oszacowanie) ograniczają prąd do
+kilkuset amperów, czyli poniżej ~1 kA zdolności wyłączania ATO. Wkładki
+**przed** LVD (F7, F12) widzą pełne ~2,2 kA i muszą być wyższej klasy.
+
+**Dlaczego 10 A na pakiet, skoro pakiet wiezie ~0,7 A.** Prąd roboczy jednej
+gałęzi to 5/7 ≈ **0,71 A** przy typowym rozładowaniu (≈ 1,5 A w szczycie
+10,5 A) i ≈ **0,71 A** przy ładowaniu netto 5 A, więc wkładka 10 A ma
+zapas kilkukrotny. Jej wartość wynika z obciążalności nasuwki F2 i przewodu
+2,5 mm² oraz z selektywności, a nie z liczby pakietów.
+
+**Selektywność.** Przy zwarciu wewnątrz jednego pakietu przez jego wkładkę
+płynie prąd z sześciu pozostałych: 12,85 V / (34,4/6 + 11,4) mΩ ≈ **750 A**
+(11,4 mΩ to odcinek, wkładka i przejścia zwartej gałęzi), a przez każdą
+z sześciu zdrowych gałęzi ≈ 125 A. Stosunek 6 : 1 — pali się właściwy
+bezpiecznik. 750 A mieści się w ~1 kA zdolności wyłączania wkładki ATO.
+Dla zwartej pojedynczej celi (ΔU 2,1 V) wychodzi 2,1 V / (34,4 + 5,7) mΩ ≈
+**52 A**, czyli ok. 5 × prąd znamionowy wkładki — też zadziała.
+
+> **Oznaczenia: FB1…FB7, a nie F2…F8.** Proste rozciągnięcie dawnego ciągu
+> F2…F5 na siedem pakietów weszłoby w kolizję z **F7** (bank → LVD)
+> i **F8** (wejście przetwornicy na płytce B,
 > [`PCB_ZASILANIE.md`](PCB_ZASILANIE.md) §1). Bezpieczniki gałęziowe banku
-> dostają więc własną serię **FB** — „bezpieczniki banku" — a F1 i F7–F11
-> zostają bez zmian.
-
-> **Luka, której ta dokumentacja nie zamyka — do decyzji.** Między szyną „+"
-> banku a wyjściem toru ładowania **nie ma żadnej wkładki**: F1 chroni odcinek
-> od strony auta, F7 wyłącznie odgałęzienie do LVD. Zwarcie na odcinku
-> ładowarka → szyna banku jest zasilane wprost z banku prądem ~2,4 kA i nic go
-> nie przerywa. To luka **istniejąca** (przy czterech pakietach było ~1,4 kA),
-> którą siódemka pogłębia o 75 %. Zalecenie: **MIDI/ANL 15 A na odgałęzieniu
-> do ładowarki, przy szynie banku** — 1,5 × CC 8,0 A = 12 A, czyli wkładka
-> 15 A. Ponieważ jest to **dodanie elementu**, a nie korekta istniejącego, nie
-> wpisano go ani do tabeli wyżej, ani do listy zakupowej z §10.
+> mają więc własną serię **FB**; F12 (przewód ładowania przy banku) i F13
+> (telefon) to nowe pozycje w tym wydaniu.
 
 ### 8.2 Przekroje przewodów
 
-Dla trasy ok. 3 m (komora silnika → deska rozdzielcza) przy spadku < 3 %:
+Przewody samochodowe (FLRY/FLRY-B, czysta miedź), nie instalacyjne YDY
+i **nie CCA** (aluminium miedziowane ma ~1,6 × większą rezystancję i gorzej
+znosi zaciskanie). Spadek liczony na pętli, ρ = 0,0172 Ω·mm²/m.
 
-| Odcinek | Prąd | Przekrój |
-|---------|------|----------|
-| Akumulator → bezpiecznik → przekaźnik/ładowarka | do 30 A | **6 mm²** |
-| Ładowarka → szyna „+" banku | do 10 A | **4 mm²** |
-| **Szyny zbiorcze banku** („+" i „−" osobno) | do 6,4 A | **płaskownik Cu 15 × 2 mm** (min.), **20 × 3 mm** (zalecany) — §4.3 |
-| Pakiet HR1221W → szyna (ogonek, 7 sztuk) | do 10 A | 1,5 mm² |
-| Szyna → LVD → przekaźnik → step-up | do 7,5 A | 2,5 mm² |
-| Step-up → M910q | 3,5 A @ 19 V | 1,5 mm² |
-| Odgałęzienie logiki (Nano, HM-10, RXB6) | < 1 A | 0,75 mm² |
-| Odgałęzienie wyświetlaczy (buck paneli) | ~1,5 A | 0,75 mm² |
-| Gałąź wzmacniacza | wg karty modułu | 6 mm² (trasa ~4 m do bagażnika) |
-| Masa do nadwozia | — | **6 mm²** |
+| Odcinek | Długość | Prąd | Przekrój | Spadek |
+|---------|---------|------|----------|--------|
+| Akumulator → F1 → bagażnik (TVS/C/K1) | ~5 m (zmierz) | 11,9–13,0 A | **6 mm²** | 0,17–0,19 V na „+" (14,3 mΩ); powrót przez nadwozie i punkt masy (§5.6) |
+| K1 → każda XY-SK120 | ≤ 1 m | ~6–6,5 A | 2,5 mm² | pomijalny |
+| XY-SK120 → XH-M603 → FC1/FC2 → złączenie | ≤ 0,5 m, obie gałęzie równe | 5 A | 2,5 mm² | pomijalny; wkładka 7,5 A przy OUT+ XH-M603 |
+| Złączenie → F12 → blok L+ | ≤ 1 m | 10 A | **4 mm²** | 0,09 V pętli przy 10 A — CV nastawiaj bez banku, na banku sprawdzaj przy < 1 A (§5.3) |
+| Pakiet → blok (14 szt.) | 0,25 m ±30 mm | ≤ 1,5 A | **FLRY-B 2,5 mm²** | §4.3 |
+| Łącznik L ↔ P („+" i „−") | 0,4–0,6 m | ≤ ~6 A | **6 mm² OFC** | §4.3 |
+| Blok L+ → F7 → LVD | ≤ 0,5 m | do 10,5 A | **6 mm²** | pomijalny |
+| Masa banku P− → punkt masy | ≤ 0,5 m | do ~13 A (powrót ładowania) | **6 mm²** | pomijalny |
+| LVD → dystrybucja | ≤ 0,5 m | do 10,5 A | 4 mm² | pomijalny |
+| F8 → step-up | ≤ 1 m | do 6,6 A | 4 mm² | pomijalny |
+| **Step-up → M910q** („+" i „−") | **~4 m** | 3,3 A @ 20 V | **4 mm²** | **0,11 V** (§3.1) |
+| F9 → LM2596 wyświetlaczy (przód) | ~4 m | ~1,5 A | 1,0 mm² | 0,10 V na „+" |
+| F10 → MP1584 logiki (przód) | ~4 m | < 1 A | 0,75 mm² | < 0,1 V |
+| F13 → wstrzykiwacz telefonu (przód) | ~4 m | < 1 A | 0,75 mm² | < 0,1 V |
+| F11 → AUX (moduł przekaźników) | wg miejsca | do ~2 A | 1,5 mm² | — |
+| **Wspólny powrót 12 V z przodu** → punkt masy | ~4 m | do ~4 A | **2,5 mm²** | 0,11 V |
+| K1 cewka ← FK 1 A ← zapłon / D+ | ~4–5 m | ~0,15 A | 0,75 mm² | — |
+| Gałąź wzmacniacza | ~4 m do bagażnika | wg modułu | 6 mm² | — |
 
-Przewody samochodowe (FLRY/FLY), nie instalacyjne YDY — potrzebna jest
-linka, nie drut, i izolacja odporna na temperaturę i oleje.
+**Dlaczego bucki stoją z przodu, a do przodu idzie 12 V.** 5 V z bucka przy
+1,5 A na 4 m spadłoby o kilka procent i pływało z obciążeniem; 12 V na tej
+samej trasie traci < 1 %, a buck przy odbiorniku i tak stabilizuje. Każde
+odgałęzienie ma własną wkładkę w bagażniku i własny przewód „+"; powrót jest
+wspólny (2,5 mm²) do punktu masy przy banku — nie przez karoserię z przodu.
 
-**Dlaczego ładowarka → bank idzie na 4 mm².** Formalnie 2,5 mm² by się
-zmieściło: na trasie 3 m przy 8,0 A daje 0,336 V, czyli 2,3 % z dopuszczalnych
-3 %. Powód zmiany jest **regulacyjny, nie formalny** — ten spadek siedzi
-w pętli CV, więc bank widziałby 14,06 V zamiast 14,40 V, a faza absorpcji
-startowałaby później i trwała dłużej. Przy 4 mm² tracisz 0,21 V zamiast
-0,34 V, a strata w samym przewodzie spada z 2,7 na 1,7 W. **Ten sam przekrój
-weź na powrót** (OUT− ładowarki do punktu gwiazdowego masy) — spadek liczy
-się na całej pętli, więc cieńszy powrót kasuje połowę zysku. Jeżeli ładowarka
-stoi tuż przy banku (trasa ≤ 1,5 m), 2,5 mm² wystarcza. Od CC 10 A 4 mm²
-przestaje być wyborem i staje się wymogiem.
-
-**Dlaczego ogonki pakietów zostają na 1,5 mm², mimo że pakietów jest więcej.**
-Przekroju nie wyznacza tu prąd — gałąź wiezie 1,07 A przy rozładowaniu
-i 0,64 A przy ładowaniu — tylko wkładka gałęziowa 10 A i wymóg jednakowości.
-Pogrubianie działa wręcz **przeciwko** symetrii banku: rezystancja ogonka
-i oprawki rozcieńcza fabryczny rozrzut ogniw. ±10 % z 23 mΩ daje 20 %
-rozrzutu prądów na gołych ogniwach, ale tylko 12,4 % na gałęziach 37 mΩ.
-Tolerancja długości: ±30 mm różnicy pętli (§4.3).
-
-**Odcinek szyna → LVD → step-up nie zmienia się wcale.** Płynie przez niego
-wyłącznie prąd odbiorników (7,5 A szczytowo, §7.4), a ten od liczby pakietów
-nie zależy: spadek na pętli 2 m przy 2,5 mm² to 105 mV, czyli 0,8 %.
+**Ładowarki tuż przy banku.** Moduły XY-SK120 i XH-M603 stoją w bagażniku
+obok koszy, więc przewód ładowania do banku ma ≤ 1 m i spadek w pętli CV
+jest pomijalny (dawniej 3 m i dyskusja 2,5 vs 4 mm²).
 
 ### 8.3 Masa
 
-- **jeden punkt masy** dla całego head unitu — gwiazda, nie łańcuszek,
+- **jeden punkt masy** dla całego head unitu — gwiazda, nie łańcuszek —
+  **w bagażniku przy banku**: blok P− (albo osobny blok masowy tuż obok,
+  spięty z P− krótkim 6 mm²) i z niego **jeden** przewód 6 mm² do karoserii,
 - śruba do gołego metalu nadwozia, powierzchnia oczyszczona ze szpachli
-  i lakieru, po dokręceniu zabezpieczona wazeliną techniczną,
-- masa banku, masa M910q, masa Arduino i masa audio schodzą się **w tym
-  jednym punkcie**,
+  i lakieru, po dokręceniu zabezpieczona wazeliną techniczną — **nie** w
+  podłodze nad zbiornikiem (§4.7); użyj istniejącego punktu masy w bagażniku
+  albo śruby w grodzi / nadkolu,
+- w tym punkcie schodzą się: bank, masy XY-SK120 (wejście i wyjście),
+  XH-M603, LVD, dystrybucja, step-up, powrót 20 V z M910q, wspólny powrót
+  12 V z przodu i masa audio,
+- M910q, panele i moduły z przodu **nie dostają własnej masy do karoserii**;
+  jeżeli obudowa M910q dotyka metalu, to jest druga droga masy — przy
+  przydźwięku sprawdź to pierwsze,
 - masa wzmacniacza osobno, blisko wzmacniacza — inaczej dostaniesz pętlę
   masy i przydźwięk alternatora w głośnikach.
 
 ### 8.4 Praktyka montażowa
 
 - przejścia przez blachę **zawsze** przez przelotkę gumową,
-- wiązki w peszlu/oplocie, mocowane co 30 cm,
+- wiązki w peszlu/oplocie, mocowane co 30 cm (łącznik między koszami co
+  15 cm, pod osłoną),
 - konektory zaciskane właściwą zaciskarką i dodatkowo koszulka
   termokurczliwa z klejem; lutowanie w miejscach narażonych na wibracje
   łamie się przy wyjściu z lutu,
 - zapas długości przy każdym urządzeniu (pętla serwisowa),
 - **wyłącznik główny masy** banku (rozłącznik 100 A) — bardzo ułatwia
   serwis i jest wymagany, jeśli auto stanie na dłużej. Przenosi maksymalnie
-  8 A (ładowanie) albo 7,5 A (rozładowanie), czyli 8 % swojej obciążalności,
+  ~13 A (powrót ładowania) albo 10,5 A (rozładowanie),
 - ⚠ **rozłącznik masy rozłączaj wyłącznie bez obciążenia.** Prąd zwarciowy
-  prospektywny banku siedmiu pakietów to ~2,4 kA (§4.4), a typowe rozłączniki
-  podają 100 A ciągle / ~1250 A rozruchowo / ~2500 A chwilowo — jesteś blisko
+  prospektywny banku to ~2,2–2,6 kA (§4.4), a typowe rozłączniki podają
+  100 A ciągle / ~1250 A rozruchowo / ~2500 A chwilowo — jesteś blisko
   granicy. Sprawdź kartę katalogową swojego egzemplarza,
-- **szyny zbiorcze banku muszą mieć pokrywę izolacyjną.** Czternaście odczepów
-  śrubowych przy 2,4 kA prądu zwarciowego to nie jest miejsce na upuszczony
-  klucz.
+- **bloki zbiorcze banku muszą mieć pokrywę.** Szesnaście kołków M6 przy
+  ponad 2 kA prądu zwarciowego to nie jest miejsce na upuszczony klucz.
 
 ---
 
-## 8a. Bank w bagażniku — trasy, przekroje i mocowanie
+## 8a. Bagażnik i trasa do przodu
 
-Wariant montażu przyjęty do dalszych prac: **bank na stelażu w bagażniku**,
-przykręconym do blachy, na której siedzi oparcie tylnej kanapy;
-**M910q przy nogach pasażera**; ładowarka, LVD i przetwornica step-up
-**razem z bankiem w bagażniku**.
+Rozmieszczenie przyjęte do dalszych prac: **bank w dwóch koszach w bagażniku**
+(§4.7), obok nich **ładowarki, LVD, dystrybucja i przetwornica step-up**;
+**M910q przy nogach pasażera**, ok. 4 m dalej.
 
 ### 8a.1 Gdzie postawić przetwornicę — to nie jest obojętne
 
-Przez długą trasę do przodu opłaca się przesyłać **19,5 V, nie 12 V**.
-Ta sama moc przy wyższym napięciu to o połowę mniejszy prąd, a straty
-spadają z kwadratem prądu:
+Przez długą trasę do przodu opłaca się przesyłać **20 V, nie 12 V**. Ta sama
+moc przy wyższym napięciu to mniejszy prąd, a straty spadają z kwadratem
+prądu (M910q 45 W, 4 mm², pętla 2 × 4 m = 34,4 mΩ):
 
-| Wariant | Prąd w trasie 3,5 m | Spadek na 4 mm² | Straty w przewodzie |
-|---------|--------------------|-----------------|---------------------|
-| step-up z przodu, 12 V do przodu | 7,5 A | 115 mV (0,96 %) | 0,86 W |
-| **step-up w bagażniku, 19,5 V do przodu** | **3,34 A** | **51 mV (0,26 %)** | **0,17 W** |
+| Wariant | Prąd w trasie | Spadek | Straty w przewodzie |
+|---------|---------------|--------|---------------------|
+| step-up z przodu, 12 V do przodu | 4,0 A | 0,14 V (1,1 %) | 0,55 W |
+| **step-up w bagażniku, 20 V do przodu** | **2,26 A** | **0,08 V (0,4 %)** | **0,18 W** |
 
 Drugi powód jest ważniejszy od strat: **LVD musi mierzyć napięcie banku,
-a nie napięcie po trzech metrach przewodu**. Przy step-upie z przodu próg
-11,00 V zadziałałby o 0,1–0,2 V za późno, bo moduł widziałby napięcie
-zaniżone o spadek na trasie. Trzymając LVD i przetwornicę przy banku,
-mierzysz to, co trzeba.
+a nie napięcie po czterech metrach przewodu**. Trzymając LVD i przetwornicę
+przy banku, mierzysz to, co trzeba.
 
-Do przodu idą więc tylko dwa przewody 19,5 V i masa — plus bezpiecznik
-5 A przy wtyku M910q (§8.2).
+### 8a.2 Wiązka bagażnik → deska
 
-### 8a.2 Zbieranie siedmiu pakietów
+Do przodu idzie jedna wiązka w peszlu (przekroje w §8.2):
 
-Zamiar „7 × 4 mm² zebrane w jeden przewód" jest słuszny co do idei —
-punkt gwiazdowy z równymi ogonkami to elektrycznie to samo, co szyna
-z równymi odczepami. Dwie poprawki praktyczne:
+| Żyła | Przekrój | Wkładka (w bagażniku) |
+|------|----------|-----------------------|
+| 20 V „+" i „−" do M910q | 2 × 4 mm² | 5 A na wyjściu przetwornicy |
+| 12 V do LM2596 (wyświetlacze) | 1,0 mm² | F9 2 A |
+| 12 V do MP1584 (logika, Arduino) | 0,75 mm² | F10 3 A |
+| 12 V do wstrzykiwacza telefonu (opcja) | 0,75 mm² | F13 2 A |
+| 12 V AUX (jeśli moduł przekaźników jest z przodu) | 1,5 mm² | F11 5 A |
+| wspólny powrót 12 V | 2,5 mm² | — |
+| sygnał zapłonu / D+ do cewki K1 (w drugą stronę) | 0,75 mm² | **FK 1 A z przodu**, przy wpięciu w zapłon / D+ |
 
-**Przekrój ogonków: 2,5 mm², nie 4 mm².** Na jeden pakiet przypada
-1,14 A przy ładowaniu i 1,07 A przy rozładowaniu — 4 mm² to
-czterokrotny zapas, który niczego nie poprawia, bo o rezystancji gałęzi
-decyduje samo ogniwo (23 mΩ wobec 2,6 mΩ przewodu). Za to **wsuwka F2
-6,35 mm, którą mają HR1221W, jest przewidziana na 0,5–2,5 mm²** —
-4 mm² albo się nie zaciśnie porządnie, albo rozepchnie tulejkę.
-Zysk z 4 mm² jest żaden, ryzyko złego zacisku realne.
+| pomiar napięcia banku do sensor huba (opcja, §13.4) | 0,5 mm² | 1 A przy banku |
 
-**Nie zbieraj siedmiu ogonków w jednej tulejce.** Siedem razy 4 mm² to
-28 mm² miedzi — nie ma zacisku, który to porządnie obejmie, a zacisk
-oczkowy z siedmioma przewodami pod jedną śrubą rozluźni się od drgań.
-Zamiast tego **płaskownik miedziany 15 × 2 mm z siedmioma odczepami
-co 70 mm** (§4.3), po jednym na „+" i na „−", z odbiorem po przekątnej:
-zasilanie z odczepu 1, masa z odczepu 7. Rozrzut prądów między pakietami
-spada wtedy do 1 % wobec 4,6 % przy odbiorze z jednego końca.
-
-Z płaskownika wychodzi **jeden przewód 4 mm²** do listwy L1 — i to jest
-dokładnie ten „jeden kabel dalej", o który chodziło.
+Ekran i przewody RCA do wzmacniacza prowadź **po drugiej stronie auta** niż
+tę wiązkę i przewód F1.
 
 ### 8a.3 Bezpiecznik przy banku — bezwzględnie
 
-Przewód wychodzący z banku **musi mieć bezpiecznik w odległości do
-30 cm od szyny**. Bank 35,7 Ah daje prąd zwarciowy prospektywny ok.
-**2,4 kA**; niezabezpieczony przewód 4 mm² biegnący przez całe auto to
-przy zwarciu palnik. Wkładka **15 A klasy MIDI/ANL** (nie ATO — ATO ma
-zdolność wyłączania ok. 1 kA, czyli poniżej tego, co bank potrafi dać).
+Każdy przewód wychodzący z bloku L+ **musi mieć bezpiecznik w odległości do
+30 cm od bloku**: F7 (odbiorniki) i F12 (ładowanie). Bank daje prąd
+zwarciowy prospektywny ok. **2,2 kA**; niezabezpieczony przewód to przy
+zwarciu palnik. Klasa wkładek w §7.4.
 
-### 8a.4 Mocowanie do blachy pod oparciem kanapy
-
-Sam bank waży **12,6 kg**, ze stelażem i pasami licz ok. 15 kg. To nie
-jest obojętne dla blachy:
-
-| Przeciążenie | Siła na mocowaniu |
-|--------------|-------------------|
-| 10 g (hamowanie awaryjne) | 1,5 kN ≈ 150 kgf |
-| 20 g (kryterium jak dla mocowania ładunku) | 3,0 kN ≈ 300 kgf |
-
-Blacha półki pod oparciem kanapy w 156 ma ułamek milimetra — **śruby
-przykręcone wprost w nią wyrwą się z materiałem**. Wymagania minimalne:
-
-- **podkładki rozkładające** od spodu, min. 3 mm stali, co najmniej
-  40 cm² na śrubę — nie zwykłe podkładki,
-- **śruby M8** klasy 8.8, minimum cztery, najlepiej wpięte w przetłoczenie
-  albo poprzeczkę, a nie w płaską blachę,
-- stelaż oparty również o **podłogę bagażnika**, żeby moment nie wisiał
-  na samej półce,
-- pasy przytrzymujące pakiety w stelażu — **pakiet, który wyjdzie ze
-  stelaża, jest pociskiem lecącym w oparcie kanapy**, czyli w plecy
-  pasażerów.
-
-Układ **4 + 3 w dwóch rzędach** (280 × 180 mm) jest pod tym względem
-wyraźnie lepszy niż siedem w rzędzie (490 mm): moment gnący na wsporniku
-spada z 7,57 do 4,33 N·m.
-
-AGM jest szczelny, więc bagażnik jest dla niego właściwym miejscem —
-ale obudowy nie zamykaj hermetycznie: przy przeładowaniu zawory
-upustowe muszą mieć gdzie oddać gaz.
-
+---
 
 ## 9. Budżet energetyczny i czas postoju
 
@@ -1588,6 +1650,8 @@ upustowe muszą mieć gdzie oddać gaz.
 | Straty przetwornicy buck | ~5 mA |
 | **Podsuma — logika i przekaźniki** | **~60 mA (0,7 W)** |
 | **XH-M609 (LVD)** | **do zmierzenia — patrz §7.3** |
+| Przetwornica step-up bez obciążenia (M910q wyłączony) — **I_jał** | **do zmierzenia** (§3.4) — zalewane moduły nie podają prądu jałowego; wisi na szynie także w S3 i po wyłączeniu |
+| Telefon na buforze przez wstrzykiwacz 5 V (opcja, §14.6) | **~30–100 mA** naładowany (szacunek, do zmierzenia); **do ~0,9 A**, gdy się ładuje |
 
 > **Pobór własny LVD jest częścią budżetu postoju.** XH-M609 ma wyświetlacz
 > LED i przekaźnik trzymany w stanie załączonym, więc nie jest to element
@@ -1596,30 +1660,45 @@ upustowe muszą mieć gdzie oddać gaz.
 > zwykle znacznie niższy (spec obejmuje cały zakres do 36 V), ale dopóki nie
 > zmierzysz, nie wiesz, w której kolumnie tabeli poniżej jesteś.
 
-> **Czego w tym budżecie nie ma.** Tabela obejmuje wyłącznie domenę A
-> w rozumieniu §2: Nano #1, HM-10, RXB6, moduł przekaźników i straty bucka.
-> Nie ma w niej Arduino Pro Micro, Nano #2 ani modułu wyświetlacza 1,8" na
-> ESP32 ([`WYSWIETLACZ_ESP32_1V8.md`](WYSWIETLACZ_ESP32_1V8.md)) — a ten
-> ostatni bierze ok. **60 mA z 12 V**, czyli tyle, co cała reszta logiki razem
-> wzięta. Jeżeli panel trafi na szynę buforowaną, przesuwasz się o jeden–dwa
-> wiersze w dół tabeli §9.2: postój schodzi z 9,3–4,0 na **5,3–3,0 dnia**.
-> Przy banku 35,7 Ah to jest do udźwignięcia; przy czterech pakietach nie było
-> (3,0–1,7 dnia). Rachunek i decyzja — w tamtym dokumencie.
+> **Telefon to największa niewiadoma postoju.** Jeżeli trzymasz go na
+> buforze (wybudzanie IR z §14.6), dolicz jego pobór do wiersza z §9.2:
+> +60 mA przesuwa Cię mniej więcej o jeden wiersz w dół (np. 80 → 130 mA).
+> Telefon, który przy każdym postoju doładowuje się od 50 %, zjada przez
+> 1–2 h po 0,9 A — czyli 1–2 Ah na postój. W aucie testowym bez bufora
+> telefon jest zasilany z obwodu zapłonu i do tego budżetu nie wchodzi
+> ([`PRZYGOTOWANIE_TELEFONU.md`](PRZYGOTOWANIE_TELEFONU.md) §18).
+
+> **Czego w tym budżecie nie ma.** Tabela obejmuje domenę A w rozumieniu §2:
+> Nano #1, HM-10, RXB6, moduł przekaźników i straty bucka, plus telefon jako
+> opcję. Nie ma w niej Arduino Pro Micro, Nano #2 ani modułu wyświetlacza
+> 1,8" na ESP32 ([`WYSWIETLACZ_ESP32_1V8.md`](WYSWIETLACZ_ESP32_1V8.md)) —
+> a ten ostatni bierze ok. **60 mA z 12 V**, czyli tyle, co cała reszta
+> logiki razem wzięta. Jeżeli panel trafi na szynę buforowaną, przesuwasz się
+> o jeden–dwa wiersze w dół tabeli §9.2: postój schodzi z 9,3–4,0 na
+> **5,3–3,0 dnia**. Rachunek i decyzja — w tamtym dokumencie.
 
 ### 9.2 Czas postoju
 
 Czas zależy od tego, ile pobiera XH-M609 — dlatego tabela jest rozpisana
 wg **sumarycznego poboru**. Logika i przekaźniki to stałe 60 mA; reszta to
-moduł LVD.
+moduł LVD, **prąd jałowy step-upu I_jał** i ewentualnie telefon (§9.1).
+
+> **I_jał dodaj do każdego wiersza.** Tabele niżej są liczone bez niego,
+> bo dla nowej przetwornicy nikt go jeszcze nie zmierzył (§3.4). Zmierzony
+> prąd dodajesz wprost do kolumny „Pobór całkowity" i czytasz czas
+> z wiersza o tym poborze. **Dla ilustracji, nie jako wartość zmierzona:**
+> gdyby I_jał wyszedł 50 mA, wiersz 80 mA staje się wierszem 130 mA
+> (9,3 → 5,7 dnia do 50 % DoD); gdyby 100 mA — wychodzi ok. 180 mA, prawie
+> wiersz 185 mA (ok. 4,1 dnia zamiast 9,3).
 
 **Bank 7 pakietów — 35,7 Ah** (konfiguracja przyjęta):
 
-| Pobór całkowity | XH-M609 | Do 30 % DoD | Do 50 % DoD | Do progu LVD |
+| Pobór całkowity | Ponad 60 mA logiki (XH-M609 + I_jał + telefon) | Do 30 % DoD | Do 50 % DoD | Do progu LVD |
 |-----------------|---------|-------------|-------------|--------------|
 | 80 mA | 20 mA | ~5,6 dnia | ~9,3 dnia | ~13,9 dnia |
 | 100 mA | 40 mA | ~4,5 dnia | ~7,4 dnia | ~11,2 dnia |
 | 130 mA | 70 mA | ~3,4 dnia | ~5,7 dnia | ~8,6 dnia |
-| 185 mA | 125 mA (spec max) | ~2,4 dnia | ~4,0 dnia | ~6,0 dnia |
+| 185 mA | 125 mA (sam XH-M609 wg spec max) | ~2,4 dnia | ~4,0 dnia | ~6,0 dnia |
 
 **Bank 6 pakietów — 30,6 Ah** (odniesienie — tyle zostaje po awarii jednego
 pakietu; §4.2):
@@ -1641,12 +1720,10 @@ zapasowego; czym się za to płaci, mówi §4.2):
 | 130 mA | ~3,9 dnia | ~6,5 dnia | ~9,8 dnia |
 | 185 mA | ~2,8 dnia | ~4,6 dnia | ~6,9 dnia |
 
-> **Korekta rachunkowa wobec poprzedniego wydania.** Tabela podpisana tam
+> **Korekta rachunkowa wobec starszego wydania.** Tabela podpisana tam
 > „Bank 4 pakiety — 20,4 Ah" była w rzeczywistości policzona dla **25,5 Ah**
 > (pięciu pakietów) — wszystkie dwanaście komórek było zawyżonych dokładnie
-> o 25 %. Nowe liczby **nie są** starymi przemnożonymi przez 1,75 i nie da się
-> ich uzyskać przeskalowaniem; policzono je od zera. Sąsiednia tabela
-> ośmiopakietowa była i pozostaje poprawna.
+> o 25 %. Liczby wyżej policzono od zera.
 
 Kolumna 30 % DoD jest tu dlatego, że HR1221W to seria buforowa (UPS), a nie
 trakcyjna — płytsze rozładowanie wyraźnie wydłuża jej życie. Przy okazjonalnym
@@ -1654,47 +1731,42 @@ dłuższym postoju 50 % DoD jest w porządku; jako **rutyna** lepiej trzymać 30
 
 > **Siedem pakietów kupuje łagodniejszy reżim, nie tylko dłuższy postój.**
 > Siódemka przy 30 % DoD daje 10,71 Ah użytecznych, czyli **więcej niż czwórka
-> przy 50 % DoD** (10,2 Ah). Można zejść na reżim zalecany dla serii HR
-> i mimo to mieć dłuższy postój niż poprzednio.
+> przy 50 % DoD** (10,2 Ah).
 
-> **Pomiar poboru XH-M609 nadal rozstrzyga.** Dołożenie pakietów **właśnie
-> zostało zrobione** — to była ta rozbudowa — więc kierunek „więcej
-> akumulatorów" jest wyczerpany. Problem został złagodzony (przy górnej
-> granicy spec, 185 mA łącznie, postój do 50 % DoD rośnie z 2,3 na 4,0 dnia),
-> ale nie zniknął: pomiar z §7.3 decyduje, w którym wierszu powyższej tabeli
-> siedzisz. Jeżeli wypadnie przy 125 mA, realne kierunki to nadal:
+> **Pomiar poboru XH-M609 nadal rozstrzyga.** Kierunek „więcej akumulatorów"
+> jest wyczerpany; pomiar z §7.3 decyduje, w którym wierszu powyższej tabeli
+> siedzisz. Jeżeli wypadnie przy 125 mA, realne kierunki to:
 >
 > - **wymiana LVD** na moduł bez wyświetlacza (prosty komparator
 >   z przekaźnikiem pobiera 5–10 mA zamiast 20–125 mA),
 > - **skrócenie progu eskalacji** z 2 h do np. 30 min, żeby maszyna szybciej
->   schodziła z S3 (200–460 mA) do wyłączenia (50–150 mA),
+>   schodziła z S3 (200–460 mA + I_jał) do wyłączenia (50–150 mA + I_jał),
 > - **wyłącznik główny** przy dłuższym postoju — jedyne prawdziwe zero.
 
 > **Korekta wobec starszych notatek.** `docs/X86_PLATFORM_SETUP.md` § 2.3
 > i `10-power-suspend.html` podają dla banku 25 Ah „~17 dni" z adnotacją
 > „ograniczone do 50 % DoD". Te dwie rzeczy się wykluczają: 25 Ah / 0,060 A
-> = 417 h = 17,4 dnia to **pełne rozładowanie do zera**. Do tego bank ma
-> dziś **siedem pakietów, nie pięć**, a komputer nie jest już odcinany — więc
-> liczba z tamtych notatek nie ma żadnego przełożenia na obecny układ.
-> Obowiązuje tabela z §2.1.
+> = 417 h = 17,4 dnia to **pełne rozładowanie do zera**. Obowiązuje tabela
+> z §2.1 i powyższa.
 
 Samorozładowanie HR1221W (> 75 % pojemności po 6 miesiącach @ 25 °C, czyli
 ≤ 4 %/miesiąc) odpowiada ok. **2,0 mA** przy banku 35,7 Ah — wobec 60 mA
-logiki to 3,3 %, czyli nadal pomijalne. W upale rośnie kilkukrotnie, ale nadal
-nie zmienia obrazu. Uwaga: po rozłączeniu wyłącznika głównego samorozładowanie
-zostaje **jedynym** odbiornikiem i bank i tak zejdzie o ~4 % miesięcznie.
+logiki to 3,3 %, czyli pomijalne. W gorącym bagażniku rośnie kilkukrotnie,
+ale nadal nie zmienia obrazu. Po rozłączeniu wyłącznika głównego
+samorozładowanie zostaje **jedynym** odbiornikiem i bank i tak zejdzie
+o kilka procent miesięcznie.
 
 Kolumna „do progu LVD" zakłada zejście do ~75 % DoD (11,0 V pod bardzo
 lekkim obciążeniem). Jest osiągalna, ale każde takie zejście kosztuje
 żywotność — traktuj ją jako rezerwę awaryjną, nie tryb normalnej pracy.
 
-> **Czasy dla siedmiu pakietów są mniej optymistyczne niż te same liczby były
-> dla czterech — i to jest dobra wiadomość.** Pojemność katalogowa 5,1 Ah jest
-> podana dla rozładowania 20-godzinnego (C/20). Przy 3,5 A siedem pakietów
-> pracuje z krotnością C/10,2, a cztery pracowały z C/5,8 — im niższa
-> krotność, tym bliżej warunków karty katalogowej. Skali tej korekty nie da
-> się policzyć bez krzywych rozładowania HR1221W, których repozytorium nie
-> zawiera; rachunek prowadzimy bez poprawki Peukerta, tak jak dotychczas.
+> **Brak poprawki Peukerta.** Pojemność katalogowa 5,1 Ah jest podana dla
+> rozładowania 20-godzinnego (C/20). Przy pracy z 5 A siedem pakietów pracuje
+> z krotnością ok. C/7, czyli szybciej niż w karcie — realny czas pracy przy
+> zgaszonym silniku będzie nieco krótszy niż 3,6 h z §2.1. Skali tej korekty
+> nie da się policzyć bez krzywych rozładowania HR1221W, których repozytorium
+> nie zawiera. Postoje (50–460 mA) są bliżej C/20 i tej korekty praktycznie
+> nie potrzebują.
 
 ### 9.3 Budzenie RTC
 
@@ -1704,66 +1776,59 @@ ok. **5 Ah tygodniowo** — czyli **+29,8 mA** równoważnego poboru ciągłego
 **ok. 73 %**: 9,3 dnia → 6,8 dnia do 50 % DoD. Przy większym poborze bazowym
 efekt jest jeszcze mniejszy. Przy dłuższym postoju wyłącz budzenie z UI.
 
-> **Poprzednie wydanie pisało tu „mniej więcej połowi" — i było to niepoprawne
-> niezależnie od liczby pakietów.** Budzenie RTC dokłada **prąd**, a nie
-> zabiera pojemność, więc skrócenie jest ilorazem `I / (I + 29,8 mA)` i przy
-> 80 mA wynosi 0,73 — tak samo dla czterech pakietów, jak dla siedmiu. Żeby
-> czasy naprawdę spadły o połowę, budzenie musiałoby kosztować ~13,4 Ah
-> tygodniowo.
+> **Budzenie RTC dokłada prąd, a nie zabiera pojemność**, więc skrócenie jest
+> ilorazem `I / (I + 29,8 mA)` i przy 80 mA wynosi 0,73 — niezależnie od
+> liczby pakietów. Żeby czasy naprawdę spadły o połowę, budzenie musiałoby
+> kosztować ~13,4 Ah tygodniowo.
 
 ### 9.4 Ładowanie po postoju
 
-Bank rozładowany do 50 % DoD (**17,85 Ah** do uzupełnienia) przy nastawie
-**CC 8,0 A** i obciążeniu ~3,5 A ładuje się netto prądem **4,5 A**, czyli
-**około 4,0 h w fazie CC** plus absorpcja. Realnie licz **5–6 godzin jazdy**
-do pełna.
+Ładowarki dają razem **10 A** (2 × 5 A), odbiorniki w czasie jazdy biorą
+**≈ 5 A** (4–6 A, §2.1), więc bank ładuje się netto prądem **≈ 5 A**
+(4–6 A). Mnożnik z fazy CC na pełne naładowanie to ×1,3–1,5 (absorpcja).
 
-| Stan wyjściowy | Do uzupełnienia | Faza CC przy 4,5 A netto | Realnie jazdy |
-|----------------|-----------------|--------------------------|---------------|
-| 30 % DoD (reżim rutynowy dla serii HR) | 10,71 Ah | 2,38 h | **3–4 h** |
-| 50 % DoD (po rutynowym postoju) | 17,85 Ah | 3,97 h | **5–6 h** |
-| próg LVD (~75 % DoD) | 26,78 Ah | 5,95 h | **8–9 h** |
+| Stan wyjściowy | Do uzupełnienia | Faza CC przy 5 A netto | Realnie jazdy (×1,3–1,5) | Przy netto 4 A / 6 A (faza CC) |
+|----------------|-----------------|------------------------|--------------------------|--------------------------------|
+| 30 % DoD (reżim rutynowy dla serii HR) | 10,71 Ah | 2,14 h | **2,8–3,2 h** | 2,68 h / 1,79 h |
+| 50 % DoD (po rutynowym postoju) | 17,85 Ah | 3,57 h | **4,6–5,4 h** | 4,46 h / 2,98 h |
+| próg LVD (~75 % DoD) | 26,78 Ah | 5,36 h | **7,0–8,0 h** | 6,70 h / 4,46 h |
 
-Mnożnik z fazy CC na pełne naładowanie to ×1,3–1,5 (faza absorpcji).
+Porównanie wariantów ładowania (faza CC z progu LVD, obciążenie 5 A):
 
-**Zdanie z poprzedniego wydania — „katalogowy sufit to 8,4 A, więc tego czasu
-nie skrócisz" — przestało obowiązywać.** Sufit katalogowy wynosi teraz
-**14,7 A**, a wąskim gardłem jest tor ładowania (§6.3). Czas skraca się dziś
-**wyłącznie przez podniesienie CC**:
+| Ładowanie | Netto do banku | Faza CC z progu LVD |
+|-----------|----------------|---------------------|
+| poprzednie wydanie: boost CC 8,0 A, obciążenie 3,5 A (XL6019 z RAPL) | 4,5 A | 5,95 h |
+| jedna XY-SK120 CC 5 A | ≈ 0 A | bank się nie ładuje |
+| **2 × XY-SK120 CC 5 A — przyjęte** | **≈ 5 A** | **5,36 h** |
+| 2 × XY-SK120 CC 6 A (bez zapasu cieplnego) | ≈ 7 A | 3,83 h |
 
-| Nastawa CC | Netto do banku | Faza CC z progu LVD | Realnie jazdy |
-|-----------|----------------|---------------------|---------------|
-| 6,0 A (nastawa z poprzedniego wydania PCB) | 2,5 A | 10,7 h | 14–16 h |
-| **8,0 A — przyjęta** | **4,5 A** | **5,95 h** | **8–9 h** |
-| 10 A (po wymianie modułu nadnapięciowego i F1 → 20 A) | 6,5 A | 4,12 h | 5–6 h |
-| 14,7 A (sufit katalogowy — pełna przebudowa toru) | 11,2 A | 2,39 h | 3–4 h |
+> **Uczciwie: czas ładowania prawie się nie zmienił.** Dwie ładowarki dają
+> więcej prądu niż dawny boost (10 vs 8 A), ale komputer bez limitu RAPL
+> i telefon biorą więcej (5 vs 3,5 A). Netto wychodzi podobnie — zysk
+> polega na tym, że M910q nie jest już przycięty, a cały tor pracuje z
+> zapasem.
 
-> **Najważniejszy skutek uboczny rozbudowy, i jest kontrintuicyjny.**
-> Siedem pakietów kupuje **wyłącznie dłuższy postój między doładowaniami**.
-> Nie kupuje ani minuty odporności na krótkie przejazdy, bo minimalna dzienna
-> jazda podtrzymująca bilans zależy od **prądu ładowania**, a nie od
-> pojemności banku:
+> **Minimalna dzienna jazda podtrzymująca bilans** zależy od **prądu netto**,
+> a nie od pojemności banku:
 >
-> | Pobór spoczynkowy | Pobór dobowy | Minimalna jazda przy CC 8,0 A | przy CC 6,0 A |
-> |-------------------|--------------|-------------------------------|---------------|
-> | 80 mA | 1,92 Ah | **26 min/dobę** | 46 min |
-> | 130 mA | 3,12 Ah | **42 min/dobę** | 75 min |
-> | 185 mA | 4,44 Ah | **59 min/dobę** | 107 min |
-> | 300 mA (S3) | 7,20 Ah | **96 min/dobę** | 173 min |
+> | Pobór spoczynkowy | Pobór dobowy | Minimalna jazda przy netto 5 A | przy netto 4 A |
+> |-------------------|--------------|--------------------------------|----------------|
+> | 80 mA | 1,92 Ah | **23 min/dobę** | 29 min |
+> | 130 mA | 3,12 Ah | **37 min/dobę** | 47 min |
+> | 185 mA | 4,44 Ah | **53 min/dobę** | 67 min |
+> | 300 mA (S3) | 7,20 Ah | **86 min/dobę** | 108 min |
 >
-> Bilans dobowy poprawiło **podniesienie CC z 6,0 na 8,0 A**, a nie dołożenie
-> pakietów.
+> Pobór spoczynkowy w tej tabeli to **całość, razem z I_jał step-upu**
+> (§9.2): zmierzony I_jał dodajesz do wiersza, zanim odczytasz minuty
+> (np. 80 mA + 50 mA = wiersz 130 mA).
 
-Ostrzeżenie z poprzedniego wydania robi się przy siedmiu pakietach **dwa razy
-mocniejsze**: krótkie przejazdy po mieście nie doładują banku po dłuższym
-postoju — pojemność urosła o 75 %, a prąd netto do banku tylko o 12 %. Jeśli
+Krótkie przejazdy po mieście nie doładują banku po dłuższym postoju. Jeśli
 tak wygląda Twój profil użytkowania, **ładowarka sieciowa na czas parkowania
-w garażu przestaje być opcją i staje się częścią układu**.
+w garażu przestaje być opcją i staje się częścią układu** (§10.3).
 
 > **Te czasy są optymistyczne o 5–15 %.** Nie stosujemy współczynnika
-> przyjęcia ładunku (AGM wymaga oddania 105–115 % pobranych amperogodzin),
-> bo poprzednie wydanie też go nie stosowało i wprowadzenie go rozjechałoby
-> porównanie „przed / po". Przy 5,95 h fazy CC to dodatkowe 0,3–0,9 h.
+> przyjęcia ładunku (AGM wymaga oddania 105–115 % pobranych amperogodzin).
+> Przy 5,36 h fazy CC to dodatkowe 0,3–0,8 h.
 
 ---
 
@@ -1771,76 +1836,76 @@ w garażu przestaje być opcją i staje się częścią układu**.
 
 > Ta lista dotyczy **wersji docelowej**. Budujesz wariant testowy?
 > Wszystko w jednej tabeli: [`LISTA_ZAKUPOWA.md`](LISTA_ZAKUPOWA.md).
+> Ceny są orientacyjne (ogłoszenia, zmienne). Pozycje oznaczone „do wyceny"
+> nie mają w repozytorium żadnej ceny i nie wchodzą do sumy.
 
 ### 10.1 Już posiadane
 
 | Element | Rola w torze | Uwaga |
 |---------|--------------|-------|
-| **XL6019** — moduł step-up | 12 V → 19,5 V dla M910q | ok. **45 W ciągle**, nie 65 W — wymaga ograniczenia poboru CPU, §3.2 i §3.5a |
 | **XH-M609** — moduł ochrony | **LVD** (warstwa 3), 11,00 / 12,60 V | przekaźnik 20 A wystarcza; zmierz pobór własny, §7.3 |
 | **CSB HR1221W F2** × 8 (12 V / 5,1 Ah AGM) | bank buforowy | **użyj 7 (35,7 Ah)** — jeden zostaje jako zapas; §4.2 mówi, czego ten jeden pakiet nie załatwia |
-| Lenovo ThinkCentre M910q Tiny | komputer | |
+| Lenovo ThinkCentre M910q Tiny + oryginalny zasilacz | komputer; z zasilacza bierzesz kabel z wtykiem (§3.3) | |
+| XL6019 — moduł step-up | **zastąpiony** (§3) | zostaje na półce; nie używaj go zamiast przetwornicy 200 W |
 
 ### 10.2 Do dokupienia — obowiązkowe
 
 | # | Element | Specyfikacja | Szt. | Cena (PLN) |
 |---|---------|--------------|------|-----------|
-| 1 | **Ładowarka DC-DC** *(wariant A)* | Victron Orion-Tr Smart 12/12-18 lub odpowiednik z presetem **AGM** | 1 | 800–1000 |
-| | *albo:* przekaźnik + dioda + moduł CC-CV boost *(wariant B)* | przekaźnik 30 A SPDT + **MBR2545CT** na radiatorze · boost: **„900 W 15 A" z wyświetlaczem** albo **„1500 W 30 A"** — pełne zestawienie w §5.3a i §5.3c. **Nie SZBK07** (to buck, nie boost) i **nie „600 W 10 A"** (za mało zapasu przy CC 8,0 A) | 1+1+1 | 70–180 |
-| 2 | **Rozłącznik nadnapięciowy** | **XH-M603** (albo XH-M604), próg 15,30 V / powrót 14,00 V — §6.3 | 1 | 40–80 |
-| 3 | ~~Moduł LVD~~ | **posiadany — XH-M609** | — | 0 |
-| 4 | **Przekaźnik zapłonu** | Bosch 12 V / 30 A SPDT + podstawka | 1 | 15–25 |
-| 5 | **Przekaźnik mocy** (do poz. 2, jeśli styki modułu za słabe) | 12 V / 30 A + podstawka | 1 | 15–25 |
-| 6 | **Listwa dystrybucyjna bezpiecznikowa** | 6–8 obwodów ATO/ATC, z pokrywą | 1 | 40–70 |
-| 7 | **Bezpiecznik główny + oprawka** | 30 A, oprawka do montażu przy klemie | 1 | 15–25 |
-| 8 | **Bezpieczniki inline** | 10 A × 7 (**FB1…FB7**, pakiety) + oprawki, oraz 15 A **MIDI/AMI lub ANL** przed VIN+ modułu XH-M609 (§7.4) | 8 | 25–40 |
-| 9 | **Bezpieczniki nożowe** | 5 A, 3 A × 2, 20 A + zapas | kpl. | 10–15 |
-| 10 | **Buck 12 → 5 V** (logika) | LM2596, min. 1 A | 1 | 5–10 |
-| 11 | **Buck 12 → 5 V** (wyświetlacze) | MP1584 / MP2307, min. 3 A — potrzebny przez **PWM podświetlenia**, patrz niżej | 1 | 5–15 |
-| 12 | **Dioda TVS** | 1.5KE33CA lub SMCJ26CA | 2 | 5–10 |
+| 1 | **Przetwornica step-up** | zalewana IP67/IP68, 12 V → **20 V, 10 A (200 W)**, wejście ~9–18 V — §3.2; sprawdzenie po zakupie §3.4 | 1 | 60–130 |
+| 2 | **Ładowarka CC-CV** | **XY-SK120** (albo XY-SK120X), buck-boost 6–36 V, 6 A / 120 W — §5.2 | **2** | 120–180 |
+| 3 | **Rozłącznik nadnapięciowy** | **XH-M603** (albo XH-M604), 15,30 / 14,00 V — **po jednym na ładowarkę**, §6.3 | **2** | 80–160 |
+| 4 | **Przekaźnik ładowania K1** | 12 V / 30 A SPDT + podstawka (jedyny przekaźnik poza LVD) | 1 | 15–25 |
+| 5 | **Dystrybucja za LVD** | listwa bezpiecznikowa 6–8 obwodów ATO z pokrywą albo płytka B ([`PCB_ZASILANIE.md`](PCB_ZASILANIE.md)) | 1 | 40–70 |
+| 6 | **F1 + oprawka** | 20 A, do montażu przy klemie | 1 | 15–25 |
+| 7 | **FB1…FB7, FC1, FC2, FK + oprawki inline** | ATO / mini, oprawki na 2,5 mm² (FK na 0,75 mm²); wkładki: FB 10 A, FC 7,5 A, FK 1 A (§5.4) | 10 | 35–57 |
+| 8 | **F7 i F12 + oprawki** | 20 A i 15 A, **MIDI/AMI lub ANL**, zdolność wyłączania ≥ 2,5 kA wg karty (§7.4) | 2 | do wyceny |
+| 9 | **Wkładki nożowe** | 10 A (F8), 2 A (F9), 3 A (F10), 5 A (F11), 2 A (F13), 5 A (wyjście step-up), 1 A (pomiar), zapas FB 10 A / FC 7,5 A / FK 1 A | kpl. | 10–15 |
+| 10 | **Buck 12 → 5 V** (logika, Arduino) | **MP1584**, min. 1 A | 1 | 5–10 |
+| 11 | **Buck 12 → 5 V** (wyświetlacze) | **LM2596**, moduł 3 A (realnie ≤ 2 A ciągle) — potrzebny przez **PWM podświetlenia** (§2.2) | 1 | 5–15 |
+| 12 | **Dioda TVS** | **SMCJ20CA** (§5.8) | 2 | 5–10 |
 | 13 | **Kondensator elektrolityczny** | 470 µF / 35 V, low-ESR, 105 °C | 2 | 5–10 |
-| 14 | **Dioda gaszeniowa** | 1N4007 (na cewki przekaźników) | 5 | 2–5 |
-| 15 | **Przewód 6 mm²** | FLRY, czerwony 4 m + czarny 2 m | — | 60–90 |
-| 16 | **Przewód 2,5 mm²** | FLRY, czerwony + czarny, po 3 m | — | 25–40 |
-| 16a | **Przewód 4 mm²** | FLRY, czerwony + czarny, **po 3 m** — pętla ładowarka → szyna banku wraz z powrotem OUT− do masy, §8.2 | — | 30–50 |
-| 17 | **Przewód 1,5 mm²** | FLRY, czerwony + czarny, **po 5 m** — siedem ogonków pakietów po ~0,30 m na biegun plus pętle serwisowe | — | 25–40 |
-| 18 | **Przewód 0,75 mm²** | FLRY, kilka kolorów, po 2 m | — | 15–25 |
-| 19 | **Konektory oczkowe M6/M8** | do 6 mm², zaciskane | 10 | 15–25 |
-| 20 | **Konektory / tulejki / koszulki** | zestaw, koszulki z klejem | kpl. | 30–50 |
-| 21 | **Peszel / oplot + przelotki gumowe** | 5 m peszla + komplet przelotek | kpl. | 25–40 |
-| 22 | **Skrzynka / wspornik na bank + pasy** | na **7 pakietów (12,6 kg)**; pojemność użytkowa min. 280 × 180 × 101 mm (układ 4 + 3) albo 490 × 90 × 101 mm (rząd); 4 punkty M8 z płytkami rozkładającymi ≥ 40 × 40 × 3 mm; 2 pasy ≥ 250 daN — §4.7 | 1 | 100–200 |
-| 22a | **Szyny zbiorcze banku** | 2 × płaskownik miedziany **15 × 2 mm** (min.) albo **20 × 3 mm** (zalecany), dł. ok. 600 mm każdy, + 14 śrub M6 z podkładkami + pokrywa izolacyjna — §4.3 | kpl. | 60–140 |
-| 23 | **Rozłącznik masy** | 100 A, kluczykowy lub pokrętło | 1 | 40–70 |
-| 24 | **Radiator + wentylator 40 mm** | do XL6019 — przy 45 W obowiązkowe | kpl. | 20–35 |
-| 24a | **Kondensator wyjściowy** | 470 µF / 35 V low-ESR na wyjście XL6019 | 1 | 3–6 |
-| 24b | **Termistor NTC** | 5 Ω / 5 A, ogranicznik prądu rozruchowego (tylko jeśli §3.2b) | 1 | 3–6 |
-| | | | **Razem wariant A** | **~1435–2145 PLN** |
-| | | | **Razem wariant B** | **~705–1325 PLN** |
+| 14 | **Dioda gaszeniowa** | 1N4007 (cewka K1) | 5 | 2–5 |
+| 15 | **Przewód 6 mm²** | **OFC, nie CCA**, FLRY-B albo car-audio, 105 °C: czerwony ~7 m (F1 do bagażnika, łącznik „+", odbiór) + czarny ~2 m (łącznik „−", masa) — §4.3, §8.2 | — | 90–135 |
+| 16 | **Przewód 4 mm²** | FLRY: czerwony ~7,5 m + czarny ~5,5 m (20 V do M910q, wejście step-up, LVD, ładowanie) | — | 65–110 |
+| 17 | **Przewód 2,5 mm²** | **FLRY-B**: 14 odcinków pakietów (~0,25 m) + gałęzie ładowarek + wspólny powrót z przodu — ok. 12 m razem | — | 50–80 |
+| 18 | **Przewody 0,5–1,5 mm²** | FLRY, kilka kolorów: odgałęzienia do przodu, cewka K1, pomiar (§8a.2) — ok. 25–30 m | — | do wyceny |
+| 19 | **Bloki zbiorcze banku** | izolowane, **4 kołki M6 + pokrywa** (L+, L−, P+, P−) — §4.3 | 4 | do wyceny |
+| 20 | **Oczka zaciskane M6** | izolowane, na 2,5 mm² (14+) i 6 mm² (8+) | ~30 | 45–75 |
+| 21 | **Nasuwki, tulejki, koszulki** | 14 **w pełni izolowanych** nasuwek żeńskich 6,3 × 0,8 mm na 1,5–2,5 mm², koszulki z klejem | kpl. | 30–50 |
+| 22 | **Peszel / oplot + przelotki gumowe** | ~8 m peszla + komplet przelotek + osłona łącznika między koszami | kpl. | 25–40 |
+| 23 | **Kosze na bank** | stal, złącza M8, EPDM, kapturki, chemia — BOM w [`mechanika/kosze_HR1221W_4+3.pdf`](mechanika/kosze_HR1221W_4+3.pdf) §3, streszczenie §4.7 | 2 | do wyceny |
+| 24 | **Rozłącznik masy** | 100 A, kluczykowy lub pokrętło | 1 | 40–70 |
+| | | | **Razem (bez pozycji „do wyceny")** | **~740–1270 PLN** |
 
-Moduł LVD i przetwornica step-up są już na stanie, więc nie ma ich w tej
-tabeli. Wobec wersji czteropakietowej kwota urosła o ok. 145–290 PLN: to
-szyny zbiorcze (poz. 22a), większa skrzynka z mocowaniem (poz. 22), trzy
-dodatkowe wkładki gałęziowe z oprawkami, wkładka F7 w klasie MIDI/ANL,
-przewód 4 mm² do banku i dłuższy 1,5 mm² na ogonki. Same pakiety nic nie
-kosztują — leżą w zapasie.
+Ceny poz. 15–17 to ceny z poprzedniego wydania przeliczone na nowe długości,
+a poz. 7 — cena siedmiu oprawek przeliczona na dziesięć — sprawdź w sklepie. **Wypadły** wobec poprzedniego wydania: boost CC-CV
+z diodą MBR2545CT i radiatorem, przekaźnik zapłonu, przekaźnik mocy K2,
+skrzynka z pasami, płaskowniki miedziane, radiator i wentylator do XL6019.
 
 ### 10.3 Do dokupienia — zalecane
 
 | # | Element | Po co | Cena (PLN) |
 |---|---------|-------|-----------|
-| 25 | **Czujnik NTC 10 kΩ** | kompensacja temperaturowa (wariant B) | 5–10 |
-| 26 | **Woltomierz/amperomierz z bocznikiem 50 A** | podgląd stanu banku bez multimetru | 40–70 |
-| 27 | **Multimetr z pomiarem prądu DC 10 A** | pomiary przy uruchomieniu i serwisie | 80–200 |
-| 28 | **Ładowarka sieciowa AGM** | doładowanie w garażu przy krótkich przejazdach | 150–300 |
-| 29 | **Zaciskarka do konektorów** | zaciski niepewne to najczęstsza usterka instalacji | 60–150 |
+| 25 | **Woltomierz/amperomierz z bocznikiem 50 A** | podgląd stanu banku bez multimetru | 40–70 |
+| 26 | **Multimetr z pomiarem prądu DC 10 A** | pomiary przy uruchomieniu i serwisie | 80–200 |
+| 27 | **Ładowarka sieciowa AGM** | doładowanie w garażu przy krótkich przejazdach | 150–300 |
+| 28 | **Zaciskarka zapadkowa** (nasuwki i oczka) | zaciski niepewne to najczęstsza usterka instalacji | 60–150 |
+| 29 | **Kondensator 470 µF / 35 V + termistor NTC 5 Ω / 5 A** | na wyjście step-upu, tylko jeśli §3.2b | 6–12 |
+| 30 | **Wstrzykiwacz 5 V do telefonu** | przetwornica 12 → 5,1–5,2 V, z odciętym VBUS od strony komputera ([`PRZYGOTOWANIE_TELEFONU.md`](PRZYGOTOWANIE_TELEFONU.md) §18) | do wyceny |
+
+Alternatywa izolowana: VEVOR B2B zamiast poz. 2 (2 × XY-SK120) to
++280–370 PLN, **bez** rozwiązania nadnapięciowego na pełny prąd (§5.7).
 
 ### 10.4 Czego **nie** kupować
 
 | Element | Dlaczego |
 |---------|----------|
 | Moduł buck XL4016 jako ładowarka | nie podniesie napięcia do absorpcji — patrz §5.1 |
-| Drugi XL6019 „równolegle dla mocy” | te moduły nie dzielą obciążenia — patrz §3.2 |
-| Dioda krzemowa (1N5408 itp.) zamiast Schottky | spadek 0,7–1,0 V zjada całą rezerwę napięcia |
+| Przetwornica step-up 19 V | na wtyku po 4 m zejdzie poniżej 19 V — §3.1 |
+| Moduł XL6019 zamiast przetwornicy 200 W | wcześniej użyty, daje ok. 45 W — §3 |
+| Przewód CCA („miedziowane aluminium") | większa rezystancja, gorzej znosi zaciskanie — §8.2 |
+| Jeden XH-M603 na 10 A z dwóch ładowarek | płytka realnie ~8–10 A — §6.3 |
 | „Uniwersalna" końcówka do M910q | pasowanie i pin ID to loteria — patrz §3.3 |
 | Ładowarka/BMS do LiFePO₄ lub Li-ion | zupełnie inne napięcia — zniszczy bank AGM |
 | Akumulatory rozruchowe zamiast HR1221W | nie znoszą pracy cyklicznej, umrą w kilka miesięcy |
@@ -1856,15 +1921,34 @@ dopiero, gdy wszystko przed nim jest zweryfikowane.
 ### Etap 1 — nastawy na stole (bez auta, bez banku)
 
 ```
-XL6019 (step-up)
-[ ] Wyjście 19,5 V bez obciążenia (multimetr)
-[ ] Limit poboru pakietu CPU ustawiony na M910q (§3.5a) PRZED testem
-[ ] Test obciążeniowy wg §3.4 — 10 min stress-ng, napięcie ≥ 19,0 V
-[ ] Powtórka testu przy wejściu 11,0 V (najgorszy przypadek)
-[ ] Prąd wejściowy nie przekracza 4,5 A
-[ ] Temperatura cewki i układu po 10 min < 85 °C
-[ ] Brak trybu „czkawki" przy załączaniu (jeśli jest — §3.2b)
-[ ] Radiator i wentylator 40 mm zamontowane
+Przetwornica step-up 12 → 20 V (§3.4)
+[ ] Wyjście bez obciążenia 19,9–20,5 V (multimetr)
+[ ] Test obciążeniowy ~60 W przez 30 min — na wyjściu modułu ≥ 19,8 V,
+    na wtyku M910q ≥ 19,5 V
+[ ] Powtórka przy wejściu 11,0 V — wyjście ≥ 19,8 V, prąd wejściowy ~6,6 A
+[ ] Zapisane napięcie wejścia, przy którym moduł przestaje regulować,
+    i jego zachowanie (czyste wyłączenie / bez drgań)
+[ ] Temperatura obudowy po 30 min przy ~60 W < 60 °C
+[ ] Prąd jałowy I_jał przy wejściu 12,6 V zmierzony i zapisany: M910q
+    odłączony / wyłączony / w S3 (§3.4) — wpisany do budżetu §9.2
+[ ] Brak trybu „czkawki" przy podłączaniu M910q (jeśli jest — §3.2b)
+
+XY-SK120 × 2 (§5.2, §5.5)
+[ ] CV 14,40 V (lato ~40 °C: 13,95 V, przy częstych długich trasach
+    13,40 V — §5.5) — oba w granicach ±0,02 V, nastawiane bez banku
+[ ] CC 5,0 A — sprawdzone amperomierzem na wyjściu, nie tylko na ekranie
+[ ] OVP 15,0 V; LVP 12,8 V (jeśli wersja ma regulowane LVP)
+[ ] Wyjście po włączeniu zasilania: ON — sprawdzone odcięciem i podaniem
+    zasilania
+[ ] Temperatura radiatora po 30 min przy 5 A — zapisana
+
+XH-M603 × 2 (§6.4)
+[ ] Rozwarcie 15,30 V, powrót 14,00 V — każdy osobno
+[ ] Bez zasilania przekaźnik rozwarty
+[ ] 12,6 V tylko na OUT (DC-IN odłączone): wyświetlacz ciemny, przekaźnik
+    rozwarty, prąd < 1 mA (§6.4 pkt 6) — jeśli nie, poprawka z §6.4
+    PRZED montażem
+[ ] Temperatura zacisków po 30 min przy 5 A — letnie, nie gorące
 
 XH-M609 (LVD)
 [ ] Próg odcięcia 11,00 V, próg powrotu 12,60 V
@@ -1874,17 +1958,11 @@ XH-M609 (LVD)
 [ ] Jeśli pobór wyszedł przy górnej granicy (125 mA) — rozważ wymianę
     modułu na prosty komparator: przy 185 mA łącznie bank siedmiu pakietów
     daje 4,0 dnia do 50 % DoD zamiast 9,3 (§9.2)
-[ ] Bezpiecznik F7 15 A przed zaciskiem VIN+, klasa MIDI/AMI albo ANL
-    (zdolność wyłączania ≥ 2 kA — §7.4)
 
 Pozostałe
-[ ] Ładowarka: CV 14,40 V — bez wyjątków. 13,80 V wprowadza moduł
-    w pass-through i WYŁĄCZA ograniczenie prądowe (§5.3b)
-[ ] Ładowarka: limit prądu CC 8,0 A (sufit katalogowy 14,7 A dla 7 pakietów
-    — ogranicza tor ładowania, nie bank: §6.3)
-[ ] Rozłącznik nadnapięciowy: rozwarcie 15,30 V, powrót 14,00 V (§6.4)
-[ ] Buck logiki: wyjście 5,0 V
-[ ] Buck wyświetlaczy: wyjście 5,0 V
+[ ] Buck logiki (MP1584): wyjście 5,0 V
+[ ] Buck wyświetlaczy (LM2596): wyjście wg panelu
+[ ] TVS: SMCJ20CA (dwukierunkowa) — test diody: OL w obie strony (§5.8)
 ```
 
 ### Etap 2 — bank
@@ -1893,34 +1971,35 @@ Pozostałe
 [ ] Pomiar napięcia spoczynkowego każdego z SIEDMIU pakietów osobno
     (rozrzut > 0,2 V = pakiet do odrzucenia)
 [ ] Pomiar rezystancji wewnętrznej każdego pakietu mostkiem, jeśli masz czym
-    (rozrzut ±10 % daje ~12 % rozrzutu prądów — kilkanaście razy więcej niż
-     cała geometria szyny, §4.3)
+    (rozrzut ±10 % daje ~13 % rozrzutu prądów — więcej niż cała geometria
+     połączeń, §4.3)
 [ ] Doładowanie wszystkich pakietów do tego samego napięcia PRZED łączeniem
-    (przy siedmiu pakietach WAŻNIEJSZE niż przy czterech: prąd wyrównawczy
-     przy ΔU 0,20 V rośnie z 4,05 na 4,63 A — to siedmiokrotność 0,64 A,
-     którym pakiet jest ładowany w normalnej pracy)
-[ ] Bezpiecznik 10 A na „+" każdego pakietu — FB1…FB7, siedem sztuk
-[ ] Szyny zbiorcze z płaskownika miedzianego (min. 15 × 2 mm, zalecane
-    20 × 3 mm), po siedem odczepów M6 co 70 mm, ta sama kolejność na „+" i „−"
-[ ] Odbiór PO PRZEKĄTNEJ: „+" z odczepu 1, „−" z odczepu 7 (§4.3).
-    NIGDY oba bieguny z tego samego końca szyny
-[ ] Ogonki pakiet → szyna 1,5 mm², równa długość pętli ±30 mm; nadmiar
-    zwinięty w pętlę serwisową, NIE przycięty
-[ ] Pomiar napięcia banku po połączeniu
-[ ] Czujnik NTC przyklejony do boku pakietu #4 — środkowego z siedmiu
-[ ] Pokrywa izolacyjna na obu szynach (zwarcie na szynie to ~2,4 kA)
+    (prąd wyrównawczy przy ΔU 0,20 V to kilka amperów — wielokrotność
+     ~0,7 A, którym pakiet pracuje normalnie)
+[ ] Kapturki na wszystkich 14 biegunach
+[ ] Bezpiecznik 10 A na „+" każdego pakietu, 5–10 cm od zacisku — FB1…FB7
+[ ] Odcinki pakiet → blok FLRY-B 2,5 mm², równa długość ±30 mm; nadmiar
+    w pętlę serwisową, NIE przycięty
+[ ] Bloki L+, L−, P+, P− z pokrywami; max 2 oczka na kołek
+[ ] Łącznik L ↔ P 6 mm² OFC, obie żyły tej samej długości
+[ ] Odbiór PO PRZEKĄTNEJ: „+" z bloku L+, „−" z bloku P− (§4.3).
+    NIGDY oba bieguny z tego samego kosza
+[ ] Pomiar napięcia banku po połączeniu — na L+/P− i na każdym pakiecie
+    (różnica < 0,02 V po kilku minutach)
 ```
 
 ### Etap 3 — montaż w aucie, bez podłączenia do akumulatora
 
 ```
-[ ] Skrzynka banku (7 pakietów, 12,6 kg) zamocowana na CZTERECH śrubach M8
-    z płytkami rozkładającymi ≥ 40 × 40 × 3 mm pod blachą podłogi (§4.7)
-[ ] Bank przypięty dwoma pasami ≥ 250 daN
-[ ] Skrzynka NIE zamknięta hermetycznie — szczelina wentylacyjna zostaje
-[ ] Punkt masy przygotowany (goły metal, śruba, wazelina)
-[ ] Trasy przewodów przepięte, przelotki w blachach
-[ ] Listwa bezpiecznikowa zamontowana w dostępnym miejscu
+[ ] Kosze przykręcone do grodzi 8 × M8 kl. 8.8 z DIN 985, podkładki DIN 9021,
+    listwy 30 × 4 od strony kabiny (§4.7). PODŁOGA NIE WIERCONA
+[ ] Przed wierceniem grodzi sprawdzone od strony kabiny, co jest za blachą
+[ ] Pakiety stojąco, belki dociskowe dokręcone na gumie, belka nie dotyka
+    zacisków ani nasuwek
+[ ] Nad koszami nic szczelnego; przekaźniki i ładowarki obok koszy, nie nad nimi
+[ ] Punkt masy przygotowany w bagażniku (goły metal, śruba, wazelina)
+[ ] Wiązka do przodu przepięta, przelotki w blachach, RCA po drugiej stronie
+[ ] Łącznik między koszami pod osłoną, mocowany co 15 cm
 [ ] Rozłącznik masy banku w pozycji ROZWARTY
 [ ] Wszystkie połączenia sprawdzone wizualnie i pociągnięciem
 ```
@@ -1928,15 +2007,14 @@ Pozostałe
 ### Etap 4 — pierwsze załączenie
 
 ```
-[ ] Bezpiecznik główny 30 A WYJĘTY
-[ ] Podłączenie masy do nadwozia
-[ ] Podłączenie „+" do klemy akumulatora rozruchowego
-[ ] Włożenie bezpiecznika głównego — obserwuj, czy nic nie iskrzy/grzeje
-[ ] Pomiar: napięcie na szynie buforowanej (silnik zgaszony)
+[ ] F1 20 A WYJĘTY
+[ ] Podłączenie przewodu F1 do klemy „+" akumulatora rozruchowego
 [ ] Rozłącznik masy banku ZWARTY
-[ ] Pomiar: napięcie banku = napięcie szyny
-[ ] Pomiar prądu spoczynkowego logiki → oczekiwane ~60 mA
-    (rozbieżność > 100 mA = szukaj upływu, NIE jedź dalej)
+[ ] Pomiar: napięcie banku = napięcie szyny za LVD (silnik zgaszony)
+[ ] Pomiar prądu spoczynkowego logiki → oczekiwane ~60 mA + LVD + I_jał
+    z Etapu 1 (rozbieżność > 100 mA = szukaj upływu, NIE jedź dalej)
+[ ] Włożenie F1 — obserwuj, czy nic nie iskrzy/grzeje; przy zgaszonym
+    silniku i wyjętym kluczyku oba XY-SK120 ciemne
 ```
 
 ### Etap 5 — silnik i ładowanie
@@ -1944,27 +2022,36 @@ Pozostałe
 ```
 [ ] Uruchomienie silnika
 [ ] Pomiar: napięcie na akumulatorze rozruchowym (13,8–14,5 V)
-[ ] Pomiar: przekaźnik ładowania zwarty / ładowarka aktywna
-[ ] Pomiar: prąd na WYJŚCIU ładowarki ≤ 8 A (obciążenie PLUS ładowanie)
-[ ] Pomiar: prąd wpływający do szyny banku ~4,5 A (cęgi na przewodzie
-    ładowarka → szyna — to jest ta część, która ładuje pakiety)
-[ ] Pomiar: napięcie banku rośnie, nie przekracza 14,40 V (wg kompensacji temp.)
-[ ] Po 30 min: temperatura pakietów ręką — letnie, nie gorące
-[ ] Zgaszenie silnika → przekaźnik ładowania rozwiera się, prąd spada do zera
-[ ] Pomiar: brak prądu z banku do akumulatora rozruchowego
+[ ] K1 zwarty, oba XY-SK120 świecą i są w CC (ok. 5,0 A każdy)
+[ ] Prąd na przewodzie ładowania przy F12 ≈ 10 A, na odbiorze F7 ≈ 4–6 A —
+    różnica to prąd netto do banku (≈ 5 A)
+[ ] Prąd wejściowy toru (cęgi przy F1) ≈ 12 A
+[ ] Wkładki FC1, FC2 (7,5 A) i FK (1 A) na miejscu; po 30 min oprawki FC
+    letnie, nie gorące
+[ ] Napięcie banku rośnie, nie przekracza nastawy CV (14,40 V)
+[ ] Po 30 min: temperatura pakietów ręką — letnie, nie gorące;
+    radiatory XY-SK120 i zaciski XH-M603 bez przegrzania
+[ ] Zgaszenie silnika → K1 rozwiera, oba moduły i oba XH-M603 gasną
+[ ] Pomiar: prąd z banku w stronę ładowarek < 1 mA (amperomierz przy F12)
+[ ] Kluczyk na ON bez silnika: przy cewce z D+ albo z LVP 12,8 V moduły
+    NIE ładują (§5.4)
 ```
 
 ### Etap 6 — komputer i sterowanie zapłonem
 
 ```
-[ ] Przekręcenie kluczyka na ACC → przekaźnik zapłonu zwiera
-[ ] Pomiar: 19,5 V na wtyku M910q
-[ ] M910q startuje, dashboard pojawia się na wyświetlaczu głównym
+[ ] M910q zasilany stale — na wtyku 19,8–20,5 V bez obciążenia (jak §3.4),
+    niezależnie od kluczyka
+[ ] Przekręcenie kluczyka → Arduino daje impuls, M910q startuje,
+    dashboard pojawia się na wyświetlaczu głównym
 [ ] Rozruch silnika przy działającym BCM → komputer NIE resetuje się
     (to jest test, dla którego cały ten bufor powstał)
+[ ] Pod obciążeniem (Android Auto + wideo) na wtyku ≥ 19,5 V
 [ ] Wyłączenie zapłonu → Arduino daje impuls, M910q schodzi do S3
-[ ] Pomiar poboru w S3 — oczekiwane 200–460 mA (§2.1)
-[ ] Po 2 h → impuls 5 s, maszyna gaśnie, pobór spada do 50–150 mA (§2.1)
+[ ] Pomiar poboru w S3 — oczekiwane 200–460 mA + I_jał z Etapu 1 (§2.1,
+    + telefon, jeśli jest)
+[ ] Po 2 h → impuls 5 s, maszyna gaśnie, pobór spada do 50–150 mA + I_jał
+    (§2.1)
 [ ] Domena A dalej działa — test pilota 433 MHz i BLE bagażnika
 ```
 
@@ -1973,10 +2060,10 @@ Pozostałe
 ```
 [ ] Auto zaparkowane na 48 h bez uruchamiania
 [ ] Pomiar napięcia banku przed i po
-[ ] Spadek zgodny z pomiarem z §2.1 (w S3 przy 300 mA to 14,4 Ah przez 48 h,
-    czyli 40 % DoD z 35,7 Ah — próba mieści się pod 50 % DoD i nie trzeba jej
-    już obchodzić wyłącznikiem głównym ani skracać. To nadal zejście poniżej
-    rutynowego reżimu 30 % DoD, do którego przy 300 mA starcza 35,7 h)
+[ ] Spadek zgodny z pomiarem z Etapu 6 (w S3 przy 300 mA to 14,4 Ah przez 48 h,
+    czyli 40 % DoD z 35,7 Ah — próba mieści się pod 50 % DoD. To nadal
+    zejście poniżej rutynowego reżimu 30 % DoD, do którego przy 300 mA
+    starcza 35,7 h)
 [ ] Akumulator rozruchowy bez zmian — auto odpala normalnie
 ```
 
@@ -1988,19 +2075,22 @@ Pozostałe
 |---------------|----------|-----------|
 | Co miesiąc | Napięcie banku po nocy postoju | > 12,4 V |
 | Co 3 miesiące | Napięcie każdego z **siedmiu** pakietów osobno | rozrzut < 0,2 V |
-| Co 3 miesiące | Dokręcenie **14 odczepów** szyn i biegunów pakietów | bez luzu |
-| Co 6 miesięcy | Napięcie ładowania przy pracującym silniku | ≤ 14,40 V (lub wg kompensacji) |
-| Co 6 miesięcy | Prąd spoczynkowy logiki | ~60 mA ± 20 % |
+| Co 3 miesiące | **14 nasuwek** (pociągnięcie), nakrętki na **4 blokach**, śruby belek dociskowych i kotwiące M8 | bez luzu, bez śladów grzania |
+| Co 6 miesięcy | Napięcie ładowania przy pracującym silniku, na zaciskach banku, **pod koniec absorpcji (prąd < 1 A)** | = nastawa CV (14,40 / 13,95 / 13,40 V) ± 0,05 V |
+| Co 6 miesięcy | Prąd CC obu XY-SK120 | 5,0 A ± 0,2 A każdy |
+| Co 6 miesięcy | Prąd spoczynkowy logiki | ~60 mA ± 20 % (+ LVD + I_jał, jeśli mierzysz całą szynę) |
 | Co 12 miesięcy | Test pojemności banku (rozładowanie kontrolowane) | > 70 % znamionowej, czyli **> 25,0 Ah** |
-| Co 12 miesięcy | Kontrola przewodów: przetarcia, korozja konektorów | bez zmian |
+| Co 12 miesięcy | Kontrola przewodów: przetarcia (łącznik pod osłoną!), korozja konektorów | bez zmian |
+| Przed latem / zimą | Przestawienie CV (§5.5) | lato 13,95 V (długie trasy 13,40 V) / zima 14,40 V |
 
 **Objawy zużycia banku:** szybszy spadek napięcia na postoju, dłuższa faza
 CC przy ładowaniu, wybrzuszona obudowa pakietu (natychmiastowa wymiana),
 grzanie się pojedynczego pakietu przy ładowaniu.
 
 Żywotność katalogowa HR1221W w pracy buforowej to **3–5 lat przy 25 °C**,
-i to temperatura montażu decyduje, gdzie w tym przedziale wylądujesz (§4.6).
-Przy przeładowywaniu albo braku kompensacji temperaturowej — **1–2 sezony**.
+i to temperatura montażu decyduje, gdzie w tym przedziale wylądujesz (§4.6) —
+w bagażniku licz 1,5–3 lata. Przy przeładowywaniu albo braku sezonowej
+korekty CV — **1–2 sezony**.
 
 ---
 
@@ -2017,13 +2107,9 @@ podają 14,4 V absorpcji, 13,8 V float i limit prądu **15–20 A**.
 - **Napięcia są prawidłowe** dla CSB HR1221W (AGM): katalog dopuszcza
   14,4–15,0 V cyklicznie i 13,5–13,8 V buforowo.
 - **Limit prądu wymaga przeliczenia, a nie odrzucenia.** Karta katalogowa
-  CSB podaje **2,1 A na pakiet**. Przy banku czterech dawało to sufit 8,4 A
-  i stare „15–20 A" było przekroczeniem dwukrotnym. Przy dzisiejszym banku
-  **siedmiu** sufit wynosi **14,7 A** i dolna wartość z tamtych notatek
-  mieści się w karcie katalogowej. Zarzut zmienia więc adresata: nastawy
-  ładowania nie ogranicza już akumulator, tylko **tor ładowania** — najsłabsze
-  ogniwo to płytka XH-M603 (8,0 A, §6.3). Obowiązująca nastawa to
-  **CC 8,0 A**, czyli 54 % sufitu katalogowego.
+  CSB podaje **2,1 A na pakiet**, czyli 14,7 A dla siedmiu. Obowiązujące
+  ładowanie to **2 × 5 A z dwóch XY-SK120**, netto do banku ≈ 5 A
+  (§5.3) — 34 % sufitu katalogowego.
 
 Brakuje tam też kompensacji temperaturowej, która dla tej serii ma **dwa różne
 współczynniki** (−18 mV/°C float, −30 mV/°C cykl) — patrz §4.5.
@@ -2032,7 +2118,7 @@ współczynniki** (−18 mV/°C float, −30 mV/°C cykl) — patrz §4.5.
 
 Ta sama dokumentacja proponuje moduł buck XL4016 między diodą a bankiem.
 Topologia buck nie jest w stanie osiągnąć napięcia absorpcji — patrz §5.1.
-Użyj wariantu A albo B z §5.
+Użyj ładowania z §5.
 
 ### 13.3 Czas postoju „17 dni"
 
@@ -2154,7 +2240,7 @@ nic nie policzy.
    zanim LVD odetnie zasilanie.)
 
 Do czasu wykonania tych trzech kroków stan banku kontroluj woltomierzem
-z listy zalecanych zakupów (poz. 26).
+z listy zalecanych zakupów (poz. 25).
 
 ---
 
@@ -2177,60 +2263,58 @@ dystrybucyjnej**.
 Dokumenty źródłowe (`x86-production/*.html`, `bcm_v85_docs.html`) wciąż
 opisują wariant DIY — zostają jako referencja historyczna.
 
-### 13.6 Ograniczenia wynikające z posiadanych modułów
+### 13.6 Ograniczenia wynikające z wybranych modułów
 
-Projekt jest dopasowany pod moduły, które już są, a nie odwrotnie. Przy banku
-siedmiu pakietów wynikają z tego **trzy** realne ograniczenia:
+Tani moduł to zawsze kompromis. Przy tym układzie realne ograniczenia są
+**cztery**:
 
 | Moduł | Ograniczenie | Konsekwencja |
 |-------|--------------|--------------|
-| **XL6019** | limit prądu klucza 5 A → ok. **45 W** wyjścia, nie 65 W | konieczny limit poboru pakietu CPU (§3.5a); bez niego pełne obciążenie czterech wątków wyjdzie poza możliwości modułu |
+| **Przetwornica step-up 20 V** (bezmarkowa, zalewana) | brak karty katalogowej; sprawność 90–93 % i 200 W to deklaracje sprzedawcy | każdą sztukę sprawdzasz po zakupie (§3.4); zapas wobec 65 W jest duży nawet przy słabszej sztuce (§3.2) |
+| **XY-SK120** | brak potwierdzonej funkcji końca ładowania i float, brak wejścia NTC, brak izolacji, sprawność nieznana (przyjęte 88 %) | CV wybierasz świadomie i przestawiasz sezonowo (§5.5); masa w jednym punkcie (§5.6); temperatura do zmierzenia (§5.2) |
 | **XH-M609** | pobór własny do 125 mA wg spec + zakres zasilania od 12 V | wchodzi wprost w budżet postoju (§9) i wymaga sprawdzenia pracy przy progu 11 V (§7.3) |
-| **XH-M603** *(nowe przy siedmiu pakietach)* | realna obciążalność płytki ok. **10 A**, spec „≤ 8 A" | wyznacza nastawę **CC 8,0 A** dla całego układu i zamyka tor na 54 % sufitu katalogowego banku (14,7 A); to on, a nie akumulator, decyduje dziś o czasie ładowania (§6.3, §9.4) |
+| **XH-M603** | realna obciążalność płytki ok. **8–10 A** (oględziny), brak wolnego styku | jeden moduł nie przeniesie 10 A — stąd **dwa**, po jednym na ładowarkę (§6.3) |
 
-Żadne z nich nie dyskwalifikuje modułu — XL6019 obchodzi się konfiguracją
-systemu, a XH-M609 pomiarem i ewentualną wymianą na prostszy komparator.
+Żadne z nich nie dyskwalifikuje modułu. XL6019 z poprzedniego wydania był
+ograniczeniem twardym (ok. 45 W i obowiązkowy limit RAPL) — dlatego został
+zastąpiony (§3).
 
-> **Uwaga redakcyjna.** Poprzednie wydanie wskazywało tu „dobór liczby
-> pakietów" jako drogę wyjścia dla XH-M609. Liczba pakietów urosła z czterech
-> do siedmiu i to faktycznie złagodziło problem — przy spec-owych 185 mA
-> postój do 50 % DoD rośnie z 2,3 na 4,0 dnia — ale go nie usunęło. Pomiar
-> z §7.3 nadal rozstrzyga, w którym wierszu tabeli §9.2 siedzisz, a kierunek
-> „dołóż jeszcze pakietów" jest już wyczerpany.
+### 13.7 Decyzje otwarte
 
-### 13.7 Decyzje otwarte po przejściu na siedem pakietów
-
-Rzeczy, które rozbudowa banku postawiła, a których ta dokumentacja **nie
-rozstrzyga sama** — wymagają pomiaru albo decyzji właściciela.
+Rzeczy, których ta dokumentacja **nie rozstrzyga sama** — wymagają pomiaru
+albo decyzji właściciela.
 
 | # | Sprawa | Dlaczego otwarta | Gdzie |
 |---|--------|------------------|-------|
-| 1 | **Miejsce montażu — zmierz przed zakupem czegokolwiek** | Repozytorium nie podaje ani jednego wymiaru przestrzeni pod fotelem pasażera. Nie da się na papierze sprawdzić, czy 300 × 200 × 115 mm tam wejdzie; najbardziej podejrzana jest wysokość. Cały rachunek zakłada, że miejsce się znajdzie | §4.2, §4.7 |
-| 2 | **Co, jeśli bank trzeba rozdzielić na dwie lokalizacje** | Wzór 9 · r / R zakłada jedną parę szyn. Dwie szyny spięte mostkiem to inny obwód i asymetrię trzeba policzyć osobno — nie da się tego rozstrzygnąć z góry bez znajomości trasy mostka | §4.2, §4.3 |
-| 3 | **Nośność podłogi i kryterium wytrzymałościowe** | 2,47 kN przy 20 g to wymaganie, ale nośność blachy w tym miejscu jest nieznana. Kryteria 10 g / 20 g są przyjęte z praktyki, nie z normy, do której projekt miałby się stosować | §4.7 |
-| 4 | **Siedem czy osiem pakietów** | Przy ośmiu istniałoby symetryczne drzewo 2-4-8, sufit wynosiłby 16,8 A, a pojemność 40,8 Ah. Kosztem jest zerowy zapas — ale zapas jednego pakietu i tak nie pozwala wymienić kompletu (§4.3). Wysiłek montażowy jest identyczny. To decyzja właściciela, nie wynik rachunku | §4.2, §9.2 |
-| 5 | **Obciążalność płytki XH-M603 (~10 A)** | Liczba pochodzi z oględzin, nie z karty. Od niej zależy nastawa CC 8,0 A i cała reszta rozdziału 5–6. Zmierz temperaturę zacisków przy 8 A przez 30 min | §6.3 |
-| 6 | **Czy istnieje zamiennik z wolnym stykiem COM/NO** | Repozytorium nie zawiera potwierdzonych danych XH-M604 (czy styk jest wyprowadzony i jaka jest obciążalność jego płytki). Bez sprawdzenia miernikiem na sztuce droga powyżej CC 8,0 A jest zamknięta | §6.3 |
-| 7 | **Pobór własny XH-M609 — wciąż niezmierzony** | Siedem pakietów przesuwa cały zakres w górę, ale nie zwalnia z pomiaru: przy 185 mA łącznie nawet 35,7 Ah daje tylko 4,0 dnia do 50 % DoD | §7.3, §9.2 |
-| 8 | **Obciążenie szyny podczas jazdy (3,5 A) nie jest w repozytorium wyprowadzone** | Czas ładowania jest odwrotnie proporcjonalny do prądu netto. Gdyby realne obciążenie wynosiło 5 A, ładowanie od LVD rośnie z 5,95 na 8,9 h fazy CC. Zmierz razem z poborem LVD | §9.4 |
-| 9 | **Kolizja z etapem 5 z [`PCB_ZASILANIE.md`](PCB_ZASILANIE.md) §7** | Wymiana XL6019 na moduł „1500 W 30 A" bez limitu RAPL podnosi obciążenie do ~5,1 A. Przy CC 8,0 A do banku zostaje 2,9 A netto i ładowanie od LVD wydłuża się do 9,2 h. Siedem pakietów i nowa przetwornica **nie mogą być planowane niezależnie** | §9.4, PCB §7 |
-| 10 | **Dodanie wkładki w torze ładowania po stronie banku** | Zwarcie odcinka ładowarka → szyna banku jest zasilane wprost z banku prądem ~2,4 kA i nic go nie przerywa. To **dodanie elementu**, nie korekta liczby — nie wpisano go do tabel | §8.1 |
-| 11 | **Zdolność wyłączania wkładek** | Wartości ATO ~1 kA, MIDI/AMI ≥ 2 kA, ANL ≥ 2,7 kA @ 32 V DC pochodzą z typowych kart katalogowych, nie z repozytorium. Przed zakupem potwierdź w karcie konkretnej wkładki | §7.4, §8.1 |
-| 12 | **Zdolność łączeniowa chwilowa rozłącznika masy 100 A** | Typowe egzemplarze podają ~2500 A chwilowo, a prąd zwarciowy prospektywny banku to ~2,4 kA. Sprawdź kartę swojego egzemplarza i rozłączaj wyłącznie bez obciążenia | §8.4 |
-| 13 | **Wiek i pochodzenie pakietów** | Rozrzut rezystancji ±10 % daje ~12 % rozrzutu prądów — kilkanaście razy więcej niż cała geometria szyny. Jeżeli siedem sztuk nie jest z jednej dostawy i w zbliżonym wieku, **to** jest realne ryzyko, a nie nieparzystość. Zmierz rezystancję mostkiem, nie tylko napięcie spoczynkowe | §4.3, §11 Etap 2 |
-| 14 | **Skąd zasilać wyświetlacz 1,8" na ESP32** | Przy 35,7 Ah wariant „z szyny buforowanej" mieści się w budżecie (postój 5,3–3,0 zamiast 9,3–4,0 dnia) i jest zgodny z architekturą, ale wymaga dopisania panelu do §9.1 i wiersza w §8.2. Wariant „+15" jest prostszy, lecz kłóci się z §2 | [`WYSWIETLACZ_ESP32_1V8.md`](WYSWIETLACZ_ESP32_1V8.md) |
+| 1 | **Grodź za kanapą: grubość, nośność, co jest za blachą** | Repozytorium tego nie zawiera; PDF koszy zakłada mocowanie przez grodź. Obejrzyj od strony kabiny przed wierceniem, dołóż listwy pod dolny rząd, jeśli blacha się ugina | §4.7 |
+| 2 | **Kryterium wytrzymałościowe** | 3,3 kN przy 20 g to wymaganie, nie wynik normy; 16,8 kg tuż za oparciem kanapy jest istotne dla bezpieczeństwa pasażerów | §4.7 |
+| 3 | **Sprawność i temperatura XY-SK120 przy 5 A** | Producent nie podaje sprawności; przyjęte 88 % daje ~10 W strat na moduł. Od tego zależą prąd z rozruchowego (F1) i czy 5 A jest „zimne" | §5.2, §6.3 |
+| 4 | **Funkcje końca ładowania w Twojej wersji XY-SK120 i jej dane** | W dostępnych materiałach nie znaleźliśmy prądu końca ładowania; OAH/OHP niepotwierdzone. Wejście 6–36 V i 6 A / 120 W pochodzą z opisów sprzedażowych — pełnej instrukcji nie udało się otworzyć. Jeśli funkcje są — opisz, co robią po osiągnięciu limitu | §5.2, §5.5 |
+
+| 5 | **LVP modułów a wolne obroty** | Próg 12,8 V ma odcinać ładowanie z niepracującego rozruchowego; na wolnych obrotach z obciążeniem instalacji trzeba sprawdzić, czy moduły nie klapkują | §5.4 |
+| 6 | **Przepływ wsteczny przez XY-SK120 i zasilanie XH-M603** | Schematu modułu brak; barierą są K1 i rozwarte bez zasilania XH-M603. To, że XH-M603 nie zasila się od strony banku (OUT), jest przyjęciem — test §6.4 pkt 6 na stole, potem prąd < 1 mA przy zgaszonym silniku w aucie | §5.4, §6.4, §11 Etap 1, Etap 5 |
+| 7 | **Obciążalność płytki XH-M603 (~8–10 A)** | Liczba z oględzin, nie z karty; przy 5 A na moduł zapas jest, ale zmierz temperaturę zacisków | §6.3 |
+| 8 | **Dostępność wkładek MIDI/ANL 15–20 A** | Typoszeregi tej klasy często zaczynają się od ok. 30 A; zdolności wyłączania (ATO ~1 kA, MIDI/AMI ≥ 2 kA, ANL ≥ 2,7 kA @ 32 V DC) pochodzą z typowych kart, nie z repozytorium | §7.4, §8.1 |
+| 9 | **Pobór własny XH-M609 — wciąż niezmierzony** | Przy 185 mA łącznie nawet 35,7 Ah daje tylko 4,0 dnia do 50 % DoD | §7.3, §9.2 |
+| 10 | **Pobór telefonu na buforze** | 30–100 mA naładowany to szacunek; telefon, który się doładowuje, bierze do ~0,9 A. Zmierz w S3 i po wyłączeniu | §9.1 |
+| 11 | **Obciążenie szyny podczas jazdy (≈ 5 A)** | Wyprowadzone z poboru odbiorników (§2.1), nie zmierzone. Czas ładowania jest odwrotnie proporcjonalny do prądu netto: przy 6 A obciążenia faza CC z progu LVD to 6,7 h zamiast 5,4 h | §2.1, §9.4 |
+| 12 | **Zdolność łączeniowa chwilowa rozłącznika masy 100 A** | Typowe egzemplarze podają ~2500 A chwilowo, a prąd zwarciowy banku to ~2,2–2,6 kA. Rozłączaj wyłącznie bez obciążenia | §8.4 |
+| 13 | **Wiek i pochodzenie pakietów** | Rozrzut rezystancji ±10 % daje ~13 % rozrzutu prądów — więcej niż cała geometria połączeń na lince. Zmierz rezystancję mostkiem, nie tylko napięcie spoczynkowe | §4.3, §11 Etap 2 |
+| 14 | **Siedem czy osiem pakietów** | Kosze z PDF-u są na 4 + 3; ósmy pakiet wymagałby zmiany kosza prawego. Zapas jednego pakietu i tak nie pozwala wymienić kompletu (§4.2) | §4.2, §9.2 |
+| 15 | **Skąd zasilać wyświetlacz 1,8" na ESP32** | Przy 35,7 Ah wariant „z szyny buforowanej" mieści się w budżecie (postój 5,3–3,0 zamiast 9,3–4,0 dnia), ale wymaga dopisania panelu do §9.1 i odgałęzienia w §8.2. Wariant „+15" jest prostszy, lecz kłóci się z §2 | [`WYSWIETLACZ_ESP32_1V8.md`](WYSWIETLACZ_ESP32_1V8.md) |
+| 16 | **Zgodność pozostałych dokumentów i schematów** | `PCB_ZASILANIE.md`, `SCHEMATY_POLACZEN.md`, `LISTA_ZAKUPOWA.md` i SVG mogą jeszcze opisywać XL6019, boost z MBR2545CT, F1 15 A i F7 15 A, a nie znają FC1/FC2 i FK. Martwe odsyłacze do tego dokumentu po przenumerowaniu: `schematics/power_domains_m910q.svg` (`§5.3c` — dziś §5.4), `schematics/schematic_test_build.svg` (`§5.3b` — dziś §5.5); `WDROZENIE_TESTOWE.md` („§5 opisuje dwa warianty" — dziś jeden, §5.2) i `WDROZENIE_M910Q.md` (§3.5a jako obowiązkowy — dziś opcjonalny). Obowiązuje ten dokument | nagłówek |
+| 17 | **Prąd jałowy przetwornicy step-up 20 V (I_jał)** | Zalewane moduły go nie podają, a przetwornica wisi na szynie w S3 i po wyłączeniu. Pomiary S3 i stanu wyłączonego z §2.1 pochodzą z poprzedniej przetwornicy XL6019 — nowy moduł dokłada nieznany prąd do każdego wiersza budżetu postoju | §3.4, §9.1, §9.2, §11 Etap 6 |
 
 Dwie rzeczy, które trzeba wiedzieć o samych liczbach:
 
 - **Brak współczynnika przyjęcia ładunku.** AGM wymaga oddania 105–115 %
   pobranych amperogodzin, więc wszystkie czasy ładowania z §9.4 są zaniżone
-  o 5–15 %. Nie wprowadzamy poprawki, bo poprzednie wydanie też jej nie
-  stosowało i rozjechałaby porównanie „przed / po".
-- **Brak krzywych rozładowania i danych Peukerta dla HR1221W.** Przy 3,5 A
-  siedem pakietów pracuje z krotnością C/10,2, czyli powyżej rozładowania
-  20-godzinnego, na którym oparta jest pojemność 5,1 Ah. Czasy dla siódemki
-  są przez to **mniej** optymistyczne niż te same liczby były dla czwórki
-  (C/5,8), ale skali korekty nie da się policzyć bez tych krzywych.
+  o 5–15 %.
+- **Brak krzywych rozładowania i danych Peukerta dla HR1221W.** Przy 5 A
+  siedem pakietów pracuje z krotnością ok. C/7, czyli szybciej niż
+  rozładowanie 20-godzinne, na którym oparta jest pojemność 5,1 Ah. Czas pracy
+  przy zgaszonym silniku z §2.1 jest przez to optymistyczny, ale skali korekty
+  nie da się policzyć bez tych krzywych.
 
 ---
 
@@ -2598,11 +2682,12 @@ Ma pokazać `[deep]` (w nawiasie). Jeśli nie — `docs/WDROZENIE_M910Q.md`
 
 | Dokument | Zakres |
 |----------|--------|
-| [`PCB_ZASILANIE.md`](PCB_ZASILANIE.md) | **dwie płytki drukowane do wytrawienia** — tor ładowania i dystrybucja zamiast „pająka"; dobór przetwornicy 19,5 V ≤ 100 zł |
+| [`PCB_ZASILANIE.md`](PCB_ZASILANIE.md) | **dwie płytki drukowane do wytrawienia** — tor ładowania i dystrybucja zamiast „pająka" (może jeszcze opisywać poprzedni tor ładowania — §13.7 poz. 16) |
 | [`WDROZENIE_M910Q.md`](WDROZENIE_M910Q.md) | pełne wdrożenie: sprzęt, BIOS, OS, usługi, odbiór |
 | [`X86_PLATFORM_SETUP.md`](X86_PLATFORM_SETUP.md) | referencja krok-po-kroku (EN) — pamiętaj o §13 |
 | [`x86-production/10-power-suspend.html`](x86-production/10-power-suspend.html) | zasilanie + S3 w wersji ilustrowanej |
 | [`x86-production/02-assembly.html`](x86-production/02-assembly.html) | montaż mechaniczny, layout USB |
+| [`mechanika/kosze_HR1221W_4+3.pdf`](mechanika/kosze_HR1221W_4+3.pdf) | projekt warsztatowy dwóch koszy stalowych na bank 4 + 3 (§4.7) |
 | [`ARDUINO_SETUP_GUIDE.md`](ARDUINO_SETUP_GUIDE.md) | okablowanie trzech płytek Arduino, sygnały pojazdu |
 | [`SCHEMATY_POLACZEN.md`](SCHEMATY_POLACZEN.md) | tabele połączeń, przekroje, bezpieczniki, kolejność montażu |
 | [`../schematics/README.md`](../schematics/README.md) | indeks schematów |
