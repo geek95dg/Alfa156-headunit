@@ -22,16 +22,16 @@
       <ul>
         <li><a href="index.html"><span class="nav-num"></span>Overview</a></li>
         <li><a href="01-bom.html"><span class="nav-num">01</span>Bill of Materials</a></li>
-        <li><a href="02-power.html"><span class="nav-num">02</span>Power Supply</a></li>
+        <li><a href="02-assembly.html"><span class="nav-num">02</span>Physical Assembly</a></li>
         <li><a href="03-os-install.html"><span class="nav-num">03</span>OS Installation</a></li>
-        <li><a href="04-packages.html"><span class="nav-num">04</span>System Packages</a></li>
-        <li><a href="05-bcm-install.html"><span class="nav-num">05</span>BCM Installation</a></li>
-        <li><a href="06-systemd.html"><span class="nav-num">06</span>Systemd Services</a></li>
-        <li><a href="07-boot.html"><span class="nav-num">07</span>Boot &amp; Splash</a></li>
-        <li><a href="08-kiosk.html"><span class="nav-num">08</span>Kiosk Display</a></li>
-        <li><a href="09-suspend.html"><span class="nav-num">09</span>Suspend / Wake</a></li>
-        <li><a href="10-wifi.html"><span class="nav-num">10</span>WiFi &amp; Android Auto</a></li>
-        <li><a href="11-arduino.html"><span class="nav-num">11</span>Arduino Wiring</a></li>
+        <li><a href="04-software.html" class="active"><span class="nav-num">04</span>BCM Software</a></li>
+        <li><a href="05-kline-obd.html"><span class="nav-num">05</span>K-Line OBD-II</a></li>
+        <li><a href="06-arduino.html"><span class="nav-num">06</span>Arduino Wiring</a></li>
+        <li><a href="07-sensors.html"><span class="nav-num">07</span>Environmental Sensors</a></li>
+        <li><a href="08-wifi-bt.html"><span class="nav-num">08</span>WiFi &amp; Bluetooth</a></li>
+        <li><a href="09-display-touch.html"><span class="nav-num">09</span>Display &amp; Touch</a></li>
+        <li><a href="10-power-suspend.html"><span class="nav-num">10</span>Power &amp; Suspend</a></li>
+        <li><a href="11-android-auto.html"><span class="nav-num">11</span>Android Auto</a></li>
         <li><a href="12-verification.html"><span class="nav-num">12</span>Verification</a></li>
       </ul>
     </nav>
@@ -57,7 +57,7 @@
         <div class="box-title">Prerequisites</div>
         <p>
           Complete the OS installation (<a href="03-os-install.html">page 03</a>)
-          and system packages (<a href="04-packages.html">page 04</a>) before
+          and system packages (also <a href="03-os-install.html">page 03</a>) before
           proceeding. You should have a working Debian 13 (Trixie) system with
           network access and a non-root user with <code>sudo</code> privileges.
         </p>
@@ -479,7 +479,7 @@ python3 main.py --platform x86 --config config/bcm_config.yaml --frontend
       <!-- Page Navigation -->
       <div class="page-nav">
         <a href="03-os-install.html">&larr; 03 &mdash; OS Installation</a>
-        <a href="05-bcm-install.html">05 &mdash; BCM Installation &rarr;</a>
+        <a href="05-kline-obd.html">05 &mdash; K-Line OBD-II &rarr;</a>
       </div>
 
       <!-- Footer -->
