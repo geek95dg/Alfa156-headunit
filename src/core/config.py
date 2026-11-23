@@ -67,6 +67,49 @@ SECRET_ENV_MAP: dict[str, str] = {
     "network.car_phone.agent.secret": "BCM_CAR_PHONE_AGENT_SECRET",
 }
 
+#: Secrets whose absence silently disables a feature — main.py logs ONE
+#: warning per missing one at start (name only), so "weather shows demo
+#: data" can be traced to the key in the journal. Wi-Fi passwords are not
+#: here: an empty one has its own, louder handling in wifi_ap.
+EXPECTED_SECRETS: dict[str, str] = {
+    "weather.api_key": "pogoda (OpenWeatherMap) pokaże dane przykładowe",
+    "travel.openrouteservice_key": "planer trasy liczy tylko linię prostą",
+    "travel.tomtom_key": "planer trasy bez utrudnień drogowych",
+    "network.car_phone.agent.secret": "agent w telefonie (SMS, alarm) nie zadziała",
+}
+
+
+#: The module (``modules.<name>``) that uses each EXPECTED_SECRETS key. A
+#: missing key of a module that is off is not worth a warning — it would
+#: only be noise in the journalctl check the docs (§10.1) tell the driver
+#: to run.
+SECRET_MODULES: dict[str, str] = {
+    "weather.api_key": "weather",
+    "travel.openrouteservice_key": "route_planner",
+    "travel.tomtom_key": "route_planner",
+    "network.car_phone.agent.secret": "car_phone_agent",
+}
+
+
+def missing_secrets(config: Any, only_enabled: bool = False) -> list[tuple[str, str, str]]:
+    """``[(env var, dot-path, consequence)]`` for each EXPECTED_SECRETS entry
+    with no non-blank value in ``config`` (env or YAML). Names only.
+    ``only_enabled``: skip keys whose module (SECRET_MODULES) is off."""
+    out = []
+    for dotpath, why in EXPECTED_SECRETS.items():
+        if only_enabled:
+            # Lazy import: modules_catalog is a leaf module, but config.py
+            # is imported by nearly everything — keep its import list flat.
+            from src.core.modules_catalog import is_enabled
+            module = SECRET_MODULES.get(dotpath)
+            if module and is_enabled(config, module) is not True:
+                continue
+        value = config.get(dotpath)
+        if not (isinstance(value, str) and value.strip()):
+            out.append((SECRET_ENV_MAP[dotpath], dotpath, why))
+    return out
+
+
 #: Dot-paths that are never persisted, whatever their value.
 NEVER_PERSIST_PATHS = frozenset({"system.platform"})
 
@@ -653,6 +696,12 @@ class BCMConfig:
             for source in sources:
                 value = source.get(var)
                 if isinstance(value, str) and value.strip():
+                    # Stripped: "KEY= abc" or a key pasted with a trailing
+                    # space/CR (systemd keeps a CR from a file edited on
+                    # Windows) is sent verbatim and the API answers 401 —
+                    # indistinguishable from a wrong key. No API key or
+                    # password here has meaningful outer whitespace.
+                    value = value.strip()
                     set_path(data, dotpath, value)
                     self.secret_sources[dotpath] = var
                     self._secret_values[dotpath] = value

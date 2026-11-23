@@ -39,6 +39,23 @@ Publishes to event bus:
     weather.current  — dict with condition, temp, feels_like, humidity, wind
     weather.forecast — list of daily forecast dicts
     weather.city     — str
+    weather.status   — where the data on screen comes from, and how the last
+                       request went (published at start and after EVERY
+                       fetch attempt)::
+
+        {source: demo | cache | live, last_ok_ts, last_error, http_code,
+         key_set, last_attempt_ts}
+
+        last_error: '' | no_key | http | network | bad_response
+        http_code:  the status of an ``http`` error (401 = wrong or not yet
+                    activated key — new OWM keys need up to 2 h), else None
+
+    Why: the demo data ("Milan, IT") used to be published at start with
+    nothing saying it was demo, and fetch errors only went to the log — the
+    car showed Milan for months while the real cause (key, uplink) was
+    invisible. The UI now names it ("dane przykładowe", "brak klucza",
+    "błąd 401 — zły albo nieaktywny klucz"). Each live attempt is also
+    recorded in src/network/net_services.py (Settings "Internet i usługi").
 """
 
 import json
@@ -51,6 +68,7 @@ from urllib.parse import urlencode
 
 from src.core.fsutil import atomic_write_json
 from src.core.logger import get_logger
+from src.network import net_services
 
 log = get_logger("weather")
 
@@ -212,7 +230,19 @@ class WeatherManager:
         # location must not push them out to the next poll (_fetch_succeeded).
         self._urgent_gen = 0
         self._poll_interval = config.get("weather", {}).get("poll_interval_min", 15) * 60
-        self._api_key = config.get("weather", {}).get("api_key", "")
+        # Stripped: a key pasted with a trailing space or newline is a 401
+        # that looks exactly like a wrong key (config.py strips env secrets
+        # too; this covers a key typed into local.yaml).
+        key = config.get("weather", {}).get("api_key", "")
+        self._api_key = key.strip() if isinstance(key, str) else ""
+        # weather.status (module docstring). _last_attempt: the outcome of
+        # the newest _fetch_weather() call — (result, http_code).
+        self._status_lock = threading.Lock()
+        self._status: dict = {"source": "demo", "last_ok_ts": None,
+                              "last_error": "" if self._api_key else "no_key",
+                              "http_code": None, "key_set": bool(self._api_key),
+                              "last_attempt_ts": None}
+        self._last_attempt: tuple[str, Optional[int]] = ("", None)
         # Default location fallback when GPS is not available
         self._default_lat = config.get("weather", {}).get("default_lat", 50.06)
         self._default_lon = config.get("weather", {}).get("default_lon", 19.94)
@@ -402,6 +432,7 @@ class WeatherManager:
         coords = self._search_coords
         try:
             data = self._fetch_weather(coords)
+            self._note_attempt(bool(data))
             if data:
                 self._publish_data(data, coords)
                 self._save_cache(data)
@@ -420,14 +451,18 @@ class WeatherManager:
 
     def _run(self):
         """Main weather polling loop."""
-        # Always publish demo data on startup so UI is never empty
+        # Always publish demo data on startup so UI is never empty — but
+        # with weather.status source=demo, so the UI says "dane przykładowe"
+        # instead of presenting Milan as the weather outside.
         self._publish_data(DEMO_WEATHER)
+        self._publish_status(source="demo")
         log.info("Weather: published demo data as initial fallback")
 
         # Load cached data on startup (overrides demo)
         cached = self._load_cache()
         if cached:
             self._publish_data(cached)
+            self._publish_status(source="cache")
             log.info("Weather loaded from cache: %s", cached.get("city", "?"))
 
         if not self._api_key:
@@ -494,7 +529,9 @@ class WeatherManager:
             data = self._fetch_weather(coords)
         except Exception as e:
             log.error("Weather fetch FAILED: %s", e, exc_info=True)
+            self._last_attempt = ("network", None)
             data = None
+        self._note_attempt(bool(data))
         if data:
             self._publish_data(data, coords)
             self._save_cache(data)
@@ -564,6 +601,7 @@ class WeatherManager:
         ``coords`` default to the current location (``_lat``/``_lon``).
         """
         lat, lon = coords if coords is not None else (self._lat, self._lon)
+        self._last_attempt = ("network", None)
         try:
             import urllib.request
             import urllib.error
@@ -581,6 +619,11 @@ class WeatherManager:
             except urllib.error.HTTPError as e:
                 log.error("Weather API error: HTTP %d — %s (key may not be activated yet)",
                           e.code, e.reason)
+                self._last_attempt = ("http", int(e.code))
+                return None
+            if not isinstance(current_raw, dict) or not isinstance(current_raw.get("main"), dict):
+                log.error("Weather API answered without weather data — ignored")
+                self._last_attempt = ("bad_response", None)
                 return None
 
             # 5-day forecast
@@ -617,11 +660,53 @@ class WeatherManager:
             log.info("Weather fetched: %s, %.1f°C, %s",
                      data["city"], data["current"]["temp"],
                      data["current"]["condition"])
+            self._last_attempt = ("ok", None)
             return data
 
         except Exception as e:
+            # urllib's URLError/timeout texts carry the reason, never the
+            # URL (which holds the key); the type is enough for the status.
             log.warning("Weather API error: %s", e)
+            # A 200 answer that does not parse (JSON decode = ValueError) or
+            # has fields of unexpected types/shape is the server's answer,
+            # not a dead link — "dziwna odpowiedź", not "brak połączenia".
+            # URLError/timeouts are OSError and stay "network".
+            if isinstance(e, (ValueError, TypeError, AttributeError,
+                              KeyError, IndexError)):
+                self._last_attempt = ("bad_response", None)
             return None
+
+    # ── weather.status ───────────────────────────────────────────────────
+
+    @property
+    def status(self) -> dict:
+        """Copy of the last weather.status payload."""
+        with self._status_lock:
+            return dict(self._status)
+
+    def _publish_status(self, **changes) -> None:
+        with self._status_lock:
+            self._status.update(changes)
+            payload = dict(self._status)
+        try:
+            self._bus.publish("weather.status", payload)
+        except Exception:
+            log.debug("publishing weather.status failed", exc_info=True)
+
+    def _note_attempt(self, ok: bool) -> None:
+        """After every fetch attempt: weather.status + net_services."""
+        now = time.time()
+        if ok:
+            self._publish_status(source="live", last_ok_ts=now, last_error="",
+                                 http_code=None, last_attempt_ts=now)
+            net_services.record("owm", "ok", source="weather", at=now)
+            return
+        result, code = self._last_attempt
+        if result not in ("http", "network", "bad_response"):
+            result, code = "network", None
+        # source stays what is on screen (demo/cache/live from before).
+        self._publish_status(last_error=result, http_code=code, last_attempt_ts=now)
+        net_services.record("owm", result, code, source="weather", at=now)
 
     @staticmethod
     def _parse_forecast(raw: dict) -> list:

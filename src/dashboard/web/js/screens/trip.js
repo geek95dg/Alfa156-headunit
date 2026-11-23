@@ -12,6 +12,9 @@ App.registerScreen("a3", (() => {
     // TripComputer).
     let travelPlanActive = false;
     let _searchResults = [];
+    // Why the last destination search found nothing (code from
+    // /api/trip/search: no_key | http | network | bad_response).
+    let _searchError = null;
     let _searchDebounce = null;
     try {
         travelPlanActive = localStorage.getItem("bcm.travelPlan") === "1";
@@ -88,7 +91,53 @@ App.registerScreen("a3", (() => {
             (p.incidents || []).length,
             !!data.trip_planning,
             p.origin_source || "",
+            p.error || "",
+            !!p.approximate,
+            JSON.stringify(p.service_errors || []),
         ]);
+    }
+
+    /** One service error from the planner (plan.service_errors entries:
+     *  {service: ors|tomtom, result: http|network|bad_response, http_code})
+     *  as text. Fixed strings + an integer only. */
+    function _serviceErrorText(e) {
+        const t = (k, d) => (typeof App !== "undefined" && App.t ? App.t(k, d) : d);
+        if (!e || typeof e !== "object") return "";
+        const name = e.service === "ors" ? "OpenRouteService"
+            : (e.service === "tomtom" ? "TomTom" : "");
+        if (!name) return "";
+        const code = Number.isInteger(e.http_code) ? e.http_code : null;
+        let why;
+        if (e.result === "http" && (code === 401 || code === 403)) {
+            why = t("trip_err_auth", "błąd {code} — zły albo nieaktywny klucz ({var} w /etc/bcm/bcm.env)")
+                .replace("{code}", String(code))
+                .replace("{var}", e.service === "ors" ? "BCM_ORS_API_KEY" : "BCM_TOMTOM_API_KEY");
+        } else if (e.result === "http" && code === 429) {
+            why = t("trip_err_limit", "błąd 429 — wyczerpany dzienny limit zapytań");
+        } else if (e.result === "http") {
+            why = t("trip_err_http", "błąd HTTP {code}").replace("{code}", code === null ? "?" : String(code));
+        } else if (e.result === "bad_response") {
+            why = t("trip_err_bad", "dziwna odpowiedź serwera");
+        } else {
+            why = t("trip_err_network", "brak połączenia z serwerem (internet?)");
+        }
+        return `${name}: ${why}`;
+    }
+
+    /** Banner for a plan that failed (plan.error) — it used to stay blank,
+     *  a zero-km "route" with no word why. */
+    function _errorHtml(plan, planning) {
+        if (!plan || planning || !plan.error || !plan.destination_name) return "";
+        const t = (k, d) => (typeof App !== "undefined" && App.t ? App.t(k, d) : d);
+        const errs = Array.isArray(plan.service_errors) ? plan.service_errors : [];
+        const ors = errs.find(e => e && e.service === "ors");
+        const text = ors ? _serviceErrorText(ors)
+            : t("trip_err_route", "nie udało się wyznaczyć trasy — brak drogi między punktami albo brak internetu");
+        return `<div data-trip-error style="display:flex;align-items:center;gap:6px;background:rgba(127,29,29,0.35);
+                    border:1px solid #b91c1c;border-radius:6px;padding:6px 8px;">
+               <span class="material-symbols-outlined" style="font-size:14px;color:#f87171;">error</span>
+               <span style="font-size:10px;color:#fecaca;line-height:1.3;">${_esc(text)}</span>
+           </div>`;
     }
 
     // --- Travel Plan UI ---------------------------------------------------
@@ -136,7 +185,12 @@ App.registerScreen("a3", (() => {
             : `<span class="text-[9px] text-zinc-500">No route weather yet</span>`;
 
         // Incidents list
-        const incidentsHtml = incidents.length > 0
+        // TomTom failing (bad key, limit) used to look like "no road works".
+        const tomtomErr = (Array.isArray(plan.service_errors) ? plan.service_errors : [])
+            .find(e => e && e.service === "tomtom");
+        const incidentsHtml = tomtomErr
+            ? `<span data-trip-incidents-error class="text-[9px]" style="color:#fca5a5;">${_esc(_serviceErrorText(tomtomErr))}</span>`
+            : incidents.length > 0
             ? incidents.slice(0, 4).map(inc => `
                 <div class="flex items-center gap-2 text-[10px]">
                     <span class="material-symbols-outlined text-red-400" style="font-size:14px;">warning</span>
@@ -157,9 +211,8 @@ App.registerScreen("a3", (() => {
             ? `<div style="display:flex;align-items:center;gap:6px;background:rgba(120,53,15,0.35);
                         border:1px solid #b45309;border-radius:6px;padding:6px 8px;">
                    <span class="material-symbols-outlined text-amber-400" style="font-size:14px;">warning</span>
-                   <span style="font-size:10px;color:#fcd34d;line-height:1.3;">
-                       Trasa przybliżona — odległość w linii prostej.
-                       Wpisz travel.openrouteservice_key w config/bcm_config.yaml.
+                   <span data-trip-approx style="font-size:10px;color:#fcd34d;line-height:1.3;">
+                       ${_esc(App.t("trip_approx", "Trasa przybliżona — odległość w linii prostej. Brak klucza OpenRouteService: wpisz BCM_ORS_API_KEY do /etc/bcm/bcm.env (bez cudzysłowów i spacji) i zrestartuj BCM."))}
                    </span>
                </div>`
             : "";
@@ -189,6 +242,7 @@ App.registerScreen("a3", (() => {
                 </h2>
             </div>
             ${approxNotice}
+            ${_errorHtml(plan, planning)}
             ${_originHtml(plan, planning)}
             <div class="tp-search-wrap" style="position:relative;">
                 <input class="tp-search" type="text" placeholder="Destination (e.g. Gdynia)"
@@ -329,6 +383,7 @@ App.registerScreen("a3", (() => {
         if (_searchDebounce) clearTimeout(_searchDebounce);
         if (!query || query.length < 2) {
             _searchResults = [];
+            _searchError = null;
             _renderSearchResults();
             return;
         }
@@ -336,9 +391,13 @@ App.registerScreen("a3", (() => {
             try {
                 const r = await fetch(`/api/trip/search?q=${encodeURIComponent(query)}`);
                 const json = await r.json();
-                _searchResults = (json.results || []).slice(0, 5);
+                _searchResults = (Array.isArray(json.results) ? json.results : []).slice(0, 5);
+                _searchError = (json && typeof json.error === "string")
+                    ? { error: json.error, http_code: Number.isInteger(json.http_code) ? json.http_code : null }
+                    : null;
             } catch (e) {
                 _searchResults = [];
+                _searchError = { error: "network", http_code: null };
             }
             _renderSearchResults();
         }, 300);
@@ -354,7 +413,26 @@ App.registerScreen("a3", (() => {
         if (!container) return;
         let list = container.querySelector(".tp-search-results");
         if (list) list.remove();
-        if (_searchResults.length === 0) return;
+        const prevErr = container.querySelector(".tp-search-error");
+        if (prevErr) prevErr.remove();
+        if (_searchResults.length === 0) {
+            if (_searchError) {
+                // The search uses the OpenWeatherMap key (geocoding), not ORS.
+                const t = (k, d) => (typeof App !== "undefined" && App.t ? App.t(k, d) : d);
+                const c = _searchError.http_code;
+                let msg;
+                if (_searchError.error === "no_key") msg = t("trip_search_no_key", "wyszukiwanie celu używa klucza OpenWeatherMap — wpisz BCM_OWM_API_KEY do /etc/bcm/bcm.env");
+                else if (_searchError.error === "http" && (c === 401 || c === 403)) msg = t("trip_search_auth", "wyszukiwanie: błąd {code} — zły albo nieaktywny klucz OpenWeatherMap").replace("{code}", String(c));
+                else if (_searchError.error === "http") msg = t("trip_search_http", "wyszukiwanie: błąd HTTP {code}").replace("{code}", c === null ? "?" : String(c));
+                else msg = t("trip_search_network", "wyszukiwanie: brak połączenia (internet?)");
+                const el = document.createElement("div");
+                el.className = "tp-search-error";
+                el.style.cssText = "margin-top:4px;font-size:10px;color:#fca5a5;";
+                el.textContent = msg;
+                container.appendChild(el);
+            }
+            return;
+        }
         list = document.createElement("div");
         list.className = "tp-search-results";
         list.style.cssText = [
@@ -392,6 +470,7 @@ App.registerScreen("a3", (() => {
         // would bring the suggestion list back after the pick.
         if (_searchDebounce) { clearTimeout(_searchDebounce); _searchDebounce = null; }
         _searchResults = [];
+        _searchError = null;
         try {
             await fetch("/api/trip/destination", {
                 method: "POST",

@@ -2,10 +2,11 @@
 
 This module integrates with two external APIs:
 
-1. **OpenRouteService** (``ors_api_key`` in config) — free tier driving
+1. **OpenRouteService** (``travel.openrouteservice_key``, filled from
+   ``BCM_ORS_API_KEY`` in ``/etc/bcm/bcm.env``) — free tier driving
    directions. Returns a polyline, total distance, and duration.
 
-2. **TomTom Traffic** (``tomtom_api_key`` in config) — paid tier road
+2. **TomTom Traffic** (``travel.tomtom_key``, ``BCM_TOMTOM_API_KEY``) — road
    incidents (road works, accidents, closures). Gracefully degrades to
    an empty list when no key is configured.
 
@@ -32,8 +33,10 @@ from __future__ import annotations
 import math
 import time
 from typing import Any, Optional
+from urllib.parse import urlsplit
 
 from src.core.logger import get_logger
+from src.network import net_services
 
 log = get_logger("trip.route_planner")
 
@@ -100,43 +103,70 @@ def _haversine_km(a: tuple[float, float], b: tuple[float, float]) -> float:
 # ---------------------------------------------------------------------- #
 
 
-def _http_get(url: str, params: dict[str, Any] | None = None,
-              headers: dict[str, str] | None = None,
-              timeout: float = 6.0) -> Optional[dict]:
-    """Thin wrapper around ``requests.get`` that returns parsed JSON or None."""
+def _http_call(method: str, url: str, *, params: dict[str, Any] | None = None,
+               body: dict[str, Any] | None = None,
+               headers: dict[str, str] | None = None, timeout: float = 6.0,
+               service: str = "", source: str = "") -> tuple[Optional[dict], Optional[dict]]:
+    """One request → ``(parsed JSON or None, error or None)``.
+
+    ``error`` is ``{service, result, http_code}`` with ``result`` one of
+    ``http`` / ``network`` / ``bad_response`` (src/network/net_services.py
+    codes). It used to be only a log line: a 401 from ORS (wrong key) looked
+    exactly like "no route", and the screen never said why. With
+    ``service`` the outcome is also recorded for Settings → "Internet i
+    usługi". Never logs the URL's query (TomTom's key is a parameter) or
+    the request headers (ORS's key is the Authorization header).
+    """
+    def fail(result: str, code: Optional[int] = None) -> tuple[None, dict]:
+        if service:
+            net_services.record(service, result, code, source=source)
+        return None, {"service": service, "result": result, "http_code": code}
+
     try:
         import requests
     except ImportError:
         log.warning("requests library not available — route planner offline")
-        return None
+        return fail("network")
+    host = urlsplit(url).netloc
     try:
-        r = requests.get(url, params=params or {}, headers=headers or {}, timeout=timeout)
-        if r.status_code >= 400:
-            log.warning("HTTP %s from %s: %s", r.status_code, url, r.text[:200])
-            return None
-        return r.json()
+        if method == "POST":
+            r = requests.post(url, json=body, headers=headers or {}, timeout=timeout)
+        else:
+            r = requests.get(url, params=params or {}, headers=headers or {}, timeout=timeout)
     except Exception as e:
-        log.warning("HTTP error calling %s: %s", url, e)
-        return None
+        # requests' exception text includes the full URL (with TomTom's key
+        # in the query) — log only the type and the host.
+        log.warning("HTTP error calling %s: %s", host, type(e).__name__)
+        return fail("network")
+    status = getattr(r, "status_code", None)
+    if not isinstance(status, int) or status >= 400:
+        log.warning("HTTP %s from %s: %s", status, host,
+                    str(getattr(r, "text", ""))[:200].replace("\n", " "))
+        return fail("http", status if isinstance(status, int) else None)
+    try:
+        data = r.json()
+    except Exception:
+        log.warning("Invalid JSON from %s", host)
+        return fail("bad_response")
+    if not isinstance(data, dict):
+        return fail("bad_response")
+    if service:
+        net_services.record(service, "ok", source=source)
+    return data, None
+
+
+def _http_get(url: str, params: dict[str, Any] | None = None,
+              headers: dict[str, str] | None = None,
+              timeout: float = 6.0) -> Optional[dict]:
+    """GET returning parsed JSON or None (kept for callers that do not care why)."""
+    return _http_call("GET", url, params=params, headers=headers, timeout=timeout)[0]
 
 
 def _http_post(url: str, body: dict[str, Any],
                headers: dict[str, str] | None = None,
                timeout: float = 10.0) -> Optional[dict]:
     """POST wrapper — ORS directions API requires POST with JSON body."""
-    try:
-        import requests
-    except ImportError:
-        return None
-    try:
-        r = requests.post(url, json=body, headers=headers or {}, timeout=timeout)
-        if r.status_code >= 400:
-            log.warning("HTTP %s from %s: %s", r.status_code, url, r.text[:200])
-            return None
-        return r.json()
-    except Exception as e:
-        log.warning("HTTP error calling %s: %s", url, e)
-        return None
+    return _http_call("POST", url, body=body, headers=headers, timeout=timeout)[0]
 
 
 # ---------------------------------------------------------------------- #
@@ -153,9 +183,8 @@ class RoutePlanner:
         self._bus = event_bus
         self._weather = weather_manager
 
-        self._ors_key = str(config.get("travel.openrouteservice_key", "") or "")
-        self._tomtom_key = str(config.get("travel.tomtom_key", "") or "")
-
+        self._ors_key = str(config.get("travel.openrouteservice_key", "") or "").strip()
+        self._tomtom_key = str(config.get("travel.tomtom_key", "") or "").strip()
         if self._ors_key:
             log.info(
                 "RoutePlanner initialised (ors=on, tomtom=%s)",
@@ -195,10 +224,17 @@ class RoutePlanner:
             approximate        bool                    (True = brak klucza ORS,
                                                         odległość w linii prostej)
         """
-        route = self._fetch_route(start, dest)
+        # Errors of THIS plan (``service_errors`` in the result): one entry
+        # per failing service, so trip.js can say "ORS: błąd 401" instead of
+        # an empty route. A local list, not an attribute: the trip computer
+        # starts a worker per destination change / GPS replan, so two plans
+        # can overlap and must not see each other's errors.
+        errors: list[dict] = []
+        route = self._fetch_route(start, dest, errors)
         if not route:
             return {
                 "error": "route_unavailable",
+                "service_errors": list(errors),
                 "distance_km": 0.0,
                 "duration_min": 0.0,
                 "geometry": [],
@@ -218,7 +254,7 @@ class RoutePlanner:
 
         # Incidents fetched once for the bounding box of the whole route.
         bbox = _bounding_box(geometry)
-        incidents = self._fetch_incidents(bbox) if self._tomtom_key else []
+        incidents = self._fetch_incidents(bbox, errors) if self._tomtom_key else []
 
         predicted_fuel = estimate_fuel(dist_km, avg_consumption)
 
@@ -232,6 +268,7 @@ class RoutePlanner:
             "incidents": incidents,
             "predicted_fuel_l": predicted_fuel,
             "computed_at": time.time(),
+            "service_errors": list(errors),
         }
 
     # ------------------------------------------------------------------ #
@@ -239,7 +276,8 @@ class RoutePlanner:
     # ------------------------------------------------------------------ #
 
     def _fetch_route(self, start: tuple[float, float],
-                     dest: tuple[float, float]) -> Optional[dict]:
+                     dest: tuple[float, float],
+                     errors: Optional[list[dict]] = None) -> Optional[dict]:
         if not self._ors_key:
             log.warning("No OpenRouteService key — straight-line estimate only")
             return self._straight_line_fallback(start, dest)
@@ -256,8 +294,15 @@ class RoutePlanner:
             "Authorization": self._ors_key,
             "Content-Type": "application/json",
         }
-        data = _http_post(f"{ORS_DIRECTIONS}/geojson", body, headers=headers)
-        if not data or not data.get("features"):
+        data, err = _http_call("POST", f"{ORS_DIRECTIONS}/geojson", body=body,
+                               headers=headers, timeout=10.0, service="ors", source="route")
+        if err is not None:
+            if errors is not None:
+                errors.append(err)
+            return None
+        if not data.get("features"):
+            # 200 without a route: points ORS cannot route between (sea,
+            # > 6000 km). Not a key problem — no service error.
             return None
         feat = data["features"][0]
         props = feat.get("properties", {}) or {}
@@ -335,7 +380,8 @@ class RoutePlanner:
     # TomTom incidents                                                   #
     # ------------------------------------------------------------------ #
 
-    def _fetch_incidents(self, bbox: tuple[float, float, float, float]) -> list[dict]:
+    def _fetch_incidents(self, bbox: tuple[float, float, float, float],
+                         errors: Optional[list[dict]] = None) -> list[dict]:
         """Query TomTom incidents inside the given lat/lon bounding box.
 
         bbox is (min_lat, min_lon, max_lat, max_lon).
@@ -350,8 +396,11 @@ class RoutePlanner:
             "categoryFilter": "0,1,6,7,8,9,10,11",  # road closures, works, accidents
             "timeValidityFilter": "present",
         }
-        data = _http_get(TOMTOM_INCIDENTS, params=params)
-        if not data:
+        data, err = _http_call("GET", TOMTOM_INCIDENTS, params=params,
+                               service="tomtom", source="incidents")
+        if err is not None:
+            if errors is not None:
+                errors.append(err)
             return []
         incidents: list[dict] = []
         for inc in data.get("incidents", []) or []:

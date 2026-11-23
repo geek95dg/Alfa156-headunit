@@ -243,6 +243,16 @@ MODULES: dict[str, dict] = {
                      "default": False, "group": "telefon_w_aucie",
                      "requires": ("car_phone",),
                      "hardware": "Redmi: hotspot skonfigurowany w telefonie"},
+    # Partia 12: "connected" from car_phone / phone_tether only meant the
+    # link to the phone was up. This switches on the internet probe in both
+    # (src/network/net_probe.py: default route, DNS, HTTPS — at most every
+    # 60 s), the Settings row "Internet i usługi" and its "Test" button
+    # (POST /api/net/test: key presence + one request per service). Needs
+    # neither module: without them the row still shows the keys and tests.
+    "net_diag":     {"part": 13, "description": "Diagnostyka internetu i kluczy API (sonda łącza, test OWM/ORS/TomTom)",
+                     "default": False,
+                     "hardware": "klucze w /etc/bcm/bcm.env (BCM_OWM_API_KEY, BCM_ORS_API_KEY, "
+                                 "BCM_TOMTOM_API_KEY)"},
     # Plan E (the buffered build only): the session after Nano #2 woke the
     # computer (driver's door, IR from the car phone, EXT pulse) —
     # src/power/remote_session.py. WAKE:/LEASE: lines come through

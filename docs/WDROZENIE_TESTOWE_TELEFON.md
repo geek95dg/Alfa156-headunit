@@ -378,6 +378,9 @@ sudo nano /etc/bcm/bcm.env
   ```
 
 Jedna zmienna na linię, `NAZWA=wartość`, komentarz tylko w osobnej linii.
+Bez cudzysłowów i bez spacji wokół `=` (spacje i znak końca linii z Windows
+BCM i tak obcina, ale systemd czyta plik po swojemu — trzymaj się wzoru):
+`BCM_ORS_API_KEY=5b3c…`, nie `BCM_ORS_API_KEY = "5b3c…"`.
 Prawa muszą zostać 600 root:root — sprawdzenie (ma wypisać `600 root:root`):
 
 ```bash
@@ -723,6 +726,7 @@ loguje jedno ostrzeżenie, a Ustawienia proponują włączenie zależności.
 | `phone_status` | bateria, zasięg, operator w pasku | `bluetooth` | telefon przez BT (oFono) | wył. | wł. |
 | `weather` | pogoda (OpenWeatherMap) | — | internet, `BCM_OWM_API_KEY` | wł. | wł. |
 | `route_planner` | planer tras (OpenRouteService) | — | internet, `BCM_ORS_API_KEY` | wł. | wł. |
+| `net_diag` | sonda internetu w `car_phone`/`phone_tether` i wiersz „Internet i usługi” z testem kluczy (§10.1) | — | klucze w `bcm.env` | wył. | wł. |
 | `location` | pozycja GPS (NMEA z telefonu) | — | telefon z aplikacją NMEA | wył. | wł. |
 | `tracking` | zapis tras (SQLite) i GPX | — | pozycja z `location` | wył. | wł. |
 | `crash_detect` | wykrywanie stłuczki, ochrona nagrań | `location` | GPS; pełne z `phone_sensors` | wył. | wł. |
@@ -920,6 +924,65 @@ sudo journalctl -u bcm-headunit -b | grep -i brightness
 | „autoapp przełącza telefon w tryb Android Auto” | §3.9, potem odłącz i podłącz telefon. |
 | Telefon w aucie, agent, 112, postój, kabina | `PRZYGOTOWANIE_TELEFONU.md` §20. |
 | BCM nie wstaje | `sudo journalctl -u bcm-headunit -b -n 100`; zły `config/local.yaml` BCM omija sam (§2); wycofanie: §11. |
+
+### 10.1 Internet i klucze API — diagnostyka
+
+„Połączono” przy telefonie znaczyło dotąd tylko, że działa łącze do
+telefonu — nie, że telefon przepuszcza ruch dalej. Z `modules.net_diag`
+(config testowy: włączony) BCM co najwyżej raz na 60 s sprawdza trzy rzeczy:
+którym interfejsem idzie trasa domyślna, czy działa DNS i czy przechodzi
+jedno zapytanie HTTPS.
+
+**Wiersz Ustawienia → „Internet i usługi”** — czytaj od góry:
+
+1. Łącze: „USB z telefonu” / „Bluetooth z telefonu” / „inne łącze” (w nawiasie
+   interfejs) i „internet: tak/nie” z powodem („brak trasy”, „DNS nie działa”,
+   „HTTPS nie przechodzi”). „inne łącze” przy braku internetu = trasę
+   domyślną przejął inny interfejs z niższą metryką (np. sieć Wi-Fi bez
+   internetu) — odłącz go albo popraw metrykę.
+2. Po jednej linii na usługę (OpenWeatherMap, OpenRouteService, TomTom):
+   „klucz: tak/nie” i wynik ostatniego zapytania — „OK”, „błąd 401 — zły
+   albo nieaktywny klucz”, „błąd 429 — wyczerpany limit zapytań”, „błąd
+   sieci”, „nie testowano”. Wartość klucza nigdzie się nie pokazuje.
+3. Przycisk „Test” (tylko z ekranu w aucie, najwyżej raz na 10 s): świeża
+   sonda internetu i jedno małe zapytanie do każdej usługi z kluczem.
+   Wynik po kilku–kilkunastu sekundach w tym samym wierszu.
+
+Przy telefonie w wierszu „Telefon w aucie” / „Internet z telefonu” pojawia
+się „połączono, bez internetu” i podpowiedź „telefon nie udostępnia
+internetu: dane komórkowe wyłączone albo operator blokuje tethering”.
+Ekran pogody pisze „dane przykładowe — …”, gdy na ekranie nie ma prawdziwych
+danych, i dlaczego (brak klucza, błąd 401, brak połączenia).
+
+**Czy BCM w ogóle wczytał klucze** — linia z nazwami (nigdy wartościami):
+
+```bash
+sudo journalctl -u bcm-headunit -b | grep -E 'Secrets from environment|Secret BCM_'
+```
+
+`Secrets from environment: BCM_ORS_API_KEY, BCM_OWM_API_KEY` = wczytane.
+`Secret BCM_ORS_API_KEY is not set` = brak tej zmiennej w `/etc/bcm/bcm.env`
+(albo linia zakomentowana) — popraw plik (§3.6) i zrestartuj BCM.
+Ostrzeżenie pojawia się tylko dla kluczy włączonych modułów (`weather` →
+OWM, `route_planner` → ORS i TomTom, `car_phone_agent` → sekret agenta).
+
+**Sonda i wyniki usług z wiersza poleceń:**
+
+```bash
+curl -s http://127.0.0.1:5002/api/debug/weather | python3 -m json.tool
+```
+
+Pola `internet_probe`, `keys_set` (tak/nie per usługa), `service_results`
+i `weather_status`.
+
+| W wierszu / na ekranie | Co zrobić |
+|------------------------|-----------|
+| „klucz: nie” | Zmienna z wiersza (np. `BCM_ORS_API_KEY`) do `/etc/bcm/bcm.env`, restart BCM. |
+| „błąd 401 — zły albo nieaktywny klucz” | Klucz przepisany z błędem albo jeszcze nieaktywny (nowy klucz OpenWeatherMap działa po kilkudziesięciu minutach, do 2 h). Porównaj z panelem dostawcy. |
+| „internet: nie (brak trasy)” | Żadne łącze nie daje trasy domyślnej — telefon odłączony albo tethering wyłączony. |
+| „internet: nie (DNS nie działa)” / „(HTTPS nie przechodzi)” | Telefon daje adres, ale nie przepuszcza ruchu: dane komórkowe, limit pakietu, blokada tetheringu u operatora. |
+| Trasa „przybliżona — odległość w linii prostej” | Brak `BCM_ORS_API_KEY`. |
+| Wyszukiwanie celu: „używa klucza OpenWeatherMap” | Wyszukiwarka celu korzysta z klucza pogody (`BCM_OWM_API_KEY`), nie z ORS. |
 
 ---
 

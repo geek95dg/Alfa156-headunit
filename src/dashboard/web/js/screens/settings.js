@@ -77,6 +77,32 @@ const Settings = {
         } catch (e) { /* offline kiosk: the backend retries on its own */ }
     },
 
+    /** The internet probe on a "connected" uplink row (car_phone /
+     *  phone_tether payload: internet true/false/null, route_iface,
+     *  hint no_internet / route_other — src/network/net_probe.py).
+     *  {lost, fact, hint}: lost = link up but no internet (the row turns
+     *  amber and says so instead of a plain "połączono"). */
+    _internetBits(x, t) {
+        const esc = Settings._esc;
+        const out = { lost: false, fact: "", hint: "" };
+        if (!x || x.state !== "connected" || typeof x.internet !== "boolean") return out;
+        if (x.internet) {
+            out.fact = t("net_internet_ok", "internet");
+            return out;
+        }
+        out.lost = true;
+        const route = typeof x.route_iface === "string" ? x.route_iface : "";
+        if (x.hint === "route_other" && route) {
+            out.hint = esc(t("net_hint_route_other",
+                "trasa domyślna idzie przez {iface}, a tam nie ma internetu — odłącz tamto łącze albo popraw jego metrykę"))
+                .replace("{iface}", `<span style="font-family:monospace">${esc(route)}</span>`);
+        } else {
+            out.hint = esc(t("net_hint_no_internet",
+                "telefon nie udostępnia internetu: dane komórkowe wyłączone albo operator blokuje tethering"));
+        }
+        return out;
+    },
+
     /** One info row "Internet z telefonu: <stan> <ip>"; '' without a payload
      *  (module not running). Inline styles only (Tailwind is precompiled —
      *  new utility classes would not exist). */
@@ -93,9 +119,10 @@ const Settings = {
             connected: t("tether_connected", "połączono"),
             failed: t("tether_failed", "błąd — ponowię"),
         };
-        const label = Object.prototype.hasOwnProperty.call(labels, state)
-            ? labels[state] : state;
-        const color = Settings._tetherColors[state] || "var(--text-dim)";
+        const net = Settings._internetBits(pt, t);
+        const label = net.lost ? t("net_connected_no_internet", "połączono, bez internetu")
+            : (Object.prototype.hasOwnProperty.call(labels, state) ? labels[state] : state);
+        const color = net.lost ? "#d97706" : (Settings._tetherColors[state] || "var(--text-dim)");
         const ip = (state === "connected" && pt.ip)
             ? ` <span style="color:var(--text-mid);font-family:monospace">${Settings._esc(pt.ip)}</span>` : "";
         const iface = (state === "connected" && pt.iface)
@@ -103,15 +130,153 @@ const Settings = {
         // A failed `connection up` mostly means tethering is off on the phone
         // (Android refuses BNEP instead of hiding NAP) — say what to check,
         // never the raw nmcli error.
-        const hint = (state === "failed" && pt.hint === "check_tethering")
+        let hint = (state === "failed" && pt.hint === "check_tethering")
             ? `<span style="color:var(--text-mid);flex-basis:100%;padding-left:24px">${Settings._esc(
                 t("tether_failed_hint", "sprawdź „Tethering przez Bluetooth” w telefonie"))}</span>` : "";
+        if (net.hint) {
+            hint = `<span data-net-hint style="color:var(--text-mid);flex-basis:100%;padding-left:24px">${net.hint}</span>`;
+        }
+        const netFact = net.fact
+            ? ` <span style="color:var(--text-mid)">· ${Settings._esc(net.fact)}</span>` : "";
         const retry = state === "failed"
             ? `<button data-tether-retry onclick="Settings.tetherRetry()" style="margin-left:auto;padding:4px 10px;border-radius:8px;font-size:11px;font-weight:700;background:var(--card-border);color:var(--text-mid);border:none">${Settings._esc(t("tether_retry", "Ponów"))}</button>` : "";
         return `<div data-tether-state="${Settings._esc(state)}" style="display:flex;flex-wrap:wrap;align-items:center;gap:4px 8px;padding:8px 12px;border-radius:12px;background:var(--card-bg);border:1px solid var(--card-border);font-size:11px;line-height:1.3">
             <span class="material-symbols-outlined" style="font-size:16px;color:${color}">wifi_tethering</span>
             <span style="color:var(--text-dim);font-weight:700">${Settings._esc(t("phone_tether", "Internet z telefonu"))}:</span>
-            <span style="color:${color};font-weight:700">${Settings._esc(label)}</span>${ip}${iface}${retry}${hint}
+            <span style="color:${color};font-weight:700">${Settings._esc(label)}</span>${ip}${iface}${netFact}${retry}${hint}
+        </div>`;
+    },
+
+    // "Internet i usługi" (modules.net_diag): which uplink holds the default
+    // route and whether it has internet (src/network/net_probe.py), and per
+    // online service whether its key is set + the last result (src/network/
+    // net_services.py). data.net_diag from web_viewer._net_diag_summary, or
+    // null with the module off (no row). Keys are never in the payload —
+    // only key_set booleans.
+    _netTest: { msg: "", at: 0 },
+    _netServices: [
+        ["owm", "OpenWeatherMap", "BCM_OWM_API_KEY"],
+        ["ors", "OpenRouteService", "BCM_ORS_API_KEY"],
+        ["tomtom", "TomTom", "BCM_TOMTOM_API_KEY"],
+    ],
+
+    /** A service result as the driver reads it (OK / kod HTTP / błąd sieci
+     *  / nie testowano). 401/403 almost always mean a wrong key or one that
+     *  is not active yet (a new OWM key needs up to 2 h). */
+    netResultText(res, code, t) {
+        t = t || ((k, d) => d);
+        const c = Number.isInteger(code) && code >= 100 && code <= 599 ? code : null;
+        switch (res) {
+            case "ok": return t("net_res_ok", "OK");
+            case "no_key": return t("net_res_no_key", "brak klucza");
+            case "network": return t("net_res_network", "błąd sieci");
+            case "bad_response": return t("net_res_bad_response", "dziwna odpowiedź serwera");
+            case "http":
+                if (c === 401 || c === 403) {
+                    return t("net_res_http_auth", "błąd {code} — zły albo nieaktywny klucz")
+                        .replace("{code}", String(c));
+                }
+                if (c === 429) return t("net_res_http_limit", "błąd 429 — wyczerpany limit zapytań");
+                return t("net_res_http", "błąd HTTP {code}").replace("{code}", c === null ? "?" : String(c));
+            default: return t("net_res_untested", "nie testowano");
+        }
+    },
+
+    /** "Test" (POST /api/net/test — loopback only, 1 per 10 s on the
+     *  server; the result arrives in data.net_diag a few seconds later). */
+    async netTest() {
+        const t = (typeof App !== "undefined" && App.t) ? App.t.bind(App) : ((k, d) => d);
+        const now = Date.now();
+        if (now - Settings._netTest.at < 2000) return;
+        Settings._netTest.at = now;
+        const say = (m) => {
+            Settings._netTest.msg = m;
+            const el = document.querySelector("[data-net-test-msg]");
+            if (el) el.textContent = m;
+        };
+        try {
+            const res = await fetch("/api/net/test", { method: "POST" });
+            let body = {};
+            try { body = await res.json(); } catch (e) { /* not JSON */ }
+            if (res.status === 202) say(t("net_test_started", "testuję… (do 30 s)"));
+            else if (res.status === 429) say(t("net_test_wait", "chwilę — spróbuj za kilka sekund"));
+            else if (body && body.error === "busy") say(t("net_test_busy", "test już trwa"));
+            else if (res.status === 403) say(t("net_test_forbidden", "test tylko z ekranu w aucie"));
+            else say(t("net_test_failed", "nie udało się uruchomić testu"));
+        } catch (e) { say(t("net_test_failed", "nie udało się uruchomić testu")); }
+    },
+
+    /** The row; '' without a payload (module off). Every value from the
+     *  payload goes through _esc; numbers are type-checked. */
+    netDiagRowHtml(nd, t) {
+        t = t || ((k, d) => d);
+        if (!nd || typeof nd !== "object") return "";
+        const esc = Settings._esc;
+        const up = (nd.uplink && typeof nd.uplink === "object") ? nd.uplink : {};
+        const kinds = {
+            usb: t("net_uplink_usb", "USB z telefonu"),
+            bt: t("net_uplink_bt", "Bluetooth z telefonu"),
+            other: t("net_uplink_other", "inne łącze"),
+            none: t("net_uplink_none", "brak trasy domyślnej"),
+        };
+        const kind = Object.prototype.hasOwnProperty.call(kinds, up.kind) ? kinds[up.kind]
+            : t("net_uplink_unknown", "jeszcze nie sprawdzono");
+        const iface = typeof up.iface === "string" && up.iface
+            ? ` <span style="color:var(--text-dim);font-family:monospace">(${esc(up.iface)})</span>` : "";
+        const probe = (nd.probe && typeof nd.probe === "object") ? nd.probe : null;
+        let inet = "";
+        if (probe) {
+            const why = {
+                no_route: t("net_err_no_route", "brak trasy"),
+                dns: t("net_err_dns", "DNS nie działa"),
+                https: t("net_err_https", "HTTPS nie przechodzi"),
+            };
+            inet = probe.ok === true
+                ? `<span style="color:#16a34a;font-weight:700">${esc(t("net_internet_yes", "internet: tak"))}</span>`
+                : `<span style="color:#dc2626;font-weight:700">${esc(t("net_internet_no", "internet: nie"))}</span>`
+                  + (why[probe.error] ? ` <span style="color:var(--text-mid)">(${esc(why[probe.error])})</span>` : "");
+            // When the shown answer was measured — the probe only runs while
+            // a phone uplink is connected, so an old "tak" must look old.
+            if (typeof probe.checked_at === "number" && isFinite(probe.checked_at) && probe.checked_at > 0) {
+                const c = new Date(probe.checked_at * 1000);
+                const chm = String(c.getHours()).padStart(2, "0") + ":" + String(c.getMinutes()).padStart(2, "0");
+                inet += ` <span data-net-checked style="color:var(--text-dim)">${esc(t("net_checked_at", "sprawdzono {time}").replace("{time}", chm))}</span>`;
+            }
+        }
+        const rows = Settings._netServices.map(([key, name, envVar]) => {
+            const sv = (nd.services && typeof nd.services === "object" && nd.services[key]) || {};
+            const keySet = sv.key_set === true;
+            const res = keySet ? sv.result : "no_key";
+            const ok = res === "ok";
+            const color = ok ? "#16a34a" : (res === "untested" || res == null ? "var(--text-dim)"
+                : (res === "no_key" ? "#d97706" : "#dc2626"));
+            const keyTxt = keySet ? t("net_key_yes", "klucz: tak") : t("net_key_no", "klucz: nie");
+            const fix = keySet ? "" : ` <span style="color:var(--text-dim)">— ${esc(t("net_key_where", "wpisz {var} do /etc/bcm/bcm.env").replace("{var}", envVar))}</span>`;
+            return `<div data-net-service="${esc(key)}" data-net-result="${esc(res || "untested")}" style="flex-basis:100%;padding-left:24px;display:flex;flex-wrap:wrap;gap:2px 8px">
+                <span style="color:var(--text-mid);font-weight:700;min-width:120px">${esc(name)}</span>
+                <span style="color:var(--text-mid)">${esc(keyTxt)}</span>
+                <span style="color:${color};font-weight:700">${esc(Settings.netResultText(res, sv.http_code, t))}</span>${fix}
+            </div>`;
+        }).join("");
+        const running = nd.test && nd.test.running === true;
+        // After a finished test (test.at = when it ended, epoch s) say when;
+        // a fresher message of our own click (429, busy…) wins.
+        const doneAt = nd.test && typeof nd.test.at === "number" && isFinite(nd.test.at) ? nd.test.at * 1000 : 0;
+        let msg = Settings._netTest.msg;
+        if (running) msg = t("net_test_running", "testuję…");
+        else if (doneAt && doneAt >= Settings._netTest.at) {
+            const d = new Date(doneAt);
+            const hm = String(d.getHours()).padStart(2, "0") + ":" + String(d.getMinutes()).padStart(2, "0");
+            msg = t("net_test_done", "ostatni test: {time}").replace("{time}", hm);
+        }
+        const btn = `<button data-net-test onclick="Settings.netTest()" ${running ? "disabled" : ""} style="margin-left:auto;padding:4px 10px;border-radius:8px;font-size:11px;font-weight:700;background:var(--card-border);color:var(--text-mid);border:none">${esc(t("net_test", "Test"))}</button>`;
+        const color = probe ? (probe.ok === true ? "#16a34a" : "#dc2626") : "var(--text-dim)";
+        return `<div data-net-diag style="display:flex;flex-wrap:wrap;align-items:center;gap:4px 8px;padding:8px 12px;border-radius:12px;background:var(--card-bg);border:1px solid var(--card-border);font-size:11px;line-height:1.3">
+            <span class="material-symbols-outlined" style="font-size:16px;color:${color}">public</span>
+            <span style="color:var(--text-dim);font-weight:700">${esc(t("net_diag", "Internet i usługi"))}:</span>
+            <span style="color:var(--text-mid)">${esc(kind)}</span>${iface}${inet ? " · " + inet : ""}${btn}
+            <span data-net-test-msg style="flex-basis:100%;padding-left:24px;color:var(--text-dim)">${esc(msg)}</span>
+            ${rows}
         </div>`;
     },
 
@@ -160,8 +325,10 @@ const Settings = {
             connected: t("car_phone_connected", "połączono"),
             failed: t("car_phone_failed", "błąd — ponowię"),
         };
-        const label = Object.prototype.hasOwnProperty.call(labels, state) ? labels[state] : state;
-        const color = Settings._carPhoneColors[state] || "var(--text-dim)";
+        const net = Settings._internetBits(cp, t);
+        const label = net.lost ? t("net_connected_no_internet", "połączono, bez internetu")
+            : (Object.prototype.hasOwnProperty.call(labels, state) ? labels[state] : state);
+        const color = net.lost ? "#d97706" : (Settings._carPhoneColors[state] || "var(--text-dim)");
         const mono = (v) => `<span style="color:var(--text-mid);font-family:monospace">${esc(v)}</span>`;
         const dim = (v) => `<span style="color:var(--text-dim)">${esc(v)}</span>`;
         const parts = [];
@@ -179,6 +346,7 @@ const Settings = {
         if (typeof cp.temp_c === "number" && isFinite(cp.temp_c)) {
             facts.push(`${Math.round(cp.temp_c)} °C`);
         }
+        if (net.fact) facts.push(net.fact);
         if (cp.gps_forward === true) facts.push(t("car_phone_gps", "GPS"));
         if (cp.hotspot_active === true) {
             const n = Number.isInteger(cp.hotspot_clients) ? ` (${cp.hotspot_clients})` : "";
@@ -198,8 +366,11 @@ const Settings = {
         };
         const hintText = (typeof cp.hint === "string" && Object.prototype.hasOwnProperty.call(hints, cp.hint))
             ? hints[cp.hint] : "";
-        const hint = hintText
-            ? `<span data-car-phone-hint style="color:var(--text-mid);flex-basis:100%;padding-left:24px">${esc(hintText)}</span>` : "";
+        // The internet hint carries its own markup (escaped in _internetBits).
+        const hint = net.hint
+            ? `<span data-car-phone-hint data-net-hint style="color:var(--text-mid);flex-basis:100%;padding-left:24px">${net.hint}</span>`
+            : (hintText
+                ? `<span data-car-phone-hint style="color:var(--text-mid);flex-basis:100%;padding-left:24px">${esc(hintText)}</span>` : "");
         const retry = (state === "failed" || state === "adb_error")
             ? `<button data-car-phone-retry onclick="Settings.carPhoneRetry()" style="margin-left:auto;padding:4px 10px;border-radius:8px;font-size:11px;font-weight:700;background:var(--card-border);color:var(--text-mid);border:none">${esc(t("car_phone_retry", "Ponów"))}</button>` : "";
         return `<div data-car-phone-state="${esc(state)}" style="display:flex;flex-wrap:wrap;align-items:center;gap:4px 8px;padding:8px 12px;border-radius:12px;background:var(--card-bg);border:1px solid var(--card-border);font-size:11px;line-height:1.3">
@@ -2122,6 +2293,12 @@ App.registerScreen("settings", (() => {
     let _gpsKey = "null";
     let _carPhoneKey = "null";
     let _agentKey = "null";
+    let _netKey = "null";
+
+    /** The "Internet i usługi" row as drawn (the whole summary). */
+    function _netKeyOf(data) {
+        return JSON.stringify((data && data.net_diag) || null);
+    }
 
     function _tetherKeyOf(data) {
         return JSON.stringify((data && data.phone_tether) || null);
@@ -2189,6 +2366,14 @@ App.registerScreen("settings", (() => {
             if (slot) {
                 _tetherKey = key;
                 slot.innerHTML = Settings.tetherRowHtml(data && data.phone_tether, t);
+            }
+        }
+        const netKey = _netKeyOf(data);
+        if (netKey !== _netKey) {
+            const slot = document.querySelector("[data-net-diag-slot]");
+            if (slot) {
+                _netKey = netKey;
+                slot.innerHTML = Settings.netDiagRowHtml(data && data.net_diag, t);
             }
         }
         const carKey = _carPhoneKeyOf(data);
@@ -2281,6 +2466,7 @@ App.registerScreen("settings", (() => {
         _gpsKey = _gpsKeyOf(data);
         _carPhoneKey = _carPhoneKeyOf(data);
         _agentKey = _agentKeyOf(data);
+        _netKey = _netKeyOf(data);
         _crashKey = _crashKeyOf(data);
         _parkKey = _parkKeyOf(data);
         _cabinKey = _cabinKeyOf(data);
@@ -2358,6 +2544,10 @@ App.registerScreen("settings", (() => {
                              last wake, refusals, Nano link — read-only; the
                              buttons are in the global banner. -->
                         <div data-remote-session-slot style="display:contents">${Settings.remoteSessionRowHtml(data && data.remote_session, t)}</div>
+                        <!-- Internet i usługi (modules.net_diag): uplink + internet
+                             probe, key presence and last result per service,
+                             "Test". Empty slot = module off. -->
+                        <div data-net-diag-slot style="display:contents">${Settings.netDiagRowHtml(data && data.net_diag, t)}</div>
                         <!-- Internet from the phone (BT PAN). display:contents: an
                              empty slot (module off) adds no flex gap; update()
                              swaps its content. -->

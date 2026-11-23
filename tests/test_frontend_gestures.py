@@ -90,6 +90,11 @@
   rules, one POST with an empty body, the call view, "Rozłącz" held 1 s,
   "Odbierz", the dispatcher panel >= 48 px that fits, test-mode label, no
   button without the module or off the kiosk. Skipped without playwright;
+* settings_net_diag_smoke.js: Settings "Internet i usługi" (uplink, internet
+  probe, key presence and last result per service, "Test" with its answers),
+  "połączono, bez internetu" on the phone rows, the trip plan error banner
+  and approximate-route hint, the weather "dane przykładowe" line instead of
+  Milan;
 * weather_escape_smoke.js: screens/weather.js — geocoder place names and
   the weather city / condition never become markup, results are picked via
   data-weather-idx + one delegated listener, and only valid coordinates reach
@@ -381,7 +386,7 @@ def test_call112_in_chromium():
                                      "settings_cabin_watch_smoke.js",
                                      "settings_brightness_smoke.js",
                                      "crash_modal_smoke.js", "wake_banner_smoke.js",
-                                     "spectrum_smoke.js"])
+                                     "spectrum_smoke.js", "settings_net_diag_smoke.js"])
 def test_screen_harness(harness):
     res = subprocess.run([NODE, str(JS / harness)], capture_output=True, text=True,
                          timeout=60)

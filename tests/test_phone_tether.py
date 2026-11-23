@@ -261,7 +261,8 @@ class TestTick:
         last = published[-1]
         assert last == {"state": "connected", "iface": "bnep0", "ip": "192.168.44.23",
                         "prefix": 24, "gateway": "192.168.44.1", "mac": PHONE,
-                        "error": "", "hint": "", "since": 1.7e9}
+                        "error": "", "hint": "", "internet": None, "route_iface": "",
+                        "internet_error": "", "since": 1.7e9}
         assert [p["state"] for p in published] == ["connecting", "connected"]
 
     def test_every_call_has_a_timeout_and_no_shell(self):

@@ -36,7 +36,8 @@ App.registerScreen("a4", (() => {
     }
 
     function update(data) {
-        _updateEl("weather-city", data.weather_city || "---");
+        _updateEl("weather-city", _cityText(data));
+        _updateEl("weather-status", _statusText(data));
         _updateEl("weather-condition", data.weather_condition || "---");
         _updateEl("weather-temp", data.weather_temp != null ? `${Math.round(data.weather_temp)}°` : "--°");
         _updateEl("weather-feels", data.weather_feels_like != null ? `Feels ${Math.round(data.weather_feels_like)}°` : "");
@@ -57,6 +58,56 @@ App.registerScreen("a4", (() => {
     function _updateEl(id, text) {
         const el = document.getElementById(id);
         if (el) el.textContent = text;
+    }
+
+    /** data.weather_status (web_viewer._weather_status_summary of
+     *  weather.status): source demo | cache | live, last_error, http_code.
+     *  The demo data ("Milan, IT") is published at start so the screen is
+     *  never empty — it must never pass for the weather outside. */
+    function _isDemo(data) {
+        const ws = data && data.weather_status;
+        return !!(ws && typeof ws === "object" && ws.source === "demo");
+    }
+
+    /** City label: a clear placeholder while only demo data exists. */
+    function _cityText(data) {
+        if (_isDemo(data)) return App.t("weather_no_data", "brak prawdziwych danych pogody");
+        return (data && typeof data.weather_city === "string" && data.weather_city) || "---";
+    }
+
+    /** One status line: why the data is demo / old, or '' when live and the
+     *  last request worked. Fixed i18n strings + an integer HTTP code only
+     *  (safe in the template and via textContent). */
+    function _statusText(data) {
+        const ws = data && data.weather_status;
+        if (!ws || typeof ws !== "object") return "";
+        const t = (k, d) => App.t(k, d);
+        const code = Number.isInteger(ws.http_code) ? ws.http_code : null;
+        let why = "";
+        switch (ws.last_error) {
+            case "no_key": why = t("weather_err_no_key", "brak klucza — wpisz BCM_OWM_API_KEY do /etc/bcm/bcm.env"); break;
+            case "network": why = t("weather_err_network", "brak połączenia z serwerem pogody"); break;
+            case "bad_response": why = t("weather_err_bad", "dziwna odpowiedź serwera pogody"); break;
+            case "http":
+                why = (code === 401 || code === 403)
+                    ? t("weather_err_auth", "błąd {code} — zły albo nieaktywny klucz").replace("{code}", String(code))
+                    : t("weather_err_http", "błąd HTTP {code}").replace("{code}", code === null ? "?" : String(code));
+                break;
+            default: why = "";
+        }
+        if (ws.source === "demo") {
+            const head = t("weather_demo", "dane przykładowe");
+            return why ? `${head} — ${why}` : `${head} — ${t("weather_waiting", "czekam na pierwsze pobranie")}`;
+        }
+        if (ws.source === "cache") {
+            const head = t("weather_cache", "dane z pamięci");
+            return why ? `${head} — ${why}` : head;
+        }
+        return why ? `${t("weather_last_fetch", "ostatnie pobranie")}: ${why}` : "";
+    }
+
+    function _statusHtml(data, cls) {
+        return `<p id="weather-status" data-weather-source="${_esc((data && data.weather_status && data.weather_status.source) || "")}" class="${cls}" style="color:#fbbf24;font-size:10px;line-height:1.3;">${_esc(_statusText(data))}</p>`;
     }
 
     /** Map badge: "GPS AKTYWNY" only with a real fix (data.gps_fix from the
@@ -123,7 +174,7 @@ App.registerScreen("a4", (() => {
 
     function _renderHeritage(data) {
         const t = App.t.bind(App);
-        const city = _esc(data.weather_city || "Milan, IT");
+        const city = _esc(_cityText(data));
         const condition = _esc(data.weather_condition || "Partly Cloudy");
         const temp = data.weather_temp != null ? Math.round(data.weather_temp) : 22;
         const feels = data.weather_feels_like != null ? Math.round(data.weather_feels_like) : temp + 2;
@@ -147,6 +198,7 @@ App.registerScreen("a4", (() => {
                     </div>
                     <div class="mb-2">
                         <h1 id="weather-city" class="text-xl font-bold text-white">${city}</h1>
+                        ${_statusHtml(data, "")}
                         <p id="weather-condition" class="text-amber-500 text-sm">${condition}</p>
                     </div>
                     <div class="flex items-center gap-3 my-2">
@@ -203,7 +255,7 @@ App.registerScreen("a4", (() => {
 
     function _renderModern(data) {
         const t = App.t.bind(App);
-        const city = _esc(data.weather_city || "Milan");
+        const city = _esc(_cityText(data));
         const condition = _esc(data.weather_condition || "Partly Cloudy");
         const temp = data.weather_temp != null ? Math.round(data.weather_temp) : 18;
         const wind = Math.round(data.weather_wind_speed || 12);
@@ -227,6 +279,7 @@ App.registerScreen("a4", (() => {
                                     <span id="weather-city" class="text-xs font-bold text-white whitespace-nowrap">${city}</span>
                                 </div>
                                 <div id="weather-search-results" class="absolute left-0 right-0 top-full mt-1 z-50 rounded-lg overflow-hidden" style="display:none;"></div>
+                                <div style="margin-top:4px;padding:0 4px;background:rgba(0,0,0,0.6);border-radius:6px;">${_statusHtml(data, "")}</div>
                             </div>
                         </div>
                         <div class="absolute bottom-3 left-3 right-3 z-10 rounded-lg px-3 py-2 flex justify-between items-center" style="background:rgba(0,0,0,0.75);border:1px solid rgba(255,255,255,0.1);">
@@ -274,7 +327,7 @@ App.registerScreen("a4", (() => {
 
     function _renderAutodelta(data) {
         const t = App.t.bind(App);
-        const city = _esc(data.weather_city || "Milano, IT");
+        const city = _esc(_cityText(data));
         const condition = _esc(data.weather_condition || "Partly Cloudy");
         const temp = data.weather_temp != null ? Math.round(data.weather_temp) : 24;
         const feels = data.weather_feels_like != null ? Math.round(data.weather_feels_like) : temp + 2;
@@ -305,6 +358,7 @@ App.registerScreen("a4", (() => {
                                 <span class="material-symbols-outlined" style="font-size:14px;">location_on</span>
                                 <span id="weather-city" class="text-[10px] font-bold tracking-widest uppercase">${city}</span>
                             </div>
+                            ${_statusHtml(data, "mb-1")}
                             <h2 id="weather-condition" class="text-2xl font-black text-white leading-none">${condition}</h2>
                         </div>
                         <div class="relative z-10">
@@ -378,6 +432,7 @@ App.registerScreen("a4", (() => {
 const WeatherSearch = {
     _timer: null,
     _results: [],
+    _error: null,
 
     /** Place names come from the geocoder (OpenWeatherMap, upstream data we
      *  do not control) — escape them before they go into innerHTML. */
@@ -414,17 +469,50 @@ const WeatherSearch = {
         try {
             const res = await fetch(`/api/weather/search?q=${encodeURIComponent(q)}`);
             const data = await res.json();
-            WeatherSearch._results = data.results || [];
+            WeatherSearch._results = Array.isArray(data && data.results) ? data.results : [];
+            // Why nothing was found (/api/weather/search error code) — a
+            // missing or rejected OWM key must not look like "no such city".
+            WeatherSearch._error = (data && typeof data.error === "string")
+                ? { error: data.error, http_code: Number.isInteger(data.http_code) ? data.http_code : null }
+                : null;
             WeatherSearch._showResults();
         } catch (e) {
-            WeatherSearch._hideResults();
+            WeatherSearch._results = [];
+            WeatherSearch._error = { error: "network", http_code: null };
+            WeatherSearch._showResults();
         }
+    },
+
+    /** One-line text for a search error code (same wording as trip.js). */
+    errorText(err) {
+        if (!err || typeof err !== "object" || typeof err.error !== "string") return "";
+        const t = (k, d) => (typeof App !== "undefined" && App.t ? App.t(k, d) : d);
+        const c = Number.isInteger(err.http_code) ? err.http_code : null;
+        if (err.error === "no_key") return t("weather_search_no_key", "brak klucza — wpisz BCM_OWM_API_KEY do /etc/bcm/bcm.env");
+        if (err.error === "http" && (c === 401 || c === 403)) return t("trip_search_auth", "wyszukiwanie: błąd {code} — zły albo nieaktywny klucz OpenWeatherMap").replace("{code}", String(c));
+        if (err.error === "http") return t("trip_search_http", "wyszukiwanie: błąd HTTP {code}").replace("{code}", c === null ? "?" : String(c));
+        if (err.error === "bad_response") return t("weather_search_bad", "wyszukiwanie: dziwna odpowiedź serwera");
+        return t("trip_search_network", "wyszukiwanie: brak połączenia (internet?)");
     },
 
     _showResults() {
         const el = document.getElementById("weather-search-results");
-        if (!el || WeatherSearch._results.length === 0) {
-            WeatherSearch._hideResults();
+        if (!el) return;
+        if (WeatherSearch._results.length === 0) {
+            const msg = WeatherSearch.errorText(WeatherSearch._error);
+            if (!msg) {
+                WeatherSearch._hideResults();
+                return;
+            }
+            // textContent only: the message never carries server text.
+            el.innerHTML = "";
+            const box = document.createElement("div");
+            box.className = "px-3 py-2 text-[10px] bg-black/90";
+            box.setAttribute("data-weather-search-error", "1");
+            box.style.color = "#fca5a5";
+            box.textContent = msg;
+            el.appendChild(box);
+            el.style.display = "block";
             return;
         }
         const theme = App.getTheme();

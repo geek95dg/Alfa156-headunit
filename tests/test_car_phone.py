@@ -1509,7 +1509,7 @@ class TestPublication:
             "gps_port", "forwards", "battery_pct", "temp_c", "charging", "full", "plugged",
             "health",
             "overridden", "hotspot_active", "hotspot_clients", "heat", "time_synced_at",
-            "error", "hint", "since"}
+            "error", "hint", "internet", "route_iface", "internet_error", "since"}
         assert state["serial"] == "1a…4d" and SER not in str(state)
         assert state["state"] in cp.STATES and state["hint"] in cp.HINTS
         assert state["adb"] in cp.ADB_STATES

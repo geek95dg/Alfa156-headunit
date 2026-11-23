@@ -35,6 +35,27 @@ FALLBACK_ORIGIN = (50.0647, 19.9450)
 REPLAN_DELAY_S = 3.0
 
 
+#: What a service error from RoutePlanner may carry to the UI (codes only).
+_SERVICE_NAMES = ("ors", "tomtom")
+_SERVICE_RESULTS = ("http", "network", "bad_response")
+
+
+def _service_errors(raw: Any) -> list:
+    """RoutePlanner's ``service_errors`` → at most 4 validated entries."""
+    out: list = []
+    if not isinstance(raw, list):
+        return out
+    for e in raw[:4]:
+        if not isinstance(e, dict) or e.get("service") not in _SERVICE_NAMES \
+                or e.get("result") not in _SERVICE_RESULTS:
+            continue
+        code = e.get("http_code")
+        if isinstance(code, bool) or not isinstance(code, int) or not 100 <= code <= 599:
+            code = None
+        out.append({"service": e["service"], "result": e["result"], "http_code": code})
+    return out
+
+
 def _start_daemon(target, name: str) -> None:
     threading.Thread(target=target, daemon=True, name=name).start()
 
@@ -109,6 +130,9 @@ class TripComputer:
         self.route_incidents: list = []
         self.route_approximate: bool = False
         self.plan_error: Optional[str] = None
+        # Why the plan is empty/partial: [{service, result, http_code}] from
+        # RoutePlanner (e.g. ORS answered 401) — trip.js shows it.
+        self.plan_service_errors: list = []
         self.plan_computed_at: float = 0.0
         # Where the active plan's route starts (see the module docstring).
         self.origin_source: Optional[str] = None
@@ -224,6 +248,7 @@ class TripComputer:
             self.destination_lon = lon
             self.destination_name = name
             self.plan_error = None
+            self.plan_service_errors = []
             self.origin_source = None
             self.origin_lat = None
             self.origin_lon = None
@@ -268,6 +293,7 @@ class TripComputer:
                 idle = self.destination_lat is None
                 if not stale:
                     self.plan_error = result["error"] if result.get("error") else None
+                    self.plan_service_errors = _service_errors(result.get("service_errors"))
                     self.route_distance_km = float(result.get("distance_km", 0.0))
                     self.route_eta_min = float(result.get("duration_min", 0.0))
                     self.predicted_fuel_l = float(result.get("predicted_fuel_l", 0.0))
@@ -318,6 +344,7 @@ class TripComputer:
             self.route_incidents = []
             self.route_approximate = False
             self.plan_error = None
+            self.plan_service_errors = []
             self.plan_computed_at = 0.0
         log.info("Travel plan cleared")
         if self._bus:
@@ -341,6 +368,7 @@ class TripComputer:
                 "incidents": self.route_incidents,
                 "approximate": self.route_approximate,
                 "error": self.plan_error,
+                "service_errors": [dict(e) for e in self.plan_service_errors],
                 "computed_at": self.plan_computed_at,
                 "origin_source": self.origin_source,
                 "origin_lat": self.origin_lat,

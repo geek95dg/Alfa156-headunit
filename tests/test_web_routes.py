@@ -693,19 +693,22 @@ class TestConnectivityPayload:
             "gateway": "192.168.44.1", "mac": "AA:BB:CC:DD:EE:01", "error": "", "hint": "",
             "since": 1.0})
         assert env.viewer._get_dashboard_data()["phone_tether"] == {
-            "state": "connected", "ip": "192.168.44.23", "iface": "bnep0", "hint": ""}
+            "state": "connected", "ip": "192.168.44.23", "iface": "bnep0", "hint": "",
+            "internet": None, "route_iface": "", "internet_error": ""}
 
     def test_phone_tether_failed_hint_is_passed_on(self, env):
         env.bus.publish("net.phone_tether", {"state": "failed", "hint": "check_tethering",
                                              "error": "Error: <raw nmcli text>"})
         summary = env.viewer._get_dashboard_data()["phone_tether"]
-        assert summary == {"state": "failed", "ip": "", "iface": "", "hint": "check_tethering"}
+        assert summary == {"state": "failed", "ip": "", "iface": "", "hint": "check_tethering",
+                           "internet": None, "route_iface": "", "internet_error": ""}
         assert "error" not in summary          # raw error text never reaches the UI
 
     @pytest.mark.parametrize("value, expected", [
-        ({"state": "<script>"}, {"state": "unknown", "ip": "", "iface": "", "hint": ""}),
+        ({"state": "<script>"}, {"state": "unknown", "ip": "", "iface": "", "hint": "",
+                                 "internet": None, "route_iface": "", "internet_error": ""}),
         ({"state": "connected", "ip": "x" * 100, "iface": ["bnep0"], "hint": "<b>"},
-         {"state": "connected", "ip": "", "iface": "", "hint": ""}),
+         {"state": "connected", "ip": "", "iface": "", "hint": "", "internet": None, "route_iface": "", "internet_error": ""}),
         ("connected", None),
     ])
     def test_phone_tether_garbage_is_neutralised(self, env, value, expected):
@@ -811,7 +814,7 @@ class TestCarPhonePayload:
             "iface": "usb0", "gps_forward": True, "battery_pct": 78, "temp_c": 31.2,
             "charging": True, "full": False, "plugged": "usb", "health": "good",
             "overridden": False, "hotspot_active": True, "hotspot_clients": 2, "heat": None,
-            "error": ""}
+            "error": "", "internet": None, "route_iface": "", "internet_error": ""}
 
     def test_garbage_is_neutralised(self, env):
         env.bus.publish("net.car_phone", {
@@ -827,7 +830,7 @@ class TestCarPhonePayload:
             "gateway": "", "iface": "", "gps_forward": False, "battery_pct": None,
             "temp_c": None, "charging": None, "full": None, "plugged": None, "health": None,
             "overridden": False, "hotspot_active": None, "hotspot_clients": None,
-            "heat": None, "error": ""}
+            "heat": None, "error": "", "internet": None, "route_iface": "", "internet_error": ""}
 
     def test_the_full_serial_never_reaches_the_ui(self, env):
         env.bus.publish("net.car_phone", dict(CAR_PHONE_FULL, serial="1a2b3c4d"))

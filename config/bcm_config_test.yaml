@@ -66,6 +66,10 @@ modules:
                            # w telefonie włącz „Tethering przez Bluetooth”
   weather: true            # OpenWeatherMap; klucz z /etc/bcm/bcm.env
                            # (BCM_OWM_API_KEY) — bez klucza dane demo
+  net_diag: true           # diagnostyka internetu i kluczy: sonda łącza
+                           # w car_phone/phone_tether (trasa domyślna, DNS,
+                           # HTTPS, najwyżej co 60 s) i wiersz Ustawień
+                           # „Internet i usługi” z przyciskiem „Test”
   location: true           # GPS Z TELEFONU: TCP (telefon w aucie przez adb
                            # forward albo główny telefon po Bluetooth PAN) ma
                            # pierwszeństwo przed UDP (GPSd Forwarder) — blok

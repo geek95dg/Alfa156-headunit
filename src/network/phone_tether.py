@@ -58,12 +58,17 @@ itself while doing so. The same reason keeps the check interval at
 
 Published on ``net.phone_tether`` (only when something changed)::
 
-    {state, iface, ip, prefix, gateway, mac, error, hint, since}
+    {state, iface, ip, prefix, gateway, mac, error, hint, internet,
+     route_iface, internet_error, since}
 
     state: disabled | unavailable | waiting_phone | no_nap | connecting
            | connected | failed
     hint:  '' | check_tethering (``connection up`` failed — the Settings row
            tells the driver to check "Tethering przez Bluetooth")
+           | no_internet | route_other (connected, but the internet probe
+           failed — see ``internet``)
+    internet / route_iface / internet_error: as in ``net.car_phone``
+           (src/network/net_probe.py; None/''/'' with modules.net_diag off)
     since: wall-clock time (epoch s) the current state was entered
 
 On every transition into ``connected`` (with ``trigger_timesync``) it starts
@@ -102,6 +107,7 @@ from src.network._proc import clean_error as clean_error
 from src.network._proc import parse_ip_status as parse_ip_status
 from src.network._proc import proc_env as proc_env
 from src.network._proc import split_terse as split_terse
+from src.network.net_probe import InternetProbe, internet_fields, shared_probe
 
 log = get_logger("network.phone_tether")
 
@@ -115,7 +121,11 @@ STATES = ("disabled", "unavailable", "waiting_phone", "no_nap",
 
 #: ``hint`` values (web_viewer passes only these on).
 HINT_CHECK_TETHERING = "check_tethering"
-HINTS = ("", HINT_CHECK_TETHERING)
+#: "connected" but the internet probe failed (src/network/net_probe.py) —
+#: same meaning as in car_phone.
+HINT_NO_INTERNET = "no_internet"
+HINT_ROUTE_OTHER = "route_other"
+HINTS = ("", HINT_CHECK_TETHERING, HINT_NO_INTERNET, HINT_ROUTE_OTHER)
 
 #: Code defaults for ``network.phone_tether``.
 DEFAULTS: dict[str, Any] = {
@@ -233,8 +243,12 @@ class PhoneTether:
     def __init__(self, config: Any, event_bus: Any,
                  runner: Callable[..., Any] = subprocess.run,
                  clock: Callable[[], float] = time.monotonic,
-                 wall_clock: Callable[[], float] = time.time) -> None:
+                 wall_clock: Callable[[], float] = time.time,
+                 net_probe: Optional[InternetProbe] = None) -> None:
         self._config = config
+        # None = no internet check (internet: None in the state); the entry
+        # point passes the shared probe with modules.net_diag on.
+        self._probe = net_probe
         self._bus = event_bus
         self._runner = runner
         self._clock = clock
@@ -664,7 +678,13 @@ class PhoneTether:
         self._retry_kind = None
         self._last_error = ""
         self._last_hint = ""
-        self._publish("connected", mac=mac, **status)
+        # Link up ≠ internet: ask net_probe (this worker thread; cached 60 s,
+        # a fresh edge forces a new probe).
+        net = internet_fields(self._probe, status.get("iface", "") or "",
+                              force=was != "connected")
+        self._publish("connected", mac=mac, hint=net["hint"], internet=net["internet"],
+                      route_iface=net["route_iface"],
+                      internet_error=net["internet_error"], **status)
         if was != "connected" and self._trigger_timesync:
             self._timesync()
 
@@ -701,13 +721,28 @@ class PhoneTether:
 
     def _publish(self, state: str, mac: str = "", iface: str = "", ip: str = "",
                  prefix: Optional[int] = None, gateway: str = "", error: str = "",
-                 hint: str = "") -> bool:
+                 hint: str = "", internet: Optional[bool] = None, route_iface: str = "",
+                 internet_error: str = "") -> bool:
         """Publish ``net.phone_tether`` if anything changed. True if published."""
         if self._stop.is_set() and state != "disabled":
             return False    # a pass still finishing after stop() stays quiet
+        connected = state == "connected"
         payload = {"state": state, "iface": iface, "ip": ip, "prefix": prefix,
                    "gateway": gateway, "mac": mac, "error": clean_error(error),
-                   "hint": hint if hint in HINTS else ""}
+                   "hint": hint if hint in HINTS else "",
+                   "internet": internet if connected else None,
+                   "route_iface": route_iface if connected and isinstance(route_iface, str)
+                   and IFACE_RE.fullmatch(route_iface) else "",
+                   "internet_error": internet_error if connected else ""}
+        if connected and internet is not None and self._payload is not None \
+                and self._payload.get("internet") != internet:
+            if internet:
+                log.info("Phone tether: internet works (default route via %s)",
+                         route_iface or "-")
+            else:
+                log.warning("Phone tether: connected, but NO internet (%s, default route "
+                            "via %s) — mobile data off or the operator blocks tethering?",
+                            internet_error or "-", route_iface or "none")
         if payload == self._payload:
             return False
         if state != self._state_name or self._payload is None:
@@ -748,6 +783,9 @@ class PhoneTether:
 
 def start_phone_tether(config, event_bus, hal=None, **kwargs) -> PhoneTether:
     """Module entry point — called by main.py's module registry."""
-    tether = PhoneTether(config, event_bus)
+    # modules.net_diag: check that the phone really passes traffic on
+    # (src/network/net_probe.py). Strictly True — a typo stays off.
+    probe = shared_probe() if _cfg_get(config, "modules.net_diag", False) is True else None
+    tether = PhoneTether(config, event_bus, net_probe=probe)
     tether.start()
     return tether

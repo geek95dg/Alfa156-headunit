@@ -27,6 +27,7 @@ from src.core.config import (
     SECRET_ENV_MAP,
     BCMConfig,
     count_leaves,
+    missing_secrets,
     default_local_path,
     resolve_base_path,
 )
@@ -257,6 +258,12 @@ def main() -> None:
         # Names only — never the values.
         log.info("Secrets from environment: %s",
                  ", ".join(sorted(config.secret_sources.values())))
+    # One line per missing key (name only, never a value): months of
+    # "internet does not work" in the car were partly a key that was never
+    # loaded. Only keys of modules that are on (config.SECRET_MODULES).
+    for var, dotpath, why in missing_secrets(config, only_enabled=True):
+        log.warning("Secret %s is not set (%s) — %s; set it in /etc/bcm/bcm.env",
+                    var, dotpath, why)
     if module_levels:
         log.info("Module log levels: %s",
                  ", ".join(f"{k}={v}" for k, v in sorted(module_levels.items(), key=str)))

@@ -40,6 +40,8 @@ from src.network.car_phone_agent import TOPIC as _AGENT_TOPIC
 from src.network.phone_tether import HINTS as _TETHER_HINTS
 from src.network.phone_tether import RETRY_TOPIC as _TETHER_RETRY_TOPIC
 from src.network.phone_tether import STATES as _TETHER_STATES
+from src.network import net_probe as _net_probe
+from src.network import net_services as _net_services
 from src.power import brightness as _brightness
 from src.power import remote_session as _remote_session
 from src.safety import cabin_watch as _cabin_watch
@@ -295,6 +297,138 @@ _DIAL_MIN_INTERVAL_S = 5.0
 _NETWORK_DIAL_RE = re.compile(r"^\+?[0-9]{3,20}$")
 
 
+def _internet_summary(value: dict) -> dict:
+    """The net_probe fields of a ``connected`` uplink state (car_phone /
+    phone_tether): ``internet`` True/False/None (None = not checked),
+    the interface holding the default route, the probe's error code."""
+    internet = value.get("internet")
+    route = value.get("route_iface")
+    err = value.get("internet_error")
+    return {
+        "internet": internet if isinstance(internet, bool) else None,
+        "route_iface": route if isinstance(route, str)
+        and _net_probe.IFACE_RE.fullmatch(route) else "",
+        "internet_error": err if isinstance(err, str) and err in _net_probe.ERRORS else "",
+    }
+
+
+_WEATHER_SOURCES = ("demo", "cache", "live")
+_WEATHER_ERRORS = ("", "no_key", "http", "network", "bad_response")
+
+
+def _ts(value: Any) -> Optional[float]:
+    """An epoch timestamp from a state payload (finite, after 2001) or None."""
+    if isinstance(value, bool) or not isinstance(value, (int, float)) \
+            or not math.isfinite(value) or not 1e9 < value < 1e11:
+        return None
+    return float(value)
+
+
+def _http_code(value: Any) -> Optional[int]:
+    if isinstance(value, bool) or not isinstance(value, int) or not 100 <= value <= 599:
+        return None
+    return value
+
+
+def _weather_status_summary(value: Any) -> Optional[dict]:
+    """``weather.status`` → what the weather screen / Settings show:
+    where the data comes from (demo/cache/live) and the last error code.
+    None = the weather module does not run (nothing published)."""
+    if not isinstance(value, dict):
+        return None
+    source = value.get("source")
+    err = value.get("last_error")
+    return {
+        "source": source if source in _WEATHER_SOURCES else "demo",
+        "last_ok_ts": _ts(value.get("last_ok_ts")),
+        "last_attempt_ts": _ts(value.get("last_attempt_ts")),
+        "last_error": err if err in _WEATHER_ERRORS else "",
+        "http_code": _http_code(value.get("http_code")),
+        "key_set": value.get("key_set") is True,
+    }
+
+
+#: Minimum spacing of POST /api/net/test (each one costs one request per
+#: configured service from the free plans' daily quota).
+_NET_TEST_MIN_INTERVAL_S = 10.0
+
+
+def _net_diag_summary(config: Any, tether: Optional[dict], car: Optional[dict],
+                      test_running: bool, last_test_at: Optional[float]) -> Optional[dict]:
+    """The Settings row "Internet i usługi" (modules.net_diag).
+
+    Keys only as presence booleans — the payload is visible from the network
+    in ``readonly`` mode, and a key never leaves the process anyway.
+    ``uplink.kind``: which uplink holds the default route (usb = the car
+    phone's cable, bt = the phone's Bluetooth PAN, other = anything else,
+    none = no default route, '' = not known yet).
+    """
+    if config is None or config.get("modules.net_diag", False) is not True:
+        return None
+    probe = _net_probe.shared_probe().last
+    car_up = isinstance(car, dict) and car.get("state") == "connected"
+    bt_up = isinstance(tether, dict) and tether.get("state") == "connected"
+    if isinstance(probe, dict):
+        # The probe only runs while a phone uplink is connected (or on
+        # "Test"), and its result never expires on its own. After the phone
+        # is unplugged the old "rndis0 · internet: tak" would stay on the
+        # very row meant to diagnose "no internet". Drop it when it is old
+        # AND no phone uplink is connected any more. While one is connected
+        # its module keeps re-probing (also when another interface holds
+        # the route — the "route_other" case), so a long check_sec cannot
+        # make the row flicker to "unknown" between probes.
+        checked = _ts(probe.get("checked_at"))
+        too_old = checked is None or \
+            time.time() - checked > 2 * _net_probe.MIN_INTERVAL_S
+        if too_old and not (car_up or bt_up):
+            probe = None
+    probe_out = None
+    route_iface = ""
+    if isinstance(probe, dict):
+        route_iface = probe.get("iface") if isinstance(probe.get("iface"), str) \
+            and _net_probe.IFACE_RE.fullmatch(probe.get("iface")) else ""
+        err = probe.get("error")
+        probe_out = {"ok": probe.get("ok") is True, "iface": route_iface,
+                     "dns_ok": probe.get("dns_ok") is True,
+                     "https_ok": probe.get("https_ok") is True,
+                     "error": err if err in _net_probe.ERRORS else "",
+                     "checked_at": _ts(probe.get("checked_at"))}
+    kind = ""
+    iface = route_iface
+    if probe_out is not None:
+        if not route_iface:
+            kind = "none"
+        elif car_up and car.get("iface") == route_iface:
+            kind = "usb"
+        elif bt_up and tether.get("iface") == route_iface:
+            kind = "bt"
+        else:
+            kind = "other"
+    elif car_up:
+        kind, iface = "usb", car.get("iface") or ""
+    elif bt_up:
+        kind, iface = "bt", tether.get("iface") or ""
+    keys = _net_services.key_presence(config)
+    snap = _net_services.snapshot()
+    services = {}
+    for name in _net_services.SERVICES:
+        entry = snap.get(name) or {}
+        result = entry.get("result")
+        services[name] = {
+            "key_set": bool(keys.get(name)),
+            "result": result if result in _net_services.RESULTS else "untested",
+            "http_code": _http_code(entry.get("http_code")),
+            "at": _ts(entry.get("at")),
+        }
+    return {
+        "uplink": {"kind": kind, "iface": iface if isinstance(iface, str) else "",
+                   "internet": probe_out["ok"] if probe_out is not None else None},
+        "probe": probe_out,
+        "services": services,
+        "test": {"running": bool(test_running), "at": _ts(last_test_at)},
+    }
+
+
 def _phone_tether_summary(value: Any) -> Optional[dict]:
     """``net.phone_tether`` → ``{state, ip, iface, hint}`` for the payload.
 
@@ -309,12 +443,12 @@ def _phone_tether_summary(value: Any) -> Optional[dict]:
     ip = value.get("ip")
     iface = value.get("iface")
     hint = value.get("hint")
-    return {
+    return dict({
         "state": state if isinstance(state, str) and state in _TETHER_STATES else "unknown",
         "ip": ip if isinstance(ip, str) and len(ip) <= 45 else "",
         "iface": iface if isinstance(iface, str) and len(iface) <= 15 else "",
         "hint": hint if isinstance(hint, str) and hint in _TETHER_HINTS else "",
-    }
+    }, **_internet_summary(value))
 
 
 #: Minimum spacing of POST /api/car_phone/retry (each can cost adb calls and
@@ -384,6 +518,7 @@ def _car_phone_summary(value: Any) -> Optional[dict]:
         "hotspot_clients": num("hotspot_clients", 0, 255, integer=True),
         "heat": pick("heat", ("warning", "danger"), None),
         "error": error[:200] if isinstance(error, str) else "",
+        **_internet_summary(value),
     }
 
 
@@ -1418,6 +1553,15 @@ class WebViewer:
         # POST /api/car_phone_agent/pair rate limit (monotonic, as above).
         self._agent_pair_lock = threading.Lock()
         self._agent_pair_last: Optional[float] = None
+        # POST /api/net/test: rate limit (monotonic), one worker at a time,
+        # wall time of the last finished test (for the Settings row).
+        self._net_test_lock = threading.Lock()
+        self._net_test_last: Optional[float] = None
+        self._net_test_running = False
+        self._net_test_done_at: Optional[float] = None
+        # The test itself (src/network/net_services.run_test) — a seam so
+        # route tests never touch the network.
+        self._net_test_runner = _net_services.run_test
         # /api/crash/* rate limits: last accepted request per route (monotonic).
         self._crash_lock = threading.Lock()
         self._crash_last: dict[str, float] = {}
@@ -1613,6 +1757,14 @@ class WebViewer:
             "lte_signal": _val("lte.signal", 0),
             # Internet from the phone (src/network/phone_tether.py).
             "phone_tether": _phone_tether_summary(_val("net.phone_tether")),
+            # Where the weather on screen comes from (demo / cache / live)
+            # and the last error (src/weather/weather.py, weather.status).
+            "weather_status": _weather_status_summary(_val("weather.status")),
+            # Settings "Internet i usługi" (modules.net_diag): uplink with
+            # the internet probe, key presence + last result per service.
+            "net_diag": _net_diag_summary(self._config, _val("net.phone_tether"),
+                                          _val("net.car_phone"), self._net_test_running,
+                                          self._net_test_done_at),
             # The phone mounted in the car (src/network/car_phone.py): USB
             # tethering, GPS forward, battery. None = module not running.
             "car_phone": _car_phone_summary(_val("net.car_phone")),
@@ -3422,6 +3574,59 @@ class WebViewer:
             viewer._event_bus.publish(_CAR_PHONE_RETRY_TOPIC, True)
             return jsonify({"ok": True})
 
+        @app.route("/api/net/test", methods=["POST"])
+        def api_net_test():
+            """"Test" in the Settings row "Internet i usługi" (modules.net_diag).
+
+            Loopback ONLY (whatever dashboard.remote_access says): each test
+            spends one request of every configured service's free daily
+            quota, so only the driver at the head unit's own screen starts
+            one. Takes no arguments (the body is ignored). At most one per
+            _NET_TEST_MIN_INTERVAL_S (429 + Retry-After), one at a time
+            (409 busy). The work — a forced internet probe plus one minimal
+            authenticated request per service with a key — runs in a worker
+            thread (up to ~30 s); the answer is 202 at once and the result
+            arrives in the payload's ``net_diag``. Nothing here ever returns
+            or logs a key: the response carries flags only.
+            """
+            if not _kiosk_request(request.remote_addr, request.host,
+                                  request.headers.get("Origin")):
+                viewer._log_refusal(str(request.remote_addr)[:64], request.method,
+                                    request.path, "loopback_only",
+                                    "the internet/API key test is only possible from the "
+                                    "head unit's own screen", level=logging.WARNING)
+                return jsonify({"ok": False, "error": "forbidden"}), 403
+            cfg = viewer._config
+            if cfg is None or cfg.get("modules.net_diag", False) is not True:
+                return jsonify({"ok": False, "error": "disabled"}), 409
+            now = time.monotonic()
+            with viewer._net_test_lock:
+                if viewer._net_test_running:
+                    return jsonify({"ok": False, "error": "busy"}), 409
+                last = viewer._net_test_last
+                if last is not None and now - last < _NET_TEST_MIN_INTERVAL_S:
+                    wait = int(_NET_TEST_MIN_INTERVAL_S - (now - last)) + 1
+                    res = jsonify({"ok": False, "error": "too many requests",
+                                   "retry_after": wait})
+                    res.headers["Retry-After"] = str(wait)
+                    return res, 429
+                viewer._net_test_last = now
+                viewer._net_test_running = True
+
+            def work():
+                try:
+                    viewer._net_test_runner(cfg, _net_probe.shared_probe(),
+                                            viewer._event_bus)
+                except Exception:
+                    log.exception("Internet/services test failed")
+                finally:
+                    with viewer._net_test_lock:
+                        viewer._net_test_running = False
+                        viewer._net_test_done_at = time.time()
+
+            threading.Thread(target=work, daemon=True, name="net-test").start()
+            return jsonify({"ok": True, "started": True}), 202
+
         @app.route("/api/car_phone_agent/pair", methods=["POST"])
         def api_car_phone_agent_pair():
             """"Sparuj" in the "Agent w telefonie" row: pair BCM with the
@@ -3986,33 +4191,64 @@ class WebViewer:
 
         # --- Weather search API ---
 
+        def _owm_geocode(raw_query: Any):
+            """Shared by both searches. Errors are CODES, never exception
+            text: ``{"results": [], "error": "no_key" | "http" | "network"
+            | "bad_response", "http_code": 401}`` — the UI says "brak klucza
+            OWM" / "błąd 401 — zły albo nieaktywny klucz" instead of
+            nothing, and the request URL (it carries the key) can never end
+            up in a response. The outcome is recorded for Settings →
+            "Internet i usługi"."""
+            import urllib.parse
+            query = raw_query.strip() if isinstance(raw_query, str) else ""
+            if len(query) < 2:
+                return jsonify({"results": []})
+            query = query[:100]
+            api_key = viewer._config.get("weather.api_key", "") if viewer._config else ""
+            api_key = api_key.strip() if isinstance(api_key, str) else ""
+            if not api_key:
+                return jsonify({"results": [], "error": "no_key", "http_code": None}), 400
+            url = (f"https://api.openweathermap.org/geo/1.0/direct"
+                   f"?{urllib.parse.urlencode({'q': query, 'limit': 5, 'appid': api_key})}")
+            try:
+                code, body = _net_services.default_http("GET", url, {}, 5.0)
+            except Exception as e:
+                result, code = _net_services.classify_error(e)
+                _net_services.record("owm", result, code, source="search")
+                return jsonify({"results": [], "error": result, "http_code": code}), 502
+            if code is None or code >= 300:
+                _net_services.record("owm", "http", code, source="search")
+                return jsonify({"results": [], "error": "http",
+                                "http_code": _http_code(code)}), 502
+            try:
+                raw = json.loads((body or b"").decode("utf-8", "replace"))
+            except ValueError:
+                raw = None
+            if not isinstance(raw, list):
+                _net_services.record("owm", "bad_response", source="search")
+                return jsonify({"results": [], "error": "bad_response",
+                                "http_code": None}), 502
+            _net_services.record("owm", "ok", source="search")
+            results = []
+            for r in raw[:5]:
+                if not isinstance(r, dict):
+                    continue
+                coords = valid_coords(r.get("lat"), r.get("lon"))
+                if coords is None:
+                    continue
+                results.append({
+                    "name": str(r.get("name", ""))[:100],
+                    "country": str(r.get("country", ""))[:8],
+                    "state": str(r.get("state", "") or "")[:100],
+                    "lat": coords[0],
+                    "lon": coords[1],
+                })
+            return jsonify({"results": results})
+
         @app.route("/api/weather/search")
         def api_weather_search():
             """Geocode city name via OpenWeatherMap Geocoding API."""
-            import urllib.request
-            import urllib.parse
-            query = request.args.get("q", "").strip()
-            if not query or len(query) < 2:
-                return jsonify({"results": []})
-            api_key = ""
-            if viewer._config:
-                api_key = viewer._config.get("weather", {}).get("api_key", "")
-            if not api_key:
-                return jsonify({"results": [], "error": "no API key"}), 400
-            url = (f"https://api.openweathermap.org/geo/1.0/direct"
-                   f"?q={urllib.parse.quote(query)}&limit=5&appid={api_key}")
-            try:
-                req = urllib.request.Request(url, headers={"User-Agent": "BCM/1.0"})
-                with urllib.request.urlopen(req, timeout=5) as resp:
-                    raw = json.loads(resp.read())
-                results = [{"name": r.get("name", ""),
-                            "country": r.get("country", ""),
-                            "state": r.get("state", ""),
-                            "lat": r.get("lat", 0),
-                            "lon": r.get("lon", 0)} for r in raw]
-                return jsonify({"results": results})
-            except Exception as e:
-                return jsonify({"results": [], "error": str(e)}), 500
+            return _owm_geocode(request.args.get("q", ""))
 
         @app.route("/api/weather/location", methods=["POST"])
         def api_weather_set_location():
@@ -4043,36 +4279,11 @@ class WebViewer:
         def api_trip_search():
             """Geocode a city name for destination selection.
 
-            Reuses the OpenWeatherMap Geocoding API since BCM already
-            depends on it for weather search. Results share the same
-            shape as /api/weather/search.
+            Reuses the OpenWeatherMap Geocoding API (the OWM key, not the
+            ORS one) since BCM already depends on it for weather search.
+            Results share the same shape as /api/weather/search.
             """
-            import urllib.request
-            import urllib.parse
-            query = request.args.get("q", "").strip()
-            if not query or len(query) < 2:
-                return jsonify({"results": []})
-            api_key = ""
-            if viewer._config:
-                api_key = viewer._config.get("weather", {}).get("api_key", "")
-            if not api_key:
-                return jsonify({"results": [], "error": "no API key"}), 400
-            url = (f"https://api.openweathermap.org/geo/1.0/direct"
-                   f"?q={urllib.parse.quote(query)}&limit=5&appid={api_key}")
-            try:
-                req = urllib.request.Request(url, headers={"User-Agent": "BCM/1.0"})
-                with urllib.request.urlopen(req, timeout=5) as resp:
-                    raw = json.loads(resp.read())
-                results = [{
-                    "name": r.get("name", ""),
-                    "country": r.get("country", ""),
-                    "state": r.get("state", ""),
-                    "lat": r.get("lat", 0),
-                    "lon": r.get("lon", 0),
-                } for r in raw]
-                return jsonify({"results": results})
-            except Exception as e:
-                return jsonify({"results": [], "error": str(e)}), 500
+            return _owm_geocode(request.args.get("q", ""))
 
         @app.route("/api/trip/destination", methods=["POST"])
         def api_trip_set_destination():
@@ -4132,9 +4343,24 @@ class WebViewer:
                 "gps_lon": _last("gps.lon"),
                 "gps_fix": _last("gps.fix"),
                 "lte_connected": _last("lte.connected"),
+                "weather_status": _weather_status_summary(_last("weather.status")),
+                # Uplinks with the internet probe (None = module not running;
+                # internet None = modules.net_diag off).
+                "car_phone": {k: v for k, v in (_car_phone_summary(_last("net.car_phone"))
+                                                or {}).items()
+                              if k in ("state", "iface", "hint", "internet", "route_iface",
+                                       "internet_error")} or None,
+                "phone_tether": _phone_tether_summary(_last("net.phone_tether")),
+                "internet_probe": _net_probe.shared_probe().last,
+                # Presence only — never a key value.
+                "keys_set": _net_services.key_presence(viewer._config),
+                "service_results": _net_services.snapshot(),
                 "config_api_key_set": bool(viewer._config.get("weather", {}).get("api_key", "")) if viewer._config else False,
                 "config_platform": viewer._config.get("system", {}).get("platform", "?") if viewer._config else "?",
-                "hint": "If weather_current is null and api_key is set, check server logs for HTTP errors. New OWM keys take up to 2h to activate.",
+                "hint": ("weather_status.source=demo means no real data yet: last_error no_key = "
+                         "BCM_OWM_API_KEY missing in /etc/bcm/bcm.env, http 401 = wrong or not yet "
+                         "active key (new OWM keys take up to 2 h), network = no internet "
+                         "(see car_phone/phone_tether internet and internet_probe)."),
             })
 
         # --- Client-side logging ---
