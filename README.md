@@ -28,6 +28,9 @@ BCM v8.5 — custom head unit for Alfa Romeo 156 1.9 JTD 8V, built on a
 - **[`docs/PRZYGOTOWANIE_TELEFONU.md`](docs/PRZYGOTOWANIE_TELEFONU.md)** —
   telefon w aucie (Redmi Note 8 Pro, crDroid 13): ROM, Termux, agent BCM,
   „Zadzwoń 112”, alarm na postoju, czuwanie kabiny, jasność.
+- **[`docs/TRACCAR_SERWER.md`](docs/TRACCAR_SERWER.md)** — auto na mapie:
+  własny serwer Traccar (LXC w Proxmoxie albo Docker), nginx z HTTPS
+  (pozycje przez podkatalog, panel na subdomenie), Traccar Manager.
 - **Gdzie są ustawienia:** baza `config/bcm_config_test.yaml` (w gicie, BCM
   jej nie zmienia) → `config/local.yaml` (poza gitem; zmiany z ekranu, zapis
   atomowy) → `/etc/bcm/bcm.env` (sekrety: klucze API, sekret agenta; 0600
