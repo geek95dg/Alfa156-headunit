@@ -75,7 +75,16 @@ MODULES: dict[str, dict] = {
                     "entry": ("src.location.gps", "start_location"), "default": False},
     "tracking":    {"part": 12, "description": "GPS Route Logger (SQLite + GPX)",
                     "entry": ("src.location.tracker", "start_tracker"), "default": False},
-    "network":     {"part": 13, "description": "LTE/Cellular Connectivity",
+    # Partia 12: refuels entered on A3 ("Zatankowano") → consumption from
+    # full to full, cost, range (src/trip/fuel_log.py). Needs tracking: the
+    # GPS distance between fills when no odometer reading was entered. Off
+    # in code (production unchanged).
+    "fuel_log":    {"part": 12, "description": "Dziennik tankowań: spalanie od pełna do pełna, koszt, zasięg",
+                    "entry": ("src.trip.fuel_log", "start_fuel_log"), "default": False,
+                    "requires": ("tracking",),
+                    "hardware": "nic — litry (i opcjonalnie cena, licznik) wpisujesz na "
+                                "ekranie trasy (A3) po tankowaniu"},
+    "network":    {"part": 13, "description": "LTE/Cellular Connectivity",
                     "entry": ("src.network.lte", "start_network"), "default": False},
     # Off in code (production unchanged); this toggle is its only switch.
     # Needs bluetooth: it follows bt.connected from the BluetoothManager.
@@ -229,6 +238,13 @@ MODULES: dict[str, dict] = {
                      "legacy_key": "wifi.alfa_net.enabled", "default": False},
     "route_planner": {"part": 12, "description": "Travel plan (OpenRouteService/TomTom routing)",
                      "default": True},
+    # Partia 12: trip.* on A3 (distance, time, average speed) from GPS in
+    # --frontend mode, plus consumption/range from fuel_log when it runs.
+    # Started with the dashboard (no entry of its own). Off in code: it
+    # changes what production A3 shows.
+    "trip_gps":     {"part": 12, "description": "Komputer podróży z GPS (dystans, czas, średnia na ekranie trasy)",
+                     "default": False, "requires": ("location",),
+                     "hardware": "GPS (telefon albo odbiornik) — bez fixu pola pokazują „—”"},
     "small_display": {"part": 2,  "description": "4.3\" stats display server (port 5003)",
                      "default": True},
 

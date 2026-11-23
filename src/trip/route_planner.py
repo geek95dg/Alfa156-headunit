@@ -16,8 +16,16 @@ for a handful of waypoints spaced evenly along the route and match
 each waypoint to the forecast slot closest to the estimated ETA at
 that point.
 
-Fuel estimates are a simple linear calculation based on the live
-average consumption (L/100km) reported by :class:`TripComputer`.
+Fuel estimates are a simple linear calculation: the caller's average
+(:class:`TripComputer` with OBD), else the refuel log's average
+(``fuel.stats`` ``avg_l100_overall``, src/trip/fuel_log.py — the only real
+figure in the test car, which has no OBD), else 7.0 L/100 km. The plan says
+which (``fuel_l100`` / ``fuel_l100_source``: ``trip`` | ``log`` | ``default``).
+
+The weather manager comes from the constructor or, when main.py built the
+planner without one (it always did — route weather was always empty), from
+``weather._internals`` at plan time: the weather module may start before or
+after the planner.
 
 Design goals:
 - All network calls isolated behind the ``_http_get`` wrapper so tests
@@ -51,6 +59,12 @@ ORS_GEOCODE = "https://api.openrouteservice.org/geocode/search"
 TOMTOM_INCIDENTS = "https://api.tomtom.com/traffic/services/5/incidentDetails"
 
 
+#: Fallback consumption (diesel cruising, Alfa 156 1.9 JTD 8V).
+DEFAULT_L100 = 7.0
+#: A refuel-log average outside this range is not trusted for a plan.
+LOG_L100_MIN, LOG_L100_MAX = 2.0, 30.0
+
+
 # ---------------------------------------------------------------------- #
 # Pure helpers (no network)                                              #
 # ---------------------------------------------------------------------- #
@@ -66,7 +80,7 @@ def estimate_fuel(distance_km: float, avg_l100: float) -> float:
     if distance_km <= 0:
         return 0.0
     if avg_l100 <= 0:
-        avg_l100 = 7.0  # sane default
+        avg_l100 = DEFAULT_L100  # sane default
     return round(distance_km * avg_l100 / 100.0, 2)
 
 
@@ -256,9 +270,12 @@ class RoutePlanner:
         bbox = _bounding_box(geometry)
         incidents = self._fetch_incidents(bbox, errors) if self._tomtom_key else []
 
-        predicted_fuel = estimate_fuel(dist_km, avg_consumption)
+        l100, l100_source = self._consumption(avg_consumption)
+        predicted_fuel = estimate_fuel(dist_km, l100)
 
         return {
+            "fuel_l100": round(l100, 2),
+            "fuel_l100_source": l100_source,
             "approximate": bool(route.get("approximate")),
             "distance_km": round(dist_km, 1),
             "duration_min": round(duration_min, 1),
@@ -270,6 +287,28 @@ class RoutePlanner:
             "computed_at": time.time(),
             "service_errors": list(errors),
         }
+
+    def _consumption(self, avg_consumption: Any) -> tuple[float, str]:
+        """L/100 km for the fuel estimate and where it came from."""
+        if isinstance(avg_consumption, (int, float)) and not isinstance(avg_consumption, bool) \
+                and math.isfinite(avg_consumption) and avg_consumption > 0:
+            return float(avg_consumption), "trip"
+        last = self._bus.get_last("fuel.stats") if self._bus is not None else None
+        stats = last[0] if last and isinstance(last[0], dict) else {}
+        avg = stats.get("avg_l100_overall")
+        if isinstance(avg, (int, float)) and not isinstance(avg, bool) \
+                and math.isfinite(avg) and LOG_L100_MIN <= avg <= LOG_L100_MAX:
+            return float(avg), "log"
+        return DEFAULT_L100, "default"
+
+    def _weather_manager(self) -> Any:
+        """Constructor's manager, else the running one (weather._internals)."""
+        if self._weather is not None:
+            return self._weather
+        last = self._bus.get_last("weather._internals") if self._bus is not None else None
+        if last and isinstance(last[0], dict):
+            return last[0].get("manager")
+        return None
 
     # ------------------------------------------------------------------ #
     # ORS directions                                                     #
@@ -348,6 +387,7 @@ class RoutePlanner:
         if not samples:
             return []
         result: list[dict] = []
+        manager = self._weather_manager()
         for i, (lat, lon) in enumerate(samples):
             eta_min = (duration_min / max(1, len(samples) - 1)) * i
             entry = {
@@ -357,9 +397,9 @@ class RoutePlanner:
                 "temp": None,
                 "rain_mm": 0.0,
             }
-            if self._weather:
+            if manager is not None:
                 try:
-                    forecast = self._weather.forecast_at(lat, lon, eta_min)
+                    forecast = manager.forecast_at(lat, lon, eta_min)
                     if forecast:
                         entry.update({
                             "condition": forecast.get("condition", "unknown"),
@@ -367,10 +407,6 @@ class RoutePlanner:
                             "rain_mm": forecast.get("rain_mm", 0.0),
                             "icon": forecast.get("icon"),
                         })
-                except AttributeError:
-                    # WeatherManager doesn't implement forecast_at yet —
-                    # graceful degradation until Phase 13 adds it.
-                    pass
                 except Exception as e:
                     log.debug("forecast_at failed for %s,%s: %s", lat, lon, e)
             result.append(entry)

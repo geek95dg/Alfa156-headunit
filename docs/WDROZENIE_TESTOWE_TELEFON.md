@@ -726,9 +726,11 @@ loguje jedno ostrzeżenie, a Ustawienia proponują włączenie zależności.
 | `phone_status` | bateria, zasięg, operator w pasku | `bluetooth` | telefon przez BT (oFono) | wył. | wł. |
 | `weather` | pogoda (OpenWeatherMap) | — | internet, `BCM_OWM_API_KEY` | wł. | wł. |
 | `route_planner` | planer tras (OpenRouteService) | — | internet, `BCM_ORS_API_KEY` | wł. | wł. |
+| `trip_gps` | komputer podróży z GPS na ekranie trasy: dystans, czas, średnia prędkość (§9.6) | `location` | GPS z telefonu albo odbiornika | wył. | wł. |
 | `net_diag` | sonda internetu w `car_phone`/`phone_tether` i wiersz „Internet i usługi” z testem kluczy (§10.1) | — | klucze w `bcm.env` | wył. | wł. |
 | `location` | pozycja GPS (NMEA z telefonu) | — | telefon z aplikacją NMEA | wył. | wł. |
 | `tracking` | zapis tras (SQLite) i GPX | — | pozycja z `location` | wył. | wł. |
+| `fuel_log` | dziennik tankowań: spalanie od pełna do pełna, koszt, zasięg (§9.6) | `tracking` | nic — wpis na ekranie trasy | wył. | wł. |
 | `crash_detect` | wykrywanie stłuczki, ochrona nagrań | `location` | GPS; pełne z `phone_sensors` | wył. | wł. |
 | `car_phone` | telefon w aucie: internet USB, GPS, bateria, zegar | — | Redmi na USB (adb), autoapp z `BCM_AA_USB=0` | wył. | wył. |
 | `car_phone_hotspot` | stan hotspotu telefonu w aucie | `car_phone` | hotspot w Redmi | wył. | wył. |
@@ -905,6 +907,50 @@ ciemnieje. Log:
 ```bash
 sudo journalctl -u bcm-headunit -b | grep -i brightness
 ```
+
+### 9.6 Tankowania i spalanie (`modules.fuel_log`)
+
+Auto nie ma OBD z przepływem paliwa, więc spalanie liczy BCM z tego, co
+wpiszesz po tankowaniu. Ekran trasy (A3): pod
+nagłówkiem „Tankowania” duży przycisk „Zatankowano”. W okienku:
+
+- **Litry** — wymagane, z paragonu (np. `45,5`; przecinek albo kropka są
+  na klawiaturze ekranowej).
+- **Cena za litr** — opcjonalnie; bez niej nie ma kosztu na 100 km.
+- **Licznik** — opcjonalnie. Bez licznika dystans między tankowaniami
+  bierze się z zapisanych tras GPS. GPS zaniża dystans o kilka procent
+  (punkty co kilka sekund, początek jazdy przed złapaniem pozycji), więc
+  gdy czasem wpiszesz licznik przy dwóch kolejnych tankowaniach do pełna,
+  BCM wyliczy z tego poprawkę (najwyżej ±10 %) i zastosuje ją do przedziałów
+  bez licznika.
+- **Do pełna** — domyślnie włączone. Tankuj do pierwszego odbicia
+  pistoletu i zostaw włączone; przy tankowaniu „za 100 zł” wyłącz. Spalanie
+  liczy się tylko między DWOMA tankowaniami do pełna (litry drugiego plus
+  częściowe pomiędzy, podzielone przez dystans), dlatego po pierwszym wpisie
+  ekran pisze „brak danych do spalania — zatankuj do pełna jeszcze raz”.
+
+Panel pokazuje średnie spalanie (ze wszystkich przedziałów), ostatni
+przedział, koszt na 100 km, kilometry od ostatniego pełnego baku i zasięg
+szacowany z pojemności baku (`fuel_sender.tank_capacity_litres`, 58 l).
+Ta sama średnia trafia do planu podróży (paliwo na trasę „wg tankowań”
+zamiast stałych 7 l/100 km). „Usuń ostatnie” cofa literówkę (tylko
+najnowszy wpis). Historia jest też na `http://<IP bnep0>:5002/trips`
+(tabela „Tankowania”).
+
+Gdy po kilku tankowaniach do pełna wciąż nie ma średniej, panel mówi
+dlaczego: „brak dystansu — wpisz stan licznika przy następnym tankowaniu”
+(nie było GPS ani licznika) albo „odcinki pominięte” (za krótkie lub
+nierealne). Plik `data/fuel_log.db` ma prawa 0600 (zapisuje też miejsce
+tankowania).
+
+Dystans, czas i średnią prędkość bieżącej jazdy na A3 liczy osobny moduł
+`trip_gps` (wymaga `location`); spalanie i zasięg w tych polach bierze
+z dziennika tankowań. Bez GPS albo bez `fuel_log` pola pokazują „—”.
+
+- [ ] Po wpisie panel pokazuje go na liście; po drugim tankowaniu do pełna
+      — spalanie w l/100 km.
+- [ ] Przedział krótszy niż 20 km albo spalanie poza 2–30 l/100 km jest
+      na liście oznaczone „pominięte” i nie psuje średniej.
 
 ---
 

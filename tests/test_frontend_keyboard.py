@@ -98,7 +98,7 @@ def test_layout_on_the_car_panel():
     348 px panel (58%), 252 px left above it."""
     res = _eval(layouts=[[600, 6], [600, 7], [480, 7]])
     assert res["rows"] == 6
-    assert res["keys"] == 50
+    assert res["keys"] == 52      # 10 + 10 + 10 (with ".") + 10 (with ",") + 9 + 3
     assert res["layouts"][0] == {"height": 348, "pad": 7, "gap": 6, "rowH": 50, "font": 23}
     assert res["layouts"][1]["rowH"] == 42
     assert res["layouts"][2]["rowH"] == 34

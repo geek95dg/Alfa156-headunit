@@ -121,6 +121,9 @@ html {
  * on the page. The 4 px over the 12 px margin absorb rounding: scrollHeight
  * and scrollTop are whole pixels, the rem-sized content is not. */
 body.osk-open .content-area { padding-bottom: calc(var(--osk-h, 58vh) + 16px); }
+/* The same for the refuel form on A3 (trip.js, #fuel-modal): a fixed layer
+ * that scrolls on its own, so its fields can be lifted above the keys. */
+body.osk-open .fuel-modal-scroll { padding-bottom: calc(var(--osk-h, 58vh) + 16px) !important; }
 
 /* Android Auto note: the captured autoapp stream is an <img> filling
  * absolute inset-0, so the rem bump above doesn't change its

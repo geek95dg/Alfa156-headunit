@@ -106,6 +106,7 @@ class GPSTracker:
 
         self._running = False
         self._lock = threading.Lock()
+        self._pending_trip_ended: list = []
         self._in_trip = False
         self._trip_id = 0
         self._last_log_ts: Optional[float] = None   # monotonic
@@ -192,6 +193,7 @@ class GPSTracker:
                 if self._db_error_logged_at is None or now - self._db_error_logged_at >= 60:
                     self._db_error_logged_at = now
                     log.warning("GPS tracker: database error: %s", e)
+        self._flush_trip_ended()
 
     def _handle_position(self, pos, lat, lon):
         now = self._clock()
@@ -246,10 +248,22 @@ class GPSTracker:
         log.info("Trip %d ended: %.1f km, avg %.0f km/h, max %.0f km/h",
                  self._trip_id, stats.get("distance_km", 0),
                  stats.get("avg_speed", 0), stats.get("max_speed", 0))
-        self.bus.publish("tracking.trip_ended", {"trip_id": self._trip_id, **stats})
+        # Published by the caller after it releases self._lock: a subscriber
+        # on a synchronous bus (fuel log, tests) may call back into the
+        # tracker (distance_between) and would deadlock on the plain Lock.
+        self._pending_trip_ended.append({"trip_id": self._trip_id, **stats})
         self._in_trip = False
         self._idle_since = None
         self._trip_id += 1
+
+    def _flush_trip_ended(self):
+        """Publish ``tracking.trip_ended`` queued by _close_trip (lock released)."""
+        while self._pending_trip_ended:
+            try:
+                payload = self._pending_trip_ended.pop(0)
+            except IndexError:
+                return
+            self.bus.publish("tracking.trip_ended", payload)
 
     def tick(self):
         """Close the open trip after ``no_fix_close_sec`` without a position.
@@ -276,6 +290,7 @@ class GPSTracker:
                 self._close_trip(last if last is not None else self._wall())
             except sqlite3.Error as e:
                 log.warning("GPS tracker: closing trip %d failed: %s", self._trip_id, e)
+        self._flush_trip_ended()
 
     def _tick_loop(self):
         while not self._stop_evt.wait(TICK_SEC):
@@ -311,6 +326,43 @@ class GPSTracker:
             if self._db is None:
                 return {}
             return self._compute_stats(trip_id or self._trip_id)
+
+    def distance_between(self, start_ts: Any, end_ts: Any = None) -> Optional[float]:
+        """GPS kilometres of the trips that STARTED in ``[start_ts, end_ts)``.
+
+        For the fuel log (src/trip/fuel_log.py): the distance between two
+        refuels when no odometer was entered. A trip is counted whole by its
+        start (refuelling happens parked, after the tracker closed the trip),
+        ``end_ts`` None = up to now, including the trip still open (its
+        statistics computed live from its points). None when the database
+        is gone (module stopping) or a bound is not a number.
+        """
+        start = _finite(start_ts)
+        end = _finite(end_ts) if end_ts is not None else None
+        if start is None or (end_ts is not None and end is None):
+            return None
+        with self._lock:
+            if self._db is None:
+                return None
+            if end is None:
+                row = self._db.execute(
+                    "SELECT COALESCE(SUM(distance_km), 0) FROM trips"
+                    " WHERE start_ts >= ? AND distance_km IS NOT NULL",
+                    (start,)).fetchone()
+            else:
+                row = self._db.execute(
+                    "SELECT COALESCE(SUM(distance_km), 0) FROM trips"
+                    " WHERE start_ts >= ? AND start_ts < ? AND distance_km IS NOT NULL",
+                    (start, end)).fetchone()
+            total = float(row[0] or 0.0)
+            if self._in_trip:
+                # The open trip has no distance_km yet (set when it closes).
+                open_start = self._db.execute(
+                    "SELECT start_ts FROM trips WHERE id=?", (self._trip_id,)).fetchone()
+                if open_start and open_start[0] is not None and open_start[0] >= start \
+                        and (end is None or open_start[0] < end):
+                    total += float(self._compute_stats(self._trip_id).get("distance_km", 0.0))
+        return round(total, 3)
 
     @staticmethod
     def _trip_row(r):
@@ -415,6 +467,7 @@ class GPSTracker:
             if self._db:
                 self._db.close()
                 self._db = None
+        self._flush_trip_ended()
 
 
 def start_tracker(config=None, event_bus=None, hal=None, **kwargs):

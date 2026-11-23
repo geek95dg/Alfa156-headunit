@@ -1,6 +1,10 @@
 /**
- * A2 Trip Screen — Trip statistics, consumption chart with scales and driving profile.
- * Everything fits in 800x480 — no scrolling.
+ * A3 Trip Screen — current trip from GPS (trip.* from src/trip/gps_trip_feed.py)
+ * and the refuel log (data.fuel_log, src/trip/fuel_log.py): consumption from
+ * full to full, cost, range, the last refuels and the big "Zatankowano"
+ * button with its entry form. The consumption chart that used to sit here
+ * drew made-up numbers (there is no OBD fuel rate in the car) — the refuel
+ * panel replaced it. Without OBD there is no instant consumption: "—".
  */
 
 App.registerScreen("a3", (() => {
@@ -25,17 +29,353 @@ App.registerScreen("a3", (() => {
         else if (theme === "modern") container.innerHTML = _renderModern(data);
         else if (theme === "autodelta") container.innerHTML = _renderAutodelta(data);
         else container.innerHTML = _renderHeritage(data);
+        _fuelKey = null;
+        _refreshFuelPanel(data);
         _renderTravelPlanOverlay(data);
     }
 
     function update(data) {
-        _updateEl("trip-dist", (data.trip_distance || 0).toFixed(1));
-        _updateEl("trip-avg-speed", Math.round(data.avg_speed || 0));
+        _updateEl("trip-dist", _fmt(data.trip_distance || 0, 1));
+        _updateEl("trip-avg-speed", _fmt(data.avg_speed || 0, 0));
         _updateEl("trip-time", data.trip_time || "00:00");
-        _updateEl("trip-avg-cons", (data.avg_consumption || 0).toFixed(1));
-        _updateEl("trip-range", Math.round(data.estimated_range || 0));
-        _updateEl("trip-instant", (data.instant_consumption || 0).toFixed(1));
+        _updateEl("trip-avg-cons", _fmt(data.avg_consumption, 1));
+        _updateEl("trip-range", _fmt(data.estimated_range, 0));
+        _updateEl("trip-instant", _fmt(data.instant_consumption, 1));
+        _refreshFuelPanel(data);
         _refreshTravelPlan(data);
+    }
+
+    /** Number → fixed text, "—" when there is no value (null = no source:
+     *  no refuel log yet, no OBD). Never a made-up 0. */
+    function _fmt(v, digits) {
+        return (typeof v === "number" && isFinite(v)) ? v.toFixed(digits) : "—";
+    }
+
+    function _tr(k, d) {
+        return (typeof App !== "undefined" && App.t ? App.t(k, d) : d);
+    }
+
+    // --- Refuel log panel + "Zatankowano" form ---------------------------
+
+    let _fuelKey = null;
+    let _fuelMsg = "";
+    let _fuelMsgTimer = null;
+    // Set after a 400 odometer_backwards: the next "Zapisz" confirms it.
+    let _confirmOdometer = false;
+    let _fuelBusy = false;
+
+    function _pal(theme) {
+        if (theme === "modern") {
+            return { card: "#ffffff", tile: "#f1f5f9", border: "#cbd5e1", text: "#0f172a",
+                     dim: "#64748b", accent: "#005596", onAccent: "#ffffff", warn: "#b45309" };
+        }
+        if (theme === "autodelta") {
+            return { card: "rgba(24,24,27,0.5)", tile: "#09090b", border: "#3f3f46", text: "#ffffff",
+                     dim: "#a1a1aa", accent: "#FF5F00", onAccent: "#ffffff", warn: "#fcd34d" };
+        }
+        return { card: "rgba(24,24,27,0.5)", tile: "rgba(9,9,11,0.6)", border: "#3f3f46",
+                 text: "#f4f4f5", dim: "#a1a1aa", accent: "#f59e0b", onAccent: "#1a0f0a",
+                 warn: "#fcd34d" };
+    }
+
+    function _theme() {
+        return (typeof App !== "undefined" && App.getTheme) ? App.getTheme() : "heritage";
+    }
+
+    function _shortDate(ts) {
+        if (typeof ts !== "number" || !isFinite(ts)) return "—";
+        const d = new Date(ts * 1000);
+        const p = (n) => String(n).padStart(2, "0");
+        return `${p(d.getDate())}.${p(d.getMonth() + 1)} ${p(d.getHours())}:${p(d.getMinutes())}`;
+    }
+
+    /** Inner HTML of the panel. Every value is a number from
+     *  _fuel_log_summary formatted here, or a fixed string; still escaped. */
+    function _fuelPanelHtml(fl, theme) {
+        const c = _pal(theme);
+        fl = (fl && typeof fl === "object") ? fl : {};
+        if (!fl.enabled) {
+            return `<div data-fuel-state="off" style="font-size:12px;color:${c.dim};padding:6px 2px;">
+                        ${_esc(_tr("fuel_off", "dziennik tankowań wyłączony (Ustawienia → Moduły → fuel_log)"))}</div>`;
+        }
+        if (!fl.running) {
+            // Toggle is on but the module did not start (tracking off, start
+            // failed): pointing at the fuel_log toggle would send the driver in circles.
+            return `<div data-fuel-state="blocked" style="font-size:12px;color:${c.dim};padding:6px 2px;">
+                        ${_esc(_tr("fuel_not_running", "dziennik tankowań nie działa — wymaga modułu tracking (Ustawienia → Moduły)"))}</div>`;
+        }
+        const tile = (label, value, unit, attr) => `
+            <div ${attr || ""} style="flex:1;min-width:0;background:${c.tile};border:1px solid ${c.border};border-radius:8px;padding:4px 6px;">
+                <div style="font-size:9px;color:${c.dim};text-transform:uppercase;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${_esc(label)}</div>
+                <div style="font-size:16px;font-weight:800;color:${c.text};white-space:nowrap;">${_esc(value)} <span style="font-size:9px;color:${c.dim};">${_esc(unit)}</span></div>
+            </div>`;
+        const tiles = [
+            tile(_tr("fuel_avg_overall", "średnio"), _fmt(fl.avg_l100_overall, 1), "l/100", 'data-fuel-avg'),
+            tile(_tr("fuel_avg_last", "ostatnio"), _fmt(fl.avg_l100_last, 1), "l/100"),
+            tile(_tr("fuel_cost100", "koszt / 100 km"), _fmt(fl.cost_per_100km, 2), "zł"),
+            tile(_tr("fuel_since_full", "od pełna"), _fmt(fl.km_since_full, 0), "km"),
+            tile(_tr("fuel_range_est", "zasięg (szac.)"), _fmt(fl.est_range_km, 0), "km", 'data-fuel-range'),
+        ].join("");
+        let status = "";
+        if (fl.status === "empty") status = _tr("fuel_empty", "brak tankowań — po tankowaniu naciśnij „Zatankowano”");
+        else if (fl.status === "need_second_full") status = _tr("fuel_need_full", "brak danych do spalania — zatankuj do pełna jeszcze raz");
+        else if (fl.status === "need_first_full") status = _tr("fuel_need_first_full", "brak tankowania do pełna — spalanie liczy się od pełnego baku");
+        else if (fl.status === "no_distance") status = _tr("fuel_no_distance", "brak dystansu — wpisz stan licznika przy następnym tankowaniu");
+        else if (fl.status === "intervals_skipped") status = _tr("fuel_intervals_skipped", "odcinki pominięte (za krótkie lub nierealne spalanie) — zatankuj do pełna po dłuższej jeździe");
+        const recent = Array.isArray(fl.recent) ? fl.recent.slice(0, 5) : [];
+        const rows = recent.map((r) => {
+            const iv = r.interval || null;
+            let ivText = "";
+            if (iv && typeof iv.l100 === "number") {
+                const src = iv.source === "odometer" ? _tr("fuel_src_odometer", "licznik")
+                    : (iv.source === "gps" ? _tr("fuel_src_gps", "GPS") : "");
+                ivText = `${_fmt(iv.l100, 1)} l/100 · ${_fmt(iv.km, 0)} km${src ? " (" + src + ")" : ""}`
+                    + (typeof iv.cost === "number" ? ` · ${_fmt(iv.cost, 2)} zł` : "")
+                    + (iv.usable ? "" : ` · ${_tr("fuel_skipped", "pominięte")}`);
+            } else if (!r.full) {
+                ivText = _tr("fuel_partial", "częściowe");
+            }
+            return `<div data-fuel-row="${_esc(r.id)}" style="display:flex;gap:8px;align-items:baseline;font-size:11px;color:${c.text};padding:2px 0;border-top:1px solid ${c.border};">
+                        <span style="color:${c.dim};min-width:72px;">${_esc(_shortDate(r.ts))}</span>
+                        <span style="font-weight:700;min-width:54px;">${_esc(_fmt(r.litres, 2))} l</span>
+                        <span style="color:${c.dim};min-width:56px;">${typeof r.price_per_l === "number" ? _esc(_fmt(r.price_per_l, 2)) + " zł/l" : ""}</span>
+                        <span style="flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${_esc(ivText)}</span>
+                    </div>`;
+        }).join("");
+        const last = recent.length ? recent[0] : null;
+        const delBtn = (last && !fl.read_only)
+            ? `<button type="button" data-fuel-action="delete" data-fuel-id="${_esc(last.id)}" data-fuel-litres="${_esc(_fmt(last.litres, 2))}"
+                       style="min-height:44px;padding:0 12px;border-radius:10px;border:1px solid ${c.border};background:transparent;color:${c.dim};font-size:12px;font-weight:700;cursor:pointer;">
+                   ${_esc(_tr("fuel_delete_last", "Usuń ostatnie"))}</button>`
+            : "";
+        return `
+            <div style="display:flex;gap:6px;">${tiles}</div>
+            ${status ? `<div data-fuel-status="${_esc(fl.status)}" style="font-size:11px;color:${c.warn};">${_esc(status)}</div>` : ""}
+            <div data-fuel-list style="display:flex;flex-direction:column;">${rows}</div>
+            ${_fuelMsg ? `<div data-fuel-msg style="font-size:11px;color:${c.warn};">${_esc(_fuelMsg)}</div>` : ""}
+            <div style="display:flex;gap:8px;align-items:center;margin-top:auto;">
+                <button type="button" data-fuel-action="refuel" ${fl.read_only ? "disabled" : ""}
+                        style="flex:1;min-height:52px;border-radius:12px;border:none;background:${c.accent};color:${c.onAccent};font-size:18px;font-weight:800;display:flex;align-items:center;justify-content:center;gap:8px;cursor:pointer;">
+                    <span class="material-symbols-outlined" style="font-size:24px;">local_gas_station</span>${_esc(_tr("fuel_refuel_btn", "Zatankowano"))}
+                </button>
+                ${delBtn}
+            </div>`;
+    }
+
+    function _fuelPanelSlot(data, theme) {
+        return `<div data-fuel-panel style="flex:1;min-height:0;overflow-y:auto;display:flex;flex-direction:column;gap:6px;">
+                    ${_fuelPanelHtml(data.fuel_log, theme)}</div>`;
+    }
+
+    function _refreshFuelPanel(data) {
+        const panel = document.querySelector("[data-fuel-panel]");
+        if (!panel) return;
+        _bindFuelPanel(panel);
+        const key = JSON.stringify([data.fuel_log || null, _fuelMsg, _theme()]);
+        if (key === _fuelKey) return;
+        _fuelKey = key;
+        panel.innerHTML = _fuelPanelHtml(data.fuel_log, _theme());
+    }
+
+    function _bindFuelPanel(panel) {
+        if (!panel || panel.dataset.fuelBound === "1") return;
+        panel.dataset.fuelBound = "1";
+        panel.addEventListener("click", (e) => {
+            const btn = e.target && e.target.closest ? e.target.closest("[data-fuel-action]") : null;
+            if (!btn || btn.disabled) return;
+            if (btn.dataset.fuelAction === "refuel") _openRefuelForm();
+            else if (btn.dataset.fuelAction === "delete") {
+                _confirmDelete(Number(btn.dataset.fuelId), btn.dataset.fuelLitres || "");
+            }
+        });
+    }
+
+    function _say(msg) {
+        _fuelMsg = msg || "";
+        _fuelKey = null;
+        if (_fuelMsgTimer) clearTimeout(_fuelMsgTimer);
+        if (_fuelMsg) {
+            _fuelMsgTimer = setTimeout(() => {
+                _fuelMsg = "";
+                _fuelKey = null;
+                _refreshFuelPanel(DataStore.getAll());
+            }, 8000);
+        }
+        _refreshFuelPanel(DataStore.getAll());
+    }
+
+    function _closeFuelModal() {
+        const el = document.getElementById("fuel-modal");
+        if (el) el.remove();
+        if (typeof OnScreenKeyboard !== "undefined" && OnScreenKeyboard.close) {
+            try { OnScreenKeyboard.close(); } catch (e) { /* not open */ }
+        }
+    }
+
+    /** Fixed full-screen layer under the on-screen keyboard (z-index 150 <
+     *  200) that scrolls: themes.css pads .fuel-modal-scroll by the keyboard
+     *  height while it is open, so keyboard.js can lift the focused field
+     *  above the keys. */
+    function _modalShell(inner) {
+        _closeFuelModal();
+        const el = document.createElement("div");
+        el.id = "fuel-modal";
+        el.className = "fuel-modal-scroll";
+        el.setAttribute("role", "dialog");
+        el.setAttribute("aria-modal", "true");
+        el.style.cssText = "position:fixed;inset:0;z-index:150;background:rgba(0,0,0,0.8);"
+            + "overflow-y:auto;padding:12px 16px;box-sizing:border-box;";
+        el.innerHTML = `<div style="max-width:820px;margin:0 auto;background:#18181b;border:1px solid #3f3f46;border-radius:16px;padding:14px 16px;color:#f4f4f5;font-family:inherit;">${inner}</div>`;
+        document.body.appendChild(el);
+        return el;
+    }
+
+    function _field(name, label, hint) {
+        return `<label style="display:flex;flex-direction:column;gap:4px;flex:1;min-width:0;">
+                    <span style="font-size:14px;color:#d4d4d8;font-weight:700;">${_esc(label)}${hint ? ` <span style="font-weight:400;color:#a1a1aa;font-size:12px;">(${_esc(hint)})</span>` : ""}</span>
+                    <input data-fuel-field="${name}" type="text" inputmode="decimal" autocomplete="off" maxlength="10"
+                           style="height:56px;font-size:26px;font-weight:700;padding:0 12px;border-radius:10px;border:2px solid #52525b;background:#09090b;color:#ffffff;width:100%;box-sizing:border-box;outline:none;">
+                </label>`;
+    }
+
+    function _openRefuelForm() {
+        _confirmOdometer = false;
+        const el = _modalShell(`
+            <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;">
+                <span class="material-symbols-outlined" style="color:#f59e0b;font-size:26px;">local_gas_station</span>
+                <h2 style="font-size:20px;font-weight:800;margin:0;">${_esc(_tr("fuel_refuel_btn", "Zatankowano"))}</h2>
+            </div>
+            <div style="display:flex;gap:12px;">
+                ${_field("litres", _tr("fuel_litres", "Litry"), "")}
+                ${_field("price_per_l", _tr("fuel_price", "Cena za litr (zł)"), _tr("fuel_optional", "opcjonalnie"))}
+                ${_field("odometer_km", _tr("fuel_odometer", "Licznik (km)"), _tr("fuel_optional", "opcjonalnie"))}
+            </div>
+            <div style="display:flex;align-items:center;gap:12px;margin-top:12px;">
+                <button type="button" data-fuel-full role="switch" aria-checked="true"
+                        style="min-height:52px;min-width:150px;padding:0 14px;border-radius:26px;border:2px solid #16a34a;background:#14532d;color:#ffffff;font-size:17px;font-weight:800;display:flex;align-items:center;gap:8px;cursor:pointer;">
+                    <span class="material-symbols-outlined" data-fuel-full-icon style="font-size:24px;">toggle_on</span>${_esc(_tr("fuel_full", "Do pełna"))}
+                </button>
+                <span style="font-size:12px;color:#a1a1aa;line-height:1.3;">${_esc(_tr("fuel_full_hint", "Do pełna = do pierwszego odbicia pistoletu. Spalanie liczy się tylko między dwoma takimi tankowaniami."))}</span>
+            </div>
+            <div data-fuel-form-msg style="min-height:18px;font-size:13px;color:#fca5a5;margin-top:8px;"></div>
+            <div style="display:flex;gap:12px;margin-top:8px;">
+                <button type="button" data-fuel-cancel style="flex:1;min-height:60px;border-radius:12px;border:1px solid #52525b;background:#27272a;color:#e4e4e7;font-size:18px;font-weight:700;cursor:pointer;">${_esc(_tr("fuel_cancel", "Anuluj"))}</button>
+                <button type="button" data-fuel-save style="flex:2;min-height:60px;border-radius:12px;border:none;background:#f59e0b;color:#1a0f0a;font-size:20px;font-weight:800;cursor:pointer;">${_esc(_tr("fuel_save", "Zapisz"))}</button>
+            </div>`);
+        const full = el.querySelector("[data-fuel-full]");
+        full.addEventListener("click", () => {
+            const on = full.getAttribute("aria-checked") !== "true";
+            full.setAttribute("aria-checked", on ? "true" : "false");
+            full.style.background = on ? "#14532d" : "#27272a";
+            full.style.borderColor = on ? "#16a34a" : "#52525b";
+            const icon = full.querySelector("[data-fuel-full-icon]");
+            if (icon) icon.textContent = on ? "toggle_on" : "toggle_off";
+        });
+        el.querySelector("[data-fuel-cancel]").addEventListener("click", _closeFuelModal);
+        el.querySelector("[data-fuel-save]").addEventListener("click", _saveRefuel);
+        // Any edit of the odometer withdraws an earlier "save anyway".
+        el.querySelector('[data-fuel-field="odometer_km"]').addEventListener("input", () => {
+            _confirmOdometer = false;
+        });
+        const litres = el.querySelector('[data-fuel-field="litres"]');
+        if (litres) litres.focus();
+    }
+
+    const _FUEL_ERRORS = {
+        litres_required: ["fuel_err_litres_required", "Wpisz litry"],
+        litres_range: ["fuel_err_litres_range", "Litry: od 1 do 120"],
+        price_range: ["fuel_err_price_range", "Cena: od 0,01 do 30 zł"],
+        odometer_range: ["fuel_err_odometer_range", "Licznik: od 0 do 2 000 000 km"],
+        odometer_backwards: ["fuel_err_odometer_backwards", "Licznik mniejszy niż przy poprzednim tankowaniu — naciśnij „Zapisz” jeszcze raz, żeby zapisać mimo to"],
+        not_last: ["fuel_err_not_last", "Można usunąć tylko ostatnie tankowanie"],
+    };
+
+    function _errorText(status, code) {
+        if (status === 429) return _tr("fuel_err_busy", "Za szybko — spróbuj za chwilę");
+        if (status === 403) return _tr("fuel_err_kiosk", "Tylko z ekranu w aucie");
+        const e = _FUEL_ERRORS[code];
+        return e ? _tr(e[0], e[1]) : _tr("fuel_err_other", "Nie udało się zapisać");
+    }
+
+    async function _saveRefuel() {
+        const el = document.getElementById("fuel-modal");
+        if (!el || _fuelBusy) return;
+        const val = (n) => {
+            const f = el.querySelector(`[data-fuel-field="${n}"]`);
+            const v = f ? String(f.value || "").trim() : "";
+            return v === "" ? null : v;
+        };
+        const msg = el.querySelector("[data-fuel-form-msg]");
+        const body = {
+            litres: val("litres"),
+            price_per_l: val("price_per_l"),
+            odometer_km: val("odometer_km"),
+            full: el.querySelector("[data-fuel-full]").getAttribute("aria-checked") === "true",
+        };
+        if (body.litres === null) {
+            msg.textContent = _tr("fuel_err_litres_required", "Wpisz litry");
+            return;
+        }
+        if (_confirmOdometer) body.confirm_odometer = true;
+        _fuelBusy = true;
+        let status = 0;
+        let json = {};
+        try {
+            const r = await fetch("/api/fuel/refuel", {
+                method: "POST", headers: { "Content-Type": "application/json" },
+                body: JSON.stringify(body),
+            });
+            status = r.status;
+            try { json = await r.json(); } catch (e) { json = {}; }
+        } catch (e) {
+            status = 0;
+        } finally {
+            _fuelBusy = false;
+        }
+        if (status === 201) {
+            _closeFuelModal();
+            const warn = Array.isArray(json.warnings) && json.warnings.includes("litres_over_tank")
+                ? " — " + _tr("fuel_warn_over_tank", "uwaga: więcej litrów, niż mieści bak") : "";
+            _say(_tr("fuel_saved", "Zapisano tankowanie") + warn);
+            return;
+        }
+        const code = json && typeof json.error === "string" ? json.error : "";
+        if (code === "odometer_backwards") _confirmOdometer = true;
+        if (msg) msg.textContent = _errorText(status, code);
+    }
+
+    function _confirmDelete(id, litres) {
+        if (!Number.isInteger(id) || id < 1) return;
+        const el = _modalShell(`
+            <div style="font-size:18px;font-weight:700;margin:4px 0 14px 0;">${_esc(_tr("fuel_delete_confirm", "Usunąć ostatnie tankowanie ({litres} l)?").replace("{litres}", litres))}</div>
+            <div data-fuel-form-msg style="min-height:18px;font-size:13px;color:#fca5a5;"></div>
+            <div style="display:flex;gap:12px;margin-top:8px;">
+                <button type="button" data-fuel-cancel style="flex:1;min-height:60px;border-radius:12px;border:1px solid #52525b;background:#27272a;color:#e4e4e7;font-size:18px;font-weight:700;cursor:pointer;">${_esc(_tr("fuel_cancel", "Anuluj"))}</button>
+                <button type="button" data-fuel-delete-yes style="flex:1;min-height:60px;border-radius:12px;border:none;background:#b91c1c;color:#ffffff;font-size:18px;font-weight:800;cursor:pointer;">${_esc(_tr("fuel_delete_yes", "Usuń"))}</button>
+            </div>`);
+        el.querySelector("[data-fuel-cancel]").addEventListener("click", _closeFuelModal);
+        el.querySelector("[data-fuel-delete-yes]").addEventListener("click", async () => {
+            if (_fuelBusy) return;
+            _fuelBusy = true;
+            let status = 0;
+            let json = {};
+            try {
+                const r = await fetch(`/api/fuel/refuel/${id}`, { method: "DELETE" });
+                status = r.status;
+                try { json = await r.json(); } catch (e) { json = {}; }
+            } catch (e) {
+                status = 0;
+            } finally {
+                _fuelBusy = false;
+            }
+            if (status === 200) {
+                _closeFuelModal();
+                _say("");
+                return;
+            }
+            const m = el.querySelector("[data-fuel-form-msg]");
+            if (m) m.textContent = _errorText(status, json && json.error);
+        });
     }
 
     function _updateEl(id, text) {
@@ -87,6 +427,7 @@ App.registerScreen("a3", (() => {
             p.distance_km || 0,
             p.eta_min || 0,
             p.predicted_fuel_l || 0,
+            p.fuel_source || "",
             (p.weather_points || []).length,
             (p.incidents || []).length,
             !!data.trip_planning,
@@ -261,6 +602,9 @@ App.registerScreen("a3", (() => {
                 <div style="background:rgba(24,24,27,0.6);border:1px solid #27272a;border-radius:8px;padding:8px;">
                     <div style="font-size:9px;color:#71717a;text-transform:uppercase;">Fuel</div>
                     <div style="font-size:18px;font-weight:800;color:#f59e0b;">${fuel} <span style="font-size:10px;color:#71717a;">l</span></div>
+                    ${plan.fuel_source === "log" || plan.fuel_source === "default"
+                        ? `<div data-trip-fuel-src="${plan.fuel_source}" style="font-size:9px;color:#a1a1aa;">${_esc(plan.fuel_source === "log"
+                            ? _tr("trip_fuel_src_log", "wg tankowań") : _tr("trip_fuel_src_default", "szacunek 7 l/100 km"))}</div>` : ""}
                 </div>
             </div>
             <div>
@@ -494,56 +838,23 @@ App.registerScreen("a3", (() => {
     /** Driving profile based on consumption */
     function _drivingProfile(avgCons) {
         const t = App.t.bind(App);
+        // No consumption source (no refuel log yet): no verdict either.
+        if (!isFinite(avgCons)) return { label: "—", color: "text-blue-400", bg: "bg-blue-900/30", icon: "speed" };
         if (avgCons < 5) return { label: t("eco"), color: "text-green-400", bg: "bg-green-900/30", icon: "eco" };
         if (avgCons < 7) return { label: t("normal"), color: "text-blue-400", bg: "bg-blue-900/30", icon: "speed" };
         if (avgCons < 10) return { label: t("dynamic"), color: "text-amber-400", bg: "bg-amber-900/30", icon: "bolt" };
         return { label: t("sport"), color: "text-red-400", bg: "bg-red-900/30", icon: "local_fire_department" };
     }
 
-    /** Bar chart with Y-axis scale and time labels */
-    function _chartWithScale(values, labels, theme, maxY) {
-        const yLabels = [maxY, Math.round(maxY * 0.75), Math.round(maxY * 0.5), Math.round(maxY * 0.25), 0];
-        const barColor = theme === "autodelta" ? "#FF5F00" : theme === "modern" ? "#005596" : "#f59e0b";
-        const dimColor = theme === "modern" ? "#e2e8f0" : "#27272a";
-        const textColor = theme === "modern" ? "text-slate-400" : "text-zinc-600";
-
-        const bars = values.map((v, i) => {
-            const pct = Math.min(100, (v / maxY * 100)).toFixed(0);
-            const isRecent = i >= values.length - 2;
-            const opacity = isRecent ? 1 : 0.5;
-            return `<div class="flex flex-col items-center flex-1 gap-1">
-                <div class="w-full h-full flex items-end justify-center">
-                    <div class="w-[80%] rounded-t-sm transition-all duration-300" style="height:${pct}%;background:${barColor};opacity:${opacity};"></div>
-                </div>
-                <span class="text-[8px] ${textColor} font-bold">${labels[i] || ''}</span>
-            </div>`;
-        }).join("");
-
-        return `<div class="flex h-full">
-            <!-- Y axis -->
-            <div class="flex flex-col justify-between pr-2 py-1 ${textColor} text-[9px] font-bold w-8 shrink-0 text-right">
-                ${yLabels.map(v => `<span>${v}</span>`).join("")}
-            </div>
-            <!-- Chart area -->
-            <div class="flex-1 flex flex-col">
-                <div class="flex-1 flex items-end border-l border-b" style="border-color:${dimColor}">
-                    ${bars}
-                </div>
-            </div>
-        </div>`;
-    }
-
     function _renderHeritage(data) {
         const t = App.t.bind(App);
-        const dist = (data.trip_distance || 0).toFixed(1);
-        const avgSpd = Math.round(data.avg_speed || 0);
+        const dist = _fmt(data.trip_distance || 0, 1);
+        const avgSpd = _fmt(data.avg_speed || 0, 0);
         const time = data.trip_time || "0h 0m";
-        const avgCons = (data.avg_consumption || 0).toFixed(1);
-        const instantCons = (data.instant_consumption || 0).toFixed(1);
-        const range = Math.round(data.estimated_range || 0);
+        const avgCons = _fmt(data.avg_consumption, 1);
+        const instantCons = _fmt(data.instant_consumption, 1);
+        const range = _fmt(data.estimated_range, 0);
         const profile = _drivingProfile(parseFloat(avgCons));
-        const chartValues = [4.2, 5.8, 7.1, 8.5, 6.3, 7.9, parseFloat(instantCons) || 6.5];
-        const chartLabels = ["-30m", "-25m", "-20m", "-15m", "-10m", "-5m", "Now"];
 
         return `<div class="screen-container bg-[#1a0f0a] text-zinc-100">
             ${AppBar.render("heritage", data)}
@@ -582,7 +893,7 @@ App.registerScreen("a3", (() => {
                     <div class="flex justify-between items-center mb-2 gap-2">
                         <div class="flex items-center gap-2 min-w-0">
                             <span class="tp-toggle-anchor"></span>
-                            <span class="text-[10px] text-zinc-500 font-bold uppercase tracking-wider truncate">${t("fuel_consumption")} (L/100km)</span>
+                            <span class="text-[10px] text-zinc-500 font-bold uppercase tracking-wider truncate">${t("fuel_title", "Tankowania")}</span>
                         </div>
                         <div class="flex items-center gap-2">
                             <span class="text-[9px] text-zinc-600">Now:</span>
@@ -590,8 +901,8 @@ App.registerScreen("a3", (() => {
                             <span class="text-[9px] text-zinc-600">L/100km</span>
                         </div>
                     </div>
-                    <div class="flex-1 bg-zinc-900/50 rounded-xl border border-zinc-800 p-3">
-                        ${_chartWithScale(chartValues, chartLabels, "heritage", 15)}
+                    <div class="flex-1 bg-zinc-900/50 rounded-xl border border-zinc-800 p-3" style="display:flex;flex-direction:column;min-height:0;">
+                        ${_fuelPanelSlot(data, "heritage")}
                     </div>
                     <div class="flex justify-between items-center mt-2 px-1">
                         <span class="text-[9px] text-zinc-600">${t("est_range")}: <span id="trip-range" class="text-amber-500 font-bold">${range}</span> km</span>
@@ -604,15 +915,13 @@ App.registerScreen("a3", (() => {
 
     function _renderModern(data) {
         const t = App.t.bind(App);
-        const dist = (data.trip_distance || 0).toFixed(1);
-        const avgSpd = Math.round(data.avg_speed || 0);
+        const dist = _fmt(data.trip_distance || 0, 1);
+        const avgSpd = _fmt(data.avg_speed || 0, 0);
         const time = data.trip_time || "01:45";
-        const avgCons = (data.avg_consumption || 0).toFixed(1);
-        const instantCons = (data.instant_consumption || 0).toFixed(1);
-        const range = Math.round(data.estimated_range || 0);
+        const avgCons = _fmt(data.avg_consumption, 1);
+        const instantCons = _fmt(data.instant_consumption, 1);
+        const range = _fmt(data.estimated_range, 0);
         const profile = _drivingProfile(parseFloat(avgCons));
-        const graphValues = [8, 12, 10, 14, 7, 9, 11, 6, 8, 7];
-        const graphLabels = ["-30m", "", "-20m", "", "-10m", "", "-5m", "", "", "Now"];
 
         return `<div class="screen-container text-slate-900" style="background:#f8fafc;">
             ${AppBar.render("modern", data)}
@@ -651,13 +960,13 @@ App.registerScreen("a3", (() => {
                             <span class="tp-toggle-anchor"></span>
                             <span class="text-[10px] font-bold text-slate-800 flex items-center gap-1 truncate">
                                 <span class="material-symbols-outlined text-[#005596]" style="font-size:16px;">monitoring</span>
-                                ${t("fuel_consumption")} (L/100km)
+                                ${t("fuel_title", "Tankowania")}
                             </span>
                         </div>
                         <span class="text-[9px] text-slate-500">Now: <span id="trip-instant" class="font-bold text-slate-700">${instantCons}</span></span>
                     </div>
-                    <div class="flex-1">
-                        ${_chartWithScale(graphValues, graphLabels, "modern", 20)}
+                    <div class="flex-1" style="display:flex;flex-direction:column;min-height:0;">
+                        ${_fuelPanelSlot(data, "modern")}
                     </div>
                     <div class="flex justify-between mt-1 pt-1 border-t border-slate-100 text-[9px]">
                         <span class="text-slate-400">${t("est_range")}: <span id="trip-range" class="font-bold text-slate-700">${range}</span> km</span>
@@ -670,15 +979,13 @@ App.registerScreen("a3", (() => {
 
     function _renderAutodelta(data) {
         const t = App.t.bind(App);
-        const dist = (data.trip_distance || 0).toFixed(1);
-        const avgSpd = Math.round(data.avg_speed || 0);
+        const dist = _fmt(data.trip_distance || 0, 1);
+        const avgSpd = _fmt(data.avg_speed || 0, 0);
         const time = data.trip_time || "01:54";
-        const range = Math.round(data.estimated_range || 0);
-        const avgCons = (data.avg_consumption || 0).toFixed(1);
-        const instantCons = (data.instant_consumption || 0).toFixed(1);
+        const range = _fmt(data.estimated_range, 0);
+        const avgCons = _fmt(data.avg_consumption, 1);
+        const instantCons = _fmt(data.instant_consumption, 1);
         const profile = _drivingProfile(parseFloat(avgCons));
-        const chartValues = [5.1, 6.8, 9.2, 7.5, 5.9, 8.3, 11.2, 9.8, 4.5, 7.1, 6.4, parseFloat(instantCons) || 7.8];
-        const chartLabels = ["", "", "", "", "", "", "", "", "", "", "", "Now"];
 
         return `<div class="screen-container bg-black text-white">
             ${AppBar.render("autodelta", data)}
@@ -702,10 +1009,10 @@ App.registerScreen("a3", (() => {
                     <div class="flex-1 bg-zinc-900/50 rounded-xl border border-zinc-800 p-3 flex flex-col">
                         <div class="flex items-center gap-2 mb-1 min-w-0">
                             <span class="tp-toggle-anchor"></span>
-                            <span class="text-[9px] text-zinc-500 font-bold uppercase tracking-wider truncate">${t("fuel_consumption")} L/100km</span>
+                            <span class="text-[9px] text-zinc-500 font-bold uppercase tracking-wider truncate">${t("fuel_title", "Tankowania")}</span>
                         </div>
-                        <div class="flex-1">
-                            ${_chartWithScale(chartValues, chartLabels, "autodelta", 15)}
+                        <div class="flex-1" style="display:flex;flex-direction:column;min-height:0;">
+                            ${_fuelPanelSlot(data, "autodelta")}
                         </div>
                     </div>
                     <!-- Stats column -->

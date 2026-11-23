@@ -113,6 +113,12 @@
   1024x600 in all three themes (pixels: baseline at silence, bars with
   music), without roundRect, and a throwing screen update() that must not
   keep the reverse-camera view from opening. Skipped without playwright.
+* trip_fuel_smoke.js: the A3 refuel panel (data.fuel_log) in all three
+  themes — real values, "—" instead of 0 without a source, no made-up chart,
+  module off / read-only states, escaping;
+* trip_fuel_browser_smoke.js: the "Zatankowano" form in headless Chromium at
+  1024x600 — fields above the on-screen keyboard, "," key, "Do pełna"
+  default, odometer confirmation, POST body. Skipped without playwright.
 """
 
 import json
@@ -368,6 +374,21 @@ def test_hold_js_has_no_dom_at_load_and_blocks_the_long_press_menu():
 
 
 @pytest.mark.timeout(200)
+def test_refuel_form_in_chromium():
+    """A3 "Zatankowano" form at 1024x600 in headless Chromium, every theme,
+    mouse and touch: touch-sized fields lifted above the on-screen keyboard,
+    "45,5" typed on it, "Do pełna" on by default, the odometer confirmation
+    and the POST body (see the harness). Nothing is stored anywhere."""
+    res = subprocess.run([NODE, str(JS / "trip_fuel_browser_smoke.js")],
+                         capture_output=True, text=True, timeout=180)
+    out = res.stdout.strip()
+    if res.returncode == 0 and out.startswith("SKIP:"):
+        pytest.skip(out[5:].strip())
+    assert res.returncode == 0, res.stderr or res.stdout
+    assert out.endswith("ok"), out
+
+
+@pytest.mark.timeout(200)
 def test_call112_in_chromium():
     """The 112 button, call view and dispatcher panel at 1024x600 in
     headless Chromium (see the harness). Nothing can dial: every request is
@@ -393,7 +414,8 @@ def test_call112_in_chromium():
                                      "settings_brightness_smoke.js",
                                      "crash_modal_smoke.js", "wake_banner_smoke.js",
                                      "spectrum_smoke.js", "settings_net_diag_smoke.js",
-                                     "settings_phone_sensors_smoke.js"])
+                                     "settings_phone_sensors_smoke.js",
+                                     "trip_fuel_smoke.js"])
 def test_screen_harness(harness):
     res = subprocess.run([NODE, str(JS / harness)], capture_output=True, text=True,
                          timeout=60)

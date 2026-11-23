@@ -464,7 +464,20 @@ def main() -> None:
                         _rp = RoutePlanner(config, event_bus)
                     except Exception as _e:
                         log.warning("RoutePlanner unavailable: %s", _e)
-                _tc = TripComputer(event_bus=event_bus, route_planner=_rp)
+                # The weather manager reaches the planner through
+                # weather._internals at plan time (RoutePlanner docstring).
+                from src.trip.fuel_log import tank_capacity
+                _tc = TripComputer(event_bus=event_bus, route_planner=_rp,
+                                   tank_capacity_l=tank_capacity(config))
+                # trip.* for A3 from GPS + the refuel log: nothing fed the
+                # trip computer in this mode (no OBD), so A3 showed zeros.
+                # Own toggle (modules.trip_gps); needs location.
+                if _runs("trip_gps"):
+                    try:
+                        from src.trip.gps_trip_feed import GpsTripFeed
+                        GpsTripFeed(event_bus, config).start()
+                    except Exception:
+                        log.exception("GPS trip feed failed to start (non-critical)")
                 web_viewer = WebViewer(
                     host="0.0.0.0", port=5002,
                     event_bus=event_bus, config=config,

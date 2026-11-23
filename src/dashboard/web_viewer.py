@@ -49,6 +49,7 @@ from src.safety import call112 as _call112
 from src.safety import crash_sms as _crash_sms
 from src.safety import parking_guard as _parking_guard
 from src.sensors import phone_sensors as _phone_sensors
+from src.trip import fuel_log as _fuel_log
 from src.network._proc import clean_error
 from src.weather.weather import valid_coords
 
@@ -353,6 +354,86 @@ def _weather_status_summary(value: Any) -> Optional[dict]:
 #: Minimum spacing of POST /api/net/test (each one costs one request per
 #: configured service from the free plans' daily quota).
 _NET_TEST_MIN_INTERVAL_S = 10.0
+#: POST / DELETE of /api/fuel/refuel: one per this many seconds (a double
+#: tap on "Zapisz" must not store the refuel twice).
+_FUEL_MIN_INTERVAL_S = 3.0
+_FUEL_MAX_BODY = 2048
+_FUEL_STATUSES = ("empty", "need_first_full", "need_second_full", "no_distance",
+                  "intervals_skipped", "ok")
+_FUEL_SOURCES = ("odometer", "gps", "none")
+
+
+def _fuel_num(value: Any, lo: float, hi: float, places: int = 2) -> Optional[float]:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    value = float(value)
+    if not math.isfinite(value) or not lo <= value <= hi:
+        return None
+    return round(value, places)
+
+
+def _fuel_refuel_json(r: Any) -> Optional[dict]:
+    """One refuel (fuel.stats ``recent`` / FuelLog.list_refuels) → numbers
+    and flags only. Never the position or the note text (the API and the
+    payload reach the network in readonly/tracking mode)."""
+    if not isinstance(r, dict):
+        return None
+    rid = r.get("id")
+    if isinstance(rid, bool) or not isinstance(rid, int) or rid < 1:
+        return None
+    out = {"id": rid, "ts": _fuel_num(r.get("ts"), 0, 1e11, 0),
+           "litres": _fuel_num(r.get("litres"), 0, 1000),
+           "price_per_l": _fuel_num(r.get("price_per_l"), 0, 1000, 3),
+           "odometer_km": _fuel_num(r.get("odometer_km"), 0, 1e7, 1),
+           "full": r.get("full") is True, "interval": None}
+    iv = r.get("interval")
+    if isinstance(iv, dict):
+        out["interval"] = {
+            "km": _fuel_num(iv.get("km"), 0, 1e6, 1),
+            "l100": _fuel_num(iv.get("l100"), 0, 1000),
+            "cost": _fuel_num(iv.get("cost"), 0, 1e6),
+            "litres": _fuel_num(iv.get("litres"), 0, 1e4),
+            "source": iv.get("source") if iv.get("source") in _FUEL_SOURCES else "none",
+            "usable": iv.get("usable") is True,
+        }
+    return out
+
+
+def _fuel_log_summary(config: Any, stats: Any) -> dict:
+    """``fuel.stats`` → what A3 shows (``data.fuel_log``).
+
+    ``enabled``: modules.fuel_log; ``running``: the module published stats.
+    Numbers are range-checked, texts are fixed codes — the screen builds
+    every string itself.
+    """
+    enabled = bool(config is not None and config.get("modules.fuel_log", False) is True)
+    if not isinstance(stats, dict):
+        return {"enabled": enabled, "running": False}
+    cal = stats.get("calibration") if isinstance(stats.get("calibration"), dict) else {}
+    raw_recent = stats.get("recent") if isinstance(stats.get("recent"), list) else []
+    recent = [x for x in (_fuel_refuel_json(r) for r in raw_recent[:5]) if x is not None]
+    status = stats.get("status")
+    return {
+        "enabled": enabled, "running": True,
+        "status": status if status in _FUEL_STATUSES else "empty",
+        "count": int(stats["count"]) if isinstance(stats.get("count"), int)
+        and not isinstance(stats.get("count"), bool) else 0,
+        "avg_l100_last": _fuel_num(stats.get("avg_l100_last"), 0, 100),
+        "avg_l100_overall": _fuel_num(stats.get("avg_l100_overall"), 0, 100),
+        "cost_per_100km": _fuel_num(stats.get("cost_per_100km"), 0, 10000),
+        "km_since_full": _fuel_num(stats.get("km_since_full"), 0, 1e6, 1),
+        "litres_used_est": _fuel_num(stats.get("litres_used_est"), 0, 1e4, 1),
+        "fuel_left_est_l": _fuel_num(stats.get("fuel_left_est_l"), 0, 1e3, 1),
+        "est_range_km": _fuel_num(stats.get("est_range_km"), 0, 1e5, 0),
+        "tank_capacity_l": _fuel_num(stats.get("tank_capacity_l"), 0, 1e3, 1),
+        "calibration": {"factor": _fuel_num(cal.get("factor"), 0, 10, 4),
+                        "samples": cal.get("samples") if isinstance(cal.get("samples"), int)
+                        and not isinstance(cal.get("samples"), bool) else 0},
+        "gps_available": stats.get("gps_available") is True,
+        "read_only": stats.get("read_only") is True,
+        "recent": recent,
+    }
+
 
 
 def _net_diag_summary(config: Any, tether: Optional[dict], car: Optional[dict],
@@ -1327,7 +1408,8 @@ _REMOTE_ACCESS_MODES = ("full", "readonly", "tracking", "none")
 _DEFAULT_ALLOWED_NETWORKS = ("10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16")
 _SAFE_METHODS = ("GET", "HEAD")
 #: Views reachable from the network in "tracking" mode (GET/HEAD only).
-_TRACKING_ENDPOINTS = frozenset({"trips_page", "api_tracking_trips", "api_tracking_trip_gpx"})
+_TRACKING_ENDPOINTS = frozenset({"trips_page", "api_tracking_trips", "api_tracking_trip_gpx",
+                                 "api_fuel_log"})
 #: GET views reachable from the network in "readonly" mode — read-only
 #: views of what the dashboard shows (static files, state, lists).
 _READONLY_ENDPOINTS = frozenset({
@@ -1339,6 +1421,7 @@ _READONLY_ENDPOINTS = frozenset({
     "bt_pairing_status", "api_radio_status", "api_phone_contacts",
     "api_phone_history", "api_phone_status", "api_trip_route", "api_debug_weather",
     "api_tracking_trips", "api_tracking_trip_gpx", "trips_page", "ws_data_handler",
+    "api_fuel_log",
 })
 #: GET views deliberately kept OFF the readonly allow-list (documentation,
 #: and the test that every GET view is classified): /ws/input injects keys
@@ -1588,7 +1671,59 @@ def _local_time(ts: Any, fmt: str) -> str:
         return ""
 
 
-def _render_trips_html(trips: Optional[list], gps_line: str) -> str:
+def _render_refuels_html(refuels: Optional[list]) -> str:
+    """The "Tankowania" table of /trips (None = module off → nothing).
+
+    Built from _fuel_refuel_json entries — numbers and flags only, every
+    cell still escaped. A table with inline styles (the page's CSP allows
+    no stylesheet) that scrolls sideways on a narrow phone.
+    """
+    if refuels is None:
+        return ""
+    esc = html.escape
+
+    def num(value, fmt, unit=""):
+        if value is None:
+            return "—"
+        return (fmt.format(value) + unit).replace(".", ",")
+
+    head = ("Data", "Litry", "Cena/l", "Licznik", "Do pełna", "Spalanie", "Dystans", "Koszt")
+    th = "".join(f'<th style="text-align:left;padding:6px 8px;color:#a1a1aa;'
+                 f'font-weight:600;white-space:nowrap">{esc(h)}</th>' for h in head)
+    rows = []
+    for r in refuels:
+        iv = r.get("interval") or {}
+        l100 = iv.get("l100") if iv else None
+        km = iv.get("km") if iv else None
+        if iv and l100 is not None and not iv.get("usable"):
+            l100_txt = num(l100, "{:.1f}", " l/100 km") + " (pominięte)"
+        else:
+            l100_txt = num(l100, "{:.1f}", " l/100 km")
+        src = {"odometer": " (licznik)", "gps": " (GPS)"}.get(iv.get("source"), "") if km else ""
+        cells = (_local_time(r.get("ts"), "%Y-%m-%d %H:%M") or "—",
+                 num(r.get("litres"), "{:.2f}", " l"),
+                 num(r.get("price_per_l"), "{:.2f}", " zł"),
+                 num(r.get("odometer_km"), "{:.0f}", " km"),
+                 "tak" if r.get("full") else "nie",
+                 l100_txt,
+                 num(km, "{:.0f}", " km") + src,
+                 num(iv.get("cost") if iv else None, "{:.2f}", " zł"))
+        rows.append("<tr>" + "".join(
+            f'<td style="padding:6px 8px;border-top:1px solid #27272a;white-space:nowrap">'
+            f'{esc(c)}</td>' for c in cells) + "</tr>")
+    body = "".join(rows) if rows else (
+        '<tr><td colspan="8" style="padding:8px;color:#a1a1aa">Brak zapisanych '
+        'tankowań — przycisk „Zatankowano” jest na ekranie trasy w aucie.</td></tr>')
+    return ('<h2 style="font-size:18px;margin:18px 0 6px 0">Tankowania</h2>'
+            '<div style="overflow-x:auto;background:#18181b;border:1px solid #3f3f46;'
+            'border-radius:12px"><table style="border-collapse:collapse;font-size:14px;'
+            f'width:100%"><thead><tr>{th}</tr></thead><tbody>{body}</tbody></table></div>'
+            '<p style="color:#71717a;font-size:12px;margin:6px 0 0 0">Spalanie liczone '
+            'od pełna do pełna; dystans z licznika, a bez niego z GPS.</p>')
+
+
+def _render_trips_html(trips: Optional[list], gps_line: str,
+                       refuels: Optional[list] = None) -> str:
     """The phone-browser trip list. Every dynamic value is HTML-escaped.
 
     Inline styles only (the dashboard's Tailwind is precompiled, and this
@@ -1635,6 +1770,8 @@ def _render_trips_html(trips: Optional[list], gps_line: str) -> str:
         'line-height:1.4">'
         '<h1 style="font-size:20px;margin:0 0 4px 0">Zapisane trasy</h1>'
         f'<p style="color:#a1a1aa;margin:0 0 14px 0">{esc(gps_line)}</p>'
+        + _render_refuels_html(refuels)
+        + '<h2 style="font-size:18px;margin:18px 0 6px 0">Trasy</h2>'
         + "".join(cards) +
         '<p style="color:#71717a;font-size:12px;margin-top:16px">GPX 1.1 — otworzysz go '
         'w aplikacji z mapami (np. OsmAnd, Google Earth).</p>'
@@ -1877,6 +2014,8 @@ class WebViewer:
             "trip_plan": (self._trip_computer.get_plan_dict()
                           if self._trip_computer else None),
             "trip_planning": _val("trip.planning", False),
+            # Refuel log (src/trip/fuel_log.py) — A3 stats card and list.
+            "fuel_log": _fuel_log_summary(self._config, _val("fuel.stats")),
             # BT Media
             "bt_media_title": _val("bt.media_title", ""),
             "bt_media_artist": _val("bt.media_artist", ""),
@@ -4720,6 +4859,147 @@ class WebViewer:
             result["available"] = any(result.values())
             return jsonify(result)
 
+        # --- Refuel log (src/trip/fuel_log.py, modules.fuel_log) ---
+
+        # Validation errors of FuelLog.add → 400; the rest says the module
+        # cannot take the entry right now.
+        _FUEL_BAD_INPUT = ("bad_request", "litres_required", "litres_range", "price_range",
+                           "odometer_range", "odometer_backwards", "bad_full",
+                           "note_too_long")
+
+        def _fuel_body():
+            if request.content_length is not None and request.content_length > _FUEL_MAX_BODY:
+                return None, (jsonify({"ok": False, "error": "too_large"}), 413)
+            data = request.get_json(silent=True)
+            if not isinstance(data, dict):
+                return None, (jsonify({"ok": False, "error": "bad_request"}), 400)
+            return data, None
+
+        def _fuel_error(error: str):
+            if error in _FUEL_BAD_INPUT:
+                return jsonify({"ok": False, "error": error}), 400
+            if error == "not_found":
+                return jsonify({"ok": False, "error": error}), 404
+            if error == "db_error":
+                return jsonify({"ok": False, "error": error}), 503
+            # not_running, read_only, not_last
+            return jsonify({"ok": False, "error": error}), 409
+
+        _FUEL_UNSET = object()
+
+        def _fuel_reserve(now: float):
+            """Check and take the fuel rate-limit slot in one step.
+
+            Flask is threaded: check-then-record after fuel.add() let two
+            overlapping taps both pass and store the refuel twice. Returns
+            (429 response or None, previous slot value for _fuel_release)."""
+            with viewer._crash_lock:
+                last = viewer._crash_last.get("fuel")
+                if last is not None and 0 <= now - last < _FUEL_MIN_INTERVAL_S:
+                    wait = int(_FUEL_MIN_INTERVAL_S - (now - last)) + 1
+                    res = jsonify({"ok": False, "error": "too many requests",
+                                   "retry_after": wait})
+                    res.headers["Retry-After"] = str(wait)
+                    return (res, 429), _FUEL_UNSET
+                viewer._crash_last["fuel"] = now
+                return None, (last if last is not None else _FUEL_UNSET)
+
+        def _fuel_release(previous, now: float) -> None:
+            """Give the slot back after a refused entry, so the corrected
+            retry (e.g. the confirm_odometer second save) is not a 429."""
+            with viewer._crash_lock:
+                if viewer._crash_last.get("fuel") != now:
+                    return          # another request took it meanwhile
+                if previous is _FUEL_UNSET:
+                    viewer._crash_last.pop("fuel", None)
+                else:
+                    viewer._crash_last["fuel"] = previous
+
+        @app.route("/api/fuel/refuel", methods=["POST"])
+        def api_fuel_refuel():
+            """"Zatankowano" on A3: ``{litres, price_per_l?, odometer_km?,
+            full?, note?, confirm_odometer?}`` (numbers or strings with ","/".").
+            Kiosk only (writes a record), one per _FUEL_MIN_INTERVAL_S (a
+            double tap must not store it twice). 201 with the stored entry
+            and ``warnings`` (litres_over_tank, odometer_backwards,
+            clock_behind); 400 with an error code the screen translates."""
+            refused = _crash_kiosk_only("entering a refuel")
+            if refused is not None:
+                return refused
+            fuel = _fuel_log.get_fuel_log(viewer._event_bus)
+            if fuel is None:
+                return jsonify({"ok": False, "error": "not_running"}), 409
+            data, err = _fuel_body()
+            if err is not None:
+                return err
+            now = time.monotonic()
+            limited, previous = _fuel_reserve(now)
+            if limited is not None:
+                return limited
+            try:
+                result = fuel.add(data)
+            except Exception:
+                _fuel_release(previous, now)
+                raise
+            if not result.get("ok"):
+                _fuel_release(previous, now)
+                return _fuel_error(str(result.get("error") or "bad_request"))
+            refuel = _fuel_refuel_json(result.get("refuel"))
+            warnings = [w for w in result.get("warnings") or []
+                        if w in ("litres_over_tank", "odometer_backwards", "clock_behind")]
+            return jsonify({"ok": True, "refuel": refuel, "warnings": warnings}), 201
+
+        @app.route("/api/fuel/refuel/<int:refuel_id>", methods=["DELETE"])
+        def api_fuel_refuel_delete(refuel_id):
+            """Delete the NEWEST refuel (undo a typo; older entries → 409
+            not_last). Kiosk only, rate-limited like the POST."""
+            refused = _crash_kiosk_only("deleting a refuel")
+            if refused is not None:
+                return refused
+            fuel = _fuel_log.get_fuel_log(viewer._event_bus)
+            if fuel is None:
+                return jsonify({"ok": False, "error": "not_running"}), 409
+            if refuel_id > _MAX_TRIP_ID:
+                return jsonify({"ok": False, "error": "not_found"}), 404
+            now = time.monotonic()
+            limited, previous = _fuel_reserve(now)
+            if limited is not None:
+                return limited
+            try:
+                result = fuel.delete(refuel_id)
+            except Exception:
+                _fuel_release(previous, now)
+                raise
+            if not result.get("ok"):
+                _fuel_release(previous, now)
+                return _fuel_error(str(result.get("error") or "bad_request"))
+            return jsonify({"ok": True})
+
+        @app.route("/api/fuel/log")
+        def api_fuel_log():
+            """Refuels, newest first, with the interval each full fill closes,
+            and the statistics. Read-only — reachable from the network in
+            ``tracking``/``readonly`` like /api/tracking/*; numbers only (no
+            position, no note)."""
+            fuel = _fuel_log.get_fuel_log(viewer._event_bus)
+            if fuel is None:
+                return jsonify({"error": "fuel log module is not running (modules.fuel_log)",
+                                "refuels": []}), 503
+            limit = _clamp_limit(request.args.get("limit"))
+            try:
+                rows = fuel.list_refuels(limit)
+                stats = fuel.stats()
+            except Exception:
+                log.exception("Reading the refuel log failed")
+                return jsonify({"error": "refuel database unavailable", "refuels": []}), 503
+            intervals = stats.get("intervals") or {}
+            out = []
+            for r in rows:
+                item = _fuel_refuel_json({**r, "interval": intervals.get(r.get("id"))})
+                if item is not None:
+                    out.append(item)
+            return jsonify({"refuels": out, "stats": _fuel_log_summary(viewer._config, stats)})
+
         # --- Trips + GPX (src/location/tracker.py) ---
 
         @app.route("/api/tracking/trips")
@@ -4770,7 +5050,17 @@ class WebViewer:
                     trips = tracker.list_trips(_TRIPS_PAGE_LIMIT)
                 except Exception:
                     log.exception("Listing trips for /trips failed")
-            body = _render_trips_html(trips, viewer._gps_status_line())
+            refuels = None
+            fuel = _fuel_log.get_fuel_log(viewer._event_bus)
+            if fuel is not None:
+                try:
+                    intervals = fuel.stats().get("intervals") or {}
+                    refuels = [x for x in (
+                        _fuel_refuel_json({**r, "interval": intervals.get(r.get("id"))})
+                        for r in fuel.list_refuels(_TRIPS_PAGE_LIMIT)) if x is not None]
+                except Exception:
+                    log.exception("Listing refuels for /trips failed")
+            body = _render_trips_html(trips, viewer._gps_status_line(), refuels)
             resp = Response(body, status=200 if trips is not None else 503,
                             mimetype="text/html")
             resp.headers["Content-Security-Policy"] = _TRIPS_CSP

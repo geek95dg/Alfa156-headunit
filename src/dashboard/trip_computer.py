@@ -81,9 +81,14 @@ class TripComputer:
     """
 
     def __init__(self, event_bus: Any = None,
-                 route_planner: Any = None) -> None:
+                 route_planner: Any = None,
+                 tank_capacity_l: float = 58.0) -> None:
         self._bus = event_bus
         self._planner = route_planner
+        # fuel_sender.tank_capacity_litres (main.py passes it; 58 l = Alfa
+        # 156 1.9 JTD when unknown).
+        cap = _finite(tank_capacity_l)
+        self.tank_capacity_l = cap if cap is not None and 20 <= cap <= 150 else 58.0
         self._plan_lock = threading.Lock()
         # Bumped by every new plan / clear / reset (under _plan_lock): a
         # planner worker or a scheduled re-plan that belongs to an older
@@ -124,6 +129,10 @@ class TripComputer:
         self.route_distance_km: float = 0.0
         self.route_eta_min: float = 0.0
         self.predicted_fuel_l: float = 0.0
+        # L/100 km the prediction used and where from (trip | log | default,
+        # see RoutePlanner._consumption) — the screen names a guessed 7.0.
+        self.plan_fuel_l100: Optional[float] = None
+        self.plan_fuel_source: Optional[str] = None
         self.route_geometry: list = []
         self.route_waypoints: list = []
         self.route_weather_points: list = []
@@ -200,9 +209,7 @@ class TripComputer:
         """Estimated range in km based on current fuel level and avg consumption."""
         if self.avg_consumption <= 0:
             return 0.0
-        # Assume 58L tank for Alfa 156 1.9 JTD
-        tank_capacity = 58.0
-        remaining_fuel = tank_capacity * (self.fuel_level_pct / 100.0)
+        remaining_fuel = self.tank_capacity_l * (self.fuel_level_pct / 100.0)
         return (remaining_fuel / self.avg_consumption) * 100
 
     @property
@@ -297,6 +304,10 @@ class TripComputer:
                     self.route_distance_km = float(result.get("distance_km", 0.0))
                     self.route_eta_min = float(result.get("duration_min", 0.0))
                     self.predicted_fuel_l = float(result.get("predicted_fuel_l", 0.0))
+                    l100 = _finite(result.get("fuel_l100"))
+                    self.plan_fuel_l100 = l100 if l100 is not None and 0 < l100 < 100 else None
+                    src = result.get("fuel_l100_source")
+                    self.plan_fuel_source = src if src in ("trip", "log", "default") else None
                     self.route_geometry = list(result.get("geometry", []))
                     self.route_waypoints = list(result.get("waypoints", []))
                     self.route_weather_points = list(result.get("weather_points", []))
@@ -338,6 +349,8 @@ class TripComputer:
             self.route_distance_km = 0.0
             self.route_eta_min = 0.0
             self.predicted_fuel_l = 0.0
+            self.plan_fuel_l100 = None
+            self.plan_fuel_source = None
             self.route_geometry = []
             self.route_waypoints = []
             self.route_weather_points = []
@@ -362,6 +375,8 @@ class TripComputer:
                 "distance_km": self.route_distance_km,
                 "eta_min": self.route_eta_min,
                 "predicted_fuel_l": self.predicted_fuel_l,
+                "fuel_l100": self.plan_fuel_l100,
+                "fuel_source": self.plan_fuel_source,
                 "geometry": self.route_geometry,
                 "waypoints": self.route_waypoints,
                 "weather_points": self.route_weather_points,

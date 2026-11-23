@@ -76,6 +76,10 @@ modules:
                            # hardware.gps niżej
   tracking: true           # zapis tras do SQLite + lista tras i GPX:
                            # http://10.0.0.1:5002/trips w przeglądarce telefonu
+  fuel_log: true           # dziennik tankowań: przycisk „Zatankowano” na
+                           # ekranie trasy (A3), spalanie od pełna do pełna,
+                           # koszt, zasięg; wymaga tracking (dystans z GPS,
+                           # gdy nie wpiszesz licznika); blok fuel_log niżej
   crash_detect: true       # wykrywanie stłuczki (src/safety/crash_detect.py,
                            # blok crash_detection niżej). Kamery NIE są
                            # potrzebne. Wymaga location. Bez czujników
@@ -126,6 +130,8 @@ modules:
   route_planner: true      # plan podróży (A3, tryb --frontend); klucze z
                            # /etc/bcm/bcm.env: BCM_ORS_API_KEY (bez niego trasa
                            # w linii prostej), BCM_TOMTOM_API_KEY (utrudnienia)
+  trip_gps: true           # komputer podróży z GPS na A3 (dystans, czas,
+                           # średnia; spalanie i zasięg z fuel_log); wymaga location
   small_display: false     # jeden ekran w wariancie testowym
 
   # --- moduły dodatkowe (telefon w aucie, bezpieczeństwo, wybudzanie) ---
@@ -913,6 +919,13 @@ tracking:
   geofence_lat: 0
   geofence_lon: 0
   geofence_radius_km: 0
+fuel_log:
+  # Osobna baza (nie gps_tracks.db): skasowanie tras nie zabiera historii
+  # tankowań. Pojemność baku do zasięgu: fuel_sender.tank_capacity_litres.
+  db_path: data/fuel_log.db
+  # Przedział między tankowaniami do pełna krótszy niż tyle km nie wchodzi
+  # do średniego spalania (za mało, żeby litry z dystrybutora coś znaczyły).
+  min_interval_km: 20
 multimedia:
   # Ustawiane w locie przy połączeniu BT i zapisywane do config/local.yaml.
   last_bt_device: ''
