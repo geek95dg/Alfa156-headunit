@@ -15,6 +15,7 @@ import time
 import threading
 
 from src.core.logger import get_logger
+from src.core.notifications import clean_text
 
 log = get_logger("small_display")
 
@@ -117,11 +118,21 @@ class SmallDisplayServer:
                                   "severity": "warning", "duration": 8000})
 
         # Weather/traffic alerts from event bus
+        # weather.alert is a list of alerts (src/weather/weather_alerts.py,
+        # most severe first) — show the first one's title, never the repr.
         weather_alert = v("weather.alert")
-        if weather_alert:
+        # Expired entries are skipped (the module may have stopped): the
+        # same validation as the big dashboard's payload.
+        from src.dashboard.web_viewer import _weather_alerts_summary
+        valid = _weather_alerts_summary(weather_alert) or []
+        first = valid[0] if valid else None
+        if first:
+            sev = first.get("severity")
+            text = f"{first.get('title', '')} — {first.get('where', '')}"
             notifications.append({"type": "weather", "icon": "thunderstorm",
-                                  "text": str(weather_alert),
-                                  "severity": "info", "duration": 10000})
+                                  "text": clean_text(text, 80),
+                                  "severity": sev if sev in ("info", "warning", "danger")
+                                  else "info", "duration": 10000})
         traffic_alert = v("traffic.alert")
         if traffic_alert:
             notifications.append({"type": "traffic", "icon": "traffic",

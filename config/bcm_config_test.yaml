@@ -66,6 +66,10 @@ modules:
                            # w telefonie włącz „Tethering przez Bluetooth”
   weather: true            # OpenWeatherMap; klucz z /etc/bcm/bcm.env
                            # (BCM_OWM_API_KEY) — bez klucza dane demo
+  weather_alerts: true     # ostrzeżenia pogodowe (oblodzenie, śnieg, ulewa,
+                           # burza, wiatr, mgła): powiadomienie, pasek na A4,
+                           # ikona w pasku górnym; wymaga weather; blok
+                           # weather_alerts niżej
   net_diag: true           # diagnostyka internetu i kluczy: sonda łącza
                            # w car_phone/phone_tether (trasa domyślna, DNS,
                            # HTTPS, najwyżej co 60 s) i wiersz Ustawień
@@ -553,6 +557,37 @@ weather:
   # Po przejechaniu tylu km od miejsca ostatniego pobrania z GPS pogoda
   # pobiera się ponownie, bez czekania na poll_interval_min (0 = wyłączone).
   refetch_distance_km: 15
+weather_alerts:
+  # Ostrzeżenia z danych OpenWeatherMap (src/weather/alerts.py): pogoda teraz,
+  # prognoza 3-godzinna w miejscu auta (GPS) na lookahead_h godzin naprzód
+  # i — gdy jest cel podróży — punkty trasy. Popup oblodzenia w kiosku
+  # zostaje wyłączony: tylko powiadomienie i komunikat głosowy.
+  categories:              # false = tej kategorii nie ostrzegaj
+    icing: true            # oblodzenie / gołoledź / zimna nawierzchnia
+    snow: true
+    rain: true             # ulewa
+    storm: true            # burza
+    wind: true             # silny wiatr i porywy
+    fog: true              # gęsta mgła
+  lookahead_h: 6           # ile godzin prognozy brać pod uwagę (1–24)
+  cooldown_min: 60         # to samo ostrzeżenie powtórzone najwcześniej po
+                           # tylu minutach (wcześniej tylko, gdy się nasili)
+  quiet_hours: ''          # np. '22:00-06:00' — wtedy bez głosu (poza
+                           # „niebezpiecznymi”); powiadomienie na ekranie zostaje
+  voice: true              # prośba o komunikat głosowy (mówi go moduł głosowy)
+  voice_min_severity: warning   # info | warning | danger
+  route: true              # sprawdzaj też pogodę na zaplanowanej trasie
+  # Progi (domyślne w kodzie takie same):
+  icing_temp_c: 2          # oblodzenie: T ≤ tyle °C + opad/mgła/wilgotność
+  icing_humidity_pct: 90   # … albo wilgotność ≥ tyle %
+  icing_dew_spread_c: 1    # … albo T − punkt rosy ≤ tyle °C
+  cold_surface_max_c: 3    # „zimna nawierzchnia”: bezchmurna noc, 0…tyle °C
+  heavy_rain_mm_3h: 10     # ulewa: ≥ tyle mm na 3 h (2× tyle = niebezpieczne)
+  snow_heavy_mm_3h: 3      # intensywny śnieg: ≥ tyle mm na 3 h
+  gust_ms: 15              # porywy ≥ tyle m/s (54 km/h) = ostrzeżenie
+  gust_danger_ms: 25       # porywy ≥ tyle m/s (90 km/h) = niebezpieczne
+  wind_ms: 14              # wiatr średni ≥ tyle m/s (≈ 50 km/h) = ostrzeżenie
+  fog_visibility_m: 200    # mgła: widoczność < tyle m (< 1/4 = niebezpieczne)
 travel:
   # Klucze z /etc/bcm/bcm.env: BCM_ORS_API_KEY, BCM_TOMTOM_API_KEY.
   openrouteservice_key: ''

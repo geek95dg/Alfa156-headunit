@@ -26,7 +26,7 @@ from typing import Optional, Any, Hashable
 from urllib.parse import urlsplit
 
 from src.core.logger import get_logger
-from src.core.notifications import active_notifications
+from src.core.notifications import active_notifications, clean_text as _clean_text
 from src.multimedia.phone_status import sanitize_status as _phone_status_summary
 from src.network.car_phone import ADB_STATES as _CAR_PHONE_ADB_STATES
 from src.network.car_phone import HINTS as _CAR_PHONE_HINTS
@@ -331,6 +331,39 @@ def _http_code(value: Any) -> Optional[int]:
     if isinstance(value, bool) or not isinstance(value, int) or not 100 <= value <= 599:
         return None
     return value
+
+
+_ALERT_KINDS = ("icing", "snow", "rain", "storm", "wind", "fog")
+_ALERT_SEVERITIES = ("info", "warning", "danger")
+_ALERTS_MAX = 6
+
+
+def _weather_alerts_summary(value: Any, now: Optional[float] = None) -> Optional[list]:
+    """``weather.alert`` (src/weather/weather_alerts.py) → what A4 and the
+    top bar show. None = the module does not run (nothing published).
+    Re-validated here because the bus may carry anything: known kind and
+    severity only, texts cleaned and cut (the UI escapes them as well),
+    expired entries dropped (the module may have stopped re-evaluating)."""
+    if not isinstance(value, list):
+        return None
+    now = time.time() if now is None else now
+    out = []
+    for item in value:
+        if not isinstance(item, dict):
+            continue
+        kind, sev = item.get("kind"), item.get("severity")
+        until = _ts(item.get("valid_until"))
+        if kind not in _ALERT_KINDS or sev not in _ALERT_SEVERITIES \
+                or until is None or until < now:
+            continue
+        out.append({"kind": kind, "severity": sev,
+                    "title": _clean_text(item.get("title"), 60),
+                    "text": _clean_text(item.get("text"), 200),
+                    "where": _clean_text(item.get("where"), 20),
+                    "valid_until": until})
+        if len(out) >= _ALERTS_MAX:
+            break
+    return out
 
 
 def _weather_status_summary(value: Any) -> Optional[dict]:
@@ -2010,6 +2043,9 @@ class WebViewer:
             # fetch after a location change — used by A4 Weather to drop
             # the "Loading..." spinner reactively (no hardcoded setTimeout).
             "weather_search_done": _val("weather.search_done", 0),
+            # Weather warnings (modules.weather_alerts): A4 strip and the
+            # top-bar icon; None = module off.
+            "weather_alerts": _weather_alerts_summary(_val("weather.alert")),
             # Travel plan (A3 Trip — only populated when destination is set)
             "trip_plan": (self._trip_computer.get_plan_dict()
                           if self._trip_computer else None),

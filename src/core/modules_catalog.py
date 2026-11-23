@@ -130,6 +130,16 @@ MODULES: dict[str, dict] = {
                                 "w /etc/bcm/bcm.env"},
     "weather":     {"part": 14, "description": "Weather Data (OpenWeatherMap)",
                     "entry": ("src.weather.weather", "start_weather"), "default": False},
+    # Partia 12: warnings from the OWM data the weather module already
+    # fetches (src/weather/alerts.py rules, src/weather/weather_alerts.py
+    # runtime): icing, snow, heavy rain, storm, wind, fog — here, ahead and
+    # along the planned route. Toast + voice request (voice.announce), A4
+    # strip and top-bar icon; the kiosk icing popup stays off. Off in code.
+    "weather_alerts": {"part": 14, "description": "Ostrzeżenia pogodowe: oblodzenie, śnieg, ulewa, burza, wiatr, mgła",
+                    "entry": ("src.weather.weather_alerts", "start_weather_alerts"),
+                    "default": False, "requires": ("weather",),
+                    "hardware": "internet i klucz BCM_OWM_API_KEY (moduł weather); GPS dla "
+                                "prognozy w miejscu auta i na trasie"},
     "rain_sensor": {"part": 15, "description": "Rain Sensor + Auto Wipers",
                     "entry": ("src.vehicle.rain_sensor", "start_rain_sensor"), "default": False},
     "blinker_monitor": {"part": 15, "description": "Turn Signal GPIO Monitor",

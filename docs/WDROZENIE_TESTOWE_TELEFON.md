@@ -725,6 +725,7 @@ loguje jedno ostrzeżenie, a Ustawienia proponują włączenie zależności.
 | `phonebook` | kontakty i historia połączeń (PBAP) | `bluetooth` | telefon przez BT | wył. | wł. |
 | `phone_status` | bateria, zasięg, operator w pasku | `bluetooth` | telefon przez BT (oFono) | wył. | wł. |
 | `weather` | pogoda (OpenWeatherMap) | — | internet, `BCM_OWM_API_KEY` | wł. | wł. |
+| `weather_alerts` | ostrzeżenia pogodowe: oblodzenie, śnieg, ulewa, burza, wiatr, mgła (§9.7) | `weather` | internet, `BCM_OWM_API_KEY`; GPS dla prognozy w miejscu auta | wył. | wł. |
 | `route_planner` | planer tras (OpenRouteService) | — | internet, `BCM_ORS_API_KEY` | wł. | wł. |
 | `trip_gps` | komputer podróży z GPS na ekranie trasy: dystans, czas, średnia prędkość (§9.6) | `location` | GPS z telefonu albo odbiornika | wył. | wł. |
 | `net_diag` | sonda internetu w `car_phone`/`phone_tether` i wiersz „Internet i usługi” z testem kluczy (§10.1) | — | klucze w `bcm.env` | wył. | wł. |
@@ -952,6 +953,77 @@ z dziennika tankowań. Bez GPS albo bez `fuel_log` pola pokazują „—”.
 - [ ] Przedział krótszy niż 20 km albo spalanie poza 2–30 l/100 km jest
       na liście oznaczone „pominięte” i nie psuje średniej.
 
+### 9.7 Ostrzeżenia pogodowe (`modules.weather_alerts`)
+
+BCM sprawdza dane, które moduł `weather` i tak pobiera z OpenWeatherMap
+(pogoda teraz i prognoza co 3 godziny), i ostrzega przed:
+
+| Rodzaj | Ostrzeżenie | Niebezpieczne |
+|--------|-------------|---------------|
+| oblodzenie | ≤ 2 °C i opad, mgła, wilgotność ≥ 90 % albo punkt rosy ≤ 1 °C od temperatury; temperatura spadnie poniżej 0 °C w ciągu 3 h po deszczu | marznący deszcz albo deszcz/mżawka przy ≤ 0 °C („Gołoledź”) |
+| śnieg | każdy opad śniegu | intensywny (≥ 3 mm na 3 h) |
+| ulewa | ≥ 10 mm na 3 h | ≥ 20 mm na 3 h |
+| burza | każda burza | silna burza |
+| wiatr | porywy ≥ 15 m/s (54 km/h) albo wiatr ≥ 14 m/s | porywy ≥ 25 m/s (90 km/h) |
+| mgła | widoczność < 200 m albo mgła wg OWM (kod 741) | widoczność < 50 m |
+
+Do tego informacja „Zimna nawierzchnia” (tylko powiadomienie, bez głosu —
+świadomie poziom „info”, nie ostrzeżenie): bezchmurna noc, 0–3 °C (mosty
+i cień mogą być śliskie, choć powietrze ma plus).
+
+Skąd dane: pogoda teraz, prognoza w miejscu auta (z GPS) na 6 godzin
+naprzód (`weather_alerts.lookahead_h`) i — gdy na ekranie trasy jest cel —
+punkty trasy („na trasie”). Bez GPS prognoza jest dla miejsca, dla którego
+pobrano pogodę (domyślne miasto albo wyszukane na A4). Dane przykładowe
+(„Milan, IT” przed pierwszym pobraniem) nigdy nie dają ostrzeżeń.
+
+Co widać:
+
+- powiadomienie na ekranie (na górze), np. „Ryzyko oblodzenia — 1 stopień
+  i opady, teraz. Uważaj na mostach i w cieniu.”;
+- pasek z ostrzeżeniem na mapie ekranu pogody (A4) — najpoważniejsze,
+  „+1 więcej”, gdy jest ich kilka;
+- ikona w pasku górnym (śnieżynka, wiatr, chmura z deszczem…) w kolorze:
+  niebieski — informacja, pomarańczowy — ostrzeżenie, czerwony —
+  niebezpieczne; dotknięcie otwiera ekran pogody;
+- prośba o komunikat głosowy (`voice.announce`) — mówi go dopiero moduł
+  głosowy z następnego etapu.
+
+To samo ostrzeżenie nie wraca co 15 minut: powtórka najwcześniej po
+`cooldown_min` (60 min), wcześniej tylko wtedy, gdy się nasili (np.
+z ostrzeżenia w niebezpieczne). Głos tylko dla ostrzeżeń
+i niebezpiecznych; w godzinach `quiet_hours` (np. `'22:00-06:00'`) bez
+głosu, poza niebezpiecznymi. Okienko oblodzenia na środku ekranu zostaje
+wyłączone (wcześniejsza prośba) — jest tylko powiadomienie i głos.
+
+Kategorie i progi: blok `weather_alerts` w `config/bcm_config_test.yaml`
+(zmiany w `config/local.yaml`, §2), np. bez ostrzeżeń o wietrze:
+
+```yaml
+weather_alerts:
+  categories:
+    wind: false
+```
+
+Prognoza dla punktów trasy dalej niż 30 km od auta to osobne zapytania do
+OpenWeatherMap (najwyżej 24 na 10 minut, wyniki trzymane 30 minut). Darmowy
+klucz API 2.5 pozwala na 60 zapytań na minutę, więc ten limit go nie
+przekroczy; w najgorszym przypadku (cały czas nowe komórki 0,1°) to jednak do
+ok. 3456 zapytań na dobę — na hardware nie było to jeszcze mierzone.
+
+```bash
+curl -s http://127.0.0.1:5002/api/data | python3 -m json.tool | grep -A8 '"weather_alerts"'
+```
+
+(`null` — moduł wyłączony, `[]` — brak ostrzeżeń)
+
+- [ ] Ekran pogody: wiersze prognozy (DZIŚ i dwa kolejne dni) mają
+      prawdziwe temperatury z prognozy, a bez prognozy jest „brak prognozy”.
+- [ ] Przy mrozie z opadem (albo progach obniżonych na próbę w
+      `local.yaml`, np. `icing_temp_c: 5`, `icing_humidity_pct: 50`)
+      pojawia się powiadomienie, pasek na A4 i ikona w pasku; drugi raz po
+      15 minutach już nie.
+
 ---
 
 ## 10. Gdy coś nie działa
@@ -1147,6 +1219,9 @@ wszystkie unity BCM, kiosk, autologin, konfigurację AP i venv (zostawia
   (`PRZYGOTOWANIE_TELEFONU.md` — punkty NIESPRAWDZONE);
 - progi wykrywania stłuczki, alarmu na postoju i kabiny w prawdziwym aucie;
 - krzywa jasności i DDC/CI na ekranie zasilanym z USB;
+- progi ostrzeżeń pogodowych wobec prawdziwej drogi (oblodzenie z danych
+  OpenWeatherMap, nie z czujnika w aucie) i zużycie zapytań OWM przy
+  długiej trasie;
 - SensorServer: czy odrzuca wspólne połączenie kodem 4xxx, czy ramki
   z jednoczujnikowego `/sensor/connect?type=…` mają pole `type`, czy czujnik
   światła działa przy wygaszonym ekranie Redmi;

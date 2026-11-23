@@ -684,6 +684,9 @@ class WeatherManager:
                     "wind_speed": round(wind.get("speed", 0) * 3.6, 1),  # m/s → km/h
                     "wind_deg": wind.get("deg", 0),
                     "pressure": main.get("pressure", 0),
+                    # For the weather warnings (src/weather/alerts.py):
+                    # validated like the slots — None when absent or odd.
+                    **self._current_extras(current_raw, weather),
                 },
                 "city": f"{city_name}, {country}" if country else city_name,
                 "forecast": self._parse_forecast(forecast_raw),
@@ -785,6 +788,37 @@ class WeatherManager:
                 "icon": info["icon"],
             })
         return result
+
+    @staticmethod
+    def _current_extras(raw: dict, weather: Any) -> dict:
+        """Extra ``weather.current`` fields the warnings need: OWM condition
+        id, rain/snow in the last hour (mm), gusts (km/h), visibility (m).
+        Untrusted: range-checked, None when missing."""
+        def num(value, lo, hi):
+            if isinstance(value, bool) or not isinstance(value, (int, float)):
+                return None
+            try:
+                value = float(value)
+            except (OverflowError, ValueError):
+                return None
+            return value if math.isfinite(value) and lo <= value <= hi else None
+
+        def sub(key):
+            v = raw.get(key)
+            return v if isinstance(v, dict) else {}
+
+        wid = num(weather.get("id") if isinstance(weather, dict) else None, 100, 999)
+        gust = num(sub("wind").get("gust"), 0, 150)
+        rain = num(sub("rain").get("1h"), 0, 300)
+        snow = num(sub("snow").get("1h"), 0, 300)
+        vis = num(raw.get("visibility"), 0, 100000)
+        return {
+            "weather_id": int(wid) if wid is not None else None,
+            "rain_1h": round(rain, 2) if rain is not None else None,
+            "snow_1h": round(snow, 2) if snow is not None else None,
+            "gust_kmh": round(gust * 3.6, 1) if gust is not None else None,
+            "visibility_m": int(vis) if vis is not None else None,
+        }
 
     # ── 3-hour slots and forecast_at() ───────────────────────────────────
 

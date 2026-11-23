@@ -119,6 +119,13 @@
 * trip_fuel_browser_smoke.js: the "Zatankowano" form in headless Chromium at
   1024x600 — fields above the on-screen keyboard, "," key, "Do pełna"
   default, odometer confirmation, POST body. Skipped without playwright.
+* weather_alerts_smoke.js: A4 forecast rows from data.weather_forecast in
+  all three themes (no values made up from the current temperature), the
+  warning strip (escaped, most severe first, updated in place) and the
+  top-bar warning icon; the kiosk icing popup stays disabled;
+* weather_alerts_browser_smoke.js: the same at 1024x600 in headless
+  Chromium — strip inside the map, icon clear of logo and temperature, tap
+  opens A4. Skipped without playwright.
 """
 
 import json
@@ -388,6 +395,34 @@ def test_refuel_form_in_chromium():
     assert out.endswith("ok"), out
 
 
+@pytest.mark.timeout(150)
+def test_weather_alerts_in_chromium():
+    """modules.weather_alerts: the A4 strip and the top-bar icon at 1024x600
+    in all three themes (see the harness)."""
+    res = subprocess.run([NODE, str(JS / "weather_alerts_browser_smoke.js")],
+                         capture_output=True, text=True, timeout=120)
+    out = res.stdout.strip()
+    if res.returncode == 0 and out.startswith("SKIP:"):
+        pytest.skip(out[5:].strip())
+    assert res.returncode == 0, res.stderr or res.stdout
+    assert out.endswith("ok"), out
+
+
+def test_weather_alert_glyphs_exist_in_the_bundled_font():
+    """Every icon the warning strip, the top-bar icon and the forecast rows
+    can draw (the harness prints them on its first line)."""
+    res = subprocess.run([NODE, str(JS / "weather_alerts_smoke.js")], capture_output=True,
+                         text=True, timeout=60)
+    assert res.returncode == 0, res.stderr or res.stdout
+    glyphs = set(json.loads(res.stdout.strip().splitlines()[0]))
+    assert {"ac_unit", "air", "foggy", "weather_snowy"} <= glyphs
+    src = (ROOT / "src/dashboard/web/js/screens/weather.js").read_text(encoding="utf-8")
+    block = re.search(r"const _OWM_GLYPHS = \{([^}]*)\}", src).group(1)
+    glyphs |= set(re.findall(r'"([a-z_]+)"', block))
+    missing = sorted(glyphs - _font_ligatures(FONT))
+    assert not missing, f"not in {FONT.name}: {missing}"
+
+
 @pytest.mark.timeout(200)
 def test_call112_in_chromium():
     """The 112 button, call view and dispatcher panel at 1024x600 in
@@ -415,7 +450,7 @@ def test_call112_in_chromium():
                                      "crash_modal_smoke.js", "wake_banner_smoke.js",
                                      "spectrum_smoke.js", "settings_net_diag_smoke.js",
                                      "settings_phone_sensors_smoke.js",
-                                     "trip_fuel_smoke.js"])
+                                     "trip_fuel_smoke.js", "weather_alerts_smoke.js"])
 def test_screen_harness(harness):
     res = subprocess.run([NODE, str(JS / harness)], capture_output=True, text=True,
                          timeout=60)

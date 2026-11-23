@@ -44,6 +44,8 @@ App.registerScreen("a4", (() => {
         _updateEl("weather-wind", `${Math.round(data.weather_wind_speed || 0)} km/h`);
         _updateEl("weather-humidity", `${data.weather_humidity || 0}%`);
         _updateEl("weather-gps-label", _gpsLabel(data));
+        _updateAlerts(data);
+        _updateForecast(data);
 
         // Move map to weather location (from search) or GPS position
         const wLat = data.weather_lat || data.gps_lat;
@@ -153,14 +155,137 @@ App.registerScreen("a4", (() => {
         window._weatherMarker = _marker;
     }
 
-    function _forecastRow(day, icon, high, low, theme) {
+    // ── forecast rows: data.weather_forecast (weather.forecast) ─────────
+    // Daily entries from WeatherManager._parse_forecast: {day: "Today" | "Wed"
+    // …, high, low, condition, icon: OWM code}. They used to be made up from
+    // the current temperature (temp + 3, temp - 5 …) — now real or nothing.
+    const _OWM_GLYPHS = { "01": "sunny", "02": "partly_cloudy_day", "03": "cloud", "04": "cloud",
+                          "09": "rainy", "10": "rainy", "11": "thunderstorm", "13": "ac_unit",
+                          "50": "foggy" };
+    const _DAY_KEYS = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"];
+
+    /** Pure: up to 3 validated forecast entries → {label, glyph, high, low}
+     *  (label from fixed i18n keys only, numbers rounded or null). */
+    function forecastEntries(data) {
+        // Demo data ("Milan, IT" before the first real fetch) is no forecast.
+        if (data && data.weather_status && data.weather_status.source === "demo") return [];
+        const list = data && Array.isArray(data.weather_forecast) ? data.weather_forecast : [];
+        const out = [];
+        const num = (v) => (typeof v === "number" && isFinite(v) && Math.abs(v) < 100 ? Math.round(v) : null);
+        for (const f of list) {
+            if (!f || typeof f !== "object") continue;
+            const day = typeof f.day === "string" ? f.day : "";
+            let label;
+            if (day === "Today") label = App.t("weather_today", "DZIŚ");
+            else {
+                const key = day.slice(0, 3).toLowerCase();
+                label = _DAY_KEYS.indexOf(key) !== -1 ? App.t(key, key.toUpperCase()) : "—";
+            }
+            const code = typeof f.icon === "string" && /^[0-9]{2}[dn]$/.test(f.icon) ? f.icon.slice(0, 2) : "";
+            const high = num(f.high), low = num(f.low);
+            if (high === null && low === null) continue;
+            out.push({ label, glyph: _OWM_GLYPHS[code] || "partly_cloudy_day", high, low });
+            if (out.length === 3) break;
+        }
+        return out;
+    }
+
+    function _deg(v) { return v === null ? "--°" : `${v}°`; }
+
+    function _forecastRow(f, theme) {
         const iconColor = theme === "autodelta" ? "text-[#FF5F00]" : theme === "heritage" ? "text-amber-500" : "text-blue-400";
         return `<div class="flex items-center justify-between py-0.5">
-            <span class="text-zinc-400 w-10 text-[11px]">${day}</span>
-            <span class="material-symbols-outlined ${iconColor}" style="font-size:18px;">${icon}</span>
-            <span class="text-white font-medium text-xs w-6 text-right">${high}°</span>
-            <span class="text-zinc-600 text-xs w-6 text-right">${low}°</span>
+            <span class="text-zinc-400 w-10 text-[11px]">${_esc(f.label)}</span>
+            <span class="material-symbols-outlined ${iconColor}" style="font-size:18px;">${f.glyph}</span>
+            <span class="text-white font-medium text-xs w-6 text-right">${_deg(f.high)}</span>
+            <span class="text-zinc-600 text-xs w-6 text-right">${_deg(f.low)}</span>
         </div>`;
+    }
+
+    // Per-theme forecast markup, inside a #weather-forecast container so
+    // update() can refresh it in place: A4 may be open when the first real
+    // fetch (or a new day) arrives, and render() runs only on screen entry.
+    function _forecastHeritage(fc) {
+        return fc.length ? fc.map((f) => _forecastRow(f, "heritage")).join("") : _noForecast();
+    }
+
+    function _forecastModern(fc) {
+        return fc.length ? fc.map((f) => `<div><p class="text-[9px] text-zinc-500">${_esc(f.label)}</p><span class="material-symbols-outlined text-blue-300" style="font-size:14px;">${f.glyph}</span><p class="text-[11px] font-bold">${_deg(f.high)} <span class="text-zinc-500">${_deg(f.low)}</span></p></div>`).join("") : `<div style="grid-column:span 3;">${_noForecast()}</div>`;
+    }
+
+    function _forecastAutodelta(fc) {
+        return fc.length ? fc.map((f, i) => `
+                        <div class="flex-1 autodelta-glass rounded-xl p-2 flex flex-col items-center justify-center gap-1"${i === 1 ? ' style="border-color:rgba(255,95,0,0.3);background:rgba(255,95,0,0.05);"' : ""}>
+                            <span class="text-[9px] font-bold text-zinc-500 uppercase">${_esc(f.label)}</span>
+                            <span class="material-symbols-outlined text-[#FF5F00]" style="font-size:20px;">${f.glyph}</span>
+                            <span class="text-base font-black text-white">${_deg(f.high)} <span class="text-zinc-500" style="font-size:11px;">${_deg(f.low)}</span></span>
+                        </div>`).join("") : `<div class="flex-1 autodelta-glass rounded-xl p-2 flex items-center justify-center">${_noForecast()}</div>`;
+    }
+
+    const _FORECAST_BY_THEME = { heritage: _forecastHeritage, modern: _forecastModern,
+                                 autodelta: _forecastAutodelta };
+
+    function _updateForecast(data) {
+        const el = document.getElementById("weather-forecast");
+        if (!el) return;
+        const fn = _FORECAST_BY_THEME[el.getAttribute && el.getAttribute("data-theme")];
+        if (!fn) return;
+        const key = JSON.stringify(forecastEntries(data));
+        // Rewrite only on a change (update() runs every second).
+        if (el._fcKey === key) return;
+        el._fcKey = key;
+        el.innerHTML = fn(forecastEntries(data));
+    }
+
+    function _noForecast() {
+        return `<p class="text-zinc-500" style="font-size:11px;" data-weather-forecast="none">${_esc(App.t("weather_no_forecast", "brak prognozy"))}</p>`;
+    }
+
+    // ── weather warnings (data.weather_alerts, modules.weather_alerts) ──
+    // Inline styles only (Tailwind is precompiled). Texts are escaped: they
+    // are built by BCM, but from network data, and pass the bus.
+    const _ALERT_COLORS = { info: "#38bdf8", warning: "#f59e0b", danger: "#dc2626" };
+    const _ALERT_GLYPHS = { icing: "ac_unit", snow: "weather_snowy", rain: "rainy",
+                            storm: "thunderstorm", wind: "air", fog: "foggy" };
+
+    function alertList(data) {
+        const list = data && Array.isArray(data.weather_alerts) ? data.weather_alerts : [];
+        return list.filter((a) => a && typeof a === "object"
+            && Object.prototype.hasOwnProperty.call(_ALERT_GLYPHS, a.kind)
+            && Object.prototype.hasOwnProperty.call(_ALERT_COLORS, a.severity));
+    }
+
+    function _alertsInner(alerts) {
+        if (!alerts.length) return "";
+        const a = alerts[0];
+        const color = _ALERT_COLORS[a.severity];
+        const more = alerts.length > 1
+            ? `<span style="margin-left:6px;color:#a1a1aa;white-space:nowrap;">${_esc(App.t("weather_alert_more", "+{n} więcej").replace("{n}", String(alerts.length - 1)))}</span>`
+            : "";
+        return `<div style="display:flex;align-items:center;gap:8px;border-left:4px solid ${color};padding:4px 8px;">`
+            + `<span class="material-symbols-outlined" style="font-size:22px;color:${color};font-variation-settings:'FILL' 1;">${_ALERT_GLYPHS[a.kind]}</span>`
+            + `<div style="min-width:0;flex:1;">`
+            + `<div style="font-size:12px;font-weight:700;color:${color};white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${_esc(a.title)} · ${_esc(a.where)}${more}</div>`
+            + `<div style="font-size:11px;color:#e4e4e7;line-height:1.25;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;">${_esc(a.text)}</div>`
+            + `</div></div>`;
+    }
+
+    /** The strip, positioned over the map; present (hidden) without alerts
+     *  so update() can show it in place. */
+    function _alertsHtml(data, pos) {
+        const alerts = alertList(data);
+        return `<div id="weather-alerts" data-count="${alerts.length}" style="position:absolute;${pos}z-index:20;background:rgba(0,0,0,0.82);border-radius:8px;overflow:hidden;display:${alerts.length ? "block" : "none"};">${_alertsInner(alerts)}</div>`;
+    }
+
+    function _updateAlerts(data) {
+        const el = document.getElementById("weather-alerts");
+        if (!el) return;
+        const alerts = alertList(data);
+        const inner = _alertsInner(alerts);
+        // Rewrite only on a change (update() runs every second).
+        if (el.innerHTML !== inner) el.innerHTML = inner;
+        if (el.style) el.style.display = alerts.length ? "block" : "none";
+        if (typeof el.setAttribute === "function") el.setAttribute("data-count", String(alerts.length));
     }
 
     function _weatherIcon(condition) {
@@ -174,6 +299,7 @@ App.registerScreen("a4", (() => {
 
     function _renderHeritage(data) {
         const t = App.t.bind(App);
+        const fc = forecastEntries(data);
         const city = _esc(_cityText(data));
         const condition = _esc(data.weather_condition || "Partly Cloudy");
         const temp = data.weather_temp != null ? Math.round(data.weather_temp) : 22;
@@ -222,14 +348,13 @@ App.registerScreen("a4", (() => {
                     <!-- Forecast -->
                     <div class="mt-auto">
                         <h3 class="text-[10px] uppercase tracking-widest text-zinc-600 mb-1 border-b border-amber-900/30 pb-1">${t("forecast")}</h3>
-                        ${_forecastRow("Today", "sunny", temp + 3, temp - 5, "heritage")}
-                        ${_forecastRow("Wed", "cloud", temp - 2, temp - 8, "heritage")}
-                        ${_forecastRow("Thu", "rainy", temp - 5, temp - 10, "heritage")}
+                        <div id="weather-forecast" data-theme="heritage">${_forecastHeritage(fc)}</div>
                     </div>
                 </div>
                 <!-- Right: Map with weather overlay -->
                 <div class="flex-1 relative bg-black">
                     <div id="weather-map" class="absolute inset-0 z-0"></div>
+                    ${_alertsHtml(data, "top:12px;right:12px;width:60%;")}
                     <!-- Weather data overlay on map -->
                     <div class="absolute top-3 left-3 z-10 bg-black/70 backdrop-blur-sm rounded-lg px-3 py-2 border border-amber-900/30">
                         <div class="flex items-center gap-2">
@@ -255,6 +380,7 @@ App.registerScreen("a4", (() => {
 
     function _renderModern(data) {
         const t = App.t.bind(App);
+        const fc = forecastEntries(data);
         const city = _esc(_cityText(data));
         const condition = _esc(data.weather_condition || "Partly Cloudy");
         const temp = data.weather_temp != null ? Math.round(data.weather_temp) : 18;
@@ -282,6 +408,7 @@ App.registerScreen("a4", (() => {
                                 <div style="margin-top:4px;padding:0 4px;background:rgba(0,0,0,0.6);border-radius:6px;">${_statusHtml(data, "")}</div>
                             </div>
                         </div>
+                        ${_alertsHtml(data, "bottom:64px;left:12px;right:12px;")}
                         <div class="absolute bottom-3 left-3 right-3 z-10 rounded-lg px-3 py-2 flex justify-between items-center" style="background:rgba(0,0,0,0.75);border:1px solid rgba(255,255,255,0.1);">
                             <div class="flex items-center gap-2">
                                 <span class="material-symbols-outlined text-blue-400" style="font-size:20px;font-variation-settings:'FILL' 1;">${_weatherIcon(condition)}</span>
@@ -303,10 +430,8 @@ App.registerScreen("a4", (() => {
                             <p class="text-xs font-bold text-zinc-500 uppercase tracking-widest">${t("weather")}</p>
                             <span class="text-5xl font-light tracking-tighter text-white">${temp}°</span>
                         </div>
-                        <div class="mt-3 pt-3 border-t border-white/10 grid grid-cols-3 gap-1 text-center">
-                            <div><p class="text-[9px] text-zinc-500">16:00</p><span class="material-symbols-outlined text-blue-300" style="font-size:14px;">wb_sunny</span><p class="text-[11px] font-bold">${temp+1}°</p></div>
-                            <div><p class="text-[9px] text-zinc-500">17:00</p><span class="material-symbols-outlined text-zinc-400" style="font-size:14px;">cloud</span><p class="text-[11px] font-bold">${temp-1}°</p></div>
-                            <div><p class="text-[9px] text-zinc-500">18:00</p><span class="material-symbols-outlined text-zinc-500" style="font-size:14px;">rainy</span><p class="text-[11px] font-bold">${temp-3}°</p></div>
+                        <div id="weather-forecast" data-theme="modern" class="mt-3 pt-3 border-t border-white/10 grid grid-cols-3 gap-1 text-center">
+                            ${_forecastModern(fc)}
                         </div>
                     </div>
                     <div class="rounded-xl p-3 grid grid-cols-2 gap-2" style="background:rgba(24,24,27,0.8);border:1px solid rgba(255,255,255,0.1);">
@@ -327,6 +452,7 @@ App.registerScreen("a4", (() => {
 
     function _renderAutodelta(data) {
         const t = App.t.bind(App);
+        const fc = forecastEntries(data);
         const city = _esc(_cityText(data));
         const condition = _esc(data.weather_condition || "Partly Cloudy");
         const temp = data.weather_temp != null ? Math.round(data.weather_temp) : 24;
@@ -370,6 +496,7 @@ App.registerScreen("a4", (() => {
                     <div class="col-span-8 row-span-4 rounded-xl overflow-hidden border border-zinc-800 relative">
                         <div id="weather-map" class="absolute inset-0 z-0"></div>
                         <div class="absolute inset-0 bg-gradient-to-t from-black/70 via-transparent to-transparent z-[1]"></div>
+                        ${_alertsHtml(data, "top:12px;left:12px;right:12px;")}
                         <div class="absolute bottom-3 left-3 right-3 z-10 flex justify-between items-center">
                             <div class="px-3 py-1 rounded-full flex items-center gap-2" style="background:rgba(24,24,27,0.8);border:1px solid rgba(255,95,0,0.15);">
                                 <div class="w-2 h-2 bg-[#FF5F00] rounded-full animate-pulse"></div>
@@ -384,22 +511,7 @@ App.registerScreen("a4", (() => {
                     </div>
                     <!-- Forecast + stats -->
                     <div class="col-span-12 row-span-2 flex gap-3">
-                        ${_forecastRow("Tomorrow", "sunny", temp + 5, temp - 2, "autodelta") ? `
-                        <div class="flex-1 autodelta-glass rounded-xl p-2 flex flex-col items-center justify-center gap-1">
-                            <span class="text-[9px] font-bold text-zinc-500 uppercase">Tomorrow</span>
-                            <span class="material-symbols-outlined text-[#FF5F00]" style="font-size:20px;">sunny</span>
-                            <span class="text-base font-black text-white">${temp+5}°</span>
-                        </div>
-                        <div class="flex-1 autodelta-glass rounded-xl p-2 flex flex-col items-center justify-center gap-1 border-[#FF5F00]/30 bg-[#FF5F00]/5">
-                            <span class="text-[9px] font-bold text-[#FF5F00] uppercase">Wednesday</span>
-                            <span class="material-symbols-outlined text-[#FF5F00]" style="font-size:20px;font-variation-settings:'FILL' 1;">thunderstorm</span>
-                            <span class="text-base font-black text-white">${temp-2}°</span>
-                        </div>
-                        <div class="flex-1 autodelta-glass rounded-xl p-2 flex flex-col items-center justify-center gap-1">
-                            <span class="text-[9px] font-bold text-zinc-500 uppercase">Thursday</span>
-                            <span class="material-symbols-outlined text-[#FF5F00]" style="font-size:20px;">partly_cloudy_day</span>
-                            <span class="text-base font-black text-white">${temp+1}°</span>
-                        </div>` : ''}
+                        <div id="weather-forecast" data-theme="autodelta" style="display:contents;">${_forecastAutodelta(fc)}</div>
                         <div class="flex-[1.5] autodelta-glass rounded-xl p-2 flex flex-col justify-center gap-1">
                             <div class="flex justify-between items-center border-b border-zinc-800 pb-1">
                                 <span class="text-[9px] font-bold text-zinc-500 uppercase">${t("wind")}</span>
@@ -425,7 +537,7 @@ App.registerScreen("a4", (() => {
     function _date() { const d = new Date(); return `${["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"][d.getMonth()]} ${d.getDate()}`; }
     function _tempStr(data) { return data.ext_temp != null ? `${Math.round(data.ext_temp)}°C` : "--"; }
 
-    return { render, mount, unmount, update };
+    return { render, mount, unmount, update, forecastEntries, alertList };
 })());
 
 // WeatherSearch — live city autocomplete with debounce
