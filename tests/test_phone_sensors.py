@@ -556,18 +556,16 @@ class TestLight:
         s.add(2.0)
         assert s.due(2.5) == 2.0
 
-    def test_published_only_while_streaming(self, env):
+    def test_published_without_waiting_for_the_accelerometer(self, env):
+        # Light has its own freshness (plan 12.2): a phone whose
+        # accelerometer stream fails still feeds auto_brightness.
         e = env()
         e.sensors.handle_message(light_frame(120.0, 10**9), e.clock.t)
         e.sensors.periodic(e.clock.t)
-        assert e.topic("phone.light_lux") == []                # no accelerometer yet
-        e.drive.rest(0.2)
-        e.sensors.handle_message(light_frame(120.0, None), e.clock.t)
-        e.drive.rest(0.2)
         lux = e.topic("phone.light_lux")
-        assert lux and set(lux[0]) == {"lux", "ts"} and lux[0]["lux"] == 120.0
+        assert lux and set(lux[0]) == {"lux", "ts", "frame_age_s"} and lux[0]["lux"] == 120.0
         e.drive.rest(5.0)
-        assert 2 <= len(e.topic("phone.light_lux")) <= 4       # 2 s heartbeat
+        assert 3 <= len(e.topic("phone.light_lux")) <= 4       # 2 s heartbeat
 
 
 # ── the worker: forward, connect, backoff, stale ──────────────────────────
@@ -840,8 +838,10 @@ class TestWorker:
         e = env()
         e.sensors.cycle()
         state = e.topic("phone_sensors.state")[-1]
-        assert set(state) == {"state", "rate_hz", "calib_ok", "error", "since"}
-        assert state["state"] in ps.STATES
+        assert set(state) == {"state", "rate_hz", "calib_ok", "error", "since", "mode",
+                              "types", "lux", "lux_ts", "close", "test_running"}
+        assert state["state"] in ps.STATES and state["mode"] in ps.MODES
+        assert set(state["types"]) == set(ps.TYPE_NAMES)
 
 
 # ── the WebSocket client against a real local server ──────────────────────

@@ -814,7 +814,7 @@ class TestCarPhonePayload:
             "iface": "usb0", "gps_forward": True, "battery_pct": 78, "temp_c": 31.2,
             "charging": True, "full": False, "plugged": "usb", "health": "good",
             "overridden": False, "hotspot_active": True, "hotspot_clients": 2, "heat": None,
-            "error": "", "internet": None, "route_iface": "", "internet_error": ""}
+            "error": "", "forwards": {}, "internet": None, "route_iface": "", "internet_error": ""}
 
     def test_garbage_is_neutralised(self, env):
         env.bus.publish("net.car_phone", {
@@ -830,7 +830,7 @@ class TestCarPhonePayload:
             "gateway": "", "iface": "", "gps_forward": False, "battery_pct": None,
             "temp_c": None, "charging": None, "full": None, "plugged": None, "health": None,
             "overridden": False, "hotspot_active": None, "hotspot_clients": None,
-            "heat": None, "error": "", "internet": None, "route_iface": "", "internet_error": ""}
+            "heat": None, "error": "", "forwards": {}, "internet": None, "route_iface": "", "internet_error": ""}
 
     def test_the_full_serial_never_reaches_the_ui(self, env):
         env.bus.publish("net.car_phone", dict(CAR_PHONE_FULL, serial="1a2b3c4d"))

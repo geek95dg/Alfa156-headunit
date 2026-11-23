@@ -90,6 +90,12 @@
   rules, one POST with an empty body, the call view, "Rozłącz" held 1 s,
   "Odbierz", the dispatcher panel >= 48 px that fits, test-mode label, no
   button without the module or off the kiosk. Skipped without playwright;
+* settings_phone_sensors_smoke.js: Settings "Czujniki telefonu" (Hz per
+  sensor, lux and its age, forward hints, test verdicts, "Test" button).
+* settings_phone_sensors_browser_smoke.js: the same row on the real
+  dashboard in headless Chromium at 1024x600 with its longest payload and
+  a steady-light verdict: fits the width, "Test" on screen and tappable.
+  Skipped without playwright;
 * settings_net_diag_smoke.js: Settings "Internet i usługi" (uplink, internet
   probe, key presence and last result per service, "Test" with its answers),
   "połączono, bez internetu" on the phone rows, the trip plan error banner
@@ -386,7 +392,8 @@ def test_call112_in_chromium():
                                      "settings_cabin_watch_smoke.js",
                                      "settings_brightness_smoke.js",
                                      "crash_modal_smoke.js", "wake_banner_smoke.js",
-                                     "spectrum_smoke.js", "settings_net_diag_smoke.js"])
+                                     "spectrum_smoke.js", "settings_net_diag_smoke.js",
+                                     "settings_phone_sensors_smoke.js"])
 def test_screen_harness(harness):
     res = subprocess.run([NODE, str(JS / harness)], capture_output=True, text=True,
                          timeout=60)
@@ -447,6 +454,19 @@ def test_dim_overlay_in_chromium():
     """modules.auto_brightness: the dimming overlay under the safety views
     and the "Jasność ekranu" row at 1024x600 (see the harness)."""
     res = subprocess.run([NODE, str(JS / "dim_overlay_browser_smoke.js")],
+                         capture_output=True, text=True, timeout=120)
+    out = res.stdout.strip()
+    if res.returncode == 0 and out.startswith("SKIP:"):
+        pytest.skip(out[5:].strip())
+    assert res.returncode == 0, res.stderr or res.stdout
+    assert out.endswith("ok"), out
+
+
+@pytest.mark.timeout(150)
+def test_phone_sensors_row_in_chromium():
+    """Settings "Czujniki telefonu" at 1024x600: no overflow with every
+    optional line, "Test" visible and posting once (see the harness)."""
+    res = subprocess.run([NODE, str(JS / "settings_phone_sensors_browser_smoke.js")],
                          capture_output=True, text=True, timeout=120)
     out = res.stdout.strip()
     if res.returncode == 0 and out.startswith("SKIP:"):

@@ -879,6 +879,7 @@ Wiersze w Ustawieniach i co mają pokazywać (opis telefonu:
 | „SMS po stłuczce” | „tryb testowy (SMS nie wychodzą)”, liczba odbiorców, ostatni potwierdzony test |
 | „Postój” | „rozbrojony” przy jeździe; z odłączonym kablem BCM nie widzi agenta — „telefon nie odpowiada”; po > 5 min bez kabla i ponownym podłączeniu (telefon właściciela bez Bluetooth): „uzbrojony — tylko log, bez SMS”, aż do dowodu właściciela |
 | „Czuwanie kabiny” | „czeka na uzbrojenie postoju”, „kamera gotowa” |
+| „Czujniki telefonu” | „działa”, akcelerometr ~100 Hz, żyroskop ~100 Hz (albo „—”, gdy telefon go nie ma), „światło: … lx (… temu)”; „Test” → „test: wszystko działa” (§10.2) |
 | „Jasność ekranu” | „Auto (telefon) · … lx · …%” |
 
 **„Zadzwoń 112” — test TYLKO numerem testowym, NIGDY prawdziwym 112.**
@@ -984,6 +985,49 @@ i `weather_status`.
 | Trasa „przybliżona — odległość w linii prostej” | Brak `BCM_ORS_API_KEY`. |
 | Wyszukiwanie celu: „używa klucza OpenWeatherMap” | Wyszukiwarka celu korzysta z klucza pogody (`BCM_OWM_API_KEY`), nie z ORS. |
 
+### 10.2 Czujniki telefonu i światło — test
+
+Wiersz **Ustawienia → „Czujniki telefonu”** (moduł `phone_sensors`)
+pokazuje stan strumienia SensorServer, ramki na sekundę z ostatnich 10 s
+dla akcelerometru i żyroskopu oraz ostatni odczyt światła i jego wiek
+(„światło: 120 lx (4 s temu)”). Czujnik światła wysyła odczyt tylko po
+zmianie jasności — przy stałym świetle wiek rośnie i to jest w porządku.
+Światło działa niezależnie od akcelerometru: „brak akcelerometru” przy
+świeżym „światło: … lx” znaczy, że jasność ekranu działa, a wykrywanie
+stłuczki z akcelerometru — nie.
+
+**Przycisk „Test”** (tylko z ekranu w aucie, najwyżej raz na 12 s): BCM
+liczy przez 10 s ramki każdego czujnika i pokazuje werdykt z podpowiedzią:
+
+| Werdykt | Co zrobić |
+|---------|-----------|
+| „wszystko działa” | Nic. Pod spodem liczba ramek i zakres lux z tych 10 s; przy stałym świetle zamiast zakresu „światło stałe — ostatni odczyt … lx, … s temu” (0 ramek światła w 10 s to wtedy norma). |
+| „brak połączenia z telefonem (forward „sensors”)” | Wg podpowiedzi: włącz moduł `car_phone`; albo `modules.phone_sensors: true` w `config/local.yaml` i restart BCM (forward powstaje przy starcie `car_phone`); albo podłącz telefon i zaakceptuj debugowanie USB. |
+| „SensorServer nic nie wysyła” | Aplikacja uruchomiona? Local Host, port 8080, Start, praca w tle (`PRZYGOTOWANIE_TELEFONU.md` §7). |
+| „brak odczytów światła” | Tylko gdy na obecnym połączeniu nie przyszedł żaden odczyt światła (albo ostatni ma ponad 10 min). Czujnik światła zaznaczony w SensorServer, praca w tle bez optymalizacji baterii, czujnik niezasłonięty. Powtórz test z włączonym i z wygaszonym ekranem telefonu. Podpowiedź „telefon odrzuca czujnik światła”: telefon 3 razy odmówił samego światła — sprawdź SensorServer i zrestartuj BCM. |
+| „brak akcelerometru” | Akcelerometr zaznaczony w SensorServer. |
+| „akcelerometr za wolny” | Próbkowanie 10000 µs (100 Hz); poniżej 80 Hz stłuczka z akcelerometru jest wyłączona. |
+
+Gdy telefon odrzuci wspólne połączenie dla trzech czujników (albo 3 razy
+z rzędu zamknie je bez odczytu), BCM najpierw próbuje bez żyroskopu; przy
+kolejnej odmowie (albo od razu, gdy odmowa dotyczy światła lub
+akcelerometru) przechodzi na osobne połączenie dla każdego czujnika
+(w wierszu: „osobne połączenie dla każdego czujnika”) i zostaje przy tym
+do restartu. Log:
+
+```bash
+sudo journalctl -u bcm-headunit -b | grep -iE 'phone sensors|czujnika światła'
+```
+
+`SensorServer nie wysyła czujnika światła — sprawdź w aplikacji, czy światło
+jest włączone / ekran` pojawia się raz, po 30 s bez żadnego odczytu światła.
+Test z wiersza poleceń (na M910q):
+
+```bash
+curl -s -X POST http://127.0.0.1:5002/api/phone_sensors/test; sleep 11
+curl -s http://127.0.0.1:5002/api/data | python3 -c 'import json,sys; print(json.dumps(json.load(sys.stdin)["phone_sensors"], indent=1, ensure_ascii=False))'
+```
+
 ---
 
 ## 11. Wycofanie zmian
@@ -1057,6 +1101,9 @@ wszystkie unity BCM, kiosk, autologin, konfigurację AP i venv (zostawia
   (`PRZYGOTOWANIE_TELEFONU.md` — punkty NIESPRAWDZONE);
 - progi wykrywania stłuczki, alarmu na postoju i kabiny w prawdziwym aucie;
 - krzywa jasności i DDC/CI na ekranie zasilanym z USB;
+- SensorServer: czy odrzuca wspólne połączenie kodem 4xxx, czy ramki
+  z jednoczujnikowego `/sensor/connect?type=…` mają pole `type`, czy czujnik
+  światła działa przy wygaszonym ekranie Redmi;
 - menu „Wake on LAN” w BIOS-ie tej sztuki M910q;
 - wybudzanie (wersja z buforem): dekoder NEC z prawdziwym odbiornikiem
   TSOP, nadajnik IR Redmi przez Termux:API na crDroid 13, przetrwanie stanu

@@ -198,8 +198,42 @@ montażem). W niej:
   wykrywanie stłuczki z akcelerometru;
 - start serwera przy uruchomieniu telefonu.
 
-Czujnika światła nie trzeba włączać osobno — BCM sam prosi SensorServer
-o akcelerometr, żyroskop i światło w jednym połączeniu.
+**Czujnik światła** (dla `auto_brightness`, §14):
+
+- BCM sam prosi SensorServer o akcelerometr, żyroskop i światło — najpierw
+  w jednym połączeniu. Gdy telefon odrzuci to połączenie (albo 3 razy
+  z rzędu zamknie je bez żadnego odczytu), BCM najpierw próbuje bez
+  żyroskopu; przy kolejnej odmowie (albo od razu, gdy odmowa dotyczy
+  światła lub akcelerometru) — **osobne połączenie dla każdego czujnika**.
+  Na osobne połączenia przechodzi też, gdy przez 15 s nie przyjdzie ani
+  jeden odczyt światła albo światło przychodzi, a akcelerometr nie. Wtedy
+  brak światła nie wyłącza akcelerometru i odwrotnie. Ten tryb zostaje do
+  restartu BCM; wiersz „Czujniki telefonu” pisze wtedy „osobne połączenie
+  dla każdego czujnika”. Gdy telefon 3 razy z rzędu odrzuci samo światło,
+  BCM przestaje o nie prosić do restartu („telefon odrzuca czujnik
+  światła”);
+- jeśli Twoja wersja SensorServer ma listę czujników do udostępniania
+  (zakładka z czujnikami), **zaznacz na niej czujnik światła** (Light) —
+  NIESPRAWDZONE, czy crDroid 13 / ta wersja aplikacji go w ogóle ukrywa;
+- **praca w tle:** SensorServer z baterią „Bez ograniczeń” i bez
+  optymalizacji baterii (§5). Czujnik światła działa na zdarzenie (wysyła
+  odczyt tylko po zmianie jasności), więc przy wygaszonym ekranie crDroid
+  może go wstrzymać — NIESPRAWDZONE na tym telefonie; sprawdź przyciskiem
+  „Test” (niżej) raz z włączonym, raz z wygaszonym ekranem. Przy stałym
+  świetle BCM powtarza ostatni odczyt, ale najwyżej przez 10 min od
+  ostatniego odczytu z telefonu — potem jasność ekranu bierze LDR
+  z Arduino (jeśli jest), a bez niego zostaje na obecnym poziomie, aż
+  przyjdzie nowy odczyt;
+- czujnik siedzi przy przedniej kamerze, na górnej krawędzi ekranu — uchwyt
+  ani etui nie może go zasłaniać.
+
+Sprawdzenie: Ustawienia BCM → wiersz **„Czujniki telefonu”** → **Test**.
+Po 10 s wiersz pokazuje werdykt: „wszystko działa” albo co poprawić
+(„brak odczytów światła — w SensorServer zaznacz czujnik światła i zezwól
+na pracę w tle…”). Gdy przez 30 s nie przyjdzie żaden odczyt światła, BCM
+zapisze raz w logu „SensorServer nie wysyła czujnika światła — sprawdź
+w aplikacji, czy światło jest włączone / ekran”. Szczegóły:
+`docs/WDROZENIE_TESTOWE_TELEFON.md` §10.2.
 
 ## 8. Pierwsze podłączenie do M910q
 
@@ -698,8 +732,8 @@ maskę wpisz dopiero po obejrzeniu zdjęcia z kroku 7. Pierwszy tydzień
 
 ## 14. Automatyczna jasność (`auto_brightness`)
 
-W telefonie **nic więcej**: czujnik światła już jest w strumieniu
-SensorServer (§7). W BCM: Ustawienia → Moduły → `auto_brightness` (wymaga
+W telefonie **nic więcej** poza ustawieniami z §7 (praca w tle,
+niezasłonięty czujnik); lux działa niezależnie od akcelerometru. W BCM: Ustawienia → Moduły → `auto_brightness` (wymaga
 `phone_sensors` albo `input`), restart BCM. Po starcie w Ustawieniach
 pojawia się wiersz „Jasność ekranu”, np. „Auto (telefon) · 120 lx · 47%”.
 Sprawdzenie: zasłoń czujnik telefonu dłonią — po kilku sekundach ekran BCM
@@ -877,6 +911,8 @@ numery i liczby — nigdy tekst z zewnątrz.
 | „zegar telefonu i BCM różni się o ponad minutę” | Data i godzina automatycznie z sieci (§2). |
 | „agent w telefonie jest starszy niż BCM” / „za stary” | Aktualizacja agenta (§9.5). |
 | Czujniki < 80 Hz | Próbkowanie SensorServer na 10000 µs (§7), bateria bez ograniczeń. |
+| „Czujniki telefonu”: „światło: brak odczytu” / test „brak odczytów światła” | Czujnik światła w SensorServer, praca w tle, niezasłonięty czujnik; test z włączonym i z wygaszonym ekranem (§7). |
+| „Czujniki telefonu”: „brak akcelerometru”, a światło jest | Akcelerometr zaznaczony w SensorServer? Stłuczka z akcelerometru nie działa, jasność tak (§7). |
 | Brak GPS z telefonu | Aplikacja NMEA działa? Port 50000? Lokalizacja „Zezwalaj zawsze”? (§6) |
 | „112: niegotowy (su / numer testowy)” | `su -c 'id -u'` musi dać `0` (§11); `safety.call112.test_number` w `config/local.yaml`. |
 | „brak kodu TOTP …” w wierszu „Postój” | `python ~/bcm_agent/bcm_agent.py --park-setup` (§12). |

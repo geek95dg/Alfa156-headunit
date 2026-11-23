@@ -25,10 +25,25 @@ SensorServer (as documented in its README; checked 2026-11)
   several sensors; each text frame is ``{"type": …, "values": […],
   "timestamp": <ns>, "accuracy": n}`` (the README names the ``type`` field
   only in prose — unverified on the phone; a frame without a known ``type``
-  is ignored). The gyroscope only serves to recognise a phone that tumbles
-  as it falls; when SensorServer closes the connection with an application
-  code (4xxx) before the first frame — what it does for a sensor it cannot
-  serve (from memory, unverified) — the next attempts ask without it.
+  is ignored). ``ws://…/sensor/connect?type=<one type>`` — one sensor per
+  connection; its frames may carry no ``type`` (the connection's type is
+  assumed). The gyroscope only serves to recognise a phone that tumbles
+  as it falls.
+* Fallback (``mode`` in the state: ``combined`` → ``no_gyro`` →
+  ``split``). SensorServer closes a request with an application code
+  (4xxx) before the first frame when it cannot serve one of the sensors
+  (from memory, unverified). Such a refusal first drops the gyroscope
+  (unless the close reason names another sensor); a second refusal — or a
+  combined stream with light frames but no accelerometer for 10 s, or with
+  the accelerometer but not one light frame for 15 s — switches to
+  ``split``: one connection per sensor, each closed and retried with its
+  own backoff (1 s doubling to 60 s), so a missing light sensor never stops
+  the accelerometer and vice versa. 3 combined sessions in a row that end
+  without one frame (EOF, another close code, idle) also advance one step
+  (:data:`EMPTY_SESSIONS_FALLBACK`). In ``split`` a channel is reopened
+  with a 1 s handshake budget while another streams; a light connection
+  refused (4xxx) 3 times in a row is, like a refused gyroscope, not
+  requested again. The step is kept until BCM restarts.
 * ``timestamp`` is the sensor event time in nanoseconds (Android's
   ``SensorEvent.timestamp``: monotonic, from the phone's boot).
 * In the app: **"Local Host"** ON (it then listens on the phone's
@@ -57,7 +72,10 @@ The connection
   "Connection refused" on 127.0.0.1 means the forward itself is missing:
   that local retry is capped at :data:`FORWARD_MISSING_RETRY_S` (3 s). No
   accelerometer sample for 1 s → state ``stale``; for 10 s → reconnect
-  (light or gyroscope frames alone do not keep a session). A forward that
+  (combined request; in ``split`` mode only the accelerometer connection
+  is reopened, light keeps flowing). A light connection without one frame
+  for 30 s is logged once ("SensorServer nie wysyła czujnika światła…").
+  A forward that
   car_phone briefly reports as not ``ok`` (one failed ``adb devices``) does
   not end a session that keeps delivering; a changed port or car_phone
   stopping does.
@@ -126,16 +144,34 @@ Processing (pure classes, injected clocks — tested without a socket)
   ``lag_ms`` see above; ``overrun`` frames were dropped by the cap.
   ``mono`` is this process's monotonic time (the consumer's age check is
   immune to clock steps); ``ts`` epoch seconds.
-* ``phone.light_lux`` ``{lux, ts}``: median of the last 5 readings,
-  published at most every 0.5 s, when it moved by >= 5 % (at least
-  0.5 lux) or as a 2 s heartbeat while streaming.
+* ``phone.light_lux`` ``{lux, ts, frame_age_s}``: median of the last 5
+  readings, published at most every 0.5 s, when it moved by >= 5 % (at
+  least 0.5 lux) or as a 2 s heartbeat while the light's connection is up
+  and has delivered on it — independent of the accelerometer. The
+  heartbeat stops LIGHT_HEARTBEAT_MAX_S (600 s) after the last light frame
+  (``frame_age_s``: its age), so brightness.py's stale fallback applies.
 
-State: ``phone_sensors.state`` ``{state, rate_hz, calib_ok, error, since}``
-on change (``rate_hz`` only when it moved by >= 10 %); state is one of
-``disabled|waiting_forward|connecting|streaming|stale|error``; ``error`` is
-also set for ``waiting_forward`` (car_phone off, no ``sensors`` forward —
+State: ``phone_sensors.state`` ``{state, rate_hz, calib_ok, error, since,
+mode, types, lux, lux_ts, close, test_running}`` on change (``rate_hz``
+only when it moved by >= 10 %; the per-type statistics at most every 5 s);
+state is one of ``disabled|waiting_forward|connecting|streaming|stale|error``
+(``streaming`` = fresh accelerometer: what crash detection needs); ``error``
+is also set for ``waiting_forward`` (car_phone off, no ``sensors`` forward —
 e.g. the toggle was only given with ``--modules`` — or the forward's own
-error such as a port clash).
+error such as a port clash). ``types``: ``{accel|gyro|light: {subscribed,
+active, hz, refused}}`` (frames/s over the last 10 s; ``refused``: not
+requested again until restart); ``lux``/``lux_ts``: the last
+light reading and when it came (epoch); ``close``: the last connection end
+``{code, reason, ts, channel}``.
+
+Test: ``phone_sensors.cmd.test`` (no argument; Settings "Test") counts the
+frames per type for 10 s and publishes ``phone_sensors.test_result``
+``{ts, duration_s, mode, verdict, hint, frames, hz, lux_min, lux_max,
+light_steady, lux, lux_ts, state, error}`` — verdict ``ok|no_forward|
+no_data|no_accel|no_light|low_rate`` (light counts as working without a
+frame in the window while its connection delivered one: ``light_steady``,
+the last reading in ``lux``/``lux_ts``), hint for the Settings text
+(:data:`TEST_HINTS`).
 
 At start one warning names thresholds the accelerometer range cannot reach
 (``g_h_threshold`` >= 0.9 × range, or ``dv_threshold_kmh`` above 0.9 × the
@@ -148,6 +184,7 @@ from __future__ import annotations
 import collections
 import json
 import math
+import select
 import socket
 import statistics
 import threading
@@ -166,6 +203,11 @@ TOPIC_G = "phone.g_force"
 TOPIC_LUX = "phone.light_lux"
 TOPIC_STATE = "phone_sensors.state"
 RECALIBRATE_TOPIC = "phone_sensors.cmd.recalibrate"
+#: "Test" in Settings → "Czujniki telefonu" (POST /api/phone_sensors/test):
+#: argument-free; the worker counts frames per type for TEST_DURATION_S and
+#: publishes the verdict on TOPIC_TEST_RESULT.
+TEST_TOPIC = "phone_sensors.cmd.test"
+TOPIC_TEST_RESULT = "phone_sensors.test_result"
 CAR_PHONE_TOPIC = "net.car_phone"
 FORWARD_NAME = "sensors"
 
@@ -175,6 +217,12 @@ TYPE_ACCEL = "android.sensor.accelerometer"
 TYPE_GYRO = "android.sensor.gyroscope"
 TYPE_LIGHT = "android.sensor.light"
 SENSOR_TYPES = (TYPE_ACCEL, TYPE_GYRO, TYPE_LIGHT)
+#: Short names of the sensor types (state payload, test result, Settings).
+TYPE_KEYS = {TYPE_ACCEL: "accel", TYPE_GYRO: "gyro", TYPE_LIGHT: "light"}
+TYPE_NAMES = ("accel", "gyro", "light")
+#: How the sensors are requested (see "The connection"): one connection
+#: with all three, one without the gyroscope, or one connection per sensor.
+MODES = ("combined", "no_gyro", "split")
 HOST = "127.0.0.1"
 
 
@@ -183,6 +231,11 @@ def connect_target(gyro: bool = True) -> str:
     own examples. ``gyro=False`` after the phone refused the gyroscope."""
     types = (TYPE_ACCEL, TYPE_GYRO, TYPE_LIGHT) if gyro else (TYPE_ACCEL, TYPE_LIGHT)
     return "/sensors/connect?types=[" + ",".join(f'"{t}"' for t in types) + "]"
+
+
+def single_target(kind: str) -> str:
+    """SensorServer's one-sensor endpoint (``split`` mode)."""
+    return "/sensor/connect?type=" + kind
 
 
 CONNECT_TARGET = connect_target(True)
@@ -297,6 +350,56 @@ STATS_LOG_EVERY_S = 60.0
 #: Counters that mean "the phone sent something wrong".
 BAD_COUNTERS = ("garbage", "oversize", "invalid", "unknown_type", "dropped_rate", "late")
 
+# Subscription fallback and per-type statistics.
+#: A combined stream that delivers the accelerometer but not one light
+#: frame for this long switches to one connection per sensor (Android
+#: sends an on-change sensor's current value right after registration, so
+#: "nothing at all" means SensorServer does not stream it on that request).
+COMBINED_LIGHT_WAIT_S = 15.0
+#: No light frame at all on a connection for this long: logged once (what
+#: to check in the app); in ``split`` mode that light connection is closed
+#: and retried with its own backoff.
+LIGHT_SILENT_WARN_S = 30.0
+#: Light is on-change: in constant light nothing comes, so phone.light_lux
+#: repeats the last median as a heartbeat. Not for ever, though — a phone
+#: that suspends the sensor with the screen off (unverified for crDroid)
+#: would keep a daytime value through the night; after this long without a
+#: single light frame the heartbeat stops and brightness.py's stale_s
+#: fallback takes over until the next frame.
+LIGHT_HEARTBEAT_MAX_S = 600.0
+#: Combined request: sessions in a row that ended without one frame
+#: (EOF, a non-4xxx close, idle) before the next fallback step (without the
+#: gyroscope, then one connection per sensor) — SensorServer accepted the
+#: request but serves nothing on it.
+EMPTY_SESSIONS_FALLBACK = 3
+#: ``split``: a light connection refused with an application code (4xxx)
+#: before its first frame this many times in a row is not requested again
+#: until BCM restarts (like a refused gyroscope); the state says so.
+LIGHT_REFUSALS_MAX = 3
+#: ``split``: reopening one connection while another streams — the
+#: worker that reads the accelerometer waits at most this long for it
+#: (the adb forward is local, a healthy handshake takes milliseconds), so
+#: a light connection that keeps failing cannot stall crash detection.
+SPLIT_REOPEN_TIMEOUT_S = 1.0
+#: Frames per second per type are counted over this much arrival time.
+TYPE_RATE_WINDOW_S = 10.0
+#: An accelerometer/gyroscope type counts as "active" with a frame this
+#: recent (light is on-change: active while its connection delivered one).
+TYPE_ACTIVE_S = 2.0
+#: Messages read from one connection per round in ``split`` mode (one slow
+#: connection cannot starve the others; the kernel buffers the rest).
+DRAIN_MAX = 256
+#: The per-type statistics in ``phone_sensors.state`` are republished at
+#: most this often (a state change still goes out at once).
+STATE_STATS_EVERY_S = 5.0
+CLOSE_REASON_MAX = 120
+TEST_DURATION_S = 10.0
+#: Test verdicts (``phone_sensors.test_result``) and the hints the Settings
+#: row turns into text (src/dashboard/web/js/screens/settings.js).
+TEST_VERDICTS = ("ok", "no_forward", "no_data", "no_accel", "no_light", "low_rate")
+TEST_HINTS = ("", "car_phone", "restart", "phone", "app", "accel", "light", "light_refused",
+              "rate")
+
 DEFAULTS = {"accel_range_g": 8.0}
 
 
@@ -306,13 +409,18 @@ def _reject_constant(name: str) -> Any:
     raise ValueError(f"{name} is not a number")
 
 
-def parse_frame(raw: Any) -> tuple[Optional[tuple[str, tuple[float, ...], Optional[int]]], str]:
+def parse_frame(raw: Any, default_type: Optional[str] = None,
+                ) -> tuple[Optional[tuple[str, tuple[float, ...], Optional[int]]], str]:
     """One SensorServer text frame → ``((type, values, timestamp_ns), "")``
     or ``(None, reason)`` with reason ``garbage|oversize|unknown_type|invalid``.
 
     Nothing from the phone is trusted: size first, then strict JSON (no
     NaN/Infinity), then type and ranges. ``timestamp`` is None when missing
     or not a plain non-negative integer (the caller uses the arrival time).
+    ``default_type``: the type of a one-sensor connection (``split`` mode),
+    used when the frame has no ``type`` field — SensorServer's one-sensor
+    endpoint sends only values/timestamp/accuracy (its README; unverified
+    on the phone). A frame that names a type is still checked against it.
     """
     if not isinstance(raw, str):
         return None, "garbage"
@@ -324,7 +432,7 @@ def parse_frame(raw: Any) -> tuple[Optional[tuple[str, tuple[float, ...], Option
         return None, "garbage"
     if not isinstance(obj, dict):
         return None, "garbage"
-    kind = obj.get("type")
+    kind = obj.get("type", default_type)
     if kind not in SENSOR_TYPES:
         return None, "unknown_type"
     values = obj.get("values")
@@ -816,6 +924,13 @@ class LightSmoother:
     def add(self, lux: float) -> None:
         self._vals.append(lux)
 
+    def clear(self) -> None:
+        """A new light connection: its first reading goes out at once and
+        is not mixed with readings of the previous one."""
+        self._vals.clear()
+        self._last = None
+        self._last_at = None
+
     def due(self, now: float) -> Optional[float]:
         """The value to publish now, or None."""
         if not self._vals:
@@ -900,6 +1015,7 @@ class WsClient:
         """The next complete text message, None after ``timeout`` without one.
         Raises :class:`ConnectionClosed` (or OSError) when the link ends."""
         deadline = time.monotonic() + timeout
+        tried = False
         while True:
             if self._ready:
                 return self._ready.popleft()
@@ -907,12 +1023,16 @@ class WsClient:
             if self._ready:
                 return self._ready.popleft()
             remaining = deadline - time.monotonic()
-            if remaining <= 0:
+            # timeout 0 (split mode, after select() said "readable") still
+            # makes ONE non-blocking read; otherwise the data would sit in
+            # the socket until the next round.
+            if remaining <= 0 and tried:
                 return None
-            self._sock.settimeout(remaining)
+            tried = True
+            self._sock.settimeout(max(0.0, remaining))
             try:
                 data = self._sock.recv(RECV_BYTES)
-            except socket.timeout:
+            except (socket.timeout, BlockingIOError):
                 return None
             if not data:
                 raise ConnectionClosed("connection closed by the phone")
@@ -920,6 +1040,17 @@ class WsClient:
                 self._ws.receive_data(data)
             except Exception as e:          # LocalProtocolError after a close
                 raise ConnectionClosed(clean_error(f"protocol error: {e}")) from e
+
+    def fileno(self) -> int:
+        """For select() over several connections (``split`` mode)."""
+        return self._sock.fileno()
+
+    def pending(self) -> bool:
+        """A complete message is already buffered (select() would not say
+        so: the bytes have left the socket). Raises like :meth:`receive`."""
+        if not self._ready:
+            self._drain_events()
+        return bool(self._ready)
 
     def _drain_events(self) -> None:
         from wsproto.events import BytesMessage, CloseConnection, Ping, TextMessage
@@ -991,6 +1122,84 @@ def default_connect(host: str, port: int, target: str, timeout: float) -> WsClie
     return WsClient.open(host, port, target, timeout, MAX_FRAME_BYTES)
 
 
+# ── per-type statistics and connections ───────────────────────────────────
+
+class TypeRate:
+    """Frames per second of one sensor type over the last
+    :data:`TYPE_RATE_WINDOW_S` of arrival time (Settings "Czujniki
+    telefonu"). Bounded: at most the frame cap per second is kept."""
+
+    def __init__(self) -> None:
+        self._t: collections.deque[float] = collections.deque(
+            maxlen=int(TYPE_RATE_WINDOW_S * MAX_FRAMES_PER_S))
+        self._since: Optional[float] = None
+
+    def start(self, now: float) -> None:
+        """A connection carrying this type opened: count from here (a
+        stream that just started must not read as a slow one)."""
+        self._t.clear()
+        self._since = now
+
+    def add(self, now: float) -> None:
+        if self._since is None:
+            self._since = now
+        self._t.append(now)
+
+    def hz(self, now: float) -> float:
+        while self._t and not 0 <= now - self._t[0] < TYPE_RATE_WINDOW_S:
+            self._t.popleft()
+        if not self._t:
+            return 0.0
+        span = TYPE_RATE_WINDOW_S
+        if self._since is not None and 0 <= now - self._since < span:
+            span = now - self._since
+        return len(self._t) / max(span, 1.0)
+
+
+class _Channel:
+    """One WebSocket connection to SensorServer and the types it carries.
+    ``combined``/``no_gyro`` mode: one channel "all"; ``split``: one per
+    type, each with its own retry backoff (worker thread only)."""
+
+    def __init__(self, name: str, types: tuple[str, ...], target: str) -> None:
+        self.name = name
+        self.types = types
+        self.target = target
+        self.conn: Any = None
+        self.opened_at: Optional[float] = None
+        self.first_frame_at: Optional[float] = None
+        self.last_frame_at: Optional[float] = None
+        #: Valid frames per type key on the current connection.
+        self.frames: collections.Counter = collections.Counter()
+        self.retry_at = 0.0
+        self.delay = BACKOFF_MIN_S
+        #: Refused for good (the gyroscope the phone does not have).
+        self.dead = False
+        self.last_error = ""
+        self.last_code: Optional[int] = None
+        self.logged_error = ""
+
+    @property
+    def default_type(self) -> Optional[str]:
+        """The type of a one-sensor connection (frames may omit ``type``)."""
+        return self.types[0] if len(self.types) == 1 else None
+
+    @property
+    def total(self) -> int:
+        return sum(self.frames.values())
+
+
+def _named_sensor(reason: str) -> Optional[str]:
+    """Which sensor a SensorServer close reason names, if any (its exact
+    wording is unverified — only a hint for the fallback order)."""
+    low = reason.lower()
+    for kind, key in TYPE_KEYS.items():
+        if kind in low or (key == "gyro" and "gyroscope" in low) or \
+                (key == "accel" and "accelerometer" in low) or (key == "light" and "light" in low):
+            return key
+    return None
+
+
 # ── the module ─────────────────────────────────────────────────────────────
 
 class PhoneSensors:
@@ -1031,6 +1240,39 @@ class PhoneSensors:
         # with an application code before the first frame) — then the
         # stream goes on without it (no tumbling-drop recognition).
         self._want_gyro = True
+        # Fallback, step 2: one connection per sensor, so a sensor the
+        # phone does not serve (light switched off in the app, no light
+        # sensor) cannot take the accelerometer down with it, nor the other
+        # way round. Only ever switched on (for the process's lifetime): a
+        # split stream works for every phone, it just costs 3 sockets.
+        self._split = False
+        # The gyroscope refused on its own connection: not requested again.
+        self._gyro_dead = False
+        # The light refused LIGHT_REFUSALS_MAX times on its own connection:
+        # not requested again either (counted across sessions).
+        self._light_refusals = 0
+        self._light_dead = False
+        # Combined request: sessions in a row without a single frame.
+        self._empty_sessions = 0
+        self._chans: list[_Channel] = []
+        # Per-type statistics (Settings, test) and the last light reading.
+        self._rates = {key: TypeRate() for key in TYPE_NAMES}
+        self._type_last: dict[str, Optional[float]] = {key: None for key in TYPE_NAMES}
+        self._lux: Optional[float] = None
+        self._lux_wall: Optional[float] = None
+        # phone.light_lux goes out while a light-carrying connection is up
+        # and has delivered on it — independent of the accelerometer.
+        self._light_live = False
+        self._light_warned = False
+        self._last_close: dict[str, Any] = {"code": None, "reason": "", "ts": None,
+                                            "channel": ""}
+        self._state_pub_at: Optional[float] = None
+        # Test command (TEST_TOPIC): requests counted under _ev_lock, the
+        # running test owned by the worker.
+        self._test_req = 0
+        self._test_seen = 0
+        self._test: Optional[dict[str, Any]] = None
+        self._fwd_code = ""
         # Sensor clock plausibility, per connection (handle_message).
         self._clock_bad = False
         self._clock_anchor: Optional[tuple[float, float, int]] = None
@@ -1089,6 +1331,7 @@ class PhoneSensors:
     def _subscriptions(self) -> tuple:
         return ((CAR_PHONE_TOPIC, self._on_car_phone),
                 (RECALIBRATE_TOPIC, self._on_recalibrate),
+                (TEST_TOPIC, self._on_test),
                 ("power.shutting_down", self._on_shutdown))
 
     def start(self) -> None:
@@ -1130,6 +1373,19 @@ class PhoneSensors:
         with self._ev_lock:
             self._recal_req += 1
 
+    def _on_test(self, topic: str, value: Any, timestamp: float) -> None:
+        """Argument-free (the value is ignored); the worker runs the test."""
+        with self._ev_lock:
+            self._test_req += 1
+        self._wake.set()
+
+    @property
+    def mode(self) -> str:
+        """How the sensors are requested now (:data:`MODES`)."""
+        if self._split:
+            return "split"
+        return "combined" if self._want_gyro else "no_gyro"
+
     @property
     def state(self) -> Optional[dict[str, Any]]:
         if self._state_payload is None:
@@ -1162,19 +1418,23 @@ class PhoneSensors:
             last = None
         value = last[0] if last else None
         if not isinstance(value, dict) or value.get("state") == "disabled":
+            self._fwd_code = "car_phone"
             return None, "car_phone is not running"
         forwards = value.get("forwards")
         spec = forwards.get(FORWARD_NAME) if isinstance(forwards, dict) else None
         if not isinstance(spec, dict):
+            self._fwd_code = "restart"
             # car_phone decides its forwards from the config toggle at start:
             # `main.py --modules ...,phone_sensors` alone does not create it.
             return None, ("car_phone has no sensors forward — modules.phone_sensors must be "
                           "on in the config when car_phone starts")
         port = spec.get("local")
         if isinstance(port, bool) or not isinstance(port, int) or not 1 <= port <= 65535:
+            self._fwd_code = "restart"
             return None, "car_phone reports an invalid sensors forward port"
         ok = spec.get("ok") is True
         why = ""
+        self._fwd_code = "" if ok else "phone"
         if not ok:
             err = spec.get("error")
             why = clean_error(err) if isinstance(err, str) and err else \
@@ -1190,8 +1450,18 @@ class PhoneSensors:
     def cycle(self) -> float:
         """One step of the worker: connect and stream until the link ends,
         unless the forward is down or the backoff runs. Returns how long to
-        wait before the next step (a ``net.car_phone`` change or stop()
-        cuts the wait short)."""
+        wait before the next step (a ``net.car_phone`` change, a test
+        request or stop() cuts the wait short; a running test caps it, so
+        its result goes out on time even while no stream runs)."""
+        wait = self._cycle()
+        left = self._test_left(self._clock())
+        if left is not None:
+            wait = min(wait, max(0.05, left))
+        return wait
+
+    def _cycle(self) -> float:
+        now = self._clock()
+        self._test_tick(now)
         spec, why = self.forward_spec()
         if spec is None or not spec[1]:
             self._fwd_seen = spec
@@ -1204,34 +1474,239 @@ class PhoneSensors:
             self._fwd_seen = (port, True)
             self._delay = BACKOFF_MIN_S
             self._retry_at = 0.0
-        now = self._clock()
         if now < self._retry_at:
             return min(self._retry_at - now, WAIT_FORWARD_S)
         self._set_state("connecting")
-        target = CONNECT_TARGET if self._want_gyro else CONNECT_TARGET_NO_GYRO
-        try:
-            conn = self._connect(HOST, port, target, CONNECT_TIMEOUT_S)
-        except ConnectionRefusedError as e:
-            # Nothing listens locally: the adb forward is missing or being
-            # re-created by car_phone. Cheap to retry — short cap.
-            self._fail(f"cannot connect to SensorServer (127.0.0.1:{port}): {e}",
-                       max_delay=FORWARD_MISSING_RETRY_S)
+        chans = self._plan()
+        self._chans = chans
+        errors: list[BaseException] = []
+        for ch in chans:
+            err = self._open_channel(ch, port, now)
+            if err is not None:
+                errors.append(err)
+        if all(ch.conn is None for ch in chans):
+            # Nothing listens locally (connection refused): the adb forward
+            # is missing or being re-created by car_phone. Cheap to retry —
+            # short cap. Anything else reached the phone: full backoff.
+            refused = all(isinstance(e, ConnectionRefusedError) for e in errors)
+            self._fail(f"cannot connect to SensorServer (127.0.0.1:{port}): {errors[0]}",
+                       max_delay=FORWARD_MISSING_RETRY_S if refused else BACKOFF_MAX_S)
             return 0.0
-        except Exception as e:
-            self._fail(f"cannot connect to SensorServer (127.0.0.1:{port}): {e}")
-            return 0.0
-        self.stream(conn, port)
+        self._session(chans, port)
         return 0.0
 
+    def _plan(self) -> list[_Channel]:
+        """The connections for the current fallback step."""
+        if self._split:
+            chans = [_Channel("accel", (TYPE_ACCEL,), single_target(TYPE_ACCEL))]
+            if not self._gyro_dead:
+                chans.append(_Channel("gyro", (TYPE_GYRO,), single_target(TYPE_GYRO)))
+            if not self._light_dead:
+                chans.append(_Channel("light", (TYPE_LIGHT,), single_target(TYPE_LIGHT)))
+            return chans
+        types = (TYPE_ACCEL, TYPE_GYRO, TYPE_LIGHT) if self._want_gyro else (TYPE_ACCEL, TYPE_LIGHT)
+        return [_Channel("all", types, connect_target(self._want_gyro))]
+
+    def _open_channel(self, ch: _Channel, port: int, now: float,
+                      timeout: float = CONNECT_TIMEOUT_S) -> Optional[BaseException]:
+        """Connect one channel; on failure schedule its own retry (``split``)
+        and return the exception."""
+        try:
+            conn = self._connect(HOST, port, ch.target, timeout)
+        except Exception as e:
+            ch.conn = None
+            ch.last_error = clean_error(str(e) or type(e).__name__)
+            ch.last_code = None
+            if self._split:
+                self._schedule_channel(ch, now, f"cannot connect: {ch.last_error}")
+            return e
+        ch.conn = conn
+        ch.opened_at = now
+        ch.first_frame_at = None
+        ch.last_frame_at = None
+        ch.frames = collections.Counter()
+        for kind in ch.types:
+            self._rates[TYPE_KEYS[kind]].start(now)
+        if TYPE_LIGHT in ch.types:
+            self.light.clear()
+            self._light_live = False
+        return None
+
+    def _schedule_channel(self, ch: _Channel, now: float, error: str) -> None:
+        """A ``split`` channel failed: its own backoff (1 s doubling to
+        60 s); the other channels go on. Logged once per distinct error."""
+        delay = ch.delay
+        ch.retry_at = now + delay
+        ch.delay = min(delay * 2, BACKOFF_MAX_S)
+        msg = clean_error(error)
+        if msg != ch.logged_error:
+            ch.logged_error = msg
+            log.warning("Phone sensors: %s connection: %s — next attempt in %.0f s",
+                        ch.name, msg, delay)
+        else:
+            log.debug("Phone sensors: %s connection: %s — next attempt in %.0f s",
+                      ch.name, msg, delay)
+
+    def _close_channel(self, ch: _Channel) -> None:
+        conn, ch.conn = ch.conn, None
+        if TYPE_LIGHT in ch.types:
+            # Its last reading is no longer current: brightness.py falls
+            # back after its stale_s instead of a heartbeat of an old value.
+            self._light_live = False
+        if conn is not None:
+            try:
+                conn.close()
+            except Exception:
+                pass
+
+    def _channel_closed(self, ch: _Channel, exc: BaseException, now: float) -> None:
+        """A connection ended (close frame, EOF, idle): record why; in
+        ``split`` mode schedule its retry (or give the gyroscope up)."""
+        reason = clean_error(str(exc) or type(exc).__name__)
+        code = getattr(exc, "code", None)
+        code = code if isinstance(code, int) and not isinstance(code, bool) \
+            and 1000 <= code <= 4999 else None
+        ch.last_error = reason
+        ch.last_code = code
+        self._last_close = {"code": code, "reason": reason[:CLOSE_REASON_MAX],
+                            "ts": round(self._wall(), 1), "channel": ch.name}
+        refused = ch.total == 0 and code is not None and 4000 <= code <= 4999
+        self._close_channel(ch)
+        if not self._split:
+            return
+        if refused and ch.name == "gyro":
+            ch.dead = True
+            self._gyro_dead = True
+            log.warning("Phone sensors: SensorServer refused the gyroscope (%s) — going on "
+                        "without it (a tumbling phone that falls is then recognised only by "
+                        "|a| < %.1f g)", reason, FREEFALL_G)
+            return
+        if ch.name == "light":
+            if not refused:
+                self._light_refusals = 0
+            else:
+                self._light_refusals += 1
+                if self._light_refusals >= LIGHT_REFUSALS_MAX:
+                    # Retrying a sensor the phone keeps refusing only costs
+                    # handshakes in the accelerometer's worker; the state
+                    # (types.light.refused) tells Settings why light is gone.
+                    ch.dead = True
+                    self._light_dead = True
+                    log.warning("Phone sensors: SensorServer refused the light sensor %d times "
+                                "(%s) — not requested again until BCM restarts (screen "
+                                "brightness uses the Arduino LDR if present, else holds its level)",
+                                self._light_refusals, reason)
+                    self._refresh_state(urgent=True)
+                    return
+        self._schedule_channel(ch, now, reason)
+
+    def _go_split(self, why: str) -> None:
+        if self._split:
+            return
+        self._split = True
+        log.warning("Phone sensors: %s — switching to one SensorServer connection per sensor "
+                    "(accelerometer, gyroscope and light separately), so a sensor the phone "
+                    "does not serve cannot stop the others", why)
+
+    def _refused(self, reason: str) -> None:
+        """A combined request was closed with an application code (4xxx)
+        before the first frame — SensorServer's answer to a sensor it
+        cannot serve. Fallback: without the gyroscope first (unless the
+        reason names another sensor), then one connection per sensor; so a
+        refused light sensor can no longer loop for ever."""
+        named = _named_sensor(reason)
+        if self._want_gyro and named in (None, "gyro"):
+            self._want_gyro = False
+            if named == "gyro":
+                self._gyro_dead = True
+            log.warning("Phone sensors: SensorServer refused the request (%s) — retrying "
+                        "without the gyroscope (a tumbling phone that falls is then "
+                        "recognised only by |a| < %.1f g)", reason, FREEFALL_G)
+            return
+        self._go_split(f"SensorServer refused the request ({reason})")
+
+    def _poll(self, chans: list[_Channel]) -> list[tuple[_Channel, Optional[str],
+                                                            Optional[BaseException]]]:
+        """Messages from the open channels: ``(channel, message, None)``,
+        ``(channel, None, None)`` after a quiet wait, ``(channel, None,
+        error)`` when that connection ended."""
+        open_ = [c for c in chans if c.conn is not None]
+        if not open_:
+            return []
+        if len(open_) == 1:
+            c = open_[0]
+            try:
+                return [(c, c.conn.receive(RECV_TIMEOUT_S), None)]
+            except Exception as e:
+                return [(c, None, e)]
+        conns = [c.conn for c in open_]
+        if all(callable(getattr(x, "fileno", None)) and callable(getattr(x, "pending", None))
+               for x in conns):
+            out: list = []
+            ready: list[_Channel] = []
+            for c in open_:
+                try:
+                    if c.conn.pending():
+                        ready.append(c)
+                except Exception as e:
+                    out.append((c, None, e))
+            if not ready and not out:
+                try:
+                    readable, _, _ = select.select(conns, [], [], RECV_TIMEOUT_S)
+                except (OSError, ValueError):
+                    readable = conns        # a broken socket: receive() says how
+                ready = [c for c in open_ if any(c.conn is r for r in readable)]
+            for c in ready:
+                out.extend(self._drain(c, 0.0))
+            return out
+        # Connections without fileno() (test doubles): share the wait.
+        out = []
+        for c in open_:
+            out.extend(self._drain(c, RECV_TIMEOUT_S / len(open_)))
+        return out
+
+    @staticmethod
+    def _drain(c: _Channel, first_timeout: float) -> list:
+        out: list = []
+        try:
+            msg = c.conn.receive(first_timeout)
+            if msg is None:
+                return [(c, None, None)]
+            while msg is not None:
+                out.append((c, msg, None))
+                if len(out) >= DRAIN_MAX:
+                    break
+                msg = c.conn.receive(0.0)
+        except Exception as e:
+            out.append((c, None, e))
+        return out
+
     def stream(self, conn: Any, port: int) -> None:
+        """Run a session on one already open connection of the current
+        combined request (tests and tools)."""
+        ch = self._plan()[0]
+        ch.conn = conn
+        ch.opened_at = self._clock()
+        self._chans = [ch]
+        self._session([ch], port)
+
+    def _session(self, chans: list[_Channel], port: int) -> None:
         """Read frames until the link ends, the forward moves or stop().
 
         A forward that car_phone briefly reports as not ``ok`` (one failed
         ``adb devices`` and its backoff) does not end a session that keeps
         delivering: a phone or adb server that is really gone ends the
         socket anyway, and the idle check catches a dead link. Only a
-        changed port or car_phone stopping ends it here."""
-        self._conn = conn
+        changed port or car_phone stopping ends it here.
+
+        Combined request: the session ends with its one connection. No
+        accelerometer for IDLE_RECONNECT_S reconnects — but when light
+        frames did come, or the accelerometer streams without a single
+        light frame for COMBINED_LIGHT_WAIT_S, the next attempt uses one
+        connection per sensor. ``split``: each connection is closed and
+        retried on its own (accelerometer/gyroscope silent for
+        IDLE_RECONNECT_S, light silent from the start for
+        LIGHT_SILENT_WARN_S); the session ends when none is open."""
         started = self._clock()
         self._connected_at = started
         self._last_frame_at = None
@@ -1244,27 +1719,53 @@ class PhoneSensors:
         next_forward_check = started + 1.0
         reason = ""
         close_code: Optional[int] = None
+        quick = False
         try:
             while not self._stop.is_set():
-                try:
-                    msg = conn.receive(RECV_TIMEOUT_S)
-                except Exception as e:
-                    reason = clean_error(str(e) or type(e).__name__)
-                    close_code = getattr(e, "code", None)
-                    break
+                items = self._poll(chans)
+                for ch, msg, exc in items:
+                    now = self._clock()
+                    if exc is not None:
+                        self._channel_closed(ch, exc, now)
+                    elif msg is not None:
+                        self.handle_message(msg, now, ch)
+                        self.periodic(now)
                 now = self._clock()
-                if msg is not None:
-                    self.handle_message(msg, now)
                 self.periodic(now)
                 if self._state == "streaming" and streamed_at is None:
                     streamed_at = now
-                # Only accelerometer samples keep the session alive: light
-                # or gyroscope frames alone are useless for crash detection.
-                last = self._last_accel_at if self._last_accel_at is not None else started
-                if now - last >= IDLE_RECONNECT_S:
-                    reason = (f"no accelerometer data from SensorServer for "
-                              f"{IDLE_RECONNECT_S:.0f} s (app stopped? sensors allowed?)")
-                    break
+                self._check_light_silent(chans, now)
+                if not self._split:
+                    ch = chans[0]
+                    if ch.conn is None:
+                        reason, close_code = ch.last_error, ch.last_code
+                        break
+                    last = self._last_accel_at if self._last_accel_at is not None else started
+                    if now - last >= IDLE_RECONNECT_S:
+                        if ch.frames["light"]:
+                            # Light comes, the accelerometer does not: on
+                            # its own connection it may (and light keeps
+                            # working whatever the accelerometer does).
+                            self._go_split("light frames but no accelerometer data in the "
+                                           "combined stream")
+                            quick = True
+                        reason = (f"no accelerometer data from SensorServer for "
+                                  f"{IDLE_RECONNECT_S:.0f} s (app stopped? sensors allowed?)")
+                        break
+                    if ch.frames["accel"] and not ch.frames["light"] \
+                            and ch.first_frame_at is not None \
+                            and now - ch.first_frame_at >= COMBINED_LIGHT_WAIT_S:
+                        self._go_split(f"no light frame in the combined stream for "
+                                       f"{COMBINED_LIGHT_WAIT_S:.0f} s")
+                        reason = "switching to one connection per sensor"
+                        quick = True
+                        break
+                else:
+                    self._split_housekeeping(chans, port, now)
+                    if all(c.conn is None for c in chans):
+                        latest = max(chans, key=lambda c: c.retry_at)
+                        reason = latest.last_error or "every sensor connection ended"
+                        break
                 if now >= next_forward_check:
                     next_forward_check = now + 1.0
                     spec, why = self.forward_spec()
@@ -1275,26 +1776,77 @@ class PhoneSensors:
                         self._set_state("waiting_forward", error=why)
                         return
         finally:
-            self._conn = None
+            for ch in chans:
+                self._close_channel(ch)
             self._connected_at = None
-            try:
-                conn.close()
-            except Exception:
-                pass
         if self._stop.is_set():
             return
-        if self._want_gyro and self._session_frames == 0 and isinstance(close_code, int) \
+        if not self._split and chans[0].total == 0 and isinstance(close_code, int) \
                 and 4000 <= close_code <= 4999:
             # SensorServer closes with an application code (4xxx) when it
-            # cannot serve a requested sensor: go on without the gyroscope.
-            self._want_gyro = False
-            log.warning("Phone sensors: SensorServer refused the request (%s) — retrying "
-                        "without the gyroscope (a tumbling phone that falls is then "
-                        "recognised only by |a| < %.1f g)", reason, FREEFALL_G)
+            # cannot serve a requested sensor: next fallback step.
+            self._empty_sessions = 0
+            self._refused(reason)
+        elif not self._split and chans[0].total == 0:
+            # Accepted, then EOF / another close code / idle without one
+            # frame: an app that cannot serve the combined request may end
+            # it this way too. A few in a row — next step, so it cannot
+            # reconnect for ever on a request the phone never serves.
+            self._empty_sessions += 1
+            if self._empty_sessions >= EMPTY_SESSIONS_FALLBACK:
+                self._empty_sessions = 0
+                why = (f"{EMPTY_SESSIONS_FALLBACK} SensorServer connections in a row "
+                       f"without a single frame ({reason or 'connection ended'})")
+                if self._want_gyro:
+                    self._want_gyro = False
+                    log.warning("Phone sensors: %s — retrying without the gyroscope", why)
+                else:
+                    self._go_split(why)
+                quick = True
+        elif not self._split:
+            self._empty_sessions = 0
         now = self._clock()
-        if streamed_at is not None and now - streamed_at >= BACKOFF_RESET_AFTER_S:
+        if quick or (streamed_at is not None and now - streamed_at >= BACKOFF_RESET_AFTER_S):
             self._delay = BACKOFF_MIN_S
         self._fail(reason or "connection ended")
+
+    def _split_housekeeping(self, chans: list[_Channel], port: int, now: float) -> None:
+        """``split`` mode: close silent connections, reopen due ones."""
+        for ch in chans:
+            if ch.conn is None or ch.opened_at is None:
+                continue
+            if TYPE_LIGHT in ch.types:
+                # On-change: a light that was delivered and then stays the
+                # same sends nothing — only "never anything" is a problem.
+                if not ch.frames["light"] and now - ch.opened_at >= LIGHT_SILENT_WARN_S:
+                    self._channel_closed(ch, ConnectionClosed(
+                        f"no light frame for {LIGHT_SILENT_WARN_S:.0f} s"), now)
+                continue
+            last = ch.last_frame_at if ch.last_frame_at is not None else ch.opened_at
+            if now - last >= IDLE_RECONNECT_S:
+                self._channel_closed(ch, ConnectionClosed(
+                    f"no {ch.name} data for {IDLE_RECONNECT_S:.0f} s"), now)
+        if all(c.conn is None for c in chans):
+            return
+        for ch in chans:
+            if ch.conn is None and not ch.dead and now >= ch.retry_at:
+                # Another connection streams (checked above): a short
+                # handshake budget, so the accelerometer is not stalled.
+                self._open_channel(ch, port, self._clock(), timeout=SPLIT_REOPEN_TIMEOUT_S)
+
+    def _check_light_silent(self, chans: list[_Channel], now: float) -> None:
+        """Once per run: a light-carrying connection that has not delivered
+        one light frame in LIGHT_SILENT_WARN_S says what to check."""
+        if self._light_warned:
+            return
+        for ch in chans:
+            if ch.conn is not None and TYPE_LIGHT in ch.types and ch.opened_at is not None \
+                    and not ch.frames["light"] and now - ch.opened_at >= LIGHT_SILENT_WARN_S:
+                self._light_warned = True
+                log.warning("SensorServer nie wysyła czujnika światła — sprawdź w aplikacji, "
+                            "czy światło jest włączone / ekran (połączenie %s, %.0f s bez "
+                            "odczytu)", ch.name, now - ch.opened_at)
+                return
 
     def _fail(self, error: str, max_delay: float = BACKOFF_MAX_S) -> None:
         """Error state, next attempt after the backoff (doubling, capped at
@@ -1314,10 +1866,77 @@ class PhoneSensors:
         else:
             log.debug("Phone sensors: %s — next attempt in %.0f s", error, delay)
 
+    # ── the test (Settings → "Czujniki telefonu" → Test) ──────────────────
+
+    def _test_left(self, now: float) -> Optional[float]:
+        test = self._test
+        if test is None:
+            return None
+        return max(0.0, TEST_DURATION_S - (now - test["start"]))
+
+    def _test_tick(self, now: float) -> None:
+        """Start a requested test, finish a due one (worker thread)."""
+        with self._ev_lock:
+            req = self._test_req
+        if req != self._test_seen:
+            self._test_seen = req
+            if self._test is None:
+                self._test = {"start": now, "frames": collections.Counter(),
+                              "lux_min": None, "lux_max": None}
+                log.info("Phone sensors: test started (%.0f s)", TEST_DURATION_S)
+                self._refresh_state(urgent=True)
+        test = self._test
+        if test is None:
+            return
+        elapsed = now - test["start"]
+        if 0 <= elapsed < TEST_DURATION_S:
+            return
+        self._test = None
+        self._publish(TOPIC_TEST_RESULT, self._test_result(test, max(elapsed, 0.0)))
+        self._refresh_state(urgent=True)
+
+    def _test_result(self, test: dict[str, Any], elapsed: float) -> dict[str, Any]:
+        frames = {key: int(test["frames"][key]) for key in TYPE_NAMES}
+        span = max(elapsed, 1.0)
+        hz = {key: round(frames[key] / span, 1) for key in TYPE_NAMES}
+        spec, _why = self.forward_spec()
+        # Light is on-change: in steady light no frame comes in 10 s while
+        # the connection that delivered one is still up and phone.light_lux
+        # keeps going out — that works ("light_steady"), it is not "no light".
+        light_ok = frames["light"] > 0 or self._light_fresh(self._clock())
+        # The accelerometer first: steady light must not hide a missing or
+        # too slow accelerometer (crash detection depends on it).
+        if spec is None or not spec[1]:
+            verdict, hint = "no_forward", self._fwd_code or "phone"
+        elif not frames["accel"] and not light_ok:
+            verdict, hint = "no_data", "app"
+        elif not frames["accel"]:
+            verdict, hint = "no_accel", "accel"
+        elif hz["accel"] < self.crash_cfg.min_rate_hz:
+            verdict, hint = "low_rate", "rate"
+        elif not light_ok:
+            verdict, hint = "no_light", "light_refused" if self._light_dead else "light"
+        else:
+            verdict, hint = "ok", ""
+        payload = self._state_payload or {}
+        result = {"ts": round(self._wall(), 1), "duration_s": round(elapsed, 1),
+                  "mode": self.mode, "verdict": verdict, "hint": hint,
+                  "frames": frames, "hz": hz,
+                  "lux_min": test["lux_min"], "lux_max": test["lux_max"],
+                  "light_steady": bool(light_ok and not frames["light"]),
+                  "lux": round(self._lux, 1) if self._lux is not None else None,
+                  "lux_ts": round(self._lux_wall, 1) if self._lux_wall is not None else None,
+                  "state": self._state, "error": clean_error(payload.get("error", ""))}
+        log.info("Phone sensors: test %s — frames accel=%d gyro=%d light=%d in %.0f s, "
+                 "lux %s..%s, mode %s", verdict, frames["accel"], frames["gyro"],
+                 frames["light"], elapsed, test["lux_min"], test["lux_max"], self.mode)
+        return result
+
     # ── frames ────────────────────────────────────────────────────────────
 
-    def handle_message(self, raw: Any, now: float) -> None:
-        """One WebSocket message (worker thread)."""
+    def handle_message(self, raw: Any, now: float, channel: Optional[_Channel] = None) -> None:
+        """One WebSocket message (worker thread); ``channel``: the
+        connection it came on (per-connection counters, its default type)."""
         if self._sec_start is None or not 0 <= now - self._sec_start < 1.0:
             self._sec_start = now
             self._sec_count = 0
@@ -1328,16 +1947,39 @@ class PhoneSensors:
             # though the measured rate still looks good.
             self.accel.mark_overrun()
             return
-        parsed, why = parse_frame(raw)
+        parsed, why = parse_frame(raw, channel.default_type if channel is not None else None)
         if parsed is None:
             self.stats[why] += 1
             return
         kind, values, ts_ns = parsed
         self._last_frame_at = now
         self._session_frames += 1
+        key = TYPE_KEYS[kind]
+        self._rates[key].add(now)
+        self._type_last[key] = now
+        if channel is not None:
+            channel.frames[key] += 1
+            channel.last_frame_at = now
+            if channel.first_frame_at is None:
+                channel.first_frame_at = now
+                # This connection works: its next failure starts the
+                # backoff from the bottom again.
+                channel.delay = BACKOFF_MIN_S
+                channel.logged_error = ""
+        test = self._test
+        if test is not None:
+            test["frames"][key] += 1
         if kind == TYPE_LIGHT:
-            self.light.add(values[0])
+            lux = values[0]
+            self.light.add(lux)
             self.stats["light"] += 1
+            self._lux = lux
+            self._lux_wall = self._wall()
+            self._light_live = True
+            self._light_refusals = 0
+            if test is not None:
+                test["lux_min"] = lux if test["lux_min"] is None else min(test["lux_min"], lux)
+                test["lux_max"] = lux if test["lux_max"] is None else max(test["lux_max"], lux)
             return
         t = self._sensor_time(ts_ns, now)
         if kind == TYPE_GYRO:
@@ -1395,6 +2037,7 @@ class PhoneSensors:
     def periodic(self, now: float) -> None:
         """Publications and state (called after every receive)."""
         self._apply_recalibration()
+        self._test_tick(now)
         if self.calib.new_reference:
             self.calib.new_reference = False
             self._save_reference()
@@ -1427,10 +2070,28 @@ class PhoneSensors:
                 else self._connected_at
             if ref is not None and now - ref >= STALE_S:
                 self._set_state("stale")
-        if self._state == "streaming":
+        # Light has its own freshness: published while its connection is
+        # up and has delivered on it, whatever the accelerometer does (a
+        # phone whose accelerometer stream fails still dims the screen).
+        # On-change sensor: in constant light no frames come, so the 2 s
+        # heartbeat repeats the median — brightness.py's stale_s guards
+        # against a value that is no longer current once the link ends.
+        # The heartbeat stops LIGHT_HEARTBEAT_MAX_S after the last light
+        # frame, so a suspended sensor cannot hold a daytime value at night.
+        if self._light_fresh(now):
             lux = self.light.due(now)
             if lux is not None:
-                self._publish(TOPIC_LUX, {"lux": lux, "ts": round(self._wall(), 3)})
+                last = self._type_last["light"]
+                self._publish(TOPIC_LUX, {"lux": lux, "ts": round(self._wall(), 3),
+                                          "frame_age_s": round(max(0.0, now - last), 1)
+                                          if last is not None else None})
+
+    def _light_fresh(self, now: float) -> bool:
+        """A light connection is up, has delivered on it, and its last
+        light frame is at most LIGHT_HEARTBEAT_MAX_S old."""
+        last = self._type_last["light"]
+        return self._light_live and last is not None \
+            and 0 <= now - last < LIGHT_HEARTBEAT_MAX_S
 
     def _log_stats(self, now: float) -> None:
         """One warning a minute at most when the phone sent bad frames."""
@@ -1483,6 +2144,43 @@ class PhoneSensors:
         with self._state_lock:
             return self._set_state_locked(state, error, force)
 
+    def _extras(self, state: str) -> dict[str, Any]:
+        """The per-type part of ``phone_sensors.state`` (worker thread; the
+        final "disabled" from stop() carries none of the worker's data)."""
+        if state == "disabled":
+            return {"mode": self.mode, "types": {key: {"subscribed": False, "active": False,
+                                                       "hz": 0.0, "refused": False}
+                                                 for key in TYPE_NAMES},
+                    "lux": None, "lux_ts": None, "close": dict(self._last_close),
+                    "test_running": False}
+        now = self._clock()
+        subscribed = {TYPE_KEYS[k] for ch in self._chans if ch.conn is not None
+                      for k in ch.types}
+        types = {}
+        for key in TYPE_NAMES:
+            last = self._type_last[key]
+            if key == "light":
+                active = self._light_fresh(now)
+            else:
+                active = last is not None and 0 <= now - last < TYPE_ACTIVE_S
+            types[key] = {"subscribed": key in subscribed, "active": bool(active),
+                          "hz": round(self._rates[key].hz(now), 1),
+                          "refused": (key == "gyro" and self._gyro_dead)
+                          or (key == "light" and self._light_dead)}
+        return {"mode": self.mode, "types": types,
+                "lux": round(self._lux, 1) if self._lux is not None else None,
+                "lux_ts": round(self._lux_wall, 1) if self._lux_wall is not None else None,
+                "close": dict(self._last_close), "test_running": self._test is not None}
+
+    def _refresh_state(self, urgent: bool = False) -> None:
+        """Republish the current state with fresh statistics."""
+        payload = self._state_payload
+        if payload is None:
+            return
+        if urgent:
+            self._state_pub_at = None
+        self._set_state(payload["state"], error=payload["error"])
+
     def _set_state_locked(self, state: str, error: str, force: bool) -> bool:
         if self._stop.is_set() and not force:
             return False
@@ -1490,12 +2188,23 @@ class PhoneSensors:
         payload = {"state": state, "rate_hz": rate,
                    "calib_ok": self.calib.calib_ok if state != "disabled" else False,
                    "error": clean_error(error) if state in ("error", "waiting_forward") else ""}
+        payload.update(self._extras(state))
         old = self._state_payload
+        mono = self._clock()
         if old is not None and old["state"] == state and old["calib_ok"] == payload["calib_ok"] \
                 and old["error"] == payload["error"]:
             prev = old["rate_hz"]
-            if abs(rate - prev) < max(RATE_REPUBLISH * max(prev, rate), 1.0):
+            urgent = any(old.get(k) != payload[k] for k in ("mode", "close", "test_running")) \
+                or any(old["types"][key]["subscribed"] != payload["types"][key]["subscribed"]
+                       or old["types"][key]["active"] != payload["types"][key]["active"]
+                       for key in TYPE_NAMES)
+            stats_due = self._state_pub_at is None \
+                or not 0 <= mono - self._state_pub_at < STATE_STATS_EVERY_S
+            changed = any(old.get(k) != payload[k] for k in ("types", "lux", "lux_ts"))
+            if abs(rate - prev) < max(RATE_REPUBLISH * max(prev, rate), 1.0) \
+                    and not urgent and not (stats_due and changed):
                 return False
+        self._state_pub_at = mono
         if old is None or old["state"] != state:
             self._since = self._wall()
             # "error" is logged by _fail (with the backoff); "connecting"

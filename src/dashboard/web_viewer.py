@@ -48,6 +48,8 @@ from src.safety import cabin_watch as _cabin_watch
 from src.safety import call112 as _call112
 from src.safety import crash_sms as _crash_sms
 from src.safety import parking_guard as _parking_guard
+from src.sensors import phone_sensors as _phone_sensors
+from src.network._proc import clean_error
 from src.weather.weather import valid_coords
 
 log = get_logger("web_viewer")
@@ -518,7 +520,151 @@ def _car_phone_summary(value: Any) -> Optional[dict]:
         "hotspot_clients": num("hotspot_clients", 0, 255, integer=True),
         "heat": pick("heat", ("warning", "danger"), None),
         "error": error[:200] if isinstance(error, str) else "",
+        "forwards": _forwards_summary(value.get("forwards")),
         **_internet_summary(value),
+    }
+
+
+#: Named adb forwards of car_phone shown in Settings (src/network/car_phone.py
+#: NAMED_FORWARDS) — anything else in the payload is dropped.
+_CAR_PHONE_FORWARDS = ("sensors", "agent")
+
+
+def _forwards_summary(value: Any) -> dict:
+    """``net.car_phone`` ``forwards`` → ``{name: {ok, error}}`` for the
+    known names only (ports stay out: nothing in the UI needs them)."""
+    out: dict = {}
+    if not isinstance(value, dict):
+        return out
+    for name in _CAR_PHONE_FORWARDS:
+        spec = value.get(name)
+        if not isinstance(spec, dict):
+            continue
+        err = spec.get("error")
+        out[name] = {"ok": spec.get("ok") is True,
+                     "error": clean_error(err)[:200] if isinstance(err, str) else ""}
+    return out
+
+
+#: Minimum spacing of POST /api/phone_sensors/test — longer than the test
+#: itself (10 s), so a second click cannot queue another one behind it.
+_PHONE_SENSORS_TEST_MIN_INTERVAL_S = 12.0
+
+
+def _phone_sensors_summary(state: Any, test: Any, car: Any,
+                           now: Optional[float] = None) -> Optional[dict]:
+    """``phone_sensors.state`` (+ ``phone_sensors.test_result`` and the
+    ``sensors`` forward from ``net.car_phone``) → the Settings row
+    "Czujniki telefonu". None = the module does not run (no row).
+
+    Everything is whitelisted / range-checked: the values describe what the
+    phone sent (close reasons are SensorServer's own text). ``lux_age_s`` is
+    computed here, so the row shows how old the last light reading is even
+    between two state publications."""
+    if not isinstance(state, dict):
+        return None
+    now = time.time() if now is None else now
+
+    def num(v, lo, hi, nd=1):
+        if isinstance(v, bool) or not isinstance(v, (int, float)) or not math.isfinite(v) \
+                or not lo <= v <= hi:
+            return None
+        return round(float(v), nd)
+
+    raw_types = state.get("types") if isinstance(state.get("types"), dict) else {}
+    types = {}
+    for key in _phone_sensors.TYPE_NAMES:
+        t = raw_types.get(key) if isinstance(raw_types.get(key), dict) else {}
+        types[key] = {"subscribed": t.get("subscribed") is True,
+                      "active": t.get("active") is True,
+                      "hz": num(t.get("hz"), 0, 5000) or 0.0,
+                      "refused": t.get("refused") is True}
+    lux = num(state.get("lux"), 0, _phone_sensors.MAX_LUX)
+    lux_ts = _ts(state.get("lux_ts"))
+    lux_age = None
+    if lux is not None and lux_ts is not None:
+        lux_age = round(max(0.0, now - lux_ts), 1)
+    close = state.get("close") if isinstance(state.get("close"), dict) else {}
+    code = close.get("code")
+    reason = close.get("reason")
+    channel = close.get("channel")
+    error = state.get("error")
+    st = state.get("state")
+    mode = state.get("mode")
+    out = {
+        "state": st if isinstance(st, str) and st in _phone_sensors.STATES else "unknown",
+        "mode": mode if isinstance(mode, str) and mode in _phone_sensors.MODES else "",
+        "error": clean_error(error)[:200] if isinstance(error, str) else "",
+        "rate_hz": num(state.get("rate_hz"), 0, 5000) or 0.0,
+        "calib_ok": state.get("calib_ok") is True,
+        "types": types,
+        "lux": lux,
+        "lux_age_s": lux_age,
+        "close": {
+            "code": code if isinstance(code, int) and not isinstance(code, bool)
+            and 1000 <= code <= 4999 else None,
+            "reason": clean_error(reason)[:_phone_sensors.CLOSE_REASON_MAX]
+            if isinstance(reason, str) else "",
+            "channel": channel if channel in ("all", "accel", "gyro", "light") else "",
+        },
+        "test": {"running": state.get("test_running") is True,
+                 "result": _phone_sensors_test_summary(test)},
+        "forward": None,
+    }
+    if isinstance(car, dict):
+        fwd = _forwards_summary(car.get("forwards")).get("sensors")
+        out["forward"] = fwd if fwd is not None else {"ok": False, "error": "missing"}
+    return out
+
+
+def _age_at(then: Any, at: Any) -> Optional[float]:
+    """Seconds from ``then`` to ``at`` (both epoch, validated by _ts);
+    None when either is missing or ``then`` lies after ``at``."""
+    a, b = _ts(then), _ts(at)
+    if a is None or b is None or a > b:
+        return None
+    return round(b - a, 1)
+
+
+def _phone_sensors_test_summary(value: Any) -> Optional[dict]:
+    if not isinstance(value, dict):
+        return None
+    verdict = value.get("verdict")
+    if verdict not in _phone_sensors.TEST_VERDICTS:
+        return None
+    hint = value.get("hint")
+
+    def count(d, key):
+        v = d.get(key) if isinstance(d, dict) else None
+        return v if isinstance(v, int) and not isinstance(v, bool) and 0 <= v <= 10**7 else 0
+
+    def lux(v):
+        if isinstance(v, bool) or not isinstance(v, (int, float)) or not math.isfinite(v) \
+                or not 0 <= v <= _phone_sensors.MAX_LUX:
+            return None
+        return round(float(v), 1)
+
+    frames = value.get("frames")
+    hz = value.get("hz") if isinstance(value.get("hz"), dict) else {}
+    dur = value.get("duration_s")
+    return {
+        "ts": _ts(value.get("ts")),
+        "verdict": verdict,
+        "hint": hint if hint in _phone_sensors.TEST_HINTS else "",
+        "frames": {k: count(frames, k) for k in _phone_sensors.TYPE_NAMES},
+        "hz": {k: (round(float(hz[k]), 1) if isinstance(hz.get(k), (int, float))
+                   and not isinstance(hz.get(k), bool) and math.isfinite(hz[k])
+                   and 0 <= hz[k] <= 5000 else 0.0) for k in _phone_sensors.TYPE_NAMES},
+        "lux_min": lux(value.get("lux_min")),
+        "lux_max": lux(value.get("lux_max")),
+        # Steady light: no frame in the window, but the connection that
+        # delivered the last reading is still up — the row shows that
+        # reading and how old it was when the test ended.
+        "light_steady": value.get("light_steady") is True,
+        "lux": lux(value.get("lux")),
+        "lux_age_s": _age_at(value.get("lux_ts"), value.get("ts")),
+        "duration_s": round(float(dur), 1) if isinstance(dur, (int, float))
+        and not isinstance(dur, bool) and math.isfinite(dur) and 0 <= dur <= 600 else None,
     }
 
 
@@ -1553,6 +1699,9 @@ class WebViewer:
         # POST /api/car_phone_agent/pair rate limit (monotonic, as above).
         self._agent_pair_lock = threading.Lock()
         self._agent_pair_last: Optional[float] = None
+        # POST /api/phone_sensors/test rate limit (monotonic, as above).
+        self._sensors_test_lock = threading.Lock()
+        self._sensors_test_last: Optional[float] = None
         # POST /api/net/test: rate limit (monotonic), one worker at a time,
         # wall time of the last finished test (for the Settings row).
         self._net_test_lock = threading.Lock()
@@ -1768,6 +1917,12 @@ class WebViewer:
             # The phone mounted in the car (src/network/car_phone.py): USB
             # tethering, GPS forward, battery. None = module not running.
             "car_phone": _car_phone_summary(_val("net.car_phone")),
+            # Settings "Czujniki telefonu" (src/sensors/phone_sensors.py):
+            # per-type rate, last lux and its age, the test verdict, the
+            # sensors forward. None = module not running.
+            "phone_sensors": _phone_sensors_summary(
+                _val(_phone_sensors.TOPIC_STATE), _val(_phone_sensors.TOPIC_TEST_RESULT),
+                _val("net.car_phone")),
             # The Termux agent on that phone (src/network/car_phone_agent.py):
             # pairing / health for the Settings row. None = module not running.
             "car_phone_agent": _car_phone_agent_summary(
@@ -3573,6 +3728,52 @@ class WebViewer:
                 viewer._car_phone_retry_last = now
             viewer._event_bus.publish(_CAR_PHONE_RETRY_TOPIC, True)
             return jsonify({"ok": True})
+
+        @app.route("/api/phone_sensors/test", methods=["POST"])
+        def api_phone_sensors_test():
+            """"Test" in the Settings row "Czujniki telefonu".
+
+            Loopback ONLY: the head unit's own screen starts it (nothing a
+            phone on the hotspot needs). Takes no arguments (the body is
+            ignored) and only publishes phone_sensors.cmd.test; the module's
+            worker counts the frames per sensor for 10 s and publishes
+            phone_sensors.test_result, which arrives in the payload's
+            ``phone_sensors.test``. 409 when the module does not run or a
+            test is running; at most one per _PHONE_SENSORS_TEST_MIN_INTERVAL_S
+            (429 + Retry-After).
+            """
+            if not _kiosk_request(request.remote_addr, request.host,
+                                  request.headers.get("Origin")):
+                viewer._log_refusal(str(request.remote_addr)[:64], request.method,
+                                    request.path, "loopback_only",
+                                    "the phone sensor test is only possible from the head "
+                                    "unit's own screen", level=logging.WARNING)
+                return jsonify({"ok": False, "error": "forbidden"}), 403
+            bus = viewer._event_bus
+            if not bus:
+                return jsonify({"ok": False, "error": "event bus unavailable"}), 503
+            try:
+                last_state = bus.get_last(_phone_sensors.TOPIC_STATE)
+            except Exception:
+                last_state = None
+            state = last_state[0] if last_state else None
+            if not isinstance(state, dict) or state.get("state") in (None, "disabled"):
+                return jsonify({"ok": False, "error": "disabled"}), 409
+            if state.get("test_running") is True:
+                return jsonify({"ok": False, "error": "busy"}), 409
+            now = time.monotonic()
+            with viewer._sensors_test_lock:
+                last = viewer._sensors_test_last
+                if last is not None and now - last < _PHONE_SENSORS_TEST_MIN_INTERVAL_S:
+                    wait = int(_PHONE_SENSORS_TEST_MIN_INTERVAL_S - (now - last)) + 1
+                    res = jsonify({"ok": False, "error": "too many requests",
+                                   "retry_after": wait})
+                    res.headers["Retry-After"] = str(wait)
+                    return res, 429
+                viewer._sensors_test_last = now
+            bus.publish(_phone_sensors.TEST_TOPIC, True)
+            return jsonify({"ok": True, "started": True,
+                            "duration_s": _phone_sensors.TEST_DURATION_S}), 202
 
         @app.route("/api/net/test", methods=["POST"])
         def api_net_test():

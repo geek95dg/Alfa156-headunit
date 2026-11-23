@@ -305,6 +305,175 @@ const Settings = {
         } catch (e) { /* offline kiosk: the backend retries on its own */ }
     },
 
+    // "Czujniki telefonu" (modules.phone_sensors): SensorServer stream per
+    // sensor type (frames/s over 10 s), the last light reading and its age,
+    // the sensors forward, and "Test" (10 s count, verdict + what to do).
+    // data.phone_sensors from web_viewer._phone_sensors_summary, or null with
+    // the module off (no row).
+    _sensorsTest: { msg: "", at: 0 },
+
+    /** "Test" (POST /api/phone_sensors/test — loopback only, 1 per 12 s on
+     *  the server; the verdict arrives in data.phone_sensors.test ~10 s later). */
+    async sensorsTest() {
+        const t = (typeof App !== "undefined" && App.t) ? App.t.bind(App) : ((k, d) => d);
+        const now = Date.now();
+        if (now - Settings._sensorsTest.at < 2000) return;
+        Settings._sensorsTest.at = now;
+        const say = (m) => {
+            Settings._sensorsTest.msg = m;
+            const el = document.querySelector("[data-sensors-test-msg]");
+            if (el) el.textContent = m;
+        };
+        try {
+            const res = await fetch("/api/phone_sensors/test", { method: "POST" });
+            let body = {};
+            try { body = await res.json(); } catch (e) { /* not JSON */ }
+            if (res.status === 202) say(t("sensors_test_started", "testuję… (10 s)"));
+            else if (res.status === 429) say(t("sensors_test_wait", "chwilę — spróbuj za kilka sekund"));
+            else if (body && body.error === "busy") say(t("sensors_test_busy", "test już trwa"));
+            else if (body && body.error === "disabled") say(t("sensors_test_disabled", "moduł czujników nie działa"));
+            else if (res.status === 403) say(t("sensors_test_forbidden", "test tylko z ekranu w aucie"));
+            else say(t("sensors_test_failed", "nie udało się uruchomić testu"));
+        } catch (e) { say(t("sensors_test_failed", "nie udało się uruchomić testu")); }
+    },
+
+    /** The verdict of the last test and what to do about it. */
+    sensorsVerdictText(res, t) {
+        t = t || ((k, d) => d);
+        const verdicts = {
+            ok: t("sensors_verdict_ok", "wszystko działa"),
+            no_forward: t("sensors_verdict_no_forward", "brak połączenia z telefonem (forward „sensors”)"),
+            no_data: t("sensors_verdict_no_data", "SensorServer nic nie wysyła"),
+            no_accel: t("sensors_verdict_no_accel", "brak akcelerometru"),
+            no_light: t("sensors_verdict_no_light", "brak odczytów światła"),
+            low_rate: t("sensors_verdict_low_rate", "akcelerometr za wolny"),
+        };
+        const hints = {
+            car_phone: t("sensors_hint_car_phone", "włącz moduł „Telefon w aucie” (car_phone)"),
+            restart: t("sensors_hint_restart", "włącz modules.phone_sensors w konfiguracji i zrestartuj BCM"),
+            phone: t("sensors_hint_phone", "podłącz telefon kablem USB i zezwól na debugowanie USB"),
+            app: t("sensors_hint_app", "uruchom SensorServer: Local Host, port 8080, Start; zezwól na pracę w tle"),
+            accel: t("sensors_hint_accel", "w SensorServer zaznacz akcelerometr"),
+            light: t("sensors_hint_light", "w SensorServer zaznacz czujnik światła i zezwól na pracę w tle (bez optymalizacji baterii); nie zasłaniaj górnej krawędzi ekranu"),
+            light_refused: t("sensors_hint_light_refused", "telefon odrzuca czujnik światła — sprawdź go w SensorServer i zrestartuj BCM"),
+            rate: t("sensors_hint_rate", "w SensorServer ustaw częstotliwość próbkowania 10000 µs (100 Hz)"),
+        };
+        if (!res || typeof res !== "object" || !Object.prototype.hasOwnProperty.call(verdicts, res.verdict)) {
+            return { text: "", hint: "", ok: false };
+        }
+        const hint = Object.prototype.hasOwnProperty.call(hints, res.hint) ? hints[res.hint] : "";
+        return { text: verdicts[res.verdict], hint, ok: res.verdict === "ok" };
+    },
+
+    /** The row; '' without a payload (module off). Every value from the
+     *  payload goes through _esc; numbers are type-checked. */
+    sensorsRowHtml(ps, t) {
+        t = t || ((k, d) => d);
+        if (!ps || typeof ps !== "object") return "";
+        const esc = Settings._esc;
+        const num = (v) => (typeof v === "number" && isFinite(v)) ? v : null;
+        const states = {
+            disabled: t("sensors_state_disabled", "wyłączone"),
+            waiting_forward: t("sensors_state_waiting", "czeka na telefon"),
+            connecting: t("sensors_state_connecting", "łączę…"),
+            streaming: t("sensors_state_streaming", "działa"),
+            stale: t("sensors_state_stale", "brak akcelerometru"),
+            error: t("sensors_state_error", "błąd — ponowię"),
+        };
+        const state = typeof ps.state === "string" ? ps.state : "unknown";
+        const label = Object.prototype.hasOwnProperty.call(states, state) ? states[state] : state;
+        const types = (ps.types && typeof ps.types === "object") ? ps.types : {};
+        const light = types.light && typeof types.light === "object" ? types.light : {};
+        const lightOk = light.active === true;
+        const color = state === "streaming" ? (lightOk ? "#16a34a" : "#d97706")
+            : (state === "stale" && lightOk ? "#d97706"
+                : (state === "error" || state === "waiting_forward" ? "#dc2626" : "var(--text-dim)"));
+        const hz = (key, name) => {
+            const ty = types[key] && typeof types[key] === "object" ? types[key] : {};
+            const v = num(ty.hz);
+            const txt = ty.subscribed === true || (v !== null && v > 0)
+                ? `${v === null ? 0 : Math.round(v)} Hz` : "—";
+            return `<span data-sensors-type="${esc(key)}" style="color:var(--text-mid)">${esc(name)} ${esc(txt)}</span>`;
+        };
+        const lux = num(ps.lux);
+        const age = num(ps.lux_age_s);
+        let luxTxt = t("sensors_light_none", "światło: brak odczytu");
+        if (lux !== null) {
+            luxTxt = t("sensors_light", "światło: {lux} lx").replace("{lux}", String(Math.round(lux)));
+            if (age !== null) {
+                const a = age < 60 ? `${Math.round(age)} s` : (age < 3600 ? `${Math.round(age / 60)} min` : `${Math.round(age / 3600)} h`);
+                luxTxt += " " + t("sensors_light_age", "({age} temu)").replace("{age}", a);
+            }
+        }
+        const facts = [
+            hz("accel", t("sensors_accel", "akcelerometr")),
+            hz("gyro", t("sensors_gyro", "żyroskop")),
+            `<span data-sensors-lux style="color:var(--text-mid)">${esc(luxTxt)}</span>`,
+        ].join(" · ");
+        const lines = [];
+        const fwd = ps.forward && typeof ps.forward === "object" ? ps.forward : null;
+        if (fwd && fwd.ok !== true) {
+            lines.push(fwd.error === "missing"
+                ? t("sensors_fwd_missing", "car_phone nie ma forwardu „sensors” — włącz modules.phone_sensors w konfiguracji i zrestartuj BCM")
+                : t("sensors_fwd_down", "forward „sensors” nie działa — podłącz telefon albo naciśnij „Ponów” w wierszu „Telefon w aucie”"));
+        } else if (!fwd && state === "waiting_forward") {
+            lines.push(t("sensors_hint_car_phone", "włącz moduł „Telefon w aucie” (car_phone)"));
+        }
+        if (state === "error" && typeof ps.error === "string" && ps.error) {
+            lines.push(ps.error);
+        }
+        if (light.refused === true) {
+            lines.push(t("sensors_light_refused", "telefon odrzuca czujnik światła — BCM nie prosi o niego aż do restartu"));
+        }
+        if (ps.mode === "split") {
+            lines.push(t("sensors_mode_split", "osobne połączenie dla każdego czujnika (telefon odrzucił wspólne)"));
+        }
+        const running = ps.test && ps.test.running === true;
+        const res = ps.test && ps.test.result && typeof ps.test.result === "object" ? ps.test.result : null;
+        let verdictHtml = "";
+        if (res) {
+            const v = Settings.sensorsVerdictText(res, t);
+            if (v.text) {
+                const fr = res.frames && typeof res.frames === "object" ? res.frames : {};
+                const n = (k) => Number.isInteger(fr[k]) ? fr[k] : 0;
+                let detail = t("sensors_test_frames", "ramki w 10 s: akcelerometr {a}, żyroskop {g}, światło {l}")
+                    .replace("{a}", String(n("accel"))).replace("{g}", String(n("gyro"))).replace("{l}", String(n("light")));
+                const lmin = num(res.lux_min);
+                const lmax = num(res.lux_max);
+                if (lmin !== null && lmax !== null) {
+                    detail += " · " + t("sensors_test_lux", "światło {min}–{max} lx")
+                        .replace("{min}", String(Math.round(lmin))).replace("{max}", String(Math.round(lmax)));
+                } else if (res.light_steady === true && num(res.lux) !== null) {
+                    // On-change sensor in steady light: no frame in 10 s,
+                    // the last reading still holds (not a failure).
+                    const la = num(res.lux_age_s);
+                    detail += " · " + t("sensors_test_steady", "światło stałe — ostatni odczyt {lux} lx, {age} s temu")
+                        .replace("{lux}", String(Math.round(res.lux)))
+                        .replace("{age}", la === null ? "?" : String(Math.round(la)));
+                }
+                verdictHtml = `<div data-sensors-verdict="${esc(res.verdict)}" style="flex-basis:100%;padding-left:24px;display:flex;flex-wrap:wrap;gap:2px 8px">
+                    <span style="color:${v.ok ? "#16a34a" : "#dc2626"};font-weight:700">${esc(t("sensors_test_result", "test: {verdict}").replace("{verdict}", v.text))}</span>
+                    <span style="color:var(--text-dim)">${esc(detail)}</span>
+                    ${v.hint ? `<span data-sensors-hint style="flex-basis:100%;color:var(--text-mid)">${esc(v.hint)}</span>` : ""}
+                </div>`;
+            }
+        }
+        let msg = Settings._sensorsTest.msg;
+        if (running) msg = t("sensors_test_running", "testuję… (10 s)");
+        else if (res && typeof res.ts === "number" && res.ts * 1000 >= Settings._sensorsTest.at) msg = "";
+        const btn = `<button data-sensors-test onclick="Settings.sensorsTest()" ${running ? "disabled" : ""} style="margin-left:auto;padding:4px 10px;border-radius:8px;font-size:11px;font-weight:700;background:var(--card-border);color:var(--text-mid);border:none">${esc(t("sensors_test", "Test"))}</button>`;
+        const hintsHtml = lines.map((l) => `<span data-sensors-line style="color:var(--text-mid);flex-basis:100%;padding-left:24px">${esc(l)}</span>`).join("");
+        return `<div data-phone-sensors="${esc(state)}" style="display:flex;flex-wrap:wrap;align-items:center;gap:4px 8px;padding:8px 12px;border-radius:12px;background:var(--card-bg);border:1px solid var(--card-border);font-size:11px;line-height:1.3">
+            <span class="material-symbols-outlined" style="font-size:16px;color:${color}">sensors</span>
+            <span style="color:var(--text-dim);font-weight:700">${esc(t("phone_sensors", "Czujniki telefonu"))}:</span>
+            <span style="color:${color};font-weight:700">${esc(label)}</span>
+            <span style="color:var(--text-mid)">${facts}</span>${btn}
+            ${hintsHtml}
+            <span data-sensors-test-msg style="flex-basis:100%;padding-left:24px;color:var(--text-dim)">${esc(msg)}</span>
+            ${verdictHtml}
+        </div>`;
+    },
+
     /** One info row "Telefon w aucie: <stan> <ip> · 78% 31 °C · GPS · hotspot"
      *  plus, for a known problem, what to do (never the raw adb/nmcli
      *  error). '' without a payload. Inline styles only (Tailwind is
@@ -2308,6 +2477,16 @@ App.registerScreen("settings", (() => {
         return JSON.stringify((data && data.car_phone) || null);
     }
 
+    /** The "Czujniki telefonu" row as drawn: the light age in 5 s steps
+     *  (it changes every second; the row need not be redrawn that often). */
+    let _sensorsKey = "null";
+    function _sensorsKeyOf(data) {
+        const ps = (data && data.phone_sensors) || null;
+        if (!ps || typeof ps !== "object") return "null";
+        const age = typeof ps.lux_age_s === "number" ? Math.floor(ps.lux_age_s / 5) : null;
+        return JSON.stringify(Object.assign({}, ps, { lux_age_s: age }));
+    }
+
     function _agentKeyOf(data) {
         return JSON.stringify((data && data.car_phone_agent) || null);
     }
@@ -2382,6 +2561,14 @@ App.registerScreen("settings", (() => {
             if (slot) {
                 _carPhoneKey = carKey;
                 slot.innerHTML = Settings.carPhoneRowHtml(data && data.car_phone, t);
+            }
+        }
+        const sensorsKey = _sensorsKeyOf(data);
+        if (sensorsKey !== _sensorsKey) {
+            const slot = document.querySelector("[data-phone-sensors-slot]");
+            if (slot) {
+                _sensorsKey = sensorsKey;
+                slot.innerHTML = Settings.sensorsRowHtml(data && data.phone_sensors, t);
             }
         }
         const agentKey = _agentKeyOf(data);
@@ -2466,6 +2653,7 @@ App.registerScreen("settings", (() => {
         _gpsKey = _gpsKeyOf(data);
         _carPhoneKey = _carPhoneKeyOf(data);
         _agentKey = _agentKeyOf(data);
+        _sensorsKey = _sensorsKeyOf(data);
         _netKey = _netKeyOf(data);
         _crashKey = _crashKeyOf(data);
         _parkKey = _parkKeyOf(data);
@@ -2554,6 +2742,9 @@ App.registerScreen("settings", (() => {
                         <div data-tether-slot style="display:contents">${Settings.tetherRowHtml(data && data.phone_tether, t)}</div>
                         <!-- The phone mounted in the car (USB, adb) — same slot idea. -->
                         <div data-car-phone-slot style="display:contents">${Settings.carPhoneRowHtml(data && data.car_phone, t)}</div>
+                        <!-- Czujniki telefonu (SensorServer): Hz per sensor, lux + age,
+                             "Test" — same slot idea. -->
+                        <div data-phone-sensors-slot style="display:contents">${Settings.sensorsRowHtml(data && data.phone_sensors, t)}</div>
                         <!-- The Termux agent on that phone (pairing, health) — same slot idea. -->
                         <div data-car-phone-agent-slot style="display:contents">${Settings.carPhoneAgentRowHtml(data && data.car_phone_agent, t)}</div>
                         <!-- SMS po stłuczce: status + testowy SMS (update() swaps it)
