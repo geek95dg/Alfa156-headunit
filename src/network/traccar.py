@@ -75,6 +75,11 @@ TOPIC_STATE = "traccar.state"
 DEVICE_ID_PATH = "traccar.device_id"
 DEVICE_ID_ENV = "BCM_TRACCAR_DEVICE_ID"
 URL_MAX = 200
+#: Below this length the id is guessable: its 8-hex fingerprint travels in
+#: the dashboard payload (traccar.state, the agent's health) and lets a
+#: reader confirm guesses offline — and the id is the only credential of
+#: the OsmAnd endpoint. Still accepted (8+, as the agent), but warned once.
+DEVICE_ID_STRONG_LEN = 16
 #: The agent's ranges (bcm_agent.py TRACCAR_DRIVE_RANGE / TRACCAR_PARK_RANGE).
 DRIVE_S = (30, 10, 600)
 PARK_MIN = (15, 5, 240)
@@ -302,6 +307,10 @@ class Traccar:
 
     def start(self) -> None:
         """Subscribe and start the worker; no I/O here."""
+        if self._id_set and len(_url_and_id(self._config)[2]) < DEVICE_ID_STRONG_LEN:
+            log.warning("Traccar: %s is shorter than %d characters — easy to guess; "
+                        "use e.g. `openssl rand -hex 16` (docs/TRACCAR_SERWER.md §5)",
+                        DEVICE_ID_ENV, DEVICE_ID_STRONG_LEN)
         if not self._url_ok or not self._id_set:
             # One line at start (names only) — the row says the same.
             log.warning("Traccar: %s%s%s — the phone sends no positions until fixed "

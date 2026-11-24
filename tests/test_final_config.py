@@ -52,7 +52,7 @@ ON = {
     "wifi_ap", "net_diag", "weather", "weather_alerts", "route_planner", "traffic_alerts",
     "voice_announce", "location", "tracking", "trip_gps", "fuel_log", "car_phone",
     "car_phone_hotspot", "phone_sensors", "car_phone_agent", "traccar", "auto_brightness",
-    "blinker_monitor", "performance",
+    "blinker_monitor", "performance", "last_park",
 }
 
 
@@ -272,6 +272,15 @@ class TestBaseChangeOnLoad:
         lines = [w for w in cfg.load_warnings if "sudo cp -p" in w]
         assert len(lines) == 1 and "\n" not in lines[0]
         assert f"sudo cp -p {bak} {local}" in lines[0] and FAKE_MAC not in lines[0]
+
+    def test_temp_era_overlay_migrates_from_the_temp_file(self):
+        # An overlay for bcm_config_temp.yaml holds only differences from that
+        # file; the car's settings are in the temp file itself — so the
+        # source is the temp file and --merge-existing keeps the overlay.
+        cmd = config_mod.migration_command(REPO / "config" / "local.yaml", FINAL,
+                                           "bcm_config_temp.yaml")
+        assert cmd.endswith("--source config/bcm_config_temp.yaml --base config/bcm_config.yaml"
+                            " --out config/local.yaml --merge-existing")
 
     def test_command_names_a_non_default_overlay_as_out(self, tmp_path):
         other = tmp_path / "elsewhere.yaml"

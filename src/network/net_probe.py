@@ -28,9 +28,12 @@ Result: ``{ok, iface, dns_ok, https_ok, error, detail, checked_at}`` —
 cleaned one-line text for the log/diagnostics, never anything secret.
 
 :class:`InternetProbe` adds the rate limit: at most one probe per
-:data:`MIN_INTERVAL_S` (60 s); ``force`` (a fresh "connected" edge, the
-Settings "Test" button) still waits :data:`FORCE_FLOOR_S` since the last
-one. It is shared (:func:`shared_probe`) — car_phone and phone_tether ask
+:data:`MIN_INTERVAL_S` (60 s) while there is NO internet, and only once per
+:data:`OK_INTERVAL_S` (10 min) once it works — a working link is not
+re-checked every minute for the whole drive (that would be a steady beacon
+to the HTTPS host and needless radio traffic). ``force`` (a fresh
+"connected" edge, the Settings "Test" button) still waits
+:data:`FORCE_FLOOR_S` since the last one. It is shared (:func:`shared_probe`) — car_phone and phone_tether ask
 the same question, and the answer does not depend on who asks. It blocks for
 up to a few seconds, so it is only ever called from a worker thread (the
 modules' own loops, the web route's worker), never on the event bus.
@@ -60,8 +63,11 @@ DNS_HOST = "api.openweathermap.org"
 HTTPS_URL = "https://www.gstatic.com/generate_204"
 #: Timeout of each step (seconds).
 STEP_TIMEOUT_S = 5.0
-#: At most one probe per this many seconds (cached result in between).
+#: At most one probe per this many seconds while the last one FAILED.
 MIN_INTERVAL_S = 60.0
+#: ... and per this many seconds while the last one succeeded (privacy: no
+#: once-a-minute beacon to HTTPS_URL; link edges force a probe anyway).
+OK_INTERVAL_S = 600.0
 #: Even a forced probe waits this long since the previous one.
 FORCE_FLOOR_S = 5.0
 #: ``error`` values ('' = internet works).
@@ -185,11 +191,13 @@ class InternetProbe:
     def __init__(self, probe: Optional[Callable[[], dict[str, Any]]] = None,
                  clock: Callable[[], float] = time.monotonic,
                  min_interval: float = MIN_INTERVAL_S,
-                 force_floor: float = FORCE_FLOOR_S) -> None:
+                 force_floor: float = FORCE_FLOOR_S,
+                 ok_interval: float = OK_INTERVAL_S) -> None:
         self._probe = probe or probe_internet
         self._clock = clock
         self._min = float(min_interval)
         self._floor = float(force_floor)
+        self._ok_min = max(float(ok_interval), self._min)
         self._state_lock = threading.Lock()
         self._probe_lock = threading.Lock()
         self._last: Optional[dict[str, Any]] = None
@@ -202,17 +210,21 @@ class InternetProbe:
         with self._state_lock:
             return dict(self._last) if self._last is not None else None
 
-    def _cached(self, age_limit: float) -> Optional[dict[str, Any]]:
+    def _cached(self, force: bool) -> Optional[dict[str, Any]]:
         with self._state_lock:
-            if self._last is not None and self._last_at is not None \
-                    and self._clock() - self._last_at < age_limit:
+            if self._last is None or self._last_at is None:
+                return None
+            if force:
+                age_limit = self._floor
+            else:
+                age_limit = self._ok_min if self._last.get("ok") else self._min
+            if self._clock() - self._last_at < age_limit:
                 return dict(self._last)
         return None
 
     def check(self, force: bool = False) -> dict[str, Any]:
         """The current answer, probing when the cached one is too old."""
-        age_limit = self._floor if force else self._min
-        cached = self._cached(age_limit)
+        cached = self._cached(force)
         if cached is not None:
             return cached
         if not self._probe_lock.acquire(blocking=False):
@@ -225,7 +237,7 @@ class InternetProbe:
                     "checked_at": time.time()}
         try:
             # Another probe may have finished between the check and acquire.
-            cached = self._cached(age_limit)
+            cached = self._cached(force)
             if cached is not None:
                 return cached
             try:

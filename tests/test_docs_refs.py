@@ -482,3 +482,14 @@ def test_module_table_matches_catalog_and_configs():
     # zasilanie) is in the table — those are the toggles this guide is for.
     grouped = {n for n, info in MODULES.items() if info.get("group")}
     assert grouped <= listed, f"tabela bez modułów: {sorted(grouped - listed)}"
+
+
+def test_no_stale_claims_about_the_final_config():
+    # Since 23.11 config/bcm_config.yaml is the car's config with most new
+    # modules on; these sentences were true only before that switch.
+    stale = ("produkcyjnym `config/bcm_config.yaml` nic się nie zmienia",
+             "jedną linią w `/etc/bcm/bcm.env`")
+    for path in ("docs/WDROZENIE_TESTOWE_TELEFON.md", "docs/WDROZENIE_TESTOWE.md"):
+        text = (REPO / path).read_text(encoding="utf-8")
+        for phrase in stale:
+            assert phrase not in text, f"{path}: nieaktualne zdanie „{phrase}”"

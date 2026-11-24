@@ -95,7 +95,8 @@ modules:
   # --- internet, pogoda, trasa ---
   net_diag: true           # diagnostyka internetu i kluczy: sonda łącza
                            # w car_phone (trasa domyślna, DNS, HTTPS,
-                           # najwyżej co 60 s) i wiersz Ustawień
+                           # bez internetu co 60 s, z nim co 10 min)
+                           # i wiersz Ustawień
                            # „Internet i usługi” z przyciskiem „Test”
   weather: true            # OpenWeatherMap; klucz z /etc/bcm/bcm.env
                            # (BCM_OWM_API_KEY) — bez klucza dane demo
@@ -121,16 +122,19 @@ modules:
   # --- GPS, trasy, tankowania ---
   location: true           # GPS z telefonu: Redmi przez adb forward (TCP),
                            # zapasowo UDP — blok hardware.gps niżej
-  tracking: true           # zapis tras do SQLite + lista tras i GPX:
-                           # http://10.0.0.1:5002/trips w przeglądarce telefonu
+  tracking: true           # zapis tras do SQLite + lista tras i GPX na
+                           # stronie /trips. Z telefonu kierowcy pewnie
+                           # tylko po PAN (phone_tether, tu wyłączony):
+                           # http://<IP bnep0>:5002/trips; 10.0.0.1 (Wi-Fi
+                           # AA) zwykle nie działa dla przeglądarki (GPS niżej)
   trip_gps: true           # komputer podróży z GPS na A3 (dystans, czas,
                            # średnia); wymaga location
   fuel_log: true           # dziennik tankowań: „Zatankowano” na A3,
                            # spalanie od pełna do pełna, koszt, zasięg;
                            # wymaga tracking; blok fuel_log niżej
-  last_park: false         # ostatni postój z GPS BCM (data/last_park.json) —
-                           # wyłączony jak w teście; pozycję na postoju
-                           # wysyła telefon do Traccara (traccar niżej)
+  last_park: true          # ostatni postój z GPS BCM (data/last_park.json):
+                           # wiersz w Ustawieniach i link na /trips; działa
+                           # bez internetu i bez Traccara; wymaga location
 
   # --- telefon w aucie (Redmi na USB) ---
   car_phone: true          # Redmi przez adb: tethering USB (internet), GPS
@@ -152,7 +156,9 @@ modules:
                            # wymaga car_phone_agent. Włączony, ale NIC NIE
                            # ROBI, dopóki nie ma OBU: traccar.url w
                            # config/local.yaml i BCM_TRACCAR_DEVICE_ID
-                           # w /etc/bcm/bcm.env (docs/TRACCAR_SERWER.md §8)
+                           # w /etc/bcm/bcm.env (docs/TRACCAR_SERWER.md §8);
+                           # do tego czasu nie wysyła też nic do agenta
+                           # (starszy agent < 1.6.0 dalej przyjmuje config)
   auto_brightness: true    # jasność ekranu z czujnika światła telefonu
                            # (phone_sensors) albo LDR Arduino (input);
                            # blok display.auto_brightness niżej
@@ -199,15 +205,16 @@ dashboard:
   #   readonly — tylko podgląd (GET i strumień /ws), bez sterowania i haseł
   #   tracking — z sieci TYLKO lista tras i pliki GPX (/trips, /api/tracking/*)
   #   none     — z sieci nic
-  # Tutaj tracking: telefon w sieci AA albo po PAN pobierze GPX, ale nie
+  # Tutaj tracking: telefon po PAN (phone_tether; przez Wi-Fi AA zwykle nie
+  # dochodzi — komentarz przy hardware.gps) pobierze GPX, ale nie
   # zrestartuje komputera ani nie odczyta haseł Wi-Fi. Do debugowania
   # z laptopa wpisz `dashboard: {remote_access: full}` w config/local.yaml.
   remote_access: tracking
   # Spoza tych sieci (gdy tryb nie jest full) każda prośba dostaje 403.
   allowed_networks: ['10.0.0.0/8', '172.16.0.0/12', '192.168.0.0/16']
   # Z sieci (gdy tryb nie jest full) dashboard otwiera się tylko po adresie IP
-  # (http://10.0.0.1:5002/trips) — obcy serwis nie podstawi wtedy swojej nazwy
-  # pod 10.0.0.1 (DNS rebinding) i nie wyczyta tras z przeglądarki telefonu.
+  # (np. http://<IP bnep0>:5002/trips) — obcy serwis nie podstawi wtedy swojej nazwy
+  # pod adres BCM (DNS rebinding) i nie wyczyta tras z przeglądarki telefonu.
   # Nazwy, które mają działać mimo to, wpisz tutaj, np. ['bcm.local'].
   allowed_hosts: []
 display:
@@ -660,6 +667,7 @@ voice_announce:
   quiet_when_parking: true # milczy, gdy działają czujniki parkowania (cofanie)
   max_age_s: 60            # starszych komunikatów już nie mówi (10–300 s)
   dedupe_s: 300            # ten sam komunikat najwyżej raz na tyle sekund
+                           # (eskalacja — inny tekst / wyższy priorytet — od razu)
   call_defer_s: 45         # w trakcie rozmowy czeka najwyżej tyle, potem
                            # odpuszcza (≤ max_age_s)
   max_per_min: 4           # najwyżej tyle na minutę (ostrzeżenia o

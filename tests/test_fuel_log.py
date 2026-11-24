@@ -377,6 +377,41 @@ class TestWithTracker:
             flog.stop()
             trk.stop()
 
+    def test_refuel_entered_during_an_open_trip_splits_the_km(self, tmp_path):
+        # The driver taps 'Zatankowano' only after pulling away: the km
+        # before the tap belong to the previous tank, those after to the new.
+        bus = EventBus()
+        wall = _Clock(1_800_000_000.0)
+        trk = GPSTracker(bus, config=_Cfg(**{
+            "tracking.db_path": str(tmp_path / "gps.db"), "tracking.interval_sec": 0,
+            "tracking.trip_end_idle_sec": 3600}), wall_clock=wall)
+        trk.start()
+        bus.publish("tracking._internals", {"tracker": trk})
+        flog = fl.FuelLog(bus, _Cfg(**{"fuel_log.db_path": str(tmp_path / "f.db")}),
+                          wall_clock=wall)
+        try:
+            t0 = wall()
+            for lat in (50.0, 50.05, 50.1):                 # ~11.1 km, trip open
+                bus.publish("gps.position", {"lat": lat, "lon": 20.0, "speed": 60.0})
+                wall.advance(30)
+            refuel = wall()                                 # t0 + 90 s
+            flog.add({"litres": 40})
+            wall.advance(15)
+            for lat in (50.15, 50.2):                       # ~11.1 km more
+                bus.publish("gps.position", {"lat": lat, "lon": 20.0, "speed": 60.0})
+                wall.advance(30)
+            # The segment 50.1 (t0+60) → 50.15 (t0+105) crosses the refuel:
+            # 30 of its 45 s go to the previous tank, 15 s to the new one.
+            before = trk.distance_between(t0, refuel)
+            after = trk.distance_between(refuel)
+            assert before == pytest.approx(11.12 + 5.56 * 30 / 45, abs=0.1)
+            assert after == pytest.approx(5.56 * 15 / 45 + 5.56, abs=0.1)
+            assert before + after == pytest.approx(22.24, abs=0.1)
+            assert flog.stats()["km_since_full"] == pytest.approx(after, abs=0.1)
+        finally:
+            flog.stop()
+            trk.stop()
+
 
 # ── GPS trip feed ────────────────────────────────────────────────────────
 

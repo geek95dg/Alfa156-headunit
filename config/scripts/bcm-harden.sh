@@ -247,8 +247,16 @@ check_config_migration() {
         warn "config/local.yaml jest zapisany dla bazy $old_base (# base:), a BCM startuje teraz z config/bcm_config.yaml"
         warn "BCM go zastosuje, ale NIE zapisze — zmiany z ekranu i ostatni telefon BT znikną przy każdym restarcie"
         info "przepisz go na nową bazę — najpierw podgląd (nic nie zapisuje):"
-        info "  cd $BCM_DIR && sudo $py tools/migrate_local_config.py --source config/local.yaml --base config/bcm_config.yaml"
-        info "potem to samo polecenie z --write (stary plik zostaje jako config/local.yaml.${old_base%.yaml}.bak)"
+        if [ "$old_base" = "bcm_config_temp.yaml" ]; then
+            # Nakładka ery temp ma tylko różnice od bcm_config_temp.yaml —
+            # ustawienia auta (karta USB …) są w samym pliku temp, więc źródłem
+            # jest ten plik, a --merge-existing zachowuje nakładkę.
+            info "  cd $BCM_DIR && sudo $py tools/migrate_local_config.py --source config/bcm_config_temp.yaml --base config/bcm_config.yaml --out config/local.yaml --merge-existing"
+            info "potem to samo polecenie z --write"
+        else
+            info "  cd $BCM_DIR && sudo $py tools/migrate_local_config.py --source config/local.yaml --base config/bcm_config.yaml"
+            info "potem to samo polecenie z --write (stary plik zostaje jako config/local.yaml.${old_base%.yaml}.bak)"
+        fi
         info "albo zostań przy starej bazie: dopisz BCM_CONFIG=config/$old_base do $ENV_FILE"
     else
         warn "zainstalowany bcm-headunit.service startuje z config/bcm_config_temp.yaml, a config/local.yaml jeszcze nie ma"

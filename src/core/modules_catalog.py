@@ -78,7 +78,7 @@ MODULES: dict[str, dict] = {
     # Partia 12: refuels entered on A3 ("Zatankowano") → consumption from
     # full to full, cost, range (src/trip/fuel_log.py). Needs tracking: the
     # GPS distance between fills when no odometer reading was entered. Off
-    # in code (production unchanged).
+    # in code (default False); the car's config/bcm_config.yaml decides.
     "fuel_log":    {"part": 12, "description": "Dziennik tankowań: spalanie od pełna do pełna, koszt, zasięg",
                     "entry": ("src.trip.fuel_log", "start_fuel_log"), "default": False,
                     "requires": ("tracking",),
@@ -86,13 +86,15 @@ MODULES: dict[str, dict] = {
                                 "ekranie trasy (A3) po tankowaniu"},
     "network":    {"part": 13, "description": "LTE/Cellular Connectivity",
                     "entry": ("src.network.lte", "start_network"), "default": False},
-    # Off in code (production unchanged); this toggle is its only switch.
+    # Off in code (default False; config/bcm_config.yaml decides); this
+    # toggle is its only switch.
     # Needs bluetooth: it follows bt.connected from the BluetoothManager.
     "phone_tether": {"part": 13, "description": "Internet z telefonu (Bluetooth PAN przez NetworkManager)",
                     "entry": ("src.network.phone_tether", "start_phone_tether"), "default": False,
                     "requires": ("bluetooth",),
                     "hardware": "telefon z włączonym tetheringiem Bluetooth"},
-    # Off in code (production unchanged); this toggle is its only switch.
+    # Off in code (default False; config/bcm_config.yaml decides); this
+    # toggle is its only switch.
     # Plan C + D1: the phone mounted in the car on USB (adb) — tethering,
     # GPS forward, battery/heat, clock. No dependency: it does not need
     # Bluetooth, and autoapp must be built wireless-only (BCM_AA_USB=0 in
@@ -219,7 +221,8 @@ MODULES: dict[str, dict] = {
     # HTTPS, offline queue), because BCM is off while parked. BCM's part
     # (src/network/traccar.py): the settings in the agent's config push
     # (traccar.url + BCM_TRACCAR_DEVICE_ID from bcm.env), the Settings row
-    # and "Wyślij pozycję teraz". Off in code (production unchanged).
+    # and "Wyślij pozycję teraz". Off in code (default False;
+    # config/bcm_config.yaml decides).
     "traccar":      {"part": 22, "description": "Pozycja auta na Twoim serwerze Traccar (wysyła telefon w aucie)",
                      "entry": ("src.network.traccar", "start_traccar"),
                      "default": False, "group": "telefon_w_aucie",
@@ -231,7 +234,7 @@ MODULES: dict[str, dict] = {
     # BCM's own GPS, saved atomically under data/ (the test car's power is
     # simply cut, so also after a minute standing still), shown in Settings
     # and on /trips. Needs only GPS; works without the phone agent. Off in
-    # code (production unchanged).
+    # code (default False); the car's config/bcm_config.yaml decides.
     "last_park":    {"part": 12, "description": "Ostatni postój: gdzie auto ostatnio stało (link do mapy)",
                      "entry": ("src.location.last_park", "start_last_park"),
                      "default": False, "requires": ("location",),
@@ -259,7 +262,8 @@ MODULES: dict[str, dict] = {
                      "legacy_key": "bluetooth.enabled", "default": True},
     "phonebook":    {"part": 11, "description": "PBAP phonebook + call history sync (A8 phone screen)",
                      "default": True, "requires": ("bluetooth",)},
-    # Off in code (production unchanged); started only with Bluetooth on.
+    # Off in code (default False; config/bcm_config.yaml decides); started
+    # only with Bluetooth on.
     "phone_status": {"part": 11, "description": "Stan telefonu w pasku górnym (bateria, zasięg, operator — oFono/BlueZ)",
                      "default": False, "requires": ("bluetooth",)},
     "fuel_sender":  {"part": 21, "description": "Fuel tank sender calibration (Arduino ADC → %)",

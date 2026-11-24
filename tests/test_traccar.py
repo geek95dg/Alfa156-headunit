@@ -135,6 +135,18 @@ class TestUrlAndSettings:
         norm, err = A.normalize_config(on, strict=True)
         assert err == "" and A.config_hash(norm) == cpa.config_hash(on)
 
+    @pytest.mark.parametrize("missing", [{"url": ""}, {"device_id": None},
+                                         {"device_id": "short"}])
+    def test_unconfigured_traccar_leaves_the_push_as_without_the_module(self, missing):
+        # The car's base config has modules.traccar on before the URL / id
+        # exist: a pre-1.6.0 agent must not see the whole push as outdated.
+        off_cfg = _cfg()
+        off_cfg["modules"]["traccar"] = False
+        desired = cpa.desired_config(_cfg(**missing))
+        assert "traccar" not in desired["toggles"]
+        assert not any(k.startswith("traccar_") for k in desired)
+        assert cpa.config_hash(desired) == cpa.config_hash(cpa.desired_config(off_cfg))
+
     def test_parse_agent_view(self):
         good = {"enabled": True, "configured": True, "id_fp": "a1b2c3d4", "mode": "drive",
                 "queue_n": 3, "last_sent_ts": WALL0, "last_ok_ts": WALL0, "last_error": "tls",
@@ -220,6 +232,19 @@ class TestModule:
         mod.m.request_send()
         mod.m.step()
         assert mod.m.state()["cmd"]["error"] == "b"
+
+    def test_short_device_id_warns_once_at_start_without_the_id(self, caplog):
+        short = "ab12cd34"                       # 8 chars: accepted, but weak
+        for dev, warned in ((short, True), (DEV, False)):
+            caplog.clear()
+            m = tr.Traccar(_cfg(device_id=dev), EventBus(), agent_getter=lambda: None)
+            m.start()
+            try:
+                msgs = [r.getMessage() for r in caplog.records]
+                assert any("shorter than 16" in t for t in msgs) is warned
+                assert not any(dev in t for t in msgs)
+            finally:
+                m.stop()
 
     def test_not_configured(self):
         m = tr.Traccar(_cfg(url=""), EventBus(), agent_getter=lambda: None)

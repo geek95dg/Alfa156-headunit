@@ -53,8 +53,9 @@ Szczegóły techniczne każdej funkcji: [`WDROZENIE_TESTOWE.md`](WDROZENIE_TESTO
 ## 1. Co się zmieniło (#126–#129)
 
 Każda nowa funkcja ma własny przełącznik `modules.<nazwa>` (Ustawienia →
-Moduły). W produkcyjnym `config/bcm_config.yaml` nic się nie zmienia —
-nowe moduły są tam wyłączone; pełna tabela: §8.
+Moduły). Domyślnie w kodzie każdy jest wyłączony; od 23.11 auto jeździ na
+`config/bcm_config.yaml` (konfiguracja docelowa, §13) — co jest w niej
+włączone, pokazuje kolumna „Docelowa” w §8.
 
 **#126 — ustawienia i odporność na odcięcie prądu**
 
@@ -542,7 +543,21 @@ Główny telefon to Twój telefon z Android Auto. Jest zapasem dla telefonu
 w aucie (internet i GPS) albo jedynym źródłem, dopóki Redmi nie jest
 zamontowany.
 
+> **Konfiguracja docelowa:** w `config/bcm_config.yaml` (decyzja 23.11)
+> `modules.phone_tether` jest **wyłączony** — Redmi daje internet po USB.
+> Wszystko z tego rozdziału działa dopiero po włączeniu Ustawienia →
+> Moduły → `phone_tether` i restarcie BCM.
+
+> Bez tego nie ma `bnep0`, profilu `bcm-phone-pan`, GPSd Forwarder /
+> `pan-gateway` (§5.2) ani `/trips` po PAN (§5.3). Bez PAN telefon kierowcy nie ma
+> sprawdzonej drogi do `/trips` (Wi-Fi Android Auto nie przepuszcza ruchu
+> innych aplikacji do `10.0.0.1`, §5.2) — pobieranie GPX z telefonu
+> kierowcy wymaga `phone_tether`.
+
 ### 5.1 Internet przez Bluetooth (`modules.phone_tether`)
+
+Tylko z włączonym `modules.phone_tether` (w konfiguracji docelowej
+wyłączony — zob. wyżej).
 
 1. W telefonie: Ustawienia → Sieć i internet → Hotspot i tethering →
    **Tethering przez Bluetooth: włączony** (nazwy różnią się między
@@ -675,17 +690,19 @@ agenta w Termuxie: SMS po stłuczce, „Zadzwoń 112” na głośniku, alarm na
 postoju i czuwanie kabiny. **Całe przygotowanie telefonu krok po kroku:
 [`PRZYGOTOWANIE_TELEFONU.md`](PRZYGOTOWANIE_TELEFONU.md).**
 
-Kolejność po stronie BCM (wszystko domyślnie wyłączone):
+W `config/bcm_config.yaml` (konfiguracja docelowa, §13) moduły `car_phone`,
+`car_phone_hotspot`, `phone_sensors` i `car_phone_agent` są już włączone —
+wyłączone są tylko w kodzie i w `config/bcm_config_test.yaml` (tam włączasz
+je na ekranie Ustawień i restartujesz BCM). Po stronie BCM zostaje:
 
-1. autoapp bez USB (§3.9) i `adb` (§3.8);
-2. Ustawienia → Moduły → `car_phone` (potem `phone_sensors`,
-   `car_phone_agent`, …), restart BCM;
-3. sekret agenta w `/etc/bcm/bcm.env` (§3.6) i parowanie
-   (`PRZYGOTOWANIE_TELEFONU.md` §10);
-4. funkcje bezpieczeństwa tylko w trybie testowym, dopóki nie przejdą
+1. autoapp bez USB: `sudo BCM_AA_USB=0 bash config/scripts/install-openauto.sh --force`
+   (§3.9) i `adb` (§3.8);
+2. sekret agenta `BCM_CAR_PHONE_AGENT_SECRET` w `/etc/bcm/bcm.env` (§3.6)
+   i parowanie (`PRZYGOTOWANIE_TELEFONU.md` §10);
+3. funkcje bezpieczeństwa tylko w trybie testowym, dopóki nie przejdą
    sprawdzeń na stole: `crash_detection.sms.dry_run: true`,
    `safety.call112.test_mode: true`, `parking_guard.log_only: true`
-   (tak jest w configu testowym).
+   (tak jest w `config/bcm_config.yaml` i w configu testowym).
 
 Po wyłączeniu `modules.car_phone` usuń profil NetworkManagera — inaczej NM
 dalej kieruje ruch przez każdy telefon z włączonym tetheringiem USB:
@@ -754,7 +771,7 @@ testów).
 | `location` | pozycja GPS (NMEA z telefonu) | — | telefon z aplikacją NMEA | wł. | wł. |
 | `tracking` | zapis tras (SQLite) i GPX | — | pozycja z `location` | wł. | wł. |
 | `fuel_log` | dziennik tankowań: spalanie od pełna do pełna, koszt, zasięg (§9.6) | `tracking` | nic — wpis na ekranie trasy | wł. | wł. |
-| `last_park` | ostatni postój: gdzie auto ostatnio stało — wiersz w Ustawieniach i link do mapy na `/trips` ([TRACCAR_SERWER.md](TRACCAR_SERWER.md) §8.5) | `location` | GPS | wył. | wył. |
+| `last_park` | ostatni postój: gdzie auto ostatnio stało — wiersz w Ustawieniach i link do mapy na `/trips` ([TRACCAR_SERWER.md](TRACCAR_SERWER.md) §8.5) | `location` | GPS | wł. | wył. |
 | `crash_detect` | wykrywanie stłuczki, ochrona nagrań | `location` | GPS; pełne z `phone_sensors` | wył. | wł. |
 | `car_phone` | telefon w aucie: internet USB, GPS, bateria, zegar | — | Redmi na USB (adb), autoapp z `BCM_AA_USB=0` | wł. | wył. |
 | `car_phone_hotspot` | stan hotspotu telefonu w aucie | `car_phone` | hotspot w Redmi | wł. | wył. |
@@ -877,7 +894,8 @@ hasło Wi-Fi Direct — nie zmieniaj ich)
 nmcli connection show --active
 ```
 
-(`bcm-phone-pan` — główny telefon; `bcm-car-phone` — telefon w aucie)
+(`bcm-car-phone` — telefon w aucie; `bcm-phone-pan` — główny telefon, tylko
+z `phone_tether`, w konfiguracji docelowej go nie ma)
 
 ```bash
 curl -sI https://www.google.com | head -n 1
@@ -891,8 +909,10 @@ curl -s http://127.0.0.1:5002/api/data | python3 -m json.tool | grep '"gps_'
 - [ ] Ustawienia → GPS: „jest pozycja”, źródło i nadawca.
 - [ ] Ekran pogody: plakietka na mapie „GPS AKTYWNY” (nie „BRAK GPS”);
       planer tras nie pisze „start: domyślny (brak GPS)”.
-- [ ] Trasy: `http://<IP bnep0>:5002/trips` w przeglądarce telefonu, GPX
-      się pobiera.
+- [ ] Trasy (konfiguracja docelowa, bez PAN): lista tras odpowiada —
+      `curl -s http://127.0.0.1:5002/trips | head -n 5` na komputerze.
+- [ ] Trasy z telefonu — **tylko z `phone_tether`**:
+      `http://<IP bnep0>:5002/trips` w przeglądarce telefonu, GPX się pobiera.
 - [ ] Ikony telefonu (bateria, zasięg) w pasku górnym.
 
 ### 9.5 Telefon w aucie i funkcje bezpieczeństwa
@@ -960,8 +980,9 @@ przedział, koszt na 100 km, kilometry od ostatniego pełnego baku i zasięg
 szacowany z pojemności baku (`fuel_sender.tank_capacity_litres`, 58 l).
 Ta sama średnia trafia do planu podróży (paliwo na trasę „wg tankowań”
 zamiast stałych 7 l/100 km). „Usuń ostatnie” cofa literówkę (tylko
-najnowszy wpis). Historia jest też na `http://<IP bnep0>:5002/trips`
-(tabela „Tankowania”).
+najnowszy wpis). Historia jest też na stronie `/trips` (tabela
+„Tankowania”): `http://127.0.0.1:5002/trips` na komputerze, z telefonu
+`http://<IP bnep0>:5002/trips` — tylko z `phone_tether` (§5).
 
 Gdy po kilku tankowaniach do pełna wciąż nie ma średniej, panel mówi
 dlaczego: „brak dystansu — wpisz stan licznika przy następnym tankowaniu”
@@ -1021,7 +1042,8 @@ i niebezpiecznych; w godzinach `quiet_hours` (np. `'22:00-06:00'`) bez
 głosu, poza niebezpiecznymi. Okienko oblodzenia na środku ekranu zostaje
 wyłączone (wcześniejsza prośba) — jest tylko powiadomienie i głos.
 
-Kategorie i progi: blok `weather_alerts` w `config/bcm_config_test.yaml`
+Kategorie i progi: blok `weather_alerts` w `config/bcm_config.yaml` (konfiguracja docelowa; ten sam
+w `bcm_config_test.yaml`)
 (zmiany w `config/local.yaml`, §2), np. bez ostrzeżeń o wietrze:
 
 ```yaml
@@ -1101,7 +1123,8 @@ Co widać i słychać:
   gdy moduł jest wyłączony;
 - ekran pomocniczy (`small_display`) pokazuje najbliższe utrudnienie.
 
-Ustawienia: blok `traffic_alerts` w `config/bcm_config_test.yaml` (zmiany
+Ustawienia: blok `traffic_alerts` w `config/bcm_config.yaml` (konfiguracja docelowa; ten sam
+w `bcm_config_test.yaml`) (zmiany
 w `config/local.yaml`, §2), np. rzadziej i dalej:
 
 ```yaml
@@ -1178,7 +1201,9 @@ skończył się ostatni komunikat.
 - tylko prośby z włączonych kategorii, najpierw niebezpieczne (oblodzenie,
   wypadek, zamknięta droga), potem reszta;
 - przed komunikatem krótki dźwięk (`chime: false` go wyłącza);
-- ten sam komunikat najwyżej raz na 5 minut (`dedupe_s`), najwyżej 4 na
+- ten sam komunikat najwyżej raz na 5 minut (`dedupe_s`) — eskalacja
+  (ostrzeżenie → niebezpieczeństwo, większe opóźnienie w korku) mówiona
+  od razu, bo ma inny tekst albo wyższy priorytet; najwyżej 4 na
   minutę (`max_per_min`; niebezpieczne poza limitem), co najmniej 3 s
   przerwy (`min_gap_s`);
 - starszy niż 60 s (`max_age_s`) już nie jest mówiony;
@@ -1196,7 +1221,8 @@ następnym starcie przywraca pełną głośność muzyki — także wtedy, gdy m
 w międzyczasie wyłączono. Nieudane przywrócenie (zajęty PipeWire) BCM
 ponawia kilka razy (1, 2, 4, 8 s).
 
-Ustawienia: blok `voice_announce` w `config/bcm_config_test.yaml`
+Ustawienia: blok `voice_announce` w `config/bcm_config.yaml` (konfiguracja docelowa; ten sam
+w `bcm_config_test.yaml`)
 (zmiany w `config/local.yaml`, §2), np. ciszej i bez dźwięku przed komunikatem:
 
 ```yaml
@@ -1230,7 +1256,7 @@ bez PipeWire)
 |-------|-----------------------|
 | Brak pogody; w logu `WeatherManager started (api_key=not set)` | `BCM_OWM_API_KEY` w `/etc/bcm/bcm.env` (§3.6), restart BCM. Świeżo wygenerowany klucz OpenWeatherMap może zacząć działać dopiero po jakimś czasie (zależy od dostawcy). |
 | W logu `Secrets from environment` bez nazwy klucza | Linia w `bcm.env` zakomentowana albo z komentarzem za wartością (komentarz tylko w osobnej linii). |
-| Zmiany z ekranu znikają po restarcie (przy modułach: „nie zapisano w local.yaml — zmiana zniknie po restarcie”) | `config/local.yaml` zapisany dla innej bazy (linia `# base:` na początku pliku) — BCM go stosuje, ale nie nadpisuje; w logu `Config: … saving is disabled …`. BCM zatrzymany (§3.2), potem: migracja — z kopią z auta wariant A, bez niej wariant B (`--source config/bcm_config_temp.yaml … --write --merge-existing`, §3.5); nagłówek staje się `# base: bcm_config_test.yaml`. Tylko gdy migracja jest niemożliwa: usuń linię `# base:` w `config/local.yaml` (podpowiedź z logu) — przepadną wtedy wartości z ery temp, których nie było w nakładce (np. `audio.sink` wraca do `auto`, `blinker_monitor`, przycisk SWC mute, motyw). |
+| Zmiany z ekranu znikają po restarcie (przy modułach: „nie zapisano w local.yaml — zmiana zniknie po restarcie”) | `config/local.yaml` zapisany dla innej bazy (linia `# base:` na początku pliku) — BCM go stosuje, ale nie nadpisuje; w logu `Config: … saving is disabled …`. BCM zatrzymany (§3.2), potem: migracja — z kopią z auta wariant A, bez niej wariant B (`--source config/bcm_config_temp.yaml … --write --merge-existing`, §3.5); nagłówek staje się `# base: bcm_config_test.yaml`, więc zaraz potem §13.2–§13.5 (konfiguracja docelowa; albo od razu `--base config/bcm_config.yaml` — to samo polecenie podpowiada log). Tylko gdy migracja jest niemożliwa: usuń linię `# base:` w `config/local.yaml` (podpowiedź z logu) — przepadną wtedy wartości z ery temp, których nie było w nakładce (np. `audio.sink` wraca do `auto`, `blinker_monitor`, przycisk SWC mute, motyw). |
 | Prąd zniknął w trakcie kroku z §3 | §3.11: `sudo dpkg --configure -a`, powtórz krok, `git -C /opt/bcm fsck`, rozmiar `/etc/bcm/bcm.env`. |
 | Moduł „nie wystartuje — brak …” | Włącz wymienione moduły (Ustawienia proponują „Włącz z zależnościami”), restart BCM. |
 | „włącz tethering Bluetooth w telefonie” | §5.1, punkt 1. |
@@ -1246,9 +1272,12 @@ bez PipeWire)
 
 „Połączono” przy telefonie znaczyło dotąd tylko, że działa łącze do
 telefonu — nie, że telefon przepuszcza ruch dalej. Z `modules.net_diag`
-(config testowy: włączony) BCM co najwyżej raz na 60 s sprawdza trzy rzeczy:
+(konfiguracja docelowa i testowa: włączony) BCM sprawdza trzy rzeczy:
 którym interfejsem idzie trasa domyślna, czy działa DNS i czy przechodzi
-jedno zapytanie HTTPS.
+jedno zapytanie HTTPS (`HEAD` do `www.gstatic.com`, bez żadnych danych).
+Bez internetu — najwyżej raz na 60 s; gdy internet działa — raz na 10 min
+(plus od razu po każdym połączeniu telefonu i po „Test”), żeby auto nie
+odzywało się do obcego serwera co minutę przez całą jazdę.
 
 **Wiersz Ustawienia → „Internet i usługi”** — czytaj od góry:
 
@@ -1449,7 +1478,8 @@ miałeś w `config/local.yaml` auta (karta dźwiękowa USB, motyw
 `autodelta`, jasność 62, autorestart Android Auto, wyciszenie pod
 `SWC_VOICE`/`SWC2_MUTE`, moduły telefonu w aucie, `auto_brightness`,
 `blinker_monitor`, `performance`) i nowe moduły (`fuel_log`,
-`weather_alerts`, `traffic_alerts`, `voice_announce`, `traccar`). Co jest
+`weather_alerts`, `traffic_alerts`, `voice_announce`, `traccar`,
+`last_park`). Co jest
 włączone: kolumna „Docelowa” w §8. `config/bcm_config_test.yaml` zostaje
 w repo jako konfiguracja stanowiskowa — auto może na nią wrócić (linia
 w `bcm.env` + przywrócenie kopii `config/local.yaml`, §13.7).

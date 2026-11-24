@@ -135,7 +135,24 @@ class TestProbeRateLimit:
         assert len(n) == 2                       # floor
         clock.t += 61
         probe.check()
+        assert len(n) == 2                       # OK → re-checked only every 10 min
+        clock.t += npr.OK_INTERVAL_S
+        probe.check()
         assert len(n) == 3
+
+    def test_failed_result_is_rechecked_after_60_s(self):
+        clock = SimpleNamespace(t=100.0)
+        n = []
+        probe = npr.InternetProbe(probe=lambda: n.append(1) or {"ok": False, "iface": "usb0",
+                                                                "error": "dns"},
+                                  clock=lambda: clock.t)
+        probe.check()
+        clock.t += 59
+        probe.check()
+        assert len(n) == 1
+        clock.t += 2
+        probe.check()
+        assert len(n) == 2
 
     def test_broken_seam_is_a_result_not_a_crash(self):
         def boom():

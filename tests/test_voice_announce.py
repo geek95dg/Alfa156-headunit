@@ -92,6 +92,32 @@ class TestQueue:
         clock.advance(2)
         assert q.offer(_req(key="weather_ice")) == "queued"
 
+    def test_escalation_to_higher_priority_within_window_is_spoken(self):
+        # weather_alerts keeps key weather_<kind> for warning → danger.
+        q, clock, _ = _queue(dedupe_s=300, min_gap_s=0)
+        q.offer(_req(key="weather_icing", text="Oblodzenie: ostrzeżenie."))
+        q.mark_spoken(q.next(False))
+        clock.advance(60)
+        assert q.offer(_req(key="weather_icing", text="Oblodzenie: niebezpieczeństwo.",
+                            priority="high")) == "queued"
+
+    def test_new_text_same_priority_within_window_is_spoken(self):
+        # traffic delay escalation keeps priority "normal", only the text grows.
+        q, clock, _ = _queue(dedupe_s=300, min_gap_s=0)
+        q.offer(_req(key="traffic_ab", text="Korek, opóźnienie 5 minut."))
+        q.mark_spoken(q.next(False))
+        clock.advance(120)
+        assert q.offer(_req(key="traffic_ab", text="Korek, opóźnienie 20 minut.")) == "queued"
+
+    def test_same_key_priority_and_text_is_still_a_duplicate(self):
+        q, clock, _ = _queue(dedupe_s=300, min_gap_s=0)
+        q.offer(_req(key="weather_icing", priority="high"))
+        q.mark_spoken(q.next(False))
+        clock.advance(10)
+        assert q.offer(_req(key="weather_icing", priority="high")) == "duplicate"
+        # A lower priority with the same text is not an escalation either.
+        assert q.offer(_req(key="weather_icing", priority="low")) == "duplicate"
+
     def test_without_key_the_text_dedupes(self):
         q, clock, _ = _queue(min_gap_s=0)
         q.offer(_req(text="Korek na S8."))
@@ -274,6 +300,20 @@ class TestOffer:
             assert len(a.mod.queue) == 0 and a.mod.offer(_req(text="x")) == "disabled"
         finally:
             a.mod.stop()
+
+    def test_stop_after_a_failed_ducker_start_does_not_raise(self):
+        bus = EventBus()
+
+        def boom(pw, b):
+            raise RuntimeError("no wpctl")
+
+        mod = va.VoiceAnnouncer(bus, _cfg(), synth=FakeSynth(), player=FakePlayer(),
+                                clock=FakeClock(), wall=FakeClock(WALL0),
+                                sleep=lambda s: None, ducker_factory=boom)
+        bus.publish("audio._internals", {"pipewire": FakePW()})
+        mod._ensure_ducker()
+        assert mod._ducker is False
+        mod.stop()                      # used to raise AttributeError on bool
 
 
 # ── the worker step ──────────────────────────────────────────────────────
@@ -683,6 +723,20 @@ class TestDucking:
         assert "@DEFAULT_AUDIO_SINK@" not in flat
         assert ["51", "0.630"] not in runner.volumes() and ["52", "0.630"] not in runner.volumes()
         assert ["50", "0.630"] in runner.volumes() and ["50", "1.000"] in runner.volumes()
+
+    def test_mode_flip_mid_duck_restores_the_old_nodes(self, tmp_path):
+        # Streams mode first (no EQ): mpv (50) ducked; then the EQ chain
+        # comes up while ducked — mpv must go back to 1.0, the EQ output
+        # gets the duck instead.
+        d, runner, _ = _ducker(tmp_path, eq=False)
+        d.apply(0.25)
+        assert ["50", "0.630"] in runner.volumes()
+        d._pw.eq = True
+        d._clock.advance(pwc.DUCK_RESOLVE_TTL_S + 1)
+        d.apply(0.25)
+        assert ["50", "1.000"] in runner.volumes() and ["41", "0.630"] in runner.volumes()
+        d.apply(1.0)
+        assert runner.volumes()[-1] == ["41", "1.000"]
 
     def test_vanished_node_is_resolved_again(self, tmp_path):
         d, runner, _ = _ducker(tmp_path)

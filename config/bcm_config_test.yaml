@@ -84,7 +84,8 @@ modules:
                            # weather_alerts niżej
   net_diag: true           # diagnostyka internetu i kluczy: sonda łącza
                            # w car_phone/phone_tether (trasa domyślna, DNS,
-                           # HTTPS, najwyżej co 60 s) i wiersz Ustawień
+                           # HTTPS; bez internetu co 60 s, z nim co 10 min)
+                           # i wiersz Ustawień
                            # „Internet i usługi” z przyciskiem „Test”
   location: true           # GPS Z TELEFONU: TCP (telefon w aucie przez adb
                            # forward albo główny telefon po Bluetooth PAN) ma
@@ -654,6 +655,7 @@ voice_announce:
   quiet_when_parking: true # milczy, gdy działają czujniki parkowania (cofanie)
   max_age_s: 60            # starszych komunikatów już nie mówi (10–300 s)
   dedupe_s: 300            # ten sam komunikat najwyżej raz na tyle sekund
+                           # (eskalacja — inny tekst / wyższy priorytet — od razu)
   call_defer_s: 45         # w trakcie rozmowy czeka najwyżej tyle, potem
                            # odpuszcza (≤ max_age_s)
   max_per_min: 4           # najwyżej tyle na minutę (ostrzeżenia o

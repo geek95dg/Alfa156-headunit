@@ -16,8 +16,9 @@ jeszcze raz”). Tankowanie częściowe przed pierwszym pełnym nic nie daje.
 
 Dystans przedziału:
 * licznik — gdy oba końce mają stan licznika (różnica > 0); dokładny;
-* GPS — w przeciwnym razie suma tras z rejestratora (``tracking``) zaczętych
-  między tankowaniami (src/location/tracker.py ``distance_between``).
+* GPS — w przeciwnym razie suma odcinków między punktami rejestratora
+  (``tracking``) z czasem między tankowaniami (src/location/tracker.py
+  ``distance_between``) — także gdy tankowanie wpisano w trakcie jazdy.
   GPS ZANIŻA dystans: punkt co ``tracking.interval_sec`` to cięciwy zamiast
   łuków na zakrętach, a początek jazdy przed pierwszym fixem w ogóle nie
   trafia do trasy (zwykle 1–5 %). Dlatego przedziały, które mają OBA

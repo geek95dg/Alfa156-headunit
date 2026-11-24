@@ -150,7 +150,9 @@ Resztę (baza H2, port panelu 8082) zostaw domyślną. Po zmianie:
 **Identyfikator to jedyne zabezpieczenie wysyłania pozycji** — protokół
 OsmAnd nie ma hasła. Kto go zna, może wpisywać auto w dowolne miejsce.
 Dlatego: długi losowy ciąg, nigdzie w repozytorium, w BCM tylko w
-`/etc/bcm/bcm.env` (§8), a nginx nie zapisuje go w logach (§6.2).
+`/etc/bcm/bcm.env` (§8), a nginx nie zapisuje go w swoich logach —
+dostępowym ani błędów (§6.2). Widzi go własny log Traccara (§10), więc
+odczyt `/opt/traccar/logs` tylko dla roota.
 
 ## 6. nginx: podkatalog dla pozycji + subdomena dla panelu
 
@@ -192,6 +194,10 @@ location ^~ /traccar-gps/ {
 
     # Identyfikator auta jest w adresie zapytania - nie zapisujemy go w logu.
     access_log off;
+    # Log błędów też zapisuje cały wiersz zapytania (z ?id=...) przy każdym
+    # odrzuceniu przez limit_req (503) i przy błędzie Traccara (502/504) -
+    # wyciszony w tym bloku.
+    error_log /dev/null crit;
 
     # Końcowy "/" obcina prefiks: /traccar-gps/?id=... -> /?id=...
     proxy_pass http://TRACCAR_IP:5055/;

@@ -148,7 +148,8 @@ differs from the desired configuration:
   :func:`src.network.traccar.traccar_settings`): the phone reports the
   car's position to the owner's Traccar server (OsmAnd over HTTPS). The
   same rule as ``remote_session``: the toggle AND the keys are sent only
-  while on; with it on, an agent older than
+  while on and while both the URL and the id are valid (an unconfigured
+  Traccar does not change the agent contract); then an agent older than
   :data:`MIN_AGENT_VERSION_TRACCAR` is ``agent_outdated``. The device id is
   a secret: it goes only into the signed PUT (the agent stores it 0600),
   never into a log line here.
@@ -643,8 +644,17 @@ def desired_config(config: Any, warn: Optional[Callable[[str, str], None]] = Non
         out["wake_ir_address"] = address
         out["wake_ir_command"] = command
     if toggles.get("traccar"):
-        # ... and for Traccar (agent >= 1.6.0), toggle included.
-        out.update(_traccar.traccar_settings(config, warn))
+        # ... and for Traccar (agent >= 1.6.0), toggle included — but only
+        # once BOTH the URL and the device id are valid. WHY: the toggle is
+        # on in the car's base config before the owner sets them up; sending
+        # it anyway would mark the WHOLE push (crash SMS, parking guard,
+        # cabin) agent_outdated on a pre-1.6.0 agent for a feature that does
+        # nothing yet. BCM's own Traccar row says "not configured".
+        settings = _traccar.traccar_settings(config, warn)
+        if settings["traccar_url"] and settings["traccar_device_id"]:
+            out.update(settings)
+        else:
+            toggles.pop("traccar", None)
     return out
 
 

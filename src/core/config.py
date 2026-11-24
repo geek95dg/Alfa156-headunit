@@ -434,12 +434,17 @@ def default_local_path(base_path: Path) -> Path:
     return Path(base_path).parent / LOCAL_CONFIG_NAME
 
 
-def migration_command(local_path: Path, base_path: Path) -> str:
+def migration_command(local_path: Path, base_path: Path, recorded: str = "") -> str:
     """The dry-run command that rewrites ``local_path`` for ``base_path``.
 
     Paths inside the repository are given relative to it (the docs and
     bcm-harden.sh print the same ``cd /opt/bcm && …`` form); anything else
     stays absolute. Only file paths go in — never a value from the overlay.
+
+    ``recorded`` = the overlay's ``# base:``. For ``bcm_config_temp.yaml``
+    the source is the temp FILE (``--merge-existing`` keeps the overlay):
+    the car's real settings (USB sink …) sit in the temp file itself and an
+    overlay-only migration — which never reads the old base — drops them.
     """
     repo = DEFAULT_CONFIG_PATH.parent.parent
 
@@ -450,6 +455,11 @@ def migration_command(local_path: Path, base_path: Path) -> str:
         except ValueError:
             return str(p)
 
+    if recorded == "bcm_config_temp.yaml":
+        temp = Path(base_path).with_name(recorded)
+        return (f"cd {repo} && sudo .venv/bin/python tools/migrate_local_config.py "
+                f"--source {rel(temp)} --base {rel(base_path)} --out {rel(local_path)} "
+                f"--merge-existing")
     cmd = (f"cd {repo} && sudo .venv/bin/python tools/migrate_local_config.py "
            f"--source {rel(local_path)} --base {rel(base_path)}")
     # The tool's default --out is local.yaml next to --base. With the overlay
@@ -656,7 +666,7 @@ class BCMConfig:
             # Planned move to a new base (bcm_config_test.yaml → bcm_config.yaml):
             # one line with the exact command. Saving stays disabled until the
             # overlay is rewritten — the same rollback safety as below.
-            command = migration_command(self.local_path, self.config_path)
+            command = migration_command(self.local_path, self.config_path, recorded)
             self.base_migration = {"recorded": recorded, "base": current,
                                    "command": command}
             self._warn(f"{origin.name} jest zapisany dla bazy {recorded}, a BCM działa "

@@ -182,7 +182,11 @@ class AnnounceQueue:
         self._wall = wall
         self._items: list[Item] = []
         self._seq = 0
-        self._spoken_keys: dict[str, float] = {}
+        # key → (monotonic time, priority rank, text hash) of what was spoken.
+        # WHY rank + text: producers keep one key across an escalation
+        # (weather_icing warning → danger, a traffic jam that got worse), and
+        # a key-only dedupe would silently swallow the more urgent message.
+        self._spoken_keys: dict[str, tuple[float, int, str]] = {}
         self._spoken_at: collections.deque = collections.deque(maxlen=64)
         self.dropped = 0
 
@@ -195,16 +199,31 @@ class AnnounceQueue:
             return "k:" + req["key"]
         return "t:" + hashlib.sha256(req["text"].encode("utf-8")).hexdigest()[:24]
 
-    def _recently_spoken(self, key: str, now: float) -> bool:
-        at = self._spoken_keys.get(key)
-        return at is not None and now - at < self.settings.dedupe_s
+    @staticmethod
+    def _text_hash(text: str) -> str:
+        return hashlib.sha256(text.encode("utf-8")).hexdigest()[:24]
+
+    def _recently_spoken(self, key: str, req: dict, now: float) -> bool:
+        """A duplicate = same key spoken within dedupe_s, not more urgent and
+        with the same text. An escalation (higher priority, or new text such
+        as a grown traffic delay) gets through — both producers already
+        rate-limit escalations upstream, so this does not turn into spam."""
+        prev = self._spoken_keys.get(key)
+        if prev is None:
+            return False
+        at, rank, text_hash = prev
+        if now - at >= self.settings.dedupe_s:
+            return False
+        if PRIORITY_RANK[req["priority"]] < rank:     # lower rank = more urgent
+            return False
+        return self._text_hash(req["text"]) == text_hash
 
     def offer(self, req: dict) -> str:
         """Queue a VALIDATED request → 'queued' | 'replaced' | 'duplicate' | 'full'."""
         now = self._clock()
         key = self.dedupe_key(req)
         test = req.get("category") == "test"
-        if not test and self._recently_spoken(key, now):
+        if not test and self._recently_spoken(key, req, now):
             return "duplicate"
         for i, it in enumerate(self._items):
             if it.dedupe == key:
@@ -246,7 +265,7 @@ class AnnounceQueue:
             keep.append(it)
         self._items = keep
         horizon = max(self.settings.dedupe_s, 60.0)
-        for k, at in list(self._spoken_keys.items()):
+        for k, (at, _rank, _hash) in list(self._spoken_keys.items()):
             if now - at > horizon:
                 del self._spoken_keys[k]
 
@@ -280,7 +299,9 @@ class AnnounceQueue:
         now = self._clock()
         self._spoken_at.append(now)
         if item.req.get("category") != "test":
-            self._spoken_keys[item.dedupe] = now
+            self._spoken_keys[item.dedupe] = (
+                now, PRIORITY_RANK[item.req["priority"]],
+                self._text_hash(item.req["text"]))
 
     def clear(self) -> None:
         self.dropped += len(self._items)
@@ -575,7 +596,8 @@ class VoiceAnnouncer:
             thread.join(5.0)
         if self._speaking:
             self._set_speaking(False)
-        if self._ducker is not None:
+        # Truthy check: a failed factory leaves False here (see _ensure_ducker).
+        if self._ducker:
             self._ducker.stop()
 
     # -- ducker (needs the audio module's PipeWireController) ----------------

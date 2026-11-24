@@ -1550,6 +1550,15 @@ class MusicDucker:
         else:
             targets = duck_targets(self._dump(), self._eq_running())
             self._resolved_at = now
+            # The mode can flip mid-episode (EQ child started or died while
+            # ducked: streams ↔ eq). Nodes ducked under the old mode are not
+            # in the new targets — put them back to 1.0 now, or they would
+            # stay turned down with nothing left that remembers them. A
+            # failed restore means the node is gone (nothing to restore).
+            new_ids = {node_id for node_id, _name in targets}
+            for node_id, name in list(self._ducked.items()):
+                if node_id not in new_ids and not self._set(node_id, 1.0):
+                    log.debug("Ducking: stale node %s (%s) already gone", node_id, name)
         ok: dict[str, str] = {}
         failed = False
         for node_id, name in targets:

@@ -146,6 +146,9 @@ class GPSTracker:
         )""")
         self._db.execute(
             "CREATE INDEX IF NOT EXISTS idx_tracks_trip ON tracks(trip_id)")
+        # distance_between (fuel log) looks points up by time.
+        self._db.execute(
+            "CREATE INDEX IF NOT EXISTS idx_tracks_ts ON tracks(ts)")
         self._db.commit()
         row = self._db.execute("SELECT MAX(id) FROM trips").fetchone()
         self._trip_id = (row[0] or 0) + 1
@@ -328,14 +331,17 @@ class GPSTracker:
             return self._compute_stats(trip_id or self._trip_id)
 
     def distance_between(self, start_ts: Any, end_ts: Any = None) -> Optional[float]:
-        """GPS kilometres of the trips that STARTED in ``[start_ts, end_ts)``.
+        """GPS kilometres driven in ``[start_ts, end_ts)``, from the points.
 
         For the fuel log (src/trip/fuel_log.py): the distance between two
-        refuels when no odometer was entered. A trip is counted whole by its
-        start (refuelling happens parked, after the tracker closed the trip),
-        ``end_ts`` None = up to now, including the trip still open (its
-        statistics computed live from its points). None when the database
-        is gone (module stopping) or a bound is not a number.
+        refuels when no odometer was entered. Summed per point segment, not
+        per whole trip: a refuel is often entered after the car already
+        pulled away (or only after the next boot — engine-off is a power cut
+        in the test car), i.e. inside an open trip, and the km on either
+        side of it must go to their own intervals. A segment that crosses a
+        bound is pro-rated by time. ``end_ts`` None = up to now, including
+        the trip still open. None when the database is gone (module
+        stopping) or a bound is not a number.
         """
         start = _finite(start_ts)
         end = _finite(end_ts) if end_ts is not None else None
@@ -344,24 +350,29 @@ class GPSTracker:
         with self._lock:
             if self._db is None:
                 return None
+            # Whole trips that have a point in the range: their neighbouring
+            # points give the segments that cross a bound.
             if end is None:
-                row = self._db.execute(
-                    "SELECT COALESCE(SUM(distance_km), 0) FROM trips"
-                    " WHERE start_ts >= ? AND distance_km IS NOT NULL",
-                    (start,)).fetchone()
+                sub, args = "SELECT DISTINCT trip_id FROM tracks WHERE ts >= ?", (start,)
             else:
-                row = self._db.execute(
-                    "SELECT COALESCE(SUM(distance_km), 0) FROM trips"
-                    " WHERE start_ts >= ? AND start_ts < ? AND distance_km IS NOT NULL",
-                    (start, end)).fetchone()
-            total = float(row[0] or 0.0)
-            if self._in_trip:
-                # The open trip has no distance_km yet (set when it closes).
-                open_start = self._db.execute(
-                    "SELECT start_ts FROM trips WHERE id=?", (self._trip_id,)).fetchone()
-                if open_start and open_start[0] is not None and open_start[0] >= start \
-                        and (end is None or open_start[0] < end):
-                    total += float(self._compute_stats(self._trip_id).get("distance_km", 0.0))
+                sub = "SELECT DISTINCT trip_id FROM tracks WHERE ts >= ? AND ts < ?"
+                args = (start, end)
+            rows = self._db.execute(
+                "SELECT trip_id, ts, lat, lon FROM tracks"
+                f" WHERE trip_id IN ({sub}) ORDER BY trip_id, ts", args).fetchall()
+        total = 0.0
+        for (trip1, t1, lat1, lon1), (trip2, t2, lat2, lon2) in zip(rows, rows[1:]):
+            if trip1 != trip2 or None in (t1, t2, lat1, lon1, lat2, lon2):
+                continue
+            seg = _haversine_km(lat1, lon1, lat2, lon2)
+            if t2 <= t1:
+                if t1 >= start and (end is None or t1 < end):
+                    total += seg
+                continue
+            hi = t2 if end is None else min(t2, end)
+            overlap = hi - max(t1, start)
+            if overlap > 0:
+                total += seg * min(1.0, overlap / (t2 - t1))
         return round(total, 3)
 
     @staticmethod

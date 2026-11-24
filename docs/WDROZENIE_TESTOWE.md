@@ -607,8 +607,10 @@ BCM nie wymaga tu żadnej konfiguracji — bierze domyślny sink.
 Repozytorium zawiera gotowy plik `config/bcm_config_test.yaml` (ekran
 1024×600, przełączniki modułów dla auta testowego). Od 23.11 jest to
 konfiguracja stanowiskowa: usługa startuje z `config/bcm_config.yaml`
-(konfiguracja docelowa auta, `BCM_CONFIG` w unicie; powrót na plik testowy
-jedną linią w `/etc/bcm/bcm.env`), nakłada `config/local.yaml` (zmiany
+(konfiguracja docelowa auta, `BCM_CONFIG` w unicie; powrót na plik testowy:
+linia w `/etc/bcm/bcm.env` + przywrócenie `config/local.yaml.bcm_config_test.bak`,
+oba kroki obowiązkowe — [`WDROZENIE_TESTOWE_TELEFON.md`](WDROZENIE_TESTOWE_TELEFON.md)
+§13.7), nakłada `config/local.yaml` (zmiany
 z ekranu, poza gitem) i sekrety z `/etc/bcm/bcm.env`. Opis warstw,
 bezpieczna ręczna edycja `local.yaml`, migracja starego
 `bcm_config_temp.yaml` i przejście na konfigurację docelową:

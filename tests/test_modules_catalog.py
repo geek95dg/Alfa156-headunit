@@ -93,7 +93,7 @@ FINAL_RUNS = sorted([
     "wifi_ap", "net_diag", "weather", "weather_alerts", "route_planner", "traffic_alerts",
     "voice_announce", "location", "tracking", "trip_gps", "fuel_log", "car_phone",
     "car_phone_hotspot", "phone_sensors", "car_phone_agent", "traccar", "auto_brightness",
-    "blinker_monitor", "performance",
+    "blinker_monitor", "performance", "last_park",
 ])
 
 
