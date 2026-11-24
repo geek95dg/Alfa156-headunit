@@ -81,6 +81,11 @@ rm -f /etc/X11/Xwrapper.config
 # dimming, modules.auto_brightness). The ddcutil package itself stays, like
 # adb (both are plain Debian packages).
 rm -f /etc/modules-load.d/bcm-i2c.conf
+# install-piper.sh (modules.voice_announce): the Piper binary and the
+# Polish voice in /opt/bcm/piper, plus BCM's cache of spoken phrases. The
+# espeak-ng package stays (a plain Debian package, like adb).
+rm -rf /opt/bcm/piper /opt/bcm/data/voice_cache
+rm -f /opt/bcm/data/voice_duck_state.json
 
 # 8. Revert bcm-harden.sh
 echo "[8/9] Reverting bcm-harden.sh (journald, sysctl, boot units)..."

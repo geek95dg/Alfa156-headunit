@@ -2,11 +2,12 @@
 #
 # Dawniej usługa bcm-headunit startowała z tego pliku, a BCM nadpisywał go
 # w locie (komentarze znikały, trafiały tu hasła Wi-Fi Direct *_runtime
-# i klucze API). Teraz bazą jest config/bcm_config_test.yaml (BCM go nie
-# zmienia), zmiany z UI idą do config/local.yaml (poza gitem), a sekrety do
-# /etc/bcm/bcm.env. Przeniesienie ustawień z urządzenia:
+# i klucze API). Teraz bazą jest config/bcm_config.yaml (konfiguracja
+# docelowa od 23.11; BCM go nie zmienia), zmiany z UI idą do
+# config/local.yaml (poza gitem), a sekrety do /etc/bcm/bcm.env.
+# Przeniesienie ustawień z urządzenia:
 #   python3 tools/migrate_local_config.py --source <kopia tego pliku> \
-#       --base config/bcm_config_test.yaml            # podgląd (dry-run)
+#       --base config/bcm_config.yaml                 # podgląd (dry-run)
 #   ... --write                                       # zapis config/local.yaml
 #
 # Plik zostaje tylko dlatego, że zainstalowana kopia unitu w

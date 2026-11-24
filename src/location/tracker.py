@@ -106,6 +106,7 @@ class GPSTracker:
 
         self._running = False
         self._lock = threading.Lock()
+        self._pending_trip_ended: list = []
         self._in_trip = False
         self._trip_id = 0
         self._last_log_ts: Optional[float] = None   # monotonic
@@ -145,6 +146,9 @@ class GPSTracker:
         )""")
         self._db.execute(
             "CREATE INDEX IF NOT EXISTS idx_tracks_trip ON tracks(trip_id)")
+        # distance_between (fuel log) looks points up by time.
+        self._db.execute(
+            "CREATE INDEX IF NOT EXISTS idx_tracks_ts ON tracks(ts)")
         self._db.commit()
         row = self._db.execute("SELECT MAX(id) FROM trips").fetchone()
         self._trip_id = (row[0] or 0) + 1
@@ -192,6 +196,7 @@ class GPSTracker:
                 if self._db_error_logged_at is None or now - self._db_error_logged_at >= 60:
                     self._db_error_logged_at = now
                     log.warning("GPS tracker: database error: %s", e)
+        self._flush_trip_ended()
 
     def _handle_position(self, pos, lat, lon):
         now = self._clock()
@@ -246,10 +251,22 @@ class GPSTracker:
         log.info("Trip %d ended: %.1f km, avg %.0f km/h, max %.0f km/h",
                  self._trip_id, stats.get("distance_km", 0),
                  stats.get("avg_speed", 0), stats.get("max_speed", 0))
-        self.bus.publish("tracking.trip_ended", {"trip_id": self._trip_id, **stats})
+        # Published by the caller after it releases self._lock: a subscriber
+        # on a synchronous bus (fuel log, tests) may call back into the
+        # tracker (distance_between) and would deadlock on the plain Lock.
+        self._pending_trip_ended.append({"trip_id": self._trip_id, **stats})
         self._in_trip = False
         self._idle_since = None
         self._trip_id += 1
+
+    def _flush_trip_ended(self):
+        """Publish ``tracking.trip_ended`` queued by _close_trip (lock released)."""
+        while self._pending_trip_ended:
+            try:
+                payload = self._pending_trip_ended.pop(0)
+            except IndexError:
+                return
+            self.bus.publish("tracking.trip_ended", payload)
 
     def tick(self):
         """Close the open trip after ``no_fix_close_sec`` without a position.
@@ -276,6 +293,7 @@ class GPSTracker:
                 self._close_trip(last if last is not None else self._wall())
             except sqlite3.Error as e:
                 log.warning("GPS tracker: closing trip %d failed: %s", self._trip_id, e)
+        self._flush_trip_ended()
 
     def _tick_loop(self):
         while not self._stop_evt.wait(TICK_SEC):
@@ -311,6 +329,51 @@ class GPSTracker:
             if self._db is None:
                 return {}
             return self._compute_stats(trip_id or self._trip_id)
+
+    def distance_between(self, start_ts: Any, end_ts: Any = None) -> Optional[float]:
+        """GPS kilometres driven in ``[start_ts, end_ts)``, from the points.
+
+        For the fuel log (src/trip/fuel_log.py): the distance between two
+        refuels when no odometer was entered. Summed per point segment, not
+        per whole trip: a refuel is often entered after the car already
+        pulled away (or only after the next boot — engine-off is a power cut
+        in the test car), i.e. inside an open trip, and the km on either
+        side of it must go to their own intervals. A segment that crosses a
+        bound is pro-rated by time. ``end_ts`` None = up to now, including
+        the trip still open. None when the database is gone (module
+        stopping) or a bound is not a number.
+        """
+        start = _finite(start_ts)
+        end = _finite(end_ts) if end_ts is not None else None
+        if start is None or (end_ts is not None and end is None):
+            return None
+        with self._lock:
+            if self._db is None:
+                return None
+            # Whole trips that have a point in the range: their neighbouring
+            # points give the segments that cross a bound.
+            if end is None:
+                sub, args = "SELECT DISTINCT trip_id FROM tracks WHERE ts >= ?", (start,)
+            else:
+                sub = "SELECT DISTINCT trip_id FROM tracks WHERE ts >= ? AND ts < ?"
+                args = (start, end)
+            rows = self._db.execute(
+                "SELECT trip_id, ts, lat, lon FROM tracks"
+                f" WHERE trip_id IN ({sub}) ORDER BY trip_id, ts", args).fetchall()
+        total = 0.0
+        for (trip1, t1, lat1, lon1), (trip2, t2, lat2, lon2) in zip(rows, rows[1:]):
+            if trip1 != trip2 or None in (t1, t2, lat1, lon1, lat2, lon2):
+                continue
+            seg = _haversine_km(lat1, lon1, lat2, lon2)
+            if t2 <= t1:
+                if t1 >= start and (end is None or t1 < end):
+                    total += seg
+                continue
+            hi = t2 if end is None else min(t2, end)
+            overlap = hi - max(t1, start)
+            if overlap > 0:
+                total += seg * min(1.0, overlap / (t2 - t1))
+        return round(total, 3)
 
     @staticmethod
     def _trip_row(r):
@@ -415,6 +478,7 @@ class GPSTracker:
             if self._db:
                 self._db.close()
                 self._db = None
+        self._flush_trip_ended()
 
 
 def start_tracker(config=None, event_bus=None, hal=None, **kwargs):

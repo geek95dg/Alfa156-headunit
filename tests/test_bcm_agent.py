@@ -668,7 +668,11 @@ class TestConfig:
                                 "cabin_mask": [], "cabin_light_ratio": 5.0,
                                 "cabin_light_lux": 5.0,
                                 # budzenie IR (plan E): kod z firmware
-                                "wake_ir_address": 0x7A15, "wake_ir_command": 0x56}
+                                "wake_ir_address": 0x7A15, "wake_ir_command": 0x56,
+                                # Traccar (1.6.0): bez adresu i identyfikatora
+                                "traccar_url": "", "traccar_device_id": "",
+                                "traccar_drive_interval_s": 30,
+                                "traccar_park_interval_min": 15}
 
     def test_put_is_persisted(self, ready, state_dir, runner, clock):
         agent, peer = ready
@@ -701,7 +705,7 @@ class TestConfig:
         assert status == 200
         assert agent.config["toggles"] == {"crash_sms": True, "parking_guard": False,
                                            "cabin_watch": False, "call112": False,
-                                           "remote_session": False}
+                                           "remote_session": False, "traccar": False}
 
 
 # ── crash events ─────────────────────────────────────────────────────────

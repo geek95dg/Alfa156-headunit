@@ -27,6 +27,7 @@ from src.core.config import (
     SECRET_ENV_MAP,
     BCMConfig,
     count_leaves,
+    missing_secrets,
     default_local_path,
     resolve_base_path,
 )
@@ -257,6 +258,12 @@ def main() -> None:
         # Names only — never the values.
         log.info("Secrets from environment: %s",
                  ", ".join(sorted(config.secret_sources.values())))
+    # One line per missing key (name only, never a value): months of
+    # "internet does not work" in the car were partly a key that was never
+    # loaded. Only keys of modules that are on (config.SECRET_MODULES).
+    for var, dotpath, why in missing_secrets(config, only_enabled=True):
+        log.warning("Secret %s is not set (%s) — %s; set it in /etc/bcm/bcm.env",
+                    var, dotpath, why)
     if module_levels:
         log.info("Module log levels: %s",
                  ", ".join(f"{k}={v}" for k, v in sorted(module_levels.items(), key=str)))
@@ -457,7 +464,20 @@ def main() -> None:
                         _rp = RoutePlanner(config, event_bus)
                     except Exception as _e:
                         log.warning("RoutePlanner unavailable: %s", _e)
-                _tc = TripComputer(event_bus=event_bus, route_planner=_rp)
+                # The weather manager reaches the planner through
+                # weather._internals at plan time (RoutePlanner docstring).
+                from src.trip.fuel_log import tank_capacity
+                _tc = TripComputer(event_bus=event_bus, route_planner=_rp,
+                                   tank_capacity_l=tank_capacity(config))
+                # trip.* for A3 from GPS + the refuel log: nothing fed the
+                # trip computer in this mode (no OBD), so A3 showed zeros.
+                # Own toggle (modules.trip_gps); needs location.
+                if _runs("trip_gps"):
+                    try:
+                        from src.trip.gps_trip_feed import GpsTripFeed
+                        GpsTripFeed(event_bus, config).start()
+                    except Exception:
+                        log.exception("GPS trip feed failed to start (non-critical)")
                 web_viewer = WebViewer(
                     host="0.0.0.0", port=5002,
                     event_bus=event_bus, config=config,

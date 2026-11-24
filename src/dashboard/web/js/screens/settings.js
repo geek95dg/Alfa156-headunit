@@ -30,7 +30,8 @@ const Settings = {
     // nothing is ever switched on or off in cascade without it. `statusName`:
     // the module the last status line is about (drawn under its row).
     _modules: { list: [], loaded: false, status: "", statusName: null,
-                restartRequired: false, confirm: null, busy: false },
+                restartRequired: false, confirm: null, busy: false,
+                migration: null },
     // Settings → Moduły headings, in this order ("" = modules without a group).
     _moduleGroups: [
         ["", "modules_group_core", "Podstawowe"],
@@ -77,6 +78,32 @@ const Settings = {
         } catch (e) { /* offline kiosk: the backend retries on its own */ }
     },
 
+    /** The internet probe on a "connected" uplink row (car_phone /
+     *  phone_tether payload: internet true/false/null, route_iface,
+     *  hint no_internet / route_other — src/network/net_probe.py).
+     *  {lost, fact, hint}: lost = link up but no internet (the row turns
+     *  amber and says so instead of a plain "połączono"). */
+    _internetBits(x, t) {
+        const esc = Settings._esc;
+        const out = { lost: false, fact: "", hint: "" };
+        if (!x || x.state !== "connected" || typeof x.internet !== "boolean") return out;
+        if (x.internet) {
+            out.fact = t("net_internet_ok", "internet");
+            return out;
+        }
+        out.lost = true;
+        const route = typeof x.route_iface === "string" ? x.route_iface : "";
+        if (x.hint === "route_other" && route) {
+            out.hint = esc(t("net_hint_route_other",
+                "trasa domyślna idzie przez {iface}, a tam nie ma internetu — odłącz tamto łącze albo popraw jego metrykę"))
+                .replace("{iface}", `<span style="font-family:monospace">${esc(route)}</span>`);
+        } else {
+            out.hint = esc(t("net_hint_no_internet",
+                "telefon nie udostępnia internetu: dane komórkowe wyłączone albo operator blokuje tethering"));
+        }
+        return out;
+    },
+
     /** One info row "Internet z telefonu: <stan> <ip>"; '' without a payload
      *  (module not running). Inline styles only (Tailwind is precompiled —
      *  new utility classes would not exist). */
@@ -93,9 +120,10 @@ const Settings = {
             connected: t("tether_connected", "połączono"),
             failed: t("tether_failed", "błąd — ponowię"),
         };
-        const label = Object.prototype.hasOwnProperty.call(labels, state)
-            ? labels[state] : state;
-        const color = Settings._tetherColors[state] || "var(--text-dim)";
+        const net = Settings._internetBits(pt, t);
+        const label = net.lost ? t("net_connected_no_internet", "połączono, bez internetu")
+            : (Object.prototype.hasOwnProperty.call(labels, state) ? labels[state] : state);
+        const color = net.lost ? "#d97706" : (Settings._tetherColors[state] || "var(--text-dim)");
         const ip = (state === "connected" && pt.ip)
             ? ` <span style="color:var(--text-mid);font-family:monospace">${Settings._esc(pt.ip)}</span>` : "";
         const iface = (state === "connected" && pt.iface)
@@ -103,15 +131,153 @@ const Settings = {
         // A failed `connection up` mostly means tethering is off on the phone
         // (Android refuses BNEP instead of hiding NAP) — say what to check,
         // never the raw nmcli error.
-        const hint = (state === "failed" && pt.hint === "check_tethering")
+        let hint = (state === "failed" && pt.hint === "check_tethering")
             ? `<span style="color:var(--text-mid);flex-basis:100%;padding-left:24px">${Settings._esc(
                 t("tether_failed_hint", "sprawdź „Tethering przez Bluetooth” w telefonie"))}</span>` : "";
+        if (net.hint) {
+            hint = `<span data-net-hint style="color:var(--text-mid);flex-basis:100%;padding-left:24px">${net.hint}</span>`;
+        }
+        const netFact = net.fact
+            ? ` <span style="color:var(--text-mid)">· ${Settings._esc(net.fact)}</span>` : "";
         const retry = state === "failed"
             ? `<button data-tether-retry onclick="Settings.tetherRetry()" style="margin-left:auto;padding:4px 10px;border-radius:8px;font-size:11px;font-weight:700;background:var(--card-border);color:var(--text-mid);border:none">${Settings._esc(t("tether_retry", "Ponów"))}</button>` : "";
         return `<div data-tether-state="${Settings._esc(state)}" style="display:flex;flex-wrap:wrap;align-items:center;gap:4px 8px;padding:8px 12px;border-radius:12px;background:var(--card-bg);border:1px solid var(--card-border);font-size:11px;line-height:1.3">
             <span class="material-symbols-outlined" style="font-size:16px;color:${color}">wifi_tethering</span>
             <span style="color:var(--text-dim);font-weight:700">${Settings._esc(t("phone_tether", "Internet z telefonu"))}:</span>
-            <span style="color:${color};font-weight:700">${Settings._esc(label)}</span>${ip}${iface}${retry}${hint}
+            <span style="color:${color};font-weight:700">${Settings._esc(label)}</span>${ip}${iface}${netFact}${retry}${hint}
+        </div>`;
+    },
+
+    // "Internet i usługi" (modules.net_diag): which uplink holds the default
+    // route and whether it has internet (src/network/net_probe.py), and per
+    // online service whether its key is set + the last result (src/network/
+    // net_services.py). data.net_diag from web_viewer._net_diag_summary, or
+    // null with the module off (no row). Keys are never in the payload —
+    // only key_set booleans.
+    _netTest: { msg: "", at: 0 },
+    _netServices: [
+        ["owm", "OpenWeatherMap", "BCM_OWM_API_KEY"],
+        ["ors", "OpenRouteService", "BCM_ORS_API_KEY"],
+        ["tomtom", "TomTom", "BCM_TOMTOM_API_KEY"],
+    ],
+
+    /** A service result as the driver reads it (OK / kod HTTP / błąd sieci
+     *  / nie testowano). 401/403 almost always mean a wrong key or one that
+     *  is not active yet (a new OWM key needs up to 2 h). */
+    netResultText(res, code, t) {
+        t = t || ((k, d) => d);
+        const c = Number.isInteger(code) && code >= 100 && code <= 599 ? code : null;
+        switch (res) {
+            case "ok": return t("net_res_ok", "OK");
+            case "no_key": return t("net_res_no_key", "brak klucza");
+            case "network": return t("net_res_network", "błąd sieci");
+            case "bad_response": return t("net_res_bad_response", "dziwna odpowiedź serwera");
+            case "http":
+                if (c === 401 || c === 403) {
+                    return t("net_res_http_auth", "błąd {code} — zły albo nieaktywny klucz")
+                        .replace("{code}", String(c));
+                }
+                if (c === 429) return t("net_res_http_limit", "błąd 429 — wyczerpany limit zapytań");
+                return t("net_res_http", "błąd HTTP {code}").replace("{code}", c === null ? "?" : String(c));
+            default: return t("net_res_untested", "nie testowano");
+        }
+    },
+
+    /** "Test" (POST /api/net/test — loopback only, 1 per 10 s on the
+     *  server; the result arrives in data.net_diag a few seconds later). */
+    async netTest() {
+        const t = (typeof App !== "undefined" && App.t) ? App.t.bind(App) : ((k, d) => d);
+        const now = Date.now();
+        if (now - Settings._netTest.at < 2000) return;
+        Settings._netTest.at = now;
+        const say = (m) => {
+            Settings._netTest.msg = m;
+            const el = document.querySelector("[data-net-test-msg]");
+            if (el) el.textContent = m;
+        };
+        try {
+            const res = await fetch("/api/net/test", { method: "POST" });
+            let body = {};
+            try { body = await res.json(); } catch (e) { /* not JSON */ }
+            if (res.status === 202) say(t("net_test_started", "testuję… (do 30 s)"));
+            else if (res.status === 429) say(t("net_test_wait", "chwilę — spróbuj za kilka sekund"));
+            else if (body && body.error === "busy") say(t("net_test_busy", "test już trwa"));
+            else if (res.status === 403) say(t("net_test_forbidden", "test tylko z ekranu w aucie"));
+            else say(t("net_test_failed", "nie udało się uruchomić testu"));
+        } catch (e) { say(t("net_test_failed", "nie udało się uruchomić testu")); }
+    },
+
+    /** The row; '' without a payload (module off). Every value from the
+     *  payload goes through _esc; numbers are type-checked. */
+    netDiagRowHtml(nd, t) {
+        t = t || ((k, d) => d);
+        if (!nd || typeof nd !== "object") return "";
+        const esc = Settings._esc;
+        const up = (nd.uplink && typeof nd.uplink === "object") ? nd.uplink : {};
+        const kinds = {
+            usb: t("net_uplink_usb", "USB z telefonu"),
+            bt: t("net_uplink_bt", "Bluetooth z telefonu"),
+            other: t("net_uplink_other", "inne łącze"),
+            none: t("net_uplink_none", "brak trasy domyślnej"),
+        };
+        const kind = Object.prototype.hasOwnProperty.call(kinds, up.kind) ? kinds[up.kind]
+            : t("net_uplink_unknown", "jeszcze nie sprawdzono");
+        const iface = typeof up.iface === "string" && up.iface
+            ? ` <span style="color:var(--text-dim);font-family:monospace">(${esc(up.iface)})</span>` : "";
+        const probe = (nd.probe && typeof nd.probe === "object") ? nd.probe : null;
+        let inet = "";
+        if (probe) {
+            const why = {
+                no_route: t("net_err_no_route", "brak trasy"),
+                dns: t("net_err_dns", "DNS nie działa"),
+                https: t("net_err_https", "HTTPS nie przechodzi"),
+            };
+            inet = probe.ok === true
+                ? `<span style="color:#16a34a;font-weight:700">${esc(t("net_internet_yes", "internet: tak"))}</span>`
+                : `<span style="color:#dc2626;font-weight:700">${esc(t("net_internet_no", "internet: nie"))}</span>`
+                  + (why[probe.error] ? ` <span style="color:var(--text-mid)">(${esc(why[probe.error])})</span>` : "");
+            // When the shown answer was measured — the probe only runs while
+            // a phone uplink is connected, so an old "tak" must look old.
+            if (typeof probe.checked_at === "number" && isFinite(probe.checked_at) && probe.checked_at > 0) {
+                const c = new Date(probe.checked_at * 1000);
+                const chm = String(c.getHours()).padStart(2, "0") + ":" + String(c.getMinutes()).padStart(2, "0");
+                inet += ` <span data-net-checked style="color:var(--text-dim)">${esc(t("net_checked_at", "sprawdzono {time}").replace("{time}", chm))}</span>`;
+            }
+        }
+        const rows = Settings._netServices.map(([key, name, envVar]) => {
+            const sv = (nd.services && typeof nd.services === "object" && nd.services[key]) || {};
+            const keySet = sv.key_set === true;
+            const res = keySet ? sv.result : "no_key";
+            const ok = res === "ok";
+            const color = ok ? "#16a34a" : (res === "untested" || res == null ? "var(--text-dim)"
+                : (res === "no_key" ? "#d97706" : "#dc2626"));
+            const keyTxt = keySet ? t("net_key_yes", "klucz: tak") : t("net_key_no", "klucz: nie");
+            const fix = keySet ? "" : ` <span style="color:var(--text-dim)">— ${esc(t("net_key_where", "wpisz {var} do /etc/bcm/bcm.env").replace("{var}", envVar))}</span>`;
+            return `<div data-net-service="${esc(key)}" data-net-result="${esc(res || "untested")}" style="flex-basis:100%;padding-left:24px;display:flex;flex-wrap:wrap;gap:2px 8px">
+                <span style="color:var(--text-mid);font-weight:700;min-width:120px">${esc(name)}</span>
+                <span style="color:var(--text-mid)">${esc(keyTxt)}</span>
+                <span style="color:${color};font-weight:700">${esc(Settings.netResultText(res, sv.http_code, t))}</span>${fix}
+            </div>`;
+        }).join("");
+        const running = nd.test && nd.test.running === true;
+        // After a finished test (test.at = when it ended, epoch s) say when;
+        // a fresher message of our own click (429, busy…) wins.
+        const doneAt = nd.test && typeof nd.test.at === "number" && isFinite(nd.test.at) ? nd.test.at * 1000 : 0;
+        let msg = Settings._netTest.msg;
+        if (running) msg = t("net_test_running", "testuję…");
+        else if (doneAt && doneAt >= Settings._netTest.at) {
+            const d = new Date(doneAt);
+            const hm = String(d.getHours()).padStart(2, "0") + ":" + String(d.getMinutes()).padStart(2, "0");
+            msg = t("net_test_done", "ostatni test: {time}").replace("{time}", hm);
+        }
+        const btn = `<button data-net-test onclick="Settings.netTest()" ${running ? "disabled" : ""} style="margin-left:auto;padding:4px 10px;border-radius:8px;font-size:11px;font-weight:700;background:var(--card-border);color:var(--text-mid);border:none">${esc(t("net_test", "Test"))}</button>`;
+        const color = probe ? (probe.ok === true ? "#16a34a" : "#dc2626") : "var(--text-dim)";
+        return `<div data-net-diag style="display:flex;flex-wrap:wrap;align-items:center;gap:4px 8px;padding:8px 12px;border-radius:12px;background:var(--card-bg);border:1px solid var(--card-border);font-size:11px;line-height:1.3">
+            <span class="material-symbols-outlined" style="font-size:16px;color:${color}">public</span>
+            <span style="color:var(--text-dim);font-weight:700">${esc(t("net_diag", "Internet i usługi"))}:</span>
+            <span style="color:var(--text-mid)">${esc(kind)}</span>${iface}${inet ? " · " + inet : ""}${btn}
+            <span data-net-test-msg style="flex-basis:100%;padding-left:24px;color:var(--text-dim)">${esc(msg)}</span>
+            ${rows}
         </div>`;
     },
 
@@ -140,6 +306,175 @@ const Settings = {
         } catch (e) { /* offline kiosk: the backend retries on its own */ }
     },
 
+    // "Czujniki telefonu" (modules.phone_sensors): SensorServer stream per
+    // sensor type (frames/s over 10 s), the last light reading and its age,
+    // the sensors forward, and "Test" (10 s count, verdict + what to do).
+    // data.phone_sensors from web_viewer._phone_sensors_summary, or null with
+    // the module off (no row).
+    _sensorsTest: { msg: "", at: 0 },
+
+    /** "Test" (POST /api/phone_sensors/test — loopback only, 1 per 12 s on
+     *  the server; the verdict arrives in data.phone_sensors.test ~10 s later). */
+    async sensorsTest() {
+        const t = (typeof App !== "undefined" && App.t) ? App.t.bind(App) : ((k, d) => d);
+        const now = Date.now();
+        if (now - Settings._sensorsTest.at < 2000) return;
+        Settings._sensorsTest.at = now;
+        const say = (m) => {
+            Settings._sensorsTest.msg = m;
+            const el = document.querySelector("[data-sensors-test-msg]");
+            if (el) el.textContent = m;
+        };
+        try {
+            const res = await fetch("/api/phone_sensors/test", { method: "POST" });
+            let body = {};
+            try { body = await res.json(); } catch (e) { /* not JSON */ }
+            if (res.status === 202) say(t("sensors_test_started", "testuję… (10 s)"));
+            else if (res.status === 429) say(t("sensors_test_wait", "chwilę — spróbuj za kilka sekund"));
+            else if (body && body.error === "busy") say(t("sensors_test_busy", "test już trwa"));
+            else if (body && body.error === "disabled") say(t("sensors_test_disabled", "moduł czujników nie działa"));
+            else if (res.status === 403) say(t("sensors_test_forbidden", "test tylko z ekranu w aucie"));
+            else say(t("sensors_test_failed", "nie udało się uruchomić testu"));
+        } catch (e) { say(t("sensors_test_failed", "nie udało się uruchomić testu")); }
+    },
+
+    /** The verdict of the last test and what to do about it. */
+    sensorsVerdictText(res, t) {
+        t = t || ((k, d) => d);
+        const verdicts = {
+            ok: t("sensors_verdict_ok", "wszystko działa"),
+            no_forward: t("sensors_verdict_no_forward", "brak połączenia z telefonem (forward „sensors”)"),
+            no_data: t("sensors_verdict_no_data", "SensorServer nic nie wysyła"),
+            no_accel: t("sensors_verdict_no_accel", "brak akcelerometru"),
+            no_light: t("sensors_verdict_no_light", "brak odczytów światła"),
+            low_rate: t("sensors_verdict_low_rate", "akcelerometr za wolny"),
+        };
+        const hints = {
+            car_phone: t("sensors_hint_car_phone", "włącz moduł „Telefon w aucie” (car_phone)"),
+            restart: t("sensors_hint_restart", "włącz modules.phone_sensors w konfiguracji i zrestartuj BCM"),
+            phone: t("sensors_hint_phone", "podłącz telefon kablem USB i zezwól na debugowanie USB"),
+            app: t("sensors_hint_app", "uruchom SensorServer: Local Host, port 8080, Start; zezwól na pracę w tle"),
+            accel: t("sensors_hint_accel", "w SensorServer zaznacz akcelerometr"),
+            light: t("sensors_hint_light", "w SensorServer zaznacz czujnik światła i zezwól na pracę w tle (bez optymalizacji baterii); nie zasłaniaj górnej krawędzi ekranu"),
+            light_refused: t("sensors_hint_light_refused", "telefon odrzuca czujnik światła — sprawdź go w SensorServer i zrestartuj BCM"),
+            rate: t("sensors_hint_rate", "w SensorServer ustaw częstotliwość próbkowania 10000 µs (100 Hz)"),
+        };
+        if (!res || typeof res !== "object" || !Object.prototype.hasOwnProperty.call(verdicts, res.verdict)) {
+            return { text: "", hint: "", ok: false };
+        }
+        const hint = Object.prototype.hasOwnProperty.call(hints, res.hint) ? hints[res.hint] : "";
+        return { text: verdicts[res.verdict], hint, ok: res.verdict === "ok" };
+    },
+
+    /** The row; '' without a payload (module off). Every value from the
+     *  payload goes through _esc; numbers are type-checked. */
+    sensorsRowHtml(ps, t) {
+        t = t || ((k, d) => d);
+        if (!ps || typeof ps !== "object") return "";
+        const esc = Settings._esc;
+        const num = (v) => (typeof v === "number" && isFinite(v)) ? v : null;
+        const states = {
+            disabled: t("sensors_state_disabled", "wyłączone"),
+            waiting_forward: t("sensors_state_waiting", "czeka na telefon"),
+            connecting: t("sensors_state_connecting", "łączę…"),
+            streaming: t("sensors_state_streaming", "działa"),
+            stale: t("sensors_state_stale", "brak akcelerometru"),
+            error: t("sensors_state_error", "błąd — ponowię"),
+        };
+        const state = typeof ps.state === "string" ? ps.state : "unknown";
+        const label = Object.prototype.hasOwnProperty.call(states, state) ? states[state] : state;
+        const types = (ps.types && typeof ps.types === "object") ? ps.types : {};
+        const light = types.light && typeof types.light === "object" ? types.light : {};
+        const lightOk = light.active === true;
+        const color = state === "streaming" ? (lightOk ? "#16a34a" : "#d97706")
+            : (state === "stale" && lightOk ? "#d97706"
+                : (state === "error" || state === "waiting_forward" ? "#dc2626" : "var(--text-dim)"));
+        const hz = (key, name) => {
+            const ty = types[key] && typeof types[key] === "object" ? types[key] : {};
+            const v = num(ty.hz);
+            const txt = ty.subscribed === true || (v !== null && v > 0)
+                ? `${v === null ? 0 : Math.round(v)} Hz` : "—";
+            return `<span data-sensors-type="${esc(key)}" style="color:var(--text-mid)">${esc(name)} ${esc(txt)}</span>`;
+        };
+        const lux = num(ps.lux);
+        const age = num(ps.lux_age_s);
+        let luxTxt = t("sensors_light_none", "światło: brak odczytu");
+        if (lux !== null) {
+            luxTxt = t("sensors_light", "światło: {lux} lx").replace("{lux}", String(Math.round(lux)));
+            if (age !== null) {
+                const a = age < 60 ? `${Math.round(age)} s` : (age < 3600 ? `${Math.round(age / 60)} min` : `${Math.round(age / 3600)} h`);
+                luxTxt += " " + t("sensors_light_age", "({age} temu)").replace("{age}", a);
+            }
+        }
+        const facts = [
+            hz("accel", t("sensors_accel", "akcelerometr")),
+            hz("gyro", t("sensors_gyro", "żyroskop")),
+            `<span data-sensors-lux style="color:var(--text-mid)">${esc(luxTxt)}</span>`,
+        ].join(" · ");
+        const lines = [];
+        const fwd = ps.forward && typeof ps.forward === "object" ? ps.forward : null;
+        if (fwd && fwd.ok !== true) {
+            lines.push(fwd.error === "missing"
+                ? t("sensors_fwd_missing", "car_phone nie ma forwardu „sensors” — włącz modules.phone_sensors w konfiguracji i zrestartuj BCM")
+                : t("sensors_fwd_down", "forward „sensors” nie działa — podłącz telefon albo naciśnij „Ponów” w wierszu „Telefon w aucie”"));
+        } else if (!fwd && state === "waiting_forward") {
+            lines.push(t("sensors_hint_car_phone", "włącz moduł „Telefon w aucie” (car_phone)"));
+        }
+        if (state === "error" && typeof ps.error === "string" && ps.error) {
+            lines.push(ps.error);
+        }
+        if (light.refused === true) {
+            lines.push(t("sensors_light_refused", "telefon odrzuca czujnik światła — BCM nie prosi o niego aż do restartu"));
+        }
+        if (ps.mode === "split") {
+            lines.push(t("sensors_mode_split", "osobne połączenie dla każdego czujnika (telefon odrzucił wspólne)"));
+        }
+        const running = ps.test && ps.test.running === true;
+        const res = ps.test && ps.test.result && typeof ps.test.result === "object" ? ps.test.result : null;
+        let verdictHtml = "";
+        if (res) {
+            const v = Settings.sensorsVerdictText(res, t);
+            if (v.text) {
+                const fr = res.frames && typeof res.frames === "object" ? res.frames : {};
+                const n = (k) => Number.isInteger(fr[k]) ? fr[k] : 0;
+                let detail = t("sensors_test_frames", "ramki w 10 s: akcelerometr {a}, żyroskop {g}, światło {l}")
+                    .replace("{a}", String(n("accel"))).replace("{g}", String(n("gyro"))).replace("{l}", String(n("light")));
+                const lmin = num(res.lux_min);
+                const lmax = num(res.lux_max);
+                if (lmin !== null && lmax !== null) {
+                    detail += " · " + t("sensors_test_lux", "światło {min}–{max} lx")
+                        .replace("{min}", String(Math.round(lmin))).replace("{max}", String(Math.round(lmax)));
+                } else if (res.light_steady === true && num(res.lux) !== null) {
+                    // On-change sensor in steady light: no frame in 10 s,
+                    // the last reading still holds (not a failure).
+                    const la = num(res.lux_age_s);
+                    detail += " · " + t("sensors_test_steady", "światło stałe — ostatni odczyt {lux} lx, {age} s temu")
+                        .replace("{lux}", String(Math.round(res.lux)))
+                        .replace("{age}", la === null ? "?" : String(Math.round(la)));
+                }
+                verdictHtml = `<div data-sensors-verdict="${esc(res.verdict)}" style="flex-basis:100%;padding-left:24px;display:flex;flex-wrap:wrap;gap:2px 8px">
+                    <span style="color:${v.ok ? "#16a34a" : "#dc2626"};font-weight:700">${esc(t("sensors_test_result", "test: {verdict}").replace("{verdict}", v.text))}</span>
+                    <span style="color:var(--text-dim)">${esc(detail)}</span>
+                    ${v.hint ? `<span data-sensors-hint style="flex-basis:100%;color:var(--text-mid)">${esc(v.hint)}</span>` : ""}
+                </div>`;
+            }
+        }
+        let msg = Settings._sensorsTest.msg;
+        if (running) msg = t("sensors_test_running", "testuję… (10 s)");
+        else if (res && typeof res.ts === "number" && res.ts * 1000 >= Settings._sensorsTest.at) msg = "";
+        const btn = `<button data-sensors-test onclick="Settings.sensorsTest()" ${running ? "disabled" : ""} style="margin-left:auto;padding:4px 10px;border-radius:8px;font-size:11px;font-weight:700;background:var(--card-border);color:var(--text-mid);border:none">${esc(t("sensors_test", "Test"))}</button>`;
+        const hintsHtml = lines.map((l) => `<span data-sensors-line style="color:var(--text-mid);flex-basis:100%;padding-left:24px">${esc(l)}</span>`).join("");
+        return `<div data-phone-sensors="${esc(state)}" style="display:flex;flex-wrap:wrap;align-items:center;gap:4px 8px;padding:8px 12px;border-radius:12px;background:var(--card-bg);border:1px solid var(--card-border);font-size:11px;line-height:1.3">
+            <span class="material-symbols-outlined" style="font-size:16px;color:${color}">sensors</span>
+            <span style="color:var(--text-dim);font-weight:700">${esc(t("phone_sensors", "Czujniki telefonu"))}:</span>
+            <span style="color:${color};font-weight:700">${esc(label)}</span>
+            <span style="color:var(--text-mid)">${facts}</span>${btn}
+            ${hintsHtml}
+            <span data-sensors-test-msg style="flex-basis:100%;padding-left:24px;color:var(--text-dim)">${esc(msg)}</span>
+            ${verdictHtml}
+        </div>`;
+    },
+
     /** One info row "Telefon w aucie: <stan> <ip> · 78% 31 °C · GPS · hotspot"
      *  plus, for a known problem, what to do (never the raw adb/nmcli
      *  error). '' without a payload. Inline styles only (Tailwind is
@@ -160,8 +495,10 @@ const Settings = {
             connected: t("car_phone_connected", "połączono"),
             failed: t("car_phone_failed", "błąd — ponowię"),
         };
-        const label = Object.prototype.hasOwnProperty.call(labels, state) ? labels[state] : state;
-        const color = Settings._carPhoneColors[state] || "var(--text-dim)";
+        const net = Settings._internetBits(cp, t);
+        const label = net.lost ? t("net_connected_no_internet", "połączono, bez internetu")
+            : (Object.prototype.hasOwnProperty.call(labels, state) ? labels[state] : state);
+        const color = net.lost ? "#d97706" : (Settings._carPhoneColors[state] || "var(--text-dim)");
         const mono = (v) => `<span style="color:var(--text-mid);font-family:monospace">${esc(v)}</span>`;
         const dim = (v) => `<span style="color:var(--text-dim)">${esc(v)}</span>`;
         const parts = [];
@@ -179,6 +516,7 @@ const Settings = {
         if (typeof cp.temp_c === "number" && isFinite(cp.temp_c)) {
             facts.push(`${Math.round(cp.temp_c)} °C`);
         }
+        if (net.fact) facts.push(net.fact);
         if (cp.gps_forward === true) facts.push(t("car_phone_gps", "GPS"));
         if (cp.hotspot_active === true) {
             const n = Number.isInteger(cp.hotspot_clients) ? ` (${cp.hotspot_clients})` : "";
@@ -198,8 +536,11 @@ const Settings = {
         };
         const hintText = (typeof cp.hint === "string" && Object.prototype.hasOwnProperty.call(hints, cp.hint))
             ? hints[cp.hint] : "";
-        const hint = hintText
-            ? `<span data-car-phone-hint style="color:var(--text-mid);flex-basis:100%;padding-left:24px">${esc(hintText)}</span>` : "";
+        // The internet hint carries its own markup (escaped in _internetBits).
+        const hint = net.hint
+            ? `<span data-car-phone-hint data-net-hint style="color:var(--text-mid);flex-basis:100%;padding-left:24px">${net.hint}</span>`
+            : (hintText
+                ? `<span data-car-phone-hint style="color:var(--text-mid);flex-basis:100%;padding-left:24px">${esc(hintText)}</span>` : "");
         const retry = (state === "failed" || state === "adb_error")
             ? `<button data-car-phone-retry onclick="Settings.carPhoneRetry()" style="margin-left:auto;padding:4px 10px;border-radius:8px;font-size:11px;font-weight:700;background:var(--card-border);color:var(--text-mid);border:none">${esc(t("car_phone_retry", "Ponów"))}</button>` : "";
         return `<div data-car-phone-state="${esc(state)}" style="display:flex;flex-wrap:wrap;align-items:center;gap:4px 8px;padding:8px 12px;border-radius:12px;background:var(--card-bg);border:1px solid var(--card-border);font-size:11px;line-height:1.3">
@@ -787,6 +1128,163 @@ const Settings = {
         });
     },
 
+    // Traccar (src/network/traccar.py). data.traccar =
+    // web_viewer._traccar_summary(traccar.state), or null while the module
+    // does not run (no row). Never the URL or the device id: host name,
+    // id_set and an 8-character fingerprint only. Every value escaped.
+    _traccar: { msg: "", sentAt: 0, listening: false },
+
+    traccarRowKey(tr) {
+        return JSON.stringify(tr || null) + "|" + Settings._traccar.msg;
+    },
+
+    traccarRowHtml(tr, t) {
+        t = t || ((k, d) => d);
+        if (!tr || typeof tr !== "object") return "";
+        const esc = Settings._esc;
+        const has = (obj, k) => typeof k === "string" && Object.prototype.hasOwnProperty.call(obj, k);
+        const ag = tr.agent && typeof tr.agent === "object" ? tr.agent : null;
+        let state, color;
+        if (!tr.url_ok || !tr.id_set) { state = "not_configured"; color = "#d97706"; }
+        else if (tr.error === "no_agent") { state = "no_agent"; color = "#dc2626"; }
+        else if (tr.error === "agent_outdated") { state = "agent_outdated"; color = "#d97706"; }
+        else if (!ag) { state = "unknown"; color = "var(--text-dim)"; }
+        else if (!ag.enabled || !ag.configured) { state = "pending"; color = "#d97706"; }
+        else if (ag.last_error) { state = "error"; color = "#dc2626"; }
+        else { state = "ok"; color = "#16a34a"; }
+        const labels = {
+            not_configured: t("traccar_not_configured", "nie skonfigurowany"),
+            no_agent: t("traccar_no_agent", "brak agenta w telefonie"),
+            agent_outdated: t("traccar_outdated", "agent za stary"),
+            unknown: t("traccar_unknown", "brak danych z telefonu"),
+            pending: t("traccar_pending", "czeka na konfigurację w telefonie"),
+            error: t("traccar_error", "błąd wysyłki"),
+            ok: t("traccar_ok", "działa"),
+        };
+        const facts = [];
+        if (tr.url_host) facts.push(tr.url_host);
+        if (ag) {
+            const modes = { drive: t("traccar_mode_drive", "jazda"), park: t("traccar_mode_park", "postój") };
+            if (has(modes, ag.mode)) facts.push(modes[ag.mode]);
+            const sent = Settings._crashFmtTime(ag.last_sent_ts);
+            facts.push(t("traccar_last_sent", "ostatni punkt") + ": " + (sent || "—"));
+            if (Number.isInteger(ag.queue_n) && ag.queue_n > 0) facts.push(t("traccar_queue", "w kolejce") + ": " + ag.queue_n);
+            if (ag.paused_low_battery) facts.push(t("traccar_low_battery", "bateria < 10% — tylko alarmy"));
+        }
+        const hints = [];
+        const errLabels = {
+            tls: t("traccar_e_tls", "błąd certyfikatu HTTPS"),
+            dns: t("traccar_e_dns", "nie znaleziono serwera (DNS)"),
+            connect: t("traccar_e_connect", "brak połączenia z serwerem"),
+            timeout: t("traccar_e_timeout", "serwer nie odpowiada"),
+            redirect: t("traccar_e_redirect", "przekierowanie — w nginx brak auth_request off;"),
+            http_4xx: t("traccar_e_4xx", "serwer odrzuca zapytanie (4xx)"),
+            http_5xx: t("traccar_e_5xx", "błąd serwera (5xx) — Traccar nie działa?"),
+            unknown_device: t("traccar_e_unknown", "Traccar nie zna identyfikatora — dodaj urządzenie"),
+            no_position: t("traccar_e_no_position", "telefon nie ma pozycji"),
+            storage: t("traccar_e_storage", "telefon nie zapisał kolejki"),
+            network: t("traccar_e_network", "błąd sieci"),
+        };
+        if (state === "error" && has(errLabels, ag.last_error)) hints.push(errLabels[ag.last_error]);
+        if (!tr.url_ok) hints.push(t("traccar_hint_url", "ustaw traccar.url (https://…) w config/local.yaml"));
+        if (!tr.id_set) hints.push(t("traccar_hint_id", "wpisz BCM_TRACCAR_DEVICE_ID do /etc/bcm/bcm.env"));
+        if (state === "agent_outdated") hints.push(t("traccar_hint_outdated", "skopiuj nowy tools/car_phone/termux/bcm_agent.py (≥ 1.6.0)"));
+        if (state === "no_agent") hints.push(t("traccar_hint_no_agent", "patrz wiersz „Agent w telefonie”"));
+        if (ag && tr.id_fp && ag.id_fp && ag.id_fp !== tr.id_fp) hints.push(t("traccar_hint_fp", "telefon ma inny identyfikator — czeka na synchronizację"));
+        const cmd = tr.cmd && typeof tr.cmd === "object" ? tr.cmd : null;
+        let msg = Settings._traccar.msg;
+        if (!msg && cmd) {
+            const cmdLabels = {
+                pending: t("traccar_cmd_pending", "wysyłam do telefonu…"),
+                sent: t("traccar_cmd_sent", "telefon przyjął — punkt w kolejce"),
+                failed: t("traccar_cmd_failed", "telefon odmówił"),
+            };
+            if (has(cmdLabels, cmd.state)) msg = cmdLabels[cmd.state] + (cmd.state === "failed" && cmd.error ? " (" + cmd.error + ")" : "");
+        }
+        const canSend = tr.url_ok && tr.id_set;
+        const btn = canSend
+            ? `<button data-traccar-send style="margin-left:auto;padding:4px 10px;border-radius:8px;font-size:11px;font-weight:700;background:var(--card-border);color:var(--text-mid);border:none">${esc(t("traccar_send", "Wyślij pozycję teraz"))}</button>` : "";
+        const factsHtml = facts.length ? ` <span style="color:var(--text-mid)">· ${esc(facts.join(" · "))}</span>` : "";
+        const hintHtml = hints.length
+            ? `<span data-traccar-hint style="color:var(--text-mid);flex-basis:100%;padding-left:24px">${esc(hints.join(" · "))}</span>` : "";
+        return `<div data-traccar-state="${esc(state)}" style="display:flex;flex-wrap:wrap;align-items:center;gap:4px 8px;padding:8px 12px;border-radius:12px;background:var(--card-bg);border:1px solid var(--card-border);font-size:11px;line-height:1.3">
+            <span class="material-symbols-outlined" style="font-size:16px;color:${color}">share_location</span>
+            <span style="color:var(--text-dim);font-weight:700">${esc(t("traccar_title", "Traccar"))}:</span>
+            <span style="color:${color};font-weight:700">${esc(labels[state])}</span>${factsHtml}${btn}${hintHtml}
+            <span data-traccar-msg style="flex-basis:100%;padding-left:24px;color:var(--text-dim)">${esc(msg)}</span>
+        </div>`;
+    },
+
+    _traccarSay(text) {
+        Settings._traccar.msg = text;
+        const node = typeof document !== "undefined" ? document.querySelector("[data-traccar-msg]") : null;
+        if (node) node.textContent = text;
+    },
+
+    async traccarSend() {
+        const t = (typeof App !== "undefined" && App.t) ? App.t.bind(App) : ((k, d) => d);
+        const now = Date.now();
+        if (now - Settings._traccar.sentAt < 1500) return;
+        Settings._traccar.sentAt = now;
+        try {
+            const res = await fetch("/api/traccar/send", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: "{}",
+            });
+            let out = {};
+            try { out = await res.json(); } catch (e) { /* not JSON */ }
+            const key = out && typeof out.error === "string" ? out.error : "";
+            const errors = {
+                not_running: t("traccar_err_not_running", "moduł nie działa"),
+                not_configured: t("traccar_not_configured", "nie skonfigurowany"),
+                busy: t("traccar_err_busy", "poprzednia prośba jeszcze trwa"),
+                "too many requests": t("traccar_err_wait", "chwilę — spróbuj za kilkanaście sekund"),
+            };
+            if (res.ok) Settings._traccarSay(t("traccar_cmd_pending", "wysyłam do telefonu…"));
+            else if (res.status === 403) Settings._traccarSay(t("crash_kiosk_only", "Tylko z ekranu w aucie"));
+            else Settings._traccarSay(Object.prototype.hasOwnProperty.call(errors, key) ? errors[key] : t("traccar_err", "nie udało się"));
+        } catch (e) {
+            Settings._traccarSay(t("traccar_err", "nie udało się"));
+        }
+        // The module's verdict (cmd) replaces the local message afterwards.
+        setTimeout(() => { Settings._traccar.msg = ""; }, 4000);
+    },
+
+    /** One delegated click listener for the row (installed once). */
+    traccarListen() {
+        const tc = Settings._traccar;
+        if (tc.listening || typeof document === "undefined" || !document.addEventListener) return;
+        tc.listening = true;
+        document.addEventListener("click", (e) => {
+            const el = e.target && e.target.closest ? e.target.closest("[data-traccar-send]") : null;
+            if (el) Settings.traccarSend();
+        });
+    },
+
+    // Ostatni postój (src/location/last_park.py). data.last_park =
+    // web_viewer._last_park_summary(park.last_position) or null. The kiosk
+    // has no back button, so the map link is shown as text (the clickable
+    // one is on /trips in the phone's browser).
+    lastParkRowHtml(lp, t) {
+        t = t || ((k, d) => d);
+        if (!lp || typeof lp !== "object") return "";
+        const esc = Settings._esc;
+        const num = (v, lo, hi) => typeof v === "number" && isFinite(v) && v >= lo && v <= hi;
+        if (!num(lp.lat, -90, 90) || !num(lp.lon, -180, 180)) return "";
+        const when = Settings._crashFmtTime(lp.ts) || "—";
+        const coords = lp.lat.toFixed(5) + ", " + lp.lon.toFixed(5);
+        const url = typeof lp.osm_url === "string" && lp.osm_url.indexOf("https://www.openstreetmap.org/") === 0 ? lp.osm_url : "";
+        return `<div data-last-park style="display:flex;flex-wrap:wrap;align-items:center;gap:4px 8px;padding:8px 12px;border-radius:12px;background:var(--card-bg);border:1px solid var(--card-border);font-size:11px;line-height:1.3">
+            <span class="material-symbols-outlined" style="font-size:16px;color:var(--text-mid)">local_parking</span>
+            <span style="color:var(--text-dim);font-weight:700">${esc(t("last_park_title", "Ostatni postój"))}:</span>
+            <span style="color:var(--text-primary);font-weight:700">${esc(when)}</span>
+            <span style="color:var(--text-mid);font-family:monospace">${esc(coords)}</span>
+            ${url ? `<span data-last-park-url style="flex-basis:100%;padding-left:24px;color:var(--text-dim);font-family:monospace;word-break:break-all">${esc(t("last_park_map", "mapa"))}: ${esc(url)}</span>` : ""}
+            <span style="flex-basis:100%;padding-left:24px;color:var(--text-dim)">${esc(t("last_park_trips_hint", "link do mapy i nawigacji: strona /trips w telefonie"))}</span>
+        </div>`;
+    },
+
     // Czuwanie kabiny (src/safety/cabin_watch.py). data.cabin_watch =
     // web_viewer._cabin_watch_summary(park.cabin_state), or null while the
     // module is not running (production config: no row). The watch runs ON
@@ -1219,6 +1717,189 @@ const Settings = {
         });
     },
 
+    // Komunikaty głosowe (src/audio/voice_announce.py, modules.voice_announce).
+    // data.voice_announce = web_viewer._voice_summary(voice.status), or null
+    // while the module is not running (production: no row). Wł./Wył., the
+    // volume slider and the three category switches go through the
+    // whitelisted POST /api/config (voice_announce.* in local.yaml; the
+    // module applies them live). "Powiedz test" = POST /api/voice/test
+    // (loopback only, 1 per 8 s): the module speaks a FIXED phrase. The
+    // payload never carries the text of a message. data-* + ONE delegated
+    // listener (voiceListen); the slider is never redrawn under the finger.
+    _voice: { listening: false, down: false, inputAt: 0, sentAt: 0, testAt: 0, msg: "" },
+    _voiceCats: [
+        ["weather", "voice_cat_weather", "pogoda"],
+        ["traffic", "voice_cat_traffic", "utrudnienia"],
+        ["system", "voice_cat_system", "system"],
+    ],
+
+    voiceDragging() {
+        return Settings._voice.down || Date.now() - Settings._voice.inputAt < 1500;
+    },
+
+    /** Everything the row draws: a change of this key redraws it (the
+     *  volume is left out while it is being dragged — see update()). */
+    voiceRowKey(va) {
+        if (!va || typeof va !== "object") return "null";
+        return JSON.stringify([va.enabled, va.volume, va.categories, va.engine, va.player,
+            va.speaking, va.call_active, va.last_result, va.ducking, Settings._voice.msg]);
+    },
+
+    /** "Piper · gotowe", "mówię…", "brak syntezatora — …" */
+    voiceStatusText(va, t) {
+        t = t || ((k, d) => d);
+        const engines = {
+            piper: t("voice_engine_piper", "Piper (głos polski)"),
+            espeak: t("voice_engine_espeak", "espeak-ng (zapasowy)"),
+        };
+        if (!Object.prototype.hasOwnProperty.call(engines, va.engine)) {
+            return t("voice_no_engine", "brak syntezatora mowy — uruchom apply-fixes.sh (Piper / espeak-ng)");
+        }
+        const parts = [engines[va.engine]];
+        if (va.player === "none") parts.push(t("voice_no_player", "brak pw-play / paplay"));
+        if (va.speaking === true) parts.push(t("voice_speaking", "mówię…"));
+        else if (va.call_active === true) parts.push(t("voice_call", "rozmowa — komunikaty czekają"));
+        else if (va.enabled !== true) parts.push(t("voice_off", "wyłączone"));
+        const res = {
+            spoken: t("voice_res_spoken", "ostatni komunikat odtworzony"),
+            synth_failed: t("voice_res_synth_failed", "synteza mowy nie powiodła się"),
+            no_player: t("voice_res_no_player", "nie ma czym odtworzyć"),
+            play_failed: t("voice_res_play_failed", "odtwarzanie nie powiodło się"),
+            interrupted: t("voice_res_interrupted", "przerwany (rozmowa)"),
+        };
+        if (va.speaking !== true && Object.prototype.hasOwnProperty.call(res, va.last_result)) {
+            parts.push(res[va.last_result]);
+        }
+        return parts.join(" · ");
+    },
+
+    /** The row; '' without a payload. Inline styles; every value escaped /
+     *  type-checked; buttons carry only whitelisted data-* values. */
+    voiceRowHtml(va, t) {
+        t = t || ((k, d) => d);
+        if (!va || typeof va !== "object") return "";
+        const esc = Settings._esc;
+        const on = va.enabled === true;
+        const ready = va.engine === "piper" || va.engine === "espeak";
+        const vol = Number.isInteger(va.volume) && va.volume >= 10 && va.volume <= 100 ? va.volume : null;
+        const sel = (active) => active
+            ? "background:var(--color-primary);color:#fff;border:1px solid var(--color-primary)"
+            : "background:var(--card-bg);color:var(--text-mid);border:1px solid var(--card-border)";
+        const btn = (attr, label, active) => `<button ${attr} aria-pressed="${active ? "true" : "false"}" style="padding:6px 12px;border-radius:8px;font-size:12px;font-weight:700;${sel(active)}">${esc(label)}</button>`;
+        const onOff = btn('data-voice-enabled="true"', t("voice_on", "Wł."), on)
+            + btn('data-voice-enabled="false"', t("voice_off_btn", "Wył."), !on);
+        const slider = `<input data-voice-volume type="range" min="10" max="100" step="5" value="${vol !== null ? vol : 80}" aria-label="${esc(t("voice_volume", "Głośność komunikatów"))}" style="flex:1 1 140px;min-width:110px;height:28px;accent-color:var(--color-primary)">`;
+        const volHtml = `<span data-voice-vol-pct style="min-width:40px;text-align:right;color:var(--text-primary);font-weight:700">${vol !== null ? vol + "%" : ""}</span>`;
+        const cats = (va.categories && typeof va.categories === "object") ? va.categories : {};
+        const catHtml = Settings._voiceCats.map(([name, _key, label]) =>
+            btn(`data-voice-cat="${name}"`, t("voice_cat_" + name, label), cats[name] === true)).join("");
+        const test = `<button data-voice-test ${ready ? "" : "disabled"} style="margin-left:auto;padding:6px 12px;border-radius:8px;font-size:12px;font-weight:700;background:var(--card-border);color:var(--text-mid);border:none">${esc(t("voice_test", "Powiedz test"))}</button>`;
+        const color = !ready ? "#d97706" : (on ? "#16a34a" : "var(--text-dim)");
+        return `<div data-voice-row data-voice-engine="${esc(ready ? va.engine : "none")}" style="display:flex;flex-wrap:wrap;align-items:center;gap:6px 8px;padding:8px 12px;border-radius:12px;background:var(--card-bg);border:1px solid var(--card-border);font-size:11px;line-height:1.3">
+            <span class="material-symbols-outlined" style="font-size:16px;color:${color}">record_voice_over</span>
+            <span style="color:var(--text-dim);font-weight:700">${esc(t("voice_title", "Komunikaty głosowe"))}:</span>
+            <span data-voice-status style="color:${color};font-weight:700">${esc(Settings.voiceStatusText(va, t))}</span>
+            <span style="flex-basis:100%;display:flex;flex-wrap:wrap;align-items:center;gap:6px;padding-left:24px">${onOff}${slider}${volHtml}</span>
+            <span style="flex-basis:100%;display:flex;flex-wrap:wrap;align-items:center;gap:6px;padding-left:24px"><span style="color:var(--text-dim);font-weight:700">${esc(t("voice_cats", "Mów o"))}:</span>${catHtml}${test}</span>
+            <span data-voice-msg style="flex-basis:100%;padding-left:24px;color:var(--text-mid)">${esc(Settings._voice.msg)}</span>
+        </div>`;
+    },
+
+    _voiceSay(text) {
+        Settings._voice.msg = text;
+        const node = typeof document !== "undefined" ? document.querySelector("[data-voice-msg]") : null;
+        if (node) node.textContent = text;
+    },
+
+    /** POST one whitelisted change to /api/config; the module's new state
+     *  arrives with the next payload. */
+    async voiceSend(body) {
+        const t = (typeof App !== "undefined" && App.t) ? App.t.bind(App) : ((k, d) => d);
+        try {
+            const res = await fetch("/api/config", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify(body),
+            });
+            if (res.ok) Settings._voiceSay("");
+            else if (res.status === 403) Settings._voiceSay(t("voice_err_forbidden", "zmiana tylko z ekranu w aucie"));
+            else Settings._voiceSay(t("voice_err", "nie udało się zapisać"));
+        } catch (e) {
+            Settings._voiceSay(t("voice_err", "nie udało się zapisać"));
+        }
+    },
+
+    /** "Powiedz test" (POST /api/voice/test — loopback only, 1 per 8 s on
+     *  the server; this only swallows double taps). */
+    async voiceTest() {
+        const t = (typeof App !== "undefined" && App.t) ? App.t.bind(App) : ((k, d) => d);
+        const now = Date.now();
+        if (now - Settings._voice.testAt < 2000) return;
+        Settings._voice.testAt = now;
+        try {
+            const res = await fetch("/api/voice/test", { method: "POST" });
+            let body = {};
+            try { body = await res.json(); } catch (e) { /* not JSON */ }
+            if (res.status === 202) Settings._voiceSay(t("voice_test_queued", "mówię test…"));
+            else if (res.status === 429) Settings._voiceSay(t("voice_test_wait", "chwilę — spróbuj za kilka sekund"));
+            else if (res.status === 403) Settings._voiceSay(t("voice_test_forbidden", "test tylko z ekranu w aucie"));
+            else if (body && body.error === "no_engine") Settings._voiceSay(t("voice_no_engine", "brak syntezatora mowy — uruchom apply-fixes.sh (Piper / espeak-ng)"));
+            else if (body && body.error === "call_active") Settings._voiceSay(t("voice_test_call", "trwa rozmowa — test po jej zakończeniu"));
+            else Settings._voiceSay(t("voice_test_failed", "nie udało się uruchomić testu"));
+        } catch (e) {
+            Settings._voiceSay(t("voice_test_failed", "nie udało się uruchomić testu"));
+        }
+    },
+
+    /** One delegated listener set for the row (installed once). */
+    voiceListen() {
+        const v = Settings._voice;
+        if (v.listening || typeof document === "undefined" || !document.addEventListener) return;
+        v.listening = true;
+        document.addEventListener("click", (e) => {
+            const el = e.target && e.target.closest
+                ? e.target.closest("[data-voice-enabled],[data-voice-cat],[data-voice-test]") : null;
+            if (!el || typeof el.getAttribute !== "function") return;
+            if (el.hasAttribute && el.hasAttribute("data-voice-test")) {
+                Settings.voiceTest();
+                return;
+            }
+            // Only whitelisted values — never text from the page.
+            const en = el.getAttribute("data-voice-enabled");
+            const cat = el.getAttribute("data-voice-cat");
+            let body = null;
+            if (en === "true" || en === "false") body = { voice_enabled: en === "true" };
+            else {
+                const hit = Settings._voiceCats.find(([name]) => name === cat);
+                if (hit) body = { [hit[1]]: el.getAttribute("aria-pressed") !== "true" };
+            }
+            if (!body) return;
+            const now = Date.now();
+            if (now - v.sentAt < 500) return;          // double tap
+            v.sentAt = now;
+            Settings.voiceSend(body);
+        });
+        const isSlider = (el) => !!(el && el.hasAttribute && el.hasAttribute("data-voice-volume"));
+        document.addEventListener("pointerdown", (e) => { if (isSlider(e.target)) v.down = true; });
+        const up = () => { v.down = false; };
+        document.addEventListener("pointerup", up);
+        document.addEventListener("pointercancel", up);
+        document.addEventListener("input", (e) => {
+            if (!isSlider(e.target)) return;
+            v.inputAt = Date.now();
+            const n = Number(e.target.value);
+            const label = document.querySelector("[data-voice-vol-pct]");
+            if (label && Number.isInteger(n)) label.textContent = n + "%";
+        });
+        document.addEventListener("change", (e) => {
+            if (!isSlider(e.target)) return;
+            v.down = false;
+            v.inputAt = Date.now();
+            const n = Number(e.target.value);
+            if (Number.isInteger(n) && n >= 10 && n <= 100) Settings.voiceSend({ voice_volume: n });
+        });
+    },
+
     _crashFmtTime(ts) {
         if (typeof ts !== "number" || !isFinite(ts) || ts <= 0) return "";
         const d = new Date(ts * 1000);
@@ -1397,6 +2078,11 @@ const Settings = {
             const data = await res.json();
             Settings._modules.list = Array.isArray(data.modules) ? data.modules : [];
             Settings._modules.restartRequired = !!data.restart_required;
+            // local.yaml written for an older base (bcm_config_test.yaml):
+            // until it is migrated nothing from this card is saved.
+            const mig = data.config_migration;
+            Settings._modules.migration = mig && typeof mig === "object"
+                && typeof mig.command === "string" ? mig : null;
             Settings._modules.loaded = true;
             Settings._modulesRedraw(false);
         } catch (e) { /* keep last known state */ }
@@ -1701,6 +2387,20 @@ const Settings = {
             && byName.has(state.statusName) ? state.statusName : null;
         const confirmName = confirm && byName.has(confirm.name) ? confirm.name : null;
         let html = "";
+        const mig = state.migration && typeof state.migration === "object"
+            && typeof state.migration.command === "string" ? state.migration : null;
+        if (mig) {
+            // Everything escaped: the command carries file paths only, but the
+            // page never trusts a server string as markup.
+            const recorded = typeof mig.recorded === "string" ? mig.recorded : "";
+            const base = typeof mig.base === "string" ? mig.base : "";
+            html += `<div data-config-migration style="margin:0 0 8px 0;padding:6px 10px;border-radius:8px;border:1px solid var(--color-primary);font-size:11px;line-height:1.35">
+                <p style="margin:0 0 4px 0;font-weight:700;color:var(--color-primary)">${esc(t("config_migration_title", "Zmiany nie są zapisywane — przenieś config/local.yaml na nową bazę"))}</p>
+                <p style="margin:0 0 4px 0;color:var(--text-mid)">${esc(t("config_migration_body", "local.yaml jest zapisany dla {recorded}, a BCM działa z {base}. Ustawienia działają, ale zmiany z ekranu znikną po restarcie. Na komputerze (SSH):").replace("{recorded}", recorded).replace("{base}", base))}</p>
+                <p style="margin:0;font-family:monospace;font-size:10px;color:var(--text-mid);overflow-wrap:anywhere">${esc(mig.command)}</p>
+                <p style="margin:4px 0 0 0;color:var(--text-dim)">${esc(t("config_migration_then", "potem to samo z --write i restart BCM"))}</p>
+            </div>`;
+        }
         if (state.restartRequired) {
             html += `<p data-modules-restart style="margin:0 0 8px 0;padding:6px 10px;border-radius:8px;background:var(--card-border);color:var(--color-primary);font-size:11px;font-weight:700">${esc(t("module_restart_pending", "wymaga restartu BCM"))}</p>`;
         }
@@ -2122,6 +2822,12 @@ App.registerScreen("settings", (() => {
     let _gpsKey = "null";
     let _carPhoneKey = "null";
     let _agentKey = "null";
+    let _netKey = "null";
+
+    /** The "Internet i usługi" row as drawn (the whole summary). */
+    function _netKeyOf(data) {
+        return JSON.stringify((data && data.net_diag) || null);
+    }
 
     function _tetherKeyOf(data) {
         return JSON.stringify((data && data.phone_tether) || null);
@@ -2129,6 +2835,16 @@ App.registerScreen("settings", (() => {
 
     function _carPhoneKeyOf(data) {
         return JSON.stringify((data && data.car_phone) || null);
+    }
+
+    /** The "Czujniki telefonu" row as drawn: the light age in 5 s steps
+     *  (it changes every second; the row need not be redrawn that often). */
+    let _sensorsKey = "null";
+    function _sensorsKeyOf(data) {
+        const ps = (data && data.phone_sensors) || null;
+        if (!ps || typeof ps !== "object") return "null";
+        const age = typeof ps.lux_age_s === "number" ? Math.floor(ps.lux_age_s / 5) : null;
+        return JSON.stringify(Object.assign({}, ps, { lux_age_s: age }));
     }
 
     function _agentKeyOf(data) {
@@ -2149,6 +2865,10 @@ App.registerScreen("settings", (() => {
         return JSON.stringify((data && data.parking_guard) || null) + "|" + Settings._park.msg;
     }
 
+    /** The "Traccar" and "Ostatni postój" rows as drawn. */
+    let _traccarKey = "null";
+    let _lastParkKey = "null";
+
     /** The "Czuwanie kabiny" row as drawn (the whole summary). */
     let _cabinKey = "null";
     function _cabinKeyOf(data) {
@@ -2166,6 +2886,12 @@ App.registerScreen("settings", (() => {
     let _brightKey = "null";
     function _brightKeyOf(data) {
         return Settings.brightnessRowKey(data && data.auto_brightness);
+    }
+
+    /** The "Komunikaty głosowe" row as drawn. */
+    let _voiceKey = "null";
+    function _voiceKeyOf(data) {
+        return Settings.voiceRowKey(data && data.voice_announce);
     }
 
     /** What the GPS row shows: gps_state without last_ts (it changes with
@@ -2191,12 +2917,28 @@ App.registerScreen("settings", (() => {
                 slot.innerHTML = Settings.tetherRowHtml(data && data.phone_tether, t);
             }
         }
+        const netKey = _netKeyOf(data);
+        if (netKey !== _netKey) {
+            const slot = document.querySelector("[data-net-diag-slot]");
+            if (slot) {
+                _netKey = netKey;
+                slot.innerHTML = Settings.netDiagRowHtml(data && data.net_diag, t);
+            }
+        }
         const carKey = _carPhoneKeyOf(data);
         if (carKey !== _carPhoneKey) {
             const slot = document.querySelector("[data-car-phone-slot]");
             if (slot) {
                 _carPhoneKey = carKey;
                 slot.innerHTML = Settings.carPhoneRowHtml(data && data.car_phone, t);
+            }
+        }
+        const sensorsKey = _sensorsKeyOf(data);
+        if (sensorsKey !== _sensorsKey) {
+            const slot = document.querySelector("[data-phone-sensors-slot]");
+            if (slot) {
+                _sensorsKey = sensorsKey;
+                slot.innerHTML = Settings.sensorsRowHtml(data && data.phone_sensors, t);
             }
         }
         const agentKey = _agentKeyOf(data);
@@ -2239,6 +2981,23 @@ App.registerScreen("settings", (() => {
                 slot.innerHTML = Settings.cabinWatchRowHtml(data && data.cabin_watch, t);
             }
         }
+        const traccarKey = Settings.traccarRowKey(data && data.traccar);
+        if (traccarKey !== _traccarKey) {
+            const slot = document.querySelector("[data-traccar-slot]");
+            if (slot) {
+                _traccarKey = traccarKey;
+                if (data && data.traccar) Settings.traccarListen();
+                slot.innerHTML = Settings.traccarRowHtml(data && data.traccar, t);
+            }
+        }
+        const lastParkKey = JSON.stringify((data && data.last_park) || null);
+        if (lastParkKey !== _lastParkKey) {
+            const slot = document.querySelector("[data-last-park-slot]");
+            if (slot) {
+                _lastParkKey = lastParkKey;
+                slot.innerHTML = Settings.lastParkRowHtml(data && data.last_park, t);
+            }
+        }
         const remoteKey = _remoteKeyOf(data);
         if (remoteKey !== _remoteKey) {
             const slot = document.querySelector("[data-remote-session-slot]");
@@ -2263,6 +3022,16 @@ App.registerScreen("settings", (() => {
                 Settings.brightnessLive(brightSlot, data.auto_brightness, t);
             }
         }
+        const voiceKey = _voiceKeyOf(data);
+        if (voiceKey !== _voiceKey && !Settings.voiceDragging()) {
+            const slot = document.querySelector("[data-voice-slot]");
+            if (slot) {
+                _voiceKey = voiceKey;
+                // The row may first appear here: its listener comes with it.
+                if (data && data.voice_announce) Settings.voiceListen();
+                slot.innerHTML = Settings.voiceRowHtml(data && data.voice_announce, t);
+            }
+        }
         const gpsKey = _gpsKeyOf(data);
         if (gpsKey !== _gpsKey) {
             const slot = document.querySelector("[data-gps-slot]");
@@ -2281,11 +3050,14 @@ App.registerScreen("settings", (() => {
         _gpsKey = _gpsKeyOf(data);
         _carPhoneKey = _carPhoneKeyOf(data);
         _agentKey = _agentKeyOf(data);
+        _sensorsKey = _sensorsKeyOf(data);
+        _netKey = _netKeyOf(data);
         _crashKey = _crashKeyOf(data);
         _parkKey = _parkKeyOf(data);
         _cabinKey = _cabinKeyOf(data);
         _remoteKey = _remoteKeyOf(data);
         _brightKey = _brightKeyOf(data);
+        _voiceKey = _voiceKeyOf(data);
         const paired = Settings._btPaired;
         const discovered = Settings._btDiscovered;
         const scanning = Settings._btScanning;
@@ -2309,7 +3081,9 @@ App.registerScreen("settings", (() => {
         // Always (idempotent, one listener): the row may first appear through
         // update() when the module publishes after this render.
         Settings.parkListen();
+        if (data && data.traccar) Settings.traccarListen();
         if (data && data.auto_brightness) Settings.brightListen();
+        if (data && data.voice_announce) Settings.voiceListen();
 
         container.innerHTML = `<div class="screen-container" style="background:var(--color-surface);color:var(--color-on-surface)">
             ${AppBar.render(theme, data)}
@@ -2354,16 +3128,27 @@ App.registerScreen("settings", (() => {
                              slider, Programowe / Sprzętowe (DDC/CI). Empty
                              slot = module off; update() swaps it. -->
                         <div data-brightness-slot style="display:contents">${Settings.brightnessRowHtml(data && data.auto_brightness, t)}</div>
+                        <!-- Komunikaty głosowe (modules.voice_announce): Wł./Wył.,
+                             volume, categories, "Powiedz test". Empty slot =
+                             module off; update() swaps it. -->
+                        <div data-voice-slot style="display:contents">${Settings.voiceRowHtml(data && data.voice_announce, t)}</div>
                         <!-- Wybudzanie (modules.remote_session, buffered build):
                              last wake, refusals, Nano link — read-only; the
                              buttons are in the global banner. -->
                         <div data-remote-session-slot style="display:contents">${Settings.remoteSessionRowHtml(data && data.remote_session, t)}</div>
+                        <!-- Internet i usługi (modules.net_diag): uplink + internet
+                             probe, key presence and last result per service,
+                             "Test". Empty slot = module off. -->
+                        <div data-net-diag-slot style="display:contents">${Settings.netDiagRowHtml(data && data.net_diag, t)}</div>
                         <!-- Internet from the phone (BT PAN). display:contents: an
                              empty slot (module off) adds no flex gap; update()
                              swaps its content. -->
                         <div data-tether-slot style="display:contents">${Settings.tetherRowHtml(data && data.phone_tether, t)}</div>
                         <!-- The phone mounted in the car (USB, adb) — same slot idea. -->
                         <div data-car-phone-slot style="display:contents">${Settings.carPhoneRowHtml(data && data.car_phone, t)}</div>
+                        <!-- Czujniki telefonu (SensorServer): Hz per sensor, lux + age,
+                             "Test" — same slot idea. -->
+                        <div data-phone-sensors-slot style="display:contents">${Settings.sensorsRowHtml(data && data.phone_sensors, t)}</div>
                         <!-- The Termux agent on that phone (pairing, health) — same slot idea. -->
                         <div data-car-phone-agent-slot style="display:contents">${Settings.carPhoneAgentRowHtml(data && data.car_phone_agent, t)}</div>
                         <!-- SMS po stłuczce: status + testowy SMS (update() swaps it)
@@ -2374,6 +3159,10 @@ App.registerScreen("settings", (() => {
                         <div data-parking-guard-slot style="display:contents">${Settings.parkingGuardRowHtml(data && data.parking_guard, t)}</div>
                         <!-- Czuwanie kabiny (the phone runs it): state + last event, read-only. -->
                         <div data-cabin-watch-slot style="display:contents">${Settings.cabinWatchRowHtml(data && data.cabin_watch, t)}</div>
+                        <!-- Traccar (the phone reports): state + "Wyślij pozycję teraz". -->
+                        <div data-traccar-slot style="display:contents">${Settings.traccarRowHtml(data && data.traccar, t)}</div>
+                        <!-- Ostatni postój (BCM's own GPS): time, coordinates, map URL as text. -->
+                        <div data-last-park-slot style="display:contents">${Settings.lastParkRowHtml(data && data.last_park, t)}</div>
                         <!-- GPS source / fix + where to send NMEA (same slot idea). -->
                         <div data-gps-slot style="display:contents">${Settings.gpsRowHtml(data && data.gps_state, data && data.phone_tether, t)}</div>
                         <!-- Wi-Fi Hotspot / ALFA-NET network access. The live

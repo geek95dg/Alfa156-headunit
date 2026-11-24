@@ -64,6 +64,9 @@ RUNTIME_PATHS = frozenset({
     "config/local.yaml",
     "config/local.yaml.bak",
     "config/local-temp.yaml",
+    # backup migrate_local_config.py writes when it moves local.yaml to a
+    # new base (bcm_config_test.yaml → bcm_config.yaml)
+    "config/local.yaml.bcm_config_test.bak",
 })
 
 #: Tools whose flags the guides give; python ones are parsed with ast.
@@ -451,7 +454,9 @@ def test_module_table_matches_catalog_and_configs():
     doc = _doc("docs/WDROZENIE_TESTOWE_TELEFON.md")
     header, rows = _table_rows(doc, MODULE_TABLE_HEADING)
     col = {h: i for i, h in enumerate(header)}
-    for needed in ("Moduł", "Wymaga", "Produkcja", "Test"):
+    # „Docelowa” = config/bcm_config.yaml (the car's config since 23.11),
+    # „Test” = config/bcm_config_test.yaml (bench / the old test config).
+    for needed in ("Moduł", "Wymaga", "Docelowa", "Test"):
         assert needed in col, f"tabela modułów bez kolumny {needed}"
     prod, test = _cfg("bcm_config.yaml"), _cfg("bcm_config_test.yaml")
     words = {"wł.": True, "wył.": False}
@@ -466,7 +471,7 @@ def test_module_table_matches_catalog_and_configs():
         expected = {dep for group in requirement_groups(info) for dep in group}
         given = set(re.findall(r"`([a-z0-9_]+)`", row[col["Wymaga"]]))
         assert given == expected, f"{name}: wymaga {sorted(expected)}, tabela: {sorted(given)}"
-        for column, cfg in (("Produkcja", prod), ("Test", test)):
+        for column, cfg in (("Docelowa", prod), ("Test", test)):
             value = row[col[column]]
             assert value in words, f"{name}: {column} = {value!r} (wł./wył.)"
             assert words[value] == bool(is_enabled(cfg, name)), \
@@ -477,3 +482,14 @@ def test_module_table_matches_catalog_and_configs():
     # zasilanie) is in the table — those are the toggles this guide is for.
     grouped = {n for n, info in MODULES.items() if info.get("group")}
     assert grouped <= listed, f"tabela bez modułów: {sorted(grouped - listed)}"
+
+
+def test_no_stale_claims_about_the_final_config():
+    # Since 23.11 config/bcm_config.yaml is the car's config with most new
+    # modules on; these sentences were true only before that switch.
+    stale = ("produkcyjnym `config/bcm_config.yaml` nic się nie zmienia",
+             "jedną linią w `/etc/bcm/bcm.env`")
+    for path in ("docs/WDROZENIE_TESTOWE_TELEFON.md", "docs/WDROZENIE_TESTOWE.md"):
+        text = (REPO / path).read_text(encoding="utf-8")
+        for phrase in stale:
+            assert phrase not in text, f"{path}: nieaktualne zdanie „{phrase}”"

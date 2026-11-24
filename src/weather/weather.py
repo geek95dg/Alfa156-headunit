@@ -39,10 +39,28 @@ Publishes to event bus:
     weather.current  — dict with condition, temp, feels_like, humidity, wind
     weather.forecast — list of daily forecast dicts
     weather.city     — str
+    weather.status   — where the data on screen comes from, and how the last
+                       request went (published at start and after EVERY
+                       fetch attempt)::
+
+        {source: demo | cache | live, last_ok_ts, last_error, http_code,
+         key_set, last_attempt_ts}
+
+        last_error: '' | no_key | http | network | bad_response
+        http_code:  the status of an ``http`` error (401 = wrong or not yet
+                    activated key — new OWM keys need up to 2 h), else None
+
+    Why: the demo data ("Milan, IT") used to be published at start with
+    nothing saying it was demo, and fetch errors only went to the log — the
+    car showed Milan for months while the real cause (key, uplink) was
+    invisible. The UI now names it ("dane przykładowe", "brak klucza",
+    "błąd 401 — zły albo nieaktywny klucz"). Each live attempt is also
+    recorded in src/network/net_services.py (Settings "Internet i usługi").
 """
 
 import json
 import math
+import re
 import threading
 import time
 from pathlib import Path
@@ -51,6 +69,7 @@ from urllib.parse import urlencode
 
 from src.core.fsutil import atomic_write_json
 from src.core.logger import get_logger
+from src.network import net_services
 
 log = get_logger("weather")
 
@@ -65,6 +84,27 @@ FORCE_MIN_AGE_S = 60
 REFETCH_DISTANCE_KM = 15.0
 #: Location sources a fetch can be made for (``_loc_source``).
 LOC_DEFAULT, LOC_GPS, LOC_SEARCH = "default", "gps", "search"
+#: 3-hour forecast slots kept from one /forecast answer (cnt=24 → 72 h).
+MAX_SLOTS = 40
+#: forecast_at(): the regular fetch's slots serve points this close to the
+#: place they were fetched for; farther points get their own forecast.
+NEAR_KM = 30.0
+#: A slot is used for a moment at most this far from its time (one slot).
+SLOT_MATCH_S = 3 * 3600
+#: forecast_at() looks at most this far ahead (OWM's 5-day forecast).
+MAX_ETA_MIN = 5 * 24 * 60
+#: Per-place forecast cache for route points (grid of 0.1° ≈ 11 km).
+ROUTE_CACHE_S = 1800.0
+ROUTE_CACHE_MAX = 32
+#: At most this many route-point requests per window — a planner loop
+#: (re-plans on GPS fix, destination changes) must not eat the free quota
+#: (1000 calls/day) or the regular poll's share of it.
+ROUTE_FETCH_MAX = 24
+ROUTE_FETCH_WINDOW_S = 600.0
+# After a failed route request, skip the others for this long: with OWM
+# slow or down each point would block a plan for the 8 s timeout.
+ROUTE_FAIL_HOLDOFF_S = 120.0
+_ICON_RE = re.compile(r"[0-9]{2}[dn]")
 
 
 def _distance_km(a: tuple[float, float], b: tuple[float, float]) -> float:
@@ -212,12 +252,33 @@ class WeatherManager:
         # location must not push them out to the next poll (_fetch_succeeded).
         self._urgent_gen = 0
         self._poll_interval = config.get("weather", {}).get("poll_interval_min", 15) * 60
-        self._api_key = config.get("weather", {}).get("api_key", "")
+        # Stripped: a key pasted with a trailing space or newline is a 401
+        # that looks exactly like a wrong key (config.py strips env secrets
+        # too; this covers a key typed into local.yaml).
+        key = config.get("weather", {}).get("api_key", "")
+        self._api_key = key.strip() if isinstance(key, str) else ""
+        # weather.status (module docstring). _last_attempt: the outcome of
+        # the newest _fetch_weather() call — (result, http_code).
+        self._status_lock = threading.Lock()
+        self._status: dict = {"source": "demo", "last_ok_ts": None,
+                              "last_error": "" if self._api_key else "no_key",
+                              "http_code": None, "key_set": bool(self._api_key),
+                              "last_attempt_ts": None}
+        self._last_attempt: tuple[str, Optional[int]] = ("", None)
         # Default location fallback when GPS is not available
         self._default_lat = config.get("weather", {}).get("default_lat", 50.06)
         self._default_lon = config.get("weather", {}).get("default_lon", 19.94)
         self._refetch_km = _refetch_distance(
             config.get("weather", {}).get("refetch_distance_km"))
+        # forecast_at() (route weather, weather warnings): the 3-hour slots
+        # of the last good fetch and the place they are for, plus a small
+        # per-place cache for route points far from it.
+        self._slots_lock = threading.Lock()
+        self._slots: list = []
+        self._slots_coords: Optional[tuple[float, float]] = None
+        self._route_cache: dict = {}
+        self._route_fetches: list = []
+        self._route_fail_until: Optional[float] = None
 
     def start(self):
         """Start weather polling in background thread."""
@@ -402,6 +463,7 @@ class WeatherManager:
         coords = self._search_coords
         try:
             data = self._fetch_weather(coords)
+            self._note_attempt(bool(data))
             if data:
                 self._publish_data(data, coords)
                 self._save_cache(data)
@@ -420,14 +482,18 @@ class WeatherManager:
 
     def _run(self):
         """Main weather polling loop."""
-        # Always publish demo data on startup so UI is never empty
+        # Always publish demo data on startup so UI is never empty — but
+        # with weather.status source=demo, so the UI says "dane przykładowe"
+        # instead of presenting Milan as the weather outside.
         self._publish_data(DEMO_WEATHER)
+        self._publish_status(source="demo")
         log.info("Weather: published demo data as initial fallback")
 
         # Load cached data on startup (overrides demo)
         cached = self._load_cache()
         if cached:
             self._publish_data(cached)
+            self._publish_status(source="cache")
             log.info("Weather loaded from cache: %s", cached.get("city", "?"))
 
         if not self._api_key:
@@ -494,7 +560,9 @@ class WeatherManager:
             data = self._fetch_weather(coords)
         except Exception as e:
             log.error("Weather fetch FAILED: %s", e, exc_info=True)
+            self._last_attempt = ("network", None)
             data = None
+        self._note_attempt(bool(data))
         if data:
             self._publish_data(data, coords)
             self._save_cache(data)
@@ -564,6 +632,7 @@ class WeatherManager:
         ``coords`` default to the current location (``_lat``/``_lon``).
         """
         lat, lon = coords if coords is not None else (self._lat, self._lon)
+        self._last_attempt = ("network", None)
         try:
             import urllib.request
             import urllib.error
@@ -581,6 +650,11 @@ class WeatherManager:
             except urllib.error.HTTPError as e:
                 log.error("Weather API error: HTTP %d — %s (key may not be activated yet)",
                           e.code, e.reason)
+                self._last_attempt = ("http", int(e.code))
+                return None
+            if not isinstance(current_raw, dict) or not isinstance(current_raw.get("main"), dict):
+                log.error("Weather API answered without weather data — ignored")
+                self._last_attempt = ("bad_response", None)
                 return None
 
             # 5-day forecast
@@ -610,18 +684,68 @@ class WeatherManager:
                     "wind_speed": round(wind.get("speed", 0) * 3.6, 1),  # m/s → km/h
                     "wind_deg": wind.get("deg", 0),
                     "pressure": main.get("pressure", 0),
+                    # For the weather warnings (src/weather/alerts.py):
+                    # validated like the slots — None when absent or odd.
+                    **self._current_extras(current_raw, weather),
                 },
                 "city": f"{city_name}, {country}" if country else city_name,
                 "forecast": self._parse_forecast(forecast_raw),
+                # Raw 3-hour slots for forecast_at() (and the weather
+                # warnings), with the place they are for — the disk cache
+                # keeps both, so a cached forecast is not taken for "here".
+                "slots": self._parse_slots(forecast_raw),
+                "coords": [lat, lon],
             }
             log.info("Weather fetched: %s, %.1f°C, %s",
                      data["city"], data["current"]["temp"],
                      data["current"]["condition"])
+            self._last_attempt = ("ok", None)
             return data
 
         except Exception as e:
+            # urllib's URLError/timeout texts carry the reason, never the
+            # URL (which holds the key); the type is enough for the status.
             log.warning("Weather API error: %s", e)
+            # A 200 answer that does not parse (JSON decode = ValueError) or
+            # has fields of unexpected types/shape is the server's answer,
+            # not a dead link — "dziwna odpowiedź", not "brak połączenia".
+            # URLError/timeouts are OSError and stay "network".
+            if isinstance(e, (ValueError, TypeError, AttributeError,
+                              KeyError, IndexError)):
+                self._last_attempt = ("bad_response", None)
             return None
+
+    # ── weather.status ───────────────────────────────────────────────────
+
+    @property
+    def status(self) -> dict:
+        """Copy of the last weather.status payload."""
+        with self._status_lock:
+            return dict(self._status)
+
+    def _publish_status(self, **changes) -> None:
+        with self._status_lock:
+            self._status.update(changes)
+            payload = dict(self._status)
+        try:
+            self._bus.publish("weather.status", payload)
+        except Exception:
+            log.debug("publishing weather.status failed", exc_info=True)
+
+    def _note_attempt(self, ok: bool) -> None:
+        """After every fetch attempt: weather.status + net_services."""
+        now = time.time()
+        if ok:
+            self._publish_status(source="live", last_ok_ts=now, last_error="",
+                                 http_code=None, last_attempt_ts=now)
+            net_services.record("owm", "ok", source="weather", at=now)
+            return
+        result, code = self._last_attempt
+        if result not in ("http", "network", "bad_response"):
+            result, code = "network", None
+        # source stays what is on screen (demo/cache/live from before).
+        self._publish_status(last_error=result, http_code=code, last_attempt_ts=now)
+        net_services.record("owm", result, code, source="weather", at=now)
 
     @staticmethod
     def _parse_forecast(raw: dict) -> list:
@@ -665,12 +789,246 @@ class WeatherManager:
             })
         return result
 
+    @staticmethod
+    def _current_extras(raw: dict, weather: Any) -> dict:
+        """Extra ``weather.current`` fields the warnings need: OWM condition
+        id, rain/snow in the last hour (mm), gusts (km/h), visibility (m).
+        Untrusted: range-checked, None when missing."""
+        def num(value, lo, hi):
+            if isinstance(value, bool) or not isinstance(value, (int, float)):
+                return None
+            try:
+                value = float(value)
+            except (OverflowError, ValueError):
+                return None
+            return value if math.isfinite(value) and lo <= value <= hi else None
+
+        def sub(key):
+            v = raw.get(key)
+            return v if isinstance(v, dict) else {}
+
+        wid = num(weather.get("id") if isinstance(weather, dict) else None, 100, 999)
+        gust = num(sub("wind").get("gust"), 0, 150)
+        rain = num(sub("rain").get("1h"), 0, 300)
+        snow = num(sub("snow").get("1h"), 0, 300)
+        vis = num(raw.get("visibility"), 0, 100000)
+        return {
+            "weather_id": int(wid) if wid is not None else None,
+            "rain_1h": round(rain, 2) if rain is not None else None,
+            "snow_1h": round(snow, 2) if snow is not None else None,
+            "gust_kmh": round(gust * 3.6, 1) if gust is not None else None,
+            "visibility_m": int(vis) if vis is not None else None,
+        }
+
+    # ── 3-hour slots and forecast_at() ───────────────────────────────────
+
+    @staticmethod
+    def _parse_slots(raw: Any) -> list:
+        """OpenWeatherMap /forecast → validated 3-hour slots, oldest first.
+
+        Untrusted network data: every number is range-checked, texts are
+        cut, an entry without a time or temperature is dropped. Keys::
+
+            ts, temp, feels_like, humidity, pressure, condition, main,
+            weather_id, icon, rain_mm, snow_mm, pop, wind_kmh, gust_kmh,
+            visibility_m
+        """
+        items = raw.get("list") if isinstance(raw, dict) else None
+        if not isinstance(items, list):
+            return []
+
+        def num(value, lo, hi):
+            if isinstance(value, bool) or not isinstance(value, (int, float)):
+                return None
+            try:
+                value = float(value)    # a 400-digit int drops one field, not the fetch
+            except (OverflowError, ValueError):
+                return None
+            return value if math.isfinite(value) and lo <= value <= hi else None
+
+        def sub(item, key):
+            v = item.get(key)
+            return v if isinstance(v, dict) else {}
+
+        out = []
+        for item in items[:MAX_SLOTS]:
+            if not isinstance(item, dict):
+                continue
+            ts = num(item.get("dt"), 1e9, 1e10)
+            main = sub(item, "main")
+            temp = num(main.get("temp"), -90, 70)
+            if ts is None or temp is None:
+                continue
+            weather = item.get("weather")
+            w0 = weather[0] if isinstance(weather, list) and weather \
+                and isinstance(weather[0], dict) else {}
+            wind = sub(item, "wind")
+            icon = w0.get("icon")
+            wid = num(w0.get("id"), 100, 999)
+            speed = num(wind.get("speed"), 0, 120)
+            gust = num(wind.get("gust"), 0, 150)
+            humidity = num(main.get("humidity"), 0, 100)
+            pressure = num(main.get("pressure"), 800, 1100)
+            feels = num(main.get("feels_like"), -100, 80)
+            out.append({
+                "ts": int(ts),
+                "temp": round(temp, 1),
+                "feels_like": round(feels, 1) if feels is not None else None,
+                "humidity": int(humidity) if humidity is not None else None,
+                "pressure": int(pressure) if pressure is not None else None,
+                "condition": str(w0.get("description") or "")[:40].title(),
+                "main": str(w0.get("main") or "")[:20],
+                "weather_id": int(wid) if wid is not None else None,
+                "icon": icon if isinstance(icon, str) and _ICON_RE.fullmatch(icon) else None,
+                "rain_mm": round(num(sub(item, "rain").get("3h"), 0, 500) or 0.0, 2),
+                "snow_mm": round(num(sub(item, "snow").get("3h"), 0, 500) or 0.0, 2),
+                "pop": num(item.get("pop"), 0, 1),
+                "wind_kmh": round(speed * 3.6, 1) if speed is not None else None,
+                "gust_kmh": round(gust * 3.6, 1) if gust is not None else None,
+                "visibility_m": int(v) if (v := num(item.get("visibility"), 0, 100000))
+                is not None else None,
+            })
+        out.sort(key=lambda s: s["ts"])
+        return out
+
+    def _store_slots(self, data: Any, coords: Optional[tuple[float, float]]) -> None:
+        """Keep the slots of the data being published, with their place."""
+        if not isinstance(data, dict):
+            return
+        slots = data.get("slots")
+        place = coords
+        if place is None:
+            raw = data.get("coords")
+            place = valid_coords(raw[0], raw[1]) if isinstance(raw, list) and len(raw) == 2 \
+                else None
+        with self._slots_lock:
+            if isinstance(slots, list) and place is not None:
+                self._slots = [s for s in slots if isinstance(s, dict)]
+                self._slots_coords = place
+            else:
+                # Demo data or an old cache without slots: nothing to offer.
+                self._slots, self._slots_coords = [], None
+
+    @property
+    def slots(self) -> tuple[list, Optional[tuple[float, float]]]:
+        """Copy of the current 3-hour slots and the place they are for."""
+        with self._slots_lock:
+            return [dict(s) for s in self._slots], self._slots_coords
+
+    @staticmethod
+    def _pick_slot(slots: list, target_ts: float) -> Optional[dict]:
+        best = None
+        for slot in slots or []:
+            ts = slot.get("ts") if isinstance(slot, dict) else None
+            if not isinstance(ts, (int, float)):
+                continue
+            diff = abs(ts - target_ts)
+            if diff <= SLOT_MATCH_S and (best is None or diff < best[0]):
+                best = (diff, slot)
+        if best is None:
+            return None
+        out = dict(best[1])
+        out["slot_ts"] = out.pop("ts")
+        return out
+
+    def forecast_at(self, lat: Any, lon: Any, eta_min: Any = 0.0) -> Optional[dict]:
+        """Forecast for (lat, lon) ``eta_min`` minutes from now, or None.
+
+        Used by the route planner (weather along the route). Points within
+        :data:`NEAR_KM` of the last regular fetch use its slots; farther ones
+        get one /forecast request per 0.1° cell, cached for
+        :data:`ROUTE_CACHE_S` and limited to :data:`ROUTE_FETCH_MAX` per
+        :data:`ROUTE_FETCH_WINDOW_S`. Never raises; None = no data (no key,
+        offline, limit, beyond the 5-day forecast). Blocking (network) —
+        call it from a worker thread, as the planner does.
+        """
+        coords = valid_coords(lat, lon)
+        eta = eta_min if isinstance(eta_min, (int, float)) and not isinstance(eta_min, bool) \
+            else None
+        if coords is None or eta is None or not math.isfinite(eta) \
+                or not 0 <= eta <= MAX_ETA_MIN:
+            return None
+        target = time.time() + float(eta) * 60.0
+        with self._slots_lock:
+            near = self._slots_coords is not None and \
+                _distance_km(self._slots_coords, coords) <= NEAR_KM
+            slots = list(self._slots) if near else None
+        if slots:
+            picked = self._pick_slot(slots, target)
+            if picked is not None:
+                return picked
+        try:
+            slots = self._route_slots(coords)
+        except Exception as e:
+            log.debug("route forecast failed: %s", type(e).__name__)
+            return None
+        return self._pick_slot(slots, target) if slots else None
+
+    def _route_failed(self, now: float) -> None:
+        with self._slots_lock:
+            self._route_fail_until = now + ROUTE_FAIL_HOLDOFF_S
+
+    def _route_slots(self, coords: tuple[float, float]) -> Optional[list]:
+        """Slots for a route point (cache, rate limit, one request)."""
+        if not self._api_key:
+            return None
+        # 0.1° cell: neighbouring route points share one request, and the
+        # request carries no more precision than the weather needs.
+        cell = (round(coords[0], 1), round(coords[1], 1))
+        now = self._clock()
+        with self._slots_lock:
+            hit = self._route_cache.get(cell)
+            if hit is not None and 0 <= now - hit[0] < ROUTE_CACHE_S:
+                return hit[1]
+            if self._route_fail_until is not None and now < self._route_fail_until:
+                return None
+            self._route_fetches = [t for t in self._route_fetches
+                                   if 0 <= now - t < ROUTE_FETCH_WINDOW_S]
+            if len(self._route_fetches) >= ROUTE_FETCH_MAX:
+                log.info("Route weather: request limit reached — point skipped")
+                return None
+            self._route_fetches.append(now)
+        import urllib.error
+        import urllib.request
+        query = urlencode({"lat": cell[0], "lon": cell[1], "appid": self._api_key,
+                           "units": "metric", "cnt": 24})
+        req = urllib.request.Request(
+            f"https://api.openweathermap.org/data/2.5/forecast?{query}",
+            headers={"User-Agent": "BCM-v7/1.0"})
+        try:
+            with urllib.request.urlopen(req, timeout=8) as resp:
+                raw = json.loads(resp.read(512 * 1024))
+        except urllib.error.HTTPError as e:
+            # Never the URL: it carries the key.
+            log.warning("Route weather: HTTP %d", e.code)
+            net_services.record("owm", "http", int(e.code), source="route")
+            self._route_failed(now)
+            return None
+        except (ValueError, TypeError):
+            net_services.record("owm", "bad_response", source="route")
+            self._route_failed(now)
+            return None
+        except Exception as e:
+            log.warning("Route weather: %s", type(e).__name__)
+            net_services.record("owm", "network", source="route")
+            self._route_failed(now)
+            return None
+        slots = self._parse_slots(raw)
+        net_services.record("owm", "ok" if slots else "bad_response", source="route")
+        with self._slots_lock:
+            self._route_cache[cell] = (now, slots)
+            while len(self._route_cache) > ROUTE_CACHE_MAX:
+                oldest = min(self._route_cache, key=lambda k: self._route_cache[k][0])
+                del self._route_cache[oldest]
+        return slots
+
     def _publish_data(self, data: dict, coords: Optional[tuple[float, float]] = None):
         """Publish weather data to event bus.
 
         ``coords``: the location the data is for (default: the current one).
         """
         lat, lon = coords if coords is not None else (self._lat, self._lon)
+        self._store_slots(data, coords)
         self._bus.publish("weather.current", data.get("current", {}))
         self._bus.publish("weather.forecast", data.get("forecast", []))
         self._bus.publish("weather.city", data.get("city", ""))
@@ -712,4 +1070,8 @@ def start_weather(config, event_bus, hal, **kwargs):
     platform = config.get("system", {}).get("platform", "x86")
     weather = WeatherManager(event_bus, config, platform)
     weather.start()
+    # Same pattern as tracking._internals: the route planner (built in
+    # main.py before or after this module) finds the manager here for
+    # forecast_at() — it used to get none, so route weather was always empty.
+    event_bus.publish("weather._internals", {"manager": weather})
     return weather

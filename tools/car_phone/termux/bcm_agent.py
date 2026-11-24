@@ -74,7 +74,8 @@ nowy ``bcm_agent.py`` do ``~/bcm_agent/`` i zrestartuj agenta —
 pokazuje wersję (``VERSION``); stan, sekret, nonce i zdarzenia w
 ``~/.config/bcm_agent`` zostają. „Zadzwoń 112” z telefonu w aucie wymaga
 wersji ≥ 1.1.0 (starszą BCM pokazuje jako „zaktualizuj bcm_agent.py”),
-alarm na postoju ≥ 1.2.0, czuwanie kabiny ≥ 1.3.0, budzenie IR ≥ 1.4.0.
+alarm na postoju ≥ 1.2.0, czuwanie kabiny ≥ 1.3.0, budzenie IR ≥ 1.4.0,
+Traccar ≥ 1.6.0.
 
 Parowanie z BCM
 ---------------
@@ -144,8 +145,9 @@ Endpointy (JSON)
 ``GET /v1/crash/<id>``, ``POST /v1/test``, ``POST /v1/pair``,
 ``POST /v1/call112``, ``GET /v1/call112``, ``POST /v1/call112/hangup``,
 ``POST /v1/call112/mark``, ``GET /v1/park``, ``POST /v1/park/arm``,
-``POST /v1/park/disarm``, ``POST /v1/park/event``, ``GET /v1/cabin`` —
-opis przy metodach :class:`Agent`, :class:`ParkGuard` i :class:`CabinWatch`.
+``POST /v1/park/disarm``, ``POST /v1/park/event``, ``GET /v1/cabin``,
+``POST /v1/traccar/send`` — opis przy metodach :class:`Agent`,
+:class:`ParkGuard`, :class:`CabinWatch` i :class:`TraccarReporter`.
 Bateria i SIM w ``/v1/health`` są odświeżane w tle
 tylko wtedy, gdy BCM o nie pyta (auto na postoju nie budzi Termux:API co
 minutę).
@@ -509,6 +511,48 @@ nie ma czego budzić: przełącznik zostaje wyłączony.
 * Na przyszłość (nie w tej wersji): budzenie z głównego telefonu przez
   prywatny temat ntfy/MQTT z HMAC — dziś zapasem jest SMS ``WAKE <kod>``.
 
+Pozycja auta na serwerze Traccar (przełącznik ``toggles.traccar``, 1.6.0)
+------------------------------------------------------------------------
+BCM na postoju nie działa, więc pozycję auta na własny serwer Traccar
+(docs/TRACCAR_SERWER.md) wysyła TEN agent — klasa :class:`TraccarReporter`,
+osobny wątek ``traccar``. Protokół OsmAnd: jedno ``GET
+<traccar_url>?id=…&lat=…&lon=…&timestamp=…&speed=…&bearing=…&altitude=…
+&accuracy=…&batt=…&charge=…[&alarm=…]`` na punkt (``speed`` w węzłach —
+jak aplikacja Traccar Client; ``alarm`` to standardowy parametr OsmAnd,
+Traccar zamienia go na zdarzenie alarmu: ``tow`` przechył, ``vibration``
+wstrząs, ``powerCut`` zasilanie, ``lowBattery``, ``tampering`` kabina).
+
+* **Tryby:** jazda (BCM rozmawiał z agentem w ostatnich
+  :data:`TRACCAR_CONTACT_S` s i alarm na postoju nie jest uzbrojony) — co
+  ``traccar_drive_interval_s`` (domyślnie 30 s) ostatnia pozycja GPS
+  telefonu (w jeździe GPS i tak pracuje dla BCM, więc ``-r last`` jest
+  świeże); postój — jeden punkt zaraz po zaparkowaniu, potem co
+  ``traccar_park_interval_min`` (domyślnie 15, najmniej 5) tanimi krokami
+  (sieć, ostatnia znana — bez GPS, auto stoi), a przy alarmie postoju lub
+  kabiny NATYCHMIAST (pozycja z tego samego pomiaru co SMS alarmu).
+  Bateria telefonu < :data:`TRACCAR_LOW_PCT` % bez ładowania: odstęp na
+  postoju ×4; < :data:`TRACCAR_STOP_PCT` %: bez okresowych punktów
+  (alarmy nadal idą).
+* **Kolejka offline** na dysku (``traccar_queue.json``, 0600, najwyżej
+  :data:`TRACCAR_QUEUE_MAX` punktów — przy przepełnieniu wypada
+  najstarszy), wysyłana od najstarszego, z odstępem po błędzie rosnącym od
+  :data:`TRACCAR_BACKOFF_MIN_S` do :data:`TRACCAR_BACKOFF_MAX_S` s.
+  Identyfikator urządzenia NIE leży w kolejce (dokładany przy wysyłce).
+* **Bezpieczeństwo:** wyłącznie HTTPS z weryfikacją certyfikatu (systemowe
+  CA Termuxa), bez przekierowań (302 na stronę logowania nginx = błąd, nie
+  „wysłano”), limit czasu :data:`TRACCAR_TIMEOUT_S` s. ``http://`` tylko na
+  127.0.0.1 (testy). Identyfikator urządzenia to jedyne zabezpieczenie
+  protokołu OsmAnd — leży tylko w ``config.json`` (0600), nigdy w logu
+  (log i ``/v1/health`` pokazują 8 znaków skrótu SHA-256) ani w adresie
+  zapisanym w logu. Do adresu trafiają wyłącznie liczby i ten
+  identyfikator (zwalidowany: ``[A-Za-z0-9._-]{8,64}``), kodowane
+  ``urllib.parse.urlencode``.
+* Wątek SMS-ów i wątek postoju nigdy nie czekają na Traccara: alarm tylko
+  dopisuje punkt do kolejki w pamięci i budzi wątek ``traccar``.
+* ``POST /v1/traccar/send`` (BCM: „Wyślij pozycję teraz”, najwyżej raz na
+  :data:`TRACCAR_SEND_MIN_S` s) — opcjonalnie z pozycją BCM ``{lat, lon,
+  speed_kmh, heading}``; bez niej telefon mierzy sam.
+
 Czego agent nie obiecuje: doręczenia (brak raportów doręczenia, zasięg,
 środki na karcie), działania przy wyłączonym lub przegrzanym telefonie,
 działania, gdy Android zabije Termux (phantom process killer), zestawienia
@@ -532,13 +576,17 @@ import queue
 import re
 import secrets
 import signal
+import socket
+import ssl
 import stat
 import struct
 import subprocess
 import sys
 import threading
 import time
+import urllib.error
 import urllib.parse
+import urllib.request
 from collections import deque
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any, Callable, Mapping, Optional
@@ -563,7 +611,11 @@ except ImportError:                 # pragma: no cover
 #: (``off_pending``), alarm na postoju nie uzbraja się sam po wypadku i 112,
 #: kabina bez zdjęć w czasie rozmowy 112, odpowiedź „komputer obudzony” po
 #: ``WAKE <kod>``. BCM tej wersji nie wymaga.
-VERSION = "1.5.0"
+#: 1.6.0 — pozycja na serwerze Traccar (OsmAnd): przełącznik
+#: ``toggles.traccar``, pola ``traccar_*``, ``POST /v1/traccar/send``,
+#: ``traccar`` w ``/v1/health`` (wymagane przez BCM z włączonym
+#: ``modules.traccar``).
+VERSION = "1.6.0"
 
 log = logging.getLogger("bcm_agent")
 
@@ -602,7 +654,11 @@ SIG_RE = re.compile(r"^[0-9a-f]{64}$")
 DIGITS_RE = re.compile(r"^[0-9]{1,%d}$" % NONCE_MAX_DIGITS)
 
 MAX_RECIPIENTS = 3
-TOGGLES = ("crash_sms", "parking_guard", "cabin_watch", "call112", "remote_session")
+TOGGLES = ("crash_sms", "parking_guard", "cabin_watch", "call112", "remote_session", "traccar")
+#: Przełączniki, które liczą się do skrótu konfiguracji TYLKO włączone (BCM
+#: wysyła je tylko włączone, a starszy agent ich nie zna — patrz
+#: :func:`config_hash`).
+TOGGLES_WHEN_ON = ("remote_session", "traccar")
 DEFAULT_LABEL = "ALFA 156"
 COUNTDOWN_MIN_S = 15
 COUNTDOWN_MAX_S = 120
@@ -845,6 +901,74 @@ PARK_COMMANDS = {"POZYCJA": "position", "GDZIE": "position", "PARKON": "on",
 #: jak ``call112_*``).
 WAKE_DEFAULTS: dict[str, Any] = {"wake_ir_address": 0x7A15, "wake_ir_command": 0x56}
 IR_CARRIER_HZ = 38000
+
+# ── pozycja na serwerze Traccar (1.6.0) ───────────────────────────────────
+#: Konfiguracja z BCM (``traccar.url``, ``BCM_TRACCAR_DEVICE_ID``,
+#: ``traccar.drive_interval_s``, ``traccar.park_interval_min``) — klucze
+#: ``traccar_*`` (i sam przełącznik ``traccar``) liczą się do skrótu TYLKO
+#: przy włączonym przełączniku (jak ``wake_*``). Pusty adres albo
+#: identyfikator = nic nie jest wysyłane.
+TRACCAR_DEFAULTS: dict[str, Any] = {"traccar_url": "", "traccar_device_id": "",
+                                    "traccar_drive_interval_s": 30,
+                                    "traccar_park_interval_min": 15}
+TRACCAR_DRIVE_RANGE = (10, 600)
+TRACCAR_PARK_RANGE = (5, 240)
+TRACCAR_URL_MAX = 200
+#: Identyfikator urządzenia w Traccarze — w adresie zapytania, więc tylko
+#: znaki bez kodowania; ≥ 8 znaków (to jedyne zabezpieczenie protokołu).
+TRACCAR_ID_RE = re.compile(r"^[A-Za-z0-9._-]{8,64}$")
+#: Ścieżka adresu serwera: bez zapytania i fragmentu (agent dokłada swoje).
+_TRACCAR_PATH_RE = re.compile(r"^[A-Za-z0-9._~/-]{0,150}$")
+_TRACCAR_HOST_RE = re.compile(r"^[A-Za-z0-9.-]{1,253}$")
+TRACCAR_TIMEOUT_S = 15.0
+TRACCAR_QUEUE_MAX = 500
+TRACCAR_QUEUE_FILE = "traccar_queue.json"
+#: Najwięcej punktów wysłanych w jednym kroku (potem krótka przerwa — inne
+#: wątki i limit nginx 2/s z docs/TRACCAR_SERWER.md §6.1).
+TRACCAR_BATCH = 20
+TRACCAR_GAP_S = 0.6
+TRACCAR_BACKOFF_MIN_S = 30.0
+TRACCAR_BACKOFF_MAX_S = 1800.0
+#: W jeździe kolejka trafia na dysk najwyżej raz na tyle sekund (pamięć
+#: flash; telefon ma własną baterię, więc odcięcie prądu w aucie nie gubi
+#: kolejki w pamięci). Alarm i zmiana trybu zapisują od razu.
+TRACCAR_SAVE_DRIVE_S = 60.0
+#: Serwer, który już przyjął punkt od tego identyfikatora, odrzuca (400/404)
+#: ten sam pierwszy punkt kolejki tyle razy z rzędu = zła treść punktu, nie
+#: identyfikator — punkt wypada, żeby nie blokował nowych pozycji i alarmów.
+TRACCAR_HEAD_REJECTS = 3
+#: Ostatnie podpisane żądanie BCM młodsze niż tyle = auto jedzie (BCM pyta
+#: o stan co 30 s).
+TRACCAR_CONTACT_S = 90.0
+#: Bateria telefonu bez ładowania: < LOW % odstęp na postoju ×4, < STOP %
+#: bez okresowych punktów (alarmy dalej).
+TRACCAR_LOW_PCT = 20
+TRACCAR_STOP_PCT = 10
+TRACCAR_LOW_FACTOR = 4
+#: Odczyt baterii młodszy niż tyle wystarcza (alarm na postoju czyta ją sam).
+TRACCAR_BATTERY_FRESH_S = 300.0
+#: W jeździe: pozycja „ostatnia znana” z GPS starsza niż tyle = pomiar.
+TRACCAR_DRIVE_FIX_MAX_AGE_S = 60
+TRACCAR_DRIVE_STEPS = ((["-p", "gps", "-r", "last"], 10.0),
+                       (["-p", "gps", "-r", "once"], 25.0))
+#: Na postoju bez GPS: auto stoi, sieć i ostatnia znana wystarczą.
+TRACCAR_PARK_STEPS = ((["-p", "network", "-r", "once"], 30.0),
+                      (["-p", "gps", "-r", "last"], 10.0),
+                      (["-p", "network", "-r", "last"], 10.0))
+#: „Wyślij teraz” z BCM najwyżej raz na tyle sekund.
+TRACCAR_SEND_MIN_S = 10.0
+TRACCAR_IDLE_S = 30.0
+TRACCAR_MAX_WAIT_S = 30.0
+TRACCAR_MAX_ALARMS = 16
+#: Rodzaj alarmu postoju / kabiny → parametr ``alarm`` OsmAnd (stałe
+#: Traccara: Position.ALARM_*).
+TRACCAR_ALARMS = {"tilt": "tow", "shake": "vibration", "power": "powerCut",
+                  "low_battery": "lowBattery", "cabin": "tampering"}
+#: Wartości ``alarm`` w kolejce (``general`` = rodzaj spoza listy).
+TRACCAR_ALARM_VALUES = frozenset(TRACCAR_ALARMS.values()) | {"general"}
+#: Klasy błędów w ``/v1/health`` (nigdy treść odpowiedzi serwera).
+TRACCAR_ERRORS = ("", "tls", "dns", "connect", "timeout", "redirect", "http_4xx", "http_5xx",
+                  "unknown_device", "no_position", "storage", "network")
 #: NEC: znacznik prowadzący, przerwa, znacznik bitu, przerwa „0” / „1” [µs].
 NEC_LEAD_MARK_US = 9000
 NEC_LEAD_SPACE_US = 4500
@@ -1080,18 +1204,67 @@ def config_hash(cfg: Mapping[str, Any]) -> str:
     Budzenie IR (1.4.0) idzie dalej, bo dokłada też PRZEŁĄCZNIK: wyłączony
     ``toggles.remote_session`` nie liczy się do skrótu wcale (BCM wysyła go
     tylko włączony, a agent ≤ 1.3.0 zna cztery przełączniki), a pola
-    ``wake_*`` — tylko przy włączonym."""
+    ``wake_*`` — tylko przy włączonym. Tak samo Traccar (1.6.0):
+    przełącznik ``traccar`` tylko włączony, pola ``traccar_*`` tylko przy
+    nim (:data:`TOGGLES_WHEN_ON`)."""
     toggles = cfg.get("toggles")
     on = isinstance(toggles, Mapping) and toggles.get("call112") is True
     park = isinstance(toggles, Mapping) and toggles.get("parking_guard") is True
     cabin = isinstance(toggles, Mapping) and toggles.get("cabin_watch") is True
     wake = isinstance(toggles, Mapping) and toggles.get("remote_session") is True
+    traccar = isinstance(toggles, Mapping) and toggles.get("traccar") is True
     view = {k: v for k, v in cfg.items()
             if (on or not k.startswith("call112_")) and (park or not k.startswith("park_"))
-            and (cabin or not k.startswith("cabin_")) and (wake or not k.startswith("wake_"))}
-    if isinstance(toggles, Mapping) and not wake:
-        view["toggles"] = {k: v for k, v in toggles.items() if k != "remote_session"}
+            and (cabin or not k.startswith("cabin_")) and (wake or not k.startswith("wake_"))
+            and (traccar or not k.startswith("traccar_"))}
+    if isinstance(toggles, Mapping):
+        view["toggles"] = {k: v for k, v in toggles.items()
+                           if k not in TOGGLES_WHEN_ON or v is True}
     return sha256_hex(canonical_json(view).encode("ascii"))[:16]
+
+
+def traccar_url_error(url: Any) -> str:
+    """"" dla poprawnego adresu serwera Traccar (OsmAnd), inaczej powód.
+
+    Tylko ``https://host[:port]/ścieżka`` (ścieżka bez zapytania i
+    fragmentu — agent dokłada swoje parametry), bez loginu i hasła w adresie
+    (``user:pass@`` trafiłoby do logów nginx i do historii), najwyżej
+    :data:`TRACCAR_URL_MAX` znaków. ``http://`` wyłącznie na 127.0.0.1
+    (testy): identyfikator urządzenia jedzie w adresie, więc otwartym
+    tekstem przez sieć komórkową — nigdy."""
+    if not isinstance(url, str) or not url or len(url) > TRACCAR_URL_MAX:
+        return f"1-{TRACCAR_URL_MAX} characters"
+    if url != url.strip() or any(ord(ch) < 33 or ord(ch) > 126 for ch in url):
+        return "printable ASCII without spaces"
+    try:
+        parts = urllib.parse.urlsplit(url)
+        port = parts.port
+    except ValueError:
+        return "not a valid URL"
+    if parts.username is not None or parts.password is not None or "@" in parts.netloc:
+        return "no user name or password in the URL"
+    if parts.query or parts.fragment or "?" in url or "#" in url:
+        return "no query or fragment"
+    host = parts.hostname or ""
+    if not _TRACCAR_HOST_RE.fullmatch(host) or host.startswith(".") or ".." in host:
+        return "a host name is required"
+    if parts.scheme == "http":
+        if host != "127.0.0.1":
+            return "https only (http:// only for 127.0.0.1)"
+    elif parts.scheme != "https":
+        return "https only"
+    if port is not None and not 1 <= port <= 65535:
+        return "bad port"
+    if not _TRACCAR_PATH_RE.fullmatch(parts.path):
+        return "path: letters, digits and . _ ~ / - only"
+    return ""
+
+
+def traccar_fingerprint(device_id: str) -> str:
+    """8 znaków skrótu SHA-256 identyfikatora — do logu i ``/v1/health``
+    (identyfikator to jedyne zabezpieczenie OsmAnd, sam nigdy nie jest
+    logowany)."""
+    return sha256_hex(device_id.encode("utf-8"))[:8] if device_id else ""
 
 
 def is_gsm7(text: str) -> bool:
@@ -1746,6 +1919,21 @@ class Phone:
                 return fix
         return None
 
+    def location_steps(self, steps: Any, max_age_s: Optional[int] = None) -> Optional[dict]:
+        """Pozycja z podanych kroków ``termux-location`` (Traccar w jeździe):
+        krok ``-r last`` z pomiarem starszym niż ``max_age_s`` się nie liczy
+        (przechodzi do następnego). Nie zmienia :attr:`gps_failed_at`."""
+        for args, timeout in steps:
+            rc, out, _err = self._run(["termux-location", *args], None, timeout)
+            fix = parse_location(out) if rc == 0 and len(out) <= 65536 else None
+            if fix is None:
+                continue
+            if max_age_s is not None and args[-1] == "last" \
+                    and (fix["age_s"] is None or fix["age_s"] > max_age_s):
+                continue
+            return fix
+        return None
+
     def sensor_names(self) -> Optional[list]:
         """``termux-sensor -l`` → lista nazw czujników (None = błąd)."""
         obj = self._json(["termux-sensor", "-l"], limit=65536)
@@ -1976,7 +2164,8 @@ class Agent:
                  localtime: Callable[[float], time.struct_time] = time.localtime,
                  spawn: Optional[Spawner] = None,
                  mktime: Callable[[time.struct_time], float] = time.mktime,
-                 pillow: Any = "auto") -> None:
+                 pillow: Any = "auto", traccar_get: Optional[TraccarGet] = None,
+                 sleep: Callable[[float], None] = time.sleep) -> None:
         self.dir = state_dir
         self._clock = clock
         self._wall = wall
@@ -2048,6 +2237,8 @@ class Agent:
         # Alarm na postoju (plan D4): stan z park.json, wątek :meth:`run_park`.
         self.park = ParkGuard(self, spawn if spawn is not None else default_spawn, mktime,
                               pillow)
+        # Pozycja na serwerze Traccar (1.6.0): wątek :meth:`run_traccar`.
+        self.traccar = TraccarReporter(self, traccar_get, sleep)
         self._resume()
 
     # ── pliki ────────────────────────────────────────────────────────────
@@ -2335,6 +2526,8 @@ class Agent:
             return "park_event", None, method == "POST"
         if path == "/v1/cabin":
             return "cabin_get", None, method == "GET"
+        if path == "/v1/traccar/send":
+            return "traccar_send", None, method == "POST"
         parts = path.split("/")
         if len(parts) in (4, 5) and parts[0] == "" and parts[1] == "v1" and parts[2] == "crash" \
                 and EVENT_ID_RE.fullmatch(parts[3]):
@@ -2409,6 +2602,8 @@ class Agent:
             status, out = self.park.http_event(obj)
         elif name == "cabin_get":
             status, out = 200, self.park.cabin.view()
+        elif name == "traccar_send":
+            status, out = self.traccar_send(obj)
         else:
             status, out = self.send_now(event_id)
         return self._reply(status, out, nonce)
@@ -2595,6 +2790,10 @@ class Agent:
                 "call_state": self._call_state,
                 "call112_call": self._call_view_locked(),
             }
+        # Traccar (1.6.0): własna blokada reportera — poza blokadą agenta
+        # (kolejność blokad: agent → reporter, view() bierze obie po kolei).
+        out["traccar"] = self.traccar.view()
+        with self._lock:
             su_due = self.config["toggles"]["call112"] and self._su_probe_due(now)
         if stale or su_due:
             self.status_kick.set()
@@ -2673,10 +2872,38 @@ class Agent:
                          norm["cabin_entry_s"], norm["cabin_diff_pct"], len(norm["cabin_mask"]),
                          norm["cabin_light_ratio"], norm["cabin_light_lux"],
                          "" if norm["toggles"]["parking_guard"] else " — needs parking_guard")
+            if norm["toggles"]["traccar"]:
+                # Identyfikator urządzenia nigdy w logu — tylko skrót.
+                log.info("Traccar config: %s, device id %s, every %d s driving / %d min parked",
+                         "server set" if norm["traccar_url"] else "NO server URL",
+                         traccar_fingerprint(norm["traccar_device_id"]) or "NOT SET",
+                         norm["traccar_drive_interval_s"], norm["traccar_park_interval_min"])
             self.park.cabin.config_changed()
             self.park.wake.set()
             self.park.cabin.wake.set()
+            self.traccar.wake.set()
         return 200, {"ok": True, "config_hash": config_hash(norm)}
+
+    def traccar_send(self, obj: dict) -> tuple[int, dict]:
+        """``POST /v1/traccar/send`` — „Wyślij pozycję teraz” z BCM.
+        Treść: ``{}`` (telefon mierzy sam) albo pozycja BCM ``{lat, lon,
+        speed_kmh?, heading?}`` (liczby w zakresie; nic więcej)."""
+        if set(obj) - {"lat", "lon", "speed_kmh", "heading"}:
+            return 400, {"error": "bad_request", "detail": "only lat, lon, speed_kmh, heading"}
+        fix: Optional[dict] = None
+        if obj:
+            lat, lon = _number(obj.get("lat"), -90, 90), _number(obj.get("lon"), -180, 180)
+            if lat is None or lon is None or (lat == 0 and lon == 0):
+                return 400, {"error": "bad_request", "detail": "lat -90..90, lon -180..180"}
+            fix = {"lat": float(lat), "lon": float(lon), "acc": None, "age_s": 0}
+            for key, dst, lo, hi, k in (("speed_kmh", "speed_ms", 0, MAX_SPEED_KMH, 1 / 3.6),
+                                        ("heading", "bearing", 0, 360, 1.0)):
+                if obj.get(key) is not None:
+                    v = _number(obj.get(key), lo, hi)
+                    if v is None:
+                        return 400, {"error": "bad_request", "detail": f"{key}: {lo}..{hi}"}
+                    fix[dst] = round(float(v) * k, 1)
+        return self.traccar.request_send(fix)
 
     def arm(self, obj: dict) -> tuple[int, dict]:
         """``POST /v1/crash`` — uzbrojenie; idempotentne po ``event_id``,
@@ -3635,6 +3862,21 @@ class Agent:
         except Exception:
             log.exception("Parking guard shutdown failed")
 
+    def run_traccar(self, stop: threading.Event) -> None:
+        """Wątek Traccara (:meth:`TraccarReporter.step`): pomiary pozycji
+        i HTTP — nigdy w wątku SMS-ów ani postoju. Wyłączony = co
+        :data:`TRACCAR_IDLE_S` sprawdza przełącznik, zero wywołań."""
+        rep = self.traccar
+        while not stop.is_set():
+            rep.wake.clear()
+            try:
+                wait = rep.step()
+            except Exception:
+                log.exception("Traccar step failed")
+                wait = TRACCAR_IDLE_S
+            if wait > 0:
+                rep.wake.wait(min(wait, TRACCAR_MAX_WAIT_S))
+
     def run_cabin(self, stop: threading.Event) -> None:
         """Wątek czuwania kabiny (:meth:`CabinWatch.step`): aparat, analiza,
         EXIF, retencja — nigdy w wątku postoju ani pod blokadą agenta.
@@ -3748,10 +3990,18 @@ def parse_location(text: Any) -> Optional[dict]:
     acc = _number(obj.get("accuracy"), 0, 1_000_000)
     age = _number(obj.get("elapsedMs"), 0, 10 ** 13)
     provider = obj.get("provider")
-    return {"lat": float(lat), "lon": float(lon),
-            "acc": None if acc is None else int(round(acc)),
-            "age_s": None if age is None else int(age // 1000),
-            "provider": provider if provider in ("gps", "network", "fused", "passive") else None}
+    out = {"lat": float(lat), "lon": float(lon),
+           "acc": None if acc is None else int(round(acc)),
+           "age_s": None if age is None else int(age // 1000),
+           "provider": provider if provider in ("gps", "network", "fused", "passive") else None}
+    # Prędkość, kurs i wysokość tylko, gdy telefon je podał (Traccar) —
+    # brak pola to brak klucza, nie zero.
+    for key, src, lo, hi in (("speed_ms", "speed", 0, MAX_SPEED_KMH / 3.6),
+                             ("bearing", "bearing", 0, 360), ("alt", "altitude", -1000, 20000)):
+        v = _number(obj.get(src), lo, hi)
+        if v is not None:
+            out[key] = round(float(v), 1)
+    return out
 
 
 def distance_m(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
@@ -5856,6 +6106,8 @@ class ParkGuard:
                 self._fix, self._fix_at = fix, a._clock()
             else:
                 log.warning("PARK: no position (GPS, network and last known all failed)")
+        # Alarmy dla Traccara (po SMS-ach, poza blokadą agenta — patrz niżej).
+        traccar_alarms: list = []
         with a._lock:
             wall, st, cfg = a._wall(), self.st, a.config
             label = cfg["vehicle_label"]
@@ -5867,6 +6119,7 @@ class ParkGuard:
                     self._queue_sms_locked("park_alarm", park_alarm_text(
                         label, job["reason"], job["wall"], fix, a._localtime),
                         self.numbers_locked(), wall)
+                    traccar_alarms.append(job["reason"])
                 elif job["kind"] == "cabin_alarm":
                     # Ten sam rodzaj wysyłki co alarm postoju: dowód
                     # właściciela kasuje go z kolejki (_cancel_alarm_sms_locked).
@@ -5875,6 +6128,7 @@ class ParkGuard:
                         self._queue_sms_locked("park_alarm", cabin_alarm_text(
                             label, ev["reasons"], ev["weak"], ev["wall"], len(ev["photos"]),
                             fix, a._localtime), self.numbers_locked(), wall)
+                        traccar_alarms.append("cabin")
                 elif job["kind"] == "position":
                     self._queue_sms_locked("park_reply", park_position_text(label, fix),
                                            [job["num"]], wall)
@@ -5902,6 +6156,13 @@ class ParkGuard:
                             log.warning("PARK: still moving after %d checks — arming anyway",
                                         PARK_MOVING_MAX)
                         self._arm_now_locked(wall)
+        # Traccar dostaje alarm PO zakolejkowaniu SMS-a i bez blokady agenta:
+        # tylko wpis w pamięci reportera (sieć robi jego własny wątek).
+        for reason in traccar_alarms:
+            try:
+                a.traccar.note_alarm(reason, fix)
+            except Exception:
+                log.exception("Traccar: cannot note the alarm")
 
     def _moving_now(self) -> Optional[bool]:
         """Jedna paczka próbek (1 s): True = ruch jak w jeździe (rozrzut
@@ -7066,6 +7327,550 @@ class CabinWatch:
         self._disk = (sum(1 for n in left if _CABIN_PHOTO_RE.fullmatch(n)), max(0, total))
 
 
+# ── pozycja na serwerze Traccar (1.6.0) ───────────────────────────────────
+
+#: ``(adres, limit czasu) -> (status HTTP albo None, klasa błędu)`` — testy
+#: podstawiają swoją funkcję.
+TraccarGet = Callable[[str, float], "tuple[Optional[int], str]"]
+
+
+class _NoRedirect(urllib.request.HTTPRedirectHandler):
+    """Przekierowanie = błąd: 302 nginx na stronę logowania (brak
+    ``auth_request off;``) nie może wyglądać jak „wysłano”, a ``Location``
+    na http:// nie może wynieść identyfikatora otwartym tekstem."""
+
+    def redirect_request(self, req: Any, fp: Any, code: int, msg: str, headers: Any,
+                         newurl: str) -> None:
+        return None
+
+
+def traccar_http_get(url: str, timeout: float) -> tuple[Optional[int], str]:
+    """Jedno ``GET`` (urllib z biblioteki standardowej): HTTPS z weryfikacją
+    certyfikatu i nazwy hosta (systemowe CA), bez przekierowań, bez
+    ciasteczek. Zwraca ``(status, "")`` albo ``(None, klasa błędu)`` —
+    nigdy nie rzuca i nigdy nie zwraca treści ani adresu (w adresie jest
+    identyfikator)."""
+    if traccar_url_error(url.split("?", 1)[0]):
+        return None, "network"
+    ctx = ssl.create_default_context()
+    opener = urllib.request.build_opener(urllib.request.HTTPSHandler(context=ctx), _NoRedirect())
+    req = urllib.request.Request(url, method="GET",
+                                 headers={"User-Agent": f"bcm-agent/{VERSION}"})
+    try:
+        with opener.open(req, timeout=timeout) as resp:
+            resp.read(4096)
+            return int(resp.status), ""
+    except urllib.error.HTTPError as e:
+        try:
+            e.close()
+        except Exception:
+            pass
+        return int(e.code), ""
+    except urllib.error.URLError as e:
+        return None, _net_error_class(e.reason)
+    except Exception as e:      # noqa: BLE001 — każdy błąd sieci = klasa, nie wyjątek
+        return None, _net_error_class(e)
+
+
+def _net_error_class(err: Any) -> str:
+    if isinstance(err, (ssl.SSLError, ssl.CertificateError)):
+        return "tls"
+    if isinstance(err, socket.gaierror):
+        return "dns"
+    if isinstance(err, (socket.timeout, TimeoutError)):
+        return "timeout"
+    if isinstance(err, (ConnectionError, OSError)):
+        return "connect"
+    return "network"
+
+
+def traccar_query(device_id: str, point: Mapping[str, Any]) -> str:
+    """Parametry OsmAnd jednego punktu (``urlencode`` — liczby i
+    zwalidowany identyfikator). ``speed`` w węzłach (domyślna jednostka
+    OsmAnd w Traccarze), ``timestamp`` w sekundach epoki."""
+    params: list = [("id", device_id), ("lat", f"{point['lat']:.6f}"),
+                    ("lon", f"{point['lon']:.6f}"), ("timestamp", str(int(point["t"])))]
+    for key, name, fmt in (("spd", "speed", "{:.1f}"), ("brg", "bearing", "{:.1f}"),
+                           ("alt", "altitude", "{:.1f}"), ("acc", "accuracy", "{:d}"),
+                           ("batt", "batt", "{:d}")):
+        v = point.get(key)
+        if v is not None:
+            params.append((name, fmt.format(v)))
+    if point.get("chg") is not None:
+        params.append(("charge", "true" if point["chg"] else "false"))
+    if point.get("alarm"):
+        params.append(("alarm", point["alarm"]))
+    if point.get("valid") is False:
+        params.append(("valid", "false"))
+    return urllib.parse.urlencode(params)
+
+
+def traccar_url(base: str, device_id: str, point: Mapping[str, Any]) -> str:
+    return f"{base}?{traccar_query(device_id, point)}"
+
+
+def valid_traccar_point(p: Any) -> bool:
+    """Punkt z kolejki na dysku (plik mógł się uszkodzić)."""
+    if not isinstance(p, dict):
+        return False
+    if _number(p.get("t"), EVENT_TS_MIN, EVENT_TS_MAX, integer=True) is None \
+            or _number(p.get("lat"), -90, 90) is None or _number(p.get("lon"), -180, 180) is None:
+        return False
+    for key, lo, hi, integer in (("spd", 0, 300, False), ("brg", 0, 360, False),
+                                 ("alt", -1000, 20000, False), ("acc", 0, 1_000_000, True),
+                                 ("batt", 0, 100, True)):
+        v = p.get(key)
+        if v is not None and _number(v, lo, hi, integer) is None:
+            return False
+    if p.get("chg") not in (None, True, False) or p.get("valid") not in (None, True, False):
+        return False
+    alarm = p.get("alarm")
+    return alarm is None or alarm in TRACCAR_ALARM_VALUES
+
+
+def _point_from_fix(fix: Mapping[str, Any], wall: float, battery: tuple,
+                    alarm: Optional[str] = None, valid: bool = True) -> dict:
+    """Pozycja z :func:`parse_location` (albo od BCM) → punkt kolejki."""
+    age = fix.get("age_s")
+    t = int(wall)
+    if isinstance(age, int) and not isinstance(age, bool) and age >= 0:
+        # Prawdziwy czas pomiaru, nawet bardzo starego (``-r last`` na długim
+        # postoju): stary punkt ze znacznikiem „teraz” wyglądałby na mapie
+        # jak bieżąca pozycja. Starszy niż doba idzie jako valid=false.
+        t = max(int(wall - age), EVENT_TS_MIN)
+        if age > MAX_FIX_AGE_S:
+            valid = False
+    pct, plugged = battery
+    speed = fix.get("speed_ms")
+    out: dict[str, Any] = {"t": t, "lat": round(float(fix["lat"]), 6),
+                           "lon": round(float(fix["lon"]), 6)}
+    if isinstance(speed, (int, float)):
+        out["spd"] = round(float(speed) * 1.943844, 1)     # m/s → węzły
+    for src, key in (("bearing", "brg"), ("alt", "alt")):
+        v = fix.get(src)
+        if isinstance(v, (int, float)):
+            out[key] = round(float(v), 1)
+    if isinstance(fix.get("acc"), int):
+        out["acc"] = fix["acc"]
+    if isinstance(pct, int):
+        out["batt"] = pct
+    if plugged is not None:
+        out["chg"] = plugged == "plugged"
+    if alarm:
+        out["alarm"] = alarm
+    if not valid:
+        out["valid"] = False
+    return out
+
+
+class TraccarReporter:
+    """Pozycja auta na serwerze Traccar (opis w nagłówku pliku, „Pozycja
+    auta na serwerze Traccar”). Własny wątek (:meth:`step` w
+    :meth:`Agent.run_traccar`) i własna blokada ``_lock`` — kolejność
+    blokad zawsze agent → reporter, nigdy odwrotnie; HTTP i
+    ``termux-location`` zawsze bez żadnej blokady.
+
+    Args:
+        agent: :class:`Agent` (konfiguracja, zegary, telefon, stan postoju).
+        http_get: wysyłka jednego adresu (:func:`traccar_http_get`; testy).
+    """
+
+    def __init__(self, agent: "Agent", http_get: Optional[TraccarGet] = None,
+                 sleep: Callable[[float], None] = time.sleep) -> None:
+        self.a = agent
+        self._get = http_get or traccar_http_get
+        self._sleep = sleep
+        self._lock = threading.Lock()
+        self.wake = threading.Event()
+        self._queue: list = self._load_queue()
+        self._alarms: list = []
+        self._send_req: Optional[dict] = None
+        self._send_at: Optional[float] = None
+        self._mode: Optional[str] = None
+        self._next_report: Optional[float] = None
+        self._next_try = 0.0
+        self._backoff = TRACCAR_BACKOFF_MIN_S
+        self._last_sent_ts: Optional[int] = None
+        self._last_ok_wall: Optional[int] = None
+        self._last_error = ""
+        self._last_http: Optional[int] = None
+        self._dropped = 0
+        # Zapis kolejki POZA blokadą (fsync na wolnym eMMC nie może
+        # wstrzymywać /v1/health ani note_alarm): _gen rośnie przy każdej
+        # zmianie kolejki, _saved_gen to pokolenie ostatniego zapisu.
+        self._gen = 0
+        self._saved_gen = 0
+        self._saved_at: Optional[float] = None
+        self._ok_fp = ""            # skrót identyfikatora, który dostał 2xx
+        self._head_rejects = 0      # 400/404 z rzędu dla pierwszego punktu
+        #: Ostatni punkt dopisany do kolejki — pozycja zastępcza alarmu,
+        #: gdy telefon nie zmierzy nowej (``valid=false``).
+        self._last_point: Optional[dict] = self._queue[-1] if self._queue else None
+        self._paused_low = False
+        self._fp = ""
+        self._warned: set = set()
+
+    # ── stan ─────────────────────────────────────────────────────────────
+
+    def _load_queue(self) -> list:
+        try:
+            raw = read_small(self.a._path(TRACCAR_QUEUE_FILE), 512 * 1024)
+            obj = json.loads(raw.decode("utf-8"), parse_constant=_reject_constant) \
+                if raw is not None else {}
+        except (OSError, ValueError, UnicodeDecodeError, RecursionError):
+            log.warning("Traccar: the offline queue file is damaged — starting empty")
+            return []
+        pts = obj.get("points") if isinstance(obj, dict) else None
+        good = [p for p in pts if valid_traccar_point(p)] if isinstance(pts, list) else []
+        return good[-TRACCAR_QUEUE_MAX:]
+
+    def _persist(self, force: bool = False) -> None:
+        """Zapis kolejki na dysk — kopia pod blokadą, zapis bez niej. Woła
+        go tylko wątek ``traccar`` (jedyny, który zmienia kolejkę), więc
+        dwa zapisy nie wyprzedzą się nawzajem. W jeździe najwyżej co
+        :data:`TRACCAR_SAVE_DRIVE_S` (chyba że ``force``)."""
+        now = self.a._clock()
+        with self._lock:
+            if self._gen == self._saved_gen:
+                return
+            if not force and self._mode == "drive" and self._saved_at is not None \
+                    and now - self._saved_at < TRACCAR_SAVE_DRIVE_S:
+                return
+            gen, snap = self._gen, list(self._queue)
+        try:
+            atomic_write(self.a._path(TRACCAR_QUEUE_FILE),
+                         canonical_json({"version": 1, "points": snap}).encode("ascii"))
+        except OSError as e:
+            with self._lock:
+                self._last_error = "storage"
+            log.error("Traccar: cannot save the offline queue (%s)", _clean(e))
+            return
+        with self._lock:
+            self._saved_gen = max(self._saved_gen, gen)
+            self._saved_at = now
+
+    def _push_locked(self, point: dict) -> None:
+        """Do kolejki (pod blokadą): przepełniona — wypada najstarszy."""
+        self._queue.append(point)
+        self._last_point = point
+        if len(self._queue) > TRACCAR_QUEUE_MAX:
+            over = len(self._queue) - TRACCAR_QUEUE_MAX
+            del self._queue[:over]
+            self._dropped += over
+            if "dropped" not in self._warned:
+                self._warned.add("dropped")
+                log.warning("Traccar: offline queue full (%d points) — dropping the oldest",
+                            TRACCAR_QUEUE_MAX)
+        self._gen += 1              # zapis: _persist() na końcu kroku, bez blokady
+
+    def _cfg(self) -> Optional[dict]:
+        """Kopia ustawień albo None (wyłączony / nieustawiony)."""
+        a = self.a
+        with a._lock:
+            cfg = a.config
+            on = cfg["toggles"].get("traccar") is True
+            out = {"url": cfg["traccar_url"], "id": cfg["traccar_device_id"],
+                   "drive_s": cfg["traccar_drive_interval_s"],
+                   "park_min": cfg["traccar_park_interval_min"]}
+        if not on or not out["url"] or not out["id"]:
+            return None
+        return out
+
+    def view(self) -> dict:
+        """``traccar`` w ``/v1/health`` — bez adresu i bez identyfikatora
+        (tylko 8 znaków skrótu, żeby BCM pokazał, czy to ten sam)."""
+        a = self.a
+        with a._lock:
+            cfg = a.config
+            on = cfg["toggles"].get("traccar") is True
+            configured = bool(cfg["traccar_url"]) and bool(cfg["traccar_device_id"])
+            fp = traccar_fingerprint(cfg["traccar_device_id"])
+        with self._lock:
+            return {"enabled": on, "configured": configured, "id_fp": fp,
+                    "mode": self._mode, "queue_n": len(self._queue),
+                    "last_sent_ts": self._last_sent_ts, "last_ok_ts": self._last_ok_wall,
+                    "last_error": self._last_error, "last_http": self._last_http,
+                    "dropped": self._dropped, "paused_low_battery": self._paused_low}
+
+    # ── zdarzenia z innych wątków (bez czekania) ─────────────────────────
+
+    def note_alarm(self, kind: str, fix: Optional[dict]) -> None:
+        """Alarm postoju / kabiny (wątek postoju, PO zakolejkowaniu SMS-a):
+        tylko dopisanie do listy w pamięci i pobudka wątku ``traccar`` —
+        nigdy sieć ani dysk tutaj."""
+        alarm = TRACCAR_ALARMS.get(kind, "general")
+        with self._lock:
+            if len(self._alarms) < TRACCAR_MAX_ALARMS:
+                self._alarms.append({"alarm": alarm, "fix": dict(fix) if fix else None,
+                                     "wall": self.a._wall()})
+        self.wake.set()
+
+    def request_send(self, fix: Optional[dict]) -> tuple[int, dict]:
+        """``POST /v1/traccar/send``: punkt teraz (z pozycją od BCM albo
+        z pomiaru telefonu), najwyżej raz na :data:`TRACCAR_SEND_MIN_S`."""
+        if self._cfg() is None:
+            with self.a._lock:
+                on = self.a.config["toggles"].get("traccar") is True
+            return 409, {"error": "traccar_off" if not on else "not_configured"}
+        now = self.a._clock()
+        with self._lock:
+            if self._send_at is not None and 0 <= now - self._send_at < TRACCAR_SEND_MIN_S:
+                return 429, {"error": "rate_limited",
+                             "retry_after": _wait_s(TRACCAR_SEND_MIN_S - (now - self._send_at))}
+            self._send_at = now
+            self._send_req = {"fix": fix}
+            # Ręczna prośba = spróbuj od razu, także w trakcie odstępu po błędzie.
+            self._next_try = 0.0
+            self._backoff = TRACCAR_BACKOFF_MIN_S
+        self.wake.set()
+        return 202, {"ok": True, "queued": True}
+
+    # ── wątek ────────────────────────────────────────────────────────────
+
+    def _driving(self) -> bool:
+        """Jazda = BCM rozmawiał niedawno, a alarm na postoju nie pilnuje."""
+        a, park = self.a, self.a.park
+        with a._lock:
+            if park.st["state"] in ("arming", "armed", "alarm"):
+                return False
+            at = park._contact_at
+        return at is not None and a._clock() - at < TRACCAR_CONTACT_S
+
+    def _battery(self) -> tuple:
+        """``(procent | None, plugged | unplugged | None)`` — z odczytu
+        alarmu na postoju albo health, jeśli świeży, inaczej jeden
+        ``termux-battery-status``."""
+        a, park = self.a, self.a.park
+        now = a._clock()
+        with a._lock:
+            if park._battery_at is not None and now - park._battery_at < TRACCAR_BATTERY_FRESH_S \
+                    and park._pct is not None:
+                return park._pct, park._power
+            if a._status_ts is not None and now - a._status_ts < TRACCAR_BATTERY_FRESH_S:
+                cached = a._status.get("battery")
+            else:
+                cached = None
+        battery = cached if cached is not None else a.phone.battery()
+        if not isinstance(battery, dict):
+            return None, None
+        pct = battery.get("pct")
+        return (pct if isinstance(pct, int) and not isinstance(pct, bool) else None,
+                power_of(battery))
+
+    def _fix(self, mode: str, first_park: bool) -> Optional[dict]:
+        a = self.a
+        if mode == "drive" or first_park:
+            # W jeździe GPS telefonu i tak pracuje (NMEA dla BCM): „ostatnia
+            # znana” jest świeża; zaraz po zaparkowaniu — ta sama.
+            fix = a.phone.location_steps(TRACCAR_DRIVE_STEPS if mode == "drive"
+                                         else TRACCAR_DRIVE_STEPS[:1],
+                                         TRACCAR_DRIVE_FIX_MAX_AGE_S)
+            if fix is not None or mode == "drive":
+                return fix
+        park = a.park
+        with a._lock:
+            if park._fix_at is not None and a._clock() - park._fix_at < PARK_FIX_REUSE_S:
+                return dict(park._fix)
+        # Postój: tanie kroki bez GPS ``-r once`` (auto stoi).
+        return a.phone.location(try_gps=False)
+
+    def step(self) -> float:
+        """Jeden krok wątku ``traccar``; zwraca, za ile sekund następny."""
+        a = self.a
+        cfg = self._cfg()
+        if cfg is None:
+            with self._lock:
+                self._mode = None
+                self._next_report = None
+                self._alarms.clear()
+                self._send_req = None
+                fp, self._fp = self._fp, ""
+            if fp:
+                log.info("Traccar: off or not configured — nothing is sent")
+            return TRACCAR_IDLE_S
+        fp = traccar_fingerprint(cfg["id"])
+        if fp != self._fp:
+            self._fp = fp
+            log.info("Traccar: reporting on (device id fingerprint %s, every %d s driving, "
+                     "%d min parked)", fp, cfg["drive_s"], cfg["park_min"])
+        now = a._clock()
+        mode = "drive" if self._driving() else "park"
+        with self._lock:
+            changed = mode != self._mode
+            first_park = changed and mode == "park"
+            if changed:
+                # Zmiana trybu (zaparkował / ruszył, start agenta): punkt od razu.
+                self._mode = mode
+                self._next_report = now
+            alarms, self._alarms = self._alarms, []
+            send, self._send_req = self._send_req, None
+        if changed:
+            log.info("Traccar: mode %s", mode)
+        battery: Optional[tuple] = None
+        # Alarm i zmiana trybu: kolejka na dysk od razu (bez debounce jazdy).
+        force_save = changed or bool(alarms)
+        for al in alarms:
+            battery = battery or self._battery()
+            fix, valid = al["fix"], True
+            if fix is None:
+                fix = self._fix("park", False)
+            if fix is None:
+                # Bez nowego pomiaru: ostatnia znana pozycja, oznaczona
+                # ``valid=false`` — alarm w Traccarze ważniejszy niż świeżość.
+                with self._lock:
+                    last = self._last_point
+                fix, valid = (dict(last), False) if last else (None, False)
+            with self._lock:
+                if fix is None:
+                    self._last_error = "no_position"
+                    log.warning("Traccar: alarm %s without any position — not sent",
+                                al["alarm"])
+                    continue
+                self._push_locked(_point_from_fix(fix, al["wall"], battery, al["alarm"], valid))
+                self._next_try = min(self._next_try, now)
+        if send is not None:
+            battery = battery or self._battery()
+            fix = send["fix"] or self._fix(mode, False)
+            with self._lock:
+                if fix is None:
+                    self._last_error = "no_position"
+                else:
+                    self._push_locked(_point_from_fix(fix, a._wall(), battery))
+        with self._lock:
+            due = self._next_report is not None and now >= self._next_report
+        if due:
+            self._periodic(cfg, mode, first_park, now)
+        self._flush(cfg)
+        self._persist(force_save)
+        with self._lock:
+            waits = [TRACCAR_MAX_WAIT_S]
+            if self._next_report is not None:
+                waits.append(self._next_report - a._clock())
+            if self._queue:
+                waits.append(self._next_try - a._clock())
+        return max(1.0, min(waits))
+
+    def _periodic(self, cfg: dict, mode: str, first_park: bool, now: float) -> None:
+        # W jeździe bateria zwykle z pamięci health (BCM pyta co 30 s).
+        battery = self._battery()
+        if mode == "drive":
+            every = float(cfg["drive_s"])
+            low = False
+        else:
+            every = 60.0 * cfg["park_min"]
+            pct, power = battery
+            unplugged = power != "plugged"
+            low = unplugged and pct is not None and pct < TRACCAR_STOP_PCT
+            if unplugged and pct is not None and pct < TRACCAR_LOW_PCT:
+                every *= TRACCAR_LOW_FACTOR
+        with self._lock:
+            self._next_report = now + every
+            if low != self._paused_low:
+                self._paused_low = low
+                if low:
+                    log.warning("Traccar: phone battery below %d%% — periodic reports paused "
+                                "(alarms still go)", TRACCAR_STOP_PCT)
+        if low:
+            return
+        fix = self._fix(mode, first_park)
+        with self._lock:
+            if fix is None:
+                self._last_error = "no_position"
+                if "no_fix" not in self._warned:
+                    self._warned.add("no_fix")
+                    log.warning("Traccar: no position for the report (GPS / network)")
+                return
+            self._warned.discard("no_fix")
+            self._push_locked(_point_from_fix(fix, self.a._wall(), battery))
+
+    def _flush(self, cfg: dict) -> None:
+        """Wysyłka kolejki od najstarszego punktu, najwyżej
+        :data:`TRACCAR_BATCH` w jednym kroku; błąd = odstęp rosnący
+        (4xx, przekierowanie, TLS — od razu najdłuższy: zły identyfikator
+        czy certyfikat nie miną same)."""
+        a = self.a
+        sent = tries = 0
+        while sent < TRACCAR_BATCH:
+            with self._lock:
+                if not self._queue or a._clock() < self._next_try:
+                    break
+                point = dict(self._queue[0])
+            tries += 1
+            if tries > 1:
+                # Przerwa między punktami: limit nginx 2/s (TRACCAR_SERWER §6.1).
+                self._sleep(TRACCAR_GAP_S)
+            status, err = self._get(traccar_url(cfg["url"], cfg["id"], point),
+                                    TRACCAR_TIMEOUT_S)
+            with self._lock:
+                self._last_http = status
+                if status is not None and 200 <= status < 300:
+                    if self._queue and self._queue[0] == point:
+                        self._queue.pop(0)
+                        self._gen += 1
+                    self._ok_fp = traccar_fingerprint(cfg["id"])
+                    self._head_rejects = 0
+                    self._last_sent_ts = int(point["t"])
+                    self._last_ok_wall = int(a._wall())
+                    if self._last_error != "":
+                        log.info("Traccar: sending works again")
+                    self._last_error = ""
+                    self._backoff = TRACCAR_BACKOFF_MIN_S
+                    self._next_try = 0.0
+                    sent += 1
+                    continue
+                if status in (400, 404) and self._reject_head_locked(cfg, point):
+                    continue
+                self._failed_locked(status, err)
+                break
+
+    def _reject_head_locked(self, cfg: dict, point: dict) -> bool:
+        """400/404 dla pierwszego punktu, gdy ten identyfikator był już
+        przyjęty (2xx): po :data:`TRACCAR_HEAD_REJECTS` próbach z rzędu
+        punkt wypada (licznik ``dropped``), żeby jeden zły punkt nie
+        zatrzymał kolejki na zawsze. True = wypadł, wysyłaj dalej."""
+        if not self._ok_fp or self._ok_fp != traccar_fingerprint(cfg["id"]):
+            return False
+        self._head_rejects += 1
+        if self._head_rejects < TRACCAR_HEAD_REJECTS:
+            return False
+        self._head_rejects = 0
+        if self._queue and self._queue[0] == point:
+            self._queue.pop(0)
+            self._gen += 1
+            self._dropped += 1
+        log.warning("Traccar: the server rejected one queued point %d times — dropped",
+                    TRACCAR_HEAD_REJECTS)
+        return True
+
+    def _failed_locked(self, status: Optional[int], err: str) -> None:
+        if status is None:
+            error = err if err in TRACCAR_ERRORS else "network"
+        elif 300 <= status < 400:
+            error = "redirect"
+        elif status in (400, 404) and not (self._ok_fp and self._ok_fp == self._fp):
+            # Traccar odrzuca nieznany identyfikator (OsmAnd: 400, za
+            # nginx bywa 404) — to samo co zły identyfikator w BCM. Gdy ten
+            # identyfikator był już przyjęty, to raczej treść punktu
+            # (http_4xx, krótszy odstęp; _reject_head_locked go wyrzuci).
+            error = "unknown_device"
+        elif status in (400, 404):
+            error = "http_4xx"
+        elif status in (408, 429) or status < 500:
+            error = "http_4xx"
+        else:
+            error = "http_5xx"
+        hard = error in ("unknown_device", "redirect", "tls") \
+            or (error == "http_4xx" and status not in (400, 404, 408, 429))
+        delay = TRACCAR_BACKOFF_MAX_S if hard else self._backoff
+        self._backoff = min(TRACCAR_BACKOFF_MAX_S, self._backoff * 2)
+        self._next_try = self.a._clock() + delay
+        if error != self._last_error:
+            # Klasa błędu i status — nigdy adres (jest w nim identyfikator).
+            log.warning("Traccar: send failed (%s%s) — %d point(s) queued, retry in %d s",
+                        error, f", HTTP {status}" if status else "", len(self._queue),
+                        int(delay))
+        self._last_error = error
+
 # ── walidacja danych od BCM ───────────────────────────────────────────────
 
 def default_config() -> dict:
@@ -7081,7 +7886,9 @@ def default_config() -> dict:
             # Czuwanie kabiny: okno wejścia 60 s, próg 3%, bez maski, skok światła ×5 i +5 lux.
             **{k: (list(v) if isinstance(v, list) else v) for k, v in CABIN_DEFAULTS.items()},
             # Budzenie IR: kod domyślny z firmware (przełącznik i tak off).
-            **WAKE_DEFAULTS}
+            **WAKE_DEFAULTS,
+            # Traccar: bez adresu i identyfikatora nic nie jest wysyłane.
+            **TRACCAR_DEFAULTS}
 
 
 def normalize_config(obj: Any, strict: bool = False) -> tuple[Optional[dict], str]:
@@ -7147,6 +7954,35 @@ def normalize_config(obj: Any, strict: bool = False) -> tuple[Optional[dict], st
     if wake is None:
         return None, err
     out.update(wake)
+    traccar, err = normalize_traccar_config(obj, base)
+    if traccar is None:
+        return None, err
+    out.update(traccar)
+    return out, ""
+
+
+def normalize_traccar_config(obj: dict, base: dict) -> tuple[Optional[dict], str]:
+    """Pola ``traccar_*`` — opcjonalne (BCM wysyła je tylko z włączonym
+    ``modules.traccar``), ale podane muszą być poprawne: adres
+    (:func:`traccar_url_error`, "" = nie ustawiony), identyfikator
+    (:data:`TRACCAR_ID_RE`, "" = nie ustawiony) i odstępy w zakresach.
+    Komunikat błędu nigdy nie zawiera wartości (identyfikator to sekret)."""
+    out: dict[str, Any] = {}
+    url = obj.get("traccar_url", base["traccar_url"])
+    if not isinstance(url, str) or (url and traccar_url_error(url)):
+        return None, "traccar_url: '' or " + (traccar_url_error(url) if isinstance(url, str)
+                                              else "a string")
+    out["traccar_url"] = url
+    dev = obj.get("traccar_device_id", base["traccar_device_id"])
+    if not isinstance(dev, str) or (dev and not TRACCAR_ID_RE.fullmatch(dev)):
+        return None, "traccar_device_id: '' or 8-64 characters A-Z a-z 0-9 . _ -"
+    out["traccar_device_id"] = dev
+    for key, (lo, hi) in (("traccar_drive_interval_s", TRACCAR_DRIVE_RANGE),
+                          ("traccar_park_interval_min", TRACCAR_PARK_RANGE)):
+        v = obj.get(key, base[key])
+        if isinstance(v, bool) or not isinstance(v, int) or not lo <= v <= hi:
+            return None, f"{key}: integer {lo}..{hi}"
+        out[key] = int(v)
     return out, ""
 
 
@@ -7529,6 +8365,8 @@ def main(argv: Optional[list] = None) -> int:
                                 name="call112"),
                threading.Thread(target=agent.run_park, args=(stop,), daemon=True,
                                 name="park"),
+               threading.Thread(target=agent.run_traccar, args=(stop,), daemon=True,
+                                name="traccar"),
                threading.Thread(target=agent.run_cabin, args=(stop,), daemon=True,
                                 name="cabin")]
     for t in threads:
@@ -7541,6 +8379,7 @@ def main(argv: Optional[list] = None) -> int:
         agent.call_wake.set()
         agent.park.wake.set()
         agent.park.cabin.wake.set()
+        agent.traccar.wake.set()
         threading.Thread(target=server.shutdown, daemon=True).start()
 
     signal.signal(signal.SIGTERM, _stop)

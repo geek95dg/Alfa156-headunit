@@ -653,8 +653,10 @@ class TestShippedConfigs:
         assert cfg.save() is True
         assert _sha(base) == sha
 
-    def test_test_config_keeps_debug_module_levels(self):
-        cfg = BCMConfig(str(REPO / "config" / "bcm_config_test.yaml"), "x86")
+    @pytest.mark.parametrize("name", ["bcm_config.yaml", "bcm_config_test.yaml"])
+    def test_configs_keep_debug_module_levels(self, name):
+        # BT / AA / Wi-Fi Direct stay on DEBUG in the car's final config too.
+        cfg = BCMConfig(str(REPO / "config" / name), "x86")
         levels = cfg.get("system.module_levels")
         for name in ("multimedia.bluetooth", "multimedia.openauto", "multimedia.wifi_ap"):
             assert levels[name] == "DEBUG"

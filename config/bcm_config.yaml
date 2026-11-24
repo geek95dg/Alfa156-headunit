@@ -1,55 +1,265 @@
+# BCM v8.5 — konfiguracja DOCELOWA auta (Alfa 156, Lenovo M910q)
+#
+# Ten plik uruchamiają unity systemd (BCM_CONFIG=config/bcm_config.yaml
+# w config/systemd/bcm-headunit-x86.service i bcm-ignition-watcher.service).
+# Zawiera wszystko, co dziś jeździ w aucie (przeniesione z
+# bcm_config_test.yaml i z config/local.yaml auta, 23.11):
+#   • ekran 7" 1024x600 (wartości dla 10,1" 1280x800 — w komentarzu przy
+#     bloku display niżej)
+#   • Android Auto WIRELESS — P2P-GO na karcie MediaTek MT7921, handshake
+#     bootstrapowany po Bluetooth (src/multimedia/openauto.py, wifi_ap.py)
+#   • dźwięk przez kartę USB (audio.sink niżej), przyciski SWC przez Arduino
+#     Pro Micro (USB HID)
+#   • telefon w aucie (Redmi na USB): internet przez tethering USB, GPS przez
+#     adb forward, czujniki (SensorServer) i agent Termux — moduły car_phone*
+#   • pogoda z ostrzeżeniami, planer trasy z utrudnieniami TomTom, zapis tras,
+#     dziennik tankowań, komunikaty głosowe, pozycja auta na serwerze Traccar
+#
+# Modułowość zostaje: każdy moduł to JEDEN przełącznik modules.<nazwa>
+# (Ustawienia → Moduły zapisują zmianę do config/local.yaml). Moduł bez
+# włączonych zależności nie startuje (jedno ostrzeżenie w logu), reszta
+# działa dalej.
+#
+# Flagi bezpieczeństwa zostają W TRYBIE PRÓBNYM, jak w teście
+# (crash_detection.sms.dry_run: true, parking_guard.log_only: true,
+# safety.call112.test_mode: true) — jak je uzbroić: komentarze przy tych
+# blokach niżej.
+#
+# Konfiguracja stanowiska (rozwój, testy na stole) to bcm_config_test.yaml.
+# Powrót auta na nią: linia w /etc/bcm/bcm.env
+#   BCM_CONFIG=config/bcm_config_test.yaml
+# plus przywrócenie config/local.yaml.bcm_config_test.bak (kopia sprzed
+# migracji) — docs/WDROZENIE_TESTOWE_TELEFON.md §13.7.
+# Przejście z bcm_config_test.yaml na ten plik (migracja config/local.yaml):
+# docs/WDROZENIE_TESTOWE_TELEFON.md, „Przejście na konfigurację docelową”.
+#
+# Uruchomienie ręczne:
+#   python3 main.py --platform x86 --config config/bcm_config.yaml --frontend
+#
+# Warstwy konfiguracji (od najsłabszej):
+#   1. ten plik — BAZA, śledzona w gicie; BCM NIGDY go nie zapisuje, więc
+#      `git pull` w aucie nie trafia na konflikty, a komentarze zostają;
+#   2. config/local.yaml — NAKŁADKA (poza gitem, 0600): BCM zapisuje tu
+#      atomowo tylko RÓŻNICE względem bazy (motyw, przełączniki modułów,
+#      ostatni telefon BT…). Możesz ją też edytować ręcznie; uszkodzona
+#      nakładka → BCM bierze local.yaml.bak albo samą bazę i wstaje dalej.
+#      Inna ścieżka: --local-config PATH / BCM_LOCAL_CONFIG, wyłączenie:
+#      --no-local-config;
+#   3. /etc/bcm/bcm.env — SEKRETY (klucze API, hasła) jako zmienne
+#      środowiskowe ładowane przez systemd; wzór: config/bcm.env.example.
+#      Wartości z env nigdy nie są zapisywane do local.yaml.
+#
 system:
   name: BCM v8.5
   version: 8.5.1
   platform: x86
   log_level: DEBUG
   log_file: logs/bcm.log
+  # Rotacja logs/bcm.log: rozmiar jednego pliku w MB i liczba kopii
+  # (bcm.log.1 … .3) — log DEBUG nie zapcha dysku.
+  log_max_mb: 5
+  log_backups: 3
+  # Poziomy logowania wybranych modułów (nazwa loggera bez prefiksu "bcm.").
+  # BT / AA / Wi-Fi Direct zostają na DEBUG do diagnozy połączeń.
+  module_levels:
+    multimedia.bluetooth: DEBUG
+    multimedia.openauto: DEBUG
+    multimedia.wifi_ap: DEBUG
   simulation: false
+# Jeden przełącznik na każdy moduł/podsystem — pełna lista i stan
+# także w UI: Settings -> Moduły (GET/POST /api/modules). Zależności
+# i potrzebny sprzęt: src/core/modules_catalog.py.
 modules:
-  dashboard: true
-  weather: true
-  route_planner: true
-  multimedia: true
-  bluetooth: true
-  wifi_ap: true
-  input: true
-  audio: true
-  obd: false
-  parking: false
-  environment: false
-  camera: false
-  power: false
-  location: false
-  tracking: false
-  network: false
-  blinker_monitor: false
+  # --- podstawa ---
+  dashboard: true          # frontend HTML5 na porcie 5002
+  multimedia: true         # Android Auto (openauto) — wireless
+  input: true              # przyciski SWC przez Pro Micro (USB HID)
+  audio: true              # głośność i EQ (sink z audio.sink niżej)
+  bluetooth: true          # bootstrap handshake'u AA wireless (btservice
+                           # jest w autoapp; tu rejestrują się PBAP/MAP
+                           # i wymuszany jest CoD carkit 0x620420)
+  phonebook: true          # kontakty i historia połączeń (PBAP) na ekranie
+                           # telefonu A8; telefon musi ZEZWOLIĆ na dostęp do
+                           # kontaktów; wymaga bluetooth
+  phone_status: true       # stan telefonu w pasku górnym: zasięg, operator,
+                           # bateria (oFono przez HFP, zapasowo BlueZ);
+                           # wymaga bluetooth
+  wifi_ap: true            # P2P-GO na MT7921 — łącze danych Android Auto
+  wifi_hotspot: false      # ALFA-NET wymaga OSOBNEGO radia (dongla USB) —
+                           # MT7921 zgłasza #{AP, P2P-GO} <= 1
+  small_display: false     # drugi, mały ekran — nie ma go w aucie
+  network: false           # status łącza LTE/Wi-Fi/ethernet (tylko odczyt);
+                           # w aucie nie ma modemu — wyłączone (decyzja
+                           # właściciela, było false w local.yaml)
+
+  # --- internet, pogoda, trasa ---
+  net_diag: true           # diagnostyka internetu i kluczy: sonda łącza
+                           # w car_phone (trasa domyślna, DNS, HTTPS,
+                           # bez internetu co 60 s, z nim co 10 min)
+                           # i wiersz Ustawień
+                           # „Internet i usługi” z przyciskiem „Test”
+  weather: true            # OpenWeatherMap; klucz z /etc/bcm/bcm.env
+                           # (BCM_OWM_API_KEY) — bez klucza dane demo
+  weather_alerts: true     # ostrzeżenia pogodowe (oblodzenie, śnieg, ulewa,
+                           # burza, wiatr, mgła); wymaga weather; blok
+                           # weather_alerts niżej
+  route_planner: true      # plan podróży (A3); klucze z /etc/bcm/bcm.env:
+                           # BCM_ORS_API_KEY (bez niego trasa w linii
+                           # prostej), BCM_TOMTOM_API_KEY (utrudnienia)
+  traffic_alerts: true     # utrudnienia TomTom w trakcie jazdy; wymaga
+                           # location i klucza BCM_TOMTOM_API_KEY; blok
+                           # traffic_alerts niżej
+  voice_announce: true     # komunikaty głosowe (Piper / espeak-ng), muzyka
+                           # ściszana na czas komunikatu; wymaga audio;
+                           # instalacja: apply-fixes.sh; blok niżej
+  phone_tether: false      # internet z telefonu po Bluetooth (PAN) — tylko
+                           # ZAPASOWA droga. Decyzja 23.11: Redmi jest na
+                           # stałe w aucie i daje internet po USB
+                           # (car_phone), Bluetooth PAN z telefonu kierowcy
+                           # nie jest potrzebny. Włącz tylko, gdy Redmi
+                           # wypadnie z auta (blok network.phone_tether niżej)
+
+  # --- GPS, trasy, tankowania ---
+  location: true           # GPS z telefonu: Redmi przez adb forward (TCP),
+                           # zapasowo UDP — blok hardware.gps niżej
+  tracking: true           # zapis tras do SQLite + lista tras i GPX na
+                           # stronie /trips. Z telefonu kierowcy pewnie
+                           # tylko po PAN (phone_tether, tu wyłączony):
+                           # http://<IP bnep0>:5002/trips; 10.0.0.1 (Wi-Fi
+                           # AA) zwykle nie działa dla przeglądarki (GPS niżej)
+  trip_gps: true           # komputer podróży z GPS na A3 (dystans, czas,
+                           # średnia); wymaga location
+  fuel_log: true           # dziennik tankowań: „Zatankowano” na A3,
+                           # spalanie od pełna do pełna, koszt, zasięg;
+                           # wymaga tracking; blok fuel_log niżej
+  last_park: true          # ostatni postój z GPS BCM (data/last_park.json):
+                           # wiersz w Ustawieniach i link na /trips; działa
+                           # bez internetu i bez Traccara; wymaga location
+
+  # --- telefon w aucie (Redmi na USB) ---
+  car_phone: true          # Redmi przez adb: tethering USB (internet), GPS
+                           # (adb forward), bateria i temperatura, czas
+                           # z telefonu; blok network.car_phone niżej.
+                           # autoapp BEZ USB: sudo BCM_AA_USB=0 bash
+                           # config/scripts/install-openauto.sh --force
+  car_phone_hotspot: true  # stan hotspotu Wi-Fi Redmi w Ustawieniach (tylko
+                           # odczyt); wymaga car_phone
+  phone_sensors: true      # czujniki Redmi (akcelerometr, światło) z aplikacji
+                           # SensorServer przez adb forward; wymaga car_phone;
+                           # blok sensors.phone niżej
+  car_phone_agent: true    # agent Termux w Redmi (tools/car_phone/termux/
+                           # bcm_agent.py); wymaga car_phone i sekretu
+                           # BCM_CAR_PHONE_AGENT_SECRET w /etc/bcm/bcm.env.
+                           # Parowanie: Ustawienia → „Agent w telefonie”
+  traccar: true            # pozycja auta na Twoim serwerze Traccar — wysyła
+                           # TELEFON (agent ≥ 1.6.0), także na postoju;
+                           # wymaga car_phone_agent. Włączony, ale NIC NIE
+                           # ROBI, dopóki nie ma OBU: traccar.url w
+                           # config/local.yaml i BCM_TRACCAR_DEVICE_ID
+                           # w /etc/bcm/bcm.env (docs/TRACCAR_SERWER.md §8);
+                           # do tego czasu nie wysyła też nic do agenta
+                           # (starszy agent < 1.6.0 dalej przyjmuje config)
+  auto_brightness: true    # jasność ekranu z czujnika światła telefonu
+                           # (phone_sensors) albo LDR Arduino (input);
+                           # blok display.auto_brightness niżej
+
+  # --- bezpieczeństwo (wymagają sprawdzeń na stole — docs) ---
+  crash_detect: false      # wykrywanie stłuczki (blok crash_detection niżej);
+                           # wyłączone przez właściciela (local.yaml) —
+                           # bez niego crash_sms i call112 też nie ruszą
+  crash_sms: false         # SMS po stłuczce; wymaga crash_detect,
+                           # phone_sensors i car_phone_agent
+  call112: false           # „Zadzwoń 112” w oknie wypadku (ręcznie,
+                           # przytrzymanie 2 s); wymaga crash_detect
+  parking_guard: false     # alarm na postoju w TELEFONIE (agent ≥ 1.2.0,
+                           # sekret TOTP: bcm_agent.py --park-setup);
+                           # wymaga car_phone_agent; blok parking_guard niżej
+  cabin_watch: false       # czuwanie kabiny kamerą Redmi; wymaga
+                           # car_phone_agent i parking_guard
+
+  # --- auto (sygnały z instalacji) ---
+  blinker_monitor: true    # monitor kierunkowskazów (GPIO) — było true
+                           # w local.yaml auta
+  performance: true        # stoper 0–100 km/h z prędkości GPS (doładowanie
+                           # tylko z OBD) — było true w local.yaml auta
+  obd: false               # brak CP2102 + L9637D
+  parking: false           # brak HC-SR04
+  environment: false       # brak DS18B20
+  camera: false            # brak grabera i kamer
+  power: false             # PowerManager na x86 reaguje tylko na zdarzenia
+                           # sim.* — zapłon obsługuje bcm-ignition-watcher
   rain_sensor: false
-  central_lock: false
-  esp32_display: false
+  central_lock: false      # brak Nano #1 i modułu przekaźników
+  esp32_display: false     # brak płytki ESP32-S3 z panelem 1,8"
   lighting: false
-  performance: false
   alarm: false
-  crash_detect: false
-  battery: false
-  phonebook: false
-  fuel_sender: false
-  wifi_hotspot: false
-  small_display: false
+  battery: false           # monitor banku 12 V — wymaga sensor huba
+                           # z FEATURE_BATT_*; docs/ZASILANIE_BUFOROWANE.md § 13.4
+  fuel_sender: false       # brak ADC z Arduino (fuel_sender.enabled niżej też)
+  remote_session: false    # sesja po zdalnym wybudzeniu — TYLKO wersja
+                           # z buforem (Nano #2 z FEATURE_WAKE_*)
+dashboard:
+  # Kto z SIECI może korzystać z dashboardu na porcie 5002 (kiosk na tym
+  # komputerze — 127.0.0.1 — ma zawsze pełny dostęp):
+  #   full     — wszystko, z każdego adresu (stare zachowanie, domyślne w kodzie)
+  #   readonly — tylko podgląd (GET i strumień /ws), bez sterowania i haseł
+  #   tracking — z sieci TYLKO lista tras i pliki GPX (/trips, /api/tracking/*)
+  #   none     — z sieci nic
+  # Tutaj tracking: telefon po PAN (phone_tether; przez Wi-Fi AA zwykle nie
+  # dochodzi — komentarz przy hardware.gps) pobierze GPX, ale nie
+  # zrestartuje komputera ani nie odczyta haseł Wi-Fi. Do debugowania
+  # z laptopa wpisz `dashboard: {remote_access: full}` w config/local.yaml.
+  remote_access: tracking
+  # Spoza tych sieci (gdy tryb nie jest full) każda prośba dostaje 403.
+  allowed_networks: ['10.0.0.0/8', '172.16.0.0/12', '192.168.0.0/16']
+  # Z sieci (gdy tryb nie jest full) dashboard otwiera się tylko po adresie IP
+  # (np. http://<IP bnep0>:5002/trips) — obcy serwis nie podstawi wtedy swojej nazwy
+  # pod adres BCM (DNS rebinding) i nie wyczyta tras z przeglądarki telefonu.
+  # Nazwy, które mają działać mimo to, wpisz tutaj, np. ['bcm.local'].
+  allowed_hosts: []
 display:
+  # Ekran w aucie DZIŚ: panel 7" 1024x600. Po wymianie na 10,1" 1280x800
+  # zmień CZTERY wartości niżej (dashboard i multimedia) na te z komentarzy
+  # „10,1"” — najlepiej w config/local.yaml, np.
+  #   display: {dashboard: {width: 1280, height: 800},
+  #             multimedia: {width: 1280, height: 800}}
+  # — i zrestartuj BCM (kiosk bierze rozmiar okna z xrandr sam).
   dashboard:
-    width: 1280
-    height: 800
+    width: 1024            # 10,1": 1280
+    height: 600            # 10,1": 800
     fps: 15
-    theme: heritage
-    brightness: 70
+    # Motyw i jasność przeniesione z config/local.yaml auta (23.11).
+    theme: autodelta
+    brightness: 62
   multimedia:
-    width: 1280
-    height: 800
+    # Rozdzielczość renderowania Android Auto — trzymaj równą panelowi.
+    width: 1024            # 10,1": 1280
+    height: 600            # 10,1": 800
   small:
     width: 1280
     height: 480
   appbar_px: 48
   navbar_px: 48
+  # Automatyczna jasność (modules.auto_brightness, src/power/brightness.py;
+  # bez modułu ten blok nic nie robi). Ekran w aucie jest zasilany z USB
+  # i NIE ma podpiętego sterowania jasnością, więc backend css: czarna
+  # nakładka w kiosku przyciemnia obraz (mniej oślepia w nocy, nie oszczędza
+  # prądu). Okno wypadku, rozmowa z 112 i kamera cofania są nad nakładką.
+  # „Sprzętowe (DDC/CI)” w Ustawieniach → „Jasność ekranu” zapisuje
+  # backend: ddc do config/local.yaml i najpierw sprawdza monitor
+  # (ddcutil); gdy nie odpowiada, zostaje css z powodem w wierszu.
+  auto_brightness:
+    backend: css           # css | ddc | xrandr | auto (= css)
+    mode: auto             # auto | manual (Ręczna: tylko suwak i dźwigienka)
+    # lux → % jasności, interpolacja w skali log10(1 + lux)
+    curve: [[0, 15], [10, 25], [100, 45], [1000, 70], [10000, 100]]
+    min_pct: 15            # nigdy ciemniej (także ręcznie)
+    max_pct: 100
+    smoothing_s: 3         # wygładzanie (EMA), tak samo w obie strony
+    stale_s: 10            # starszy odczyt = trzymam ostatnią jasność
+    manual_hold_min: 10    # dźwigienka / suwak wstrzymują auto na tyle minut
+    hysteresis_pct: 10     # zmiana lux potrzebna do nowego celu
+    hysteresis_pp: 5       # najmniejszy krok jasności
 units:
   speed: km/h
   temperature: C
@@ -75,6 +285,7 @@ gpio:
 vehicle:
   blinker_active_low: true
   blinker_hold_sec: 0.8
+# Płytka ESP32-S3 z panelem 1,8" (modules.esp32_display — w aucie jej nie ma).
 esp32_display:
   port: /dev/ttyACM_display
   baudrate: 115200
@@ -84,26 +295,111 @@ esp32_display:
 serial:
   kline:
     port_opi: /dev/ttyS3
-    port_x86: /dev/ttyUSB_kline
+    port_x86: /dev/ttyUSB_kline   # CP2102/VIAKEN KKL — patrz reguła udev
+                                  # w docs/KLINE_SNIFFING.md §5.4
     baudrate: 10400
     ecu_address: 1
 obd:
-  use_real_hardware: false
-  fast_init: false
+  use_real_hardware: false   # z adapterem K-Line: ustaw true, żeby czytać z
+                             # prawdziwego ECU zamiast symulatora
+  fast_init: false           # true tylko jeśli adapter/ECU wspiera fast init
 hardware:
   gps:
     enabled: true
-    port: /dev/ttyUSB0
+    # Skąd brać NMEA: auto | demo | serial | udp | tcp albo lista — wszystkie
+    # wejścia z listy działają naraz i karmią jeden parser. auto = stare
+    # zachowanie (x86 → trasa demo po Mediolanie). W aucie nie ma odbiornika
+    # GPS, więc pozycję daje telefon. W aucie: Redmi na USB (car_phone) —
+    # tcp z host: auto bierze adb forward (port 950 niżej). Bluetooth PAN
+    # (phone_tether) jest tu wyłączony, więc ścieżki po PAN niżej działają
+    # dopiero po jego włączeniu (zapas, gdy Redmi wypadnie z auta):
+    #   • udp — aplikacja GPSd Forwarder (F-Droid) w telefonie wysyła zdania
+    #     NMEA na adres bnep0 headunitu, port 10110 (UDP). Adres pokazują
+    #     Ustawienia w wierszu „Internet z telefonu” (i podpowiedź w wierszu
+    #     „GPS”); w telefonie lokalizacja „zawsze” i bez optymalizacji baterii;
+    #   • tcp — odporne na zmianę adresu: aplikacja „serwer NMEA TCP”
+    #     w telefonie na porcie 50000; BCM sam łączy się z telefonem jako
+    #     pan-gateway (brama interfejsu bnep*).
+    # NIEZALECANE: GPSd Forwarder na 10.0.0.1 (Wi-Fi Android Auto). Wireless
+    # AA podnosi to Wi-Fi jako sieć tylko dla aplikacji AA (bez internetu);
+    # pakiety innych aplikacji do 10.0.0.1 idą domyślną siecią, czyli danymi
+    # komórkowymi, i przepadają. Dlatego UDP przyjmuje też 10.0.0.0/24 tylko
+    # na wypadek telefonów, u których to akurat działa.
+    # Pozycja trafia dalej tylko przy ważnym fixie; zegara systemowego NIE
+    # ustawiamy z NMEA (UDP da się podrobić) — od tego jest bcm-timesync.
+    # Podgląd: wiersz „GPS” w Ustawieniach (źródło, stan, nadawca),
+    # sudo tcpdump -ni any udp port 10110; dane gps_* i gps_state w /api/data.
+    source: [tcp, udp]
+    # Kolejność ważności wejść (najlepsze pierwsze). Gdy pozycję dają dwa
+    # telefony naraz (telefon w aucie po USB/TCP i główny po PAN/UDP), dane
+    # z gorszego wejścia są brane dopiero wtedy, gdy każde lepsze nie ma
+    # ważnej pozycji od priority_hold_sec sekund — bez tego pozycje i
+    # prędkości przeplatałyby się. Wejście, które nigdy nie miało pozycji, nie
+    # blokuje innych, więc przy jednym działającym źródle nic się nie zmienia.
+    priority: [tcp, udp]
+    priority_hold_sec: 3
+    port: /dev/ttyUSB0       # tylko dla source: serial (też /dev/rfcomm0)
     baudrate: 9600
+    # Po tylu sekundach bez ważnej pozycji gps.fix = false.
+    stale_sec: 5
+    # Zdania bez sumy kontrolnej (*hh) są odrzucane.
+    require_checksum: true
+    udp:
+      bind: 0.0.0.0
+      port: 10110
+      # Skąd przyjmować datagramy: sieć Wi-Fi Direct AA (telefon dostaje
+      # 10.0.0.x) i „pan” = podsieć Bluetooth PAN z telefonem (interfejsy
+      # bnep*). Reszta jest ignorowana (jeden wpis w logu na minutę na
+      # nadawcę). Bez 127.0.0.0/8: prędkość z GPS decyduje o wykrywaniu
+      # stłuczki (crash_detect), a z 127.0.0.1 mógłby ją podać każdy lokalny
+      # proces, także kiosk. Do testów na stole (nc -u 127.0.0.1 10110)
+      # dopisz '127.0.0.0/8' w config/local.yaml.
+      allowed_sources: ['10.0.0.0/24', pan]
+      # Największy przyjmowany datagram (bajty). Część aplikacji wysyła całą
+      # epokę naraz — z kilkoma systemami GNSS to ponad 2 KiB zdań GSV.
+      max_datagram: 8192
+    tcp:
+      # auto = telefon w aucie przez adb forward (127.0.0.1:port), gdy moduł
+      # car_phone zgłasza działający forward GPS; w przeciwnym razie
+      # pan-gateway, czyli główny telefon po Bluetooth PAN (jak dotąd).
+      # Wybór przy każdym łączeniu, a w trakcie sesji z pan-gateway co 5 s:
+      # pojawienie się forwardu przełącza od razu. Forward przyjmuje
+      # połączenie także wtedy, gdy aplikacja NMEA w telefonie nie działa —
+      # po 3 takich pustych sesjach z rzędu BCM bierze pan-gateway, a forward
+      # próbuje ponownie co 5 min (i od razu wraca na niego, gdy zacznie
+      # dawać zdania).
+      host: auto
+      # Port ustawiony w aplikacji serwera NMEA w telefonie (i lokalny port
+      # forwardu adb, gdy network.car_phone.gps_local_port = 0; tu forward
+      # ma własny port 950, a „auto” bierze go z net.car_phone).
+      port: 50000
+      connect_timeout: 5
+      # Ponowne łączenie: 1 s, 2 s, 4 s … najwyżej co tyle sekund. Krótko,
+      # bo forward adb przyjmuje połączenie, zanim aplikacja NMEA w telefonie
+      # wstanie — pozycja ma przyjść najpóźniej ~10 s po jej starcie.
+      # Ponowienie to jedno połączenie na 127.0.0.1 albo do telefonu po PAN.
+      backoff_max_sec: 10
   lte:
     enabled: true
     device: ''
     apn: ''
 audio:
-  sink: auto
+  # Wyjście dźwięku. "auto" = wybierz wbudowane wyjście analogowe i pomiń
+  # HDMI (na M910q HDMI prawie zawsze jest podłączone i prawie nigdy nie o to
+  # chodzi). Możesz też wpisać fragment node.name z `wpctl status --name`,
+  # np. alsa_output.pci-0000_00_1f.3.analog-stereo
+  # W aucie: karta dźwiękowa USB (przeniesione z config/local.yaml, 23.11).
+  # Na stanowisku bez karty USB BCM zapisze błąd w logu i wybierze wyjście
+  # jak przy auto —
+  # albo wpisz tam `audio: {sink: auto}` w config/local.yaml.
+  sink: alsa_output.usb-
+  # Sink sprzętowy trzymamy na maksimum, a użytkownik reguluje głośność na
+  # sinku EQ. Inaczej regulacja działa na jednym, a cichy jest drugi.
   hw_volume: 100
+  # Świeży Realtek potrafi wstać z włączonym Auto-Mute i wyciszonym
+  # Headphone — wtedy nic nie zagra mimo poprawnego routingu.
   force_unmute: true
-  eq_dsp_enabled: true
+  eq_dsp_enabled: true   # prawdziwy EQ przez PipeWire filter-chain
   eq_preset: jazz
   master_volume: 70
   bass: 0
@@ -117,10 +413,33 @@ audio:
   spectrum_db_ceiling: 0.0
   spectrum_tilt_db_per_oct: 0.0   # łagodne pochylenie wokół 1 kHz; 0 = płasko
   dac: ES9038Q2M
+  # Opisowe, nieczytane przez kod. Wzmacniacz to gotowy moduł samochodowy
+  # na osobnej gałęzi 12 V — patrz docs/ZASILANIE_BUFOROWANE.md § 2.
   amp_main: car-amp-4ch
   amp_sub: none
+  # Mikrofon (src/audio/mic_router.py). Router ustawia domyślne źródło
+  # PipeWire, zanim wystartuje sesja AA (autoapp wybiera mikrofon raz na
+  # sesję) — z niego korzysta asystent AA i rozmowa przez HFP.
+  mic_router: true
+  # Fragment node.name mikrofonu z `wpctl status --name`, np.
+  # alsa_input.usb-C-Media_Electronics (im dokładniej, tym lepiej — samo
+  # "alsa_input.usb-" pasuje też do wejścia karty USB). '' = brak mikrofonu:
+  # domyślnym źródłem jest cisza (bcm_null_mic), a nie monitor wyjścia
+  # (asystent słyszałby muzykę z auta) ani pływające wejście (szum).
   mic_phone: ''
+  # Redukcja echa (webrtc w osobnym procesie, jak EQ): false | auto | true.
+  # auto = tylko gdy jest libspa-aec-webrtc.so. Każdy błąd => surowy mikrofon.
+  mic_echo_cancel: false
+  # Mikrofon na innej karcie niż wyjście => karta wyjściowa dostaje profil
+  # tylko-wyjście (jej nieużywane wejście daje szum i obciąża tanią kartę).
+  mic_disable_unused_inputs: true
+  # Bez mikrofonu przycisk głosu nie uruchamia asystenta (zawieszał się),
+  # tylko pokazuje powiadomienie "Brak mikrofonu – sterowanie głosowe wyłączone".
+  voice_require_mic: true
+  # Nieużywane od etapu 2a (wyciszanie przy asystencie ściszałoby też jego głos).
   voice_duck_pct: 40
+  # Okno nasłuchu dla aa_voice_method: tap (drugie naciśnięcie w oknie
+  # stuka ponownie i kończy okno).
   voice_listen_sec: 8
 camera:
   segment_minutes: 5
@@ -146,8 +465,12 @@ swc:
     prev_track:
     - SWC_PREV
     - SWC2_PREV
+    # Wyciszenie jak w config/local.yaml auta (23.11). SWC_VOICE jest też
+    # niżej w voice_aa_trigger — przy dwóch akcjach dla jednego przycisku
+    # wygrywa późniejsza (voice_aa_trigger), więc wycisza tylko SWC2_MUTE.
+    # Zmiana: Ustawienia → przyciski kierownicy (zapis do local.yaml).
     mute:
-    - SWC_MUTE
+    - SWC_VOICE
     - SWC2_MUTE
     phone_pickup:
     - SWC_PICKUP
@@ -170,6 +493,8 @@ swc:
     menu_down:
     - SWC_DOWN
     - SWC2_DOWN
+  # Czytane tylko przez stary ekran ustawień Pygame (src/dashboard/
+  # settings_screen.py); frontend HTML5 i przyciski używają swc.mapping.
   buttons:
     SWC_VOLUP: volume_up
     SWC_VOLDN: volume_down
@@ -183,6 +508,9 @@ swc:
     SWC_HANGUP: phone_hangup
     SWC_VOICE: voice_aa_trigger
     SWC_SRC: navigate_aa
+# Nieużywane przez kod (zostaje dla zgodności): jasność ustawia
+# display.auto_brightness (modules.auto_brightness), a stopnie dźwigienki
+# są stałe w src/power/brightness.py (BRIGHTNESS_STEPS).
 brightness:
   mode: auto
   steps:
@@ -195,7 +523,9 @@ brightness:
 music_panel:
   enabled: true
 fuel_sender:
-  enabled: true
+  # Brak ADC z Arduino w aucie (było false w config/local.yaml). Pojemność
+  # baku niżej czyta też dziennik tankowań (zasięg).
+  enabled: false
   calibration:
   - - 20
     - 100
@@ -211,6 +541,8 @@ fuel_sender:
     - 0
   tank_capacity_litres: 58
 wifi:
+  # WiFi wyłącznie do Android Auto wireless (Wi-Fi Direct / P2P-GO na
+  # karcie wewnętrznej). Sterowane przełącznikiem modules.wifi_ap.
   enabled: true
   ssid: ALFA
   password: 87654321
@@ -225,6 +557,10 @@ wifi:
   netmask: 255.255.255.0
   dhcp_start: 10.0.0.10
   dhcp_end: 10.0.0.50
+  # Dodatkowy Access Point ALFA-NET (współdzielenie internetu). Wymaga
+  # OSOBNEGO interfejsu WiFi (dongla USB) — karta wewnętrzna nie robi
+  # P2P-GO i AP naraz. Włącza się przełącznikiem modules.wifi_hotspot;
+  # ten klucz jest jego odpowiednikiem (utrzymywany w synchronizacji).
   alfa_net:
     enabled: false
     ssid: ALFA-NET
@@ -236,6 +572,17 @@ wifi:
     dhcp_start: 10.0.1.10
     dhcp_end: 10.0.1.50
     share_internet: true
+    # Czy pasażerowie w ALFA-NET mogą korzystać z internetu z telefonu
+    # kierowcy (Bluetooth PAN, bnep*) — to jego pakiet danych. Sieć AA (P2P-GO)
+    # nigdy nie wychodzi przez bnep* (ruch telefonu wracałby do telefonu).
+    share_phone_internet: true
+  # ssid_runtime / password_runtime / bssid_runtime są USTAWIANE W LOCIE przez
+  # wifi_ap.py po utworzeniu grupy P2P-GO i trzymane tylko w pamięci (klucze
+  # *_runtime nigdy nie są zapisywane — ani tu, ani w local.yaml). Nie wpisuj ich
+  # ręcznie: Wi-Fi Direct generuje nowe SSID i hasło przy każdej grupie, a
+  # nieaktualna para trafia do openauto.ini i telefon dostaje namiary na sieć,
+  # która już nie istnieje. Puste = użyj ssid/password powyżej do czasu, aż AP
+  # zgłosi prawdziwe wartości.
   ssid_runtime: ''
   password_runtime: ''
   bssid_runtime: ''
@@ -244,11 +591,205 @@ weather:
   # jako BCM_OWM_API_KEY (patrz config/bcm.env.example).
   api_key: ''
   poll_interval_min: 15
+  # Bez GPS pogoda jest dla tego miejsca. Pierwszy fix GPS po takim
+  # pobraniu wymusza od razu nowe (nie czeka do kolejnego odpytania).
   default_lat: 50.06
   default_lon: 19.94
+  # Po przejechaniu tylu km od miejsca ostatniego pobrania z GPS pogoda
+  # pobiera się ponownie, bez czekania na poll_interval_min (0 = wyłączone).
+  refetch_distance_km: 15
+weather_alerts:
+  # Ostrzeżenia z danych OpenWeatherMap (src/weather/alerts.py): pogoda teraz,
+  # prognoza 3-godzinna w miejscu auta (GPS) na lookahead_h godzin naprzód
+  # i — gdy jest cel podróży — punkty trasy. Popup oblodzenia w kiosku
+  # zostaje wyłączony: tylko powiadomienie i komunikat głosowy.
+  categories:              # false = tej kategorii nie ostrzegaj
+    icing: true            # oblodzenie / gołoledź / zimna nawierzchnia
+    snow: true
+    rain: true             # ulewa
+    storm: true            # burza
+    wind: true             # silny wiatr i porywy
+    fog: true              # gęsta mgła
+  lookahead_h: 6           # ile godzin prognozy brać pod uwagę (1–24)
+  cooldown_min: 60         # to samo ostrzeżenie powtórzone najwcześniej po
+                           # tylu minutach (wcześniej tylko, gdy się nasili)
+  quiet_hours: ''          # np. '22:00-06:00' — wtedy bez głosu (poza
+                           # „niebezpiecznymi”); powiadomienie na ekranie zostaje
+  voice: true              # prośba o komunikat głosowy (mówi go moduł głosowy)
+  voice_min_severity: warning   # info | warning | danger
+  route: true              # sprawdzaj też pogodę na zaplanowanej trasie
+  # Progi (domyślne w kodzie takie same):
+  icing_temp_c: 2          # oblodzenie: T ≤ tyle °C + opad/mgła/wilgotność
+  icing_humidity_pct: 90   # … albo wilgotność ≥ tyle %
+  icing_dew_spread_c: 1    # … albo T − punkt rosy ≤ tyle °C
+  cold_surface_max_c: 3    # „zimna nawierzchnia”: bezchmurna noc, 0…tyle °C
+  heavy_rain_mm_3h: 10     # ulewa: ≥ tyle mm na 3 h (2× tyle = niebezpieczne)
+  snow_heavy_mm_3h: 3      # intensywny śnieg: ≥ tyle mm na 3 h
+  gust_ms: 15              # porywy ≥ tyle m/s (54 km/h) = ostrzeżenie
+  gust_danger_ms: 25       # porywy ≥ tyle m/s (90 km/h) = niebezpieczne
+  wind_ms: 14              # wiatr średni ≥ tyle m/s (≈ 50 km/h) = ostrzeżenie
+  fog_visibility_m: 200    # mgła: widoczność < tyle m (< 1/4 = niebezpieczne)
 travel:
+  # Klucze z /etc/bcm/bcm.env: BCM_ORS_API_KEY, BCM_TOMTOM_API_KEY.
   openrouteservice_key: ''
   tomtom_key: ''
+traffic_alerts:
+  # Utrudnienia z TomTom (incidentDetails) w trakcie jazdy — src/trip/traffic.py.
+  # Odpytuje tylko w jeździe (GPS > 15 km/h przez 30 s): z celem na ekranie
+  # trasy — korytarz wzdłuż następnych lookahead_km trasy, bez celu — pole
+  # lookahead_km przed autem, 3 km szerokości. Powiadamia tylko o nowych
+  # utrudnieniach przed autem (i gdy się nasilą), najwyżej raz na 2 minuty.
+  poll_min: 5              # co ile minut pytać TomTom w jeździe (2–60)
+  daily_budget: 300        # twardy limit zapytań na dobę (UTC); darmowy klucz
+                           # ma ok. 2500/dobę, dzielone z planerem tras
+  lookahead_km: 10         # jak daleko naprzód patrzeć (2–50 km)
+  min_delay_s: 180         # korek / roboty: powiadom od takiego opóźnienia
+                           # (wypadek i zamknięta droga — zawsze)
+  voice: true              # prośba o komunikat głosowy (mówi go moduł głosowy)
+  state_path: data/traffic_budget.json   # licznik zapytań (przetrwa restart)
+voice_announce:
+  # Komunikaty głosowe — src/audio/voice_announce.py (moduł włącza
+  # modules.voice_announce). Czyta prośby voice.announce (ostrzeżenia
+  # pogodowe, utrudnienia TomTom), mówi je Piperem (głos pl_PL-gosia-medium,
+  # instaluje config/scripts/install-piper.sh z apply-fixes.sh), a bez niego
+  # espeak-ng. Głos idzie na wyjście sprzętowe z pominięciem EQ, muzyka jest
+  # na ten czas ściszana o 12 dB (strumień wyjściowy EQ — głośność
+  # kierowcy się nie zmienia). Nigdy w trakcie rozmowy telefonicznej.
+  enabled: true            # Wł./Wył. z Ustawień → „Komunikaty głosowe”
+                           # (zapisywane w local.yaml; moduł zostaje
+                           # uruchomiony, tylko milczy)
+  volume: 80               # głośność głosu w % (10–100), suwak w Ustawieniach
+  categories:              # o czym mówić (przełączniki w Ustawieniach)
+    weather: true          # ostrzeżenia pogodowe (oblodzenie, śnieg, burza…)
+    traffic: true          # utrudnienia TomTom przed autem
+    system: true           # komunikaty systemowe
+  chime: true              # krótki dźwięk przed komunikatem
+  quiet_when_parking: true # milczy, gdy działają czujniki parkowania (cofanie)
+  max_age_s: 60            # starszych komunikatów już nie mówi (10–300 s)
+  dedupe_s: 300            # ten sam komunikat najwyżej raz na tyle sekund
+                           # (eskalacja — inny tekst / wyższy priorytet — od razu)
+  call_defer_s: 45         # w trakcie rozmowy czeka najwyżej tyle, potem
+                           # odpuszcza (≤ max_age_s)
+  max_per_min: 4           # najwyżej tyle na minutę (ostrzeżenia o
+                           # niebezpieczeństwie poza limitem)
+  min_gap_s: 3             # przerwa między dwoma komunikatami
+  piper_bin: /opt/bcm/piper/piper/piper
+  model: /opt/bcm/piper/voices/pl_PL-gosia-medium.onnx
+  cache_dir: data/voice_cache   # gotowe nagrania fraz (katalog 0700; zawsze
+                                # osobny podkatalog voice_cache)
+  cache_max_mb: 20         # limit miejsca na nagrania (najstarsze znikają)
+network:
+  # Internet z telefonu po Bluetooth (PAN) — src/network/phone_tether.py,
+  # włączany przełącznikiem modules.phone_tether. BCM zakłada w NetworkManagerze
+  # profil `con_name` (typ panu) dla telefonu i podnosi go, gdy telefon jest
+  # połączony po BT. Telefon musi mieć włączony „Tethering przez Bluetooth”
+  # (Android potrafi go wyłączyć po restarcie telefonu) — bez tego stan
+  # w Ustawieniach to „błąd” z podpowiedzią „sprawdź Tethering przez Bluetooth”
+  # (albo „włącz tethering…”, gdy NM w ogóle nie widzi usługi NAP telefonu).
+  # Zachowanie z wyłączonym tetheringiem NIE jest jeszcze sprawdzone w aucie:
+  # nmcli -t -f DEVICE,TYPE,STATE device; nmcli connection up id bcm-phone-pan
+  # Podgląd: nmcli connection show --active (szukaj bcm-phone-pan).
+  phone_tether:
+    # '' = telefon z bt.connected, a gdy tam brak adresu — ostatni używany
+    # (multimedia.last_bt_device). Wpisz AA:BB:CC:DD:EE:FF, żeby przypiąć
+    # jeden telefon (np. telefon pasażera nie dostanie wtedy profilu).
+    mac: ''
+    # Nazwa profilu w NetworkManagerze (litery, cyfry, _ . -).
+    con_name: bcm-phone-pan
+    # Metryka trasy domyślnej: 750 = domyślna NM dla Bluetooth; przyszły modem
+    # LTE (NM: 700) wygra sam, telefon zostanie zapasem.
+    route_metric: 750
+    # Po nieudanej próbie: pierwsza ponowna po retry_sec, potem 2x dłużej.
+    # Limit max_retry_sec dotyczy braku NetworkManagera / błędu profilu;
+    # nieudane `connection up` (najczęściej tethering wyłączony w telefonie —
+    # Android odrzuca wtedy połączenie BNEP) ponawiamy najwyżej co
+    # max_retry_connected_sec, żeby po włączeniu tetheringu nie czekać 10 min.
+    # Nowe połączenie BT i przycisk „Ponów” w Ustawieniach zerują licznik.
+    retry_sec: 60
+    max_retry_sec: 600
+    max_retry_connected_sec: 120
+    # Co ile sekund sprawdzać stan (pyta tylko NetworkManagera, nie radio BT).
+    check_sec: 30
+    # Ile sekund po połączeniu telefonu NIE ruszać BlueZ — w tym czasie
+    # Android Auto wymienia po RFCOMM dane Wi-Fi Direct.
+    settle_sec: 15
+    # Po zestawieniu łącza uruchom raz bcm-timesync.service (zegar po odcięciu
+    # prądu bywa przesunięty o godziny).
+    trigger_timesync: true
+    # Autoconnect profilu w NetworkManagerze. false = łącze podnosi tylko BCM
+    # (po połączeniu telefonu, z settle_sec i backoffem); przy true NM sam
+    # wołałby telefon, także gdy go nie ma w aucie, i w trakcie startu AA.
+    autoconnect: false
+  # Telefon w aucie (Redmi na USB, src/network/car_phone.py) — działa tylko
+  # z modules.car_phone: true. Internet przez tethering USB (metryka 650:
+  # wygrywa z Bluetooth PAN 750, a gdy kabel albo tethering padnie, kernel
+  # sam wraca na PAN), GPS z aplikacji serwera NMEA w telefonie przez
+  # adb forward (hardware.gps.tcp.host: auto), bateria i temperatura
+  # telefonu (powiadomienie przy przegrzaniu), zegar z telefonu, gdy
+  # bcm-timesync nie zadziałał w ostatnim okresie timera.
+  # Serwer adb BCM słucha na gnieździe /run/bcm-adb/adb.sock (katalog tylko
+  # dla roota), nie na 127.0.0.1:5037 — ręcznie zawsze przez nie:
+  #   sudo env ADB_SERVER_SOCKET=localfilesystem:/run/bcm-adb/adb.sock adb …
+  # (zwykłe `sudo adb …` uruchamia drugi serwer, który walczy o telefon).
+  # Przygotowanie Redmi: debugowanie USB, „Always allow” przy pierwszym
+  # `adb devices -l` (jak wyżej) na tym komputerze, aplikacja serwera NMEA
+  # TCP na porcie gps_remote_port. adb tylko po kablu USB, nigdy `adb tcpip`.
+  # Podgląd: adb devices -l (jak wyżej); nmcli connection show --active
+  # (szukaj bcm-car-phone); wiersz „Telefon w aucie” w Ustawieniach.
+  # Wyłączenie modułu NIE usuwa profilu bcm-car-phone (NM dalej łączy się
+  # z każdym telefonem z tetheringiem USB): sudo nmcli connection delete
+  # bcm-car-phone. Szczegóły: docs/WDROZENIE_TESTOWE.md §5.7.
+  car_phone:
+    # '' = jedyny telefon na USB w stanie „device”. Przy dwóch urządzeniach
+    # wpisz serial z `adb devices -l` (najlepiej w config/local.yaml).
+    serial: ''
+    con_name: bcm-car-phone
+    route_metric: 650
+    # svc_usb = BCM włącza tethering USB przez adb (svc usb setFunctions);
+    # none = tethering włącza sam telefon („Default USB configuration”).
+    tether_method: svc_usb
+    usb_function: rndis      # rndis albo ncm
+    check_sec: 30
+    retry_sec: 15
+    max_retry_sec: 300
+    # Po włączeniu tetheringu USB telefon łączy się ponownie — tyle sekund
+    # czekamy, zanim sprawdzimy wynik.
+    settle_sec: 10
+    gps_forward: true
+    gps_remote_port: 50000   # port serwera NMEA TCP w telefonie
+    # Lokalny port forwardu GPS (0 = hardware.gps.tcp.port). Celowo < 1024,
+    # jak czujniki i agent niżej: prędkość z GPS decyduje o wykrywaniu
+    # stłuczki, więc kiosk nie może zająć tego portu przed adb i podawać
+    # fałszywej prędkości.
+    gps_local_port: 950
+    # Forward czujników (SensorServer) — tylko z modules.phone_sensors —
+    # i agenta Termux — tylko z modules.car_phone_agent. Porty lokalne
+    # celowo < 1024: nasłuch na nich może założyć tylko root (serwer adb),
+    # więc użytkownik kiosku nie podstawi fałszywego akcelerometru ani
+    # agenta. Każdy lokalny proces może się jednak z nimi POŁĄCZYĆ (SensorServer
+    # nie ma uwierzytelniania; agent musi mieć HMAC). Porty muszą się różnić
+    # od siebie, od portu GPS i od 5002/5003.
+    sensors_remote_port: 8080  # port SensorServer w telefonie
+    sensors_local_port: 951
+    agent_remote_port: 8765    # port agenta Termux w telefonie (plan F)
+    agent_local_port: 952
+    # Sekret HMAC agenta (network.car_phone.agent.secret) TYLKO w
+    # /etc/bcm/bcm.env jako BCM_CAR_PHONE_AGENT_SECRET — nigdy tutaj ani
+    # w local.yaml.
+    battery_sec: 60
+    # Ostrzeżenie / alarm przy temperaturze baterii (°C); alarm gaśnie
+    # dopiero poniżej warn_temp_c − 3.
+    warn_temp_c: 45
+    critical_temp_c: 50
+    trigger_timesync: true
+    # Czas z telefonu (kabel jest zaufany, w przeciwieństwie do NMEA po UDP):
+    # tylko gdy bcm-timesync nie zadziałał w ostatnim okresie timera
+    # (1 h + 15 min) i dryf zegara przekracza time_sync_drift_s sekund.
+    # Nigdy z zegara bliższego niż 48 h dacie zbudowania ROM-u (tak startuje
+    # telefon, który stracił czas), a cofnięcie o ponad 1 h dopiero, gdy
+    # drugi odczyt 10 min później pokaże ten sam dryf.
+    time_sync: true
+    time_sync_drift_s: 30
 power:
   shutdown_delay_seconds: 30
   backlight_fade_ms: 1000
@@ -263,6 +804,53 @@ power:
     autostart: true
     suspend_on_stop: true
     suspend_delay_seconds: 5
+  # Sesja po zdalnym wybudzeniu (src/power/remote_session.py, plan E) —
+  # działa tylko z modules.remote_session (wyżej false). Minuty 1..60.
+  remote_session:
+    idle_suspend_min: 10   # tyle minut bez użycia → RELEASE (uśpij); użycie =
+                           # dotyk ekranu w aucie, dotyk AA, przycisk kierownicy,
+                           # baner; rozmowa i grająca muzyka wstrzymują odliczanie
+    hold_step_min: 30      # „Nie usypiaj” = HOLD:<tyle> do Nano
+    hold_max_min: 60       # razem przedłużeń w jednej sesji
+    # Prywatny kod IR (NEC) — te same wartości co WAKE_IR_ADDRESS /
+    # WAKE_IR_COMMAND w arduino/sensor_hub/wake_logic.h; telefon w aucie
+    # dostaje je przez agenta (tylko przy włączonym module).
+    ir_address: 0x7A15
+    ir_command: 0x56
+arduino:
+  # Port sensor huba (Nano z arduino/sensor_hub: drzwi, zapłon, PWR:, BATT:).
+  # '' = brak stałej ścieżki. Docelowo /dev/ttyBCM_SENSOR z reguły
+  # config/udev/99-bcm-sensor-hub.rules (szablon — wpisz w nią ID_PATH
+  # gniazda) albo /dev/serial/by-path/…; tu bez sensor huba w aucie.
+  sensor_hub_port: ''
+  # Gdy sensor_hub_port jest pusty: true = stare zachowanie (otwiera po kolei
+  # /dev/ttyACM0..1 i /dev/ttyUSB0..2, pierwszy, który się otworzy, wygrywa).
+  # Wyłączone, bo samo otwarcie portu ustawia DTR i RESETUJE każde Nano na
+  # CH340, a sondowanie może zająć port adaptera K-Line, GPS albo zamka
+  # (porty WŁĄCZONYCH modułów są pomijane, także przy każdym ponownym
+  # otwarciu; port GPS tylko, gdy hardware.gps.source go czyta — serial albo
+  # auto poza x86; porty wyłączonych modułów — nie). Skutek:
+  # bez sensor_hub_port BCM nie czyta Arduino przez port szeregowy wcale —
+  # przyciski SWC z Pro Micro idą przez USB HID i działają dalej; nie jest
+  # czytany tylko LIGHT: z Pro Micro (dziś nic z niego nie korzysta).
+  probe_ports: false
+battery:
+  # Monitor banku buforowego 12 V AGM (src/power/battery.py), progi z
+  # docs/ZASILANIE_BUFOROWANE.md §13.4. Działa tylko z modules.battery: true
+  # i sensor hubem skompilowanym z FEATURE_BATT_ADC albo FEATURE_BATT_INA226
+  # (komunikat BATT:<mV>[,<mA>]) — w aucie bez sensor huba jest wyłączony.
+  # Stan: charging | full | ok | low | critical | unknown. BCM sam niczego
+  # nie wyłącza — od tego jest sprzętowe LVD (11,0 V).
+  full_v: 12.85              # spoczynkowe napięcie pełnego banku
+  nominal_v: 12.40           # ok. połowa pojemności (tylko punkt odniesienia)
+  low_v: 11.80               # poniżej: battery.low
+  critical_v: 11.20          # poniżej: battery.critical (nad progiem LVD)
+  hysteresis_v: 0.10         # „low” trwa, dopóki napięcie nie wróci > low_v + 0,10
+  charging_v: 13.20          # powyżej: ładowanie (żaden bank tyle nie trzyma w spoczynku)
+  charging_current_a: 0.2    # albo prąd do banku > 0,2 A (tylko z INA226)
+  current_sign: 1            # -1, gdy bocznik wpięty odwrotnie (ładowanie < 0)
+  smoothing_samples: 5       # mediana z 5 odczytów (BATT: co 2 s)
+  stale_sec: 30              # tyle bez BATT: → stan unknown
 rain_sensor:
   sensitivity: medium
 central_lock:
@@ -272,6 +860,8 @@ lighting:
   follow_me_home_seconds: 60
   greeting_blinks: 2
   leaving_home: true
+# Stary blok — nieużywany przez kod. Utrudnienia w trakcie jazdy: blok
+# traffic_alerts wyżej, klucz BCM_TOMTOM_API_KEY (travel.tomtom_key).
 traffic:
   api_key: ''
   provider: tomtom
@@ -286,10 +876,19 @@ alarm:
     motion: true
     tilt: true
     shock: true
-# Wykrywanie stłuczki — tylko z modules.crash_detect (tu wyłączone); kamery
-# nie są potrzebne. Opis progów: config/bcm_config_test.yaml i
-# src/safety/crash_detect.py. Stare klucze speed_drop_threshold,
-# g_force_threshold i post_crash_record_sec nie są już czytane.
+# Wykrywanie stłuczki (modules.crash_detect; src/safety/crash_detect.py).
+# Zdarzenie z akcelerometru telefonu (phone_sensors), gdy: najwyższa prędkość
+# z GPS w ostatnich 10 s ≥ min_speed_kmh, zmiana prędkości w poziomie
+# ≥ dv_threshold_kmh w ciągu dv_window_ms i ≥ g_h_threshold g przez ≥ 3 kolejne
+# próbki. Odrzuca dziury (przewaga pionu, tylko gdy nic nie dobiło do zakresu
+# akcelerometru), upadek telefonu (swobodny spadek ≥ 80 ms, z żyroskopem też
+# z obrotem), brak kalibracji, strumień < min_rate_hz, odrzucone ramki i dane
+# starsze niż 1 s. Bez żadnej prędkości z GPS (tunel) — zapis i ochrona
+# nagrania, ale bez prawa do SMS. Jeśli auto jedzie dalej (> min_speed_kmh
+# przez 10 s) — odwołane; prędkość ≤ confirm_stop_kmh — potwierdzone
+# zatrzymanie. Zdarzenie pokazuje też powiadomienie na ekranie. Zapis:
+# data/crash_events (50 ostatnich). Stare klucze speed_drop_threshold /
+# g_force_threshold / post_crash_record_sec nie są już czytane.
 crash_detection:
   min_speed_kmh: 25
   dv_threshold_kmh: 15
@@ -297,41 +896,216 @@ crash_detection:
   g_h_threshold: 4.0
   min_rate_hz: 80
   confirm_stop_kmh: 5
-# „Zadzwoń 112” w oknie wypadku — tylko z modules.call112 (tu wyłączone,
-# w kodzie też). Opis kluczy: config/bcm_config_test.yaml i
-# src/safety/call112.py. test_mode: true = 112 nie da się wybrać (dzwoni
-# tylko na test_number z config/local.yaml); prawdziwe 112 dopiero po
-# sprawdzeniu na stole, przez test_mode: false w local.yaml.
+  # SMS po stłuczce (modules.crash_sms, src/safety/crash_sms.py; włącznikiem
+  # jest TYLKO ten przełącznik — tu nie ma klucza „enabled”). Po uderzeniu
+  # BCM od razu uzbraja agenta w telefonie i pokazuje okno z odliczaniem
+  # (ANULUJ – nic się nie stało / Wyślij teraz); od tej chwili termin
+  # trzyma TELEFON — wyśle SMS także wtedy, gdy BCM padnie. Część ustawień
+  # BCM przy każdej zmianie wysyła do agenta (modules.car_phone_agent).
+  # Odbiorców NIE wpisuj tutaj: Ustawienia → „SMS po stłuczce” (zapis do
+  # config/local.yaml), numery E.164 (np. '+48601234567'), najwyżej 3.
+  # dry_run: true = SMS-y o wypadku i odwołujące agent tylko loguje (nic nie
+  # wysyła); wyjątek: „Wyślij testowy SMS” w Ustawieniach (prawdziwy test,
+  # po potwierdzeniu na ekranie auta). dry_run: false działa dopiero, gdy:
+  # agent jest sparowany i zdrowy, testowy SMS był potwierdzony w wysłanych
+  # w ciągu 30 dni, czujniki telefonu dają ≥ min_rate_hz i są skalibrowane —
+  # inaczej wymuszony tryb testowy z powodem w oknie i w Ustawieniach.
+  # Prawdziwe alarmy dopiero po sprawdzeniach na stole
+  # (docs/WDROZENIE_TESTOWE.md §5.9).
+  # countdown_sec: odliczanie w oknie (15–120 s). cooldown_min / max_per_day:
+  # limit BCM (telefon ma też własny: 1 na 10 min, 3 na dobę).
+  # vehicle_label: nazwa auta na początku SMS-a (A-Z a-z 0-9 spacja . -,
+  # najwyżej 20 znaków, bez polskich liter). follow_up_cancel: po „Jestem OK”
+  # jeden SMS odwołujący do tych, którzy dostali alarm (w ciągu 15 min).
+  sms:
+    # ZOSTAJE true (tryb próbny, jak w teście). Uzbrojenie: po sprawdzeniach
+    # z §5.9 wpisz w config/local.yaml
+    #   crash_detection: {sms: {dry_run: false}}
+    # i włącz modules.crash_detect oraz modules.crash_sms (dziś wyłączone).
+    dry_run: true
+    countdown_sec: 45
+    sim_slot: 0
+    vehicle_label: ALFA 156
+    cooldown_min: 10
+    max_per_day: 3
+    follow_up_cancel: true
+# „Zadzwoń 112” w oknie wypadku (modules.call112, src/safety/call112.py;
+# włącznikiem jest TYLKO ten przełącznik). Nic nie dzwoni samo: kierowca
+# przytrzymuje czerwony przycisk hold_ms (2 s); przez arm_delay_ms (0,7 s)
+# od pojawienia się przycisk nie reaguje. Numer nigdy nie przychodzi
+# z ekranu — to 112, a w trybie testowym WYŁĄCZNIE test_number.
+# paths: kolejność i dozwolone drogi — hfp (telefon główny przez Bluetooth:
+# tylko z mikrofonem, oFono, zasięgiem z phone_status i bez innej rozmowy)
+# i car_phone (Redmi na głośniku przez agenta i Magisk su). Gdy telefon
+# główny nie potwierdzi połączenia w 10 s, od razu można spróbować drogą
+# car_phone. window_min: przez tyle minut od zdarzenia okno pozwala dzwonić
+# (wraca też po restarcie BCM). Najwyżej jedno połączenie na 60 s.
+# test_mode: true (TU) = 112 NIE da się wybrać; przycisk mówi „TEST – dzwoni
+# na +48...567” i dzwoni tylko na test_number: numer E.164 (np.
+# '+48601234567') WYŁĄCZNIE w config/local.yaml — nigdy w repo. NIGDY nie
+# testuj prawdziwym 112. Prawdziwe 112 dopiero po sprawdzeniu na stole
+# (docs/WDROZENIE_TESTOWE.md §5.11): test_mode: false w local.yaml.
+# Opis auta dla dyspozytora (panel w oknie) — też tylko w local.yaml:
+#   safety:
+#     vehicle: {label: Alfa Romeo 156, colour: czerwona, plate: WX 12345}
 safety:
   call112:
     paths: [hfp, car_phone]
     hold_ms: 2000
     arm_delay_ms: 700
     window_min: 30
+    # ZOSTAJE true (tryb testowy). Uzbrojenie: po sprawdzeniu z §5.11
+    #   safety: {call112: {test_mode: false}}
+    # w config/local.yaml oraz modules.crash_detect i modules.call112.
     test_mode: true
+    test_number: ''
+# Alarm na postoju (modules.parking_guard, src/safety/parking_guard.py; włącznikiem
+# jest TYLKO ten przełącznik). Działa w TELEFONIE (agent Termux, plan D4), bo
+# BCM na postoju jest wyłączony; BCM przy każdej zmianie wysyła mu te
+# ustawienia (modules.car_phone_agent). Telefon sam się uzbraja: brak
+# zasilania USB i brak kontaktu z BCM przez arm_after_min, potem jeszcze
+# arm_delay_min na wyjście z auta. Rozbraja TYLKO dowód właściciela: telefon
+# właściciela połączony z BCM (Bluetooth/HFP/AA), SMS „PARK OFF <kod TOTP>”
+# z numeru z listy albo kod TOTP wpisany w Ustawieniach → „Postój”. Prąd,
+# który wróci bez tego, daje grace_min minut, potem alarm.
+# entry_s = okno wejścia (sekundy, 0–300; 0 = alarm od razu): przechył albo
+# wstrząs przy uzbrojonym czeka tyle na dowód właściciela, bo właściciel,
+# który otwiera drzwi i siada, wygląda dla czujnika jak złodziej, a jego
+# telefon łączy się z BCM dopiero po zapłonie. Zapłon w tym czasie przesuwa
+# termin do końca grace_min; podnośnik i holowanie prądu nie przywracają.
+# log_only: true (TU) = pierwszy tydzień: zdarzenia tylko w logu telefonu
+# (~/.config/bcm_agent/agent.log, „PARK (log only…”), żadnych
+# automatycznych SMS-ów — do strojenia progów tilt_deg (przechył w stopniach)
+# i shake_k (kołysanie: krotność szumu czujnika). Potem log_only: false
+# w config/local.yaml.
+# Numery (najwyżej 3, E.164, np. '+48601234567' — dostają alarm i mogą
+# wysyłać polecenia SMS), strefę „dom” (lat, lon, radius_m ≥ 50 — tam telefon
+# się sam nie uzbraja) i telefony właściciela (owner_macs, AA:BB:CC:DD:EE:FF;
+# puste = telefon połączony ostatnio przed startem BCM) wpisz TYLKO
+# w config/local.yaml — nigdy w repo:
+#   parking_guard:
+#     numbers: ['+48601234567']
+#     owner_macs: ['AA:BB:CC:DD:EE:FF']
+#     home: {lat: 52.2297, lon: 21.0122, radius_m: 150}
+# Opis: docs/WDROZENIE_TESTOWE.md §5.12.
+parking_guard:
+  # ZOSTAJE true (tydzień strojenia progów). Uzbrojenie: po tygodniu
+  #   parking_guard: {log_only: false}
+  # w config/local.yaml i modules.parking_guard (dziś wyłączony).
+  log_only: true
+  arm_after_min: 3
+  arm_delay_min: 2
+  grace_min: 3
+  entry_s: 90
+  tilt_deg: 0.5
+  shake_k: 6.0
+# Czuwanie kabiny (modules.cabin_watch, src/safety/cabin_watch.py; włącznikiem
+# jest TYLKO ten przełącznik). Warstwa nad alarmem na postoju, też w TELEFONIE:
+# tylko przy uzbrojonym, czujnik światła (lampka sufitowa) + akcelerometr;
+# światło i ruch w ciągu 10 s, przechył, drzwi albo 3 słabe sygnały w 60 s
+# (w tym co najmniej 2 ruchy — same błyski światła nie wystarczą) =
+# 3 zdjęcia przednią kamerą (0/3/6 s) i SMS „RUCH W KABINIE” (sam przechył
+# albo ruch: treść alarmu na postoju) do numerów z parking_guard.numbers po
+# oknie wejścia entry_s (45–60 s; krótsze parking_guard.entry_s je skraca). Dowód
+# właściciela w tym oknie (telefon właściciela połączony z BCM, PARK OFF
+# <kod>, kod TOTP w Ustawieniach) odwołuje alarm i USUWA zdjęcia. log_only
+# z parking_guard obowiązuje też tu (zdjęcia tak, SMS nie). Zdjęcia zostają
+# w telefonie (~/.config/bcm_agent/cabin, bez EXIF, 72 h / 200 MB) — BCM ich
+# nie dostaje, pokazuje tylko stan i zdarzenia (Ustawienia → „Czuwanie
+# kabiny”). diff_pct: ile % pikseli musi się zmienić, żeby analiza w telefonie
+# (wymaga Pillow: pkg install python-pillow) uznała „zmiana”. light_ratio
+# i light_lux: skok światła, który liczy się jak lampka sufitowa (×ratio I
+# +lux w 2 s; 2–50 i 1–1000) — do kalibracji w tygodniu log_only (telefon
+# stosuje je od razu). Maskę okien (prostokąty [x0, y0, x1, y1] w % kadru,
+# najwyżej 4) wpisz po obejrzeniu zdjęcia testowego, w config/local.yaml, np.:
+#   cabin_watch:
+#     mask: [[0, 0, 15, 100], [85, 0, 100, 100]]
+# Opis: docs/WDROZENIE_TESTOWE.md §5.13.
+cabin_watch:
+  entry_s: 60
+  diff_pct: 3.0
+  light_ratio: 5.0
+  light_lux: 5.0
+# Traccar (modules.traccar; src/network/traccar.py, docs/TRACCAR_SERWER.md §8).
+# Adres serwera wpisz w config/local.yaml (https://DOMENA/traccar-gps/ —
+# tylko https, bez loginu i hasła w adresie); identyfikator urządzenia NIGDY
+# tutaj — tylko BCM_TRACCAR_DEVICE_ID w /etc/bcm/bcm.env. Pusty adres =
+# telefon nic nie wysyła.
+traccar:
+  url: ""
+  drive_interval_s: 30     # w jeździe co tyle sekund (10–600)
+  park_interval_min: 15    # na postoju co tyle minut (5–240; bateria < 20 % ×4)
+# Czujniki telefonu w aucie (modules.phone_sensors; src/sensors/phone_sensors.py).
+# Kierunek grawitacji kalibruje się sam przy pierwszych ~10 s postoju
+# (zapis: data/phone_sensors.json); przesunięcie telefonu w uchwycie o > 10°
+# na dłużej (albo o > 20° od razu) wyłącza calib_ok (wtedy brak wykrywania
+# z akcelerometru). Ponowna kalibracja po przełożeniu telefonu: usuń
+# data/phone_sensors.json i zrestartuj BCM. Progi crash_detection
+# nieosiągalne dla tego zakresu — jedno ostrzeżenie w logu przy starcie.
+sensors:
+  phone:
+    # Zakres akcelerometru telefonu w g (sprawdź: adb shell dumpsys
+    # sensorservice) — ≥ 98% zakresu oznacza nasycenie (pole sat).
+    accel_range_g: 8
 tracking:
   db_path: data/gps_tracks.db
-  interval_sec: 30
+  # Punkt trasy co 5 s (domyślnie w kodzie 30 s) — dokładniejszy ślad w GPX.
+  interval_sec: 5
   trip_start_kmh: 5
   trip_end_kmh: 2
   trip_end_idle_sec: 60
+  # Trasa zamyka się sama po tylu sekundach bez pozycji z GPS (telefon
+  # wyszedł z auta, aplikacja GPS przestała wysyłać).
+  no_fix_close_sec: 300
   lte_sync_min: 15
   geofence_lat: 0
   geofence_lon: 0
   geofence_radius_km: 0
-# Dostęp do dashboardu (port 5002) z SIECI. Bez sekcji `dashboard` obowiązuje
-# domyślne z kodu `remote_access: full`: każde urządzenie w LAN, na AP albo
-# w PAN może sterować wszystkim (wyjątek: /api/phone/dial z sieci przyjmuje
-# tylko zwykły numer — bez numerów alarmowych i kodów z * lub #, najwyżej
-# raz na 5 s). ZALECANE w aucie, w config/local.yaml:
-#   dashboard: {remote_access: tracking}
-# Wtedy z sieci tylko lista tras i GPX; kiosk na tym komputerze (127.0.0.1)
-# ma zawsze pełny dostęp. Opis trybów: config/bcm_config_test.yaml.
+fuel_log:
+  # Osobna baza (nie gps_tracks.db): skasowanie tras nie zabiera historii
+  # tankowań. Pojemność baku do zasięgu: fuel_sender.tank_capacity_litres.
+  db_path: data/fuel_log.db
+  # Przedział między tankowaniami do pełna krótszy niż tyle km nie wchodzi
+  # do średniego spalania (za mało, żeby litry z dystrybutora coś znaczyły).
+  min_interval_km: 20
 multimedia:
   # Ustawiane w locie przy połączeniu BT i zapisywane do config/local.yaml.
   last_bt_device: ''
+  # Rozdzielczość projekcji AA: 480p / 720p / 1080p (puste = automat, który
+  # dla płótna 1024x504 i tak wybiera 720p). 720p jest sprawdzone w aucie.
+  aa_resolution: 720p
+  # Wyjście audio autoapp ([Audio] OutputBackendType w openauto.ini):
+  # qt | rtaudio. RtAudio (domyślne w kodzie) przy pustym buforze gra w kółko
+  # ostatnie ~50 ms, gdy asystent zabierze fokus = "zawieszenie + brzęczenie";
+  # Qt naprawdę wstrzymuje wyjście. Powrót: rtaudio i restart AA.
+  aa_audio_backend: qt
+  # Jak przycisk głosu uruchamia asystenta AA: key = klawisz M na :99
+  # (autoapp: MICROPHONE_1, wymaga mikrofonu przy starcie AA), tap = stuknięcie
+  # w ikonę mikrofonu (stare zachowanie, fallback).
+  aa_voice_method: key
+  # [Input] openauto.ini: true = autoapp zgłasza telefonowi przyciski
+  # (play/pauza/następny, D-pad, pokrętło, wstecz/OK…; klucze *Button openDsh).
+  # BCM dziś wysyła do AA tylko M (głos), więc to przygotowanie pod SWC.
+  # Domyślnie w kodzie false (żaden przycisk).
+  aa_input_buttons: true
+  # Samoczynny restart Android Auto, gdy sesja padnie (było true
+  # w config/local.yaml auta), i limit czasu na połączenie (s).
   aa_auto_restart: true
   aa_connection_timeout: 90
 bluetooth:
   enabled: true
   preferred_adapter: ''
+  # Ile sekund po połączeniu telefonu odczekać przed pobraniem kontaktów
+  # (PBAP = sesja OBEX po RFCOMM). W tym czasie Android Auto wymienia po
+  # RFCOMM dane Wi-Fi Direct — tyle samo co network.phone_tether.settle_sec.
+  # Domyślnie w kodzie 3 s.
+  phonebook_settle_sec: 15
+  # Stan telefonu w pasku (modules.phone_status): odczyt z oFono/BlueZ co
+  # poll_sec sekund, gdy telefon jest połączony (i od razu po połączeniu).
+  # Odczyt z pamięci oFono/BlueZ (telefon sam przysyła zmiany); tylko
+  # pierwszy odczyt Handsfree po połączeniu HFP wysyła do telefonu jedno
+  # AT+CNUM.
+  # Gdy nie odpowiada ani oFono, ani BlueZ: kolejna próba po retry_sec.
+  phone_status:
+    poll_sec: 20
+    retry_sec: 120

@@ -60,6 +60,11 @@ def env():
     bus = EventBus()
     cfg = BCMConfig(platform_override="x86")
     cfg.save = lambda path=None: None
+    # These tests exercise the CODE default of the network access policy
+    # (no `dashboard` block = remote_access "full"); the car's base config
+    # (bcm_config.yaml) sets `tracking`, which test_final_config.py pins.
+    # _policy_client() sets each mode explicitly.
+    cfg._data.pop("dashboard", None)
     viewer = WebViewer(host="127.0.0.1", port=5099, event_bus=bus, config=cfg)
     runner = _Recorder()
     viewer._aa_injector = AATouchInjector(viewer._aa_canvas_size, runner=runner,
@@ -214,6 +219,8 @@ class TestInputMessages:
         assert env.injector.button_down is True
 
     def test_voice_trigger_taps_through_injector(self, env, no_web_subprocess):
+        # The car's base config uses "key"; the tap path is the fallback.
+        env.cfg.set("multimedia.aa_voice_method", "tap")
         env.bus.publish("aa.voice_trigger", True)
         env.bus.publish("aa.voice_trigger", False)   # release: no second tap
         env.injector.process_pending()
@@ -693,19 +700,22 @@ class TestConnectivityPayload:
             "gateway": "192.168.44.1", "mac": "AA:BB:CC:DD:EE:01", "error": "", "hint": "",
             "since": 1.0})
         assert env.viewer._get_dashboard_data()["phone_tether"] == {
-            "state": "connected", "ip": "192.168.44.23", "iface": "bnep0", "hint": ""}
+            "state": "connected", "ip": "192.168.44.23", "iface": "bnep0", "hint": "",
+            "internet": None, "route_iface": "", "internet_error": ""}
 
     def test_phone_tether_failed_hint_is_passed_on(self, env):
         env.bus.publish("net.phone_tether", {"state": "failed", "hint": "check_tethering",
                                              "error": "Error: <raw nmcli text>"})
         summary = env.viewer._get_dashboard_data()["phone_tether"]
-        assert summary == {"state": "failed", "ip": "", "iface": "", "hint": "check_tethering"}
+        assert summary == {"state": "failed", "ip": "", "iface": "", "hint": "check_tethering",
+                           "internet": None, "route_iface": "", "internet_error": ""}
         assert "error" not in summary          # raw error text never reaches the UI
 
     @pytest.mark.parametrize("value, expected", [
-        ({"state": "<script>"}, {"state": "unknown", "ip": "", "iface": "", "hint": ""}),
+        ({"state": "<script>"}, {"state": "unknown", "ip": "", "iface": "", "hint": "",
+                                 "internet": None, "route_iface": "", "internet_error": ""}),
         ({"state": "connected", "ip": "x" * 100, "iface": ["bnep0"], "hint": "<b>"},
-         {"state": "connected", "ip": "", "iface": "", "hint": ""}),
+         {"state": "connected", "ip": "", "iface": "", "hint": "", "internet": None, "route_iface": "", "internet_error": ""}),
         ("connected", None),
     ])
     def test_phone_tether_garbage_is_neutralised(self, env, value, expected):
@@ -811,7 +821,7 @@ class TestCarPhonePayload:
             "iface": "usb0", "gps_forward": True, "battery_pct": 78, "temp_c": 31.2,
             "charging": True, "full": False, "plugged": "usb", "health": "good",
             "overridden": False, "hotspot_active": True, "hotspot_clients": 2, "heat": None,
-            "error": ""}
+            "error": "", "forwards": {}, "internet": None, "route_iface": "", "internet_error": ""}
 
     def test_garbage_is_neutralised(self, env):
         env.bus.publish("net.car_phone", {
@@ -827,7 +837,7 @@ class TestCarPhonePayload:
             "gateway": "", "iface": "", "gps_forward": False, "battery_pct": None,
             "temp_c": None, "charging": None, "full": None, "plugged": None, "health": None,
             "overridden": False, "hotspot_active": None, "hotspot_clients": None,
-            "heat": None, "error": ""}
+            "heat": None, "error": "", "forwards": {}, "internet": None, "route_iface": "", "internet_error": ""}
 
     def test_the_full_serial_never_reaches_the_ui(self, env):
         env.bus.publish("net.car_phone", dict(CAR_PHONE_FULL, serial="1a2b3c4d"))

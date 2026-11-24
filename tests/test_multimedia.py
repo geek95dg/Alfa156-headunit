@@ -317,9 +317,9 @@ class TestAADisplay:
 
     def test_display_dimensions(self):
         disp = AADisplaySimulator(self.config, self.bus)
-        # Main display is the 10.1" 1280x800 panel (display.multimedia in config).
-        assert disp.width == 1280
-        assert disp.height == 800
+        # Main display in the car is the 7" 1024x600 panel (display.multimedia).
+        assert disp.width == 1024
+        assert disp.height == 600
 
 
 # ---------------------------------------------------------------------------
@@ -637,13 +637,12 @@ class TestOpenAutoIniAudioInput:
         assert ini["Input"]["VoiceCommandButton"] == "false"
         assert written["input_buttons"] is False
 
-    def test_test_config_enables_the_buttons(self):
+    def test_both_configs_enable_the_buttons(self):
         import yaml
         root = pathlib.Path(__file__).resolve().parent.parent
-        test_cfg = yaml.safe_load((root / "config" / "bcm_config_test.yaml").read_text())
-        prod_cfg = yaml.safe_load((root / "config" / "bcm_config.yaml").read_text())
-        assert test_cfg["multimedia"]["aa_input_buttons"] is True
-        assert "aa_input_buttons" not in (prod_cfg.get("multimedia") or {})
+        for name in ("bcm_config_test.yaml", "bcm_config.yaml"):
+            cfg = yaml.safe_load((root / "config" / name).read_text())
+            assert cfg["multimedia"]["aa_input_buttons"] is True, name
 
     @pytest.mark.parametrize("cfg, mic, expected", [
         (_Cfg(), True, "true"),

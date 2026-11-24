@@ -36,6 +36,7 @@ import threading
 import time
 from typing import Any, Optional
 
+from src.audio.ducking import DUCK_LEVELS, Priority
 from src.core.event_bus import EventBus
 from src.core.logger import get_logger
 
@@ -910,6 +911,18 @@ class PipeWireController:
     def hardware_sink(self) -> Optional[str]:
         return self._hw_sink
 
+    def voice_sink(self) -> Optional[str]:
+        """Where spoken announcements go (src/audio/voice_announce.py).
+
+        The sink the EQ chain plays INTO, never ``bcm_eq_sink`` itself:
+        ducking turns down the EQ chain's output stream, so a voice played
+        through the EQ would be ducked together with the music. While echo
+        cancellation runs (mic router) that is the canceller's reference
+        sink — it must hear the voice too, or the voice leaks into the
+        microphone — otherwise the hardware sink.
+        """
+        return self._eq_target_override or self._hw_sink
+
     def music_sink(self) -> Optional[str]:
         """The sink the music is played into — what the spectrum listens to.
 
@@ -1232,3 +1245,476 @@ class PipeWireController:
                     name = line.split("=")[-1].strip().strip('"')
                     sinks.append({"name": name})
         return sinks
+
+
+# ── Real ducking (Partia 12, src/audio/voice_announce.py) ───────────────────
+#
+# DuckingManager (src/audio/ducking.py) has always computed how far the music
+# should go down (VOICE -12 dB, PARKING -18 dB, PHONE -15 dB) and published
+# ``audio.music_gain`` — and nothing applied it. MusicDucker does, without
+# touching the driver's volume:
+#
+# * EQ chain running (the normal case): the volume of the chain's OUTPUT
+#   stream ``bcm_eq_sink_output``. It sits after the user's level (which
+#   lives on bcm_eq_sink, the default sink), so the two multiply and the
+#   volume slider never jumps. Everything that plays music — Android Auto,
+#   Bluetooth A2DP, mpv — goes through the chain, the voice does not
+#   (PipeWireController.voice_sink()), so only the music goes down.
+# * No EQ chain: every playback stream except ours (node.name / application
+#   name ``bcm_voice``), except call streams (media.role Phone /
+#   Communication) and except BCM's own internal streams (``bcm_*``: the
+#   echo canceller's playback, which carries the voice while the AEC runs,
+#   and a chain output in a restart window — ducking them would duck the
+#   voice or the music twice).
+#
+# Volumes go through ``wpctl set-volume``, whose number is on the CUBIC
+# mixer scale (the percentage pavucontrol / GNOME show), not linear
+# amplitude: linear gain g is sent as g ** (1/3) — otherwise -12 dB would
+# land at about -36 dB and the parking -18 dB at about -54 dB (silence).
+#
+# After a call the fade-back DuckingManager publishes for PHONE (it starts
+# at -15 dB) is ignored: the music was never ducked during the call, so
+# following it would make an audible dip just as the call ends.
+#
+# Never during a phone call: the HFP downlink is routed into bcm_eq_sink as
+# well, so ducking the chain would make the caller 15 dB quieter. A call
+# forces gain 1.0 (and the voice module never speaks during one anyway).
+#
+# Restoring to 1.0 is the important half: at the end of every ducking
+# episode, on stop(), and at start-up for what a crashed BCM left behind
+# (WirePlumber's restore-stream would otherwise remember a ducked volume
+# for the next session) — the names ducked are kept in a small state file.
+
+VOICE_NODE_NAME = "bcm_voice"
+EQ_OUTPUT_NODE = f"{EQ_SINK_NAME}_output"
+DUCK_STATE_PATH = "data/voice_duck_state.json"
+#: How long resolved node ids are reused within one ducking episode (the
+#: fade-back publishes 20 steps a second — not 20 pw-dumps).
+DUCK_RESOLVE_TTL_S = 2.0
+#: Below -60 dB is silence anyway; DuckingManager never goes under -18 dB.
+_DUCK_MIN_DB = -60.0
+#: A restore to 1.0 that failed (busy PipeWire, wpctl timeout) is retried
+#: after these pauses, then given up on (the state file stays for the next
+#: start-up restore) — never a stuck, quiet music path without a retry.
+DUCK_RESTORE_BACKOFF_S = (1.0, 2.0, 4.0, 8.0)
+#: DuckingManager's PHONE level — see the block above.
+_PHONE_DUCK_DB = DUCK_LEVELS[Priority.PHONE]
+_INTERNAL_NODE_PREFIX = "bcm_"
+_CALL_IDLE_STATES = ("", "idle", "ended", "disconnected", "none")
+_NO_DUCK_ROLES = ("phone", "communication")
+_NODE_NAME_RE = re.compile(r"^[A-Za-z0-9_.:@-]{1,128}$")
+_NODE_ID_RE = re.compile(r"^[0-9]{1,9}$")
+
+
+def db_to_gain(db: Any) -> float:
+    """``audio.music_gain`` (dB, ≤ 0) → linear volume 0..1; garbage → 1.0."""
+    import math
+    if isinstance(db, bool) or not isinstance(db, (int, float)):
+        return 1.0
+    db = float(db)
+    if not math.isfinite(db):
+        return 1.0
+    db = max(_DUCK_MIN_DB, min(0.0, db))
+    return 10.0 ** (db / 20.0)
+
+
+def _is_voice_node(props: dict) -> bool:
+    return any(props.get(k) == VOICE_NODE_NAME
+               for k in ("node.name", "application.name", "media.name"))
+
+
+def duck_targets(objects: list[dict], eq_running: bool) -> list[tuple[str, str]]:
+    """``[(node id, node.name)]`` that carry the music (see the block above)."""
+    out: list[tuple[str, str]] = []
+    for obj in objects:
+        if obj.get("type") != "PipeWire:Interface:Node":
+            continue
+        oid = obj.get("id")
+        if isinstance(oid, bool) or not isinstance(oid, int) or oid < 0:
+            continue
+        props = _obj_props(obj)
+        name = props.get("node.name")
+        name = name if isinstance(name, str) and _NODE_NAME_RE.match(name) else ""
+        if eq_running:
+            if name == EQ_OUTPUT_NODE:
+                out.append((str(oid), name))
+            continue
+        if props.get("media.class") != "Stream/Output/Audio" or _is_voice_node(props):
+            continue
+        if name.startswith(_INTERNAL_NODE_PREFIX):
+            continue
+        role = props.get("media.role")
+        if isinstance(role, str) and role.lower() in _NO_DUCK_ROLES:
+            continue
+        out.append((str(oid), name))
+    return out
+
+
+class MusicDucker:
+    """Applies ``audio.music_gain`` to the music path (see the block above).
+
+    The bus callbacks only record the wanted gain; one worker thread runs
+    pw-dump / wpctl and always applies the NEWEST value (a fade step that is
+    already outdated is skipped, so a slow PipeWire never builds a backlog).
+    ``runner`` is ``_run_cmd``'s signature — the seam the tests use.
+    """
+
+    def __init__(self, controller: Any, event_bus: Any, *, runner=None,
+                 state_path: Optional[str] = DUCK_STATE_PATH,
+                 clock=time.monotonic, startup_wait_s: float = 30.0):
+        self._pw = controller
+        self._bus = event_bus
+        self._run = runner or _run_cmd
+        self._state_path = state_path
+        self._clock = clock
+        self._startup_wait_s = startup_wait_s
+        self._cond = threading.Condition()
+        # apply() / restore_all() run in the worker AND in stop() (a worker
+        # stuck in a slow wpctl): one at a time.
+        self._apply_lock = threading.RLock()
+        self._target = 1.0
+        self._pending = False
+        self._call_bus = False        # audio.phone_call
+        self._call_state = False      # bt.call_state
+        self._stopping = False
+        self._thread: Optional[threading.Thread] = None
+        self._ducked: dict[str, str] = {}      # node id -> node.name
+        self._resolved_at: Optional[float] = None
+        self._applied = 1.0
+        self._restore_attempts = 0              # failed restores retried so far
+        self._phone_level = False               # audio.duck_level == PHONE level
+        self._subs = (("audio.music_gain", self._on_gain),
+                      ("audio.duck_level", self._on_duck_level),
+                      ("audio.phone_call", self._on_phone_call),
+                      ("bt.call_state", self._on_call_state))
+
+    # -- bus callbacks (publisher's thread: record and wake only) ----------
+    def _on_gain(self, topic: str, value: Any, timestamp: float) -> None:
+        with self._cond:
+            self._target = db_to_gain(value)
+            self._pending = True
+            self._cond.notify_all()
+
+    def _on_duck_level(self, topic: str, value: Any, timestamp: float) -> None:
+        # While DuckingManager's level is the PHONE one (the call itself and
+        # its fade-back afterwards) the music stays at 1.0 — see the block
+        # above. Any other level (parking still on, a voice) ends that.
+        phone = (not isinstance(value, bool) and isinstance(value, (int, float))
+                 and abs(float(value) - _PHONE_DUCK_DB) < 1e-6)
+        with self._cond:
+            self._phone_level = phone
+            self._pending = True
+            self._cond.notify_all()
+
+    def _on_phone_call(self, topic: str, value: Any, timestamp: float) -> None:
+        with self._cond:
+            self._call_bus = bool(value)
+            self._pending = True
+            self._cond.notify_all()
+
+    def _on_call_state(self, topic: str, value: Any, timestamp: float) -> None:
+        state = value.strip().lower() if isinstance(value, str) else ""
+        with self._cond:
+            self._call_state = state not in _CALL_IDLE_STATES
+            self._pending = True
+            self._cond.notify_all()
+
+    # -- lifecycle ---------------------------------------------------------
+    def start(self) -> None:
+        for topic, cb in self._subs:
+            self._bus.subscribe(topic, cb)
+        self._thread = threading.Thread(target=self._loop, name="bcm-music-ducker",
+                                        daemon=True)
+        self._thread.start()
+
+    def stop(self, timeout: float = 3.0) -> None:
+        """Unsubscribe, end the worker and put every ducked node back to 1.0."""
+        for topic, cb in self._subs:
+            try:
+                self._bus.unsubscribe(topic, cb)
+            except Exception:
+                pass
+        with self._cond:
+            self._stopping = True
+            self._cond.notify_all()
+        thread = self._thread
+        if thread is not None and thread is not threading.current_thread():
+            thread.join(timeout)
+        # The worker restores on its way out; this covers a worker that is
+        # stuck in a slow wpctl (restore twice is harmless: 1.0 is 1.0).
+        self.restore_all()
+
+    @property
+    def applied_gain(self) -> float:
+        return self._applied
+
+    @property
+    def mode(self) -> str:
+        """'eq' (chain output), 'streams' (no EQ chain) or 'off' (no PipeWire)."""
+        if not getattr(self._pw, "available", False):
+            return "off"
+        return "eq" if self._eq_running() else "streams"
+
+    # -- worker ------------------------------------------------------------
+    def _loop(self) -> None:
+        try:
+            self.restore_leftovers()
+        except Exception:
+            log.exception("Ducking: start-up restore failed")
+        while True:
+            retry = False
+            with self._cond:
+                while not self._pending and not self._stopping:
+                    pause = self._retry_pause()
+                    if pause is None:
+                        self._cond.wait()
+                    elif not self._cond.wait(pause):
+                        retry = True            # a failed restore is due again
+                        break
+                if self._stopping:
+                    break
+                if not retry:
+                    self._pending = False
+                    call = self._call_bus or self._call_state or self._phone_level
+                    gain = 1.0 if call else self._target
+            try:
+                if retry:
+                    self._retry_restore()
+                else:
+                    self.apply(gain)
+            except Exception:
+                log.exception("Ducking: applying gain failed")
+        self.restore_all()
+
+    def _retry_pause(self) -> Optional[float]:
+        """Seconds until the next retry of a failed restore, or None."""
+        if not self._ducked or self._applied < 0.999 \
+                or self._restore_attempts >= len(DUCK_RESTORE_BACKOFF_S):
+            return None
+        return DUCK_RESTORE_BACKOFF_S[self._restore_attempts]
+
+    def _eq_running(self) -> bool:
+        try:
+            return self._pw.music_sink() == EQ_SINK_NAME
+        except Exception:
+            return False
+
+    def _dump(self) -> list[dict]:
+        rc, out, _err = self._run(["pw-dump"], timeout=3.0)
+        return _pw_dump_objects(out) if rc == 0 else []
+
+    def _set(self, node_id: str, gain: float) -> bool:
+        if not _NODE_ID_RE.match(node_id):
+            return False
+        # wpctl set-volume takes the CUBIC mixer scale (wpctl switches the
+        # mixer API to it), so linear amplitude g is sent as g ** (1/3);
+        # sending g itself would duck -12 dB to about -36 dB.
+        vol = max(0.0, min(1.0, float(gain))) ** (1.0 / 3.0)
+        rc, _out, _err = self._run(["wpctl", "set-volume", node_id, f"{vol:.3f}"])
+        return rc == 0
+
+    def _nodes_named(self, names: set[str]) -> Optional[list[tuple[str, str]]]:
+        """``[(id, name)]`` of the nodes called ``names`` in a fresh pw-dump;
+        None when pw-dump itself failed (unknown is not the same as gone)."""
+        rc, out, _err = self._run(["pw-dump"], timeout=3.0)
+        if rc != 0:
+            return None
+        found: list[tuple[str, str]] = []
+        for obj in _pw_dump_objects(out):
+            if obj.get("type") != "PipeWire:Interface:Node":
+                continue
+            oid = obj.get("id")
+            if isinstance(oid, bool) or not isinstance(oid, int) or oid < 0:
+                continue
+            name = _obj_props(obj).get("node.name")
+            if isinstance(name, str) and name in names:
+                found.append((str(oid), name))
+        return found
+
+    def apply(self, gain: float) -> None:
+        """Set the music path to ``gain`` (1.0 = restore everything)."""
+        gain = max(0.0, min(1.0, float(gain)))
+        if gain >= 0.999:
+            self.restore_all()
+            return
+        if not getattr(self._pw, "available", False):
+            return
+        with self._apply_lock:
+            self._apply_locked(gain)
+
+    def _apply_locked(self, gain: float) -> None:
+        now = self._clock()
+        if self._ducked and self._resolved_at is not None \
+                and now - self._resolved_at < DUCK_RESOLVE_TTL_S:
+            targets = list(self._ducked.items())
+        else:
+            targets = duck_targets(self._dump(), self._eq_running())
+            self._resolved_at = now
+            # The mode can flip mid-episode (EQ child started or died while
+            # ducked: streams ↔ eq). Nodes ducked under the old mode are not
+            # in the new targets — put them back to 1.0 now, or they would
+            # stay turned down with nothing left that remembers them. A
+            # failed restore means the node is gone (nothing to restore).
+            new_ids = {node_id for node_id, _name in targets}
+            for node_id, name in list(self._ducked.items()):
+                if node_id not in new_ids and not self._set(node_id, 1.0):
+                    log.debug("Ducking: stale node %s (%s) already gone", node_id, name)
+        ok: dict[str, str] = {}
+        failed = False
+        for node_id, name in targets:
+            if self._set(node_id, gain):
+                ok[node_id] = name
+            else:
+                failed = True
+        # A node that failed is gone (EQ child restarted by a preset change,
+        # stream ended): resolve afresh on the next step.
+        if failed:
+            self._resolved_at = None
+        self._ducked = ok
+        self._applied = gain
+        self._restore_attempts = 0
+        self._save_state()
+
+    def restore_all(self) -> bool:
+        """Every node this ducker turned down back to 1.0; clears the state.
+
+        A node whose restore failed stays listed (and in the state file) so
+        the worker retries it (``DUCK_RESTORE_BACKOFF_S``) — False then."""
+        with self._apply_lock:
+            failed = {nid: name for nid, name in list(self._ducked.items())
+                      if not self._set(nid, 1.0)}
+            self._resolved_at = None
+            self._applied = 1.0
+            self._restore_attempts = 0
+            if failed:
+                log.warning("Ducking: restoring %d node(s) failed, will retry",
+                            len(failed))
+                self._ducked = failed
+                self._save_state()
+                with self._cond:
+                    self._cond.notify_all()     # the worker picks up the retry
+                return False
+            self._ducked = {}
+            self._clear_state()
+            return True
+
+    def _retry_restore(self) -> None:
+        """One retry of a failed restore, re-resolved by node.name (ids of a
+        restarted EQ child or a re-opened stream are new)."""
+        with self._apply_lock:
+            if not self._ducked or self._applied < 0.999:
+                return                          # a new duck took over
+            self._restore_attempts += 1
+            names = {n for n in self._ducked.values() if n}
+            if self._eq_running():
+                names.add(EQ_OUTPUT_NODE)
+            nodes = self._nodes_named(names)
+            if nodes is None:                   # pw-dump failed: still unknown
+                failed = dict(self._ducked)
+            else:
+                # A name no longer in the graph is gone, i.e. not ducked.
+                failed = {nid: name for nid, name in nodes if not self._set(nid, 1.0)}
+            if not failed:
+                self._ducked = {}
+                self._restore_attempts = 0
+                self._clear_state()
+                return
+            self._ducked = failed
+            self._save_state()
+            if self._restore_attempts >= len(DUCK_RESTORE_BACKOFF_S):
+                # Given up for this run; the state file stays, so the next
+                # start-up restore (restore_leftovers) still covers it.
+                log.warning("Ducking: restoring %d node(s) failed %d times, giving up "
+                            "until the next start", len(failed), self._restore_attempts)
+                self._ducked = {}
+                self._restore_attempts = 0
+
+    def restore_leftovers(self) -> None:
+        """After a crash: the chain output and the streams named in the state
+        file back to 1.0. Waits (bounded) for the audio output to be set up,
+        so the EQ child of THIS run exists."""
+        ev = getattr(self._pw, "output_configured", None)
+        if ev is not None and hasattr(ev, "wait"):
+            ev.wait(self._startup_wait_s)
+        names = set(self._load_state())
+        names.add(EQ_OUTPUT_NODE)
+        if getattr(self._pw, "available", False):
+            nodes = self._nodes_named(names)
+            if nodes is None:
+                return          # pw-dump failed: keep the file for the next try
+            for oid, _name in nodes:
+                self._set(oid, 1.0)
+        self._clear_state()
+
+    # -- state file (names only; ids do not survive a restart) --------------
+    def _load_state(self) -> list[str]:
+        if not self._state_path:
+            return []
+        try:
+            with open(self._state_path, encoding="utf-8") as fh:
+                data = json.load(fh)
+        except (OSError, ValueError):
+            return []
+        names = data.get("names") if isinstance(data, dict) else None
+        if not isinstance(names, list):
+            return []
+        return [n for n in names[:32] if isinstance(n, str) and _NODE_NAME_RE.match(n)]
+
+    def _save_state(self) -> None:
+        if not self._state_path:
+            return
+        import os
+        names = sorted({n for n in self._ducked.values() if n})
+        try:
+            d = os.path.dirname(self._state_path)
+            if d:
+                os.makedirs(d, exist_ok=True)
+            tmp = f"{self._state_path}.tmp"
+            fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+            with os.fdopen(fd, "w", encoding="utf-8") as fh:
+                json.dump({"names": names[:32]}, fh)
+            os.replace(tmp, self._state_path)
+        except OSError:
+            log.debug("Ducking: cannot write %s", self._state_path, exc_info=True)
+
+    def _clear_state(self) -> None:
+        if not self._state_path:
+            return
+        import os
+        try:
+            os.unlink(self._state_path)
+        except FileNotFoundError:
+            pass
+        except OSError:
+            log.debug("Ducking: cannot remove %s", self._state_path, exc_info=True)
+
+
+def restore_duck_leftovers(controller: Any, event_bus: Any, *, runner=None,
+                           state_path: Optional[str] = DUCK_STATE_PATH
+                           ) -> Optional[threading.Thread]:
+    """Crash restore of a ducked music path when no MusicDucker will run.
+
+    Called by start_audio while modules.voice_announce is OFF: a BCM that
+    died mid-duck and then had the module switched off would otherwise keep
+    the music turned down for good (nothing else touches the chain output).
+    Runs in a daemon thread (restore_leftovers waits for the output to be
+    set up); the ducker is never start()ed, so it subscribes to nothing.
+    """
+    import os
+    # No state file = nothing was ducked by an earlier run: a production
+    # start (module never on) stays exactly as before, no pw-dump / wpctl.
+    if not state_path or not os.path.exists(state_path):
+        return None
+    if not getattr(controller, "available", False):
+        return None
+    ducker = MusicDucker(controller, event_bus, runner=runner, state_path=state_path)
+
+    def _run() -> None:
+        try:
+            ducker.restore_leftovers()
+        except Exception:
+            log.warning("Ducking: start-up restore of leftovers failed", exc_info=True)
+
+    thread = threading.Thread(target=_run, name="bcm-duck-restore", daemon=True)
+    thread.start()
+    return thread

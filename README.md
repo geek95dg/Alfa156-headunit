@@ -24,17 +24,24 @@ BCM v8.5 — custom head unit for Alfa Romeo 156 1.9 JTD 8V, built on a
   krok po kroku: co się zmieniło w #126–#129, „już wdrożyłem — co teraz”
   (migracja ustawień, sekrety, `bcm-harden.sh`, `apply-fixes.sh`, autoapp),
   BIOS, główny telefon (internet i GPS), audio i mikrofon, tabela
-  przełączników modułów, lista sprawdzeń, wycofanie zmian.
+  przełączników modułów, lista sprawdzeń, wycofanie zmian, **przejście na
+  konfigurację docelową `config/bcm_config.yaml` (§13)**.
 - **[`docs/PRZYGOTOWANIE_TELEFONU.md`](docs/PRZYGOTOWANIE_TELEFONU.md)** —
   telefon w aucie (Redmi Note 8 Pro, crDroid 13): ROM, Termux, agent BCM,
   „Zadzwoń 112”, alarm na postoju, czuwanie kabiny, jasność.
-- **Gdzie są ustawienia:** baza `config/bcm_config_test.yaml` (w gicie, BCM
-  jej nie zmienia) → `config/local.yaml` (poza gitem; zmiany z ekranu, zapis
-  atomowy) → `/etc/bcm/bcm.env` (sekrety: klucze API, sekret agenta; 0600
-  root:root, wzór w `config/bcm.env.example`). Bazę wskazuje `BCM_CONFIG`
-  (domyślna w unicie, zmiana albo powrót do starego pliku jedną linią
-  w `/etc/bcm/bcm.env`); przeniesienie starych ustawień z auta:
-  `tools/migrate_local_config.py`.
+- **[`docs/TRACCAR_SERWER.md`](docs/TRACCAR_SERWER.md)** — auto na mapie:
+  własny serwer Traccar (LXC w Proxmoxie albo Docker), nginx z HTTPS
+  (pozycje przez podkatalog, panel na subdomenie), Traccar Manager.
+- **Gdzie są ustawienia:** baza `config/bcm_config.yaml` — konfiguracja
+  docelowa auta od 23.11 (w gicie, BCM jej nie zmienia) → `config/local.yaml`
+  (poza gitem; zmiany z ekranu, zapis atomowy) → `/etc/bcm/bcm.env`
+  (sekrety: klucze API, sekret agenta; 0600 root:root, wzór
+  w `config/bcm.env.example`). Bazę wskazuje `BCM_CONFIG` (domyślna
+  w unicie; powrót na konfigurację testową `config/bcm_config_test.yaml`:
+  linia w `/etc/bcm/bcm.env` + przywrócenie kopii `config/local.yaml`
+  sprzed migracji, §13.7). Przejście z konfiguracji testowej na
+  docelową (migracja `config/local.yaml` przez
+  `tools/migrate_local_config.py`): `docs/WDROZENIE_TESTOWE_TELEFON.md` §13.
 
 ## Quick start
 
@@ -62,7 +69,8 @@ pip install -r requirements.txt -r requirements-x86.txt
   `docs/ZASILANIE_BUFOROWANE.md` + `schematics/`.
 - **Test / dev build** — a rolling install with the full power chain but only
   wireless Android Auto, audio and the steering-wheel buttons switched on:
-  `docs/WDROZENIE_TESTOWE.md`, config `config/bcm_config_test.yaml`.
+  `docs/WDROZENIE_TESTOWE.md`, config `config/bcm_config_test.yaml` (since
+  23.11 the bench config; the car runs the final `config/bcm_config.yaml`).
   Everything to buy for it, in one table: `docs/LISTA_ZAKUPOWA.md`.
 - **Wyświetlacz pomocniczy 1,8" na ESP32** (ST7735 128×160, pionowo) — dwa
   ekrany: metadane muzyki z czterema kontrolkami i tempomatem oraz rzut z góry

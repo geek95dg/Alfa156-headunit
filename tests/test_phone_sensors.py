@@ -556,18 +556,16 @@ class TestLight:
         s.add(2.0)
         assert s.due(2.5) == 2.0
 
-    def test_published_only_while_streaming(self, env):
+    def test_published_without_waiting_for_the_accelerometer(self, env):
+        # Light has its own freshness (plan 12.2): a phone whose
+        # accelerometer stream fails still feeds auto_brightness.
         e = env()
         e.sensors.handle_message(light_frame(120.0, 10**9), e.clock.t)
         e.sensors.periodic(e.clock.t)
-        assert e.topic("phone.light_lux") == []                # no accelerometer yet
-        e.drive.rest(0.2)
-        e.sensors.handle_message(light_frame(120.0, None), e.clock.t)
-        e.drive.rest(0.2)
         lux = e.topic("phone.light_lux")
-        assert lux and set(lux[0]) == {"lux", "ts"} and lux[0]["lux"] == 120.0
+        assert lux and set(lux[0]) == {"lux", "ts", "frame_age_s"} and lux[0]["lux"] == 120.0
         e.drive.rest(5.0)
-        assert 2 <= len(e.topic("phone.light_lux")) <= 4       # 2 s heartbeat
+        assert 3 <= len(e.topic("phone.light_lux")) <= 4       # 2 s heartbeat
 
 
 # ── the worker: forward, connect, backoff, stale ──────────────────────────
@@ -840,8 +838,10 @@ class TestWorker:
         e = env()
         e.sensors.cycle()
         state = e.topic("phone_sensors.state")[-1]
-        assert set(state) == {"state", "rate_hz", "calib_ok", "error", "since"}
-        assert state["state"] in ps.STATES
+        assert set(state) == {"state", "rate_hz", "calib_ok", "error", "since", "mode",
+                              "types", "lux", "lux_ts", "close", "test_running"}
+        assert state["state"] in ps.STATES and state["mode"] in ps.MODES
+        assert set(state["types"]) == set(ps.TYPE_NAMES)
 
 
 # ── the WebSocket client against a real local server ──────────────────────
@@ -1018,8 +1018,9 @@ class TestRegistration:
         assert info["requires"] == ("car_phone",) and info["default"] is False
         assert not info.get("planned")
 
-    @pytest.mark.parametrize("cfg_name", ["bcm_config.yaml", "bcm_config_test.yaml"])
-    def test_off_in_both_configs_and_never_started(self, cfg_name, monkeypatch):
+    @pytest.mark.parametrize("cfg_name, on", [("bcm_config.yaml", True),
+                                              ("bcm_config_test.yaml", False)])
+    def test_started_only_where_switched_on(self, cfg_name, on, monkeypatch):
         # Every entry point is a recorder: nothing real is started.
         called = []
         registry = {name: dict(info, start=lambda _n=name, **kw: called.append(_n))
@@ -1027,13 +1028,14 @@ class TestRegistration:
         monkeypatch.setattr(main, "MODULE_REGISTRY", registry)
         cfg = BCMConfig(config_path=str(REPO / "config" / cfg_name), platform_override="x86",
                         local_path=None, env={})
-        assert modules_catalog.is_enabled(cfg, "phone_sensors") is False
+        assert modules_catalog.is_enabled(cfg, "phone_sensors") is on
         main.start_modules(main.registry_to_start(main.plan_modules(cfg)), cfg, EventBus(), None)
-        assert called and "phone_sensors" not in called
+        assert called and ("phone_sensors" in called) is on
 
     def test_needs_car_phone(self):
         cfg = BCMConfig(config_path=str(REPO / "config" / "bcm_config.yaml"),
                         platform_override="x86", local_path=None, env={})
+        cfg.set("modules.car_phone", False)
         cfg.set("modules.phone_sensors", True)
         assert main.plan_modules(cfg)["phone_sensors"].runs is False
         cfg.set("modules.car_phone", True)

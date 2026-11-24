@@ -174,7 +174,7 @@ assert.deepStrictEqual(
 assert.strictEqual(overlay().style.cssText, "", "no inline 50vh height any more");
 assert.ok(!/\b(p-3|gap-2|mb-1|py-2|text-lg|text-base)\b/.test(overlay().innerHTML + overlay().className),
           "rem-sized classes left in the keyboard markup");
-assert.strictEqual((overlay().innerHTML.match(/<button /g) || []).length, 50);
+assert.strictEqual((overlay().innerHTML.match(/<button /g) || []).length, 52);
 
 // 2. _ensureVisible (next frame): field bottom 520 → 12 px above the keys.
 flushRaf();

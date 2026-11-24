@@ -13,7 +13,7 @@
 // screen (where the keyboard will appear), taps it, and checks:
 //   * the keyboard is still open after the whole tap (the old click handler
 //     closed it again for lower-half fields and for every password field);
-//   * all 50 keys are inside the window AND are the element hit at their own
+//   * all 52 keys are inside the window AND are the element hit at their own
 //     centre, i.e. each one can actually be pressed;
 //   * the panel leaves >= 150 px above it and the field ends >= 12 px above
 //     the keys;
@@ -56,7 +56,7 @@ const CASES = [
     { w: 800, h: 480, touch: false },
     { w: 1280, h: 800, touch: false },
 ];
-const N_KEYS = 50;   // 10 + 10 + 9 + 9 + 9 + (hide, SPACE, OK)
+const N_KEYS = 52;   // 10 + 10 + 10 (a..l, ".") + 10 (ą..ż, ",") + 9 + (hide, SPACE, OK)
 // Answer of both place searches (/api/trip/search, /api/weather/search).
 const PLACES = JSON.stringify({ results: [
     { name: "Gdynia", state: "Pomorskie", country: "PL", lat: 54.52, lon: 18.53 },

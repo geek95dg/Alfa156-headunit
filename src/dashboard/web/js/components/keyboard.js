@@ -48,10 +48,12 @@ const OnScreenKeyboard = (() => {
     const ROWS = [
         ["1","2","3","4","5","6","7","8","9","0"],
         ["q","w","e","r","t","y","u","i","o","p"],
-        ["a","s","d","f","g","h","j","k","l"],
+        // "." and ",": decimal numbers (the refuel form on A3 takes
+        // "45,5" or "45.5"), host names and e-mail addresses.
+        ["a","s","d","f","g","h","j","k","l","."],
         // Polskie znaki diakrytyczne — key() już robi toUpperCase(), więc
         // shift daje wersaliki (Ą, Ć, …) bez dodatkowego kodu.
-        ["ą","ć","ę","ł","ń","ó","ś","ź","ż"],
+        ["ą","ć","ę","ł","ń","ó","ś","ź","ż",","],
         ["shift","z","x","c","v","b","n","m","backspace"],
         ["hide","preview","space","done"],
     ];

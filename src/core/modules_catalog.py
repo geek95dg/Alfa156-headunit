@@ -75,15 +75,26 @@ MODULES: dict[str, dict] = {
                     "entry": ("src.location.gps", "start_location"), "default": False},
     "tracking":    {"part": 12, "description": "GPS Route Logger (SQLite + GPX)",
                     "entry": ("src.location.tracker", "start_tracker"), "default": False},
-    "network":     {"part": 13, "description": "LTE/Cellular Connectivity",
+    # Partia 12: refuels entered on A3 ("Zatankowano") → consumption from
+    # full to full, cost, range (src/trip/fuel_log.py). Needs tracking: the
+    # GPS distance between fills when no odometer reading was entered. Off
+    # in code (default False); the car's config/bcm_config.yaml decides.
+    "fuel_log":    {"part": 12, "description": "Dziennik tankowań: spalanie od pełna do pełna, koszt, zasięg",
+                    "entry": ("src.trip.fuel_log", "start_fuel_log"), "default": False,
+                    "requires": ("tracking",),
+                    "hardware": "nic — litry (i opcjonalnie cena, licznik) wpisujesz na "
+                                "ekranie trasy (A3) po tankowaniu"},
+    "network":    {"part": 13, "description": "LTE/Cellular Connectivity",
                     "entry": ("src.network.lte", "start_network"), "default": False},
-    # Off in code (production unchanged); this toggle is its only switch.
+    # Off in code (default False; config/bcm_config.yaml decides); this
+    # toggle is its only switch.
     # Needs bluetooth: it follows bt.connected from the BluetoothManager.
     "phone_tether": {"part": 13, "description": "Internet z telefonu (Bluetooth PAN przez NetworkManager)",
                     "entry": ("src.network.phone_tether", "start_phone_tether"), "default": False,
                     "requires": ("bluetooth",),
                     "hardware": "telefon z włączonym tetheringiem Bluetooth"},
-    # Off in code (production unchanged); this toggle is its only switch.
+    # Off in code (default False; config/bcm_config.yaml decides); this
+    # toggle is its only switch.
     # Plan C + D1: the phone mounted in the car on USB (adb) — tethering,
     # GPS forward, battery/heat, clock. No dependency: it does not need
     # Bluetooth, and autoapp must be built wireless-only (BCM_AA_USB=0 in
@@ -121,6 +132,16 @@ MODULES: dict[str, dict] = {
                                 "w /etc/bcm/bcm.env"},
     "weather":     {"part": 14, "description": "Weather Data (OpenWeatherMap)",
                     "entry": ("src.weather.weather", "start_weather"), "default": False},
+    # Partia 12: warnings from the OWM data the weather module already
+    # fetches (src/weather/alerts.py rules, src/weather/weather_alerts.py
+    # runtime): icing, snow, heavy rain, storm, wind, fog — here, ahead and
+    # along the planned route. Toast + voice request (voice.announce), A4
+    # strip and top-bar icon; the kiosk icing popup stays off. Off in code.
+    "weather_alerts": {"part": 14, "description": "Ostrzeżenia pogodowe: oblodzenie, śnieg, ulewa, burza, wiatr, mgła",
+                    "entry": ("src.weather.weather_alerts", "start_weather_alerts"),
+                    "default": False, "requires": ("weather",),
+                    "hardware": "internet i klucz BCM_OWM_API_KEY (moduł weather); GPS dla "
+                                "prognozy w miejscu auta i na trasie"},
     "rain_sensor": {"part": 15, "description": "Rain Sensor + Auto Wipers",
                     "entry": ("src.vehicle.rain_sensor", "start_rain_sensor"), "default": False},
     "blinker_monitor": {"part": 15, "description": "Turn Signal GPIO Monitor",
@@ -195,6 +216,29 @@ MODULES: dict[str, dict] = {
                      "hardware": "Redmi z rootem: przednia kamera, blokada ekranu „Brak”, "
                                  "agent ≥ 1.3.0; analiza zdjęć z Pillow "
                                  "(pkg install python-pillow)"},
+    # Partia 12: the car's position on the owner's Traccar server — sent by
+    # the PHONE (bcm_agent.py TraccarReporter, agent >= 1.6.0: OsmAnd over
+    # HTTPS, offline queue), because BCM is off while parked. BCM's part
+    # (src/network/traccar.py): the settings in the agent's config push
+    # (traccar.url + BCM_TRACCAR_DEVICE_ID from bcm.env), the Settings row
+    # and "Wyślij pozycję teraz". Off in code (default False;
+    # config/bcm_config.yaml decides).
+    "traccar":      {"part": 22, "description": "Pozycja auta na Twoim serwerze Traccar (wysyła telefon w aucie)",
+                     "entry": ("src.network.traccar", "start_traccar"),
+                     "default": False, "group": "telefon_w_aucie",
+                     "requires": ("car_phone_agent",),
+                     "hardware": "własny serwer Traccar (docs/TRACCAR_SERWER.md), "
+                                 "traccar.url w local.yaml, BCM_TRACCAR_DEVICE_ID w "
+                                 "/etc/bcm/bcm.env, agent ≥ 1.6.0"},
+    # Partia 12: where the car last stood (src/location/last_park.py) — from
+    # BCM's own GPS, saved atomically under data/ (the test car's power is
+    # simply cut, so also after a minute standing still), shown in Settings
+    # and on /trips. Needs only GPS; works without the phone agent. Off in
+    # code (default False); the car's config/bcm_config.yaml decides.
+    "last_park":    {"part": 12, "description": "Ostatni postój: gdzie auto ostatnio stało (link do mapy)",
+                     "entry": ("src.location.last_park", "start_last_park"),
+                     "default": False, "requires": ("location",),
+                     "hardware": "GPS (moduł location)"},
     # Plan D3 "Światło (lux)": the old BrightnessController (src/power/
     # brightness.py), finally started — light from the car phone
     # (phone.light_lux) OR the Arduino LDR (LIGHT: lines, read by
@@ -218,7 +262,8 @@ MODULES: dict[str, dict] = {
                      "legacy_key": "bluetooth.enabled", "default": True},
     "phonebook":    {"part": 11, "description": "PBAP phonebook + call history sync (A8 phone screen)",
                      "default": True, "requires": ("bluetooth",)},
-    # Off in code (production unchanged); started only with Bluetooth on.
+    # Off in code (default False; config/bcm_config.yaml decides); started
+    # only with Bluetooth on.
     "phone_status": {"part": 11, "description": "Stan telefonu w pasku górnym (bateria, zasięg, operator — oFono/BlueZ)",
                      "default": False, "requires": ("bluetooth",)},
     "fuel_sender":  {"part": 21, "description": "Fuel tank sender calibration (Arduino ADC → %)",
@@ -229,6 +274,34 @@ MODULES: dict[str, dict] = {
                      "legacy_key": "wifi.alfa_net.enabled", "default": False},
     "route_planner": {"part": 12, "description": "Travel plan (OpenRouteService/TomTom routing)",
                      "default": True},
+    # Partia 12: trip.* on A3 (distance, time, average speed) from GPS in
+    # --frontend mode, plus consumption/range from fuel_log when it runs.
+    # Started with the dashboard (no entry of its own). Off in code: it
+    # changes what production A3 shows.
+    "trip_gps":     {"part": 12, "description": "Komputer podróży z GPS (dystans, czas, średnia na ekranie trasy)",
+                     "default": False, "requires": ("location",),
+                     "hardware": "GPS (telefon albo odbiornik) — bez fixu pola pokazują „—”"},
+    # Partia 12: TomTom incidents while driving (src/trip/traffic.py pure
+    # part, src/trip/traffic_alerts.py runtime): polls incidentDetails every
+    # poll_min minutes when moving — a corridor along the planned route
+    # (route_planner, optional) or a box ahead of the car — with a daily
+    # request budget; toast + voice request for new incidents ahead,
+    # traffic.alert for the route screen and small_viewer. Off in code.
+    "traffic_alerts": {"part": 12, "description": "Utrudnienia TomTom w trakcie jazdy: korki, wypadki, zamknięcia przed autem",
+                     "entry": ("src.trip.traffic_alerts", "start_traffic_alerts"),
+                     "default": False, "requires": ("location",),
+                     "hardware": "internet i klucz BCM_TOMTOM_API_KEY; GPS z kursem; cel na "
+                                 "ekranie trasy (planer tras) dla korytarza wzdłuż trasy"},
+    # Partia 12: spoken warnings (src/audio/voice_announce.py): consumes the
+    # voice.announce requests of weather_alerts / traffic_alerts — queue with
+    # priorities, dedupe and a rate limit, never during a call; Piper (Polish
+    # voice) or espeak-ng; played past the EQ on the hardware sink while the
+    # music is really ducked (pipewire_ctrl.MusicDucker). Off in code.
+    "voice_announce": {"part": 12, "description": "Komunikaty głosowe (Piper / espeak-ng) ze ściszaniem muzyki",
+                     "entry": ("src.audio.voice_announce", "start_voice_announce"),
+                     "default": False, "requires": ("audio",),
+                     "hardware": "Piper z polskim głosem albo espeak-ng (apply-fixes.sh), "
+                                 "pw-play (PipeWire) w sesji użytkownika"},
     "small_display": {"part": 2,  "description": "4.3\" stats display server (port 5003)",
                      "default": True},
 
@@ -243,6 +316,16 @@ MODULES: dict[str, dict] = {
                      "default": False, "group": "telefon_w_aucie",
                      "requires": ("car_phone",),
                      "hardware": "Redmi: hotspot skonfigurowany w telefonie"},
+    # Partia 12: "connected" from car_phone / phone_tether only meant the
+    # link to the phone was up. This switches on the internet probe in both
+    # (src/network/net_probe.py: default route, DNS, HTTPS — at most every
+    # 60 s), the Settings row "Internet i usługi" and its "Test" button
+    # (POST /api/net/test: key presence + one request per service). Needs
+    # neither module: without them the row still shows the keys and tests.
+    "net_diag":     {"part": 13, "description": "Diagnostyka internetu i kluczy API (sonda łącza, test OWM/ORS/TomTom)",
+                     "default": False,
+                     "hardware": "klucze w /etc/bcm/bcm.env (BCM_OWM_API_KEY, BCM_ORS_API_KEY, "
+                                 "BCM_TOMTOM_API_KEY)"},
     # Plan E (the buffered build only): the session after Nano #2 woke the
     # computer (driver's door, IR from the car phone, EXT pulse) —
     # src/power/remote_session.py. WAKE:/LEASE: lines come through

@@ -15,6 +15,12 @@
  * textContent (App calls update() right after every render and every
  * second). Inline styles only: Tailwind is precompiled, new classes would
  * not exist.
+ *
+ * Weather warning icon (right block, before the temperature): shown while
+ * data.weather_alerts (modules.weather_alerts, sanitised in web_viewer) holds
+ * an alert — the glyph of the most severe one's kind, coloured by severity;
+ * a tap opens A4, where the text is. Only fixed glyph names and colours from
+ * the maps below reach the markup, never the alert text.
  */
 
 const AppBar = (() => {
@@ -61,7 +67,9 @@ const AppBar = (() => {
         // Both side blocks widen together while the phone cluster shows, so
         // the logo stays centred (inline width beats the w-[220px] class).
         const pv = phoneView(data);
-        const sideStyle = pv.visible ? ` style="width:${PHONE_WIDE_PX}px"` : "";
+        const av = alertView(data);
+        const side = _sideWidth(pv, av);
+        const sideStyle = side ? ` style="width:${side}"` : "";
 
         return `<header class="w-full h-14 ${bgColor} border-b flex items-center px-4 shrink-0 z-50">
             <div class="flex items-center gap-2 w-[220px]" data-bind="bar_left"${sideStyle}>
@@ -73,6 +81,7 @@ const AppBar = (() => {
                 ${_logoImg(theme)}
             </div>
             <div class="flex items-center gap-4 w-[220px] justify-end" data-bind="bar_right"${sideStyle}>
+                ${_alertIcon(av)}
                 <span class="${tempColor} text-base font-bold" data-bind="ext_temp">${temp}</span>
                 ${btIcon}
                 <span class="material-symbols-outlined text-zinc-600 cursor-pointer hover:text-zinc-400 p-1" style="font-size:28px;" onclick="App.navigateTo('audio')">equalizer</span>
@@ -191,14 +200,62 @@ const AppBar = (() => {
             + `</span>`;
     }
 
+    // --- Weather warning icon ---------------------------------------------
+    // Glyphs checked against the bundled font (tests/test_frontend_gestures.py).
+    const ALERT_WIDE_PX = 260;          // side blocks while only the icon shows
+    const ALERT_GLYPHS = Object.freeze({ icing: "ac_unit", snow: "weather_snowy", rain: "rainy",
+                                         storm: "thunderstorm", wind: "air", fog: "foggy" });
+    const ALERT_COLORS = Object.freeze({ info: "#38bdf8", warning: "#f59e0b", danger: "#dc2626" });
+    const ALERT_HIDDEN = Object.freeze({ visible: false, glyph: "", severity: "", count: 0 });
+
+    /** Pure: what the icon shows for this payload. Never throws. The list
+     *  comes most severe first; anything not a known kind/severity is skipped. */
+    function alertView(data) {
+        const list = data && data.weather_alerts;
+        if (!Array.isArray(list)) return ALERT_HIDDEN;
+        const ok = list.filter((a) => a && typeof a === "object"
+            && Object.prototype.hasOwnProperty.call(ALERT_GLYPHS, a.kind)
+            && Object.prototype.hasOwnProperty.call(ALERT_COLORS, a.severity));
+        if (!ok.length) return ALERT_HIDDEN;
+        const rank = { info: 0, warning: 1, danger: 2 };
+        const top = ok.reduce((b, a) => (rank[a.severity] > rank[b.severity] ? a : b), ok[0]);
+        return { visible: true, glyph: ALERT_GLYPHS[top.kind], severity: top.severity, count: ok.length };
+    }
+
+    function _sideWidth(pv, av) {
+        if (pv.visible) return PHONE_WIDE_PX + "px";
+        return av.visible ? ALERT_WIDE_PX + "px" : "";
+    }
+
+    function _alertIcon(av) {
+        const title = (App && App.t) ? App.t("weather_alert_icon", "Ostrzeżenie pogodowe") : "";
+        const color = av.visible ? ALERT_COLORS[av.severity] : "";
+        return `<span class="material-symbols-outlined cursor-pointer" data-bind="weather_alert" data-sev="${av.severity}" title="${String(title).replace(/[&<>"']/g, "")}" onclick="App.navigateTo('a4')" style="font-size:22px;font-variation-settings:'FILL' 1;display:${av.visible ? "inline-block" : "none"};${color ? "color:" + color + ";" : ""}">${av.glyph}</span>`;
+    }
+
+    function _updateAlert(container, av) {
+        const el = container.querySelector('[data-bind="weather_alert"]');
+        if (!el) return;
+        _setStyle(el, "display", av.visible ? "inline-block" : "none");
+        if (!av.visible) return;
+        _setText(el, av.glyph);
+        // Colour change-only through data-sev (see _setLow for why).
+        if (typeof el.getAttribute === "function" && el.getAttribute("data-sev") !== av.severity) {
+            el.setAttribute("data-sev", av.severity);
+            el.style.color = ALERT_COLORS[av.severity];
+        }
+    }
+
     /** Bring an existing cluster in line with `data` — writes only what changed. */
     function _updatePhone(container, data) {
-        const cluster = container.querySelector('[data-bind="phone"]');
-        if (!cluster) return;
         const pv = phoneView(data);
-        const wide = pv.visible ? PHONE_WIDE_PX + "px" : "";
+        const av = alertView(data);
+        const wide = _sideWidth(pv, av);
         _setStyle(container.querySelector('[data-bind="bar_left"]'), "width", wide);
         _setStyle(container.querySelector('[data-bind="bar_right"]'), "width", wide);
+        _updateAlert(container, av);
+        const cluster = container.querySelector('[data-bind="phone"]');
+        if (!cluster) return;
         _setStyle(cluster, "display", pv.visible ? "inline-flex" : "none");
         if (!pv.visible || typeof cluster.querySelector !== "function") return;
         const part = (name) => cluster.querySelector('[data-bind="' + name + '"]');
@@ -231,7 +288,7 @@ const AppBar = (() => {
         _updatePhone(container, data || {});
     }
 
-    return { render, update, phoneView, signalIcon, batteryIcon };
+    return { render, update, phoneView, signalIcon, batteryIcon, alertView, ALERT_GLYPHS };
 })();
 
 if (typeof module !== "undefined" && module.exports) module.exports = AppBar;

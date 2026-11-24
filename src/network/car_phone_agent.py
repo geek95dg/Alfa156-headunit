@@ -142,6 +142,17 @@ differs from the desired configuration:
   ``agent_outdated``. The IR code is whole numbers only (address 0..65535,
   command 0..255) — the phone builds the ``termux-infrared-transmit`` pattern
   from nothing else.
+* ``toggles.traccar`` and ``traccar_*`` ← ``modules.traccar``,
+  ``traccar.{url, drive_interval_s, park_interval_min}`` and the device id
+  from ``/etc/bcm/bcm.env`` (``BCM_TRACCAR_DEVICE_ID``;
+  :func:`src.network.traccar.traccar_settings`): the phone reports the
+  car's position to the owner's Traccar server (OsmAnd over HTTPS). The
+  same rule as ``remote_session``: the toggle AND the keys are sent only
+  while on and while both the URL and the id are valid (an unconfigured
+  Traccar does not change the agent contract); then an agent older than
+  :data:`MIN_AGENT_VERSION_TRACCAR` is ``agent_outdated``. The device id is
+  a secret: it goes only into the signed PUT (the agent stores it 0600),
+  never into a log line here.
 
 A config the agent refused (400 ``bad_config``, or a hash that does not
 match after a 200) is not re-sent until it changes (reason
@@ -193,7 +204,9 @@ button in the crash window — the loopback-only route),
 :meth:`~CarPhoneAgent.cabin_status` (plan I, src/safety/cabin_watch.py —
 the cabin watch's state and events, never a photo) and
 :meth:`~CarPhoneAgent.park_event` (a door signal for the cabin watch —
-the target variant with the door wake-up of plan E; nothing sends it yet).
+the target variant with the door wake-up of plan E; nothing sends it yet)
+and :meth:`~CarPhoneAgent.traccar_send` ("Wyślij pozycję teraz",
+src/network/traccar.py).
 Without I/O
 (any thread): :attr:`~CarPhoneAgent.state` (the published payload),
 :meth:`~CarPhoneAgent.health_facts` (what the last signed health answer
@@ -223,6 +236,7 @@ from src.core import modules_catalog
 from src.core.fsutil import atomic_write_json
 from src.core.logger import get_logger
 from src.network._proc import _cfg_get, clean_error
+from src.network import traccar as _traccar
 from src.power import remote_session as _remote_session
 
 log = get_logger("network.car_phone_agent")
@@ -246,6 +260,8 @@ MIN_AGENT_VERSION_PARK = (1, 2, 0)
 MIN_AGENT_VERSION_CABIN = (1, 3, 0)
 #: The same for the IR wake (plan E, ``toggles.remote_session``, ``wake_*``).
 MIN_AGENT_VERSION_WAKE = (1, 4, 0)
+#: The same for Traccar (``toggles.traccar``, ``traccar_*``, ``/v1/traccar/send``).
+MIN_AGENT_VERSION_TRACCAR = (1, 6, 0)
 SECRET_PATH = "network.car_phone.agent.secret"
 SECRET_ENV = "BCM_CAR_PHONE_AGENT_SECRET"
 STATE_FILE = "data/car_phone_agent.json"
@@ -275,7 +291,7 @@ LAST_OK_REPUBLISH_S = 60.0
 AGENT_TOGGLES = ("crash_sms", "parking_guard", "cabin_watch", "call112")
 #: Toggles sent ONLY while on (an older agent does not know them — see the
 #: module docstring, ``toggles.remote_session``).
-AGENT_TOGGLES_WHEN_ON = ("remote_session",)
+AGENT_TOGGLES_WHEN_ON = ("remote_session", "traccar")
 DEFAULT_LABEL = "ALFA 156"
 MAX_RECIPIENTS = 3
 COUNTDOWN_MIN_S = 15
@@ -627,6 +643,18 @@ def desired_config(config: Any, warn: Optional[Callable[[str, str], None]] = Non
         address, command = _remote_session.ir_settings(config, warn)
         out["wake_ir_address"] = address
         out["wake_ir_command"] = command
+    if toggles.get("traccar"):
+        # ... and for Traccar (agent >= 1.6.0), toggle included — but only
+        # once BOTH the URL and the device id are valid. WHY: the toggle is
+        # on in the car's base config before the owner sets them up; sending
+        # it anyway would mark the WHOLE push (crash SMS, parking guard,
+        # cabin) agent_outdated on a pre-1.6.0 agent for a feature that does
+        # nothing yet. BCM's own Traccar row says "not configured".
+        settings = _traccar.traccar_settings(config, warn)
+        if settings["traccar_url"] and settings["traccar_device_id"]:
+            out.update(settings)
+        else:
+            toggles.pop("traccar", None)
     return out
 
 
@@ -643,7 +671,7 @@ def parse_version(value: Any) -> Optional[tuple[int, int, int]]:
 _EMPTY_FACTS: dict[str, Any] = {"last_verified_test_ts": None, "last_test": None,
                                 "dry_run": None, "recipients_n": None, "active_event": None,
                                 "config_hash": None, "call112_capable": None,
-                                "call112_mode": None, "call_state": None}
+                                "call112_mode": None, "call_state": None, "traccar": None}
 _HASH_RE = re.compile(r"^[0-9a-f]{16}$")
 #: States of the agent's last test SMS (``last_test.state``).
 TEST_STATES = ("pending", "sent", "partial", "failed")
@@ -682,6 +710,8 @@ def parse_health_facts(obj: Any) -> dict[str, Any]:
     out["call112_mode"] = mode if mode in CALL112_MODES else None
     cs = obj.get("call_state")
     out["call_state"] = cs if cs in (0, 1, 2) and not isinstance(cs, bool) else None
+    # Traccar (agent >= 1.6.0): checked field by field, no URL, no device id.
+    out["traccar"] = _traccar.parse_agent_view(obj.get("traccar"))
     return out
 
 
@@ -1513,7 +1543,7 @@ class CarPhoneAgent:
             if reason == "agent_outdated":
                 log.warning("Car phone agent: the agent on the phone (%s) is older than this "
                             "BCM and cannot hold the 112 / parking guard / cabin watch / "
-                            "wake settings — copy the new tools/car_phone/termux/bcm_agent.py "
+                            "wake / Traccar settings — copy the new tools/car_phone/termux/bcm_agent.py "
                             "to ~/bcm_agent/ and restart it (docs §5.9, "
                             "PRZYGOTOWANIE_TELEFONU §9.5)",
                             self._info.get("version") or "?")
@@ -1550,6 +1580,8 @@ class CarPhoneAgent:
             return "agent_outdated"
         if toggles.get("remote_session") and (version is None
                                               or version < MIN_AGENT_VERSION_WAKE):
+            return "agent_outdated"
+        if toggles.get("traccar") and (version is None or version < MIN_AGENT_VERSION_TRACCAR):
             return "agent_outdated"
         return "config_refused"
 
@@ -1741,6 +1773,23 @@ class CarPhoneAgent:
         if kind not in CABIN_EXT_SIGNALS:
             return _result(False, error="bad_request", detail="kind: door")
         return self._call("POST", "/v1/park/event", {"kind": kind})
+
+    def traccar_send(self, fix: Optional[dict] = None) -> dict:
+        """``POST /v1/traccar/send`` — "Wyślij pozycję teraz" (agent >=
+        1.6.0): ``fix`` = BCM's own ``{lat, lon, speed_kmh?, heading?}``
+        (src/network/traccar.py builds and checks it) or None (the phone
+        measures itself). 202 = queued on the phone."""
+        body: dict[str, Any] = {}
+        if fix:
+            lat, lon = _num(fix.get("lat"), -90, 90), _num(fix.get("lon"), -180, 180)
+            if lat is None or lon is None:
+                return _result(False, error="bad_request", detail="lat/lon")
+            body = {"lat": lat, "lon": lon}
+            for key, hi in (("speed_kmh", 400), ("heading", 360)):
+                v = _num(fix.get(key), 0, hi)
+                if v is not None:
+                    body[key] = v
+        return self._call("POST", "/v1/traccar/send", body)
 
     def pair(self, code: str, confirm: bool = False) -> dict:
         """``POST /v1/pair {secret}`` signed with the one-time ``code``; the

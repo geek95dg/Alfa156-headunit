@@ -389,6 +389,29 @@ const BT_ON = [
     assert.ok(slot.innerHTML.includes('data-module-row="bluetooth"'), "load redraws the card");
     assert.strictEqual(revealed.length, 0, "a plain load scrolls nothing");
     assert.strictEqual(navigations, 0);
+    assert.strictEqual(S.migration, null, "no config_migration = no banner");
+    assert.ok(!slot.innerHTML.includes("data-config-migration"));
+
+    // GET: local.yaml written for the old base (bcm_config_test.yaml →
+    // bcm_config.yaml) — banner with the exact command, every string escaped.
+    reply = () => ({ ok: true, status: 200, body: { modules: BT_ON, restart_required: false,
+        config_migration: { recorded: "bcm_config_test.yaml", base: "bcm_config.yaml",
+            command: "cd /opt/bcm && sudo .venv/bin/python tools/migrate_local_config.py "
+                + "--source config/local.yaml --base config/bcm_config.yaml<img src=x>" } } });
+    await Settings.modulesLoad(true);
+    assert.ok(S.migration && S.migration.base === "bcm_config.yaml");
+    const banner = slot.innerHTML;
+    assert.ok(banner.includes("data-config-migration"), banner);
+    assert.ok(banner.includes("Zmiany nie są zapisywane"), banner);
+    assert.ok(banner.includes("local.yaml jest zapisany dla bcm_config_test.yaml, a BCM działa z bcm_config.yaml"), banner);
+    assert.ok(banner.includes("--source config/local.yaml --base config/bcm_config.yaml&lt;img src=x&gt;"), banner);
+    assert.ok(!banner.includes("<img"), "server strings are escaped");
+    assert.ok(banner.includes("--write"), "the next step is named");
+    // A malformed value draws nothing (no half-banner).
+    reply = () => ({ ok: true, status: 200, body: { modules: BT_ON, config_migration: { command: 5 } } });
+    await Settings.modulesLoad(true);
+    assert.strictEqual(S.migration, null);
+    assert.ok(!slot.innerHTML.includes("data-config-migration"));
 
     // ── the whole screen shows the card ─────────────────────────────────
     assert.ok(screen && typeof screen.render === "function");

@@ -15,6 +15,7 @@ import time
 import threading
 
 from src.core.logger import get_logger
+from src.core.notifications import clean_text
 
 log = get_logger("small_display")
 
@@ -117,16 +118,30 @@ class SmallDisplayServer:
                                   "severity": "warning", "duration": 8000})
 
         # Weather/traffic alerts from event bus
+        # weather.alert is a list of alerts (src/weather/weather_alerts.py,
+        # most severe first) — show the first one's title, never the repr.
         weather_alert = v("weather.alert")
-        if weather_alert:
+        # Expired entries are skipped (the module may have stopped): the
+        # same validation as the big dashboard's payload.
+        from src.dashboard.web_viewer import _weather_alerts_summary
+        valid = _weather_alerts_summary(weather_alert) or []
+        first = valid[0] if valid else None
+        if first:
+            sev = first.get("severity")
+            text = f"{first.get('title', '')} — {first.get('where', '')}"
             notifications.append({"type": "weather", "icon": "thunderstorm",
-                                  "text": str(weather_alert),
-                                  "severity": "info", "duration": 10000})
-        traffic_alert = v("traffic.alert")
-        if traffic_alert:
+                                  "text": clean_text(text, 80),
+                                  "severity": sev if sev in ("info", "warning", "danger")
+                                  else "info", "duration": 10000})
+        # traffic.alert is a list (src/trip/traffic_alerts.py, nearest
+        # first) — show the nearest one, validated like the big dashboard.
+        from src.dashboard.web_viewer import _traffic_alerts_summary
+        traffic = _traffic_alerts_summary(v("traffic.alert"), v("traffic.status")) or {}
+        nearest = (traffic.get("items") or [None])[0]
+        if nearest:
             notifications.append({"type": "traffic", "icon": "traffic",
-                                  "text": str(traffic_alert),
-                                  "severity": "info", "duration": 8000})
+                                  "text": clean_text(f"{nearest['title']} — {nearest['text']}", 80),
+                                  "severity": "warning", "duration": 8000})
 
         # Camera trigger logic — priority: reverse > left blinker > right blinker.
         # `camera.active_feed` is authoritative when CameraController is running;

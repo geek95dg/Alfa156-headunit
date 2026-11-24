@@ -32,6 +32,18 @@
   last event with reasons / photos / analysis / outcome, hints, escaping,
   inline styles, read-only — no buttons) and its update() slot; the park
   row's "ruch w kabinie" event;
+* settings_traccar_smoke.js: screens/settings.js — the "Traccar" row (states,
+  queue, error classes, hints, the command outcome, escaping, one delegated
+  listener, "Wyślij pozycję teraz" = one POST with {}) and "Ostatni postój"
+  (time, coordinates, the map URL as text — no navigation away from the
+  kiosk) with their update() slots;
+* settings_voice_smoke.js: screens/settings.js — the "Komunikaty głosowe"
+  row (whitelisted clicks, slider bounds, the fixed-phrase test button);
+* settings_voice_browser_smoke.js: the same row in headless Chromium at
+  1024x600 (fits, "Powiedz test" tappable). Skipped without playwright;
+* settings_traccar_browser_smoke.js: the "Traccar" and "Ostatni postój"
+  rows in headless Chromium at 1024x600 (fit, the send button tappable).
+  Skipped without playwright;
 * settings_brightness_smoke.js: screens/settings.js — the "Jasność ekranu"
   row (data.auto_brightness: status per mode with the current lux, Auto /
   Ręczna, the slider, "Programowe / Sprzętowe (DDC/CI)" with the probe's
@@ -90,6 +102,17 @@
   rules, one POST with an empty body, the call view, "Rozłącz" held 1 s,
   "Odbierz", the dispatcher panel >= 48 px that fits, test-mode label, no
   button without the module or off the kiosk. Skipped without playwright;
+* settings_phone_sensors_smoke.js: Settings "Czujniki telefonu" (Hz per
+  sensor, lux and its age, forward hints, test verdicts, "Test" button).
+* settings_phone_sensors_browser_smoke.js: the same row on the real
+  dashboard in headless Chromium at 1024x600 with its longest payload and
+  a steady-light verdict: fits the width, "Test" on screen and tappable.
+  Skipped without playwright;
+* settings_net_diag_smoke.js: Settings "Internet i usługi" (uplink, internet
+  probe, key presence and last result per service, "Test" with its answers),
+  "połączono, bez internetu" on the phone rows, the trip plan error banner
+  and approximate-route hint, the weather "dane przykładowe" line instead of
+  Milan;
 * weather_escape_smoke.js: screens/weather.js — geocoder place names and
   the weather city / condition never become markup, results are picked via
   data-weather-idx + one delegated listener, and only valid coordinates reach
@@ -102,6 +125,31 @@
   1024x600 in all three themes (pixels: baseline at silence, bars with
   music), without roundRect, and a throwing screen update() that must not
   keep the reverse-camera view from opening. Skipped without playwright.
+* trip_fuel_smoke.js: the A3 refuel panel (data.fuel_log) in all three
+  themes — real values, "—" instead of 0 without a source, no made-up chart,
+  module off / read-only states, escaping;
+* trip_fuel_browser_smoke.js: the "Zatankowano" form in headless Chromium at
+  1024x600 — fields above the on-screen keyboard, "," key, "Do pełna"
+  default, odometer confirmation, POST body. Skipped without playwright.
+* weather_alerts_smoke.js: A4 forecast rows from data.weather_forecast in
+  all three themes (no values made up from the current temperature), the
+  warning strip (escaped, most severe first, updated in place) and the
+  top-bar warning icon; the kiosk icing popup stays disabled;
+* weather_alerts_browser_smoke.js: the same at 1024x600 in headless
+  Chromium — strip inside the map, icon clear of logo and temperature, tap
+  opens A4. Skipped without playwright.
+* trip_traffic_browser_smoke.js: the live TomTom list on the A3 travel
+  plan overlay (data.traffic_alerts) at 1024x600 in all three themes —
+  hidden with the module off, escaped network text, refreshed in place
+  (overlay not rebuilt), status lines. Skipped without playwright.
+* a1_gauges_smoke.js: the A1 side bars in screens/main.js (fuel left,
+  engine temperature right) — grey "brak danych" without a source (never the
+  old 50 % default), fuel / coolant colour zones, "szac." for the refuel-log
+  estimate, "demo" for simulated data, the 40–130 °C scale, live refresh;
+* a1_gauges_browser_smoke.js: the same bars at 1024x600 in headless
+  Chromium in all three themes — on screen beside the media card without
+  covering it, no horizontal scroll, fill in proportion. Skipped without
+  playwright.
 """
 
 import json
@@ -357,6 +405,74 @@ def test_hold_js_has_no_dom_at_load_and_blocks_the_long_press_menu():
 
 
 @pytest.mark.timeout(200)
+def test_refuel_form_in_chromium():
+    """A3 "Zatankowano" form at 1024x600 in headless Chromium, every theme,
+    mouse and touch: touch-sized fields lifted above the on-screen keyboard,
+    "45,5" typed on it, "Do pełna" on by default, the odometer confirmation
+    and the POST body (see the harness). Nothing is stored anywhere."""
+    res = subprocess.run([NODE, str(JS / "trip_fuel_browser_smoke.js")],
+                         capture_output=True, text=True, timeout=180)
+    out = res.stdout.strip()
+    if res.returncode == 0 and out.startswith("SKIP:"):
+        pytest.skip(out[5:].strip())
+    assert res.returncode == 0, res.stderr or res.stdout
+    assert out.endswith("ok"), out
+
+
+@pytest.mark.timeout(150)
+def test_weather_alerts_in_chromium():
+    """modules.weather_alerts: the A4 strip and the top-bar icon at 1024x600
+    in all three themes (see the harness)."""
+    res = subprocess.run([NODE, str(JS / "weather_alerts_browser_smoke.js")],
+                         capture_output=True, text=True, timeout=120)
+    out = res.stdout.strip()
+    if res.returncode == 0 and out.startswith("SKIP:"):
+        pytest.skip(out[5:].strip())
+    assert res.returncode == 0, res.stderr or res.stdout
+    assert out.endswith("ok"), out
+
+
+@pytest.mark.timeout(150)
+def test_traffic_list_in_chromium():
+    """modules.traffic_alerts: the live list on the A3 travel plan overlay
+    at 1024x600 in all three themes (see the harness)."""
+    res = subprocess.run([NODE, str(JS / "trip_traffic_browser_smoke.js")],
+                         capture_output=True, text=True, timeout=120)
+    out = res.stdout.strip()
+    if res.returncode == 0 and out.startswith("SKIP:"):
+        pytest.skip(out[5:].strip())
+    assert res.returncode == 0, res.stderr or res.stdout
+    assert out.endswith("ok"), out
+
+
+def test_traffic_glyphs_exist_in_the_bundled_font():
+    """Every icon the live traffic list (trip.js) and the traffic toasts
+    (src/trip/traffic_alerts.py) can draw."""
+    from src.trip import traffic_alerts
+    src = (ROOT / "src/dashboard/web/js/screens/trip.js").read_text(encoding="utf-8")
+    block = re.search(r"const _TRAFFIC_ICONS = \{([^}]*)\}", src).group(1)
+    icons = set(re.findall(r'[a-z]+: "([a-z_]+)"', block)) | set(traffic_alerts._ICONS.values())
+    assert {"traffic", "car_crash", "block", "construction"} <= icons
+    missing = sorted(icons - _font_ligatures(FONT))
+    assert not missing, f"not in {FONT.name}: {missing}"
+
+
+def test_weather_alert_glyphs_exist_in_the_bundled_font():
+    """Every icon the warning strip, the top-bar icon and the forecast rows
+    can draw (the harness prints them on its first line)."""
+    res = subprocess.run([NODE, str(JS / "weather_alerts_smoke.js")], capture_output=True,
+                         text=True, timeout=60)
+    assert res.returncode == 0, res.stderr or res.stdout
+    glyphs = set(json.loads(res.stdout.strip().splitlines()[0]))
+    assert {"ac_unit", "air", "foggy", "weather_snowy"} <= glyphs
+    src = (ROOT / "src/dashboard/web/js/screens/weather.js").read_text(encoding="utf-8")
+    block = re.search(r"const _OWM_GLYPHS = \{([^}]*)\}", src).group(1)
+    glyphs |= set(re.findall(r'"([a-z_]+)"', block))
+    missing = sorted(glyphs - _font_ligatures(FONT))
+    assert not missing, f"not in {FONT.name}: {missing}"
+
+
+@pytest.mark.timeout(200)
 def test_call112_in_chromium():
     """The 112 button, call view and dispatcher panel at 1024x600 in
     headless Chromium (see the harness). Nothing can dial: every request is
@@ -381,7 +497,12 @@ def test_call112_in_chromium():
                                      "settings_cabin_watch_smoke.js",
                                      "settings_brightness_smoke.js",
                                      "crash_modal_smoke.js", "wake_banner_smoke.js",
-                                     "spectrum_smoke.js"])
+                                     "spectrum_smoke.js", "settings_net_diag_smoke.js",
+                                     "settings_phone_sensors_smoke.js",
+                                     "trip_fuel_smoke.js", "weather_alerts_smoke.js",
+                                     "settings_voice_smoke.js",
+                                     "settings_traccar_smoke.js",
+                                     "a1_gauges_smoke.js"])
 def test_screen_harness(harness):
     res = subprocess.run([NODE, str(JS / harness)], capture_output=True, text=True,
                          timeout=60)
@@ -398,6 +519,7 @@ def test_modules_card_in_chromium(tmp_path):
     status are drawn where the driver is looking. The fixture is the real
     catalog_state — test config with bluetooth and phone_status off, then
     the reply after "Włącz z zależnościami" on phone_status."""
+    from src.core import config as config_mod
     from src.core import modules_catalog as mc
     from src.core.config import BCMConfig
 
@@ -413,7 +535,14 @@ def test_modules_card_in_chromium(tmp_path):
     after = mc.catalog_state(cfg, boot)
     fixture = tmp_path / "modules.json"
     fixture.write_text(json.dumps({
-        "before": {"modules": before, "restart_required": False},
+        # local.yaml still for bcm_config_test.yaml: the banner at the top of
+        # the card (the real command shape) must not break the layout.
+        "before": {"modules": before, "restart_required": False,
+                   "config_migration": {
+                       "recorded": "bcm_config_test.yaml", "base": "bcm_config.yaml",
+                       "command": config_mod.migration_command(
+                           ROOT / "config" / "local.yaml",
+                           ROOT / "config" / "bcm_config.yaml")}},
         "after": {"modules": after, "restart_required": True, "enabled_also": ["bluetooth"]},
     }), encoding="utf-8")
     res = subprocess.run([NODE, str(JS / "settings_modules_browser_smoke.js"), str(fixture)],
@@ -451,10 +580,64 @@ def test_dim_overlay_in_chromium():
 
 
 @pytest.mark.timeout(150)
+def test_phone_sensors_row_in_chromium():
+    """Settings "Czujniki telefonu" at 1024x600: no overflow with every
+    optional line, "Test" visible and posting once (see the harness)."""
+    res = subprocess.run([NODE, str(JS / "settings_phone_sensors_browser_smoke.js")],
+                         capture_output=True, text=True, timeout=120)
+    out = res.stdout.strip()
+    if res.returncode == 0 and out.startswith("SKIP:"):
+        pytest.skip(out[5:].strip())
+    assert res.returncode == 0, res.stderr or res.stdout
+    assert out.endswith("ok"), out
+
+
+@pytest.mark.timeout(150)
+def test_voice_row_in_chromium():
+    """Settings "Komunikaty głosowe" at 1024x600: no overflow with the
+    longest status, "Powiedz test" visible, posting once with no body, a
+    category tap posting one whitelisted change (see the harness)."""
+    res = subprocess.run([NODE, str(JS / "settings_voice_browser_smoke.js")],
+                         capture_output=True, text=True, timeout=120)
+    out = res.stdout.strip()
+    if res.returncode == 0 and out.startswith("SKIP:"):
+        pytest.skip(out[5:].strip())
+    assert res.returncode == 0, res.stderr or res.stdout
+    assert out.endswith("ok"), out
+
+
+@pytest.mark.timeout(150)
+def test_traccar_rows_in_chromium():
+    """Settings "Traccar" and "Ostatni postój" at 1024x600: no overflow with
+    the longest hints and map URL, "Wyślij pozycję teraz" visible and
+    posting "{}" once (see the harness)."""
+    res = subprocess.run([NODE, str(JS / "settings_traccar_browser_smoke.js")],
+                         capture_output=True, text=True, timeout=120)
+    out = res.stdout.strip()
+    if res.returncode == 0 and out.startswith("SKIP:"):
+        pytest.skip(out[5:].strip())
+    assert res.returncode == 0, res.stderr or res.stdout
+    assert out.endswith("ok"), out
+
+
+@pytest.mark.timeout(150)
 def test_spectrum_strip_in_chromium():
     """A1 spectrum canvas: baseline at silence, bars with music, no roundRect,
     and a renderer exception cannot skip the reverse view (see the harness)."""
     res = subprocess.run([NODE, str(JS / "spectrum_browser_smoke.js")],
+                         capture_output=True, text=True, timeout=120)
+    out = res.stdout.strip()
+    if res.returncode == 0 and out.startswith("SKIP:"):
+        pytest.skip(out[5:].strip())
+    assert res.returncode == 0, res.stderr or res.stdout
+    assert out.endswith("ok"), out
+
+
+@pytest.mark.timeout(150)
+def test_a1_gauges_in_chromium():
+    """A1 side bars at 1024x600: beside the media card, readable, no
+    horizontal scroll, grey without a source (see the harness)."""
+    res = subprocess.run([NODE, str(JS / "a1_gauges_browser_smoke.js")],
                          capture_output=True, text=True, timeout=120)
     out = res.stdout.strip()
     if res.returncode == 0 and out.startswith("SKIP:"):

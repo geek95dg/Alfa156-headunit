@@ -331,8 +331,8 @@ def _create_openauto_config(project_dir: str, app_config: Any = None,
     # assistant takes audio focus the phone simply stops feeding the media
     # channel, so the last 42-64 ms buffer keeps looping in the output
     # stream: the "freeze + buzz". QtAudioOutput::suspend() really suspends
-    # the QAudioOutput. Code default stays rtaudio (= the key absent, i.e.
-    # production unchanged); bcm_config_test.yaml selects qt.
+    # the QAudioOutput. Code default stays rtaudio (= the key absent);
+    # both shipped configs (bcm_config.yaml, bcm_config_test.yaml) select qt.
     backend_code, backend_name = _audio_backend(app_config)
 
     # [Input]: openDsh reads Input.EnableTouchscreen (default true) and one

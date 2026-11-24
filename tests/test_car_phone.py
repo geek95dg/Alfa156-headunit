@@ -1509,7 +1509,7 @@ class TestPublication:
             "gps_port", "forwards", "battery_pct", "temp_c", "charging", "full", "plugged",
             "health",
             "overridden", "hotspot_active", "hotspot_clients", "heat", "time_synced_at",
-            "error", "hint", "since"}
+            "error", "hint", "internet", "route_iface", "internet_error", "since"}
         assert state["serial"] == "1a…4d" and SER not in str(state)
         assert state["state"] in cp.STATES and state["hint"] in cp.HINTS
         assert state["adb"] in cp.ADB_STATES
@@ -1597,14 +1597,17 @@ class TestRegistration:
         names = list(modules_catalog.MODULES)
         assert names.index("car_phone") == names.index("phone_tether") + 1
 
-    @pytest.mark.parametrize("cfg_name", ["bcm_config.yaml", "bcm_config_test.yaml"])
-    def test_off_in_both_configs(self, cfg_name):
+    @pytest.mark.parametrize("cfg_name, on", [("bcm_config.yaml", True),
+                                              ("bcm_config_test.yaml", False)])
+    def test_on_in_final_off_in_bench_config(self, cfg_name, on):
+        # The Redmi is permanently in the car (23.11): the final config runs
+        # it; the bench config keeps the toggles from the test period.
         cfg = BCMConfig(config_path=str(REPO / "config" / cfg_name), platform_override="x86",
                         local_path=None, env={})
-        assert modules_catalog.is_enabled(cfg, "car_phone") is False
-        assert modules_catalog.is_enabled(cfg, "car_phone_hotspot") is False
+        assert modules_catalog.is_enabled(cfg, "car_phone") is on
+        assert modules_catalog.is_enabled(cfg, "car_phone_hotspot") is on
         states = main.plan_modules(cfg)
-        assert "car_phone" not in [n for n, _ in main.registry_to_start(states)]
+        assert ("car_phone" in [n for n, _ in main.registry_to_start(states)]) is on
 
     def test_entry_point_is_never_called_when_off(self, monkeypatch):
         # Every entry point is a recorder — the other production modules
@@ -1615,6 +1618,7 @@ class TestRegistration:
         monkeypatch.setattr(main, "MODULE_REGISTRY", registry)
         cfg = BCMConfig(config_path=str(REPO / "config" / "bcm_config.yaml"),
                         platform_override="x86", local_path=None, env={})
+        cfg.set("modules.car_phone", False)
         main.start_modules(main.registry_to_start(main.plan_modules(cfg)), cfg, EventBus(), None)
         assert called and "car_phone" not in called
 

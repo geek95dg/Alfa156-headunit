@@ -14,8 +14,8 @@ mouse on ``/dev/rfcomm0``) remains supported.
 
 Sources — ``hardware.gps.source``
 ---------------------------------
-``auto`` (default — also what production ``bcm_config.yaml`` gets, it has no
-``source`` key) keeps the legacy behaviour: x86 → demo route through Milan;
+``auto`` (the default when the key is absent; both shipped configs set
+``[tcp, udp]`` — the car's phone) keeps the legacy behaviour: x86 → demo route through Milan;
 anything else → serial, and when the port cannot be opened at start-up the
 legacy fallback to the demo route (now logged at WARNING). ``demo``,
 ``serial``, ``udp``, ``tcp`` select one input; a list (``[udp, tcp]``) runs

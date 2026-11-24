@@ -153,14 +153,21 @@ Published on ``net.car_phone`` (only when something changed)::
     {state, adb, serial, iface, ip, prefix, gateway, gps_forward, gps_port,
      forwards, battery_pct, temp_c, charging, full, plugged, health,
      overridden, hotspot_active, hotspot_clients, heat, time_synced_at,
-     error, hint, since}
+     error, hint, internet, route_iface, internet_error, since}
 
     state: disabled | no_adb | adb_error | no_device | unauthorized
            | tethering | connected | failed
     adb:   '' | device | unauthorized | offline | no_permissions | other
            | missing | error   (the picked phone's adb state / the tool)
     hint:  '' | authorize | pin_serial | tether_blocked | aa_usb_probe
-           | install_adb
+           | install_adb | no_internet | route_other
+    internet: None (not checked: modules.net_diag off, or not connected)
+           | True | False — ``connected`` only says the link to the phone
+           is up; this says whether traffic gets through (net_probe:
+           default route, DNS, HTTPS; at most every 60 s)
+    route_iface: interface holding the default route ('' = none) — another
+           one with a lower metric winning is a real cause of "no internet"
+    internet_error: '' | no_route | dns | https
     serial: masked (first and last two characters)
     heat:  None | warning | danger (the battery temperature alarm)
     gps_port: local port of the GPS forward while it works (else None)
@@ -220,6 +227,7 @@ from src.network._proc import _run as _run_cmd
 from src.network._proc import clean_error, parse_ip_status, split_terse
 from src.network.phone_tether import CON_NAME_RE, NMCLI_NOT_FOUND, TIMESYNC_ARGV
 from src.network.phone_tether import _get_values
+from src.network.net_probe import InternetProbe, internet_fields, shared_probe
 
 log = get_logger("network.car_phone")
 
@@ -236,9 +244,14 @@ HINT_PIN_SERIAL = "pin_serial"
 HINT_TETHER_BLOCKED = "tether_blocked"
 HINT_AA_USB_PROBE = "aa_usb_probe"
 HINT_INSTALL_ADB = "install_adb"
+#: "connected" but the internet probe failed (src/network/net_probe.py):
+#: the phone does not pass traffic on (mobile data off, operator blocks
+#: tethering) / another interface holds the default route.
+HINT_NO_INTERNET = "no_internet"
+HINT_ROUTE_OTHER = "route_other"
 #: ``hint`` values (web_viewer passes only these on).
 HINTS = ("", HINT_AUTHORIZE, HINT_PIN_SERIAL, HINT_TETHER_BLOCKED,
-         HINT_AA_USB_PROBE, HINT_INSTALL_ADB)
+         HINT_AA_USB_PROBE, HINT_INSTALL_ADB, HINT_NO_INTERNET, HINT_ROUTE_OTHER)
 
 #: adb states of a device as ``adb devices`` prints them, folded to these
 #: (plus "missing"/"error" for the tool itself) — the ``adb`` field.
@@ -707,8 +720,12 @@ class CarPhone:
                  marker_path: str = TIMESYNC_MARKER,
                  notify: Optional[Callable[..., Any]] = None,
                  adb_socket_dir: str = ADB_SOCKET_DIR,
-                 port_sysctl: str = UNPRIVILEGED_PORT_SYSCTL) -> None:
+                 port_sysctl: str = UNPRIVILEGED_PORT_SYSCTL,
+                 net_probe: Optional[InternetProbe] = None) -> None:
         self._config = config
+        # None = no internet check (internet: None in the state); the entry
+        # point passes the shared probe with modules.net_diag on.
+        self._probe = net_probe
         self._bus = event_bus
         self._runner = runner
         self._clock = clock
@@ -1247,9 +1264,16 @@ class CarPhone:
         self._tether_attempts = 0
         self._tether_at = None
         self._func_seen_at = None
+        # The link to the phone is up — whether the phone passes traffic on
+        # is a separate question (net_probe). Runs in this worker thread; the
+        # probe caches its answer for 60 s, a fresh edge forces a new one.
+        net = internet_fields(self._probe, link.get("iface", ""),
+                              force=was != "connected")
         self._publish("connected", adb=adb_field, iface=link.get("iface", ""),
                       ip=link.get("ip", ""), prefix=link.get("prefix"),
-                      gateway=link.get("gateway", ""))
+                      gateway=link.get("gateway", ""), hint=net["hint"],
+                      internet=net["internet"], route_iface=net["route_iface"],
+                      internet_error=net["internet_error"])
         if was != "connected" and self._trigger_timesync:
             self._timesync()
 
@@ -1650,7 +1674,8 @@ class CarPhone:
 
     def _publish(self, state: str, adb: str = "", iface: str = "", ip: str = "",
                  prefix: Optional[int] = None, gateway: str = "", error: str = "",
-                 hint: str = "") -> bool:
+                 hint: str = "", internet: Optional[bool] = None, route_iface: str = "",
+                 internet_error: str = "") -> bool:
         """Publish ``net.car_phone`` if anything changed. True if published."""
         if self._stop.is_set() and state != "disabled":
             return False    # a pass still finishing after stop() stays quiet
@@ -1698,6 +1723,11 @@ class CarPhone:
             "time_synced_at": self._time_synced_at,
             "error": clean_error(error),
             "hint": hint if hint in HINTS else "",
+            # Only meaningful while connected (None = not checked).
+            "internet": internet if state == "connected" else None,
+            "route_iface": route_iface if state == "connected"
+            and isinstance(route_iface, str) and IFACE_RE.fullmatch(route_iface) else "",
+            "internet_error": internet_error if state == "connected" else "",
         }
         if payload == self._payload:
             return False
@@ -1710,6 +1740,15 @@ class CarPhone:
                 elif payload["error"]:
                     detail = f" — {payload['error']}"
                 log.info("Car phone: %s -> %s%s", self._state_name, state, detail)
+        if state == "connected" and internet is not None and self._payload is not None \
+                and self._payload.get("internet") != internet:
+            if internet:
+                log.info("Car phone: internet works (default route via %s)",
+                         route_iface or "-")
+            else:
+                log.warning("Car phone: connected, but NO internet (%s, default route via "
+                            "%s) — mobile data off or the operator blocks tethering?",
+                            internet_error or "-", route_iface or "none")
         self._payload = payload
         self._state_name = state
         try:
@@ -1738,6 +1777,9 @@ def start_car_phone(config, event_bus, hal=None, **kwargs) -> CarPhone:
     """Module entry point — called by main.py's module registry. Only builds
     the object and starts its daemon thread; every adb/nmcli call happens
     there, so a hung adb server never delays the other modules."""
-    phone = CarPhone(config, event_bus)
+    # modules.net_diag: check that the phone really passes traffic on
+    # (src/network/net_probe.py). Strictly True — a typo stays off.
+    probe = shared_probe() if _cfg_get(config, "modules.net_diag", False) is True else None
+    phone = CarPhone(config, event_bus, net_probe=probe)
     phone.start()
     return phone

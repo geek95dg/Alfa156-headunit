@@ -30,10 +30,11 @@ TOUCH_DEVICE="QDtech MPI5001"
 
 # Main display resolution (used for splash generation + touch calibration).
 # Must match display.dashboard / display.small in config/bcm_config.yaml.
-# Main   = 10.1" panel, 1280x800
+# Main   = 7" panel, 1024x600 (the car today; for the 10.1" 1280x800 panel
+#          set MAIN_W=1280 MAIN_H=800 — same as the commented values there)
 # Small  = 6.86" widescreen panel, 1280x480 (optional, hot-pluggable)
-MAIN_W=1280
-MAIN_H=800
+MAIN_W=1024
+MAIN_H=600
 SMALL_W=1280
 SMALL_H=480
 
@@ -307,7 +308,7 @@ step 6 "Installing systemd services..."
 
 # Installed under the plain name bcm-headunit.service: the ignition watcher
 # starts it by that name (--service bcm-headunit.service). The unit runs
-# config/bcm_config_test.yaml (BCM_CONFIG) and reads secrets from
+# config/bcm_config.yaml (BCM_CONFIG) and reads secrets from
 # /etc/bcm/bcm.env (EnvironmentFile=-, so a missing file never blocks it).
 cp "$BCM_DIR/config/systemd/bcm-headunit-x86.service" /etc/systemd/system/bcm-headunit.service
 cp "$BCM_DIR/config/systemd/bcm-ignition-watcher.service" /etc/systemd/system/
@@ -953,6 +954,21 @@ i2c-dev
 EOF
 modprobe i2c-dev 2>/dev/null || warn "modprobe i2c-dev failed — DDC/CI needs it (it loads at the next boot)"
 
+# Spoken announcements (modules.voice_announce, src/audio/voice_announce.py):
+# espeak-ng is the always-available Polish fallback voice — same checked
+# single-package pattern; Piper with the Polish voice pl_PL-gosia-medium is
+# the natural one, downloaded into /opt/bcm/piper by install-piper.sh with a
+# SHA-256 check of every file (non-fatal: a missing hash or no internet is
+# a warning, BCM then speaks with espeak-ng).
+apt-get install -y espeak-ng || true
+if command -v espeak-ng >/dev/null 2>&1; then
+    echo "  espeak-ng: $(command -v espeak-ng)"
+else
+    warn "espeak-ng is NOT installed — without Piper the car cannot speak (modules.voice_announce)."
+    warn "  Fix: sudo apt-get install espeak-ng, then re-run this script (or apply-fixes.sh)."
+fi
+bash "$BCM_DIR/config/scripts/install-piper.sh" || warn "install-piper.sh failed — BCM speaks with espeak-ng"
+
 # The WirePlumber drop-ins in /etc/wireplumber/wireplumber.conf.d use the
 # 0.5 SPA-JSON syntax; WirePlumber 0.4 (Lua config) silently ignores them,
 # which would leave the native HFP backend active and the dialer dead.
@@ -1078,10 +1094,10 @@ fi
 step 14 "Testing BCM (headless)..."
 
 # Same base config as the installed unit (bcm-headunit.service sets
-# BCM_CONFIG=config/bcm_config_test.yaml); BCM_CONFIG in the environment
+# BCM_CONFIG=config/bcm_config.yaml); BCM_CONFIG in the environment
 # overrides it. Restricted to a plain relative/absolute path because it is
 # spliced into the su -c command line below.
-SMOKE_CONFIG="${BCM_CONFIG:-config/bcm_config_test.yaml}"
+SMOKE_CONFIG="${BCM_CONFIG:-config/bcm_config.yaml}"
 case "$SMOKE_CONFIG" in
     *[!A-Za-z0-9_./-]*) fail "BCM_CONFIG contains unexpected characters: $SMOKE_CONFIG" ;;
 esac

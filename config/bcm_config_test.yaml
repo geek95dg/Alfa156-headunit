@@ -1,8 +1,20 @@
-# BCM v8.5 — konfiguracja WDROŻENIA TESTOWO-ROZWOJOWEGO
+# BCM v8.5 — konfiguracja ROZWOJOWA / STANOWISKOWA (bench)
 #
+# Od 23.11 auto jeździ na config/bcm_config.yaml (konfiguracja docelowa —
+# ma wszystko, co działało tu, plus ustawienia z local.yaml auta). Ten plik
+# zostaje do rozwoju i testów na stole: jest poprawny, kompletny i można
+# na nim uruchomić BCM, a przełączniki modułów zostają jak w czasie testów.
+# Powrót auta na niego to linia w /etc/bcm/bcm.env:
+#   BCM_CONFIG=config/bcm_config_test.yaml
+# PLUS przywrócenie kopii config/local.yaml.bcm_config_test.bak (przy
+# zatrzymanym BCM) — po migracji local.yaml ma prawie tylko adres telefonu BT,
+# więc bez kopii auto jechałoby tu bez swoich ustawień (sink USB, car_phone).
+# Kolejność: docs/WDROZENIE_TESTOWE_TELEFON.md §13.7.
+#
+# Opis wariantu testowego (historia):
 # Minimalny zestaw funkcji, ale instalacja jeżdżąca: zabudowa w aucie
 # z pełnym torem zasilania (ładowanie banku, LVD, przekaźnik zapłonu).
-#   • ekran 7" 1024x600 (docelowy jest 10,1" 1280x800 — patrz bcm_config.yaml)
+#   • ekran 7" 1024x600 (10,1" 1280x800 — komentarz w bcm_config.yaml)
 #   • Android Auto WIRELESS — P2P-GO na karcie MediaTek MT7921, handshake
 #     bootstrapowany po Bluetooth (src/multimedia/openauto.py, wifi_ap.py)
 #   • dźwięk przez wyjście analogowe M910q (mini-jack) — domyślny sink PipeWire
@@ -66,12 +78,27 @@ modules:
                            # w telefonie włącz „Tethering przez Bluetooth”
   weather: true            # OpenWeatherMap; klucz z /etc/bcm/bcm.env
                            # (BCM_OWM_API_KEY) — bez klucza dane demo
+  weather_alerts: true     # ostrzeżenia pogodowe (oblodzenie, śnieg, ulewa,
+                           # burza, wiatr, mgła): powiadomienie, pasek na A4,
+                           # ikona w pasku górnym; wymaga weather; blok
+                           # weather_alerts niżej
+  net_diag: true           # diagnostyka internetu i kluczy: sonda łącza
+                           # w car_phone/phone_tether (trasa domyślna, DNS,
+                           # HTTPS; bez internetu co 60 s, z nim co 10 min)
+                           # i wiersz Ustawień
+                           # „Internet i usługi” z przyciskiem „Test”
   location: true           # GPS Z TELEFONU: TCP (telefon w aucie przez adb
                            # forward albo główny telefon po Bluetooth PAN) ma
                            # pierwszeństwo przed UDP (GPSd Forwarder) — blok
                            # hardware.gps niżej
   tracking: true           # zapis tras do SQLite + lista tras i GPX:
                            # http://10.0.0.1:5002/trips w przeglądarce telefonu
+  last_park: false         # ostatni postój: gdzie auto ostatnio stało (GPS
+                           # BCM, data/last_park.json) — Ustawienia i /trips
+  fuel_log: true           # dziennik tankowań: przycisk „Zatankowano” na
+                           # ekranie trasy (A3), spalanie od pełna do pełna,
+                           # koszt, zasięg; wymaga tracking (dystans z GPS,
+                           # gdy nie wpiszesz licznika); blok fuel_log niżej
   crash_detect: true       # wykrywanie stłuczki (src/safety/crash_detect.py,
                            # blok crash_detection niżej). Kamery NIE są
                            # potrzebne. Wymaga location. Bez czujników
@@ -122,6 +149,16 @@ modules:
   route_planner: true      # plan podróży (A3, tryb --frontend); klucze z
                            # /etc/bcm/bcm.env: BCM_ORS_API_KEY (bez niego trasa
                            # w linii prostej), BCM_TOMTOM_API_KEY (utrudnienia)
+  trip_gps: true           # komputer podróży z GPS na A3 (dystans, czas,
+                           # średnia; spalanie i zasięg z fuel_log); wymaga location
+  traffic_alerts: true     # utrudnienia TomTom w trakcie jazdy (korki, wypadki,
+                           # zamknięcia przed autem / na trasie): powiadomienie,
+                           # lista na ekranie trasy; wymaga location i klucza
+                           # BCM_TOMTOM_API_KEY; blok traffic_alerts niżej
+  voice_announce: true     # komunikaty głosowe (ostrzeżenia pogodowe,
+                           # utrudnienia) z Piper / espeak-ng, muzyka ściszana
+                           # na czas komunikatu; wymaga audio; instalacja:
+                           # apply-fixes.sh; blok voice_announce niżej
   small_display: false     # jeden ekran w wariancie testowym
 
   # --- moduły dodatkowe (telefon w aucie, bezpieczeństwo, wybudzanie) ---
@@ -161,6 +198,12 @@ modules:
                            # W TELEFONIE (agent ≥ 1.3.0, root, blokada
                            # ekranu „Brak”); wymaga car_phone_agent
                            # i parking_guard; blok cabin_watch niżej
+  traccar: false           # pozycja auta na Twoim serwerze Traccar — wysyła
+                           # TELEFON (agent ≥ 1.6.0), także na postoju;
+                           # wymaga car_phone_agent; traccar.url niżej
+                           # (adres tylko w local.yaml), identyfikator
+                           # BCM_TRACCAR_DEVICE_ID w /etc/bcm/bcm.env;
+                           # docs/TRACCAR_SERWER.md §8
   crash_sms: false         # SMS po stłuczce: okno z odliczaniem i ANULUJ,
                            # termin trzyma telefon; wymaga crash_detect,
                            # phone_sensors i car_phone_agent. Odbiorcy
@@ -201,8 +244,8 @@ dashboard:
   # Nazwy, które mają działać mimo to, wpisz tutaj, np. ['bcm.local'].
   allowed_hosts: []
 display:
-  # Wariant testowy: panel 7" 1024x600.
-  # Docelowo 10,1" 1280x800 — wartości produkcyjne w bcm_config.yaml.
+  # Panel 7" 1024x600 (jak w aucie). Wartości dla 10,1" 1280x800:
+  # komentarz przy bloku display w bcm_config.yaml.
   dashboard:
     width: 1024
     height: 600
@@ -543,10 +586,86 @@ weather:
   # Po przejechaniu tylu km od miejsca ostatniego pobrania z GPS pogoda
   # pobiera się ponownie, bez czekania na poll_interval_min (0 = wyłączone).
   refetch_distance_km: 15
+weather_alerts:
+  # Ostrzeżenia z danych OpenWeatherMap (src/weather/alerts.py): pogoda teraz,
+  # prognoza 3-godzinna w miejscu auta (GPS) na lookahead_h godzin naprzód
+  # i — gdy jest cel podróży — punkty trasy. Popup oblodzenia w kiosku
+  # zostaje wyłączony: tylko powiadomienie i komunikat głosowy.
+  categories:              # false = tej kategorii nie ostrzegaj
+    icing: true            # oblodzenie / gołoledź / zimna nawierzchnia
+    snow: true
+    rain: true             # ulewa
+    storm: true            # burza
+    wind: true             # silny wiatr i porywy
+    fog: true              # gęsta mgła
+  lookahead_h: 6           # ile godzin prognozy brać pod uwagę (1–24)
+  cooldown_min: 60         # to samo ostrzeżenie powtórzone najwcześniej po
+                           # tylu minutach (wcześniej tylko, gdy się nasili)
+  quiet_hours: ''          # np. '22:00-06:00' — wtedy bez głosu (poza
+                           # „niebezpiecznymi”); powiadomienie na ekranie zostaje
+  voice: true              # prośba o komunikat głosowy (mówi go moduł głosowy)
+  voice_min_severity: warning   # info | warning | danger
+  route: true              # sprawdzaj też pogodę na zaplanowanej trasie
+  # Progi (domyślne w kodzie takie same):
+  icing_temp_c: 2          # oblodzenie: T ≤ tyle °C + opad/mgła/wilgotność
+  icing_humidity_pct: 90   # … albo wilgotność ≥ tyle %
+  icing_dew_spread_c: 1    # … albo T − punkt rosy ≤ tyle °C
+  cold_surface_max_c: 3    # „zimna nawierzchnia”: bezchmurna noc, 0…tyle °C
+  heavy_rain_mm_3h: 10     # ulewa: ≥ tyle mm na 3 h (2× tyle = niebezpieczne)
+  snow_heavy_mm_3h: 3      # intensywny śnieg: ≥ tyle mm na 3 h
+  gust_ms: 15              # porywy ≥ tyle m/s (54 km/h) = ostrzeżenie
+  gust_danger_ms: 25       # porywy ≥ tyle m/s (90 km/h) = niebezpieczne
+  wind_ms: 14              # wiatr średni ≥ tyle m/s (≈ 50 km/h) = ostrzeżenie
+  fog_visibility_m: 200    # mgła: widoczność < tyle m (< 1/4 = niebezpieczne)
 travel:
   # Klucze z /etc/bcm/bcm.env: BCM_ORS_API_KEY, BCM_TOMTOM_API_KEY.
   openrouteservice_key: ''
   tomtom_key: ''
+traffic_alerts:
+  # Utrudnienia z TomTom (incidentDetails) w trakcie jazdy — src/trip/traffic.py.
+  # Odpytuje tylko w jeździe (GPS > 15 km/h przez 30 s): z celem na ekranie
+  # trasy — korytarz wzdłuż następnych lookahead_km trasy, bez celu — pole
+  # lookahead_km przed autem, 3 km szerokości. Powiadamia tylko o nowych
+  # utrudnieniach przed autem (i gdy się nasilą), najwyżej raz na 2 minuty.
+  poll_min: 5              # co ile minut pytać TomTom w jeździe (2–60)
+  daily_budget: 300        # twardy limit zapytań na dobę (UTC); darmowy klucz
+                           # ma ok. 2500/dobę, dzielone z planerem tras
+  lookahead_km: 10         # jak daleko naprzód patrzeć (2–50 km)
+  min_delay_s: 180         # korek / roboty: powiadom od takiego opóźnienia
+                           # (wypadek i zamknięta droga — zawsze)
+  voice: true              # prośba o komunikat głosowy (mówi go moduł głosowy)
+  state_path: data/traffic_budget.json   # licznik zapytań (przetrwa restart)
+voice_announce:
+  # Komunikaty głosowe — src/audio/voice_announce.py (moduł włącza
+  # modules.voice_announce). Czyta prośby voice.announce (ostrzeżenia
+  # pogodowe, utrudnienia TomTom), mówi je Piperem (głos pl_PL-gosia-medium,
+  # instaluje config/scripts/install-piper.sh z apply-fixes.sh), a bez niego
+  # espeak-ng. Głos idzie na wyjście sprzętowe z pominięciem EQ, muzyka jest
+  # na ten czas ściszana o 12 dB (strumień wyjściowy EQ — głośność
+  # kierowcy się nie zmienia). Nigdy w trakcie rozmowy telefonicznej.
+  enabled: true            # Wł./Wył. z Ustawień → „Komunikaty głosowe”
+                           # (zapisywane w local.yaml; moduł zostaje
+                           # uruchomiony, tylko milczy)
+  volume: 80               # głośność głosu w % (10–100), suwak w Ustawieniach
+  categories:              # o czym mówić (przełączniki w Ustawieniach)
+    weather: true          # ostrzeżenia pogodowe (oblodzenie, śnieg, burza…)
+    traffic: true          # utrudnienia TomTom przed autem
+    system: true           # komunikaty systemowe
+  chime: true              # krótki dźwięk przed komunikatem
+  quiet_when_parking: true # milczy, gdy działają czujniki parkowania (cofanie)
+  max_age_s: 60            # starszych komunikatów już nie mówi (10–300 s)
+  dedupe_s: 300            # ten sam komunikat najwyżej raz na tyle sekund
+                           # (eskalacja — inny tekst / wyższy priorytet — od razu)
+  call_defer_s: 45         # w trakcie rozmowy czeka najwyżej tyle, potem
+                           # odpuszcza (≤ max_age_s)
+  max_per_min: 4           # najwyżej tyle na minutę (ostrzeżenia o
+                           # niebezpieczeństwie poza limitem)
+  min_gap_s: 3             # przerwa między dwoma komunikatami
+  piper_bin: /opt/bcm/piper/piper/piper
+  model: /opt/bcm/piper/voices/pl_PL-gosia-medium.onnx
+  cache_dir: data/voice_cache   # gotowe nagrania fraz (katalog 0700; zawsze
+                                # osobny podkatalog voice_cache)
+  cache_max_mb: 20         # limit miejsca na nagrania (najstarsze znikają)
 network:
   # Internet z telefonu po Bluetooth (PAN) — src/network/phone_tether.py,
   # włączany przełącznikiem modules.phone_tether. BCM zakłada w NetworkManagerze
@@ -729,6 +848,8 @@ lighting:
   follow_me_home_seconds: 60
   greeting_blinks: 2
   leaving_home: true
+# Stary blok — nieużywany przez kod. Utrudnienia w trakcie jazdy: blok
+# traffic_alerts wyżej, klucz BCM_TOMTOM_API_KEY (travel.tomtom_key).
 traffic:
   api_key: ''
   provider: tomtom
@@ -883,6 +1004,15 @@ cabin_watch:
   diff_pct: 3.0
   light_ratio: 5.0
   light_lux: 5.0
+# Traccar (modules.traccar; src/network/traccar.py, docs/TRACCAR_SERWER.md §8).
+# Adres serwera wpisz w config/local.yaml (https://DOMENA/traccar-gps/ —
+# tylko https, bez loginu i hasła w adresie); identyfikator urządzenia NIGDY
+# tutaj — tylko BCM_TRACCAR_DEVICE_ID w /etc/bcm/bcm.env. Pusty adres =
+# telefon nic nie wysyła.
+traccar:
+  url: ""
+  drive_interval_s: 30     # w jeździe co tyle sekund (10–600)
+  park_interval_min: 15    # na postoju co tyle minut (5–240; bateria < 20 % ×4)
 # Czujniki telefonu w aucie (modules.phone_sensors; src/sensors/phone_sensors.py).
 # Kierunek grawitacji kalibruje się sam przy pierwszych ~10 s postoju
 # (zapis: data/phone_sensors.json); przesunięcie telefonu w uchwycie o > 10°
@@ -909,6 +1039,13 @@ tracking:
   geofence_lat: 0
   geofence_lon: 0
   geofence_radius_km: 0
+fuel_log:
+  # Osobna baza (nie gps_tracks.db): skasowanie tras nie zabiera historii
+  # tankowań. Pojemność baku do zasięgu: fuel_sender.tank_capacity_litres.
+  db_path: data/fuel_log.db
+  # Przedział między tankowaniami do pełna krótszy niż tyle km nie wchodzi
+  # do średniego spalania (za mało, żeby litry z dystrybutora coś znaczyły).
+  min_interval_km: 20
 multimedia:
   # Ustawiane w locie przy połączeniu BT i zapisywane do config/local.yaml.
   last_bt_device: ''

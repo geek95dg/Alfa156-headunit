@@ -26,7 +26,7 @@ from typing import Optional, Any, Hashable
 from urllib.parse import urlsplit
 
 from src.core.logger import get_logger
-from src.core.notifications import active_notifications
+from src.core.notifications import active_notifications, clean_text as _clean_text
 from src.multimedia.phone_status import sanitize_status as _phone_status_summary
 from src.network.car_phone import ADB_STATES as _CAR_PHONE_ADB_STATES
 from src.network.car_phone import HINTS as _CAR_PHONE_HINTS
@@ -40,12 +40,20 @@ from src.network.car_phone_agent import TOPIC as _AGENT_TOPIC
 from src.network.phone_tether import HINTS as _TETHER_HINTS
 from src.network.phone_tether import RETRY_TOPIC as _TETHER_RETRY_TOPIC
 from src.network.phone_tether import STATES as _TETHER_STATES
+from src.network import net_probe as _net_probe
+from src.network import net_services as _net_services
+from src.network import traccar as _traccar
+from src.location import last_park as _last_park
 from src.power import brightness as _brightness
 from src.power import remote_session as _remote_session
 from src.safety import cabin_watch as _cabin_watch
 from src.safety import call112 as _call112
 from src.safety import crash_sms as _crash_sms
 from src.safety import parking_guard as _parking_guard
+from src.sensors import phone_sensors as _phone_sensors
+from src.trip import fuel_log as _fuel_log
+from src.network._proc import clean_error
+from src.audio import voice_announce as _voice
 from src.weather.weather import valid_coords
 
 log = get_logger("web_viewer")
@@ -181,6 +189,14 @@ _CONFIG_FIELDS = (
     # both live through config.changed.
     ("brightness_backend", "display.auto_brightness.backend"),
     ("brightness_mode", "display.auto_brightness.mode"),
+    # Settings → "Komunikaty głosowe" (modules.voice_announce): the runtime
+    # on/off, the voice volume and the three category switches. The module
+    # re-reads them on config.changed. Never the text of a message.
+    ("voice_enabled", "voice_announce.enabled"),
+    ("voice_volume", "voice_announce.volume"),
+    ("voice_cat_weather", "voice_announce.categories.weather"),
+    ("voice_cat_traffic", "voice_announce.categories.traffic"),
+    ("voice_cat_system", "voice_announce.categories.system"),
 )
 
 
@@ -233,6 +249,17 @@ def _validate_config_update(data: Any) -> tuple[list[tuple[str, str, Any]], Opti
         elif key == "brightness_mode":
             if not isinstance(value, str) or value not in _brightness.MODES:
                 return [], (key, f"brightness_mode must be one of {list(_brightness.MODES)}")
+        elif key in ("voice_enabled", "voice_cat_weather", "voice_cat_traffic",
+                     "voice_cat_system"):
+            if not isinstance(value, bool):
+                return [], (key, f"{key} must be true or false")
+        elif key == "voice_volume":
+            if isinstance(value, float) and value.is_integer():
+                value = int(value)
+            if isinstance(value, bool) or not isinstance(value, int) \
+                    or not _voice.VOLUME_MIN <= value <= _voice.VOLUME_MAX:
+                return [], (key, f"voice_volume must be an integer "
+                                 f"{_voice.VOLUME_MIN}-{_voice.VOLUME_MAX}")
         updates.append((key, config_key, value))
     return updates, None
 
@@ -295,6 +322,369 @@ _DIAL_MIN_INTERVAL_S = 5.0
 _NETWORK_DIAL_RE = re.compile(r"^\+?[0-9]{3,20}$")
 
 
+def _internet_summary(value: dict) -> dict:
+    """The net_probe fields of a ``connected`` uplink state (car_phone /
+    phone_tether): ``internet`` True/False/None (None = not checked),
+    the interface holding the default route, the probe's error code."""
+    internet = value.get("internet")
+    route = value.get("route_iface")
+    err = value.get("internet_error")
+    return {
+        "internet": internet if isinstance(internet, bool) else None,
+        "route_iface": route if isinstance(route, str)
+        and _net_probe.IFACE_RE.fullmatch(route) else "",
+        "internet_error": err if isinstance(err, str) and err in _net_probe.ERRORS else "",
+    }
+
+
+_WEATHER_SOURCES = ("demo", "cache", "live")
+_WEATHER_ERRORS = ("", "no_key", "http", "network", "bad_response")
+
+
+def _ts(value: Any) -> Optional[float]:
+    """An epoch timestamp from a state payload (finite, after 2001) or None."""
+    if isinstance(value, bool) or not isinstance(value, (int, float)) \
+            or not math.isfinite(value) or not 1e9 < value < 1e11:
+        return None
+    return float(value)
+
+
+def _http_code(value: Any) -> Optional[int]:
+    if isinstance(value, bool) or not isinstance(value, int) or not 100 <= value <= 599:
+        return None
+    return value
+
+
+_ALERT_KINDS = ("icing", "snow", "rain", "storm", "wind", "fog")
+_ALERT_SEVERITIES = ("info", "warning", "danger")
+_ALERTS_MAX = 6
+
+
+def _weather_alerts_summary(value: Any, now: Optional[float] = None) -> Optional[list]:
+    """``weather.alert`` (src/weather/weather_alerts.py) → what A4 and the
+    top bar show. None = the module does not run (nothing published).
+    Re-validated here because the bus may carry anything: known kind and
+    severity only, texts cleaned and cut (the UI escapes them as well),
+    expired entries dropped (the module may have stopped re-evaluating)."""
+    if not isinstance(value, list):
+        return None
+    now = time.time() if now is None else now
+    out = []
+    for item in value:
+        if not isinstance(item, dict):
+            continue
+        kind, sev = item.get("kind"), item.get("severity")
+        until = _ts(item.get("valid_until"))
+        if kind not in _ALERT_KINDS or sev not in _ALERT_SEVERITIES \
+                or until is None or until < now:
+            continue
+        out.append({"kind": kind, "severity": sev,
+                    "title": _clean_text(item.get("title"), 60),
+                    "text": _clean_text(item.get("text"), 200),
+                    "where": _clean_text(item.get("where"), 20),
+                    "valid_until": until})
+        if len(out) >= _ALERTS_MAX:
+            break
+    return out
+
+
+_TRAFFIC_KINDS = ("other", "accident", "jam", "lane", "closed", "works", "wind", "flood")
+_TRAFFIC_STATES = ("no_key", "idle", "driving", "no_heading", "backoff", "budget")
+_TRAFFIC_MAX = 8
+
+
+def _traffic_alerts_summary(alerts: Any, status: Any,
+                            now: Optional[float] = None) -> Optional[dict]:
+    """``traffic.alert`` + ``traffic.status`` (src/trip/traffic_alerts.py)
+    → the route screen's live list. None = the module does not run (no
+    status published). Re-validated because the bus may carry anything:
+    known kinds only, numbers bounded, texts cleaned and cut (the UI
+    escapes them as well), expired entries dropped. The status carries
+    counts and codes only — never the key."""
+    if not isinstance(status, dict):
+        return None
+    now = time.time() if now is None else now
+    items = []
+    for item in alerts if isinstance(alerts, list) else []:
+        if not isinstance(item, dict) or item.get("kind") not in _TRAFFIC_KINDS:
+            continue
+        until = _ts(item.get("valid_until"))
+        dist = item.get("distance_km")
+        if until is None or until < now or isinstance(dist, bool) \
+                or not isinstance(dist, (int, float)) or not 0 <= dist <= 100:
+            continue
+        delay = item.get("delay_min")
+        items.append({"kind": item["kind"],
+                      "title": _clean_text(item.get("title"), 60),
+                      "text": _clean_text(item.get("text"), 200),
+                      "distance_km": round(float(dist), 1),
+                      "delay_min": delay if isinstance(delay, int) and not isinstance(delay, bool)
+                      and 0 <= delay <= 1440 else None,
+                      "on_route": item.get("on_route") is True})
+        if len(items) >= _TRAFFIC_MAX:
+            break
+
+    def _int(v, hi):
+        return v if isinstance(v, int) and not isinstance(v, bool) and 0 <= v <= hi else None
+
+    err = status.get("error")
+    error = None
+    if isinstance(err, dict) and err.get("result") in ("http", "network", "bad_response"):
+        error = {"service": "tomtom", "result": err["result"],
+                 "http_code": _http_code(err.get("http_code"))}
+    state = status.get("state")
+    poll = status.get("poll_min")
+    return {
+        "items": items,
+        "state": state if state in _TRAFFIC_STATES else "idle",
+        "mode": status.get("mode") if status.get("mode") in ("route", "ahead") else "",
+        "used": _int(status.get("used"), 1_000_000),
+        "budget": _int(status.get("budget"), 1_000_000),
+        "poll_min": float(poll) if isinstance(poll, (int, float)) and not isinstance(poll, bool)
+        and 0 < poll <= 1440 else None,
+        "last_ok": _ts(status.get("last_ok")),
+        "backoff_until": _ts(status.get("backoff_until")),
+        "error": error,
+    }
+
+
+def _weather_status_summary(value: Any) -> Optional[dict]:
+    """``weather.status`` → what the weather screen / Settings show:
+    where the data comes from (demo/cache/live) and the last error code.
+    None = the weather module does not run (nothing published)."""
+    if not isinstance(value, dict):
+        return None
+    source = value.get("source")
+    err = value.get("last_error")
+    return {
+        "source": source if source in _WEATHER_SOURCES else "demo",
+        "last_ok_ts": _ts(value.get("last_ok_ts")),
+        "last_attempt_ts": _ts(value.get("last_attempt_ts")),
+        "last_error": err if err in _WEATHER_ERRORS else "",
+        "http_code": _http_code(value.get("http_code")),
+        "key_set": value.get("key_set") is True,
+    }
+
+
+#: Minimum spacing of POST /api/voice/test (one fixed phrase each; the
+#: music is ducked while it plays — a stuck finger must not keep it down).
+_VOICE_TEST_MIN_INTERVAL_S = 8.0
+#: Minimum spacing of POST /api/net/test (each one costs one request per
+#: configured service from the free plans' daily quota).
+_NET_TEST_MIN_INTERVAL_S = 10.0
+#: POST / DELETE of /api/fuel/refuel: one per this many seconds (a double
+#: tap on "Zapisz" must not store the refuel twice).
+_FUEL_MIN_INTERVAL_S = 3.0
+_FUEL_MAX_BODY = 2048
+_FUEL_STATUSES = ("empty", "need_first_full", "need_second_full", "no_distance",
+                  "intervals_skipped", "ok")
+_FUEL_SOURCES = ("odometer", "gps", "none")
+
+
+def _fuel_num(value: Any, lo: float, hi: float, places: int = 2) -> Optional[float]:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    value = float(value)
+    if not math.isfinite(value) or not lo <= value <= hi:
+        return None
+    return round(value, places)
+
+
+def _fuel_refuel_json(r: Any) -> Optional[dict]:
+    """One refuel (fuel.stats ``recent`` / FuelLog.list_refuels) → numbers
+    and flags only. Never the position or the note text (the API and the
+    payload reach the network in readonly/tracking mode)."""
+    if not isinstance(r, dict):
+        return None
+    rid = r.get("id")
+    if isinstance(rid, bool) or not isinstance(rid, int) or rid < 1:
+        return None
+    out = {"id": rid, "ts": _fuel_num(r.get("ts"), 0, 1e11, 0),
+           "litres": _fuel_num(r.get("litres"), 0, 1000),
+           "price_per_l": _fuel_num(r.get("price_per_l"), 0, 1000, 3),
+           "odometer_km": _fuel_num(r.get("odometer_km"), 0, 1e7, 1),
+           "full": r.get("full") is True, "interval": None}
+    iv = r.get("interval")
+    if isinstance(iv, dict):
+        out["interval"] = {
+            "km": _fuel_num(iv.get("km"), 0, 1e6, 1),
+            "l100": _fuel_num(iv.get("l100"), 0, 1000),
+            "cost": _fuel_num(iv.get("cost"), 0, 1e6),
+            "litres": _fuel_num(iv.get("litres"), 0, 1e4),
+            "source": iv.get("source") if iv.get("source") in _FUEL_SOURCES else "none",
+            "usable": iv.get("usable") is True,
+        }
+    return out
+
+
+def _fuel_log_summary(config: Any, stats: Any) -> dict:
+    """``fuel.stats`` → what A3 shows (``data.fuel_log``).
+
+    ``enabled``: modules.fuel_log; ``running``: the module published stats.
+    Numbers are range-checked, texts are fixed codes — the screen builds
+    every string itself.
+    """
+    enabled = bool(config is not None and config.get("modules.fuel_log", False) is True)
+    if not isinstance(stats, dict):
+        return {"enabled": enabled, "running": False}
+    cal = stats.get("calibration") if isinstance(stats.get("calibration"), dict) else {}
+    raw_recent = stats.get("recent") if isinstance(stats.get("recent"), list) else []
+    recent = [x for x in (_fuel_refuel_json(r) for r in raw_recent[:5]) if x is not None]
+    status = stats.get("status")
+    return {
+        "enabled": enabled, "running": True,
+        "status": status if status in _FUEL_STATUSES else "empty",
+        "count": int(stats["count"]) if isinstance(stats.get("count"), int)
+        and not isinstance(stats.get("count"), bool) else 0,
+        "avg_l100_last": _fuel_num(stats.get("avg_l100_last"), 0, 100),
+        "avg_l100_overall": _fuel_num(stats.get("avg_l100_overall"), 0, 100),
+        "cost_per_100km": _fuel_num(stats.get("cost_per_100km"), 0, 10000),
+        "km_since_full": _fuel_num(stats.get("km_since_full"), 0, 1e6, 1),
+        "litres_used_est": _fuel_num(stats.get("litres_used_est"), 0, 1e4, 1),
+        "fuel_left_est_l": _fuel_num(stats.get("fuel_left_est_l"), 0, 1e3, 1),
+        "est_range_km": _fuel_num(stats.get("est_range_km"), 0, 1e5, 0),
+        "tank_capacity_l": _fuel_num(stats.get("tank_capacity_l"), 0, 1e3, 1),
+        "calibration": {"factor": _fuel_num(cal.get("factor"), 0, 10, 4),
+                        "samples": cal.get("samples") if isinstance(cal.get("samples"), int)
+                        and not isinstance(cal.get("samples"), bool) else 0},
+        "gps_available": stats.get("gps_available") is True,
+        "read_only": stats.get("read_only") is True,
+        "recent": recent,
+    }
+
+
+
+# A1 side bars (fuel left, engine temperature right). A reading counts only
+# while it is fresh: the bus keeps the last value forever, and a bar frozen at
+# the level from before the sensor dropped out lies to the driver.
+A1_FUEL_FRESH_S = 120.0
+A1_COOLANT_FRESH_S = 60.0
+
+
+def _a1_gauges(fuel_last: Any, coolant_last: Any, simulation: bool,
+               fuel_log: Any, now: float) -> dict:
+    """The A1 side bars → ``data.a1_gauges``.
+
+    ``fuel_last``/``coolant_last`` are ``EventBus.get_last()`` results
+    (``(value, epoch)`` or None). Sources, as fixed codes the screen maps to
+    labels:
+
+    - ``sensor``: a fresh ``obd.*`` value (fuel sender / K-Line);
+    - ``demo``: the same topic while ``system.simulation`` is on — the
+      DemoDataGenerator publishes it, so the bar says so;
+    - ``estimate`` (fuel only): litres left after the last full tank from
+      the refuel log (``fuel.stats``), as a % of the tank;
+    - ``none``: no source. Never the payload's old defaults (fuel 50 %,
+      coolant 0 °C), which looked like real readings.
+    """
+    def _fresh(last: Any, max_age: float, lo: float, hi: float) -> Optional[float]:
+        if not isinstance(last, tuple) or len(last) != 2:
+            return None
+        value, ts = last
+        if isinstance(value, bool) or not isinstance(value, (int, float)) \
+                or not math.isfinite(value) or not lo <= value <= hi:
+            return None
+        if isinstance(ts, bool) or not isinstance(ts, (int, float)) \
+                or not 0 <= now - ts <= max_age:
+            return None
+        return float(value)
+
+    live = "demo" if simulation else "sensor"
+    fuel: dict = {"source": "none", "pct": None, "litres": None}
+    pct = _fresh(fuel_last, A1_FUEL_FRESH_S, 0, 100)
+    if pct is not None:
+        fuel = {"source": live, "pct": round(pct), "litres": None}
+    elif isinstance(fuel_log, dict) and fuel_log.get("running") is True:
+        left = fuel_log.get("fuel_left_est_l")
+        tank = fuel_log.get("tank_capacity_l")
+        if isinstance(left, (int, float)) and isinstance(tank, (int, float)) \
+                and not isinstance(left, bool) and not isinstance(tank, bool) and tank > 0:
+            est = max(0.0, min(100.0, 100.0 * left / tank))
+            fuel = {"source": "estimate", "pct": round(est), "litres": round(left, 1)}
+
+    coolant: dict = {"source": "none", "c": None}
+    temp = _fresh(coolant_last, A1_COOLANT_FRESH_S, -40, 150)
+    if temp is not None:
+        coolant = {"source": live, "c": round(temp)}
+    return {"fuel": fuel, "coolant": coolant}
+
+
+def _net_diag_summary(config: Any, tether: Optional[dict], car: Optional[dict],
+                      test_running: bool, last_test_at: Optional[float]) -> Optional[dict]:
+    """The Settings row "Internet i usługi" (modules.net_diag).
+
+    Keys only as presence booleans — the payload is visible from the network
+    in ``readonly`` mode, and a key never leaves the process anyway.
+    ``uplink.kind``: which uplink holds the default route (usb = the car
+    phone's cable, bt = the phone's Bluetooth PAN, other = anything else,
+    none = no default route, '' = not known yet).
+    """
+    if config is None or config.get("modules.net_diag", False) is not True:
+        return None
+    probe = _net_probe.shared_probe().last
+    car_up = isinstance(car, dict) and car.get("state") == "connected"
+    bt_up = isinstance(tether, dict) and tether.get("state") == "connected"
+    if isinstance(probe, dict):
+        # The probe only runs while a phone uplink is connected (or on
+        # "Test"), and its result never expires on its own. After the phone
+        # is unplugged the old "rndis0 · internet: tak" would stay on the
+        # very row meant to diagnose "no internet". Drop it when it is old
+        # AND no phone uplink is connected any more. While one is connected
+        # its module keeps re-probing (also when another interface holds
+        # the route — the "route_other" case), so a long check_sec cannot
+        # make the row flicker to "unknown" between probes.
+        checked = _ts(probe.get("checked_at"))
+        too_old = checked is None or \
+            time.time() - checked > 2 * _net_probe.MIN_INTERVAL_S
+        if too_old and not (car_up or bt_up):
+            probe = None
+    probe_out = None
+    route_iface = ""
+    if isinstance(probe, dict):
+        route_iface = probe.get("iface") if isinstance(probe.get("iface"), str) \
+            and _net_probe.IFACE_RE.fullmatch(probe.get("iface")) else ""
+        err = probe.get("error")
+        probe_out = {"ok": probe.get("ok") is True, "iface": route_iface,
+                     "dns_ok": probe.get("dns_ok") is True,
+                     "https_ok": probe.get("https_ok") is True,
+                     "error": err if err in _net_probe.ERRORS else "",
+                     "checked_at": _ts(probe.get("checked_at"))}
+    kind = ""
+    iface = route_iface
+    if probe_out is not None:
+        if not route_iface:
+            kind = "none"
+        elif car_up and car.get("iface") == route_iface:
+            kind = "usb"
+        elif bt_up and tether.get("iface") == route_iface:
+            kind = "bt"
+        else:
+            kind = "other"
+    elif car_up:
+        kind, iface = "usb", car.get("iface") or ""
+    elif bt_up:
+        kind, iface = "bt", tether.get("iface") or ""
+    keys = _net_services.key_presence(config)
+    snap = _net_services.snapshot()
+    services = {}
+    for name in _net_services.SERVICES:
+        entry = snap.get(name) or {}
+        result = entry.get("result")
+        services[name] = {
+            "key_set": bool(keys.get(name)),
+            "result": result if result in _net_services.RESULTS else "untested",
+            "http_code": _http_code(entry.get("http_code")),
+            "at": _ts(entry.get("at")),
+        }
+    return {
+        "uplink": {"kind": kind, "iface": iface if isinstance(iface, str) else "",
+                   "internet": probe_out["ok"] if probe_out is not None else None},
+        "probe": probe_out,
+        "services": services,
+        "test": {"running": bool(test_running), "at": _ts(last_test_at)},
+    }
+
+
 def _phone_tether_summary(value: Any) -> Optional[dict]:
     """``net.phone_tether`` → ``{state, ip, iface, hint}`` for the payload.
 
@@ -309,12 +699,12 @@ def _phone_tether_summary(value: Any) -> Optional[dict]:
     ip = value.get("ip")
     iface = value.get("iface")
     hint = value.get("hint")
-    return {
+    return dict({
         "state": state if isinstance(state, str) and state in _TETHER_STATES else "unknown",
         "ip": ip if isinstance(ip, str) and len(ip) <= 45 else "",
         "iface": iface if isinstance(iface, str) and len(iface) <= 15 else "",
         "hint": hint if isinstance(hint, str) and hint in _TETHER_HINTS else "",
-    }
+    }, **_internet_summary(value))
 
 
 #: Minimum spacing of POST /api/car_phone/retry (each can cost adb calls and
@@ -384,6 +774,151 @@ def _car_phone_summary(value: Any) -> Optional[dict]:
         "hotspot_clients": num("hotspot_clients", 0, 255, integer=True),
         "heat": pick("heat", ("warning", "danger"), None),
         "error": error[:200] if isinstance(error, str) else "",
+        "forwards": _forwards_summary(value.get("forwards")),
+        **_internet_summary(value),
+    }
+
+
+#: Named adb forwards of car_phone shown in Settings (src/network/car_phone.py
+#: NAMED_FORWARDS) — anything else in the payload is dropped.
+_CAR_PHONE_FORWARDS = ("sensors", "agent")
+
+
+def _forwards_summary(value: Any) -> dict:
+    """``net.car_phone`` ``forwards`` → ``{name: {ok, error}}`` for the
+    known names only (ports stay out: nothing in the UI needs them)."""
+    out: dict = {}
+    if not isinstance(value, dict):
+        return out
+    for name in _CAR_PHONE_FORWARDS:
+        spec = value.get(name)
+        if not isinstance(spec, dict):
+            continue
+        err = spec.get("error")
+        out[name] = {"ok": spec.get("ok") is True,
+                     "error": clean_error(err)[:200] if isinstance(err, str) else ""}
+    return out
+
+
+#: Minimum spacing of POST /api/phone_sensors/test — longer than the test
+#: itself (10 s), so a second click cannot queue another one behind it.
+_PHONE_SENSORS_TEST_MIN_INTERVAL_S = 12.0
+
+
+def _phone_sensors_summary(state: Any, test: Any, car: Any,
+                           now: Optional[float] = None) -> Optional[dict]:
+    """``phone_sensors.state`` (+ ``phone_sensors.test_result`` and the
+    ``sensors`` forward from ``net.car_phone``) → the Settings row
+    "Czujniki telefonu". None = the module does not run (no row).
+
+    Everything is whitelisted / range-checked: the values describe what the
+    phone sent (close reasons are SensorServer's own text). ``lux_age_s`` is
+    computed here, so the row shows how old the last light reading is even
+    between two state publications."""
+    if not isinstance(state, dict):
+        return None
+    now = time.time() if now is None else now
+
+    def num(v, lo, hi, nd=1):
+        if isinstance(v, bool) or not isinstance(v, (int, float)) or not math.isfinite(v) \
+                or not lo <= v <= hi:
+            return None
+        return round(float(v), nd)
+
+    raw_types = state.get("types") if isinstance(state.get("types"), dict) else {}
+    types = {}
+    for key in _phone_sensors.TYPE_NAMES:
+        t = raw_types.get(key) if isinstance(raw_types.get(key), dict) else {}
+        types[key] = {"subscribed": t.get("subscribed") is True,
+                      "active": t.get("active") is True,
+                      "hz": num(t.get("hz"), 0, 5000) or 0.0,
+                      "refused": t.get("refused") is True}
+    lux = num(state.get("lux"), 0, _phone_sensors.MAX_LUX)
+    lux_ts = _ts(state.get("lux_ts"))
+    lux_age = None
+    if lux is not None and lux_ts is not None:
+        lux_age = round(max(0.0, now - lux_ts), 1)
+    close = state.get("close") if isinstance(state.get("close"), dict) else {}
+    code = close.get("code")
+    reason = close.get("reason")
+    channel = close.get("channel")
+    error = state.get("error")
+    st = state.get("state")
+    mode = state.get("mode")
+    out = {
+        "state": st if isinstance(st, str) and st in _phone_sensors.STATES else "unknown",
+        "mode": mode if isinstance(mode, str) and mode in _phone_sensors.MODES else "",
+        "error": clean_error(error)[:200] if isinstance(error, str) else "",
+        "rate_hz": num(state.get("rate_hz"), 0, 5000) or 0.0,
+        "calib_ok": state.get("calib_ok") is True,
+        "types": types,
+        "lux": lux,
+        "lux_age_s": lux_age,
+        "close": {
+            "code": code if isinstance(code, int) and not isinstance(code, bool)
+            and 1000 <= code <= 4999 else None,
+            "reason": clean_error(reason)[:_phone_sensors.CLOSE_REASON_MAX]
+            if isinstance(reason, str) else "",
+            "channel": channel if channel in ("all", "accel", "gyro", "light") else "",
+        },
+        "test": {"running": state.get("test_running") is True,
+                 "result": _phone_sensors_test_summary(test)},
+        "forward": None,
+    }
+    if isinstance(car, dict):
+        fwd = _forwards_summary(car.get("forwards")).get("sensors")
+        out["forward"] = fwd if fwd is not None else {"ok": False, "error": "missing"}
+    return out
+
+
+def _age_at(then: Any, at: Any) -> Optional[float]:
+    """Seconds from ``then`` to ``at`` (both epoch, validated by _ts);
+    None when either is missing or ``then`` lies after ``at``."""
+    a, b = _ts(then), _ts(at)
+    if a is None or b is None or a > b:
+        return None
+    return round(b - a, 1)
+
+
+def _phone_sensors_test_summary(value: Any) -> Optional[dict]:
+    if not isinstance(value, dict):
+        return None
+    verdict = value.get("verdict")
+    if verdict not in _phone_sensors.TEST_VERDICTS:
+        return None
+    hint = value.get("hint")
+
+    def count(d, key):
+        v = d.get(key) if isinstance(d, dict) else None
+        return v if isinstance(v, int) and not isinstance(v, bool) and 0 <= v <= 10**7 else 0
+
+    def lux(v):
+        if isinstance(v, bool) or not isinstance(v, (int, float)) or not math.isfinite(v) \
+                or not 0 <= v <= _phone_sensors.MAX_LUX:
+            return None
+        return round(float(v), 1)
+
+    frames = value.get("frames")
+    hz = value.get("hz") if isinstance(value.get("hz"), dict) else {}
+    dur = value.get("duration_s")
+    return {
+        "ts": _ts(value.get("ts")),
+        "verdict": verdict,
+        "hint": hint if hint in _phone_sensors.TEST_HINTS else "",
+        "frames": {k: count(frames, k) for k in _phone_sensors.TYPE_NAMES},
+        "hz": {k: (round(float(hz[k]), 1) if isinstance(hz.get(k), (int, float))
+                   and not isinstance(hz.get(k), bool) and math.isfinite(hz[k])
+                   and 0 <= hz[k] <= 5000 else 0.0) for k in _phone_sensors.TYPE_NAMES},
+        "lux_min": lux(value.get("lux_min")),
+        "lux_max": lux(value.get("lux_max")),
+        # Steady light: no frame in the window, but the connection that
+        # delivered the last reading is still up — the row shows that
+        # reading and how old it was when the test ended.
+        "light_steady": value.get("light_steady") is True,
+        "lux": lux(value.get("lux")),
+        "lux_age_s": _age_at(value.get("lux_ts"), value.get("ts")),
+        "duration_s": round(float(dur), 1) if isinstance(dur, (int, float))
+        and not isinstance(dur, bool) and math.isfinite(dur) and 0 <= dur <= 600 else None,
     }
 
 
@@ -553,6 +1088,9 @@ _CALL112_VEHICLE_LIMITS = {"label": 32, "colour": 20, "plate": 12}
 #: head unit's own screen — at most one accepted request per this many
 #: seconds per route (a loop guard; the phone limits wrong codes itself).
 _PARK_MIN_INTERVAL_S = 3.0
+#: POST /api/traccar/send: at most one accepted request per this many
+#: seconds (the phone also refuses more than one per 10 s).
+_TRACCAR_SEND_MIN_INTERVAL_S = 15.0
 
 
 def _parking_guard_summary(value: Any) -> Optional[dict]:
@@ -677,6 +1215,53 @@ def _cabin_watch_summary(value: Any) -> Optional[dict]:
     }
 
 
+def _traccar_summary(value: Any) -> Optional[dict]:
+    """``traccar.state`` → the Settings row "Traccar" (second line of
+    validation — the payload also reaches network clients in ``readonly``).
+    Never the URL or the device id: the host name, ``id_set`` and the
+    8-character fingerprint only. None = module not running (no row)."""
+    if not isinstance(value, dict):
+        return None
+    host = value.get("url_host")
+    fp = value.get("id_fp")
+    agent = _traccar.parse_agent_view(value.get("agent"))
+    cmd = value.get("cmd")
+    cmd_out = None
+    if isinstance(cmd, dict) and cmd.get("state") in _traccar.CMD_STATES:
+        err = cmd.get("error")
+        ts = cmd.get("ts")
+        cmd_out = {"state": cmd["state"],
+                   "error": err if isinstance(err, str) and re.fullmatch(r"[a-z0-9_]{0,32}", err)
+                   else "",
+                   "ts": ts if isinstance(ts, int) and not isinstance(ts, bool)
+                   and 1e9 < ts < 4e9 else None}
+    error = value.get("error")
+    return {
+        "url_ok": value.get("url_ok") is True,
+        "url_host": host if isinstance(host, str) and re.fullmatch(r"[A-Za-z0-9.-]{1,253}", host)
+        else "",
+        "id_set": value.get("id_set") is True,
+        "id_fp": fp if isinstance(fp, str) and re.fullmatch(r"[0-9a-f]{8}", fp) else "",
+        "agent": agent,
+        "cmd": cmd_out,
+        "error": error if error in _traccar.ERRORS else "",
+    }
+
+
+def _last_park_summary(value: Any) -> Optional[dict]:
+    """``park.last_position`` → Settings "Ostatni postój" and /trips: the
+    two numbers (validated), the time and map links built HERE from the
+    rounded numbers only. None = nothing saved / module not running."""
+    rec = _last_park.valid_record(value)
+    if rec is None:
+        return None
+    lat, lon = rec["lat"], rec["lon"]
+    return {"lat": lat, "lon": lon, "ts": rec["ts"], "reason": rec["reason"],
+            "osm_url": f"https://www.openstreetmap.org/?mlat={lat:.6f}&mlon={lon:.6f}"
+                       f"#map=17/{lat:.6f}/{lon:.6f}",
+            "geo_url": f"geo:{lat:.6f},{lon:.6f}"}
+
+
 #: "Wybudzono" banner routes (src/power/remote_session.py): at most one
 #: accepted request per this many seconds per route (a loop guard — the
 #: module allows hold_max_min minutes of holds per session itself).
@@ -796,6 +1381,46 @@ def _auto_brightness_summary(value: Any) -> Optional[dict]:
         "active": word(value.get("active"), _brightness.ACTIVE_BACKENDS, "css"),
         "probe": word(value.get("probe"), _brightness.PROBE_STATES, "idle"),
         "reason": word(value.get("reason"), _brightness.REASONS, ""),
+    }
+
+
+_VOICE_ENGINES = ("piper", "espeak", "none")
+_VOICE_DUCKING = ("eq", "streams", "off")
+
+
+def _voice_summary(value: Any) -> Optional[dict]:
+    """``voice.status`` (src/audio/voice_announce.py) → the Settings row
+    "Komunikaty głosowe". Whitelists and ranges only — never a phrase (the
+    payload also reaches network clients in ``readonly`` mode). Never
+    published = module not running = None = no row."""
+    if not isinstance(value, dict):
+        return None
+
+    def word(v: Any, allowed: tuple, default: str) -> str:
+        return v if isinstance(v, str) and v in allowed else default
+
+    vol = value.get("volume")
+    if isinstance(vol, bool) or not isinstance(vol, int) \
+            or not _voice.VOLUME_MIN <= vol <= _voice.VOLUME_MAX:
+        vol = None
+    queue = value.get("queue")
+    if isinstance(queue, bool) or not isinstance(queue, int) or not 0 <= queue <= 1000:
+        queue = 0
+    cats_raw = value.get("categories")
+    cats = {c: (cats_raw.get(c) is True if isinstance(cats_raw, dict) else False)
+            for c in _voice.USER_CATEGORIES}
+    return {
+        "enabled": value.get("enabled") is True,
+        "volume": vol,
+        "categories": cats,
+        "engine": word(value.get("engine"), _VOICE_ENGINES, "none"),
+        "player": word(value.get("player"), _voice.PLAYERS, "none"),
+        "queue": queue,
+        "speaking": value.get("speaking") is True,
+        "call_active": value.get("call_active") is True,
+        "last_result": word(value.get("last_result"), _voice.STATUS_RESULTS, ""),
+        "last_spoken_ts": _ts(value.get("last_spoken_ts")),
+        "ducking": word(value.get("ducking"), _VOICE_DUCKING, "off"),
     }
 
 
@@ -1046,7 +1671,8 @@ _REMOTE_ACCESS_MODES = ("full", "readonly", "tracking", "none")
 _DEFAULT_ALLOWED_NETWORKS = ("10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16")
 _SAFE_METHODS = ("GET", "HEAD")
 #: Views reachable from the network in "tracking" mode (GET/HEAD only).
-_TRACKING_ENDPOINTS = frozenset({"trips_page", "api_tracking_trips", "api_tracking_trip_gpx"})
+_TRACKING_ENDPOINTS = frozenset({"trips_page", "api_tracking_trips", "api_tracking_trip_gpx",
+                                 "api_fuel_log"})
 #: GET views reachable from the network in "readonly" mode — read-only
 #: views of what the dashboard shows (static files, state, lists).
 _READONLY_ENDPOINTS = frozenset({
@@ -1058,6 +1684,7 @@ _READONLY_ENDPOINTS = frozenset({
     "bt_pairing_status", "api_radio_status", "api_phone_contacts",
     "api_phone_history", "api_phone_status", "api_trip_route", "api_debug_weather",
     "api_tracking_trips", "api_tracking_trip_gpx", "trips_page", "ws_data_handler",
+    "api_fuel_log",
 })
 #: GET views deliberately kept OFF the readonly allow-list (documentation,
 #: and the test that every GET view is classified): /ws/input injects keys
@@ -1307,7 +1934,81 @@ def _local_time(ts: Any, fmt: str) -> str:
         return ""
 
 
-def _render_trips_html(trips: Optional[list], gps_line: str) -> str:
+def _render_refuels_html(refuels: Optional[list]) -> str:
+    """The "Tankowania" table of /trips (None = module off → nothing).
+
+    Built from _fuel_refuel_json entries — numbers and flags only, every
+    cell still escaped. A table with inline styles (the page's CSP allows
+    no stylesheet) that scrolls sideways on a narrow phone.
+    """
+    if refuels is None:
+        return ""
+    esc = html.escape
+
+    def num(value, fmt, unit=""):
+        if value is None:
+            return "—"
+        return (fmt.format(value) + unit).replace(".", ",")
+
+    head = ("Data", "Litry", "Cena/l", "Licznik", "Do pełna", "Spalanie", "Dystans", "Koszt")
+    th = "".join(f'<th style="text-align:left;padding:6px 8px;color:#a1a1aa;'
+                 f'font-weight:600;white-space:nowrap">{esc(h)}</th>' for h in head)
+    rows = []
+    for r in refuels:
+        iv = r.get("interval") or {}
+        l100 = iv.get("l100") if iv else None
+        km = iv.get("km") if iv else None
+        if iv and l100 is not None and not iv.get("usable"):
+            l100_txt = num(l100, "{:.1f}", " l/100 km") + " (pominięte)"
+        else:
+            l100_txt = num(l100, "{:.1f}", " l/100 km")
+        src = {"odometer": " (licznik)", "gps": " (GPS)"}.get(iv.get("source"), "") if km else ""
+        cells = (_local_time(r.get("ts"), "%Y-%m-%d %H:%M") or "—",
+                 num(r.get("litres"), "{:.2f}", " l"),
+                 num(r.get("price_per_l"), "{:.2f}", " zł"),
+                 num(r.get("odometer_km"), "{:.0f}", " km"),
+                 "tak" if r.get("full") else "nie",
+                 l100_txt,
+                 num(km, "{:.0f}", " km") + src,
+                 num(iv.get("cost") if iv else None, "{:.2f}", " zł"))
+        rows.append("<tr>" + "".join(
+            f'<td style="padding:6px 8px;border-top:1px solid #27272a;white-space:nowrap">'
+            f'{esc(c)}</td>' for c in cells) + "</tr>")
+    body = "".join(rows) if rows else (
+        '<tr><td colspan="8" style="padding:8px;color:#a1a1aa">Brak zapisanych '
+        'tankowań — przycisk „Zatankowano” jest na ekranie trasy w aucie.</td></tr>')
+    return ('<h2 style="font-size:18px;margin:18px 0 6px 0">Tankowania</h2>'
+            '<div style="overflow-x:auto;background:#18181b;border:1px solid #3f3f46;'
+            'border-radius:12px"><table style="border-collapse:collapse;font-size:14px;'
+            f'width:100%"><thead><tr>{th}</tr></thead><tbody>{body}</tbody></table></div>'
+            '<p style="color:#71717a;font-size:12px;margin:6px 0 0 0">Spalanie liczone '
+            'od pełna do pełna; dystans z licznika, a bez niego z GPS.</p>')
+
+
+def _render_last_park_html(last: Optional[dict]) -> str:
+    """"Ostatni postój" on /trips — escaped; the links come from
+    :func:`_last_park_summary` (built from two rounded numbers)."""
+    if last is None:
+        return ""
+    esc = html.escape
+    when = _local_time(last["ts"], "%Y-%m-%d %H:%M")
+    coords = f"{last['lat']:.5f}, {last['lon']:.5f}"
+    btn = ('display:inline-block;margin:8px 8px 0 0;padding:8px 14px;border-radius:8px;'
+           'color:#fff;text-decoration:none;font-weight:600;')
+    return ('<h2 style="font-size:18px;margin:18px 0 6px 0">Ostatni postój</h2>'
+            '<div style="background:#18181b;border:1px solid #3f3f46;border-radius:12px;'
+            'padding:12px 14px;margin:0 0 10px 0">'
+            f'<div style="color:#d4d4d8">{esc(when)} · {esc(coords)}'
+            '</div>'
+            f'<a href="{esc(last["osm_url"])}" rel="noopener noreferrer" '
+            f'style="{btn}background:#b91c1c">Mapa (OpenStreetMap)</a>'
+            f'<a href="{esc(last["geo_url"])}" style="{btn}background:#3f3f46">'
+            'Otwórz w nawigacji</a></div>')
+
+
+def _render_trips_html(trips: Optional[list], gps_line: str,
+                       refuels: Optional[list] = None,
+                       last_park: Optional[dict] = None) -> str:
     """The phone-browser trip list. Every dynamic value is HTML-escaped.
 
     Inline styles only (the dashboard's Tailwind is precompiled, and this
@@ -1354,6 +2055,9 @@ def _render_trips_html(trips: Optional[list], gps_line: str) -> str:
         'line-height:1.4">'
         '<h1 style="font-size:20px;margin:0 0 4px 0">Zapisane trasy</h1>'
         f'<p style="color:#a1a1aa;margin:0 0 14px 0">{esc(gps_line)}</p>'
+        + _render_last_park_html(last_park)
+        + _render_refuels_html(refuels)
+        + '<h2 style="font-size:18px;margin:18px 0 6px 0">Trasy</h2>'
         + "".join(cards) +
         '<p style="color:#71717a;font-size:12px;margin-top:16px">GPX 1.1 — otworzysz go '
         'w aplikacji z mapami (np. OsmAnd, Google Earth).</p>'
@@ -1418,6 +2122,21 @@ class WebViewer:
         # POST /api/car_phone_agent/pair rate limit (monotonic, as above).
         self._agent_pair_lock = threading.Lock()
         self._agent_pair_last: Optional[float] = None
+        # POST /api/phone_sensors/test rate limit (monotonic, as above).
+        self._sensors_test_lock = threading.Lock()
+        self._sensors_test_last: Optional[float] = None
+        # POST /api/voice/test rate limit (monotonic, as above).
+        self._voice_test_lock = threading.Lock()
+        self._voice_test_last: Optional[float] = None
+        # POST /api/net/test: rate limit (monotonic), one worker at a time,
+        # wall time of the last finished test (for the Settings row).
+        self._net_test_lock = threading.Lock()
+        self._net_test_last: Optional[float] = None
+        self._net_test_running = False
+        self._net_test_done_at: Optional[float] = None
+        # The test itself (src/network/net_services.run_test) — a seam so
+        # route tests never touch the network.
+        self._net_test_runner = _net_services.run_test
         # /api/crash/* rate limits: last accepted request per route (monotonic).
         self._crash_lock = threading.Lock()
         self._crash_last: dict[str, float] = {}
@@ -1523,6 +2242,8 @@ class WebViewer:
         if not isinstance(_wc, dict):
             _wc = {}
 
+        _fuel_summary = _fuel_log_summary(self._config, _val("fuel.stats"))
+
         data = {
             # Engine
             "rpm": _val("obd.rpm", 0),
@@ -1580,10 +2301,27 @@ class WebViewer:
             # fetch after a location change — used by A4 Weather to drop
             # the "Loading..." spinner reactively (no hardcoded setTimeout).
             "weather_search_done": _val("weather.search_done", 0),
+            # Weather warnings (modules.weather_alerts): A4 strip and the
+            # top-bar icon; None = module off.
+            "weather_alerts": _weather_alerts_summary(_val("weather.alert")),
+            # TomTom incidents while driving (modules.traffic_alerts): the
+            # live list on the route screen; None = module off.
+            "traffic_alerts": _traffic_alerts_summary(_val("traffic.alert"),
+                                                      _val("traffic.status")),
             # Travel plan (A3 Trip — only populated when destination is set)
             "trip_plan": (self._trip_computer.get_plan_dict()
                           if self._trip_computer else None),
             "trip_planning": _val("trip.planning", False),
+            # Refuel log (src/trip/fuel_log.py) — A3 stats card and list.
+            "fuel_log": _fuel_summary,
+            # A1 side bars: fuel (sensor → refuel-log estimate) and coolant.
+            "a1_gauges": _a1_gauges(
+                bus.get_last("obd.fuel_level"), bus.get_last("obd.coolant_temp"),
+                # Same test main.py uses to start the DemoDataGenerator.
+                bool(self._config is not None
+                     and getattr(self._config, "platform", "") == "x86"
+                     and self._config.get("system.simulation", True)),
+                _fuel_summary, time.time()),
             # BT Media
             "bt_media_title": _val("bt.media_title", ""),
             "bt_media_artist": _val("bt.media_artist", ""),
@@ -1613,9 +2351,23 @@ class WebViewer:
             "lte_signal": _val("lte.signal", 0),
             # Internet from the phone (src/network/phone_tether.py).
             "phone_tether": _phone_tether_summary(_val("net.phone_tether")),
+            # Where the weather on screen comes from (demo / cache / live)
+            # and the last error (src/weather/weather.py, weather.status).
+            "weather_status": _weather_status_summary(_val("weather.status")),
+            # Settings "Internet i usługi" (modules.net_diag): uplink with
+            # the internet probe, key presence + last result per service.
+            "net_diag": _net_diag_summary(self._config, _val("net.phone_tether"),
+                                          _val("net.car_phone"), self._net_test_running,
+                                          self._net_test_done_at),
             # The phone mounted in the car (src/network/car_phone.py): USB
             # tethering, GPS forward, battery. None = module not running.
             "car_phone": _car_phone_summary(_val("net.car_phone")),
+            # Settings "Czujniki telefonu" (src/sensors/phone_sensors.py):
+            # per-type rate, last lux and its age, the test verdict, the
+            # sensors forward. None = module not running.
+            "phone_sensors": _phone_sensors_summary(
+                _val(_phone_sensors.TOPIC_STATE), _val(_phone_sensors.TOPIC_TEST_RESULT),
+                _val("net.car_phone")),
             # The Termux agent on that phone (src/network/car_phone_agent.py):
             # pairing / health for the Settings row. None = module not running.
             "car_phone_agent": _car_phone_agent_summary(
@@ -1638,6 +2390,13 @@ class WebViewer:
             # row "Czuwanie kabiny" — state and the last event, never a
             # photo. None = module not running (no row).
             "cabin_watch": _cabin_watch_summary(_val(_cabin_watch.TOPIC_STATE)),
+            # The car's position on the owner's Traccar server, sent by the
+            # phone (src/network/traccar.py, traccar.state): the Settings row
+            # "Traccar" — never the URL or the device id. None = not running.
+            "traccar": _traccar_summary(_val(_traccar.TOPIC_STATE)),
+            # Where the car last stood (src/location/last_park.py,
+            # park.last_position): Settings "Ostatni postój" and /trips.
+            "last_park": _last_park_summary(_val(_last_park.TOPIC)),
             # Automatic brightness (src/power/brightness.py, modules.
             # auto_brightness): the Settings row "Jasność ekranu" and the
             # kiosk's dimming overlay (app.js → components/dim_overlay.js,
@@ -1645,6 +2404,9 @@ class WebViewer:
             # module not running = no row and no overlay (production).
             "auto_brightness": _auto_brightness_summary(_val(_brightness.TOPIC_STATE)),
             "display_dim": _display_dim_summary(_val(_brightness.TOPIC_DIM)),
+            # Spoken warnings (src/audio/voice_announce.py, voice.status):
+            # the Settings row "Komunikaty głosowe". None = module not running.
+            "voice_announce": _voice_summary(_val(_voice.STATUS_TOPIC)),
             # The session after a remote wake (src/power/remote_session.py,
             # plan E, the buffered build): the global "Wybudzono" banner
             # (app.js → components/wake_banner.js) and the Settings row.
@@ -2227,6 +2989,7 @@ class WebViewer:
                 "aa_auto_restart": cfg.get("multimedia.aa_auto_restart", True),
                 "brightness_backend": cfg.get("display.auto_brightness.backend", "auto"),
                 "brightness_mode": cfg.get("display.auto_brightness.mode", "auto"),
+                "voice_enabled": cfg.get("voice_announce.enabled", True) is not False,
             })
 
         @app.route("/api/config", methods=["POST"])
@@ -2280,6 +3043,19 @@ class WebViewer:
 
         # --- Module toggles (Settings -> Moduły) ---
 
+        def _config_migration(cfg):
+            """local.yaml written for an older base (bcm_config_test.yaml →
+            bcm_config.yaml): file names and the migrate command for the
+            banner in Settings → Moduły, None otherwise. Built from fixed
+            strings only — nothing from the overlay or env reaches the page."""
+            info = getattr(cfg, "base_migration", None)
+            if not isinstance(info, dict):
+                return None
+            out = {k: info.get(k) for k in ("recorded", "base", "command")}
+            if not all(isinstance(v, str) and v for v in out.values()):
+                return None
+            return out
+
         @app.route("/api/modules", methods=["GET"])
         def api_modules_get():
             cfg = viewer._config
@@ -2287,7 +3063,8 @@ class WebViewer:
                 return jsonify({"modules": [], "restart_required": False})
             modules = viewer._modules_payload(cfg)
             return jsonify({"modules": modules,
-                            "restart_required": _modules_restart_required(modules, False)})
+                            "restart_required": _modules_restart_required(modules, False),
+                            "config_migration": _config_migration(cfg)})
 
         @app.route("/api/modules", methods=["POST"])
         def api_modules_set():
@@ -3422,6 +4199,142 @@ class WebViewer:
             viewer._event_bus.publish(_CAR_PHONE_RETRY_TOPIC, True)
             return jsonify({"ok": True})
 
+        @app.route("/api/phone_sensors/test", methods=["POST"])
+        def api_phone_sensors_test():
+            """"Test" in the Settings row "Czujniki telefonu".
+
+            Loopback ONLY: the head unit's own screen starts it (nothing a
+            phone on the hotspot needs). Takes no arguments (the body is
+            ignored) and only publishes phone_sensors.cmd.test; the module's
+            worker counts the frames per sensor for 10 s and publishes
+            phone_sensors.test_result, which arrives in the payload's
+            ``phone_sensors.test``. 409 when the module does not run or a
+            test is running; at most one per _PHONE_SENSORS_TEST_MIN_INTERVAL_S
+            (429 + Retry-After).
+            """
+            if not _kiosk_request(request.remote_addr, request.host,
+                                  request.headers.get("Origin")):
+                viewer._log_refusal(str(request.remote_addr)[:64], request.method,
+                                    request.path, "loopback_only",
+                                    "the phone sensor test is only possible from the head "
+                                    "unit's own screen", level=logging.WARNING)
+                return jsonify({"ok": False, "error": "forbidden"}), 403
+            bus = viewer._event_bus
+            if not bus:
+                return jsonify({"ok": False, "error": "event bus unavailable"}), 503
+            try:
+                last_state = bus.get_last(_phone_sensors.TOPIC_STATE)
+            except Exception:
+                last_state = None
+            state = last_state[0] if last_state else None
+            if not isinstance(state, dict) or state.get("state") in (None, "disabled"):
+                return jsonify({"ok": False, "error": "disabled"}), 409
+            if state.get("test_running") is True:
+                return jsonify({"ok": False, "error": "busy"}), 409
+            now = time.monotonic()
+            with viewer._sensors_test_lock:
+                last = viewer._sensors_test_last
+                if last is not None and now - last < _PHONE_SENSORS_TEST_MIN_INTERVAL_S:
+                    wait = int(_PHONE_SENSORS_TEST_MIN_INTERVAL_S - (now - last)) + 1
+                    res = jsonify({"ok": False, "error": "too many requests",
+                                   "retry_after": wait})
+                    res.headers["Retry-After"] = str(wait)
+                    return res, 429
+                viewer._sensors_test_last = now
+            bus.publish(_phone_sensors.TEST_TOPIC, True)
+            return jsonify({"ok": True, "started": True,
+                            "duration_s": _phone_sensors.TEST_DURATION_S}), 202
+
+        @app.route("/api/voice/test", methods=["POST"])
+        def api_voice_test():
+            """"Powiedz test" in the Settings row "Komunikaty głosowe"
+            (modules.voice_announce). Loopback ONLY (whatever
+            dashboard.remote_access says) and at most one per
+            _VOICE_TEST_MIN_INTERVAL_S (429 + Retry-After): it makes the car
+            speak and ducks the music. The body is ignored — the module
+            speaks its own FIXED phrase, never text from a request. 202 =
+            queued (the result arrives in the payload's voice_announce);
+            409 = module not running / no speech engine / phone call.
+            """
+            if not _kiosk_request(request.remote_addr, request.host,
+                                  request.headers.get("Origin")):
+                viewer._log_refusal(str(request.remote_addr)[:64], request.method,
+                                    request.path, "loopback_only",
+                                    "the voice test is only possible from the head "
+                                    "unit's own screen", level=logging.WARNING)
+                return jsonify({"ok": False, "error": "forbidden"}), 403
+            module = _voice.get_voice_announcer()
+            if module is None:
+                return jsonify({"ok": False, "error": "not_running"}), 409
+            now = time.monotonic()
+            with viewer._voice_test_lock:
+                last = viewer._voice_test_last
+                if last is not None and 0 <= now - last < _VOICE_TEST_MIN_INTERVAL_S:
+                    wait = int(_VOICE_TEST_MIN_INTERVAL_S - (now - last)) + 1
+                    res = jsonify({"ok": False, "error": "too many requests",
+                                   "retry_after": wait})
+                    res.headers["Retry-After"] = str(wait)
+                    return res, 429
+                viewer._voice_test_last = now
+            result = module.speak_test()
+            if result in ("queued", "replaced"):
+                return jsonify({"ok": True, "queued": True}), 202
+            error = result if result in ("no_engine", "call_active") else "refused"
+            return jsonify({"ok": False, "error": error}), 409
+
+        @app.route("/api/net/test", methods=["POST"])
+        def api_net_test():
+            """"Test" in the Settings row "Internet i usługi" (modules.net_diag).
+
+            Loopback ONLY (whatever dashboard.remote_access says): each test
+            spends one request of every configured service's free daily
+            quota, so only the driver at the head unit's own screen starts
+            one. Takes no arguments (the body is ignored). At most one per
+            _NET_TEST_MIN_INTERVAL_S (429 + Retry-After), one at a time
+            (409 busy). The work — a forced internet probe plus one minimal
+            authenticated request per service with a key — runs in a worker
+            thread (up to ~30 s); the answer is 202 at once and the result
+            arrives in the payload's ``net_diag``. Nothing here ever returns
+            or logs a key: the response carries flags only.
+            """
+            if not _kiosk_request(request.remote_addr, request.host,
+                                  request.headers.get("Origin")):
+                viewer._log_refusal(str(request.remote_addr)[:64], request.method,
+                                    request.path, "loopback_only",
+                                    "the internet/API key test is only possible from the "
+                                    "head unit's own screen", level=logging.WARNING)
+                return jsonify({"ok": False, "error": "forbidden"}), 403
+            cfg = viewer._config
+            if cfg is None or cfg.get("modules.net_diag", False) is not True:
+                return jsonify({"ok": False, "error": "disabled"}), 409
+            now = time.monotonic()
+            with viewer._net_test_lock:
+                if viewer._net_test_running:
+                    return jsonify({"ok": False, "error": "busy"}), 409
+                last = viewer._net_test_last
+                if last is not None and now - last < _NET_TEST_MIN_INTERVAL_S:
+                    wait = int(_NET_TEST_MIN_INTERVAL_S - (now - last)) + 1
+                    res = jsonify({"ok": False, "error": "too many requests",
+                                   "retry_after": wait})
+                    res.headers["Retry-After"] = str(wait)
+                    return res, 429
+                viewer._net_test_last = now
+                viewer._net_test_running = True
+
+            def work():
+                try:
+                    viewer._net_test_runner(cfg, _net_probe.shared_probe(),
+                                            viewer._event_bus)
+                except Exception:
+                    log.exception("Internet/services test failed")
+                finally:
+                    with viewer._net_test_lock:
+                        viewer._net_test_running = False
+                        viewer._net_test_done_at = time.time()
+
+            threading.Thread(target=work, daemon=True, name="net-test").start()
+            return jsonify({"ok": True, "started": True}), 202
+
         @app.route("/api/car_phone_agent/pair", methods=["POST"])
         def api_car_phone_agent_pair():
             """"Sparuj" in the "Agent w telefonie" row: pair BCM with the
@@ -3785,6 +4698,35 @@ class WebViewer:
             _crash_accepted("park_disarm", now)
             return jsonify({"ok": True})
 
+        # --- Traccar (src/network/traccar.py) -------------------------------
+        # "Wyślij pozycję teraz": kiosk only (loopback + Host/Origin), a small
+        # JSON object body, rate-limited here AND on the phone. It only asks
+        # the phone for one point — the URL and the device id are never
+        # touched from the browser.
+
+        @app.route("/api/traccar/send", methods=["POST"])
+        def api_traccar_send():
+            refused = _crash_kiosk_only("sending the position to Traccar")
+            if refused is not None:
+                return refused
+            data, err = _crash_body()
+            if err is not None:
+                return err
+            if data:
+                return jsonify({"ok": False, "error": "bad_request"}), 400
+            module = _traccar.get_traccar()
+            if module is None:
+                return jsonify({"ok": False, "error": "not_running"}), 409
+            now = time.monotonic()
+            limited = _crash_rate_limited("traccar_send", _TRACCAR_SEND_MIN_INTERVAL_S, now)
+            if limited is not None:
+                return limited
+            result = module.request_send()
+            if not result.get("ok"):
+                return jsonify({"ok": False, "error": result.get("error") or "refused"}), 409
+            _crash_accepted("traccar_send", now)
+            return jsonify({"ok": True})
+
         # --- Wybudzanie (src/power/remote_session.py, plan E) ---------------
         # "Nie usypiaj 30 min" / "Uśpij teraz" in the global banner: loopback
         # ONLY (also with remote_access "full" — a phone in the car's network
@@ -3986,33 +4928,64 @@ class WebViewer:
 
         # --- Weather search API ---
 
+        def _owm_geocode(raw_query: Any):
+            """Shared by both searches. Errors are CODES, never exception
+            text: ``{"results": [], "error": "no_key" | "http" | "network"
+            | "bad_response", "http_code": 401}`` — the UI says "brak klucza
+            OWM" / "błąd 401 — zły albo nieaktywny klucz" instead of
+            nothing, and the request URL (it carries the key) can never end
+            up in a response. The outcome is recorded for Settings →
+            "Internet i usługi"."""
+            import urllib.parse
+            query = raw_query.strip() if isinstance(raw_query, str) else ""
+            if len(query) < 2:
+                return jsonify({"results": []})
+            query = query[:100]
+            api_key = viewer._config.get("weather.api_key", "") if viewer._config else ""
+            api_key = api_key.strip() if isinstance(api_key, str) else ""
+            if not api_key:
+                return jsonify({"results": [], "error": "no_key", "http_code": None}), 400
+            url = (f"https://api.openweathermap.org/geo/1.0/direct"
+                   f"?{urllib.parse.urlencode({'q': query, 'limit': 5, 'appid': api_key})}")
+            try:
+                code, body = _net_services.default_http("GET", url, {}, 5.0)
+            except Exception as e:
+                result, code = _net_services.classify_error(e)
+                _net_services.record("owm", result, code, source="search")
+                return jsonify({"results": [], "error": result, "http_code": code}), 502
+            if code is None or code >= 300:
+                _net_services.record("owm", "http", code, source="search")
+                return jsonify({"results": [], "error": "http",
+                                "http_code": _http_code(code)}), 502
+            try:
+                raw = json.loads((body or b"").decode("utf-8", "replace"))
+            except ValueError:
+                raw = None
+            if not isinstance(raw, list):
+                _net_services.record("owm", "bad_response", source="search")
+                return jsonify({"results": [], "error": "bad_response",
+                                "http_code": None}), 502
+            _net_services.record("owm", "ok", source="search")
+            results = []
+            for r in raw[:5]:
+                if not isinstance(r, dict):
+                    continue
+                coords = valid_coords(r.get("lat"), r.get("lon"))
+                if coords is None:
+                    continue
+                results.append({
+                    "name": str(r.get("name", ""))[:100],
+                    "country": str(r.get("country", ""))[:8],
+                    "state": str(r.get("state", "") or "")[:100],
+                    "lat": coords[0],
+                    "lon": coords[1],
+                })
+            return jsonify({"results": results})
+
         @app.route("/api/weather/search")
         def api_weather_search():
             """Geocode city name via OpenWeatherMap Geocoding API."""
-            import urllib.request
-            import urllib.parse
-            query = request.args.get("q", "").strip()
-            if not query or len(query) < 2:
-                return jsonify({"results": []})
-            api_key = ""
-            if viewer._config:
-                api_key = viewer._config.get("weather", {}).get("api_key", "")
-            if not api_key:
-                return jsonify({"results": [], "error": "no API key"}), 400
-            url = (f"https://api.openweathermap.org/geo/1.0/direct"
-                   f"?q={urllib.parse.quote(query)}&limit=5&appid={api_key}")
-            try:
-                req = urllib.request.Request(url, headers={"User-Agent": "BCM/1.0"})
-                with urllib.request.urlopen(req, timeout=5) as resp:
-                    raw = json.loads(resp.read())
-                results = [{"name": r.get("name", ""),
-                            "country": r.get("country", ""),
-                            "state": r.get("state", ""),
-                            "lat": r.get("lat", 0),
-                            "lon": r.get("lon", 0)} for r in raw]
-                return jsonify({"results": results})
-            except Exception as e:
-                return jsonify({"results": [], "error": str(e)}), 500
+            return _owm_geocode(request.args.get("q", ""))
 
         @app.route("/api/weather/location", methods=["POST"])
         def api_weather_set_location():
@@ -4043,36 +5016,11 @@ class WebViewer:
         def api_trip_search():
             """Geocode a city name for destination selection.
 
-            Reuses the OpenWeatherMap Geocoding API since BCM already
-            depends on it for weather search. Results share the same
-            shape as /api/weather/search.
+            Reuses the OpenWeatherMap Geocoding API (the OWM key, not the
+            ORS one) since BCM already depends on it for weather search.
+            Results share the same shape as /api/weather/search.
             """
-            import urllib.request
-            import urllib.parse
-            query = request.args.get("q", "").strip()
-            if not query or len(query) < 2:
-                return jsonify({"results": []})
-            api_key = ""
-            if viewer._config:
-                api_key = viewer._config.get("weather", {}).get("api_key", "")
-            if not api_key:
-                return jsonify({"results": [], "error": "no API key"}), 400
-            url = (f"https://api.openweathermap.org/geo/1.0/direct"
-                   f"?q={urllib.parse.quote(query)}&limit=5&appid={api_key}")
-            try:
-                req = urllib.request.Request(url, headers={"User-Agent": "BCM/1.0"})
-                with urllib.request.urlopen(req, timeout=5) as resp:
-                    raw = json.loads(resp.read())
-                results = [{
-                    "name": r.get("name", ""),
-                    "country": r.get("country", ""),
-                    "state": r.get("state", ""),
-                    "lat": r.get("lat", 0),
-                    "lon": r.get("lon", 0),
-                } for r in raw]
-                return jsonify({"results": results})
-            except Exception as e:
-                return jsonify({"results": [], "error": str(e)}), 500
+            return _owm_geocode(request.args.get("q", ""))
 
         @app.route("/api/trip/destination", methods=["POST"])
         def api_trip_set_destination():
@@ -4132,9 +5080,24 @@ class WebViewer:
                 "gps_lon": _last("gps.lon"),
                 "gps_fix": _last("gps.fix"),
                 "lte_connected": _last("lte.connected"),
+                "weather_status": _weather_status_summary(_last("weather.status")),
+                # Uplinks with the internet probe (None = module not running;
+                # internet None = modules.net_diag off).
+                "car_phone": {k: v for k, v in (_car_phone_summary(_last("net.car_phone"))
+                                                or {}).items()
+                              if k in ("state", "iface", "hint", "internet", "route_iface",
+                                       "internet_error")} or None,
+                "phone_tether": _phone_tether_summary(_last("net.phone_tether")),
+                "internet_probe": _net_probe.shared_probe().last,
+                # Presence only — never a key value.
+                "keys_set": _net_services.key_presence(viewer._config),
+                "service_results": _net_services.snapshot(),
                 "config_api_key_set": bool(viewer._config.get("weather", {}).get("api_key", "")) if viewer._config else False,
                 "config_platform": viewer._config.get("system", {}).get("platform", "?") if viewer._config else "?",
-                "hint": "If weather_current is null and api_key is set, check server logs for HTTP errors. New OWM keys take up to 2h to activate.",
+                "hint": ("weather_status.source=demo means no real data yet: last_error no_key = "
+                         "BCM_OWM_API_KEY missing in /etc/bcm/bcm.env, http 401 = wrong or not yet "
+                         "active key (new OWM keys take up to 2 h), network = no internet "
+                         "(see car_phone/phone_tether internet and internet_probe)."),
             })
 
         # --- Client-side logging ---
@@ -4293,6 +5256,147 @@ class WebViewer:
             result["available"] = any(result.values())
             return jsonify(result)
 
+        # --- Refuel log (src/trip/fuel_log.py, modules.fuel_log) ---
+
+        # Validation errors of FuelLog.add → 400; the rest says the module
+        # cannot take the entry right now.
+        _FUEL_BAD_INPUT = ("bad_request", "litres_required", "litres_range", "price_range",
+                           "odometer_range", "odometer_backwards", "bad_full",
+                           "note_too_long")
+
+        def _fuel_body():
+            if request.content_length is not None and request.content_length > _FUEL_MAX_BODY:
+                return None, (jsonify({"ok": False, "error": "too_large"}), 413)
+            data = request.get_json(silent=True)
+            if not isinstance(data, dict):
+                return None, (jsonify({"ok": False, "error": "bad_request"}), 400)
+            return data, None
+
+        def _fuel_error(error: str):
+            if error in _FUEL_BAD_INPUT:
+                return jsonify({"ok": False, "error": error}), 400
+            if error == "not_found":
+                return jsonify({"ok": False, "error": error}), 404
+            if error == "db_error":
+                return jsonify({"ok": False, "error": error}), 503
+            # not_running, read_only, not_last
+            return jsonify({"ok": False, "error": error}), 409
+
+        _FUEL_UNSET = object()
+
+        def _fuel_reserve(now: float):
+            """Check and take the fuel rate-limit slot in one step.
+
+            Flask is threaded: check-then-record after fuel.add() let two
+            overlapping taps both pass and store the refuel twice. Returns
+            (429 response or None, previous slot value for _fuel_release)."""
+            with viewer._crash_lock:
+                last = viewer._crash_last.get("fuel")
+                if last is not None and 0 <= now - last < _FUEL_MIN_INTERVAL_S:
+                    wait = int(_FUEL_MIN_INTERVAL_S - (now - last)) + 1
+                    res = jsonify({"ok": False, "error": "too many requests",
+                                   "retry_after": wait})
+                    res.headers["Retry-After"] = str(wait)
+                    return (res, 429), _FUEL_UNSET
+                viewer._crash_last["fuel"] = now
+                return None, (last if last is not None else _FUEL_UNSET)
+
+        def _fuel_release(previous, now: float) -> None:
+            """Give the slot back after a refused entry, so the corrected
+            retry (e.g. the confirm_odometer second save) is not a 429."""
+            with viewer._crash_lock:
+                if viewer._crash_last.get("fuel") != now:
+                    return          # another request took it meanwhile
+                if previous is _FUEL_UNSET:
+                    viewer._crash_last.pop("fuel", None)
+                else:
+                    viewer._crash_last["fuel"] = previous
+
+        @app.route("/api/fuel/refuel", methods=["POST"])
+        def api_fuel_refuel():
+            """"Zatankowano" on A3: ``{litres, price_per_l?, odometer_km?,
+            full?, note?, confirm_odometer?}`` (numbers or strings with ","/".").
+            Kiosk only (writes a record), one per _FUEL_MIN_INTERVAL_S (a
+            double tap must not store it twice). 201 with the stored entry
+            and ``warnings`` (litres_over_tank, odometer_backwards,
+            clock_behind); 400 with an error code the screen translates."""
+            refused = _crash_kiosk_only("entering a refuel")
+            if refused is not None:
+                return refused
+            fuel = _fuel_log.get_fuel_log(viewer._event_bus)
+            if fuel is None:
+                return jsonify({"ok": False, "error": "not_running"}), 409
+            data, err = _fuel_body()
+            if err is not None:
+                return err
+            now = time.monotonic()
+            limited, previous = _fuel_reserve(now)
+            if limited is not None:
+                return limited
+            try:
+                result = fuel.add(data)
+            except Exception:
+                _fuel_release(previous, now)
+                raise
+            if not result.get("ok"):
+                _fuel_release(previous, now)
+                return _fuel_error(str(result.get("error") or "bad_request"))
+            refuel = _fuel_refuel_json(result.get("refuel"))
+            warnings = [w for w in result.get("warnings") or []
+                        if w in ("litres_over_tank", "odometer_backwards", "clock_behind")]
+            return jsonify({"ok": True, "refuel": refuel, "warnings": warnings}), 201
+
+        @app.route("/api/fuel/refuel/<int:refuel_id>", methods=["DELETE"])
+        def api_fuel_refuel_delete(refuel_id):
+            """Delete the NEWEST refuel (undo a typo; older entries → 409
+            not_last). Kiosk only, rate-limited like the POST."""
+            refused = _crash_kiosk_only("deleting a refuel")
+            if refused is not None:
+                return refused
+            fuel = _fuel_log.get_fuel_log(viewer._event_bus)
+            if fuel is None:
+                return jsonify({"ok": False, "error": "not_running"}), 409
+            if refuel_id > _MAX_TRIP_ID:
+                return jsonify({"ok": False, "error": "not_found"}), 404
+            now = time.monotonic()
+            limited, previous = _fuel_reserve(now)
+            if limited is not None:
+                return limited
+            try:
+                result = fuel.delete(refuel_id)
+            except Exception:
+                _fuel_release(previous, now)
+                raise
+            if not result.get("ok"):
+                _fuel_release(previous, now)
+                return _fuel_error(str(result.get("error") or "bad_request"))
+            return jsonify({"ok": True})
+
+        @app.route("/api/fuel/log")
+        def api_fuel_log():
+            """Refuels, newest first, with the interval each full fill closes,
+            and the statistics. Read-only — reachable from the network in
+            ``tracking``/``readonly`` like /api/tracking/*; numbers only (no
+            position, no note)."""
+            fuel = _fuel_log.get_fuel_log(viewer._event_bus)
+            if fuel is None:
+                return jsonify({"error": "fuel log module is not running (modules.fuel_log)",
+                                "refuels": []}), 503
+            limit = _clamp_limit(request.args.get("limit"))
+            try:
+                rows = fuel.list_refuels(limit)
+                stats = fuel.stats()
+            except Exception:
+                log.exception("Reading the refuel log failed")
+                return jsonify({"error": "refuel database unavailable", "refuels": []}), 503
+            intervals = stats.get("intervals") or {}
+            out = []
+            for r in rows:
+                item = _fuel_refuel_json({**r, "interval": intervals.get(r.get("id"))})
+                if item is not None:
+                    out.append(item)
+            return jsonify({"refuels": out, "stats": _fuel_log_summary(viewer._config, stats)})
+
         # --- Trips + GPX (src/location/tracker.py) ---
 
         @app.route("/api/tracking/trips")
@@ -4343,7 +5447,21 @@ class WebViewer:
                     trips = tracker.list_trips(_TRIPS_PAGE_LIMIT)
                 except Exception:
                     log.exception("Listing trips for /trips failed")
-            body = _render_trips_html(trips, viewer._gps_status_line())
+            refuels = None
+            fuel = _fuel_log.get_fuel_log(viewer._event_bus)
+            if fuel is not None:
+                try:
+                    intervals = fuel.stats().get("intervals") or {}
+                    refuels = [x for x in (
+                        _fuel_refuel_json({**r, "interval": intervals.get(r.get("id"))})
+                        for r in fuel.list_refuels(_TRIPS_PAGE_LIMIT)) if x is not None]
+                except Exception:
+                    log.exception("Listing refuels for /trips failed")
+            last = None
+            if viewer._event_bus is not None:
+                got = viewer._event_bus.get_last(_last_park.TOPIC)
+                last = _last_park_summary(got[0] if got is not None else None)
+            body = _render_trips_html(trips, viewer._gps_status_line(), refuels, last)
             resp = Response(body, status=200 if trips is not None else 503,
                             mimetype="text/html")
             resp.headers["Content-Security-Policy"] = _TRIPS_CSP

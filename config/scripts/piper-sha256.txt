@@ -1,0 +1,20 @@
+# SHA-256 of every file config/scripts/install-piper.sh downloads.
+# Format: "<64 hex digits>  <file name>" (like sha256sum). The installer puts
+# NOTHING in place whose hash is not listed here (or in /etc/bcm/piper.sha256,
+# the local supplement — see below) and whose download does not match it.
+#
+# Piper 2023.11.14-2, Linux x86_64 release from github.com/rhasspy/piper
+# (computed 2026-11-24 from the release asset downloaded over HTTPS):
+a50cb45f355b7af1f6d758c1b360717877ba0a398cc8cbe6d2a7a3a26e225992  piper_linux_x86_64.tar.gz
+#
+# Polish voice pl_PL-gosia-medium (huggingface.co/rhasspy/piper-voices,
+# tag v1.0.0, pl/pl_PL/gosia/medium): NOT LISTED YET. Hugging Face could not
+# be reached from where this list was written, and a hash that was not
+# computed from the real file must not be written down. To add them:
+#   1. open https://huggingface.co/rhasspy/piper-voices/tree/v1.0.0/pl/pl_PL/gosia/medium
+#      and read the SHA256 shown for each of the two files ("LFS" details), or
+#      download both and run: sha256sum pl_PL-gosia-medium.onnx pl_PL-gosia-medium.onnx.json
+#   2. put the two lines ("<hash>  pl_PL-gosia-medium.onnx" and
+#      "<hash>  pl_PL-gosia-medium.onnx.json") into /etc/bcm/piper.sha256
+#      (root-owned, mode 0644) — or into this file in the repository;
+#   3. run: sudo bash /opt/bcm/config/scripts/install-piper.sh

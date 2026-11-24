@@ -148,6 +148,30 @@ async function run(browser, touch) {
     const checked = (name) => page.evaluate(
         (n) => document.querySelector(`input[data-module="${n}"]`).checked, name);
 
+    // 0. local.yaml for the old base: the banner with the migrate command is
+    // drawn at the top of the card and nothing spills sideways at 1024 px
+    // (the command is one long word — it must wrap).
+    if (FIXTURE.before.config_migration) {
+        await page.evaluate(() => document.querySelector("[data-config-migration]")
+            .scrollIntoView({ block: "center" }));
+        await page.waitForTimeout(100);
+        await expectOnScreen("[data-config-migration]", "migration banner");
+        const lay = await page.evaluate(() => {
+            const b = document.querySelector("[data-config-migration]").getBoundingClientRect();
+            const card = document.querySelector("[data-modules-card]").getBoundingClientRect();
+            return { b: [b.left, b.right], card: [card.left, card.right],
+                     page: document.documentElement.scrollWidth,
+                     text: document.querySelector("[data-config-migration]").textContent };
+        });
+        if (lay.page > 1024) fail(`${tag}: page wider than the panel (${lay.page})`);
+        if (lay.b[0] < lay.card[0] - 0.5 || lay.b[1] > lay.card[1] + 0.5) {
+            fail(`${tag}: banner outside the card ${JSON.stringify(lay)}`);
+        }
+        if (!lay.text.includes(FIXTURE.before.config_migration.command)) {
+            fail(`${tag}: command not shown: ${lay.text}`);
+        }
+    }
+
     // Scroll the card's phone_status row to the middle of the screen.
     await page.evaluate(() => document.querySelector('[data-module-row="phone_status"]')
         .scrollIntoView({ block: "center" }));

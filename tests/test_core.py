@@ -15,9 +15,10 @@ class TestBCMConfig:
 
     def test_dot_notation_access(self):
         cfg = BCMConfig(platform_override="x86")
-        # Main panel is the 10.1" 1280x800 (see display.dashboard in config).
-        assert cfg.get("display.dashboard.width") == 1280
-        assert cfg.get("display.dashboard.height") == 800
+        # Main panel in the car is the 7" 1024x600 (display.dashboard in
+        # config/bcm_config.yaml; the 10.1" 1280x800 values are a comment).
+        assert cfg.get("display.dashboard.width") == 1024
+        assert cfg.get("display.dashboard.height") == 600
 
     def test_default_value(self):
         cfg = BCMConfig(platform_override="x86")
