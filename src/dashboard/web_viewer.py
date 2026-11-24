@@ -554,6 +554,61 @@ def _fuel_log_summary(config: Any, stats: Any) -> dict:
 
 
 
+# A1 side bars (fuel left, engine temperature right). A reading counts only
+# while it is fresh: the bus keeps the last value forever, and a bar frozen at
+# the level from before the sensor dropped out lies to the driver.
+A1_FUEL_FRESH_S = 120.0
+A1_COOLANT_FRESH_S = 60.0
+
+
+def _a1_gauges(fuel_last: Any, coolant_last: Any, simulation: bool,
+               fuel_log: Any, now: float) -> dict:
+    """The A1 side bars → ``data.a1_gauges``.
+
+    ``fuel_last``/``coolant_last`` are ``EventBus.get_last()`` results
+    (``(value, epoch)`` or None). Sources, as fixed codes the screen maps to
+    labels:
+
+    - ``sensor``: a fresh ``obd.*`` value (fuel sender / K-Line);
+    - ``demo``: the same topic while ``system.simulation`` is on — the
+      DemoDataGenerator publishes it, so the bar says so;
+    - ``estimate`` (fuel only): litres left after the last full tank from
+      the refuel log (``fuel.stats``), as a % of the tank;
+    - ``none``: no source. Never the payload's old defaults (fuel 50 %,
+      coolant 0 °C), which looked like real readings.
+    """
+    def _fresh(last: Any, max_age: float, lo: float, hi: float) -> Optional[float]:
+        if not isinstance(last, tuple) or len(last) != 2:
+            return None
+        value, ts = last
+        if isinstance(value, bool) or not isinstance(value, (int, float)) \
+                or not math.isfinite(value) or not lo <= value <= hi:
+            return None
+        if isinstance(ts, bool) or not isinstance(ts, (int, float)) \
+                or not 0 <= now - ts <= max_age:
+            return None
+        return float(value)
+
+    live = "demo" if simulation else "sensor"
+    fuel: dict = {"source": "none", "pct": None, "litres": None}
+    pct = _fresh(fuel_last, A1_FUEL_FRESH_S, 0, 100)
+    if pct is not None:
+        fuel = {"source": live, "pct": round(pct), "litres": None}
+    elif isinstance(fuel_log, dict) and fuel_log.get("running") is True:
+        left = fuel_log.get("fuel_left_est_l")
+        tank = fuel_log.get("tank_capacity_l")
+        if isinstance(left, (int, float)) and isinstance(tank, (int, float)) \
+                and not isinstance(left, bool) and not isinstance(tank, bool) and tank > 0:
+            est = max(0.0, min(100.0, 100.0 * left / tank))
+            fuel = {"source": "estimate", "pct": round(est), "litres": round(left, 1)}
+
+    coolant: dict = {"source": "none", "c": None}
+    temp = _fresh(coolant_last, A1_COOLANT_FRESH_S, -40, 150)
+    if temp is not None:
+        coolant = {"source": live, "c": round(temp)}
+    return {"fuel": fuel, "coolant": coolant}
+
+
 def _net_diag_summary(config: Any, tether: Optional[dict], car: Optional[dict],
                       test_running: bool, last_test_at: Optional[float]) -> Optional[dict]:
     """The Settings row "Internet i usługi" (modules.net_diag).
@@ -2187,6 +2242,8 @@ class WebViewer:
         if not isinstance(_wc, dict):
             _wc = {}
 
+        _fuel_summary = _fuel_log_summary(self._config, _val("fuel.stats"))
+
         data = {
             # Engine
             "rpm": _val("obd.rpm", 0),
@@ -2256,7 +2313,15 @@ class WebViewer:
                           if self._trip_computer else None),
             "trip_planning": _val("trip.planning", False),
             # Refuel log (src/trip/fuel_log.py) — A3 stats card and list.
-            "fuel_log": _fuel_log_summary(self._config, _val("fuel.stats")),
+            "fuel_log": _fuel_summary,
+            # A1 side bars: fuel (sensor → refuel-log estimate) and coolant.
+            "a1_gauges": _a1_gauges(
+                bus.get_last("obd.fuel_level"), bus.get_last("obd.coolant_temp"),
+                # Same test main.py uses to start the DemoDataGenerator.
+                bool(self._config is not None
+                     and getattr(self._config, "platform", "") == "x86"
+                     and self._config.get("system.simulation", True)),
+                _fuel_summary, time.time()),
             # BT Media
             "bt_media_title": _val("bt.media_title", ""),
             "bt_media_artist": _val("bt.media_artist", ""),

@@ -136,6 +136,12 @@ STRINGS: dict[str, dict[str, str]] = {
         "gps_no_fix": "BRAK GPS",
         # Plan podróży (A3): skąd liczona jest trasa
         "trip_origin_fallback": "start: domyślny (brak GPS)",
+        # A1 side bars (screens/main.js)
+        "a1_fuel": "Paliwo",
+        "a1_coolant": "Silnik",
+        "a1_no_data": "brak danych",
+        "a1_estimate": "szac.",
+        "a1_demo": "demo",
         "trip_origin_gps": "start: pozycja GPS",
         "live_tracking": "ŚLEDZENIE NA ŻYWO",
         "system_status": "STATUS SYSTEMU",
@@ -1007,6 +1013,12 @@ STRINGS: dict[str, dict[str, str]] = {
         "gps_no_fix": "NO GPS FIX",
         # Travel plan (A3): where the route starts
         "trip_origin_fallback": "start: default (no GPS)",
+        # A1 side bars (screens/main.js)
+        "a1_fuel": "Fuel",
+        "a1_coolant": "Engine",
+        "a1_no_data": "no data",
+        "a1_estimate": "est.",
+        "a1_demo": "demo",
         "trip_origin_gps": "start: GPS position",
         "live_tracking": "LIVE TRACKING",
         "system_status": "SYSTEM STATUS",

@@ -4,7 +4,10 @@
  * Trimmed for the quick-start build: the engine-temp / fuel / oil-pressure /
  * avg-speed / voltage tiles are gone (those modules are off and only rendered
  * zeros). A1 is now the large media card + a tappable equalizer strip, in all
- * three themes.
+ * three themes, flanked by two narrow vertical bars: fuel level on the left,
+ * engine (coolant) temperature on the right — data.a1_gauges, built in
+ * web_viewer._a1_gauges(). A bar with no real source is grey "brak danych";
+ * it never shows a made-up default.
  */
 
 App.registerScreen("a1", (() => {
@@ -12,6 +15,7 @@ App.registerScreen("a1", (() => {
         if (theme === "modern") container.innerHTML = _renderModern(data);
         else if (theme === "autodelta") container.innerHTML = _renderAutodelta(data);
         else container.innerHTML = _renderHeritage(data);
+        _gauges.apply(data);
     }
 
     function update(data, theme) {
@@ -34,6 +38,9 @@ App.registerScreen("a1", (() => {
         // requestAnimationFrame loop below eases the bars toward it, so the
         // strip moves smoothly at the display rate instead of jumping.
         _spectrum.setTarget(data.audio_spectrum);
+
+        // Side bars (fuel / engine temperature).
+        _gauges.apply(data);
     }
 
     function unmount() {
@@ -59,11 +66,13 @@ App.registerScreen("a1", (() => {
     function _renderHeritage(data) {
         return `<div class="screen-container bg-black text-zinc-100">
             ${AppBar.render("heritage", data)}
-            <main class="content-area flex items-center justify-center overflow-hidden px-6 py-4">
-                <div class="w-full max-w-2xl flex flex-col gap-4">
+            <main class="content-area flex items-center justify-center overflow-hidden px-6 py-4" style="gap:16px">
+                ${_gauges.html("fuel", GAUGE_TK.heritage)}
+                <div class="w-full max-w-2xl flex flex-col gap-4" style="min-width:0">
                     ${MediaPlayer.renderHeritage(data)}
                     ${_eqStrip({ card: "border-zinc-800 bg-zinc-900/30", label: "text-zinc-500", eqIcon: "text-zinc-600" })}
                 </div>
+                ${_gauges.html("coolant", GAUGE_TK.heritage)}
             </main>
             ${NavBar.render("heritage", "a1")}
         </div>`;
@@ -72,11 +81,13 @@ App.registerScreen("a1", (() => {
     function _renderModern(data) {
         return `<div class="screen-container text-slate-900">
             ${AppBar.render("modern", data)}
-            <main class="content-area flex items-center justify-center overflow-hidden px-6 py-4 bg-gradient-to-br from-slate-50 to-blue-50/30">
-                <div class="w-full max-w-2xl flex flex-col gap-4">
+            <main class="content-area flex items-center justify-center overflow-hidden px-6 py-4 bg-gradient-to-br from-slate-50 to-blue-50/30" style="gap:16px">
+                ${_gauges.html("fuel", GAUGE_TK.modern)}
+                <div class="w-full max-w-2xl flex flex-col gap-4" style="min-width:0">
                     ${MediaPlayer.renderModern(data)}
                     ${_eqStrip({ card: "border-slate-100 bg-white shadow-sm", label: "text-slate-400", eqIcon: "text-blue-400" })}
                 </div>
+                ${_gauges.html("coolant", GAUGE_TK.modern)}
             </main>
             ${NavBar.render("modern", "a1")}
         </div>`;
@@ -85,15 +96,118 @@ App.registerScreen("a1", (() => {
     function _renderAutodelta(data) {
         return `<div class="screen-container bg-black text-white">
             ${AppBar.render("autodelta", data)}
-            <main class="content-area flex items-center justify-center overflow-hidden px-6 py-4">
-                <div class="w-full max-w-2xl flex flex-col gap-4">
+            <main class="content-area flex items-center justify-center overflow-hidden px-6 py-4" style="gap:16px">
+                ${_gauges.html("fuel", GAUGE_TK.autodelta)}
+                <div class="w-full max-w-2xl flex flex-col gap-4" style="min-width:0">
                     ${MediaPlayer.renderAutodelta(data)}
                     ${_eqStrip({ card: "border-[#222222]", label: "text-gray-500", eqIcon: "text-[#FF5F00]" })}
                 </div>
+                ${_gauges.html("coolant", GAUGE_TK.autodelta)}
             </main>
             ${NavBar.render("autodelta", "a1")}
         </div>`;
     }
+
+    // ── Side bars: fuel (left) and engine temperature (right) ─────────────
+    // Theme look as inline styles: the Tailwind CSS is precompiled, so new
+    // utility classes would not exist at runtime.
+    const GAUGE_TK = {
+        heritage:  { track: "rgba(255,255,255,0.07)", border: "#27272a", label: "#71717a",
+                     value: "#e4e4e7", fill: "#d4a017" },
+        modern:    { track: "rgba(15,23,42,0.07)", border: "#e2e8f0", label: "#94a3b8",
+                     value: "#0f172a", fill: "#3b82f6" },
+        autodelta: { track: "#141414", border: "#222222", label: "#6b7280",
+                     value: "#ffffff", fill: "#FF5F00" },
+    };
+
+    const _gauges = (() => {
+        const NO_DATA = "#52525b";            // grey bar: no source
+        const RED = "#ef4444", AMBER = "#f59e0b", GREEN = "#22c55e";
+        const BLUE = "#3b82f6", CYAN = "#06b6d4";
+        const COOLANT_MIN = 40, COOLANT_MAX = 130;   // bar scale, °C
+        const FUEL_LOW = 15, FUEL_WARN = 25;          // %
+
+        const t = (k, d) => (typeof App !== "undefined" && App.t ? App.t(k, d) : d);
+
+        // Pure: payload → what one bar shows. Exported for the node test.
+        function view(kind, g) {
+            const src = g && typeof g.source === "string" ? g.source : "none";
+            if (kind === "fuel") {
+                const pct = g && Number.isFinite(g.pct) ? Math.max(0, Math.min(100, g.pct)) : null;
+                if (src === "none" || pct == null) {
+                    return { fill: 0, color: NO_DATA, value: "—", note: t("a1_no_data", "brak danych"), state: "none" };
+                }
+                const color = pct < FUEL_LOW ? RED : pct < FUEL_WARN ? AMBER : null;
+                let note = "";
+                if (src === "estimate") {
+                    note = t("a1_estimate", "szac.");
+                    if (Number.isFinite(g.litres)) note += " " + Math.round(g.litres) + " l";
+                } else if (src === "demo") note = t("a1_demo", "demo");
+                return { fill: pct, color, value: Math.round(pct) + "%", note,
+                         state: pct < FUEL_LOW ? "low" : "ok", estimate: src === "estimate" };
+            }
+            const c = g && Number.isFinite(g.c) ? g.c : null;
+            if (src === "none" || c == null) {
+                return { fill: 0, color: NO_DATA, value: "—", note: t("a1_no_data", "brak danych"), state: "none" };
+            }
+            const fill = Math.max(0, Math.min(100, 100 * (c - COOLANT_MIN) / (COOLANT_MAX - COOLANT_MIN)));
+            let color, state;
+            if (c > 105) { color = RED; state = "hot"; }
+            else if (c > 100) { color = AMBER; state = "warm"; }
+            else if (c >= 80) { color = GREEN; state = "ok"; }
+            else if (c >= 60) { color = CYAN; state = "warming"; }
+            else { color = BLUE; state = "cold"; }
+            return { fill, color, value: Math.round(c) + "°", note: src === "demo" ? t("a1_demo", "demo") : "", state };
+        }
+
+        function html(kind, tk) {
+            const icon = kind === "fuel" ? "local_gas_station" : "device_thermostat";
+            const label = kind === "fuel" ? t("a1_fuel", "Paliwo") : t("a1_coolant", "Silnik");
+            // Coolant: tick at 90 °C (the normal running temperature).
+            const tick = kind === "coolant"
+                ? `<div style="position:absolute;left:0;right:0;bottom:${100 * (90 - COOLANT_MIN) / (COOLANT_MAX - COOLANT_MIN)}%;height:1px;background:${tk.label};opacity:.6"></div>`
+                : `<div style="position:absolute;left:0;right:0;bottom:${FUEL_LOW}%;height:1px;background:${RED};opacity:.5"></div>`;
+            return `<div id="a1-${kind}-gauge" data-gauge="${kind}" data-state="none"
+                        style="flex:0 0 52px;width:52px;align-self:stretch;display:flex;flex-direction:column;align-items:center;gap:6px;padding:4px 0">
+                <span class="material-symbols-outlined" style="font-size:20px;color:${tk.label}">${icon}</span>
+                <div style="font-size:9px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:${tk.label}">${label}</div>
+                <div style="position:relative;flex:1 1 auto;min-height:60px;width:22px;border-radius:11px;overflow:hidden;background:${tk.track};border:1px solid ${tk.border}">
+                    <div id="a1-${kind}-fill" data-fill="${tk.fill}"
+                         style="position:absolute;left:0;right:0;bottom:0;height:0%;background:${NO_DATA};transition:height .6s ease,background-color .6s ease"></div>
+                    ${tick}
+                </div>
+                <div id="a1-${kind}-val" style="font-size:15px;font-weight:700;font-variant-numeric:tabular-nums;color:${tk.value}">—</div>
+                <div id="a1-${kind}-note" style="font-size:9px;line-height:1.1;text-align:center;min-height:20px;color:${tk.label}"></div>
+            </div>`;
+        }
+
+        function _set(kind, v) {
+            const root = document.getElementById("a1-" + kind + "-gauge");
+            const fill = document.getElementById("a1-" + kind + "-fill");
+            if (!root || !fill) return;
+            const h = v.fill.toFixed(1) + "%";
+            if (fill.style.height !== h) fill.style.height = h;
+            const color = v.color || fill.getAttribute("data-fill") || GREEN;
+            if (fill.getAttribute("data-color") !== color) {
+                fill.style.backgroundColor = color;
+                fill.setAttribute("data-color", color);
+            }
+            // The estimate is drawn half-transparent: a guess, not a reading.
+            const op = v.estimate ? "0.6" : "1";
+            if (fill.style.opacity !== op) fill.style.opacity = op;
+            if (root.getAttribute("data-state") !== v.state) root.setAttribute("data-state", v.state);
+            _updateEl("a1-" + kind + "-val", v.value);
+            _updateEl("a1-" + kind + "-note", v.note);
+        }
+
+        function apply(data) {
+            const g = data && typeof data.a1_gauges === "object" && data.a1_gauges ? data.a1_gauges : {};
+            _set("fuel", view("fuel", g.fuel));
+            _set("coolant", view("coolant", g.coolant));
+        }
+
+        return { html, apply, view };
+    })();
 
     // ── Spectrum strip renderer ────────────────────────────────────────────
     // Data: data.audio_spectrum = 16 levels 0..1 from src/audio/spectrum.py,
@@ -274,5 +388,5 @@ App.registerScreen("a1", (() => {
                                                    peak: peak.slice(), running: !!raf }) };
     })();
 
-    return { render, update, unmount, _spectrum };
+    return { render, update, unmount, _spectrum, _gauges };
 })());

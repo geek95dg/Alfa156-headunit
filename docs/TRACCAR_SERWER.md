@@ -128,6 +128,30 @@ trackerów. Potrzebny jest tylko OsmAnd (5055). Dopisz w `<properties>`:
 <entry key='protocols.enable'>osmand</entry>
 ```
 
+Świeży `traccar.xml` ma w `<properties>` **tylko wpisy bazy danych**
+(`database.driver`, `database.url`, `database.user`, `database.password`) —
+to normalne: wszystko inne (port panelu 8082, porty protokołów) Traccar bierze
+z wartości domyślnych zaszytych w programie, a plik zawiera tylko nadpisania.
+Nowy wpis dopisujesz obok, w tym samym `<properties>`. Po zmianie plik wygląda
+tak (wartości bazy zostaw takie, jakie masz):
+
+```xml
+<?xml version='1.0' encoding='UTF-8'?>
+<!DOCTYPE properties SYSTEM 'http://java.sun.com/dtd/properties.dtd'>
+<properties>
+    <entry key='database.driver'>org.h2.Driver</entry>
+    <entry key='database.url'>jdbc:h2:./data/database</entry>
+    <entry key='database.user'>sa</entry>
+    <entry key='database.password'></entry>
+
+    <!-- tylko protokół OsmAnd (HTTP, port 5055) - reszta portów zamknięta -->
+    <entry key='protocols.enable'>osmand</entry>
+</properties>
+```
+
+Sprawdzenie po restarcie (LXC): `ss -ltnp | grep java` pokazuje tylko 8082
+i 5055. W Dockerze na zewnątrz i tak wychodzą tylko porty z `-p` (§3).
+
 Resztę (baza H2, port panelu 8082) zostaw domyślną. Po zmianie:
 `systemctl restart traccar` (LXC) albo `docker restart traccar`.
 

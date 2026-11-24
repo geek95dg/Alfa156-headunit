@@ -142,6 +142,14 @@
   plan overlay (data.traffic_alerts) at 1024x600 in all three themes —
   hidden with the module off, escaped network text, refreshed in place
   (overlay not rebuilt), status lines. Skipped without playwright.
+* a1_gauges_smoke.js: the A1 side bars in screens/main.js (fuel left,
+  engine temperature right) — grey "brak danych" without a source (never the
+  old 50 % default), fuel / coolant colour zones, "szac." for the refuel-log
+  estimate, "demo" for simulated data, the 40–130 °C scale, live refresh;
+* a1_gauges_browser_smoke.js: the same bars at 1024x600 in headless
+  Chromium in all three themes — on screen beside the media card without
+  covering it, no horizontal scroll, fill in proportion. Skipped without
+  playwright.
 """
 
 import json
@@ -493,7 +501,8 @@ def test_call112_in_chromium():
                                      "settings_phone_sensors_smoke.js",
                                      "trip_fuel_smoke.js", "weather_alerts_smoke.js",
                                      "settings_voice_smoke.js",
-                                     "settings_traccar_smoke.js"])
+                                     "settings_traccar_smoke.js",
+                                     "a1_gauges_smoke.js"])
 def test_screen_harness(harness):
     res = subprocess.run([NODE, str(JS / harness)], capture_output=True, text=True,
                          timeout=60)
@@ -616,6 +625,19 @@ def test_spectrum_strip_in_chromium():
     """A1 spectrum canvas: baseline at silence, bars with music, no roundRect,
     and a renderer exception cannot skip the reverse view (see the harness)."""
     res = subprocess.run([NODE, str(JS / "spectrum_browser_smoke.js")],
+                         capture_output=True, text=True, timeout=120)
+    out = res.stdout.strip()
+    if res.returncode == 0 and out.startswith("SKIP:"):
+        pytest.skip(out[5:].strip())
+    assert res.returncode == 0, res.stderr or res.stdout
+    assert out.endswith("ok"), out
+
+
+@pytest.mark.timeout(150)
+def test_a1_gauges_in_chromium():
+    """A1 side bars at 1024x600: beside the media card, readable, no
+    horizontal scroll, grey without a source (see the harness)."""
+    res = subprocess.run([NODE, str(JS / "a1_gauges_browser_smoke.js")],
                          capture_output=True, text=True, timeout=120)
     out = res.stdout.strip()
     if res.returncode == 0 and out.startswith("SKIP:"):
