@@ -729,6 +729,7 @@ loguje jedno ostrzeżenie, a Ustawienia proponują włączenie zależności.
 | `route_planner` | planer tras (OpenRouteService) | — | internet, `BCM_ORS_API_KEY` | wł. | wł. |
 | `trip_gps` | komputer podróży z GPS na ekranie trasy: dystans, czas, średnia prędkość (§9.6) | `location` | GPS z telefonu albo odbiornika | wył. | wł. |
 | `traffic_alerts` | utrudnienia TomTom w trakcie jazdy: korki, wypadki, zamknięcia przed autem albo na trasie (§9.8) | `location` | internet, `BCM_TOMTOM_API_KEY`; GPS z kursem; cel na ekranie trasy dla korytarza wzdłuż trasy | wył. | wł. |
+| `voice_announce` | komunikaty głosowe: ostrzeżenia pogodowe i utrudnienia czytane po polsku (Piper, zapasowo espeak-ng), muzyka ściszana na czas komunikatu (§9.9) | `audio` | Piper z głosem `pl_PL-gosia-medium` albo espeak-ng (`apply-fixes.sh`), PipeWire w sesji użytkownika | wył. | wł. |
 | `net_diag` | sonda internetu w `car_phone`/`phone_tether` i wiersz „Internet i usługi” z testem kluczy (§10.1) | — | klucze w `bcm.env` | wył. | wł. |
 | `location` | pozycja GPS (NMEA z telefonu) | — | telefon z aplikacją NMEA | wył. | wł. |
 | `tracking` | zapis tras (SQLite) i GPX | — | pozycja z `location` | wył. | wł. |
@@ -987,8 +988,8 @@ Co widać:
 - ikona w pasku górnym (śnieżynka, wiatr, chmura z deszczem…) w kolorze:
   niebieski — informacja, pomarańczowy — ostrzeżenie, czerwony —
   niebezpieczne; dotknięcie otwiera ekran pogody;
-- prośba o komunikat głosowy (`voice.announce`) — mówi go dopiero moduł
-  głosowy z następnego etapu.
+- komunikat głosowy (`voice.announce`) — mówi go moduł `voice_announce`
+  (§9.9).
 
 To samo ostrzeżenie nie wraca co 15 minut: powtórka najwcześniej po
 `cooldown_min` (60 min), wcześniej tylko wtedy, gdy się nasili (np.
@@ -1065,8 +1066,8 @@ Co widać i słychać:
   10 min · Wrocław → Oleśnica”;
 - prośba o komunikat głosowy (`voice.announce`, kategoria `traffic`), np.
   „Uwaga, korek za 3 kilometry na drodze S8, opóźnienie około 10 minut.” —
-  mówi go dopiero moduł głosowy z następnego etapu (`voice: false` wyłącza
-  same prośby);
+  mówi go moduł `voice_announce` (§9.9; `voice: false` wyłącza same
+  prośby);
 - ekran trasy (A3): przycisk „Travel Plan” ma znaczek z liczbą utrudnień
   przed autem i odległością do najbliższego, np. „2 · 3,2 km” — widać go
   także bez celu;
@@ -1102,6 +1103,101 @@ wykorzystany)
       o 1 co 5 minut; w logu nie ma klucza (`journalctl -u bcm-headunit | grep -i tomtom`).
 - [ ] Na drodze ze znanym korkiem przed autem: powiadomienie raz, nie co
       5 minut; utrudnienie za autem znika z listy.
+
+### 9.9 Komunikaty głosowe (`modules.voice_announce`)
+
+Ostrzeżenia pogodowe (§9.7) i utrudnienia (§9.8) BCM czyta na głos po
+polsku. Muzyka jest na czas komunikatu ściszana o 12 dB i po nim płynnie
+(1 s) wraca — Twoja głośność się przy tym nie zmienia (ściszany jest
+strumień wyjściowy korektora, `bcm_eq_sink_output`, a nie suwak
+głośności). Sam głos idzie z pominięciem korektora prosto na wyjście
+sprzętowe, więc ściszanie muzyki go nie ścisza.
+
+**Instalacja** — robi to `apply-fixes.sh` (krok 6/8) i `setup-x86.sh`:
+
+- `espeak-ng` z Debiana — głos zapasowy (robotyczny, ale zawsze działa);
+- Piper 2023.11.14-2 i głos `pl_PL-gosia-medium` do `/opt/bcm/piper`
+  (`config/scripts/install-piper.sh`). Każdy pobrany plik jest sprawdzany
+  sumą SHA-256 z `config/scripts/piper-sha256.txt`; plik bez sumy na liście
+  albo z inną sumą NIE jest instalowany. Suma programu Piper jest na liście;
+  sum głosu (`pl_PL-gosia-medium.onnx` i `.onnx.json`) jeszcze nie ma — skrypt
+  to wypisze. Dopisz je raz:
+
+```bash
+# sumy podane na stronie pliku w Hugging Face (rhasspy/piper-voices,
+# v1.0.0, pl/pl_PL/gosia/medium) — albo policzone z pobranych plików:
+sudo install -d -m 0755 /etc/bcm
+sudo nano /etc/bcm/piper.sha256
+#   <suma>  pl_PL-gosia-medium.onnx
+#   <suma>  pl_PL-gosia-medium.onnx.json
+sudo bash /opt/bcm/config/scripts/install-piper.sh
+```
+
+Bez Pipera BCM mówi przez espeak-ng; bez obu tylko pokazuje powiadomienia
+(i raz wpisuje do logu, czego brakuje). Gosia, a nie Darkman: wyższy,
+kobiecy głos lepiej przebija się przez szum silnika, opon i bas muzyki.
+
+**Ustawienia → „Komunikaty głosowe”** (widać tylko przy włączonym
+module):
+
+- Wł./Wył. — wyłączony moduł działa dalej, tylko milczy;
+- suwak głośności głosu (10–100 %);
+- przełączniki „Mów o”: pogoda, utrudnienia, system;
+- **„Powiedz test”** — BCM mówi stałe zdanie „Test komunikatów głosowych.
+  Tak będą brzmiały ostrzeżenia.” (z ekranu w aucie, najwyżej raz na 8 s;
+  zdania nie da się podać z zewnątrz).
+
+Wiersz pokazuje też, czym BCM mówi (Piper / espeak-ng / brak) i jak
+skończył się ostatni komunikat.
+
+**Co i kiedy jest mówione:**
+
+- tylko prośby z włączonych kategorii, najpierw niebezpieczne (oblodzenie,
+  wypadek, zamknięta droga), potem reszta;
+- przed komunikatem krótki dźwięk (`chime: false` go wyłącza);
+- ten sam komunikat najwyżej raz na 5 minut (`dedupe_s`), najwyżej 4 na
+  minutę (`max_per_min`; niebezpieczne poza limitem), co najmniej 3 s
+  przerwy (`min_gap_s`);
+- starszy niż 60 s (`max_age_s`) już nie jest mówiony;
+- **nigdy w trakcie rozmowy telefonicznej**: komunikat czeka najwyżej 45 s
+  (`call_defer_s`), potem przepada; rozmowa, która zacznie się w trakcie
+  komunikatu, go przerywa;
+- milczy przy działających czujnikach parkowania (`quiet_when_parking`).
+
+Ściszanie działa też (tak jak liczy je BCM od zawsze) przy czujnikach
+parkowania (-18 dB), ale nie w trakcie rozmowy: rozmowa idzie przez ten
+sam korektor, więc ściszenie ściszyłoby rozmówcę. Bez korektora
+(`audio.eq_dsp_enabled: false`) ściszane są strumienie odtwarzania z
+wyjątkiem głosu BCM i wewnętrznych strumieni BCM. Po awarii BCM przy
+następnym starcie przywraca pełną głośność muzyki — także wtedy, gdy moduł
+w międzyczasie wyłączono. Nieudane przywrócenie (zajęty PipeWire) BCM
+ponawia kilka razy (1, 2, 4, 8 s).
+
+Ustawienia: blok `voice_announce` w `config/bcm_config_test.yaml`
+(zmiany w `config/local.yaml`, §2), np. ciszej i bez dźwięku przed komunikatem:
+
+```yaml
+voice_announce:
+  volume: 60
+  chime: false
+```
+
+```bash
+curl -s http://127.0.0.1:5002/api/data | python3 -m json.tool | grep -A20 '"voice_announce"'
+```
+
+(`null` — moduł wyłączony; `"engine": "piper"` / `"espeak"` / `"none"`;
+`"ducking": "eq"` — ściszany korektor, `"streams"` — strumienie, `"off"` —
+bez PipeWire)
+
+- [ ] „Powiedz test” przy grającej muzyce: dźwięk, zdanie, muzyka cichnie
+      i po zdaniu płynnie wraca do tej samej głośności.
+- [ ] Głośność muzyki pokrętłem przed i po teście — taka sama
+      (`wpctl get-volume @DEFAULT_AUDIO_SINK@`).
+- [ ] W trakcie rozmowy: „Powiedz test” odpowiada „trwa rozmowa”, nic nie
+      słychać w słuchawce rozmówcy.
+- [ ] Ostrzeżenie pogodowe albo utrudnienie: jeden komunikat, nie co
+      kilka minut.
 
 ---
 
@@ -1305,6 +1401,11 @@ wszystkie unity BCM, kiosk, autologin, konfigurację AP i venv (zostawia
   ruchu (od tego zależy pomijanie przeciwnej jezdni), czy pola `delay`,
   `roadNumbers`, `from`/`to` przychodzą po polsku i wypełnione, oraz ile
   zapytań naprawdę zużywa dzień jazdy;
+- komunikaty głosowe: `pw-play --target` na sink sprzętowy z sesji
+  uruchomionej jako root, `wpctl set-volume` na strumieniu wyjściowym
+  korektora (`bcm_eq_sink_output`) i to, czy WirePlumber zapamiętuje tę
+  głośność; czas syntezy Pipera na M910q; sumy SHA-256 głosu
+  `pl_PL-gosia-medium` (do dopisania, §9.9);
 - SensorServer: czy odrzuca wspólne połączenie kodem 4xxx, czy ramki
   z jednoczujnikowego `/sensor/connect?type=…` mają pole `type`, czy czujnik
   światła działa przy wygaszonym ekranie Redmi;

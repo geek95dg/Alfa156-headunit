@@ -258,7 +258,7 @@ fi
 # ignition watcher) stays stopped.
 systemctl try-restart bcm-headunit.service 2>/dev/null || true
 
-echo "==> 6/8  Car phone and screen tools (adb for modules.car_phone, ddcutil + i2c-dev for modules.auto_brightness)"
+echo "==> 6/8  Car phone, screen and voice tools (adb for modules.car_phone, ddcutil + i2c-dev for modules.auto_brightness, espeak-ng + Piper for modules.voice_announce)"
 # adb = the car phone module (src/network/car_phone.py): USB tethering, GPS
 # forward, battery. Checked like ofono above — a missing adb is said
 # loudly, the module then only shows "brak adb". Debian package only.
@@ -286,6 +286,18 @@ cat > /etc/modules-load.d/bcm-i2c.conf <<'EOF'
 i2c-dev
 EOF
 modprobe i2c-dev 2>/dev/null || echo "    WARNING: modprobe i2c-dev failed — DDC/CI needs it (it loads at the next boot)."
+# Spoken announcements (Settings → "Komunikaty głosowe"): espeak-ng = the
+# fallback Polish voice (checked single package), Piper + pl_PL-gosia-medium
+# = the natural one, into /opt/bcm/piper with a SHA-256 check of every file
+# (install-piper.sh; non-fatal — a missing hash or no internet is a warning).
+apt-get install -y espeak-ng || true
+if command -v espeak-ng >/dev/null 2>&1; then
+    echo "    espeak-ng: $(command -v espeak-ng)"
+else
+    echo "    WARNING: espeak-ng is NOT installed — without Piper the car cannot speak (modules.voice_announce)."
+    echo "             Fix: sudo apt-get install espeak-ng, then re-run this script."
+fi
+bash "$BCM_DIR/config/scripts/install-piper.sh" || echo "    WARNING: install-piper.sh failed — BCM speaks with espeak-ng."
 # bcm-timesync.sh now leaves /run/bcm-timesync.ok on success; car_phone
 # reads it to decide whether the phone's clock may be used (plan D1).
 if [ -f /usr/local/bin/bcm-timesync.sh ]; then

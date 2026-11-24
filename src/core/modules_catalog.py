@@ -266,6 +266,16 @@ MODULES: dict[str, dict] = {
                      "default": False, "requires": ("location",),
                      "hardware": "internet i klucz BCM_TOMTOM_API_KEY; GPS z kursem; cel na "
                                  "ekranie trasy (planer tras) dla korytarza wzdłuż trasy"},
+    # Partia 12: spoken warnings (src/audio/voice_announce.py): consumes the
+    # voice.announce requests of weather_alerts / traffic_alerts — queue with
+    # priorities, dedupe and a rate limit, never during a call; Piper (Polish
+    # voice) or espeak-ng; played past the EQ on the hardware sink while the
+    # music is really ducked (pipewire_ctrl.MusicDucker). Off in code.
+    "voice_announce": {"part": 12, "description": "Komunikaty głosowe (Piper / espeak-ng) ze ściszaniem muzyki",
+                     "entry": ("src.audio.voice_announce", "start_voice_announce"),
+                     "default": False, "requires": ("audio",),
+                     "hardware": "Piper z polskim głosem albo espeak-ng (apply-fixes.sh), "
+                                 "pw-play (PipeWire) w sesji użytkownika"},
     "small_display": {"part": 2,  "description": "4.3\" stats display server (port 5003)",
                      "default": True},
 

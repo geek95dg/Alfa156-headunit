@@ -51,6 +51,7 @@ from src.safety import parking_guard as _parking_guard
 from src.sensors import phone_sensors as _phone_sensors
 from src.trip import fuel_log as _fuel_log
 from src.network._proc import clean_error
+from src.audio import voice_announce as _voice
 from src.weather.weather import valid_coords
 
 log = get_logger("web_viewer")
@@ -186,6 +187,14 @@ _CONFIG_FIELDS = (
     # both live through config.changed.
     ("brightness_backend", "display.auto_brightness.backend"),
     ("brightness_mode", "display.auto_brightness.mode"),
+    # Settings → "Komunikaty głosowe" (modules.voice_announce): the runtime
+    # on/off, the voice volume and the three category switches. The module
+    # re-reads them on config.changed. Never the text of a message.
+    ("voice_enabled", "voice_announce.enabled"),
+    ("voice_volume", "voice_announce.volume"),
+    ("voice_cat_weather", "voice_announce.categories.weather"),
+    ("voice_cat_traffic", "voice_announce.categories.traffic"),
+    ("voice_cat_system", "voice_announce.categories.system"),
 )
 
 
@@ -238,6 +247,17 @@ def _validate_config_update(data: Any) -> tuple[list[tuple[str, str, Any]], Opti
         elif key == "brightness_mode":
             if not isinstance(value, str) or value not in _brightness.MODES:
                 return [], (key, f"brightness_mode must be one of {list(_brightness.MODES)}")
+        elif key in ("voice_enabled", "voice_cat_weather", "voice_cat_traffic",
+                     "voice_cat_system"):
+            if not isinstance(value, bool):
+                return [], (key, f"{key} must be true or false")
+        elif key == "voice_volume":
+            if isinstance(value, float) and value.is_integer():
+                value = int(value)
+            if isinstance(value, bool) or not isinstance(value, int) \
+                    or not _voice.VOLUME_MIN <= value <= _voice.VOLUME_MAX:
+                return [], (key, f"voice_volume must be an integer "
+                                 f"{_voice.VOLUME_MIN}-{_voice.VOLUME_MAX}")
         updates.append((key, config_key, value))
     return updates, None
 
@@ -444,6 +464,9 @@ def _weather_status_summary(value: Any) -> Optional[dict]:
     }
 
 
+#: Minimum spacing of POST /api/voice/test (one fixed phrase each; the
+#: music is ducked while it plays — a stuck finger must not keep it down).
+_VOICE_TEST_MIN_INTERVAL_S = 8.0
 #: Minimum spacing of POST /api/net/test (each one costs one request per
 #: configured service from the free plans' daily quota).
 _NET_TEST_MIN_INTERVAL_S = 10.0
@@ -1254,6 +1277,46 @@ def _auto_brightness_summary(value: Any) -> Optional[dict]:
     }
 
 
+_VOICE_ENGINES = ("piper", "espeak", "none")
+_VOICE_DUCKING = ("eq", "streams", "off")
+
+
+def _voice_summary(value: Any) -> Optional[dict]:
+    """``voice.status`` (src/audio/voice_announce.py) → the Settings row
+    "Komunikaty głosowe". Whitelists and ranges only — never a phrase (the
+    payload also reaches network clients in ``readonly`` mode). Never
+    published = module not running = None = no row."""
+    if not isinstance(value, dict):
+        return None
+
+    def word(v: Any, allowed: tuple, default: str) -> str:
+        return v if isinstance(v, str) and v in allowed else default
+
+    vol = value.get("volume")
+    if isinstance(vol, bool) or not isinstance(vol, int) \
+            or not _voice.VOLUME_MIN <= vol <= _voice.VOLUME_MAX:
+        vol = None
+    queue = value.get("queue")
+    if isinstance(queue, bool) or not isinstance(queue, int) or not 0 <= queue <= 1000:
+        queue = 0
+    cats_raw = value.get("categories")
+    cats = {c: (cats_raw.get(c) is True if isinstance(cats_raw, dict) else False)
+            for c in _voice.USER_CATEGORIES}
+    return {
+        "enabled": value.get("enabled") is True,
+        "volume": vol,
+        "categories": cats,
+        "engine": word(value.get("engine"), _VOICE_ENGINES, "none"),
+        "player": word(value.get("player"), _voice.PLAYERS, "none"),
+        "queue": queue,
+        "speaking": value.get("speaking") is True,
+        "call_active": value.get("call_active") is True,
+        "last_result": word(value.get("last_result"), _voice.STATUS_RESULTS, ""),
+        "last_spoken_ts": _ts(value.get("last_spoken_ts")),
+        "ducking": word(value.get("ducking"), _VOICE_DUCKING, "off"),
+    }
+
+
 def _display_dim_summary(value: Any) -> Optional[dict]:
     """``display.dim`` → ``{level, brightness_pct}`` for the kiosk's ONE
     dimming overlay (components/dim_overlay.js). ``level`` is the overlay's
@@ -1932,6 +1995,9 @@ class WebViewer:
         # POST /api/phone_sensors/test rate limit (monotonic, as above).
         self._sensors_test_lock = threading.Lock()
         self._sensors_test_last: Optional[float] = None
+        # POST /api/voice/test rate limit (monotonic, as above).
+        self._voice_test_lock = threading.Lock()
+        self._voice_test_last: Optional[float] = None
         # POST /api/net/test: rate limit (monotonic), one worker at a time,
         # wall time of the last finished test (for the Settings row).
         self._net_test_lock = threading.Lock()
@@ -2191,6 +2257,9 @@ class WebViewer:
             # module not running = no row and no overlay (production).
             "auto_brightness": _auto_brightness_summary(_val(_brightness.TOPIC_STATE)),
             "display_dim": _display_dim_summary(_val(_brightness.TOPIC_DIM)),
+            # Spoken warnings (src/audio/voice_announce.py, voice.status):
+            # the Settings row "Komunikaty głosowe". None = module not running.
+            "voice_announce": _voice_summary(_val(_voice.STATUS_TOPIC)),
             # The session after a remote wake (src/power/remote_session.py,
             # plan E, the buffered build): the global "Wybudzono" banner
             # (app.js → components/wake_banner.js) and the Settings row.
@@ -2773,6 +2842,7 @@ class WebViewer:
                 "aa_auto_restart": cfg.get("multimedia.aa_auto_restart", True),
                 "brightness_backend": cfg.get("display.auto_brightness.backend", "auto"),
                 "brightness_mode": cfg.get("display.auto_brightness.mode", "auto"),
+                "voice_enabled": cfg.get("voice_announce.enabled", True) is not False,
             })
 
         @app.route("/api/config", methods=["POST"])
@@ -4013,6 +4083,43 @@ class WebViewer:
             bus.publish(_phone_sensors.TEST_TOPIC, True)
             return jsonify({"ok": True, "started": True,
                             "duration_s": _phone_sensors.TEST_DURATION_S}), 202
+
+        @app.route("/api/voice/test", methods=["POST"])
+        def api_voice_test():
+            """"Powiedz test" in the Settings row "Komunikaty głosowe"
+            (modules.voice_announce). Loopback ONLY (whatever
+            dashboard.remote_access says) and at most one per
+            _VOICE_TEST_MIN_INTERVAL_S (429 + Retry-After): it makes the car
+            speak and ducks the music. The body is ignored — the module
+            speaks its own FIXED phrase, never text from a request. 202 =
+            queued (the result arrives in the payload's voice_announce);
+            409 = module not running / no speech engine / phone call.
+            """
+            if not _kiosk_request(request.remote_addr, request.host,
+                                  request.headers.get("Origin")):
+                viewer._log_refusal(str(request.remote_addr)[:64], request.method,
+                                    request.path, "loopback_only",
+                                    "the voice test is only possible from the head "
+                                    "unit's own screen", level=logging.WARNING)
+                return jsonify({"ok": False, "error": "forbidden"}), 403
+            module = _voice.get_voice_announcer()
+            if module is None:
+                return jsonify({"ok": False, "error": "not_running"}), 409
+            now = time.monotonic()
+            with viewer._voice_test_lock:
+                last = viewer._voice_test_last
+                if last is not None and 0 <= now - last < _VOICE_TEST_MIN_INTERVAL_S:
+                    wait = int(_VOICE_TEST_MIN_INTERVAL_S - (now - last)) + 1
+                    res = jsonify({"ok": False, "error": "too many requests",
+                                   "retry_after": wait})
+                    res.headers["Retry-After"] = str(wait)
+                    return res, 429
+                viewer._voice_test_last = now
+            result = module.speak_test()
+            if result in ("queued", "replaced"):
+                return jsonify({"ok": True, "queued": True}), 202
+            error = result if result in ("no_engine", "call_active") else "refused"
+            return jsonify({"ok": False, "error": error}), 409
 
         @app.route("/api/net/test", methods=["POST"])
         def api_net_test():

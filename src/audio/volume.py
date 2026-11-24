@@ -100,6 +100,18 @@ class VolumeController:
         log.info("Audio unmuted")
 
 
+def _restore_duck_leftovers(config: Any, pw: Any, event_bus: EventBus):
+    """See start_audio: the crash restore when modules.voice_announce is off."""
+    if config.get("modules.voice_announce", False):
+        return None
+    try:
+        from src.audio.pipewire_ctrl import restore_duck_leftovers
+        return restore_duck_leftovers(pw, event_bus)
+    except Exception:
+        log.warning("Ducking leftovers restore not started", exc_info=True)
+        return None
+
+
 def start_audio(config: Any, event_bus: EventBus, hal: Any = None,
                 **kwargs) -> None:
     """Entry point called from main.py to start the audio module.
@@ -142,6 +154,12 @@ def start_audio(config: Any, event_bus: EventBus, hal: Any = None,
                               {"state": "error", "source": "", "aec": False})
 
     pw.start_output()
+
+    # A music path a crashed BCM left ducked (MusicDucker, voice_announce) is
+    # restored by the module's own ducker at its start. With the module OFF
+    # nothing would — so do it here. Not while the module is on: two restores
+    # racing could undo a real duck at start-up.
+    _restore_duck_leftovers(config, pw, event_bus)
 
     # Source manager
     source_mgr = SourceManager(event_bus)

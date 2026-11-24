@@ -953,6 +953,21 @@ i2c-dev
 EOF
 modprobe i2c-dev 2>/dev/null || warn "modprobe i2c-dev failed — DDC/CI needs it (it loads at the next boot)"
 
+# Spoken announcements (modules.voice_announce, src/audio/voice_announce.py):
+# espeak-ng is the always-available Polish fallback voice — same checked
+# single-package pattern; Piper with the Polish voice pl_PL-gosia-medium is
+# the natural one, downloaded into /opt/bcm/piper by install-piper.sh with a
+# SHA-256 check of every file (non-fatal: a missing hash or no internet is
+# a warning, BCM then speaks with espeak-ng).
+apt-get install -y espeak-ng || true
+if command -v espeak-ng >/dev/null 2>&1; then
+    echo "  espeak-ng: $(command -v espeak-ng)"
+else
+    warn "espeak-ng is NOT installed — without Piper the car cannot speak (modules.voice_announce)."
+    warn "  Fix: sudo apt-get install espeak-ng, then re-run this script (or apply-fixes.sh)."
+fi
+bash "$BCM_DIR/config/scripts/install-piper.sh" || warn "install-piper.sh failed — BCM speaks with espeak-ng"
+
 # The WirePlumber drop-ins in /etc/wireplumber/wireplumber.conf.d use the
 # 0.5 SPA-JSON syntax; WirePlumber 0.4 (Lua config) silently ignores them,
 # which would leave the native HFP backend active and the dialer dead.

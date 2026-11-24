@@ -1559,6 +1559,189 @@ const Settings = {
         });
     },
 
+    // Komunikaty głosowe (src/audio/voice_announce.py, modules.voice_announce).
+    // data.voice_announce = web_viewer._voice_summary(voice.status), or null
+    // while the module is not running (production: no row). Wł./Wył., the
+    // volume slider and the three category switches go through the
+    // whitelisted POST /api/config (voice_announce.* in local.yaml; the
+    // module applies them live). "Powiedz test" = POST /api/voice/test
+    // (loopback only, 1 per 8 s): the module speaks a FIXED phrase. The
+    // payload never carries the text of a message. data-* + ONE delegated
+    // listener (voiceListen); the slider is never redrawn under the finger.
+    _voice: { listening: false, down: false, inputAt: 0, sentAt: 0, testAt: 0, msg: "" },
+    _voiceCats: [
+        ["weather", "voice_cat_weather", "pogoda"],
+        ["traffic", "voice_cat_traffic", "utrudnienia"],
+        ["system", "voice_cat_system", "system"],
+    ],
+
+    voiceDragging() {
+        return Settings._voice.down || Date.now() - Settings._voice.inputAt < 1500;
+    },
+
+    /** Everything the row draws: a change of this key redraws it (the
+     *  volume is left out while it is being dragged — see update()). */
+    voiceRowKey(va) {
+        if (!va || typeof va !== "object") return "null";
+        return JSON.stringify([va.enabled, va.volume, va.categories, va.engine, va.player,
+            va.speaking, va.call_active, va.last_result, va.ducking, Settings._voice.msg]);
+    },
+
+    /** "Piper · gotowe", "mówię…", "brak syntezatora — …" */
+    voiceStatusText(va, t) {
+        t = t || ((k, d) => d);
+        const engines = {
+            piper: t("voice_engine_piper", "Piper (głos polski)"),
+            espeak: t("voice_engine_espeak", "espeak-ng (zapasowy)"),
+        };
+        if (!Object.prototype.hasOwnProperty.call(engines, va.engine)) {
+            return t("voice_no_engine", "brak syntezatora mowy — uruchom apply-fixes.sh (Piper / espeak-ng)");
+        }
+        const parts = [engines[va.engine]];
+        if (va.player === "none") parts.push(t("voice_no_player", "brak pw-play / paplay"));
+        if (va.speaking === true) parts.push(t("voice_speaking", "mówię…"));
+        else if (va.call_active === true) parts.push(t("voice_call", "rozmowa — komunikaty czekają"));
+        else if (va.enabled !== true) parts.push(t("voice_off", "wyłączone"));
+        const res = {
+            spoken: t("voice_res_spoken", "ostatni komunikat odtworzony"),
+            synth_failed: t("voice_res_synth_failed", "synteza mowy nie powiodła się"),
+            no_player: t("voice_res_no_player", "nie ma czym odtworzyć"),
+            play_failed: t("voice_res_play_failed", "odtwarzanie nie powiodło się"),
+            interrupted: t("voice_res_interrupted", "przerwany (rozmowa)"),
+        };
+        if (va.speaking !== true && Object.prototype.hasOwnProperty.call(res, va.last_result)) {
+            parts.push(res[va.last_result]);
+        }
+        return parts.join(" · ");
+    },
+
+    /** The row; '' without a payload. Inline styles; every value escaped /
+     *  type-checked; buttons carry only whitelisted data-* values. */
+    voiceRowHtml(va, t) {
+        t = t || ((k, d) => d);
+        if (!va || typeof va !== "object") return "";
+        const esc = Settings._esc;
+        const on = va.enabled === true;
+        const ready = va.engine === "piper" || va.engine === "espeak";
+        const vol = Number.isInteger(va.volume) && va.volume >= 10 && va.volume <= 100 ? va.volume : null;
+        const sel = (active) => active
+            ? "background:var(--color-primary);color:#fff;border:1px solid var(--color-primary)"
+            : "background:var(--card-bg);color:var(--text-mid);border:1px solid var(--card-border)";
+        const btn = (attr, label, active) => `<button ${attr} aria-pressed="${active ? "true" : "false"}" style="padding:6px 12px;border-radius:8px;font-size:12px;font-weight:700;${sel(active)}">${esc(label)}</button>`;
+        const onOff = btn('data-voice-enabled="true"', t("voice_on", "Wł."), on)
+            + btn('data-voice-enabled="false"', t("voice_off_btn", "Wył."), !on);
+        const slider = `<input data-voice-volume type="range" min="10" max="100" step="5" value="${vol !== null ? vol : 80}" aria-label="${esc(t("voice_volume", "Głośność komunikatów"))}" style="flex:1 1 140px;min-width:110px;height:28px;accent-color:var(--color-primary)">`;
+        const volHtml = `<span data-voice-vol-pct style="min-width:40px;text-align:right;color:var(--text-primary);font-weight:700">${vol !== null ? vol + "%" : ""}</span>`;
+        const cats = (va.categories && typeof va.categories === "object") ? va.categories : {};
+        const catHtml = Settings._voiceCats.map(([name, _key, label]) =>
+            btn(`data-voice-cat="${name}"`, t("voice_cat_" + name, label), cats[name] === true)).join("");
+        const test = `<button data-voice-test ${ready ? "" : "disabled"} style="margin-left:auto;padding:6px 12px;border-radius:8px;font-size:12px;font-weight:700;background:var(--card-border);color:var(--text-mid);border:none">${esc(t("voice_test", "Powiedz test"))}</button>`;
+        const color = !ready ? "#d97706" : (on ? "#16a34a" : "var(--text-dim)");
+        return `<div data-voice-row data-voice-engine="${esc(ready ? va.engine : "none")}" style="display:flex;flex-wrap:wrap;align-items:center;gap:6px 8px;padding:8px 12px;border-radius:12px;background:var(--card-bg);border:1px solid var(--card-border);font-size:11px;line-height:1.3">
+            <span class="material-symbols-outlined" style="font-size:16px;color:${color}">record_voice_over</span>
+            <span style="color:var(--text-dim);font-weight:700">${esc(t("voice_title", "Komunikaty głosowe"))}:</span>
+            <span data-voice-status style="color:${color};font-weight:700">${esc(Settings.voiceStatusText(va, t))}</span>
+            <span style="flex-basis:100%;display:flex;flex-wrap:wrap;align-items:center;gap:6px;padding-left:24px">${onOff}${slider}${volHtml}</span>
+            <span style="flex-basis:100%;display:flex;flex-wrap:wrap;align-items:center;gap:6px;padding-left:24px"><span style="color:var(--text-dim);font-weight:700">${esc(t("voice_cats", "Mów o"))}:</span>${catHtml}${test}</span>
+            <span data-voice-msg style="flex-basis:100%;padding-left:24px;color:var(--text-mid)">${esc(Settings._voice.msg)}</span>
+        </div>`;
+    },
+
+    _voiceSay(text) {
+        Settings._voice.msg = text;
+        const node = typeof document !== "undefined" ? document.querySelector("[data-voice-msg]") : null;
+        if (node) node.textContent = text;
+    },
+
+    /** POST one whitelisted change to /api/config; the module's new state
+     *  arrives with the next payload. */
+    async voiceSend(body) {
+        const t = (typeof App !== "undefined" && App.t) ? App.t.bind(App) : ((k, d) => d);
+        try {
+            const res = await fetch("/api/config", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify(body),
+            });
+            if (res.ok) Settings._voiceSay("");
+            else if (res.status === 403) Settings._voiceSay(t("voice_err_forbidden", "zmiana tylko z ekranu w aucie"));
+            else Settings._voiceSay(t("voice_err", "nie udało się zapisać"));
+        } catch (e) {
+            Settings._voiceSay(t("voice_err", "nie udało się zapisać"));
+        }
+    },
+
+    /** "Powiedz test" (POST /api/voice/test — loopback only, 1 per 8 s on
+     *  the server; this only swallows double taps). */
+    async voiceTest() {
+        const t = (typeof App !== "undefined" && App.t) ? App.t.bind(App) : ((k, d) => d);
+        const now = Date.now();
+        if (now - Settings._voice.testAt < 2000) return;
+        Settings._voice.testAt = now;
+        try {
+            const res = await fetch("/api/voice/test", { method: "POST" });
+            let body = {};
+            try { body = await res.json(); } catch (e) { /* not JSON */ }
+            if (res.status === 202) Settings._voiceSay(t("voice_test_queued", "mówię test…"));
+            else if (res.status === 429) Settings._voiceSay(t("voice_test_wait", "chwilę — spróbuj za kilka sekund"));
+            else if (res.status === 403) Settings._voiceSay(t("voice_test_forbidden", "test tylko z ekranu w aucie"));
+            else if (body && body.error === "no_engine") Settings._voiceSay(t("voice_no_engine", "brak syntezatora mowy — uruchom apply-fixes.sh (Piper / espeak-ng)"));
+            else if (body && body.error === "call_active") Settings._voiceSay(t("voice_test_call", "trwa rozmowa — test po jej zakończeniu"));
+            else Settings._voiceSay(t("voice_test_failed", "nie udało się uruchomić testu"));
+        } catch (e) {
+            Settings._voiceSay(t("voice_test_failed", "nie udało się uruchomić testu"));
+        }
+    },
+
+    /** One delegated listener set for the row (installed once). */
+    voiceListen() {
+        const v = Settings._voice;
+        if (v.listening || typeof document === "undefined" || !document.addEventListener) return;
+        v.listening = true;
+        document.addEventListener("click", (e) => {
+            const el = e.target && e.target.closest
+                ? e.target.closest("[data-voice-enabled],[data-voice-cat],[data-voice-test]") : null;
+            if (!el || typeof el.getAttribute !== "function") return;
+            if (el.hasAttribute && el.hasAttribute("data-voice-test")) {
+                Settings.voiceTest();
+                return;
+            }
+            // Only whitelisted values — never text from the page.
+            const en = el.getAttribute("data-voice-enabled");
+            const cat = el.getAttribute("data-voice-cat");
+            let body = null;
+            if (en === "true" || en === "false") body = { voice_enabled: en === "true" };
+            else {
+                const hit = Settings._voiceCats.find(([name]) => name === cat);
+                if (hit) body = { [hit[1]]: el.getAttribute("aria-pressed") !== "true" };
+            }
+            if (!body) return;
+            const now = Date.now();
+            if (now - v.sentAt < 500) return;          // double tap
+            v.sentAt = now;
+            Settings.voiceSend(body);
+        });
+        const isSlider = (el) => !!(el && el.hasAttribute && el.hasAttribute("data-voice-volume"));
+        document.addEventListener("pointerdown", (e) => { if (isSlider(e.target)) v.down = true; });
+        const up = () => { v.down = false; };
+        document.addEventListener("pointerup", up);
+        document.addEventListener("pointercancel", up);
+        document.addEventListener("input", (e) => {
+            if (!isSlider(e.target)) return;
+            v.inputAt = Date.now();
+            const n = Number(e.target.value);
+            const label = document.querySelector("[data-voice-vol-pct]");
+            if (label && Number.isInteger(n)) label.textContent = n + "%";
+        });
+        document.addEventListener("change", (e) => {
+            if (!isSlider(e.target)) return;
+            v.down = false;
+            v.inputAt = Date.now();
+            const n = Number(e.target.value);
+            if (Number.isInteger(n) && n >= 10 && n <= 100) Settings.voiceSend({ voice_volume: n });
+        });
+    },
+
     _crashFmtTime(ts) {
         if (typeof ts !== "number" || !isFinite(ts) || ts <= 0) return "";
         const d = new Date(ts * 1000);
@@ -2524,6 +2707,12 @@ App.registerScreen("settings", (() => {
         return Settings.brightnessRowKey(data && data.auto_brightness);
     }
 
+    /** The "Komunikaty głosowe" row as drawn. */
+    let _voiceKey = "null";
+    function _voiceKeyOf(data) {
+        return Settings.voiceRowKey(data && data.voice_announce);
+    }
+
     /** What the GPS row shows: gps_state without last_ts (it changes with
      *  every fix, the row does not show it) + the bnep0 IP of the hint. */
     function _gpsKeyOf(data) {
@@ -2635,6 +2824,16 @@ App.registerScreen("settings", (() => {
                 Settings.brightnessLive(brightSlot, data.auto_brightness, t);
             }
         }
+        const voiceKey = _voiceKeyOf(data);
+        if (voiceKey !== _voiceKey && !Settings.voiceDragging()) {
+            const slot = document.querySelector("[data-voice-slot]");
+            if (slot) {
+                _voiceKey = voiceKey;
+                // The row may first appear here: its listener comes with it.
+                if (data && data.voice_announce) Settings.voiceListen();
+                slot.innerHTML = Settings.voiceRowHtml(data && data.voice_announce, t);
+            }
+        }
         const gpsKey = _gpsKeyOf(data);
         if (gpsKey !== _gpsKey) {
             const slot = document.querySelector("[data-gps-slot]");
@@ -2660,6 +2859,7 @@ App.registerScreen("settings", (() => {
         _cabinKey = _cabinKeyOf(data);
         _remoteKey = _remoteKeyOf(data);
         _brightKey = _brightKeyOf(data);
+        _voiceKey = _voiceKeyOf(data);
         const paired = Settings._btPaired;
         const discovered = Settings._btDiscovered;
         const scanning = Settings._btScanning;
@@ -2684,6 +2884,7 @@ App.registerScreen("settings", (() => {
         // update() when the module publishes after this render.
         Settings.parkListen();
         if (data && data.auto_brightness) Settings.brightListen();
+        if (data && data.voice_announce) Settings.voiceListen();
 
         container.innerHTML = `<div class="screen-container" style="background:var(--color-surface);color:var(--color-on-surface)">
             ${AppBar.render(theme, data)}
@@ -2728,6 +2929,10 @@ App.registerScreen("settings", (() => {
                              slider, Programowe / Sprzętowe (DDC/CI). Empty
                              slot = module off; update() swaps it. -->
                         <div data-brightness-slot style="display:contents">${Settings.brightnessRowHtml(data && data.auto_brightness, t)}</div>
+                        <!-- Komunikaty głosowe (modules.voice_announce): Wł./Wył.,
+                             volume, categories, "Powiedz test". Empty slot =
+                             module off; update() swaps it. -->
+                        <div data-voice-slot style="display:contents">${Settings.voiceRowHtml(data && data.voice_announce, t)}</div>
                         <!-- Wybudzanie (modules.remote_session, buffered build):
                              last wake, refusals, Nano link — read-only; the
                              buttons are in the global banner. -->

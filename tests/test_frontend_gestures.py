@@ -32,6 +32,10 @@
   last event with reasons / photos / analysis / outcome, hints, escaping,
   inline styles, read-only — no buttons) and its update() slot; the park
   row's "ruch w kabinie" event;
+* settings_voice_smoke.js: screens/settings.js — the "Komunikaty głosowe"
+  row (whitelisted clicks, slider bounds, the fixed-phrase test button);
+* settings_voice_browser_smoke.js: the same row in headless Chromium at
+  1024x600 (fits, "Powiedz test" tappable). Skipped without playwright;
 * settings_brightness_smoke.js: screens/settings.js — the "Jasność ekranu"
   row (data.auto_brightness: status per mode with the current lux, Auto /
   Ręczna, the slider, "Programowe / Sprzętowe (DDC/CI)" with the probe's
@@ -479,7 +483,8 @@ def test_call112_in_chromium():
                                      "crash_modal_smoke.js", "wake_banner_smoke.js",
                                      "spectrum_smoke.js", "settings_net_diag_smoke.js",
                                      "settings_phone_sensors_smoke.js",
-                                     "trip_fuel_smoke.js", "weather_alerts_smoke.js"])
+                                     "trip_fuel_smoke.js", "weather_alerts_smoke.js",
+                                     "settings_voice_smoke.js"])
 def test_screen_harness(harness):
     res = subprocess.run([NODE, str(JS / harness)], capture_output=True, text=True,
                          timeout=60)
@@ -553,6 +558,20 @@ def test_phone_sensors_row_in_chromium():
     """Settings "Czujniki telefonu" at 1024x600: no overflow with every
     optional line, "Test" visible and posting once (see the harness)."""
     res = subprocess.run([NODE, str(JS / "settings_phone_sensors_browser_smoke.js")],
+                         capture_output=True, text=True, timeout=120)
+    out = res.stdout.strip()
+    if res.returncode == 0 and out.startswith("SKIP:"):
+        pytest.skip(out[5:].strip())
+    assert res.returncode == 0, res.stderr or res.stdout
+    assert out.endswith("ok"), out
+
+
+@pytest.mark.timeout(150)
+def test_voice_row_in_chromium():
+    """Settings "Komunikaty głosowe" at 1024x600: no overflow with the
+    longest status, "Powiedz test" visible, posting once with no body, a
+    category tap posting one whitelisted change (see the harness)."""
+    res = subprocess.run([NODE, str(JS / "settings_voice_browser_smoke.js")],
                          capture_output=True, text=True, timeout=120)
     out = res.stdout.strip()
     if res.returncode == 0 and out.startswith("SKIP:"):

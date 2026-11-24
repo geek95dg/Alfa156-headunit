@@ -140,6 +140,10 @@ modules:
                            # zamknięcia przed autem / na trasie): powiadomienie,
                            # lista na ekranie trasy; wymaga location i klucza
                            # BCM_TOMTOM_API_KEY; blok traffic_alerts niżej
+  voice_announce: true     # komunikaty głosowe (ostrzeżenia pogodowe,
+                           # utrudnienia) z Piper / espeak-ng, muzyka ściszana
+                           # na czas komunikatu; wymaga audio; instalacja:
+                           # apply-fixes.sh; blok voice_announce niżej
   small_display: false     # jeden ekran w wariancie testowym
 
   # --- moduły dodatkowe (telefon w aucie, bezpieczeństwo, wybudzanie) ---
@@ -610,6 +614,36 @@ traffic_alerts:
                            # (wypadek i zamknięta droga — zawsze)
   voice: true              # prośba o komunikat głosowy (mówi go moduł głosowy)
   state_path: data/traffic_budget.json   # licznik zapytań (przetrwa restart)
+voice_announce:
+  # Komunikaty głosowe — src/audio/voice_announce.py (moduł włącza
+  # modules.voice_announce). Czyta prośby voice.announce (ostrzeżenia
+  # pogodowe, utrudnienia TomTom), mówi je Piperem (głos pl_PL-gosia-medium,
+  # instaluje config/scripts/install-piper.sh z apply-fixes.sh), a bez niego
+  # espeak-ng. Głos idzie na wyjście sprzętowe z pominięciem EQ, muzyka jest
+  # na ten czas ściszana o 12 dB (strumień wyjściowy EQ — głośność
+  # kierowcy się nie zmienia). Nigdy w trakcie rozmowy telefonicznej.
+  enabled: true            # Wł./Wył. z Ustawień → „Komunikaty głosowe”
+                           # (zapisywane w local.yaml; moduł zostaje
+                           # uruchomiony, tylko milczy)
+  volume: 80               # głośność głosu w % (10–100), suwak w Ustawieniach
+  categories:              # o czym mówić (przełączniki w Ustawieniach)
+    weather: true          # ostrzeżenia pogodowe (oblodzenie, śnieg, burza…)
+    traffic: true          # utrudnienia TomTom przed autem
+    system: true           # komunikaty systemowe
+  chime: true              # krótki dźwięk przed komunikatem
+  quiet_when_parking: true # milczy, gdy działają czujniki parkowania (cofanie)
+  max_age_s: 60            # starszych komunikatów już nie mówi (10–300 s)
+  dedupe_s: 300            # ten sam komunikat najwyżej raz na tyle sekund
+  call_defer_s: 45         # w trakcie rozmowy czeka najwyżej tyle, potem
+                           # odpuszcza (≤ max_age_s)
+  max_per_min: 4           # najwyżej tyle na minutę (ostrzeżenia o
+                           # niebezpieczeństwie poza limitem)
+  min_gap_s: 3             # przerwa między dwoma komunikatami
+  piper_bin: /opt/bcm/piper/piper/piper
+  model: /opt/bcm/piper/voices/pl_PL-gosia-medium.onnx
+  cache_dir: data/voice_cache   # gotowe nagrania fraz (katalog 0700; zawsze
+                                # osobny podkatalog voice_cache)
+  cache_max_mb: 20         # limit miejsca na nagrania (najstarsze znikają)
 network:
   # Internet z telefonu po Bluetooth (PAN) — src/network/phone_tether.py,
   # włączany przełącznikiem modules.phone_tether. BCM zakłada w NetworkManagerze
