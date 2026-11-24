@@ -366,6 +366,66 @@ def _weather_alerts_summary(value: Any, now: Optional[float] = None) -> Optional
     return out
 
 
+_TRAFFIC_KINDS = ("other", "accident", "jam", "lane", "closed", "works", "wind", "flood")
+_TRAFFIC_STATES = ("no_key", "idle", "driving", "no_heading", "backoff", "budget")
+_TRAFFIC_MAX = 8
+
+
+def _traffic_alerts_summary(alerts: Any, status: Any,
+                            now: Optional[float] = None) -> Optional[dict]:
+    """``traffic.alert`` + ``traffic.status`` (src/trip/traffic_alerts.py)
+    → the route screen's live list. None = the module does not run (no
+    status published). Re-validated because the bus may carry anything:
+    known kinds only, numbers bounded, texts cleaned and cut (the UI
+    escapes them as well), expired entries dropped. The status carries
+    counts and codes only — never the key."""
+    if not isinstance(status, dict):
+        return None
+    now = time.time() if now is None else now
+    items = []
+    for item in alerts if isinstance(alerts, list) else []:
+        if not isinstance(item, dict) or item.get("kind") not in _TRAFFIC_KINDS:
+            continue
+        until = _ts(item.get("valid_until"))
+        dist = item.get("distance_km")
+        if until is None or until < now or isinstance(dist, bool) \
+                or not isinstance(dist, (int, float)) or not 0 <= dist <= 100:
+            continue
+        delay = item.get("delay_min")
+        items.append({"kind": item["kind"],
+                      "title": _clean_text(item.get("title"), 60),
+                      "text": _clean_text(item.get("text"), 200),
+                      "distance_km": round(float(dist), 1),
+                      "delay_min": delay if isinstance(delay, int) and not isinstance(delay, bool)
+                      and 0 <= delay <= 1440 else None,
+                      "on_route": item.get("on_route") is True})
+        if len(items) >= _TRAFFIC_MAX:
+            break
+
+    def _int(v, hi):
+        return v if isinstance(v, int) and not isinstance(v, bool) and 0 <= v <= hi else None
+
+    err = status.get("error")
+    error = None
+    if isinstance(err, dict) and err.get("result") in ("http", "network", "bad_response"):
+        error = {"service": "tomtom", "result": err["result"],
+                 "http_code": _http_code(err.get("http_code"))}
+    state = status.get("state")
+    poll = status.get("poll_min")
+    return {
+        "items": items,
+        "state": state if state in _TRAFFIC_STATES else "idle",
+        "mode": status.get("mode") if status.get("mode") in ("route", "ahead") else "",
+        "used": _int(status.get("used"), 1_000_000),
+        "budget": _int(status.get("budget"), 1_000_000),
+        "poll_min": float(poll) if isinstance(poll, (int, float)) and not isinstance(poll, bool)
+        and 0 < poll <= 1440 else None,
+        "last_ok": _ts(status.get("last_ok")),
+        "backoff_until": _ts(status.get("backoff_until")),
+        "error": error,
+    }
+
+
 def _weather_status_summary(value: Any) -> Optional[dict]:
     """``weather.status`` → what the weather screen / Settings show:
     where the data comes from (demo/cache/live) and the last error code.
@@ -2046,6 +2106,10 @@ class WebViewer:
             # Weather warnings (modules.weather_alerts): A4 strip and the
             # top-bar icon; None = module off.
             "weather_alerts": _weather_alerts_summary(_val("weather.alert")),
+            # TomTom incidents while driving (modules.traffic_alerts): the
+            # live list on the route screen; None = module off.
+            "traffic_alerts": _traffic_alerts_summary(_val("traffic.alert"),
+                                                      _val("traffic.status")),
             # Travel plan (A3 Trip — only populated when destination is set)
             "trip_plan": (self._trip_computer.get_plan_dict()
                           if self._trip_computer else None),

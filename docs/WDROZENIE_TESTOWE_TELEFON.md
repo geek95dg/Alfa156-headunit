@@ -728,6 +728,7 @@ loguje jedno ostrzeżenie, a Ustawienia proponują włączenie zależności.
 | `weather_alerts` | ostrzeżenia pogodowe: oblodzenie, śnieg, ulewa, burza, wiatr, mgła (§9.7) | `weather` | internet, `BCM_OWM_API_KEY`; GPS dla prognozy w miejscu auta | wył. | wł. |
 | `route_planner` | planer tras (OpenRouteService) | — | internet, `BCM_ORS_API_KEY` | wł. | wł. |
 | `trip_gps` | komputer podróży z GPS na ekranie trasy: dystans, czas, średnia prędkość (§9.6) | `location` | GPS z telefonu albo odbiornika | wył. | wł. |
+| `traffic_alerts` | utrudnienia TomTom w trakcie jazdy: korki, wypadki, zamknięcia przed autem albo na trasie (§9.8) | `location` | internet, `BCM_TOMTOM_API_KEY`; GPS z kursem; cel na ekranie trasy dla korytarza wzdłuż trasy | wył. | wł. |
 | `net_diag` | sonda internetu w `car_phone`/`phone_tether` i wiersz „Internet i usługi” z testem kluczy (§10.1) | — | klucze w `bcm.env` | wył. | wł. |
 | `location` | pozycja GPS (NMEA z telefonu) | — | telefon z aplikacją NMEA | wył. | wł. |
 | `tracking` | zapis tras (SQLite) i GPX | — | pozycja z `location` | wył. | wł. |
@@ -1024,6 +1025,84 @@ curl -s http://127.0.0.1:5002/api/data | python3 -m json.tool | grep -A8 '"weath
       pojawia się powiadomienie, pasek na A4 i ikona w pasku; drugi raz po
       15 minutach już nie.
 
+### 9.8 Utrudnienia w trakcie jazdy (`modules.traffic_alerts`)
+
+Planer tras pyta TomTom o utrudnienia tylko raz, przy wyznaczaniu trasy.
+Ten moduł pyta w trakcie jazdy i mówi tylko o tym, co jest przed autem.
+
+- **Kiedy:** tylko w jeździe — prędkość z GPS powyżej 15 km/h przez 30 s.
+  Stanie w korku nie kończy jazdy: koniec dopiero po 10 minutach poniżej
+  15 km/h albo po 2 minutach bez GPS. Pierwsze zapytanie zaraz po ruszeniu,
+  potem co `poll_min` minut (domyślnie 5, najmniej 2).
+- **Gdzie:** z celem na ekranie trasy — korytarz 3 km szerokości wzdłuż
+  następnych `lookahead_km` km trasy (10 km) i tylko utrudnienia leżące na
+  trasie. Bez celu (albo gdy zjedziesz z trasy dalej niż 2 km) — pole
+  10 km przed autem i 3 km szerokości, obrócone zgodnie z kierunkiem jazdy,
+  i tylko utrudnienia w kierunku jazdy (±60°). Utrudnienie na przeciwnej
+  jezdni (biegnące w drugą stronę) jest pomijane. Trasa przybliżona (linia
+  prosta do celu, gdy planer nie ma klucza ORS) nie jest drogą — wtedy też
+  pole przed autem.
+- **Ile zapytań:** twardy limit `daily_budget` (300) na dobę UTC, zapisany
+  w `data/traffic_budget.json`, więc restart go nie zeruje. Darmowy klucz
+  TomTom ma ok. 2500 zapytań na dobę, wspólnych z planerem tras i testem
+  w Ustawieniach. Co 5 minut to 12 zapytań na godzinę jazdy, więc limit 300
+  starcza na 25 godzin jazdy (przy `poll_min: 2` — na 10 godzin). Po błędzie przerwa: od 1 minuty
+  rosnąco do 30 minut; po 429 (wyczerpany limit TomTom) od 15 minut do
+  2 godzin; po 401/403 (zły klucz) 1 godzina. Cofnięcie zegara (np. zły
+  czas RTC po starcie, poprawiony potem z telefonu) nie daje nowego limitu:
+  licznik zeruje się tylko, gdy przyjdzie późniejsza doba.
+
+O czym powiadamia: wypadek i zamknięta droga — zawsze; korek, roboty,
+zwężenie i inne — gdy opóźnienie jest co najmniej `min_delay_s` (180 s)
+albo TomTom określa je jako duże. Tylko nowe utrudnienia i takie, które
+się nasiliły (z korka zrobiło się zamknięcie, opóźnienie wzrosło o co
+najmniej 5 minut i o połowę). Najwyżej jedno powiadomienie na 2 minuty —
+kolejne czeka, póki jest przed autem.
+
+Co widać i słychać:
+
+- powiadomienie na ekranie, np. „Korek za 3,2 km — S8 · opóźnienie ok.
+  10 min · Wrocław → Oleśnica”;
+- prośba o komunikat głosowy (`voice.announce`, kategoria `traffic`), np.
+  „Uwaga, korek za 3 kilometry na drodze S8, opóźnienie około 10 minut.” —
+  mówi go dopiero moduł głosowy z następnego etapu (`voice: false` wyłącza
+  same prośby);
+- ekran trasy (A3): przycisk „Travel Plan” ma znaczek z liczbą utrudnień
+  przed autem i odległością do najbliższego, np. „2 · 3,2 km” — widać go
+  także bez celu;
+- ekran trasy (A3 → „Travel Plan”): sekcja „Utrudnienia na bieżąco
+  (TomTom)” (pod sekcją „Utrudnienia przy wyznaczaniu trasy”, czyli
+  jednorazowym sprawdzeniem z planera) odświeżana w miejscu — lista przed autem, stan („sprawdzam
+  w trakcie jazdy”, „zapytania dziś: 12/300”, błąd TomTom z kodem) — ukryta,
+  gdy moduł jest wyłączony;
+- ekran pomocniczy (`small_display`) pokazuje najbliższe utrudnienie.
+
+Ustawienia: blok `traffic_alerts` w `config/bcm_config_test.yaml` (zmiany
+w `config/local.yaml`, §2), np. rzadziej i dalej:
+
+```yaml
+traffic_alerts:
+  poll_min: 10
+  lookahead_km: 20
+```
+
+Stary blok `traffic:` (`api_key`, `poll_interval_min`) nie jest używany —
+klucz to `BCM_TOMTOM_API_KEY` w `/etc/bcm/bcm.env`.
+
+```bash
+curl -s http://127.0.0.1:5002/api/data | python3 -m json.tool | grep -A30 '"traffic_alerts"'
+```
+
+(`null` — moduł wyłączony; `"state": "idle"` — postój, `"no_key"` — brak
+klucza, `"backoff"` — przerwa po błędzie, `"budget"` — limit na dziś
+wykorzystany)
+
+- [ ] Na postoju: `"state": "idle"`, licznik `used` nie rośnie.
+- [ ] Po ruszeniu (powyżej 15 km/h przez 30 s): `used` rośnie o 1, potem
+      o 1 co 5 minut; w logu nie ma klucza (`journalctl -u bcm-headunit | grep -i tomtom`).
+- [ ] Na drodze ze znanym korkiem przed autem: powiadomienie raz, nie co
+      5 minut; utrudnienie za autem znika z listy.
+
 ---
 
 ## 10. Gdy coś nie działa
@@ -1222,6 +1301,10 @@ wszystkie unity BCM, kiosk, autologin, konfigurację AP i venv (zostawia
 - progi ostrzeżeń pogodowych wobec prawdziwej drogi (oblodzenie z danych
   OpenWeatherMap, nie z czujnika w aucie) i zużycie zapytań OWM przy
   długiej trasie;
+- utrudnienia TomTom: czy kolejność punktów linii utrudnienia to kierunek
+  ruchu (od tego zależy pomijanie przeciwnej jezdni), czy pola `delay`,
+  `roadNumbers`, `from`/`to` przychodzą po polsku i wypełnione, oraz ile
+  zapytań naprawdę zużywa dzień jazdy;
 - SensorServer: czy odrzuca wspólne połączenie kodem 4xxx, czy ramki
   z jednoczujnikowego `/sensor/connect?type=…` mają pole `type`, czy czujnik
   światła działa przy wygaszonym ekranie Redmi;

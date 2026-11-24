@@ -52,7 +52,7 @@ KEY_PATHS = {"owm": "weather.api_key", "ors": "travel.openrouteservice_key",
 KEY_VARS = {"owm": "BCM_OWM_API_KEY", "ors": "BCM_ORS_API_KEY",
             "tomtom": "BCM_TOMTOM_API_KEY"}
 #: Who made the request a result comes from (shown in diagnostics only).
-SOURCES = ("", "test", "weather", "route", "incidents", "search")
+SOURCES = ("", "test", "weather", "route", "incidents", "search", "traffic")
 TIMEOUT_S = 8.0
 #: The test bodies are tiny; anything larger is cut (a hostile or broken
 #: endpoint must not make us read megabytes).

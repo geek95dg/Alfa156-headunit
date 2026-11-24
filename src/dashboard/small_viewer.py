@@ -133,11 +133,15 @@ class SmallDisplayServer:
                                   "text": clean_text(text, 80),
                                   "severity": sev if sev in ("info", "warning", "danger")
                                   else "info", "duration": 10000})
-        traffic_alert = v("traffic.alert")
-        if traffic_alert:
+        # traffic.alert is a list (src/trip/traffic_alerts.py, nearest
+        # first) — show the nearest one, validated like the big dashboard.
+        from src.dashboard.web_viewer import _traffic_alerts_summary
+        traffic = _traffic_alerts_summary(v("traffic.alert"), v("traffic.status")) or {}
+        nearest = (traffic.get("items") or [None])[0]
+        if nearest:
             notifications.append({"type": "traffic", "icon": "traffic",
-                                  "text": str(traffic_alert),
-                                  "severity": "info", "duration": 8000})
+                                  "text": clean_text(f"{nearest['title']} — {nearest['text']}", 80),
+                                  "severity": "warning", "duration": 8000})
 
         # Camera trigger logic — priority: reverse > left blinker > right blinker.
         # `camera.active_feed` is authoritative when CameraController is running;

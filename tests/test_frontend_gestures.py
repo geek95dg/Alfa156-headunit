@@ -126,6 +126,10 @@
 * weather_alerts_browser_smoke.js: the same at 1024x600 in headless
   Chromium — strip inside the map, icon clear of logo and temperature, tap
   opens A4. Skipped without playwright.
+* trip_traffic_browser_smoke.js: the live TomTom list on the A3 travel
+  plan overlay (data.traffic_alerts) at 1024x600 in all three themes —
+  hidden with the module off, escaped network text, refreshed in place
+  (overlay not rebuilt), status lines. Skipped without playwright.
 """
 
 import json
@@ -406,6 +410,31 @@ def test_weather_alerts_in_chromium():
         pytest.skip(out[5:].strip())
     assert res.returncode == 0, res.stderr or res.stdout
     assert out.endswith("ok"), out
+
+
+@pytest.mark.timeout(150)
+def test_traffic_list_in_chromium():
+    """modules.traffic_alerts: the live list on the A3 travel plan overlay
+    at 1024x600 in all three themes (see the harness)."""
+    res = subprocess.run([NODE, str(JS / "trip_traffic_browser_smoke.js")],
+                         capture_output=True, text=True, timeout=120)
+    out = res.stdout.strip()
+    if res.returncode == 0 and out.startswith("SKIP:"):
+        pytest.skip(out[5:].strip())
+    assert res.returncode == 0, res.stderr or res.stdout
+    assert out.endswith("ok"), out
+
+
+def test_traffic_glyphs_exist_in_the_bundled_font():
+    """Every icon the live traffic list (trip.js) and the traffic toasts
+    (src/trip/traffic_alerts.py) can draw."""
+    from src.trip import traffic_alerts
+    src = (ROOT / "src/dashboard/web/js/screens/trip.js").read_text(encoding="utf-8")
+    block = re.search(r"const _TRAFFIC_ICONS = \{([^}]*)\}", src).group(1)
+    icons = set(re.findall(r'[a-z]+: "([a-z_]+)"', block)) | set(traffic_alerts._ICONS.values())
+    assert {"traffic", "car_crash", "block", "construction"} <= icons
+    missing = sorted(icons - _font_ligatures(FONT))
+    assert not missing, f"not in {FONT.name}: {missing}"
 
 
 def test_weather_alert_glyphs_exist_in_the_bundled_font():

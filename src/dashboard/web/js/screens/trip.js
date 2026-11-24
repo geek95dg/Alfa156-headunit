@@ -43,6 +43,7 @@ App.registerScreen("a3", (() => {
         _updateEl("trip-instant", _fmt(data.instant_consumption, 1));
         _refreshFuelPanel(data);
         _refreshTravelPlan(data);
+        _refreshTraffic(data);
     }
 
     /** Number → fixed text, "—" when there is no value (null = no source:
@@ -613,11 +614,19 @@ App.registerScreen("a3", (() => {
                     ${weatherStripHtml}
                 </div>
             </div>
-            <div style="flex:1;min-height:0;">
-                <div style="font-size:9px;color:#71717a;text-transform:uppercase;margin-bottom:4px;">Road works / incidents</div>
+            <!-- flex:0 0 auto, not flex:1;min-height:0: with the live traffic
+                 section below, the content is taller than the overlay and a
+                 shrinkable box collapsed to 0 px, its list painting over the
+                 next section. The overlay scrolls instead. -->
+            <div data-trip-plan-incidents style="flex:0 0 auto;">
+                <div style="font-size:9px;color:#71717a;text-transform:uppercase;margin-bottom:4px;">${_esc(_tr("trip_plan_incidents_title", "Utrudnienia przy wyznaczaniu trasy"))}</div>
                 <div style="background:rgba(24,24,27,0.4);border:1px solid #27272a;border-radius:8px;padding:8px;display:flex;flex-direction:column;gap:4px;">
                     ${incidentsHtml}
                 </div>
+            </div>
+            <div data-trip-traffic-wrap style="display:none;flex-shrink:0;">
+                <div style="font-size:9px;color:#71717a;text-transform:uppercase;margin-bottom:4px;">${_esc(_tr("trip_traffic_title", "Utrudnienia na bieżąco (TomTom)"))}</div>
+                <div data-trip-traffic style="background:rgba(24,24,27,0.4);border:1px solid #27272a;border-radius:8px;padding:8px;display:flex;flex-direction:column;gap:4px;"></div>
             </div>
             <div style="display:flex;align-items:center;justify-content:space-between;margin-top:auto;">
                 ${loadingNotice}
@@ -646,6 +655,112 @@ App.registerScreen("a3", (() => {
         }
         // Preserve any pending search results across overlay rebuilds.
         _renderSearchResults();
+        _trafficKey = null;
+        _refreshTraffic(data);
+    }
+
+    // --- Live traffic (modules.traffic_alerts) ---------------------------
+    // data.traffic_alerts (web_viewer _traffic_alerts_summary): null = the
+    // module is off (section hidden). Refreshed IN PLACE on every tick with
+    // a changed payload — the overlay itself is rebuilt only when the plan
+    // changes (touch targets), so the list lives in its own container.
+
+    let _trafficKey = null;
+    const _TRAFFIC_ICONS = {other: "warning", accident: "car_crash", jam: "traffic",
+        lane: "warning", closed: "block", works: "construction", wind: "air", flood: "flood"};
+
+    function _trafficStatusText(t) {
+        const budget = Number.isInteger(t.used) && Number.isInteger(t.budget)
+            ? _tr("trip_traffic_budget", "zapytania dziś: {used}/{limit}")
+                .replace("{used}", String(t.used)).replace("{limit}", String(t.budget))
+            : "";
+        if (t.state === "no_key") {
+            return _tr("trip_traffic_no_key", "brak klucza TomTom — wpisz BCM_TOMTOM_API_KEY do /etc/bcm/bcm.env");
+        }
+        if (t.state === "budget") {
+            return _tr("trip_traffic_budget_out", "dzienny limit zapytań wykorzystany — wznowienie po północy UTC")
+                + (budget ? ` (${budget})` : "");
+        }
+        if (t.state === "backoff") {
+            const why = t.error ? _serviceErrorText(t.error) : "";
+            const mins = (typeof t.backoff_until === "number")
+                ? Math.max(1, Math.ceil((t.backoff_until * 1000 - Date.now()) / 60000)) : null;
+            const pause = _tr("trip_traffic_backoff", "przerwa po błędzie — ponowię za {min} min")
+                .replace("{min}", mins === null ? "?" : String(mins));
+            return why ? `${why}; ${pause}` : pause;
+        }
+        if (t.state === "idle") {
+            return _tr("trip_traffic_idle", "sprawdzam w trakcie jazdy (powyżej 15 km/h)")
+                + (budget ? ` · ${budget}` : "");
+        }
+        if (t.state === "no_heading") {
+            return _tr("trip_traffic_no_heading", "czekam na kierunek jazdy z GPS");
+        }
+        const where = t.mode === "route" ? _tr("trip_traffic_mode_route", "na trasie")
+            : _tr("trip_traffic_mode_ahead", "przed autem");
+        return `${where}${budget ? " · " + budget : ""}`;
+    }
+
+    function _trafficHtml(t) {
+        const items = Array.isArray(t.items) ? t.items : [];
+        const rows = items.map(it => {
+            const icon = _TRAFFIC_ICONS[it.kind] || "warning";
+            const tag = it.on_route ? _tr("trip_traffic_on_route", "na trasie") : "";
+            return `<div data-trip-traffic-item style="display:flex;align-items:flex-start;gap:6px;font-size:10px;">
+                    <span class="material-symbols-outlined" style="font-size:14px;color:#f87171;">${icon}</span>
+                    <span style="display:flex;flex-direction:column;min-width:0;">
+                        <span style="color:#f4f4f5;font-weight:700;">${_esc(it.title)}${tag ? ` <span style="color:#a1a1aa;font-weight:400;">· ${_esc(tag)}</span>` : ""}</span>
+                        <span style="color:#a1a1aa;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${_esc(it.text)}</span>
+                    </span>
+                </div>`;
+        }).join("");
+        const none = (!rows && t.state === "driving" && typeof t.last_ok === "number")
+            ? `<span data-trip-traffic-none style="font-size:10px;color:#a1a1aa;">${_esc(_tr("trip_traffic_none", "brak utrudnień przed autem"))}</span>`
+            : "";
+        const bad = t.state === "no_key" || t.state === "backoff" || t.state === "budget";
+        return `${rows}${none}<span data-trip-traffic-status="${_esc(t.state)}" style="font-size:9px;color:${bad ? "#fca5a5" : "#71717a"};">${_esc(_trafficStatusText(t))}</span>`;
+    }
+
+    // The default A3 view (trip stats) has no room for the list: the Travel
+    // Plan button carries a badge with the count and the nearest distance,
+    // so live incidents are visible without a destination too.
+    let _trafficBadge = "";
+
+    function _trafficBadgeHtml(t) {
+        const items = (t && typeof t === "object" && Array.isArray(t.items)) ? t.items : [];
+        if (!items.length) return "";
+        const near = items.reduce((m, it) => (typeof it.distance_km === "number"
+            && Number.isFinite(it.distance_km) && (m === null || it.distance_km < m))
+            ? it.distance_km : m, null);
+        const dist = near === null ? "" : ` · ${near.toFixed(1).replace(".", ",")} km`;
+        const label = _tr("trip_traffic_badge", "utrudnienia przed autem");
+        return `<span data-trip-traffic-badge title="${_esc(label)}" aria-label="${_esc(label)}"
+            style="display:inline-flex;align-items:center;gap:2px;margin-left:4px;padding:0 5px;border-radius:6px;background:#7f1d1d;color:#fecaca;letter-spacing:0;">
+            <span class="material-symbols-outlined" style="font-size:13px;">warning</span>${items.length}${_esc(dist)}</span>`;
+    }
+
+    function _refreshTraffic(data) {
+        const badge = _trafficBadgeHtml(data && data.traffic_alerts);
+        if (badge !== _trafficBadge) {
+            _trafficBadge = badge;
+            _updateToggleButton();
+        }
+        const wrap = document.querySelector("[data-trip-traffic-wrap]");
+        const box = document.querySelector("[data-trip-traffic]");
+        if (!wrap || !box) return;
+        const t = data && data.traffic_alerts;
+        if (!t || typeof t !== "object") {
+            wrap.style.display = "none";
+            _trafficKey = null;
+            return;
+        }
+        // The backoff countdown is in minutes: include the minute so the
+        // text ticks without rebuilding on every 200 ms frame.
+        const key = JSON.stringify([t, Math.floor(Date.now() / 60000)]);
+        if (key === _trafficKey) return;
+        _trafficKey = key;
+        wrap.style.display = "";
+        box.innerHTML = _trafficHtml(t);
     }
 
     function _injectToggleButton(host) {
@@ -698,7 +813,7 @@ App.registerScreen("a3", (() => {
         if (travelPlanActive) {
             btn.innerHTML = `<span class="material-symbols-outlined" style="font-size:16px;">arrow_back</span>Trip Stats`;
         } else {
-            btn.innerHTML = `<span class="material-symbols-outlined" style="font-size:16px;">route</span>Travel Plan`;
+            btn.innerHTML = `<span class="material-symbols-outlined" style="font-size:16px;">route</span>Travel Plan${_trafficBadge}`;
         }
     }
 

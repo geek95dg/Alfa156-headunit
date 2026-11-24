@@ -255,6 +255,17 @@ MODULES: dict[str, dict] = {
     "trip_gps":     {"part": 12, "description": "Komputer podróży z GPS (dystans, czas, średnia na ekranie trasy)",
                      "default": False, "requires": ("location",),
                      "hardware": "GPS (telefon albo odbiornik) — bez fixu pola pokazują „—”"},
+    # Partia 12: TomTom incidents while driving (src/trip/traffic.py pure
+    # part, src/trip/traffic_alerts.py runtime): polls incidentDetails every
+    # poll_min minutes when moving — a corridor along the planned route
+    # (route_planner, optional) or a box ahead of the car — with a daily
+    # request budget; toast + voice request for new incidents ahead,
+    # traffic.alert for the route screen and small_viewer. Off in code.
+    "traffic_alerts": {"part": 12, "description": "Utrudnienia TomTom w trakcie jazdy: korki, wypadki, zamknięcia przed autem",
+                     "entry": ("src.trip.traffic_alerts", "start_traffic_alerts"),
+                     "default": False, "requires": ("location",),
+                     "hardware": "internet i klucz BCM_TOMTOM_API_KEY; GPS z kursem; cel na "
+                                 "ekranie trasy (planer tras) dla korytarza wzdłuż trasy"},
     "small_display": {"part": 2,  "description": "4.3\" stats display server (port 5003)",
                      "default": True},
 
