@@ -722,17 +722,19 @@ class TestRegistration:
     def test_catalog_entry_is_an_off_by_default_subsystem(self):
         info = modules_catalog.MODULES["phone_status"]
         assert "entry" not in info and info["default"] is False
-        state = {m["name"]: m for m in
-                 modules_catalog.catalog_state(BCMConfig(platform_override="x86"))}
+        cfg = BCMConfig(platform_override="x86")
+        cfg.get("modules").pop("phone_status")       # not listed = code default
+        state = {m["name"]: m for m in modules_catalog.catalog_state(cfg)}
         assert state["phone_status"]["kind"] == "subsystem"
         assert state["phone_status"]["enabled"] is False
 
-    def test_production_off_test_config_on(self):
-        prod = BCMConfig(config_path=str(REPO / "config" / "bcm_config.yaml"),
-                         platform_override="x86")
+    def test_on_in_final_and_test_config(self):
+        final = BCMConfig(config_path=str(REPO / "config" / "bcm_config.yaml"),
+                          platform_override="x86")
         test = BCMConfig(config_path=str(REPO / "config" / "bcm_config_test.yaml"),
                          platform_override="x86")
-        assert modules_catalog.is_enabled(prod, "phone_status") is False
+        assert modules_catalog.is_enabled(final, "phone_status") is True
+        assert modules_catalog.is_enabled(final, "bluetooth") is True
         assert modules_catalog.is_enabled(test, "phone_status") is True
         assert modules_catalog.is_enabled(test, "bluetooth") is True
 

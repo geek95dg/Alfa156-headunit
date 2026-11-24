@@ -1018,8 +1018,9 @@ class TestRegistration:
         assert info["requires"] == ("car_phone",) and info["default"] is False
         assert not info.get("planned")
 
-    @pytest.mark.parametrize("cfg_name", ["bcm_config.yaml", "bcm_config_test.yaml"])
-    def test_off_in_both_configs_and_never_started(self, cfg_name, monkeypatch):
+    @pytest.mark.parametrize("cfg_name, on", [("bcm_config.yaml", True),
+                                              ("bcm_config_test.yaml", False)])
+    def test_started_only_where_switched_on(self, cfg_name, on, monkeypatch):
         # Every entry point is a recorder: nothing real is started.
         called = []
         registry = {name: dict(info, start=lambda _n=name, **kw: called.append(_n))
@@ -1027,13 +1028,14 @@ class TestRegistration:
         monkeypatch.setattr(main, "MODULE_REGISTRY", registry)
         cfg = BCMConfig(config_path=str(REPO / "config" / cfg_name), platform_override="x86",
                         local_path=None, env={})
-        assert modules_catalog.is_enabled(cfg, "phone_sensors") is False
+        assert modules_catalog.is_enabled(cfg, "phone_sensors") is on
         main.start_modules(main.registry_to_start(main.plan_modules(cfg)), cfg, EventBus(), None)
-        assert called and "phone_sensors" not in called
+        assert called and ("phone_sensors" in called) is on
 
     def test_needs_car_phone(self):
         cfg = BCMConfig(config_path=str(REPO / "config" / "bcm_config.yaml"),
                         platform_override="x86", local_path=None, env={})
+        cfg.set("modules.car_phone", False)
         cfg.set("modules.phone_sensors", True)
         assert main.plan_modules(cfg)["phone_sensors"].runs is False
         cfg.set("modules.car_phone", True)

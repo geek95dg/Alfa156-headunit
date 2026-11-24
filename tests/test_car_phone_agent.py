@@ -1128,11 +1128,14 @@ class TestSecretConfig:
         assert "#BCM_CAR_PHONE_AGENT_SECRET=" in text
         assert "secrets.token_hex(32)" in text
 
-    def test_production_config_does_not_start_it(self):
+    def test_final_config_starts_it_secret_from_env_only(self):
+        # The car's final config runs the agent (23.11); its HMAC secret is
+        # never in the YAML — only BCM_CAR_PHONE_AGENT_SECRET in bcm.env.
         cfg = BCMConfig(config_path=str(REPO / "config" / "bcm_config.yaml"),
                         platform_override="x86", local_path=None, env={})
-        assert mc.is_enabled(cfg, "car_phone_agent") is False
-        assert mc.module_states(cfg)["car_phone_agent"].runs is False
+        assert mc.is_enabled(cfg, "car_phone_agent") is True
+        assert mc.module_states(cfg)["car_phone_agent"].runs is True
+        assert not cfg.get("network.car_phone.agent.secret")
 
 
 # ── web_viewer: summary and the pair route ───────────────────────────────
@@ -1159,6 +1162,9 @@ def web(monkeypatch):
     bus.subscribe("*", lambda t, v, ts: seen.append((t, v)))
     cfg = BCMConfig(platform_override="x86")
     cfg.save = lambda path=None: None
+    # The routes are tested against the most open policy (code default
+    # "full"); the car's base config narrows it to "tracking".
+    cfg.set("dashboard.remote_access", "full")
     viewer = WebViewer(host="127.0.0.1", port=5099, event_bus=bus, config=cfg)
     module = _FakeModule()
     holder = {"agent": module}
@@ -1231,7 +1237,7 @@ class TestPairRoute:
 
     @pytest.mark.parametrize("addr", ["192.168.1.50", "10.0.0.5", "8.8.8.8", "::2"])
     def test_loopback_only_even_with_full_remote_access(self, web, addr):
-        assert web.viewer._config.get("dashboard.remote_access") is None     # = full
+        assert web.viewer._config.get("dashboard.remote_access") == "full"
         res = web.client.post("/api/car_phone_agent/pair", json={"code": CODE}, **_as(addr))
         assert res.status_code == 403
         assert web.module.calls == []

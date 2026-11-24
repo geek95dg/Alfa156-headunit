@@ -86,22 +86,28 @@ def test_shellcheck(script):
     assert res.returncode == 0, res.stdout + res.stderr
 
 
-# ─── Units: the head unit runs the tracked test config ──────────────────
+# ─── Units: the head unit runs the car's final config ───────────────────
 
 
 class TestUnits:
-    def test_headunit_unit_uses_test_config_and_env_file(self):
+    def test_headunit_unit_uses_final_config_and_env_file(self):
         unit = (SYSTEMD / "bcm-headunit-x86.service").read_text(encoding="utf-8")
-        assert "Environment=BCM_CONFIG=config/bcm_config_test.yaml" in unit
-        assert "EnvironmentFile=-/etc/bcm/bcm.env" in unit
+        assert "Environment=BCM_CONFIG=config/bcm_config.yaml" in unit
+        # bcm.env comes after Environment= so BCM_CONFIG there wins (rollback)
+        assert (unit.index("Environment=BCM_CONFIG=")
+                < unit.index("EnvironmentFile=-/etc/bcm/bcm.env"))
         exec_start = [l for l in unit.splitlines() if l.startswith("ExecStart=")]
         assert len(exec_start) == 1
-        assert "bcm_config_test.yaml" in exec_start[0]
+        assert "$${BCM_CONFIG:-config/bcm_config.yaml}" in exec_start[0]
+        assert "bcm_config_test.yaml" not in exec_start[0]
         assert "bcm_config_temp.yaml" not in exec_start[0]
+        # the comment tells how to go back to the bench / test config
+        assert "BCM_CONFIG=config/bcm_config_test.yaml" in unit
 
-    def test_watcher_unit_uses_test_config_and_env_file(self):
+    def test_watcher_unit_uses_final_config_and_env_file(self):
         unit = (SYSTEMD / "bcm-ignition-watcher.service").read_text(encoding="utf-8")
-        assert "Environment=BCM_CONFIG=config/bcm_config_test.yaml" in unit
+        assert "Environment=BCM_CONFIG=config/bcm_config.yaml" in unit
+        assert "$${BCM_CONFIG:-config/bcm_config.yaml}" in unit
         assert "EnvironmentFile=-/etc/bcm/bcm.env" in unit
         # The watcher starts the head unit by this exact name ...
         assert "--service bcm-headunit.service" in unit
@@ -158,8 +164,16 @@ class TestSetupX86:
         assert "cat > /usr/local/bin/bcm-nat.sh" not in self.text
 
     def test_smoke_test_uses_unit_config(self):
-        assert "${BCM_CONFIG:-config/bcm_config_test.yaml}" in self.text
-        assert "--config config/bcm_config.yaml" not in self.text
+        assert 'SMOKE_CONFIG="${BCM_CONFIG:-config/bcm_config.yaml}"' in self.text
+        assert "bcm_config_test.yaml}" not in self.text
+        assert "--config config/bcm_config.yaml" not in self.text   # always via BCM_CONFIG
+
+    def test_splash_size_matches_the_final_config(self):
+        import yaml
+        cfg = yaml.safe_load((REPO / "config" / "bcm_config.yaml").read_text(encoding="utf-8"))
+        dash = cfg["display"]["dashboard"]
+        assert f"MAIN_W={dash['width']}\n" in self.text
+        assert f"MAIN_H={dash['height']}\n" in self.text
 
     def test_nm_unmanaged_devices_is_one_key_in_one_file(self):
         """NetworkManager does not merge ``[keyfile] unmanaged-devices=`` from
@@ -474,7 +488,7 @@ class TestBcmHarden:
         assert "8#022" in body
         assert body.index("run chmod go-w /etc/bcm") < body.index('atomic_replace "$BCM_DIR/config/bcm.env.example"')
 
-    def test_warns_before_switching_unit_away_from_temp_config(self):
+    def test_warns_before_switching_unit_to_the_final_config(self):
         units = _function_body(self.text, "step_units_and_env")
         assert units.index("check_config_migration") < units.index("bcm-headunit-x86.service")
         check = _function_body(self.text, "check_config_migration")
@@ -482,30 +496,77 @@ class TestBcmHarden:
             "/etc/systemd/system/bcm-headunit.service",
             "bcm_config_temp\\.yaml",
             "config/local.yaml",
+            # case 1: old unit on temp, no local.yaml yet — device file → overlay
             "tools/migrate_local_config.py --source config/bcm_config_temp.yaml"
-            " --base config/bcm_config_test.yaml --out config/local.yaml",
+            " --base config/bcm_config.yaml --out config/local.yaml",
+            # case 2: local.yaml for the test (or temp) base — rewritten in place
+            "tools/migrate_local_config.py --source config/local.yaml"
+            " --base config/bcm_config.yaml",
             "--write",
             "BCM_CONFIG=config/bcm_config_temp.yaml",
+            "BCM_CONFIG=config/$old_base",
             "MIGRATION_PENDING=1",
+            "MIGRATION_PENDING=2",
         ):
             assert needle in check, needle
-        # bcm.env is only grep -q'ed, never printed.
-        assert re.search(r'grep -Eq [^\n]*"\$ENV_FILE"', check)
-        assert "MIGRATION_PENDING" in _function_body(self.text, "step_summary")
-        # A local.yaml BCM wrote under the old unit (# base: bcm_config_temp.yaml)
-        # is applied but never saved under the test base: warned about whatever
-        # unit is installed, and the hint merges it (its values win).
-        assert "MIGRATION_PENDING=2" in check
-        assert '$3 == "bcm_config_temp.yaml"' in check
-        assert 'merge=" --merge-existing"' in check
-        assert "--out config/local.yaml$merge" in check
-        assert check.index('[ -e "$overlay" ]') < check.index('grep -q \'bcm_config_temp\\.yaml\' "$unit"')
+        assert "bcm_config_test.yaml --out" not in check      # the old temp→test hint
+        # bcm.env is only grep -q'ed, never printed; a deliberate rollback to
+        # either older base is not a pending migration.
+        assert re.search(r'grep -Eq [^\n]*bcm_config_\(temp\|test\)[^\n]*"\$ENV_FILE"', check)
+        # The header test names exactly the two older bases.
+        assert '$3 == "bcm_config_test.yaml" || $3 == "bcm_config_temp.yaml"' in check
+        assert (check.index('[ -e "$overlay" ]')
+                < check.index("grep -q 'bcm_config_temp\\.yaml' \"$unit\""))
         summary = _function_body(self.text, "step_summary")
-        assert '"$MIGRATION_PENDING" = 2' in summary and "--merge-existing" in summary
-        # The flags the hint suggests are the tool's real ones.
+        assert '"$MIGRATION_PENDING" = 2' in summary
+        assert "--source config/local.yaml --base config/bcm_config.yaml" in summary
+        # The flags the hints suggest are the tool's real ones.
         tool = (REPO / "tools" / "migrate_local_config.py").read_text(encoding="utf-8")
-        for flag in ("--source", "--base", "--out", "--write", "--merge-existing"):
+        for flag in ("--source", "--base", "--out", "--write"):
             assert f'"{flag}"' in tool, flag
+
+    @pytest.mark.parametrize("header, expected", [
+        ("# Generated by BCM — do not commit\n# base: bcm_config_test.yaml\na: 1\n",
+         "bcm_config_test.yaml"),
+        ("# Generated by BCM — do not commit\n# base: bcm_config_temp.yaml\n",
+         "bcm_config_temp.yaml"),
+        ("# Generated by BCM — do not commit\n# base: bcm_config.yaml\na: 1\n", ""),
+        ("# Generated by BCM — do not commit\na: 1\n# base: bcm_config_test.yaml\n", ""),
+        ("a: 1\n", ""),
+    ])
+    def test_overlay_base_detection_awk(self, tmp_path, header, expected):
+        # The awk program from check_config_migration, run on a temp file:
+        # prints the old base name only for the two older bases and only from
+        # the leading comment block (like overlay_base_name()).
+        check = _function_body(self.text, "check_config_migration")
+        prog = next(p for p in re.findall(r"awk '(.*?)' \"\$overlay\"", check, re.S)
+                    if "bcm_config_temp.yaml" in p)
+        f = tmp_path / "local.yaml"
+        f.write_text(header, encoding="utf-8")
+        out = subprocess.run(["awk", prog, str(f)], capture_output=True, text=True,
+                             timeout=10).stdout.strip()
+        assert out == expected
+
+    @pytest.mark.parametrize("header, expected", [
+        ("# Generated by BCM — do not commit\n# base: bcm_config.yaml\na: 1\n",
+         "bcm_config.yaml"),
+        ("# Generated by BCM — do not commit\n# base: bcm_config_test.yaml\n",
+         "bcm_config_test.yaml"),
+        ("a: 1\n# base: bcm_config.yaml\n", ""),
+    ])
+    def test_rollback_with_migrated_overlay_warns(self, tmp_path, header, expected):
+        # A rollback in bcm.env over an overlay already rewritten for
+        # bcm_config.yaml: the script must point at the pre-migration copy.
+        check = _function_body(self.text, "check_config_migration")
+        rollback = check.split("bcm_config_(temp|test)", 1)[1].split("return 0", 1)[0]
+        assert "sudo cp -p $BCM_DIR/config/local.yaml.bcm_config_test.bak $overlay" in rollback
+        assert '= "bcm_config.yaml" ]' in rollback
+        prog = re.search(r"awk '(.*?)' \"\$overlay\"", rollback, re.S).group(1)
+        f = tmp_path / "local.yaml"
+        f.write_text(header, encoding="utf-8")
+        out = subprocess.run(["awk", prog, str(f)], capture_output=True, text=True,
+                             timeout=10).stdout.strip()
+        assert out == expected
 
     def test_header_says_cleanup_is_a_full_uninstall(self):
         header = self.text.split("set -euo pipefail", 1)[0]

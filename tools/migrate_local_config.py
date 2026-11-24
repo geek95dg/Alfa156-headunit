@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-"""Move the car's hand/BCM-modified config into a local overlay.
+"""Move the car's hand/BCM-modified config into a local overlay — or move
+an existing overlay to a new base.
 
 Until now BCM rewrote its base YAML in place (``config/bcm_config_temp.yaml``
 on the car): every UI change and every Bluetooth connect ended up there,
@@ -10,7 +11,7 @@ for an existing device file:
 
     # dry run (default) — shows what would be written, writes nothing
     python3 tools/migrate_local_config.py --source /root/bcm_config_temp.yaml.device \\
-        --base config/bcm_config_test.yaml
+        --base config/bcm_config.yaml
     # write config/local.yaml (mode 0600)
     python3 tools/migrate_local_config.py --source ... --base ... --write
 
@@ -41,6 +42,29 @@ The difference and the never-persist rules are the very functions
 ``src/core/config.py`` uses when BCM saves the overlay, so the result is
 exactly what BCM itself would have written.
 
+Second mode — BASE CHANGE (bcm_config_test.yaml → bcm_config.yaml, 23.11):
+when ``--source`` is itself an overlay BCM wrote (its header says
+``# base: bcm_config_test.yaml``), only the values in it are considered —
+the user's own choices — and each is compared with the NEW base:
+
+    # dry run: what config/local.yaml becomes under bcm_config.yaml
+    python3 tools/migrate_local_config.py --source config/local.yaml \
+        --base config/bcm_config.yaml
+    # rewrite it in place (old file kept as local.yaml.bcm_config_test.bak)
+    python3 tools/migrate_local_config.py --source config/local.yaml \
+        --base config/bcm_config.yaml --write
+
+Values equal to the new base are dropped (they moved into the base), the
+rest stays (runtime keys such as ``multimedia.last_bt_device`` included),
+and the ``# base:`` header names the new base, so BCM saves again. The
+old base is not read: a value the user never set must follow the new base.
+BASE_DECISIONS lists the few values the new base sets on purpose against
+the old overlay (``modules.phone_tether``: the car phone stays in the car)
+— SKIPPED unless ``--keep-source``. SKIP_BASE_WINS and
+BASE_CHANGED_DEFAULTS are about old device files and do not apply here.
+A secret in the overlay (typed in the UI) would be dropped: --write refuses
+until it is in /etc/bcm/bcm.env and ``--drop-secrets`` is given.
+
 Exit codes: 0 = OK (plan shown or file written), 1 = error, 2 = nothing to
 migrate.
 """
@@ -70,6 +94,7 @@ from src.core.config import (  # noqa: E402
     default_local_path,
     get_path,
     iter_leaves,
+    overlay_base_name,
     prune_overlay,
     read_overlay_file,
     render_overlay,
@@ -81,7 +106,8 @@ EXIT_OK = 0
 EXIT_ERROR = 1
 EXIT_NOTHING = 2
 
-DEFAULT_BASE = REPO_ROOT / "config" / "bcm_config_test.yaml"
+# The base the units run since 23.11 (the car's final config).
+DEFAULT_BASE = REPO_ROOT / "config" / "bcm_config.yaml"
 
 #: Modules the new base enables deliberately — an old `false` must not win
 #: over a base `true` (the opposite direction is migrated normally).
@@ -120,6 +146,20 @@ BASE_CHANGED_DEFAULTS: dict = {
     "tracking.interval_sec": (30,),
 }
 
+#: Base change (overlay mode): new base file name → {dot-path: why}. These
+#: values the new base sets deliberately; an override from the old overlay
+#: would silently undo that decision, so it is SKIPPED (--keep-source keeps
+#: it). Keep the reasons short: they are printed in the report.
+BASE_DECISIONS: dict = {
+    "bcm_config.yaml": {
+        # Decision 23.11: the Redmi stays in the car and gives internet over
+        # USB (car_phone); Bluetooth PAN from the driver's phone is only the
+        # optional fallback, off in the final config.
+        "modules.phone_tether": "decyzja 23.11: internet z Redmi po USB; "
+                                "Bluetooth PAN tylko jako zapas",
+    },
+}
+
 #: Hardware-specific values — migrated, but listed for a human to check.
 REVIEW_PATHS = (
     "audio.sink",
@@ -150,9 +190,11 @@ def parse_args(argv: Optional[list[str]]) -> argparse.Namespace:
                     "(dry run unless --write).",
     )
     p.add_argument("--source", required=True, type=Path,
-                   help="device's modified config (e.g. a copy of bcm_config_temp.yaml)")
+                   help="device's modified config (e.g. a copy of bcm_config_temp.yaml), "
+                        "or an overlay BCM wrote for another base (config/local.yaml "
+                        "with '# base: bcm_config_test.yaml') — then it is rewritten for --base")
     p.add_argument("--base", type=Path, default=DEFAULT_BASE,
-                   help="base config BCM will run with (default: config/bcm_config_test.yaml)")
+                   help="base config BCM will run with (default: config/bcm_config.yaml)")
     p.add_argument("--out", type=Path, default=None,
                    help="overlay to write (default: local.yaml next to --base)")
     p.add_argument("--write", action="store_true",
@@ -166,6 +208,10 @@ def parse_args(argv: Optional[list[str]]) -> argparse.Namespace:
                    help="do not migrate this path (and everything below it); repeatable")
     p.add_argument("--keep-source", action="append", default=[], metavar="DOTPATH",
                    help="keep the device value for a SKIPPED path; repeatable")
+    p.add_argument("--drop-secrets", action="store_true",
+                   help="base change only: allow --write although secrets (API keys, "
+                        "passwords) from the overlay are dropped — put them into "
+                        "/etc/bcm/bcm.env first")
     p.add_argument("--json", action="store_true", help="machine-readable report on stdout")
     return p.parse_args(argv)
 
@@ -236,13 +282,21 @@ def _dropped_reason(dotpath: str, value: Any) -> dict:
     return {"path": dotpath, "reason": "runtime state (*_runtime), regenerated by BCM"}
 
 
-def build_plan(source: dict, base: dict, *, excludes=(), keep_source=()) -> dict:
+def build_plan(source: dict, base: dict, *, excludes=(), keep_source=(),
+               skip_base_wins=SKIP_BASE_WINS, changed_defaults=None,
+               decisions=None) -> dict:
     """Classify every value in ``source`` that differs from ``base``.
 
     Returns a dict with lists ``write``/``review``/``dropped``/``skipped``
     (display-safe: sensitive values redacted) and ``overlay`` — the actual
-    data to write (WRITE + REVIEW).
+    data to write (WRITE + REVIEW). ``skip_base_wins`` / ``changed_defaults``
+    are the device-file rules (defaults: SKIP_BASE_WINS,
+    BASE_CHANGED_DEFAULTS); ``decisions`` ({dot-path: reason}) skips any
+    different value of these paths (base change, BASE_DECISIONS).
     """
+    if changed_defaults is None:
+        changed_defaults = BASE_CHANGED_DEFAULTS
+    decisions = decisions or {}
     raw_overlay = compute_overlay(base, source)
     # Same never-persist rule (and the same code) as BCMConfig.save(), with
     # every SECRET_ENV_MAP path treated as env-provided: on the car secrets
@@ -271,7 +325,15 @@ def build_plan(source: dict, base: dict, *, excludes=(), keep_source=()) -> dict
         # exactly right (skipping it would silently switch weather & co. off).
         keep = _covered_by_any(keep_source, dotpath)
         base_value = get_path(base, dotpath)
-        if (_covered_by_any(SKIP_BASE_WINS, dotpath)
+        if dotpath in decisions and not keep:
+            plan["skipped"].append({
+                "path": dotpath,
+                "source": safe_value(dotpath, value),
+                "base": safe_value(dotpath, base_value),
+                "reason": decisions[dotpath],
+            })
+            continue
+        if (_covered_by_any(skip_base_wins, dotpath)
                 and not keep and not value and base_value):
             plan["skipped"].append({
                 "path": dotpath,
@@ -279,7 +341,7 @@ def build_plan(source: dict, base: dict, *, excludes=(), keep_source=()) -> dict
                 "base": safe_value(dotpath, base_value),
             })
             continue
-        old_defaults = BASE_CHANGED_DEFAULTS.get(dotpath)
+        old_defaults = changed_defaults.get(dotpath)
         if (old_defaults is not None and not keep and not isinstance(value, bool)
                 and value in old_defaults and base_value is not None):
             plan["skipped"].append({
@@ -324,8 +386,10 @@ def _fmt(value: Any) -> str:
     return json.dumps(value, ensure_ascii=False)
 
 
-def print_report(plan: dict, args: argparse.Namespace, out: Path, out_exists: bool) -> None:
-    print(f"Source: {args.source}")
+def print_report(plan: dict, args: argparse.Namespace, out: Path, out_exists: bool,
+                 source_base: Optional[str] = None) -> None:
+    print(f"Source: {args.source}"
+          + (f" (overlay for base {source_base})" if source_base else ""))
     print(f"Base:   {args.base}")
     print(f"Out:    {out} ({'exists' if out_exists else 'absent'})")
     print()
@@ -344,7 +408,19 @@ def print_report(plan: dict, args: argparse.Namespace, out: Path, out_exists: bo
     for item in plan["skipped"]:
         why = f" — {item['reason']}" if "reason" in item else ""
         print(f"  {item['path']}: device {_fmt(item['source'])}, base {_fmt(item['base'])}{why}")
+    if "same" in plan:
+        print(f"IN BASE ({len(plan['same'])}) — the new base already has this value, "
+              f"dropped from the overlay:")
+        for path in plan["same"]:
+            print(f"  {path}")
     print()
+
+
+def _base_change_backup(out: Path, old_base: str) -> Path:
+    """``local.yaml.bcm_config_test.bak`` — named after the old base, so a
+    later migration does not overwrite it and BCM's own ``local.yaml.bak``
+    (its crash-recovery copy) stays what it is."""
+    return out.with_name(f"{out.name}.{Path(old_base).stem}.bak")
 
 
 def main(argv: Optional[list[str]] = None) -> int:
@@ -359,16 +435,51 @@ def main(argv: Optional[list[str]] = None) -> int:
 
     out: Path = args.out if args.out is not None else default_local_path(args.base)
     try:
-        if out.resolve() in (args.base.resolve(), args.source.resolve()):
-            print("error: --out must not be the base or the source file", file=sys.stderr)
+        if out.resolve() == args.base.resolve():
+            print("error: --out must not be the base file", file=sys.stderr)
             return EXIT_ERROR
         source = _load_yaml_mapping(args.source, "source")
         base = _load_yaml_mapping(args.base, "base")
+        try:
+            source_raw = args.source.read_bytes()
+        except OSError as e:
+            raise ValueError(f"cannot read source {args.source}: {e}") from None
     except ValueError as e:
         print(f"error: {e}", file=sys.stderr)
         return EXIT_ERROR
 
-    plan = build_plan(source, base, excludes=args.exclude, keep_source=args.keep_source)
+    # An overlay BCM wrote records its base ("# base: NAME"); a device file
+    # (a full config) never does. Overlay values are all deliberate choices,
+    # so the device-file rules do not apply to them.
+    source_base = overlay_base_name(source_raw)
+    in_place = out.resolve() == args.source.resolve()
+    if in_place and source_base is None:
+        print("error: --out must not be the source file (only an overlay with a "
+              "'# base:' header can be rewritten in place)", file=sys.stderr)
+        return EXIT_ERROR
+    if in_place and args.merge_existing:
+        print("error: --merge-existing makes no sense when --out is the source "
+              "(the source values are already all there)", file=sys.stderr)
+        return EXIT_ERROR
+
+    if source_base is not None:
+        if source_base == args.base.name:
+            print(f"{args.source} is already written for base {source_base} — "
+                  f"nothing to migrate.")
+            return EXIT_NOTHING
+        # Overlay applied on the NEW base: the difference is exactly the
+        # overlay values that still differ from it.
+        plan = build_plan(deep_merge(base, source), base, excludes=args.exclude,
+                          keep_source=args.keep_source, skip_base_wins=(),
+                          changed_defaults={},
+                          decisions=BASE_DECISIONS.get(args.base.name, {}))
+        # Listed (not printed by value — the base holds the same) so the
+        # dry run shows where each setting of the old overlay went.
+        missing = object()
+        plan["same"] = [p for p, v in iter_leaves(source)
+                        if get_path(base, p, missing) == v]
+    else:
+        plan = build_plan(source, base, excludes=args.exclude, keep_source=args.keep_source)
     overlay = plan["overlay"]
     out_exists = out.exists()
 
@@ -387,9 +498,12 @@ def main(argv: Optional[list[str]] = None) -> int:
     final = deep_merge(overlay, existing) if existing else overlay
     result: dict = {
         "source": str(args.source), "base": str(args.base), "out": str(out),
+        "source_base": source_base, "in_place": in_place,
         "out_exists": out_exists, "dry_run": not args.write, "written": False,
         **{k: plan[k] for k in ("write", "review", "dropped", "skipped")},
     }
+    if "same" in plan:
+        result["same"] = plan["same"]
 
     def finish(code: int, message: str = "", *, stream=sys.stdout) -> int:
         if args.json:
@@ -398,14 +512,48 @@ def main(argv: Optional[list[str]] = None) -> int:
                 result["message"] = message
             print(json.dumps(result, ensure_ascii=False, indent=2))
         else:
-            print_report(plan, args, out, out_exists)
+            print_report(plan, args, out, out_exists, source_base)
             if message:
                 print(message, file=stream)
         return code
 
-    if not overlay:
+    if not overlay and source_base is None:
         return finish(EXIT_NOTHING, "Nothing to migrate — the source matches the base "
                                     "(apart from dropped/skipped values).")
+    # Base change with nothing left: still rewrite — an empty overlay with the
+    # new "# base:" header is what lets BCM save again.
+
+    # An overlay BCM wrote may legitimately hold a secret typed in the UI
+    # (BCM only prunes secrets that really come from bcm.env). Dropping it
+    # silently would leave the feature without its key after the rewrite —
+    # so --write refuses until the user moved it to bcm.env and says so.
+    # Only the variable names are printed, never a value.
+    lost_secrets = sorted({d["env_var"] for d in plan["dropped"] if "env_var" in d})
+    if source_base is not None and lost_secrets and not args.drop_secrets:
+        msg = (f"the overlay holds secrets that the rewrite drops: {', '.join(lost_secrets)} "
+               f"— put them into /etc/bcm/bcm.env first, then re-run with --drop-secrets.")
+        if args.write:
+            return finish(EXIT_ERROR, f"error: {msg}", stream=sys.stderr)
+        return finish(EXIT_OK, f"Dry run — nothing written. Note: --write would refuse: {msg}")
+
+    if in_place:
+        if not args.write:
+            return finish(EXIT_OK, f"Dry run — nothing written. Re-run with --write to "
+                                   f"rewrite {out} for {args.base.name} (old file kept as "
+                                   f"{_base_change_backup(out, source_base).name}).")
+        try:
+            # Byte copy of the old overlay first: the rollback (BCM_CONFIG back
+            # to the old base) needs it, and BCM never touches this name.
+            atomic_write_bytes(_base_change_backup(out, source_base), source_raw,
+                               mode=LOCAL_FILE_MODE)
+            atomic_write_text(out, render_overlay(final, base_name=args.base.name),
+                              mode=LOCAL_FILE_MODE)
+        except OSError as e:
+            return finish(EXIT_ERROR, f"error: writing {out} failed: {e}", stream=sys.stderr)
+        result["written"] = True
+        return finish(EXIT_OK, f"Wrote {out} for {args.base.name} (mode 0600); the old file "
+                               f"is {_base_change_backup(out, source_base).name}. Restart "
+                               f"bcm-headunit.")
 
     if out_exists and not (args.force or args.merge_existing):
         msg = (f"{out} already exists — use --merge-existing (existing values win) "

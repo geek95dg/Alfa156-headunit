@@ -1731,11 +1731,14 @@ def _yaml_cfg(name):
 
 
 class TestConfig:
-    def test_production_does_not_start_it(self):
+    def test_final_config_keeps_it_off_in_dry_run(self):
         cfg = _yaml_cfg("bcm_config.yaml")
         assert mc.is_enabled(cfg, "crash_sms") is False
         assert mc.module_states(cfg)["crash_sms"].runs is False
-        assert cfg.get("crash_detection.sms") is None              # code defaults only
+        sms = cfg.get("crash_detection.sms")
+        # Same safe block as the test config: SMS only logged until armed.
+        assert sms["dry_run"] is True and "enabled" not in sms
+        assert "recipients" not in sms                             # only local.yaml / UI
 
     def test_test_config_keeps_it_off_in_test_mode(self):
         cfg = _yaml_cfg("bcm_config_test.yaml")

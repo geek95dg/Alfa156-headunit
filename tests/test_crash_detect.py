@@ -729,7 +729,8 @@ class TestRegistration:
                         platform_override="x86", local_path=None, env={})
         main.start_modules(main.registry_to_start(main.plan_modules(cfg)), cfg, EventBus(), None)
         assert called and ("crash_detect" in called) is started
-        assert "phone_sensors" not in called
+        # The final config runs the car phone's sensors (crash_detect stays off).
+        assert ("phone_sensors" in called) is (cfg_name == "bcm_config.yaml")
 
     def test_without_location_it_is_not_started(self):
         cfg = BCMConfig(config_path=str(REPO / "config" / "bcm_config_test.yaml"),

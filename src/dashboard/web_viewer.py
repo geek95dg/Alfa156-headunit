@@ -2978,6 +2978,19 @@ class WebViewer:
 
         # --- Module toggles (Settings -> Moduły) ---
 
+        def _config_migration(cfg):
+            """local.yaml written for an older base (bcm_config_test.yaml →
+            bcm_config.yaml): file names and the migrate command for the
+            banner in Settings → Moduły, None otherwise. Built from fixed
+            strings only — nothing from the overlay or env reaches the page."""
+            info = getattr(cfg, "base_migration", None)
+            if not isinstance(info, dict):
+                return None
+            out = {k: info.get(k) for k in ("recorded", "base", "command")}
+            if not all(isinstance(v, str) and v for v in out.values()):
+                return None
+            return out
+
         @app.route("/api/modules", methods=["GET"])
         def api_modules_get():
             cfg = viewer._config
@@ -2985,7 +2998,8 @@ class WebViewer:
                 return jsonify({"modules": [], "restart_required": False})
             modules = viewer._modules_payload(cfg)
             return jsonify({"modules": modules,
-                            "restart_required": _modules_restart_required(modules, False)})
+                            "restart_required": _modules_restart_required(modules, False),
+                            "config_migration": _config_migration(cfg)})
 
         @app.route("/api/modules", methods=["POST"])
         def api_modules_set():

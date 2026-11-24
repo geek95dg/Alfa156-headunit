@@ -329,13 +329,19 @@ sudo usermod -aG dialout $USER    # porty szeregowe Arduino
 
 ### 6.3 Rozdzielczość wyświetlacza
 
-W `config/bcm_config.yaml`:
+`config/bcm_config.yaml` (konfiguracja docelowa auta, od 23.11 baza
+w unitach) ma panel 7" 1024×600; wartości dla 10,1" 1280×800 są w nim
+w komentarzu przy bloku `display`. Zmianę wpisz w nakładce
+`config/local.yaml` (BCM zatrzymany) — bazy z gita nie edytuj:
 
 ```yaml
 display:
   dashboard:
-    width: 1024       # 7"; dla 10" → 1280
-    height: 600       # 7"; dla 10" → 800
+    width: 1024       # 7"; dla 10,1" → 1280
+    height: 600       # 7"; dla 10,1" → 800
+  multimedia:
+    width: 1024       # 7"; dla 10,1" → 1280
+    height: 600       # 7"; dla 10,1" → 800
 ```
 
 ### 6.4 Test ręczny
@@ -616,7 +622,7 @@ a wyświetlacz ma HDMI, potrzebne są **pasywne przejściówki DP → HDMI**
 
 | Wyjście | Wyświetlacz | Rozdzielczość | Zawartość | Port |
 |---------|-------------|---------------|-----------|------|
-| główne | **10,1" IPS dotykowy** | **1280×800** | dashboard BCM (A1–A8 + Settings) | 5002 |
+| główne | **7" dotykowy** (dziś w aucie); docelowo **10,1" IPS** | **1024×600**; 10,1": **1280×800** | dashboard BCM (A1–A8 + Settings) | 5002 |
 | drugie | **6,86" widescreen** *(opcjonalne)* | **1280×480** | karuzela statystyk + kamera cofania | 5003 |
 
 Wartości pochodzą z `display.dashboard` i `display.small` w
@@ -715,7 +721,8 @@ Tor na M910q: **USB → CP2102 (USB-UART) → L9637D (transceiver) → pin 7
 złącza OBD-II**. Rezystor podciągający 510 Ω z linii K do 12 V.
 
 Domyślnie x86 pracuje na **symulatorze ECU** — wygodne przy testach na stole.
-Żeby czytać z prawdziwego auta, w `config/bcm_config.yaml`:
+Żeby czytać z prawdziwego auta, w `config/local.yaml` (nakładka na
+`config/bcm_config.yaml`):
 
 ```yaml
 obd:
@@ -826,7 +833,9 @@ Jedno źródło prawdy: `src/core/modules_catalog.py`. Każdy moduł włącza si
 na dwa sposoby:
 
 - **UI:** Settings → Moduły (endpoint `/api/modules`)
-- **YAML:** `modules.<nazwa>` w `config/bcm_config.yaml`
+- **YAML:** `modules.<nazwa>` w `config/local.yaml` (nakładka na bazę
+  `config/bcm_config.yaml` — konfigurację docelową auta od 23.11; bazy
+  z gita nie edytuj, `git pull` by ją nadpisał)
 
 **Zmiany wymagają restartu BCM.** Pełna tabela 28 przełączników jest
 w [`URUCHOMIENIE.md`](URUCHOMIENIE.md) §5.
@@ -1154,7 +1163,7 @@ groups | grep dialout                     # bez tego port jest tylko do odczytu 
 ### 20.3 Włączenie modułu
 
 ```yaml
-# config/bcm_config.yaml
+# config/local.yaml (blok esp32_display jest już w config/bcm_config.yaml)
 modules:
   esp32_display: true
 esp32_display:

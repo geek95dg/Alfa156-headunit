@@ -19,6 +19,12 @@ Jak czytać tę instrukcję:
 - **NIESPRAWDZONE** = opisane według kodu i dokumentacji, jeszcze nie
   sprawdzone na sprzęcie w aucie.
 
+> **Od 23.11 auto jeździ na konfiguracji docelowej `config/bcm_config.yaml`**
+> (wszystko, co działało w teście, plus Twoje ustawienia z `local.yaml`).
+> Przejście krok po kroku, z poleceniami i wycofaniem:
+> [§13](#13-przejście-na-konfigurację-docelową). Do czasu przejścia BCM
+> stosuje Twój `config/local.yaml`, ale nie zapisuje w nim zmian z ekranu.
+
 Przygotowanie samego telefonu w aucie (ROM, Termux, agent, 112, postój,
 kabina): [`PRZYGOTOWANIE_TELEFONU.md`](PRZYGOTOWANIE_TELEFONU.md).
 Szczegóły techniczne każdej funkcji: [`WDROZENIE_TESTOWE.md`](WDROZENIE_TESTOWE.md)
@@ -40,6 +46,7 @@ Szczegóły techniczne każdej funkcji: [`WDROZENIE_TESTOWE.md`](WDROZENIE_TESTO
 10. [Gdy coś nie działa](#10-gdy-coś-nie-działa)
 11. [Wycofanie zmian](#11-wycofanie-zmian)
 12. [Czego nie sprawdzono na sprzęcie](#12-czego-nie-sprawdzono-na-sprzęcie)
+13. [Przejście na konfigurację docelową](#13-przejście-na-konfigurację-docelową)
 
 ---
 
@@ -114,12 +121,13 @@ nowe moduły są tam wyłączone; pełna tabela: §8.
 
 | Warstwa | Plik | Kto pisze | Co tam jest |
 |---------|------|-----------|-------------|
-| baza | `config/bcm_config_test.yaml` (w gicie) | nikt w aucie — tylko `git pull` | wszystkie klucze z wartościami dla auta testowego |
+| baza | `config/bcm_config.yaml` (w gicie; do 23.11 `config/bcm_config_test.yaml`) | nikt w aucie — tylko `git pull` | wszystkie klucze z wartościami dla auta |
 | nakładka | `config/local.yaml` (poza gitem, 0600) | BCM (zmiany z ekranu, zapis atomowy) i Ty | tylko różnice względem bazy; poprzednia dobra wersja w `config/local.yaml.bak` |
 | sekrety | `/etc/bcm/bcm.env` (0600 root:root) | tylko Ty | klucze API, hasła, sekret agenta — nigdy w YAML-u |
 
 Usługa `bcm-headunit` bierze bazę z linii `BCM_CONFIG` (domyślnie
-`config/bcm_config_test.yaml`, można ją nadpisać w `/etc/bcm/bcm.env`),
+`config/bcm_config.yaml` — od 23.11, §13; wcześniej
+`config/bcm_config_test.yaml`; można ją nadpisać w `/etc/bcm/bcm.env`),
 nakłada `config/local.yaml` (inne położenie: `BCM_LOCAL_CONFIG`), a na
 końcu sekrety ze środowiska. Wzór pliku sekretów z opisem każdej zmiennej:
 `config/bcm.env.example`.
@@ -183,15 +191,24 @@ z `sudo`.
 >
 > Prąd jednak zniknął w trakcie kroku — §3.11.
 
+> **Od 23.11 unity z repo startują z `config/bcm_config.yaml`.** Ten
+> rozdział przenosi ustawienia ze starego pliku na konfigurację testową
+> (`--base config/bcm_config_test.yaml`); zaraz po §3.5 zrób §13.2–§13.5
+> (przejście na konfigurację docelową), a dopiero potem §3.6 i dalej —
+> inaczej po restarcie (§3.10) BCM nie zapisze zmian z ekranu.
+
 ### 3.1 Z jakim configiem startuje usługa
 
 ```bash
 systemctl cat bcm-headunit | grep -E 'BCM_CONFIG|--config|EnvironmentFile'
 ```
 
+- `Environment=BCM_CONFIG=config/bcm_config.yaml` — unit jest już po
+  przejściu na konfigurację docelową; jeśli `config/local.yaml` zaczyna się
+  od `# base: bcm_config.yaml`, ten rozdział i §13 masz za sobą.
 - `Environment=BCM_CONFIG=config/bcm_config_test.yaml` i
   `EnvironmentFile=-/etc/bcm/bcm.env` — unit jest już nowy (bcm-harden
-  przeszedł). Zatrzymaj BCM (§3.2 — migracja przy działającym BCM by
+  przeszedł), ale jeszcze na konfiguracji testowej (potem §13). Zatrzymaj BCM (§3.2 — migracja przy działającym BCM by
   przepadła), sprawdź §3.3 i idź dalej od §3.4. Migrację (§3.5) zrób, jeśli
   stary plik z auta nigdy nie trafił do `config/local.yaml` **albo**
   `config/local.yaml` zaczyna się od linii `# base: bcm_config_temp.yaml`
@@ -441,7 +458,8 @@ Po starcie (szczegóły w §9.1):
 sudo journalctl -u bcm-headunit -b | grep -E 'Config:|Local overlay|Secrets from environment'
 ```
 
-Ma być `Config: …bcm_config_test.yaml`, `Local overlay: …local.yaml`
+Ma być `Config: …bcm_config.yaml` (po §13; przed nim
+`…bcm_config_test.yaml`), `Local overlay: …local.yaml`
 i `Secrets from environment:` z **nazwami** (nie wartościami) wpisanych
 sekretów. Nie może być ostrzeżenia `Config: … saving is disabled …` —
 wtedy `config/local.yaml` jest dalej dla starej bazy (§3.3, wariant B
@@ -709,11 +727,13 @@ termux-infrared-frequencies
 Ustawienia → Moduły (zapis w `config/local.yaml`; zmiana działa po
 restarcie BCM). Moduł, którego zależności nie działają, nie startuje: BCM
 loguje jedno ostrzeżenie, a Ustawienia proponują włączenie zależności.
-„Produkcja” = `config/bcm_config.yaml`, „Test” = `config/bcm_config_test.yaml`
-(z dawnymi kluczami jak `bluetooth.enabled`).
+„Docelowa” = `config/bcm_config.yaml` — konfiguracja, z którą auto jeździ od
+23.11 (§13), „Test” = `config/bcm_config_test.yaml` — konfiguracja
+stanowiskowa, na której auto jeździło wcześniej (przełączniki z okresu
+testów).
 
-| Moduł | Co robi | Wymaga | Sprzęt | Produkcja | Test |
-|-------|---------|--------|--------|-----------|------|
+| Moduł | Co robi | Wymaga | Sprzęt | Docelowa | Test |
+|-------|---------|--------|--------|----------|------|
 | `dashboard` | ekran BCM (kiosk, port 5002) | — | ekran + Chromium | wł. | wł. |
 | `multimedia` | Android Auto (autoapp) | — | telefon z AA bezprzewodowym, MT7921 | wł. | wł. |
 | `bluetooth` | Bluetooth: parowanie, A2DP/HFP, start AA | — | karta BT (MT7921) | wł. | wł. |
@@ -722,37 +742,38 @@ loguje jedno ostrzeżenie, a Ustawienia proponują włączenie zależności.
 | `audio` | głośność, EQ, mikrofon | — | karta dźwiękowa | wł. | wł. |
 | `network` | stan łącza LTE | — | modem LTE (opcjonalnie) | wył. | wł. |
 | `phone_tether` | internet z głównego telefonu (Bluetooth PAN) | `bluetooth` | tethering przez Bluetooth w telefonie | wył. | wł. |
-| `phonebook` | kontakty i historia połączeń (PBAP) | `bluetooth` | telefon przez BT | wył. | wł. |
-| `phone_status` | bateria, zasięg, operator w pasku | `bluetooth` | telefon przez BT (oFono) | wył. | wł. |
+| `phonebook` | kontakty i historia połączeń (PBAP) | `bluetooth` | telefon przez BT | wł. | wł. |
+| `phone_status` | bateria, zasięg, operator w pasku | `bluetooth` | telefon przez BT (oFono) | wł. | wł. |
 | `weather` | pogoda (OpenWeatherMap) | — | internet, `BCM_OWM_API_KEY` | wł. | wł. |
-| `weather_alerts` | ostrzeżenia pogodowe: oblodzenie, śnieg, ulewa, burza, wiatr, mgła (§9.7) | `weather` | internet, `BCM_OWM_API_KEY`; GPS dla prognozy w miejscu auta | wył. | wł. |
+| `weather_alerts` | ostrzeżenia pogodowe: oblodzenie, śnieg, ulewa, burza, wiatr, mgła (§9.7) | `weather` | internet, `BCM_OWM_API_KEY`; GPS dla prognozy w miejscu auta | wł. | wł. |
 | `route_planner` | planer tras (OpenRouteService) | — | internet, `BCM_ORS_API_KEY` | wł. | wł. |
-| `trip_gps` | komputer podróży z GPS na ekranie trasy: dystans, czas, średnia prędkość (§9.6) | `location` | GPS z telefonu albo odbiornika | wył. | wł. |
-| `traffic_alerts` | utrudnienia TomTom w trakcie jazdy: korki, wypadki, zamknięcia przed autem albo na trasie (§9.8) | `location` | internet, `BCM_TOMTOM_API_KEY`; GPS z kursem; cel na ekranie trasy dla korytarza wzdłuż trasy | wył. | wł. |
-| `voice_announce` | komunikaty głosowe: ostrzeżenia pogodowe i utrudnienia czytane po polsku (Piper, zapasowo espeak-ng), muzyka ściszana na czas komunikatu (§9.9) | `audio` | Piper z głosem `pl_PL-gosia-medium` albo espeak-ng (`apply-fixes.sh`), PipeWire w sesji użytkownika | wył. | wł. |
-| `net_diag` | sonda internetu w `car_phone`/`phone_tether` i wiersz „Internet i usługi” z testem kluczy (§10.1) | — | klucze w `bcm.env` | wył. | wł. |
-| `location` | pozycja GPS (NMEA z telefonu) | — | telefon z aplikacją NMEA | wył. | wł. |
-| `tracking` | zapis tras (SQLite) i GPX | — | pozycja z `location` | wył. | wł. |
-| `fuel_log` | dziennik tankowań: spalanie od pełna do pełna, koszt, zasięg (§9.6) | `tracking` | nic — wpis na ekranie trasy | wył. | wł. |
+| `trip_gps` | komputer podróży z GPS na ekranie trasy: dystans, czas, średnia prędkość (§9.6) | `location` | GPS z telefonu albo odbiornika | wł. | wł. |
+| `traffic_alerts` | utrudnienia TomTom w trakcie jazdy: korki, wypadki, zamknięcia przed autem albo na trasie (§9.8) | `location` | internet, `BCM_TOMTOM_API_KEY`; GPS z kursem; cel na ekranie trasy dla korytarza wzdłuż trasy | wł. | wł. |
+| `voice_announce` | komunikaty głosowe: ostrzeżenia pogodowe i utrudnienia czytane po polsku (Piper, zapasowo espeak-ng), muzyka ściszana na czas komunikatu (§9.9) | `audio` | Piper z głosem `pl_PL-gosia-medium` albo espeak-ng (`apply-fixes.sh`), PipeWire w sesji użytkownika | wł. | wł. |
+| `net_diag` | sonda internetu w `car_phone`/`phone_tether` i wiersz „Internet i usługi” z testem kluczy (§10.1) | — | klucze w `bcm.env` | wł. | wł. |
+| `location` | pozycja GPS (NMEA z telefonu) | — | telefon z aplikacją NMEA | wł. | wł. |
+| `tracking` | zapis tras (SQLite) i GPX | — | pozycja z `location` | wł. | wł. |
+| `fuel_log` | dziennik tankowań: spalanie od pełna do pełna, koszt, zasięg (§9.6) | `tracking` | nic — wpis na ekranie trasy | wł. | wł. |
 | `last_park` | ostatni postój: gdzie auto ostatnio stało — wiersz w Ustawieniach i link do mapy na `/trips` ([TRACCAR_SERWER.md](TRACCAR_SERWER.md) §8.5) | `location` | GPS | wył. | wył. |
 | `crash_detect` | wykrywanie stłuczki, ochrona nagrań | `location` | GPS; pełne z `phone_sensors` | wył. | wł. |
-| `car_phone` | telefon w aucie: internet USB, GPS, bateria, zegar | — | Redmi na USB (adb), autoapp z `BCM_AA_USB=0` | wył. | wył. |
-| `car_phone_hotspot` | stan hotspotu telefonu w aucie | `car_phone` | hotspot w Redmi | wył. | wył. |
-| `phone_sensors` | akcelerometr i światło z telefonu | `car_phone` | SensorServer, sztywny uchwyt | wył. | wył. |
-| `car_phone_agent` | agent w Termuxie (SMS, 112, postój, kabina) | `car_phone` | Termux + `bcm_agent.py`, sekret w `bcm.env` | wył. | wył. |
+| `car_phone` | telefon w aucie: internet USB, GPS, bateria, zegar | — | Redmi na USB (adb), autoapp z `BCM_AA_USB=0` | wł. | wył. |
+| `car_phone_hotspot` | stan hotspotu telefonu w aucie | `car_phone` | hotspot w Redmi | wł. | wył. |
+| `phone_sensors` | akcelerometr i światło z telefonu | `car_phone` | SensorServer, sztywny uchwyt | wł. | wył. |
+| `car_phone_agent` | agent w Termuxie (SMS, 112, postój, kabina) | `car_phone` | Termux + `bcm_agent.py`, sekret w `bcm.env` | wł. | wył. |
 | `crash_sms` | SMS do bliskich po stłuczce, z odliczaniem | `crash_detect`, `phone_sensors`, `car_phone_agent` | Redmi z kartą SIM | wył. | wył. |
 | `call112` | „Zadzwoń 112” w oknie wypadku (ręcznie) | `crash_detect`; `car_phone_agent` lub `bluetooth` | Redmi z rootem albo główny telefon + mikrofon | wył. | wył. |
 | `parking_guard` | pozycja i alarm na postoju (w telefonie) | `car_phone_agent` | Redmi z SIM, agent ≥ 1.2.0, kod TOTP; rozbrajanie telefonem właściciela tylko z `bluetooth` (HFP) | wył. | wył. |
 | `cabin_watch` | zdjęcia kabiny przednią kamerą przy alarmie | `car_phone_agent`, `parking_guard` | Redmi z rootem, blokada „Brak”, agent ≥ 1.3.0 | wył. | wył. |
-| `traccar` | pozycja auta na Twoim serwerze Traccar (wysyła telefon, także na postoju) | `car_phone_agent` | serwer Traccar ([TRACCAR_SERWER.md](TRACCAR_SERWER.md)), `traccar.url`, `BCM_TRACCAR_DEVICE_ID`, agent ≥ 1.6.0 | wył. | wył. |
-| `auto_brightness` | jasność ekranu z czujnika światła | `phone_sensors` lub `input` | czujnik w telefonie albo LDR Arduino | wył. | wył. |
+| `traccar` | pozycja auta na Twoim serwerze Traccar (wysyła telefon, także na postoju) | `car_phone_agent` | serwer Traccar ([TRACCAR_SERWER.md](TRACCAR_SERWER.md)), `traccar.url`, `BCM_TRACCAR_DEVICE_ID`, agent ≥ 1.6.0 | wł. | wył. |
+| `auto_brightness` | jasność ekranu z czujnika światła | `phone_sensors` lub `input` | czujnik w telefonie albo LDR Arduino | wł. | wył. |
 | `battery` | pomiar banku buforowego (BATT) | — | bufor, Nano #2 z `FEATURE_BATT_*` | wył. | wył. |
 | `remote_session` | sesja po wybudzeniu od drzwi albo z telefonu (IR) — tylko wersja z buforem (§7.1) | `input` | Nano #2 z `FEATURE_WAKE_*` i `FEATURE_PWRLED`, przekaźnik, odbiornik TSOP | wył. | wył. |
 | `wifi_hotspot` | dodatkowy AP ALFA-NET — w aucie testowym musi zostać wyłączony (MT7921 obsługuje AA) | — | osobny dongiel Wi-Fi | wył. | wył. |
 
 Pozostałe moduły (OBD, kamery, czujniki parkowania, Nano #1, alarm, ekran
 pomocniczy) są wyłączone w obu configach — wymagają sprzętu, którego
-w aucie testowym nie ma. Kalibracja BATT, gdy kiedyś będzie bufor:
+w aucie testowym nie ma. W konfiguracji docelowej są też włączone
+`blinker_monitor` i `performance` (tak jak miałeś w `config/local.yaml`). Kalibracja BATT, gdy kiedyś będzie bufor:
 `docs/ZASILANIE_BUFOROWANE.md` §13.4.
 
 Wyłączenie modułu ręcznie (BCM zatrzymany, §2):
@@ -1327,6 +1348,8 @@ curl -s http://127.0.0.1:5002/api/data | python3 -c 'import json,sys; print(json
 
 ## 11. Wycofanie zmian
 
+**Powrót na konfigurację testową** (po §13): §13.7.
+
 **Stary plik configu jedną linią.** W `/etc/bcm/bcm.env` odkomentuj:
 
 ```bash
@@ -1415,3 +1438,196 @@ wszystkie unity BCM, kiosk, autologin, konfigurację AP i venv (zostawia
 - wybudzanie (wersja z buforem): dekoder NEC z prawdziwym odbiornikiem
   TSOP, nadajnik IR Redmi przez Termux:API na crDroid 13, przetrwanie stanu
   Nano przez reset przy otwarciu portu (`ZASILANIE_BUFOROWANE.md` §14.8).
+
+---
+
+## 13. Przejście na konfigurację docelową
+
+Od 23.11 bazą auta jest `config/bcm_config.yaml` — konfiguracja docelowa.
+Ma wszystko, co działało w `config/bcm_config_test.yaml`, a do tego to, co
+miałeś w `config/local.yaml` auta (karta dźwiękowa USB, motyw
+`autodelta`, jasność 62, autorestart Android Auto, wyciszenie pod
+`SWC_VOICE`/`SWC2_MUTE`, moduły telefonu w aucie, `auto_brightness`,
+`blinker_monitor`, `performance`) i nowe moduły (`fuel_log`,
+`weather_alerts`, `traffic_alerts`, `voice_announce`, `traccar`). Co jest
+włączone: kolumna „Docelowa” w §8. `config/bcm_config_test.yaml` zostaje
+w repo jako konfiguracja stanowiskowa — auto może na nią wrócić (linia
+w `bcm.env` + przywrócenie kopii `config/local.yaml`, §13.7).
+
+Celowo **inaczej** niż dotąd:
+
+- `modules.phone_tether: false` — Redmi jest w aucie na stałe i daje
+  internet po USB (`car_phone`), więc internet z głównego telefonu po
+  Bluetooth (PAN) jest wyłączony; to zapasowa droga — włączysz ją
+  w Ustawieniach → Moduły, gdy Redmi wypadnie z auta;
+- `modules.network: false` i `modules.crash_detect: false` — tak jak
+  miałeś w `config/local.yaml`;
+- `modules.traccar: true` — moduł jest włączony, ale **nic nie wysyła**,
+  dopóki nie ma obu: `traccar.url` w `config/local.yaml` i
+  `BCM_TRACCAR_DEVICE_ID` w `/etc/bcm/bcm.env`
+  ([TRACCAR_SERWER.md](TRACCAR_SERWER.md) §8).
+
+**Bez zmian (tryb próbny, jak w teście):** `crash_detection.sms.dry_run:
+true`, `parking_guard.log_only: true`, `safety.call112.test_mode: true`.
+Jak je uzbroić, piszą komentarze przy tych blokach w
+`config/bcm_config.yaml` — zawsze przez `config/local.yaml`, po
+sprawdzeniach z `WDROZENIE_TESTOWE.md` §5.9, §5.11 i §5.12.
+
+Ekran: 7" 1024×600. Wartości dla 10,1" 1280×800 są w komentarzu przy
+bloku `display` w `config/bcm_config.yaml`.
+
+Zrób kroki po kolei, **bez gaszenia silnika** (albo M910q na zasilaczu
+Lenovo na stole) — tak samo jak w §3.
+
+### 13.1 Zatrzymaj BCM
+
+Migracja przy działającym BCM by przepadła (przy pierwszym zapisie BCM
+nadpisze `config/local.yaml` swoją wersją z pamięci):
+
+```bash
+sudo systemctl stop bcm-ignition-watcher bcm-headunit
+```
+
+### 13.2 Kopia `config/local.yaml`
+
+Narzędzie samo robi kopię, ale własna — poza repozytorium — nie zaszkodzi:
+
+```bash
+sudo cp -p /opt/bcm/config/local.yaml /root/local.yaml.przed-docelowa
+```
+
+### 13.3 Pobierz nową wersję
+
+Jako użytkownik kiosku (bez `sudo`, §3):
+
+```bash
+cd /opt/bcm && git pull --ff-only
+```
+
+### 13.4 Migracja `config/local.yaml` — podgląd
+
+`config/local.yaml` zaczyna się od `# base: bcm_config_test.yaml` — BCM
+pod nową bazą zastosuje go, ale nie zapisze w nim zmian z ekranu (w logu
+jest wtedy linia `Config: local.yaml jest zapisany dla bazy
+bcm_config_test.yaml…` z tym samym poleceniem, a w Ustawieniach → Moduły
+ramka „Zmiany nie są zapisywane”). Podgląd (nic nie zapisuje):
+
+```bash
+cd /opt/bcm && sudo .venv/bin/python tools/migrate_local_config.py --source config/local.yaml --base config/bcm_config.yaml
+```
+
+Liczą się tylko wartości z Twojego `config/local.yaml` (to Twoje wybory),
+każda porównana z nową bazą:
+
+- **WRITE** — zostaje w `config/local.yaml`; dla Twojego pliku powinien
+  tu być tylko `multimedia.last_bt_device` (adres ostatniego telefonu
+  Bluetooth — dana z auta, nie trafia do repo);
+- **IN BASE** — nowa baza ma już tę wartość, więc znika z
+  `config/local.yaml` (u Ciebie m.in. `audio.sink`,
+  `display.dashboard.theme`, przełączniki modułów, `swc.mapping.mute`);
+- **SKIPPED** — baza celowo ustawia inaczej: `modules.phone_tether`
+  (decyzja 23.11, wyżej). Gdybyś jednak chciał zostawić Bluetooth PAN,
+  dopisz do podglądu i do zapisu `--keep-source modules.phone_tether`;
+- **DROPPED** — sekrety (nazwa zmiennej do `bcm.env`, nigdy wartość)
+  i dane chwilowe; dla Twojego pliku powinno być pusto. Jeśli jest tu
+  sekret (np. klucz wpisany kiedyś na ekranie), `--write` odmówi: najpierw
+  wpisz go do `/etc/bcm/bcm.env` pod podaną nazwą, potem dodaj do zapisu
+  `--drop-secrets`.
+
+Wartość, której nie chcesz przenosić, wyklucz przez
+`--exclude <ścieżka>` (w podglądzie i w zapisie).
+
+### 13.5 Migracja — zapis
+
+```bash
+cd /opt/bcm && sudo .venv/bin/python tools/migrate_local_config.py --source config/local.yaml --base config/bcm_config.yaml --write
+```
+
+Narzędzie przepisuje plik w miejscu (0600), a stary zostawia jako
+`config/local.yaml.bcm_config_test.bak`. Sprawdź nagłówek:
+
+```bash
+sudo head -3 /opt/bcm/config/local.yaml
+```
+
+Druga linia ma brzmieć `# base: bcm_config.yaml`. Kod wyjścia 2 („nic do
+migracji”) znaczy, że plik jest już dla `bcm_config.yaml` — to nie błąd.
+
+### 13.6 Unity, restart i sprawdzenie
+
+Unity BCM z repo mają już `BCM_CONFIG=config/bcm_config.yaml`; instaluje
+je `bcm-harden.sh` (krok 2). Najpierw podgląd — ostrzeżenie
+„config/local.yaml jest zapisany dla bazy…” znaczy, że §13.5 nie zostało
+zrobione:
+
+```bash
+cd /opt/bcm && sudo bash config/scripts/bcm-harden.sh --dry-run
+```
+
+Potem naprawdę (podmienia unity i sam robi `systemctl daemon-reload`;
+pozostałe punkty są już zrobione z §3 i niczego nie zmienią):
+
+```bash
+cd /opt/bcm && sudo bash config/scripts/bcm-harden.sh
+```
+
+Przeładuj systemd i uruchom BCM:
+
+```bash
+sudo systemctl daemon-reload
+```
+
+```bash
+sudo systemctl restart bcm-ignition-watcher bcm-headunit
+```
+
+Sprawdź, z jaką bazą wstał BCM:
+
+```bash
+sudo journalctl -u bcm-headunit -b | grep -E 'Config:|Local overlay'
+```
+
+Ma być `Config: /opt/bcm/config/bcm_config.yaml` i `Local overlay:
+…local.yaml`, a **nie** może być linii „zapis zmian jest wyłączony do
+migracji”. Na ekranie: Ustawienia → Moduły bez ramki „Zmiany nie są
+zapisywane”, motyw i jasność jak dotąd, dźwięk z karty USB. Potem
+sprawdzenia z §9.
+
+### 13.7 Wycofanie
+
+Powrót na konfigurację testową to **linia w `bcm.env` + przywrócenie kopii
+`config/local.yaml`** — oba kroki są obowiązkowe. Po §13.5 w
+`config/local.yaml` został praktycznie tylko `multimedia.last_bt_device`
+(reszta przeszła do bazy jako IN BASE), więc sama linia w `bcm.env`
+postawiłaby BCM na konfiguracji testowej prawie bez ustawień auta: dźwięk
+z mini-jacka zamiast karty USB, `car_phone` wyłączony (bez internetu po USB
+i bez GPS z telefonu), znów włączone `network`, `phone_tether`
+i `crash_detect` — a zmiany z ekranu i tak by się nie zapisywały.
+
+Zatrzymaj BCM:
+
+```bash
+sudo systemctl stop bcm-ignition-watcher bcm-headunit
+```
+
+W `/etc/bcm/bcm.env` dopisz (albo odkomentuj)
+`BCM_CONFIG=config/bcm_config_test.yaml`:
+
+```bash
+sudo nano /etc/bcm/bcm.env
+```
+
+Przywróć kopię sprzed migracji (§13.5 zostawiło ją obok):
+
+```bash
+sudo cp -p /opt/bcm/config/local.yaml.bcm_config_test.bak /opt/bcm/config/local.yaml
+```
+
+Uruchom BCM:
+
+```bash
+sudo systemctl start bcm-ignition-watcher bcm-headunit
+```
+
+Jeśli zapomnisz o kopii, BCM zapisze w logu jedną linię z dokładnym
+poleceniem `sudo cp -p …`, a `bcm-harden.sh` pokaże to samo ostrzeżenie.

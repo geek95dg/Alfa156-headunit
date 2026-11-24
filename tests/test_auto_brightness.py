@@ -189,9 +189,10 @@ class TestSettings:
                          platform_override="x86", local_path=None, env={})
         s = load_settings(test)
         assert s.backend == "css" and s.curve == DEFAULT_CURVE and s.min_pct == 15
-        prod = BCMConfig(config_path=str(root / "config" / "bcm_config.yaml"),
-                         platform_override="x86", local_path=None, env={})
-        assert prod.get("display.auto_brightness") is None      # production unchanged
+        final = BCMConfig(config_path=str(root / "config" / "bcm_config.yaml"),
+                          platform_override="x86", local_path=None, env={})
+        s = load_settings(final)                # same block in the car's final config
+        assert s.backend == "css" and s.curve == DEFAULT_CURVE and s.min_pct == 15
 
 
 # ── the automatic path ───────────────────────────────────────────────────
@@ -1069,18 +1070,18 @@ class TestModule:
         data = viewer._get_dashboard_data()
         assert data["display_dim"] is None and data["auto_brightness"] is None
 
-    def test_test_config_does_not_start_it(self):
+    def test_final_config_starts_it_bench_config_does_not(self):
         import main
         from pathlib import Path
 
         from src.core.config import BCMConfig
         root = Path(__file__).resolve().parent.parent
-        for name in ("bcm_config.yaml", "bcm_config_test.yaml"):
+        for name, runs in (("bcm_config.yaml", True), ("bcm_config_test.yaml", False)):
             cfg = BCMConfig(config_path=str(root / "config" / name), platform_override="x86",
                             local_path=None, env={})
             states = main.plan_modules(cfg)
-            assert states["auto_brightness"].runs is False
-            assert "auto_brightness" not in [n for n, _ in main.registry_to_start(states)]
+            assert states["auto_brightness"].runs is runs
+            assert ("auto_brightness" in [n for n, _ in main.registry_to_start(states)]) is runs
 
 
 # ── web_viewer: payload and the Settings switch ─────────────────────────

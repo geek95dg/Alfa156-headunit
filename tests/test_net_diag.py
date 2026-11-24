@@ -595,6 +595,7 @@ class TestSecrets:
         cfg.set("modules.weather", False)
         cfg.set("modules.route_planner", True)
         cfg.set("modules.car_phone_agent", False)
+        cfg.set("modules.traccar", False)
         missing = {var for var, _p, _w in missing_secrets(cfg, only_enabled=True)}
         assert missing == {"BCM_ORS_API_KEY", "BCM_TOMTOM_API_KEY"}
         cfg.set("modules.car_phone_agent", True)

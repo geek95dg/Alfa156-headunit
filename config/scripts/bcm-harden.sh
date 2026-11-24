@@ -79,9 +79,10 @@ WORK_DIR=""
 # funkcja wołana w "if" traci set -e — błąd zapisu nie przerwałby skryptu.
 WROTE=0
 BACKUPS=()
-# 1 = unit przechodzi na bcm_config_test.yaml, a ustawień z auta jeszcze nie
-# przeniesiono do config/local.yaml; 2 = config/local.yaml jest, ale zapisany
-# dla starej bazy bcm_config_temp.yaml (patrz check_config_migration).
+# 1 = unit przechodzi z bcm_config_temp.yaml na bcm_config.yaml, a ustawień
+# z auta jeszcze nie przeniesiono do config/local.yaml; 2 = config/local.yaml
+# jest, ale zapisany dla starszej bazy bcm_config_test.yaml albo
+# bcm_config_temp.yaml (patrz check_config_migration).
 MIGRATION_PENDING=0
 
 ENV_FILE=/etc/bcm/bcm.env
@@ -185,41 +186,56 @@ unit_exists() {
     [ -n "$(systemctl list-unit-files --no-legend --no-pager "$1" 2>/dev/null)" ]
 }
 
-# Przejście unitu z bcm_config_temp.yaml na bcm_config_test.yaml (P1).
-# Ustawienia z auta (karta USB audio, telefon BT, ustawienia UI) są dziś
-# tylko w temp; dopóki tools/migrate_local_config.py nie przeniesie ich do
-# config/local.yaml, BCM wstałby po podmianie unitu bez nich. Nic nie
-# ginie (temp zostaje), ale bez ostrzeżenia nikt by tego nie zauważył.
-# Drugi przypadek: nowy BCM pod starym unitem sam napisał config/local.yaml
-# z nagłówkiem „# base: bcm_config_temp.yaml” (zmiany z ekranu, ostatni
-# telefon BT). Pod nowym unitem (baza bcm_config_test.yaml) BCM go stosuje,
-# ale nie zapisuje (inna baza, src/core/config.py: _check_overlay_base) —
-# każda zmiana z ekranu znikałaby przy każdym zgaszeniu silnika. Ten
-# przypadek sprawdzamy niezależnie od tego, który unit jest zainstalowany:
-# ponowne uruchomienie skryptu po podmianie unitu też ma go wskazać.
-# Migracja z --merge-existing przepisuje plik na nową bazę.
+# Zmiana bazy konfiguracji przy podmianie unitu. Unity z repo startują BCM
+# z config/bcm_config.yaml (konfiguracja docelowa od 23.11; wcześniej
+# bcm_config_test.yaml, a jeszcze wcześniej bcm_config_temp.yaml).
+# Przypadek 1: stary unit startuje z bcm_config_temp.yaml, a config/local.yaml
+# nie ma — ustawienia z auta (karta USB audio, telefon BT, UI) są tylko
+# w temp; dopóki tools/migrate_local_config.py nie przeniesie ich do
+# config/local.yaml, BCM wstałby po podmianie unitu bez nich. Nic nie ginie
+# (temp zostaje), ale bez ostrzeżenia nikt by tego nie zauważył.
+# Przypadek 2: config/local.yaml ma nagłówek „# base: bcm_config_test.yaml”
+# (albo bcm_config_temp.yaml). Pod nowym unitem BCM go stosuje, ale NIE
+# zapisuje (inna baza, src/core/config.py: _check_overlay_base) — każda
+# zmiana z ekranu znikałaby przy każdym zgaszeniu silnika. Migracja
+# przepisuje plik na nową bazę w miejscu (kopia: local.yaml.<stara>.bak).
+# Ten przypadek sprawdzamy niezależnie od tego, który unit jest
+# zainstalowany: ponowne uruchomienie skryptu po podmianie też ma go wskazać.
 # Tylko odczyt; z bcm.env czytamy wyłącznie, czy jest w nim BCM_CONFIG
 # ze starym plikiem (grep -q: treść nigdy nie trafia na ekran), z
-# local.yaml tylko nagłówek (awk, kod wyjścia — nic nie jest wypisywane).
+# local.yaml tylko nagłówek (awk — wypisuje samą nazwę bazy z listy).
 check_config_migration() {
     local unit=/etc/systemd/system/bcm-headunit.service
     local overlay="$BCM_DIR/config/local.yaml"
-    local py merge=""
-    [ -f "$BCM_DIR/config/bcm_config_temp.yaml" ] || return 0
-    # Świadomy powrót do starego pliku przez bcm.env — nie ma czego migrować.
-    if [ -f "$ENV_FILE" ] && grep -Eq '^[[:space:]]*BCM_CONFIG=.*bcm_config_temp\.yaml' "$ENV_FILE" 2>/dev/null; then
+    local py old_base=""
+    # Świadomy powrót do starszej bazy przez bcm.env — nie ma czego migrować.
+    # Ale jeśli local.yaml jest już przepisany dla bcm_config.yaml, to na starej
+    # bazie auto jedzie prawie bez swoich ustawień (sink, car_phone…), bo
+    # migracja usunęła z nakładki wszystko, co ma nowa baza — trzeba przywrócić
+    # kopię sprzed migracji. Z bcm.env znów tylko grep -q, z local.yaml nagłówek.
+    if [ -f "$ENV_FILE" ] && grep -Eq '^[[:space:]]*BCM_CONFIG=.*bcm_config_(temp|test)\.yaml' "$ENV_FILE" 2>/dev/null; then
+        if [ -e "$overlay" ] && [ "$(awk '!/^#/ { exit }
+                /^# base: [A-Za-z0-9._-]+[[:space:]]*$/ { print $3; exit }' "$overlay" 2>/dev/null || true)" = "bcm_config.yaml" ]; then
+            warn "$ENV_FILE wybiera starą bazę, a config/local.yaml jest już zapisany dla bcm_config.yaml"
+            warn "BCM nie zapisuje zmian, a większości ustawień auta (karta USB, car_phone) w nim nie ma"
+            info "przy zatrzymanym BCM przywróć kopię sprzed migracji, np.:"
+            info "  sudo cp -p $BCM_DIR/config/local.yaml.bcm_config_test.bak $overlay"
+            info "(albo usuń BCM_CONFIG z $ENV_FILE, żeby wrócić na config/bcm_config.yaml)"
+        fi
         return 0
     fi
     if [ -e "$overlay" ]; then
         # Ten sam odczyt nagłówka co overlay_base_name(): tylko początkowy
-        # blok komentarzy, pierwsza linia „# base: NAZWA”.
-        awk 'BEGIN { r = 1 }
-             !/^#/ { exit }
-             /^# base: [A-Za-z0-9._-]+[[:space:]]*$/ { if ($3 == "bcm_config_temp.yaml") r = 0; exit }
-             END { exit r }' "$overlay" 2>/dev/null || return 0
-        merge=" --merge-existing"
+        # blok komentarzy, pierwsza linia „# base: NAZWA”. Wypisuje nazwę
+        # tylko dla starszych baz z listy (żadnej treści pliku).
+        old_base="$(awk '!/^#/ { exit }
+             /^# base: [A-Za-z0-9._-]+[[:space:]]*$/ {
+                 if ($3 == "bcm_config_test.yaml" || $3 == "bcm_config_temp.yaml") print $3
+                 exit }' "$overlay" 2>/dev/null || true)"
+        [ -n "$old_base" ] || return 0
         MIGRATION_PENDING=2
     else
+        [ -f "$BCM_DIR/config/bcm_config_temp.yaml" ] || return 0
         [ -f "$unit" ] || return 0
         grep -q 'bcm_config_temp\.yaml' "$unit" || return 0
         MIGRATION_PENDING=1
@@ -227,18 +243,22 @@ check_config_migration() {
     py="$BCM_DIR/.venv/bin/python"
     [ -x "$py" ] || py="$BCM_DIR/venv/bin/python"
     [ -x "$py" ] || py=python3
-    if [ -n "$merge" ]; then
-        warn "config/local.yaml jest zapisany dla starej bazy (# base: bcm_config_temp.yaml), a BCM startuje teraz z config/bcm_config_test.yaml"
+    if [ "$MIGRATION_PENDING" = 2 ]; then
+        warn "config/local.yaml jest zapisany dla bazy $old_base (# base:), a BCM startuje teraz z config/bcm_config.yaml"
         warn "BCM go zastosuje, ale NIE zapisze — zmiany z ekranu i ostatni telefon BT znikną przy każdym restarcie"
+        info "przepisz go na nową bazę — najpierw podgląd (nic nie zapisuje):"
+        info "  cd $BCM_DIR && sudo $py tools/migrate_local_config.py --source config/local.yaml --base config/bcm_config.yaml"
+        info "potem to samo polecenie z --write (stary plik zostaje jako config/local.yaml.${old_base%.yaml}.bak)"
+        info "albo zostań przy starej bazie: dopisz BCM_CONFIG=config/$old_base do $ENV_FILE"
     else
         warn "zainstalowany bcm-headunit.service startuje z config/bcm_config_temp.yaml, a config/local.yaml jeszcze nie ma"
-        warn "po podmianie unitu BCM wstanie z config/bcm_config_test.yaml BEZ ustawień z auta (karta USB, telefon BT, UI)"
+        warn "po podmianie unitu BCM wstanie z config/bcm_config.yaml BEZ ustawień z auta (karta USB, telefon BT, UI)"
+        info "przenieś je PRZED następnym startem BCM — najpierw podgląd (nic nie zapisuje):"
+        info "  cd $BCM_DIR && sudo $py tools/migrate_local_config.py --source config/bcm_config_temp.yaml --base config/bcm_config.yaml --out config/local.yaml"
+        info "potem to samo polecenie z --write"
+        info "albo zostań przy starym pliku: dopisz BCM_CONFIG=config/bcm_config_temp.yaml do $ENV_FILE"
+        info "(bcm_config_temp.yaml zostaje na miejscu — nic nie ginie)"
     fi
-    info "przenieś je PRZED następnym startem BCM — najpierw podgląd (nic nie zapisuje):"
-    info "  cd $BCM_DIR && sudo $py tools/migrate_local_config.py --source config/bcm_config_temp.yaml --base config/bcm_config_test.yaml --out config/local.yaml$merge"
-    info "potem to samo polecenie z --write"
-    info "albo zostań przy starym pliku: dopisz BCM_CONFIG=config/bcm_config_temp.yaml do $ENV_FILE"
-    info "(bcm_config_temp.yaml zostaje na miejscu — nic nie ginie)"
 }
 
 # 0, gdy dest to zwykły plik o tej samej treści co src, z trybem mode i
@@ -518,9 +538,9 @@ step_units_and_env() {
     if [ "$NO_UNITS" = 1 ]; then
         info "pomijam unity (--no-units)"
     else
-        # Przed podmianą: czy stary unit (bcm_config_temp.yaml) nie zostawi
-        # BCM bez ustawień z auta. Tylko ostrzeżenie — podmiana i tak jest
-        # bezpieczna, a powrót to jedna linia w bcm.env.
+        # Przed podmianą: czy nowa baza (bcm_config.yaml) nie zostawi BCM bez
+        # ustawień z auta albo z zamrożonym local.yaml. Tylko ostrzeżenie —
+        # podmiana i tak jest bezpieczna, a powrót to jedna linia w bcm.env.
         check_config_migration
         # Nazwa bcm-headunit.service jak w setup-x86.sh — watcher startuje
         # usługę po tej nazwie (--service bcm-headunit.service).
@@ -988,12 +1008,12 @@ step_summary() {
     fi
     if [ "$MIGRATION_PENDING" = 1 ]; then
         echo ""
-        warn "config/local.yaml nie istnieje, a unit przechodzi na config/bcm_config_test.yaml —"
+        warn "config/local.yaml nie istnieje, a unit przechodzi na config/bcm_config.yaml —"
         warn "przed następnym startem BCM uruchom migrację ustawień z auta (polecenia w kroku 2)"
     elif [ "$MIGRATION_PENDING" = 2 ]; then
         echo ""
-        warn "config/local.yaml jest zapisany dla config/bcm_config_temp.yaml, a BCM startuje z config/bcm_config_test.yaml —"
-        warn "przed następnym startem BCM uruchom migrację z --merge-existing (polecenia w kroku 2)"
+        warn "config/local.yaml jest zapisany dla starszej bazy, a BCM startuje z config/bcm_config.yaml —"
+        warn "przed następnym startem BCM przepisz go: tools/migrate_local_config.py --source config/local.yaml --base config/bcm_config.yaml (polecenia w kroku 2)"
     fi
     echo ""
     printf '  %sPAMIĘTAJ — BIOS M910q (F1 przy starcie): Power -> After Power Loss -> Power On.%s\n' "$YELLOW" "$NC"

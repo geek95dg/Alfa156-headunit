@@ -111,9 +111,11 @@ class TestStartFromConfigs:
         assert cfg.get("network.phone_tether.settle_sec") == 15     # kept in step
         assert sync._on_connected in bus._subscribers["bt.connected"]
 
-    def test_production_config_keeps_the_3_second_wait(self):
+    def test_final_config_uses_the_aa_settle_too(self):
         cfg = self._cfg("bcm_config.yaml")
-        assert pb.start_phonebook_sync(EventBus(), cfg)._settle_sec == pb.DEFAULT_SETTLE_S
+        assert modules_catalog.is_enabled(cfg, "phonebook") is True
+        assert pb.start_phonebook_sync(EventBus(), cfg)._settle_sec == 15.0
+        assert pb.DEFAULT_SETTLE_S == 3.0                            # code default unchanged
 
     def test_main_passes_the_config(self):
         assert "start_phonebook_sync(event_bus, config)" in (REPO / "main.py").read_text()

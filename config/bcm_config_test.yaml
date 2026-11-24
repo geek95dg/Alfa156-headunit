@@ -1,8 +1,20 @@
-# BCM v8.5 — konfiguracja WDROŻENIA TESTOWO-ROZWOJOWEGO
+# BCM v8.5 — konfiguracja ROZWOJOWA / STANOWISKOWA (bench)
 #
+# Od 23.11 auto jeździ na config/bcm_config.yaml (konfiguracja docelowa —
+# ma wszystko, co działało tu, plus ustawienia z local.yaml auta). Ten plik
+# zostaje do rozwoju i testów na stole: jest poprawny, kompletny i można
+# na nim uruchomić BCM, a przełączniki modułów zostają jak w czasie testów.
+# Powrót auta na niego to linia w /etc/bcm/bcm.env:
+#   BCM_CONFIG=config/bcm_config_test.yaml
+# PLUS przywrócenie kopii config/local.yaml.bcm_config_test.bak (przy
+# zatrzymanym BCM) — po migracji local.yaml ma prawie tylko adres telefonu BT,
+# więc bez kopii auto jechałoby tu bez swoich ustawień (sink USB, car_phone).
+# Kolejność: docs/WDROZENIE_TESTOWE_TELEFON.md §13.7.
+#
+# Opis wariantu testowego (historia):
 # Minimalny zestaw funkcji, ale instalacja jeżdżąca: zabudowa w aucie
 # z pełnym torem zasilania (ładowanie banku, LVD, przekaźnik zapłonu).
-#   • ekran 7" 1024x600 (docelowy jest 10,1" 1280x800 — patrz bcm_config.yaml)
+#   • ekran 7" 1024x600 (10,1" 1280x800 — komentarz w bcm_config.yaml)
 #   • Android Auto WIRELESS — P2P-GO na karcie MediaTek MT7921, handshake
 #     bootstrapowany po Bluetooth (src/multimedia/openauto.py, wifi_ap.py)
 #   • dźwięk przez wyjście analogowe M910q (mini-jack) — domyślny sink PipeWire
@@ -231,8 +243,8 @@ dashboard:
   # Nazwy, które mają działać mimo to, wpisz tutaj, np. ['bcm.local'].
   allowed_hosts: []
 display:
-  # Wariant testowy: panel 7" 1024x600.
-  # Docelowo 10,1" 1280x800 — wartości produkcyjne w bcm_config.yaml.
+  # Panel 7" 1024x600 (jak w aucie). Wartości dla 10,1" 1280x800:
+  # komentarz przy bloku display w bcm_config.yaml.
   dashboard:
     width: 1024
     height: 600

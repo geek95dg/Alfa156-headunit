@@ -138,6 +138,17 @@ BASE_MARKER = "# base: "
 #: The overlay can hold the Wi-Fi password and the paired phone's address.
 LOCAL_FILE_MODE = 0o600
 
+#: Planned base changes: new base file name → the older bases an overlay may
+#: still be written for. An overlay from one of them is frozen like any other
+#: base mismatch (see BCMConfig._check_overlay_base), but instead of the
+#: generic hint the log, bcm-harden.sh and Settings → Moduły give the exact
+#: tools/migrate_local_config.py command. The reverse direction (the car
+#: rolled back to an old base through BCM_CONFIG) is deliberately missing:
+#: a rollback is temporary and must not invite a migration.
+FORWARD_BASES: dict[str, tuple[str, ...]] = {
+    "bcm_config.yaml": ("bcm_config_test.yaml", "bcm_config_temp.yaml"),
+}
+
 #: How many ``local.yaml.broken-<ts>`` copies are kept for post-mortem.
 BROKEN_KEEP = 3
 
@@ -423,6 +434,40 @@ def default_local_path(base_path: Path) -> Path:
     return Path(base_path).parent / LOCAL_CONFIG_NAME
 
 
+def migration_command(local_path: Path, base_path: Path) -> str:
+    """The dry-run command that rewrites ``local_path`` for ``base_path``.
+
+    Paths inside the repository are given relative to it (the docs and
+    bcm-harden.sh print the same ``cd /opt/bcm && …`` form); anything else
+    stays absolute. Only file paths go in — never a value from the overlay.
+    """
+    repo = DEFAULT_CONFIG_PATH.parent.parent
+
+    def rel(p: Path) -> str:
+        p = Path(os.path.abspath(os.fspath(p)))
+        try:
+            return str(p.relative_to(repo))
+        except ValueError:
+            return str(p)
+
+    cmd = (f"cd {repo} && sudo .venv/bin/python tools/migrate_local_config.py "
+           f"--source {rel(local_path)} --base {rel(base_path)}")
+    # The tool's default --out is local.yaml next to --base. With the overlay
+    # elsewhere (BCM_LOCAL_CONFIG / --local-config) that would create a second
+    # file and leave the one BCM reads frozen — so name it explicitly and the
+    # rewrite happens in place.
+    if Path(local_path).resolve() != default_local_path(base_path).resolve():
+        cmd += f" --out {rel(local_path)}"
+    return cmd
+
+
+def rollback_backup_path(local_path: Path, base_name: str) -> Path:
+    """``local.yaml.bcm_config_test.bak`` — the copy tools/migrate_local_config.py
+    keeps of an overlay it rewrote away from ``base_name`` (same naming)."""
+    local_path = Path(local_path)
+    return local_path.with_name(f"{local_path.name}.{Path(base_name).stem}.bak")
+
+
 # ── BCMConfig ─────────────────────────────────────────────────────────────
 
 class BCMConfig:
@@ -479,6 +524,11 @@ class BCMConfig:
         self._last_overlay: Optional[dict] = None
         self._save_disabled_reason = ""
         self._warned_save_disabled = False
+        #: Set when the overlay was written for an older base of a planned
+        #: change (FORWARD_BASES): ``{"recorded", "base", "command"}`` —
+        #: file names and the migrate command only, never overlay values.
+        #: Settings → Moduły shows it (GET /api/modules).
+        self.base_migration: Optional[dict] = None
 
         path = resolve_base_path(config_path, platform_override)
         if not path.exists():
@@ -602,6 +652,33 @@ class BCMConfig:
             return
         self._save_disabled_reason = (f"{origin.name} holds overrides for base {recorded}, "
                                       f"but BCM runs with {current}")
+        if recorded in FORWARD_BASES.get(current, ()) and self.local_path is not None:
+            # Planned move to a new base (bcm_config_test.yaml → bcm_config.yaml):
+            # one line with the exact command. Saving stays disabled until the
+            # overlay is rewritten — the same rollback safety as below.
+            command = migration_command(self.local_path, self.config_path)
+            self.base_migration = {"recorded": recorded, "base": current,
+                                   "command": command}
+            self._warn(f"{origin.name} jest zapisany dla bazy {recorded}, a BCM działa "
+                       f"z {current} — ustawienia są stosowane, ale zapis zmian jest "
+                       f"wyłączony do migracji; podgląd: {command} — potem to samo "
+                       f"z --write i restart BCM")
+            return
+        if (current in FORWARD_BASES.get(recorded, ()) and self.local_path is not None
+                and rollback_backup_path(self.local_path, current).is_file()):
+            # Rollback (BCM_CONFIG back to the old base) after a migration: the
+            # migrated overlay lost every value the new base holds, so on the
+            # old base the car would run almost without its settings (sink,
+            # car_phone…). The pre-migration copy is right there — say how to
+            # put it back. Only paths go into the line, never a value.
+            bak = rollback_backup_path(self.local_path, current)
+            self._warn(f"{origin.name} jest zapisany dla bazy {recorded}, a BCM działa "
+                       f"z {current} (powrót?) — bez kopii sprzed migracji większości "
+                       f"ustawień auta brak, a zapis zmian jest wyłączony; przy "
+                       f"zatrzymanym BCM: sudo cp -p {os.path.abspath(bak)} "
+                       f"{os.path.abspath(self.local_path)}, potem "
+                       f"restart BCM")
+            return
         self._warn(f"{origin.name} was written for base config {recorded} but BCM runs "
                    f"with {current} — its overrides are applied, but saving is disabled "
                    f"so they are not rewritten against the wrong base. To save changes "

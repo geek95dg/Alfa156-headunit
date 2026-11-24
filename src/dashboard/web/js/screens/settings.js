@@ -30,7 +30,8 @@ const Settings = {
     // nothing is ever switched on or off in cascade without it. `statusName`:
     // the module the last status line is about (drawn under its row).
     _modules: { list: [], loaded: false, status: "", statusName: null,
-                restartRequired: false, confirm: null, busy: false },
+                restartRequired: false, confirm: null, busy: false,
+                migration: null },
     // Settings → Moduły headings, in this order ("" = modules without a group).
     _moduleGroups: [
         ["", "modules_group_core", "Podstawowe"],
@@ -2077,6 +2078,11 @@ const Settings = {
             const data = await res.json();
             Settings._modules.list = Array.isArray(data.modules) ? data.modules : [];
             Settings._modules.restartRequired = !!data.restart_required;
+            // local.yaml written for an older base (bcm_config_test.yaml):
+            // until it is migrated nothing from this card is saved.
+            const mig = data.config_migration;
+            Settings._modules.migration = mig && typeof mig === "object"
+                && typeof mig.command === "string" ? mig : null;
             Settings._modules.loaded = true;
             Settings._modulesRedraw(false);
         } catch (e) { /* keep last known state */ }
@@ -2381,6 +2387,20 @@ const Settings = {
             && byName.has(state.statusName) ? state.statusName : null;
         const confirmName = confirm && byName.has(confirm.name) ? confirm.name : null;
         let html = "";
+        const mig = state.migration && typeof state.migration === "object"
+            && typeof state.migration.command === "string" ? state.migration : null;
+        if (mig) {
+            // Everything escaped: the command carries file paths only, but the
+            // page never trusts a server string as markup.
+            const recorded = typeof mig.recorded === "string" ? mig.recorded : "";
+            const base = typeof mig.base === "string" ? mig.base : "";
+            html += `<div data-config-migration style="margin:0 0 8px 0;padding:6px 10px;border-radius:8px;border:1px solid var(--color-primary);font-size:11px;line-height:1.35">
+                <p style="margin:0 0 4px 0;font-weight:700;color:var(--color-primary)">${esc(t("config_migration_title", "Zmiany nie są zapisywane — przenieś config/local.yaml na nową bazę"))}</p>
+                <p style="margin:0 0 4px 0;color:var(--text-mid)">${esc(t("config_migration_body", "local.yaml jest zapisany dla {recorded}, a BCM działa z {base}. Ustawienia działają, ale zmiany z ekranu znikną po restarcie. Na komputerze (SSH):").replace("{recorded}", recorded).replace("{base}", base))}</p>
+                <p style="margin:0;font-family:monospace;font-size:10px;color:var(--text-mid);overflow-wrap:anywhere">${esc(mig.command)}</p>
+                <p style="margin:4px 0 0 0;color:var(--text-dim)">${esc(t("config_migration_then", "potem to samo z --write i restart BCM"))}</p>
+            </div>`;
+        }
         if (state.restartRequired) {
             html += `<p data-modules-restart style="margin:0 0 8px 0;padding:6px 10px;border-radius:8px;background:var(--card-border);color:var(--color-primary);font-size:11px;font-weight:700">${esc(t("module_restart_pending", "wymaga restartu BCM"))}</p>`;
         }

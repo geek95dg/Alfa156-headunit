@@ -510,6 +510,7 @@ def test_modules_card_in_chromium(tmp_path):
     status are drawn where the driver is looking. The fixture is the real
     catalog_state — test config with bluetooth and phone_status off, then
     the reply after "Włącz z zależnościami" on phone_status."""
+    from src.core import config as config_mod
     from src.core import modules_catalog as mc
     from src.core.config import BCMConfig
 
@@ -525,7 +526,14 @@ def test_modules_card_in_chromium(tmp_path):
     after = mc.catalog_state(cfg, boot)
     fixture = tmp_path / "modules.json"
     fixture.write_text(json.dumps({
-        "before": {"modules": before, "restart_required": False},
+        # local.yaml still for bcm_config_test.yaml: the banner at the top of
+        # the card (the real command shape) must not break the layout.
+        "before": {"modules": before, "restart_required": False,
+                   "config_migration": {
+                       "recorded": "bcm_config_test.yaml", "base": "bcm_config.yaml",
+                       "command": config_mod.migration_command(
+                           ROOT / "config" / "local.yaml",
+                           ROOT / "config" / "bcm_config.yaml")}},
         "after": {"modules": after, "restart_required": True, "enabled_also": ["bluetooth"]},
     }), encoding="utf-8")
     res = subprocess.run([NODE, str(JS / "settings_modules_browser_smoke.js"), str(fixture)],

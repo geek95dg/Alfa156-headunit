@@ -30,10 +30,11 @@ TOUCH_DEVICE="QDtech MPI5001"
 
 # Main display resolution (used for splash generation + touch calibration).
 # Must match display.dashboard / display.small in config/bcm_config.yaml.
-# Main   = 10.1" panel, 1280x800
+# Main   = 7" panel, 1024x600 (the car today; for the 10.1" 1280x800 panel
+#          set MAIN_W=1280 MAIN_H=800 — same as the commented values there)
 # Small  = 6.86" widescreen panel, 1280x480 (optional, hot-pluggable)
-MAIN_W=1280
-MAIN_H=800
+MAIN_W=1024
+MAIN_H=600
 SMALL_W=1280
 SMALL_H=480
 
@@ -307,7 +308,7 @@ step 6 "Installing systemd services..."
 
 # Installed under the plain name bcm-headunit.service: the ignition watcher
 # starts it by that name (--service bcm-headunit.service). The unit runs
-# config/bcm_config_test.yaml (BCM_CONFIG) and reads secrets from
+# config/bcm_config.yaml (BCM_CONFIG) and reads secrets from
 # /etc/bcm/bcm.env (EnvironmentFile=-, so a missing file never blocks it).
 cp "$BCM_DIR/config/systemd/bcm-headunit-x86.service" /etc/systemd/system/bcm-headunit.service
 cp "$BCM_DIR/config/systemd/bcm-ignition-watcher.service" /etc/systemd/system/
@@ -1093,10 +1094,10 @@ fi
 step 14 "Testing BCM (headless)..."
 
 # Same base config as the installed unit (bcm-headunit.service sets
-# BCM_CONFIG=config/bcm_config_test.yaml); BCM_CONFIG in the environment
+# BCM_CONFIG=config/bcm_config.yaml); BCM_CONFIG in the environment
 # overrides it. Restricted to a plain relative/absolute path because it is
 # spliced into the su -c command line below.
-SMOKE_CONFIG="${BCM_CONFIG:-config/bcm_config_test.yaml}"
+SMOKE_CONFIG="${BCM_CONFIG:-config/bcm_config.yaml}"
 case "$SMOKE_CONFIG" in
     *[!A-Za-z0-9_./-]*) fail "BCM_CONFIG contains unexpected characters: $SMOKE_CONFIG" ;;
 esac

@@ -60,6 +60,11 @@ def env():
     bus = EventBus()
     cfg = BCMConfig(platform_override="x86")
     cfg.save = lambda path=None: None
+    # These tests exercise the CODE default of the network access policy
+    # (no `dashboard` block = remote_access "full"); the car's base config
+    # (bcm_config.yaml) sets `tracking`, which test_final_config.py pins.
+    # _policy_client() sets each mode explicitly.
+    cfg._data.pop("dashboard", None)
     viewer = WebViewer(host="127.0.0.1", port=5099, event_bus=bus, config=cfg)
     runner = _Recorder()
     viewer._aa_injector = AATouchInjector(viewer._aa_canvas_size, runner=runner,
@@ -214,6 +219,8 @@ class TestInputMessages:
         assert env.injector.button_down is True
 
     def test_voice_trigger_taps_through_injector(self, env, no_web_subprocess):
+        # The car's base config uses "key"; the tap path is the fallback.
+        env.cfg.set("multimedia.aa_voice_method", "tap")
         env.bus.publish("aa.voice_trigger", True)
         env.bus.publish("aa.voice_trigger", False)   # release: no second tap
         env.injector.process_pending()

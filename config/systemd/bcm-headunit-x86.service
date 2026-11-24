@@ -12,9 +12,14 @@ Type=simple
 # Base config (tracked in git, never written by BCM). Runtime changes from
 # the UI go to config/local.yaml next to it. To switch or roll back, set
 # BCM_CONFIG in /etc/bcm/bcm.env — EnvironmentFile overrides Environment=,
-# so e.g. BCM_CONFIG=config/bcm_config_temp.yaml restores the old file.
+# so e.g. BCM_CONFIG=config/bcm_config_test.yaml goes back to the bench /
+# test config the car ran on until 23.11 (bcm_config.yaml is the final car
+# config since then; docs/WDROZENIE_TESTOWE_TELEFON.md, „Przejście na
+# konfigurację docelową”). A rollback after the migration also needs the
+# pre-migration config/local.yaml.bcm_config_test.bak restored (§13.7) —
+# the migrated overlay no longer holds the car's settings.
 #   OPi PC (archived): --platform opi_pc, BCM_CONFIG=Archive/orange-pi-pc/bcm_config_opi_pc.yaml
-Environment=BCM_CONFIG=config/bcm_config_test.yaml
+Environment=BCM_CONFIG=config/bcm_config.yaml
 # Secrets (API keys, passwords), root:root 0600 — see config/bcm.env.example.
 # The leading '-' keeps a missing file from blocking the start.
 EnvironmentFile=-/etc/bcm/bcm.env
@@ -25,7 +30,7 @@ EnvironmentFile=-/etc/bcm/bcm.env
 # config path uses "$$" because systemd itself WOULD expand "${...}" inside
 # a word: "$$" is systemd's escape for a literal "$", so bash receives
 # "${BCM_CONFIG:-...}" and the fallback still applies if the variable is unset.
-ExecStart=/bin/bash -c 'VENV=/opt/bcm/.venv; [ -x "$VENV/bin/python" ] || VENV=/opt/bcm/venv; exec "$VENV/bin/python" main.py --platform x86 --config "$${BCM_CONFIG:-config/bcm_config_test.yaml}" --frontend'
+ExecStart=/bin/bash -c 'VENV=/opt/bcm/.venv; [ -x "$VENV/bin/python" ] || VENV=/opt/bcm/venv; exec "$VENV/bin/python" main.py --platform x86 --config "$${BCM_CONFIG:-config/bcm_config.yaml}" --frontend'
 WorkingDirectory=/opt/bcm
 Environment=PYTHONPATH=/opt/bcm
 Environment=BCM_PLATFORM=x86
