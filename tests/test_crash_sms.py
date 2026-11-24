@@ -1302,7 +1302,7 @@ class TestAgentClientFacts:
                        "active_event": EID, "last_test": {"state": "sent", "ts": WALL0,
                                                           "dry_run": False, "verified": True},
                        "config_hash": None, "call112_capable": None, "call112_mode": None,
-                       "call_state": None}
+                       "call_state": None, "traccar": None}
         assert cpa.parse_health_facts({"config_hash": "0123456789abcdef"})["config_hash"] \
             == "0123456789abcdef"
         assert cpa.parse_health_facts({"config_hash": "<b>"})["config_hash"] is None

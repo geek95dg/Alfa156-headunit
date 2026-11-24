@@ -80,6 +80,8 @@ modules:
                            # hardware.gps niżej
   tracking: true           # zapis tras do SQLite + lista tras i GPX:
                            # http://10.0.0.1:5002/trips w przeglądarce telefonu
+  last_park: false         # ostatni postój: gdzie auto ostatnio stało (GPS
+                           # BCM, data/last_park.json) — Ustawienia i /trips
   fuel_log: true           # dziennik tankowań: przycisk „Zatankowano” na
                            # ekranie trasy (A3), spalanie od pełna do pełna,
                            # koszt, zasięg; wymaga tracking (dystans z GPS,
@@ -183,6 +185,12 @@ modules:
                            # W TELEFONIE (agent ≥ 1.3.0, root, blokada
                            # ekranu „Brak”); wymaga car_phone_agent
                            # i parking_guard; blok cabin_watch niżej
+  traccar: false           # pozycja auta na Twoim serwerze Traccar — wysyła
+                           # TELEFON (agent ≥ 1.6.0), także na postoju;
+                           # wymaga car_phone_agent; traccar.url niżej
+                           # (adres tylko w local.yaml), identyfikator
+                           # BCM_TRACCAR_DEVICE_ID w /etc/bcm/bcm.env;
+                           # docs/TRACCAR_SERWER.md §8
   crash_sms: false         # SMS po stłuczce: okno z odliczaniem i ANULUJ,
                            # termin trzyma telefon; wymaga crash_detect,
                            # phone_sensors i car_phone_agent. Odbiorcy
@@ -982,6 +990,15 @@ cabin_watch:
   diff_pct: 3.0
   light_ratio: 5.0
   light_lux: 5.0
+# Traccar (modules.traccar; src/network/traccar.py, docs/TRACCAR_SERWER.md §8).
+# Adres serwera wpisz w config/local.yaml (https://DOMENA/traccar-gps/ —
+# tylko https, bez loginu i hasła w adresie); identyfikator urządzenia NIGDY
+# tutaj — tylko BCM_TRACCAR_DEVICE_ID w /etc/bcm/bcm.env. Pusty adres =
+# telefon nic nie wysyła.
+traccar:
+  url: ""
+  drive_interval_s: 30     # w jeździe co tyle sekund (10–600)
+  park_interval_min: 15    # na postoju co tyle minut (5–240; bateria < 20 % ×4)
 # Czujniki telefonu w aucie (modules.phone_sensors; src/sensors/phone_sensors.py).
 # Kierunek grawitacji kalibruje się sam przy pierwszych ~10 s postoju
 # (zapis: data/phone_sensors.json); przesunięcie telefonu w uchwycie o > 10°

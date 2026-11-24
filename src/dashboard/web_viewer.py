@@ -42,6 +42,8 @@ from src.network.phone_tether import RETRY_TOPIC as _TETHER_RETRY_TOPIC
 from src.network.phone_tether import STATES as _TETHER_STATES
 from src.network import net_probe as _net_probe
 from src.network import net_services as _net_services
+from src.network import traccar as _traccar
+from src.location import last_park as _last_park
 from src.power import brightness as _brightness
 from src.power import remote_session as _remote_session
 from src.safety import cabin_watch as _cabin_watch
@@ -1031,6 +1033,9 @@ _CALL112_VEHICLE_LIMITS = {"label": 32, "colour": 20, "plate": 12}
 #: head unit's own screen — at most one accepted request per this many
 #: seconds per route (a loop guard; the phone limits wrong codes itself).
 _PARK_MIN_INTERVAL_S = 3.0
+#: POST /api/traccar/send: at most one accepted request per this many
+#: seconds (the phone also refuses more than one per 10 s).
+_TRACCAR_SEND_MIN_INTERVAL_S = 15.0
 
 
 def _parking_guard_summary(value: Any) -> Optional[dict]:
@@ -1153,6 +1158,53 @@ def _cabin_watch_summary(value: Any) -> Optional[dict]:
         "last_event": event,
         "error": error if error in _cabin_watch.ERRORS else "",
     }
+
+
+def _traccar_summary(value: Any) -> Optional[dict]:
+    """``traccar.state`` → the Settings row "Traccar" (second line of
+    validation — the payload also reaches network clients in ``readonly``).
+    Never the URL or the device id: the host name, ``id_set`` and the
+    8-character fingerprint only. None = module not running (no row)."""
+    if not isinstance(value, dict):
+        return None
+    host = value.get("url_host")
+    fp = value.get("id_fp")
+    agent = _traccar.parse_agent_view(value.get("agent"))
+    cmd = value.get("cmd")
+    cmd_out = None
+    if isinstance(cmd, dict) and cmd.get("state") in _traccar.CMD_STATES:
+        err = cmd.get("error")
+        ts = cmd.get("ts")
+        cmd_out = {"state": cmd["state"],
+                   "error": err if isinstance(err, str) and re.fullmatch(r"[a-z0-9_]{0,32}", err)
+                   else "",
+                   "ts": ts if isinstance(ts, int) and not isinstance(ts, bool)
+                   and 1e9 < ts < 4e9 else None}
+    error = value.get("error")
+    return {
+        "url_ok": value.get("url_ok") is True,
+        "url_host": host if isinstance(host, str) and re.fullmatch(r"[A-Za-z0-9.-]{1,253}", host)
+        else "",
+        "id_set": value.get("id_set") is True,
+        "id_fp": fp if isinstance(fp, str) and re.fullmatch(r"[0-9a-f]{8}", fp) else "",
+        "agent": agent,
+        "cmd": cmd_out,
+        "error": error if error in _traccar.ERRORS else "",
+    }
+
+
+def _last_park_summary(value: Any) -> Optional[dict]:
+    """``park.last_position`` → Settings "Ostatni postój" and /trips: the
+    two numbers (validated), the time and map links built HERE from the
+    rounded numbers only. None = nothing saved / module not running."""
+    rec = _last_park.valid_record(value)
+    if rec is None:
+        return None
+    lat, lon = rec["lat"], rec["lon"]
+    return {"lat": lat, "lon": lon, "ts": rec["ts"], "reason": rec["reason"],
+            "osm_url": f"https://www.openstreetmap.org/?mlat={lat:.6f}&mlon={lon:.6f}"
+                       f"#map=17/{lat:.6f}/{lon:.6f}",
+            "geo_url": f"geo:{lat:.6f},{lon:.6f}"}
 
 
 #: "Wybudzono" banner routes (src/power/remote_session.py): at most one
@@ -1878,8 +1930,30 @@ def _render_refuels_html(refuels: Optional[list]) -> str:
             'od pełna do pełna; dystans z licznika, a bez niego z GPS.</p>')
 
 
+def _render_last_park_html(last: Optional[dict]) -> str:
+    """"Ostatni postój" on /trips — escaped; the links come from
+    :func:`_last_park_summary` (built from two rounded numbers)."""
+    if last is None:
+        return ""
+    esc = html.escape
+    when = _local_time(last["ts"], "%Y-%m-%d %H:%M")
+    coords = f"{last['lat']:.5f}, {last['lon']:.5f}"
+    btn = ('display:inline-block;margin:8px 8px 0 0;padding:8px 14px;border-radius:8px;'
+           'color:#fff;text-decoration:none;font-weight:600;')
+    return ('<h2 style="font-size:18px;margin:18px 0 6px 0">Ostatni postój</h2>'
+            '<div style="background:#18181b;border:1px solid #3f3f46;border-radius:12px;'
+            'padding:12px 14px;margin:0 0 10px 0">'
+            f'<div style="color:#d4d4d8">{esc(when)} · {esc(coords)}'
+            '</div>'
+            f'<a href="{esc(last["osm_url"])}" rel="noopener noreferrer" '
+            f'style="{btn}background:#b91c1c">Mapa (OpenStreetMap)</a>'
+            f'<a href="{esc(last["geo_url"])}" style="{btn}background:#3f3f46">'
+            'Otwórz w nawigacji</a></div>')
+
+
 def _render_trips_html(trips: Optional[list], gps_line: str,
-                       refuels: Optional[list] = None) -> str:
+                       refuels: Optional[list] = None,
+                       last_park: Optional[dict] = None) -> str:
     """The phone-browser trip list. Every dynamic value is HTML-escaped.
 
     Inline styles only (the dashboard's Tailwind is precompiled, and this
@@ -1926,6 +2000,7 @@ def _render_trips_html(trips: Optional[list], gps_line: str,
         'line-height:1.4">'
         '<h1 style="font-size:20px;margin:0 0 4px 0">Zapisane trasy</h1>'
         f'<p style="color:#a1a1aa;margin:0 0 14px 0">{esc(gps_line)}</p>'
+        + _render_last_park_html(last_park)
         + _render_refuels_html(refuels)
         + '<h2 style="font-size:18px;margin:18px 0 6px 0">Trasy</h2>'
         + "".join(cards) +
@@ -2250,6 +2325,13 @@ class WebViewer:
             # row "Czuwanie kabiny" — state and the last event, never a
             # photo. None = module not running (no row).
             "cabin_watch": _cabin_watch_summary(_val(_cabin_watch.TOPIC_STATE)),
+            # The car's position on the owner's Traccar server, sent by the
+            # phone (src/network/traccar.py, traccar.state): the Settings row
+            # "Traccar" — never the URL or the device id. None = not running.
+            "traccar": _traccar_summary(_val(_traccar.TOPIC_STATE)),
+            # Where the car last stood (src/location/last_park.py,
+            # park.last_position): Settings "Ostatni postój" and /trips.
+            "last_park": _last_park_summary(_val(_last_park.TOPIC)),
             # Automatic brightness (src/power/brightness.py, modules.
             # auto_brightness): the Settings row "Jasność ekranu" and the
             # kiosk's dimming overlay (app.js → components/dim_overlay.js,
@@ -4537,6 +4619,35 @@ class WebViewer:
             _crash_accepted("park_disarm", now)
             return jsonify({"ok": True})
 
+        # --- Traccar (src/network/traccar.py) -------------------------------
+        # "Wyślij pozycję teraz": kiosk only (loopback + Host/Origin), a small
+        # JSON object body, rate-limited here AND on the phone. It only asks
+        # the phone for one point — the URL and the device id are never
+        # touched from the browser.
+
+        @app.route("/api/traccar/send", methods=["POST"])
+        def api_traccar_send():
+            refused = _crash_kiosk_only("sending the position to Traccar")
+            if refused is not None:
+                return refused
+            data, err = _crash_body()
+            if err is not None:
+                return err
+            if data:
+                return jsonify({"ok": False, "error": "bad_request"}), 400
+            module = _traccar.get_traccar()
+            if module is None:
+                return jsonify({"ok": False, "error": "not_running"}), 409
+            now = time.monotonic()
+            limited = _crash_rate_limited("traccar_send", _TRACCAR_SEND_MIN_INTERVAL_S, now)
+            if limited is not None:
+                return limited
+            result = module.request_send()
+            if not result.get("ok"):
+                return jsonify({"ok": False, "error": result.get("error") or "refused"}), 409
+            _crash_accepted("traccar_send", now)
+            return jsonify({"ok": True})
+
         # --- Wybudzanie (src/power/remote_session.py, plan E) ---------------
         # "Nie usypiaj 30 min" / "Uśpij teraz" in the global banner: loopback
         # ONLY (also with remote_access "full" — a phone in the car's network
@@ -5267,7 +5378,11 @@ class WebViewer:
                         for r in fuel.list_refuels(_TRIPS_PAGE_LIMIT)) if x is not None]
                 except Exception:
                     log.exception("Listing refuels for /trips failed")
-            body = _render_trips_html(trips, viewer._gps_status_line(), refuels)
+            last = None
+            if viewer._event_bus is not None:
+                got = viewer._event_bus.get_last(_last_park.TOPIC)
+                last = _last_park_summary(got[0] if got is not None else None)
+            body = _render_trips_html(trips, viewer._gps_status_line(), refuels, last)
             resp = Response(body, status=200 if trips is not None else 503,
                             mimetype="text/html")
             resp.headers["Content-Security-Policy"] = _TRIPS_CSP

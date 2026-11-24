@@ -402,13 +402,23 @@ Pętla w `boot_bcm_agent.sh` uruchomi nowego agenta po 10 s. Sekret, nonce,
 zdarzenia, parowanie i sekret TOTP w `~/.config/bcm_agent` zostają. Wiersz
 „Agent w telefonie” w Ustawieniach pokazuje wersję. Wymagane wersje:
 „Zadzwoń 112” ≥ 1.1.0, alarm na postoju ≥ 1.2.0, czuwanie kabiny ≥ 1.3.0,
-budzenie podczerwienią (wersja z buforem) ≥ 1.4.0
-(obecna: 1.5.0). Starszy agent przy włączonym module = „agent w telefonie
-jest starszy niż BCM” albo „agent w telefonie jest za stary”. Wersja 1.5.0
-nie jest wymagana, ale zaktualizuj: dopiero ona pilnuje dalej, gdy ktoś
-wyłączy alarm w Ustawieniach → Moduły przy uzbrojonym, i nie uzbraja się
-sama po wypadku (szczegóły: [WDROZENIE_TESTOWE.md](WDROZENIE_TESTOWE.md)
-§5.12).
+budzenie podczerwienią (wersja z buforem) ≥ 1.4.0, pozycja na serwerze
+Traccar (`traccar`) ≥ 1.6.0 (obecna: 1.6.0). Starszy agent przy włączonym
+module = „agent w telefonie jest starszy niż BCM” albo „agent w telefonie
+jest za stary”. Wersja 1.5.0 nie jest wymagana, ale zaktualizuj: dopiero
+ona pilnuje dalej, gdy ktoś wyłączy alarm w Ustawieniach → Moduły przy
+uzbrojonym, i nie uzbraja się sama po wypadku (szczegóły:
+[WDROZENIE_TESTOWE.md](WDROZENIE_TESTOWE.md) §5.12).
+
+**Aktualizacja do 1.6.0 (Traccar).** Kroki jak wyżej (`adb push`, `cp`,
+`pkill -f bcm_agent.py`). Agent 1.6.0 jako pierwszy łączy się z internetem
+sam: tylko HTTPS na adres z `traccar.url`, tylko przy włączonym module
+`traccar` w BCM. Nic nie trzeba doinstalowywać — wystarczy Python z
+Termuxa (certyfikaty CA są w pakiecie `ca-certificates`, instalowanym razem
+z `python`; gdy `pkg upgrade` dawno nie był robiony, zrób go). Kolejka
+punktów bez zasięgu leży w `~/.config/bcm_agent/traccar_queue.json` (0600,
+najwyżej 500 punktów). Konfiguracja serwera i identyfikatora:
+[TRACCAR_SERWER.md](TRACCAR_SERWER.md) §8.
 
 ## 10. Agent i BCM: sekret, moduły, parowanie, SMS
 

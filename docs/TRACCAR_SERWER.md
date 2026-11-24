@@ -5,9 +5,9 @@ na domowym serwerze i wpięcia go w istniejący nginx z HTTPS na porcie 443.
 Telefon w aucie (Redmi, agent BCM w Termuxie) wysyła pozycję na serwer,
 a Ty oglądasz auto w aplikacji **Traccar Manager** albo w przeglądarce.
 
-> Po stronie BCM i agenta obsługa Traccara powstaje w partii 12, etap 7.
-> Klucze konfiguracyjne z §8 są docelowe — do tego czasu możesz postawić
-> i przetestować serwer (§7) samym `curl`.
+> Po stronie BCM i agenta obsługę Traccara dodała partia 12 (moduł
+> `traccar`, agent w telefonie ≥ 1.6.0) — konfiguracja w §8. Serwer możesz
+> najpierw postawić i sprawdzić samym `curl` (§7).
 
 W tekście zamieniasz na swoje wartości:
 
@@ -298,31 +298,138 @@ curl -s -o /dev/null -w "%{http_code}\n" "https://DOMENA/traccar-gps/?id=ID_AUTA
 
 - `200` — w panelu auto pojawi się w Warszawie, serwer gotowy.
 - `302` — brak `auth_request off;` w §6.2.
-- `404` — Traccar nie zna identyfikatora (urządzenie z §5) — pozycja jest
-  odrzucana.
+- `400` (albo `404`) — Traccar nie zna identyfikatora (urządzenie z §5) —
+  pozycja jest odrzucana. Agent pokazuje to w Ustawieniach jako „Traccar
+  nie zna identyfikatora”.
 - `502`/`504` — nginx nie dosięga `TRACCAR_IP:5055` (zapora, zły adres,
   w `traccar.xml` brak `osmand`).
 - `503` — zadziałał limit z §6.1 (zbyt wiele zapytań naraz).
 
 ## 8. Po stronie BCM i telefonu
 
-(Docelowo, po etapie 7 partii 12.)
+Pozycję wysyła **telefon w aucie** (agent BCM w Termuxie, wersja ≥ 1.6.0),
+bo BCM na postoju jest wyłączony. BCM tylko przekazuje agentowi adres
+serwera i identyfikator (podpisana synchronizacja konfiguracji przez
+`adb forward`) i pokazuje stan w Ustawieniach.
 
-- `/etc/bcm/bcm.env` na M910q (0600 root:root):
+### 8.1 Identyfikator — tylko w `/etc/bcm/bcm.env`
 
-  ```bash
-  BCM_TRACCAR_DEVICE_ID=ID_AUTA
-  ```
+Na M910q (plik 0600 root:root, ten sam co klucze API):
 
-- adres serwera w `config/local.yaml` albo w Ustawieniach BCM:
-  `traccar.url: https://DOMENA/traccar-gps/`.
-- BCM przekazuje adres i identyfikator agentowi w telefonie przy
-  parowaniu/synchronizacji konfiguracji. Agent wysyła pozycję:
-  po zaparkowaniu, co kilka–kilkanaście minut na postoju, natychmiast
-  przy alarmie i częściej w trakcie jazdy; bez zasięgu trzyma kolejkę
-  i dosyła później.
-- SMS `POZYCJA <kod>` (patrz `docs/PRZYGOTOWANIE_TELEFONU.md` §12) działa
-  dalej niezależnie od Traccara.
+```bash
+sudo nano /etc/bcm/bcm.env
+```
+
+dopisz linię (wartość z §5, 8–64 znaki `A-Z a-z 0-9 . _ -`):
+
+```bash
+BCM_TRACCAR_DEVICE_ID=ID_AUTA
+```
+
+Identyfikator nigdy nie trafia do `config/local.yaml`, do logu BCM ani do
+przeglądarki — Ustawienia pokazują tylko 8 znaków jego skrótu SHA-256
+(ten sam w BCM i w telefonie = telefon ma właściwy).
+
+### 8.2 Adres serwera i odstępy — `config/local.yaml`
+
+```yaml
+modules:
+  traccar: true            # wymaga car_phone_agent (i car_phone)
+traccar:
+  url: https://DOMENA/traccar-gps/
+  drive_interval_s: 30     # w jeździe co tyle sekund (10–600)
+  park_interval_min: 15    # na postoju co tyle minut (5–240)
+```
+
+- `url`: tylko `https://`, bez loginu i hasła w adresie, bez `?…` i `#…`,
+  najwyżej 200 znaków. Zły adres = jedno ostrzeżenie w logu i telefon nic
+  nie wysyła (wiersz „Traccar” w Ustawieniach podpowie, co poprawić).
+- Adresu **nie** zmienisz na ekranie Ustawień — celowo: zmiana z ekranu (albo
+  z sieci przy `remote_access: full`) mogłaby skierować identyfikator
+  i wszystkie pozycje na obcy serwer. Edytujesz go w `config/local.yaml`.
+
+Potem restart BCM:
+
+```bash
+sudo systemctl restart bcm-headunit
+```
+
+Sprawdzenie w logu (bez identyfikatora — tylko nazwy i skrót):
+
+```bash
+sudo journalctl -u bcm-headunit -b | grep -i traccar
+```
+
+### 8.3 Telefon: agent 1.6.0
+
+Skopiuj nowy `tools/car_phone/termux/bcm_agent.py` na telefon i zrestartuj
+agenta — kroki w [PRZYGOTOWANIE_TELEFONU.md](PRZYGOTOWANIE_TELEFONU.md)
+§9.5 (`adb push`, `cp` do `~/bcm_agent/`, `pkill -f bcm_agent.py`). Starszy
+agent przy włączonym module = „agent za stary” w wierszu „Traccar”
+i „agent w telefonie jest starszy niż BCM” w wierszu „Agent w telefonie”.
+W logu telefonu (`~/.config/bcm_agent/agent.log`) po synchronizacji:
+`Traccar config: server set, device id <skrót>, …`.
+
+### 8.4 Co i kiedy wysyła telefon
+
+| Sytuacja | Kiedy | Skąd pozycja |
+|---|---|---|
+| jazda (BCM rozmawiał z agentem w ostatnich 90 s, alarm na postoju nie uzbrojony) | co `drive_interval_s` (30 s) | GPS telefonu (ostatnia znana, nie starsza niż 60 s, inaczej nowy pomiar) |
+| zaparkowanie (BCM zamilkł albo alarm na postoju się uzbroił) | od razu jeden punkt | ostatnia pozycja GPS, inaczej sieć |
+| postój | co `park_interval_min` (15 min) | sieć / ostatnia znana — bez włączania GPS |
+| postój, bateria telefonu < 20 % bez ładowania | co `park_interval_min` × 4 (60 min) | jw. |
+| postój, bateria < 10 % bez ładowania | bez okresowych punktów | — |
+| alarm na postoju albo czuwania kabiny | natychmiast (też przy baterii < 10 %) | ten sam pomiar co SMS alarmu |
+| „Wyślij pozycję teraz” w Ustawieniach | natychmiast (najwyżej raz na 15 s) | GPS BCM, jeśli świeży; inaczej telefon |
+
+Protokół OsmAnd, jedno zapytanie na punkt:
+`GET https://DOMENA/traccar-gps/?id=ID_AUTA&lat=…&lon=…&timestamp=…&speed=…&bearing=…&altitude=…&accuracy=…&batt=…&charge=…`.
+`speed` jest w węzłach (jak w aplikacji Traccar Client), `timestamp` to czas
+pomiaru w sekundach. Alarm dokłada standardowy parametr `alarm=`, który
+Traccar zamienia na zdarzenie alarmu (powiadomienie „Alarm” w Ustawienia →
+Powiadomienia): `tow` (przechył), `vibration` (wstrząs), `powerCut`
+(zasilanie bez właściciela), `lowBattery`, `tampering` (ruch w kabinie).
+
+- **Bez zasięgu** telefon trzyma punkty w kolejce
+  (`~/.config/bcm_agent/traccar_queue.json`, najwyżej 500 punktów — przy
+  przepełnieniu wypada najstarszy) i dosyła je w kolejności, z przerwą
+  rosnącą od 30 s do 30 min po każdym błędzie. W jeździe kolejka trafia na
+  dysk telefonu najwyżej raz na minutę (alarm i zmiana trybu — od razu).
+  Jeśli serwer przyjął już punkt od tego identyfikatora, a potem 3 razy z
+  rzędu odrzuca (400/404) ten sam pierwszy punkt kolejki, punkt wypada,
+  żeby nie blokował nowszych pozycji i alarmów.
+- Pozycja „ostatnia znana” starsza niż doba idzie z prawdziwym czasem
+  pomiaru i `valid=false` — na mapie nie udaje bieżącej.
+- **Bezpieczeństwo:** tylko HTTPS z weryfikacją certyfikatu, bez przekierowań
+  (302 z nginx to błąd „przekierowanie”, nie „wysłano”), limit czasu 15 s.
+  Wysyłka Traccara nigdy nie wstrzymuje SMS-a po stłuczce ani SMS-a alarmu
+  (osobny wątek w agencie).
+- Wiersz **„Traccar”** w Ustawieniach (karta z telefonem w aucie): tryb
+  (jazda/postój), czas ostatniego wysłanego punktu, długość kolejki, klasa
+  ostatniego błędu (np. „brak połączenia z serwerem”, „błąd certyfikatu”,
+  „Traccar nie zna identyfikatora”) i przycisk **„Wyślij pozycję teraz”**.
+- SMS `POZYCJA <kod>` (patrz [PRZYGOTOWANIE_TELEFONU.md](PRZYGOTOWANIE_TELEFONU.md)
+  §12) działa dalej niezależnie od Traccara.
+
+### 8.5 Ostatni postój w BCM (bez Traccara)
+
+Osobny moduł `last_park` (wymaga `location`) zapamiętuje, gdzie auto stało
+ostatnio — z GPS samego BCM, w `data/last_park.json`: po 10 s postoju, co
+najwyżej co 30 s w czasie jazdy (żeby na dysku był ostatni sensowny punkt
+przed odcięciem prądu), na końcu trasy z rejestratora i przy zgaszeniu
+zapłonu — ten ostatni zapis działa tylko z sygnałem `IGN:` z Arduino
+(sensor hub, `sensor_hub_port`); bez niego głównym zapisem jest postój.
+Zapisy z jazdy i postoju trafiają na dysk najwyżej raz na 10 s i tylko, gdy
+auto odjechało ponad 25 m od zapisanego miejsca. W aucie testowym (prąd
+znika razem z silnikiem) zapamiętane miejsce to więc ostatni punkt sprzed
+około 10–30 s przed odcięciem prądu. Pokazuje go wiersz „Ostatni postój”
+w Ustawieniach (czas, współrzędne, adres mapy) i strona `/trips` (link do
+OpenStreetMap i `geo:` do nawigacji w telefonie).
+
+```yaml
+modules:
+  last_park: true
+```
 
 ## 9. Podgląd auta: Traccar Manager
 

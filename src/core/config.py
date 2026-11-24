@@ -65,6 +65,10 @@ SECRET_ENV_MAP: dict[str, str] = {
     # HMAC secret shared with the Termux agent on the car phone
     # (src/network/car_phone_agent.py) — env only, never local.yaml.
     "network.car_phone.agent.secret": "BCM_CAR_PHONE_AGENT_SECRET",
+    # Traccar device id (docs/TRACCAR_SERWER.md §5) — the only protection of
+    # the OsmAnd protocol, so env only; the agent gets it through the signed
+    # config push (src/network/traccar.py).
+    "traccar.device_id": "BCM_TRACCAR_DEVICE_ID",
 }
 
 #: Secrets whose absence silently disables a feature — main.py logs ONE
@@ -76,6 +80,7 @@ EXPECTED_SECRETS: dict[str, str] = {
     "travel.openrouteservice_key": "planer trasy liczy tylko linię prostą",
     "travel.tomtom_key": "planer trasy bez utrudnień drogowych",
     "network.car_phone.agent.secret": "agent w telefonie (SMS, alarm) nie zadziała",
+    "traccar.device_id": "telefon nie wyśle pozycji auta na serwer Traccar",
 }
 
 
@@ -88,6 +93,7 @@ SECRET_MODULES: dict[str, str] = {
     "travel.openrouteservice_key": "route_planner",
     "travel.tomtom_key": "route_planner",
     "network.car_phone.agent.secret": "car_phone_agent",
+    "traccar.device_id": "traccar",
 }
 
 

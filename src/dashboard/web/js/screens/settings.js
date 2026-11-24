@@ -1127,6 +1127,163 @@ const Settings = {
         });
     },
 
+    // Traccar (src/network/traccar.py). data.traccar =
+    // web_viewer._traccar_summary(traccar.state), or null while the module
+    // does not run (no row). Never the URL or the device id: host name,
+    // id_set and an 8-character fingerprint only. Every value escaped.
+    _traccar: { msg: "", sentAt: 0, listening: false },
+
+    traccarRowKey(tr) {
+        return JSON.stringify(tr || null) + "|" + Settings._traccar.msg;
+    },
+
+    traccarRowHtml(tr, t) {
+        t = t || ((k, d) => d);
+        if (!tr || typeof tr !== "object") return "";
+        const esc = Settings._esc;
+        const has = (obj, k) => typeof k === "string" && Object.prototype.hasOwnProperty.call(obj, k);
+        const ag = tr.agent && typeof tr.agent === "object" ? tr.agent : null;
+        let state, color;
+        if (!tr.url_ok || !tr.id_set) { state = "not_configured"; color = "#d97706"; }
+        else if (tr.error === "no_agent") { state = "no_agent"; color = "#dc2626"; }
+        else if (tr.error === "agent_outdated") { state = "agent_outdated"; color = "#d97706"; }
+        else if (!ag) { state = "unknown"; color = "var(--text-dim)"; }
+        else if (!ag.enabled || !ag.configured) { state = "pending"; color = "#d97706"; }
+        else if (ag.last_error) { state = "error"; color = "#dc2626"; }
+        else { state = "ok"; color = "#16a34a"; }
+        const labels = {
+            not_configured: t("traccar_not_configured", "nie skonfigurowany"),
+            no_agent: t("traccar_no_agent", "brak agenta w telefonie"),
+            agent_outdated: t("traccar_outdated", "agent za stary"),
+            unknown: t("traccar_unknown", "brak danych z telefonu"),
+            pending: t("traccar_pending", "czeka na konfigurację w telefonie"),
+            error: t("traccar_error", "błąd wysyłki"),
+            ok: t("traccar_ok", "działa"),
+        };
+        const facts = [];
+        if (tr.url_host) facts.push(tr.url_host);
+        if (ag) {
+            const modes = { drive: t("traccar_mode_drive", "jazda"), park: t("traccar_mode_park", "postój") };
+            if (has(modes, ag.mode)) facts.push(modes[ag.mode]);
+            const sent = Settings._crashFmtTime(ag.last_sent_ts);
+            facts.push(t("traccar_last_sent", "ostatni punkt") + ": " + (sent || "—"));
+            if (Number.isInteger(ag.queue_n) && ag.queue_n > 0) facts.push(t("traccar_queue", "w kolejce") + ": " + ag.queue_n);
+            if (ag.paused_low_battery) facts.push(t("traccar_low_battery", "bateria < 10% — tylko alarmy"));
+        }
+        const hints = [];
+        const errLabels = {
+            tls: t("traccar_e_tls", "błąd certyfikatu HTTPS"),
+            dns: t("traccar_e_dns", "nie znaleziono serwera (DNS)"),
+            connect: t("traccar_e_connect", "brak połączenia z serwerem"),
+            timeout: t("traccar_e_timeout", "serwer nie odpowiada"),
+            redirect: t("traccar_e_redirect", "przekierowanie — w nginx brak auth_request off;"),
+            http_4xx: t("traccar_e_4xx", "serwer odrzuca zapytanie (4xx)"),
+            http_5xx: t("traccar_e_5xx", "błąd serwera (5xx) — Traccar nie działa?"),
+            unknown_device: t("traccar_e_unknown", "Traccar nie zna identyfikatora — dodaj urządzenie"),
+            no_position: t("traccar_e_no_position", "telefon nie ma pozycji"),
+            storage: t("traccar_e_storage", "telefon nie zapisał kolejki"),
+            network: t("traccar_e_network", "błąd sieci"),
+        };
+        if (state === "error" && has(errLabels, ag.last_error)) hints.push(errLabels[ag.last_error]);
+        if (!tr.url_ok) hints.push(t("traccar_hint_url", "ustaw traccar.url (https://…) w config/local.yaml"));
+        if (!tr.id_set) hints.push(t("traccar_hint_id", "wpisz BCM_TRACCAR_DEVICE_ID do /etc/bcm/bcm.env"));
+        if (state === "agent_outdated") hints.push(t("traccar_hint_outdated", "skopiuj nowy tools/car_phone/termux/bcm_agent.py (≥ 1.6.0)"));
+        if (state === "no_agent") hints.push(t("traccar_hint_no_agent", "patrz wiersz „Agent w telefonie”"));
+        if (ag && tr.id_fp && ag.id_fp && ag.id_fp !== tr.id_fp) hints.push(t("traccar_hint_fp", "telefon ma inny identyfikator — czeka na synchronizację"));
+        const cmd = tr.cmd && typeof tr.cmd === "object" ? tr.cmd : null;
+        let msg = Settings._traccar.msg;
+        if (!msg && cmd) {
+            const cmdLabels = {
+                pending: t("traccar_cmd_pending", "wysyłam do telefonu…"),
+                sent: t("traccar_cmd_sent", "telefon przyjął — punkt w kolejce"),
+                failed: t("traccar_cmd_failed", "telefon odmówił"),
+            };
+            if (has(cmdLabels, cmd.state)) msg = cmdLabels[cmd.state] + (cmd.state === "failed" && cmd.error ? " (" + cmd.error + ")" : "");
+        }
+        const canSend = tr.url_ok && tr.id_set;
+        const btn = canSend
+            ? `<button data-traccar-send style="margin-left:auto;padding:4px 10px;border-radius:8px;font-size:11px;font-weight:700;background:var(--card-border);color:var(--text-mid);border:none">${esc(t("traccar_send", "Wyślij pozycję teraz"))}</button>` : "";
+        const factsHtml = facts.length ? ` <span style="color:var(--text-mid)">· ${esc(facts.join(" · "))}</span>` : "";
+        const hintHtml = hints.length
+            ? `<span data-traccar-hint style="color:var(--text-mid);flex-basis:100%;padding-left:24px">${esc(hints.join(" · "))}</span>` : "";
+        return `<div data-traccar-state="${esc(state)}" style="display:flex;flex-wrap:wrap;align-items:center;gap:4px 8px;padding:8px 12px;border-radius:12px;background:var(--card-bg);border:1px solid var(--card-border);font-size:11px;line-height:1.3">
+            <span class="material-symbols-outlined" style="font-size:16px;color:${color}">share_location</span>
+            <span style="color:var(--text-dim);font-weight:700">${esc(t("traccar_title", "Traccar"))}:</span>
+            <span style="color:${color};font-weight:700">${esc(labels[state])}</span>${factsHtml}${btn}${hintHtml}
+            <span data-traccar-msg style="flex-basis:100%;padding-left:24px;color:var(--text-dim)">${esc(msg)}</span>
+        </div>`;
+    },
+
+    _traccarSay(text) {
+        Settings._traccar.msg = text;
+        const node = typeof document !== "undefined" ? document.querySelector("[data-traccar-msg]") : null;
+        if (node) node.textContent = text;
+    },
+
+    async traccarSend() {
+        const t = (typeof App !== "undefined" && App.t) ? App.t.bind(App) : ((k, d) => d);
+        const now = Date.now();
+        if (now - Settings._traccar.sentAt < 1500) return;
+        Settings._traccar.sentAt = now;
+        try {
+            const res = await fetch("/api/traccar/send", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: "{}",
+            });
+            let out = {};
+            try { out = await res.json(); } catch (e) { /* not JSON */ }
+            const key = out && typeof out.error === "string" ? out.error : "";
+            const errors = {
+                not_running: t("traccar_err_not_running", "moduł nie działa"),
+                not_configured: t("traccar_not_configured", "nie skonfigurowany"),
+                busy: t("traccar_err_busy", "poprzednia prośba jeszcze trwa"),
+                "too many requests": t("traccar_err_wait", "chwilę — spróbuj za kilkanaście sekund"),
+            };
+            if (res.ok) Settings._traccarSay(t("traccar_cmd_pending", "wysyłam do telefonu…"));
+            else if (res.status === 403) Settings._traccarSay(t("crash_kiosk_only", "Tylko z ekranu w aucie"));
+            else Settings._traccarSay(Object.prototype.hasOwnProperty.call(errors, key) ? errors[key] : t("traccar_err", "nie udało się"));
+        } catch (e) {
+            Settings._traccarSay(t("traccar_err", "nie udało się"));
+        }
+        // The module's verdict (cmd) replaces the local message afterwards.
+        setTimeout(() => { Settings._traccar.msg = ""; }, 4000);
+    },
+
+    /** One delegated click listener for the row (installed once). */
+    traccarListen() {
+        const tc = Settings._traccar;
+        if (tc.listening || typeof document === "undefined" || !document.addEventListener) return;
+        tc.listening = true;
+        document.addEventListener("click", (e) => {
+            const el = e.target && e.target.closest ? e.target.closest("[data-traccar-send]") : null;
+            if (el) Settings.traccarSend();
+        });
+    },
+
+    // Ostatni postój (src/location/last_park.py). data.last_park =
+    // web_viewer._last_park_summary(park.last_position) or null. The kiosk
+    // has no back button, so the map link is shown as text (the clickable
+    // one is on /trips in the phone's browser).
+    lastParkRowHtml(lp, t) {
+        t = t || ((k, d) => d);
+        if (!lp || typeof lp !== "object") return "";
+        const esc = Settings._esc;
+        const num = (v, lo, hi) => typeof v === "number" && isFinite(v) && v >= lo && v <= hi;
+        if (!num(lp.lat, -90, 90) || !num(lp.lon, -180, 180)) return "";
+        const when = Settings._crashFmtTime(lp.ts) || "—";
+        const coords = lp.lat.toFixed(5) + ", " + lp.lon.toFixed(5);
+        const url = typeof lp.osm_url === "string" && lp.osm_url.indexOf("https://www.openstreetmap.org/") === 0 ? lp.osm_url : "";
+        return `<div data-last-park style="display:flex;flex-wrap:wrap;align-items:center;gap:4px 8px;padding:8px 12px;border-radius:12px;background:var(--card-bg);border:1px solid var(--card-border);font-size:11px;line-height:1.3">
+            <span class="material-symbols-outlined" style="font-size:16px;color:var(--text-mid)">local_parking</span>
+            <span style="color:var(--text-dim);font-weight:700">${esc(t("last_park_title", "Ostatni postój"))}:</span>
+            <span style="color:var(--text-primary);font-weight:700">${esc(when)}</span>
+            <span style="color:var(--text-mid);font-family:monospace">${esc(coords)}</span>
+            ${url ? `<span data-last-park-url style="flex-basis:100%;padding-left:24px;color:var(--text-dim);font-family:monospace;word-break:break-all">${esc(t("last_park_map", "mapa"))}: ${esc(url)}</span>` : ""}
+            <span style="flex-basis:100%;padding-left:24px;color:var(--text-dim)">${esc(t("last_park_trips_hint", "link do mapy i nawigacji: strona /trips w telefonie"))}</span>
+        </div>`;
+    },
+
     // Czuwanie kabiny (src/safety/cabin_watch.py). data.cabin_watch =
     // web_viewer._cabin_watch_summary(park.cabin_state), or null while the
     // module is not running (production config: no row). The watch runs ON
@@ -2688,6 +2845,10 @@ App.registerScreen("settings", (() => {
         return JSON.stringify((data && data.parking_guard) || null) + "|" + Settings._park.msg;
     }
 
+    /** The "Traccar" and "Ostatni postój" rows as drawn. */
+    let _traccarKey = "null";
+    let _lastParkKey = "null";
+
     /** The "Czuwanie kabiny" row as drawn (the whole summary). */
     let _cabinKey = "null";
     function _cabinKeyOf(data) {
@@ -2800,6 +2961,23 @@ App.registerScreen("settings", (() => {
                 slot.innerHTML = Settings.cabinWatchRowHtml(data && data.cabin_watch, t);
             }
         }
+        const traccarKey = Settings.traccarRowKey(data && data.traccar);
+        if (traccarKey !== _traccarKey) {
+            const slot = document.querySelector("[data-traccar-slot]");
+            if (slot) {
+                _traccarKey = traccarKey;
+                if (data && data.traccar) Settings.traccarListen();
+                slot.innerHTML = Settings.traccarRowHtml(data && data.traccar, t);
+            }
+        }
+        const lastParkKey = JSON.stringify((data && data.last_park) || null);
+        if (lastParkKey !== _lastParkKey) {
+            const slot = document.querySelector("[data-last-park-slot]");
+            if (slot) {
+                _lastParkKey = lastParkKey;
+                slot.innerHTML = Settings.lastParkRowHtml(data && data.last_park, t);
+            }
+        }
         const remoteKey = _remoteKeyOf(data);
         if (remoteKey !== _remoteKey) {
             const slot = document.querySelector("[data-remote-session-slot]");
@@ -2883,6 +3061,7 @@ App.registerScreen("settings", (() => {
         // Always (idempotent, one listener): the row may first appear through
         // update() when the module publishes after this render.
         Settings.parkListen();
+        if (data && data.traccar) Settings.traccarListen();
         if (data && data.auto_brightness) Settings.brightListen();
         if (data && data.voice_announce) Settings.voiceListen();
 
@@ -2960,6 +3139,10 @@ App.registerScreen("settings", (() => {
                         <div data-parking-guard-slot style="display:contents">${Settings.parkingGuardRowHtml(data && data.parking_guard, t)}</div>
                         <!-- Czuwanie kabiny (the phone runs it): state + last event, read-only. -->
                         <div data-cabin-watch-slot style="display:contents">${Settings.cabinWatchRowHtml(data && data.cabin_watch, t)}</div>
+                        <!-- Traccar (the phone reports): state + "Wyślij pozycję teraz". -->
+                        <div data-traccar-slot style="display:contents">${Settings.traccarRowHtml(data && data.traccar, t)}</div>
+                        <!-- Ostatni postój (BCM's own GPS): time, coordinates, map URL as text. -->
+                        <div data-last-park-slot style="display:contents">${Settings.lastParkRowHtml(data && data.last_park, t)}</div>
                         <!-- GPS source / fix + where to send NMEA (same slot idea). -->
                         <div data-gps-slot style="display:contents">${Settings.gpsRowHtml(data && data.gps_state, data && data.phone_tether, t)}</div>
                         <!-- Wi-Fi Hotspot / ALFA-NET network access. The live

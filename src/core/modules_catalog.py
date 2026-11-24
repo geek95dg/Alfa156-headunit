@@ -214,6 +214,28 @@ MODULES: dict[str, dict] = {
                      "hardware": "Redmi z rootem: przednia kamera, blokada ekranu „Brak”, "
                                  "agent ≥ 1.3.0; analiza zdjęć z Pillow "
                                  "(pkg install python-pillow)"},
+    # Partia 12: the car's position on the owner's Traccar server — sent by
+    # the PHONE (bcm_agent.py TraccarReporter, agent >= 1.6.0: OsmAnd over
+    # HTTPS, offline queue), because BCM is off while parked. BCM's part
+    # (src/network/traccar.py): the settings in the agent's config push
+    # (traccar.url + BCM_TRACCAR_DEVICE_ID from bcm.env), the Settings row
+    # and "Wyślij pozycję teraz". Off in code (production unchanged).
+    "traccar":      {"part": 22, "description": "Pozycja auta na Twoim serwerze Traccar (wysyła telefon w aucie)",
+                     "entry": ("src.network.traccar", "start_traccar"),
+                     "default": False, "group": "telefon_w_aucie",
+                     "requires": ("car_phone_agent",),
+                     "hardware": "własny serwer Traccar (docs/TRACCAR_SERWER.md), "
+                                 "traccar.url w local.yaml, BCM_TRACCAR_DEVICE_ID w "
+                                 "/etc/bcm/bcm.env, agent ≥ 1.6.0"},
+    # Partia 12: where the car last stood (src/location/last_park.py) — from
+    # BCM's own GPS, saved atomically under data/ (the test car's power is
+    # simply cut, so also after a minute standing still), shown in Settings
+    # and on /trips. Needs only GPS; works without the phone agent. Off in
+    # code (production unchanged).
+    "last_park":    {"part": 12, "description": "Ostatni postój: gdzie auto ostatnio stało (link do mapy)",
+                     "entry": ("src.location.last_park", "start_last_park"),
+                     "default": False, "requires": ("location",),
+                     "hardware": "GPS (moduł location)"},
     # Plan D3 "Światło (lux)": the old BrightnessController (src/power/
     # brightness.py), finally started — light from the car phone
     # (phone.light_lux) OR the Arduino LDR (LIGHT: lines, read by

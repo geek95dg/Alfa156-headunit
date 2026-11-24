@@ -600,8 +600,12 @@ class TestSecrets:
         cfg.set("modules.car_phone_agent", True)
         missing = {var for var, _p, _w in missing_secrets(cfg, only_enabled=True)}
         assert "BCM_CAR_PHONE_AGENT_SECRET" in missing
-        # Without the filter every missing key is listed.
-        assert len(missing_secrets(cfg)) == 4
+        # Without the filter every missing key is listed (traccar.device_id
+        # is not set at all here).
+        assert len(missing_secrets(cfg)) == 5
+        cfg.set("modules.traccar", True)
+        missing = {var for var, _p, _w in missing_secrets(cfg, only_enabled=True)}
+        assert "BCM_TRACCAR_DEVICE_ID" in missing
 
 
 # ── web: payload, /api/net/test, /api/debug/weather ───────────────────────

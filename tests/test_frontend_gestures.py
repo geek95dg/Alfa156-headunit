@@ -32,10 +32,18 @@
   last event with reasons / photos / analysis / outcome, hints, escaping,
   inline styles, read-only — no buttons) and its update() slot; the park
   row's "ruch w kabinie" event;
+* settings_traccar_smoke.js: screens/settings.js — the "Traccar" row (states,
+  queue, error classes, hints, the command outcome, escaping, one delegated
+  listener, "Wyślij pozycję teraz" = one POST with {}) and "Ostatni postój"
+  (time, coordinates, the map URL as text — no navigation away from the
+  kiosk) with their update() slots;
 * settings_voice_smoke.js: screens/settings.js — the "Komunikaty głosowe"
   row (whitelisted clicks, slider bounds, the fixed-phrase test button);
 * settings_voice_browser_smoke.js: the same row in headless Chromium at
   1024x600 (fits, "Powiedz test" tappable). Skipped without playwright;
+* settings_traccar_browser_smoke.js: the "Traccar" and "Ostatni postój"
+  rows in headless Chromium at 1024x600 (fit, the send button tappable).
+  Skipped without playwright;
 * settings_brightness_smoke.js: screens/settings.js — the "Jasność ekranu"
   row (data.auto_brightness: status per mode with the current lux, Auto /
   Ręczna, the slider, "Programowe / Sprzętowe (DDC/CI)" with the probe's
@@ -484,7 +492,8 @@ def test_call112_in_chromium():
                                      "spectrum_smoke.js", "settings_net_diag_smoke.js",
                                      "settings_phone_sensors_smoke.js",
                                      "trip_fuel_smoke.js", "weather_alerts_smoke.js",
-                                     "settings_voice_smoke.js"])
+                                     "settings_voice_smoke.js",
+                                     "settings_traccar_smoke.js"])
 def test_screen_harness(harness):
     res = subprocess.run([NODE, str(JS / harness)], capture_output=True, text=True,
                          timeout=60)
@@ -572,6 +581,20 @@ def test_voice_row_in_chromium():
     longest status, "Powiedz test" visible, posting once with no body, a
     category tap posting one whitelisted change (see the harness)."""
     res = subprocess.run([NODE, str(JS / "settings_voice_browser_smoke.js")],
+                         capture_output=True, text=True, timeout=120)
+    out = res.stdout.strip()
+    if res.returncode == 0 and out.startswith("SKIP:"):
+        pytest.skip(out[5:].strip())
+    assert res.returncode == 0, res.stderr or res.stdout
+    assert out.endswith("ok"), out
+
+
+@pytest.mark.timeout(150)
+def test_traccar_rows_in_chromium():
+    """Settings "Traccar" and "Ostatni postój" at 1024x600: no overflow with
+    the longest hints and map URL, "Wyślij pozycję teraz" visible and
+    posting "{}" once (see the harness)."""
+    res = subprocess.run([NODE, str(JS / "settings_traccar_browser_smoke.js")],
                          capture_output=True, text=True, timeout=120)
     out = res.stdout.strip()
     if res.returncode == 0 and out.startswith("SKIP:"):

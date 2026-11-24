@@ -734,6 +734,7 @@ loguje jedno ostrzeżenie, a Ustawienia proponują włączenie zależności.
 | `location` | pozycja GPS (NMEA z telefonu) | — | telefon z aplikacją NMEA | wył. | wł. |
 | `tracking` | zapis tras (SQLite) i GPX | — | pozycja z `location` | wył. | wł. |
 | `fuel_log` | dziennik tankowań: spalanie od pełna do pełna, koszt, zasięg (§9.6) | `tracking` | nic — wpis na ekranie trasy | wył. | wł. |
+| `last_park` | ostatni postój: gdzie auto ostatnio stało — wiersz w Ustawieniach i link do mapy na `/trips` ([TRACCAR_SERWER.md](TRACCAR_SERWER.md) §8.5) | `location` | GPS | wył. | wył. |
 | `crash_detect` | wykrywanie stłuczki, ochrona nagrań | `location` | GPS; pełne z `phone_sensors` | wył. | wł. |
 | `car_phone` | telefon w aucie: internet USB, GPS, bateria, zegar | — | Redmi na USB (adb), autoapp z `BCM_AA_USB=0` | wył. | wył. |
 | `car_phone_hotspot` | stan hotspotu telefonu w aucie | `car_phone` | hotspot w Redmi | wył. | wył. |
@@ -743,6 +744,7 @@ loguje jedno ostrzeżenie, a Ustawienia proponują włączenie zależności.
 | `call112` | „Zadzwoń 112” w oknie wypadku (ręcznie) | `crash_detect`; `car_phone_agent` lub `bluetooth` | Redmi z rootem albo główny telefon + mikrofon | wył. | wył. |
 | `parking_guard` | pozycja i alarm na postoju (w telefonie) | `car_phone_agent` | Redmi z SIM, agent ≥ 1.2.0, kod TOTP; rozbrajanie telefonem właściciela tylko z `bluetooth` (HFP) | wył. | wył. |
 | `cabin_watch` | zdjęcia kabiny przednią kamerą przy alarmie | `car_phone_agent`, `parking_guard` | Redmi z rootem, blokada „Brak”, agent ≥ 1.3.0 | wył. | wył. |
+| `traccar` | pozycja auta na Twoim serwerze Traccar (wysyła telefon, także na postoju) | `car_phone_agent` | serwer Traccar ([TRACCAR_SERWER.md](TRACCAR_SERWER.md)), `traccar.url`, `BCM_TRACCAR_DEVICE_ID`, agent ≥ 1.6.0 | wył. | wył. |
 | `auto_brightness` | jasność ekranu z czujnika światła | `phone_sensors` lub `input` | czujnik w telefonie albo LDR Arduino | wył. | wył. |
 | `battery` | pomiar banku buforowego (BATT) | — | bufor, Nano #2 z `FEATURE_BATT_*` | wył. | wył. |
 | `remote_session` | sesja po wybudzeniu od drzwi albo z telefonu (IR) — tylko wersja z buforem (§7.1) | `input` | Nano #2 z `FEATURE_WAKE_*` i `FEATURE_PWRLED`, przekaźnik, odbiornik TSOP | wył. | wył. |
