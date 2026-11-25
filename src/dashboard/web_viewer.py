@@ -54,6 +54,7 @@ from src.sensors import phone_sensors as _phone_sensors
 from src.trip import fuel_log as _fuel_log
 from src.network._proc import clean_error
 from src.audio import voice_announce as _voice
+from src.audio import tts as _tts
 from src.weather.weather import valid_coords
 
 log = get_logger("web_viewer")
@@ -197,6 +198,8 @@ _CONFIG_FIELDS = (
     ("voice_cat_weather", "voice_announce.categories.weather"),
     ("voice_cat_traffic", "voice_announce.categories.traffic"),
     ("voice_cat_system", "voice_announce.categories.system"),
+    # The Azure voice picked in Settings (one of tts.AZURE_VOICES).
+    ("voice_azure_voice", "voice_announce.azure.voice"),
 )
 
 
@@ -253,6 +256,9 @@ def _validate_config_update(data: Any) -> tuple[list[tuple[str, str, Any]], Opti
                      "voice_cat_system"):
             if not isinstance(value, bool):
                 return [], (key, f"{key} must be true or false")
+        elif key == "voice_azure_voice":
+            if value not in _tts.AZURE_VOICES:
+                return [], (key, f"voice_azure_voice must be one of {list(_tts.AZURE_VOICES)}")
         elif key == "voice_volume":
             if isinstance(value, float) and value.is_integer():
                 value = int(value)
@@ -1458,7 +1464,7 @@ def _auto_brightness_summary(value: Any) -> Optional[dict]:
     }
 
 
-_VOICE_ENGINES = ("piper", "espeak", "none")
+_VOICE_ENGINES = ("azure", "piper", "espeak", "none")
 _VOICE_DUCKING = ("eq", "streams", "off")
 
 
@@ -1495,6 +1501,9 @@ def _voice_summary(value: Any) -> Optional[dict]:
         "last_result": word(value.get("last_result"), _voice.STATUS_RESULTS, ""),
         "last_spoken_ts": _ts(value.get("last_spoken_ts")),
         "ducking": word(value.get("ducking"), _VOICE_DUCKING, "off"),
+        # Azure Neural: state code + the voice (whitelisted names only).
+        "azure": word(value.get("azure"), _tts.AZURE_STATES, "off"),
+        "azure_voice": word(value.get("azure_voice"), _tts.AZURE_VOICES, ""),
     }
 
 

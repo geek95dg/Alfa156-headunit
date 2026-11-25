@@ -613,17 +613,21 @@ class TestSecrets:
         cfg.set("modules.route_planner", True)
         cfg.set("modules.car_phone_agent", False)
         cfg.set("modules.traccar", False)
+        cfg.set("modules.voice_announce", False)
         missing = {var for var, _p, _w in missing_secrets(cfg, only_enabled=True)}
         assert missing == {"BCM_ORS_API_KEY", "BCM_TOMTOM_API_KEY"}
         cfg.set("modules.car_phone_agent", True)
         missing = {var for var, _p, _w in missing_secrets(cfg, only_enabled=True)}
         assert "BCM_CAR_PHONE_AGENT_SECRET" in missing
         # Without the filter every missing key is listed (traccar.device_id
-        # is not set at all here).
-        assert len(missing_secrets(cfg)) == 5
+        # and the Azure voice key are not set at all here).
+        assert len(missing_secrets(cfg)) == 6
         cfg.set("modules.traccar", True)
         missing = {var for var, _p, _w in missing_secrets(cfg, only_enabled=True)}
         assert "BCM_TRACCAR_DEVICE_ID" in missing
+        cfg.set("modules.voice_announce", True)
+        missing = {var for var, _p, _w in missing_secrets(cfg, only_enabled=True)}
+        assert "BCM_AZURE_TTS_KEY" in missing
 
 
 # ── web: payload, /api/net/test, /api/debug/weather ───────────────────────

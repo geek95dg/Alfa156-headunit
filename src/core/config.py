@@ -69,6 +69,8 @@ SECRET_ENV_MAP: dict[str, str] = {
     # the OsmAnd protocol, so env only; the agent gets it through the signed
     # config push (src/network/traccar.py).
     "traccar.device_id": "BCM_TRACCAR_DEVICE_ID",
+    # Azure Neural voice for the spoken announcements (src/audio/tts.py).
+    "voice_announce.azure.key": "BCM_AZURE_TTS_KEY",
 }
 
 #: Secrets whose absence silently disables a feature — main.py logs ONE
@@ -81,6 +83,7 @@ EXPECTED_SECRETS: dict[str, str] = {
     "travel.tomtom_key": "planer trasy bez utrudnień drogowych",
     "network.car_phone.agent.secret": "agent w telefonie (SMS, alarm) nie zadziała",
     "traccar.device_id": "telefon nie wyśle pozycji auta na serwer Traccar",
+    "voice_announce.azure.key": "komunikaty głosowe mówi Piper zamiast głosu Azure",
 }
 
 
@@ -94,6 +97,7 @@ SECRET_MODULES: dict[str, str] = {
     "travel.tomtom_key": "route_planner",
     "network.car_phone.agent.secret": "car_phone_agent",
     "traccar.device_id": "traccar",
+    "voice_announce.azure.key": "voice_announce",
 }
 
 

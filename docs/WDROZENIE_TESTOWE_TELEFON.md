@@ -1187,6 +1187,55 @@ Bez Pipera BCM mówi przez espeak-ng; bez obu tylko pokazuje powiadomienia
 (i raz wpisuje do logu, czego brakuje). Gosia, a nie Darkman: wyższy,
 kobiecy głos lepiej przebija się przez szum silnika, opon i bas muzyki.
 
+**Ładny głos: Azure Neural (zalecane).** Piper i espeak-ng mówią po polsku
+dość sztucznie. Głos z chmury Microsoft (Azure AI Speech) brzmi naturalnie;
+domyślnie **Agnieszka** (`pl-PL-AgnieszkaNeural`) — młodszy, ciepły głos,
+lekko spokojniejsze tempo (`rate: -4`) i odrobinę wyższy ton (`pitch: 3`).
+Głosy w Azure to nagrania konkretnych lektorek — „charakter” wybierasz
+głosem, a tempem i tonem tylko go doszlifujesz. Darmowy plan F0 daje
+0,5 mln znaków miesięcznie; jedno ostrzeżenie to ~80 znaków, a każde zdanie
+trafia do cache (`data/voice_cache`), więc powtórki nie zużywają limitu
+i grają też bez internetu. Do Azure idzie wyłącznie tekst komunikatu (bez
+pozycji, bez danych osobowych). Bez klucza, bez sieci albo przy błędzie
+mówi Piper.
+
+1. https://portal.azure.com → „Utwórz zasób” → **Speech** (Azure AI
+   services) → region np. **West Europe** (albo Poland Central), plan
+   cenowy **Free F0** → Utwórz.
+2. Zasób → „Keys and Endpoint” → skopiuj **KEY 1** i nazwę regionu
+   (np. `westeurope`).
+3. Klucz do sekretów (bez cudzysłowów, bez spacji):
+
+```bash
+sudo nano /etc/bcm/bcm.env
+```
+
+   linia `BCM_AZURE_TTS_KEY=<KEY 1>`.
+4. Region — jeśli inny niż `westeurope` — w `config/local.yaml`:
+
+```yaml
+voice_announce:
+  azure:
+    region: polandcentral
+```
+
+5. Restart BCM:
+
+```bash
+sudo systemctl restart bcm-headunit
+```
+
+6. Ustawienia → „Komunikaty głosowe”: status „Azure · Agnieszka”. W wierszu
+   „Głos” wybierz Agnieszka / Zofia / Ava / Emma i za każdym razem
+   **„Powiedz test”** — zostaw ten, który najbardziej Ci odpowiada (wybór
+   zapisuje się w `config/local.yaml`). Ava i Emma to głosy wielojęzyczne
+   (mówią po polsku z lekkim akcentem), Zofia jest bardziej lektorska.
+
+Komunikaty w wierszu: „brak klucza” (punkt 3), „zły format klucza albo
+regionu”, „Azure odrzucił klucz (401/403)” — klucz z innego regionu albo
+źle skopiowany; „chwilowo niedostępny” — brak internetu, BCM spróbuje
+ponownie za 1–15 min, a w tym czasie mówi Piper.
+
 **Ustawienia → „Komunikaty głosowe”** (widać tylko przy włączonym
 module):
 
