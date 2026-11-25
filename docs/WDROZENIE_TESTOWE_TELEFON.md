@@ -1375,6 +1375,48 @@ curl -s http://127.0.0.1:5002/api/data | python3 -c 'import json,sys; print(json
 
 ---
 
+### 10.3 Internet każdym łączem, nie tylko po Ethernecie
+
+Objaw: „Internet i usługi” pokazuje **inne łącze** (np. `eno1`) zamiast
+„USB z telefonu”, pogoda i trasy nie działają, a `ip route get 1.1.1.1`
+mówi `dev eno1`. Przyczyna: Ethernet ze statycznym IP i bramą ma w
+NetworkManagerze metrykę 100 (albo bramę wpisaną na sztywno jako trasa
+`0.0.0.0/0`) i wygrywa z telefonem po USB (650), nawet gdy za kablem nie ma
+internetu. Naprawa — `config/scripts/bcm-net-auto.sh`:
+
+- statyczny adres na Ethernecie zostaje, ale jego trasa domyślna dostaje
+  metrykę 900 (ostatnia w kolejce; `--eth-no-default` = eth tylko do sieci
+  lokalnej, bez internetu);
+- włącza test łączności NetworkManagera co 60 s: łącze bez internetu
+  dostaje +20000 do metryki i ruch sam przechodzi na następne;
+- blokuje automatyczne profile „Wired connection N” dla telefonu po USB.
+
+Kolejność po zmianie: Wi-Fi ~600 · USB z Redmi 650 · LTE 700 ·
+Bluetooth 750 · Ethernet 900. Profili BCM i Wi-Fi (AA, ALFA-NET) skrypt nie
+rusza. Najpierw podgląd:
+
+```bash
+cd /opt/bcm && sudo bash config/scripts/bcm-net-auto.sh --dry-run
+```
+
+Potem naprawdę:
+
+```bash
+cd /opt/bcm && sudo bash config/scripts/bcm-net-auto.sh
+```
+
+Sprawdzenie (ma pokazać łącze telefonu, np. `usb0`/`enx…`):
+
+```bash
+ip route get 1.1.1.1
+```
+
+Cofnięcie (przywraca zapisane w `/etc/bcm/net-auto.state` ustawienia):
+
+```bash
+cd /opt/bcm && sudo bash config/scripts/bcm-net-auto.sh --undo
+```
+
 ## 11. Wycofanie zmian
 
 **Powrót na konfigurację testową** (po §13): §13.7.

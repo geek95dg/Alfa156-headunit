@@ -4,9 +4,9 @@
 
 const App = (() => {
     const SCREENS = ["init", "a1", "a2", "a3", "a4", "a5", "a6", "a7", "a8", "settings"];
-    // Quick-start build: swipe/navbar cycle only the four in-scope screens.
-    // A5-A8 stay registered (reachable by direct navigateTo) but are hidden.
-    const NAV_SCREENS = ["a1", "a2", "a3", "a4"]; // screens with navbar
+    // All eight A-screens are in the navbar and in the pull-down cycle
+    // (the quick-start build hid A5-A8; the owner wants them back).
+    const NAV_SCREENS = ["a1", "a2", "a3", "a4", "a5", "a6", "a7", "a8"]; // screens with navbar
 
     let _currentScreen = "init";
     let _currentTheme = "heritage";
@@ -509,7 +509,7 @@ const App = (() => {
         }
     }
 
-    /** Pull-down target: the next A-screen, wrapping A4 → A1. From a screen
+    /** Pull-down target: the next A-screen, wrapping A8 → A1. From a screen
      *  outside the cycle (Settings, Audio, init…) go back to the last
      *  A-screen the user was on, else A1. */
     function navCycleNext() {
