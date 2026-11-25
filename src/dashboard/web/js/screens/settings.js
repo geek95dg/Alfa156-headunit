@@ -2314,7 +2314,7 @@ const Settings = {
         return `<div data-module-cell="${esc(m.name)}" style="display:flex;flex-direction:column;border-bottom:1px solid var(--card-border);padding:4px 0;min-width:0">
         <label data-module-row="${esc(m.name)}" style="display:flex;align-items:flex-start;gap:8px;cursor:${disabled ? "default" : "pointer"};opacity:${disabled ? "0.6" : "1"}">
             <input type="checkbox" data-module="${esc(m.name)}" ${m.enabled ? "checked" : ""} ${disabled ? "disabled" : ""}
-                style="margin-top:2px;flex:none" onchange="Settings.moduleToggle(this.dataset.module, this.checked)">
+                style="margin-top:0;flex:none" onchange="Settings.moduleToggle(this.dataset.module, this.checked)">
             <span style="display:flex;flex-direction:column;gap:1px;min-width:0;flex:1;font-size:9px;line-height:1.3">
                 <span style="display:flex;gap:6px;align-items:baseline;min-width:0">
                     <span style="font-size:11px;font-weight:700;color:var(--color-on-surface);flex:none">${esc(m.name)}</span>
@@ -2322,7 +2322,7 @@ const Settings = {
                 </span>
                 ${lines.join("")}
             </span>
-        </label>${fix ? `<span style="padding-left:21px">${fix}</span>` : ""}
+        </label>${fix ? `<span style="padding-left:32px">${fix}</span>` : ""}
         </div>`;
     },
 
@@ -3088,6 +3088,19 @@ App.registerScreen("settings", (() => {
         container.innerHTML = `<div class="screen-container" style="background:var(--color-surface);color:var(--color-on-surface)">
             ${AppBar.render(theme, data)}
             <main class="content-area p-4 overflow-y-auto">
+                <!-- Back at the top too (the page is long: the bottom button
+                     was the only way out). It returns to the last A-screen,
+                     not always A1. Not sticky on purpose: with the on-screen
+                     keyboard open only ~190 px of the 7" panel stay visible,
+                     and a sticky bar would cover the field's neighbours (a tap
+                     meant for them would hit "Powrót"). -->
+                <div data-settings-top style="margin:-4px 0 12px;display:flex;align-items:center;gap:12px">
+                    <button type="button" data-settings-back onclick="App.navCycleNext()"
+                            style="display:inline-flex;align-items:center;gap:6px;min-height:44px;padding:0 16px;border-radius:10px;border:none;font-size:14px;font-weight:700;background:var(--card-border);color:var(--color-on-surface)">
+                        <span class="material-symbols-outlined" style="font-size:22px">arrow_back</span>${t("back", "Powrót")}
+                    </button>
+                    <span style="font-size:13px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--text-dim)">${t("screen.settings", "Ustawienia")}</span>
+                </div>
                 <div class="grid grid-cols-2 gap-3">
                     <!-- Left column -->
                     <div class="flex flex-col gap-3">

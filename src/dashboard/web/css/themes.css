@@ -576,3 +576,15 @@ main.content-area { scrollbar-width: thin; }
 .leaflet-control-attribution {
     display: none !important;
 }
+
+/* Checkboxes (Settings → Moduły, Wi-Fi…): the browser default is ~13 px —
+ * too small for a finger on the 7" 1024x600 panel. 24 px boxes in the
+ * theme colour; the label around each stays the tap target too. */
+.content-area input[type="checkbox"] {
+    width: 24px;
+    height: 24px;
+    flex: none;
+    accent-color: var(--color-primary);
+    cursor: pointer;
+}
+.content-area input[type="checkbox"]:disabled { cursor: default; }

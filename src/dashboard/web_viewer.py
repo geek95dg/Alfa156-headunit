@@ -22,7 +22,7 @@ import subprocess
 import time
 import threading
 from pathlib import Path
-from typing import Optional, Any, Hashable
+from typing import Any, Callable, Hashable, Optional
 from urllib.parse import urlsplit
 
 from src.core.logger import get_logger
@@ -607,6 +607,80 @@ def _a1_gauges(fuel_last: Any, coolant_last: Any, simulation: bool,
     if temp is not None:
         coolant = {"source": live, "c": round(temp)}
     return {"fuel": fuel, "coolant": coolant}
+
+
+# A5 (Serwis) and A7 (Osiągi): one entry per reading, (bus topics in order of
+# preference, source code, max age in s, valid range). An entry is shown only
+# while its newest topic value is fresh and in range; otherwise it is None and
+# the screen says "brak danych" — never the payload's old placeholders
+# (12.6 V, 2.4 bar tyres, 4500 km to service, "All OK").
+_LIVE_SPECS: dict[str, tuple[tuple[tuple[str, str], ...], float, float, float]] = {
+    "coolant": ((("obd.coolant_temp", "obd"),), 60.0, -40, 150),
+    "battery_v": ((("battery.voltage", "batt"), ("arduino.battery_voltage", "batt"),
+                   ("obd.battery_voltage", "obd")), 60.0, 5, 20),
+    "oil_pressure": ((("obd.oil_pressure", "obd"),), 60.0, 0, 15),
+    "rpm": ((("obd.rpm", "obd"),), 10.0, 0, 9000),
+    "boost": ((("obd.boost", "obd"),), 10.0, -1, 4),
+    # OBD speed when the K-Line works, else the phone's GPS.
+    "speed": ((("obd.speed", "obd"), ("gps.speed", "gps")), 10.0, 0, 330),
+    "oil_level": ((("service.oil_level", "service"),), 3600.0, 0, 100),
+    "service_km": ((("service.km_remaining", "service"),), 86400.0, -100000, 100000),
+}
+
+
+def _live_metrics(get_last: Callable[[str], Any], simulation: bool, now: float) -> dict:
+    """``data.live`` for A5 / A7: ``{name: {"v": number, "src": code} | None}``.
+
+    ``get_last`` is ``EventBus.get_last``. While ``system.simulation`` is on
+    the DemoDataGenerator publishes the obd.* topics, so those are marked
+    ``demo``. Extra entries: ``tpms`` (four pressures, all plausible),
+    ``g_h`` (horizontal g from the phone, only with a calibrated mount),
+    ``timer_last`` / ``boost_peak`` (src/performance/timer.py results).
+    """
+    def fresh(topic: str, max_age: float) -> Any:
+        last = get_last(topic)
+        if not isinstance(last, tuple) or len(last) != 2:
+            return None
+        value, ts = last
+        if isinstance(ts, bool) or not isinstance(ts, (int, float)) \
+                or not 0 <= now - ts <= max_age:
+            return None
+        return value
+
+    def num(value: Any, lo: float, hi: float) -> Optional[float]:
+        if isinstance(value, bool) or not isinstance(value, (int, float)) \
+                or not math.isfinite(value) or not lo <= value <= hi:
+            return None
+        return float(value)
+
+    out: dict[str, Any] = {}
+    for name, (topics, max_age, lo, hi) in _LIVE_SPECS.items():
+        out[name] = None
+        for topic, src in topics:
+            v = num(fresh(topic, max_age), lo, hi)
+            if v is not None:
+                out[name] = {"v": round(v, 2),
+                             "src": "demo" if simulation and src == "obd" else src}
+                break
+
+    tp = fresh("service.tpms_pressures", 600.0)
+    vals = [num(p, 0.5, 5.0) for p in tp] if isinstance(tp, (list, tuple)) and len(tp) == 4 else []
+    out["tpms"] = ({"v": [round(p, 2) for p in vals], "src": "tpms"}
+                   if vals and all(p is not None for p in vals) else None)
+
+    g = fresh("phone.g_force", 5.0)
+    gh = num(g.get("peak_h_g"), 0, 16) if isinstance(g, dict) and g.get("calib_ok") is True else None
+    out["g_h"] = {"v": round(gh, 2), "src": "phone"} if gh is not None else None
+
+    # Results, not readings: kept until the next run (no freshness limit).
+    last = get_last("performance.timer_result")
+    t = num(last[0], 1, 120) if isinstance(last, tuple) and len(last) == 2 else None
+    out["timer_last"] = {"v": round(t, 1), "src": "gps"} if t is not None else None
+    peak = fresh("performance.boost_peak", 86400.0)
+    pb = num(peak, 0, 4)
+    out["boost_peak"] = ({"v": round(pb, 2), "src": "demo" if simulation else "obd"}
+                         if pb is not None and pb > 0 else None)
+    return out
 
 
 def _net_diag_summary(config: Any, tether: Optional[dict], car: Optional[dict],
@@ -2243,6 +2317,11 @@ class WebViewer:
             _wc = {}
 
         _fuel_summary = _fuel_log_summary(self._config, _val("fuel.stats"))
+        _now = time.time()
+        # Same test main.py uses to start the DemoDataGenerator.
+        _simulation = bool(self._config is not None
+                           and getattr(self._config, "platform", "") == "x86"
+                           and self._config.get("system.simulation", True))
 
         data = {
             # Engine
@@ -2317,11 +2396,9 @@ class WebViewer:
             # A1 side bars: fuel (sensor → refuel-log estimate) and coolant.
             "a1_gauges": _a1_gauges(
                 bus.get_last("obd.fuel_level"), bus.get_last("obd.coolant_temp"),
-                # Same test main.py uses to start the DemoDataGenerator.
-                bool(self._config is not None
-                     and getattr(self._config, "platform", "") == "x86"
-                     and self._config.get("system.simulation", True)),
-                _fuel_summary, time.time()),
+                _simulation, _fuel_summary, _now),
+            # A5 / A7: real, fresh readings only (None = "brak danych").
+            "live": _live_metrics(bus.get_last, _simulation, _now),
             # BT Media
             "bt_media_title": _val("bt.media_title", ""),
             "bt_media_artist": _val("bt.media_artist", ""),

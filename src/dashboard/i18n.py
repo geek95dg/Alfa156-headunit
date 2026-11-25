@@ -142,6 +142,11 @@ STRINGS: dict[str, dict[str, str]] = {
         "a1_no_data": "brak danych",
         "a1_estimate": "szac.",
         "a1_demo": "demo",
+        # A5 / A7 live readings (components/live.js)
+        "live_no_data": "brak danych",
+        "live_no_car_data": "BRAK DANYCH Z AUTA",
+        "live_needs_obd": "doładowanie i obroty: potrzebne OBD",
+        "back": "Powrót",
         "trip_origin_gps": "start: pozycja GPS",
         "live_tracking": "ŚLEDZENIE NA ŻYWO",
         "system_status": "STATUS SYSTEMU",
@@ -1019,6 +1024,11 @@ STRINGS: dict[str, dict[str, str]] = {
         "a1_no_data": "no data",
         "a1_estimate": "est.",
         "a1_demo": "demo",
+        # A5 / A7 live readings (components/live.js)
+        "live_no_data": "no data",
+        "live_no_car_data": "NO DATA FROM CAR",
+        "live_needs_obd": "boost and RPM need OBD",
+        "back": "Back",
         "trip_origin_gps": "start: GPS position",
         "live_tracking": "LIVE TRACKING",
         "system_status": "SYSTEM STATUS",

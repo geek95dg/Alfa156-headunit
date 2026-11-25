@@ -502,7 +502,7 @@ def test_call112_in_chromium():
                                      "trip_fuel_smoke.js", "weather_alerts_smoke.js",
                                      "settings_voice_smoke.js",
                                      "settings_traccar_smoke.js",
-                                     "a1_gauges_smoke.js"])
+                                     "a1_gauges_smoke.js", "live_screens_smoke.js"])
 def test_screen_harness(harness):
     res = subprocess.run([NODE, str(JS / harness)], capture_output=True, text=True,
                          timeout=60)
