@@ -68,8 +68,9 @@ from typing import Any, Callable, Optional
 from src.audio import announce_api
 from src.audio import pipewire_ctrl
 from src.audio.pipewire_ctrl import VOICE_NODE_NAME, MusicDucker
-from src.audio.tts import (DEFAULT_CACHE_DIR, DEFAULT_CACHE_MAX_MB, DEFAULT_MODEL,
-                           DEFAULT_PIPER_BIN, Synthesizer, tts_text, wav_duration)
+from src.audio.tts import (DEFAULT_AZURE_VOICE, DEFAULT_CACHE_DIR, DEFAULT_CACHE_MAX_MB,
+                           DEFAULT_MODEL, DEFAULT_PIPER_BIN, Synthesizer, tts_text,
+                           wav_duration)
 from src.core.logger import get_logger
 from src.core.notifications import publish_notification
 
@@ -129,6 +130,19 @@ class Settings:
     max_per_min: int = DEFAULTS["max_per_min"]
     min_gap_s: float = DEFAULTS["min_gap_s"]
     max_queue: int = DEFAULTS["max_queue"]
+
+
+def _azure_args(get: Callable[[str, Any], Any]) -> dict:
+    """voice_announce.azure.* → Synthesizer keyword arguments. The key comes
+    from /etc/bcm/bcm.env (BCM_AZURE_TTS_KEY → voice_announce.azure.key,
+    src/core/config.py SECRET_ENV_MAP); the Synthesizer validates it all."""
+    return {
+        "azure_key": get("voice_announce.azure.key", "") or "",
+        "azure_region": get("voice_announce.azure.region", "") or "",
+        "azure_voice": get("voice_announce.azure.voice", DEFAULT_AZURE_VOICE) or DEFAULT_AZURE_VOICE,
+        "azure_rate": get("voice_announce.azure.rate", 0),
+        "azure_pitch": get("voice_announce.azure.pitch", 0),
+    }
 
 
 def load_settings(get: Callable[[str, Any], Any]) -> Settings:
@@ -443,7 +457,8 @@ class VoiceAnnouncer:
             espeak_voice=get("voice_announce.espeak_voice", "pl") or "pl",
             cache_dir=get("voice_announce.cache_dir", DEFAULT_CACHE_DIR) or DEFAULT_CACHE_DIR,
             cache_max_mb=_num(get("voice_announce.cache_max_mb", None),
-                              DEFAULT_CACHE_MAX_MB, 1, 500))
+                              DEFAULT_CACHE_MAX_MB, 1, 500),
+            **_azure_args(get))
         self.player = player or Player()
         self._clock = clock
         self._wall = wall
@@ -547,6 +562,11 @@ class VoiceAnnouncer:
         if self._config is None:
             return
         new = load_settings(self._config.get)
+        # The voice picked in Settings applies to the next phrase.
+        if hasattr(self.synth, "configure_azure"):
+            a = _azure_args(self._config.get)
+            self.synth.configure_azure(a["azure_key"], a["azure_region"], a["azure_voice"],
+                                       a["azure_rate"], a["azure_pitch"])
         with self._lock:
             self.settings = new
             self.queue.settings = new
@@ -718,6 +738,9 @@ class VoiceAnnouncer:
                 "volume": s.volume,
                 "categories": dict(s.categories),
                 "engine": self.synth.engine(),
+                # Engines without the cloud voice (tests' fakes) report "off".
+                "azure": self.synth.azure_state() if hasattr(self.synth, "azure_state") else "off",
+                "azure_voice": getattr(self.synth, "azure_voice", ""),
                 "player": self.player.backend(),
                 "queue": len(self.queue),
                 "speaking": self._speaking,

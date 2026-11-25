@@ -665,6 +665,22 @@ voice_announce:
     system: true           # komunikaty systemowe
   chime: true              # krótki dźwięk przed komunikatem
   quiet_when_parking: true # milczy, gdy działają czujniki parkowania (cofanie)
+  # Głos z chmury Microsoft (Azure AI Speech, „Neural”) — naturalny,
+  # przyjemny; klucz TYLKO w /etc/bcm/bcm.env jako BCM_AZURE_TTS_KEY
+  # (docs/WDROZENIE_TESTOWE_TELEFON.md §9.9). Bez klucza / bez internetu
+  # mówi Piper. Każde zdanie trafia do cache, więc powtarzające się
+  # ostrzeżenia pobierane są raz i potem grają też bez sieci.
+  azure:
+    region: westeurope     # region zasobu Speech z portalu Azure (klucz
+                           # działa tylko w swoim regionie), np. westeurope,
+                           # polandcentral, northeurope
+    voice: pl-PL-AgnieszkaNeural   # głos (Ustawienia → Komunikaty głosowe):
+                           # pl-PL-AgnieszkaNeural (młodszy, ciepły — domyślny),
+                           # pl-PL-ZofiaNeural (spokojny, lektorski),
+                           # en-US-AvaMultilingualNeural / en-US-EmmaMultilingualNeural
+                           # (wielojęzyczne, mówią po polsku z lekkim akcentem)
+    rate: -4               # tempo w % (-30…30): lekko wolniej = spokojniej
+    pitch: 3               # wysokość w % (-30…30): odrobinę wyżej = młodziej
   max_age_s: 60            # starszych komunikatów już nie mówi (10–300 s)
   dedupe_s: 300            # ten sam komunikat najwyżej raz na tyle sekund
                            # (eskalacja — inny tekst / wyższy priorytet — od razu)

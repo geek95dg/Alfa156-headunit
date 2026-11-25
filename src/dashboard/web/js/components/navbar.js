@@ -1,17 +1,20 @@
 /**
- * Shared Bottom Navigation Bar — 7 screens (A1-A7).
- * Compact icons, no labels (to fit 7 items).
+ * Shared Bottom Navigation Bar — the eight A-screens + Settings.
+ * Compact icons, no labels (to fit 9 items on the 7" 1024 px panel).
  */
 
 const NavBar = (() => {
-    // Quick-start build: only the four screens in scope. Service (A5), DVR
-    // (A6), Performance (A7) and Phone (A8) are hidden — their modules are off
-    // and they only rendered zeros. Calls still work from the SWC buttons.
+    // Order as before the quick-start trim: Phone sits next to Android Auto.
+    // A screen whose module is off still opens and says so itself.
     const NAV_ITEMS = [
         { icon: "home", screen: "a1", tip: "Dashboard" },
         { icon: "android", screen: "a2", tip: "Android Auto", requiresAA: true },
+        { icon: "call", screen: "a8", tip: "Phone", requiresBT: true },
         { icon: "route", screen: "a3", tip: "Trip" },
         { icon: "cloud", screen: "a4", tip: "Weather" },
+        { icon: "build", screen: "a5", tip: "Service" },
+        { icon: "videocam", screen: "a6", tip: "DVR" },
+        { icon: "speed", screen: "a7", tip: "Performance" },
     ];
 
     function render(theme, activeScreen) {

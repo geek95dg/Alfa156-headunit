@@ -82,6 +82,7 @@ SH_TOOLS = {
     "cleanup-x86.sh": REPO / "config" / "scripts" / "cleanup-x86.sh",
     "setup-x86.sh": REPO / "config" / "scripts" / "setup-x86.sh",
     "bcm-audio-diag.sh": REPO / "tools" / "bcm-audio-diag.sh",
+    "bcm-net-auto.sh": REPO / "config" / "scripts" / "bcm-net-auto.sh",
 }
 
 #: The heading of the module table in the main guide.

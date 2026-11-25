@@ -73,7 +73,7 @@ const App = ctx.__App;
 const AppBar = ctx.__AppBar;
 
 const rendered = [];
-for (const s of ["init", "a1", "a2", "a3", "a4", "settings"]) {
+for (const s of ["init", "a1", "a2", "a3", "a4", "a5", "a6", "a7", "a8", "settings"]) {
     App.registerScreen(s, { render: () => rendered.push(s) });
 }
 
@@ -89,10 +89,10 @@ function touch(target, x0, y0, x1, y1, dtMs) {
     await App.init();
     assert.strictEqual(App.getCurrentScreen(), "a1");
 
-    // navCycleNext: A1 → A2 → A3 → A4 → A1
+    // navCycleNext: A1 → A2 → … → A8 → A1 (all eight A-screens)
     const seq = [];
-    for (let i = 0; i < 4; i++) { App.navCycleNext(); seq.push(App.getCurrentScreen()); }
-    assert.deepStrictEqual(seq, ["a2", "a3", "a4", "a1"]);
+    for (let i = 0; i < 8; i++) { App.navCycleNext(); seq.push(App.getCurrentScreen()); }
+    assert.deepStrictEqual(seq, ["a2", "a3", "a4", "a5", "a6", "a7", "a8", "a1"]);
 
     // From Settings: back to the last A-screen
     App.navigateTo("a3");

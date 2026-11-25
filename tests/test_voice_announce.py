@@ -1047,3 +1047,124 @@ class TestScripts:
         test_cfg = (ROOT / "config" / "bcm_config_test.yaml").read_text()
         assert f"model: {tts.DEFAULT_MODEL}" in test_cfg
         assert f"piper_bin: {tts.DEFAULT_PIPER_BIN}" in test_cfg
+
+
+# ── Azure Neural (cloud voice) ─────────────────────────────────────────────
+
+AZ_KEY = "a" * 32
+
+
+class FakeAzureHTTP:
+    """Records requests; answers with a WAV, an HTTP code or a network error."""
+
+    def __init__(self, status=200):
+        self.status = status
+        self.calls = []
+
+    def __call__(self, url, headers, body, timeout):
+        self.calls.append((url, dict(headers), body, timeout))
+        if self.status != 200:
+            return self.status, b""
+        import io
+        import wave as _wave
+        buf = io.BytesIO()
+        with _wave.open(buf, "wb") as w:
+            w.setnchannels(1)
+            w.setsampwidth(2)
+            w.setframerate(24000)
+            w.writeframes(b"\x00\x01" * 4000)
+        return 200, buf.getvalue()
+
+
+class TestAzure:
+    def _az(self, tmp_path, http, clock=None, **kw):
+        kw.setdefault("azure_key", AZ_KEY)
+        kw.setdefault("azure_region", "westeurope")
+        return _synth(tmp_path, http=http, clock=clock or (lambda: 1000.0), **kw)
+
+    def test_azure_first_and_cached(self, tmp_path):
+        http = FakeAzureHTTP()
+        s = self._az(tmp_path, http)
+        assert s.engines()[0] == "azure"
+        path, used = s.synthesize("Uwaga, możliwe oblodzenie.")
+        assert used == "azure" and tts.wav_ok(path)
+        url, headers, body, _ = http.calls[0]
+        assert url == "https://westeurope.tts.speech.microsoft.com/cognitiveservices/v1"
+        assert headers["Ocp-Apim-Subscription-Key"] == AZ_KEY
+        assert headers["X-Microsoft-OutputFormat"] == tts.AZURE_FORMAT
+        assert b'name="pl-PL-AgnieszkaNeural"' in body
+        assert AZ_KEY.encode() not in body and AZ_KEY not in url, "key only in the header"
+        # Second time: from the cache, no request.
+        assert s.synthesize("Uwaga, możliwe oblodzenie.") == (path, "azure")
+        assert len(http.calls) == 1
+
+    def test_text_cannot_inject_ssml(self, tmp_path):
+        s = self._az(tmp_path, FakeAzureHTTP())
+        body = s.azure_ssml(tts.tts_text('a & b " </voice><voice name="x">'))
+        assert body.count(b"<voice ") == 1 and b"&amp;" in body
+        assert b'</voice><voice name="x">' not in body
+
+    def test_prosody_and_multilingual(self, tmp_path):
+        s = self._az(tmp_path, FakeAzureHTTP(), azure_voice="en-US-AvaMultilingualNeural",
+                     azure_rate=-4, azure_pitch=99)
+        body = s.azure_ssml("Test")
+        assert b'rate="-4%" pitch="+30%"' in body, "pitch clamped to 30"
+        assert b'<lang xml:lang="pl-PL">Test</lang>' in body
+
+    def test_bad_config_never_sent(self, tmp_path):
+        for kw in ({"azure_key": "short"}, {"azure_region": "west europe/../x"},
+                   {"azure_region": ""}):
+            http = FakeAzureHTTP()
+            s = self._az(tmp_path, http, **kw)
+            assert s.azure_state() == "bad_config"
+            assert "azure" not in s.engines()
+        s = self._az(tmp_path, FakeAzureHTTP(), azure_voice="<script>")
+        assert s.azure_voice == tts.DEFAULT_AZURE_VOICE
+        assert _synth(tmp_path).azure_state() == "no_key"
+
+    def test_auth_error_falls_back_until_key_changes(self, tmp_path):
+        http = FakeAzureHTTP(status=401)
+        s = self._az(tmp_path, http)
+        path, used = s.synthesize("Pierwsze zdanie.")
+        assert used == "espeak" and path, "Piper/espeak speaks instead"
+        assert s.azure_state() == "auth" and "azure" not in s.engines()
+        s.configure_azure("b" * 32, "westeurope")
+        assert s.azure_state() == "ok", "a new key gets a fresh chance"
+
+    def test_network_error_backs_off(self, tmp_path):
+        now = [1000.0]
+        http = FakeAzureHTTP(status=-1)
+        s = self._az(tmp_path, http, clock=lambda: now[0])
+        assert s.synthesize("Zdanie.")[1] == "espeak"
+        assert s.azure_state() == "backoff"
+        now[0] += 61
+        assert s.azure_state() == "ok"
+        s.synthesize("Inne zdanie.")
+        assert s.azure_state() == "backoff" and s._azure_until - now[0] == 120.0
+
+    def test_cached_phrase_plays_during_outage(self, tmp_path):
+        now = [1000.0]
+        http = FakeAzureHTTP()
+        s = self._az(tmp_path, http, clock=lambda: now[0])
+        path, _ = s.synthesize("Powtarzane ostrzeżenie.")
+        http.status = 503
+        s.synthesize("Nowe zdanie.")            # fails → backoff
+        assert s.azure_state() == "backoff"
+        assert s.synthesize("Powtarzane ostrzeżenie.") == (path, "azure")
+
+    def test_secret_from_env_and_summary(self):
+        from src.core.config import SECRET_ENV_MAP
+        assert SECRET_ENV_MAP["voice_announce.azure.key"] == "BCM_AZURE_TTS_KEY"
+        from src.dashboard.web_viewer import _voice_summary
+        out = _voice_summary({"enabled": True, "volume": 80, "engine": "azure",
+                              "azure": "ok", "azure_voice": "pl-PL-ZofiaNeural"})
+        assert out["engine"] == "azure" and out["azure_voice"] == "pl-PL-ZofiaNeural"
+        bad = _voice_summary({"engine": "azure", "azure": "<x>", "azure_voice": "evil"})
+        assert bad["azure"] == "off" and bad["azure_voice"] == ""
+
+    def test_config_whitelist(self):
+        from src.dashboard.web_viewer import _validate_config_update
+        ok, err = _validate_config_update({"voice_azure_voice": "pl-PL-ZofiaNeural"})
+        assert err is None and ok
+        _, err = _validate_config_update({"voice_azure_voice": "x-Evil"})
+        assert err is not None

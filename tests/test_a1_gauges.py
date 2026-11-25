@@ -64,3 +64,55 @@ def test_payload_has_a1_gauges():
     bus.publish("obd.coolant_temp", 91.2)
     data = viewer._get_dashboard_data()
     assert data["a1_gauges"]["coolant"] == {"source": "sensor", "c": 91}
+
+
+# ── A5 / A7: data.live (web_viewer._live_metrics) ──────────────────────────
+
+def _getter(values):
+    return lambda topic: values.get(topic)
+
+
+def test_live_metrics_empty_is_all_none():
+    from src.dashboard.web_viewer import _live_metrics
+    out = _live_metrics(_getter({}), False, NOW)
+    assert out and all(v is None for v in out.values()), out
+
+
+def test_live_metrics_sources_and_freshness():
+    from src.dashboard.web_viewer import _live_metrics
+    out = _live_metrics(_getter({
+        "gps.speed": (72.4, NOW - 2),
+        "obd.coolant_temp": (90, NOW - 600),          # stale
+        "arduino.battery_voltage": (12.71, NOW - 5),
+        "obd.battery_voltage": (13.9, NOW - 1),        # lower priority than batt
+        "phone.g_force": ({"peak_h_g": 0.42, "calib_ok": True}, NOW - 1),
+        "service.tpms_pressures": ([2.3, 2.3, 2.2, 2.2], NOW - 10),
+        "performance.timer_result": (11.84, NOW - 99999),
+    }), False, NOW)
+    assert out["speed"] == {"v": 72.4, "src": "gps"}
+    assert out["coolant"] is None
+    assert out["battery_v"] == {"v": 12.71, "src": "batt"}
+    assert out["g_h"] == {"v": 0.42, "src": "phone"}
+    assert out["tpms"] == {"v": [2.3, 2.3, 2.2, 2.2], "src": "tpms"}
+    assert out["timer_last"] == {"v": 11.8, "src": "gps"}
+
+
+def test_live_metrics_rejects_placeholders_and_garbage():
+    from src.dashboard.web_viewer import _live_metrics
+    out = _live_metrics(_getter({
+        "service.tpms_pressures": ([0, 0, 0, 0], NOW),   # the old default
+        "phone.g_force": ({"peak_h_g": 0.5, "calib_ok": False}, NOW),
+        "obd.rpm": ("900", NOW),
+        "obd.speed": (float("nan"), NOW),
+        "obd.boost": (True, NOW),
+        "service.km_remaining": (4500, NOW + 60),         # timestamp in the future
+    }), False, NOW)
+    for k in ("tpms", "g_h", "rpm", "speed", "boost", "service_km"):
+        assert out[k] is None, k
+
+
+def test_live_metrics_obd_marked_demo_in_simulation():
+    from src.dashboard.web_viewer import _live_metrics
+    out = _live_metrics(_getter({"obd.rpm": (2200, NOW), "gps.speed": (50, NOW)}), True, NOW)
+    assert out["rpm"]["src"] == "demo"
+    assert out["speed"]["src"] == "gps", "GPS is real even with the simulator on"

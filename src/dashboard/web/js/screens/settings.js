@@ -1732,6 +1732,13 @@ const Settings = {
         ["traffic", "voice_cat_traffic", "utrudnienia"],
         ["system", "voice_cat_system", "system"],
     ],
+    // Azure Neural voices offered (same list as src/audio/tts.py AZURE_VOICES).
+    _voiceAzure: [
+        ["pl-PL-AgnieszkaNeural", "voice_az_agnieszka", "Agnieszka"],
+        ["pl-PL-ZofiaNeural", "voice_az_zofia", "Zofia"],
+        ["en-US-AvaMultilingualNeural", "voice_az_ava", "Ava"],
+        ["en-US-EmmaMultilingualNeural", "voice_az_emma", "Emma"],
+    ],
 
     voiceDragging() {
         return Settings._voice.down || Date.now() - Settings._voice.inputAt < 1500;
@@ -1742,13 +1749,16 @@ const Settings = {
     voiceRowKey(va) {
         if (!va || typeof va !== "object") return "null";
         return JSON.stringify([va.enabled, va.volume, va.categories, va.engine, va.player,
-            va.speaking, va.call_active, va.last_result, va.ducking, Settings._voice.msg]);
+            va.speaking, va.call_active, va.last_result, va.ducking, va.azure, va.azure_voice,
+            Settings._voice.msg]);
     },
 
     /** "Piper · gotowe", "mówię…", "brak syntezatora — …" */
     voiceStatusText(va, t) {
         t = t || ((k, d) => d);
+        const azName = (Settings._voiceAzure.find(([v]) => v === va.azure_voice) || [, , "Azure"])[2];
         const engines = {
+            azure: t("voice_engine_azure", "Azure") + " · " + azName,
             piper: t("voice_engine_piper", "Piper (głos polski)"),
             espeak: t("voice_engine_espeak", "espeak-ng (zapasowy)"),
         };
@@ -1756,6 +1766,14 @@ const Settings = {
             return t("voice_no_engine", "brak syntezatora mowy — uruchom apply-fixes.sh (Piper / espeak-ng)");
         }
         const parts = [engines[va.engine]];
+        // Why the cloud voice is not the one speaking (key / region / network).
+        const az = {
+            no_key: t("voice_az_no_key", "Azure: brak klucza BCM_AZURE_TTS_KEY w /etc/bcm/bcm.env"),
+            bad_config: t("voice_az_bad_config", "Azure: zły format klucza albo regionu (voice_announce.azure.region)"),
+            auth: t("voice_az_auth", "Azure odrzucił klucz (401/403) — sprawdź klucz i region"),
+            backoff: t("voice_az_backoff", "Azure chwilowo niedostępny — mówi Piper"),
+        };
+        if (va.engine !== "azure" && Object.prototype.hasOwnProperty.call(az, va.azure)) parts.push(az[va.azure]);
         if (va.player === "none") parts.push(t("voice_no_player", "brak pw-play / paplay"));
         if (va.speaking === true) parts.push(t("voice_speaking", "mówię…"));
         else if (va.call_active === true) parts.push(t("voice_call", "rozmowa — komunikaty czekają"));
@@ -1780,7 +1798,7 @@ const Settings = {
         if (!va || typeof va !== "object") return "";
         const esc = Settings._esc;
         const on = va.enabled === true;
-        const ready = va.engine === "piper" || va.engine === "espeak";
+        const ready = va.engine === "azure" || va.engine === "piper" || va.engine === "espeak";
         const vol = Number.isInteger(va.volume) && va.volume >= 10 && va.volume <= 100 ? va.volume : null;
         const sel = (active) => active
             ? "background:var(--color-primary);color:#fff;border:1px solid var(--color-primary)"
@@ -1793,6 +1811,10 @@ const Settings = {
         const cats = (va.categories && typeof va.categories === "object") ? va.categories : {};
         const catHtml = Settings._voiceCats.map(([name, _key, label]) =>
             btn(`data-voice-cat="${name}"`, t("voice_cat_" + name, label), cats[name] === true)).join("");
+        // Voice picker: only when an Azure key is configured (else it does nothing).
+        const azOn = typeof va.azure === "string" && va.azure !== "no_key" && va.azure !== "off";
+        const azHtml = azOn ? Settings._voiceAzure.map(([voice, key, label]) =>
+            btn(`data-voice-azure="${esc(voice)}"`, t(key, label), va.azure_voice === voice)).join("") : "";
         const test = `<button data-voice-test ${ready ? "" : "disabled"} style="margin-left:auto;padding:6px 12px;border-radius:8px;font-size:12px;font-weight:700;background:var(--card-border);color:var(--text-mid);border:none">${esc(t("voice_test", "Powiedz test"))}</button>`;
         const color = !ready ? "#d97706" : (on ? "#16a34a" : "var(--text-dim)");
         return `<div data-voice-row data-voice-engine="${esc(ready ? va.engine : "none")}" style="display:flex;flex-wrap:wrap;align-items:center;gap:6px 8px;padding:8px 12px;border-radius:12px;background:var(--card-bg);border:1px solid var(--card-border);font-size:11px;line-height:1.3">
@@ -1801,6 +1823,7 @@ const Settings = {
             <span data-voice-status style="color:${color};font-weight:700">${esc(Settings.voiceStatusText(va, t))}</span>
             <span style="flex-basis:100%;display:flex;flex-wrap:wrap;align-items:center;gap:6px;padding-left:24px">${onOff}${slider}${volHtml}</span>
             <span style="flex-basis:100%;display:flex;flex-wrap:wrap;align-items:center;gap:6px;padding-left:24px"><span style="color:var(--text-dim);font-weight:700">${esc(t("voice_cats", "Mów o"))}:</span>${catHtml}${test}</span>
+            ${azHtml ? `<span data-voice-azure-row style="flex-basis:100%;display:flex;flex-wrap:wrap;align-items:center;gap:6px;padding-left:24px"><span style="color:var(--text-dim);font-weight:700">${esc(t("voice_az_pick", "Głos"))}:</span>${azHtml}</span>` : ""}
             <span data-voice-msg style="flex-basis:100%;padding-left:24px;color:var(--text-mid)">${esc(Settings._voice.msg)}</span>
         </div>`;
     },
@@ -1858,7 +1881,7 @@ const Settings = {
         v.listening = true;
         document.addEventListener("click", (e) => {
             const el = e.target && e.target.closest
-                ? e.target.closest("[data-voice-enabled],[data-voice-cat],[data-voice-test]") : null;
+                ? e.target.closest("[data-voice-enabled],[data-voice-cat],[data-voice-test],[data-voice-azure]") : null;
             if (!el || typeof el.getAttribute !== "function") return;
             if (el.hasAttribute && el.hasAttribute("data-voice-test")) {
                 Settings.voiceTest();
@@ -1868,8 +1891,11 @@ const Settings = {
             const en = el.getAttribute("data-voice-enabled");
             const cat = el.getAttribute("data-voice-cat");
             let body = null;
+            const az = el.getAttribute("data-voice-azure");
             if (en === "true" || en === "false") body = { voice_enabled: en === "true" };
-            else {
+            else if (az) {
+                if (Settings._voiceAzure.some(([voice]) => voice === az)) body = { voice_azure_voice: az };
+            } else {
                 const hit = Settings._voiceCats.find(([name]) => name === cat);
                 if (hit) body = { [hit[1]]: el.getAttribute("aria-pressed") !== "true" };
             }
@@ -2314,7 +2340,7 @@ const Settings = {
         return `<div data-module-cell="${esc(m.name)}" style="display:flex;flex-direction:column;border-bottom:1px solid var(--card-border);padding:4px 0;min-width:0">
         <label data-module-row="${esc(m.name)}" style="display:flex;align-items:flex-start;gap:8px;cursor:${disabled ? "default" : "pointer"};opacity:${disabled ? "0.6" : "1"}">
             <input type="checkbox" data-module="${esc(m.name)}" ${m.enabled ? "checked" : ""} ${disabled ? "disabled" : ""}
-                style="margin-top:2px;flex:none" onchange="Settings.moduleToggle(this.dataset.module, this.checked)">
+                style="margin-top:0;flex:none" onchange="Settings.moduleToggle(this.dataset.module, this.checked)">
             <span style="display:flex;flex-direction:column;gap:1px;min-width:0;flex:1;font-size:9px;line-height:1.3">
                 <span style="display:flex;gap:6px;align-items:baseline;min-width:0">
                     <span style="font-size:11px;font-weight:700;color:var(--color-on-surface);flex:none">${esc(m.name)}</span>
@@ -2322,7 +2348,7 @@ const Settings = {
                 </span>
                 ${lines.join("")}
             </span>
-        </label>${fix ? `<span style="padding-left:21px">${fix}</span>` : ""}
+        </label>${fix ? `<span style="padding-left:32px">${fix}</span>` : ""}
         </div>`;
     },
 
@@ -3088,6 +3114,19 @@ App.registerScreen("settings", (() => {
         container.innerHTML = `<div class="screen-container" style="background:var(--color-surface);color:var(--color-on-surface)">
             ${AppBar.render(theme, data)}
             <main class="content-area p-4 overflow-y-auto">
+                <!-- Back at the top too (the page is long: the bottom button
+                     was the only way out). It returns to the last A-screen,
+                     not always A1. Not sticky on purpose: with the on-screen
+                     keyboard open only ~190 px of the 7" panel stay visible,
+                     and a sticky bar would cover the field's neighbours (a tap
+                     meant for them would hit "Powrót"). -->
+                <div data-settings-top style="margin:-4px 0 12px;display:flex;align-items:center;gap:12px">
+                    <button type="button" data-settings-back onclick="App.navCycleNext()"
+                            style="display:inline-flex;align-items:center;gap:6px;min-height:44px;padding:0 16px;border-radius:10px;border:none;font-size:14px;font-weight:700;background:var(--card-border);color:var(--color-on-surface)">
+                        <span class="material-symbols-outlined" style="font-size:22px">arrow_back</span>${t("back", "Powrót")}
+                    </button>
+                    <span style="font-size:13px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--text-dim)">${t("screen.settings", "Ustawienia")}</span>
+                </div>
                 <div class="grid grid-cols-2 gap-3">
                     <!-- Left column -->
                     <div class="flex flex-col gap-3">

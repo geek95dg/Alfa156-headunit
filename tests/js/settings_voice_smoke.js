@@ -146,5 +146,17 @@ const row = (over) => Settings.voiceRowHtml(Object.assign({}, VA, over || {}), t
     nextStatus = 403; nextBody = { ok: false, error: "forbidden" };
     await Settings.voiceTest();
     assert.strictEqual(voiceMsg.textContent, "test tylko z ekranu w aucie");
+
+    // Azure Neural: status names the voice; picker only with a key; the
+    // voice attribute is whitelisted (an unknown one is never drawn).
+    let az = row({ engine: "azure", azure: "ok", azure_voice: "pl-PL-ZofiaNeural" });
+    assert.ok(/Azure · Zofia/.test(az), "status shows the Azure voice");
+    assert.ok(/data-voice-azure="pl-PL-AgnieszkaNeural"/.test(az), "picker drawn");
+    assert.ok(/data-voice-azure="pl-PL-ZofiaNeural" aria-pressed="true"/.test(az), "current voice pressed");
+    az = row({ engine: "piper", azure: "no_key", azure_voice: "pl-PL-AgnieszkaNeural" });
+    assert.ok(!/data-voice-azure=/.test(az), "no picker without a key");
+    assert.ok(/BCM_AZURE_TTS_KEY/.test(az), "tells where the key goes");
+    az = row({ engine: "piper", azure: "auth", azure_voice: "pl-PL-AgnieszkaNeural" });
+    assert.ok(/401\/403/.test(az));
     console.log("ok");
 })().catch((e) => { console.error(e); process.exit(1); });

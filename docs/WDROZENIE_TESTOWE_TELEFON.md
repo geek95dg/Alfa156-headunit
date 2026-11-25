@@ -385,8 +385,12 @@ sudo nano /etc/bcm/bcm.env
 - **`BCM_OWM_API_KEY` — NOWY klucz OpenWeatherMap.** Stary klucz był
   w śledzonych YAML-ach i **zostaje w historii gita** — uznaj go za spalony: w
   https://home.openweathermap.org/api_keys wygeneruj nowy, a stary usuń.
-- **`BCM_ORS_API_KEY`** — darmowy klucz OpenRouteService (konto na
-  openrouteservice.org), dla planera tras.
+- **`BCM_ORS_API_KEY`** — darmowy klucz OpenRouteService, dla planera
+  tras. Od 2026 usługę prowadzi HeiGIT: konto i klucze na
+  account.heigit.org, BCM łączy się z `api.heigit.org` (stary adres
+  `api.openrouteservice.org` odpowiada 410). Stary klucz działa dalej —
+  jeśli test w „Internet i usługi” daje 401/403, skopiuj klucz z
+  account.heigit.org jeszcze raz (bez spacji) i wpisz w `bcm.env`.
 - `BCM_TOMTOM_API_KEY` — opcjonalnie, utrudnienia na trasie.
 - **`BCM_CAR_PHONE_AGENT_SECRET`** — sekret agenta w telefonie w aucie
   (dopiero gdy będziesz go uruchamiać, §7). Wygeneruj na M910q:
@@ -1183,6 +1187,55 @@ Bez Pipera BCM mówi przez espeak-ng; bez obu tylko pokazuje powiadomienia
 (i raz wpisuje do logu, czego brakuje). Gosia, a nie Darkman: wyższy,
 kobiecy głos lepiej przebija się przez szum silnika, opon i bas muzyki.
 
+**Ładny głos: Azure Neural (zalecane).** Piper i espeak-ng mówią po polsku
+dość sztucznie. Głos z chmury Microsoft (Azure AI Speech) brzmi naturalnie;
+domyślnie **Agnieszka** (`pl-PL-AgnieszkaNeural`) — młodszy, ciepły głos,
+lekko spokojniejsze tempo (`rate: -4`) i odrobinę wyższy ton (`pitch: 3`).
+Głosy w Azure to nagrania konkretnych lektorek — „charakter” wybierasz
+głosem, a tempem i tonem tylko go doszlifujesz. Darmowy plan F0 daje
+0,5 mln znaków miesięcznie; jedno ostrzeżenie to ~80 znaków, a każde zdanie
+trafia do cache (`data/voice_cache`), więc powtórki nie zużywają limitu
+i grają też bez internetu. Do Azure idzie wyłącznie tekst komunikatu (bez
+pozycji, bez danych osobowych). Bez klucza, bez sieci albo przy błędzie
+mówi Piper.
+
+1. https://portal.azure.com → „Utwórz zasób” → **Speech** (Azure AI
+   services) → region np. **West Europe** (albo Poland Central), plan
+   cenowy **Free F0** → Utwórz.
+2. Zasób → „Keys and Endpoint” → skopiuj **KEY 1** i nazwę regionu
+   (np. `westeurope`).
+3. Klucz do sekretów (bez cudzysłowów, bez spacji):
+
+```bash
+sudo nano /etc/bcm/bcm.env
+```
+
+   linia `BCM_AZURE_TTS_KEY=<KEY 1>`.
+4. Region — jeśli inny niż `westeurope` — w `config/local.yaml`:
+
+```yaml
+voice_announce:
+  azure:
+    region: polandcentral
+```
+
+5. Restart BCM:
+
+```bash
+sudo systemctl restart bcm-headunit
+```
+
+6. Ustawienia → „Komunikaty głosowe”: status „Azure · Agnieszka”. W wierszu
+   „Głos” wybierz Agnieszka / Zofia / Ava / Emma i za każdym razem
+   **„Powiedz test”** — zostaw ten, który najbardziej Ci odpowiada (wybór
+   zapisuje się w `config/local.yaml`). Ava i Emma to głosy wielojęzyczne
+   (mówią po polsku z lekkim akcentem), Zofia jest bardziej lektorska.
+
+Komunikaty w wierszu: „brak klucza” (punkt 3), „zły format klucza albo
+regionu”, „Azure odrzucił klucz (401/403)” — klucz z innego regionu albo
+źle skopiowany; „chwilowo niedostępny” — brak internetu, BCM spróbuje
+ponownie za 1–15 min, a w tym czasie mówi Piper.
+
 **Ustawienia → „Komunikaty głosowe”** (widać tylko przy włączonym
 module):
 
@@ -1374,6 +1427,48 @@ curl -s http://127.0.0.1:5002/api/data | python3 -c 'import json,sys; print(json
 ```
 
 ---
+
+### 10.3 Internet każdym łączem, nie tylko po Ethernecie
+
+Objaw: „Internet i usługi” pokazuje **inne łącze** (np. `eno1`) zamiast
+„USB z telefonu”, pogoda i trasy nie działają, a `ip route get 1.1.1.1`
+mówi `dev eno1`. Przyczyna: Ethernet ze statycznym IP i bramą ma w
+NetworkManagerze metrykę 100 (albo bramę wpisaną na sztywno jako trasa
+`0.0.0.0/0`) i wygrywa z telefonem po USB (650), nawet gdy za kablem nie ma
+internetu. Naprawa — `config/scripts/bcm-net-auto.sh`:
+
+- statyczny adres na Ethernecie zostaje, ale jego trasa domyślna dostaje
+  metrykę 900 (ostatnia w kolejce; `--eth-no-default` = eth tylko do sieci
+  lokalnej, bez internetu);
+- włącza test łączności NetworkManagera co 60 s: łącze bez internetu
+  dostaje +20000 do metryki i ruch sam przechodzi na następne;
+- blokuje automatyczne profile „Wired connection N” dla telefonu po USB.
+
+Kolejność po zmianie: Wi-Fi ~600 · USB z Redmi 650 · LTE 700 ·
+Bluetooth 750 · Ethernet 900. Profili BCM i Wi-Fi (AA, ALFA-NET) skrypt nie
+rusza. Najpierw podgląd:
+
+```bash
+cd /opt/bcm && sudo bash config/scripts/bcm-net-auto.sh --dry-run
+```
+
+Potem naprawdę:
+
+```bash
+cd /opt/bcm && sudo bash config/scripts/bcm-net-auto.sh
+```
+
+Sprawdzenie (ma pokazać łącze telefonu, np. `usb0`/`enx…`):
+
+```bash
+ip route get 1.1.1.1
+```
+
+Cofnięcie (przywraca zapisane w `/etc/bcm/net-auto.state` ustawienia):
+
+```bash
+cd /opt/bcm && sudo bash config/scripts/bcm-net-auto.sh --undo
+```
 
 ## 11. Wycofanie zmian
 

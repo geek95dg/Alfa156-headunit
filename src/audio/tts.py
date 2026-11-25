@@ -1,7 +1,14 @@
 """Speech synthesis for the spoken announcements (``modules.voice_announce``).
 
-Two engines, tried in this order:
+Three engines, tried in this order:
 
+* **Azure Neural** (``voice_announce.azure``: key in /etc/bcm/bcm.env as
+  ``BCM_AZURE_TTS_KEY``, region, voice) — a natural, pleasant voice from
+  Microsoft's cloud (default ``pl-PL-AgnieszkaNeural``). Needs internet;
+  every phrase is cached, so the repeating warnings are fetched once and
+  later play offline. A wrong key (401/403) switches it off until the key
+  changes; a network error, 429 or 5xx backs off (1 → 15 min) and Piper
+  speaks meanwhile;
 * **Piper** (``voice_announce.piper_bin`` + ``voice_announce.model``, by
   default the release binary and the Polish voice ``pl_PL-gosia-medium``
   that config/scripts/install-piper.sh puts into /opt/bcm/piper) — a
@@ -36,7 +43,11 @@ import struct
 import subprocess
 import tempfile
 import threading
+import time
+import urllib.error
+import urllib.request
 import wave
+from xml.sax.saxutils import escape as _xml_escape
 from typing import Any, Callable, Optional
 
 from src.core.logger import get_logger
@@ -44,7 +55,24 @@ from src.core.notifications import clean_text
 
 log = get_logger("audio.tts")
 
-ENGINES = ("piper", "espeak", "none")
+ENGINES = ("azure", "piper", "espeak", "none")
+
+# ── Azure Neural (cloud) ─────────────────────────────────────────────────────
+#: Voices offered in Settings (the ones that read Polish well). The two
+#: Multilingual ones are English-born voices speaking Polish (lighter, a bit
+#: of an accent); Agnieszka and Zofia are native Polish.
+AZURE_VOICES = ("pl-PL-AgnieszkaNeural", "pl-PL-ZofiaNeural",
+                "en-US-AvaMultilingualNeural", "en-US-EmmaMultilingualNeural")
+DEFAULT_AZURE_VOICE = "pl-PL-AgnieszkaNeural"
+#: Azure resource regions are lower-case words (westeurope, polandcentral…).
+_AZURE_REGION_RE = re.compile(r"[a-z][a-z0-9]{2,30}")
+#: Keys are 32 hex characters (older resources) or longer alphanumerics.
+_AZURE_KEY_RE = re.compile(r"[A-Za-z0-9]{32,128}")
+AZURE_FORMAT = "riff-24khz-16bit-mono-pcm"      # a WAV: wav_ok() checks it
+AZURE_TIMEOUT_S = 8.0
+AZURE_BACKOFF_S = (60.0, 120.0, 300.0, 900.0)
+#: Azure state for the Settings row: why the cloud voice is (not) used.
+AZURE_STATES = ("off", "ok", "no_key", "bad_config", "auth", "backoff")
 #: The longest text ever handed to an engine (announce_api already caps
 #: requests at 240; the fixed test phrase is shorter).
 MAX_TTS_TEXT = 300
@@ -110,6 +138,22 @@ def _run_stdin(argv: list[str], data: bytes, timeout: float) -> tuple[int, str]:
         return -1, type(exc).__name__
     tail = (res.stderr or b"")[-300:].decode("utf-8", "replace")
     return res.returncode, tail
+
+
+def _azure_post(url: str, headers: dict, body: bytes, timeout: float) -> tuple[int, bytes]:
+    """POST to Azure → (HTTP status, body). -1 network error, -2 timeout.
+    The answer is read up to MAX_WAV_BYTES + 1 (a larger one is rejected).
+    The key travels only in the header; it is never logged."""
+    req = urllib.request.Request(url, data=body, headers=headers, method="POST")
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            return resp.status, resp.read(MAX_WAV_BYTES + 1)
+    except urllib.error.HTTPError as exc:
+        return exc.code, b""
+    except TimeoutError:
+        return -2, b""
+    except (urllib.error.URLError, OSError, ValueError):
+        return -1, b""
 
 
 def wav_ok(path: str) -> bool:
@@ -179,8 +223,13 @@ class Synthesizer:
                  cache_dir: str = DEFAULT_CACHE_DIR,
                  cache_max_mb: float = DEFAULT_CACHE_MAX_MB,
                  timeout_s: float = DEFAULT_TIMEOUT_S,
+                 azure_key: str = "", azure_region: str = "",
+                 azure_voice: str = DEFAULT_AZURE_VOICE,
+                 azure_rate: Any = 0, azure_pitch: Any = 0,
                  runner: Optional[Callable[[list, bytes, float], tuple]] = None,
-                 which: Callable[[str], Optional[str]] = shutil.which):
+                 which: Callable[[str], Optional[str]] = shutil.which,
+                 http: Optional[Callable[[str, dict, bytes, float], tuple]] = None,
+                 clock: Callable[[], float] = time.monotonic):
         self.piper_bin = str(piper_bin or "")
         self.model = str(model or "")
         self.espeak_bin = str(espeak_bin or "espeak-ng")
@@ -191,6 +240,12 @@ class Synthesizer:
         self.timeout_s = max(2.0, min(120.0, float(timeout_s)))
         self._run = runner or _run_stdin
         self._which = which
+        self._http = http or _azure_post
+        self._clock = clock
+        self._azure_fail = 0               # consecutive soft failures
+        self._azure_until = 0.0            # backoff deadline (monotonic)
+        self._azure_auth_bad = ""          # the key that got 401/403
+        self.configure_azure(azure_key, azure_region, azure_voice, azure_rate, azure_pitch)
         self._lock = threading.Lock()
         self._last_engine: Optional[str] = None
         self.last_error = ""
@@ -207,8 +262,89 @@ class Synthesizer:
     def espeak_path(self) -> Optional[str]:
         return self._which(self.espeak_bin)
 
+    # -- Azure ---------------------------------------------------------------
+    def configure_azure(self, key: Any, region: Any, voice: Any = DEFAULT_AZURE_VOICE,
+                        rate: Any = 0, pitch: Any = 0) -> None:
+        """(Re)set the cloud voice; live from config.changed. Invalid values
+        are not used (bad_config), never sent anywhere."""
+        key = key.strip() if isinstance(key, str) else ""
+        region = region.strip().lower() if isinstance(region, str) else ""
+        self.azure_key = key if _AZURE_KEY_RE.fullmatch(key) else ""
+        self._azure_key_given = bool(key)
+        self.azure_region = region if _AZURE_REGION_RE.fullmatch(region) else ""
+        self.azure_voice = voice if voice in AZURE_VOICES else DEFAULT_AZURE_VOICE
+
+        def pct(v: Any) -> int:
+            if isinstance(v, bool) or not isinstance(v, (int, float)) or not math.isfinite(v):
+                return 0
+            return int(max(-30, min(30, round(v))))
+        self.azure_rate = pct(rate)
+        self.azure_pitch = pct(pitch)
+        if self.azure_key != self._azure_auth_bad:
+            self._azure_auth_bad = ""      # a new key gets a fresh chance
+
+    def azure_state(self) -> str:
+        if not self._azure_key_given:
+            return "no_key"
+        if not self.azure_key or not self.azure_region:
+            return "bad_config"
+        if self._azure_auth_bad:
+            return "auth"
+        if self._clock() < self._azure_until:
+            return "backoff"
+        return "ok"
+
+    def azure_ssml(self, text: str) -> bytes:
+        """The request body. The text is XML-escaped (it is already a single
+        clean line without markup, see tts_text) — nothing in it can become
+        an SSML tag. Prosody only from the validated integers."""
+        body = _xml_escape(text)
+        if "Multilingual" in self.azure_voice:
+            body = f'<lang xml:lang="pl-PL">{body}</lang>'
+        prosody = f'<prosody rate="{self.azure_rate:+d}%" pitch="{self.azure_pitch:+d}%">{body}</prosody>'
+        return ('<speak version="1.0" xmlns="http://www.w3.org/2001/10/synthesis" '
+                f'xml:lang="pl-PL"><voice name="{self.azure_voice}">{prosody}</voice></speak>'
+                ).encode("utf-8")
+
+    def _synth_azure(self, text: str, out_path: str) -> bool:
+        url = f"https://{self.azure_region}.tts.speech.microsoft.com/cognitiveservices/v1"
+        headers = {"Ocp-Apim-Subscription-Key": self.azure_key,
+                   "Content-Type": "application/ssml+xml",
+                   "X-Microsoft-OutputFormat": AZURE_FORMAT,
+                   "User-Agent": "bcm-headunit"}
+        status, data = self._http(url, headers, self.azure_ssml(text), AZURE_TIMEOUT_S)
+        if status == 200 and isinstance(data, (bytes, bytearray)) \
+                and _MIN_WAV_BYTES <= len(data) <= MAX_WAV_BYTES:
+            with open(out_path, "wb") as fh:
+                fh.write(data)
+            if wav_ok(out_path):
+                self._azure_fail = 0
+                self._azure_until = 0.0
+                return True
+            status = -3
+        if status in (401, 403):
+            if self._azure_auth_bad != self.azure_key:
+                log.error("Voice: Azure refused the key (HTTP %s) — check "
+                          "BCM_AZURE_TTS_KEY and voice_announce.azure.region "
+                          "(the key belongs to one region). Piper speaks meanwhile.",
+                          status)
+            self._azure_auth_bad = self.azure_key
+            self.last_error = "azure_auth"
+            return False
+        # Network / 429 / 5xx / bad answer: back off, Piper speaks meanwhile.
+        delay = AZURE_BACKOFF_S[min(self._azure_fail, len(AZURE_BACKOFF_S) - 1)]
+        self._azure_fail += 1
+        self._azure_until = self._clock() + delay
+        self.last_error = "azure_unavailable"
+        log.warning("Voice: Azure unavailable (%s) — Piper for %.0f s",
+                    status if status > 0 else {-1: "network", -2: "timeout",
+                                               -3: "bad audio"}.get(status, status), delay)
+        return False
+
     def engines(self) -> list[str]:
         out = []
+        if self.azure_state() == "ok":
+            out.append("azure")
         if self.piper_ready():
             out.append("piper")
         if self.espeak_path():
@@ -243,7 +379,12 @@ class Synthesizer:
             return False
 
     def cache_path(self, engine: str, text: str) -> str:
-        ident = self.model if engine == "piper" else f"{self.espeak_bin}:{self.espeak_voice}"
+        if engine == "azure":
+            ident = f"{self.azure_voice}|{self.azure_rate}|{self.azure_pitch}"
+        elif engine == "piper":
+            ident = self.model
+        else:
+            ident = f"{self.espeak_bin}:{self.espeak_voice}"
         digest = hashlib.sha256(f"{engine}\0{ident}\0{text}".encode("utf-8")).hexdigest()
         return os.path.join(self.cache_dir, f"{digest[:40]}.wav")
 
@@ -295,6 +436,14 @@ class Synthesizer:
             self.last_error = "cache_dir"
             return None
         try:
+            if engine == "azure":
+                if not self._synth_azure(text, tmp):
+                    return None
+                os.chmod(tmp, 0o600)
+                os.replace(tmp, target)
+                tmp = ""
+                self._prune()
+                return target
             rc, err = self._run(self._argv(engine, tmp), (text + "\n").encode("utf-8"),
                                 self.timeout_s)
             if rc != 0 or not wav_ok(tmp):
@@ -324,6 +473,11 @@ class Synthesizer:
             if not self._ensure_dir():
                 return None, "cache_dir"
             engines = self.engines()
+            # A phrase Azure already said plays from the cache even while the
+            # cloud is unreachable (the point of caching the nice voice).
+            if "azure" not in engines and self.azure_key and self.azure_region \
+                    and wav_ok(self.cache_path("azure", clean)):
+                engines = ["azure"] + engines
             self.engine()                 # log a change of availability once
             if not engines:
                 self.last_error = "no_engine"

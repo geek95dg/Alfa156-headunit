@@ -373,7 +373,7 @@ class TestServices:
     def test_run_test_records_and_never_returns_a_key(self):
         http = FakeHTTP({
             "openweathermap": (200, json.dumps({"main": {"temp": 3}}).encode()),
-            "openrouteservice": (401, b""),
+            "api.heigit.org": (401, b""),
             "tomtom": urllib.error.URLError("timed out"),
         })
         bus = EventBus()
@@ -389,7 +389,7 @@ class TestServices:
         snap = ns.snapshot()
         assert snap["ors"]["result"] == "http" and snap["ors"]["source"] == "test"
         # ORS key in the header, never in the URL.
-        ors_call = [c for c in http.calls if "openrouteservice" in c[1]][0]
+        ors_call = [c for c in http.calls if "api.heigit.org/pelias" in c[1]][0]
         assert SECRET not in ors_call[1] and ors_call[2]["Authorization"] == SECRET
 
     def test_no_key_no_request(self):
@@ -613,17 +613,21 @@ class TestSecrets:
         cfg.set("modules.route_planner", True)
         cfg.set("modules.car_phone_agent", False)
         cfg.set("modules.traccar", False)
+        cfg.set("modules.voice_announce", False)
         missing = {var for var, _p, _w in missing_secrets(cfg, only_enabled=True)}
         assert missing == {"BCM_ORS_API_KEY", "BCM_TOMTOM_API_KEY"}
         cfg.set("modules.car_phone_agent", True)
         missing = {var for var, _p, _w in missing_secrets(cfg, only_enabled=True)}
         assert "BCM_CAR_PHONE_AGENT_SECRET" in missing
         # Without the filter every missing key is listed (traccar.device_id
-        # is not set at all here).
-        assert len(missing_secrets(cfg)) == 5
+        # and the Azure voice key are not set at all here).
+        assert len(missing_secrets(cfg)) == 6
         cfg.set("modules.traccar", True)
         missing = {var for var, _p, _w in missing_secrets(cfg, only_enabled=True)}
         assert "BCM_TRACCAR_DEVICE_ID" in missing
+        cfg.set("modules.voice_announce", True)
+        missing = {var for var, _p, _w in missing_secrets(cfg, only_enabled=True)}
+        assert "BCM_AZURE_TTS_KEY" in missing
 
 
 # ── web: payload, /api/net/test, /api/debug/weather ───────────────────────
@@ -791,3 +795,11 @@ class TestNetTestRoute:
 
 def test_net_test_route_is_post_only_and_not_readonly():
     assert "api_net_test" not in wv._READONLY_ENDPOINTS
+
+
+def test_ors_uses_heigit_host():
+    """OpenRouteService moved to HeiGIT (2026): the old host answers 410."""
+    from src.network import net_services as ns_mod
+    from src.trip import route_planner as rp
+    assert ns_mod.ORS_GEOCODE == rp.ORS_GEOCODE == "https://api.heigit.org/pelias/v1/search"
+    assert rp.ORS_DIRECTIONS == "https://api.heigit.org/openrouteservice/v2/directions/driving-car"
