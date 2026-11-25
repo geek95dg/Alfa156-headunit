@@ -385,8 +385,12 @@ sudo nano /etc/bcm/bcm.env
 - **`BCM_OWM_API_KEY` — NOWY klucz OpenWeatherMap.** Stary klucz był
   w śledzonych YAML-ach i **zostaje w historii gita** — uznaj go za spalony: w
   https://home.openweathermap.org/api_keys wygeneruj nowy, a stary usuń.
-- **`BCM_ORS_API_KEY`** — darmowy klucz OpenRouteService (konto na
-  openrouteservice.org), dla planera tras.
+- **`BCM_ORS_API_KEY`** — darmowy klucz OpenRouteService, dla planera
+  tras. Od 2026 usługę prowadzi HeiGIT: konto i klucze na
+  account.heigit.org, BCM łączy się z `api.heigit.org` (stary adres
+  `api.openrouteservice.org` odpowiada 410). Stary klucz działa dalej —
+  jeśli test w „Internet i usługi” daje 401/403, skopiuj klucz z
+  account.heigit.org jeszcze raz (bez spacji) i wpisz w `bcm.env`.
 - `BCM_TOMTOM_API_KEY` — opcjonalnie, utrudnienia na trasie.
 - **`BCM_CAR_PHONE_AGENT_SECRET`** — sekret agenta w telefonie w aucie
   (dopiero gdy będziesz go uruchamiać, §7). Wygeneruj na M910q:

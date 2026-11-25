@@ -54,8 +54,12 @@ log = get_logger("trip.route_planner")
 WAYPOINT_COUNT = 8
 
 # ORS & TomTom endpoints
-ORS_DIRECTIONS = "https://api.openrouteservice.org/v2/directions/driving-car"
-ORS_GEOCODE = "https://api.openrouteservice.org/geocode/search"
+# OpenRouteService moved to HeiGIT in 2026: api.openrouteservice.org answers
+# 410 Gone. Same key, same Authorization header, new host and paths
+# (geocoding is the Pelias API under /pelias/v1). Keys: account.heigit.org.
+ORS_BASE = "https://api.heigit.org"
+ORS_DIRECTIONS = ORS_BASE + "/openrouteservice/v2/directions/driving-car"
+ORS_GEOCODE = ORS_BASE + "/pelias/v1/search"
 TOMTOM_INCIDENTS = "https://api.tomtom.com/traffic/services/5/incidentDetails"
 
 
@@ -212,7 +216,7 @@ class RoutePlanner:
             log.error(
                 "RoutePlanner: brak travel.openrouteservice_key — trasy będą "
                 "liczone W LINII PROSTEJ, bez dróg i bez realnego czasu "
-                "przejazdu. Załóż darmowe konto na openrouteservice.org i "
+                "przejazdu. Załóż darmowe konto na account.heigit.org (OpenRouteService) i "
                 "wpisz klucz do /etc/bcm/bcm.env jako BCM_ORS_API_KEY "
                 "(config/bcm.env.example)."
             )

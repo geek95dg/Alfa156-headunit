@@ -59,7 +59,8 @@ TIMEOUT_S = 8.0
 MAX_BODY = 256 * 1024
 
 OWM_WEATHER = "https://api.openweathermap.org/data/2.5/weather"
-ORS_GEOCODE = "https://api.openrouteservice.org/geocode/search"
+# Same address as src/trip/route_planner.py (HeiGIT, since 2026).
+ORS_GEOCODE = "https://api.heigit.org/pelias/v1/search"
 TOMTOM_INCIDENTS = "https://api.tomtom.com/traffic/services/5/incidentDetails"
 
 #: Fallback test point (Kraków) when the config has no default location.
