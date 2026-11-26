@@ -89,6 +89,13 @@ NULL_MIC_PROPS = (
 )
 
 WATCHDOG_INTERVAL_S = 10.0
+#: Once a pass found nothing to change this many times in a row, the
+#: watchdog slows down: every pass is a full pw-dump of the user's PipeWire,
+#: and while music plays that is load on the audio graph for nothing (the
+#: "music stutters now and then" report). A plugged / pulled microphone is
+#: then noticed within STABLE_INTERVAL_S instead of 10 s.
+STABLE_AFTER_PASSES = 3
+STABLE_INTERVAL_S = 60.0
 #: Retry spacing while PipeWire has not answered yet (cold boot race).
 STARTUP_RETRY_S = 1.0
 #: Failed pw-dump rounds before ``state: error`` is published. Keeps a slow
@@ -562,16 +569,26 @@ class MicRouter:
                     or not self._output_ready())
                and self._clock() < deadline):
             self._stop.wait(0.2)
+        stable = 0
         while not self._stop.is_set():
+            before = dict(self._state) if isinstance(self._state, dict) else self._state
             try:
                 ok = self.tick()
             except Exception:
                 log.exception("Mic router pass failed")
                 ok = False
-            interval = WATCHDOG_INTERVAL_S if (ok or self._ever_ok or
-                                               self._failures >= ERROR_AFTER_FAILURES) \
-                else STARTUP_RETRY_S
-            self._stop.wait(interval)
+            stable = stable + 1 if ok and self._state == before else 0
+            self._stop.wait(self.watchdog_interval(ok, stable))
+
+    def watchdog_interval(self, ok: bool, stable: int) -> float:
+        """Seconds to the next pass: start-up retries, 10 s while things
+        change, STABLE_INTERVAL_S once STABLE_AFTER_PASSES passes in a row
+        changed nothing (fewer full pw-dumps while music plays)."""
+        if not (ok or self._ever_ok or self._failures >= ERROR_AFTER_FAILURES):
+            return STARTUP_RETRY_S
+        if ok and stable >= STABLE_AFTER_PASSES:
+            return STABLE_INTERVAL_S
+        return WATCHDOG_INTERVAL_S
 
     # ── one pass ──────────────────────────────────────────────────────────
 

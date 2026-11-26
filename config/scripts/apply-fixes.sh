@@ -171,6 +171,16 @@ grep -q '^net.ipv4.ip_forward=1' /etc/sysctl.conf 2>/dev/null \
 sysctl -w net.ipv4.ip_forward=1 >/dev/null 2>&1 || true
 
 echo "==> 5/8  Audio for calls and AA voice (oFono, WirePlumber, D-Bus policy)"
+# rtkit = real-time priority for the user's PipeWire. Without it the audio
+# graph runs at normal priority and any CPU spike (kiosk animations, phone
+# sensor stream, adb) can make music stutter. Debian installs it as a
+# "Recommends" of pipewire, but a --no-install-recommends system lacks it.
+apt-get install -y rtkit || true
+if systemctl cat rtkit-daemon.service >/dev/null 2>&1; then
+    echo "    rtkit: installed (real-time priority for PipeWire)"
+else
+    echo "    WARNING: rtkit is NOT installed — PipeWire runs without real-time priority (music may stutter under load)."
+fi
 # ofono = the HFP backend (51-bcm-hfp-ofono.conf). Missing ofonod means calls
 # never reach the head unit, so check it loudly instead of `|| true`.
 apt-get install -y ofono || true
