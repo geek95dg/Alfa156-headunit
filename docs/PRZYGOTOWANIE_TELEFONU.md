@@ -831,6 +831,72 @@ w oknie ładowania (np. 40–60 %) i ogranicza temperaturę ładowania
 Przy ograniczniku ładowania alarm na postoju dalej patrzy na pole `plugged`
 z `termux-battery-status` (NIESPRAWDZONE z ACC).
 
+### 16.1 Automatyczne włączanie po podaniu zasilania
+
+Zimą (około 0 °C) Redmi na baterii wytrzymuje w aucie około 2 dni i się
+wyłącza. Domyślnie wyłączony telefon po podłączeniu zasilania tylko się
+ładuje (animacja baterii) i czeka na przycisk. `tools/car_phone/autoboot/`
+zmienia to: po podaniu zasilania, gdy bateria ma co najmniej **5 %**, telefon
+sam uruchamia system (agent, GPS i internet wracają bez dotykania telefonu).
+Docelowo telefon i tak nie gaśnie — w wersji z buforem dostaje prąd
+z wstrzykiwacza 5 V (§18); to jest zabezpieczenie na wypadek pełnego
+rozładowania.
+
+**Jak to działa.** Do obrazu `boot` (już spatchowanego przez Magisk)
+dochodzą dwa pliki przez oficjalny mechanizm Magiska `overlay.d`: reguła
+`on charger` (wykonywana WYŁĄCZNIE w trybie ładowania wyłączonego telefonu)
+i krótki skrypt, który czeka na 5 % i robi restart do systemu. W normalnym
+uruchomieniu nic z tego nie działa. Jeśli bateria przez 2 godziny nie dobije
+do 5 % (np. za zimno, żeby ładować), skrypt rezygnuje — nie ma pętli
+restartów. Po odłączeniu zasilania w trybie ładowania telefon i tak się
+wyłącza.
+
+**NIESPRAWDZONE na tym telefonie** (MediaTek MT6785, crDroid 13). Mechanizm
+`on charger` działa na wielu telefonach, ale MediaTek ma własny tryb
+ładowania wyłączonego telefonu — dlatego najpierw kopia `boot`, a TWRP pod
+ręką.
+
+1. **Kopia awaryjna** robi się sama, ale miej TWRP i kabel do komputera.
+2. Na M910q skopiuj pliki na telefon:
+
+```bash
+cd /opt/bcm && sudo env ADB_SERVER_SOCKET=localfilesystem:/run/bcm-adb/adb.sock adb push tools/car_phone/autoboot /sdcard/Download/bcm-autoboot
+```
+
+3. W Termuxie — najpierw próba bez zapisu (buduje obraz i robi kopię `boot`):
+
+```bash
+su -c "sh /sdcard/Download/bcm-autoboot/patch_boot.sh --dry-run"
+```
+
+4. Jeśli bez błędów — naprawdę:
+
+```bash
+su -c "sh /sdcard/Download/bcm-autoboot/patch_boot.sh"
+```
+
+   Skrypt zapisze obraz, odczyta partycję z powrotem i porówna bajt w bajt.
+   **Skopiuj kopię** `/sdcard/Download/boot-przed-autoboot-<data>.img` na
+   komputer.
+5. **Test na stole:** uruchom telefon normalnie (ma wstać jak zwykle),
+   potem wyłącz, podłącz ładowarkę — po animacji baterii (przy ≥ 5 %) ma się
+   sam uruchomić. Wpis w logu jądra po starcie nie zostaje; w trakcie trybu
+   ładowania podgląd daje dopiero `adb shell dmesg | grep bcm_autoboot`
+   (zwykle niedostępne w tym trybie) — wystarczy obserwacja.
+
+**Gdy coś pójdzie źle** (telefon nie wstaje, wisi na logo): TWRP →
+Install → Install Image → kopia `boot-przed-autoboot-<data>.img` →
+partycja **Boot** → restart. Albo z komputera w trybie fastboot:
+`fastboot flash boot boot-przed-autoboot-<data>.img`. Z działającego
+telefonu cofnięcie jednym poleceniem:
+
+```bash
+su -c "sh /sdcard/Download/bcm-autoboot/patch_boot.sh --restore /sdcard/Download/boot-przed-autoboot-<data>.img"
+```
+
+**Po aktualizacji Magiska** („Instaluj → Bezpośrednio”) Magisk buduje
+`boot` od nowa i te dwa pliki znikają — uruchom `patch_boot.sh` jeszcze raz.
+
 ## 17. Opcjonalnie: hotspot dla pasażerów
 
 Ustawienia → Sieć → Hotspot: własny SSID, **WPA2/WPA3**, mocne hasło,
