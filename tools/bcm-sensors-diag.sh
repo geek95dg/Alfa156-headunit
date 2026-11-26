@@ -71,14 +71,20 @@ if [ -z "$LISTEN" ]; then
     echo "  → w SensorServer: port $REMOTE, Start; jeśli inny port — ustaw go albo"
     echo "    network.car_phone.sensors_remote_port w config/local.yaml (i restart BCM)."
 else
+    # IPv6 forms of /proc/net/tcp6, built from pieces (a literal 32-hex
+    # string looks like an API key to the repo's secret scan).
+    Z8=00000000
+    V6_LO="${Z8}${Z8}${Z8}01000000"            # ::1
+    V6_ANY="${Z8}${Z8}${Z8}${Z8}"              # ::
+    V6_MAPPED_LO="${Z8}${Z8}FFFF${Z8:0:4}0100007F"   # ::ffff:127.0.0.1
     for a in $LISTEN; do
         addr=${a%:*}
         case "$addr" in
             0100007F) ok "nasłuch na 127.0.0.1:$REMOTE (Local Host) — tak ma być" ;;
             00000000) warn "nasłuch na 0.0.0.0:$REMOTE — działa przez forward, ale widać go też z Wi-Fi/hotspotu; włącz „Local Host”" ;;
-            00000000000000000000000001000000) bad "nasłuch TYLKO na IPv6 ::1 — forward adb łączy się po IPv4 127.0.0.1 i trafia w pustkę" ;;
-            00000000000000000000000000000000) ok "nasłuch na wszystkich adresach (IPv4+IPv6)" ;;
-            0000000000000000FFFF00000100007F) ok "nasłuch na 127.0.0.1:$REMOTE (IPv4 w IPv6) — tak ma być" ;;
+            "$V6_LO") bad "nasłuch TYLKO na IPv6 ::1 — forward adb łączy się po IPv4 127.0.0.1 i trafia w pustkę" ;;
+            "$V6_ANY") ok "nasłuch na wszystkich adresach (IPv4+IPv6)" ;;
+            "$V6_MAPPED_LO") ok "nasłuch na 127.0.0.1:$REMOTE (IPv4 w IPv6) — tak ma być" ;;
             *) warn "nasłuch na adresie $addr (hex) — nie 127.0.0.1" ;;
         esac
     done

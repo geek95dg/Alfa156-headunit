@@ -60,6 +60,7 @@ import threading
 import time
 from typing import Any, Callable, Optional
 
+from src.audio import announce_api
 from src.core.logger import get_logger
 from src.core.notifications import publish_notification
 
@@ -152,6 +153,16 @@ def tank_capacity(config: Any) -> float:
                         raw, TANK_MIN_L, TANK_MAX_L, DEFAULT_TANK_L)
         return DEFAULT_TANK_L
     return cap
+
+
+def _litres_pl(value: float) -> str:
+    """'7 litrów', '3 litry', '1 litr' — rounded, Polish plural (for speech)."""
+    n = max(0, int(round(value)))
+    if n == 1:
+        return "1 litr"
+    if n % 10 in (2, 3, 4) and n % 100 not in (12, 13, 14):
+        return f"{n} litry"
+    return f"{n} litrów"
 
 
 def reserve_litres(config: Any, tank_l: Optional[float] = None) -> float:
@@ -391,6 +402,7 @@ class FuelLog:
         self.min_interval_km = mik if mik is not None and 1 <= mik <= 1000 else MIN_INTERVAL_KM
         self.tank_l = tank_capacity(config)
         self.reserve_l = reserve_litres(config, self.tank_l)
+        self._reserve_warned = False
         self._wall = wall_clock
         self._clock = clock
         self._lock = threading.Lock()
@@ -597,7 +609,30 @@ class FuelLog:
             # Without the per-interval map: it grows with every refuel and
             # nobody on the bus needs it (``recent`` carries the last five).
             self.bus.publish(STATS_TOPIC, {k: v for k, v in result.items() if k != "intervals"})
+            self._check_reserve(result)
         return result
+
+    def _check_reserve(self, stats: dict) -> None:
+        """Toast + spoken warning ONCE when the estimate enters the reserve
+        (fuel_sender.reserve_litres, Alfa 156: ~8 l); re-armed when it leaves
+        it (a refuel). After a BCM restart already in the reserve it is said
+        once more — a useful reminder, not a repeat every minute."""
+        in_reserve = stats.get("in_reserve") is True
+        if not in_reserve:
+            self._reserve_warned = False
+            return
+        if self._reserve_warned:
+            return
+        self._reserve_warned = True
+        left = stats.get("fuel_left_est_l")
+        litres = (f" Szacunkowo zostało około {_litres_pl(left)}."
+                  if isinstance(left, (int, float)) and not isinstance(left, bool) else "")
+        publish_notification(self.bus, "Rezerwa paliwa", ("Czas zatankować." + litres).strip(),
+                             severity="warning", icon="local_gas_station", key="fuel_reserve")
+        announce_api.request_announcement(self.bus, "system",
+                                          "Uwaga, rezerwa paliwa." + litres,
+                                          priority="high", key="fuel_reserve")
+        log.info("Rezerwa paliwa (szac. %s l)", left)
 
     def _announce(self, refuel: dict, stats: Optional[dict]) -> None:
         if not refuel.get("full") or not stats:

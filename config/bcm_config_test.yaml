@@ -605,7 +605,7 @@ weather_alerts:
   quiet_hours: ''          # np. '22:00-06:00' — wtedy bez głosu (poza
                            # „niebezpiecznymi”); powiadomienie na ekranie zostaje
   voice: true              # prośba o komunikat głosowy (mówi go moduł głosowy)
-  voice_min_severity: warning   # info | warning | danger
+  voice_min_severity: info      # info | warning | danger — „info”: czytane jest wszystko, co widać na ekranie
   route: true              # sprawdzaj też pogodę na zaplanowanej trasie
   # Progi (domyślne w kodzie takie same):
   icing_temp_c: 2          # oblodzenie: T ≤ tyle °C + opad/mgła/wilgotność

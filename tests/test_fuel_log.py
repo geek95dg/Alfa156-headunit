@@ -980,3 +980,35 @@ class TestReserve:
         assert st["range_to_reserve_km"] < st["est_range_km"]
         st = fl.compute_stats(rows, lambda a, b: 1200.0, 63.0, reserve_l=8.0)
         assert st["in_reserve"] is True and st["range_to_reserve_km"] == 0
+
+
+class TestReserveWarning:
+    """Entering the reserve: one toast + one spoken warning; re-armed after."""
+
+    def _log(self, tmp_path):
+        from src.core.event_bus import EventBus
+        bus = EventBus()
+        seen = {"notes": [], "voice": []}
+        bus.subscribe("system.notifications", lambda t, v, ts: seen["notes"].append(v))
+        bus.subscribe("voice.announce", lambda t, v, ts: seen["voice"].append(v))
+        log = fl.FuelLog(bus, _Cfg(**{"fuel_log.db_path": str(tmp_path / "f.db")}))
+        return log, seen
+
+    def test_once_then_rearmed(self, tmp_path):
+        log, seen = self._log(tmp_path)
+        log._check_reserve({"in_reserve": True, "fuel_left_est_l": 7.4})
+        log._check_reserve({"in_reserve": True, "fuel_left_est_l": 6.9})
+        assert len(seen["voice"]) == 1
+        req = seen["voice"][0]
+        assert req["category"] == "system" and req["priority"] == "high"
+        assert "rezerwa" in req["text"].lower() and "7 litrów" in req["text"]
+        log._check_reserve({"in_reserve": False})          # refuelled
+        log._check_reserve({"in_reserve": True, "fuel_left_est_l": 3})
+        assert len(seen["voice"]) == 2 and "3 litry" in seen["voice"][1]["text"]
+
+    def test_plural(self):
+        assert fl._litres_pl(1) == "1 litr"
+        assert fl._litres_pl(4.4) == "4 litry"
+        assert fl._litres_pl(12) == "12 litrów"
+        assert fl._litres_pl(22) == "22 litry"
+        assert fl._litres_pl(0) == "0 litrów"
