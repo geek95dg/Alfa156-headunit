@@ -123,6 +123,15 @@ App.registerScreen("a3", (() => {
         else if (fl.status === "need_first_full") status = _tr("fuel_need_first_full", "brak tankowania do pełna — spalanie liczy się od pełnego baku");
         else if (fl.status === "no_distance") status = _tr("fuel_no_distance", "brak dystansu — wpisz stan licznika przy następnym tankowaniu");
         else if (fl.status === "intervals_skipped") status = _tr("fuel_intervals_skipped", "odcinki pominięte (za krótkie lub nierealne spalanie) — zatankuj do pełna po dłuższej jeździe");
+        // Reserve (fuel_sender.reserve_litres, Alfa 156: 8 l): once in it, a
+        // warning; before it, how far until the light comes on. Numbers only.
+        let reserve = "";
+        if (fl.in_reserve === true) {
+            reserve = _tr("fuel_in_reserve", "REZERWA — zatankuj");
+        } else if (typeof fl.range_to_reserve_km === "number" && typeof fl.reserve_l === "number") {
+            reserve = _tr("fuel_to_reserve", "do rezerwy ({l} l): ~{km} km")
+                .replace("{l}", _fmt(fl.reserve_l, 0)).replace("{km}", _fmt(fl.range_to_reserve_km, 0));
+        }
         const recent = Array.isArray(fl.recent) ? fl.recent.slice(0, 5) : [];
         const rows = recent.map((r) => {
             const iv = r.interval || null;
@@ -152,6 +161,7 @@ App.registerScreen("a3", (() => {
         return `
             <div style="display:flex;gap:6px;">${tiles}</div>
             ${status ? `<div data-fuel-status="${_esc(fl.status)}" style="font-size:11px;color:${c.warn};">${_esc(status)}</div>` : ""}
+            ${reserve ? `<div data-fuel-reserve="${fl.in_reserve === true ? "in" : "ahead"}" style="font-size:11px;font-weight:${fl.in_reserve === true ? 800 : 400};color:${fl.in_reserve === true ? c.warn : c.dim};">${_esc(reserve)}</div>` : ""}
             <div data-fuel-list style="display:flex;flex-direction:column;">${rows}</div>
             ${_fuelMsg ? `<div data-fuel-msg style="font-size:11px;color:${c.warn};">${_esc(_fuelMsg)}</div>` : ""}
             <div style="display:flex;gap:8px;align-items:center;margin-top:auto;">

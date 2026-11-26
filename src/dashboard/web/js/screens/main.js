@@ -125,7 +125,12 @@ App.registerScreen("a1", (() => {
         const RED = "#ef4444", AMBER = "#f59e0b", GREEN = "#22c55e";
         const BLUE = "#3b82f6", CYAN = "#06b6d4";
         const COOLANT_MIN = 40, COOLANT_MAX = 130;   // bar scale, °C
-        const FUEL_LOW = 15, FUEL_WARN = 25;          // %
+        // Red below the reserve (fuel_sender.reserve_litres of the tank —
+        // Alfa 156: 8 of 63 l ≈ 13 %, data.a1_gauges.fuel.reserve_pct),
+        // amber 10 points above it; 15 % when the payload does not say.
+        const FUEL_LOW_DEFAULT = 15;
+        const lowOf = (g) => (g && Number.isFinite(g.reserve_pct) && g.reserve_pct >= 0
+                              && g.reserve_pct <= 50 ? g.reserve_pct : FUEL_LOW_DEFAULT);
 
         const t = (k, d) => (typeof App !== "undefined" && App.t ? App.t(k, d) : d);
 
@@ -137,14 +142,17 @@ App.registerScreen("a1", (() => {
                 if (src === "none" || pct == null) {
                     return { fill: 0, color: NO_DATA, value: "—", note: t("a1_no_data", "brak danych"), state: "none" };
                 }
-                const color = pct < FUEL_LOW ? RED : pct < FUEL_WARN ? AMBER : null;
+                const low = lowOf(g);
+                const color = pct < low ? RED : pct < low + 10 ? AMBER : null;
                 let note = "";
                 if (src === "estimate") {
                     note = t("a1_estimate", "szac.");
                     if (Number.isFinite(g.litres)) note += " " + Math.round(g.litres) + " l";
                 } else if (src === "demo") note = t("a1_demo", "demo");
+                if (pct < low && !note) note = t("a1_reserve", "rezerwa");
+                else if (pct < low) note = t("a1_reserve", "rezerwa") + " · " + note;
                 return { fill: pct, color, value: Math.round(pct) + "%", note,
-                         state: pct < FUEL_LOW ? "low" : "ok", estimate: src === "estimate" };
+                         state: pct < low ? "low" : "ok", estimate: src === "estimate", low };
             }
             const c = g && Number.isFinite(g.c) ? g.c : null;
             if (src === "none" || c == null) {
@@ -166,7 +174,7 @@ App.registerScreen("a1", (() => {
             // Coolant: tick at 90 °C (the normal running temperature).
             const tick = kind === "coolant"
                 ? `<div style="position:absolute;left:0;right:0;bottom:${100 * (90 - COOLANT_MIN) / (COOLANT_MAX - COOLANT_MIN)}%;height:1px;background:${tk.label};opacity:.6"></div>`
-                : `<div style="position:absolute;left:0;right:0;bottom:${FUEL_LOW}%;height:1px;background:${RED};opacity:.5"></div>`;
+                : `<div id="a1-fuel-tick" style="position:absolute;left:0;right:0;bottom:${FUEL_LOW_DEFAULT}%;height:1px;background:${RED};opacity:.5"></div>`;
             return `<div id="a1-${kind}-gauge" data-gauge="${kind}" data-state="none"
                         style="flex:0 0 52px;width:52px;align-self:stretch;display:flex;flex-direction:column;align-items:center;gap:6px;padding:4px 0">
                 <span class="material-symbols-outlined" style="font-size:20px;color:${tk.label}">${icon}</span>
@@ -196,6 +204,11 @@ App.registerScreen("a1", (() => {
             const op = v.estimate ? "0.6" : "1";
             if (fill.style.opacity !== op) fill.style.opacity = op;
             if (root.getAttribute("data-state") !== v.state) root.setAttribute("data-state", v.state);
+            if (kind === "fuel" && Number.isFinite(v.low)) {
+                const tick = document.getElementById("a1-fuel-tick");
+                const b = v.low + "%";
+                if (tick && tick.style.bottom !== b) tick.style.bottom = b;
+            }
             _updateEl("a1-" + kind + "-val", v.value);
             _updateEl("a1-" + kind + "-note", v.note);
         }

@@ -113,10 +113,10 @@ class TestValidate:
 
     def test_tank_capacity_from_config(self):
         assert fl.tank_capacity(_Cfg(**{"fuel_sender.tank_capacity_litres": 60})) == 60
-        assert fl.tank_capacity(_Cfg(**{"fuel_sender.tank_capacity_litres": 5})) == 58
-        assert fl.tank_capacity(_Cfg(**{"fuel_sender.tank_capacity_litres": "x"})) == 58
-        assert fl.tank_capacity(_Cfg()) == 58
-        assert fl.tank_capacity(None) == 58
+        assert fl.tank_capacity(_Cfg(**{"fuel_sender.tank_capacity_litres": 5})) == 63
+        assert fl.tank_capacity(_Cfg(**{"fuel_sender.tank_capacity_litres": "x"})) == 63
+        assert fl.tank_capacity(_Cfg()) == 63
+        assert fl.tank_capacity(None) == 63
 
 
 # ── interval maths ───────────────────────────────────────────────────────
@@ -943,3 +943,40 @@ class TestFuelRouteReviewFixes:
             t.join(timeout=5)
         assert sorted(codes) == [201, 429]
         assert len(web.log.list_refuels()) == 1
+
+
+class TestReserve:
+    """Alfa Romeo 156: 63 l tank, reserve light from ~8 l."""
+
+    def test_defaults_and_bounds(self):
+        assert fl.DEFAULT_TANK_L == 63.0
+        assert fl.reserve_litres(_Cfg()) == 8.0
+        assert fl.reserve_litres(None) == 8.0
+        assert fl.reserve_litres(_Cfg(**{"fuel_sender.reserve_litres": 10})) == 10
+        assert fl.reserve_litres(_Cfg(**{"fuel_sender.reserve_litres": 0})) == 0
+        # More than half the tank / garbage → default.
+        assert fl.reserve_litres(_Cfg(**{"fuel_sender.reserve_litres": 40})) == 8.0
+        assert fl.reserve_litres(_Cfg(**{"fuel_sender.reserve_litres": "x"})) == 8.0
+
+    def test_both_configs_say_63_and_8(self):
+        from pathlib import Path
+
+        import yaml
+        root = Path(__file__).resolve().parent.parent / "config"
+        for name in ("bcm_config.yaml", "bcm_config_test.yaml"):
+            fs = yaml.safe_load((root / name).read_text())["fuel_sender"]
+            assert fs["tank_capacity_litres"] == 63 and fs["reserve_litres"] == 8, name
+
+    def test_stats_reserve_fields(self):
+        rows = [
+            {"id": 1, "ts": 1000.0, "litres": 50.0, "full": True, "odometer_km": 10000.0},
+            {"id": 2, "ts": 2000.0, "litres": 40.0, "full": True, "odometer_km": 10600.0},
+        ]
+        st = fl.compute_stats(rows, lambda a, b: 300.0, 63.0, reserve_l=8.0)
+        assert st["reserve_l"] == 8.0 and st["tank_capacity_l"] == 63.0
+        left, avg = st["fuel_left_est_l"], st["avg_l100_overall"]
+        assert left > 8.0 and st["in_reserve"] is False
+        assert st["range_to_reserve_km"] == round((left - 8.0) / avg * 100)
+        assert st["range_to_reserve_km"] < st["est_range_km"]
+        st = fl.compute_stats(rows, lambda a, b: 1200.0, 63.0, reserve_l=8.0)
+        assert st["in_reserve"] is True and st["range_to_reserve_km"] == 0

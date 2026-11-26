@@ -981,7 +981,7 @@ nagłówkiem „Tankowania” duży przycisk „Zatankowano”. W okienku:
 
 Panel pokazuje średnie spalanie (ze wszystkich przedziałów), ostatni
 przedział, koszt na 100 km, kilometry od ostatniego pełnego baku i zasięg
-szacowany z pojemności baku (`fuel_sender.tank_capacity_litres`, 58 l).
+szacowany z pojemności baku (`fuel_sender.tank_capacity_litres`, 63 l; rezerwa `fuel_sender.reserve_litres`, 8 l).
 Ta sama średnia trafia do planu podróży (paliwo na trasę „wg tankowań”
 zamiast stałych 7 l/100 km). „Usuń ostatnie” cofa literówkę (tylko
 najnowszy wpis). Historia jest też na stronie `/trips` (tabela
