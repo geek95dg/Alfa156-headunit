@@ -1470,6 +1470,35 @@ Cofnięcie (przywraca zapisane w `/etc/bcm/net-auto.state` ustawienia):
 cd /opt/bcm && sudo bash config/scripts/bcm-net-auto.sh --undo
 ```
 
+### 10.4 Muzyka „przycina” w trakcie odtwarzania
+
+Niskie temperatury nie są przyczyną, dopóki w aucie jest powyżej zera:
+M910q, karta USB i Bluetooth pracują w tym zakresie normalnie. Dziura
+w dźwięku to prawie zawsze **xrun** — PipeWire nie zdążył przygotować
+kolejnego bloku dźwięku. Najczęstsze powody w tym aucie:
+
+- PipeWire bez priorytetu czasu rzeczywistego (brak `rtkit`) — wtedy każde
+  chwilowe obciążenie procesora (animacje kiosku, strumień czujników
+  telefonu, adb) przerywa muzykę. `apply-fixes.sh` instaluje `rtkit`;
+- przerwy po stronie Bluetooth (telefon daleko, Wi-Fi 2,4 GHz w tym samym
+  radiu) — widać to jako błędy przy węzłach `bluez_*`;
+- zamierzone ściszenie przy komunikacie głosowym albo rozmowie.
+
+BCM nie robi już w trakcie grania pełnego zrzutu grafu PipeWire co
+10–15 s: analizator widma przy `pw-record` w ogóle, a router mikrofonu
+zwalnia do raz na minutę, gdy nic się nie zmienia.
+
+Diagnoza — uruchom, gdy gra muzyka (najlepiej, gdy przycina); tylko czyta:
+
+```bash
+sudo bash /opt/bcm/tools/bcm-audio-xruns.sh 60
+```
+
+Skrypt pokazuje priorytet wątków PipeWire, przyrost błędów (kolumna `ERR`
+w `pw-top`) dla każdego węzła, obciążenie procesora, błędy USB z dziennika
+jądra i zdarzenia BCM, które przerywają albo ściszają muzykę; na końcu
+podpowiada, co z tego wynika.
+
 ## 11. Wycofanie zmian
 
 **Powrót na konfigurację testową** (po §13): §13.7.

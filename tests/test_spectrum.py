@@ -423,6 +423,36 @@ class TestLifecycle:
             t.join(1)
         assert procs[0].terminated >= 1
 
+    def test_no_pw_dump_while_pw_record_data_flows(self, rig, monkeypatch):
+        """pw-record (node.dont-reconnect) is not re-checked during music:
+        a full pw-dump every 15 s was load on the audio graph for nothing."""
+        monkeypatch.setattr(sp, "NODE_CHECK_MAX_S", 0.1)
+        _, procs, make, _ = rig
+        pw = FakePW()
+        make(pw).start()
+        assert _wait(lambda: procs)
+        stop = threading.Event()
+
+        def feed():
+            while not stop.is_set():
+                try:
+                    procs[0].write(_pcm(100, 0.02))
+                except OSError:
+                    return
+                time.sleep(0.02)
+
+        t = threading.Thread(target=feed, daemon=True)
+        t.start()
+        try:
+            time.sleep(0.2)
+            calls = pw.list_calls
+            time.sleep(0.8)
+            assert pw.list_calls == calls, "no node listing while data flows"
+            assert len(procs) == 1
+        finally:
+            stop.set()
+            t.join(1)
+
     def test_eof_after_node_replaced_keeps_pw_record(self, rig):
         """pw-record ends because its node went away in a pause — not a tool failure."""
         _, procs, make, _ = rig
@@ -624,7 +654,8 @@ class TestReviewFixes:
         """pw-dump + wpctl failing once (empty list) is "could not list",
         not "node gone"."""
         monkeypatch.setattr(sp, "NODE_CHECK_MAX_S", 0.1)  # live check often
-        _, procs, make, _ = rig
+        _, procs, make, state = rig
+        state["tools"] = ("parec",)       # the live check runs for parec only
         pw = FakePW()
         an = make(pw)
         an.start()

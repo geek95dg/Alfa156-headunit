@@ -99,7 +99,7 @@ DEFAULT_DB_CEILING = 0.0
 # growing interval, and only a long stall relaunches unconditionally.
 SILENCE_AFTER_S = 0.25                   # no bytes this long = show silence
 NODE_CHECK_MIN_S = 1.5                   # first node re-check after data stops
-NODE_CHECK_MAX_S = 15.0                  # also: re-check this often WHILE data flows
+NODE_CHECK_MAX_S = 15.0                  # longest gap between idle re-checks
 STALL_RESTART_S = 30.0                   # relaunch even if the node looks fine
 BACKOFF_MIN_S = 0.5
 BACKOFF_MAX_S = 10.0
@@ -486,7 +486,7 @@ class SpectrumAnalyzer:
         reason = "stopped"
         t0 = self._clock()
         try:
-            got_data, reason = self._pump(proc, target, node_id)
+            got_data, reason = self._pump(proc, target, node_id, tool)
         except Exception as e:
             reason = f"error: {e}"
             log.warning("Spectrum capture error: %s", e)
@@ -530,7 +530,7 @@ class SpectrumAnalyzer:
         return failed
 
     def _pump(self, proc: subprocess.Popen, target: str,
-              node_id: str) -> tuple[bool, str]:
+              node_id: str, tool: str = "pw-record") -> tuple[bool, str]:
         """Read, analyse, publish until something calls for a relaunch."""
         dsp = self._dsp
         fd = proc.stdout.fileno()
@@ -544,11 +544,18 @@ class SpectrumAnalyzer:
         next_pub = now
         next_check = now + NODE_CHECK_MIN_S
         check_every = NODE_CHECK_MIN_S
-        # Slow check that runs even while data flows (NOT pushed forward by
-        # incoming chunks): a stream that got moved to another node keeps
-        # delivering data, and only the node id shows the EQ chain was
-        # replaced. One pw-dump per NODE_CHECK_MAX_S.
-        next_live_check = now + NODE_CHECK_MAX_S
+        # pw-record: no pw-dump while data flows. It used to re-check the
+        # node every 15 s even during music, but a full pw-dump walks every
+        # node's params in the user's PipeWire and, with the mic router's
+        # own dump, was the periodic load BCM put on the graph while music
+        # played (suspected in the "music stutters now and then" report).
+        # Not needed: the stream is node.dont-reconnect, so a replaced EQ
+        # chain ends the child (EOF) instead of moving it, and a retarget is
+        # caught by _resolve_target() below, which reads BCM's own state.
+        # parec (fallback only): --no-move is not verified on the car, so a
+        # moved stream could keep delivering data — keep the slow live check.
+        live_every = NODE_CHECK_MAX_S if tool == "parec" else None
+        next_live_check = now + live_every if live_every else None
         got_data = False
         mismatch_since: Optional[float] = None
         while self._alive():
@@ -603,14 +610,16 @@ class SpectrumAnalyzer:
             else:
                 mismatch_since = None
             idle_check = idle >= NODE_CHECK_MIN_S and now >= next_check
-            if idle_check or now >= next_live_check:
+            live_check = next_live_check is not None and now >= next_live_check
+            if idle_check or live_check:
                 current = self._node_id(target)
                 if current is not _NODE_UNKNOWN and current != node_id:
                     return got_data, "target gone" if current is None else "target replaced"
                 if idle_check:
                     check_every = min(NODE_CHECK_MAX_S, check_every * 2)
                     next_check = now + check_every
-                next_live_check = now + NODE_CHECK_MAX_S
+                if live_every:
+                    next_live_check = now + live_every
             if idle >= STALL_RESTART_S:
                 return got_data, "stall"
         return got_data, "stopped"

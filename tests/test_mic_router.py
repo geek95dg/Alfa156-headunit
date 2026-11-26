@@ -820,3 +820,17 @@ class TestStartAudioRouterFailure:
     def test_silent_when_router_disabled(self, monkeypatch):
         bus = self._start(monkeypatch, {"audio.mic_router": False})
         assert bus.get_last("audio.mic_state") is None
+
+
+def test_watchdog_slows_down_when_nothing_changes():
+    """Each pass is a full pw-dump; while music plays and nothing changes the
+    router backs off to STABLE_INTERVAL_S (the "music stutters" report)."""
+    r = mr.MicRouter.__new__(mr.MicRouter)
+    r._ever_ok = True
+    r._failures = 0
+    assert r.watchdog_interval(True, 0) == mr.WATCHDOG_INTERVAL_S
+    assert r.watchdog_interval(True, mr.STABLE_AFTER_PASSES - 1) == mr.WATCHDOG_INTERVAL_S
+    assert r.watchdog_interval(True, mr.STABLE_AFTER_PASSES) == mr.STABLE_INTERVAL_S
+    assert r.watchdog_interval(False, 99) == mr.WATCHDOG_INTERVAL_S, "a failed pass never slows"
+    r._ever_ok = False
+    assert r.watchdog_interval(False, 0) == mr.STARTUP_RETRY_S
