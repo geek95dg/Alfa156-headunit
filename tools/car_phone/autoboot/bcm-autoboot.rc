@@ -1,0 +1,18 @@
+# bcm-autoboot.rc — Magisk overlay.d: the car phone turns itself on when it
+# gets power (docs/PRZYGOTOWANIE_TELEFONU.md §16.1).
+#
+# A powered-off phone that is plugged in boots into charger mode (the battery
+# animation) and init runs the "on charger" trigger. We start one script that
+# waits until the battery holds at least BCM_AUTOBOOT_MIN_PCT (booting a flat,
+# cold battery can brown out half-way) and then reboots into the normal
+# system. Nothing runs in a normal boot: "on charger" only fires in charger
+# mode. ${MAGISKTMP} is expanded by Magisk to its tmpfs, where the files of
+# overlay.d/sbin end up.
+on charger
+    start bcm_autoboot
+
+service bcm_autoboot /system/bin/sh ${MAGISKTMP}/bcm_autoboot.sh
+    user root
+    seclabel u:r:magisk:s0
+    oneshot
+    disabled
