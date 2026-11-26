@@ -7,6 +7,8 @@
 #   su -c "sh /sdcard/Download/bcm-autoboot/patch_boot.sh --dry-run"
 #   su -c "sh /sdcard/Download/bcm-autoboot/patch_boot.sh"
 #   su -c "sh /sdcard/Download/bcm-autoboot/patch_boot.sh --restore /sdcard/Download/boot-przed-autoboot-<data>.img"
+# Installed as the Magisk module (build_module.py) the same is
+#   su -c "bcm-autoboot --dry-run" / su -c bcm-autoboot / su -c "bcm-autoboot --restore <kopia>"
 #
 # Safety:
 # - before ANY write the current boot partition is copied to
@@ -22,7 +24,9 @@
 # drops these files — run this script again after updating Magisk.
 set -e
 
-HERE=$(cd "$(dirname "$0")" && pwd)
+# The rc/sh to inject: next to this script, or (Magisk module, where the
+# command is /system/bin/bcm-autoboot) the module's directory.
+HERE=${BCM_AUTOBOOT_FILES:-$(cd "$(dirname "$0")" && pwd)}
 MB=/data/adb/magisk/magiskboot
 WORK=/data/local/tmp/bcm-autoboot
 STAMP=$(date +%Y%m%d-%H%M%S)

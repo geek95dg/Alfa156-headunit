@@ -83,6 +83,7 @@ SH_TOOLS = {
     "setup-x86.sh": REPO / "config" / "scripts" / "setup-x86.sh",
     "bcm-audio-diag.sh": REPO / "tools" / "bcm-audio-diag.sh",
     "bcm-net-auto.sh": REPO / "config" / "scripts" / "bcm-net-auto.sh",
+    "patch_boot.sh": REPO / "tools" / "car_phone" / "autoboot" / "patch_boot.sh",
 }
 
 #: The heading of the module table in the main guide.

@@ -88,3 +88,52 @@ def test_patcher_backs_up_before_writing():
     assert "--dry-run" in text and "--restore" in text
     assert "cmp -s" in text, "the write is verified"
     assert re.search(r'exists \.backup/\.magisk', text), "only a Magisk-patched boot"
+
+
+# ── the Magisk module zip (build_module.py) ────────────────────────────────
+
+def _build(tmp_path):
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("bcm_build_module", DIR / "build_module.py")
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod, mod.build(tmp_path)
+
+
+def test_module_zip_layout_and_modes(tmp_path):
+    import zipfile
+    mod, path = _build(tmp_path)
+    with zipfile.ZipFile(path) as zf:
+        names = zf.namelist()
+        modes = {i.filename: (i.external_attr >> 16) & 0o777 for i in zf.infolist()}
+        prop = zf.read("module.prop").decode()
+        wrapper = zf.read("system/bin/bcm-autoboot").decode()
+        assert zf.read("META-INF/com/google/android/updater-script") == b"#MAGISK\n"
+        assert "install_module" in zf.read("META-INF/com/google/android/update-binary").decode()
+        # The injected files are the repo's own, byte for byte.
+        for name in ("patch_boot.sh", "bcm_autoboot.sh", "bcm-autoboot.rc"):
+            assert zf.read(name) == (DIR / name).read_bytes()
+        customize = zf.read("customize.sh").decode()
+    assert "id=bcm_autoboot" in prop and "versionCode=" in prop
+    assert modes["system/bin/bcm-autoboot"] == 0o755 and modes["patch_boot.sh"] == 0o755
+    assert "BCM_AUTOBOOT_FILES=/data/adb/modules/bcm_autoboot" in wrapper
+    # Installing the module must never flash anything by itself.
+    assert "dd " not in customize and "patch_boot" not in customize.replace("patch_boot.sh 0 0", "")
+    assert len(names) == len(set(names))
+
+
+def test_module_zip_is_reproducible(tmp_path):
+    _, a = _build(tmp_path / "a")
+    _, b = _build(tmp_path / "b")
+    assert a.read_bytes() == b.read_bytes()
+
+
+def test_module_scripts_syntax(tmp_path):
+    import zipfile
+    _, path = _build(tmp_path)
+    with zipfile.ZipFile(path) as zf:
+        for name in ("system/bin/bcm-autoboot", "customize.sh",
+                     "META-INF/com/google/android/update-binary"):
+            f = tmp_path / name.replace("/", "_")
+            f.write_bytes(zf.read(name))
+            assert subprocess.run(["sh", "-n", str(f)]).returncode == 0, name

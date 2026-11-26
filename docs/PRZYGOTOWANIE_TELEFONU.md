@@ -856,6 +856,41 @@ wyłącza.
 ładowania wyłączonego telefonu — dlatego najpierw kopia `boot`, a TWRP pod
 ręką.
 
+**Sposób A — moduł Magisk (zalecany).** Instalacja modułu niczego nie
+zmienia w `boot`; dodaje tylko polecenie `bcm-autoboot`, które robi zmianę
+na Twoje wyraźne polecenie.
+
+1. Na M910q zbuduj moduł i wyślij go na telefon:
+
+```bash
+cd /opt/bcm && python3 tools/car_phone/autoboot/build_module.py /tmp
+```
+
+```bash
+sudo env ADB_SERVER_SOCKET=localfilesystem:/run/bcm-adb/adb.sock adb push /tmp/bcm-autoboot-magisk.zip /sdcard/Download/
+```
+
+2. Telefon: Magisk → **Moduły** → **Zainstaluj z pamięci** →
+   `Download/bcm-autoboot-magisk.zip` → **Uruchom ponownie**.
+3. W Termuxie — próba bez zapisu (buduje obraz i robi kopię `boot`):
+
+```bash
+su -c "bcm-autoboot --dry-run"
+```
+
+4. Jeśli bez błędów — naprawdę:
+
+```bash
+su -c bcm-autoboot
+```
+
+5. Kopię `/sdcard/Download/boot-przed-autoboot-<data>.img` przenieś na
+   komputer i zrób test na stole (krok 5 sposobu B niżej). Cofnięcie:
+   `su -c "bcm-autoboot --restore <kopia>"`. Samo usunięcie modułu
+   w Magisku **nie** cofa zmiany w `boot` — najpierw `--restore`.
+
+**Sposób B — sam skrypt** (bez modułu):
+
 1. **Kopia awaryjna** robi się sama, ale miej TWRP i kabel do komputera.
 2. Na M910q skopiuj pliki na telefon:
 
