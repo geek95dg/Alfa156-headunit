@@ -166,11 +166,13 @@ async function run(browser, theme, shotDir) {
     if (g.coolantVal !== "85°" || g.coolantState !== "ok") fail(`${tag}: coolant ${g.coolantVal} ${g.coolantState}`);
     if (shotDir) await page.screenshot({ path: path.join(shotDir, `a1_${theme}.png`) });
 
-    await push(page, { a1_gauges: { fuel: { source: "estimate", pct: 12, litres: 7 },
+    await push(page, { a1_gauges: { fuel: { source: "estimate", pct: 12, litres: 7, reserve_pct: 12.7 },
                                     coolant: { source: "sensor", c: 108 } } });
     await page.waitForTimeout(900);
     g = await geometry(page);
-    if (g.fuelNote !== "szac. 7 l") fail(`${tag}: estimate note ${g.fuelNote}`);
+    if (g.fuelNote !== "rezerwa · szac. 7 l") fail(`${tag}: estimate note ${g.fuelNote}`);
+    const tickBottom = await page.evaluate(() => document.getElementById("a1-fuel-tick").style.bottom);
+    if (tickBottom !== "12.7%") fail(`${tag}: reserve tick at ${tickBottom}`);
     if (g.fuelTrack.color !== "rgb(239, 68, 68)") fail(`${tag}: low fuel colour ${g.fuelTrack.color}`);
     if (g.coolantState !== "hot" || g.coolantTrack.color !== "rgb(239, 68, 68)") fail(`${tag}: hot coolant`);
     if (shotDir) await page.screenshot({ path: path.join(shotDir, `a1_${theme}_warn.png`) });

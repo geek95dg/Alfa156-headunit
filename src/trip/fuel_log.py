@@ -66,7 +66,7 @@ from src.core.notifications import publish_notification
 log = get_logger("fuel_log")
 
 SCHEMA_VERSION = 1
-#: Granice wpisu. Litry: bak 58 l + zapas (kanister, inny bak) — ponad 120
+#: Granice wpisu. Litry: bak 63 l + zapas (kanister, inny bak) — ponad 120
 #: to na pewno literówka (np. 455 zamiast 45,5).
 LITRES_MIN, LITRES_MAX = 1.0, 120.0
 #: Cena za litr w zł; 0 nie ma sensu (koszt wyszedłby 0), > 30 to literówka.
@@ -82,9 +82,12 @@ L100_MIN, L100_MAX = 2.0, 30.0
 #: Kalibracja GPS: przycięcie współczynnika i zakres przedziałów do niej.
 CALIB_MIN, CALIB_MAX = 0.9, 1.1
 CALIB_RATIO_MIN, CALIB_RATIO_MAX = 0.5, 2.0
-#: Domyślna pojemność baku (Alfa 156 1.9 JTD), gdy
+#: Domyślna pojemność baku (Alfa Romeo 156: 63 l), gdy
 #: ``fuel_sender.tank_capacity_litres`` brak albo bez sensu.
-DEFAULT_TANK_L = 58.0
+DEFAULT_TANK_L = 63.0
+#: Rezerwa — od tylu litrów w baku zapala się kontrolka (Alfa 156: ~8 l).
+#: ``fuel_sender.reserve_litres``; 0 = bez rezerwy, najwyżej połowa baku.
+DEFAULT_RESERVE_L = 8.0
 TANK_MIN_L, TANK_MAX_L = 20.0, 150.0
 #: Tyle ostatnich tankowań idzie w ``fuel.stats`` (lista na A3).
 RECENT_COUNT = 5
@@ -140,7 +143,7 @@ def _blank(value: Any) -> bool:
 
 
 def tank_capacity(config: Any) -> float:
-    """``fuel_sender.tank_capacity_litres`` (20–150 l), else 58 l."""
+    """``fuel_sender.tank_capacity_litres`` (20–150 l), else 63 l."""
     raw = config.get("fuel_sender.tank_capacity_litres", None) if config is not None else None
     cap = parse_number(raw)
     if cap is None or not TANK_MIN_L <= cap <= TANK_MAX_L:
@@ -149,6 +152,19 @@ def tank_capacity(config: Any) -> float:
                         raw, TANK_MIN_L, TANK_MAX_L, DEFAULT_TANK_L)
         return DEFAULT_TANK_L
     return cap
+
+
+def reserve_litres(config: Any, tank_l: Optional[float] = None) -> float:
+    """``fuel_sender.reserve_litres`` (0 … half the tank), else 8 l."""
+    tank = tank_l if tank_l is not None else tank_capacity(config)
+    raw = config.get("fuel_sender.reserve_litres", None) if config is not None else None
+    res = parse_number(raw)
+    if res is None or not 0 <= res <= tank / 2:
+        if raw is not None:
+            log.warning("fuel_sender.reserve_litres=%r poza 0–%g l — przyjmuję %g l",
+                        raw, tank / 2, min(DEFAULT_RESERVE_L, tank / 2))
+        return min(DEFAULT_RESERVE_L, tank / 2)
+    return res
 
 
 def validate_refuel(data: Any, previous: Optional[dict] = None,
@@ -213,7 +229,8 @@ def _clamp(value: float, lo: float, hi: float) -> float:
 def compute_stats(rows: list, gps_distance: Optional[Callable[[float, Optional[float]],
                                                                 Optional[float]]],
                   tank_l: float = DEFAULT_TANK_L,
-                  min_interval_km: float = MIN_INTERVAL_KM) -> dict:
+                  min_interval_km: float = MIN_INTERVAL_KM,
+                  reserve_l: float = DEFAULT_RESERVE_L) -> dict:
     """Statistics from all refuels (oldest first). See the module docstring.
 
     ``gps_distance(start_ts, end_ts_or_None)`` → km or None (no tracker).
@@ -278,7 +295,7 @@ def compute_stats(rows: list, gps_distance: Optional[Callable[[float, Optional[f
     cost_per_100 = round(sum(u[3] for u in priced) / priced_km * 100.0, 2) \
         if priced_km > 0 else None
 
-    km_since = used = left = rng = None
+    km_since = used = left = rng = rng_reserve = None
     if fulls:
         last_full = rows[fulls[-1]]
         g = _finite(gps(last_full["ts"], None))
@@ -290,6 +307,8 @@ def compute_stats(rows: list, gps_distance: Optional[Callable[[float, Optional[f
             used = round(km_since * avg / 100.0, 1)
             left = round(_clamp(tank_l - used + added, 0.0, tank_l), 1)
             rng = round(left / avg * 100.0) if avg > 0 else None
+            # Distance until the reserve light comes on (0 once in reserve).
+            rng_reserve = round(max(0.0, left - reserve_l) / avg * 100.0) if avg > 0 else None
 
     # Each "no average" case gets its own status: telling the driver to fill
     # up "once more" after the third full fill (all intervals unusable) lies.
@@ -326,6 +345,9 @@ def compute_stats(rows: list, gps_distance: Optional[Callable[[float, Optional[f
         "fuel_left_est_l": left,
         "est_range_km": rng,
         "tank_capacity_l": tank_l,
+        "reserve_l": reserve_l,
+        "in_reserve": left is not None and left <= reserve_l,
+        "range_to_reserve_km": rng_reserve,
         "calibration": {"factor": round(factor, 4), "samples": samples},
         "gps_available": gps_distance is not None,
         "last_refuel": ({"id": last["id"], "ts": last["ts"], "litres": last["litres"],
@@ -368,6 +390,7 @@ class FuelLog:
         mik = parse_number(cfg("fuel_log.min_interval_km", MIN_INTERVAL_KM))
         self.min_interval_km = mik if mik is not None and 1 <= mik <= 1000 else MIN_INTERVAL_KM
         self.tank_l = tank_capacity(config)
+        self.reserve_l = reserve_litres(config, self.tank_l)
         self._wall = wall_clock
         self._clock = clock
         self._lock = threading.Lock()
@@ -558,7 +581,8 @@ class FuelLog:
         with self._lock:
             rows = self._rows()
         # Outside our lock: the tracker takes its own.
-        result = compute_stats(rows, self._gps_distance(), self.tank_l, self.min_interval_km)
+        result = compute_stats(rows, self._gps_distance(), self.tank_l, self.min_interval_km,
+                               self.reserve_l)
         result["updated_at"] = self._wall()
         result["read_only"] = self._readonly
         return result

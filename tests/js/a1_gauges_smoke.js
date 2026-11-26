@@ -111,4 +111,13 @@ assert.strictEqual(el("a1-fuel-gauge").getAttribute("data-state"), "low");
 assert.strictEqual(el("a1-coolant-val").textContent, "110°");
 assert.strictEqual(el("a1-coolant-gauge").getAttribute("data-state"), "hot");
 
+// Reserve from the payload (8 of 63 l ≈ 12.7 %): red below it, "rezerwa".
+v = view("fuel", { source: "estimate", pct: 12, litres: 7.6, reserve_pct: 12.7 });
+assert.deepStrictEqual([v.color, v.state, v.low], ["#ef4444", "low", 12.7]);
+assert.ok(v.note.startsWith("rezerwa"), v.note);
+v = view("fuel", { source: "sensor", pct: 14, reserve_pct: 12.7 });
+assert.deepStrictEqual([v.color, v.state], ["#f59e0b", "ok"], "amber within 10 points above");
+v = view("fuel", { source: "sensor", pct: 14, reserve_pct: 999 });
+assert.strictEqual(v.low, 15, "nonsense reserve → 15 %");
+
 process.stdout.write("ok\n");

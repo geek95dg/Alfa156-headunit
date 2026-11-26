@@ -539,7 +539,8 @@ fuel_sender:
     - 5
   - - 400
     - 0
-  tank_capacity_litres: 58
+  tank_capacity_litres: 63  # Alfa Romeo 156: bak 63 l
+  reserve_litres: 8        # rezerwa: kontrolka od ~8 l (słupek A1, zasięg do rezerwy)
 wifi:
   # WiFi wyłącznie do Android Auto wireless (Wi-Fi Direct / P2P-GO na
   # karcie wewnętrznej). Sterowane przełącznikiem modules.wifi_ap.

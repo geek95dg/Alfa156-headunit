@@ -142,6 +142,9 @@ STRINGS: dict[str, dict[str, str]] = {
         "a1_no_data": "brak danych",
         "a1_estimate": "szac.",
         "a1_demo": "demo",
+        "a1_reserve": "rezerwa",
+        "fuel_in_reserve": "REZERWA — zatankuj",
+        "fuel_to_reserve": "do rezerwy ({l} l): ~{km} km",
         # A5 / A7 live readings (components/live.js)
         "live_no_data": "brak danych",
         "live_no_car_data": "BRAK DANYCH Z AUTA",
@@ -1035,6 +1038,9 @@ STRINGS: dict[str, dict[str, str]] = {
         "a1_no_data": "no data",
         "a1_estimate": "est.",
         "a1_demo": "demo",
+        "a1_reserve": "reserve",
+        "fuel_in_reserve": "RESERVE — refuel",
+        "fuel_to_reserve": "to reserve ({l} l): ~{km} km",
         # A5 / A7 live readings (components/live.js)
         "live_no_data": "no data",
         "live_no_car_data": "NO DATA FROM CAR",

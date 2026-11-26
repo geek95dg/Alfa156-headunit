@@ -11,13 +11,13 @@ LOG = {"running": True, "fuel_left_est_l": 29.0, "tank_capacity_l": 58.0}
 
 def test_no_source_is_none():
     g = _a1_gauges(None, None, False, None, NOW)
-    assert g == {"fuel": {"source": "none", "pct": None, "litres": None},
+    assert g == {"fuel": {"source": "none", "pct": None, "litres": None, "reserve_pct": None},
                  "coolant": {"source": "none", "c": None}}
 
 
 def test_fresh_sensor_values():
     g = _a1_gauges((61.4, NOW - 5), (88.6, NOW - 1), False, LOG, NOW)
-    assert g["fuel"] == {"source": "sensor", "pct": 61, "litres": None}
+    assert g["fuel"] == {"source": "sensor", "pct": 61, "litres": None, "reserve_pct": None}
     assert g["coolant"] == {"source": "sensor", "c": 89}
 
 
@@ -29,7 +29,7 @@ def test_simulation_marks_demo():
 def test_stale_sensor_falls_back_to_estimate():
     g = _a1_gauges((80, NOW - A1_FUEL_FRESH_S - 1),
                    (90, NOW - A1_COOLANT_FRESH_S - 1), False, LOG, NOW)
-    assert g["fuel"] == {"source": "estimate", "pct": 50, "litres": 29.0}
+    assert g["fuel"] == {"source": "estimate", "pct": 50, "litres": 29.0, "reserve_pct": None}
     assert g["coolant"]["source"] == "none"
 
 
@@ -116,3 +116,23 @@ def test_live_metrics_obd_marked_demo_in_simulation():
     out = _live_metrics(_getter({"obd.rpm": (2200, NOW), "gps.speed": (50, NOW)}), True, NOW)
     assert out["rpm"]["src"] == "demo"
     assert out["speed"]["src"] == "gps", "GPS is real even with the simulator on"
+
+
+def test_reserve_pct_passed_and_validated():
+    g = _a1_gauges(None, None, False, LOG, NOW, reserve_pct=100 * 8 / 63)
+    assert g["fuel"]["reserve_pct"] == 12.7
+    for bad in (None, -1, 80, float("nan"), True, "13"):
+        assert _a1_gauges(None, None, False, LOG, NOW, reserve_pct=bad)["fuel"]["reserve_pct"] is None
+
+
+def test_viewer_reserve_from_config():
+    from unittest.mock import MagicMock
+
+    from src.core.event_bus import EventBus
+    from src.dashboard.web_viewer import WebViewer
+    cfg = MagicMock()
+    cfg.platform = "x86"
+    cfg.get.side_effect = lambda k, d=None: {"fuel_sender.tank_capacity_litres": 63,
+                                             "fuel_sender.reserve_litres": 8}.get(k, d)
+    viewer = WebViewer(host="127.0.0.1", port=5099, event_bus=EventBus(), config=cfg)
+    assert round(viewer._reserve_pct(), 1) == 12.7

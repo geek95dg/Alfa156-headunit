@@ -550,6 +550,9 @@ def _fuel_log_summary(config: Any, stats: Any) -> dict:
         "fuel_left_est_l": _fuel_num(stats.get("fuel_left_est_l"), 0, 1e3, 1),
         "est_range_km": _fuel_num(stats.get("est_range_km"), 0, 1e5, 0),
         "tank_capacity_l": _fuel_num(stats.get("tank_capacity_l"), 0, 1e3, 1),
+        "reserve_l": _fuel_num(stats.get("reserve_l"), 0, 500, 1),
+        "in_reserve": stats.get("in_reserve") is True,
+        "range_to_reserve_km": _fuel_num(stats.get("range_to_reserve_km"), 0, 1e5, 0),
         "calibration": {"factor": _fuel_num(cal.get("factor"), 0, 10, 4),
                         "samples": cal.get("samples") if isinstance(cal.get("samples"), int)
                         and not isinstance(cal.get("samples"), bool) else 0},
@@ -568,7 +571,7 @@ A1_COOLANT_FRESH_S = 60.0
 
 
 def _a1_gauges(fuel_last: Any, coolant_last: Any, simulation: bool,
-               fuel_log: Any, now: float) -> dict:
+               fuel_log: Any, now: float, reserve_pct: Optional[float] = None) -> dict:
     """The A1 side bars → ``data.a1_gauges``.
 
     ``fuel_last``/``coolant_last`` are ``EventBus.get_last()`` results
@@ -582,6 +585,10 @@ def _a1_gauges(fuel_last: Any, coolant_last: Any, simulation: bool,
       the refuel log (``fuel.stats``), as a % of the tank;
     - ``none``: no source. Never the payload's old defaults (fuel 50 %,
       coolant 0 °C), which looked like real readings.
+
+    ``reserve_pct``: the reserve (fuel_sender.reserve_litres of the tank,
+    Alfa 156: 8 of 63 l ≈ 13 %) — the bar's red zone and tick. None = the
+    screen's own 15 %.
     """
     def _fresh(last: Any, max_age: float, lo: float, hi: float) -> Optional[float]:
         if not isinstance(last, tuple) or len(last) != 2:
@@ -607,6 +614,11 @@ def _a1_gauges(fuel_last: Any, coolant_last: Any, simulation: bool,
                 and not isinstance(left, bool) and not isinstance(tank, bool) and tank > 0:
             est = max(0.0, min(100.0, 100.0 * left / tank))
             fuel = {"source": "estimate", "pct": round(est), "litres": round(left, 1)}
+
+    rp = reserve_pct
+    fuel["reserve_pct"] = (round(float(rp), 1) if isinstance(rp, (int, float))
+                           and not isinstance(rp, bool) and math.isfinite(rp)
+                           and 0 <= rp <= 50 else None)
 
     coolant: dict = {"source": "none", "c": None}
     temp = _fresh(coolant_last, A1_COOLANT_FRESH_S, -40, 150)
@@ -2310,6 +2322,17 @@ class WebViewer:
         if injector is not None:
             injector.stop()
 
+    def _reserve_pct(self) -> Optional[float]:
+        """The fuel reserve as % of the tank (fuel_sender.*), for the A1 bar."""
+        if self._config is None:
+            return None
+        try:
+            from src.trip.fuel_log import reserve_litres, tank_capacity
+            tank = tank_capacity(self._config)
+            return 100.0 * reserve_litres(self._config, tank) / tank
+        except Exception:
+            return None
+
     def _get_dashboard_data(self) -> dict:
         """Collect all current event bus values into a JSON-serializable dict."""
         bus = self._event_bus
@@ -2405,7 +2428,7 @@ class WebViewer:
             # A1 side bars: fuel (sensor → refuel-log estimate) and coolant.
             "a1_gauges": _a1_gauges(
                 bus.get_last("obd.fuel_level"), bus.get_last("obd.coolant_temp"),
-                _simulation, _fuel_summary, _now),
+                _simulation, _fuel_summary, _now, self._reserve_pct()),
             # A5 / A7: real, fresh readings only (None = "brak danych").
             "live": _live_metrics(bus.get_last, _simulation, _now),
             # BT Media

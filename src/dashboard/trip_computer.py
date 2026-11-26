@@ -82,13 +82,13 @@ class TripComputer:
 
     def __init__(self, event_bus: Any = None,
                  route_planner: Any = None,
-                 tank_capacity_l: float = 58.0) -> None:
+                 tank_capacity_l: float = 63.0) -> None:
         self._bus = event_bus
         self._planner = route_planner
-        # fuel_sender.tank_capacity_litres (main.py passes it; 58 l = Alfa
-        # 156 1.9 JTD when unknown).
+        # fuel_sender.tank_capacity_litres (main.py passes it; 63 l = Alfa
+        # Romeo 156 when unknown).
         cap = _finite(tank_capacity_l)
-        self.tank_capacity_l = cap if cap is not None and 20 <= cap <= 150 else 58.0
+        self.tank_capacity_l = cap if cap is not None and 20 <= cap <= 150 else 63.0
         self._plan_lock = threading.Lock()
         # Bumped by every new plan / clear / reset (under _plan_lock): a
         # planner worker or a scheduled re-plan that belongs to an older
