@@ -1426,6 +1426,25 @@ curl -s -X POST http://127.0.0.1:5002/api/phone_sensors/test; sleep 11
 curl -s http://127.0.0.1:5002/api/data | python3 -c 'import json,sys; print(json.dumps(json.load(sys.stdin)["phone_sensors"], indent=1, ensure_ascii=False))'
 ```
 
+**BCM ciągle nie może się połączyć z SensorServer.** Połączenie idzie
+łańcuchem: BCM → `127.0.0.1:951` na M910q → forward adb → USB → telefon
+`127.0.0.1:8080` → aplikacja. Narzędzie (tylko odczyt) sprawdza każde
+ogniwo po kolei i mówi, gdzie się urywa — telefon po adb, forward, czy
+aplikacja działa, na jakim adresie i porcie naprawdę nasłuchuje (127.0.0.1,
+0.0.0.0, tylko IPv6 `::1`), próbne połączenie WebSocket jak BCM i pierwsze
+dane z akcelerometru:
+
+```bash
+sudo bash /opt/bcm/tools/bcm-sensors-diag.sh
+```
+
+Najczęstsze wyniki: „aplikacja NIE działa” (Android ubił ją w tle —
+bateria „Bez ograniczeń”, powiadomienie dozwolone, Start po każdym
+restarcie telefonu); „nic nie nasłuchuje na porcie 8080” (inny port
+w aplikacji — ustaw 8080 albo `network.car_phone.sensors_remote_port`
+w `config/local.yaml`); „nasłuch TYLKO na IPv6 ::1” (forward adb łączy się
+po IPv4 — wyłącz i włącz „Local Host” albo ustaw adres 127.0.0.1).
+
 ---
 
 ### 10.3 Internet każdym łączem, nie tylko po Ethernecie
