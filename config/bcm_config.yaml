@@ -672,7 +672,7 @@ voice_announce:
   # mówi Piper. Każde zdanie trafia do cache, więc powtarzające się
   # ostrzeżenia pobierane są raz i potem grają też bez sieci.
   azure:
-    region: westeurope     # region zasobu Speech z portalu Azure (klucz
+    region: swedencentral  # region zasobu Speech w portalu Azure (Sweden Central — klucz
                            # działa tylko w swoim regionie), np. westeurope,
                            # polandcentral, northeurope
     voice: pl-PL-AgnieszkaNeural   # głos (Ustawienia → Komunikaty głosowe):

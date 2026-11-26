@@ -1211,7 +1211,9 @@ sudo nano /etc/bcm/bcm.env
 ```
 
    linia `BCM_AZURE_TTS_KEY=<KEY 1>`.
-4. Region — jeśli inny niż `westeurope` — w `config/local.yaml`:
+4. Region — konfiguracja auta ma już `swedencentral` (zasób „BCM-VOICE”
+   założony w Sweden Central). Tylko jeśli Twój zasób jest w innym
+   regionie, wpisz go w `config/local.yaml`:
 
 ```yaml
 voice_announce:
