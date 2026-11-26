@@ -136,3 +136,20 @@ def test_viewer_reserve_from_config():
                                              "fuel_sender.reserve_litres": 8}.get(k, d)
     viewer = WebViewer(host="127.0.0.1", port=5099, event_bus=EventBus(), config=cfg)
     assert round(viewer._reserve_pct(), 1) == 12.7
+
+
+# ── top bar outside temperature (web_viewer._ext_temp) ─────────────────────
+
+def test_ext_temp_sensor_then_weather_never_demo():
+    from src.dashboard.web_viewer import EXT_TEMP_SENSOR_FRESH_S, _ext_temp
+    live = {"source": "live"}
+    assert _ext_temp((3.4, NOW - 10), {"temp": 9}, live, NOW) == (3.4, "sensor")
+    # Stale sensor → real weather.
+    assert _ext_temp((3.4, NOW - EXT_TEMP_SENSOR_FRESH_S - 1), {"temp": -2.5}, live, NOW) \
+        == (-2.5, "weather")
+    assert _ext_temp(None, {"temp": 1}, {"source": "cache"}, NOW) == (1.0, "weather")
+    # Demo weather (no key / no internet) is never shown as the outside temp.
+    assert _ext_temp(None, {"temp": 22}, {"source": "demo"}, NOW) == (None, "")
+    assert _ext_temp(None, {"temp": 22}, None, NOW) == (None, "")
+    for bad in ("5", True, float("nan"), 120):
+        assert _ext_temp(None, {"temp": bad}, live, NOW) == (None, "")

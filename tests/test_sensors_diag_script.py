@@ -58,7 +58,7 @@ def test_healthy_phone_side_but_no_listener_on_m910q(tmp_path):
 
 
 def test_ipv6_only_listener_is_named(tmp_path):
-    out = _run(tmp_path, FAKE_LISTEN="00000000000000000000000001000000")
+    out = _run(tmp_path, FAKE_LISTEN="0" * 24 + "01000000")      # ::1
     assert "brak forwardu" in out
     assert "NIE działa" in out
     assert "TYLKO na IPv6 ::1" in out

@@ -82,7 +82,7 @@ const AppBar = (() => {
             </div>
             <div class="flex items-center gap-4 w-[220px] justify-end" data-bind="bar_right"${sideStyle}>
                 ${_alertIcon(av)}
-                <span class="${tempColor} text-base font-bold" data-bind="ext_temp">${temp}</span>
+                <span class="${tempColor} text-base font-bold" data-bind="ext_temp" title="${data.ext_temp_src === "weather" ? "temperatura z pogody (OpenWeatherMap)" : data.ext_temp_src === "sensor" ? "czujnik temperatury" : ""}">${temp}</span>
                 ${btIcon}
                 <span class="material-symbols-outlined text-zinc-600 cursor-pointer hover:text-zinc-400 p-1" style="font-size:28px;" onclick="App.navigateTo('audio')">equalizer</span>
                 <span class="material-symbols-outlined text-zinc-600 cursor-pointer hover:text-zinc-400 p-1" style="font-size:28px;" onclick="App.navigateTo('settings')">settings</span>

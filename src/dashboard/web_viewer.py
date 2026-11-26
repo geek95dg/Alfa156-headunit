@@ -454,6 +454,38 @@ def _traffic_alerts_summary(alerts: Any, status: Any,
     }
 
 
+#: An outside-temperature sensor reading older than this is not shown.
+EXT_TEMP_SENSOR_FRESH_S = 300.0
+
+
+def _ext_temp(sensor_last: Any, weather_current: Any, weather_status: Any,
+              now: float) -> tuple[Optional[float], str]:
+    """The top bar's outside temperature → ``(°C, source)``.
+
+    ``sensor``: a fresh ``env.temperature`` (DS18B20, modules.environment);
+    else ``weather``: the current OpenWeatherMap temperature, but only when
+    ``weather.status`` says the data is real (live / cache) — never the demo
+    values; else ``(None, "")`` and the bar shows "--".
+    """
+    def num(v: Any) -> Optional[float]:
+        if isinstance(v, bool) or not isinstance(v, (int, float)) \
+                or not math.isfinite(v) or not -60 <= v <= 70:
+            return None
+        return float(v)
+
+    if isinstance(sensor_last, tuple) and len(sensor_last) == 2:
+        value, ts = sensor_last
+        if isinstance(ts, (int, float)) and not isinstance(ts, bool) \
+                and 0 <= now - ts <= EXT_TEMP_SENSOR_FRESH_S and num(value) is not None:
+            return num(value), "sensor"
+    if isinstance(weather_status, dict) and weather_status.get("source") in ("live", "cache") \
+            and isinstance(weather_current, dict):
+        t = num(weather_current.get("temp"))
+        if t is not None:
+            return t, "weather"
+    return None, ""
+
+
 def _weather_status_summary(value: Any) -> Optional[dict]:
     """``weather.status`` → what the weather screen / Settings show:
     where the data comes from (demo/cache/live) and the last error code.
@@ -2349,6 +2381,8 @@ class WebViewer:
             _wc = {}
 
         _fuel_summary = _fuel_log_summary(self._config, _val("fuel.stats"))
+        _ext, _ext_src = _ext_temp(bus.get_last("env.temperature"), _wc,
+                                   _val("weather.status"), time.time())
         _now = time.time()
         # Same test main.py uses to start the DemoDataGenerator.
         _simulation = bool(self._config is not None
@@ -2387,7 +2421,10 @@ class WebViewer:
             "camera_active": _val("camera.active_feed", None),
             "defrost_active": _val("vehicle.defrost", False),
             # External
-            "ext_temp": _val("env.temperature", None),
+            # Top bar: the DS18B20 when fresh, else the real (not demo)
+            # OpenWeatherMap temperature; never a made-up value.
+            "ext_temp": _ext,
+            "ext_temp_src": _ext_src,
             # GPS
             "gps_lat": _val("gps.lat", 0),
             "gps_lon": _val("gps.lon", 0),
