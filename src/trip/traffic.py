@@ -131,6 +131,12 @@ class TrafficConfig:
     lookahead_km: float = 10.0
     min_delay_s: float = 180.0
     voice: bool = True
+    #: Voice only for what matters (closures, accidents, TomTom "major", or
+    #: a delay of at least this); the rest is a toast on the screen only.
+    voice_min_delay_s: float = 600.0
+    #: Without a destination: follow a past trip the car is repeating
+    #: (src/trip/known_routes.py) instead of the box ahead.
+    learn_routes: bool = True
 
 
 #: key → (default, min, max). poll_min ≥ 2: at 2 min and 8 h of driving a
@@ -140,6 +146,7 @@ _NUMERIC = {
     "daily_budget": (300, 1, 2500),
     "lookahead_km": (10.0, 2.0, 50.0),
     "min_delay_s": (180.0, 0.0, 3600.0),
+    "voice_min_delay_s": (600.0, 0.0, 7200.0),
 }
 
 
@@ -159,7 +166,8 @@ def load_config(raw: Any, warn: Optional[Callable[[str], None]] = None) -> Traff
             value = default
         out[key] = value
     out["daily_budget"] = int(out["daily_budget"])
-    return TrafficConfig(voice=raw.get("voice", True) is not False, **out)
+    return TrafficConfig(voice=raw.get("voice", True) is not False,
+                         learn_routes=raw.get("learn_routes", True) is not False, **out)
 
 
 # ── geometry ────────────────────────────────────────────────────────────
@@ -442,7 +450,8 @@ def _opposite(inc: dict, our_bearing: Optional[float]) -> bool:
 
 def select_ahead(incidents: Iterable[dict], pos: tuple[float, float], heading: Optional[float],
                  lookahead_km: float,
-                 route: Optional[list[tuple[float, float, float]]] = None) -> list[dict]:
+                 route: Optional[list[tuple[float, float, float]]] = None,
+                 lateral_km: Optional[float] = None) -> list[dict]:
     """The incidents in front of the car, each a copy with ``distance_km``
     and ``on_route``; nearest first.
 
@@ -451,7 +460,9 @@ def select_ahead(incidents: Iterable[dict], pos: tuple[float, float], heading: O
     along the route. Without a route: bearing
     from the car within ±:data:`AHEAD_ANGLE_DEG` of the heading and closer
     than ``lookahead_km``. A line incident running the other way is on the
-    other carriageway and never kept."""
+    other carriageway and never kept. ``lateral_km`` (box ahead only):
+    also drop what lies farther than that sideways from the line ahead —
+    the ±60° cone alone is kilometres wide at the far end."""
     out = []
     for inc in incidents:
         point = (inc["lat"], inc["lon"])
@@ -468,7 +479,8 @@ def select_ahead(incidents: Iterable[dict], pos: tuple[float, float], heading: O
             continue
         diff = angle_diff(bearing_deg(pos, point), heading)
         limit = 90.0 if straight < NEAR_KM else AHEAD_ANGLE_DEG
-        if diff <= limit:
+        if diff <= limit and (lateral_km is None or straight < NEAR_KM
+                              or straight * math.sin(math.radians(diff)) <= lateral_km):
             out.append(dict(inc, distance_km=round(straight, 2), on_route=False))
     out.sort(key=lambda i: i["distance_km"])
     return out
@@ -481,6 +493,15 @@ def worth_announcing(inc: dict, min_delay_s: float) -> bool:
         return True
     delay = inc.get("delay_s")
     return (delay is not None and delay >= max(1.0, min_delay_s)) or inc.get("magnitude") == 3
+
+
+def voice_worthy(inc: dict, voice_min_delay_s: float) -> bool:
+    """Read it aloud? Closures and accidents, TomTom "major", or a delay of
+    at least ``voice_min_delay_s``. Everything else: toast only."""
+    if inc.get("category") in ALWAYS_ANNOUNCE or inc.get("magnitude") == 3:
+        return True
+    delay = inc.get("delay_s")
+    return delay is not None and delay >= max(1.0, voice_min_delay_s)
 
 
 def _level(inc: dict) -> int:

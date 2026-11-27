@@ -631,7 +631,7 @@ def test_approximate_plan_is_not_a_route(tmp_path):
 
 def test_oversized_corridor_falls_back_to_box(tmp_path, monkeypatch, caplog):
     route = route_north_then_east()
-    answer = {"incidents": [raw_incident("jam", 6, point=tr.destination(HOME, 20.0, 3.0))]}
+    answer = {"incidents": [raw_incident("jam", 6, point=tr.destination(HOME, 5.0, 3.0))]}
     bus, mod, clock, http, out = make(tmp_path, answer=answer, block={"lookahead_km": 15})
     # The corridor (10 km north + 5 km east, widened) is about 100 km², the
     # box ahead about 50: only the corridor is "too big".
@@ -771,3 +771,135 @@ def test_catalog_entry():
     assert info["default"] is False and info["requires"] == ("location",)
     assert info["entry"] == ("src.trip.traffic_alerts", "start_traffic_alerts")
     assert callable(ta.start_traffic_alerts)
+
+
+# ── learned routes (A), narrow box on unknown roads (B), voice only for
+#    serious incidents (D) ─────────────────────────────────────────────────
+
+from src.trip import known_routes as kr  # noqa: E402
+
+
+def _line(origin, bearing, km, step=0.1):
+    return [tr.destination(origin, bearing, i * step) for i in range(int(km / step) + 1)]
+
+
+def _east_turn_route():
+    """A past trip: 5 km north, then 8 km east."""
+    first = _line(HOME, 0.0, 5.0)
+    return first + _line(first[-1], 90.0, 8.0)[1:]
+
+
+def _make_db(path, trips):
+    import sqlite3
+    db = sqlite3.connect(str(path))
+    db.execute("CREATE TABLE tracks (id INTEGER PRIMARY KEY, trip_id INTEGER, ts REAL, "
+               "lat REAL, lon REAL, speed REAL, heading REAL, altitude REAL)")
+    db.execute("CREATE TABLE trips (id INTEGER PRIMARY KEY, start_ts REAL, end_ts REAL, "
+               "distance_km REAL, avg_speed REAL, max_speed REAL)")
+    for tid, pts in enumerate(trips, 1):
+        db.execute("INSERT INTO trips VALUES (?,?,?,?,?,?)", (tid, 0, 100, kr.trace_km(pts), 50, 90))
+        for n, p in enumerate(pts):
+            db.execute("INSERT INTO tracks (trip_id, ts, lat, lon) VALUES (?,?,?,?)",
+                       (tid, float(n), p[0], p[1]))
+    db.commit()
+    db.close()
+
+
+class TestKnownRoutes:
+    def test_match_same_direction_and_reverse(self):
+        route = _east_turn_route()
+        trace = _line(HOME, 0.0, 3.0)
+        assert kr.match(trace, [route]) == [route]
+        back = [tr.destination(route[-1], 270.0, i * 0.1) for i in range(31)]
+        assert kr.match(back, [route]) == [route[::-1]]
+
+    def test_no_match_short_or_elsewhere(self):
+        route = _east_turn_route()
+        assert kr.match(_line(HOME, 0.0, 1.0), [route]) == []          # < 2 km
+        assert kr.match(_line(HOME, 45.0, 3.0), [route]) == []         # other road
+
+    def test_load_routes_read_only_and_missing(self, tmp_path):
+        db = tmp_path / "t.db"
+        _make_db(db, [_east_turn_route(), _line(HOME, 0.0, 1.0)])     # 2nd too short
+        before = db.read_bytes()
+        routes = kr.load_routes(str(db))
+        assert len(routes) == 1 and db.read_bytes() == before
+        assert kr.load_routes(str(tmp_path / "none.db")) == []
+
+    def test_heading_stable(self):
+        assert kr.heading_stable(_line(HOME, 0.0, 2.0), 0.0) is True
+        zig = _line(HOME, 0.0, 0.5) + _line(tr.destination(HOME, 0.0, 0.5), 90.0, 0.6)[1:]
+        assert kr.heading_stable(zig, 0.0) is False
+        assert kr.heading_stable(_line(HOME, 0.0, 0.3), 0.0) is None
+
+
+def _drive_line(bus, mod, clock, points, speed=60.0, step=6.0):
+    for a, b in zip(points, points[1:]):
+        bus.publish("gps.position", {"lat": b[0], "lon": b[1], "speed": speed,
+                                     "heading": tr.bearing_deg(a, b), "fix": True})
+        mod.tick()
+        clock.advance(step)
+    return points[-1]
+
+
+def test_learned_route_keeps_only_incidents_on_it(tmp_path):
+    db = tmp_path / "gps.db"
+    route = _east_turn_route()
+    _make_db(db, [route])
+    corner = route[50]
+    on_route = tr.destination(corner, 90.0, 2.0)          # after the turn east
+    beside = tr.destination(corner, 0.0, 1.0)             # straight on: not our way
+    answer = {"incidents": [raw_incident("on", 6, point=on_route, delay=900),
+                            raw_incident("off", 6, point=beside, delay=900)]}
+    bus, mod, clock, http, out = make(tmp_path, answer=answer,
+                                      extra={"tracking": {"db_path": str(db)}})
+    _drive_line(bus, mod, clock, route[:41])              # 4 km north
+    status = out["status"][-1]
+    assert status["mode"] == "learned"
+    ids = [i["key"] for i in out["alerts"][-1]]
+    assert ids == [tr.incident_key("on")]
+    assert out["alerts"][-1][0]["on_route"] is True
+
+
+def test_learning_off_uses_narrow_box(tmp_path):
+    db = tmp_path / "gps.db"
+    route = _east_turn_route()
+    _make_db(db, [route])
+    corner = route[50]
+    beside = tr.destination(corner, 0.0, 1.0)
+    answer = {"incidents": [raw_incident("off", 6, point=beside, delay=900)]}
+    bus, mod, clock, http, out = make(tmp_path, answer=answer, block={"learn_routes": False},
+                                      extra={"tracking": {"db_path": str(db)}})
+    _drive_line(bus, mod, clock, route[:41], speed=100.0)
+    assert out["status"][-1]["mode"] == "ahead"
+    assert [i["key"] for i in out["alerts"][-1]] == [tr.incident_key("off")]
+
+
+def test_unknown_road_lateral_and_town_reach(tmp_path):
+    side = tr.destination(north(3.0), 90.0, 1.0)          # 1 km beside the line ahead
+    far = north(6.5)                                      # straight ahead, 4.5 km away
+    answer = {"incidents": [raw_incident("side", 6, point=side, delay=900),
+                            raw_incident("far", 6, point=far, delay=900)]}
+    bus, mod, clock, http, out = make(tmp_path, answer=answer)
+    _drive_line(bus, mod, clock, _line(HOME, 0.0, 2.0), speed=50.0)   # town speed
+    assert out["alerts"][-1] == []                        # side: lateral, far: 3 km reach
+    assert ta.unknown_lookahead_km(50, 10) == 3.0
+    assert ta.unknown_lookahead_km(100, 10) == 10.0
+    assert ta.unknown_lookahead_km(None, 10) == 3.0
+
+
+def test_minor_incident_toast_without_voice(tmp_path):
+    bus, mod, clock, http, out = make(tmp_path, answer=jam_answer(delay=300))
+    drive(bus, mod, clock, 40)
+    assert notifs(bus) and out["voice"] == []
+    bus2, mod2, clock2, _h, out2 = make(tmp_path / "b", answer=jam_answer(delay=300),
+                                        block={"voice_min_delay_s": 240})
+    drive(bus2, mod2, clock2, 40)
+    assert len(out2["voice"]) == 1
+
+
+def test_voice_worthy():
+    assert tr.voice_worthy({"category": 8, "magnitude": 1, "delay_s": None}, 600)
+    assert tr.voice_worthy({"category": 6, "magnitude": 3, "delay_s": 60}, 600)
+    assert not tr.voice_worthy({"category": 6, "magnitude": 2, "delay_s": 300}, 600)
+    assert tr.voice_worthy({"category": 6, "magnitude": 2, "delay_s": 600}, 600)

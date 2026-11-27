@@ -1084,14 +1084,26 @@ Ten moduł pyta w trakcie jazdy i mówi tylko o tym, co jest przed autem.
   Stanie w korku nie kończy jazdy: koniec dopiero po 10 minutach poniżej
   15 km/h albo po 2 minutach bez GPS. Pierwsze zapytanie zaraz po ruszeniu,
   potem co `poll_min` minut (domyślnie 5, najmniej 2).
-- **Gdzie:** z celem na ekranie trasy — korytarz 3 km szerokości wzdłuż
-  następnych `lookahead_km` km trasy (10 km) i tylko utrudnienia leżące na
-  trasie. Bez celu (albo gdy zjedziesz z trasy dalej niż 2 km) — pole
-  10 km przed autem i 3 km szerokości, obrócone zgodnie z kierunkiem jazdy,
-  i tylko utrudnienia w kierunku jazdy (±60°). Utrudnienie na przeciwnej
-  jezdni (biegnące w drugą stronę) jest pomijane. Trasa przybliżona (linia
-  prosta do celu, gdy planer nie ma klucza ORS) nie jest drogą — wtedy też
-  pole przed autem.
+- **Gdzie** (w tej kolejności):
+  1. **Z celem na ekranie trasy** — korytarz 3 km szerokości wzdłuż
+     następnych `lookahead_km` km trasy (10 km) i tylko utrudnienia leżące
+     na trasie.
+  2. **Bez celu, ale znana trasa** (`learn_routes: true`) — BCM porównuje
+     ostatnie 2–4 km jazdy z przejazdami zapisanymi przez moduł `tracking`
+     (`data/gps_tracks.db`, tylko odczyt). Gdy jedziesz drogą, którą już
+     jechałeś (dom → praca, praca → dom), w tym samym kierunku, reszta tamtego
+     przejazdu (do 3 pasujących) działa jak wyznaczona trasa: liczą się tylko
+     utrudnienia na niej. Status na ekranie trasy: „na znanej trasie”. Nic nie
+     trzeba wpisywać; trasa „uczy się” sama po jednym przejeździe.
+  3. **Nieznana droga** (albo zjazd z trasy dalej niż 2 km) — wąski pas
+     przed autem: tylko utrudnienia w kierunku jazdy i najwyżej 0,6 km w bok
+     od linii przed autem. Zasięg zależy od prędkości: 3 km w mieście
+     (do 50 km/h), rośnie do `lookahead_km` (ok. 10 km przy 100 km/h); gdy na
+     ostatnim kilometrze kierunek się zmieniał (zakręty w mieście) — 3 km.
+
+  Utrudnienie na przeciwnej jezdni (biegnące w drugą stronę) jest zawsze
+  pomijane. Trasa przybliżona (linia prosta do celu, gdy planer nie ma klucza
+  ORS) nie jest drogą — wtedy jak bez celu.
 - **Ile zapytań:** twardy limit `daily_budget` (300) na dobę UTC, zapisany
   w `data/traffic_budget.json`, więc restart go nie zeruje. Darmowy klucz
   TomTom ma ok. 2500 zapytań na dobę, wspólnych z planerem tras i testem
@@ -1104,7 +1116,9 @@ Ten moduł pyta w trakcie jazdy i mówi tylko o tym, co jest przed autem.
 
 O czym powiadamia: wypadek i zamknięta droga — zawsze; korek, roboty,
 zwężenie i inne — gdy opóźnienie jest co najmniej `min_delay_s` (180 s)
-albo TomTom określa je jako duże. Tylko nowe utrudnienia i takie, które
+albo TomTom określa je jako duże. **Głosem** tylko to, co ważne: wypadek,
+zamknięta droga, utrudnienie „duże” wg TomTom albo opóźnienie co najmniej
+`voice_min_delay_s` (600 s = 10 min); reszta tylko na ekranie (powiadomienie). Tylko nowe utrudnienia i takie, które
 się nasiliły (z korka zrobiło się zamknięcie, opóźnienie wzrosło o co
 najmniej 5 minut i o połowę). Najwyżej jedno powiadomienie na 2 minuty —
 kolejne czeka, póki jest przed autem.

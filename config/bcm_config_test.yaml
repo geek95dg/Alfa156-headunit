@@ -607,6 +607,12 @@ weather_alerts:
   quiet_hours: ''          # np. '22:00-06:00' — wtedy bez głosu (poza
                            # „niebezpiecznymi”); powiadomienie na ekranie zostaje
   voice: true              # prośba o komunikat głosowy (mówi go moduł głosowy)
+  voice_min_delay_s: 600   # głosem tylko: zamknięcie, wypadek, „duże” wg TomTom
+                           # albo opóźnienie ≥ tylu s; reszta tylko na ekranie
+  learn_routes: true       # bez celu: rozpoznaj powtarzaną trasę z historii
+                           # przejazdów (tracking) i ostrzegaj tylko o tym, co
+                           # na niej; nieznana droga — wąski pas przed autem
+                           # (±0,6 km, 3 km w mieście, dalej przy prędkości)
   voice_min_severity: info      # info | warning | danger — „info”: czytane jest wszystko, co widać na ekranie
   route: true              # sprawdzaj też pogodę na zaplanowanej trasie
   # Progi (domyślne w kodzie takie same):
