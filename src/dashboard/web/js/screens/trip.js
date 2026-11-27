@@ -707,6 +707,7 @@ App.registerScreen("a3", (() => {
             return _tr("trip_traffic_no_heading", "czekam na kierunek jazdy z GPS");
         }
         const where = t.mode === "route" ? _tr("trip_traffic_mode_route", "na trasie")
+            : t.mode === "learned" ? _tr("trip_traffic_mode_learned", "na znanej trasie")
             : _tr("trip_traffic_mode_ahead", "przed autem");
         return `${where}${budget ? " · " + budget : ""}`;
     }

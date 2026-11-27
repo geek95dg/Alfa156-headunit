@@ -443,7 +443,7 @@ def _traffic_alerts_summary(alerts: Any, status: Any,
     return {
         "items": items,
         "state": state if state in _TRAFFIC_STATES else "idle",
-        "mode": status.get("mode") if status.get("mode") in ("route", "ahead") else "",
+        "mode": status.get("mode") if status.get("mode") in ("route", "learned", "ahead") else "",
         "used": _int(status.get("used"), 1_000_000),
         "budget": _int(status.get("budget"), 1_000_000),
         "poll_min": float(poll) if isinstance(poll, (int, float)) and not isinstance(poll, bool)

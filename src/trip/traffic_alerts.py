@@ -10,12 +10,22 @@ what lies ahead:
   :data:`STOP_AFTER_S` below the threshold, or without GPS for
   :data:`POSITION_MAX_AGE_S`); every ``poll_min`` minutes (default 5, at
   least 2), the first request right after driving starts;
-* **where** — with a destination set (``trip.route`` from the route
-  planner) a corridor along the next ``lookahead_km`` of the route; without
-  one — or after leaving the route — a box ``lookahead_km`` ahead of the car
-  and 3 km wide, turned with its heading (src/trip/traffic.py); the
-  planner's straight-line fallback (``approximate``, no ORS key) is not a
-  road and counts as no route;
+* **where**, in this order:
+
+  1. a destination set (``trip.route`` from the route planner): a corridor
+     along the next ``lookahead_km`` of the route;
+  2. no destination, but the car repeats a past trip (``learn_routes``,
+     src/trip/known_routes.py — the last few km match a trip from the
+     tracker's database): the rest of that trip (up to 3 of them) is used
+     like a planned route — only incidents ON it count;
+  3. otherwise (an unknown road) a box ahead of the car, turned with its
+     heading; only incidents within :data:`LATERAL_KM` of the line ahead,
+     and the reach depends on speed (:func:`unknown_lookahead_km`) and on
+     whether the car keeps its course — in town with turns every few
+     hundred metres only the next :data:`UNSTABLE_LOOKAHEAD_KM`.
+
+  The planner's straight-line fallback (``approximate``, no ORS key) is
+  not a road and counts as no route;
 * **how much** — a hard daily budget (``daily_budget``, default 300, saved in
   ``state_path`` so a restart does not reset it; the free key allows about
   2500 a day, shared with the planner and the Settings test) and a pause
@@ -28,9 +38,10 @@ what lies ahead:
 Publishes ``traffic.alert`` (list for the route screen and small_viewer;
 ``[]`` when nothing is ahead), ``traffic.status`` (state, budget used,
 last error — never the key), a toast through publish_notification (key
-``traffic_<hash of the id>``) and a ``voice.announce`` request (category
-``traffic``) — only for new incidents and escalations, at most one every
-2 minutes.
+``traffic_<hash of the id>``) and — only for closures, accidents, TomTom
+"major" and delays of ``voice_min_delay_s`` or more — a ``voice.announce``
+request (category ``traffic``); only for new incidents and escalations, at
+most one every 2 minutes.
 
 Needs ``modules.location`` (catalog ``requires``). The route planner is
 optional: without it (or without a destination) only the box ahead is used —
@@ -47,6 +58,7 @@ from typing import Any, Callable, Optional
 from src.audio import announce_api
 from src.core.logger import get_logger
 from src.core.notifications import publish_notification
+from src.trip import known_routes
 from src.trip import traffic as engine
 
 log = get_logger("trip.traffic")
@@ -75,6 +87,24 @@ TOAST_TTL_S = 20.0
 VOICE_TTL_S = 180.0
 MAX_SPEED_KMH = 400.0
 DEFAULT_STATE_PATH = "data/traffic_budget.json"
+#: Unknown road: incidents farther sideways from the line ahead are on
+#: other roads.
+LATERAL_KM = 0.6
+#: Unknown road and the course keeps changing: only this far ahead.
+UNSTABLE_LOOKAHEAD_KM = 3.0
+#: Learned trips are re-read from the tracker database this often.
+ROUTES_REFRESH_S = 1800.0
+#: An early request after the area changed (trip recognised) at most this often.
+MODE_REPOLL_S = 600.0
+#: Trace of the current trip kept for matching (points every 100 m).
+TRACE_MAX_POINTS = 60
+
+
+def unknown_lookahead_km(speed_kmh: Optional[float], cap_km: float) -> float:
+    """How far ahead to look on an unknown road: 3 km in town (≤ 50 km/h),
+    growing with speed to ``cap_km`` (about 10 km at 100 km/h)."""
+    v = speed_kmh or 0.0
+    return max(UNSTABLE_LOOKAHEAD_KM, min(cap_km, (v - 30.0) * 0.15))
 _ICONS = {"other": "warning", "accident": "car_crash", "jam": "traffic", "lane": "warning",
           "closed": "block", "works": "construction", "wind": "air", "flood": "flood"}
 
@@ -109,6 +139,18 @@ class TrafficAlerts:
         self._fast_since: Optional[float] = None
         self._last_fast: Optional[float] = None
         self._driving = False
+        self._speed: Optional[float] = None
+        # The current trip, thinned (known_routes.SAMPLE_KM), for matching.
+        self._trace: list[tuple[float, float]] = []
+        # learned trips (read in the loop thread, never on the bus thread)
+        self._db_path = str(get("tracking.db_path", "data/gps_tracks.db") or "")
+        self._known: list = []
+        self._known_at: Optional[float] = None
+        self._match_len = -1
+        self._matched_tail: Optional[tuple[float, float]] = None
+        self._matched: list = []
+        self._filter_mode = ""
+        self._mode_poll_at: Optional[float] = None
         # polling state
         self._next_poll: Optional[float] = None
         self._incidents: list[dict] = []
@@ -175,6 +217,11 @@ class TrafficAlerts:
         now = self._clock()
         with self._lock:
             self._pos, self._pos_at = pos, now
+            self._speed = speed
+            if not self._trace or engine.haversine_km(self._trace[-1], pos) \
+                    >= known_routes.SAMPLE_KM:
+                self._trace.append(pos)
+                del self._trace[:-TRACE_MAX_POINTS]
             # Course from movement: the receiver's heading is missing or
             # random when slow; 50 m of travel gives a usable bearing.
             if self._anchor is None or now - self._anchor[2] > 60.0:
@@ -190,6 +237,9 @@ class TrafficAlerts:
                     self._fast_since = now
                 if now - self._fast_since >= DRIVE_AFTER_S and not self._driving:
                     self._driving = True
+                    # The trace of a new trip starts here (the last one may
+                    # end anywhere: a stale tail would match the wrong trip).
+                    self._trace = self._trace[-3:]
                     # A new trip: ask right away (backoff and budget still
                     # apply), not on the schedule left over from the last one.
                     self._next_poll = None
@@ -248,14 +298,38 @@ class TrafficAlerts:
             # Neither poll nor filter by a corridor TomTom would refuse:
             # the box ahead is queried and filtered the same way instead.
             ahead_route = None
+        routes = [ahead_route] if ahead_route else []
+        mode = "route" if routes else ""
+        if not routes and pos is not None and driving:
+            routes = self._learned_ahead(pos, now)
+            mode = "learned" if routes else ""
+        with self._lock:
+            speed, trace = self._speed, list(self._trace)
+        reach = self.cfg.lookahead_km
+        if not routes:
+            mode = "ahead"
+            reach = unknown_lookahead_km(speed, self.cfg.lookahead_km)
+            if known_routes.heading_stable(trace, heading) is False:
+                reach = min(reach, UNSTABLE_LOOKAHEAD_KM)
+        if mode != self._filter_mode:
+            # The last answer covered a different area (e.g. the box ahead
+            # before the trip was recognised): ask again for the new one —
+            # once per change, budget and backoff still apply.
+            # A match flapping on/off must not burn the budget: at most one
+            # such early request every MODE_REPOLL_S.
+            if mode in ("route", "learned") and driving and (
+                    self._mode_poll_at is None
+                    or not 0 <= now - self._mode_poll_at < MODE_REPOLL_S):
+                self._mode_poll_at = now
+                self._next_poll = None
+            self._filter_mode = mode
         if driving and pos is not None and self._key and self._poll_due(now):
-            self._poll(pos, heading, ahead_route, now, wall)
+            self._poll(pos, heading, routes, mode, now, wall)
         ahead: list[dict] = []
         ttl = 2 * self.cfg.poll_min * 60.0
         if pos is not None and self._fetched_wall is not None \
                 and 0 <= wall - self._fetched_wall <= ttl:
-            ahead = engine.select_ahead(self._incidents, pos, heading,
-                                        self.cfg.lookahead_km, ahead_route)
+            ahead = self._select(pos, heading, routes, reach)
         valid_until = (self._fetched_wall or wall) + ttl
         items = [self._item(inc, valid_until) for inc in ahead[:MAX_PUBLISHED]]
         key = [(i["key"], i["distance_km"], i["delay_min"], i["kind"]) for i in items]
@@ -268,6 +342,56 @@ class TrafficAlerts:
                 self._announce(due[0], due[1], wall)
         self._publish_status(driving, pos is not None, heading, wall)
         return ahead
+
+    def _select(self, pos, heading, routes, reach: float) -> list[dict]:
+        """Incidents ahead: on any of ``routes`` (planned or learned), or —
+        without one — in the narrow box ahead up to ``reach`` km."""
+        if not routes:
+            return engine.select_ahead(self._incidents, pos, heading, reach,
+                                       lateral_km=LATERAL_KM)
+        best: dict[str, dict] = {}
+        for route in routes:
+            for inc in engine.select_ahead(self._incidents, pos, heading,
+                                           self.cfg.lookahead_km, route):
+                old = best.get(inc["id"])
+                if old is None or inc["distance_km"] < old["distance_km"]:
+                    best[inc["id"]] = inc
+        return sorted(best.values(), key=lambda i: i["distance_km"])
+
+    def _learned_ahead(self, pos, now: float) -> list:
+        """The rest of the past trips the car is repeating, as route-ahead
+        polylines (at most known_routes.MAX_MATCHES), or []."""
+        if not self.cfg.learn_routes:
+            return []
+        if self._known_at is None or not 0 <= now - self._known_at <= ROUTES_REFRESH_S:
+            self._known_at = now
+            try:
+                self._known = known_routes.load_routes(self._db_path)
+            except Exception:
+                log.exception("traffic_alerts: reading past trips failed")
+                self._known = []
+            self._match_len = -1
+            log.info("traffic_alerts: %d przejazdów do rozpoznawania trasy", len(self._known))
+        if not self._known:
+            return []
+        with self._lock:
+            trace = list(self._trace)
+        # Matching is the costly part: only when the trace grew (100 m).
+        if len(trace) != self._match_len or (trace and self._matched_tail != trace[-1]):
+            self._match_len = len(trace)
+            self._matched_tail = trace[-1] if trace else None
+            self._matched = known_routes.match(trace, self._known)
+        out = []
+        for line in self._matched:
+            ahead = engine.route_ahead(line, pos, self.cfg.lookahead_km)
+            if ahead and self._bbox_small(ahead):
+                out.append(ahead)
+        return out
+
+    @staticmethod
+    def _bbox_small(ahead) -> bool:
+        box = engine.route_corridor(ahead)
+        return box is not None and engine.bbox_area_km2(box) <= engine.MAX_BBOX_KM2
 
     def _corridor_ok(self, ahead_route) -> bool:
         bbox = engine.route_corridor(ahead_route)
@@ -285,9 +409,15 @@ class TrafficAlerts:
             return False
         return self._next_poll is None or now >= self._next_poll
 
-    def _poll(self, pos, heading, ahead_route, now: float, wall: float) -> None:
-        if ahead_route:
-            bbox, mode = engine.route_corridor(ahead_route), "route"
+    def _poll(self, pos, heading, routes, mode: str, now: float, wall: float) -> None:
+        if routes:
+            # One request covers every route: the box around all of them,
+            # or — when that is too big for TomTom — the first (nearest
+            # planned / most recent learned) only.
+            bbox = engine.bbox_of([(p[0], p[1]) for r in routes for p in r],
+                                  engine.HALF_WIDTH_KM)
+            if bbox is None or engine.bbox_area_km2(bbox) > engine.MAX_BBOX_KM2:
+                bbox = engine.route_corridor(routes[0])
         elif heading is not None:
             bbox, mode = engine.box_ahead(pos, heading, self.cfg.lookahead_km), "ahead"
         else:
@@ -370,13 +500,13 @@ class TrafficAlerts:
         publish_notification(self._bus, title, text, severity="danger" if severe else "warning",
                              icon=_ICONS.get(inc["kind"], "traffic"), ttl=TOAST_TTL_S,
                              key=inc["key"], now=wall)
-        if self.cfg.voice:
+        if self.cfg.voice and engine.voice_worthy(inc, self.cfg.voice_min_delay_s):
             announce_api.request_announcement(
                 self._bus, "traffic", engine.speech_text(inc, escalation),
                 priority="high" if severe else "normal", key=inc["key"],
                 ttl_s=VOICE_TTL_S, now=wall)
         log.info("Traffic: %s %.1f km ahead (%s)%s", inc["kind"], inc["distance_km"],
-                 "route" if inc.get("on_route") else "ahead",
+                 self._mode or ("route" if inc.get("on_route") else "ahead"),
                  " — escalation" if escalation else "")
 
     def _publish_status(self, driving: bool, has_pos: bool, heading, wall: float) -> None:
@@ -395,7 +525,7 @@ class TrafficAlerts:
         backoff_until = wall + self._backoff.remaining_s() if state == "backoff" else None
         status = {
             "state": state,
-            "mode": self._mode if self._mode in ("route", "ahead") else "",
+            "mode": self._filter_mode if self._mode in ("route", "learned", "ahead") else "",
             "used": self._budget.used,
             "budget": self._budget.limit,
             "poll_min": self.cfg.poll_min,
