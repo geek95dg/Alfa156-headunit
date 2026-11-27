@@ -163,7 +163,7 @@ import shutil
 import subprocess
 import threading
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any, Callable, Optional
 
 from src.core.event_bus import EventBus
@@ -191,6 +191,9 @@ TOPIC_STATE = "display.brightness_state"
 TOPIC_DIM = "display.dim"
 TOPIC_LUX = "phone.light_lux"
 TOPIC_ADC = "arduino.light_level"
+
+#: Range of display.auto_brightness.boost_pct (percentage points).
+BOOST_MIN, BOOST_MAX = -30, 50
 
 #: lux → % (log-interpolated); the plan's example curve.
 DEFAULT_CURVE: tuple[tuple[float, float], ...] = (
@@ -345,6 +348,10 @@ class AutoSettings:
     backend: str = "auto"
     mode: str = "auto"
     css_max_dim: float = CSS_MAX_DIM_DEFAULT
+    # Calibration: percentage points added to the curve's value (the phone
+    # sits under the headliner and reads the cabin darker than the road —
+    # in daylight the screen came out too dim). Settings "−5 / +5".
+    boost_pp: int = 0
     ddc_display: Optional[int] = None
     xrandr_output: str = ""
     xrandr_display: str = ":0"
@@ -396,6 +403,7 @@ def load_settings(config: Any) -> AutoSettings:
         manual_hold_s=num("manual_hold_min", 10.0, 1.0, 240.0) * 60.0,
         hysteresis_ratio=num("hysteresis_pct", 10.0, 0.0, 50.0) / 100.0,
         hysteresis_pp=int(round(num("hysteresis_pp", 5, 1, 20))),
+        boost_pp=int(round(num("boost_pct", 0, BOOST_MIN, BOOST_MAX))),
         backend=choice("backend", BACKENDS, "auto"),
         mode=choice("mode", MODES, "auto"),
         css_max_dim=num("css_max_dim", CSS_MAX_DIM_DEFAULT, 0.3, CSS_MAX_DIM_LIMIT),
@@ -742,7 +750,8 @@ class BrightnessController:
                 abs(value - a[1]) > max(a[1] * s.hysteresis_ratio, HYST_LUX_MIN)
             if moved:
                 self._anchor = ("phone", value)
-                self._target = min(s.max_pct, max(s.min_pct, curve_pct(s.curve, value)))
+                self._target = min(s.max_pct, max(s.min_pct,
+                                                  curve_pct(s.curve, value) + s.boost_pp))
         else:
             moved = a is None or a[0] != "arduino" or abs(value - a[1]) > ADC_HYSTERESIS
             if moved:
@@ -909,6 +918,7 @@ class BrightnessController:
             "hold_left_min": hold_left,
             "min_pct": s.min_pct,
             "max_pct": s.max_pct,
+            "boost_pct": s.boost_pp,
             "backend": self._backend_req,
             "active": self._active,
             "probe": self._probe,
@@ -1274,10 +1284,17 @@ class BrightnessController:
         backend = value.get("brightness_backend")
         pct = _pct_or_none(value.get("brightness")) if "brightness" in value else None
         mode = value.get("brightness_mode")
-        if backend not in UI_BACKENDS and pct is None and mode not in MODES:
+        boost = value.get("brightness_boost")
+        boost_ok = isinstance(boost, int) and not isinstance(boost, bool) \
+            and BOOST_MIN <= boost <= BOOST_MAX
+        if backend not in UI_BACKENDS and pct is None and mode not in MODES and not boost_ok:
             return
         with self._lock:
             now = self._clock()
+            if boost_ok and boost != self.settings.boost_pp:
+                self.settings = replace(self.settings, boost_pp=boost)
+                self._anchor = None          # re-aim at once with the new offset
+                log.info("Brightness: calibration %+d pp from Settings", boost)
             if backend in UI_BACKENDS:
                 self._select_backend_locked(backend)
             if pct is not None:

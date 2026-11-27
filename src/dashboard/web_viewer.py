@@ -190,6 +190,8 @@ _CONFIG_FIELDS = (
     # both live through config.changed.
     ("brightness_backend", "display.auto_brightness.backend"),
     ("brightness_mode", "display.auto_brightness.mode"),
+    # Calibration offset of the automatic curve (percentage points).
+    ("brightness_boost", "display.auto_brightness.boost_pct"),
     # Settings → "Komunikaty głosowe" (modules.voice_announce): the runtime
     # on/off, the voice volume and the three category switches. The module
     # re-reads them on config.changed. Never the text of a message.
@@ -252,6 +254,11 @@ def _validate_config_update(data: Any) -> tuple[list[tuple[str, str, Any]], Opti
         elif key == "brightness_mode":
             if not isinstance(value, str) or value not in _brightness.MODES:
                 return [], (key, f"brightness_mode must be one of {list(_brightness.MODES)}")
+        elif key == "brightness_boost":
+            if isinstance(value, bool) or not isinstance(value, int) \
+                    or not _brightness.BOOST_MIN <= value <= _brightness.BOOST_MAX:
+                return [], (key, f"brightness_boost must be an integer "
+                                 f"{_brightness.BOOST_MIN}..{_brightness.BOOST_MAX}")
         elif key in ("voice_enabled", "voice_cat_weather", "voice_cat_traffic",
                      "voice_cat_system"):
             if not isinstance(value, bool):
@@ -1505,6 +1512,10 @@ def _auto_brightness_summary(value: Any) -> Optional[dict]:
         "active": word(value.get("active"), _brightness.ACTIVE_BACKENDS, "css"),
         "probe": word(value.get("probe"), _brightness.PROBE_STATES, "idle"),
         "reason": word(value.get("reason"), _brightness.REASONS, ""),
+        "boost_pct": (value.get("boost_pct") if isinstance(value.get("boost_pct"), int)
+                      and not isinstance(value.get("boost_pct"), bool)
+                      and _brightness.BOOST_MIN <= value.get("boost_pct") <= _brightness.BOOST_MAX
+                      else 0),
     }
 
 

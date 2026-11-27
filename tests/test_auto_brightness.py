@@ -1089,7 +1089,7 @@ class TestModule:
 GOOD_STATE = {"mode": "auto", "effective": "auto", "source": "phone", "lux": 120.0, "adc": None,
               "pct": 47, "target_pct": 47, "manual_pct": 70, "hold_left_min": None,
               "min_pct": 15, "max_pct": 100, "backend": "ddc", "active": "css",
-              "probe": "failed", "reason": "no_i2c"}
+              "probe": "failed", "reason": "no_i2c", "boost_pct": 20}
 
 
 class TestPayload:
@@ -1105,7 +1105,8 @@ class TestPayload:
         assert out == {"mode": "auto", "effective": "no_source", "source": "", "lux": None,
                        "adc": None, "pct": None, "target_pct": None, "manual_pct": None,
                        "hold_left_min": None, "min_pct": None, "max_pct": None,
-                       "backend": "auto", "active": "css", "probe": "idle", "reason": ""}
+                       "backend": "auto", "active": "css", "probe": "idle", "reason": "",
+                       "boost_pct": 0}
         assert wv._auto_brightness_summary({"lux": float("nan")})["lux"] is None
         assert wv._auto_brightness_summary(None) is None
         assert wv._auto_brightness_summary("auto") is None
@@ -1210,3 +1211,18 @@ class TestConfigApi:
         assert res.status_code == 400 and res.get_json()["key"] == key
         assert web.cfg.get("display.auto_brightness.backend") == "css" and web.saved == []
         assert web.ctrl.state is None or web.ctrl.state["backend"] == "css"
+
+
+class TestBoost:
+    """Calibration offset: the phone under the headliner sees less light."""
+
+    def test_boost_clamped_on_load(self):
+        from src.power import brightness as br
+        assert br.load_settings(_cfg(boost_pct=99)).boost_pp == br.BOOST_MAX
+        assert br.load_settings(_cfg(boost_pct=-99)).boost_pp == br.BOOST_MIN
+        assert br.load_settings(_cfg(boost_pct=20)).boost_pp == 20
+        assert br.load_settings({}).boost_pp == 0
+
+    def test_payload_boost_whitelisted(self):
+        bad = dict(GOOD_STATE, boost_pct="<b>")
+        assert wv._auto_brightness_summary(bad)["boost_pct"] == 0

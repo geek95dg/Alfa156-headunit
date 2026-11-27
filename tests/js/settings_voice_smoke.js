@@ -69,7 +69,7 @@ const row = (over) => Settings.voiceRowHtml(Object.assign({}, VA, over || {}), t
     assert.ok(html.includes('data-voice-cat="weather" aria-pressed="true"'), html);
     assert.ok(html.includes('data-voice-cat="traffic" aria-pressed="false"'), html);
     assert.ok(html.includes('data-voice-cat="system" aria-pressed="true"'), html);
-    assert.ok(/data-voice-volume type="range" min="10" max="100" step="5" value="80"/.test(html), html);
+    assert.ok(/data-voice-volume type="range" min="10" max="200" step="5" value="80"/.test(html), html);
     assert.ok(html.includes("Powiedz test") && !/data-voice-test disabled/.test(html), html);
     assert.ok(!/\son[a-z]+=/.test(html), "no inline handlers: " + html);
     assert.ok(row({ speaking: true }).includes("mówię…"));

@@ -276,6 +276,8 @@ display:
     curve: [[0, 15], [10, 25], [100, 45], [1000, 70], [10000, 100]]
     min_pct: 15            # nigdy ciemniej (także ręcznie)
     max_pct: 100
+    boost_pct: 20          # korekta auto w pkt % (−30…50): telefon pod podsufitką
+                           # widzi ciemniej niż droga; Ustawienia: Korekta auto −5/+5
     smoothing_s: 3         # wygładzanie (EMA), tak samo w obie strony
     stale_s: 10            # starszy odczyt = trzymam ostatnią jasność
     manual_hold_min: 10    # dźwigienka / suwak wstrzymują auto na tyle minut
@@ -647,7 +649,8 @@ voice_announce:
   enabled: true            # Wł./Wył. z Ustawień → „Komunikaty głosowe”
                            # (zapisywane w local.yaml; moduł zostaje
                            # uruchomiony, tylko milczy)
-  volume: 80               # głośność głosu w % (10–100), suwak w Ustawieniach
+  volume: 140              # głośność głosu w % (10–200; >100 = wzmocnienie bez
+                           # przesteru), suwak w Ustawieniach — NIE ściszanie muzyki
   categories:              # o czym mówić (przełączniki w Ustawieniach)
     weather: true          # ostrzeżenia pogodowe (oblodzenie, śnieg, burza…)
     traffic: true          # utrudnienia TomTom przed autem
