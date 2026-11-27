@@ -203,7 +203,7 @@ class TestSettings:
         cfg = _cfg(voice_announce__volume=500, voice_announce__max_age_s=1,
                    voice_announce__call_defer_s=999, voice_announce__max_per_min="x")
         s = va.load_settings(cfg.get)
-        assert s.volume == 100 and s.max_age_s == 10 and s.call_defer_s == 10
+        assert s.volume == 200 and s.max_age_s == 10 and s.call_defer_s == 10
         assert s.max_per_min == va.DEFAULTS["max_per_min"]
 
     def test_defaults_without_block(self):
@@ -327,7 +327,7 @@ class TestStep:
         assert a.events == [True, False]
         chime, phrase = a.mod.player.played
         assert chime[0] == "/x/chime.wav" and phrase[0] == "/x/phrase.wav"
-        assert phrase[1] == "alsa_output.usb-DAC.analog-stereo" and phrase[2] == 0.8
+        assert phrase[1] == "alsa_output.usb-DAC.analog-stereo" and phrase[2] == min(1.0, a.mod.settings.volume / 100)
         assert a.mod.status()["last_result"] == "spoken"
 
     def test_ducking_released_even_when_the_player_crashes(self):
@@ -1168,3 +1168,49 @@ class TestAzure:
         assert err is None and ok
         _, err = _validate_config_update({"voice_azure_voice": "x-Evil"})
         assert err is not None
+
+
+
+
+class TestAmplifiedWav:
+    """Volume above 100 % = a gained copy of the WAV, never clipped."""
+
+    def _wav(self, path, samples):
+        import wave
+
+        import numpy as np
+        with wave.open(str(path), "wb") as w:
+            w.setnchannels(1)
+            w.setsampwidth(2)
+            w.setframerate(22050)
+            w.writeframes(np.asarray(samples, dtype="<i2").tobytes())
+
+    def _read(self, path):
+        import wave
+
+        import numpy as np
+        with wave.open(str(path), "rb") as w:
+            return np.frombuffer(w.readframes(w.getnframes()), dtype="<i2")
+
+    def test_gain_applied_and_cached(self, tmp_path):
+        src = tmp_path / "a.wav"
+        self._wav(src, [1000, -2000, 3000])
+        out = va.amplified_wav(str(src), 1.5)
+        assert out != str(src) and out.endswith(".g150.wav")
+        assert list(self._read(out)) == [1500, -3000, 4500]
+        assert va.amplified_wav(str(src), 1.5) == out   # cached
+
+    def test_never_clips(self, tmp_path):
+        src = tmp_path / "loud.wav"
+        self._wav(src, [20000, -20000, 100])
+        out = va.amplified_wav(str(src), 2.0)
+        peak = int(abs(self._read(out).astype(int)).max())
+        assert 31000 <= peak <= 32000
+
+    def test_bad_file_returns_original(self, tmp_path):
+        src = tmp_path / "broken.wav"
+        src.write_bytes(b"not a wav")
+        assert va.amplified_wav(str(src), 1.5) == str(src)
+
+    def test_volume_max_is_200(self):
+        assert va.VOLUME_MAX == 200

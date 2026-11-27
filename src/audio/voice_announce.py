@@ -88,7 +88,9 @@ STATUS_RESULTS = ("", "spoken", "no_engine", "synth_failed", "no_player", "play_
                   "interrupted")
 #: Volume bounds of the Settings slider — web_viewer validates against these.
 VOLUME_MIN = 10
-VOLUME_MAX = 100
+#: Above 100 % the WAV itself is amplified (amplified_wav), never past full
+#: scale — the voice gets louder without clipping into distortion.
+VOLUME_MAX = 200
 #: Defaults (also the bounds the config is clamped to).
 DEFAULTS = {
     "volume": 80,             # %, 10–100
@@ -169,6 +171,46 @@ def load_settings(get: Callable[[str, Any], Any]) -> Settings:
         min_gap_s=_num(get("voice_announce.min_gap_s", None), DEFAULTS["min_gap_s"], 0, 60),
         max_queue=int(_num(get("voice_announce.max_queue", None), DEFAULTS["max_queue"], 1, 50)),
     )
+
+
+def amplified_wav(path: str, gain: float) -> str:
+    """A copy of the 16-bit WAV ``path`` amplified by ``gain`` but never past
+    full scale (the gain is capped at what the loudest sample allows — no
+    clipping, no distortion). Cached next to the original
+    (``<name>.g<gain>.wav``); on any problem the original path is returned."""
+    import os
+    import tempfile
+    import wave
+
+    import numpy as np
+
+    gain = max(1.0, min(4.0, float(gain)))
+    root, _ext = os.path.splitext(path)
+    target = f"{root}.g{int(round(gain * 100))}.wav"
+    if os.path.isfile(target):
+        return target
+    try:
+        with wave.open(path, "rb") as w:
+            params = w.getparams()
+            frames = w.readframes(w.getnframes())
+        if params.sampwidth != 2 or not frames:
+            return path
+        data = np.frombuffer(frames, dtype="<i2").astype(np.float32)
+        peak = float(np.max(np.abs(data))) if data.size else 0.0
+        g = min(gain, 32000.0 / peak) if peak > 0 else gain
+        out = np.clip(data * g, -32768, 32767).astype("<i2").tobytes()
+        fd, tmp = tempfile.mkstemp(prefix=".amp.", suffix=".wav",
+                                   dir=os.path.dirname(path) or ".")
+        os.close(fd)
+        with wave.open(tmp, "wb") as w:
+            w.setparams(params)
+            w.writeframes(out)
+        os.chmod(tmp, 0o600)
+        os.replace(tmp, target)
+        return target
+    except Exception:
+        log.debug("Voice: amplifying %s failed — playing it as is", path, exc_info=True)
+        return path
 
 
 # ── queue (pure: a clock in, decisions out) ───────────────────────────────
@@ -691,6 +733,10 @@ class VoiceAnnouncer:
         chime = self.synth.chime() if self.settings.chime else None
         target = self._target()
         volume = self.settings.volume / 100.0
+        if volume > 1.0:
+            # The player's stream volume stops at 100 %: louder = a gained copy.
+            path = amplified_wav(path, volume)
+            volume = 1.0
         with self._lock:
             # begin() BEFORE the re-check (see _call_changed): a call that
             # starts from here on interrupts play(); one that started while

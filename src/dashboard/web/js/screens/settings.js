@@ -1595,7 +1595,7 @@ const Settings = {
      *  slider position): a change of this key redraws the row. */
     brightnessRowKey(ab) {
         if (!ab || typeof ab !== "object") return "null";
-        return JSON.stringify([ab.mode, ab.effective, ab.source, ab.min_pct, ab.backend,
+        return JSON.stringify([ab.mode, ab.effective, ab.source, ab.min_pct, ab.backend, ab.boost_pct,
             ab.active, ab.probe, ab.reason, Settings._bright.msg]);
     },
 
@@ -1623,6 +1623,12 @@ const Settings = {
         const soft = ab.backend === "css" || ab.backend === "auto";
         const backendHtml = btn('data-bright-backend="css"', t("bright_css", "Programowe"), soft)
             + btn('data-bright-backend="ddc"', t("bright_ddc", "Sprzętowe (DDC/CI)"), ab.backend === "ddc");
+        // Calibration of the automatic curve: −5 / +5 percentage points.
+        const boost = Number.isInteger(ab.boost_pct) ? ab.boost_pct : 0;
+        const boostHtml = `<span style="color:var(--text-dim);font-weight:700">${esc(t("bright_boost", "Korekta auto"))}:</span>`
+            + btn('data-bright-boost="-5"', "−5", false)
+            + `<span data-bright-boost-val style="min-width:44px;text-align:center;color:var(--text-primary);font-weight:700">${boost > 0 ? "+" : ""}${boost}%</span>`
+            + btn('data-bright-boost="5"', "+5", false);
         const backText = Settings.brightnessBackendText(ab, t);
         const backColor = ab.probe === "failed" ? "#d97706" : "var(--text-mid)";
         const msg = Settings._bright.msg;
@@ -1631,6 +1637,7 @@ const Settings = {
             <span style="color:var(--text-dim);font-weight:700">${esc(t("bright_title", "Jasność ekranu"))}:</span>
             <span data-bright-status style="color:${color};font-weight:700">${esc(Settings.brightnessStatusText(ab, t))}</span>
             <span style="flex-basis:100%;display:flex;flex-wrap:wrap;align-items:center;gap:6px;padding-left:24px">${modeHtml}${slider}${pctHtml}</span>
+            <span style="flex-basis:100%;display:flex;flex-wrap:wrap;align-items:center;gap:6px;padding-left:24px">${boostHtml}</span>
             <span style="flex-basis:100%;display:flex;flex-wrap:wrap;align-items:center;gap:6px;padding-left:24px"><span style="color:var(--text-dim);font-weight:700">${esc(t("bright_dimming", "Ściemnianie"))}:</span>${backendHtml}</span>
             <span data-bright-backend-msg style="flex-basis:100%;padding-left:24px;color:${backColor}">${esc(backText)}</span>
             <span data-bright-msg style="flex-basis:100%;padding-left:24px;color:var(--text-mid)">${esc(msg)}</span>
@@ -1682,14 +1689,20 @@ const Settings = {
         if (b.listening || typeof document === "undefined" || !document.addEventListener) return;
         b.listening = true;
         document.addEventListener("click", (e) => {
-            const el = e.target && e.target.closest ? e.target.closest("[data-bright-mode],[data-bright-backend]") : null;
+            const el = e.target && e.target.closest ? e.target.closest("[data-bright-mode],[data-bright-backend],[data-bright-boost]") : null;
             if (!el || typeof el.getAttribute !== "function") return;
             // Only the two whitelisted values of each — never text from the page.
             const mode = el.getAttribute("data-bright-mode");
             const backend = el.getAttribute("data-bright-backend");
             let body = null;
+            const step = el.getAttribute("data-bright-boost");
             if (mode === "auto" || mode === "manual") body = { brightness_mode: mode };
             else if (backend === "css" || backend === "ddc") body = { brightness_backend: backend };
+            else if (step === "5" || step === "-5") {
+                const ab = (typeof DataStore !== "undefined" && DataStore.getAll) ? (DataStore.getAll().auto_brightness || {}) : {};
+                const cur = Number.isInteger(ab.boost_pct) ? ab.boost_pct : 0;
+                body = { brightness_boost: Math.max(-30, Math.min(50, cur + Number(step))) };
+            }
             if (!body) return;
             const now = Date.now();
             if (now - b.sentAt < 500) return;          // double tap
@@ -1799,14 +1812,14 @@ const Settings = {
         const esc = Settings._esc;
         const on = va.enabled === true;
         const ready = va.engine === "azure" || va.engine === "piper" || va.engine === "espeak";
-        const vol = Number.isInteger(va.volume) && va.volume >= 10 && va.volume <= 100 ? va.volume : null;
+        const vol = Number.isInteger(va.volume) && va.volume >= 10 && va.volume <= 200 ? va.volume : null;
         const sel = (active) => active
             ? "background:var(--color-primary);color:#fff;border:1px solid var(--color-primary)"
             : "background:var(--card-bg);color:var(--text-mid);border:1px solid var(--card-border)";
         const btn = (attr, label, active) => `<button ${attr} aria-pressed="${active ? "true" : "false"}" style="padding:6px 12px;border-radius:8px;font-size:12px;font-weight:700;${sel(active)}">${esc(label)}</button>`;
         const onOff = btn('data-voice-enabled="true"', t("voice_on", "Wł."), on)
             + btn('data-voice-enabled="false"', t("voice_off_btn", "Wył."), !on);
-        const slider = `<input data-voice-volume type="range" min="10" max="100" step="5" value="${vol !== null ? vol : 80}" aria-label="${esc(t("voice_volume", "Głośność komunikatów"))}" style="flex:1 1 140px;min-width:110px;height:28px;accent-color:var(--color-primary)">`;
+        const slider = `<input data-voice-volume type="range" min="10" max="200" step="5" value="${vol !== null ? vol : 80}" aria-label="${esc(t("voice_volume", "Głośność komunikatów"))}" style="flex:1 1 140px;min-width:110px;height:28px;accent-color:var(--color-primary)">`;
         const volHtml = `<span data-voice-vol-pct style="min-width:40px;text-align:right;color:var(--text-primary);font-weight:700">${vol !== null ? vol + "%" : ""}</span>`;
         const cats = (va.categories && typeof va.categories === "object") ? va.categories : {};
         const catHtml = Settings._voiceCats.map(([name, _key, label]) =>
@@ -1922,7 +1935,7 @@ const Settings = {
             v.down = false;
             v.inputAt = Date.now();
             const n = Number(e.target.value);
-            if (Number.isInteger(n) && n >= 10 && n <= 100) Settings.voiceSend({ voice_volume: n });
+            if (Number.isInteger(n) && n >= 10 && n <= 200) Settings.voiceSend({ voice_volume: n });
         });
     },
 
