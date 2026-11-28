@@ -125,7 +125,7 @@ masy przy banku — przez płytki nie płynie żaden prąd powrotny odbiorników
 
 ## 2. Przetwornica step-up 20 V — poza płytkami
 
-Komputer zasila **zalewana przetwornica step-up 12 → 20 V, 10 A (200 W)**,
+Komputer zasila **przetwornica step-up 1200 W / 20 A (8–60 V → 12–80 V) ustawiona na 20,0 V** (ZB §3),
 IP67/IP68 — rodzina bezmarkowych modułów, opisana w ZB §3. Na płytce B ma
 tylko zacisk X9 za wkładką **F8 10 A** (65 W przy 11,0 V to ok. 6,6 A
 wejścia). Powtórzone tu najważniejsze:

@@ -114,7 +114,7 @@
             </tr>
             <tr>
               <td><strong>L9637D</strong> transceiver IC</td>
-              <td>ISO 9141 / ISO 14230 K-Line transceiver. Converts TTL logic to 12V K-Line signalling. 8-pin DIP package.</td>
+              <td>ISO 9141 / ISO 14230 K-Line transceiver. Converts TTL logic to 12V K-Line signalling. SO-8 package only (the &ldquo;D&rdquo; suffix) &mdash; solder it on an SO-8 to DIP adapter board or buy a ready module.</td>
               <td>8&ndash;15</td>
             </tr>
             <tr>
@@ -148,39 +148,32 @@
 
       <pre><code>                   ┌──────────────┐        ┌──────────────┐
                    │   CP2102     │        │   L9637D     │
-                   │  USB-UART    │        │  Transceiver │
-                   │              │        │              │
-  M910q USB ──────►│ USB          │        │ 1  K ────────┼──── OBD-II Pin 7 (K-Line)
-  hub              │              │        │              │
-                   │ TX (out) ────┼────────┼─ 5  RX (in)  │
-                   │              │        │              │
-                   │ RX (in) ─────┼────────┼─ 6  TX (out) │
-                   │              │        │              │
-                   │ GND ─────────┼────┬───┼─ 4  GND ─────┼──── OBD-II Pin 4 (GND)
-                   │              │    │   │              │
-                   │ 5V (or VCC) ─┼────┼───┼─ 3  VCC (5V) │
-                   │              │    │   │              │        510Ω
-                   └──────────────┘    │   │ 2  VS ───────┼────┤/\/\/├──── OBD-II Pin 16 (12V)
-                                       │   │              │
-                                       │   │ 7  NC        │
-                                       │   │ 8  EN ───────┼──── VCC (tie to pin 3)
+                   │  USB-UART    │        │  (SO-8)      │
+  M910q USB ──────►│ USB          │        │              │
+  hub              │ TX (out) ────┼────────┼─ 4  TX (in)  │
+                   │ RX (in) ─────┼────────┼─ 1  RX (out) │
+                   │ 5V ──────────┼────────┼─ 3  VCC      │
+                   │ GND ─────────┼────┬───┼─ 5  GND ─────┼──── OBD-II Pin 4/5 (GND)
+                   └──────────────┘    │   │ 6  K ────────┼──┬─ OBD-II Pin 7 (K-Line)
+                                       │   │              │  │  510&Omega;
+                                       │   │ 7  VS ───────┼──┴┤/\/\/├─┬── OBD-II Pin 16 (12V)
+                                       │   │              │  (via 1N4007 diode) ┘
+                                       │   │ 2  LO, 8 LI  │  L-line unused &mdash; per ST datasheet
                                        │   └──────────────┘
-                                       │
                                      ──┴──  GND
-                                      ───
 
-  Note: 100nF ceramic capacitor between L9637D pin 3 (VCC) and pin 4 (GND)</code></pre>
+  Note: 100nF ceramic capacitor between L9637D pin 3 (VCC) and pin 5 (GND).
+  The 510&Omega; pull-up goes from K (pin 6) to +12V &mdash; it is NOT in series with VS.</code></pre>
 
       <div class="box box-info">
         <div class="box-title">TX/RX cross-over</div>
         <p>
-          The CP2102 TX pin connects to the L9637D RX (pin 5), and CP2102 RX
-          connects to L9637D TX (pin 6). This is the standard UART cross-over
-          &mdash; transmit on one side goes to receive on the other.
+          The CP2102 TX pin drives the L9637D TX input (pin 4); the L9637D RX
+          output (pin 1) goes to the CP2102 RX. The chip has no enable pin.
         </p>
       </div>
 
-      <h3>L9637D Pinout (8-pin DIP)</h3>
+      <h3>L9637D Pinout (SO-8, per the ST datasheet)</h3>
 
       <div class="table-wrap">
         <table>
@@ -194,62 +187,14 @@
             </tr>
           </thead>
           <tbody>
-            <tr>
-              <td>1</td>
-              <td>K</td>
-              <td>I/O</td>
-              <td>K-Line bus (bidirectional, 12V levels)</td>
-              <td>OBD-II Pin 7</td>
-            </tr>
-            <tr>
-              <td>2</td>
-              <td>VS</td>
-              <td>Power</td>
-              <td>Battery voltage sense / pull-up supply</td>
-              <td>12V via 510&Omega; resistor</td>
-            </tr>
-            <tr>
-              <td>3</td>
-              <td>VCC</td>
-              <td>Power</td>
-              <td>Logic supply voltage (4.5&ndash;5.5V)</td>
-              <td>CP2102 5V output</td>
-            </tr>
-            <tr>
-              <td>4</td>
-              <td>GND</td>
-              <td>Power</td>
-              <td>Ground reference</td>
-              <td>Common GND (CP2102 + OBD-II pin 4)</td>
-            </tr>
-            <tr>
-              <td>5</td>
-              <td>RX</td>
-              <td>Input</td>
-              <td>Serial data input from tester (TTL)</td>
-              <td>CP2102 TX</td>
-            </tr>
-            <tr>
-              <td>6</td>
-              <td>TX</td>
-              <td>Output</td>
-              <td>Serial data output to tester (TTL)</td>
-              <td>CP2102 RX</td>
-            </tr>
-            <tr>
-              <td>7</td>
-              <td>NC</td>
-              <td>&mdash;</td>
-              <td>Not connected</td>
-              <td>&mdash;</td>
-            </tr>
-            <tr>
-              <td>8</td>
-              <td>EN</td>
-              <td>Input</td>
-              <td>Enable (active high, tie to VCC)</td>
-              <td>VCC (pin 3)</td>
-            </tr>
+            <tr><td>1</td><td>RX</td><td>Output</td><td>Received K-Line data (TTL)</td><td>CP2102 RX</td></tr>
+            <tr><td>2</td><td>LO</td><td>Output</td><td>L-line receiver output</td><td>unused (EDC15C7 is K-only)</td></tr>
+            <tr><td>3</td><td>VCC</td><td>Power</td><td>Logic supply (5V)</td><td>CP2102 5V + 100nF to GND</td></tr>
+            <tr><td>4</td><td>TX</td><td>Input</td><td>Data to transmit (TTL)</td><td>CP2102 TX</td></tr>
+            <tr><td>5</td><td>GND</td><td>Power</td><td>Ground</td><td>Common GND (CP2102 + OBD-II pin 4/5)</td></tr>
+            <tr><td>6</td><td>K</td><td>I/O</td><td>K-Line bus (12V levels)</td><td>OBD-II Pin 7; 510&Omega; pull-up to +12V</td></tr>
+            <tr><td>7</td><td>VS</td><td>Power</td><td>Battery supply</td><td>OBD-II Pin 16 through a 1N4007</td></tr>
+            <tr><td>8</td><td>LI</td><td>Input</td><td>L-line input</td><td>unused &mdash; per ST datasheet</td></tr>
           </tbody>
         </table>
       </div>
@@ -264,7 +209,7 @@
         <li><strong>AliExpress</strong> &mdash; cheapest source for both components (5&ndash;15 PLN each, 2&ndash;4 week delivery)</li>
         <li><strong>Botland.com.pl</strong> &mdash; Polish electronics shop, CP2102 modules in stock</li>
         <li><strong>Kamami.pl</strong> &mdash; L9637D IC available, fast domestic shipping</li>
-        <li><strong>TME.eu</strong> &mdash; professional distributor, L9637D in DIP-8 package</li>
+        <li><strong>TME.eu</strong> &mdash; professional distributor, L9637D (SO-8) plus SO-8 to DIP adapter boards</li>
         <li><strong>Allegro.pl</strong> &mdash; search "CP2102" or "L9637D", many Polish sellers</li>
       </ul>
 
@@ -318,13 +263,13 @@
             <tr>
               <td><strong>7</strong></td>
               <td>K-Line</td>
-              <td>ISO 14230 data line &mdash; connect to L9637D pin 1 (K)</td>
+              <td>ISO 14230 data line &mdash; connect to L9637D pin 6 (K)</td>
               <td>White / Grey</td>
             </tr>
             <tr>
               <td><strong>16</strong></td>
               <td>Battery +12V</td>
-              <td>Permanent battery voltage &mdash; connect to L9637D pin 2 (VS) via 510&Omega;</td>
+              <td>Permanent battery voltage &mdash; connect to L9637D pin 7 (VS) through a 1N4007, and to the 510&Omega; pull-up on K</td>
               <td>Red</td>
             </tr>
           </tbody>

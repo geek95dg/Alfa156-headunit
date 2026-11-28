@@ -534,7 +534,7 @@ Wejście: **F1** przy starcie M910q.
 Bez bufora komputer w ogóle nie śpi na postoju — prąd znika razem z
 zapłonem — więc ustawienia wybudzania mają znaczenie dopiero po montażu
 bufora (`docs/ZASILANIE_BUFOROWANE.md`). Bufor dla tego auta to ten sam tor
-co w wersji docelowej — zalewany step-up 20 V, dwie ładowarki XY-SK120,
+co w wersji docelowej — step-up 1200 W / 20 A ustawiony na 20 V, dwie ładowarki XY-SK120,
 bank 7 × HR1221W w dwóch koszach w bagażniku; opis i zakupy:
 `docs/WDROZENIE_TESTOWE.md` §3 i `docs/LISTA_ZAKUPOWA.md`. Do czasu montażu
 wszystko w tej instrukcji zakłada auto **bez** bufora.

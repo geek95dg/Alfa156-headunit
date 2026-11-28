@@ -67,9 +67,9 @@
 
           <p>
             The Lenovo M910q uses a <strong>65 W, 20 V</strong> supply on a Lenovo slim-tip plug and
-            runs only in the 19&ndash;21 V window. In the car a potted
-            <strong>12 V &rarr; 20 V, 10 A (200 W) step-up converter</strong> in the trunk feeds it; at the
-            M910q&#39;s full 65 W it works at about a third of its nameplate rating, so no CPU power limit
+            runs only in the 19&ndash;21 V window. In the car an adjustable
+            <strong>1200 W / 20 A step-up converter set to 20.0 V</strong> in the trunk feeds it; at the
+            M910q&#39;s full 65 W it draws about a third of its 20 A input rating, so no CPU power limit
             (RAPL) is needed &mdash; <code>bcm-power-cap</code> stays as an option for quieter, cooler running.
           </p>
           <p>
@@ -183,7 +183,7 @@
  │ [F8 10 A]    [F9 2 A]    [F10 3 A]    [F11 5 A]    [F13 2 A] (option)
  │ step-up      LM2596      MP1584       AUX 12 V     phone 5 V
  │ 12 → 20 V    5 V         5 V          relay        injector
- │ 10 A potted  displays    Nano #1/#2,  module
+ │ 20 A boost   displays    Nano #1/#2,  module
  │ [5 A out]                HM-10, RXB6
  │   │ 2 × 4 mm², ~4 m
  │   ▼
@@ -273,7 +273,7 @@
                 </tr>
                 <tr>
                   <td>Step-up 12 &rarr; 20 V</td>
-                  <td>Potted IP67/IP68, 20 V / 10 A (200 W), input ~9&ndash;18 V</td>
+                  <td>1200 W / 20 A boost, input 8&ndash;60 V, set to 20.0 V</td>
                   <td>Unbranded family, seller figures only; bench-test each unit (ZB &sect;3.4). F8 10 A in, 5 A out, 4 mm&sup2;</td>
                   <td>60&ndash;130</td>
                 </tr>

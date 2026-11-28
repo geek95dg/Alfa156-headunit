@@ -413,7 +413,7 @@ def build():
     s.path([(c3, 1110), (c3, 1296)], "wire", ("mp",))
 
     s.block(40, 1158, 290, 74, "boxL", "stepup", "M4 STEP-UP 12 → 20 V",
-            ["zalewany, 10 A / 200 W · bez regulacji",
+            ["1200 W / 20 A · nastawa 20,0 V",
              "do 6,6 A z szyny przy 11 V (65 W)"])
 
     # granica bagażnik / przód

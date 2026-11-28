@@ -30,7 +30,7 @@ sterowanie stanem komputera i zalewana przetwornica step-up 12 → 20 V.
 
 1. [Po co bufor](#1-po-co-bufor)
 2. [Architektura — jedna szyna, trzy stany maszyny](#2-architektura--jedna-szyna-trzy-stany-maszyny)
-3. [Przetwornica step-up 12 → 20 V, 10 A (zalewana)](#3-przetwornica-step-up-12--20-v-10-a-zalewana)
+3. [Przetwornica step-up 12 → 20 V](#3-przetwornica-step-up-12--20-v)
 4. [Bank akumulatorów CSB HR1221W](#4-bank-akumulatorów-csb-hr1221w)
 5. [Ładowanie — 2 × XY-SK120](#5-ładowanie--2--xy-sk120)
 6. [Blokada przeładowania](#6-blokada-przeładowania)
@@ -177,9 +177,11 @@ na 12 V nie obciąża toru 20 V komputera.
 
 **Wzmacniacz idzie osobną gałęzią** prosto z akumulatora rozruchowego —
 gotowy moduł samochodowy, podłączany jak radio: własny bezpiecznik przy klemie
-(wg karty modułu, zwykle 20–30 A), przewód 6 mm², **własna masa lokalna**
-i wyzwalanie sygnałem **REM wprost z linii zapłonu** — wzmacniacz ma grać,
-gdy jedziesz, a nie gdy komputer jest w S3.
+(MIDI 40 A albo wg karty modułu), przewód 10 mm² (6 mm² minimum), **własna
+masa lokalna** i wyzwalanie sygnałem **REM z pracy BCM**: przekaźnik 5 V
+zasilany z portu USB M910q podaje 12 V na REM tylko wtedy, gdy komputer działa
+(w S3 USB nie ma zasilania) — szczegóły w
+[`SCHEMATY_POLACZEN.md`](SCHEMATY_POLACZEN.md#26-gałąź-wzmacniacza-niezależna).
 
 Powód: 4 × 50 W RMS to w szczytach 20–30 A. Nawet bank siedmiu pakietów
 oddałby przy takim prądzie swoje 17,85 Ah użytecznych w niecałą godzinę,
@@ -193,14 +195,28 @@ Tor audio, pętla masy i ustawianie wzmocnienia:
 
 ---
 
-## 3. Przetwornica step-up 12 → 20 V, 10 A (zalewana)
+## 3. Przetwornica step-up 12 → 20 V
 
 To jedyny element toru, który zasila komputer bezpośrednio. Poprzednie
 wydanie opierało się na posiadanym module XL6019 — **ten moduł nie daje rady**:
 limit prądu klucza 5 A ogranicza go do ok. 45 W ciągłej mocy wyjściowej, co
-wymuszało limit RAPL 28 W na CPU. Zastępuje go zalewany moduł 200 W, który
-przy realnym poborze M910q pracuje z dużym zapasem i bez żadnych ograniczeń
-programowych.
+wymuszało limit RAPL 28 W na CPU. Kupiony potem zalewany moduł „12 → 20 V”
+**też okazał się za słaby**.
+
+> **Wybrany model (11.2026): przetwornica step-up 1200 W / 20 A, wejście
+> 8–60 V, wyjście 12–80 V** (otwarta płytka z dwoma radiatorami
+> i potencjometrami napięcia, prądu i progu wejścia; oferty i linki:
+> [`LISTA_ZAKUPOWA.md`](LISTA_ZAKUPOWA.md) poz. A1). Nastawy: **wyjście
+> 20,0 V**, próg wejścia (UVLO) **10,5 V**. Przy 65–95 W bierze z banku
+> 6–10 A — połowę dopuszczalnych 20 A, bez wentylatora (potrzebny powyżej
+> 15 A wejścia). Moduł **nie ma ochrony przed odwrotną polaryzacją ani
+> przed zwarciem wyjścia** (w boost wyjście łączy się z wejściem przez dławik
+> i diodę) — bezpieczniki F8 i 5 A na wyjściu są obowiązkowe, a potencjometry
+> po nastawieniu zabezpiecz lakierem. Na wyjście dwa kondensatory 470 µF
+> low-ESR (filtr tętnień). Zapas: oryginalna ładowarka samochodowa Lenovo
+> 65 W slim tip (0B47481) z pinem ID — sprawdź jej pracę przy 11 V.
+> Opisy „zalewanego modułu” w §3.1–3.5 zostają jako kryteria (napięcie, test
+> §3.4); wszystko, co mówią o braku regulacji, tego modelu nie dotyczy.
 
 ### 3.1 Napięcie: dlaczego 20 V, a nie 19 V
 
@@ -1515,7 +1531,7 @@ Moduł montuj **w bagażniku, za bankiem, przed rozgałęzieniem odbiorników**
 
 | Bezpiecznik | Wartość | Umiejscowienie |
 |-------------|---------|----------------|
-| Tor ładowania (**F1**) | **20 A**, klasa jak F7 (**MIDI/AMI lub ANL**, zdolność wyłączania ≥ prąd zwarciowy akumulatora rozruchowego wg karty; przyjmij ≥ 2,5 kA) | **maks. 30 cm od klemy „+"** akumulatora rozruchowego — jedyne połączenie zestawu z rozruchowym (poza osobną gałęzią wzmacniacza) |
+| Tor ładowania (**F1**) | **20 A** (w praktyce **MIDI 30 A** — patrz uwaga niżej), klasa jak F7 (**MIDI/AMI lub ANL**, zdolność wyłączania ≥ prąd zwarciowy akumulatora rozruchowego wg karty; przyjmij ≥ 2,5 kA) | **maks. 30 cm od klemy „+"** akumulatora rozruchowego — jedyne połączenie zestawu z rozruchowym (poza osobną gałęzią wzmacniacza) |
 | Na pakiet banku (**FB1…FB7**) | 10 A ATO / mini × 7 | na „+" każdego pakietu, **5–10 cm od zacisku** |
 | Blok L+ → XH-M609 VIN+ (**F7**) | 20 A, **MIDI/AMI lub ANL** | przy bloku L+ — klasa w §7.4 |
 | Przewód ładowania → blok L+ (**F12**) | 15 A, klasa jak F7 | przy bloku L+ (§5.4) |
@@ -1529,6 +1545,14 @@ Moduł montuj **w bagażniku, za bankiem, przed rozgałęzieniem odbiorników**
 | Wyjście step-up | 5 A | przy wyjściu przetwornicy, w bagażniku |
 | Przewód pomiarowy banku (`FEATURE_BATT_ADC`, §13.4) | 1 A | przy banku |
 | Gałąź wzmacniacza | wg karty modułu (20–30 A), klasa jak F1 | osobno, przy klemie akumulatora rozruchowego |
+
+> **Stan rynku (11.2026):** przykręcane MIDI / AMI (Littelfuse 498, MTA
+> MIDIVAL) produkuje się **od 30 A** — 15 i 20 A w tej klasie nie istnieją,
+> a „MIDI 20 A” na Allegro to zwykle wkładka ATO. Lista zakupowa przyjmuje
+> więc **F1, F7 i F12 = MIDI 30 A** (2 kA przy 32 V wg kart producentów),
+> a przewód przy F12 — 6 mm² zamiast 4 mm². 30 A chroni przewody 6 mm²
+> (to wariant opisany niżej przy F1); traci się tylko zapas wkładki nad
+> poborem ładowarek (§13.7 #8).
 
 Bezpiecznik **przy źródle**, nie przy urządzeniu — zwarcie przewodu
 o karoserię w połowie trasy ma być przerwane przy źródle, inaczej cały
@@ -1922,22 +1946,23 @@ w garażu przestaje być opcją i staje się częścią układu** (§10.3).
 | Element | Rola w torze | Uwaga |
 |---------|--------------|-------|
 | **XH-M609** — moduł ochrony | **LVD** (warstwa 3), 11,00 / 12,60 V | przekaźnik 20 A wystarcza; zmierz pobór własny, §7.3 |
-| **CSB HR1221W F2** × 8 (12 V / 5,1 Ah AGM) | bank buforowy | **użyj 7 (35,7 Ah)** — jeden zostaje jako zapas; §4.2 mówi, czego ten jeden pakiet nie załatwia |
+| **CSB HR1221W F2** × 7 (12 V / 5,1 Ah AGM) | bank buforowy 35,7 Ah | wszystkie 7 w banku — sztuki zapasowej nie ma (§4.2) |
 | Lenovo ThinkCentre M910q Tiny + oryginalny zasilacz | komputer; z zasilacza bierzesz kabel z wtykiem (§3.3) | |
-| XL6019 — moduł step-up | **zastąpiony** (§3) | zostaje na półce; nie używaj go zamiast przetwornicy 200 W |
+| XL6019 — moduł step-up | **zastąpiony** (§3) | zostaje na półce |
+| Zalewana przetwornica „12 → 20 V” (kupiona) | **za słaba** (§3) | zostaje na półce |
 
 ### 10.2 Do dokupienia — obowiązkowe
 
 | # | Element | Specyfikacja | Szt. | Cena (PLN) |
 |---|---------|--------------|------|-----------|
-| 1 | **Przetwornica step-up** | zalewana IP67/IP68, 12 V → **20 V, 10 A (200 W)**, wejście ~9–18 V — §3.2; sprawdzenie po zakupie §3.4 | 1 | 60–130 |
+| 1 | **Przetwornica step-up** | **1200 W / 20 A, 8–60 V → 12–80 V**, ustawiona na 20,0 V, UVLO 10,5 V — §3; sprawdzenie po zakupie §3.4; linki w [`LISTA_ZAKUPOWA.md`](LISTA_ZAKUPOWA.md) | 1 | 45–60 |
 | 2 | **Ładowarka CC-CV** | **XY-SK120** (albo XY-SK120X), buck-boost 6–36 V, 6 A / 120 W — §5.2 | **2** | 120–180 |
 | 3 | **Rozłącznik nadnapięciowy** | **XH-M603** (albo XH-M604), 15,30 / 14,00 V — **po jednym na ładowarkę**, §6.3 | **2** | 80–160 |
 | 4 | **Przekaźnik ładowania K1** | 12 V / 30 A SPDT + podstawka (jedyny przekaźnik poza LVD) | 1 | 15–25 |
 | 5 | **Dystrybucja za LVD** | listwa bezpiecznikowa 6–8 obwodów ATO z pokrywą albo płytka B ([`PCB_ZASILANIE.md`](PCB_ZASILANIE.md)) | 1 | 40–70 |
-| 6 | **F1 + oprawka** | 20 A (albo 30 A, jeśli 20 A brak), **MIDI/AMI lub ANL**, zdolność wyłączania ≥ 2,5 kA wg karty, do montażu przy klemie (§8.1) | 1 | do wyceny |
+| 6 | **F1 + oprawka** | **MIDI 30 A** (20 A w tej klasie nie jest produkowane — §8.1), **MIDI/AMI lub ANL**, zdolność wyłączania ≥ 2,5 kA wg karty, do montażu przy klemie (§8.1) | 1 | do wyceny |
 | 7 | **FB1…FB7, FC1, FC2, FK + oprawki inline** | ATO / mini, oprawki na 2,5 mm² (FK na 0,75 mm²); wkładki: FB 10 A, FC 7,5 A, FK 1 A (§5.4) | 10 | 35–57 |
-| 8 | **F7 i F12 + oprawki** | 20 A i 15 A, **MIDI/AMI lub ANL**, zdolność wyłączania ≥ 2,5 kA wg karty (§7.4) | 2 | do wyceny |
+| 8 | **F7 i F12 + oprawki** | **MIDI 30 A** obie (15 / 20 A w tej klasie nie są produkowane — §8.1), **MIDI/AMI lub ANL**, zdolność wyłączania ≥ 2,5 kA wg karty (§7.4) | 2 | do wyceny |
 | 9 | **Wkładki nożowe** | 10 A (F8), 2 A (F9), 3 A (F10), 5 A (F11), 2 A (F13), 5 A (wyjście step-up), 1 A (pomiar), zapas FB 10 A / FC 7,5 A / FK 1 A | kpl. | 10–15 |
 | 9a | **Oprawki inline ATO × 2** do wkładek z poz. 9 | jedna na przewód **4 mm²** (5 A, wyjście step-upu — oprawki z poz. 7 są na 2,5 / 0,75 mm²), jedna na **0,5 mm²** (1 A, pomiar banku) | 2 | 10–20 |
 | 10 | **Buck 12 → 5 V** (logika, Arduino) | **MP1584**, min. 1 A | 1 | 5–10 |
@@ -1982,6 +2007,7 @@ Alternatywa izolowana: VEVOR B2B zamiast poz. 2 (2 × XY-SK120) to
 |---------|----------|
 | Moduł buck XL4016 jako ładowarka (z dawnych notatek) | nie podniesie napięcia do absorpcji — patrz §5.1 |
 | Przetwornica step-up 19 V | na wtyku po 4 m zejdzie poniżej 19 V — §3.1 |
+| Kolejna zalewana „12 → 20 V 10 A” | kupiona okazała się za słaba — §3 |
 | Moduł XL6019 zamiast przetwornicy 200 W | wcześniej użyty, daje ok. 45 W — §3 |
 | Przewód CCA („miedziowane aluminium") | większa rezystancja, gorzej znosi zaciskanie — §8.2 |
 | Jeden XH-M603 na 10 A z dwóch ładowarek | płytka realnie ~8–10 A — §6.3 |
@@ -2340,8 +2366,8 @@ co dla zasilania buforowanego zmienia trzy rzeczy:
 | | Poprzednio (DIY TDA) | Teraz (gotowy moduł) |
 |---|---|---|
 | Bezpiecznik gałęzi | 20 A | **wg karty modułu**, zwykle 20–30 A |
-| Przekrój przewodu | 4 mm² | **6 mm²** (spadek na trasie ~4 m do bagażnika) |
-| Sygnał REM | przez rezystor 1 kΩ | **wprost z zacisku 87** — wejście REM jest wysokoomowe |
+| Przekrój przewodu | 4 mm² | **10 mm²** (6 mm² minimum; spadek na trasie ~4–5 m do bagażnika) |
+| Sygnał REM | przez rezystor 1 kΩ | **z przekaźnika 5 V zasilanego z USB M910q** — gra tylko, gdy BCM działa ([SCHEMATY_POLACZEN.md](SCHEMATY_POLACZEN.md#26-gałąź-wzmacniacza-niezależna)) |
 
 Sama zasada nie zmienia się wcale: gałąź audio idzie prosto z akumulatora
 rozruchowego, ma własną masę lokalną i **nie dotyka banku, LVD ani listwy

@@ -392,7 +392,7 @@ W, H = 1640, 2680
 s = Sheet(W, H,
           "BCM v8.5 — Schemat połączeniowy modułów zasilania (zacisk po zacisku)",
           ["Wersja docelowa, stan 22.11.2026: 2 × XY-SK120 + 2 × XH-M603, bank 7 × CSB HR1221W "
-           "w dwóch koszach 4 + 3 na lince, LVD XH-M609, zalewany step-up 12 → 20 V / 200 W. "
+           "w dwóch koszach 4 + 3 na lince, LVD XH-M609, step-up 1200 W / 20 A ustawiony na 20 V. "
            "Wartości: docs/ZASILANIE_BUFOROWANE.md (ZB).",
            "Czerwony = „+” · czarny = masa · niebieski przerywany = sterowanie · "
            "w białych ramkach numery przewodów z tabel §2 docs/SCHEMATY_POLACZEN.md "
@@ -696,7 +696,7 @@ for (ref, val), y in zip(fuses, ROWS):
 
 # step-up (w bagażniku, przy koszach — ZB §8a.1)
 su = s.module(860, 1500, 270, 130, "mod",
-              ["M4 · step-up 12 → 20 V", "zalewany, 10 A / 200 W, IP67",
+              ["M4 · step-up 12 → 20 V", "1200 W / 20 A, nast. 20,0 V",
                "bez obciążenia 19,9–20,5 V", "czkawka? 470 µF na OUT"], top=62)
 su_in = s.term(su, "l", 1560, "IN+")
 su_m = s.term(su, "l", 1600, "IN−")

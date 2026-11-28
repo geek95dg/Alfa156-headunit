@@ -205,9 +205,9 @@ zwarcie w połowie czterech metrów ma się przepalić w bagażniku (ZB §8.1).
 | 30 | dystrybucja | wstrzykiwacz 5 V telefonu (opcja, ZB §14.6) | 0,75 mm², ~4 m | **F13 2 A** |
 | 31 | IN− LM2596 i MP1584, GND modułu przekaźników i wstrzykiwacza (z przodu) | wspólny powrót → punkt masy przy banku | **2,5 mm²**, ~4 m | — |
 
-> **Przetwornica step-up 12 → 20 V, 10 A (200 W), zalewana.** Moduł
-> bezmarkowy i zwykle bez regulacji — każdą sztukę sprawdzasz na biurku
-> przed zabudową: bez obciążenia **19,9–20,5 V**, przy ~60 W na wyjściu
+> **Przetwornica step-up 12 → 20 V: moduł 1200 W / 20 A (8–60 V → 12–80 V) ustawiony na 20,0 V** (wcześniej: zalewana 200 W — za słaba). Moduł
+> bezmarkowy z potencjometrami — nastaw 20,0 V i próg wejścia 10,5 V,
+> zabezpiecz lakierem i sprawdź na biurku przed zabudową: bez obciążenia **19,9–20,5 V**, przy ~60 W na wyjściu
 > modułu ≥ 19,8 V, na wtyku ≥ 19,5 V, także przy wejściu 11,0 V (ZB §3.4).
 > M910q jest zasilany **stale** — wyjścia przetwornicy nie używa się jako
 > wyłącznika; usypia go impuls z Arduino na przycisk zasilania (§10.5).
@@ -246,9 +246,11 @@ masa, wyzwalanie sygnałem REM.
 
 | # | Skąd | Dokąd | Przewód | Zabezpieczenie |
 |---|------|-------|---------|----------------|
-| 44 | Akumulator „+” | Wzmacniacz **+12V** | 6 mm² | wg karty modułu, przy klemie |
-| 45 | Wzmacniacz **GND** | masa lokalna, przy wzmacniaczu | 6 mm² | — |
-| 46 | linia zapłonu (ACC) | Wzmacniacz **REM** | 0,75 mm² | 2 A |
+| 44 | Akumulator „+” | Wzmacniacz **+12V** | **10 mm²** OFC (6 mm² minimum) | MIDI 40 A (albo wg karty modułu), ≤ 30 cm od klemy |
+| 45 | Wzmacniacz **GND** | masa lokalna, przy wzmacniaczu | jak „+” | — |
+| 46a | gałąź wzmacniacza „+” (za bezpiecznikiem głównym) | przekaźnik REM **COM** | 0,75 mm² | 1 A, przy odczepie |
+| 46b | przekaźnik REM **NO** | Wzmacniacz **REM** | 0,75 mm² | — |
+| 46c | port USB **M910q** (bezpośrednio, nie hub) | moduł przekaźnika 5 V: VCC, IN (aktywne), GND | kabel USB | — |
 
 > **Bezpiecznik dobierz wg karty wzmacniacza**, nie „na oko". Typowy moduł
 > 4 × 50 W RMS ma na płytce bezpiecznik 20–30 A i tyle samo powinien mieć
@@ -256,8 +258,15 @@ masa, wyzwalanie sygnałem REM.
 > (~4 m), nie z samego prądu.
 
 > **Dlaczego nie z banku.** Szczyty 20–30 A przekroczyłyby przekaźnik LVD
-> (20 A) — ZB §2.2. REM idzie z zapłonu: wzmacniacz ma grać, gdy jedziesz,
-> a nie gdy komputer jest w S3.
+> (20 A) — ZB §2.2.
+
+> **REM z pracy BCM, nie ze stacyjki.** Moduł przekaźnika 5 V zasilany
+> z portu USB M910q zwiera 12 V na REM tylko wtedy, gdy komputer działa —
+> w S3 i po wyłączeniu USB nie ma 5 V, przekaźnik puszcza, wzmacniacz gaśnie.
+> Port musi być **bezpośrednio w M910q** (hub jest zasilany z bufora) i musi
+> mieć 0 V w S3 — wyłącz w BIOS ładowanie USB w uśpieniu i sprawdź multimetrem.
+> Zwykły moduł z Arduino ma wejście IN: w wersji „aktywne H” połącz IN z VCC,
+> w wersji „aktywne L” z GND.
 
 > **Masa wzmacniacza osobno.** To jedyny obwód mocy, który **nie** idzie do
 > punktu masy przy banku — wspólna masa z komputerem daje pętlę i przydźwięk
@@ -349,13 +358,20 @@ analogowe**.
 | Skąd | Dokąd | Uwagi |
 |------|-------|-------|
 | M910q, port USB | CP2102 | reguła udev → `/dev/ttyUSB_kline` |
-| CP2102 **TX** | L9637D **pin 1** (TXD) | |
-| CP2102 **RX** | L9637D **pin 2** (RXD) | |
-| L9637D **pin 3** | masa | |
-| L9637D **pin 4** | +5 V | kondensator 100 nF do masy, przy kostce |
-| L9637D **pin 6** (EN) | +5 V | |
-| L9637D **pin 8** (K-Line) | OBD-II **pin 7** | rezystor 510 Ω z linii K do +12 V |
+| CP2102 **TX** | L9637D **pin 4** (TX — wejście nadajnika) | |
+| CP2102 **RX** | L9637D **pin 1** (RX — wyjście odbiornika) | |
+| L9637D **pin 3** (VCC) | +5 V | kondensator 100 nF do masy, przy kostce |
+| L9637D **pin 5** (GND) | masa | wspólna z CP2102 i OBD-II pin 4/5 |
+| L9637D **pin 6** (K) | OBD-II **pin 7** | rezystor 510 Ω z linii K do +12 V (OBD pin 16) |
+| L9637D **pin 7** (VS) | +12 V z OBD-II **pin 16** | przez diodę 1N4007 (ochrona przed odwrotną polaryzacją) |
+| L9637D **pin 2** (LO), **pin 8** (LI) | — | linia L nieużywana (EDC15C7 rozmawia tylko po K) — podłącz wg karty ST |
 | OBD-II **pin 4/5** | masa | |
+
+> **Rozkład pinów wg karty katalogowej ST (L9637):** 1 RX, 2 LO, 3 VCC, 4 TX,
+> 5 GND, 6 K, 7 VS, 8 LI. Układ **nie ma wejścia EN**. L9637**D** to obudowa
+> **SO-8** (nie DIP) — lutuj na płytkę-przejściówkę SO-8 → DIP albo kup gotowy
+> moduł. Wcześniejsze wydania tej tabeli miały piny pomieszane — sprawdź
+> przed lutowaniem z kartą kupionego układu.
 
 ---
 

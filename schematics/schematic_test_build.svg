@@ -418,7 +418,7 @@
 <line class="wp" x1="220" y1="840" x2="220" y2="860"/>
 <rect class="blkb" x="130" y="860" width="200" height="82"/>
 <text class="lbb" x="230.0" y="889.0">M4 · STEP-UP 12 → 20 V</text>
-<text class="lbc" x="230.0" y="905.0">10 A / 200 W, zalewany</text>
+<text class="lbc" x="230.0" y="905.0">1200 W / 20 A → 20 V</text>
 <text class="lbc" x="230.0" y="921.0">limit RAPL niepotrzebny</text>
 <line class="wg" x1="160" y1="942" x2="160" y2="958"/>
 <line class="wg" x1="160" y1="958" x2="160" y2="966"/>

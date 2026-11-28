@@ -58,7 +58,7 @@
 </style>
 <rect class="bg" x="0" y="0" width="1640" height="2680"/>
 <text class="ttl" x="24" y="34">BCM v8.5 — Schemat połączeniowy modułów zasilania (zacisk po zacisku)</text>
-<text class="sub" x="24" y="56">Wersja docelowa, stan 22.11.2026: 2 × XY-SK120 + 2 × XH-M603, bank 7 × CSB HR1221W w dwóch koszach 4 + 3 na lince, LVD XH-M609, zalewany step-up 12 → 20 V / 200 W. Wartości: docs/ZASILANIE_BUFOROWANE.md (ZB).</text>
+<text class="sub" x="24" y="56">Wersja docelowa, stan 22.11.2026: 2 × XY-SK120 + 2 × XH-M603, bank 7 × CSB HR1221W w dwóch koszach 4 + 3 na lince, LVD XH-M609, step-up 1200 W / 20 A ustawiony na 20 V. Wartości: docs/ZASILANIE_BUFOROWANE.md (ZB).</text>
 <text class="sub" x="24" y="73">Czerwony = „+” · czarny = masa · niebieski przerywany = sterowanie · w białych ramkach numery przewodów z tabel §2 docs/SCHEMATY_POLACZEN.md (zgodność z §10 na dole) · przy przewodach przekrój.</text>
 <text class="sub" x="24" y="90">Symbol masy „PM” = JEDEN punkt masy przy banku (blok masowy, ramka B). Szary symbol „31” = wspólny powrót z przodu. Brązowy = nadwozie / masa lokalna.</text>
 <line x1="24" y1="100" x2="1616" y2="100" stroke="#c8d2da" stroke-width="1.5"/>
@@ -580,7 +580,7 @@
 <path class="plus" d="M585 2010 L672 2010"/>
 <rect class="mod" x="860" y="1500" width="270" height="130"/>
 <text class="mt" x="995.0" y="1562">M4 · step-up 12 → 20 V</text>
-<text class="ms" x="995.0" y="1579">zalewany, 10 A / 200 W, IP67</text>
+<text class="ms" x="995.0" y="1579">1200 W / 20 A, nast. 20,0 V</text>
 <text class="ms" x="995.0" y="1596">bez obciążenia 19,9–20,5 V</text>
 <text class="ms" x="995.0" y="1613">czkawka? 470 µF na OUT</text>
 <rect class="term" x="844.8" y="1551.0" width="30.5" height="18"/>

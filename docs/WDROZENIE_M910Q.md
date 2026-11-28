@@ -119,22 +119,22 @@ wspornik. Wszystkie kable spinaj opaskami, bo na dziurach będzie grzechotać.
 |---|---------|--------------|------|-----------|
 | 1 | Mini-PC | Lenovo M910q Tiny (i5-6400T, 8 GB, 256 GB) — używany | 1 | 200–400 |
 | 2 | Karta WiFi + BT | Fenvi FU-AX1800 (MT7921, WiFi 6 + BT 5.2) | 1 | 120–180 |
-| 3 | Przetwornica step-up | zalewana IP67/IP68, **12 V → 20 V, 10 A (200 W)** — rodzina bezmarkowa, test po zakupie: `ZASILANIE_BUFOROWANE.md` §3.4 | 1 | 60–130 |
-| 4 | Wyświetlacz główny | **10,1" IPS 1280×800** + dotyk USB | 1 | 300–500 |
+| 3 | Przetwornica step-up | **1200 W / 20 A, 8–60 V → 12–80 V**, ustawiona na 20,0 V — test po zakupie: `ZASILANIE_BUFOROWANE.md` §3.4 | 1 | 45–60 |
+| 4 | Wyświetlacz główny | **Waveshare 10.1HP-CAPLCD** (10,1" IPS 1280×800, dotyk USB, DDC/CI) albo 10.1DP-CAPLCD | 1 | 330–750 |
 | 5 | Wyświetlacz drugi *(opcjonalny)* | **6,86" widescreen 1280×480**, bez dotyku | 0–1 | 150–300 |
 | 6 | Przejściówki DP → HDMI | pasywne, kablowe | 2 | 20–30 |
 | 7 | DAC USB | ES9038Q2M, wyjście RCA | 1 | 45–75 |
-| 8 | Wzmacniacz | **gotowy 4-kanałowy samochodowy**, wejścia RCA, klasa D, 4 × 50–75 W RMS | 1 | 250–600 |
-| 9 | Kabel zasilający wzmacniacza | 6 mm² + oprawka bezpiecznika przy klemie | kpl. | 40–80 |
-| 10 | Interfejs K-Line | CP2102 (USB-UART) + L9637D + rezystor 510 Ω | 1 | 25–40 |
+| 8 | Wzmacniacz | **gotowy 4-kanałowy samochodowy, używany** (JBL / Alpine itp.), wejścia RCA, REM, 4 × 50–75 W RMS | 1 | 150–450 |
+| 9 | Kabel zasilający wzmacniacza | 10 mm² OFC + MIDI 40 A przy klemie; REM z przekaźnika na USB M910q | kpl. | 120–220 |
+| 10 | Interfejs K-Line | FT232RL albo CP2102 (USB-UART) + L9637D (SO-8) + rezystor 510 Ω | 1 | 30–60 |
 | 11 | Hub USB | 7-portowy USB 3.0 **z własnym zasilaniem** | 1 | 40–60 |
 | 12 | Kable | 2× DP-HDMI, USB-A, zasilanie, RCA | — | 50–80 |
 
 Etapy 2–4 (kamery, czujniki, wejścia, subwoofer, czujnik deszczu) są
 w [`x86-production/01-bom.html`](x86-production/01-bom.html).
 
-**Zasilanie buforowane ma osobną listę zakupową** —
-[`ZASILANIE_BUFOROWANE.md`](ZASILANIE_BUFOROWANE.md) §10.
+**Pełna, aktualna lista zakupowa z linkami** (zasilanie, ekran, K-Line,
+przyciski, wzmacniacz): [`LISTA_ZAKUPOWA.md`](LISTA_ZAKUPOWA.md).
 
 ### 2.3 Rozmieszczenie USB
 
@@ -189,7 +189,7 @@ za tylną kanapą (≈ 16,8 kg z koszami). Ładują go **dwie XY-SK120**
 przy suficie katalogowym 14,7 A), każda z własnym rozłącznikiem
 nadnapięciowym **XH-M603** (15,30 V); przed głębokim rozładowaniem chroni
 **XH-M609** jako LVD (11,0 / 12,60 V). M910q zasila — **stale**, bez
-przekaźnika zapłonu — zalewana **przetwornica step-up 12 → 20 V, 10 A**,
+przekaźnika zapłonu — **przetwornica step-up 1200 W / 20 A ustawiona na 20 V**,
 stojąca w bagażniku przy koszach.
 
 **Konsekwencje dla software'u:**
@@ -817,8 +817,9 @@ z parowaniem telefonów.
 > Szczyty 20–30 A przekroczyłyby przekaźnik LVD (20 A) — i to jest argument
 > rozstrzygający, bo nie zależy od pojemności banku.
 
-Z systemem buforowanym łączy wzmacniacz wyłącznie **sygnał REM z zacisku 87
-i ekran kabla RCA**. Masę prowadź lokalnie, przy wzmacniaczu — wspólna masa
+Z systemem buforowanym łączy wzmacniacz wyłącznie **sygnał REM i ekran kabla
+RCA**. REM daje przekaźnik 5 V zasilany z portu USB M910q — wzmacniacz gra
+tylko, gdy BCM działa ([`SCHEMATY_POLACZEN.md`](SCHEMATY_POLACZEN.md) §2.6). Masę prowadź lokalnie, przy wzmacniaczu — wspólna masa
 z komputerem daje pętlę i przydźwięk alternatora.
 
 Kabel RCA prowadź **po przeciwnej stronie auta niż kabel zasilania**.

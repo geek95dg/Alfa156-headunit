@@ -348,7 +348,7 @@
 <line class="w" x1="360" y1="1262" x2="360" y2="1322"/>
 <rect class="blkm" x="260" y="1322" width="200" height="62"/>
 <text class="mname" x="360" y="1344">M4 · STEP-UP 12 → 20 V</text>
-<text class="vc" x="360" y="1362">zalewany, 200 W (ZB §3)</text>
+<text class="vc" x="360" y="1362">1200 W / 20 A, nast. 20 V (ZB §3)</text>
 <text class="vc" x="360" y="1378">→ M910q, bezp. 5 A w linii</text>
 <circle class="symf" cx="590" cy="1000" r="3.8"/>
 <line class="w" x1="590" y1="1000" x2="590" y2="1010"/>
