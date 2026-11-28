@@ -38,6 +38,11 @@ KEY_F7 = 65   # SWC voice assistant trigger
 KEY_F8 = 66   # SWC audio source cycle
 KEY_F9 = 67   # Stalk button: brightness cycle
 KEY_F10 = 68  # SWC power toggle (BCM on/off)
+# Pro Micro v8.6: long PLAY on the knob panel and the stalk button. F13/F14
+# because Chromium (the kiosk) does nothing with them — F11 would toggle
+# full screen.
+KEY_F13 = 183  # long PLAY on the panel → put BCM to sleep (S3)
+KEY_F14 = 184  # stalk button → next screen
 
 # Map evdev keycodes → event bus topics
 KEYCODE_MAP: dict[int, str] = {
@@ -63,6 +68,9 @@ KEYCODE_MAP: dict[int, str] = {
     KEY_F9: "input.brightness_cycle",
     # SWC power toggle
     KEY_F10: "input.bcm_power_toggle",
+    # Panel / stalk (Pro Micro v8.6)
+    KEY_F13: "input.system_sleep",
+    KEY_F14: "input.screen_next",
 }
 
 # Keyboard key names → keycodes (for x86 development without HID devices)
@@ -86,6 +94,10 @@ KEYBOARD_MAP: dict[str, int] = {
     "f8": KEY_F8,
     # Brightness cycle simulation
     "f9": KEY_F9,
+    # The kiosk browser sees the Pro Micro's F13/F14 too (no evdev grab):
+    # both paths lead to the same action; the handlers are debounced.
+    "f13": KEY_F13,
+    "f14": KEY_F14,
     # Browser/X names for HID consumer-page keys, as sent by the SWC pod via
     # the Arduino. dispatch_keyname() lowercases before lookup, hence these are
     # lowercase. Listed here as well as in web_viewer's _BROWSER_KEY_MAP so any
