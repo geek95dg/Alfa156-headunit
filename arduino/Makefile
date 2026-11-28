@@ -68,7 +68,7 @@ ESP32_TEST_BIN := $(CURDIR)/esp32_display/build/test_host
 # plików) i pod regułą `build/` z .gitignore.
 SENSOR_HUB_VARIANTS ?= BATT_ADC BATT_INA226 WAKE_DOOR WAKE_EXT WAKE_IR \
                        WAKE_DOOR+WAKE_EXT+WAKE_IR+BATT_ADC WAKE_IR+WAKE_DOOR+BATT_INA226 \
-                       FUEL_ADC+BATT_ADC
+                       FUEL_ADC+BATT_ADC FUEL_ADC+FUEL_DRIVE+BATT_ADC
 VARIANTS_BUILD_DIR := $(CURDIR)/build
 
 # Funkcje sensor_hub do włączenia w ZWYKŁEJ kompilacji i wgraniu, np.

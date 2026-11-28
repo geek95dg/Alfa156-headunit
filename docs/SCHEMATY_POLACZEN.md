@@ -409,7 +409,8 @@ i § 7b. Poniżej to, co dotyczy okablowania międzymodułowego.
 
 Patrz §3.3 i §3.4. Funkcje włącza się `#define FEATURE_*` na górze
 `sensor_hub.ino` albo flagą `SENSOR_HUB_FEATURES` — wyłączony `FEATURE`
-zwalnia pin. **A7** — poziom paliwa (`FEATURE_FUEL_ADC`, §4.4).
+zwalnia pin. **A7** — poziom paliwa (`FEATURE_FUEL_ADC`), **D13** — zasilanie
+czujnika paliwa bez zegarów (`FEATURE_FUEL_DRIVE`), §4.4.
 
 ### 4.4 Panel z pokrętłem, przycisk na manetce, czujnik paliwa — podłączenie
 
@@ -517,11 +518,49 @@ Przycisk w manetce to styk w instalacji 12 V auta — **nie wolno** podać
   ekran** (A1 → A2 → A3 → A4 → A1, jak gest z górnej krawędzi). Stare
   zachowanie (cykl jasności, F9): odkomentuj `STALK_F9`.
 
-#### 4.4.3 Czujnik paliwa → dzielnik → Nano #2 A7
+#### 4.4.3 Czujnik paliwa → Nano #2 A7
 
-Czujnik w baku zasilają **zegary** (wskazówka i lampka rezerwy). Arduino
-tylko podgląda napięcie na jego przewodzie — przez dzielnik o dużej
-rezystancji, żeby nie zmienić wskazania zegarów:
+Czujnik w baku 156 to pływak z rezystorem (ok. 10–20 Ω przy pełnym baku,
+ok. 300–340 Ω przy pustym — **zmierz swój** między przewodem sygnałowym
+a masą czujnika, kostka pod tylną kanapą). Są dwa warianty — zależnie od
+tego, czy w aucie są jeszcze fabryczne zegary.
+
+**Wariant docelowy — zegarów nie ma, w ich miejscu ekran BCM
+(`FEATURE_FUEL_ADC` + `FEATURE_FUEL_DRIVE`).** Czujnika nikt już nie
+zasila, więc robi to Nano: przez rezystor 330 Ω z pinu D13, ale **tylko na
+czas pomiaru** (20 ms co 2 s). Stały prąd ~15 mA brałby z banku 0,36 Ah na
+dobę postoju; impulsowo średnio ~0,2 mA.
+
+```
+  Nano #2 D13 ── 330 Ω ──┬── przewód sygnałowy czujnika (pływak w baku)
+                         │
+                         └── 1 kΩ ──┬──● Nano #2 A7
+                                    │
+                                   ═╪═ 100 nF
+                                    │
+  masa czujnika (kostka w baku) ────┴──● Nano #2 GND   (masa wspólna z autem)
+
+  U(A7) = 5 V · R_pływaka / (R_pływaka + 330 Ω)
+  pełny (≈ 15 Ω) → ADC ≈ 44      pusty (≈ 320 Ω) → ADC ≈ 503
+```
+
+- 1 kΩ w szereg z A7 chroni wejście przed zakłóceniami z długiego przewodu
+  do bagażnika (~4 m); prąd wejścia ADC jest pomijalny, więc nie fałszuje
+  pomiaru. Przewód 0,5 mm², z dala od zasilania wzmacniacza.
+- D13 ma na płytce Nano diodę LED — mrugnie przy każdym pomiarze, to normalne.
+  D13 nie może być jednocześnie wejściem airbag (`FEATURE_AIRBAG`) —
+  firmware odmówi kompilacji.
+- Lampka rezerwy, którą dawały zegary, jest teraz w BCM: rezerwa od 8 l
+  (`fuel_sender.reserve_litres`), komunikat głosowy i pasek na A1.
+- **Uwaga przy usuwaniu zegarów:** zegary dają też kontrolki (ciśnienie
+  oleju, ładowanie, hamulce, ABS, airbag, świece żarowe) i prędkościomierz.
+  Te sygnały muszą trafić do BCM (K-Line z ECU, wejścia Nano #2) albo zostać
+  jako osobne kontrolki — inaczej auto nie przejdzie przeglądu, a o
+  awarii nie będziesz wiedzieć.
+
+**Wariant przejściowy — zegary jeszcze są (`FEATURE_FUEL_ADC` bez
+`FUEL_DRIVE`).** Czujnik zasilają zegary, Arduino tylko podgląda napięcie
+na jego przewodzie przez dzielnik o dużej rezystancji:
 
 ```
   przewód sygnałowy czujnika ──┬── 100 kΩ ──┬──●  Nano #2 A7
@@ -533,15 +572,16 @@ rezystancji, żeby nie zmienić wskazania zegarów:
                                                      Nano #2 GND
 ```
 
-- **Nie** podłączaj tu żadnego zasilania z Arduino ani rezystora do 5 V —
+- W tym wariancie **nie** podłączaj D13 ani żadnego zasilania z Arduino —
   dołożyłbyś drugie źródło do obwodu zegarów i wskazówka zaczęłaby kłamać.
-- Przewód sygnałowy znajdź na schemacie dla swojego rocznika i potwierdź
-  multimetrem: przy włączonym zapłonie napięcie zmienia się z poziomem
-  paliwa (zwykle w zakresie 1–8 V).
-- Firmware: `make -C arduino sensor_hub-upload PORT=… SENSOR_HUB_FEATURES="FUEL_ADC …"`
-  → linia `FUEL:<0-1023>` co 2 s → moduł `fuel_sender` w BCM. Tabelę
-  ADC → % (`fuel_sender.calibration` w `config/local.yaml`) wypełnij przy
-  tankowaniach: odczyt ADC przy prawie pustym baku, przy połowie i do pełna.
+
+**Oba warianty:** firmware
+`make -C arduino sensor_hub-upload PORT=… SENSOR_HUB_FEATURES="FUEL_ADC FUEL_DRIVE …"`
+(bez `FUEL_DRIVE` w wariancie z zegarami) → linia `FUEL:<0-1023>` co 2 s →
+moduł `fuel_sender` w BCM (`modules.fuel_sender: true`). Tabelę ADC → %
+(`fuel_sender.calibration` w `config/local.yaml`) wypełnij przy
+tankowaniach: odczyt przy prawie pustym baku, przy połowie i do pełna
+(numer ADC widać w logu BCM i na porcie Nano).
 
 ---
 

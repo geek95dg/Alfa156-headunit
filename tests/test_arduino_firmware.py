@@ -431,7 +431,8 @@ def _syntax(host_tree, *defines):
 
 
 @pytest.mark.parametrize("defines", [(), ("-DFEATURE_BATT_ADC",), ("-DFEATURE_BATT_INA226",),
-                                     ("-DFEATURE_FUEL_ADC", "-DFEATURE_BATT_ADC")])
+                                     ("-DFEATURE_FUEL_ADC", "-DFEATURE_BATT_ADC"),
+                                     ("-DFEATURE_FUEL_ADC", "-DFEATURE_FUEL_DRIVE")])
 def test_host_syntax_of_each_variant(host_tree, defines):
     res = _syntax(host_tree, *defines)
     assert res.returncode == 0, res.stderr
@@ -441,6 +442,8 @@ def test_host_syntax_of_each_variant(host_tree, defines):
     (("-DFEATURE_BATT_ADC", "-DFEATURE_BATT_INA226"), "Wybierz jedno zrodlo"),
     (("-DFEATURE_BATT_INA226", "-DFEATURE_CRUISE"), "FEATURE_BATT_INA226 uzywa A4/A5"),
     (("-DFEATURE_BATT_INA226", "-DFEATURE_IMMO"), "FEATURE_BATT_INA226 uzywa A4/A5"),
+    (("-DFEATURE_FUEL_DRIVE",), "FEATURE_FUEL_DRIVE wymaga FEATURE_FUEL_ADC"),
+    (("-DFEATURE_FUEL_ADC", "-DFEATURE_FUEL_DRIVE", "-DFEATURE_AIRBAG"), "FEATURE_FUEL_DRIVE zasila"),
 ])
 def test_host_guards_fire(host_tree, defines, message):
     res = _syntax(host_tree, *defines)

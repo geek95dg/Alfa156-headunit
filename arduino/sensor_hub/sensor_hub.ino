@@ -63,10 +63,15 @@
 // #define FEATURE_AIRBAG  // airbag OK (D13, uwaga: pin z LED) — opcja
 // #define FEATURE_BATT_ADC    // napięcie banku przez dzielnik 100k/27k na A6
                                // (ZASILANIE_BUFOROWANE.md §13.4). Tylko napięcie.
-// #define FEATURE_FUEL_ADC    // poziom paliwa: napięcie przewodu czujnika
-                               // w baku przez dzielnik 100k/47k na A7 (tylko
-                               // odczyt — zegary dalej zasilają czujnik).
-                               // Linia FUEL:<0-1023> co 2 s → BCM fuel_sender.
+// #define FEATURE_FUEL_ADC    // poziom paliwa z czujnika w baku na A7, linia
+                               // FUEL:<0-1023> co 2 s → BCM fuel_sender.
+                               // Bez FUEL_DRIVE: zegary zasilają czujnik,
+                               // Nano tylko podgląda (dzielnik 100k/47k).
+// #define FEATURE_FUEL_DRIVE  // + zegarów NIE MA (ekran BCM w ich miejscu):
+                               // Nano zasila czujnik sam — pull-up 330 Ω
+                               // z D13, podawany tylko na czas pomiaru
+                               // (~0,2 mA średnio). Wymaga FEATURE_FUEL_ADC,
+                               // wyklucza się z FEATURE_AIRBAG (D13).
 // #define FEATURE_BATT_INA226 // INA226 na I2C (A4=SDA, A5=SCL) + bocznik
                                // — napięcie I prąd banku. Zalecane: prąd
                                // odróżnia ładowanie od postoju i pozwala
@@ -116,8 +121,10 @@
  *   A6  Dzielnik napięcia banku        (FEATURE_BATT_ADC; wejście tylko
  *       analogowe: +BANK─100k─┬─A6, ┴─27k─GND, 100 nF A6─GND)
  *   A7  Czujnik paliwa                 (FEATURE_FUEL_ADC; wejście tylko
- *       analogowe: SYGNAŁ─100k─┬─A7, ┴─47k─GND, 100 nF A7─GND, Zener
- *       5V1 A7─GND; NIE zasilaj czujnika z Arduino — robią to zegary)
+ *       analogowe). Z zegarami: SYGNAŁ─100k─┬─A7, ┴─47k─GND, 100 nF A7─GND,
+ *       Zener 5V1 A7─GND — NIE zasilaj czujnika, robią to zegary.
+ *       Bez zegarów (FEATURE_FUEL_DRIVE): D13─330 Ω─┬─SYGNAŁ czujnika,
+ *       węzeł─1 kΩ─A7, 100 nF A7─GND; drugi koniec czujnika do masy.
  *
  * Watchdog: 2 s — zawieszenie = automatyczny reset.
  *
@@ -242,6 +249,12 @@
 #endif
 #if defined(FEATURE_WAKE_IR) && defined(FEATURE_PARK)
 #error "Konflikt pinow: FEATURE_PARK uzywa A3 na ECHO HC-SR04, FEATURE_WAKE_IR na TSOP"
+#endif
+#if defined(FEATURE_FUEL_DRIVE) && !defined(FEATURE_FUEL_ADC)
+#error "FEATURE_FUEL_DRIVE wymaga FEATURE_FUEL_ADC"
+#endif
+#if defined(FEATURE_FUEL_DRIVE) && defined(FEATURE_AIRBAG)
+#error "Konflikt pinow: FEATURE_FUEL_DRIVE zasila czujnik paliwa z D13, FEATURE_AIRBAG czyta D13"
 #endif
 #if defined(FEATURE_WAKE_EXT) && defined(FEATURE_PARK)
 #error "Konflikt pinow: FEATURE_PARK uzywa A2 na ECHO HC-SR04, FEATURE_WAKE_EXT na PC817"
@@ -453,10 +466,24 @@ void battReport() {
 // — punkty z tankowań, docs/LISTA_ZAKUPOWA.md sekcja C).
 #define PIN_FUEL_ADC     A7
 #define FUEL_ADC_SAMPLES  9          // nieparzyście — mediana (paliwo chlupie)
+#ifdef FEATURE_FUEL_DRIVE
+// Bez zegarów: Nano podaje 5 V przez 330 Ω na czujnik (pływak 156: ok.
+// 10–20 Ω pełny … ok. 300–340 Ω pusty — zmierz swój). Prąd do ~15 mA,
+// więc NIE stale (15 mA × doba postoju = 0,36 Ah z banku), tylko na
+// FUEL_DRIVE_SETTLE_MS przy każdym pomiarze co 2 s → średnio ~0,2 mA.
+// D13 ma diodę LED na płytce — będzie mrugać przy pomiarze, to normalne.
+#define PIN_FUEL_DRIVE        13
+#define FUEL_DRIVE_SETTLE_MS  20     // naładowanie 100 nF przez 1 kΩ + zapas
+#endif
 static_assert(FUEL_ADC_SAMPLES % 2 == 1 && FUEL_ADC_SAMPLES <= 31,
               "FUEL_ADC_SAMPLES: nieparzysta liczba <= 31");
 
 void fuelReport() {
+#ifdef FEATURE_FUEL_DRIVE
+  pinMode(PIN_FUEL_DRIVE, OUTPUT);
+  digitalWrite(PIN_FUEL_DRIVE, HIGH);  // zasil czujnik na czas pomiaru
+  delay(FUEL_DRIVE_SETTLE_MS);
+#endif
   analogRead(PIN_FUEL_ADC);            // przełącz multiplekser, odrzuć
   delayMicroseconds(200);
   int s[FUEL_ADC_SAMPLES];
@@ -469,6 +496,9 @@ void fuelReport() {
     while (j >= 0 && s[j] > v) { s[j + 1] = s[j]; j--; }
     s[j + 1] = v;
   }
+#ifdef FEATURE_FUEL_DRIVE
+  digitalWrite(PIN_FUEL_DRIVE, LOW);   // czujnik bez prądu do następnego pomiaru
+#endif
   Serial.print(F("FUEL:"));
   Serial.println(s[FUEL_ADC_SAMPLES / 2]);
 }
