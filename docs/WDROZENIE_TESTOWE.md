@@ -631,8 +631,11 @@ kostki odbiornika) do **A6** — oba z **pull-upem 1 kΩ do 5 V**, kostki:
 czerwony → +12 V (bezpiecznik 1 A), czarny → masa wspólna z Arduino.
 **Uwaga: na płytce nie ma pola „A6" — to pad opisany `4`** (na 32U4 kanały
 A6–A11 siedzą pod numerami cyfrowymi; opisane analogowo są tylko A0–A3).
-Kalibracja na porcie szeregowym (115200): `CAL` — adapter na A0, `CAL2` —
-panel na A6, `ADC2` — podgląd odczytu panelu. Progi zapisują się w EEPROM.
+Progi panelu na A6: rezystancje zmierzone na stole wpisujesz w tabelę
+`PANEL_R_OHM` w `rotary_encoder.ino` (firmware przelicza je na ADC); `VAL2`
+na porcie szeregowym (115200) je pokazuje. Zapasowo kalibracja: `CAL` —
+adapter na A0, `CAL2` — panel (EEPROM, `RESET2` wraca do tabeli), `ADC2` —
+podgląd odczytu panelu.
 Schemat, wartości i długie PLAY (uśpienie):
 [`SCHEMATY_POLACZEN.md`](SCHEMATY_POLACZEN.md#44-panel-z-pokrętłem-przycisk-na-manetce-czujnik-paliwa--podłączenie).
 

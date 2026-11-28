@@ -460,15 +460,25 @@ Razem z rezystancją przycisku tworzy dzielnik napięcia:
   przewodem, którym idzie GND Pro Micro. Bez wspólnej masy odczyty pływają.
 - **Sam panel** ma akumulator ładowany po USB-C; jeśli chcesz go mieć
   na stałe podłączonego, daj mu stałe 5 V z hubu USB albo z LM2596.
-- **Kalibracja (obowiązkowa, raz):** po podłączeniu otwórz monitor portu
-  szeregowego Pro Micro (115200 bodów), wpisz **`ADC2`** — przez 5 s co
-  0,2 s zobaczysz odczyt: w spoczynku ma być **> 1000**, przy trzymanym
-  przycisku stała liczba. Potem **`CAL2`** i naciskaj po kolei: VOL+
-  (pokrętło w prawo), VOL− (w lewo), PLAY (wciśnięcie pokrętła), NEXT,
-  PREV, MUTE, PICKUP (odbierz), HANGUP (odrzuć), VOICE (mikrofon).
-  Wartości trafiają do EEPROM. Komunikat „za blisko” = dwa przyciski
-  dają prawie ten sam odczyt → spróbuj pull-upu 2,2 kΩ i skalibruj jeszcze
-  raz. Do czasu kalibracji panel nic nie wysyła (celowo).
+- **Wartości przycisków — pomiar na stole (zalecane):** zasil kostkę
+  12 V, multimetrem na zakresie Ω zmierz rezystancję między **białym
+  (KEY1) a czarnym (GND)** przy trzymanym każdym przycisku (pokrętło w prawo
+  i w lewo to VOL+ i VOL−) i wpisz liczby w tabelę `PANEL_R_OHM` w
+  `arduino/rotary_encoder/rotary_encoder.ino` — w tej kolejności:
+  VOL+, VOL−, PLAY, NEXT, PREV, MUTE, PICKUP, HANGUP, VOICE. `0` = nie
+  zmierzono (przycisk ignorowany); przycisk zwierający całkiem do masy
+  wpisz jako `1`. Firmware przelicza je sam: ADC = 1023 · R / (R + 1 kΩ).
+  Wgraj (`make -C arduino rotary_encoder-upload PORT=/dev/ttyACM0`) i na
+  porcie szeregowym (115200) wpisz **`VAL2`** — pokaże progi; ostrzeżenie
+  „za blisko” = dwa przyciski by się myliły (zmień `PANEL_PULLUP_OHM`
+  i rezystor, np. na 2,2 kΩ).
+  - Gdy omomierz na zasilonej kostce pokazuje bzdury (to układ aktywny),
+    zmierz zamiast tego napięcie na A6 z wlutowanym pull-upem albo wpisz
+    **`ADC2`** i odczytaj liczbę przy trzymanym przycisku; rezystancja do
+    tabeli to R = 1000 · ADC / (1023 − ADC) (z napięcia: ADC = U / 5 V · 1023).
+  - Zapasowo jest kalibracja automatyczna **`CAL2`** (naciskasz przyciski
+    po kolei, zapis w EEPROM); ma pierwszeństwo przed tabelą — **`RESET2`**
+    kasuje ją i wraca do `PANEL_R_OHM`.
 - **Długie PLAY = uśpienie BCM (S3):** trzymaj wciśnięte pokrętło
   **2 s**. Krótko = odtwarzaj/pauza. Działa tylko, jeśli kostka trzyma
   stan na KEY1 przez cały czas trzymania przycisku — sprawdzisz to `ADC2`

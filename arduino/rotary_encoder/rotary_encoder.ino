@@ -102,7 +102,8 @@
  * Kostka zwiera KEY1 do masy przez inną rezystancję dla każdego przycisku,
  * dokładnie jak adapter SWC na A0. Dlatego: KEY1 → A6 (= D4) + pull-up
  * **1 kΩ do 5 V**, masa kostki wspólna z GND Pro Micro.
- * Przyciski panelu (FEATURE_PANEL, kalibracja: CAL2):
+ * Przyciski panelu (FEATURE_PANEL; progi z tabeli PANEL_R_OHM — rezystancje
+ * zmierzone multimetrem na stole; zapasowo kalibracja CAL2):
  *   VOL+ / VOL- (pokrętło), PLAY (wciśnięcie pokrętła), NEXT, PREV, MUTE,
  *   PICKUP, HANGUP, VOICE (mikrofon).
  * PLAY: krótko → MEDIA_PLAY_PAUSE; trzymane ≥ PLAY_LONG_MS → F13
@@ -241,12 +242,28 @@ const Action PANEL_ACTIONS[PANEL_BUTTON_COUNT] = {
   ACT_VOLUP, ACT_VOLDN, ACT_PLAY, ACT_NEXT, ACT_PREV, ACT_MUTE,
   ACT_PICKUP, ACT_HANGUP, ACT_VOICE,
 };
-// Rezystancji tej kostki nie znamy — do pierwszej kalibracji (CAL2) żaden
-// przycisk panelu nie jest rozpoznawany (wartość większa niż każdy odczyt).
-uint16_t panelValues[PANEL_BUTTON_COUNT] = {
-  ADC_UNSET, ADC_UNSET, ADC_UNSET, ADC_UNSET, ADC_UNSET,
-  ADC_UNSET, ADC_UNSET, ADC_UNSET, ADC_UNSET,
+// ZMIERZONE NA STOLE rezystancje kostki (Ω) — biały KEY1 ↔ czarny GND przy
+// trzymanym przycisku, kostka zasilona 12 V (tak samo mierzono adapter na A0).
+// Kolejność jak PANEL_NAMES. 0 = nie zmierzono → przycisk ignorowany.
+// Firmware sam przelicza je na progi ADC dla pull-upu PANEL_PULLUP_OHM:
+//   ADC = 1023 * R / (R + PANEL_PULLUP_OHM)
+// Mierzysz napięcie zamiast rezystancji? Z odczytu `ADC2` (albo z U na A6
+// przy 5 V: ADC = U / 5 V * 1023) rezystancja to R = 1000 * ADC / (1023 − ADC).
+// Kalibracja CAL2 (zapis w EEPROM) ma pierwszeństwo przed tą tabelą;
+// RESET2 kasuje ją i wraca do wartości stąd.
+#define PANEL_PULLUP_OHM 1000UL     // rezystor z A6 do 5 V
+const uint32_t PANEL_R_OHM[PANEL_BUTTON_COUNT] = {
+  0,   // VOL+   (pokrętło w prawo)
+  0,   // VOL-   (pokrętło w lewo)
+  0,   // PLAY   (wciśnięcie pokrętła; trzymane 2 s = uśpienie)
+  0,   // NEXT
+  0,   // PREV
+  0,   // MUTE
+  0,   // PICKUP (odbierz)
+  0,   // HANGUP (odrzuć)
+  0,   // VOICE  (mikrofon)
 };
+uint16_t panelValues[PANEL_BUTTON_COUNT];   // wypełnia panelFromOhms()
 
 // --- EEPROM layout ---
 // Pod 1 zostaje tam, gdzie był (kalibracje z v8.5.4 przeżywają aktualizację).
@@ -330,6 +347,7 @@ void tapKey(KeyboardKeycode k);
 int8_t readLadder(const LadderPod &p);
 void handlePod(LadderPod &p, unsigned long now);
 void loadCalibration();
+void panelFromOhms();
 void calibratePod(LadderPod &p, uint8_t magicAddr, uint8_t magicValue, uint8_t dataAddr);
 void handleSerialCommand();
 #endif
@@ -397,6 +415,9 @@ void setup() {
   // readStringUntil() blokowałby pętlę na sekundę przy każdym przebiegu.
   Serial.setTimeout(50);
 
+#ifdef FEATURE_PANEL
+  panelFromOhms();                   // tabela z pomiarów; EEPROM (CAL2) nadpisze
+#endif
 #if defined(FEATURE_SWC) || defined(FEATURE_PANEL)
   loadCalibration();
 #ifdef FEATURE_SWC
@@ -422,7 +443,7 @@ void setup() {
   Serial.println(F("SWC (A0): wpisz CAL i Enter, aby skalibrowac"));
 #endif
 #ifdef FEATURE_PANEL
-  Serial.println(F("PANEL (A6): wpisz CAL2 i Enter, aby skalibrowac; ADC2 = podglad"));
+  Serial.println(F("PANEL (A6): progi z PANEL_R_OHM; CAL2 = kalibracja, RESET2, VAL2, ADC2"));
 #endif
 
   // Watchdog ON dopiero po (ewentualnej) kalibracji — kalibracja
@@ -720,6 +741,36 @@ void reportLightLevel() {
 #if defined(FEATURE_SWC) || defined(FEATURE_PANEL)
 // --- Kalibracja podów (EEPROM) ---
 
+#ifdef FEATURE_PANEL
+// PANEL_R_OHM → progi ADC (zaokrąglone). 0 Ω w tabeli = „nie zmierzono”,
+// więc przycisk zwierający całkiem do masy wpisz jako 1 Ω.
+void panelFromOhms() {
+  for (uint8_t i = 0; i < PANEL_BUTTON_COUNT; i++) {
+    uint32_t r = PANEL_R_OHM[i];
+    panelValues[i] = r == 0 ? ADC_UNSET
+        : (uint16_t)((1023UL * r + (r + PANEL_PULLUP_OHM) / 2) / (r + PANEL_PULLUP_OHM));
+  }
+  // Dwa przyciski za blisko siebie → myliłyby się: ostrzeżenie na porcie.
+  for (uint8_t i = 0; i < PANEL_BUTTON_COUNT; i++) {
+    for (uint8_t j = i + 1; j < PANEL_BUTTON_COUNT; j++) {
+      if (panelValues[i] != ADC_UNSET && panelValues[j] != ADC_UNSET
+          && abs((int)panelValues[i] - (int)panelValues[j]) < ADC_TOLERANCE) {
+        Serial.print(F("PANEL UWAGA: "));
+        Serial.print(PANEL_NAMES[i]);
+        Serial.print(F(" i "));
+        Serial.print(PANEL_NAMES[j]);
+        Serial.println(F(" za blisko — inny pull-up (PANEL_PULLUP_OHM)"));
+      }
+    }
+    if (panelValues[i] != ADC_UNSET && panelValues[i] > SWC_IDLE_THRESHOLD - ADC_TOLERANCE) {
+      Serial.print(F("PANEL UWAGA: "));
+      Serial.print(PANEL_NAMES[i]);
+      Serial.println(F(" prawie jak spoczynek — mniejszy pull-up albo kalibracja"));
+    }
+  }
+}
+#endif
+
 static void loadPod(LadderPod &p, uint8_t magicAddr, uint8_t magicValue, uint8_t dataAddr) {
   if (EEPROM.read(magicAddr) != magicValue) {
     Serial.print(p.tag);
@@ -796,7 +847,8 @@ void calibratePod(LadderPod &p, uint8_t magicAddr, uint8_t magicValue, uint8_t d
   Serial.println();
 }
 
-// CAL — pod SWC (A0), CAL2 — panel (A6), ADC2 — 5 s podglądu surowego ADC
+// CAL — pod SWC (A0), CAL2 — panel (A6), RESET2 — wróć do PANEL_R_OHM,
+// VAL2 — pokaż progi panelu, ADC2 — 5 s podglądu surowego ADC
 // panelu (sprawdzenie pull-upu i tego, czy kostka trzyma stan przy
 // przytrzymaniu — od tego zależy długie PLAY).
 void handleSerialCommand() {
@@ -811,6 +863,16 @@ void handleSerialCommand() {
 #ifdef FEATURE_PANEL
   if (cmd.equalsIgnoreCase("CAL2")) {
     calibratePod(panelPod, EEPROM_PANEL_MAGIC_ADDR, EEPROM_PANEL_MAGIC_VALUE, EEPROM_PANEL_ADDR);
+  } else if (cmd.equalsIgnoreCase("RESET2")) {
+    EEPROM.write(EEPROM_PANEL_MAGIC_ADDR, 0xFF);    // kalibracja CAL2 skasowana
+    panelFromOhms();
+    Serial.println(F("PANEL: progi z tabeli PANEL_R_OHM (EEPROM skasowany)"));
+  } else if (cmd.equalsIgnoreCase("VAL2")) {
+    for (uint8_t i = 0; i < PANEL_BUTTON_COUNT; i++) {
+      Serial.print(PANEL_NAMES[i]);
+      Serial.print(F(": "));
+      Serial.println(panelValues[i]);
+    }
   } else if (cmd.equalsIgnoreCase("ADC2")) {
     for (uint8_t i = 0; i < 25; i++) {
       Serial.print(F("ADC2: "));

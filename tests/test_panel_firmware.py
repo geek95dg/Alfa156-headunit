@@ -86,11 +86,21 @@ class TestSketch:
         assert [a.replace("ACT_", "") for a in acts] == [
             "VOLUP", "VOLDN", "PLAY", "NEXT", "PREV", "MUTE", "PICKUP", "HANGUP", "VOICE"]
 
-    def test_uncalibrated_panel_never_matches(self, ino):
+    def test_panel_thresholds_come_from_measured_ohms(self, ino):
         code = _code(ino)
-        vals = re.search(r"panelValues\[PANEL_BUTTON_COUNT\] = \{(.*?)\};", code, re.S).group(1)
-        assert set(re.findall(r"\w+", vals)) == {"ADC_UNSET"}
+        table = re.search(r"PANEL_R_OHM\[PANEL_BUTTON_COUNT\] = \{(.*?)\};", code, re.S).group(1)
+        assert len(re.findall(r"\d+", table)) == 9          # one entry per button
+        assert "#define PANEL_PULLUP_OHM 1000UL" in code
+        assert "r == 0 ? ADC_UNSET" in code                 # not measured → never matches
         assert "if (p.values[i] == ADC_UNSET) continue;" in code
+        # setup: table first, then EEPROM (CAL2) may override
+        setup = code.split("void setup() {", 1)[1]
+        assert setup.index("panelFromOhms();") < setup.index("loadCalibration();")
+
+    @pytest.mark.parametrize("ohm, adc", [(1, 1), (470, 327), (1000, 512), (14660, 958)])
+    def test_ohm_to_adc_formula(self, ohm, adc):
+        # the integer expression from panelFromOhms(), rounded
+        assert (1023 * ohm + (ohm + 1000) // 2) // (ohm + 1000) == adc
 
     def test_long_play_sends_f13_and_stalk_f14(self, ino):
         code = _code(ino)
@@ -102,7 +112,7 @@ class TestSketch:
 
     def test_serial_commands(self, ino):
         code = _code(ino)
-        for cmd in ("CAL", "CAL2", "ADC2"):
+        for cmd in ("CAL", "CAL2", "ADC2", "RESET2", "VAL2"):
             assert f'equalsIgnoreCase("{cmd}")' in code
 
 
