@@ -5,7 +5,7 @@ Pełna lista do instalacji docelowej w Alfie 156 1.9 JTD:
 - **A.** zasilanie buforowe (bank 7 × AGM, przetwornica do M910q, ładowanie z alternatora);
 - **B.** ekran 10,1" 1280 × 800 z dotykiem;
 - **C.** dane auta po K-Line (temperatura płynu, obroty, prędkość) i poziom paliwa;
-- **D.** przyciski: przełączanie ekranów przyciskiem w manetce, panel z przyciskami, **play/pause — długie naciśnięcie usypia / budzi BCM**;
+- **D.** przyciski: przełączanie ekranów przyciskiem w manetce, panel z pokrętłem (drabinka rezystorowa), **play/pause — długie naciśnięcie usypia BCM (S3)**;
 - **E.** wzmacniacz (używany, kompletny) z własnym zasilaniem z akumulatora, **włączany sygnałem pracy BCM**, a nie stacyjką.
 
 Uzasadnienia i nastawy toru zasilania: [`ZASILANIE_BUFOROWANE.md`](ZASILANIE_BUFOROWANE.md) (dalej **ZB**).
@@ -25,7 +25,7 @@ Uzasadnienia i nastawy toru zasilania: [`ZASILANIE_BUFOROWANE.md`](ZASILANIE_BUF
 | A. Zasilanie buforowe (bez stali na kosze) | ~1150–1650 |
 | B. Ekran 10,1" | ~380–750 |
 | C. K-Line, paliwo, temperatura | ~60–130 |
-| D. Przyciski | ~110–150 |
+| D. Przyciski | ~100–130 |
 | E. Wzmacniacz używany + okablowanie + sterowanie REM | ~400–850 |
 | **Razem** | **~2100–3500** |
 
@@ -203,31 +203,22 @@ Dwa kosze stalowe wg [`mechanika/kosze_HR1221W_4+3.pdf`](mechanika/kosze_HR1221W
 
 ---
 
-## D. Przyciski: manetka, panel, play/pause
+## D. Przyciski: manetka, panel z pokrętłem
 
 | Funkcja | Jak | Co kupić |
 |---------|-----|----------|
-| **Przełączanie ekranów** przyciskiem w manetce | styk manetki → transoptor → Pro Micro **A2** (dziś wejście „przycisk z manetki”) | D1 |
-| **Panel z przyciskami** z AliExpress | przyciski → wejścia Pro Micro (BTN 5–9 lub wolne) | D2, D1 (jeśli panel przełącza 12 V) |
-| **Play/pause: krótko = odtwarzaj/pauza, długo (≥ 2 s) = uśpij / obudź BCM** | ten sam przycisk na **dwa** kanały transoptora: do Pro Micro (krótkie, gdy BCM działa) i do **Nano #2, wejście A2** (`FEATURE_WAKE_EXT`) — Nano #2 jest zasilany z bufora, więc obudzi M910q także z uśpienia (S3), gdy USB jest martwe | D1 (2 kanały) |
+| **Przełączanie ekranów** przyciskiem w manetce | styk manetki (12 V) → transoptor PC817 → Pro Micro **A2** → następny ekran | D1 |
+| **Panel z pokrętłem** (głośność, dalej, wstecz, mikrofon, wyciszenie, odbierz, odrzuć, play/pause) | kostka odbiornika to drabinka rezystorowa: biały **KEY1 → Pro Micro A6** z **pull-upem 1 kΩ do 5 V**, czerwony → +12 V z bufora przez 1 A, czarny → masa wspólna z Arduino | D2, D3 |
+| **Play/pause: krótko = odtwarzaj/pauza, trzymane 2 s = uśpienie BCM (S3)** | w firmware Pro Micro (v8.6) — nic więcej do kupienia | — |
+
+Schemat, wzór ADC, kalibracja (`CAL2`) i sprawdzenie (`ADC2`):
+`SCHEMATY_POLACZEN.md` §4.4 (PR z firmware).
 
 | # | Element | Specyfikacja / po co | Szt. | Cena (PLN) | Gdzie |
 |---|---------|----------------------|------|-----------|-------|
-| D1 | **Moduł transoptorów PC817, 4 kanały, wersja 12 V → 5 V** | izolacja 12 V instalacji od Arduino: kanał 1 manetka, kanały 2–3 play/pause (Pro Micro + Nano #2), kanał 4 zapas / panel | 1 | 12–25 | 🔎 [Allegro](https://allegro.pl/listing?string=PC817%204%20kana%C5%82y%20optoizolator%2012V%205V) · 🔎 [AliExpress](https://www.aliexpress.com/w/wholesale-PC817-4-channel-optocoupler-isolation-board-12V-to-5V.html) |
-| D2 | **Panel z przyciskami** — [Twój link z AliExpress](https://pl.aliexpress.com/item/1005009589029595.html) | — | 1 | ~80 | AliExpress |
-| D3 | Bezpiecznik inline 1 A + oprawka (A11/A12), przewód 0,5 mm², złącza (JST-XH lub konektory samochodowe 2–6 pin) | zasilanie 12 V dla wejść transoptorów z bufora, wiązka do panelu | kpl. | 15–30 | 🔎 [Allegro](https://allegro.pl/listing?string=z%C5%82%C4%85cze%20samochodowe%20wodoodporne%204%20pin%20zestaw) |
-
-> **Panel z linku — potrzebuję szczegółów.** Z tej sesji nie da się otworzyć
-> AliExpress, więc nie wiem, czy panel to same styki, drabinka rezystorów, USB
-> czy coś innego, ani jakie ma podświetlenie. Wklej tytuł oferty, opis i zdjęcie
-> złącza — dopiszę dokładne okablowanie.
-
-> **Oprogramowanie do zrobienia** (osobny PR, nie zakupy): Pro Micro —
-> przycisk z manetki zamiast cyklu jasności ma wysyłać „następny ekran”;
-> Nano #2 — długie naciśnięcie na A2 = impuls przycisku zasilania (uśpij / obudź),
-> krótkie ignorowane; odczyt paliwa na A7.
-
----
+| D1 | **Moduł transoptora PC817, wersja 12 V → 5 V** (1–4 kanały) | izolacja przycisku z manetki od Arduino; wolne kanały na zapas | 1 | 8–25 | 🔎 [Allegro](https://allegro.pl/listing?string=PC817%204%20kana%C5%82y%20optoizolator%2012V%205V) · 🔎 [AliExpress](https://www.aliexpress.com/w/wholesale-PC817-4-channel-optocoupler-isolation-board-12V-to-5V.html) |
+| D2 | **Panel z pokrętłem** — [Twój link z AliExpress](https://pl.aliexpress.com/item/1005009589029595.html) | kostka KEY1 / +12 V / GND, panel z akumulatorem ładowanym przez USB-C (na stałe: 5 V z hubu albo LM2596) | 1 | ~80 | AliExpress |
+| D3 | **Rezystor 1 kΩ 1 % 1/4 W** × 2 (pull-up A0 i A6; + 2,2 kΩ na zapas), kondensator 100 nF, bezpiecznik inline 1 A + oprawka, przewód 0,5 mm², złącza | pull-up dla drabinek, zasilanie kostki z bufora | kpl. | 10–25 | 🔎 [TME](https://www.tme.eu/pl/katalog/?search=1k%201%25%200.25W%20THT) |
 
 ## E. Wzmacniacz — używany, kompletny
 
