@@ -256,7 +256,7 @@ LVD" to rezerwa awaryjna kosztem żywotności, a nie tryb normalnej pracy.
 > **Zaktualizowane 22.11.2026.** W chwili konsolidacji przetwornica była już
 > kupiona (19 V) i powstała dla niej lista kontrolna z nastawą 19,5 V; potem
 > wyszło, że dawny, posiadany moduł XL6019 realnie daje ok. 45 W i wymusza limit
-> RAPL. Obowiązuje zalewana przetwornica **12 → 20 V, 10 A (200 W)** — ZB §3.
+> RAPL. Obowiązuje przetwornica **step-up 1200 W / 20 A ustawiona na 20,0 V** (zalewana 200 W okazała się za słaba) — ZB §3.
 
 **20 V, nie 19 V.** Dokumentacja produkcyjna w repozytorium podaje, że M910q
 pracuje w oknie **19–21 V i nie wystartuje poza nim**. Przetwornica stoi
@@ -302,7 +302,7 @@ w `ZASILANIE_BUFOROWANE.md` §10. Rdzeń (stan z 22.11.2026):
 | **Ładowanie** | 2 × XY-SK120 (CV 14,40 V, CC 5,0 A każda), przekaźnik ładowania K1 30 A z zapłonu / D+ |
 | **Ochrona** | 2 × XH-M603 (15,30 / 14,00 V, po jednym na ładowarkę), LVD XH-M609 11,00 / 12,60 V (posiadany) |
 | **Zabezpieczenia** | F1 20 A przy klemie, 7 × FB 10 A na pakiety, FC1/FC2 7,5 A, FK 1 A, F7 20 A i F12 15 A w klasie MIDI/ANL, dystrybucja F8–F11 i F13 |
-| **Przetwornice** | step-up 12 → 20 V 10 A zalewany, MP1584 (logika, Arduino), LM2596 (wyświetlacze) |
+| **Przetwornice** | step-up 1200 W / 20 A ustawiony na 20 V, MP1584 (logika, Arduino), LM2596 (wyświetlacze) |
 | **Ochrona wejścia** | dioda TVS SMCJ20CA, kondensator 470 µF/35 V, dioda gaszeniowa 1N4007 |
 | **Okablowanie** | 6 mm² OFC (F1, łącznik koszy, odbiór, masa), 4 mm², FLRY-B 2,5 mm², 0,5–1,5 mm², 4 bloki zbiorcze M6, oczka, nasuwki w pełni izolowane, peszel, przelotki |
 | **Mechanika** | dwa kosze stalowe 4 + 3 ([`mechanika/kosze_HR1221W_4+3.pdf`](mechanika/kosze_HR1221W_4+3.pdf)), rozłącznik masy 100 A |

@@ -354,7 +354,7 @@ s.wire([(DX[0], FY + 24), (DX[0], SU_Y)], "wB")
 s.box(COLX[0], SU_Y, CW, SU_H)
 s.lines(COLX[0] + CW / 2, SU_Y + 22, [
     ("Step-up 12 → 20 V", "h"),
-    ("10 A · 200 W · zalewany, w bagażniku", "t"),
+    ("1200 W / 20 A → 20 V, w bagażniku", "t"),
     ("sprawność 90 % (do rachunku)", "t"),
     ("straty 3,3 / 5,0 / 7,2 W", "t"),
     ], step=18)

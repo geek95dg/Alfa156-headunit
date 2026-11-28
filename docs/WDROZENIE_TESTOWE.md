@@ -153,7 +153,7 @@ FB1…FB7 10 A na „+" każdego pakietu, łącznik L ↔ P 6 mm², odbiór „+
    ▼
 F7 20 A (MIDI/ANL) → XH-M609 (LVD)  — odcięcie 11,00 V · powrót 12,60 V
    │                                     (masa banku P− → S1 rozłącznik masy → punkt masy)
-   ├── F8 10 A → step-up 12 → 20 V, 10 A (zalewany) → 4 mm², ~4 m → M910q   ← ZASILANY STALE
+   ├── F8 10 A → step-up 1200 W / 20 A → 20 V → 4 mm², ~4 m → M910q   ← ZASILANY STALE
    │                                                    └── USB: panel 7", dotyk,
    │                                                        Pro Micro, modem LTE
    ├── F9 2 A → LM2596 12 → 5 V → podświetlenie panelu (§3.1b)

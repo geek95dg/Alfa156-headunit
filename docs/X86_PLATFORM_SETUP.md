@@ -118,7 +118,7 @@ straight from the starter battery. Details and why: ZB §2.
 | Chargers | **2 × XY-SK120** buck-boost CC-CV modules in parallel | CV 14.40 V, CC 5.0 A each — ≈ 10 A total, ≈ 5 A net into the bank; no float stage, no temperature input, so CV is changed seasonally (ZB §5.2–§5.5) |
 | Overcharge cut-off | **2 × XH-M603**, one per charger | opens at 15.30 V, closes at 14.00 V (ZB §6) |
 | LVD | XH-M609 | 11.00 V cut-off, 12.60 V reconnect (ZB §7) |
-| PC supply | potted step-up **12 → 20 V, 10 A (200 W)**, in the trunk next to the baskets | 4 mm² run of ~4 m to the M910q; no CPU power cap needed (ZB §3) |
+| PC supply | step-up **1200 W / 20 A set to 20.0 V**, in the trunk next to the baskets | 4 mm² run of ~4 m to the M910q; no CPU power cap needed (ZB §3) |
 | Fuses | F1 20 A at the starter battery, 10 A per pack, F7 20 A and F12 15 A (MIDI/ANL class) at the bank | full table: ZB §8.1 |
 
 The charge voltages above (14.40 V absorption; 13.5–13.8 V is the

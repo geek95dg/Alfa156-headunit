@@ -542,7 +542,7 @@ s.txt(234, 812, "F8 · 10 A", "ref")
 s.txt(234, 827, "6,6 A przy 11 V", "lbl")
 s.w(220, 840, 220, 860, "wp")
 s.module(130, 860, 200, 82, "blkb",
-         [("M4 · STEP-UP 12 → 20 V", "lbb"), ("10 A / 200 W, zalewany", "lbc"),
+         [("M4 · STEP-UP 12 → 20 V", "lbb"), ("1200 W / 20 A → 20 V", "lbc"),
           ("limit RAPL niepotrzebny", "lbc")])
 s.w(160, 942, 160, 958, "wg")
 s.gnd(160, 958)

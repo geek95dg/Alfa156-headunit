@@ -192,8 +192,8 @@
       <h3>2.1 Power Supply Chain</h3>
       <p>
         The M910q requires <strong>20 V DC</strong> on its Lenovo slim-tip plug and works only in the
-        <strong>19&ndash;21 V window &mdash; it will not boot outside it</strong>. A potted
-        <strong>12 V &rarr; 20 V, 10 A step-up converter</strong> in the trunk feeds it from a
+        <strong>19&ndash;21 V window &mdash; it will not boot outside it</strong>. An adjustable
+        <strong>1200 W / 20 A step-up converter (8&ndash;60 V in), set to 20.0 V</strong> in the trunk feeds it from a
         <strong>bank of seven CSB HR1221W AGM batteries</strong> (35.7 Ah) in two steel baskets
         (4 + 3) bolted to the bulkhead behind the rear seat. Everything hangs on <strong>one buffered
         bus</strong> behind the LVD: there is no ignition relay in front of the loads. Ignition is only
@@ -229,7 +229,7 @@
  │ [F8 10 A]    [F9 2 A]    [F10 3 A]    [F11 5 A]    [F13 2 A] (option)
  │ step-up      LM2596      MP1584       AUX 12 V     phone 5 V
  │ 12 → 20 V    5 V         5 V          relay        injector
- │ 10 A potted  displays    Nano #1/#2,  module
+ │ 20 A boost   displays    Nano #1/#2,  module
  │ [5 A out]                HM-10, RXB6
  │   │ 2 × 4 mm², ~4 m
  │   ▼
@@ -298,7 +298,7 @@
             <tr>
               <td><strong>Step-up 12 &rarr; 20 V</strong></td>
               <td>Feeds the M910q all the time, from the trunk (20 V over ~4 m loses less than 12 V would, and the LVD measures the bank, not a long wire)</td>
-              <td>Potted IP67/IP68, 20 V, 10 A (200 W); F8 10 A in, 5 A out; 4 mm&sup2;</td>
+              <td>1200 W / 20 A boost, 8&ndash;60 V in, set to 20.0 V, UVLO 10.5 V; F8 10 A in, 5 A out; 4 mm&sup2;</td>
             </tr>
             <tr>
               <td><strong>LM2596 / MP1584</strong></td>
@@ -315,11 +315,11 @@
       </div>
 
       <div class="box box-danger">
-        <div class="box-title">Step-up converter check (there is nothing to adjust)</div>
+        <div class="box-title">Step-up converter check</div>
         <p>
-          Potted 20 V modules usually have a <strong>fixed output</strong> and no potentiometer. Before
-          connecting the M910q, measure each unit on the bench (ZB &sect;3.4): no-load output must not
-          exceed <strong>20.5 V</strong> &mdash; reject the unit if it does, 21 V is the top of the
+          Set the output pot to <strong>20.0 V</strong> and the input threshold (UVLO) to 10.5 V, then
+          lock the pots with varnish. Before connecting the M910q, measure the unit on the bench
+          (ZB &sect;3.4): no-load output must not exceed <strong>20.5 V</strong>, 21 V is the top of the
           M910q window. Load it to ~60 W and check its temperature, then lower the input to 11 V and
           see whether it still regulates. Over ~4 m of 4 mm&sup2; about 0.1 V is lost, so ~19.9 V
           reaches the plug; a 19 V module would end up below 19 V &mdash; do not buy one.

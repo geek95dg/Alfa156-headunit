@@ -506,7 +506,7 @@ def build_schematic(out_path):
     s.path([(BBL, BUS), (DVX, BUS)], "wp")
     drops = [
         (360, "F8", "10 A", "X9", "M4 · STEP-UP 12 → 20 V",
-         "zalewany, 200 W (ZB §3)",
+         "1200 W / 20 A, nast. 20 V (ZB §3)",
          "→ M910q, bezp. 5 A w linii"),
         (590, "F9", "2 A", "X10", "M5 · LM2596 → 5 V",
          "podświetlenie panelu 7\"", "→ PWM+ / GND panelu"),

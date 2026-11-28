@@ -536,7 +536,7 @@
 <rect class="blkm" x="280" y="1524" width="180" height="186"/>
 <text class="mref" x="370.0" y="1549">M4</text>
 <text class="mname" x="370.0" y="1568">STEP-UP 20 V</text>
-<text class="vc" x="370.0" y="1586">zalewany, 10 A / 200 W</text>
+<text class="vc" x="370.0" y="1586">1200 W / 20 A, nast. 20 V</text>
 <line class="w" x1="262" y1="1616" x2="280" y2="1616"/>
 <text class="pin" x="290" y="1621">IN+</text>
 <line class="w" x1="262" y1="1652" x2="280" y2="1652"/>

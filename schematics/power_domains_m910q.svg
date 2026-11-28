@@ -106,7 +106,7 @@
 <path class="wB" d="M70 242 L70 262"/>
 <rect class="box" x="40" y="262" width="252" height="92" rx="6"/>
 <text class="h" x="166.0" y="284">Step-up 12 → 20 V</text>
-<text class="t" x="166.0" y="302">10 A · 200 W · zalewany, w bagażniku</text>
+<text class="t" x="166.0" y="302">1200 W / 20 A → 20 V, w bagażniku</text>
 <text class="t" x="166.0" y="320">sprawność 90 % (do rachunku)</text>
 <text class="t" x="166.0" y="338">straty 3,3 / 5,0 / 7,2 W</text>
 <path class="wB" d="M70 354 L70 430"/>

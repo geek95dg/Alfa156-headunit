@@ -190,7 +190,7 @@
   <path class="wire" d="M665 1110 L665 1296"/>
   <rect class="boxL" x="40" y="1158" width="290" height="74"/>
   <text class="h" x="185" y="1181">M4 STEP-UP 12 → 20 V</text>
-  <text class="t" x="185" y="1200">zalewany, 10 A / 200 W · bez regulacji</text>
+  <text class="t" x="185" y="1200">1200 W / 20 A · nastawa 20,0 V</text>
   <text class="t" x="185" y="1218">do 6,6 A z szyny przy 11 V (65 W)</text>
   <path class="zone" d="M24 1263 L772 1263"/>
   <text class="zl" x="28" y="1257">▲ BAGAŻNIK</text>

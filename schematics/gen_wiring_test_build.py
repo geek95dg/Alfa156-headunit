@@ -599,7 +599,7 @@ def branch(x, fz, num, xsec, mod_left_x, last=False):
 
 # step-up → wtyk M910q
 su = s.module(150, YM, 190, 130, "blkb",
-              [("M4 · step-up 12 → 20 V", "mh"), ("zalewany, 10 A / 200 W", "ms"),
+              [("M4 · step-up 12 → 20 V", "mh"), ("1200 W / 20 A → 20 V", "ms"),
                ("bagażnik", "ms")],
               [("in", "L", YMa, "IN+"), ("inm", "L", YMb, "IN−"),
                ("out", "R", YMa, "OUT+"), ("outm", "R", YMb, "OUT−")])

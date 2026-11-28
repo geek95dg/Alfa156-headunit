@@ -419,7 +419,7 @@
 <text class="xsc" x="470" y="942">szyna odbiorników 12 V — dystrybucja w bagażniku, za LVD</text>
 <rect class="blkb" x="150" y="1030" width="190" height="130"/>
 <text class="mh" x="245.0" y="1049">M4 · step-up 12 → 20 V</text>
-<text class="ms" x="245.0" y="1066">zalewany, 10 A / 200 W</text>
+<text class="ms" x="245.0" y="1066">1200 W / 20 A → 20 V</text>
 <text class="ms" x="245.0" y="1082">bagażnik</text>
 <text class="tm" x="157" y="1114">IN+</text>
 <text class="tm" x="157" y="1144">IN−</text>

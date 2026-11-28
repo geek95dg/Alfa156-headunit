@@ -515,7 +515,7 @@ s.dot(1540, LB)
 s.txt(186, LB - 14, "SZYNA ODBIORNIKÓW +12 V (za LVD)", "nh")
 
 conv = [
-    (240, "F8", "10 A", 11, "M4", "STEP-UP 20 V", "zalewany, 10 A / 200 W"),
+    (240, "F8", "10 A", 11, "M4", "STEP-UP 20 V", "1200 W / 20 A, nast. 20 V"),
     (860, "F9", "2 A", 13, "M5", "LM2596", "step-down 12 → 5 V"),
     (1250, "F10", "3 A", "13a", "M6", "MP1584", "step-down 12 → 5 V"),
 ]
