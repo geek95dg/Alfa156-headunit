@@ -2602,12 +2602,13 @@ class WebViewer:
             # SWC navigation (edge-triggered — see reset below)
             "navigate_aa": _val("input.navigate_aa", False),
             "home": _val("input.home", False),
+            "screen_next": _val("input.screen_next", False),
         }
         # The browser's DataStore only fires subscribers on value *change*, so
         # a latched True would navigate once and never again (and would nav
         # spuriously on reload). Emit True for exactly one broadcast frame then
         # reset to False, so every HOME/NAV press re-fires.
-        for _nav in ("input.navigate_aa", "input.home"):
+        for _nav in ("input.navigate_aa", "input.home", "input.screen_next"):
             if _val(_nav, False):
                 bus.publish(_nav, False)
         return data

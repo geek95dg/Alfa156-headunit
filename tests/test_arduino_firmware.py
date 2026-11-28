@@ -191,10 +191,11 @@ class TestSketch:
 
     def test_batt_report_rides_on_the_full_state(self, ino):
         full = ino.split("void reportFullState() {", 1)[1].split("\n}\n", 1)[0]
-        # Right after the PWR: block; only the wake report (WAKE:/LEASE:/
+        # Right after the PWR: block; only the fuel (FEATURE_FUEL_ADC) and wake report (WAKE:/LEASE:/
         # WAKESTAT:, compiled only with FEATURE_WAKE_*) comes after it.
         assert re.search(r"PWR_NAMES\[pwr\.state\]\);\n#endif\n#if defined\(FEATURE_BATT_ADC\) "
                          r"\|\| defined\(FEATURE_BATT_INA226\)\n  battReport\(\);\n#endif\n"
+                         r"#ifdef FEATURE_FUEL_ADC\n  fuelReport\(\);\n#endif\n"
                          r"#ifdef SENSOR_HUB_WAKE\n  wakeReportFull\(\);\n#endif$", full)
         # …and NOT in the power-state setter, which prints PWR: on change only.
         setter = ino.split("void pwrReportState() {", 1)[1].split("\n}\n", 1)[0]
@@ -429,7 +430,8 @@ def _syntax(host_tree, *defines):
         capture_output=True, text=True, timeout=60)
 
 
-@pytest.mark.parametrize("defines", [(), ("-DFEATURE_BATT_ADC",), ("-DFEATURE_BATT_INA226",)])
+@pytest.mark.parametrize("defines", [(), ("-DFEATURE_BATT_ADC",), ("-DFEATURE_BATT_INA226",),
+                                     ("-DFEATURE_FUEL_ADC", "-DFEATURE_BATT_ADC")])
 def test_host_syntax_of_each_variant(host_tree, defines):
     res = _syntax(host_tree, *defines)
     assert res.returncode == 0, res.stderr

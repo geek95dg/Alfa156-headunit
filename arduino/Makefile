@@ -67,7 +67,8 @@ ESP32_TEST_BIN := $(CURDIR)/esp32_display/build/test_host
 # w arduino/build/ — poza folderem sketcha (arduino-cli nie zbiera z niego
 # plików) i pod regułą `build/` z .gitignore.
 SENSOR_HUB_VARIANTS ?= BATT_ADC BATT_INA226 WAKE_DOOR WAKE_EXT WAKE_IR \
-                       WAKE_DOOR+WAKE_EXT+WAKE_IR+BATT_ADC WAKE_IR+WAKE_DOOR+BATT_INA226
+                       WAKE_DOOR+WAKE_EXT+WAKE_IR+BATT_ADC WAKE_IR+WAKE_DOOR+BATT_INA226 \
+                       FUEL_ADC+BATT_ADC
 VARIANTS_BUILD_DIR := $(CURDIR)/build
 
 # Funkcje sensor_hub do włączenia w ZWYKŁEJ kompilacji i wgraniu, np.
@@ -112,13 +113,14 @@ SENSOR_HUB_FLAGS = $(if $(SENSOR_HUB_DEFINES),--build-property \
                      "compiler.cpp.extra_flags=$(SENSOR_HUB_DEFINES)")
 SENSOR_HUB_TEST_BIN := $(VARIANTS_BUILD_DIR)/sensor_hub-test/test_power_logic
 SENSOR_HUB_WAKE_TEST_BIN := $(VARIANTS_BUILD_DIR)/sensor_hub-test/test_wake_logic
+ROTARY_PRESS_TEST_BIN := $(VARIANTS_BUILD_DIR)/rotary_encoder-test/test_press_logic
 
 .PHONY: all $(SKETCHES) $(addsuffix -upload,$(SKETCHES)) esp32_display-test test clean \
-        sensor_hub-variants sensor_hub-test
+        sensor_hub-variants sensor_hub-test rotary_encoder-test
 
 all: $(SKETCHES)
 
-test: esp32_display-test sensor_hub-test
+test: esp32_display-test sensor_hub-test rotary_encoder-test
 
 $(filter-out sensor_hub,$(AVR_SKETCHES)):
 	$(ARDUINO_CLI) compile --profile default --warnings default $(CURDIR)/$@
@@ -191,6 +193,14 @@ sensor_hub-test:
 	$(CXX) $(HOST_CXXFLAGS) -o $(SENSOR_HUB_WAKE_TEST_BIN) \
 		$(CURDIR)/sensor_hub/test/test_wake_logic.cpp
 	$(SENSOR_HUB_WAKE_TEST_BIN)
+
+# press_logic.h (Pro Micro): potwierdzanie odczytu drabinki i długie
+# naciśnięcie PLAY — czysty C++, test na hoście.
+rotary_encoder-test:
+	@mkdir -p $(dir $(ROTARY_PRESS_TEST_BIN))
+	$(CXX) $(HOST_CXXFLAGS) -o $(ROTARY_PRESS_TEST_BIN) \
+		$(CURDIR)/rotary_encoder/test/test_press_logic.cpp
+	$(ROTARY_PRESS_TEST_BIN)
 
 # Statyczna reguła wzorcowa, nie zwykłe „%-upload: %”: cele *-upload są w
 # .PHONY, a dla celów .PHONY make w ogóle nie szuka reguł wzorcowych — zwykły

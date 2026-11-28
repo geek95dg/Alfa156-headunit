@@ -626,12 +626,15 @@ bezpieczna ręczna edycja `local.yaml`, migracja starego
 make -C arduino rotary_encoder-upload PORT=/dev/ttyACM0
 ```
 
-Pody SWC podłącz do **A0** (Pod 1) i **A6** (Pod 2), dekoder: czerwony → ACC,
-czarny → masa. **Uwaga: na płytce nie ma pola „A6" — to pad opisany `4`**
-(na 32U4 kanały A6–A11 siedzą pod numerami cyfrowymi; opisane analogowo są
-tylko A0–A3). Kalibracja: przytrzymaj HOME + BACK przy starcie płytki
-i naciskaj kolejne przyciski wg podpowiedzi na porcie szeregowym. Progi
-zapisują się w EEPROM.
+Adapter SWC kierownicy podłącz do **A0**, panel z pokrętłem (biały KEY1
+kostki odbiornika) do **A6** — oba z **pull-upem 1 kΩ do 5 V**, kostki:
+czerwony → +12 V (bezpiecznik 1 A), czarny → masa wspólna z Arduino.
+**Uwaga: na płytce nie ma pola „A6" — to pad opisany `4`** (na 32U4 kanały
+A6–A11 siedzą pod numerami cyfrowymi; opisane analogowo są tylko A0–A3).
+Kalibracja na porcie szeregowym (115200): `CAL` — adapter na A0, `CAL2` —
+panel na A6, `ADC2` — podgląd odczytu panelu. Progi zapisują się w EEPROM.
+Schemat, wartości i długie PLAY (uśpienie):
+[`SCHEMATY_POLACZEN.md`](SCHEMATY_POLACZEN.md#44-panel-z-pokrętłem-przycisk-na-manetce-czujnik-paliwa--podłączenie).
 
 Szczegóły: [`ARDUINO_SETUP_GUIDE.md`](ARDUINO_SETUP_GUIDE.md).
 
@@ -1967,6 +1970,8 @@ przejścia.
 
 - **Dźwigienka** (akcja SWC „Brightness”, klawisz F9 →
   `input.brightness_cycle`): 6 stopni 15 / 30 / 45 / 60 / 80 / 100 %.
+  Od firmware v8.6 przycisk na manetce domyślnie przełącza **ekrany** (F14);
+  cykl jasności wraca po odkomentowaniu `STALK_F9` w `rotary_encoder.ino`.
   Pierwsze naciśnięcie wybiera stopień najbliższy obecnej jasności.
 - **Suwak** w Ustawieniach → „Jasność ekranu” (zapis
   `display.dashboard.brightness`).

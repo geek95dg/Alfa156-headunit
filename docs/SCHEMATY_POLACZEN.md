@@ -322,7 +322,7 @@ optoizolatora. Tryb `INPUT_PULLUP`, stan aktywny LOW.
 | HC-SR04 ECHO ×4 | dzielnik 1 kΩ / 2 kΩ | Nano #2 **A0–A3** |
 | LDR (jasność) | 5 V → LDR → węzeł → A1; węzeł → 10 kΩ → masa | Pro Micro **A1** |
 | SWC Pod 1 | biały przewód dekodera | Pro Micro **A0** |
-| SWC Pod 2 | biały przewód dekodera | Pro Micro **A6** = pad opisany **`4`** |
+| Panel z pokrętłem (KEY1) | biały przewód kostki odbiornika + **1 kΩ do 5 V** | Pro Micro **A6** = pad opisany **`4`** (§4.4) |
 
 Dekoder SWC: **czerwony → ACC**, **czarny → masa**, **biały → wejście
 analogowe**.
@@ -396,9 +396,10 @@ i § 7b. Poniżej to, co dotyczy okablowania międzymodułowego.
 | D1 | przycisk enkodera → masa |
 | D5–D9 | HOME, BACK, MEDIA, VOL+, VOL− → masa |
 | D10, D14, D15, D16, A3 | panel muzyczny (PREV, NEXT, VOL+, VOL−, MUTE) |
-| A0, A6 | SWC Pod 1, Pod 2 — **A6 to pad opisany `4`**, patrz §3.4 |
+| A0 | adapter SWC kierownicy (biały KEY) + 1 kΩ do 5 V |
+| A6 | panel z pokrętłem (biały KEY1) + 1 kΩ do 5 V — **A6 to pad opisany `4`**, patrz §3.4 i §4.4 |
 | A1 | LDR |
-| A2 | przycisk na manetce |
+| A2 | przycisk na manetce — przez transoptor PC817 (§4.4) → **następny ekran** |
 
 > **v8.5.2:** przycisk enkodera przeniesiony z **D4 na D1** — na Pro Micro
 > D4 i A6 to ten sam fizyczny pin (PD4 / ADC8) i kolidowało z SWC Pod 2.
@@ -407,7 +408,130 @@ i § 7b. Poniżej to, co dotyczy okablowania międzymodułowego.
 ### 4.3 Nano #2 (sensor hub)
 
 Patrz §3.3 i §3.4. Funkcje włącza się `#define FEATURE_*` na górze
-`sensor_hub.ino` — wyłączony `FEATURE` zwalnia pin.
+`sensor_hub.ino` albo flagą `SENSOR_HUB_FEATURES` — wyłączony `FEATURE`
+zwalnia pin. **A7** — poziom paliwa (`FEATURE_FUEL_ADC`, §4.4).
+
+### 4.4 Panel z pokrętłem, przycisk na manetce, czujnik paliwa — podłączenie
+
+Trzy rzeczy, trzy różne sposoby. Wszystkie kończą się na Arduino, którego
+**masa jest wspólna z masą auta** (Arduino zasilane z USB M910q / MP1584,
+a te z bufora, którego minus idzie do punktu masy — §2).
+
+#### 4.4.1 Panel z pokrętłem (drabinka rezystorowa) → Pro Micro A6
+
+Panel (bezprzewodowy pasek z pokrętłem: VOL+/VOL−, PLAY, NEXT, PREV, MUTE,
+odbierz, odrzuć, mikrofon) ma odbiornik w czarnej kostce z trzema
+przewodami. Kostka działa jak klasyczny adapter kierownicy do radia: przy
+każdym przycisku **zwiera przewód KEY1 do masy przez inną rezystancję**.
+Arduino mierzy napięcie na KEY1 — i to napięcie musi z czegoś powstać:
+potrzebny jest **rezystor podciągający (pull-up) 1 kΩ z A6 do 5 V**.
+Razem z rezystancją przycisku tworzy dzielnik napięcia:
+
+```
+             +5 V (pin VCC Pro Micro)
+               │
+              ┌┴┐
+              │ │ 1 kΩ  ← pull-up (1/4 W, 1 %)
+              └┬┘
+               │
+  Pro Micro A6 ●─────────────── biały (KEY1) ─┐
+  (pad „4”)    │                              │ kostka odbiornika:
+               ┴ 100 nF (opcja, przy pinie)   │ przycisk N = rezystor R_N
+               │                              │ zwierany do masy
+  Pro Micro GND●─────────────── czarny (GND) ─┤
+               │                              │
+  masa auta ───┘           +12 V ── czerwony ─┘ (bezpiecznik 1 A)
+
+  U(A6) = 5 V · R_N / (R_N + 1 kΩ)        spoczynek (nic nie wciśnięte): ≈ 5 V
+  ADC   = 1023 · R_N / (R_N + 1000)       np. R_N = 470 Ω → ADC ≈ 327
+```
+
+- **Pull-up przylutuj przy Arduino** (między padem `4` a `VCC`), nie przy
+  kostce — wtedy przewód do kostki niesie tylko sygnał.
+- **Dlaczego 1 kΩ, a nie 10 kΩ:** kostki tego typu mają rezystancje
+  przycisków od ~0 Ω do kilkunastu kΩ. Przy 10 kΩ niskie rezystancje ściskają
+  się w kilka wartości ADC obok siebie i przyciski się mylą; przy 1 kΩ
+  rozkładają się na cały zakres 0–1023 (tak samo jak adapter na A0).
+- **Czerwony (+12 V):** kostka potrzebuje zasilania. Podłącz go do **szyny
+  buforowej przez bezpiecznik 1 A** (dystrybucja za LVD, np. AUX F11) —
+  wtedy panel działa też przy zgaszonym silniku, kiedy BCM gra. Kostka
+  bierze kilka mA; zmierz to w czuwaniu (budżet postoju — ZB §9.1).
+- **Czarny (GND):** do masy **wspólnej z Arduino** — najlepiej tym samym
+  przewodem, którym idzie GND Pro Micro. Bez wspólnej masy odczyty pływają.
+- **Sam panel** ma akumulator ładowany po USB-C; jeśli chcesz go mieć
+  na stałe podłączonego, daj mu stałe 5 V z hubu USB albo z LM2596.
+- **Kalibracja (obowiązkowa, raz):** po podłączeniu otwórz monitor portu
+  szeregowego Pro Micro (115200 bodów), wpisz **`ADC2`** — przez 5 s co
+  0,2 s zobaczysz odczyt: w spoczynku ma być **> 1000**, przy trzymanym
+  przycisku stała liczba. Potem **`CAL2`** i naciskaj po kolei: VOL+
+  (pokrętło w prawo), VOL− (w lewo), PLAY (wciśnięcie pokrętła), NEXT,
+  PREV, MUTE, PICKUP (odbierz), HANGUP (odrzuć), VOICE (mikrofon).
+  Wartości trafiają do EEPROM. Komunikat „za blisko” = dwa przyciski
+  dają prawie ten sam odczyt → spróbuj pull-upu 2,2 kΩ i skalibruj jeszcze
+  raz. Do czasu kalibracji panel nic nie wysyła (celowo).
+- **Długie PLAY = uśpienie BCM (S3):** trzymaj wciśnięte pokrętło
+  **2 s**. Krótko = odtwarzaj/pauza. Działa tylko, jeśli kostka trzyma
+  stan na KEY1 przez cały czas trzymania przycisku — sprawdzisz to `ADC2`
+  (odczyt przy trzymanym PLAY nie może wracać do > 1000). BCM ignoruje
+  długie PLAY w trakcie rozmowy i w oknie po wykryciu stłuczki.
+
+#### 4.4.2 Przycisk na manetce → transoptor → Pro Micro A2
+
+Przycisk w manetce to styk w instalacji 12 V auta — **nie wolno** podać
+12 V wprost na pin Arduino. Pośrednik: moduł transoptora PC817 (płytka
+„12 V → 5 V”), który oddziela instalację auta od Arduino:
+
+```
+  STRONA AUTA (12 V)                    STRONA ARDUINO (5 V)
+                                          
+  +12 V ── bezp. 1 A ──┐                  Pro Micro A2 ●──────┐
+                       │                  (INPUT_PULLUP —     │
+                 [przycisk manetki]        wewnętrzny pull-up)│ kolektor
+                       │                                      │
+               IN+ ●───┘   ┌──────────┐              OUT ●────┘
+                           │  PC817   │
+               IN− ●───┐   │ (+ rezyst.│   GND ●──── Pro Micro GND
+                       │   │  na płytce)│
+  masa auta ───────────┘   └──────────┘
+
+  przycisk wciśnięty → dioda PC817 świeci → tranzystor zwiera A2 do GND → LOW
+```
+
+- Jeśli przycisk w manetce **zwiera do masy** (a nie podaje +12 V): IN+ na
+  +12 V przez bezpiecznik 1 A, IN− na przewód przycisku.
+- Na płytce „12 V” rezystor przed diodą jest już dobrany (1–3 kΩ); goła
+  kostka PC817 wymaga rezystora **2,2 kΩ** w szereg z diodą.
+- Pull-up po stronie Arduino daje `INPUT_PULLUP` w firmware — zewnętrzny
+  nie jest potrzebny (wyjście PC817 to tylko „zwieracz do masy”).
+- Firmware: `FEATURE_STALK` → klawisz F14 → BCM przechodzi na **następny
+  ekran** (A1 → A2 → A3 → A4 → A1, jak gest z górnej krawędzi). Stare
+  zachowanie (cykl jasności, F9): odkomentuj `STALK_F9`.
+
+#### 4.4.3 Czujnik paliwa → dzielnik → Nano #2 A7
+
+Czujnik w baku zasilają **zegary** (wskazówka i lampka rezerwy). Arduino
+tylko podgląda napięcie na jego przewodzie — przez dzielnik o dużej
+rezystancji, żeby nie zmienić wskazania zegarów:
+
+```
+  przewód sygnałowy czujnika ──┬── 100 kΩ ──┬──●  Nano #2 A7
+  (kostka zegarów albo pompy)  │            │
+                               │           ┌┴┐ 47 kΩ      Zener 5V1   100 nF
+                               │           └┬┘            (katoda      │
+                               │            │              do A7)      │
+  masa czujnika / auta ────────┴────────────┴───────●─────────┴────────┘
+                                                     Nano #2 GND
+```
+
+- **Nie** podłączaj tu żadnego zasilania z Arduino ani rezystora do 5 V —
+  dołożyłbyś drugie źródło do obwodu zegarów i wskazówka zaczęłaby kłamać.
+- Przewód sygnałowy znajdź na schemacie dla swojego rocznika i potwierdź
+  multimetrem: przy włączonym zapłonie napięcie zmienia się z poziomem
+  paliwa (zwykle w zakresie 1–8 V).
+- Firmware: `make -C arduino sensor_hub-upload PORT=… SENSOR_HUB_FEATURES="FUEL_ADC …"`
+  → linia `FUEL:<0-1023>` co 2 s → moduł `fuel_sender` w BCM. Tabelę
+  ADC → % (`fuel_sender.calibration` w `config/local.yaml`) wypełnij przy
+  tankowaniach: odczyt ADC przy prawie pustym baku, przy połowie i do pełna.
 
 ---
 

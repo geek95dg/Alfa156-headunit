@@ -1022,6 +1022,18 @@ const App = (() => {
                 if (val && _currentScreen !== "a1") navigateTo("a1");
             });
 
+            // Stalk button (Pro Micro F14) → next screen, the same as the
+            // pull-down gesture from the top edge.
+            // The same F14 can arrive twice (kiosk keydown + evdev), possibly
+            // in two broadcast frames: one step per 600 ms at most.
+            let _screenNextAt = 0;
+            DataStore.subscribe("screen_next", (val) => {
+                const t = Date.now();
+                if (!val || t - _screenNextAt < 600) return;
+                _screenNextAt = t;
+                navCycleNext();
+            });
+
             // Keyboard input
             document.addEventListener("keydown", handleKeyDown);
 

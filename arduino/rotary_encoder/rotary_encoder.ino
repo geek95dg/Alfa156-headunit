@@ -94,6 +94,24 @@
  * przez HOME (KEY_HOME → ekran A1) — szum ADC nie wyłączy już komputera.
  * Kalibracja pyta tylko o te 10 przycisków. Pull-up ma być 1 kΩ (patrz wyżej).
  * ---------------------------------------------------------------------------
+ * v8.6 — panel z pokrętłem (drugi pod na A6), długie play/pause = uśpienie,
+ *        przycisk z manetki = następny ekran
+ *
+ * Panel („smart steering wheel controller”): bezprzewodowy pasek z pokrętłem,
+ * odbiornik w czarnej kostce — biały KEY1, czerwony +12 V, czarny GND.
+ * Kostka zwiera KEY1 do masy przez inną rezystancję dla każdego przycisku,
+ * dokładnie jak adapter SWC na A0. Dlatego: KEY1 → A6 (= D4) + pull-up
+ * **1 kΩ do 5 V**, masa kostki wspólna z GND Pro Micro.
+ * Przyciski panelu (FEATURE_PANEL, kalibracja: CAL2):
+ *   VOL+ / VOL- (pokrętło), PLAY (wciśnięcie pokrętła), NEXT, PREV, MUTE,
+ *   PICKUP, HANGUP, VOICE (mikrofon).
+ * PLAY: krótko → MEDIA_PLAY_PAUSE; trzymane ≥ PLAY_LONG_MS → F13
+ *   (BCM: input.system_sleep → bcm-power-toggle.sh: stop BCM, S3).
+ * Manetka (FEATURE_STALK, A2 przez transoptor): F14 → input.screen_next
+ *   (następny ekran). Stare zachowanie (F9, cykl jasności): STALK_F9.
+ * Logika wciśnięć: press_logic.h (test na hoście: test/test_press_logic.cpp).
+ * Schemat podłączenia: docs/SCHEMATY_POLACZEN.md §4.3.
+ * ---------------------------------------------------------------------------
  */
 
 #include <avr/wdt.h>
@@ -102,6 +120,7 @@
 // ze stockowego Keyboard.h psują kompilację (konflikt makro vs enum).
 #include <HID-Project.h>
 #include <EEPROM.h>
+#include "press_logic.h"
 
 // --- Przełączniki funkcji -------------------------------------------------
 // Zakomentuj to, czego nie masz podłączonego. Niepodłączone wejścia cyfrowe
@@ -110,11 +129,13 @@
 // nie wisi — pływający pin to śmieci w multiplekserze ADC.
 //
 // Domyślnie: tylko pody SWC. To jedyna rzecz, która ma teraz działać.
-#define FEATURE_SWC        // pody SWC na kierownicy (A0 + A6)
+#define FEATURE_SWC        // adapter SWC kierownicy na A0 (10 przycisków)
+#define FEATURE_PANEL      // panel z pokrętłem na A6 (KEY1 kostki odbiornika)
 // #define FEATURE_ENCODER // enkoder obrotowy + przycisk (D2, D3, D1)
 // #define FEATURE_BUTTONS // HOME / BACK / MEDIA / VOL+ / VOL− (D5–D9)
 // #define FEATURE_MUSIC   // panel muzyczny (D10, D14, D15, D16, A3)
-// #define FEATURE_STALK   // przycisk manetki → F9 (A2)
+#define FEATURE_STALK      // przycisk manetki (A2) → F14 = następny ekran
+// #define STALK_F9        // ...albo stare F9 = cykl jasności zamiast ekranu
 // #define FEATURE_LIGHT   // fotorezystor LDR (A1)
 // #define FEATURE_FUEL    // czujnik paliwa (A4) — patrz #error niżej
 
@@ -122,8 +143,9 @@
 #error "A4 nie jest wyprowadzone na klasycznym Pro Micro (PF1). Potrzebny klon z padem A4 albo inna plytka — patrz docs/ARDUINO_SETUP_GUIDE.md."
 #endif
 
-#if !defined(FEATURE_SWC) && !defined(FEATURE_ENCODER) && !defined(FEATURE_BUTTONS) \
-    && !defined(FEATURE_MUSIC) && !defined(FEATURE_STALK) && !defined(FEATURE_LIGHT)
+#if !defined(FEATURE_SWC) && !defined(FEATURE_PANEL) && !defined(FEATURE_ENCODER) \
+    && !defined(FEATURE_BUTTONS) && !defined(FEATURE_MUSIC) && !defined(FEATURE_STALK) \
+    && !defined(FEATURE_LIGHT)
 #error "Wszystkie FEATURE_* sa zakomentowane — plytka nie robilaby nic. Odkomentuj przynajmniej FEATURE_SWC."
 #endif
 
@@ -172,36 +194,34 @@
 // 60 ms to kompromis: krócej łapie zakłócenia, dłużej daje wrażenie opóźnienia.
 #define SWC_CONFIRM_MS   60
 
-// --- SWC button count (JEDEN pod, 10 przycisków) ---
-#define SWC_BUTTONS_PER_POD 10
-#define SWC_BUTTON_COUNT 10
+// --- Długie naciśnięcie (PLAY na panelu) ---
+// 2 s: dość, żeby zwykłe „pauza” nigdy go nie wyzwoliło, i nie tak długo,
+// żeby kierowca zwątpił, czy działa.
+#define PLAY_LONG_MS 2000
+
 #define SWC_IDLE_THRESHOLD 1000
+// Wartość „nieskalibrowany” — większa niż każdy odczyt ADC (0..1023),
+// więc taki przycisk nigdy nie zostanie rozpoznany.
+#define ADC_UNSET 0xFFFF
 
-// --- EEPROM layout ---
-#define EEPROM_MAGIC_ADDR 0
-#define EEPROM_MAGIC_VALUE 0xBF   // bumped: wstępne nastawy z pomiarów (pull-up 1k)
-#define EEPROM_SWC_ADDR 1         // 10 x 2 bytes = 20 bytes
-
-// SWC button indices — jeden pod (A0), 10 przycisków w kolejności kalibracji.
-enum SWCButton {
-  SWC_VOLUP  = 0,   // głośniej
-  SWC_VOLDN  = 1,   // ciszej
-  SWC_MUTE   = 2,   // wyciszenie
-  SWC_NEXT   = 3,   // następny utwór
-  SWC_PREV   = 4,   // poprzedni utwór
-  SWC_HOME   = 5,   // ekran główny (A1) — dawniej MODE/power-toggle
-  SWC_PICKUP = 6,   // odbierz połączenie
-  SWC_HANGUP = 7,   // odrzuć / zakończ połączenie
-  SWC_VOICE  = 8,   // mikrofon / asystent AA
-  SWC_SRC    = 9,   // nawigacja → ekran Android Auto (A2)
+// --- Akcje (co wysłać do komputera) ---
+enum Action : uint8_t {
+  ACT_VOLUP, ACT_VOLDN, ACT_MUTE, ACT_NEXT, ACT_PREV, ACT_HOME,
+  ACT_PICKUP, ACT_HANGUP, ACT_VOICE, ACT_NAV, ACT_PLAY,
 };
 
-const char* SWC_NAMES[SWC_BUTTON_COUNT] = {
+// --- Pod 1: adapter SWC kierownicy (A0) — 10 przycisków, układ bez zmian ---
+#define SWC_BUTTON_COUNT 10
+const char* const SWC_NAMES[SWC_BUTTON_COUNT] = {
   "VOL+", "VOL-", "MUTE", "NEXT", "PREV",
   "HOME", "PICKUP", "HANGUP", "VOICE", "NAV"
 };
+const Action SWC_ACTIONS[SWC_BUTTON_COUNT] = {
+  ACT_VOLUP, ACT_VOLDN, ACT_MUTE, ACT_NEXT, ACT_PREV,
+  ACT_HOME, ACT_PICKUP, ACT_HANGUP, ACT_VOICE, ACT_NAV,
+};
 
-// ADC calibration values (jeden pod). WSTĘPNE, policzone z rezystancji
+// ADC calibration values (pod 1). WSTĘPNE, policzone z rezystancji
 // zmierzonych na module SWC (biały↔GND) i pull-upu 1 kΩ do 5 V:
 //   ADC = 1023 * R / (R + 1000)
 //   VOL+ 734Ω→433  VOL- 181Ω→157  MUTE 1863Ω→666  NEXT 472Ω→328  PREV 1Ω→1
@@ -210,6 +230,42 @@ const char* SWC_NAMES[SWC_BUTTON_COUNT] = {
 // dostroić pod tolerancje własnego rezystora; te wartości działają od razu.
 uint16_t swcValues[SWC_BUTTON_COUNT] = {
   433, 157, 666, 328, 1, 254, 566, 958, 823, 78,
+};
+
+// --- Pod 2: panel z pokrętłem (A6, KEY1 kostki odbiornika) — 9 przycisków ---
+#define PANEL_BUTTON_COUNT 9
+const char* const PANEL_NAMES[PANEL_BUTTON_COUNT] = {
+  "VOL+", "VOL-", "PLAY", "NEXT", "PREV", "MUTE", "PICKUP", "HANGUP", "VOICE"
+};
+const Action PANEL_ACTIONS[PANEL_BUTTON_COUNT] = {
+  ACT_VOLUP, ACT_VOLDN, ACT_PLAY, ACT_NEXT, ACT_PREV, ACT_MUTE,
+  ACT_PICKUP, ACT_HANGUP, ACT_VOICE,
+};
+// Rezystancji tej kostki nie znamy — do pierwszej kalibracji (CAL2) żaden
+// przycisk panelu nie jest rozpoznawany (wartość większa niż każdy odczyt).
+uint16_t panelValues[PANEL_BUTTON_COUNT] = {
+  ADC_UNSET, ADC_UNSET, ADC_UNSET, ADC_UNSET, ADC_UNSET,
+  ADC_UNSET, ADC_UNSET, ADC_UNSET, ADC_UNSET,
+};
+
+// --- EEPROM layout ---
+// Pod 1 zostaje tam, gdzie był (kalibracje z v8.5.4 przeżywają aktualizację).
+#define EEPROM_MAGIC_ADDR 0
+#define EEPROM_MAGIC_VALUE 0xBF   // wstępne nastawy z pomiarów (pull-up 1k)
+#define EEPROM_SWC_ADDR 1         // 10 x 2 bytes = 20 bytes (1..20)
+#define EEPROM_PANEL_MAGIC_ADDR 32
+#define EEPROM_PANEL_MAGIC_VALUE 0xC1
+#define EEPROM_PANEL_ADDR 33      // 9 x 2 bytes = 18 bytes (33..50)
+
+// Opis jednego poda drabinki: pin, tablica nazw / akcji / progów ADC.
+struct LadderPod {
+  uint8_t          pin;
+  uint8_t          count;
+  const char* const* names;
+  const Action*    actions;
+  uint16_t*        values;
+  const char*      tag;
+  PressState       st;
 };
 
 #ifdef FEATURE_ENCODER
@@ -241,24 +297,16 @@ unsigned long lastStalkTime = 0;
 bool lastStalkState = HIGH;
 #endif
 
+#if defined(FEATURE_SWC) || defined(FEATURE_PANEL)
+// --- State: pody drabinek rezystorowych ---
 #ifdef FEATURE_SWC
-// --- State: SWC (per-pod) ---
-//
-// reported  — ostatni stan wysłany do komputera (-1 = spoczynek)
-// candidate — odczyt oczekujący na potwierdzenie
-// candAt    — od kiedy candidate jest niezmienny
-struct SwcPod {
-  uint8_t      pin;
-  uint8_t      offset;
-  int8_t       reported;
-  int8_t       candidate;
-  unsigned long candAt;
-  const char*  tag;
-};
-
-SwcPod swcPods[1] = {
-  {SWC_PIN1, 0, -1, -1, 0, "SWC"},
-};
+LadderPod swcPod = {SWC_PIN1, SWC_BUTTON_COUNT, SWC_NAMES, SWC_ACTIONS, swcValues,
+                    "SWC", {-1, -1, 0, 0, false}};
+#endif
+#ifdef FEATURE_PANEL
+LadderPod panelPod = {SWC_PIN2, PANEL_BUTTON_COUNT, PANEL_NAMES, PANEL_ACTIONS, panelValues,
+                      "PANEL", {-1, -1, 0, 0, false}};
+#endif
 #endif
 
 #ifdef FEATURE_LIGHT
@@ -276,13 +324,14 @@ void handleMusicButton(int buttonIndex);
 #ifdef FEATURE_ENCODER
 void readEncoder();
 #endif
-#ifdef FEATURE_SWC
-void handleSWCButton(int buttonIndex);
-void loadSWCCalibration();
-void saveSWCCalibration();
-void runCalibration();
-int  readSWCButton(uint8_t pin, uint8_t offset);
-void handlePod(SwcPod &p, unsigned long now);
+#if defined(FEATURE_SWC) || defined(FEATURE_PANEL)
+void doAction(Action a);
+void tapKey(KeyboardKeycode k);
+int8_t readLadder(const LadderPod &p);
+void handlePod(LadderPod &p, unsigned long now);
+void loadCalibration();
+void calibratePod(LadderPod &p, uint8_t magicAddr, uint8_t magicValue, uint8_t dataAddr);
+void handleSerialCommand();
 #endif
 #ifdef FEATURE_LIGHT
 void reportLightLevel();
@@ -327,7 +376,11 @@ void setup() {
   // pody DOPIERO po jego zamontowaniu — przy pasywnej drabince rezystorowej
   // podciągnięcie współtworzy dzielnik i zmienia wszystkie progi.
   pinMode(SWC_PIN1, INPUT_PULLUP);
-  // A6 (Pod 2) celowo nieużywane — jeden pod. Nie ustawiamy pinMode.
+#endif
+#ifdef FEATURE_PANEL
+  // A6 = D4. Jak przy A0: wewnętrzny pull-up tylko na biurko, w aucie
+  // zewnętrzne 1 kΩ do 5 V i kalibracja (CAL2) DOPIERO z nim.
+  pinMode(SWC_PIN2, INPUT_PULLUP);
 #endif
 
 #ifdef FEATURE_LIGHT
@@ -344,23 +397,32 @@ void setup() {
   // readStringUntil() blokowałby pętlę na sekundę przy każdym przebiegu.
   Serial.setTimeout(50);
 
+#if defined(FEATURE_SWC) || defined(FEATURE_PANEL)
+  loadCalibration();
 #ifdef FEATURE_SWC
-  loadSWCCalibration();
+  pressInit(swcPod.st, millis());
+#endif
+#ifdef FEATURE_PANEL
+  pressInit(panelPod.st, millis());
+#endif
+#endif
 
-#ifdef FEATURE_BUTTONS
+#if defined(FEATURE_SWC) && defined(FEATURE_BUTTONS)
   // Kalibracja z przycisków: HOME + BACK przy starcie. Sprawdzane tylko gdy
   // te przyciski są w ogóle skonfigurowane — inaczej czytalibyśmy pływający
   // pin i wchodzili w kalibrację przypadkiem.
   delay(100);
   if (digitalRead(BTN_HOME) == LOW && digitalRead(BTN_BACK) == LOW) {
-    runCalibration();
+    calibratePod(swcPod, EEPROM_MAGIC_ADDR, EEPROM_MAGIC_VALUE, EEPROM_SWC_ADDR);
   }
 #endif
-#endif
 
-  Serial.println(F("BCM v8.5.3 Input Controller ready"));
+  Serial.println(F("BCM v8.6 Input Controller ready"));
 #ifdef FEATURE_SWC
-  Serial.println(F("SWC: wpisz CAL i Enter, aby uruchomic kalibracje podow"));
+  Serial.println(F("SWC (A0): wpisz CAL i Enter, aby skalibrowac"));
+#endif
+#ifdef FEATURE_PANEL
+  Serial.println(F("PANEL (A6): wpisz CAL2 i Enter, aby skalibrowac; ADC2 = podglad"));
 #endif
 
   // Watchdog ON dopiero po (ewentualnej) kalibracji — kalibracja
@@ -402,38 +464,33 @@ int adcStable(uint8_t pin) {
   return s[ADC_SAMPLES / 2];
 }
 
-#ifdef FEATURE_SWC
-// Jeden pod, jeden przebieg: odczyt → potwierdzenie → ewentualny HID.
-//
-// Zasada: nic nie leci do komputera, dopóki ten sam odczyt nie utrzyma się
-// przez SWC_CONFIRM_MS. Dodatkowo między dwoma RÓŻNYMI przyciskami wymagany
-// jest powrót do spoczynku — na drabince rezystorowej przeskok A→B bez
-// rozwarcia to zawsze artefakt, nie intencja kierowcy.
-void handlePod(SwcPod &p, unsigned long now) {
-  int btn = readSWCButton(p.pin, p.offset);
+#if defined(FEATURE_SWC) || defined(FEATURE_PANEL)
+// PLAY ma długie naciśnięcie, reszta przycisków reaguje od razu.
+static bool isHoldable(const LadderPod &p, int8_t b) {
+  return b >= 0 && b < (int8_t)p.count && p.actions[b] == ACT_PLAY;
+}
 
-  if (btn != p.candidate) {          // odczyt się zmienił — licz od nowa
-    p.candidate = (int8_t)btn;
-    p.candAt = now;
+// Jeden pod, jeden przebieg: odczyt → press_logic.h → ewentualny HID.
+// Zasady potwierdzania (SWC_CONFIRM_MS, powrót do spoczynku między
+// przyciskami) i długie naciśnięcie są w press_logic.h.
+void handlePod(LadderPod &p, unsigned long now) {
+  int8_t btn = readLadder(p);
+  int8_t which;
+  PressEvent ev = pressStep(p.st, btn, now, SWC_CONFIRM_MS, PLAY_LONG_MS,
+                            [&p](int8_t b) { return isHoldable(p, b); }, which);
+  if (ev == PRESS_NONE || which < 0) return;
+
+  Serial.print(p.tag);
+  Serial.print(F(": "));
+  Serial.print(p.names[which]);
+  if (ev == PRESS_LONG) {
+    // Długie PLAY → F13 → BCM: input.system_sleep (stop BCM + S3).
+    Serial.println(F(" (dlugo) -> SLEEP"));
+    tapKey(KEY_F13);
     return;
   }
-  if ((now - p.candAt) < SWC_CONFIRM_MS) return;   // jeszcze nie stabilny
-  if (btn == p.reported) return;                   // nic nowego
-
-  if (btn >= 0 && p.reported >= 0) {
-    // Przycisk → przycisk bez spoczynku pomiędzy. Czekamy na rozwarcie;
-    // p.reported celowo NIE jest aktualizowane, więc kolejne przejścia też
-    // są blokowane aż do powrotu na -1.
-    return;
-  }
-
-  p.reported = (int8_t)btn;
-  if (btn >= 0) {
-    handleSWCButton(btn);
-    Serial.print(p.tag);
-    Serial.print(F(": "));
-    Serial.println(SWC_NAMES[btn]);
-  }
+  Serial.println();
+  doAction(p.actions[which]);        // PRESS_DOWN albo PRESS_SHORT (PLAY)
 }
 #endif
 
@@ -512,30 +569,32 @@ void loop() {
       lastStalkState = stalkState;
 
       if (stalkState == LOW) {
-        Keyboard.press(KEY_F9);
+#ifdef STALK_F9
+        Keyboard.press(KEY_F9);      // stare: cykl jasności
         delay(10);
         Keyboard.release(KEY_F9);
         Serial.println(F("STALK: Brightness cycle"));
+#else
+        Keyboard.press(KEY_F14);     // BCM: input.screen_next — następny ekran
+        delay(10);
+        Keyboard.release(KEY_F14);
+        Serial.println(F("STALK: Next screen"));
+#endif
       }
     }
   }
 #endif
 
 #ifdef FEATURE_SWC
-  // --- Handle SWC analog buttons (jeden pod na A0) ---
-  handlePod(swcPods[0], now);
-
-  // --- Kalibracja na żądanie: wyślij "CAL" na port szeregowy ---
-  // Alternatywa dla HOME + BACK przy starcie, która działa także wtedy, gdy
-  // nie masz podłączonych przycisków (czyli w domyślnej konfiguracji).
+  handlePod(swcPod, now);            // adapter SWC kierownicy (A0)
+#endif
+#ifdef FEATURE_PANEL
+  handlePod(panelPod, now);          // panel z pokrętłem (A6)
+#endif
+#if defined(FEATURE_SWC) || defined(FEATURE_PANEL)
+  // Kalibracja / podgląd na żądanie przez port szeregowy (CAL, CAL2, ADC2).
   if (Serial.available() > 0) {
-    String cmd = Serial.readStringUntil('\n');
-    cmd.trim();
-    if (cmd.equalsIgnoreCase("CAL")) {
-      wdt_disable();               // kalibracja czeka na człowieka > 2 s
-      runCalibration();
-      wdt_enable(WDTO_2S);
-    }
+    handleSerialCommand();
   }
 #endif
 
@@ -608,76 +667,46 @@ void handleMusicButton(int buttonIndex) {
 }
 #endif
 
-#ifdef FEATURE_SWC
-void handleSWCButton(int buttonIndex) {
-  // Jeden pod — indeks 0..9 wprost (kolejność jak enum SWCButton / SWC_NAMES).
-  switch (buttonIndex) {
-    case 0:  // VOL+  → głośniej
-      Consumer.write(MEDIA_VOLUME_UP);
-      break;
-    case 1:  // VOL-  → ciszej
-      Consumer.write(MEDIA_VOLUME_DOWN);
-      break;
-    case 2:  // MUTE  → wyciszenie
-      Consumer.write(MEDIA_VOLUME_MUTE);
-      break;
-    case 3:  // NEXT  → następny utwór
-      Consumer.write(MEDIA_NEXT);
-      break;
-    case 4:  // PREV  → poprzedni utwór
-      Consumer.write(MEDIA_PREVIOUS);
-      break;
-    case 5:  // HOME  → ekran główny A1 (KEY_HOME). Dawniej MODE→F10 wyłączał BCM.
-      Keyboard.press(KEY_HOME);
-      delay(10);
-      Keyboard.release(KEY_HOME);
-      break;
-    case 6:  // PICKUP (odbierz) → F5 → input.phone_pickup
-      Keyboard.press(KEY_F5);
-      delay(10);
-      Keyboard.release(KEY_F5);
-      break;
-    case 7:  // HANGUP (odrzuć) → F6 → input.phone_hangup
-      Keyboard.press(KEY_F6);
-      delay(10);
-      Keyboard.release(KEY_F6);
-      break;
-    case 8:  // VOICE (mikrofon) → F7 → input.voice_aa_trigger
-      Keyboard.press(KEY_F7);
-      delay(10);
-      Keyboard.release(KEY_F7);
-      break;
-    case 9:  // NAV (nawigacja) → F8 → input.navigate_aa → ekran A2 (Android Auto)
-      Keyboard.press(KEY_F8);
-      delay(10);
-      Keyboard.release(KEY_F8);
-      break;
+#if defined(FEATURE_SWC) || defined(FEATURE_PANEL)
+void tapKey(KeyboardKeycode k) {
+  Keyboard.press(k);
+  delay(10);
+  Keyboard.release(k);
+}
+
+// Akcja → klawisz HID. Mapowanie po stronie BCM: src/input/action_dispatch.py.
+void doAction(Action a) {
+  switch (a) {
+    case ACT_VOLUP:  Consumer.write(MEDIA_VOLUME_UP);   break;
+    case ACT_VOLDN:  Consumer.write(MEDIA_VOLUME_DOWN); break;
+    case ACT_MUTE:   Consumer.write(MEDIA_VOLUME_MUTE); break;
+    case ACT_NEXT:   Consumer.write(MEDIA_NEXT);        break;
+    case ACT_PREV:   Consumer.write(MEDIA_PREVIOUS);    break;
+    case ACT_PLAY:   Consumer.write(MEDIA_PLAY_PAUSE);  break;
+    case ACT_HOME:   tapKey(KEY_HOME); break;   // ekran A1
+    case ACT_PICKUP: tapKey(KEY_F5);   break;   // input.phone_pickup
+    case ACT_HANGUP: tapKey(KEY_F6);   break;   // input.phone_hangup
+    case ACT_VOICE:  tapKey(KEY_F7);   break;   // input.voice_aa_trigger
+    case ACT_NAV:    tapKey(KEY_F8);   break;   // input.navigate_aa → A2
   }
 }
 
-int readSWCButton(uint8_t pin, uint8_t offset) {
-  int adc = adcStable(pin);
-
+int8_t readLadder(const LadderPod &p) {
+  int adc = adcStable(p.pin);
   if (adc > SWC_IDLE_THRESHOLD) {
     return -1;
   }
-
-  int bestMatch = -1;
+  int8_t bestMatch = -1;
   int bestDiff = ADC_TOLERANCE + 1;
-
-  for (int i = 0; i < SWC_BUTTONS_PER_POD; i++) {
-    int diff = abs(adc - (int)swcValues[offset + i]);
+  for (uint8_t i = 0; i < p.count; i++) {
+    if (p.values[i] == ADC_UNSET) continue;          // nieskalibrowany
+    int diff = abs(adc - (int)p.values[i]);
     if (diff < bestDiff) {
       bestDiff = diff;
-      bestMatch = offset + i;
+      bestMatch = (int8_t)i;
     }
   }
-
-  if (bestDiff <= ADC_TOLERANCE) {
-    return bestMatch;
-  }
-
-  return -1;
+  return bestDiff <= ADC_TOLERANCE ? bestMatch : -1;
 }
 #endif
 
@@ -688,102 +717,111 @@ void reportLightLevel() {
 }
 #endif
 
+#if defined(FEATURE_SWC) || defined(FEATURE_PANEL)
+// --- Kalibracja podów (EEPROM) ---
+
+static void loadPod(LadderPod &p, uint8_t magicAddr, uint8_t magicValue, uint8_t dataAddr) {
+  if (EEPROM.read(magicAddr) != magicValue) {
+    Serial.print(p.tag);
+    Serial.println(F(": wartosci domyslne (nie skalibrowano)"));
+    return;
+  }
+  for (uint8_t i = 0; i < p.count; i++) {
+    uint8_t lo = EEPROM.read(dataAddr + i * 2);
+    uint8_t hi = EEPROM.read(dataAddr + i * 2 + 1);
+    p.values[i] = (uint16_t)((hi << 8) | lo);
+  }
+  Serial.print(p.tag);
+  Serial.println(F(": kalibracja z EEPROM"));
+}
+
+void loadCalibration() {
 #ifdef FEATURE_SWC
-// --- SWC calibration ---
-
-void loadSWCCalibration() {
-  if (EEPROM.read(EEPROM_MAGIC_ADDR) == EEPROM_MAGIC_VALUE) {
-    for (int i = 0; i < SWC_BUTTON_COUNT; i++) {
-      uint8_t lo = EEPROM.read(EEPROM_SWC_ADDR + i * 2);
-      uint8_t hi = EEPROM.read(EEPROM_SWC_ADDR + i * 2 + 1);
-      swcValues[i] = (hi << 8) | lo;
-    }
-    Serial.println("SWC: Loaded calibration from EEPROM");
-  } else {
-    Serial.println("SWC: Using default ADC values (not calibrated)");
-  }
+  loadPod(swcPod, EEPROM_MAGIC_ADDR, EEPROM_MAGIC_VALUE, EEPROM_SWC_ADDR);
+#endif
+#ifdef FEATURE_PANEL
+  loadPod(panelPod, EEPROM_PANEL_MAGIC_ADDR, EEPROM_PANEL_MAGIC_VALUE, EEPROM_PANEL_ADDR);
+#endif
 }
 
-void saveSWCCalibration() {
-  EEPROM.write(EEPROM_MAGIC_ADDR, EEPROM_MAGIC_VALUE);
-  for (int i = 0; i < SWC_BUTTON_COUNT; i++) {
-    EEPROM.write(EEPROM_SWC_ADDR + i * 2, swcValues[i] & 0xFF);
-    EEPROM.write(EEPROM_SWC_ADDR + i * 2 + 1, (swcValues[i] >> 8) & 0xFF);
-  }
-  Serial.println("SWC: Calibration saved to EEPROM");
-}
+// Pyta kolejno o każdy przycisk poda, mierzy ADC i zapisuje do EEPROM.
+// Watchdog musi być wyłączony (czeka na człowieka dłużej niż 2 s).
+void calibratePod(LadderPod &p, uint8_t magicAddr, uint8_t magicValue, uint8_t dataAddr) {
+  Serial.println();
+  Serial.print(F("=== KALIBRACJA "));
+  Serial.print(p.tag);
+  Serial.println(F(" — zwalniaj przycisk miedzy wcisnieciami ==="));
 
-void calibratePod(uint8_t pin, uint8_t offset, const char* podName) {
-  Serial.print("--- Calibrating ");
-  Serial.print(podName);
-  Serial.println(" ---");
+  for (uint8_t i = 0; i < p.count; i++) {
+    Serial.print(F("Nacisnij: "));
+    Serial.print(p.names[i]);
+    Serial.println(F(" ..."));
 
-  for (int i = 0; i < SWC_BUTTONS_PER_POD; i++) {
-    Serial.print("Press: ");
-    Serial.print(SWC_NAMES[offset + i]);
-    Serial.println(" ...");
-
-    // Czekaj na rozwarcie wszystkich przycisków tego poda.
-    while (adcStable(pin) < SWC_IDLE_THRESHOLD) {
+    while (adcStable(p.pin) < SWC_IDLE_THRESHOLD) {   // czekaj na rozwarcie
       delay(50);
     }
     delay(300);
-
-    // Czekaj na wciśnięcie i zmierz. adcStable() już odrzuca przesłuch
-    // multipleksera i pojedyncze piki, więc jedna próbka wystarczy.
     int adc = 0;
-    while (true) {
-      adc = adcStable(pin);
-      if (adc < SWC_IDLE_THRESHOLD) {
-        break;
-      }
+    while (true) {                                    // czekaj na wcisniecie
+      adc = adcStable(p.pin);
+      if (adc < SWC_IDLE_THRESHOLD) break;
       delay(20);
     }
-
-    swcValues[offset + i] = adc;
-    Serial.print("  -> ADC = ");
+    delay(80);                                        // ustalenie stanu
+    adc = adcStable(p.pin);
+    p.values[i] = (uint16_t)adc;
+    Serial.print(F("  -> ADC = "));
     Serial.println(adc);
     delay(300);
   }
 
-  // Check for collisions within this pod
-  for (int i = 0; i < SWC_BUTTONS_PER_POD; i++) {
-    for (int j = i + 1; j < SWC_BUTTONS_PER_POD; j++) {
-      if (abs((int)swcValues[offset + i] - (int)swcValues[offset + j]) < ADC_TOLERANCE) {
-        Serial.print("  WARNING: ");
-        Serial.print(SWC_NAMES[offset + i]);
-        Serial.print(" and ");
-        Serial.print(SWC_NAMES[offset + j]);
-        Serial.println(" are too close! Re-calibrate.");
+  for (uint8_t i = 0; i < p.count; i++) {
+    for (uint8_t j = i + 1; j < p.count; j++) {
+      if (abs((int)p.values[i] - (int)p.values[j]) < ADC_TOLERANCE) {
+        Serial.print(F("  UWAGA: "));
+        Serial.print(p.names[i]);
+        Serial.print(F(" i "));
+        Serial.print(p.names[j]);
+        Serial.println(F(" za blisko — inny pull-up albo kalibracja jeszcze raz"));
       }
     }
   }
-}
 
-void runCalibration() {
-  Serial.println();
-  Serial.println("=== SWC CALIBRATION (jeden pod, 10 przyciskow) ===");
-  Serial.println("Nacisnij kolejno: VOL+, VOL-, MUTE, NEXT, PREV,");
-  Serial.println("HOME, PICKUP(odbierz), HANGUP(odrzuc), VOICE(mik), NAV.");
-  Serial.println("Zwalniaj wszystkie przyciski miedzy wcisnieciami.");
-  Serial.println();
-
-  calibratePod(SWC_PIN1, 0, "Pod (A0)");
-
-  Serial.println();
-  Serial.println("Calibration results:");
-  for (int i = 0; i < SWC_BUTTON_COUNT; i++) {
-    Serial.print("  ");
-    Serial.print(SWC_NAMES[i]);
-    Serial.print(": ");
-    Serial.println(swcValues[i]);
+  EEPROM.write(magicAddr, magicValue);
+  for (uint8_t i = 0; i < p.count; i++) {
+    EEPROM.write(dataAddr + i * 2, p.values[i] & 0xFF);
+    EEPROM.write(dataAddr + i * 2 + 1, (p.values[i] >> 8) & 0xFF);
   }
-
-  saveSWCCalibration();
-  Serial.println("=== CALIBRATION COMPLETE ===");
+  Serial.println(F("=== ZAPISANO W EEPROM ==="));
   Serial.println();
 }
-#endif  // FEATURE_SWC
+
+// CAL — pod SWC (A0), CAL2 — panel (A6), ADC2 — 5 s podglądu surowego ADC
+// panelu (sprawdzenie pull-upu i tego, czy kostka trzyma stan przy
+// przytrzymaniu — od tego zależy długie PLAY).
+void handleSerialCommand() {
+  String cmd = Serial.readStringUntil('\n');
+  cmd.trim();
+  wdt_disable();
+#ifdef FEATURE_SWC
+  if (cmd.equalsIgnoreCase("CAL")) {
+    calibratePod(swcPod, EEPROM_MAGIC_ADDR, EEPROM_MAGIC_VALUE, EEPROM_SWC_ADDR);
+  }
+#endif
+#ifdef FEATURE_PANEL
+  if (cmd.equalsIgnoreCase("CAL2")) {
+    calibratePod(panelPod, EEPROM_PANEL_MAGIC_ADDR, EEPROM_PANEL_MAGIC_VALUE, EEPROM_PANEL_ADDR);
+  } else if (cmd.equalsIgnoreCase("ADC2")) {
+    for (uint8_t i = 0; i < 25; i++) {
+      Serial.print(F("ADC2: "));
+      Serial.println(adcStable(SWC_PIN2));
+      delay(200);
+    }
+  }
+#endif
+  wdt_enable(WDTO_2S);
+}
+#endif  // FEATURE_SWC || FEATURE_PANEL
 
 #ifdef FEATURE_ENCODER
 void readEncoder() {

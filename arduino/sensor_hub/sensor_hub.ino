@@ -63,6 +63,10 @@
 // #define FEATURE_AIRBAG  // airbag OK (D13, uwaga: pin z LED) — opcja
 // #define FEATURE_BATT_ADC    // napięcie banku przez dzielnik 100k/27k na A6
                                // (ZASILANIE_BUFOROWANE.md §13.4). Tylko napięcie.
+// #define FEATURE_FUEL_ADC    // poziom paliwa: napięcie przewodu czujnika
+                               // w baku przez dzielnik 100k/47k na A7 (tylko
+                               // odczyt — zegary dalej zasilają czujnik).
+                               // Linia FUEL:<0-1023> co 2 s → BCM fuel_sender.
 // #define FEATURE_BATT_INA226 // INA226 na I2C (A4=SDA, A5=SCL) + bocznik
                                // — napięcie I prąd banku. Zalecane: prąd
                                // odróżnia ładowanie od postoju i pozwala
@@ -111,6 +115,9 @@
  *   A4/A5 I2C SDA/SCL do INA226        (FEATURE_BATT_INA226)
  *   A6  Dzielnik napięcia banku        (FEATURE_BATT_ADC; wejście tylko
  *       analogowe: +BANK─100k─┬─A6, ┴─27k─GND, 100 nF A6─GND)
+ *   A7  Czujnik paliwa                 (FEATURE_FUEL_ADC; wejście tylko
+ *       analogowe: SYGNAŁ─100k─┬─A7, ┴─47k─GND, 100 nF A7─GND, Zener
+ *       5V1 A7─GND; NIE zasilaj czujnika z Arduino — robią to zegary)
  *
  * Watchdog: 2 s — zawieszenie = automatyczny reset.
  *
@@ -435,6 +442,35 @@ void battReport() {
   BATT_REMEMBER(mv);
   Serial.print(F("BATT:"));
   Serial.println(mv);
+}
+#endif
+
+#ifdef FEATURE_FUEL_ADC
+// Czujnik paliwa Alfy 156 jest zasilany przez zegary (wskazówka i lampka
+// rezerwy). Tu tylko PODGLĄDAMY napięcie na jego przewodzie przez dzielnik
+// wysokoomowy (100k/47k — prąd ~0,1 mA nie zmienia wskazania zegarów).
+// Liczba ADC idzie surowo; przeliczenie na % robi BCM (fuel_sender.calibration
+// — punkty z tankowań, docs/LISTA_ZAKUPOWA.md sekcja C).
+#define PIN_FUEL_ADC     A7
+#define FUEL_ADC_SAMPLES  9          // nieparzyście — mediana (paliwo chlupie)
+static_assert(FUEL_ADC_SAMPLES % 2 == 1 && FUEL_ADC_SAMPLES <= 31,
+              "FUEL_ADC_SAMPLES: nieparzysta liczba <= 31");
+
+void fuelReport() {
+  analogRead(PIN_FUEL_ADC);            // przełącz multiplekser, odrzuć
+  delayMicroseconds(200);
+  int s[FUEL_ADC_SAMPLES];
+  for (uint8_t i = 0; i < FUEL_ADC_SAMPLES; i++) {
+    s[i] = analogRead(PIN_FUEL_ADC);
+    delayMicroseconds(300);
+  }
+  for (uint8_t i = 1; i < FUEL_ADC_SAMPLES; i++) {   // sortowanie wstawianiem
+    int v = s[i]; int8_t j = i - 1;
+    while (j >= 0 && s[j] > v) { s[j + 1] = s[j]; j--; }
+    s[j + 1] = v;
+  }
+  Serial.print(F("FUEL:"));
+  Serial.println(s[FUEL_ADC_SAMPLES / 2]);
 }
 #endif
 
@@ -905,6 +941,9 @@ void reportFullState() {
 #endif
 #if defined(FEATURE_BATT_ADC) || defined(FEATURE_BATT_INA226)
   battReport();
+#endif
+#ifdef FEATURE_FUEL_ADC
+  fuelReport();
 #endif
 #ifdef SENSOR_HUB_WAKE
   wakeReportFull();
