@@ -180,12 +180,17 @@ Dwa kosze stalowe wg [`mechanika/kosze_HR1221W_4+3.pdf`](mechanika/kosze_HR1221W
   [`KLINE_SNIFFING.md`](KLINE_SNIFFING.md).
 - **Poziom paliwa — nie z diagnostyki.** Zegary 156 sprzed liftingu czytają
   czujnik w baku analogowo i nie wystawiają poziomu na K-Line (MES też go nie
-  pokazuje). Odczyt: **napięcie z przewodu czujnika** przez dzielnik o dużej
-  rezystancji do **Nano #2, wejście A7** (A6 to pomiar banku). **Nie** podpinaj
-  własnego zasilania 5 V do czujnika — zegary już go zasilają i wskazówka
-  zaczęłaby kłamać. Przewód sygnałowy znajdź na schemacie dla swojego rocznika
-  (kostka zegarów albo kostka pompy/czujnika pod tylną kanapą) i potwierdź
-  multimetrem (napięcie zmienia się z poziomem paliwa).
+  pokazuje). Odczyt idzie z **przewodu czujnika** (pływak ok. 10–20 Ω pełny …
+  ok. 300–340 Ω pusty — zmierz swój) do **Nano #2, wejście A7**:
+  - **docelowo — zegary wylatują, w ich miejscu ekran BCM:** czujnik zasila
+    Nano przez **330 Ω z D13, tylko na czas pomiaru** (`FEATURE_FUEL_DRIVE`),
+    odczyt przez 1 kΩ + 100 nF. Kontrolki z zegarów (olej, ładowanie,
+    hamulce, ABS, airbag, świece) muszą wtedy trafić gdzie indziej;
+  - **przejściowo — zegary jeszcze są:** tylko podgląd napięcia przez
+    dzielnik 100k/47k; **nie** podawaj zasilania z Arduino, bo wskazówka
+    zaczęłaby kłamać.
+
+  Schematy obu wariantów: `SCHEMATY_POLACZEN.md` §4.4.3 (PR z firmware).
 
 | # | Element | Specyfikacja / po co | Szt. | Cena (PLN) | Gdzie |
 |---|---------|----------------------|------|-----------|-------|
@@ -195,7 +200,7 @@ Dwa kosze stalowe wg [`mechanika/kosze_HR1221W_4+3.pdf`](mechanika/kosze_HR1221W
 | C4 | Rezystor **510 Ω 0,5 W**, 100 nF, 1N4007 (A15), płytka uniwersalna, mała obudowa | pull-up linii K do +12 V, odsprzęganie, ochrona VS | kpl. | 10–20 | 🔎 [TME](https://www.tme.eu/pl/katalog/?search=510R%200.5W) |
 | C5 | **Wtyk OBD-II męski z przewodem** (pigtail 16-pin) albo przewody wpięte za gniazdem | podłączenie pin 4/5 (masa), 7 (K), 16 (+12 V) | 1 | 15–30 | 🔎 [Allegro](https://allegro.pl/listing?string=wtyk%20OBD2%20m%C4%99ski%20z%20przewodem) |
 | C6 | *(jeśli nie masz kabla KKL)* **Kabel KKL 409.1 z FTDI FT232RL** — do podsłuchu MES | sniffing kodów; potem zostaje do diagnostyki | 0–1 | 40–90 | 🔎 [Allegro](https://allegro.pl/listing?string=kabel%20kkl%20409.1%20ftdi%20ft232rl) |
-| C7 | **Odczyt paliwa:** rezystory 100 kΩ + 47 kΩ, kondensator 100 nF, **dioda Zenera 5,1 V** (BZX55C5V1), przewód 0,5 mm² do Nano #2 | dzielnik wysokoomowy (nie obciąża obwodu zegarów) + ochrona wejścia A7 | kpl. | 3–6 | 🔎 [TME](https://www.tme.eu/pl/katalog/?search=BZX55C5V1) |
+| C7 | **Odczyt paliwa:** rezystory **330 Ω 0,5 W** + 1 kΩ + kondensator 100 nF (wariant bez zegarów); dla wariantu z zegarami dodatkowo 100 kΩ + 47 kΩ i dioda Zenera 5,1 V (BZX55C5V1); przewód 0,5 mm² do bagażnika (~4 m) | zasilanie impulsowe pływaka z D13 Nano #2 / podgląd bez obciążania zegarów; ochrona wejścia A7 | kpl. | 3–8 | 🔎 [TME](https://www.tme.eu/pl/katalog/?search=330R%200.5W%20THT) |
 
 > **Rozkład pinów L9637D** (karta ST): 1 RX, 2 LO, 3 VCC, 4 TX, 5 GND, 6 K,
 > 7 VS, 8 LI — bez wejścia EN. Starsze wydania `SCHEMATY_POLACZEN.md` §3.5
